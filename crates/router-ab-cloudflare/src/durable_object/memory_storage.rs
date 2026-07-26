@@ -325,6 +325,38 @@ impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1
         Ok(())
     }
 
+    fn put_signing_worker_ecdsa_activation_commit(
+        &mut self,
+        storage_key: &str,
+        active_state_index_key: &str,
+        generation_head_key: &str,
+        retired_active_state_index_key: Option<&str>,
+        record: CloudflareSigningWorkerOutputActivationRecordV1,
+    ) -> RouterAbProtocolResult<()> {
+        require_non_empty("storage_key", storage_key)?;
+        require_non_empty("active_state_index_key", active_state_index_key)?;
+        require_non_empty("generation_head_key", generation_head_key)?;
+        record.validate()?;
+        if let Some(retired_active_state_index_key) = retired_active_state_index_key {
+            require_non_empty(
+                "retired_active_state_index_key",
+                retired_active_state_index_key,
+            )?;
+            if retired_active_state_index_key != active_state_index_key {
+                self.active_signing_worker_states
+                    .remove(retired_active_state_index_key);
+            }
+        }
+        let active_state = record.active_signing_worker_state().clone();
+        self.active_signing_worker_states
+            .insert(active_state_index_key.to_owned(), active_state.clone());
+        self.active_signing_worker_states
+            .insert(generation_head_key.to_owned(), active_state);
+        self.signing_worker_activations
+            .insert(storage_key.to_owned(), record);
+        Ok(())
+    }
+
     fn active_signing_worker_state(
         &self,
         active_state_index_key: &str,

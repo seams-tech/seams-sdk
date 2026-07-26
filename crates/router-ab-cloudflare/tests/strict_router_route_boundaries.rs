@@ -97,7 +97,7 @@ fn strict_router_router_ab_ecdsa_derivation_routes_apply_boundary_parsers() {
         "validate_for_registration_purpose",
         "parse_cloudflare_router_ab_ecdsa_derivation_export_command_v1_json",
         "parse_router_ab_ecdsa_derivation_recovery_request_v1_json",
-        "parse_router_ab_ecdsa_derivation_activation_refresh_request_v1_json",
+        "parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_commit_request_v1_json",
         "parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json",
         "parse_cloudflare_router_budgeted_router_ab_ecdsa_derivation_finalize_request_v1_json",
         "handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1",
@@ -130,6 +130,34 @@ fn strict_router_router_ab_ecdsa_derivation_routes_apply_boundary_parsers() {
             "strict Router Router A/B ECDSA derivation route must not cross boundary through `{forbidden}`"
         );
     }
+}
+
+#[test]
+fn ecdsa_activation_replay_reconciles_before_refresh_replay_reservation() {
+    let lib_rs = read_src_file("lib.rs");
+    let refresh_body = extract_function_body(
+        &lib_rs,
+        "handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_authenticated_public_request_v1",
+    );
+    let query_position = refresh_body
+        .find("execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_service_call_v1")
+        .expect("refresh must query an exact activation commit");
+    let replay_position = refresh_body
+        .find("execute_cloudflare_router_replay_reserve_v1")
+        .expect("refresh must retain Router replay admission");
+    assert!(
+        query_position < replay_position,
+        "authenticated refresh replay must reconcile the server commit before Router replay rejection"
+    );
+
+    let registration_activation_body = extract_function_body(
+        &lib_rs,
+        "handle_cloudflare_router_ab_ecdsa_derivation_activation_authenticated_public_request_v1",
+    );
+    assert!(
+        !registration_activation_body.contains("execute_cloudflare_router_replay_reserve_v1"),
+        "registration activation replay must reach the idempotent SigningWorker commit directly"
+    );
 }
 
 #[test]

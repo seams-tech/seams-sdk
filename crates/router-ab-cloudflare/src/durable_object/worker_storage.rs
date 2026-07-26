@@ -1,6 +1,7 @@
 use super::handlers::{
-    require_existing_record_v1, validate_idempotent_put_record_v1,
-    validate_root_share_startup_metadata_put_v1, validate_router_replay_reservation_v1,
+    apply_cloudflare_signing_worker_ecdsa_activation_commit_v1, require_existing_record_v1,
+    validate_idempotent_put_record_v1, validate_root_share_startup_metadata_put_v1,
+    validate_router_replay_reservation_v1,
     validate_signing_worker_output_active_state_replacement_v1,
 };
 use super::*;
@@ -970,12 +971,14 @@ async fn handle_cloudflare_durable_object_worker_request_with_project_policy_v1(
                     existing_active_state.as_ref(),
                     &active_signing_worker_state,
                 )?;
-                persist_cloudflare_signing_worker_output_activation_pair_v1(
+                persist_cloudflare_signing_worker_output_activation_state_v1(
                     storage,
                     &storage_key,
                     &active_state_index_key,
                     &record,
                     &active_signing_worker_state,
+                    None,
+                    None,
                     call.operation_kind(),
                 )
                 .await?;
@@ -991,6 +994,100 @@ async fn handle_cloudflare_durable_object_worker_request_with_project_policy_v1(
                     activated,
                 )?,
             )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaActivationCommit { request } => {
+            let active_state_index_key = call.active_signing_worker_state_index_storage_key()?;
+            let generation_head_key = call.ecdsa_activation_generation_head_storage_key()?;
+            let existing_correlation_record = worker_storage_get::<
+                CloudflareSigningWorkerOutputActivationRecordV1,
+            >(
+                storage, &storage_key, call.operation_kind()
+            )
+            .await?;
+            let existing_active_state = worker_storage_get::<ActiveSigningWorkerStateV1>(
+                storage,
+                &generation_head_key,
+                call.operation_kind(),
+            )
+            .await?;
+            let retired_active_state_index_key = existing_active_state
+                .as_ref()
+                .map(|active_state| {
+                    call.active_signing_worker_state_index_storage_key_for(active_state)
+                })
+                .transpose()?;
+            let existing_active_record = match &existing_active_state {
+                Some(active_state) => {
+                    worker_storage_get::<CloudflareSigningWorkerOutputActivationRecordV1>(
+                        storage,
+                        &active_state.signing_worker_material_handle,
+                        call.operation_kind(),
+                    )
+                    .await?
+                }
+                None => None,
+            };
+            let decision = apply_cloudflare_signing_worker_ecdsa_activation_commit_v1(
+                request,
+                &storage_key,
+                existing_correlation_record,
+                existing_active_state,
+                existing_active_record,
+            )?;
+            if decision.stored {
+                let committed_active_state = decision.record.active_signing_worker_state().clone();
+                persist_cloudflare_signing_worker_output_activation_state_v1(
+                    storage,
+                    &storage_key,
+                    &active_state_index_key,
+                    &decision.record,
+                    &committed_active_state,
+                    Some(&generation_head_key),
+                    retired_active_state_index_key.as_deref(),
+                    call.operation_kind(),
+                )
+                .await?;
+            }
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_activation_committed(
+                decision.receipt,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaActivationCommitGet { lookup } => {
+            let result =
+                match worker_storage_get::<CloudflareSigningWorkerOutputActivationRecordV1>(
+                    storage,
+                    &storage_key,
+                    call.operation_kind(),
+                )
+                .await?
+                {
+                    None => {
+                        CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1::NotCommitted {
+                            activation_correlation_id: lookup.activation_correlation_id.clone(),
+                            activation_request_digest: lookup.activation_request_digest,
+                        }
+                    }
+                    Some(record) => {
+                        record.validate()?;
+                        match record.ecdsa_activation_commit_receipt() {
+                        Some(receipt)
+                            if receipt.activation_request_digest
+                                == lookup.activation_request_digest =>
+                        {
+                            CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1::Committed {
+                                receipt: receipt.clone(),
+                            }
+                        }
+                        Some(_) | None => {
+                            CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1::CorrelationConflict {
+                                activation_correlation_id: lookup.activation_correlation_id.clone(),
+                                activation_request_digest: lookup.activation_request_digest,
+                            }
+                        }
+                    }
+                    }
+                };
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_activation_commit_get(result)?
         }
         CloudflareDurableObjectRequestV1::SigningWorkerOutputActiveStateGet { lookup } => {
             lookup.validate()?;
@@ -1212,35 +1309,49 @@ async fn recover_signing_worker_output_active_state_index_v1(
 }
 
 #[cfg(feature = "workers-rs")]
-async fn persist_cloudflare_signing_worker_output_activation_pair_v1(
+async fn persist_cloudflare_signing_worker_output_activation_state_v1(
     storage: &worker::Storage,
     material_key: &str,
     active_state_key: &str,
     record: &CloudflareSigningWorkerOutputActivationRecordV1,
     active_state: &ActiveSigningWorkerStateV1,
+    generation_head_key: Option<&str>,
+    retired_active_state_key: Option<&str>,
     operation_kind: CloudflareDurableObjectOperationKindV1,
 ) -> RouterAbProtocolResult<()> {
-    let writes = worker::js_sys::Object::new();
-    set_durable_object_put_multiple_value(
-        &writes,
-        material_key,
-        record,
-        "SigningWorker ECDSA activation material",
-    )?;
-    set_durable_object_put_multiple_value(
-        &writes,
-        active_state_key,
-        active_state,
-        "SigningWorker ECDSA active state",
-    )?;
-    storage.put_multiple_raw(writes).await.map_err(|error| {
-        worker_storage_error(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            operation_kind,
-            material_key,
-            format!("Durable Object atomic activation write failed: {error}"),
-        )
-    })?;
+    let material_key_owned = material_key.to_owned();
+    let active_state_key_owned = active_state_key.to_owned();
+    let generation_head_key_owned = generation_head_key.map(str::to_owned);
+    let retired_active_state_key_owned = retired_active_state_key
+        .filter(|retired_key| *retired_key != active_state_key)
+        .map(str::to_owned);
+    let record_owned = record.clone();
+    let active_state_owned = active_state.clone();
+    storage
+        .transaction(move |transaction| async move {
+            transaction.put(&material_key_owned, record_owned).await?;
+            transaction
+                .put(&active_state_key_owned, active_state_owned.clone())
+                .await?;
+            if let Some(generation_head_key) = generation_head_key_owned {
+                transaction
+                    .put(&generation_head_key, active_state_owned)
+                    .await?;
+            }
+            if let Some(retired_active_state_key) = retired_active_state_key_owned {
+                transaction.delete(&retired_active_state_key).await?;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|error| {
+            worker_storage_error(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                operation_kind,
+                material_key,
+                format!("Durable Object atomic activation write failed: {error}"),
+            )
+        })?;
     let committed_record = worker_storage_get::<CloudflareSigningWorkerOutputActivationRecordV1>(
         storage,
         material_key,
@@ -1250,15 +1361,45 @@ async fn persist_cloudflare_signing_worker_output_activation_pair_v1(
     let committed_active_state =
         worker_storage_get::<ActiveSigningWorkerStateV1>(storage, active_state_key, operation_kind)
             .await?;
+    let committed_generation_head = match generation_head_key {
+        Some(generation_head_key) => {
+            worker_storage_get::<ActiveSigningWorkerStateV1>(
+                storage,
+                generation_head_key,
+                operation_kind,
+            )
+            .await?
+        }
+        None => None,
+    };
     if committed_record.as_ref() != Some(record)
         || committed_active_state.as_ref() != Some(active_state)
+        || generation_head_key.is_some() && committed_generation_head.as_ref() != Some(active_state)
     {
         return Err(worker_storage_error(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
             operation_kind,
             material_key,
-            "Durable Object activation read-back did not match the exact committed pair".to_owned(),
+            "Durable Object activation read-back did not match exact committed state".to_owned(),
         ));
+    }
+    if let Some(retired_active_state_key) =
+        retired_active_state_key.filter(|retired_key| *retired_key != active_state_key)
+    {
+        let retired = worker_storage_get::<ActiveSigningWorkerStateV1>(
+            storage,
+            retired_active_state_key,
+            operation_kind,
+        )
+        .await?;
+        if retired.is_some() {
+            return Err(worker_storage_error(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                operation_kind,
+                retired_active_state_key,
+                "Durable Object activation retained its retired active-state index".to_owned(),
+            ));
+        }
     }
     Ok(())
 }

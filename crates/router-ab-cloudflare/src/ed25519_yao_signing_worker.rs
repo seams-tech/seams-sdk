@@ -51,7 +51,8 @@ impl CloudflareEd25519YaoOutputActivationPutV1 {
         self.record.validate()?;
         match &self.record {
             CloudflareSigningWorkerOutputActivationRecordV1::Ed25519Yao { .. } => Ok(()),
-            CloudflareSigningWorkerOutputActivationRecordV1::RecipientProofBundle { .. } => Err(
+            CloudflareSigningWorkerOutputActivationRecordV1::RecipientProofBundle { .. }
+            | CloudflareSigningWorkerOutputActivationRecordV1::EcdsaActivationCommit { .. } => Err(
                 invalid_lifecycle("Ed25519 Yao output activation requires Ed25519 Yao material"),
             ),
         }

@@ -29,6 +29,7 @@ use crate::{
     handle_cloudflare_router_normal_signing_prepare_authenticated_public_request_v2,
     handle_cloudflare_router_wallet_budget_put_grant_private_fetch_v1,
     handle_cloudflare_router_wallet_budget_status_authenticated_public_request_v1,
+    parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_commit_request_v1_json,
     parse_cloudflare_router_ab_ecdsa_derivation_activation_request_v1_json,
     parse_cloudflare_router_ab_ecdsa_derivation_export_command_v1_json,
     parse_cloudflare_router_bearer_authorization_from_request_v1,
@@ -75,6 +76,7 @@ use crate::{
 #[cfg(feature = "strict-worker-signing-worker-entrypoint")]
 use crate::{
     cloudflare_now_unix_ms_v1,
+    handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_fetch_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_fetch_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_refresh_fetch_v1,
     handle_cloudflare_signing_worker_ecdsa_export_share_private_fetch_v1,
@@ -95,6 +97,7 @@ use crate::{
     CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH,
     CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_ROUND1_PREPARE_PATH,
     CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH,
+    CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_COMMIT_QUERY_PATH,
     CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH,
     CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH,
     CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH,
@@ -157,7 +160,6 @@ use router_ab_core::RouterAbProtocolError;
 use router_ab_core::RouterEd25519YaoExecuteFailureCodeV1;
 #[cfg(feature = "strict-worker-router-entrypoint")]
 use router_ab_core::{
-    parse_router_ab_ecdsa_derivation_activation_refresh_request_v1_json,
     parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json,
     parse_router_ab_ecdsa_derivation_recovery_request_v1_json,
     parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json,

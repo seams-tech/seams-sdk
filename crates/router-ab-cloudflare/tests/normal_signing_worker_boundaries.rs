@@ -391,6 +391,8 @@ fn strict_signing_worker_entrypoint_routes_normal_signing() {
         "handle_cloudflare_signing_worker_recipient_proof_bundle_activation_fetch_v1",
         "CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH",
         "handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_fetch_v1",
+        "CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_COMMIT_QUERY_PATH",
+        "handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_fetch_v1",
         "CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_ROUND1_PREPARE_PATH",
         "handle_cloudflare_signing_worker_normal_signing_round1_prepare_private_fetch_v1",
         "CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH",
