@@ -92,6 +92,19 @@ function createRuntimeFixture(): RuntimeFixture {
   return { root, outputConfigPath, deriverA, deriverB, signingWorker };
 }
 
+function prepareStrictRuntime(fixture: RuntimeFixture) {
+  const d1Runtime = prepareRouterAbD1LocalRuntimeConfig({
+    repoRoot: repoRoot(),
+    localEnvRoot: fixture.root,
+    outputConfigPath: fixture.outputConfigPath,
+  });
+  return prepareRouterAbStrictLocalRuntimeConfigs({
+    repoRoot: repoRoot(),
+    localEnvRoot: fixture.root,
+    ceremonyJwksJson: d1Runtime.ceremonyJwksJson,
+  });
+}
+
 test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler', () => {
   const fixture = createRuntimeFixture();
 
@@ -202,10 +215,7 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
 
 test('local Gateway startup renders the production-shaped MPC Worker topology', () => {
   const fixture = createRuntimeFixture();
-  const runtime = prepareRouterAbStrictLocalRuntimeConfigs({
-    repoRoot: repoRoot(),
-    localEnvRoot: fixture.root,
-  });
+  const runtime = prepareStrictRuntime(fixture);
 
   expect(runtime.mpcRouterUrl).toBe('http://127.0.0.1:9100');
   expect(runtime.workerUrls).toEqual({
@@ -223,9 +233,10 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
 
   const routerConfig = readFileSync(runtime.configs[0].configPath, 'utf8');
   expect(routerConfig).toContain('ROUTER_JWT_ISSUER = "http://127.0.0.1:9190"');
-  expect(routerConfig).toContain(
-    'ROUTER_JWT_JWKS_URL = "http://127.0.0.1:9190/.well-known/router-ab-ceremony-jwks.json"',
-  );
+  const routerJwks = parseTomlJsonAssignment(routerConfig, 'ROUTER_JWT_JWKS_JSON');
+  expect(routerJwks).toMatchObject({
+    keys: [{ alg: 'EdDSA', crv: 'Ed25519', kid: 'local-router-ab-r1', kty: 'OKP', use: 'sig' }],
+  });
   expect(routerConfig).toContain('binding = "DERIVER_A"');
   expect(routerConfig).toContain('service = "router-ab-deriver-a"');
   expect(routerConfig).not.toContain('[build]');
@@ -258,10 +269,7 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
 
 test('strict local mode serves pair commands through production Wrangler shims', () => {
   const fixture = createRuntimeFixture();
-  const runtime = prepareRouterAbStrictLocalRuntimeConfigs({
-    repoRoot: repoRoot(),
-    localEnvRoot: fixture.root,
-  });
+  const runtime = prepareStrictRuntime(fixture);
 
   for (const config of runtime.configs) {
     const generated = readFileSync(config.configPath, 'utf8');

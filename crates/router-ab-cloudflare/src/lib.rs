@@ -1459,8 +1459,8 @@ pub struct CloudflareRouterJwtVerifierBindingV1 {
     pub issuer: String,
     /// Expected JWT audience.
     pub audience: String,
-    /// JWKS URL used by the Worker verifier adapter.
-    pub jwks_url: String,
+    /// Validated Ed25519 verifier derived from the deployment JWKS.
+    pub verifier: CloudflareRouterEd25519JwksJwtVerifierV1,
 }
 
 impl CloudflareRouterJwtVerifierBindingV1 {
@@ -1468,12 +1468,15 @@ impl CloudflareRouterJwtVerifierBindingV1 {
     pub fn new(
         issuer: impl Into<String>,
         audience: impl Into<String>,
-        jwks_url: impl Into<String>,
+        jwks_json: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
+        let jwks_json = jwks_json.into();
+        let verifier =
+            CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)?;
         let binding = Self {
             issuer: issuer.into(),
             audience: audience.into(),
-            jwks_url: jwks_url.into(),
+            verifier,
         };
         binding.validate()?;
         Ok(binding)
@@ -1483,7 +1486,7 @@ impl CloudflareRouterJwtVerifierBindingV1 {
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty("jwt issuer", &self.issuer)?;
         require_non_empty("jwt audience", &self.audience)?;
-        require_non_empty("jwt jwks_url", &self.jwks_url)
+        self.verifier.validate()
     }
 }
 
@@ -5073,40 +5076,13 @@ where
     .await
 }
 
-/// Fetches the configured JWKS URL and builds the Ed25519 JWT verifier.
+/// Builds the Ed25519 JWT verifier from the deployment-bound JWKS document.
 #[cfg(feature = "workers-rs")]
-pub async fn load_cloudflare_router_ed25519_jwks_jwt_verifier_v1(
+pub fn build_cloudflare_router_ed25519_jwks_jwt_verifier_v1(
     binding: &CloudflareRouterJwtVerifierBindingV1,
 ) -> RouterAbProtocolResult<CloudflareRouterEd25519JwksJwtVerifierV1> {
     binding.validate()?;
-    let url = worker::Url::parse(&binding.jwks_url).map_err(|err| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            format!("Router JWT JWKS URL parse failed: {err}"),
-        )
-    })?;
-    let mut response = worker::Fetch::Url(url).send().await.map_err(|err| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            format!("Router JWT JWKS fetch failed: {err}"),
-        )
-    })?;
-    if !(200..=299).contains(&response.status_code()) {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            format!(
-                "Router JWT JWKS fetch returned HTTP {}",
-                response.status_code()
-            ),
-        ));
-    }
-    let jwks_json = response.text().await.map_err(|err| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            format!("Router JWT JWKS response body read failed: {err}"),
-        )
-    })?;
-    CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
+    Ok(binding.verifier.clone())
 }
 
 /// Parses the strict Router Bearer authorization header.
@@ -11774,7 +11750,7 @@ pub fn parse_cloudflare_router_admission_bindings_v1(
         CloudflareRouterJwtVerifierBindingV1::new(
             read_required_env_text(env, ROUTER_JWT_ISSUER_ENV)?,
             read_required_env_text(env, ROUTER_JWT_AUDIENCE_ENV)?,
-            read_required_env_text(env, ROUTER_JWT_JWKS_URL_ENV)?,
+            read_required_env_text(env, ROUTER_JWT_JWKS_JSON_ENV)?,
         )?,
         CloudflareRouterAdmissionStoreBindingsV1::new(
             read_durable_object_binding(

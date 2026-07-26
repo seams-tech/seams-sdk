@@ -217,11 +217,12 @@ try {
     console.log('Router A/B Cloudflare Worker artifacts are ready.');
     process.exit(0);
   }
+  const d1Runtime = prepareD1LocalRouterConfig();
   strictRuntime = prepareRouterAbStrictLocalRuntimeConfigs({
     repoRoot,
     localEnvRoot: root,
+    ceremonyJwksJson: d1Runtime.ceremonyJwksJson,
   });
-  prepareD1LocalRouterConfig();
   assertProductionWorkerBinariesReady();
   assertBrowserEcdsaClientReady();
   await assertProductionWorkerPortsAvailable();
@@ -279,7 +280,7 @@ function ensureLocalEnv() {
 }
 
 function prepareD1LocalRouterConfig() {
-  prepareRouterAbD1LocalRuntimeConfig({
+  return prepareRouterAbD1LocalRuntimeConfig({
     repoRoot,
     localEnvRoot: root,
     outputConfigPath: d1LocalWranglerConfigPath,
