@@ -187,6 +187,14 @@ export type EcdsaActivationJournalReadResult =
       readonly journal?: never;
     };
 
+export type EcdsaPreparedActivationCancellationResult =
+  | { readonly kind: 'cancelled' }
+  | { readonly kind: 'missing' }
+  | { readonly kind: 'server_activation_committed' }
+  | { readonly kind: 'exact_record_conflict' }
+  | { readonly kind: 'corrupt' }
+  | { readonly kind: 'persistence_unavailable' };
+
 export type FinalizeEcdsaCapabilityActivationInput = {
   readonly committedJournal: ServerCommittedEcdsaActivationJournal;
   readonly readyMaterial: ValidatedEncryptedEcdsaReadyMaterial;
@@ -1466,6 +1474,41 @@ function assertNever(value: never): never {
   throw new Error(`Unexpected ECDSA persistence branch: ${String(value)}`);
 }
 
+async function cancelPreparedActivationInTransaction(
+  preparedJournal: PreparedEcdsaActivationJournal,
+  context: SeamsWalletTransactionContext,
+): Promise<
+  Exclude<EcdsaPreparedActivationCancellationResult, { kind: 'persistence_unavailable' }>
+> {
+  const journalStore = context.store(JOURNAL_STORE);
+  const raw = await journalStore.get(preparedJournal.journalId);
+  if (raw === undefined) return { kind: 'missing' };
+
+  let persisted: ReturnType<typeof parseJournalRow>;
+  try {
+    persisted = parseJournalRow(raw);
+  } catch {
+    return { kind: 'corrupt' };
+  }
+  if (persisted.journal.journalId !== preparedJournal.journalId) {
+    return { kind: 'corrupt' };
+  }
+  switch (persisted.journal.kind) {
+    case 'server_activation_committed':
+      return { kind: 'server_activation_committed' };
+    case 'activation_prepared':
+      if (!canonicalValuesMatch(persisted.journal, preparedJournal)) {
+        return { kind: 'exact_record_conflict' };
+      }
+      await context
+        .store(SEALING_KEY_STORE)
+        .delete(persisted.journal.candidate.encryptedPending.sealingKeyId);
+      await journalStore.delete(persisted.journal.journalId);
+      return { kind: 'cancelled' };
+  }
+  return assertNever(persisted.journal);
+}
+
 export class IndexedDbEcdsaCapabilityManifestStore {
   private readonly manager: SeamsWalletDBManager;
 
@@ -1712,6 +1755,20 @@ export class IndexedDbEcdsaCapabilityManifestStore {
       } catch {
         return { kind: 'corrupt' };
       }
+    } catch {
+      return { kind: 'persistence_unavailable' };
+    }
+  }
+
+  async cancelPreparedActivation(
+    preparedJournal: PreparedEcdsaActivationJournal,
+  ): Promise<EcdsaPreparedActivationCancellationResult> {
+    try {
+      return await this.manager.runTransaction(
+        [SEALING_KEY_STORE, JOURNAL_STORE],
+        'readwrite',
+        cancelPreparedActivationInTransaction.bind(undefined, preparedJournal),
+      );
     } catch {
       return { kind: 'persistence_unavailable' };
     }
