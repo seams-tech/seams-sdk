@@ -113,6 +113,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       GATEWAY_DEPLOYMENT_CONFIG_JSON: ${{ vars.GATEWAY_DEPLOYMENT_CONFIG_JSON }}
+      RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
     steps:
       - name: Checkout workflow revision
         uses: actions/checkout@v6
@@ -174,7 +175,7 @@ jobs:
 
   deploy_deriver_a:
     name: Deploy / production / deriver-a
-    needs: deploy_signing_worker
+    needs: migrate
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
@@ -214,7 +215,7 @@ jobs:
 
   deploy_deriver_b:
     name: Deploy / production / deriver-b
-    needs: deploy_deriver_a
+    needs: migrate
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
@@ -254,7 +255,7 @@ jobs:
 
   deploy_router:
     name: Deploy / production / router
-    needs: deploy_deriver_b
+    needs: [deploy_signing_worker, deploy_deriver_a, deploy_deriver_b]
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
@@ -265,7 +266,7 @@ jobs:
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
       ROUTER_AB_JWT_ISSUER: ${{ vars.ROUTER_AB_JWT_ISSUER }}
       ROUTER_AB_JWT_AUDIENCE: ${{ vars.ROUTER_AB_JWT_AUDIENCE }}
-      ROUTER_AB_JWT_JWKS_URL: ${{ vars.ROUTER_AB_JWT_JWKS_URL }}
+      ROUTER_AB_JWT_JWKS_JSON: ${{ vars.ROUTER_AB_JWT_JWKS_JSON }}
       DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY }}
       DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY }}
       SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY }}

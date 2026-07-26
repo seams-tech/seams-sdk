@@ -36,7 +36,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-t-of-n.json');
 const PROJECT_ID = 'project-alpha:dev';
 const SIGNING_ROOT_VERSION = 'root-v1';
-const ECDSA_DERIVATION_FIXTURE_PURPOSE = 'ecdsa-derivation/y_server';
+const ECDSA_DERIVATION_FIXTURE_PURPOSE = 'router-ab-ecdsa-derivation/y-server/v1';
 const ECDSA_DERIVATION_CONTEXT = {
   applicationBindingDigest: new Uint8Array(32).fill(7),
 } as const;

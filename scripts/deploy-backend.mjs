@@ -150,14 +150,12 @@ function printPlan(targetName, target) {
     '  2. preflight all five backend custody components',
     `  3. migrate ${target.resources.gateway.consoleD1Name} (console D1)`,
     `  4. migrate ${target.resources.gateway.signerD1Name} (signer D1)`,
-    '  5. deploy signing-worker',
-    '  6. deploy deriver-a',
-    '  7. deploy deriver-b',
-    '  8. deploy router',
-    '  9. bootstrap Gateway tenant and publishable key',
-    ' 10. upsert Gateway signing-root KEK',
-    ' 11. deploy gateway',
-    ' 12. smoke Gateway and Router A/B endpoints',
+    '  5. deploy signing-worker, deriver-a, and deriver-b concurrently',
+    '  6. deploy router after all three workers complete',
+    '  7. bootstrap Gateway tenant and publishable key',
+    '  8. upsert Gateway signing-root KEK',
+    '  9. deploy gateway',
+    ' 10. smoke Gateway and Router A/B endpoints',
   ];
   process.stdout.write(`${lines.join('\n')}\n`);
 }
@@ -227,7 +225,8 @@ function preflightBackend(targetName, target, component, environment = process.e
   }
   if (component === 'gateway') {
     requiredNames.push('SIGNING_ROOT_KEK_VALUE', 'GATEWAY_DEPLOYMENT_CONFIG_JSON');
-    validateGatewayDeploymentConfig(targetName, target, environment);
+    const config = validateGatewayDeploymentConfig(targetName, target, environment);
+    if (config.optional.nearRelayer) requiredNames.push('RELAYER_PRIVATE_KEY');
   }
   requireEnvironmentValues(unique(requiredNames), environment);
   process.stdout.write(`Preflight passed: ${targetName}/${component}\n`);
@@ -284,6 +283,7 @@ function componentRuntimeRequirements(targetName, target, component) {
       ];
     case 'router':
       return [
+        'ROUTER_AB_JWT_JWKS_JSON',
         'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
         'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
         'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
@@ -389,7 +389,7 @@ function deployMpcRouter(targetName, target) {
     '--var',
     'ROUTER_JWT_AUDIENCE:router-ab',
     '--var',
-    `ROUTER_JWT_JWKS_URL:${target.origins.gateway}/.well-known/router-ab-ceremony-jwks.json`,
+    `ROUTER_JWT_JWKS_JSON:${requireEnvironmentValue('ROUTER_AB_JWT_JWKS_JSON')}`,
     '--var',
     `DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:${requireEnvironmentValue('DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY')}`,
     '--var',
@@ -496,8 +496,6 @@ async function smokeBackend(target) {
   }
 }
 
-
-
 function renderGatewayConfig(targetName, target) {
   validateGatewayDeploymentConfig(targetName, target);
   runCommand(
@@ -535,6 +533,7 @@ function validateGatewayDeploymentConfig(targetName, target, environment = proce
       `GATEWAY_DEPLOYMENT_CONFIG_JSON does not match deployment target ${targetName}`,
     );
   }
+  return config;
 }
 
 function requireEnvironmentValues(names, environment = process.env) {

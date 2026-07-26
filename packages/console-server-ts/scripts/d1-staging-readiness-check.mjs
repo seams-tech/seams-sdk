@@ -371,7 +371,7 @@ function checkDurableObject(source, errors) {
     className: 'ThresholdStoreDurableObject',
     errors,
   });
-  checkRequiredDurableObject({
+  checkDeletedDurableObject({
     source,
     blocks,
     bindingName: 'ROUTER_API_RUNTIME',
@@ -397,18 +397,31 @@ function checkRequiredDurableObject(input) {
   }
 }
 
+function checkDeletedDurableObject(input) {
+  if (findBlockByAssignment(input.blocks, 'name', input.bindingName)) {
+    input.errors.push(`retired Durable Object binding ${input.bindingName} must be removed`);
+  }
+  if (!hasSqliteClassMigration(input.source, input.className)) {
+    input.errors.push(
+      `missing historical Durable Object new_sqlite_classes migration for ${input.className}`,
+    );
+  }
+  if (!hasDeletedClassMigration(input.source, input.className)) {
+    input.errors.push(`missing Durable Object deleted_classes migration for ${input.className}`);
+  }
+}
+
 function checkRouterAbServiceBindings(source, errors) {
   const blocks = arrayTableBodies(source, 'services');
+  for (const retired of ['DERIVER_A', 'DERIVER_B']) {
+    if (findBlockByAssignment(blocks, 'binding', retired)) {
+      errors.push(`retired Gateway Service Binding ${retired} must be removed`);
+    }
+  }
   checkRequiredServiceBinding({
     blocks,
-    bindingName: 'DERIVER_A',
-    serviceName: 'router-ab-deriver-a-staging',
-    errors,
-  });
-  checkRequiredServiceBinding({
-    blocks,
-    bindingName: 'DERIVER_B',
-    serviceName: 'router-ab-deriver-b-staging',
+    bindingName: 'MPC_ROUTER',
+    serviceName: 'router-ab-mpc-router-staging',
     errors,
   });
   checkRequiredServiceBinding({
@@ -498,6 +511,13 @@ function hasSqliteClassMigration(source, className) {
   const blocks = arrayTableBodies(source, 'migrations');
   for (const block of blocks) {
     if (includesString(readArray(block, 'new_sqlite_classes'), className)) return true;
+  }
+  return false;
+}
+
+function hasDeletedClassMigration(source, className) {
+  for (const block of arrayTableBodies(source, 'migrations')) {
+    if (includesString(readArray(block, 'deleted_classes'), className)) return true;
   }
   return false;
 }

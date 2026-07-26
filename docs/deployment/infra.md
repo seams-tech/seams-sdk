@@ -134,7 +134,7 @@ cross-run artifact inputs.
 | -------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------ |
 | `ROUTER_AB_JWT_ISSUER`                                   | Router A/B deploy | JWT issuer accepted by the Router admission boundary.                          |
 | `ROUTER_AB_JWT_AUDIENCE`                                 | Router A/B deploy | JWT audience accepted by the Router; defaults operationally to `router-ab`.    |
-| `ROUTER_AB_JWT_JWKS_URL`                                 | Router A/B deploy | JWKS URL used by Router JWT verification.                                      |
+| `ROUTER_AB_JWT_JWKS_JSON`                                | Router A/B deploy | Public JWKS injected into Router JWT verification.                             |
 | `SPONSORED_EXECUTION_REAL_PRICING_JSON`                  | Gateway deploy    | CoinGecko-backed pricing rules for sponsored NEAR execution.                   |
 | `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`           | Router A/B deploy | Public key matching `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`.                     |
 | `ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY`           | Router A/B deploy | Public key matching `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`.                     |
@@ -165,12 +165,18 @@ cross-run artifact inputs.
 | `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`                | Pages build       | Exact SigningWorker id bound into Router A/B warm signing sessions.            |
 | `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED`                  | Pages build       | Optional dashboard route gate.                                                 |
 
-The Gateway GitHub Environment has one non-secret deployment variable:
+The Gateway GitHub Environment has one required non-secret deployment variable:
 `GATEWAY_DEPLOYMENT_CONFIG_JSON`. Its versioned document contains D1 and
 Secrets Store resource IDs, tenant identity, origins, Router A/B public
 identity, session settings, bootstrap metadata, and optional integration
 configuration. The deployment renderer validates this document once and emits
 the individual Worker bindings expected by the runtime.
+
+Refactor 93 uses partitioned D1 and the MPC Router immediately. Gateway
+configuration has no Yao family cutoff or drain variables. Remove any retired
+`ROUTER_AB_YAO_GATEWAY_*_ADMISSION_CUTOFF_MS` or
+`ROUTER_AB_YAO_GATEWAY_*_DRAIN_UNTIL_MS` values from the staging and production
+GitHub Environments; the deployment does not read them.
 
 Gateway cryptographic values and external credentials remain separate GitHub
 secrets. This preserves GitHub secret masking and allows credential rotation
@@ -246,7 +252,7 @@ Role-specific configuration:
 
 | Role          | Wrangler config                                            | GitHub Environment vars                                                                                                                               | GitHub Environment secrets                                                                              |
 | ------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Router        | `crates/router-ab-cloudflare/wrangler.router.toml`         | `ROUTER_AB_JWT_ISSUER`, `ROUTER_AB_JWT_AUDIENCE`, `ROUTER_AB_JWT_JWKS_URL`, `ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON`, all Router A/B public key vars | `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`                                                                |
+| Router        | `crates/router-ab-cloudflare/wrangler.router.toml`         | `ROUTER_AB_JWT_ISSUER`, `ROUTER_AB_JWT_AUDIENCE`, `ROUTER_AB_JWT_JWKS_JSON`, `ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON`, all Router A/B public key vars | `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`                                                                |
 | Deriver A     | `crates/router-ab-cloudflare/wrangler.deriver-a.toml`      | `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX`            | `DERIVER_A_ROOT_SHARE_WIRE_SECRET`, `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_A_PEER_SIGNING_KEY` |
 | Deriver B     | `crates/router-ab-cloudflare/wrangler.deriver-b.toml`      | `ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX`            | `DERIVER_B_ROOT_SHARE_WIRE_SECRET`, `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_B_PEER_SIGNING_KEY` |
 | SigningWorker | `crates/router-ab-cloudflare/wrangler.signing-worker.toml` | `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY`                                                                                              | `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`                                                         |

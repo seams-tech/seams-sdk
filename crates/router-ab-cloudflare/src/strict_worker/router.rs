@@ -51,6 +51,16 @@ pub(super) async fn handle_strict_router_fetch_v1(
         .await;
     }
 
+    if path == CLOUDFLARE_ROUTER_ED25519_YAO_EXECUTE_PRIVATE_REQUEST_PATH {
+        return handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(request, &env).await;
+    }
+    if path == CLOUDFLARE_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PRIVATE_REQUEST_PATH {
+        return handle_cloudflare_router_ed25519_yao_recovery_promote_private_fetch_v1(
+            request, &env,
+        )
+        .await;
+    }
+
     if request.method() == Method::Options
         && (is_cloudflare_router_normal_signing_public_path(&path)
             || is_cloudflare_router_ab_ecdsa_derivation_public_path(&path))
@@ -108,11 +118,9 @@ pub(super) async fn handle_strict_router_fetch_v1(
         Ok(now_unix_ms) => now_unix_ms,
         Err(err) => return cloudflare_protocol_error_response_v1(err),
     };
-    let verifier = match load_cloudflare_router_ed25519_jwks_jwt_verifier_v1(
+    let verifier = match build_cloudflare_router_ed25519_jwks_jwt_verifier_v1(
         &runtime.admission_bindings().jwt,
-    )
-    .await
-    {
+    ) {
         Ok(verifier) => verifier,
         Err(err) => return cloudflare_protocol_error_response_v1(err),
     };

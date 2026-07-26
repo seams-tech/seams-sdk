@@ -61,6 +61,48 @@ where
     ))
 }
 
+pub(super) fn validate_root_share_startup_metadata_put_v1(
+    existing: Option<CloudflareRootShareStartupMetadataV1>,
+    replacement: &CloudflareRootShareStartupMetadataV1,
+) -> RouterAbProtocolResult<bool> {
+    replacement.validate()?;
+    let Some(existing) = existing else {
+        return Ok(true);
+    };
+    existing.validate()?;
+    if existing == *replacement {
+        return Ok(false);
+    }
+
+    let mut mismatched_fields = Vec::new();
+    if existing.signer_set_id != replacement.signer_set_id {
+        mismatched_fields.push("signer_set_id");
+    }
+    if existing.signer_role != replacement.signer_role {
+        mismatched_fields.push("signer_role");
+    }
+    if existing.signer_id != replacement.signer_id {
+        mismatched_fields.push("signer_id");
+    }
+    if existing.signer_key_epoch != replacement.signer_key_epoch {
+        mismatched_fields.push("signer_key_epoch");
+    }
+    if existing.root_share_epoch != replacement.root_share_epoch {
+        mismatched_fields.push("root_share_epoch");
+    }
+    if existing.sealed_share_storage_key != replacement.sealed_share_storage_key {
+        mismatched_fields.push("sealed_share_storage_key");
+    }
+
+    Err(RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::ReplayedLocalRequest,
+        format!(
+            "root-share startup metadata is already initialized with different material; mismatched fields: {}",
+            mismatched_fields.join(",")
+        ),
+    ))
+}
+
 pub(super) fn validate_router_replay_reservation_v1(
     existing: Option<CloudflareReplayReserveRequestV1>,
     request: &CloudflareReplayReserveRequestV1,
@@ -106,11 +148,9 @@ pub fn handle_cloudflare_durable_object_call_v1(
             CloudflareDurableObjectResponseV1::root_share_has(present)
         }
         CloudflareDurableObjectRequestV1::RootShareStartupMetadata { metadata } => {
-            let stored = validate_idempotent_put_record_v1(
+            let stored = validate_root_share_startup_metadata_put_v1(
                 storage.root_share_startup_metadata(&storage_key)?,
                 metadata,
-                CloudflareRootShareStartupMetadataV1::validate,
-                "root-share startup metadata is already initialized with different material",
             )?;
             if stored {
                 storage.put_root_share_startup_metadata(&storage_key, metadata.clone())?;

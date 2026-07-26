@@ -135,6 +135,7 @@ async function buildSharedSigningBudgetFixture(): Promise<{
 }> {
   const walletId = requireParsedDomainId(parseWalletId('test-wallet'));
   const prepared = await buildD1EvmFamilyEcdsaRegistrationPrepare({
+    registrationPurpose: 'wallet_registration',
     registrationCeremonyId: 'wrc_shared_budget_resolver',
     registrationPreparationId: registrationPreparationIdFromString('wrp_shared_budget_resolver'),
     walletId,
@@ -241,6 +242,7 @@ class FixtureWalletBudgetStatusReader {
 test.describe('D1 EVM-family ECDSA registration prepare', () => {
   test('uses one signing grant for all chain targets in one registration', async () => {
     const prepared = await buildD1EvmFamilyEcdsaRegistrationPrepare({
+      registrationPurpose: 'wallet_registration',
       registrationCeremonyId: 'wrc_shared_budget',
       registrationPreparationId: registrationPreparationIdFromString('wrp_shared_budget'),
       walletId: requireParsedDomainId(parseWalletId('test-wallet')),
@@ -266,6 +268,7 @@ test.describe('D1 EVM-family ECDSA registration prepare', () => {
 
   test('rejects ECDSA registration participant pairs other than [1, 2]', async () => {
     const prepared = await buildD1EvmFamilyEcdsaRegistrationPrepare({
+      registrationPurpose: 'wallet_registration',
       registrationCeremonyId: 'wrc_shared_budget_pair',
       registrationPreparationId: registrationPreparationIdFromString('wrp_shared_budget_pair'),
       walletId: requireParsedDomainId(parseWalletId('test-wallet')),

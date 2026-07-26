@@ -219,7 +219,8 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
         LIMIT 1`,
       [attemptId],
     ).first<D1EmailOtpRegistrationAttemptRow>();
-    return parseGoogleEmailOtpRegistrationAttemptRow(row);
+    const record = parseGoogleEmailOtpRegistrationAttemptRow(row);
+    return record?.runtimePolicyScope?.orgId === this.orgId ? record : null;
   }
 
   async put(record: GoogleEmailOtpRegistrationAttemptRecord): Promise<void> {

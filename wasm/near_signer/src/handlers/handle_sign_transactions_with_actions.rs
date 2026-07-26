@@ -360,12 +360,6 @@ async fn sign_near_transaction_with_actions_impl(
         }
     };
 
-    let transaction_hash = calculate_transaction_hash(&signed_tx_bytes);
-    logs.push(format!(
-        "Transaction: Hash calculated - {}",
-        transaction_hash
-    ));
-
     let signed_tx: SignedTransaction = borsh::from_slice(&signed_tx_bytes).map_err(|e| {
         let error_msg = format!(
             "Transaction: Failed to deserialize SignedTransaction: {}",
@@ -374,6 +368,11 @@ async fn sign_near_transaction_with_actions_impl(
         logs.push(error_msg.clone());
         error_msg
     })?;
+    let transaction_hash = calculate_transaction_hash(&signed_tx.transaction);
+    logs.push(format!(
+        "Transaction: Hash calculated - {}",
+        transaction_hash
+    ));
 
     logs.push("Transaction signed successfully".to_string());
 

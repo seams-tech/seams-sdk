@@ -164,30 +164,57 @@ function checkGoogleSsoEmailOtpRegistrationActivatesIdentityBeforeWalletVisibili
   );
 
   const preflightIndex = storePath.indexOf('prepareRegistrationFinalize');
-  const activationIndex = storePath.indexOf(
-    'this.emailOtpRegistrationEnrollmentFinalizer.persistPrepared',
+  const commitPlanIndex = storePath.indexOf(
+    'this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationCommitPlan',
   );
-  const persistenceIndex = storePath.indexOf('await walletStore.putSubject(wallet);');
+  const persistenceIndex = storePath.indexOf(
+    'await this.walletRegistrationCommitStore.commit({',
+  );
   assert.ok(preflightIndex > -1, 'registration persistence block must prepare finalize first');
-  assert.ok(activationIndex > preflightIndex, 'registration persistence block must persist Email OTP before wallet subject');
-  assert.ok(persistenceIndex > activationIndex, 'registration persistence block must write wallet subject after Email OTP persistence');
+  // Email OTP enrollment and the wallet subject now land in one D1 batch, so
+  // identity activation cannot lag behind wallet visibility. A separate
+  // enrollment write would reintroduce the half-applied window this guards.
+  assert.ok(
+    persistenceIndex > preflightIndex,
+    'registration persistence block must commit wallet state after preflight',
+  );
+  assert.ok(
+    commitPlanIndex > persistenceIndex,
+    'registration persistence block must pass the Email OTP commit plan into the wallet commit',
+  );
+  assert.ok(
+    !storePath.includes('this.emailOtpRegistrationEnrollmentFinalizer.persistPrepared'),
+    'registration persistence block must not persist Email OTP outside the wallet commit batch',
+  );
   assert.ok(!storePath.includes('getPostgresPool'), 'D1 registration persistence block must not use Postgres');
 }
 
 function checkGenericGoogleSsoEmailOtpRegistrationPersistenceDefersWalletVisibility() {
   const source = readRepoFile('packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts');
   const writers = collectRegistrationPersistenceWriterBlocks(source);
-  assert.ok(writers.length >= 2, 'expected at least two D1 registration persistence writers');
+  assert.ok(writers.length >= 1, 'expected a D1 registration persistence writer');
 
   for (const writer of writers) {
     const emailOtpEnrollmentIndex = writer.indexOf(
-      'this.emailOtpRegistrationEnrollmentFinalizer.persistPrepared',
+      'this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationCommitPlan',
     );
-    const walletSubjectWriteIndex = writer.indexOf('await walletStore.putSubject(wallet);');
-    const walletSignersWriteIndex = writer.indexOf('await walletStore.putSigners(walletSigners);');
-    assert.ok(emailOtpEnrollmentIndex > -1, 'registration writer must persist Email OTP enrollment');
-    assert.ok(walletSubjectWriteIndex > emailOtpEnrollmentIndex, 'wallet subject write must follow Email OTP enrollment');
-    assert.ok(walletSignersWriteIndex > walletSubjectWriteIndex, 'wallet signer write must follow wallet subject write');
+    const walletCommitIndex = writer.indexOf(
+      'await this.walletRegistrationCommitStore.commit({',
+    );
+    assert.ok(
+      emailOtpEnrollmentIndex > -1,
+      'registration writer must build the Email OTP enrollment commit plan',
+    );
+    // The enrollment statements ride inside the wallet commit batch, so the
+    // plan is constructed as an argument to that commit rather than before it.
+    assert.ok(
+      emailOtpEnrollmentIndex > walletCommitIndex && walletCommitIndex > -1,
+      'Email OTP enrollment must commit inside the wallet commit batch',
+    );
+    assert.ok(
+      !writer.includes('this.emailOtpRegistrationEnrollmentFinalizer.persistPrepared'),
+      'registration writer must not persist Email OTP enrollment in a separate write',
+    );
   }
 }
 

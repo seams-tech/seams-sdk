@@ -19,18 +19,6 @@ migrations_dir = "../sdk-server-ts/migrations/d1-signer"
 name = "THRESHOLD_STORE"
 class_name = "ThresholdStoreDurableObject"
 
-[[durable_objects.bindings]]
-name = "ROUTER_API_RUNTIME"
-class_name = "RouterApiRuntimeDurableObject"
-
-[[services]]
-binding = "DERIVER_A"
-service = "router-ab-deriver-a-staging"
-
-[[services]]
-binding = "DERIVER_B"
-service = "router-ab-deriver-b-staging"
-
 [[services]]
 binding = "SIGNING_WORKER"
 service = "router-ab-signing-worker-staging"
@@ -46,6 +34,10 @@ new_sqlite_classes = ["ThresholdStoreDurableObject"]
 [[migrations]]
 tag = "router-api-runtime-sqlite-v1"
 new_sqlite_classes = ["RouterApiRuntimeDurableObject"]
+
+[[migrations]]
+tag = "router-api-runtime-delete-v1"
+deleted_classes = ["RouterApiRuntimeDurableObject"]
 
 [[secrets_store_secrets]]
 binding = "SIGNING_ROOT_KEK_STAGING_R1"

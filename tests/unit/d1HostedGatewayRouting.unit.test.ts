@@ -24,7 +24,8 @@ test('hosted gateway dispatches console routes to the console router', async () 
   await expect(routePath('/console/billing/account')).resolves.toBe('console');
 });
 
-test('hosted gateway keeps Router API routes on the Router API router', async () => {
+test('hosted gateway dispatches every non-console route to the request-scoped Router API', async () => {
   await expect(routePath('/session/exchange')).resolves.toBe('router-api');
+  await expect(routePath('/wallets/register/start')).resolves.toBe('router-api');
   await expect(routePath('/consolex')).resolves.toBe('router-api');
 });

@@ -85,18 +85,60 @@ test('D1 staging readiness check accepts the gateway D1/DO/Secrets Store shape',
   expect(result).toMatchObject({ errors: [], ok: true });
 });
 
+test('D1 staging readiness check rejects a retired Gateway runtime binding', async () => {
+  const source = validD1GatewayStagingConfig().replace(
+    '[[services]]',
+    '[[durable_objects.bindings]]\nname = "ROUTER_API_RUNTIME"\nclass_name = "RouterApiRuntimeDurableObject"\n\n[[services]]',
+  );
+
+  expectErrorContaining(
+    await checkConfig(source, 'gateway'),
+    'retired Durable Object binding ROUTER_API_RUNTIME must be removed',
+  );
+});
+
+test('D1 staging readiness check rejects retired direct role bindings', async () => {
+  const source = validD1GatewayStagingConfig().replace(
+    '[[services]]',
+    '[[services]]\nbinding = "DERIVER_A"\nservice = "router-ab-deriver-a-staging"\n\n[[services]]',
+  );
+
+  expectErrorContaining(
+    await checkConfig(source, 'gateway'),
+    'retired Gateway Service Binding DERIVER_A must be removed',
+  );
+});
+
+test('D1 staging readiness check requires the Gateway runtime deletion migration', async () => {
+  const source = validD1GatewayStagingConfig().replace(
+    '[[migrations]]\ntag = "router-api-runtime-delete-v1"\ndeleted_classes = ["RouterApiRuntimeDurableObject"]\n',
+    '',
+  );
+
+  expectErrorContaining(
+    await checkConfig(source, 'gateway'),
+    'missing Durable Object deleted_classes migration for RouterApiRuntimeDurableObject',
+  );
+});
+
 test('D1 staging readiness check supports env.staging Wrangler sections', async () => {
   const result = await checkConfig(validEnvGatewayStagingConfig(), 'gateway');
   expect(result).toMatchObject({ errors: [], ok: true });
 });
 
 test('D1 staging readiness check rejects unexpected D1 bindings', async () => {
-  const result = await checkConfig(gatewayConfigWithD1Binding('EXTRA_DB', 'seams-extra-staging'), 'gateway');
+  const result = await checkConfig(
+    gatewayConfigWithD1Binding('EXTRA_DB', 'seams-extra-staging'),
+    'gateway',
+  );
   expectErrorContaining(result, 'unexpected D1 binding EXTRA_DB for Gateway profile');
 });
 
 test('D1 staging readiness check rejects duplicate D1 bindings', async () => {
-  const result = await checkConfig(gatewayConfigWithD1Binding('CONSOLE_DB', 'seams-console-staging'), 'gateway');
+  const result = await checkConfig(
+    gatewayConfigWithD1Binding('CONSOLE_DB', 'seams-console-staging'),
+    'gateway',
+  );
   expectErrorContaining(result, 'duplicate D1 binding CONSOLE_DB');
 });
 
@@ -127,7 +169,10 @@ test('D1 staging readiness check rejects signer bindings in console profile', as
   const result = await checkConfig(validD1GatewayStagingConfig(), 'console');
   expectErrorContaining(result, 'console staging config must not reference SIGNER_DB');
   expectErrorContaining(result, 'console staging config must not reference THRESHOLD_STORE');
-  expectErrorContaining(result, 'console staging config must not reference SIGNING_ROOT_KEK_PROVIDER');
+  expectErrorContaining(
+    result,
+    'console staging config must not reference SIGNING_ROOT_KEK_PROVIDER',
+  );
 });
 
 test('D1 staging readiness check rejects the local development Worker config', async () => {

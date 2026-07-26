@@ -184,6 +184,7 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
   private readonly rejectedSetKeys = new Set<string>();
   private readonly rejectedGetDelKeys = new Set<string>();
   private readonly rejectedDeleteKeys = new Set<string>();
+  private readonly lostSetResponsePrefixes = new Set<string>();
 
   rejectNextSet(key: string): void {
     this.rejectedSetKeys.add(key);
@@ -195,6 +196,10 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
 
   rejectNextDelete(key: string): void {
     this.rejectedDeleteKeys.add(key);
+  }
+
+  loseNextSetResponseForPrefix(prefix: string): void {
+    this.lostSetResponsePrefixes.add(prefix);
   }
 
   async fetch(_input: RequestInfo, init?: RequestInit): Promise<Response> {
@@ -229,6 +234,12 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
       });
     }
     this.values.set(key, request.value);
+    for (const prefix of this.lostSetResponsePrefixes) {
+      if (key.startsWith(prefix)) {
+        this.lostSetResponsePrefixes.delete(prefix);
+        throw new Error('Injected Durable Object set response loss');
+      }
+    }
     return recordingDurableObjectJson({ ok: true, value: true });
   }
 
@@ -339,9 +350,7 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
       });
     }
     this.values.delete(ceremonyKey);
-    const walletReservationReleased = reservationKey
-      ? this.values.delete(reservationKey)
-      : false;
+    const walletReservationReleased = reservationKey ? this.values.delete(reservationKey) : false;
     return recordingDurableObjectJson({
       ok: true,
       value: {
@@ -501,7 +510,8 @@ export function testEcdsaClientBootstrap(
     keyScope: prepare.keyScope,
     relayerKeyId: prepare.relayerKeyId,
     registrationPreparationId: prepare.registrationPreparationId,
-    derivationClientSharePublicKey33B64u: 'test-client-share-public-key' as TestEcdsaClientSharePublicKey,
+    derivationClientSharePublicKey33B64u:
+      'test-client-share-public-key' as TestEcdsaClientSharePublicKey,
     clientShareRetryCounter: 0,
     contextBinding32B64u: 'test-context-binding-32',
     requestId: prepare.requestId,
@@ -898,6 +908,51 @@ export function restoreOidcJwksFetchMock(originalFetch: typeof globalThis.fetch)
 
 export function applySignerMigrations(database: D1DatabaseLike): Promise<void> {
   return applyD1MigrationFiles(database, listD1MigrationFiles('d1-signer'));
+}
+
+export async function expireD1VersionedJsonClaims(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly recordKeyPrefix: string;
+}): Promise<void> {
+  await input.database
+    .prepare(
+      `UPDATE router_ab_yao_versioned_json_records
+          SET record_json = json_set(record_json, '$.claimedAtMs', 0)
+        WHERE namespace = ?1
+          AND org_id = ?2
+          AND project_id = ?3
+          AND env_id = ?4
+          AND record_key LIKE ?5`,
+    )
+    .bind(input.namespace, input.orgId, input.projectId, input.envId, `${input.recordKeyPrefix}%`)
+    .run();
+}
+
+export async function countD1VersionedJsonRecords(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly recordKeyPrefix: string;
+}): Promise<number> {
+  const row = await input.database
+    .prepare(
+      `SELECT COUNT(*) AS count
+         FROM router_ab_yao_versioned_json_records
+        WHERE namespace = ?1
+          AND org_id = ?2
+          AND project_id = ?3
+          AND env_id = ?4
+          AND record_key LIKE ?5`,
+    )
+    .bind(input.namespace, input.orgId, input.projectId, input.envId, `${input.recordKeyPrefix}%`)
+    .first<{ readonly count: number }>();
+  return Number(row?.count || 0);
 }
 
 export function isSqliteJsonRow(input: unknown): input is SqliteJsonRow {

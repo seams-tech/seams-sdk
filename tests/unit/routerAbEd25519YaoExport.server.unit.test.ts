@@ -1,9 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import { parseSigningGrantId, parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
   deriveRouterAbEd25519YaoExportAuthorizationDigestV1,
   deriveRouterAbEd25519YaoExportConfirmationDigestV1,
   deriveRouterAbEd25519YaoRuntimePolicyBindingV1,
@@ -11,6 +13,7 @@ import {
   parseRouterAbEd25519YaoExportExecuteRequestV1,
   type RouterAbEd25519YaoExportAdmissionRequestV1,
   type RouterAbEd25519YaoExportAuthorizationIdentityV1,
+  type RouterAbEd25519YaoExportFreshAuthorizationIdentityV1,
   type RouterAbEd25519YaoExportAuthorityBindingV1,
   type RouterAbEd25519YaoExportExecuteRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
@@ -37,11 +40,42 @@ import {
   type RouterAbEd25519YaoExportBackend,
   type RouterAbEd25519YaoExportBackendResult,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoExport';
+import {
+  handleRouterAbEd25519YaoExportRequestScopedCloudflareV1,
+  type RouterAbEd25519YaoExportRequestScopedCloudflareInputV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoExportRequestScopedCloudflare';
+import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
+import {
+  encodeRouterAbEd25519YaoProductRegistrationStateV1,
+  parseRouterAbEd25519YaoProductRegistrationStateJsonV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPersistence';
+import {
+  partitionRouterAbEd25519YaoProductRegistrationStateV1,
+  type RouterAbEd25519YaoProductRegistrationSharedStateV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitioning';
+import type {
+  RouterAbEd25519YaoProductRegistrationPartitionedStateCommitInputV1,
+  RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
+  RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
+  RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import type {
   RouterAbEd25519YaoActiveCapabilityLookupV1,
   RouterAbEd25519YaoActiveCapabilityLookupResultV1,
   RouterAbEd25519YaoActiveCapabilityResolverV1,
+  RouterAbEd25519YaoActiveCapabilityDescriptorV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+import {
+  InMemoryRouterAbEd25519YaoRecoveryService,
+  type RouterAbEd25519YaoRecoveryBackend,
+  type RouterAbEd25519YaoRecoveryBackendResult,
+} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+import type { WalletEd25519YaoActiveCapabilityRecord } from '../../packages/sdk-server-ts/src/core/WalletStore';
+import { buildRouterAbEd25519YaoCapabilityReplacementFixture } from './helpers/routerAbEd25519YaoRecoveryRequestScoped.fixtures';
+import {
+  createRouterAbEd25519YaoExistingWalletD1Fixture,
+  routerAbEd25519YaoCapabilityLookupFixture,
+} from './helpers/routerAbEd25519YaoExistingWalletD1.fixtures';
 
 const WALLET_ID = 'wallet-export-1';
 const NEAR_ACCOUNT_ID = '0c'.repeat(32);
@@ -80,7 +114,7 @@ type BackendExecution =
   | { readonly kind: 'success' }
   | { readonly kind: 'failure'; readonly message: string };
 
-type ActiveCapabilitySubstitution = 'none' | 'subject' | 'key' | 'slot' | 'epoch' | 'scope';
+type ActiveCapabilitySubstitution = 'none' | 'key' | 'slot' | 'epoch' | 'scope';
 
 type ReceiptScopeSubstitution =
   | 'none'
@@ -197,7 +231,7 @@ function exportBinding(request: RouterAbEd25519YaoExportAdmissionRequestV1) {
         selected_server_id: request.scope.signing_worker_id,
       },
       operation: 'export' as const,
-      session_id: bytes(71),
+      session_id: bytes(request.authorization.nonce[0] ?? 71),
       stable_key_context_binding: bytes(72),
     },
     registered_public_key: request.registered_public_key,
@@ -339,7 +373,7 @@ class ActiveCapabilityFixture implements RouterAbEd25519YaoActiveCapabilityResol
   constructor(private readonly substitution: ActiveCapabilitySubstitution = 'none') {}
 
   resolveActiveCapability(
-    input: RouterAbEd25519YaoActiveCapabilityLookupV1,
+    _input: RouterAbEd25519YaoActiveCapabilityLookupV1,
   ): RouterAbEd25519YaoActiveCapabilityLookupResultV1 {
     return {
       ok: true,
@@ -347,8 +381,7 @@ class ActiveCapabilityFixture implements RouterAbEd25519YaoActiveCapabilityResol
         kind: 'router_ab_ed25519_yao_active_capability_v1',
         activeCapabilityBinding: bytes(110),
         registeredPublicKey: bytes(12),
-        nearAccountId:
-          this.substitution === 'subject' ? 'substituted-subject.testnet' : input.nearAccountId,
+        nearAccountId: NEAR_ACCOUNT_ID,
         applicationBinding: {
           wallet_id: WALLET_ID,
           near_ed25519_signing_key_id:
@@ -377,7 +410,7 @@ class SessionFixture implements SessionAdapter {
   constructor(
     private readonly result:
       | { readonly ok: true; readonly claims: SessionClaims }
-      | { readonly ok: false },
+      | { readonly ok: false; readonly reason: 'missing' },
   ) {}
 
   async signJwt(): Promise<string> {
@@ -385,7 +418,8 @@ class SessionFixture implements SessionAdapter {
   }
 
   async parse(): Promise<
-    { readonly ok: true; readonly claims: SessionClaims } | { readonly ok: false }
+    | { readonly ok: true; readonly claims: SessionClaims }
+    | { readonly ok: false; readonly reason: 'missing' }
   > {
     return this.result;
   }
@@ -432,6 +466,121 @@ class AuthorizationFixture implements RouterAbEd25519YaoExportAuthorizationAdapt
   }
 }
 
+class RequestScopedAuthorizationFixture implements RouterAbEd25519YaoExportAuthorizationAdapter {
+  calls = 0;
+
+  constructor(private readonly throwOnAdmission = false) {}
+
+  authorize(
+    input: RouterAbEd25519YaoExportAuthorizationInput,
+  ): RouterAbEd25519YaoExportAuthorizationResult {
+    this.calls += 1;
+    if (this.throwOnAdmission && input.kind === 'admit') {
+      throw new Error('WebAuthn counter update outcome was lost');
+    }
+    return { ok: true };
+  }
+}
+
+class RequestScopedExportBackend extends ExportBackendFixture {
+  constructor(
+    private readonly throwAdmission = false,
+    private readonly throwExecution = false,
+  ) {
+    super();
+  }
+
+  override admitExport(
+    request: RouterAbEd25519YaoExportAdmissionRequestV1,
+  ): RouterAbEd25519YaoExportBackendResult {
+    if (this.throwAdmission) {
+      this.admitCalls += 1;
+      throw new Error('Router admission response was lost');
+    }
+    return super.admitExport(request);
+  }
+
+  override executeExport(
+    request: RouterAbEd25519YaoExportExecuteRequestV1,
+  ): RouterAbEd25519YaoExportBackendResult {
+    if (this.throwExecution) {
+      this.executeCalls += 1;
+      throw new Error('Router execution response was lost');
+    }
+    return super.executeExport(request);
+  }
+}
+
+class UnavailableRecoveryBackendForCapabilityFixture implements RouterAbEd25519YaoRecoveryBackend {
+  admitRecovery(): RouterAbEd25519YaoRecoveryBackendResult {
+    return unavailableRecoveryBackendResult();
+  }
+
+  executeRecovery(): RouterAbEd25519YaoRecoveryBackendResult {
+    return unavailableRecoveryBackendResult();
+  }
+
+  activateRecovery(): RouterAbEd25519YaoRecoveryBackendResult {
+    return unavailableRecoveryBackendResult();
+  }
+}
+
+class RequestScopedStateStore implements RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1 {
+  private state = createRouterAbEd25519YaoProductRegistrationStateV1();
+  private sharedVersion: string | null = null;
+  private ceremonyVersion: string | null = null;
+  private commitSequence = 0;
+
+  constructor(private readonly conflictAtCommit: number | null = null) {}
+
+  async load(
+    lifecycleId: string,
+  ): Promise<RouterAbEd25519YaoProductRegistrationPartitionedStateV1> {
+    const state = structuredClone(this.state);
+    const partition = partitionRouterAbEd25519YaoProductRegistrationStateV1(state, lifecycleId);
+    return {
+      kind: 'router_ab_ed25519_yao_product_registration_partitioned_state_v1',
+      state,
+      sharedState: structuredClone(partition.shared),
+      sharedVersion: this.sharedVersion,
+      ceremonyVersion: this.ceremonyVersion,
+    };
+  }
+
+  async commit(
+    input: RouterAbEd25519YaoProductRegistrationPartitionedStateCommitInputV1,
+  ): Promise<RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1> {
+    this.commitSequence += 1;
+    if (this.conflictAtCommit === this.commitSequence) {
+      return { kind: 'version_mismatch', key: 'ceremony' };
+    }
+    if (
+      input.sharedVersion !== this.sharedVersion ||
+      input.ceremonyVersion !== this.ceremonyVersion
+    ) {
+      return { kind: 'version_mismatch', key: 'ceremony' };
+    }
+    this.state = structuredClone(input.state);
+    this.sharedVersion = nextVersion(this.sharedVersion);
+    this.ceremonyVersion = nextVersion(this.ceremonyVersion);
+    return {
+      kind: 'stored',
+      sharedVersion: this.sharedVersion,
+      ceremonyVersion: this.ceremonyVersion,
+    };
+  }
+
+  async sharedState(
+    lifecycleId: string,
+  ): Promise<RouterAbEd25519YaoProductRegistrationSharedStateV1> {
+    return (await this.load(lifecycleId)).sharedState;
+  }
+}
+
+function nextVersion(current: string | null): string {
+  return String(Number(current ?? '0') + 1);
+}
+
 function claimsForAuthority(authority: WalletAuthAuthority): SessionClaims {
   return {
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
@@ -472,6 +621,36 @@ function validEmailOtpClaims(): SessionClaims {
     emailHashHex: 'ab'.repeat(32),
   });
   return claimsForAuthority(authority);
+}
+
+function namedAccountClaimsForCapability(
+  capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1,
+): SessionClaims {
+  const walletId = capability.applicationBinding.wallet_id;
+  const authority = buildPasskeyWalletAuthAuthority({
+    walletId,
+    rpId: RP_ID,
+    credentialIdB64u: CREDENTIAL_ID,
+  });
+  return {
+    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    sub: walletId,
+    walletId,
+    nearAccountId: capability.nearAccountId,
+    nearEd25519SigningKeyId: capability.applicationBinding.near_ed25519_signing_key_id,
+    thresholdSessionId: capability.lifecycle.walletSessionId,
+    signingGrantId: SIGNING_GRANT_ID,
+    relayerKeyId: capability.lifecycle.signingWorkerId,
+    authority,
+    authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
+    runtimePolicyScope: capability.runtimePolicyScope,
+    thresholdExpiresAtMs: Date.now() + 60_000,
+    participantIds: [...capability.participantIds],
+    routerAbNormalSigning: {
+      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+      signingWorkerId: capability.lifecycle.signingWorkerId,
+    },
+  };
 }
 
 function webAuthnCredential(): WebAuthnAuthenticationCredential {
@@ -516,6 +695,7 @@ function authorizationInput(
       headers: { authorization: 'Bearer export-wallet-session' },
     }),
     body,
+    authorizationIdentity: exportAuthorizationIdentity(),
     authorization: {
       kind: 'passkey',
       webauthnAuthentication: webAuthnCredential(),
@@ -524,9 +704,36 @@ function authorizationInput(
   };
 }
 
+function exportAuthorizationIdentity(): RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 {
+  const thresholdSessionId = parseThresholdEd25519SessionId(WALLET_SESSION_ID);
+  const signingGrantId = parseSigningGrantId(SIGNING_GRANT_ID);
+  if (!thresholdSessionId.ok || !signingGrantId.ok) {
+    throw new Error('invalid export authorization fixture identity');
+  }
+  return {
+    thresholdSessionId: thresholdSessionId.value,
+    signingGrantId: signingGrantId.value,
+  };
+}
+
+function exportAuthorizationIdentityForCapability(
+  capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1,
+): RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 {
+  const thresholdSessionId = parseThresholdEd25519SessionId(capability.lifecycle.walletSessionId);
+  const signingGrantId = parseSigningGrantId(SIGNING_GRANT_ID);
+  if (!thresholdSessionId.ok || !signingGrantId.ok) {
+    throw new Error('invalid export authorization fixture identity');
+  }
+  return {
+    thresholdSessionId: thresholdSessionId.value,
+    signingGrantId: signingGrantId.value,
+  };
+}
+
 function jsonAdmissionRequest(
   body: RouterAbEd25519YaoExportAdmissionRequestV1,
   origin: string | null,
+  authorizationIdentity = exportAuthorizationIdentity(),
 ): Request {
   return jsonAdmissionEnvelopeRequest(
     body,
@@ -535,6 +742,7 @@ function jsonAdmissionRequest(
       webauthnAuthentication: webAuthnCredential(),
     },
     origin,
+    authorizationIdentity,
   );
 }
 
@@ -542,6 +750,7 @@ function jsonAdmissionEnvelopeRequest(
   body: RouterAbEd25519YaoExportAdmissionRequestV1,
   authorization: unknown,
   origin: string | null,
+  authorizationIdentity = exportAuthorizationIdentity(),
 ): Request {
   const headers = new Headers({
     authorization: 'Bearer export-wallet-session',
@@ -553,12 +762,209 @@ function jsonAdmissionEnvelopeRequest(
     headers,
     body: JSON.stringify({
       protocol: body,
+      authorizationIdentity,
       authorization,
     }),
   });
 }
 
+function jsonExecutionEnvelopeRequest(
+  body: RouterAbEd25519YaoExportExecuteRequestV1,
+  authorizationIdentity = exportAuthorizationIdentity(),
+): Request {
+  return new Request(`${ORIGIN}${ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1}`, {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer export-wallet-session',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      protocol: body,
+      authorizationIdentity,
+    }),
+  });
+}
+
+function requestScopedInput(input: {
+  readonly request: Request;
+  readonly store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1;
+  readonly backend: RouterAbEd25519YaoExportBackend;
+  readonly authorization: RouterAbEd25519YaoExportAuthorizationAdapter;
+  readonly capabilities?: RouterAbEd25519YaoActiveCapabilityResolverV1;
+}): RouterAbEd25519YaoExportRequestScopedCloudflareInputV1 {
+  return {
+    request: input.request,
+    store: input.store,
+    backend: input.backend,
+    capabilities: input.capabilities ?? new ActiveCapabilityFixture(),
+    authorization: input.authorization,
+  };
+}
+
+function resolvePersistedCapabilityDescriptor(
+  capability: WalletEd25519YaoActiveCapabilityRecord,
+): RouterAbEd25519YaoActiveCapabilityDescriptorV1 {
+  const service = new InMemoryRouterAbEd25519YaoRecoveryService(
+    new UnavailableRecoveryBackendForCapabilityFixture(),
+  );
+  const installed = service.installPersistedActiveCapability(capability);
+  if (!installed.ok) throw new Error(installed.message);
+  const resolved = service.resolveActiveCapability(
+    routerAbEd25519YaoCapabilityLookupFixture(capability),
+  );
+  if (!resolved.ok) throw new Error(resolved.message);
+  return resolved.capability;
+}
+
+async function admissionFixtureForActiveCapability(
+  capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1,
+  nowMs: number,
+): Promise<RouterAbEd25519YaoExportAdmissionRequestV1> {
+  const identity: RouterAbEd25519YaoExportAuthorizationIdentityV1 = {
+    scope: {
+      lifecycle_id: 'export-existing-recovered-1',
+      root_share_epoch: capability.lifecycle.rootShareEpoch,
+      account_id: capability.lifecycle.accountId,
+      wallet_session_id: capability.lifecycle.walletSessionId,
+      signer_set_id: capability.lifecycle.signerSetId,
+      signing_worker_id: capability.lifecycle.signingWorkerId,
+    },
+    application_binding: capability.applicationBinding,
+    participant_ids: capability.participantIds,
+    registered_public_key: capability.registeredPublicKey,
+    state_epoch: capability.stateEpoch,
+    runtime_policy_binding: await deriveRouterAbEd25519YaoRuntimePolicyBindingV1(
+      capability.runtimePolicyScope,
+    ),
+  };
+  const nonce = bytes(141);
+  const issuedAtMs = nowMs - 1_000;
+  const expiresAtMs = nowMs + 30_000;
+  const confirmationDigest = await deriveRouterAbEd25519YaoExportConfirmationDigestV1({
+    identity,
+    nonce,
+    issuedAtMs,
+    expiresAtMs,
+  });
+  const authorizationDigest = await deriveRouterAbEd25519YaoExportAuthorizationDigestV1({
+    identity,
+    confirmationDigest,
+    nonce,
+    issuedAtMs,
+    expiresAtMs,
+    thresholdSessionId: capability.lifecycle.walletSessionId,
+    signingGrantId: SIGNING_GRANT_ID,
+    authority: { kind: 'passkey', credentialIdB64u: CREDENTIAL_ID },
+  });
+  return requireParsed(
+    parseRouterAbEd25519YaoExportAdmissionRequestV1({
+      scope: identity.scope,
+      application_binding: identity.application_binding,
+      participant_ids: identity.participant_ids,
+      registered_public_key: identity.registered_public_key,
+      state_epoch: identity.state_epoch,
+      runtime_policy_binding: identity.runtime_policy_binding,
+      authorization: {
+        confirmation_digest: confirmationDigest,
+        authorization_digest: authorizationDigest,
+        nonce,
+        issued_at_ms: issuedAtMs,
+        expires_at_ms: expiresAtMs,
+      },
+    }),
+  );
+}
+
+function unavailableRecoveryBackendResult(): RouterAbEd25519YaoRecoveryBackendResult {
+  return {
+    ok: false,
+    status: 503,
+    code: 'fixture_backend_unavailable',
+    message: 'fixture backend unavailable',
+  };
+}
+
+async function responseBody(response: Response): Promise<unknown> {
+  return await response.json();
+}
+
 test.describe('Router A/B Ed25519 Yao export server boundary', () => {
+  test('rehydrates a recovered D1 capability and redelivers export from empty partitioned state', async () => {
+    const replacement = buildRouterAbEd25519YaoCapabilityReplacementFixture();
+    const capability = resolvePersistedCapabilityDescriptor(replacement.next);
+    const d1 = await createRouterAbEd25519YaoExistingWalletD1Fixture({
+      namespace: 'yao-existing-wallet-export-test',
+      capability: replacement.next,
+    });
+    try {
+      const request = await admissionFixtureForActiveCapability(capability, Date.now());
+      const execution = executeFixture(request);
+      const authorizationIdentity = exportAuthorizationIdentityForCapability(capability);
+      const initial = await d1.store.load(request.scope.lifecycle_id);
+      expect(initial.state.recovery.capabilities.size).toBe(0);
+      const backend = new RequestScopedExportBackend();
+      expect(capability.nearAccountId).toBe('wallet-recovery-1.testnet');
+      expect(capability.nearAccountId).not.toMatch(/^[0-9a-f]{64}$/);
+      const authorization = new RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter(
+        new SessionFixture({ ok: true, claims: namedAccountClaimsForCapability(capability) }),
+        new WebAuthnFixture(true),
+      );
+
+      const admitted = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+        requestScopedInput({
+          request: jsonAdmissionRequest(request, ORIGIN, authorizationIdentity),
+          store: d1.store,
+          backend,
+          authorization,
+          capabilities: d1.runtime,
+        }),
+      );
+      expect(admitted.status, JSON.stringify(await admitted.clone().json())).toBe(200);
+      const admissionBody = await admitted.text();
+      const admissionReplay = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+        requestScopedInput({
+          request: jsonAdmissionRequest(request, ORIGIN, authorizationIdentity),
+          store: d1.store,
+          backend,
+          authorization,
+          capabilities: d1.runtime,
+        }),
+      );
+      expect(admissionReplay.status).toBe(200);
+      expect(await admissionReplay.text()).toBe(admissionBody);
+
+      const executed = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+        requestScopedInput({
+          request: jsonExecutionEnvelopeRequest(execution, authorizationIdentity),
+          store: d1.store,
+          backend,
+          authorization,
+          capabilities: d1.runtime,
+        }),
+      );
+      expect(executed.status).toBe(200);
+      const executionBody = await executed.text();
+      const executionReplay = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+        requestScopedInput({
+          request: jsonExecutionEnvelopeRequest(execution, authorizationIdentity),
+          store: d1.store,
+          backend,
+          authorization,
+          capabilities: d1.runtime,
+        }),
+      );
+      expect(executionReplay.status).toBe(200);
+      expect(await executionReplay.text()).toBe(executionBody);
+      expect({
+        persistedCapabilityLoads: d1.persistedCapabilityLoadCount(),
+        admissionCalls: backend.admitCalls,
+        executionCalls: backend.executeCalls,
+      }).toEqual({ persistedCapabilityLoads: 1, admissionCalls: 1, executionCalls: 1 });
+    } finally {
+      d1.cleanup();
+    }
+  });
+
   test('verifies a fresh WebAuthn assertion against the exact digest, wallet, RP, and Origin', async () => {
     const nowMs = Date.now();
     const body = await admissionFixture(defaultAdmissionFixtureOptions(nowMs));
@@ -647,6 +1053,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       kind: 'admit',
       request: input.request,
       body: input.body,
+      authorizationIdentity: input.authorizationIdentity,
       authorization: {
         kind: 'passkey',
         webauthnAuthentication: substitutedWebAuthnCredential(),
@@ -696,9 +1103,8 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     ).resolves.toMatchObject({ ok: false, code: 'export_authorization_method_mismatch' });
   });
 
-  test('rejects active subject, key, slot, epoch, and lifecycle-scope substitutions', async () => {
+  test('rejects active key, slot, epoch, and lifecycle-scope substitutions', async () => {
     const substitutions: readonly ActiveCapabilitySubstitution[] = [
-      'subject',
       'key',
       'slot',
       'epoch',
@@ -767,7 +1173,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     }
   });
 
-  test('burns authorization replay, binding substitution, and backend execution failure', async () => {
+  test('redelivers exact admission and retains terminal binding and backend failures', async () => {
     const nowMs = Date.now();
     const request = await admissionFixture(defaultAdmissionFixtureOptions(nowMs));
     const backend = new ExportBackendFixture();
@@ -776,11 +1182,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       new ActiveCapabilityFixture(),
     );
     expect((await service.admitExport(request)).ok).toBe(true);
-    expect(await service.admitExport(request)).toMatchObject({
-      ok: false,
-      status: 409,
-      code: 'admission_failed',
-    });
+    expect(await service.admitExport(request)).toEqual(await service.admitExport(request));
     expect(backend.admitCalls).toBe(1);
 
     const substitutedBinding = exportBinding(request);
@@ -824,8 +1226,8 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     });
     expect(await failingService.executeExport(failureExecute)).toMatchObject({
       ok: false,
-      status: 409,
-      code: 'export_consumed',
+      status: 503,
+      code: 'execution_failed',
     });
     expect(failingBackend.executeCalls).toBe(1);
   });
@@ -852,13 +1254,241 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     expect((await service.executeExport(executeFixture(first))).ok).toBe(true);
     expect((await service.admitExport(second)).ok).toBe(true);
     expect((await service.executeExport(executeFixture(second))).ok).toBe(true);
-    expect(await service.admitExport(second)).toMatchObject({
-      ok: false,
-      status: 409,
-      code: 'admission_failed',
-    });
+    expect((await service.admitExport(second)).ok).toBe(true);
     expect(backend.admitCalls).toBe(2);
     expect(backend.executeCalls).toBe(2);
+  });
+
+  test('persists authorization, backend claims, and exact completed export redelivery', async () => {
+    const request = await admissionFixture(defaultAdmissionFixtureOptions(Date.now()));
+    const execution = executeFixture(request);
+    const store = new RequestScopedStateStore();
+    const backend = new RequestScopedExportBackend();
+    const authorization = new RequestScopedAuthorizationFixture();
+
+    const admissionResponse = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(request, ORIGIN),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(admissionResponse.status).toBe(200);
+
+    const firstExecution = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonExecutionEnvelopeRequest(execution),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(firstExecution.status).toBe(200);
+    const firstBody = await firstExecution.text();
+
+    const replay = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonExecutionEnvelopeRequest(execution),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(replay.status).toBe(200);
+    expect(await replay.text()).toBe(firstBody);
+    expect(backend.admitCalls).toBe(1);
+    expect(backend.executeCalls).toBe(1);
+    expect(authorization.calls).toBe(3);
+    expect((await store.sharedState(request.scope.lifecycle_id)).exportAuthorizationNonces).toEqual(
+      new Set([
+        bytes(41)
+          .map((byte) => byte.toString(16).padStart(2, '0'))
+          .join(''),
+      ]),
+    );
+
+    const persisted = await store.load(request.scope.lifecycle_id);
+    const decoded = parseRouterAbEd25519YaoProductRegistrationStateJsonV1(
+      encodeRouterAbEd25519YaoProductRegistrationStateV1(persisted.state),
+    );
+    expect(decoded).not.toBeNull();
+    if (decoded === null) throw new Error('persisted export state must decode');
+    const reloaded = new InMemoryRouterAbEd25519YaoExportService(
+      backend,
+      new ActiveCapabilityFixture(),
+      decoded.export,
+    );
+    expect(reloaded.prepareExecuteExport(execution)).toEqual({
+      kind: 'completed',
+      value: JSON.parse(firstBody),
+    });
+  });
+
+  test('never repeats WebAuthn authorization after an uncertain side effect', async () => {
+    const request = await admissionFixture(defaultAdmissionFixtureOptions(Date.now()));
+    const store = new RequestScopedStateStore();
+    const backend = new RequestScopedExportBackend();
+    const authorization = new RequestScopedAuthorizationFixture(true);
+
+    const first = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(request, ORIGIN),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(first.status).toBe(503);
+    expect(await responseBody(first)).toMatchObject({
+      code: 'export_authorization_uncertain',
+    });
+
+    const retry = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(request, ORIGIN),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(retry.status).toBe(503);
+    expect(await responseBody(retry)).toMatchObject({
+      code: 'export_authorization_uncertain',
+    });
+    expect(authorization.calls).toBe(1);
+    expect(backend.admitCalls).toBe(0);
+  });
+
+  test('never repeats Router admission or execution after an uncertain response', async () => {
+    const admissionRequest = await admissionFixture(defaultAdmissionFixtureOptions(Date.now()));
+    const admissionStore = new RequestScopedStateStore();
+    const admissionBackend = new RequestScopedExportBackend(true);
+    const admissionAuthorization = new RequestScopedAuthorizationFixture();
+
+    const firstAdmission = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(admissionRequest, ORIGIN),
+        store: admissionStore,
+        backend: admissionBackend,
+        authorization: admissionAuthorization,
+      }),
+    );
+    expect(firstAdmission.status).toBe(503);
+    const admissionRetry = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(admissionRequest, ORIGIN),
+        store: admissionStore,
+        backend: admissionBackend,
+        authorization: admissionAuthorization,
+      }),
+    );
+    expect(admissionRetry.status).toBe(409);
+    expect(await responseBody(admissionRetry)).toMatchObject({ code: 'admission_in_progress' });
+    expect(admissionAuthorization.calls).toBe(1);
+    expect(admissionBackend.admitCalls).toBe(1);
+
+    const executionRequest = await admissionFixture({
+      ...defaultAdmissionFixtureOptions(Date.now()),
+      lifecycleId: 'export-lifecycle-execution-uncertain',
+      nonce: bytes(46),
+    });
+    const executionStore = new RequestScopedStateStore();
+    const executionBackend = new RequestScopedExportBackend(false, true);
+    const executionAuthorization = new RequestScopedAuthorizationFixture();
+    const admitted = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(executionRequest, ORIGIN),
+        store: executionStore,
+        backend: executionBackend,
+        authorization: executionAuthorization,
+      }),
+    );
+    expect(admitted.status).toBe(200);
+    const execution = executeFixture(executionRequest);
+    const firstExecution = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonExecutionEnvelopeRequest(execution),
+        store: executionStore,
+        backend: executionBackend,
+        authorization: executionAuthorization,
+      }),
+    );
+    expect(firstExecution.status).toBe(503);
+    const executionRetry = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonExecutionEnvelopeRequest(execution),
+        store: executionStore,
+        backend: executionBackend,
+        authorization: executionAuthorization,
+      }),
+    );
+    expect(executionRetry.status).toBe(409);
+    expect(await responseBody(executionRetry)).toMatchObject({ code: 'execution_in_progress' });
+    expect(executionBackend.executeCalls).toBe(1);
+  });
+
+  test('fails closed when WebAuthn succeeds but its authorization receipt CAS conflicts', async () => {
+    const request = await admissionFixture(defaultAdmissionFixtureOptions(Date.now()));
+    const store = new RequestScopedStateStore(2);
+    const backend = new RequestScopedExportBackend();
+    const authorization = new RequestScopedAuthorizationFixture();
+
+    const first = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(request, ORIGIN),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(first.status).toBe(503);
+    expect(await responseBody(first)).toMatchObject({
+      code: 'export_authorization_uncertain',
+    });
+
+    const retry = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(request, ORIGIN),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(retry.status).toBe(503);
+    expect(authorization.calls).toBe(1);
+    expect(backend.admitCalls).toBe(0);
+  });
+
+  test('never repeats Router admission after its terminal CAS conflicts', async () => {
+    const request = await admissionFixture(defaultAdmissionFixtureOptions(Date.now()));
+    const store = new RequestScopedStateStore(4);
+    const backend = new RequestScopedExportBackend();
+    const authorization = new RequestScopedAuthorizationFixture();
+
+    const first = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(request, ORIGIN),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(first.status).toBe(503);
+    expect(await responseBody(first)).toMatchObject({ code: 'admission_failed' });
+
+    const retry = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(request, ORIGIN),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(retry.status).toBe(409);
+    expect(await responseBody(retry)).toMatchObject({ code: 'admission_in_progress' });
+    expect(authorization.calls).toBe(1);
+    expect(backend.admitCalls).toBe(1);
   });
 
   test('derives the verifier Origin only from the actual Origin header', async () => {

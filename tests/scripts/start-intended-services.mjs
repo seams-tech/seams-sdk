@@ -42,6 +42,7 @@ const managedChildren = [];
 let shutdownStarted = false;
 let webServerReadyServer;
 let localConsoleOrganizationId = '';
+let d1LocalRuntimeConfig;
 const transientViteCachePaths = ['apps/seams-site/node_modules/.vite'];
 const requiredSdkDistArtifacts = [
   'packages/sdk-web/dist/esm/advanced.js',
@@ -302,6 +303,7 @@ function seedLocalConsole() {
 }
 
 function siteEnv() {
+  const runtime = requireD1LocalRuntimeConfig();
   return {
     ...process.env,
     VITE_RELAYER_URL: routerUrl,
@@ -315,6 +317,9 @@ function siteEnv() {
     VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'local-signing-worker',
     VITE_SEAMS_PROJECT_ENVIRONMENT_ID: projectEnvironmentId,
     VITE_SEAMS_PUBLISHABLE_KEY: publishableKey,
+    VITE_SIGNING_SESSION_PERSISTENCE_MODE: runtime.signingSessionPersistenceMode,
+    VITE_SIGNING_SESSION_SEAL_KEY_VERSION: runtime.signingSessionSealKeyVersion,
+    VITE_SIGNING_SESSION_SHAMIR_P_B64U: runtime.signingSessionShamirPrimeB64u,
     VITE_ENABLE_INTENDED_E2E: '1',
   };
 }
@@ -335,11 +340,19 @@ function prepareD1LocalWranglerRuntimeConfig() {
     localEnvRoot: routerAbLocalRoot,
     outputConfigPath: d1LocalWranglerConfigPath,
   });
+  d1LocalRuntimeConfig = runtime;
   localConsoleOrganizationId = runtime.localConsoleOrganizationId;
 
   console.log(
     `[intended-services] prepared D1 local wrangler config at ${path.relative(repoRoot, d1LocalWranglerConfigPath)}`,
   );
+}
+
+function requireD1LocalRuntimeConfig() {
+  if (!d1LocalRuntimeConfig) {
+    throw new Error('D1 local runtime config has not been prepared');
+  }
+  return d1LocalRuntimeConfig;
 }
 
 function requireLocalConsoleOrganizationId() {

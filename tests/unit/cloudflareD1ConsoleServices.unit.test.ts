@@ -1035,9 +1035,7 @@ test('local D1 Worker mounts the shared Ed25519 Yao product composition', async 
   const response = await callLocalWorkflowWorker(
     {
       ...baseEnv,
-      DERIVER_A_URL: 'http://127.0.0.1:8811',
-      DERIVER_B_URL: 'http://127.0.0.1:8812',
-      SIGNING_WORKER_URL: 'http://127.0.0.1:8813',
+      MPC_ROUTER_URL: 'http://127.0.0.1:8810',
       SIGNING_WORKER_ID: LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID,
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'local-yao-internal-auth',
       DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: `x25519:${'44'.repeat(32)}`,

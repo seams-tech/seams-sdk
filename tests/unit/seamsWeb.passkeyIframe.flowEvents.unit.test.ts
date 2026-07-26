@@ -94,6 +94,14 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
           eventBase(requestId, 'registration', 'registration.signer.ecdsa.provision.succeeded', 10, 'succeeded', 'EVM signer ready'),
           eventBase(requestId, 'registration', 'registration.completed', 11, 'succeeded', 'Registration complete'),
         ].forEach((payload) => postProgress(requestId, payload));
+        postProgress(requestId, {
+          event: 'seams_registration_timing_span_v1',
+          span: 'registration.post_touch_id',
+          operation: 'registration',
+          outcome: 'success',
+          duration_ms: 42,
+          trace_id: '0123456789abcdef0123456789abcdef',
+        });
         postResult(requestId, {
           success: true,
           walletId,
@@ -165,6 +173,7 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
         });
 
         const registrationEvents: Array<Record<string, unknown>> = [];
+        const registrationTimingSpans: Array<Record<string, unknown>> = [];
         const unlockEvents: Array<Record<string, unknown>> = [];
         const withTimeout = async <T>(label: string, promise: Promise<T>): Promise<T> => {
           let timeoutId: number | undefined;
@@ -192,6 +201,7 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
           'registration',
           pm.registration.registerPasskey({
             onEvent: captureEvent(registrationEvents),
+            onTimingSpan: (span: Record<string, unknown>) => registrationTimingSpans.push(span),
           }),
         );
         const unlock = await withTimeout(
@@ -215,6 +225,7 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
           registrationEventAuthMethods: [
             ...new Set(registrationEvents.map((event) => event.authMethod)),
           ],
+          registrationTimingSpans,
           registrationInteractions: registrationEvents.map((event) => event.interaction ?? null),
           unlockEventPhases: unlockEvents.map((event) => event.phase),
           unlockEventSteps: unlockEvents.map((event) => event.step),
@@ -251,6 +262,16 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
       registrationEventSteps: [1, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 10, 11],
       registrationEventFlows: ['registration'],
       registrationEventAuthMethods: ['passkey'],
+      registrationTimingSpans: [
+        {
+          event: 'seams_registration_timing_span_v1',
+          span: 'registration.post_touch_id',
+          operation: 'registration',
+          outcome: 'success',
+          duration_ms: 42,
+          trace_id: '0123456789abcdef0123456789abcdef',
+        },
+      ],
       registrationInteractions: [
         null,
         { kind: 'passkey_create', overlay: 'show' },

@@ -27,6 +27,7 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
     path.join(localEnvRoot, '.env.router-ab.signing-worker.local'),
   );
   const localConsoleOrganizationId = resolveLocalConsoleOrganizationId({ localEnvRoot });
+  const ceremonyJwksJson = requireNonEmptyInput(input.ceremonyJwksJson, 'ceremonyJwksJson');
   const sdkRouterUrl = requiredEnv(routerEnv, 'GATEWAY_PUBLIC_URL');
   const mpcRouterUrl = `http://127.0.0.1:${STRICT_WORKER_ROLES[0].port}`;
 
@@ -57,6 +58,7 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
       deriverBEnv,
       signingWorkerEnv,
       localConsoleOrganizationId,
+      ceremonyJwksJson,
     });
     writeFileSync(outputPath, config);
     const secretPath = path.join(outputRoot, `.dev.vars.${role}`);
@@ -104,8 +106,8 @@ function applyRoleVars(source, role, env) {
       config = replaceTomlAssignment(config, 'ROUTER_JWT_AUDIENCE', 'router-ab');
       config = replaceTomlAssignment(
         config,
-        'ROUTER_JWT_JWKS_URL',
-        `${env.sdkRouterUrl}/.well-known/router-ab-ceremony-jwks.json`,
+        'ROUTER_JWT_JWKS_JSON',
+        env.ceremonyJwksJson,
       );
       config = replaceTopologyPublicVars(config, env);
       return replaceTomlAssignment(
@@ -290,6 +292,13 @@ function setTomlSectionAssignment(source, section, key, value) {
     lines.splice(sectionEnd, 0, rendered);
   }
   return lines.join('\n');
+}
+
+function requireNonEmptyInput(value, name) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`Router A/B strict local runtime is missing ${name}`);
+  }
+  return value.trim();
 }
 
 function readEnvMap(filePath) {
