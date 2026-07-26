@@ -1583,10 +1583,13 @@ export class WalletIframeRouter {
     const { onDemoOtp, onEvent, ...wirePayload } = payload;
     const diagnosticsEnabled =
       Reflect.get(globalThis, '__SEAMS_EMAIL_OTP_UNLOCK_DIAGNOSTICS') === true;
+    const registrationBenchmarkTimings =
+      Reflect.get(globalThis, '__SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS') === true;
     const requestPayload: PMGoogleEmailOtpWalletAuthStartPayload = {
       ...wirePayload,
       diagnostics: {
         emailOtpUnlockTimings: diagnosticsEnabled,
+        registrationBenchmarkTimings,
       },
     };
     const res = await this.post<
