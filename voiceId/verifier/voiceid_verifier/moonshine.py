@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import threading
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, Mapping, Sequence
 
@@ -12,11 +13,11 @@ MODEL_ARCHES = {
     "small_streaming": 4,
 }
 DEFAULT_INTENT_PHRASES = {
-    "approve": "approve",
-    "reject": "reject",
-    "cancel": "cancel",
-    "repeat": "repeat",
-    "unrelated": "unrelated",
+    "approve": "approve this request",
+    "reject": "reject this request",
+    "cancel": "cancel this request",
+    "repeat": "repeat the challenge",
+    "unrelated": "unrelated statement",
 }
 
 
@@ -48,6 +49,8 @@ class MoonshineIntentDecision:
     intent: str | None
     canonical_phrase: str | None
     confidence: float
+    runner_up_intent: str | None
+    runner_up_confidence: float
     reason: str | None
 
     def to_json(self) -> dict[str, Any]:
@@ -88,6 +91,7 @@ class MoonshineRecognizer:
         model_arch: str,
         intent_model_path: str,
         intent_threshold: float = 0.8,
+        intent_margin: float = 0.1,
         intent_phrases: Mapping[str, str] | None = None,
         transcriber_factory: Callable[..., Any] | None = None,
         intent_factory: Callable[..., Any] | None = None,
@@ -96,6 +100,8 @@ class MoonshineRecognizer:
             raise ValueError("model_arch must be tiny_streaming or small_streaming")
         if not 0 <= intent_threshold <= 1:
             raise ValueError("intent_threshold must be between 0 and 1")
+        if not 0 <= intent_margin <= 1:
+            raise ValueError("intent_margin must be between 0 and 1")
         factories = load_moonshine_factories(transcriber_factory, intent_factory)
         model_arch_value = model_arch_for_constructor(model_arch, transcriber_factory)
         self._transcriber = factories.transcriber(
@@ -109,6 +115,7 @@ class MoonshineRecognizer:
             model_variant="q4",
         )
         self._intent_threshold = intent_threshold
+        self._intent_margin = intent_margin
         self._intent_phrases = dict(intent_phrases or DEFAULT_INTENT_PHRASES)
         self._lock = threading.Lock()
 
@@ -118,12 +125,14 @@ class MoonshineRecognizer:
         *,
         expected_phrase: str,
         intent_name: str,
+        challenge_tokens: Sequence[str],
     ) -> MoonshineSpeechAnalysis:
         with self._lock:
             return self._analyze_locked(
                 samples,
                 expected_phrase=expected_phrase,
                 intent_name=intent_name,
+                challenge_tokens=challenge_tokens,
             )
 
     def _analyze_locked(
@@ -132,11 +141,21 @@ class MoonshineRecognizer:
         *,
         expected_phrase: str,
         intent_name: str,
+        challenge_tokens: Sequence[str],
     ) -> MoonshineSpeechAnalysis:
         if len(samples) == 0:
             raise ValueError("canonical PCM samples must not be empty")
         if expected_phrase.strip() == "" or intent_name.strip() == "":
             raise ValueError("expected_phrase and intent_name must be non-empty")
+        normalized_challenge_tokens = tuple(
+            normalize_transcript(token)
+            for token in challenge_tokens
+        )
+        if len(normalized_challenge_tokens) == 0 or any(
+            token == "" or " " in token
+            for token in normalized_challenge_tokens
+        ):
+            raise ValueError("challenge_tokens must contain normalized non-empty tokens")
         transcript = self._transcribe(samples)
         spoken_normalized = normalize_transcript(transcript)
         expected_normalized = normalize_transcript(expected_phrase)
@@ -144,13 +163,13 @@ class MoonshineRecognizer:
         phrase = build_phrase_decision(
             expected_normalized=expected_normalized,
             spoken_normalized=spoken_normalized,
-            expected_intent=intent_name,
-            matches=matches,
+            challenge_tokens=normalized_challenge_tokens,
         )
         intent = build_intent_decision(
             intent_name,
             matches,
             self._intent_threshold,
+            self._intent_margin,
             self._intent_phrases,
         )
         return MoonshineSpeechAnalysis(
@@ -223,8 +242,7 @@ def build_phrase_decision(
     *,
     expected_normalized: str,
     spoken_normalized: str,
-    expected_intent: str,
-    matches: Sequence[Any],
+    challenge_tokens: Sequence[str],
 ) -> MoonshinePhraseDecision:
     if spoken_normalized == "":
         return MoonshinePhraseDecision(
@@ -234,27 +252,27 @@ def build_phrase_decision(
             confidence=0.0,
             reason="transcript_unavailable",
         )
-    if spoken_normalized == expected_normalized:
+    expected_counts = Counter(challenge_tokens)
+    spoken_counts = Counter(spoken_normalized.split())
+    matched_count = sum(
+        min(expected_count, spoken_counts[token])
+        for token, expected_count in expected_counts.items()
+    )
+    expected_count = sum(expected_counts.values())
+    coverage = matched_count / expected_count
+    if coverage == 1:
         return MoonshinePhraseDecision(
             kind="accepted",
             expected_normalized=expected_normalized,
             spoken_normalized=spoken_normalized,
-            confidence=1.0,
-            reason=None,
-        )
-    if matches and getattr(matches[0], "canonical_phrase", "") == expected_intent:
-        return MoonshinePhraseDecision(
-            kind="accepted",
-            expected_normalized=expected_normalized,
-            spoken_normalized=spoken_normalized,
-            confidence=float(getattr(matches[0], "similarity", 0.0)),
+            confidence=coverage,
             reason=None,
         )
     return MoonshinePhraseDecision(
         kind="rejected",
         expected_normalized=expected_normalized,
         spoken_normalized=spoken_normalized,
-        confidence=float(getattr(matches[0], "similarity", 0.0)) if matches else 0.0,
+        confidence=coverage,
         reason="phrase_mismatch",
     )
 
@@ -263,6 +281,7 @@ def build_intent_decision(
     expected_intent: str,
     matches: Sequence[Any],
     threshold: float,
+    margin: float,
     intent_phrases: Mapping[str, str],
 ) -> MoonshineIntentDecision:
     if not matches:
@@ -271,18 +290,45 @@ def build_intent_decision(
             intent=None,
             canonical_phrase=None,
             confidence=0.0,
+            runner_up_intent=None,
+            runner_up_confidence=0.0,
             reason="intent_unavailable",
         )
     match = matches[0]
     canonical_phrase = str(getattr(match, "canonical_phrase", ""))
     confidence = float(getattr(match, "similarity", 0.0))
+    runner_up_confidence = (
+        float(getattr(matches[1], "similarity", 0.0))
+        if len(matches) > 1
+        else 0.0
+    )
     matched_intent = intent_name_for_canonical_phrase(canonical_phrase, intent_phrases)
-    if matched_intent == expected_intent and confidence >= threshold:
+    runner_up_intent = (
+        intent_name_for_canonical_phrase(
+            str(getattr(matches[1], "canonical_phrase", "")),
+            intent_phrases,
+        )
+        if len(matches) > 1
+        else None
+    )
+    if confidence < threshold or confidence - runner_up_confidence < margin:
+        return MoonshineIntentDecision(
+            kind="uncertain",
+            intent=matched_intent,
+            canonical_phrase=canonical_phrase or None,
+            confidence=confidence,
+            runner_up_intent=runner_up_intent,
+            runner_up_confidence=runner_up_confidence,
+            reason="intent_low_confidence",
+        )
+    if matched_intent == expected_intent:
         return MoonshineIntentDecision(
             kind="accepted",
             intent=expected_intent,
             canonical_phrase=canonical_phrase,
             confidence=confidence,
+            runner_up_intent=runner_up_intent,
+            runner_up_confidence=runner_up_confidence,
             reason=None,
         )
     return MoonshineIntentDecision(
@@ -290,6 +336,8 @@ def build_intent_decision(
         intent=matched_intent,
         canonical_phrase=canonical_phrase or None,
         confidence=confidence,
+        runner_up_intent=runner_up_intent,
+        runner_up_confidence=runner_up_confidence,
         reason="intent_mismatch",
     )
 

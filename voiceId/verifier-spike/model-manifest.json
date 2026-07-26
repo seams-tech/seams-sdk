@@ -304,6 +304,39 @@
           "sha256": "cd70225b05b37be64fc5a95e24395d804231d43f74b2e1e5a513db7b69b34c33"
         }
       ]
+    },
+    {
+      "id": "aasist-asvspoof2019-la",
+      "relativePath": "aasist",
+      "source": "https://github.com/clovaai/aasist",
+      "revision": "a04c9863f63d44471dde8a6abcb3b082b07cd1d1",
+      "license": "MIT",
+      "expectedPublishedBytes": 1281532,
+      "downloadedBytes": 1302553,
+      "fileCount": 4,
+      "treeSha256": "c5cc9b2cda9883901dbe706e002aeeb53dda0c1aa9c3d88cb8b7c190f86e000c",
+      "files": [
+        {
+          "path": "AASIST.conf",
+          "bytes": 997,
+          "sha256": "c25023331685027cce90e1b9a0d2df10aa04b2a27d9b27d5afa36e6815b0fe76"
+        },
+        {
+          "path": "AASIST.pth",
+          "bytes": 1281532,
+          "sha256": "51d2d9cf0738172f61e2a384ec50a54a55363240f67c971ed55a92435bc1a1c0"
+        },
+        {
+          "path": "AASIST.py",
+          "bytes": 18960,
+          "sha256": "9e0d3e80937dd0577beea7883098465a479da23a198ebc0d712abcc59b0bec50"
+        },
+        {
+          "path": "LICENSE",
+          "bytes": 1064,
+          "sha256": "da2e79b8592d166ef505224300968b80ebe1e4c217c43b94a5ec627d81cd4142"
+        }
+      ]
     }
   ]
 }

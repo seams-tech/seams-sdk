@@ -273,15 +273,20 @@ browser never supplies the expected phrase or intent policy. The
 `analyze-verification` route extends that same decode to ECAPA speaker scoring
 against the server-held template and returns the independent phrase, intent,
 speaker, quality, and PAD decisions in one typed response. The Python /
-Moonshine deployment profile uses this route for verification; the PAD result
-is explicitly unavailable until a PAD model is calibrated.
+Moonshine deployment profile uses this route for verification. When the pinned
+AASIST source/config/checkpoint and calibrated thresholds are configured, PAD
+consumes the same accepted VAD region as ECAPA and runs concurrently with
+Moonshine and speaker scoring. Unconfigured PAD remains explicit unavailable
+research evidence.
 
 Enrollment audio and internal embeddings remain inside one atomic sidecar
 operation. The transport has no embedding export or separate template-build
 operation. The production-shaped model transport is the persistent HTTP
 sidecar; request-scoped Python process startup is absent. The sidecar loads the
 configured runtime before serving, publishes model readiness, and rejects
-bounded-queue saturation deterministically.
+bounded-queue saturation deterministically. Independent speech, speaker, and
+PAD deadlines cancel queued work and fail closed; native calls already running
+finish on bounded workers and zero their private input buffers.
 
 ## Persistence And Privacy
 

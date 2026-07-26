@@ -40,24 +40,32 @@ test('Python Moonshine analysis provider parses one combined verification respon
         speech: {
           kind: 'speech_analysis',
           requestId: 'speech_1',
-          transcript: 'please approve transfer',
+          transcript: 'please approve this request f e d c b a',
           phrase: {
             kind: 'accepted',
-            expectedNormalized: 'approve transfer',
-            spokenNormalized: 'please approve transfer',
+            expectedNormalized: 'approve this request a b c d e f',
+            spokenNormalized: 'please approve this request f e d c b a',
             confidence: 0.91,
             reason: null,
           },
           intent: {
             kind: 'accepted',
             intent: 'approve',
-            canonicalPhrase: 'approve',
+            canonicalPhrase: 'approve this request',
             confidence: 0.91,
             reason: null,
           },
           sampleRateHz: 16000,
         },
-        pad: { kind: 'pad_unavailable', reason: 'ordinary_browser_capture' },
+        pad: {
+          kind: 'accepted',
+          score: 0.91,
+          rejectThreshold: 0.35,
+          acceptThreshold: 0.65,
+          modelVersion: 'aasist-test',
+          calibrationVersion: 'pad-calibration-test',
+          latencyMs: 18.5,
+        },
       };
     },
   };
@@ -72,7 +80,7 @@ test('Python Moonshine analysis provider parses one combined verification respon
       capturedAt: nowIsoDateTime(),
       recorder: 'test',
     }),
-    expectedPhrase: parsePromptPhrase('approve transfer'),
+    expectedPhrase: parsePromptPhrase('approve this request a b c d e f'),
     enrollment: {
       state: 'enrolled',
       userId: parseUserId('owner'),
@@ -92,7 +100,8 @@ test('Python Moonshine analysis provider parses one combined verification respon
   assert.equal(result.intent.kind, 'accepted');
   assert.equal(result.intent.kind === 'accepted' ? result.intent.matchedIntent : '', 'approve');
   assert.equal(result.speaker.kind, 'accepted');
-  assert.equal(result.pad.kind, 'pad_unavailable');
+  assert.equal(result.pad.kind, 'accepted');
   assert.ok(request !== null);
-  assert.equal(request['expectedPhrase'], 'approve transfer');
+  assert.equal(request['expectedPhrase'], 'approve this request a b c d e f');
+  assert.deepEqual(request['challengeTokens'], ['a', 'b', 'c', 'd', 'e', 'f']);
 });

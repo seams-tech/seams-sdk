@@ -99,7 +99,8 @@ The approved local baseline manifest is
 `voiceId/verifier-spike/model-manifest.json`. It records source revisions,
 licenses, file sizes, per-file SHA-256 digests, and a canonical tree digest for
 the Moonshine Tiny/Small F32 models, the native quantized Moonshine streaming
-models, the closed-set intent model, and SpeechBrain ECAPA. Rebuild or verify
+models, the closed-set intent model, SpeechBrain ECAPA, and the pinned upstream
+AASIST source/config/checkpoint. Rebuild or verify
 it against a model root with:
 
 ```sh
@@ -122,7 +123,51 @@ latency is measured). The sidecar route is
 `POST /voice-id/verifier/analyze-speech`; it returns transcript, semantic
 intent, and phrase decisions as separate fields. The production-shaped
 verification path is `POST /voice-id/verifier/analyze-verification`, which
-shares one canonical decode between Moonshine and speaker verification.
+shares one canonical decode between Moonshine, speaker verification, and PAD.
+
+## Frozen synthetic corpus
+
+`dia2-corpus-plan.json` and `elevenlabs-corpus-plan.json` are the concrete
+subject-disjoint generation inputs. They include stable designed identities,
+semantic approve/reject/cancel/repeat/unrelated cases, challenge errors,
+generic synthesis, and owner-authorized conditioned attacks. Run them only in
+the offline fixture pipeline:
+
+```sh
+pnpm -C voiceId corpus:generate:dia2 --help
+pnpm -C voiceId corpus:generate:elevenlabs --help
+pnpm -C voiceId corpus:freeze --help
+```
+
+The ElevenLabs batch records resolved voice ids plus request/output hashes and
+emits canonical 16 kHz WAV. The API key stays in `voiceId/.env`; plans and
+reports contain no secret. Corpus freezing validates each fragment, copies
+audio with a second hash check, sorts partitions deterministically, and emits a
+corpus tree digest.
+
+Run measurements and calibration from the frozen manifest:
+
+```sh
+pnpm -C voiceId benchmark:moonshine --help
+pnpm -C voiceId benchmark:calibrate:moonshine --help
+pnpm -C voiceId benchmark:ecapa --help
+pnpm -C voiceId benchmark:aasist --help
+pnpm -C voiceId benchmark:suite --help
+```
+
+The Moonshine report compares exact matching with the hybrid
+all-fresh-tokens/any-order policy and preserves top/runner-up intent scores.
+Calibration selects threshold and winning margin on the calibration partition,
+then chooses Tiny or Small using held-out accuracy and runtime budgets. ECAPA
+reports FAR, FRR, EER, confidence intervals, latency, and clone-attack
+acceptance separately. AASIST calibrates independent reject/uncertain/accept
+regions and reports APCER/BPCER by attack class and capture profile.
+
+`benchmark:suite` runs all three adapters from one validated corpus invocation
+and writes paired JSON and Markdown outputs. It binds the corpus and local
+model manifests by SHA-256 and embeds the complete component reports. Run
+`pnpm -C voiceId benchmark:suite --help` for the required model paths and
+output arguments.
 
 ## Model Comparison
 
