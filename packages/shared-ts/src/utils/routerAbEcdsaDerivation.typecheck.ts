@@ -1,17 +1,19 @@
-import type {
-  SigningGrantId,
-  ThresholdEcdsaSessionId,
-} from './domainIds';
+import type { SigningGrantId, ThresholdEcdsaSessionId } from './domainIds';
 import type {
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
   RouterAbEcdsaPostRegistrationSessionPolicyV1,
+  RouterAbEcdsaRegistrationActivationRequestV1,
+  RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from './routerAbEcdsaDerivation';
 import type { RuntimePolicyScope } from '../threshold/signingRootScope';
+import type { CorrelationId } from './canonicalPrimitives';
 
 declare const signingGrantId: SigningGrantId;
 declare const thresholdSessionId: ThresholdEcdsaSessionId;
 declare const runtimePolicyScope: RuntimePolicyScope;
 declare const activationResponse: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+declare const activationCorrelationId: CorrelationId;
+declare const clientActivationFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
 
 const sessionPolicy = {
   threshold_session_id: thresholdSessionId,
@@ -32,8 +34,7 @@ const invalidSessionPolicy = {
 } satisfies RouterAbEcdsaPostRegistrationSessionPolicyV1;
 void invalidSessionPolicy;
 
-const responseSigningGrantId: SigningGrantId =
-  activationResponse.session.signing_grant_id;
+const responseSigningGrantId: SigningGrantId = activationResponse.session.signing_grant_id;
 void responseSigningGrantId;
 
 const invalidActivationResponse = {
@@ -45,3 +46,23 @@ const invalidActivationResponse = {
   },
 } satisfies RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
 void invalidActivationResponse;
+
+const registrationActivation = {
+  registrationCeremonyId: 'registration-ceremony',
+  ecdsa: {
+    kind: 'router_ab_ecdsa_registration_activation_v1',
+    activationCorrelationId,
+    publicFacts: clientActivationFacts,
+  },
+} satisfies RouterAbEcdsaRegistrationActivationRequestV1;
+void registrationActivation;
+
+const missingActivationCorrelation = {
+  registrationCeremonyId: 'registration-ceremony',
+  // @ts-expect-error Registration activation requires a browser journal correlation.
+  ecdsa: {
+    kind: 'router_ab_ecdsa_registration_activation_v1',
+    publicFacts: clientActivationFacts,
+  },
+} satisfies RouterAbEcdsaRegistrationActivationRequestV1;
+void missingActivationCorrelation;

@@ -1046,6 +1046,7 @@ export class CloudflareD1WalletAddSignerService {
     const state = ceremony.signerState;
     if (state.kind === 'ecdsa_add_signer_activated') {
       if (
+        state.activation.activation_correlation_id !== request.ecdsa.activationCorrelationId ||
         alphabetizeStringify(state.publicFacts) !== alphabetizeStringify(request.ecdsa.publicFacts)
       ) {
         return {
@@ -1075,6 +1076,7 @@ export class CloudflareD1WalletAddSignerService {
       };
     }
     const activated = await this.ecdsaStrictRegistration.activate({
+      activationCorrelationId: request.ecdsa.activationCorrelationId,
       pendingActivation: state.pendingActivation,
       clientActivation: request.ecdsa.publicFacts,
       authority: ecdsaStrictRegistrationAuthority(state.strictRegistration),

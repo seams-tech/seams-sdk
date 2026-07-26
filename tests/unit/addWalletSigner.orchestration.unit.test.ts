@@ -439,8 +439,14 @@ function mockedEcdsaServerBootstrap(
   return bootstrap;
 }
 
-function mockedEcdsaActivationReceipt(facts: Record<string, any>): Record<string, unknown> {
+function mockedEcdsaActivationReceipt(
+  facts: Record<string, any>,
+  activationCorrelationId: unknown,
+): Record<string, unknown> {
   return {
+    activation_correlation_id: activationCorrelationId,
+    activation_request_digest: { bytes: new Array<number>(32).fill(1) },
+    server_generation: `ecdsa-server-generation-v1:${CONTEXT_BINDING_32_B64U}`,
     ecdsa_activation: {
       context: facts.context,
       public_identity: {
@@ -453,7 +459,6 @@ function mockedEcdsaActivationReceipt(facts: Record<string, any>): Record<string
     },
     lifecycle_id: facts.lifecycle.lifecycle_id,
     transcript_digest: { bytes: new Array<number>(32).fill(0) },
-    activated: true,
   };
 }
 
@@ -1569,7 +1574,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         registrationCeremonyId: body.registrationCeremonyId,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_activated_v1',
-          activation: mockedEcdsaActivationReceipt(ecdsaFacts),
+          activation: mockedEcdsaActivationReceipt(ecdsaFacts, body.ecdsa.activationCorrelationId),
           bootstrap,
         },
       });
@@ -2692,7 +2697,7 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
         addSignerCeremonyId: body.addSignerCeremonyId,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_activated_v1',
-          activation: mockedEcdsaActivationReceipt(ecdsaFacts),
+          activation: mockedEcdsaActivationReceipt(ecdsaFacts, body.ecdsa.activationCorrelationId),
           bootstrap,
         },
       });

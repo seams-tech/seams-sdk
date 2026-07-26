@@ -1,7 +1,12 @@
 import type {
+  RouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
   RouterAbEcdsaDerivationActivationRefreshRequestV1,
+  RouterAbEcdsaDerivationActivationRefreshResponseV1,
+  RouterAbEcdsaRegistrationActivationReceiptV1,
   RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1,
 } from './routerAbEcdsaDerivation';
+import type { CorrelationId } from './canonicalPrimitives';
+import type { EcdsaServerGeneration } from './ecdsaCapabilityActivation';
 
 const signerAEnvelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_a'> = {
   recipient_role: 'signer_a',
@@ -19,6 +24,9 @@ const wrongSignerAEnvelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'sign
 };
 
 declare const refreshRequest: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+declare const activationCorrelationId: CorrelationId;
+declare const expectedServerGeneration: EcdsaServerGeneration;
+declare const activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
 
 const exactRefreshRequest: RouterAbEcdsaDerivationActivationRefreshRequestV1 = refreshRequest;
 
@@ -41,3 +49,31 @@ const missingDeriverBEnvelope: RouterAbEcdsaDerivationActivationRefreshRequestV1
 
 void wrongSignerAEnvelope;
 void missingDeriverBEnvelope;
+
+const exactCommitRequest = {
+  activation_correlation_id: activationCorrelationId,
+  expected_server_generation: expectedServerGeneration,
+  refresh_request: refreshRequest,
+} satisfies RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
+void exactCommitRequest;
+
+const missingExpectedGeneration = {
+  activation_correlation_id: activationCorrelationId,
+  refresh_request: refreshRequest,
+  // @ts-expect-error Refresh commits require the current exact server generation.
+} satisfies RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
+void missingExpectedGeneration;
+
+const committedResponse = {
+  result: 'activation_committed',
+  signing_worker_activation: activationReceipt,
+} satisfies RouterAbEcdsaDerivationActivationRefreshResponseV1;
+void committedResponse;
+
+const invalidCommittedResponse = {
+  result: 'activation_committed',
+  signing_worker_activation: activationReceipt,
+  // @ts-expect-error Committed readback does not contain a forwarded proof response.
+  response: {},
+} satisfies RouterAbEcdsaDerivationActivationRefreshResponseV1;
+void invalidCommittedResponse;

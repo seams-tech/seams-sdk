@@ -18,6 +18,7 @@ import type {
 import { parseNearEd25519SigningKeyId, walletIdFromString } from '@shared/utils/registrationIntent';
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import { alphabetizeStringify } from '@shared/utils/digests';
+import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 import {
   parseRootShareEpoch,
   parseSigningGrantId,
@@ -2374,6 +2375,7 @@ export async function activateWalletRegistrationEcdsa(args: {
   relayerUrl: string;
   headers?: Record<string, string>;
   registrationCeremonyId: string;
+  activationCorrelationId: CorrelationId;
   publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
 }): Promise<WalletRegistrationEcdsaActivationResponse> {
   const response = await postJson<unknown>({
@@ -2384,6 +2386,7 @@ export async function activateWalletRegistrationEcdsa(args: {
       registrationCeremonyId: args.registrationCeremonyId,
       ecdsa: {
         kind: 'router_ab_ecdsa_registration_activation_v1',
+        activationCorrelationId: args.activationCorrelationId,
         publicFacts: args.publicFacts,
       },
     },
@@ -3173,6 +3176,7 @@ export async function activateWalletAddSignerEcdsa(args: {
   relayerUrl: string;
   walletId: WalletId;
   addSignerCeremonyId: string;
+  activationCorrelationId: CorrelationId;
   publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
 }): Promise<WalletAddSignerEcdsaActivationResponse> {
   const walletId = String(args.walletId || '').trim();
@@ -3184,6 +3188,7 @@ export async function activateWalletAddSignerEcdsa(args: {
       addSignerCeremonyId: args.addSignerCeremonyId,
       ecdsa: {
         kind: 'router_ab_ecdsa_registration_activation_v1',
+        activationCorrelationId: args.activationCorrelationId,
         publicFacts: args.publicFacts,
       },
     },

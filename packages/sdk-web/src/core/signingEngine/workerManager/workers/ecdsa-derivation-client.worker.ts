@@ -10,6 +10,7 @@ import initEcdsaRegistrationClient, {
 } from '../../../../../../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
+import { parseCorrelationId } from '@shared/utils/canonicalPrimitives';
 import { errorLogSummary, safeErrorMessage } from '@shared/utils/errors';
 import {
   EcdsaDerivationClientCustomRequestType,
@@ -716,7 +717,7 @@ function assertRegistrationActivationReceiptMatchesCeremony(
   const selectedWorker = active.registration.signer_set.selected_server;
   const publicIdentity = activation.public_identity;
   if (
-    receipt.activated !== true ||
+    receipt.activation_correlation_id !== parseCorrelationId(request.ceremonyId) ||
     receipt.lifecycle_id !== active.registration.lifecycle.lifecycle_id ||
     base64UrlEncode(Uint8Array.from(receipt.transcript_digest.bytes)) !==
       active.activationFacts.proofTranscriptDigestB64u

@@ -2,12 +2,13 @@ import {
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
   parseRouterAbEcdsaExplicitExportForwardedResponseV1,
   parseRouterAbEcdsaDerivationRecoveryRequestV1,
-  parseRouterAbEcdsaDerivationActivationRefreshRequestV1,
-  parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
+  parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
+  parseRouterAbEcdsaDerivationActivationRefreshResponseV1,
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
   parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
+  type RouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
   type RouterAbEcdsaDerivationActivationRefreshRequestV1,
-  type RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
+  type RouterAbEcdsaDerivationActivationRefreshResponseV1,
   type RouterAbEcdsaDerivationExplicitExportRequestV1,
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
   type RouterAbEcdsaExplicitExportForwardedResponseV1,
@@ -21,6 +22,7 @@ import {
   type RouterAbEcdsaStrictForwardedRegistrationResponseV1,
   type RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 
 type JsonObject = Record<string, unknown>;
 declare const routerAbEcdsaPendingActivationJsonBrand: unique symbol;
@@ -84,6 +86,7 @@ export interface RouterAbEcdsaStrictRegistrationPort {
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
   }): Promise<RouterAbEcdsaStrictRegistrationResult>;
   activate(input: {
+    readonly activationCorrelationId: CorrelationId;
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
@@ -107,7 +110,7 @@ export type RouterAbEcdsaStrictExportResult =
 export type RouterAbEcdsaStrictRefreshResult =
   | {
       readonly ok: true;
-      readonly value: RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1;
+      readonly value: RouterAbEcdsaDerivationActivationRefreshResponseV1;
     }
   | RouterAbEcdsaStrictFailure;
 
@@ -122,7 +125,7 @@ export interface RouterAbEcdsaStrictPostRegistrationPort {
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
   }): Promise<RouterAbEcdsaStrictPostRegistrationResult>;
   refresh(input: {
-    readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+    readonly request: RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
   }): Promise<RouterAbEcdsaStrictRefreshResult>;
 }
@@ -200,6 +203,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
   }
 
   async activate(input: {
+    readonly activationCorrelationId: CorrelationId;
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
@@ -208,14 +212,19 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       kind: 'activation',
       path: STRICT_ECDSA_ACTIVATION_PATH,
       authority: input.authority,
+      activationCorrelationId: input.activationCorrelationId,
       pendingActivation: input.pendingActivation,
       clientActivation: input.clientActivation,
     });
     if (!body.ok) return body;
     try {
+      const receipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(body.value);
+      if (receipt.activation_correlation_id !== input.activationCorrelationId) {
+        throw new Error('MPCRouter activation receipt changed the journal correlation');
+      }
       return {
         ok: true,
-        value: parseRouterAbEcdsaRegistrationActivationReceiptV1(body.value),
+        value: receipt,
       };
     } catch (error: unknown) {
       return {
@@ -238,6 +247,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
         }
       | {
           readonly kind: 'activation';
+          readonly activationCorrelationId: CorrelationId;
           readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
           readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
         }
@@ -315,20 +325,28 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
   }
 
   async refresh(input: {
-    readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+    readonly request: RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
   }): Promise<RouterAbEcdsaStrictRefreshResult> {
     const forwarded = await this.forwardRaw({
       kind: 'post_registration_proof',
       path: STRICT_ECDSA_REFRESH_PATH,
-      request: parseRouterAbEcdsaDerivationActivationRefreshRequestV1(input.request),
+      request: parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1(input.request),
       authority: input.authority,
     });
     if (!forwarded.ok) return forwarded;
     try {
+      const response = parseRouterAbEcdsaDerivationActivationRefreshResponseV1(forwarded.value);
+      if (
+        response.result !== 'stopped' &&
+        response.signing_worker_activation.activation_correlation_id !==
+          input.request.activation_correlation_id
+      ) {
+        throw new Error('MPCRouter refresh receipt changed the journal correlation');
+      }
       return {
         ok: true,
-        value: parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1(forwarded.value),
+        value: response,
       };
     } catch (error: unknown) {
       return {
@@ -344,7 +362,7 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
     readonly path: string;
     readonly request:
       | RouterAbEcdsaDerivationRecoveryRequestV1
-      | RouterAbEcdsaDerivationActivationRefreshRequestV1;
+      | RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
   }): Promise<RouterAbEcdsaStrictPostRegistrationResult> {
     const forwarded = await this.forwardRaw({
@@ -385,7 +403,7 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
           readonly path: string;
           readonly request:
             | RouterAbEcdsaDerivationRecoveryRequestV1
-            | RouterAbEcdsaDerivationActivationRefreshRequestV1;
+            | RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
           readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
         },
   ): Promise<{ readonly ok: true; readonly value: unknown } | RouterAbEcdsaStrictFailure> {
@@ -429,7 +447,7 @@ function strictPostRegistrationForwardBodyJson(
         readonly kind: 'post_registration_proof';
         readonly request:
           | RouterAbEcdsaDerivationRecoveryRequestV1
-          | RouterAbEcdsaDerivationActivationRefreshRequestV1;
+          | RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
         readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
       },
 ): string {
@@ -456,6 +474,7 @@ function strictForwardBodyJson(
       }
     | {
         readonly kind: 'activation';
+        readonly activationCorrelationId: CorrelationId;
         readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
         readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
       },
@@ -464,7 +483,7 @@ function strictForwardBodyJson(
     case 'registration':
       return JSON.stringify(input.request);
     case 'activation':
-      return `{"pending":${input.pendingActivation.canonicalPayloadJson},"client_activation":${JSON.stringify(input.clientActivation)}}`;
+      return `{"activation_correlation_id":${JSON.stringify(input.activationCorrelationId)},"pending":${input.pendingActivation.canonicalPayloadJson},"client_activation":${JSON.stringify(input.clientActivation)}}`;
     default:
       return assertNeverStrictForwardBody(input);
   }
@@ -611,14 +630,15 @@ function validatePostRegistrationAuthorityBinding(input: {
   readonly request:
     | RouterAbEcdsaDerivationExplicitExportRequestV1
     | RouterAbEcdsaDerivationRecoveryRequestV1
-    | RouterAbEcdsaDerivationActivationRefreshRequestV1;
+    | RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
   readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
 }): RouterAbEcdsaStrictFailure | null {
+  const request = postRegistrationAuthorityRequest(input.request);
   if (
-    input.request.client_id !== input.authority.subjectId ||
-    input.request.lifecycle.session_id !== input.authority.sessionId ||
-    input.request.lifecycle.account_id !== input.authority.accountId ||
-    input.request.expires_at_ms !== input.authority.expiresAtMs
+    request.client_id !== input.authority.subjectId ||
+    request.lifecycle.session_id !== input.authority.sessionId ||
+    request.lifecycle.account_id !== input.authority.accountId ||
+    request.expires_at_ms !== input.authority.expiresAtMs
   ) {
     return {
       ok: false,
@@ -628,6 +648,18 @@ function validatePostRegistrationAuthorityBinding(input: {
     };
   }
   return null;
+}
+
+function postRegistrationAuthorityRequest(
+  request:
+    | RouterAbEcdsaDerivationExplicitExportRequestV1
+    | RouterAbEcdsaDerivationRecoveryRequestV1
+    | RouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
+):
+  | RouterAbEcdsaDerivationExplicitExportRequestV1
+  | RouterAbEcdsaDerivationRecoveryRequestV1
+  | RouterAbEcdsaDerivationActivationRefreshRequestV1 {
+  return 'refresh_request' in request ? request.refresh_request : request;
 }
 
 export function routerAbEcdsaStrictRegistrationRequestMatchesFacts(input: {

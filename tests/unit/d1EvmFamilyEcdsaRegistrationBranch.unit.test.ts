@@ -19,6 +19,8 @@ import {
   type RouterAbEcdsaRegistrationRequestFactsV1,
   type RouterAbEcdsaRegistrationRequestV1,
 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
+import { parseCorrelationId } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import { parseEcdsaServerGeneration } from '../../packages/shared-ts/src/utils/ecdsaCapabilityActivation';
 import { registrationEvmFamilyEcdsaBranchKey } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
@@ -171,6 +173,9 @@ async function buildSharedSigningBudgetFixture(): Promise<{
       participantId: 1,
     },
     activation: {
+      activation_correlation_id: parseCorrelationId('activation-correlation-shared-budget'),
+      activation_request_digest: { bytes: new Array<number>(32).fill(1) },
+      server_generation: parseEcdsaServerGeneration('server-generation-shared-budget'),
       ecdsa_activation: {
         context: facts.context,
         public_identity: {
@@ -189,7 +194,6 @@ async function buildSharedSigningBudgetFixture(): Promise<{
       },
       lifecycle_id: facts.lifecycle.lifecycle_id,
       transcript_digest: { bytes: new Array<number>(32).fill(0) },
-      activated: true,
     },
     publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1({
       kind: 'router_ab_ecdsa_derivation_public_capability_v1',

@@ -363,6 +363,7 @@ export type WalletAddSignerEcdsaActivationRequest = {
   addSignerCeremonyId: string;
   ecdsa: {
     kind: 'router_ab_ecdsa_registration_activation_v1';
+    activationCorrelationId: RouterAbEcdsaRegistrationActivationRequestV1['ecdsa']['activationCorrelationId'];
     publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
   };
 };

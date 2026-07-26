@@ -941,7 +941,6 @@ function requireActivatedEcdsaIdentity(input: {
     input.activation.lifecycle_id !== registration.lifecycle.lifecycle_id ||
     base64UrlEncode(Uint8Array.from(input.activation.transcript_digest.bytes)) !==
       input.publicFacts.proofTranscriptDigestB64u ||
-    input.activation.activated !== true ||
     receipt.signing_worker.server_id !== registration.lifecycle.selected_server_id
   ) {
     throw new Error('ECDSA activation receipt does not match the admitted registration identity');
@@ -2188,8 +2187,10 @@ export class CloudflareD1WalletRegistrationService {
       const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
       if (ecdsaBranch?.kind === 'evm_family_ecdsa_activated') {
         if (
+          ecdsaBranch.activation.activation_correlation_id !==
+            request.ecdsa.activationCorrelationId ||
           alphabetizeStringify(ecdsaBranch.publicFacts) !==
-          alphabetizeStringify(request.ecdsa.publicFacts)
+            alphabetizeStringify(request.ecdsa.publicFacts)
         ) {
           return {
             ok: false,
@@ -2215,6 +2216,7 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
       const activated = await this.ecdsaStrictRegistration.activate({
+        activationCorrelationId: request.ecdsa.activationCorrelationId,
         pendingActivation: ecdsaBranch.pendingActivation,
         clientActivation: request.ecdsa.publicFacts,
         authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),

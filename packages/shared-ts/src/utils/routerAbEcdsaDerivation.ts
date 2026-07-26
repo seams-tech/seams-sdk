@@ -22,6 +22,11 @@ import {
   type SigningGrantId,
   type ThresholdEcdsaSessionId,
 } from './domainIds';
+import { parseCorrelationId, type CorrelationId } from './canonicalPrimitives';
+import {
+  parseEcdsaServerGeneration,
+  type EcdsaServerGeneration,
+} from './ecdsaCapabilityActivation';
 
 export const ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1 = 'evm-family' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1 =
@@ -260,11 +265,15 @@ export type RouterAbEcdsaRegistrationActivationRequestV1 = {
   registrationCeremonyId: string;
   ecdsa: {
     kind: 'router_ab_ecdsa_registration_activation_v1';
+    activationCorrelationId: CorrelationId;
     publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
   };
 };
 
 export type RouterAbEcdsaRegistrationActivationReceiptV1 = {
+  activation_correlation_id: CorrelationId;
+  activation_request_digest: RouterAbPublicDigest32V1Wire;
+  server_generation: EcdsaServerGeneration;
   ecdsa_activation: {
     context: RouterAbEcdsaDerivationStableKeyContextV1;
     public_identity: RouterAbEcdsaDerivationPublicIdentityV1;
@@ -275,7 +284,6 @@ export type RouterAbEcdsaRegistrationActivationReceiptV1 = {
   };
   lifecycle_id: string;
   transcript_digest: RouterAbPublicDigest32V1Wire;
-  activated: true;
 };
 
 export type RouterAbEcdsaRegistrationPublicActivationReceiptV1 =
@@ -374,6 +382,69 @@ export type RouterAbEcdsaDerivationActivationRefreshRequestV1 = {
   deriver_a_refresh_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_a'>;
   deriver_b_refresh_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_b'>;
 };
+
+export type RouterAbEcdsaDerivationActivationRefreshCommitRequestV1 = {
+  activation_correlation_id: CorrelationId;
+  expected_server_generation: EcdsaServerGeneration;
+  refresh_request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+};
+
+export type RouterAbEcdsaDerivationActivationRefreshActivationCommittedResponseV1 = {
+  result: 'activation_committed';
+  signing_worker_activation: RouterAbEcdsaRegistrationActivationReceiptV1;
+  response?: never;
+  replay?: never;
+  lifecycle?: never;
+  decision?: never;
+};
+
+export type RouterAbEcdsaDerivationActivationRefreshStoppedResponseV1 = {
+  result: 'stopped';
+  replay: {
+    request_id: string;
+    reserved: boolean;
+  };
+  lifecycle: {
+    lifecycle_id: string;
+    stored: boolean;
+  };
+  decision:
+    | {
+        kind: 'accepted';
+        request_id: string;
+        existing_lifecycle_id?: never;
+        reason?: never;
+        retry_after_ms?: never;
+      }
+    | {
+        kind: 'reuse_existing';
+        request_id: string;
+        existing_lifecycle_id: string;
+        reason?: never;
+        retry_after_ms?: never;
+      }
+    | {
+        kind: 'defer';
+        reason: 'short_window_saturated' | 'signer_queue_saturated';
+        request_id?: never;
+        existing_lifecycle_id?: never;
+        retry_after_ms?: never;
+      }
+    | {
+        kind: 'rejected';
+        reason: 'rate_limited' | 'abuse_policy';
+        retry_after_ms: number;
+        request_id?: never;
+        existing_lifecycle_id?: never;
+      };
+  response?: never;
+  signing_worker_activation?: never;
+};
+
+export type RouterAbEcdsaDerivationActivationRefreshResponseV1 =
+  | RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1
+  | RouterAbEcdsaDerivationActivationRefreshActivationCommittedResponseV1
+  | RouterAbEcdsaDerivationActivationRefreshStoppedResponseV1;
 
 export type RouterAbPublicDigest32V1Wire = {
   bytes: number[];
@@ -1280,22 +1351,116 @@ function parseRouterAbEcdsaStrictProofResponseV1(
   };
 }
 
-export function parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1(
+export function parseRouterAbEcdsaDerivationActivationRefreshResponseV1(
   value: unknown,
-): RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1 {
-  const label = 'activationRefreshForwarded';
+): RouterAbEcdsaDerivationActivationRefreshResponseV1 {
+  const label = 'activationRefreshResponse';
   const record = requireRecord(value, label);
-  requireExactKeys(record, label, ['result', 'response', 'signing_worker_activation']);
-  if (record.result !== 'forwarded') {
-    throw new Error(`${label}.result must be forwarded`);
+  switch (record.result) {
+    case 'forwarded':
+      requireExactKeys(record, label, ['result', 'response', 'signing_worker_activation']);
+      return {
+        result: 'forwarded',
+        response: parseRouterAbEcdsaStrictProofResponseV1(record.response, `${label}.response`),
+        signing_worker_activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(
+          record.signing_worker_activation,
+        ),
+      };
+    case 'activation_committed':
+      requireExactKeys(record, label, ['result', 'signing_worker_activation']);
+      return {
+        result: 'activation_committed',
+        signing_worker_activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(
+          record.signing_worker_activation,
+        ),
+      };
+    case 'stopped':
+      requireExactKeys(record, label, ['result', 'replay', 'lifecycle', 'decision']);
+      return {
+        result: 'stopped',
+        replay: parseRouterAbReplayReservation(record.replay, `${label}.replay`),
+        lifecycle: parseRouterAbLifecycleReceipt(record.lifecycle, `${label}.lifecycle`),
+        decision: parseRouterAbExpensiveWorkGateDecision(record.decision, `${label}.decision`),
+      };
+    default:
+      throw new Error(`${label}.result must be forwarded, activation_committed, or stopped`);
+  }
+}
+
+function parseRouterAbReplayReservation(
+  value: unknown,
+  label: string,
+): RouterAbEcdsaDerivationActivationRefreshStoppedResponseV1['replay'] {
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, ['request_id', 'reserved']);
+  if (typeof record.reserved !== 'boolean') {
+    throw new Error(`${label}.reserved must be boolean`);
   }
   return {
-    result: 'forwarded',
-    response: parseRouterAbEcdsaStrictProofResponseV1(record.response, `${label}.response`),
-    signing_worker_activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(
-      record.signing_worker_activation,
-    ),
+    request_id: requireAsciiNonEmptyString(record.request_id, `${label}.request_id`),
+    reserved: record.reserved,
   };
+}
+
+function parseRouterAbLifecycleReceipt(
+  value: unknown,
+  label: string,
+): RouterAbEcdsaDerivationActivationRefreshStoppedResponseV1['lifecycle'] {
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, ['lifecycle_id', 'stored']);
+  if (typeof record.stored !== 'boolean') {
+    throw new Error(`${label}.stored must be boolean`);
+  }
+  return {
+    lifecycle_id: requireAsciiNonEmptyString(record.lifecycle_id, `${label}.lifecycle_id`),
+    stored: record.stored,
+  };
+}
+
+function parseRouterAbExpensiveWorkGateDecision(
+  value: unknown,
+  label: string,
+): RouterAbEcdsaDerivationActivationRefreshStoppedResponseV1['decision'] {
+  const record = requireRecord(value, label);
+  switch (record.kind) {
+    case 'accepted':
+      requireExactKeys(record, label, ['kind', 'request_id']);
+      return {
+        kind: 'accepted',
+        request_id: requireAsciiNonEmptyString(record.request_id, `${label}.request_id`),
+      };
+    case 'reuse_existing':
+      requireExactKeys(record, label, ['kind', 'request_id', 'existing_lifecycle_id']);
+      return {
+        kind: 'reuse_existing',
+        request_id: requireAsciiNonEmptyString(record.request_id, `${label}.request_id`),
+        existing_lifecycle_id: requireAsciiNonEmptyString(
+          record.existing_lifecycle_id,
+          `${label}.existing_lifecycle_id`,
+        ),
+      };
+    case 'defer':
+      requireExactKeys(record, label, ['kind', 'reason']);
+      if (
+        record.reason !== 'short_window_saturated' &&
+        record.reason !== 'signer_queue_saturated'
+      ) {
+        throw new Error(`${label}.reason is invalid`);
+      }
+      return { kind: 'defer', reason: record.reason };
+    case 'rejected':
+      requireExactKeys(record, label, ['kind', 'reason', 'retry_after_ms']);
+      if (record.reason !== 'rate_limited' && record.reason !== 'abuse_policy') {
+        throw new Error(`${label}.reason is invalid`);
+      }
+      return {
+        kind: 'rejected',
+        reason: record.reason,
+        retry_after_ms: requireNonNegativeInteger(record.retry_after_ms, `${label}.retry_after_ms`),
+      };
+    default:
+      throw new Error(`${label}.kind is invalid`);
+  }
 }
 
 export function parseRouterAbEcdsaVerifiedClientActivationFactsV1(
@@ -1349,7 +1514,7 @@ export function parseRouterAbEcdsaRegistrationActivationRequestV1(
   const record = requireRecord(value, label);
   requireExactKeys(record, label, ['registrationCeremonyId', 'ecdsa']);
   const ecdsa = requireRecord(record.ecdsa, `${label}.ecdsa`);
-  requireExactKeys(ecdsa, `${label}.ecdsa`, ['kind', 'publicFacts']);
+  requireExactKeys(ecdsa, `${label}.ecdsa`, ['kind', 'activationCorrelationId', 'publicFacts']);
   if (ecdsa.kind !== 'router_ab_ecdsa_registration_activation_v1') {
     throw new Error(`${label}.ecdsa.kind is invalid`);
   }
@@ -1360,6 +1525,7 @@ export function parseRouterAbEcdsaRegistrationActivationRequestV1(
     ),
     ecdsa: {
       kind: 'router_ab_ecdsa_registration_activation_v1',
+      activationCorrelationId: parseCorrelationId(ecdsa.activationCorrelationId),
       publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(ecdsa.publicFacts),
     },
   };
@@ -1371,10 +1537,12 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
   const label = 'registrationActivationReceipt';
   const record = requireRecord(value, label);
   requireExactKeys(record, label, [
+    'activation_correlation_id',
+    'activation_request_digest',
+    'server_generation',
     'ecdsa_activation',
     'lifecycle_id',
     'transcript_digest',
-    'activated',
   ]);
   const activationLabel = `${label}.ecdsa_activation`;
   const activation = requireRecord(record.ecdsa_activation, activationLabel);
@@ -1399,10 +1567,13 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
     record.transcript_digest,
     `${label}.transcript_digest`,
   );
-  if (record.activated !== true) {
-    throw new Error(`${label}.activated must be true`);
-  }
   return {
+    activation_correlation_id: parseCorrelationId(record.activation_correlation_id),
+    activation_request_digest: parsePublicDigest32(
+      record.activation_request_digest,
+      `${label}.activation_request_digest`,
+    ),
+    server_generation: parseEcdsaServerGeneration(record.server_generation),
     ecdsa_activation: {
       context: parseStableKeyContext(activation.context),
       public_identity: parsePublicIdentity(activation.public_identity),
@@ -1419,7 +1590,6 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
     },
     lifecycle_id: requireAsciiNonEmptyString(record.lifecycle_id, `${label}.lifecycle_id`),
     transcript_digest: transcriptDigest,
-    activated: true,
   };
 }
 
@@ -1915,6 +2085,23 @@ export function parseRouterAbEcdsaDerivationActivationRefreshRequestV1(
       `${label}.deriver_b_refresh_envelope`,
       'signer_b',
     ),
+  };
+}
+
+export function parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1(
+  value: unknown,
+): RouterAbEcdsaDerivationActivationRefreshCommitRequestV1 {
+  const label = 'refreshCommit';
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, [
+    'activation_correlation_id',
+    'expected_server_generation',
+    'refresh_request',
+  ]);
+  return {
+    activation_correlation_id: parseCorrelationId(record.activation_correlation_id),
+    expected_server_generation: parseEcdsaServerGeneration(record.expected_server_generation),
+    refresh_request: parseRouterAbEcdsaDerivationActivationRefreshRequestV1(record.refresh_request),
   };
 }
 

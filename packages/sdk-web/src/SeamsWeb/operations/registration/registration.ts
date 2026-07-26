@@ -1,4 +1,5 @@
 import { isObject } from '@shared/utils/validation';
+import { parseCorrelationId, type CorrelationId } from '@shared/utils/canonicalPrimitives';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import type {
   CreateRegistrationFlowEventInput,
@@ -357,10 +358,7 @@ async function cleanUpFailedWalletRegistration(
   yaoWork: RegistrationYaoWork,
   activeIntent: ActiveWalletRegistrationIntent | null,
 ): Promise<void> {
-  await Promise.allSettled([
-    yaoWork.dispose(),
-    cancelActiveWalletRegistrationIntent(activeIntent),
-  ]);
+  await Promise.allSettled([yaoWork.dispose(), cancelActiveWalletRegistrationIntent(activeIntent)]);
 }
 
 type EvmFamilyEcdsaRegistrationBranch = RegistrationEvmFamilyEcdsaSignerPlan;
@@ -1538,9 +1536,9 @@ function executeRegistrationEmailOtpYaoPrewarm(input: {
   prewarm: () => Promise<EmailOtpYaoPrewarmOutcome>;
 }): Promise<EmailOtpYaoPrewarmOutcome> {
   const startedAt = performance.now();
-  return input.prewarm().catch((error: unknown) =>
-    recoverEmailOtpYaoPrewarmFailure(error, startedAt),
-  );
+  return input
+    .prewarm()
+    .catch((error: unknown) => recoverEmailOtpYaoPrewarmFailure(error, startedAt));
 }
 
 function completedRegistrationWarmup(
@@ -2537,6 +2535,7 @@ async function forwardStrictEcdsaFamilyRegistration(args: {
 async function activateStrictEcdsaFamilyRegistration(args: {
   relayerUrl: string;
   route: StrictEcdsaFamilyCeremonyRoute;
+  activationCorrelationId: CorrelationId;
   publicFacts: Parameters<typeof activateWalletRegistrationEcdsa>[0]['publicFacts'];
 }) {
   switch (args.route.kind) {
@@ -2545,6 +2544,7 @@ async function activateStrictEcdsaFamilyRegistration(args: {
         relayerUrl: args.relayerUrl,
         headers: registrationRouteHeaders(),
         registrationCeremonyId: args.route.registrationCeremonyId,
+        activationCorrelationId: args.activationCorrelationId,
         publicFacts: args.publicFacts,
       });
     case 'add_signer':
@@ -2552,6 +2552,7 @@ async function activateStrictEcdsaFamilyRegistration(args: {
         relayerUrl: args.relayerUrl,
         walletId: args.route.walletId,
         addSignerCeremonyId: args.route.addSignerCeremonyId,
+        activationCorrelationId: args.activationCorrelationId,
         publicFacts: args.publicFacts,
       });
     default:
@@ -2570,6 +2571,7 @@ async function runStrictEcdsaFamilyCeremony(args: {
     throw new Error('Strict ECDSA ceremony requires at least one EVM-family target');
   }
   const ceremonyId = strictEcdsaFamilyCeremonyId(args.route);
+  const activationCorrelationId = parseCorrelationId(ceremonyId);
   try {
     const created = await args.context.signingEngine.createRouterAbEcdsaRegistrationCeremony({
       kind: 'create_router_ab_ecdsa_registration_ceremony_v1',
@@ -2592,6 +2594,7 @@ async function runStrictEcdsaFamilyCeremony(args: {
     const activated = await activateStrictEcdsaFamilyRegistration({
       relayerUrl: args.relayerUrl,
       route: args.route,
+      activationCorrelationId,
       publicFacts: verified.publicFacts,
     });
     const finalized = await args.context.signingEngine.finalizeRouterAbEcdsaRegistrationActivation({

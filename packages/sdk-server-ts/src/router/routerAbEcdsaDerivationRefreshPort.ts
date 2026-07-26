@@ -1,7 +1,7 @@
 import {
   ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
-  parseRouterAbEcdsaDerivationActivationRefreshRequestV1,
-  type RouterAbEcdsaDerivationActivationRefreshRequestV1,
+  parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
+  type RouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 
 export type RouterAbEcdsaDerivationRefreshAuthorization = {
@@ -10,7 +10,7 @@ export type RouterAbEcdsaDerivationRefreshAuthorization = {
 };
 
 export type RouterAbEcdsaDerivationRefreshPortInput = {
-  request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+  request: RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
   authorization: RouterAbEcdsaDerivationRefreshAuthorization;
 };
 
@@ -33,7 +33,9 @@ function normalizeStrictRouterBaseUrl(value: string): string {
   return url.toString().replace(/\/$/, '');
 }
 
-function requireBearerAuthorization(value: string | null): RouterAbEcdsaDerivationRefreshAuthorization {
+function requireBearerAuthorization(
+  value: string | null,
+): RouterAbEcdsaDerivationRefreshAuthorization {
   const normalized = String(value ?? '').trim();
   const separatorIndex = normalized.indexOf(' ');
   if (separatorIndex <= 0) {
@@ -47,9 +49,7 @@ function requireBearerAuthorization(value: string | null): RouterAbEcdsaDerivati
   return { kind: 'bearer', token };
 }
 
-export class HttpRouterAbEcdsaDerivationRefreshPort
-  implements RouterAbEcdsaDerivationRefreshPort
-{
+export class HttpRouterAbEcdsaDerivationRefreshPort implements RouterAbEcdsaDerivationRefreshPort {
   private readonly strictRouterBaseUrl: string;
   private readonly fetchImpl: typeof fetch;
 
@@ -99,9 +99,9 @@ export async function handleRouterAbEcdsaDerivationRefreshRoute(input: {
       { status: 401 },
     );
   }
-  let request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+  let request: RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
   try {
-    request = parseRouterAbEcdsaDerivationActivationRefreshRequestV1(input.body);
+    request = parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1(input.body);
   } catch (error: unknown) {
     return Response.json(
       {

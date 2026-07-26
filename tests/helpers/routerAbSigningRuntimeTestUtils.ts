@@ -198,6 +198,9 @@ export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements Rou
     return {
       ok: true,
       value: parseRouterAbEcdsaRegistrationActivationReceiptV1({
+        activation_correlation_id: input.activationCorrelationId,
+        activation_request_digest: { bytes: new Array<number>(32).fill(12) },
+        server_generation: `ecdsa-server-generation-v1:${FIXTURE_ECDSA_DIGEST32_B64U}`,
         ecdsa_activation: {
           context: registration.context,
           public_identity: {
@@ -217,7 +220,6 @@ export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements Rou
         },
         lifecycle_id: registration.lifecycle.lifecycle_id,
         transcript_digest: { bytes: new Array<number>(32).fill(0) },
-        activated: true,
       }),
     };
   }

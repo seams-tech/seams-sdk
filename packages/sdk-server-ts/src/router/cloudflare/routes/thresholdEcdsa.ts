@@ -16,7 +16,7 @@ import {
   validateRouterAbEd25519WalletSessionTokenInputs,
 } from '../../commonRouterUtils';
 import {
-  parseRouterAbEcdsaDerivationActivationRefreshRequestV1,
+  parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   parseRouterAbEcdsaDerivationRecoveryRequestV1,
@@ -29,6 +29,7 @@ import {
   ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
   ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
   ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH,
+  type RouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
   type RouterAbEcdsaDerivationActivationRefreshRequestV1,
   type RouterAbEcdsaDerivationExplicitExportRequestV1,
   type RouterAbEcdsaDerivationRecoveryRequestV1,
@@ -161,6 +162,7 @@ type StrictEcdsaPostRegistrationRequest =
     }
   | {
       readonly kind: 'refresh';
+      readonly command: RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
       readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
     };
 
@@ -279,11 +281,14 @@ function parseStrictEcdsaPostRegistrationRequest(
         kind: 'recovery',
         request: parseRouterAbEcdsaDerivationRecoveryRequestV1(body),
       };
-    case ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH:
+    case ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH: {
+      const command = parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1(body);
       return {
         kind: 'refresh',
-        request: parseRouterAbEcdsaDerivationActivationRefreshRequestV1(body),
+        command,
+        request: command.refresh_request,
       };
+    }
     default:
       throw new Error('Strict ECDSA post-registration path is invalid');
   }
@@ -471,17 +476,20 @@ async function handleStrictEcdsaPostRegistrationRoute(input: {
     }
     case 'refresh': {
       const result = await input.port.refresh({
-        request: parsed.request,
+        request: parsed.command,
         authority: authorized.authority,
       });
       if (!result.ok) return strictPostRegistrationFailureResponse(result);
-      const recorded = await input.ctx.service.walletRegistration.recordEcdsaPostRegistrationProof({
-        operation: 'refresh',
-        request: parsed.request,
-        response: result.value,
-      });
-      if (!recorded.ok) {
-        return json(recorded, { status: recorded.code === 'internal' ? 500 : 400 });
+      if (result.value.result === 'forwarded') {
+        const recorded =
+          await input.ctx.service.walletRegistration.recordEcdsaPostRegistrationProof({
+            operation: 'refresh',
+            request: parsed.request,
+            response: result.value,
+          });
+        if (!recorded.ok) {
+          return json(recorded, { status: recorded.code === 'internal' ? 500 : 400 });
+        }
       }
       return json(result.value, { status: 200 });
     }

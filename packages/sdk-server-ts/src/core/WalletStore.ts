@@ -17,7 +17,7 @@ import type {
   RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import {
-  parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
+  parseRouterAbEcdsaDerivationActivationRefreshResponseV1,
   parseRouterAbEcdsaDerivationActivationRefreshRequestV1,
   parseRouterAbEcdsaDerivationRecoveryRequestV1,
   parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
@@ -214,7 +214,7 @@ export function parseWalletEcdsaPendingSessionActivationRecord(
           ...base,
           operation: 'refresh',
           request: parseRouterAbEcdsaDerivationActivationRefreshRequestV1(raw.request),
-          response: parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1(raw.response),
+          response: parseForwardedEcdsaRefreshResponse(raw.response),
         };
       default:
         return null;
@@ -222,6 +222,16 @@ export function parseWalletEcdsaPendingSessionActivationRecord(
   } catch {
     return null;
   }
+}
+
+function parseForwardedEcdsaRefreshResponse(
+  raw: unknown,
+): RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1 {
+  const response = parseRouterAbEcdsaDerivationActivationRefreshResponseV1(raw);
+  if (response.result !== 'forwarded') {
+    throw new Error('Persisted ECDSA refresh proof must be forwarded');
+  }
+  return response;
 }
 
 function ecdsaPublicCapabilitiesEqual(

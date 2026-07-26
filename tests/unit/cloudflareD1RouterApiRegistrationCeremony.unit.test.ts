@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { parseCorrelationId } from '@shared/utils/canonicalPrimitives';
 import type {
   CreateRegistrationIntentRequest,
   CreateRegistrationIntentResponse,
@@ -402,6 +403,7 @@ test('partitioned D1 completes and replays strict ECDSA wallet registration', as
       registrationCeremonyId: started.registrationCeremonyId,
       ecdsa: {
         kind: 'router_ab_ecdsa_registration_activation_v1',
+        activationCorrelationId: parseCorrelationId('activation-correlation-registration'),
         publicFacts: activationFacts,
       },
     });
@@ -411,6 +413,7 @@ test('partitioned D1 completes and replays strict ECDSA wallet registration', as
         registrationCeremonyId: started.registrationCeremonyId,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_activation_v1',
+          activationCorrelationId: parseCorrelationId('activation-correlation-registration'),
           publicFacts: activationFacts,
         },
       }),
