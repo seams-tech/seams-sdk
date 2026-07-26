@@ -181,6 +181,7 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
 }
 
 export async function readAvailableLanesFixture(args: {
+  walletId?: string;
   sealedRecords?: SigningSessionSealedStoreRecord[];
   ecdsaChainTargets?: [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
   runtimeEcdsaRecords?: AvailableSigningLanesRuntimeEcdsaRecord[];
@@ -190,7 +191,7 @@ export async function readAvailableLanesFixture(args: {
 }) {
   return await readAvailableSigningLanes(
     {
-      walletId: AVAILABLE_LANES_WALLET_ID,
+      walletId: toWalletId(args.walletId || AVAILABLE_LANES_WALLET_ID),
       ecdsaChainTargets: args.ecdsaChainTargets || [AVAILABLE_LANES_ECDSA_TARGET],
     },
     {

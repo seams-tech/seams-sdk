@@ -2,27 +2,17 @@ import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types
 import { IndexedDBManager } from '@/core/indexedDB';
 import {
   parseEcdsaThresholdKeyId,
-  type EcdsaThresholdKeyId,
 } from '@/core/signingEngine/session/keyMaterialBrands';
+import type {
+  EvmFamilyEcdsaWalletUnlockSubject,
+  EvmFamilyEcdsaWalletUnlockSubjectSet,
+} from '@/core/signingEngine/session/identity/walletUnlockSubject';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 
-export type EvmFamilyEcdsaWalletUnlockSubject = {
-  readonly kind: 'evm_family_ecdsa_wallet';
-  readonly walletId: WalletId;
-  readonly ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  readonly nearAccountId?: never;
-  readonly nearEd25519SigningKeyId?: never;
-  readonly signerSlot?: never;
-};
-
-export type EvmFamilyEcdsaWalletUnlockSubjectSet = {
-  readonly kind: 'wallet_unlock_subject_set';
-  readonly walletId: WalletId;
-  readonly subjects: readonly [
-    EvmFamilyEcdsaWalletUnlockSubject,
-    ...EvmFamilyEcdsaWalletUnlockSubject[],
-  ];
-};
+export type {
+  EvmFamilyEcdsaWalletUnlockSubject,
+  EvmFamilyEcdsaWalletUnlockSubjectSet,
+} from '@/core/signingEngine/session/identity/walletUnlockSubject';
 
 export type WalletUnlockCapabilitySubjectResolutionFailure =
   | 'capability_subject_lookup_failed'

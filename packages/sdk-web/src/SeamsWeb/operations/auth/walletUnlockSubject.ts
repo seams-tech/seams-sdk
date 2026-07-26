@@ -11,26 +11,19 @@ import {
 import { parseSignerSlot, type SignerSlot } from '@shared/utils/signerSlot';
 import {
   resolveEvmFamilyEcdsaWalletUnlockSubjects,
-  type EvmFamilyEcdsaWalletUnlockSubject,
   type WalletUnlockCapabilitySubjectResolutionFailure,
 } from './walletUnlockEcdsaSubject';
+import type {
+  NearEd25519WalletUnlockSubject,
+  WalletUnlockSubject,
+  WalletUnlockSubjectSet,
+} from '@/core/signingEngine/session/identity/walletUnlockSubject';
 
-export type WalletUnlockSubject =
-  | {
-      kind: 'near_ed25519_wallet';
-      walletId: WalletId;
-      nearAccountId: AccountId;
-      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-      signerSlot: SignerSlot;
-      ecdsaThresholdKeyId?: never;
-    }
-  | EvmFamilyEcdsaWalletUnlockSubject;
-
-export type WalletUnlockSubjectSet = {
-  readonly kind: 'wallet_unlock_subject_set';
-  readonly walletId: WalletId;
-  readonly subjects: readonly [WalletUnlockSubject, ...WalletUnlockSubject[]];
-};
+export type {
+  NearEd25519WalletUnlockSubject,
+  WalletUnlockSubject,
+  WalletUnlockSubjectSet,
+} from '@/core/signingEngine/session/identity/walletUnlockSubject';
 
 export type WalletUnlockCapabilityFamilyScope =
   | { readonly kind: 'near_ed25519_only' }
@@ -135,8 +128,6 @@ type LastUsedProfileWalletResolution =
       walletId?: never;
       reason: WalletIdentityResolveFailure;
     };
-
-type NearEd25519WalletUnlockSubject = Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }>;
 
 type NearEd25519WalletUnlockSubjectParseResult =
   | {

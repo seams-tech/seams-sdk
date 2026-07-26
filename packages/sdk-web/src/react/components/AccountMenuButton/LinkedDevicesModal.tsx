@@ -87,8 +87,11 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       // Resolve current signer slot for highlighting
       let currentSignerSlotFromState: number | null = null;
       try {
-        const { login } = await seams.auth.getWalletSession(walletId);
-        const slot = (login as any)?.userData?.signerSlot;
+        const session = await seams.auth.getWalletSession(walletId);
+        const slot =
+          session.appIdentity.kind === 'resolved'
+            ? session.appIdentity.userData?.signerSlot
+            : undefined;
         currentSignerSlotFromState =
           typeof slot === 'number' && Number.isFinite(slot) ? Math.floor(slot) : null;
       } catch {

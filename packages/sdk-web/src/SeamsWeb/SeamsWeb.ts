@@ -1919,7 +1919,8 @@ export class SeamsWeb {
     if (providedJwt) return providedJwt;
     const walletId = toWalletId(args.walletId);
     const session = await getWalletSessionDomain(this.getWalletAuthDeps(), walletId);
-    const walletSessionUserId = String(session.login.walletId || '').trim();
+    const walletSessionUserId =
+      session.appIdentity.kind === 'resolved' ? String(session.appIdentity.walletId).trim() : '';
     if (walletSessionUserId !== String(walletId)) {
       throw new Error(
         '[SeamsWeb] recovery-code app-session resolution requires a wallet-bound session',

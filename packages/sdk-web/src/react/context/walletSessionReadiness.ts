@@ -1,8 +1,29 @@
 import type { WalletSession } from '@/core/types/seams';
 
+export function isWalletSessionReadUnavailable(
+  session: Pick<WalletSession, 'reusableWalletSession'>,
+): boolean {
+  return session.reusableWalletSession.kind === 'unavailable';
+}
+
 export function isWalletSessionReadyForUi(args: {
-  session: Pick<WalletSession, 'login' | 'signingSession'>;
+  session: Pick<WalletSession, 'appIdentity' | 'reusableWalletSession'>;
 }): boolean {
-  const { session } = args;
-  return Boolean(session?.login?.isLoggedIn && session.login.walletId);
+  if (args.session.appIdentity.kind !== 'resolved') return false;
+  switch (args.session.reusableWalletSession.kind) {
+    case 'active':
+    case 'exhausted':
+      return (
+        String(args.session.appIdentity.walletId) ===
+        String(args.session.reusableWalletSession.walletId)
+      );
+    case 'not_requested':
+    case 'expired':
+    case 'missing':
+    case 'unavailable':
+    case 'invalid':
+      return false;
+  }
+  args.session.reusableWalletSession satisfies never;
+  return false;
 }

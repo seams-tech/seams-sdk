@@ -3,7 +3,10 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { SeamsWeb } from '@/SeamsWeb';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LoginState } from '../types';
-import { isWalletSessionReadyForUi } from './walletSessionReadiness';
+import {
+  isWalletSessionReadUnavailable,
+  isWalletSessionReadyForUi,
+} from './walletSessionReadiness';
 import {
   buildReactLoggedInLoginStateFromSession,
   buildReactLoggedOutLoginState,
@@ -41,6 +44,7 @@ export function useWalletIframeLifecycle(args: {
             if (cancelled) return;
             if (status?.isLoggedIn && status?.walletId) {
               const session = await seams.auth.getWalletSession(status.walletId);
+              if (isWalletSessionReadUnavailable(session)) return;
               if (isWalletSessionReadyForUi({ session })) {
                 const nextLoginState = buildReactLoggedInLoginStateFromSession(session);
                 if (nextLoginState) {
@@ -66,6 +70,7 @@ export function useWalletIframeLifecycle(args: {
           if (walletId) {
             try {
               const session = await seams.auth.getWalletSession(walletId);
+              if (isWalletSessionReadUnavailable(session)) return;
               if (isWalletSessionReadyForUi({ session })) {
                 const nextLoginState = buildReactLoggedInLoginStateFromSession(session);
                 if (nextLoginState) {

@@ -338,7 +338,8 @@ export class BrowserSigningSurface {
   private readonly thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>> = new Map();
   private readonly thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey = new Map();
   private readonly thresholdEd25519CommitQueueByKey: ThresholdEd25519CommitQueueByKey = new Map();
-  private readonly nearEd25519CapabilityRehydrationBySubject: Map<string, Promise<void>> = new Map();
+  private readonly nearEd25519CapabilityRehydrationBySubject: Map<string, Promise<void>> =
+    new Map();
   private readonly emailOtpEd25519SilentRecoveryBySubject: Map<
     string,
     Promise<EmailOtpEd25519YaoSilentRecoveryResultV1>
@@ -574,6 +575,12 @@ export class BrowserSigningSurface {
     return await sessionPublic.readPersistedAvailableSigningLanes(this.sessionPublicDeps, args);
   }
 
+  async getReusableWalletSessionStatus(
+    walletId: WalletId | string,
+  ): Promise<SigningSessionStatus | null> {
+    return await this.enginePorts.signingSessionCoordinator.getStatus({ walletId });
+  }
+
   async warmCriticalResources(
     accountContext?: WorkerResourceWarmupAccountContext,
   ): Promise<WorkerResourceWarmupDiagnostics> {
@@ -663,8 +670,7 @@ export class BrowserSigningSurface {
     }
 
     const rehydrationKey = nearEd25519CapabilityRehydrationKey(subject);
-    const existingRehydration =
-      this.nearEd25519CapabilityRehydrationBySubject.get(rehydrationKey);
+    const existingRehydration = this.nearEd25519CapabilityRehydrationBySubject.get(rehydrationKey);
     if (existingRehydration) {
       await existingRehydration;
       const rehydrated = await this.resolveActiveNearEd25519YaoSigningLane(subject);
@@ -677,9 +683,7 @@ export class BrowserSigningSurface {
     try {
       await rehydration;
     } finally {
-      if (
-        this.nearEd25519CapabilityRehydrationBySubject.get(rehydrationKey) === rehydration
-      ) {
+      if (this.nearEd25519CapabilityRehydrationBySubject.get(rehydrationKey) === rehydration) {
         this.nearEd25519CapabilityRehydrationBySubject.delete(rehydrationKey);
       }
     }
@@ -934,9 +938,7 @@ export class BrowserSigningSurface {
     if (args.expectedLaneIdentity.auth.kind !== 'passkey') {
       throw new Error('[SigningEngine][near] passkey rehydration requires passkey lane identity');
     }
-    const prfFirstB64u = passkeyPrfFirstB64uFromCredential(
-      args.policySecretSource.credential,
-    );
+    const prfFirstB64u = passkeyPrfFirstB64uFromCredential(args.policySecretSource.credential);
     if (!prfFirstB64u) {
       throw new Error('[SigningEngine][near] passkey rehydration requires WebAuthn PRF.first');
     }
