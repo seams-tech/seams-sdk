@@ -1,8 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { base64UrlEncode } from '@shared/utils/base64';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import { parseEcdsaActiveStateId } from '@shared/utils/domainIds';
-import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
 import {
   buildEmailOtpEcdsaAuthBinding,
@@ -29,7 +28,7 @@ import {
   toVerifiedEcdsaPublicFactsFromRecord,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
-  parseEcdsaClientVerifyingShareB64u,
+  parseEcdsaClientVerifyingPublicKey33B64u,
   parseEcdsaKeyHandle,
   parseEcdsaRelayerKeyId,
   parseEcdsaRoleLocalBindingDigest,
@@ -391,46 +390,50 @@ test.describe('EVM-family ECDSA identity', () => {
     expect('walletSessionJwt' in signerSession).toBe(false);
   });
 
-  test('builds role-local worker material handles without signing key slot identity', () => {
-    // `routerAbStateSessionId` was replaced by the branded `activeStateId` in
-    // the production handle-builder input.
-    const activeStateIdResult = parseEcdsaActiveStateId('router-ab-state-session-1');
-    if (!activeStateIdResult.ok) {
-      throw new Error('test activeStateId must parse');
-    }
+  test('builds role-local worker material handles from material identity only', () => {
     const base = {
-      thresholdSessionId: 'threshold-session-1',
-      signingGrantId: 'signing-grant-1',
       keyHandle: parseEcdsaKeyHandle('key-handle-shared'),
-      activeStateId: activeStateIdResult.value,
-      clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(VALID_PUBLIC_KEY_B64U),
+      clientVerifyingPublicKey33B64u:
+        parseEcdsaClientVerifyingPublicKey33B64u(VALID_PUBLIC_KEY_B64U),
       ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('ederivation-shared-key'),
-      participantIds: [1, 2],
+      participantIds: [1, 2] as const,
       relayerKeyId: parseEcdsaRelayerKeyId('relayer-key'),
     };
 
-    const evmHandle = buildEcdsaRoleLocalSigningMaterialHandle({
-      ...base,
-      chainTarget: EVM_TARGET,
-    });
-    const tempoHandle = buildEcdsaRoleLocalSigningMaterialHandle({
-      ...base,
-      chainTarget: TEMPO_TARGET,
-    });
+    const evmHandle = buildEcdsaRoleLocalSigningMaterialHandle(base);
+    const tempoHandle = buildEcdsaRoleLocalSigningMaterialHandle(base);
 
-    expect(evmHandle.bindingDigest).not.toBe(tempoHandle.bindingDigest);
-    expect(evmHandle.materialHandle).not.toBe(tempoHandle.materialHandle);
+    expect(evmHandle.bindingDigest).toBe(tempoHandle.bindingDigest);
+    expect(evmHandle.materialHandle).toBe(tempoHandle.materialHandle);
     expect(evmHandle.materialHandle).toContain(
-      'router-ab-ecdsa-role-local:threshold-session-1:key-handle-shared:router-ab-state-session-1:',
+      'router-ab-ecdsa-role-local:key-handle-shared:ederivation-shared-key:',
     );
 
     const otherThresholdKeyHandle = buildEcdsaRoleLocalSigningMaterialHandle({
       ...base,
-      chainTarget: EVM_TARGET,
       ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('ederivation-other-key'),
     });
     expect(otherThresholdKeyHandle.bindingDigest).not.toBe(evmHandle.bindingDigest);
     expect(otherThresholdKeyHandle.materialHandle).not.toBe(evmHandle.materialHandle);
+  });
+
+  test('validates role-local client verifying public keys as compressed 33-byte values', () => {
+    const wrongLength = new Uint8Array(32);
+    const uncompressedPrefix = new Uint8Array(33);
+    uncompressedPrefix[0] = 0x04;
+
+    expect(parseEcdsaClientVerifyingPublicKey33B64u(VALID_PUBLIC_KEY_B64U)).toBe(
+      VALID_PUBLIC_KEY_B64U,
+    );
+    expect(() => parseEcdsaClientVerifyingPublicKey33B64u(base64UrlEncode(wrongLength))).toThrow(
+      /canonical base64url for 33 bytes/,
+    );
+    expect(() =>
+      parseEcdsaClientVerifyingPublicKey33B64u(base64UrlEncode(uncompressedPrefix)),
+    ).toThrow(/compressed secp256k1/);
+    expect(() => parseEcdsaClientVerifyingPublicKey33B64u(`${VALID_PUBLIC_KEY_B64U}=`)).toThrow(
+      /unpadded base64url/,
+    );
   });
 
   test('builds ready signer session material from a persisted role-local blob as a worker handle', async () => {
@@ -460,7 +463,7 @@ test.describe('EVM-family ECDSA identity', () => {
       throw new Error('expected role-local worker material');
     }
     expect(signerSession.clientShare.handle.bindingDigest).toContain(
-      'router_ab_ecdsa_role_local_signing_material_binding_v1',
+      'router_ab_ecdsa_role_local_signing_material_binding_v2',
     );
   });
 
