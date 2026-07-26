@@ -18,6 +18,14 @@ type CloudflareDoSetRequest = {
   readonly ttlMs?: number;
 };
 
+type CloudflareDoRegistrationUpdateExpectedRequest = {
+  readonly op: 'registrationUpdateExpected';
+  readonly key: string;
+  readonly expected: unknown;
+  readonly next: unknown;
+  readonly ttlMs?: number;
+};
+
 type CloudflareDoRegistrationReserveWalletIdRequest = {
   readonly op: 'registrationReserveWalletId';
   readonly key: string;
@@ -57,6 +65,7 @@ type CloudflareDoDelRequest = {
 
 type CloudflareRegistrationIntentDoRequest =
   | CloudflareDoSetRequest
+  | CloudflareDoRegistrationUpdateExpectedRequest
   | CloudflareDoRegistrationReserveWalletIdRequest
   | CloudflareDoRegistrationCancelTerminalRequest
   | CloudflareDoGetRequest
