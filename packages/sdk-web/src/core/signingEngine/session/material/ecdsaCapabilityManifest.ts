@@ -935,6 +935,7 @@ export function buildActiveEcdsaCapabilityManifest(
   assertRegisteredPublicFactsMatchBinding(
     input.registeredPublicFacts,
     input.activationBinding.roleLocalBinding,
+    input.serverActivation,
   );
   assertDurableMaterialMatchesActivation(
     input.durableMaterial,
@@ -1161,9 +1162,15 @@ function materialActivationFromCommit(
 function assertRegisteredPublicFactsMatchBinding(
   publicFacts: VerifiedEcdsaPublicFacts,
   binding: EcdsaRoleLocalMaterialBinding,
+  serverActivation: EcdsaServerActivationCommit,
 ): void {
+  const receiptPublicIdentity =
+    serverActivation.serverActivationReceipt.protocolReceipt.ecdsa_activation.public_identity;
   if (
     String(publicFacts.keyHandle) !== String(binding.keyHandle) ||
+    String(publicFacts.publicKeyB64u) !== receiptPublicIdentity.threshold_public_key33_b64u ||
+    String(binding.clientVerifyingPublicKey33B64u) !==
+      receiptPublicIdentity.derivation_client_share_public_key33_b64u ||
     !participantIdsMatch(publicFacts.participantIds, binding.participantIds)
   ) {
     throw new Error('Registered ECDSA public facts do not match role-local material');
