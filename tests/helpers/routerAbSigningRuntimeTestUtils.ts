@@ -1,15 +1,12 @@
 import { ed25519 } from '@noble/curves/ed25519.js';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { normalizeLogger, type Logger } from '@server/core/logger';
-import { createConfiguredSigningRootShareResolver } from '@server/core/ThresholdService/signingRootSecretConfig';
 import {
   createHostedSigningRootShareResolver,
   type SealedSigningRootShare,
   type SigningRootShareResolver,
 } from '@server/core/ThresholdService/signingRootShareResolver';
 import { createThresholdEcdsaSigningStores } from '@server/core/ThresholdService/stores/EcdsaSigningStore';
-import { createThresholdEcdsaKeyStore } from '@server/core/ThresholdService/stores/KeyStore';
-import { createThresholdEcdsaSessionStore } from '@server/core/ThresholdService/stores/SessionStore';
 import {
   createEcdsaWalletSessionStore,
   createEd25519WalletSessionStore,
@@ -17,10 +14,6 @@ import {
   type Ed25519WalletSessionStore,
 } from '@server/core/ThresholdService/stores/WalletSessionStore';
 import { parseThresholdEd25519KeyRecord } from '@server/core/ThresholdService/validation';
-import {
-  RouterAbEcdsaBootstrapExportRuntime,
-  type RouterAbEcdsaBootstrapExportPort,
-} from '@server/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import type { RouterAbSigningRuntimeBundle } from '@server/core/routerAbSigning/createRouterAbSigningRuntimes';
 import {
   parseRouterAbEcdsaPresignRuntimeConfig,
@@ -29,12 +22,24 @@ import {
 import { RouterAbLocalSigningSeedRuntime } from '@server/core/routerAbSigning/RouterAbLocalSigningSeedRuntime';
 import {
   parseRouterAbNormalSigningRuntimeConfig,
+  requireRouterAbConfiguredSigningWorkerPrivateTransport,
   RouterAbNormalSigningRuntime,
 } from '@server/core/routerAbSigning/RouterAbNormalSigningRuntime';
-import type {
-  ThresholdEd25519AuthorityScope,
-  ThresholdStoreConfigInput,
-} from '@server/core/types';
+import {
+  parseStoredRouterAbEcdsaPendingActivationV1,
+  type RouterAbEcdsaStrictRegistrationPort,
+  type RouterAbEcdsaStrictRegistrationTopology,
+} from '@server/router/routerAbEcdsaStrictRegistration';
+import type { ThresholdEd25519AuthorityScope, ThresholdStoreConfigInput } from '@server/core/types';
+import {
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
+  parseRouterAbEcdsaRegistrationRequestV1,
+  parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
+  parseRouterAbEcdsaVerifiedClientActivationFactsV1,
+  type RouterAbEcdsaRegistrationRequestFactsV1,
+  type RouterAbEcdsaRegistrationRequestV1,
+  type RouterAbEcdsaVerifiedClientActivationFactsV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import { readFileSync } from 'node:fs';
 
 let fixtureSigningRootShareWires: Map<number, Uint8Array> | null = null;
@@ -46,60 +51,175 @@ const FIXTURE_THRESHOLD_PRF_POLICY = {
   shareCount: 3,
 } as const;
 
-type EcdsaBootstrapInput = Parameters<
-  RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalBootstrap']
->[0];
-type EcdsaBootstrapResult = Awaited<
-  ReturnType<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalBootstrap']>
->;
+const FIXTURE_ECDSA_STRICT_REGISTRATION_TOPOLOGY: RouterAbEcdsaStrictRegistrationTopology = {
+  routerId: 'router-unit-fixture',
+  signerSet: {
+    signer_set_id: 'signer-set-unit-fixture',
+    policy: 'all_2',
+    signer_a: {
+      role: 'signer_a',
+      signer_id: 'deriver-a-unit-fixture',
+      key_epoch: 'epoch-unit-fixture',
+    },
+    signer_b: {
+      role: 'signer_b',
+      signer_id: 'deriver-b-unit-fixture',
+      key_epoch: 'epoch-unit-fixture',
+    },
+    selected_server: {
+      server_id: 'signing-worker-unit-fixture',
+      key_epoch: 'epoch-unit-fixture',
+      recipient_encryption_key:
+        'x25519:1111111111111111111111111111111111111111111111111111111111111111',
+    },
+  },
+  deriverRecipientKeys: {
+    deriver_a: {
+      role: 'signer_a',
+      key_epoch: 'epoch-unit-fixture',
+      public_key: 'x25519:2222222222222222222222222222222222222222222222222222222222222222',
+    },
+    deriver_b: {
+      role: 'signer_b',
+      key_epoch: 'epoch-unit-fixture',
+      public_key: 'x25519:3333333333333333333333333333333333333333333333333333333333333333',
+    },
+  },
+};
 
-export class FixtureRouterAbEcdsaBootstrapExportPort
-  implements RouterAbEcdsaBootstrapExportPort
-{
-  readonly bootstrapRequests: EcdsaBootstrapInput[] = [];
+const FIXTURE_ECDSA_DIGEST32_B64U = Buffer.alloc(32).toString('base64url');
+const FIXTURE_ECDSA_CLIENT_PUBLIC_KEY33_B64U = Buffer.from([
+  2,
+  ...new Array<number>(32).fill(0),
+]).toString('base64url');
+const FIXTURE_ECDSA_SERVER_PUBLIC_KEY33_B64U = Buffer.from([
+  3,
+  ...new Array<number>(32).fill(0),
+]).toString('base64url');
+const FIXTURE_ECDSA_ADDRESS20_B64U = Buffer.alloc(20, 1).toString('base64url');
 
-  constructor(
-    private readonly delegate: RouterAbEcdsaBootstrapExportPort,
-    private readonly bootstrap: (input: EcdsaBootstrapInput) => Promise<EcdsaBootstrapResult>,
-  ) {}
+export function fixtureRouterAbEcdsaActivationFacts(): RouterAbEcdsaVerifiedClientActivationFactsV1 {
+  return parseRouterAbEcdsaVerifiedClientActivationFactsV1({
+    registrationRequestDigestB64u: FIXTURE_ECDSA_DIGEST32_B64U,
+    proofTranscriptDigestB64u: FIXTURE_ECDSA_DIGEST32_B64U,
+    contextBinding32B64u: FIXTURE_ECDSA_DIGEST32_B64U,
+    derivationClientSharePublicKey33B64u: FIXTURE_ECDSA_CLIENT_PUBLIC_KEY33_B64U,
+    clientShareRetryCounter: 0,
+    participantId: 1,
+  });
+}
 
-  async getEcdsaKeyIdentityMetadata(
-    input: Parameters<RouterAbEcdsaBootstrapExportPort['getEcdsaKeyIdentityMetadata']>[0],
-  ): Promise<Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['getEcdsaKeyIdentityMetadata']>>> {
-    return await this.delegate.getEcdsaKeyIdentityMetadata(input);
+export function buildFixtureRouterAbEcdsaStrictRegistrationRequest(
+  facts: RouterAbEcdsaRegistrationRequestFactsV1,
+): RouterAbEcdsaRegistrationRequestV1 {
+  const digest = { bytes: new Array<number>(32).fill(0) };
+  return parseRouterAbEcdsaRegistrationRequestV1({
+    registration_purpose: facts.registration_purpose,
+    context: facts.context,
+    lifecycle: facts.lifecycle,
+    signer_set: facts.signer_set,
+    router_id: facts.router_id,
+    client_id: facts.client_id,
+    replay_nonce: facts.replay_nonce,
+    expires_at_ms: facts.expires_at_ms,
+    client_ephemeral_public_key:
+      'x25519:4444444444444444444444444444444444444444444444444444444444444444',
+    deriver_a_envelope: {
+      recipient_role: 'signer_a',
+      header_digest: digest,
+      aad_digest: digest,
+      ciphertext: { bytes: [1] },
+    },
+    deriver_b_envelope: {
+      recipient_role: 'signer_b',
+      header_digest: digest,
+      aad_digest: digest,
+      ciphertext: { bytes: [2] },
+    },
+  });
+}
+
+export class FixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsaStrictRegistrationPort {
+  topology(): RouterAbEcdsaStrictRegistrationTopology {
+    return FIXTURE_ECDSA_STRICT_REGISTRATION_TOPOLOGY;
   }
 
-  async verifyEcdsaSigningRootWalletAddress(
-    input: Parameters<RouterAbEcdsaBootstrapExportPort['verifyEcdsaSigningRootWalletAddress']>[0],
-  ): Promise<
-    Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['verifyEcdsaSigningRootWalletAddress']>>
-  > {
-    return await this.delegate.verifyEcdsaSigningRootWalletAddress(input);
+  async register(): Promise<never> {
+    throw new Error('Strict ECDSA registration is outside this fixture');
   }
 
-  async ecdsaDerivationRoleLocalBootstrap(input: EcdsaBootstrapInput): Promise<EcdsaBootstrapResult> {
-    this.bootstrapRequests.push(input);
-    return await this.bootstrap(input);
+  async activate(): Promise<never> {
+    throw new Error('Strict ECDSA activation is outside this fixture');
+  }
+}
+
+export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsaStrictRegistrationPort {
+  registrationRequest: RouterAbEcdsaRegistrationRequestV1 | null = null;
+
+  topology(): RouterAbEcdsaStrictRegistrationTopology {
+    return FIXTURE_ECDSA_STRICT_REGISTRATION_TOPOLOGY;
   }
 
-  async verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey(
-    input: Parameters<
-      RouterAbEcdsaBootstrapExportPort['verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey']
-    >[0],
-  ): Promise<
-    Awaited<
-      ReturnType<
-        RouterAbEcdsaBootstrapExportPort['verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey']
-      >
-    >
-  > {
-    return await this.delegate.verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey(input);
+  async register(
+    input: Parameters<RouterAbEcdsaStrictRegistrationPort['register']>[0],
+  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['register']> {
+    const request = parseRouterAbEcdsaRegistrationRequestV1(input.request);
+    this.registrationRequest = request;
+    const bundle = {
+      kind: 'recipient_proof_bundle',
+      transcriptDigestB64u: FIXTURE_ECDSA_DIGEST32_B64U,
+      payloadB64u: 'AQ',
+    } as const;
+    return {
+      ok: true,
+      value: {
+        publicResponse: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1({
+          result: 'forwarded',
+          response: {
+            replay: { request_id: request.replay_nonce, reserved: true },
+            lifecycle: { lifecycle_id: request.lifecycle.lifecycle_id, stored: true },
+            bundles: { signerA: bundle, signerB: bundle },
+          },
+        }),
+        pendingActivation: parseStoredRouterAbEcdsaPendingActivationV1({
+          kind: 'router_ab_ecdsa_pending_activation_v1',
+          canonicalPayloadJson: '{"activation":{},"activation_context":{},"registration":{}}',
+        }),
+      },
+    };
   }
 
-  async ecdsaDerivationRoleLocalExportShare(
-    input: Parameters<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalExportShare']>[0],
-  ): Promise<Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalExportShare']>>> {
-    return await this.delegate.ecdsaDerivationRoleLocalExportShare(input);
+  async activate(
+    input: Parameters<RouterAbEcdsaStrictRegistrationPort['activate']>[0],
+  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['activate']> {
+    const registration = this.registrationRequest;
+    if (!registration) throw new Error('Strict ECDSA activation preceded registration');
+    const publicFacts = parseRouterAbEcdsaVerifiedClientActivationFactsV1(input.clientActivation);
+    return {
+      ok: true,
+      value: parseRouterAbEcdsaRegistrationActivationReceiptV1({
+        ecdsa_activation: {
+          context: registration.context,
+          public_identity: {
+            context_binding_b64u: publicFacts.contextBinding32B64u,
+            derivation_client_share_public_key33_b64u:
+              publicFacts.derivationClientSharePublicKey33B64u,
+            server_public_key33_b64u: FIXTURE_ECDSA_SERVER_PUBLIC_KEY33_B64U,
+            threshold_public_key33_b64u: FIXTURE_ECDSA_CLIENT_PUBLIC_KEY33_B64U,
+            ethereum_address20_b64u: FIXTURE_ECDSA_ADDRESS20_B64U,
+            client_share_retry_counter: publicFacts.clientShareRetryCounter,
+            server_share_retry_counter: 0,
+          },
+          signing_worker: registration.signer_set.selected_server,
+          activation_epoch: registration.lifecycle.root_share_epoch,
+          activation_digest_b64u: FIXTURE_ECDSA_DIGEST32_B64U,
+          activated_at_ms: Date.now(),
+        },
+        lifecycle_id: registration.lifecycle.lifecycle_id,
+        transcript_digest: { bytes: new Array<number>(32).fill(0) },
+        activated: true,
+      }),
+    };
   }
 }
 
@@ -212,26 +332,14 @@ export function createRouterAbSigningRuntimesForUnitTests(input: {
   readonly runtimes: RouterAbSigningRuntimeBundle;
   readonly normalSigning: RouterAbNormalSigningRuntime;
   readonly localSigningSeed: RouterAbLocalSigningSeedRuntime;
-  readonly ecdsaBootstrapExport: RouterAbEcdsaBootstrapExportRuntime;
   readonly ecdsaPresign: RouterAbEcdsaPresignRuntime;
   readonly routerAbNormalSigningRuntime: RouterAbNormalSigningRuntime;
   readonly routerAbLocalSigningSeedRuntime: RouterAbLocalSigningSeedRuntime;
-  readonly routerAbEcdsaBootstrapExportRuntime: RouterAbEcdsaBootstrapExportRuntime;
   readonly walletSessionStore: Ed25519WalletSessionStore;
   readonly ecdsaWalletSessionStore: ReturnType<typeof createEcdsaWalletSessionStore>;
   readonly walletBudgetSessionStore: ReturnType<typeof createWalletSigningBudgetSessionStore>;
 } {
   const logger = normalizeLogger(input.logger || silentLogger());
-  const ecdsaKeyStore = createThresholdEcdsaKeyStore({
-    config: { kind: 'in-memory' },
-    logger,
-    isNode: true,
-  });
-  const ecdsaSessionStore = createThresholdEcdsaSessionStore({
-    config: { kind: 'in-memory' },
-    logger,
-    isNode: true,
-  });
   const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({
     config: { kind: 'in-memory' },
     logger,
@@ -279,11 +387,10 @@ export function createRouterAbSigningRuntimesForUnitTests(input: {
   );
   const config = {
     ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker.local',
+    ROUTER_AB_SIGNING_WORKER_URL: 'https://signing-worker.example.test',
+    ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'test-router-ab-internal-service-auth',
     ...input.config,
   };
-  const signingRootShareResolver =
-    createConfiguredSigningRootShareResolver(config) ??
-    createFixtureSigningRootShareResolverForUnitTests();
   const normalSigning = new RouterAbNormalSigningRuntime({
     walletSessionStore,
     ecdsaWalletSessionStore,
@@ -301,38 +408,28 @@ export function createRouterAbSigningRuntimesForUnitTests(input: {
     ecdsaWalletSessionStore,
     normalSigningRuntime: normalSigning,
   });
-  const ecdsaBootstrapExport = new RouterAbEcdsaBootstrapExportRuntime({
-    ecdsaKeyStore,
-    ecdsaWalletSessionStore,
-    signingRootShareResolver,
-    routerAbNormalSigningRuntime: normalSigning,
-    participantIds: [1, 2],
-  });
+  const normalSigningConfig = parseRouterAbNormalSigningRuntimeConfig(config);
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({
     logger,
     config: parseRouterAbEcdsaPresignRuntimeConfig(config),
-    ecdsaSessionStore,
     ecdsaPoolFillSessionStore: ecdsaSigningStores.poolFillSessionStore,
-    ecdsaKeyStore,
-    normalSigningRuntime: normalSigning,
+    signingWorkerTransport: requireRouterAbConfiguredSigningWorkerPrivateTransport(
+      normalSigningConfig.signingWorkerTransport,
+    ),
     ensureReady: async () => {},
-    liveSessionOwner: undefined,
   });
 
   return {
     runtimes: {
       normalSigning,
       localSigningSeed,
-      ecdsaBootstrapExport: { kind: 'configured', runtime: ecdsaBootstrapExport },
       ecdsaPresign,
     },
     normalSigning,
     localSigningSeed,
-    ecdsaBootstrapExport,
     ecdsaPresign,
     routerAbNormalSigningRuntime: normalSigning,
     routerAbLocalSigningSeedRuntime: localSigningSeed,
-    routerAbEcdsaBootstrapExportRuntime: ecdsaBootstrapExport,
     walletSessionStore,
     ecdsaWalletSessionStore,
     walletBudgetSessionStore,

@@ -1,10 +1,16 @@
 export type RouterAbEd25519YaoGatewayCutoverFamilyV1 = 'registration' | 'recovery' | 'export';
 
-export type RouterAbEd25519YaoGatewayRegistrationOperationV1 =
+export type RouterAbEd25519YaoGatewayOperationV1 =
   | 'registration_start'
+  | 'registration_finalize'
+  | 'registration_add_signer_start'
+  | 'registration_add_signer_finalize'
   | 'registration_admission'
   | 'registration_execute'
   | 'recovery_bootstrap'
+  | 'recovery_wallet_session'
+  | 'recovery_unlock'
+  | 'recovery_sync_account'
   | 'recovery_admission'
   | 'recovery_execute'
   | 'recovery_activate'
@@ -16,17 +22,21 @@ export type RouterAbEd25519YaoGatewayRegistrationOperationV1 =
  * exists. Only admission stops at the cutoff, so a ceremony admitted before the
  * boundary finishes on the store it started on.
  */
-function isAdmissionOperation(
-  operation: RouterAbEd25519YaoGatewayRegistrationOperationV1,
-): boolean {
+function isAdmissionOperation(operation: RouterAbEd25519YaoGatewayOperationV1): boolean {
   switch (operation) {
     case 'registration_start':
+    case 'registration_add_signer_start':
     case 'registration_admission':
     case 'recovery_admission':
     case 'export_admission':
       return true;
+    case 'registration_finalize':
+    case 'registration_add_signer_finalize':
     case 'registration_execute':
     case 'recovery_bootstrap':
+    case 'recovery_wallet_session':
+    case 'recovery_unlock':
+    case 'recovery_sync_account':
     case 'recovery_execute':
     case 'recovery_activate':
     case 'export_execute':
@@ -35,14 +45,20 @@ function isAdmissionOperation(
 }
 
 function familyOfOperation(
-  operation: RouterAbEd25519YaoGatewayRegistrationOperationV1,
+  operation: RouterAbEd25519YaoGatewayOperationV1,
 ): RouterAbEd25519YaoGatewayCutoverFamilyV1 {
   switch (operation) {
     case 'registration_start':
+    case 'registration_finalize':
+    case 'registration_add_signer_start':
+    case 'registration_add_signer_finalize':
     case 'registration_admission':
     case 'registration_execute':
       return 'registration';
     case 'recovery_bootstrap':
+    case 'recovery_wallet_session':
+    case 'recovery_unlock':
+    case 'recovery_sync_account':
     case 'recovery_admission':
     case 'recovery_execute':
     case 'recovery_activate':
@@ -71,9 +87,15 @@ export type RouterAbEd25519YaoGatewayCutoverStateV1 = {
     | undefined;
 };
 
-export type RouterAbEd25519YaoGatewayRegistrationRouteV1 =
-  | { readonly kind: 'legacy_runtime'; readonly window: RouterAbEd25519YaoGatewayCutoverWindowV1 | null }
-  | { readonly kind: 'admission_blocked'; readonly window: RouterAbEd25519YaoGatewayCutoverWindowV1 }
+export type RouterAbEd25519YaoGatewayRouteV1 =
+  | {
+      readonly kind: 'legacy_runtime';
+      readonly window: RouterAbEd25519YaoGatewayCutoverWindowV1 | null;
+    }
+  | {
+      readonly kind: 'admission_blocked';
+      readonly window: RouterAbEd25519YaoGatewayCutoverWindowV1;
+    }
   | { readonly kind: 'partitioned_d1'; readonly window: RouterAbEd25519YaoGatewayCutoverWindowV1 };
 
 /**
@@ -83,11 +105,11 @@ export type RouterAbEd25519YaoGatewayRegistrationRouteV1 =
  * expires. This keeps all phases of one ceremony on the store it was admitted
  * against, and keeps families independent so they can be cut over one at a time.
  */
-export function resolveRouterAbEd25519YaoGatewayRegistrationRouteV1(input: {
-  readonly operation: RouterAbEd25519YaoGatewayRegistrationOperationV1;
+export function resolveRouterAbEd25519YaoGatewayRouteV1(input: {
+  readonly operation: RouterAbEd25519YaoGatewayOperationV1;
   readonly nowMs: number;
   readonly cutover: RouterAbEd25519YaoGatewayCutoverStateV1;
-}): RouterAbEd25519YaoGatewayRegistrationRouteV1 {
+}): RouterAbEd25519YaoGatewayRouteV1 {
   validateTimestamp(input.nowMs, 'nowMs');
   const window = input.cutover[familyOfOperation(input.operation)];
   if (!window) return { kind: 'legacy_runtime', window: null };
@@ -109,13 +131,13 @@ export function routerAbEd25519YaoGatewayUsesPartitionedD1V1(input: {
   readonly nowMs: number;
   readonly cutover: RouterAbEd25519YaoGatewayCutoverStateV1;
 }): boolean {
-  const operations: readonly RouterAbEd25519YaoGatewayRegistrationOperationV1[] = [
+  const operations: readonly RouterAbEd25519YaoGatewayOperationV1[] = [
     'registration_execute',
     'recovery_execute',
     'export_execute',
   ];
   for (const operation of operations) {
-    const route = resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+    const route = resolveRouterAbEd25519YaoGatewayRouteV1({
       operation,
       nowMs: input.nowMs,
       cutover: input.cutover,
@@ -123,6 +145,25 @@ export function routerAbEd25519YaoGatewayUsesPartitionedD1V1(input: {
     if (route.kind !== 'partitioned_d1') return false;
   }
   return true;
+}
+
+export function routerAbEd25519YaoCapabilityConsumersUsePartitionedD1V1(input: {
+  readonly nowMs: number;
+  readonly cutover: RouterAbEd25519YaoGatewayCutoverStateV1;
+}): boolean {
+  const capabilityProducers: readonly RouterAbEd25519YaoGatewayOperationV1[] = [
+    'registration_execute',
+    'recovery_execute',
+  ];
+  for (const operation of capabilityProducers) {
+    const route = resolveRouterAbEd25519YaoGatewayRouteV1({
+      operation,
+      nowMs: input.nowMs,
+      cutover: input.cutover,
+    });
+    if (route.kind === 'partitioned_d1') return true;
+  }
+  return false;
 }
 
 function validateTimestamp(value: number, label: string): void {

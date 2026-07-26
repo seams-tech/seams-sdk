@@ -3,10 +3,11 @@ use router_ab_cloudflare::{
     CloudflareEd25519YaoPairPrepareRequestV1, CloudflareEd25519YaoReadCompletedPairRequestV1,
 };
 use router_ab_core::{
-    Ed25519YaoDeriverRoleV1, Ed25519YaoOperationV1, RouterAbEd25519YaoActivationPublicReceiptV1,
-    RouterAbEd25519YaoActivationResultV1, RouterAbEd25519YaoExportResultV1, RouterAbProtocolError,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterEd25519YaoExecuteFailureCodeV1,
-    RouterEd25519YaoExecuteResultV1, RouterEd25519YaoExecuteSuccessV1,
+    ed25519_yao_recipient_set_digest_v1, Ed25519YaoDeriverRoleV1, Ed25519YaoOperationV1,
+    RouterAbEd25519YaoActivationPublicReceiptV1, RouterAbEd25519YaoActivationResultV1,
+    RouterAbEd25519YaoExportResultV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
+    RouterAbProtocolResult, RouterEd25519YaoExecuteFailureCodeV1, RouterEd25519YaoExecuteResultV1,
+    RouterEd25519YaoExecuteSuccessV1,
 };
 use router_ab_ed25519_yao::{
     Ed25519YaoActivationRoleExecutionV1, Ed25519YaoExportRoleExecutionV1, Ed25519YaoRoleExecutionV1,
@@ -16,6 +17,8 @@ use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+const ROUTER_AUTHORITY_TTL_MS: u64 = 60_000;
 
 /// Local JSON boundary equivalent of the production recovery-promotion body.
 /// The Cloudflare request type is worker-feature gated, so the local harness
@@ -58,8 +61,14 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
         config: &LocalRouterWorkerConfigV1,
         body: &[u8],
     ) -> RouterAbProtocolResult<RouterEd25519YaoExecuteResultV1> {
-        let request = decode_local_router_ed25519_yao_execute_request_v1(body)?;
-        request.authority.validate_at(local_now_ms_v1()?)?;
+        let now_ms = local_now_ms_v1()?;
+        let request = decode_local_router_ed25519_yao_execute_request_v1(
+            body,
+            local_recipient_set_digest_v1(config)?,
+            now_ms,
+            now_ms.saturating_add(ROUTER_AUTHORITY_TTL_MS),
+        )?;
+        request.authority.validate_at(now_ms)?;
         let pair = request.pair_binding.clone();
         let prepare_a = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding: pair.clone(),
@@ -353,6 +362,49 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
     }
 }
 
+fn local_recipient_set_digest_v1(
+    config: &LocalRouterWorkerConfigV1,
+) -> RouterAbProtocolResult<router_ab_core::PublicDigest32> {
+    ed25519_yao_recipient_set_digest_v1(
+        local_x25519_public_key_v1(
+            &config.deriver_a_ed25519_yao_input_public_key,
+            "Deriver A input public key",
+        )?,
+        local_x25519_public_key_v1(
+            &config.deriver_b_ed25519_yao_input_public_key,
+            "Deriver B input public key",
+        )?,
+        local_x25519_public_key_v1(
+            &config.signing_worker_ed25519_yao_recipient_public_key,
+            "SigningWorker recipient public key",
+        )?,
+    )
+}
+
+fn local_x25519_public_key_v1(
+    value: &str,
+    label: &'static str,
+) -> RouterAbProtocolResult<[u8; 32]> {
+    let encoded = value.strip_prefix("x25519:").ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("{label} must use x25519:<hex> encoding"),
+        )
+    })?;
+    let bytes = hex::decode(encoded).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("{label} must be hex: {error}"),
+        )
+    })?;
+    bytes.try_into().map_err(|_| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("{label} must contain 32 bytes"),
+        )
+    })
+}
+
 impl LocalRouterRequestDispatcherV1 for LocalRouterEd25519YaoCoordinatorV1 {
     fn dispatch(
         &self,
@@ -625,6 +677,9 @@ mod tests {
     fn malformed_execute_body_is_rejected_before_any_role_call() {
         let error = decode_local_router_ed25519_yao_execute_request_v1(
             br#"{"operation":"registration","unknown":true}"#,
+            router_ab_core::PublicDigest32::new([0xa1; 32]),
+            1,
+            100,
         )
         .expect_err("malformed request must not reach a role");
         assert_eq!(

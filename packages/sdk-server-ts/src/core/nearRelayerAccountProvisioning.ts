@@ -8,9 +8,10 @@ import {
   parseImplicitNearAccountId,
   parseNamedNearAccountId,
 } from '@shared/utils/near';
-import type { FinalExecutionOutcome, TxExecutionStatus } from '@near-js/types';
+import type { AccessKeyView, FinalExecutionOutcome, TxExecutionStatus } from '@near-js/types';
 import {
   threshold_ed25519_build_near_tx_unsigned_borsh,
+  threshold_ed25519_decode_signed_near_tx_borsh,
   threshold_ed25519_finalize_near_tx_from_signature,
 } from '../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import { decodeNearSecretKey, toPublicKeyStringFromSecretKey } from './nearKeys';
@@ -71,6 +72,26 @@ type FinalizeNearTxFromSignatureOutput = {
   readonly transactionHash: string;
 };
 
+type DecodedSponsoredNearAccountCreation = {
+  readonly transactionHash: string;
+  readonly signerId: string;
+  readonly signerPublicKey: string;
+  readonly nonce: string;
+  readonly receiverId: string;
+  readonly blockHash: string;
+  readonly actions: readonly [
+    'createAccount',
+    { readonly transfer: { readonly deposit: string } },
+    {
+      readonly addKey: {
+        readonly publicKey: string;
+        readonly accessKey: { readonly nonce: string; readonly permission: 'FullAccess' };
+      };
+    },
+  ];
+  readonly signedTransactionBorshB64u: string;
+};
+
 type ValidatedFundingInput = FundImplicitNearAccountRequest &
   ValidatedNearRelayerRuntimeInput & {
     readonly fundedAmountYocto: string;
@@ -120,6 +141,91 @@ function requireFinalizeNearTxFromSignatureOutput(
       'signedTransactionBorshB64u',
     ),
     transactionHash: requireNonEmptyString(record.transactionHash, 'transactionHash'),
+  };
+}
+
+function requireByteArray(value: unknown, label: string, expectedLength?: number): number[] {
+  if (
+    !Array.isArray(value) ||
+    value.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255) ||
+    (expectedLength !== undefined && value.length !== expectedLength)
+  ) {
+    throw new Error(`${label} must be a${expectedLength ? ` ${expectedLength}-byte` : ''} array`);
+  }
+  return value;
+}
+
+function requireUnsignedIntegerString(value: unknown, label: string): string {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${label} must be a safe unsigned integer`);
+  }
+  return String(value);
+}
+
+function requireDecodedEd25519PublicKey(value: unknown, label: string): string {
+  const record = requireRecord(value, label);
+  if (record.keyType !== 0) throw new Error(`${label} must be Ed25519`);
+  return `ed25519:${base58Encode(Uint8Array.from(requireByteArray(record.keyData, `${label}.keyData`, 32)))}`;
+}
+
+function requireDecodedSponsoredNearAccountCreation(
+  value: unknown,
+  signedTransactionBorshB64u: string,
+): DecodedSponsoredNearAccountCreation {
+  const output = requireRecord(value, 'decoded signed NEAR transaction');
+  const transactionHash = requireNonEmptyString(output.transactionHash, 'transactionHash');
+  const signed = requireRecord(output.signedTransaction, 'signedTransaction');
+  const transaction = requireRecord(signed.transaction, 'signedTransaction.transaction');
+  const decodedBytes = requireByteArray(signed.borshBytes, 'signedTransaction.borshBytes');
+  if (base64UrlEncode(Uint8Array.from(decodedBytes)) !== signedTransactionBorshB64u) {
+    throw new Error('Decoded NEAR transaction bytes do not match the persisted signed bytes');
+  }
+  const actions =
+    signed.transaction && Array.isArray(transaction.actions) ? transaction.actions : [];
+  if (actions.length !== 3 || actions[0] !== 'createAccount') {
+    throw new Error(
+      'Persisted NEAR transaction must contain create-account, transfer, and add-key',
+    );
+  }
+  const transfer = requireRecord(actions[1], 'signedTransaction.transaction.actions[1]');
+  const transferBody = requireRecord(transfer.transfer, 'transfer action');
+  const addKey = requireRecord(actions[2], 'signedTransaction.transaction.actions[2]');
+  const addKeyBody = requireRecord(addKey.addKey, 'add-key action');
+  const accessKey = requireRecord(addKeyBody.access_key, 'add-key access key');
+  if (accessKey.permission !== 'FullAccess') {
+    throw new Error('Persisted NEAR transaction add-key action must grant full access');
+  }
+  return {
+    transactionHash,
+    signerId: requireNonEmptyString(transaction.signerId, 'signedTransaction.transaction.signerId'),
+    signerPublicKey: requireDecodedEd25519PublicKey(
+      transaction.publicKey,
+      'signedTransaction.transaction.publicKey',
+    ),
+    nonce: requireUnsignedIntegerString(transaction.nonce, 'signedTransaction.transaction.nonce'),
+    receiverId: requireNonEmptyString(
+      transaction.receiverId,
+      'signedTransaction.transaction.receiverId',
+    ),
+    blockHash: base58Encode(
+      Uint8Array.from(
+        requireByteArray(transaction.blockHash, 'signedTransaction.transaction.blockHash', 32),
+      ),
+    ),
+    actions: [
+      'createAccount',
+      { transfer: { deposit: requireNonEmptyString(transferBody.deposit, 'transfer.deposit') } },
+      {
+        addKey: {
+          publicKey: requireDecodedEd25519PublicKey(addKeyBody.public_key, 'add-key public key'),
+          accessKey: {
+            nonce: requireUnsignedIntegerString(accessKey.nonce, 'add-key access-key nonce'),
+            permission: 'FullAccess',
+          },
+        },
+      },
+    ],
+    signedTransactionBorshB64u,
   };
 }
 
@@ -493,14 +599,12 @@ export type PreparedSponsoredNearAccountCreationV1 = {
   readonly accountId: string;
   readonly publicKey: string;
   readonly relayerAccountId: string;
+  readonly relayerPublicKey: string;
+  readonly initialBalanceYocto: string;
   readonly transactionHash: string;
   readonly nextNonce: string;
   readonly blockHash: string;
-  readonly signedTransaction: {
-    readonly transaction: unknown;
-    readonly signature: unknown;
-    readonly borsh_bytes: number[];
-  };
+  readonly signedTransactionBorshB64u: string;
 };
 
 export type PrepareSponsoredNearAccountCreationResultV1 =
@@ -541,14 +645,14 @@ export async function prepareSponsoredNearAccountCreationWithRelayer(
         accountId: validated.accountId,
         publicKey: validated.publicKey,
         relayerAccountId: validated.relayerAccount,
+        relayerPublicKey: validated.relayerPublicKey,
+        initialBalanceYocto: validated.initialBalanceYocto,
         transactionHash: created.transactionHash,
         nextNonce: txContext.nextNonce,
         blockHash: txContext.blockHash,
-        signedTransaction: {
-          transaction: created.signedTransaction.transaction,
-          signature: created.signedTransaction.signature,
-          borsh_bytes: [...created.signedTransaction.borsh_bytes],
-        },
+        signedTransactionBorshB64u: base64UrlEncode(
+          Uint8Array.from(created.signedTransaction.borsh_bytes),
+        ),
       },
     };
   } catch (error: unknown) {
@@ -568,17 +672,33 @@ export type BroadcastPreparedSponsoredNearAccountResultV1 =
   | { readonly kind: 'rejected'; readonly result: AccountCreationResult }
   | { readonly kind: 'uncertain'; readonly message: string };
 
-type SponsoredNearAccountProbeV1 =
+type SponsoredNearAccountTransactionProbeV1 =
   | { readonly kind: 'created'; readonly result: AccountCreationResult }
   | { readonly kind: 'rejected'; readonly message: string }
   | { readonly kind: 'not_found' }
-  | { readonly kind: 'uncertain'; readonly message: string };
+  | { readonly kind: 'pending'; readonly message: string }
+  | { readonly kind: 'infrastructure_failure'; readonly message: string };
+
+type SponsoredNearAccountReadbackV1 =
+  | { readonly kind: 'created'; readonly result: AccountCreationResult }
+  | { readonly kind: 'account_not_found' }
+  | { readonly kind: 'rejected'; readonly message: string }
+  | { readonly kind: 'infrastructure_failure'; readonly message: string };
+
+type SponsoredNearAccountReconciliationV1 =
+  | { readonly kind: 'terminal'; readonly result: BroadcastPreparedSponsoredNearAccountResultV1 }
+  | { readonly kind: 'replay_exact_transaction' };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function outcomeStatus(outcome: FinalExecutionOutcome): SponsoredNearAccountProbeV1 {
+function outcomeStatus(
+  outcome: FinalExecutionOutcome,
+): Extract<
+  SponsoredNearAccountTransactionProbeV1,
+  { readonly kind: 'created' | 'rejected' | 'pending' }
+> {
   const status = outcome.status;
   if (status === 'Failure') {
     return { kind: 'rejected', message: 'NEAR transaction failed' };
@@ -592,25 +712,14 @@ function outcomeStatus(outcome: FinalExecutionOutcome): SponsoredNearAccountProb
       message: `NEAR transaction failed: ${JSON.stringify(status.Failure)}`,
     };
   }
-  return { kind: 'uncertain', message: 'NEAR transaction status is not terminal' };
-}
-
-function isTransactionNotFound(error: unknown): boolean {
-  if (!(error instanceof NearRpcError)) return false;
-  const text = `${error.kind || ''} ${error.message}`.toLowerCase();
-  return (
-    error.type === 'RpcError' &&
-    (text.includes('unknown transaction') ||
-      text.includes('transaction_not_found') ||
-      text.includes('does not exist'))
-  );
+  return { kind: 'pending', message: 'NEAR transaction status is not terminal' };
 }
 
 async function probeSponsoredNearAccountCreation(input: {
   readonly prepared: PreparedSponsoredNearAccountCreationV1;
   readonly nearClient: NearClient;
   readonly relayerAccountId: string;
-}): Promise<SponsoredNearAccountProbeV1> {
+}): Promise<SponsoredNearAccountTransactionProbeV1> {
   try {
     const outcome = await input.nearClient.txStatus(
       input.prepared.transactionHash,
@@ -630,54 +739,160 @@ async function probeSponsoredNearAccountCreation(input: {
     }
     return status;
   } catch (error: unknown) {
-    if (!isTransactionNotFound(error)) {
-      return { kind: 'uncertain', message: 'Unable to query NEAR transaction status' };
+    if (error instanceof NearRpcError) {
+      if (error.failureKind === 'transaction_not_found') return { kind: 'not_found' };
+      if (isDefinitiveNearRejection(error)) {
+        return { kind: 'rejected', message: error.message };
+      }
     }
-    return { kind: 'not_found' };
+    return {
+      kind: 'infrastructure_failure',
+      message: 'Unable to query NEAR transaction status',
+    };
   }
 }
 
 async function readBackSponsoredNearAccount(input: {
   readonly prepared: PreparedSponsoredNearAccountCreationV1;
   readonly nearClient: NearClient;
-}): Promise<SponsoredNearAccountProbeV1> {
+}): Promise<SponsoredNearAccountReadbackV1> {
   try {
     await input.nearClient.viewAccount(input.prepared.accountId);
-    const accessKey = await input.nearClient.viewAccessKey(
+  } catch (error: unknown) {
+    if (error instanceof NearRpcError && error.failureKind === 'account_not_found') {
+      return { kind: 'account_not_found' };
+    }
+    return {
+      kind: 'infrastructure_failure',
+      message: errorMessage(error) || 'NEAR account readback failed',
+    };
+  }
+
+  let accessKey: AccessKeyView;
+  try {
+    accessKey = await input.nearClient.viewAccessKey(
       input.prepared.accountId,
       input.prepared.publicKey,
     );
-    if (accessKey.permission !== 'FullAccess') {
+  } catch (error: unknown) {
+    if (error instanceof NearRpcError && error.failureKind === 'access_key_not_found') {
       return {
         kind: 'rejected',
-        message: 'NEAR account exists without the expected full-access key',
+        message: 'NEAR account exists without the expected access key',
       };
     }
     return {
-      kind: 'created',
-      result: {
-        success: true,
-        accountId: input.prepared.accountId,
-        transactionHash: input.prepared.transactionHash,
-        message: `Account ${input.prepared.accountId} created`,
-      },
+      kind: 'infrastructure_failure',
+      message: errorMessage(error) || 'NEAR access-key readback failed',
     };
-  } catch (error: unknown) {
-    if (error instanceof NearRpcError && isTransactionNotFound(error)) {
-      return { kind: 'not_found' };
-    }
-    return { kind: 'uncertain', message: errorMessage(error) || 'NEAR account readback failed' };
+  }
+  if (accessKey.permission !== 'FullAccess') {
+    return {
+      kind: 'rejected',
+      message: 'NEAR account exists without the expected full-access key',
+    };
+  }
+  return {
+    kind: 'created',
+    result: {
+      success: true,
+      accountId: input.prepared.accountId,
+      transactionHash: input.prepared.transactionHash,
+      message: `Account ${input.prepared.accountId} created`,
+    },
+  };
+}
+
+function rejectedBroadcast(message: string): BroadcastPreparedSponsoredNearAccountResultV1 {
+  return {
+    kind: 'rejected',
+    result: { success: false, error: message, message },
+  };
+}
+
+async function reconcileSponsoredNearAccountCreation(input: {
+  readonly prepared: PreparedSponsoredNearAccountCreationV1;
+  readonly nearClient: NearClient;
+  readonly relayerAccountId: string;
+}): Promise<SponsoredNearAccountReconciliationV1> {
+  const transaction = await probeSponsoredNearAccountCreation(input);
+  switch (transaction.kind) {
+    case 'created':
+      return { kind: 'terminal', result: transaction };
+    case 'rejected':
+      return { kind: 'terminal', result: rejectedBroadcast(transaction.message) };
+    case 'not_found':
+    case 'pending':
+    case 'infrastructure_failure':
+      break;
+  }
+
+  const readback = await readBackSponsoredNearAccount({
+    prepared: input.prepared,
+    nearClient: input.nearClient,
+  });
+  switch (readback.kind) {
+    case 'created':
+      return { kind: 'terminal', result: readback };
+    case 'rejected':
+      return { kind: 'terminal', result: rejectedBroadcast(readback.message) };
+    case 'infrastructure_failure':
+      return {
+        kind: 'terminal',
+        result: { kind: 'uncertain', message: readback.message },
+      };
+    case 'account_not_found':
+      return transaction.kind === 'not_found'
+        ? { kind: 'replay_exact_transaction' }
+        : {
+            kind: 'terminal',
+            result: { kind: 'uncertain', message: transaction.message },
+          };
   }
 }
 
 async function validatePreparedSponsoredNearAccountCreation(
   prepared: PreparedSponsoredNearAccountCreationV1,
-): Promise<void> {
-  const bytes = Uint8Array.from(prepared.signedTransaction.borsh_bytes);
-  const expectedHash = base58Encode(await sha256Bytes(bytes));
-  if (expectedHash !== prepared.transactionHash) {
+): Promise<DecodedSponsoredNearAccountCreation> {
+  await ensureNearSignerWasm();
+  const decoded = requireDecodedSponsoredNearAccountCreation(
+    threshold_ed25519_decode_signed_near_tx_borsh({
+      signedTransactionBorshB64u: prepared.signedTransactionBorshB64u,
+    }),
+    prepared.signedTransactionBorshB64u,
+  );
+  if (decoded.transactionHash !== prepared.transactionHash) {
     throw new Error('Persisted NEAR transaction hash does not match its signed bytes');
   }
+  if (
+    decoded.signerId !== prepared.relayerAccountId ||
+    decoded.signerPublicKey !== prepared.relayerPublicKey
+  ) {
+    throw new Error('Persisted NEAR transaction signer does not match its relayer metadata');
+  }
+  if (decoded.receiverId !== prepared.accountId) {
+    throw new Error('Persisted NEAR transaction receiver does not match its account metadata');
+  }
+  if (decoded.nonce !== prepared.nextNonce || decoded.blockHash !== prepared.blockHash) {
+    throw new Error('Persisted NEAR transaction context does not match its nonce or block hash');
+  }
+  const [, transfer, addKey] = decoded.actions;
+  if (
+    transfer.transfer.deposit !== prepared.initialBalanceYocto ||
+    addKey.addKey.publicKey !== prepared.publicKey ||
+    addKey.addKey.accessKey.nonce !== '0'
+  ) {
+    throw new Error('Persisted NEAR transaction actions do not match account-creation metadata');
+  }
+  return decoded;
+}
+
+export async function preparedSponsoredNearAccountCreationArtifactFingerprint(
+  prepared: PreparedSponsoredNearAccountCreationV1,
+): Promise<string> {
+  await validatePreparedSponsoredNearAccountCreation(prepared);
+  const signedBytes = base64UrlDecode(prepared.signedTransactionBorshB64u);
+  return `sponsored-near-account-creation-v1:${base64UrlEncode(await sha256Bytes(signedBytes))}`;
 }
 
 export async function broadcastPreparedSponsoredNearAccountCreation(input: {
@@ -696,47 +911,57 @@ export async function broadcastPreparedSponsoredNearAccountCreation(input: {
   try {
     await validatePreparedSponsoredNearAccountCreation(input.prepared);
   } catch (error: unknown) {
-    return { kind: 'rejected', result: { success: false, error: errorMessage(error), message: errorMessage(error) } };
+    return {
+      kind: 'rejected',
+      result: { success: false, error: errorMessage(error), message: errorMessage(error) },
+    };
   }
   if (input.reconcileFirst) {
-    const probe = await probeSponsoredNearAccountCreation({
+    const reconciliation = await reconcileSponsoredNearAccountCreation({
       prepared: input.prepared,
       nearClient,
       relayerAccountId: input.relayerAccountId,
     });
-    if (probe.kind === 'created') return probe;
-    if (probe.kind === 'rejected') return { kind: 'rejected', result: { success: false, error: probe.message, message: probe.message } };
-    if (probe.kind === 'uncertain') return { kind: 'uncertain', message: probe.message };
-    const readback = await readBackSponsoredNearAccount({ prepared: input.prepared, nearClient });
-    if (readback.kind === 'created') return readback;
-    if (readback.kind === 'uncertain') return { kind: 'uncertain', message: readback.message };
-    if (readback.kind === 'rejected') return { kind: 'rejected', result: { success: false, error: readback.message, message: readback.message } };
+    if (reconciliation.kind === 'terminal') return reconciliation.result;
   }
   try {
     const outcome = await nearClient.sendTransaction(
       SignedTransaction.fromPlain({
-        transaction: input.prepared.signedTransaction.transaction,
-        signature: input.prepared.signedTransaction.signature,
-        borsh_bytes: [...input.prepared.signedTransaction.borsh_bytes],
+        transaction: null,
+        signature: null,
+        borsh_bytes: Array.from(base64UrlDecode(input.prepared.signedTransactionBorshB64u)),
       }),
       NEAR_IMPLICIT_ACCOUNT_FUND_WAIT_UNTIL,
     );
-    return {
-      kind: 'created',
-      result: {
-        success: true,
-        accountId: input.prepared.accountId,
-        transactionHash: transactionHashFromOutcome(outcome, input.prepared.transactionHash),
-        message: `Account ${input.prepared.accountId} created`,
-      },
-    };
+    const status = outcomeStatus(outcome);
+    if (status.kind === 'created') {
+      return {
+        kind: 'created',
+        result: {
+          success: true,
+          accountId: input.prepared.accountId,
+          transactionHash: transactionHashFromOutcome(outcome, input.prepared.transactionHash),
+          message: `Account ${input.prepared.accountId} created`,
+        },
+      };
+    }
+    if (status.kind === 'rejected') return rejectedBroadcast(status.message);
+    const readback = await readBackSponsoredNearAccount({ prepared: input.prepared, nearClient });
+    if (readback.kind === 'created') return readback;
+    if (readback.kind === 'infrastructure_failure') {
+      return { kind: 'uncertain', message: `${status.message}; ${readback.message}` };
+    }
+    if (readback.kind === 'rejected') return rejectedBroadcast(readback.message);
+    return { kind: 'uncertain', message: status.message };
   } catch (error: unknown) {
     const message = errorMessage(error) || 'Failed to create NEAR account';
     const readback = await readBackSponsoredNearAccount({ prepared: input.prepared, nearClient });
     if (readback.kind === 'created') return readback;
-    if (readback.kind === 'uncertain') return { kind: 'uncertain', message: `${message}; ${readback.message}` };
-    if (readback.kind === 'not_found' && isDefinitiveNearRejection(error)) {
-      return { kind: 'rejected', result: { success: false, error: message, message } };
+    if (readback.kind === 'infrastructure_failure')
+      return { kind: 'uncertain', message: `${message}; ${readback.message}` };
+    if (readback.kind === 'rejected') return rejectedBroadcast(readback.message);
+    if (isDefinitiveNearRejection(error)) {
+      return rejectedBroadcast(message);
     }
     return { kind: 'uncertain', message };
   }
@@ -748,10 +973,21 @@ export async function broadcastPreparedSponsoredNearAccountCreation(input: {
  * transaction reached the network, so they are treated as uncertain.
  */
 function isDefinitiveNearRejection(error: unknown): boolean {
-  return (
-    error instanceof NearRpcError &&
-    (error.type === 'InvalidTxError' || error.type === 'ActionError' || error.type === 'Failure')
-  );
+  if (!(error instanceof NearRpcError)) return false;
+  switch (error.failureKind) {
+    case 'invalid_transaction':
+    case 'action_error':
+    case 'execution_failure':
+      return true;
+    case 'transaction_not_found':
+    case 'account_not_found':
+    case 'access_key_not_found':
+    case 'invalid_nonce':
+    case 'expired':
+    case 'infrastructure_failure':
+    case 'unknown':
+      return false;
+  }
 }
 
 export async function createNamedNearAccountWithRelayer(

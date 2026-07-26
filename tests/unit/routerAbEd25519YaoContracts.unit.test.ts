@@ -712,7 +712,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
       claim: preparation.claim,
       outcome: {
         kind: 'backend_response',
-        result: backend.admit(request),
+        result: backend.admit(),
       },
     });
     expect(committed).toMatchObject({ ok: true, status: 200 });

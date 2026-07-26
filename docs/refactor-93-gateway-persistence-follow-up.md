@@ -96,9 +96,11 @@ authorization contracts. The registration admission and execution adapter is
 ready for that cutover, while `ROUTER_API_RUNTIME` remains authoritative until
 the state bridge and finalize side-effect boundary are complete. The cutover
 selector blocks admission at
-`ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS` and switches admission and
-execution together at `ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS`, preventing an
-old admission from executing against the new store.
+`ROUTER_AB_YAO_GATEWAY_<FAMILY>_ADMISSION_CUTOFF_MS` and switches that family's
+admission and execution together at
+`ROUTER_AB_YAO_GATEWAY_<FAMILY>_DRAIN_UNTIL_MS`, preventing an old admission
+from executing against the new store. Registration, recovery, and export each
+carry their own window.
 
 ### Registration execute two-phase seam
 
@@ -165,13 +167,14 @@ contract runs.
 ### 4. Migration and drain
 
 - Deploy the new record path behind an internal migration boundary.
-- Keep `ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS` and
-  `ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS` empty while the legacy Gateway owns
-  registration admission and execution.
+- Keep all three
+  `ROUTER_AB_YAO_GATEWAY_<FAMILY>_ADMISSION_CUTOFF_MS` and
+  `ROUTER_AB_YAO_GATEWAY_<FAMILY>_DRAIN_UNTIL_MS` pairs empty while the legacy
+  Gateway owns each family.
 - After deploying the version that contains the selector, quiesce new
-  admissions and set the cutoff. Set the final drain value to the cutoff plus
-  the measured maximum in-flight lifetime. Admission and execution cross the
-  final boundary together.
+  admissions one family at a time and set that family's cutoff. Set its final
+  drain value to the cutoff plus the measured maximum in-flight lifetime.
+  Admission and execution for that family cross the final boundary together.
 - Dual-read only at the persistence boundary while the maximum in-flight
   ceremony lifetime drains.
 - Compare old and new records without allowing two writers to commit the same

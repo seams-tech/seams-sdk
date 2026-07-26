@@ -172,7 +172,7 @@ function makeDeps(overrides?: Partial<GoogleEmailOtpWalletAuthDeps>): {
       };
     },
     prewarmEmailOtpYao: async () => {
-      calls.push({ type: 'prewarmEmailOtpYao' });
+      calls.push({ type: 'prewarmEmailOtpYao', args: undefined });
     },
     registerWallet: registerWalletImpl,
     loginWithEmailOtpEcdsaCapability: async (args) => {

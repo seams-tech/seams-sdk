@@ -11,12 +11,8 @@ import { prepareRouterAbStrictLocalRuntimeConfigs } from '../../crates/router-ab
 
 const DERIVER_A_PEER_KEY_HEX = '11'.repeat(32);
 const DERIVER_B_PEER_KEY_HEX = '22'.repeat(32);
-const DERIVER_A_PEER_SIGNING_KEY = Buffer.from(DERIVER_A_PEER_KEY_HEX, 'hex').toString(
-  'base64url',
-);
-const DERIVER_B_PEER_SIGNING_KEY = Buffer.from(DERIVER_B_PEER_KEY_HEX, 'hex').toString(
-  'base64url',
-);
+const DERIVER_A_PEER_SIGNING_KEY = Buffer.from(DERIVER_A_PEER_KEY_HEX, 'hex').toString('base64url');
+const DERIVER_B_PEER_SIGNING_KEY = Buffer.from(DERIVER_B_PEER_KEY_HEX, 'hex').toString('base64url');
 type X25519Fixture = {
   readonly publicKey: string;
   readonly privateKeyHex: string;
@@ -99,13 +95,20 @@ function createRuntimeFixture(): RuntimeFixture {
 test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler', () => {
   const fixture = createRuntimeFixture();
 
-  prepareRouterAbD1LocalRuntimeConfig({
+  const runtime = prepareRouterAbD1LocalRuntimeConfig({
     repoRoot: repoRoot(),
     localEnvRoot: fixture.root,
     outputConfigPath: fixture.outputConfigPath,
   });
 
   const config = readFileSync(fixture.outputConfigPath, 'utf8');
+  expect(runtime.signingSessionPersistenceMode).toBe('sealed_refresh_v1');
+  expect(runtime.signingSessionSealKeyVersion).toBe(
+    parseTomlStringAssignment(config, 'SIGNING_SESSION_SEAL_KEY_VERSION'),
+  );
+  expect(runtime.signingSessionShamirPrimeB64u).toBe(
+    parseTomlStringAssignment(config, 'SIGNING_SESSION_SHAMIR_P_B64U'),
+  );
   expect(config).toContain(
     `DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY = ${JSON.stringify(fixture.deriverB.publicKey)}`,
   );
@@ -135,9 +138,7 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
   );
   expect(localConsoleOrganizationId).toMatch(/^org_[a-z0-9]{12}$/);
   expect(config).toContain(
-    `DERIVER_A_PEER_VERIFYING_KEY_HEX = "${localPeerVerifyingKeyHex(
-      DERIVER_A_PEER_SIGNING_KEY,
-    )}"`,
+    `DERIVER_A_PEER_VERIFYING_KEY_HEX = "${localPeerVerifyingKeyHex(DERIVER_A_PEER_SIGNING_KEY)}"`,
   );
 
   const ceremonyPrivateJwk = parseTomlJsonAssignment(config, 'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK');

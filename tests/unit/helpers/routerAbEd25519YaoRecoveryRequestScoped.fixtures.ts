@@ -264,37 +264,48 @@ export async function buildSecondRouterAbEd25519YaoRecoveryRequestScopedFixture(
 }
 
 export function buildRouterAbEd25519YaoCapabilityReplacementFixture(): RouterAbEd25519YaoCapabilityReplacementFixture {
-  const registrationRequest = registrationAdmission(PRIMARY_IDENTITY);
-  const registrationActivation = registrationResult(PRIMARY_IDENTITY);
+  return capabilityReplacementFixture(PRIMARY_IDENTITY);
+}
+
+function capabilityReplacementFixture(
+  identity: RecoveryFixtureIdentity,
+): RouterAbEd25519YaoCapabilityReplacementFixture {
+  const registrationRequest = registrationAdmission(identity);
+  const registrationActivation = registrationResult(identity);
+  const admission = recoveryAdmission(identity);
   const recoveryRequest = requireParsed(
     parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
-      ...recoveryAdmission(PRIMARY_IDENTITY),
+      scope: admission.scope,
+      application_binding: admission.application_binding,
+      participant_ids: admission.participant_ids,
       active_capability_binding: registrationActivation.binding.session_id,
+      replacement_capability_binding: admission.replacement_capability_binding,
+      registered_public_key: admission.registered_public_key,
     }),
   );
   const recoveryReceipt = recoveryAdmissionReceipt(recoveryRequest);
   const recoveryExecutionRequest = recoveryExecution(recoveryReceipt);
   const recoveryActivation = recoveryExecutionResult(
     recoveryExecutionRequest,
-    PRIMARY_IDENTITY.registeredPublicKeySeed,
+    identity.registeredPublicKeySeed,
   );
   return {
-    walletId: PRIMARY_IDENTITY.walletId,
-    nearAccountId: PRIMARY_IDENTITY.nearAccountId,
-    nearSigningKeyId: PRIMARY_IDENTITY.nearSigningKeyId,
-    signingWorkerId: PRIMARY_IDENTITY.signingWorkerId,
+    walletId: identity.walletId,
+    nearAccountId: identity.nearAccountId,
+    nearSigningKeyId: identity.nearSigningKeyId,
+    signingWorkerId: identity.signingWorkerId,
     previous: {
       version: 'wallet_ed25519_yao_registration_capability_v1',
       activeCapabilityBinding: registrationActivation.binding.session_id,
-      nearAccountId: PRIMARY_IDENTITY.nearAccountId,
+      nearAccountId: identity.nearAccountId,
       admissionRequest: registrationRequest,
       activationResult: registrationActivation,
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     },
     next: {
       version: 'wallet_ed25519_yao_recovery_capability_v1',
-      activeCapabilityBinding: bytes(PRIMARY_IDENTITY.replacementCapabilitySeed),
-      nearAccountId: PRIMARY_IDENTITY.nearAccountId,
+      activeCapabilityBinding: bytes(identity.replacementCapabilitySeed),
+      nearAccountId: identity.nearAccountId,
       admissionRequest: recoveryRequest,
       activationResult: recoveryActivation,
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
@@ -412,7 +423,7 @@ function registrationBinding(identity: RecoveryFixtureIdentity) {
       selected_server_id: identity.signingWorkerId,
     },
     operation: 'registration' as const,
-    session_id: bytes(6),
+    session_id: bytes(identity.activeCapabilitySeed),
     stable_key_context_binding: bytes(8),
   };
 }

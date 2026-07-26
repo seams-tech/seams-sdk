@@ -1,16 +1,21 @@
 import { expect, test } from '@playwright/test';
 import {
-  resolveRouterAbEd25519YaoGatewayRegistrationRouteV1,
+  resolveRouterAbEd25519YaoGatewayRouteV1,
+  routerAbEd25519YaoCapabilityConsumersUsePartitionedD1V1,
   routerAbEd25519YaoGatewayUsesPartitionedD1V1,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/routerAbEd25519YaoGatewayCutover';
 
 test('keeps admission and execute on the legacy runtime throughout the drain window', () => {
   const admissionCutoffMs = 2_000;
   const drainUntilMs = 12_000;
-  const operations = ['registration_start', 'registration_admission', 'registration_execute'] as const;
+  const operations = [
+    'registration_start',
+    'registration_admission',
+    'registration_execute',
+  ] as const;
   for (const operation of operations) {
     expect(
-      resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+      resolveRouterAbEd25519YaoGatewayRouteV1({
         operation,
         nowMs: 1_999,
         cutover: { registration: { admissionCutoffMs, drainUntilMs } },
@@ -23,21 +28,21 @@ test('blocks new admissions while allowing old executes to drain', () => {
   const admissionCutoffMs = 2_000;
   const drainUntilMs = 12_000;
   expect(
-    resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+    resolveRouterAbEd25519YaoGatewayRouteV1({
       operation: 'registration_start',
       nowMs: admissionCutoffMs,
       cutover: { registration: { admissionCutoffMs, drainUntilMs } },
     }),
   ).toEqual({ kind: 'admission_blocked', window: { admissionCutoffMs, drainUntilMs } });
   expect(
-    resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+    resolveRouterAbEd25519YaoGatewayRouteV1({
       operation: 'registration_admission',
       nowMs: admissionCutoffMs,
       cutover: { registration: { admissionCutoffMs, drainUntilMs } },
     }),
   ).toEqual({ kind: 'admission_blocked', window: { admissionCutoffMs, drainUntilMs } });
   expect(
-    resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+    resolveRouterAbEd25519YaoGatewayRouteV1({
       operation: 'registration_execute',
       nowMs: admissionCutoffMs,
       cutover: { registration: { admissionCutoffMs, drainUntilMs } },
@@ -48,8 +53,10 @@ test('blocks new admissions while allowing old executes to drain', () => {
 test('enables both registration operations only after the final drain boundary', () => {
   const admissionCutoffMs = 2_000;
   const drainUntilMs = 12_000;
-  const routes = (['registration_start', 'registration_admission', 'registration_execute'] as const).map((operation) =>
-    resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+  const routes = (
+    ['registration_start', 'registration_admission', 'registration_execute'] as const
+  ).map((operation) =>
+    resolveRouterAbEd25519YaoGatewayRouteV1({
       operation,
       nowMs: drainUntilMs,
       cutover: { registration: { admissionCutoffMs, drainUntilMs } },
@@ -64,21 +71,23 @@ test('enables both registration operations only after the final drain boundary',
 
 test('rejects invalid deployment timestamps', () => {
   expect(() =>
-    resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+    resolveRouterAbEd25519YaoGatewayRouteV1({
       operation: 'registration_admission',
       nowMs: -1,
       cutover: { registration: { admissionCutoffMs: 1_000, drainUntilMs: 2_000 } },
     }),
   ).toThrow('nowMs');
   expect(() =>
-    resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+    resolveRouterAbEd25519YaoGatewayRouteV1({
       operation: 'registration_execute',
       nowMs: 1_000,
-      cutover: { registration: { admissionCutoffMs: 2_000, drainUntilMs: Number.POSITIVE_INFINITY } },
+      cutover: {
+        registration: { admissionCutoffMs: 2_000, drainUntilMs: Number.POSITIVE_INFINITY },
+      },
     }),
   ).toThrow('drainUntilMs');
   expect(() =>
-    resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+    resolveRouterAbEd25519YaoGatewayRouteV1({
       operation: 'registration_execute',
       nowMs: 1_000,
       cutover: { registration: { admissionCutoffMs: 3_000, drainUntilMs: 2_000 } },
@@ -89,7 +98,12 @@ test('rejects invalid deployment timestamps', () => {
 test('every ceremony phase pairs with the store its admission used', () => {
   const window = { admissionCutoffMs: 1_000, drainUntilMs: 2_000 } as const;
   const all = { registration: window, recovery: window, export: window } as const;
-  const admissions = ['registration_start', 'registration_admission', 'recovery_admission', 'export_admission'] as const;
+  const admissions = [
+    'registration_start',
+    'registration_admission',
+    'recovery_admission',
+    'export_admission',
+  ] as const;
   const continuations = [
     'registration_execute',
     'recovery_bootstrap',
@@ -100,11 +114,10 @@ test('every ceremony phase pairs with the store its admission used', () => {
 
   for (const operation of [...admissions, ...continuations]) {
     expect(
-      resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({ operation, nowMs: 500, cutover: all }).kind,
+      resolveRouterAbEd25519YaoGatewayRouteV1({ operation, nowMs: 500, cutover: all }).kind,
     ).toBe('legacy_runtime');
     expect(
-      resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({ operation, nowMs: 2_500, cutover: all })
-        .kind,
+      resolveRouterAbEd25519YaoGatewayRouteV1({ operation, nowMs: 2_500, cutover: all }).kind,
     ).toBe('partitioned_d1');
   }
 
@@ -112,14 +125,12 @@ test('every ceremony phase pairs with the store its admission used', () => {
   // cutoff finishes every remaining phase on the store it started on.
   for (const operation of admissions) {
     expect(
-      resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({ operation, nowMs: 1_500, cutover: all })
-        .kind,
+      resolveRouterAbEd25519YaoGatewayRouteV1({ operation, nowMs: 1_500, cutover: all }).kind,
     ).toBe('admission_blocked');
   }
   for (const operation of continuations) {
     expect(
-      resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({ operation, nowMs: 1_500, cutover: all })
-        .kind,
+      resolveRouterAbEd25519YaoGatewayRouteV1({ operation, nowMs: 1_500, cutover: all }).kind,
     ).toBe('legacy_runtime');
   }
 });
@@ -131,7 +142,7 @@ test('a family with no configured window stays on the legacy runtime', () => {
   } as const;
 
   expect(
-    resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+    resolveRouterAbEd25519YaoGatewayRouteV1({
       operation: 'registration_admission',
       nowMs: 9_000,
       cutover,
@@ -146,9 +157,9 @@ test('a family with no configured window stays on the legacy runtime', () => {
     'recovery_activate',
     'export_execute',
   ] as const) {
-    expect(
-      resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({ operation, nowMs: 9_000, cutover }).kind,
-    ).toBe('legacy_runtime');
+    expect(resolveRouterAbEd25519YaoGatewayRouteV1({ operation, nowMs: 9_000, cutover }).kind).toBe(
+      'legacy_runtime',
+    );
   }
 });
 
@@ -159,26 +170,56 @@ test('each family drains on its own schedule', () => {
   } as const;
 
   expect(
-    resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+    resolveRouterAbEd25519YaoGatewayRouteV1({
       operation: 'registration_admission',
       nowMs: 8_500,
       cutover,
     }).kind,
   ).toBe('partitioned_d1');
   expect(
-    resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+    resolveRouterAbEd25519YaoGatewayRouteV1({
       operation: 'recovery_admission',
       nowMs: 8_500,
       cutover,
     }).kind,
   ).toBe('admission_blocked');
   expect(
-    resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+    resolveRouterAbEd25519YaoGatewayRouteV1({
       operation: 'recovery_execute',
       nowMs: 8_500,
       cutover,
     }).kind,
   ).toBe('legacy_runtime');
+});
+
+test('capability consumers follow D1 after either capability-producing family drains', () => {
+  const elapsed = { admissionCutoffMs: 1_000, drainUntilMs: 2_000 } as const;
+  const draining = { admissionCutoffMs: 4_000, drainUntilMs: 5_000 } as const;
+
+  expect(
+    routerAbEd25519YaoCapabilityConsumersUsePartitionedD1V1({
+      nowMs: 3_000,
+      cutover: { registration: elapsed },
+    }),
+  ).toBe(true);
+  expect(
+    routerAbEd25519YaoCapabilityConsumersUsePartitionedD1V1({
+      nowMs: 3_000,
+      cutover: { recovery: elapsed },
+    }),
+  ).toBe(true);
+  expect(
+    routerAbEd25519YaoCapabilityConsumersUsePartitionedD1V1({
+      nowMs: 4_500,
+      cutover: { registration: draining },
+    }),
+  ).toBe(false);
+  expect(
+    routerAbEd25519YaoCapabilityConsumersUsePartitionedD1V1({
+      nowMs: 9_000,
+      cutover: {},
+    }),
+  ).toBe(false);
 });
 
 test('the classification finalize resolves with never splits from execute mid-window', () => {
@@ -191,7 +232,7 @@ test('the classification finalize resolves with never splits from execute mid-wi
 
   for (const nowMs of [0, 999, 1_000, 1_500, 1_999]) {
     expect(
-      resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+      resolveRouterAbEd25519YaoGatewayRouteV1({
         operation: 'registration_execute',
         nowMs,
         cutover,
@@ -199,7 +240,7 @@ test('the classification finalize resolves with never splits from execute mid-wi
     ).toBe('legacy_runtime');
   }
   expect(
-    resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+    resolveRouterAbEd25519YaoGatewayRouteV1({
       operation: 'registration_execute',
       nowMs: 2_000,
       cutover,

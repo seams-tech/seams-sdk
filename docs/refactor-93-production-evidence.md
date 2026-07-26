@@ -54,9 +54,9 @@ Router dispatches the new route.
 
 The active Gateway version still exposes `ROUTER_API_RUNTIME` and direct
 `DERIVER_A`, `DERIVER_B`, and `SIGNING_WORKER` bindings. It does not expose
-`ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS` or
-`ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS`, so the drain-gated D1 cutover is not
-enabled. Read-only endpoint checks confirmed Router POST-only responses (405),
+any `ROUTER_AB_YAO_GATEWAY_<FAMILY>_ADMISSION_CUTOFF_MS` and
+`ROUTER_AB_YAO_GATEWAY_<FAMILY>_DRAIN_UNTIL_MS` pair, so no drain-gated family
+cutover is enabled. Read-only endpoint checks confirmed Router POST-only responses (405),
 the staging ceremony JWKS (200), and Gateway health (200); these checks do not
 exercise registration, recovery, export, replay, or conflict behavior.
 

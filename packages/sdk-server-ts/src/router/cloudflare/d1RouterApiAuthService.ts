@@ -57,18 +57,30 @@ import { CloudflareD1WebAuthnAuthService } from './d1WebAuthnAuthService';
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
 import {
   CloudflareD1WalletRegistrationService,
+  parseD1WalletRegistrationStartSideEffectRecord,
   type D1WalletRegistrationFinalizePreparedV1,
   type D1WalletRegistrationFinalizeSideEffectRecord,
   type D1WalletRegistrationFinalizeSideEffectStore,
+  type D1WalletRegistrationStartSideEffectRecord,
+  type D1WalletRegistrationStartSideEffectStore,
   type SponsoredNamedNearAccountCreationResult,
 } from './d1WalletRegistrationService';
 import { parseD1WalletRegistrationFinalizeTerminalResponse } from './d1RegistrationCeremonyRecords';
 import { CloudflareD1WalletRegistrationCommitStore } from './d1WalletRegistrationCommitStore';
-import { CloudflareD1WalletAddSignerService } from './d1WalletAddSignerService';
+import {
+  CloudflareD1WalletAddSignerService,
+  parseD1WalletAddSignerFinalizeSideEffectRecord,
+  parseD1WalletAddSignerStartSideEffectRecord,
+  type D1WalletAddSignerFinalizeSideEffectRecord,
+  type D1WalletAddSignerFinalizeSideEffectStore,
+  type D1WalletAddSignerStartSideEffectRecord,
+  type D1WalletAddSignerStartSideEffectStore,
+} from './d1WalletAddSignerService';
 import { CloudflareD1RegistrationIntentService } from './d1RegistrationIntentService';
 import {
   broadcastPreparedSponsoredNearAccountCreation,
   fundImplicitNearAccountWithRelayer,
+  preparedSponsoredNearAccountCreationArtifactFingerprint,
   prepareSponsoredNearAccountCreationWithRelayer,
   type PreparedSponsoredNearAccountCreationV1,
 } from '../../core/nearRelayerAccountProvisioning';
@@ -122,10 +134,15 @@ type SponsoredNamedNearAccountInput = {
 
 type CloudflareD1RouterApiLazyStoreState = {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
+  readonly registrationPersistence: RegistrationCeremonyPersistence;
   walletStore: D1WalletStore | null;
   walletAuthMethodStore: WalletAuthMethodStore | null;
   registrationCeremonyIntentStore: CloudflareD1RegistrationCeremonyIntentStore | null;
 };
+
+type RegistrationCeremonyPersistence =
+  | { readonly kind: 'partitioned_d1' }
+  | { readonly kind: 'legacy_threshold_do' };
 
 type CloudflareD1RouterApiAuthAssembly = {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
@@ -292,9 +309,11 @@ async function linkD1Identity(
 
 function createLazyStoreState(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+  registrationPersistence: RegistrationCeremonyPersistence,
 ): CloudflareD1RouterApiLazyStoreState {
   return {
     options,
+    registrationPersistence,
     walletStore: null,
     walletAuthMethodStore: null,
     registrationCeremonyIntentStore: null,
@@ -305,10 +324,37 @@ function getRegistrationCeremonyIntentStoreForState(
   state: CloudflareD1RouterApiLazyStoreState,
 ): CloudflareD1RegistrationCeremonyIntentStore | null {
   if (state.registrationCeremonyIntentStore) return state.registrationCeremonyIntentStore;
-  const config = resolveRegistrationCeremonyDoConfig(state.options.thresholdStore);
-  if (!config) return null;
-  state.registrationCeremonyIntentStore = new CloudflareD1RegistrationCeremonyIntentStore(config);
+  switch (state.registrationPersistence.kind) {
+    case 'partitioned_d1':
+      state.registrationCeremonyIntentStore = new CloudflareD1RegistrationCeremonyIntentStore({
+        kind: 'partitioned_d1',
+        database: state.options.database,
+        scope: {
+          namespace: state.options.namespace,
+          orgId: state.options.orgId,
+          projectId: state.options.projectId,
+          envId: state.options.envId,
+        },
+        keyPrefix: 'gateway-registration:',
+      });
+      break;
+    case 'legacy_threshold_do': {
+      const config = resolveRegistrationCeremonyDoConfig(state.options.thresholdStore);
+      if (!config) return null;
+      state.registrationCeremonyIntentStore = new CloudflareD1RegistrationCeremonyIntentStore({
+        kind: 'legacy_threshold_do',
+        config,
+      });
+      break;
+    }
+    default:
+      return assertNeverRegistrationCeremonyPersistence(state.registrationPersistence);
+  }
   return state.registrationCeremonyIntentStore;
+}
+
+function assertNeverRegistrationCeremonyPersistence(value: never): never {
+  throw new Error(`Unhandled registration ceremony persistence: ${JSON.stringify(value)}`);
 }
 
 function getWalletAuthMethodStoreForState(
@@ -429,8 +475,8 @@ async function fundImplicitNearAccountForOptions(
 
 /**
  * Validates a persisted claim before it is trusted to skip a broadcast or to be
- * replayed. A record that does not parse is treated as absent, which fails
- * closed into a fresh claim attempt rather than acting on unvalidated bytes.
+ * replayed. An invalid record makes the D1 read fail, which leaves the effect
+ * uncertain and prevents any network action on unvalidated bytes.
  */
 function parseSponsoredNearAccountSideEffectRecord(
   raw: unknown,
@@ -441,21 +487,22 @@ function parseSponsoredNearAccountSideEffectRecord(
   if (!isRecordValue(raw)) return null;
   const record = raw;
   if (record.operation !== 'finalize') return null;
-  if (typeof record.requestFingerprint !== 'string' || !record.requestFingerprint) return null;
+  const requestFingerprint = parseSideEffectFingerprint(record.requestFingerprint);
+  const preparedArtifactFingerprint = parseSideEffectFingerprint(
+    record.preparedArtifactFingerprint,
+  );
+  if (requestFingerprint === null || preparedArtifactFingerprint === null) return null;
   if (!isNonNegativeSafeInteger(record.claimedAtMs)) return null;
+  const prepared = parsePreparedSponsoredNearAccountCreation(record.prepared);
+  if (prepared === null) return null;
   if (record.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
-    let prepared: PreparedSponsoredNearAccountCreationV1 | undefined;
-    if (record.prepared !== undefined) {
-      const parsedPrepared = parsePreparedSponsoredNearAccountCreation(record.prepared);
-      if (parsedPrepared === null) return null;
-      prepared = parsedPrepared;
-    }
     return {
       kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
       operation: 'finalize',
-      requestFingerprint: record.requestFingerprint,
+      requestFingerprint,
+      preparedArtifactFingerprint,
       claimedAtMs: record.claimedAtMs,
-      ...(prepared === undefined ? {} : { prepared }),
+      prepared,
     };
   }
   if (record.kind === 'router_ab_ed25519_yao_registration_side_effect_completion_v1') {
@@ -465,9 +512,11 @@ function parseSponsoredNearAccountSideEffectRecord(
     return {
       kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
       operation: 'finalize',
-      requestFingerprint: record.requestFingerprint,
+      requestFingerprint,
+      preparedArtifactFingerprint,
       claimedAtMs: record.claimedAtMs,
       completedAtMs: record.completedAtMs,
+      prepared,
       response,
     };
   }
@@ -488,19 +537,22 @@ function parseWalletRegistrationFinalizeSideEffectRecord(
   if (
     !isRecordValue(raw) ||
     raw.operation !== 'finalize' ||
-    typeof raw.requestFingerprint !== 'string' ||
-    !raw.requestFingerprint ||
     !isNonNegativeSafeInteger(raw.claimedAtMs)
   ) {
     return null;
   }
+  const requestFingerprint = parseSideEffectFingerprint(raw.requestFingerprint);
+  const preparedArtifactFingerprint = parseSideEffectFingerprint(raw.preparedArtifactFingerprint);
+  const prepared = parseWalletRegistrationFinalizePrepared(raw.prepared);
+  if (requestFingerprint === null || preparedArtifactFingerprint === null || prepared === null) {
+    return null;
+  }
   if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
-    const prepared = parseWalletRegistrationFinalizePrepared(raw.prepared);
-    if (!prepared) return null;
     return {
       kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
       operation: 'finalize',
-      requestFingerprint: raw.requestFingerprint,
+      requestFingerprint,
+      preparedArtifactFingerprint,
       claimedAtMs: raw.claimedAtMs,
       prepared,
     };
@@ -516,9 +568,11 @@ function parseWalletRegistrationFinalizeSideEffectRecord(
   return {
     kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
     operation: 'finalize',
-    requestFingerprint: raw.requestFingerprint,
+    requestFingerprint,
+    preparedArtifactFingerprint,
     claimedAtMs: raw.claimedAtMs,
     completedAtMs: raw.completedAtMs,
+    prepared,
     response,
   };
 }
@@ -532,26 +586,22 @@ function parsePreparedSponsoredNearAccountCreation(
   const accountId = parseNonEmptyString(value.accountId);
   const publicKey = parseNonEmptyString(value.publicKey);
   const relayerAccountId = parseNonEmptyString(value.relayerAccountId);
+  const relayerPublicKey = parseNonEmptyString(value.relayerPublicKey);
+  const initialBalanceYocto = parseNonEmptyString(value.initialBalanceYocto);
   const transactionHash = parseNonEmptyString(value.transactionHash);
   const nextNonce = parseNonEmptyString(value.nextNonce);
   const blockHash = parseNonEmptyString(value.blockHash);
-  const signed = value.signedTransaction;
+  const signedTransactionBorshB64u = parseBoundedBase64Url(value.signedTransactionBorshB64u);
   if (
     accountId === null ||
     publicKey === null ||
     relayerAccountId === null ||
+    relayerPublicKey === null ||
+    initialBalanceYocto === null ||
     transactionHash === null ||
     nextNonce === null ||
     blockHash === null ||
-    !isRecordValue(signed) ||
-    !isRecordValue(signed.transaction) ||
-    !isRecordValue(signed.signature) ||
-    !Array.isArray(signed.borsh_bytes) ||
-    signed.borsh_bytes.length === 0 ||
-    signed.borsh_bytes.length > 4096 ||
-    !signed.borsh_bytes.every(
-      (byte) => typeof byte === 'number' && Number.isInteger(byte) && byte >= 0 && byte < 256,
-    )
+    signedTransactionBorshB64u === null
   ) {
     return null;
   }
@@ -560,14 +610,12 @@ function parsePreparedSponsoredNearAccountCreation(
     accountId,
     publicKey,
     relayerAccountId,
+    relayerPublicKey,
+    initialBalanceYocto,
     transactionHash,
     nextNonce,
     blockHash,
-    signedTransaction: {
-      transaction: signed.transaction,
-      signature: signed.signature,
-      borsh_bytes: signed.borsh_bytes,
-    },
+    signedTransactionBorshB64u,
   };
 }
 
@@ -605,6 +653,19 @@ function parseNonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
+function parseSideEffectFingerprint(value: unknown): string | null {
+  return typeof value === 'string' && /^[a-zA-Z0-9:_-]{32,192}$/u.test(value) ? value : null;
+}
+
+function parseBoundedBase64Url(value: unknown): string | null {
+  return typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 8_192 &&
+    /^[\w-]+$/u.test(value)
+    ? value
+    : null;
+}
+
 function parseOptionalString(value: unknown): string | undefined | null {
   return value === undefined ? undefined : parseNonEmptyString(value);
 }
@@ -613,16 +674,10 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
-/**
- * Resolves the Yao runtime per request. A resolver lets the caller send
- * registration finalize to the same store the ceremony's execute step used.
- */
 function resolveEd25519YaoProductRegistration(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
 ): RouterAbEd25519YaoProductRegistrationRuntimeV1 | null {
-  const configured = options.ed25519YaoProductRegistration;
-  if (typeof configured === 'function') return configured();
-  return configured || null;
+  return options.ed25519YaoProductRegistration || null;
 }
 
 function sponsoredNearAccountSideEffectStore(
@@ -664,6 +719,57 @@ function walletRegistrationFinalizeSideEffectStore(
     keyPrefix: 'wallet-registration-finalize:',
     encode: (value) => value as unknown as CloudflareVersionedJsonObject,
     parse: parseWalletRegistrationFinalizeSideEffectRecord,
+  });
+}
+
+function walletRegistrationStartSideEffectStore(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): D1WalletRegistrationStartSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationStartSideEffectRecord>({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+    keyPrefix: 'wallet-registration-start:',
+    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    parse: parseD1WalletRegistrationStartSideEffectRecord,
+  });
+}
+
+function walletAddSignerStartSideEffectStore(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): D1WalletAddSignerStartSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletAddSignerStartSideEffectRecord>({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+    keyPrefix: 'wallet-add-signer-start:',
+    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    parse: parseD1WalletAddSignerStartSideEffectRecord,
+  });
+}
+
+function walletAddSignerFinalizeSideEffectStore(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): D1WalletAddSignerFinalizeSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletAddSignerFinalizeSideEffectRecord>({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+    keyPrefix: 'wallet-add-signer-finalize:',
+    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    parse: parseD1WalletAddSignerFinalizeSideEffectRecord,
   });
 }
 
@@ -723,6 +829,7 @@ async function createSponsoredNamedNearAccountForOptions(
       if (!prepared.ok) throw new Error(prepared.message);
       return prepared.prepared;
     },
+    derivePreparedArtifactFingerprint: preparedSponsoredNearAccountCreationArtifactFingerprint,
     execute: async (prepared, attempt) => {
       if (!prepared) throw new Error('Sponsored NEAR account transaction was not prepared');
       const broadcast = await broadcastPreparedSponsoredNearAccountCreation({
@@ -777,10 +884,11 @@ async function createSponsoredNamedNearAccountForOptions(
 
 function createCloudflareD1RouterApiAuthAssembly(
   input: CloudflareD1RouterApiAuthServiceOptions,
+  registrationPersistence: RegistrationCeremonyPersistence,
 ): CloudflareD1RouterApiAuthAssembly {
   const options = normalizeD1RouterApiAuthOptions(input);
   const prepare: ScopedD1Prepare = scopePrepareForOptions.bind(undefined, options);
-  const lazyStores = createLazyStoreState(options);
+  const lazyStores = createLazyStoreState(options, registrationPersistence);
   const getRegistrationCeremonyIntentStore = getRegistrationCeremonyIntentStoreForState.bind(
     undefined,
     lazyStores,
@@ -907,6 +1015,7 @@ function createCloudflareD1RouterApiAuthAssembly(
       routerAbSigning.getRouterAbNormalSigningRuntime.bind(routerAbSigning),
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
+    startSideEffects: walletRegistrationStartSideEffectStore(options),
     finalizeSideEffects: walletRegistrationFinalizeSideEffectStore(options),
     walletRegistrationCommitStore,
     walletAuthMethods,
@@ -919,6 +1028,8 @@ function createCloudflareD1RouterApiAuthAssembly(
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
     walletAuthMethods,
+    startSideEffects: walletAddSignerStartSideEffectStore(options),
+    finalizeSideEffects: walletAddSignerFinalizeSideEffectStore(options),
   });
   const registrationIntents = new CloudflareD1RegistrationIntentService({
     getRegistrationCeremonyIntentStore,
@@ -1300,7 +1411,22 @@ function createD1RouterAccountRouteService(
 export function createCloudflareD1RouterApiAuthService(
   input: CloudflareD1RouterApiAuthServiceOptions,
 ): CloudflareD1RouterApiAuthService {
-  const assembly = createCloudflareD1RouterApiAuthAssembly(input);
+  return createCloudflareD1RouterApiAuthServiceForPersistence(input, { kind: 'partitioned_d1' });
+}
+
+export function createLegacyCloudflareD1RouterApiAuthService(
+  input: CloudflareD1RouterApiAuthServiceOptions,
+): CloudflareD1RouterApiAuthService {
+  return createCloudflareD1RouterApiAuthServiceForPersistence(input, {
+    kind: 'legacy_threshold_do',
+  });
+}
+
+function createCloudflareD1RouterApiAuthServiceForPersistence(
+  input: CloudflareD1RouterApiAuthServiceOptions,
+  registrationPersistence: RegistrationCeremonyPersistence,
+): CloudflareD1RouterApiAuthService {
+  const assembly = createCloudflareD1RouterApiAuthAssembly(input, registrationPersistence);
   return {
     walletRegistration: createD1WalletRegistrationRouteService(assembly),
     walletAuthMethods: createD1WalletAuthMethodRouteService(assembly),
@@ -1322,6 +1448,6 @@ export function createCloudflareD1RouterApiAuthService(
 export function createCloudflareD1RouterApiEmailRecoveryAuthService(
   input: CloudflareD1RouterApiAuthServiceOptions,
 ): RouterApiEmailRecoveryAuthService {
-  const assembly = createCloudflareD1RouterApiAuthAssembly(input);
+  const assembly = createCloudflareD1RouterApiAuthAssembly(input, { kind: 'partitioned_d1' });
   return createD1EmailRecoveryAuthService(assembly);
 }

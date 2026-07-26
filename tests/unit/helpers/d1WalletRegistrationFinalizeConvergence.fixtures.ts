@@ -1,3 +1,7 @@
+import { createPrivateKey, createPublicKey } from 'node:crypto';
+import { once } from 'node:events';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { Buffer } from 'node:buffer';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
@@ -50,11 +54,15 @@ import {
   implicitNearAccountProvisioning,
   registrationNearEd25519BranchKey,
   registrationSignerPlanFromSelection,
+  sponsoredNamedNearAccountProvisioning,
   walletIdFromString,
+  type RegistrationNearAccountProvisioning,
   type RegistrationAuthority,
   type RegistrationSignerSetSelection,
   type WalletId,
 } from '../../../packages/shared-ts/src/utils/registrationIntent';
+import { base58Encode } from '../../../packages/shared-ts/src/utils/base58';
+import { parseNamedNearAccountId } from '../../../packages/shared-ts/src/utils/near';
 import {
   parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
@@ -77,10 +85,24 @@ const TEST_SCOPE = {
   envId: 'env-finalize',
 } as const;
 const THRESHOLD_PREFIX = 'registration-finalize-convergence';
-const REGISTRATION_STORE_PREFIX = `${THRESHOLD_PREFIX}:wallet-registration:`;
 const SIGNING_WORKER_ID = 'signing-worker-finalize';
 const REGISTRATION_CEREMONY_ID = 'registration-ceremony-finalize-1';
 const IDEMPOTENCY_KEY = 'registration-finalize-convergence-1';
+const SPONSORED_ACCOUNT_ID = 'sponsored-finalize-convergence.testnet';
+const RELAYER_ACCOUNT_ID = 'relayer.finalize.testnet';
+const RELAYER_ACCESS_KEY_NONCE = 7;
+const FINAL_BLOCK_HASH = base58Encode(bytes(9));
+
+type JsonRpcRequest = {
+  readonly id: unknown;
+  readonly method: string;
+  readonly params: Record<string, unknown>;
+};
+
+type DeterministicNearCredentials = {
+  readonly privateKey: string;
+  readonly publicKey: string;
+};
 
 export type FinalizeConvergenceFault =
   | 'activation_consume_response_loss'
@@ -118,22 +140,232 @@ function jsonResponse(body: unknown): Response {
   });
 }
 
+function deterministicNearCredentials(seed: number): DeterministicNearCredentials {
+  const seedBytes = Uint8Array.from(bytes(seed));
+  const pkcs8Prefix = Uint8Array.from([
+    0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
+  ]);
+  const pkcs8 = new Uint8Array(pkcs8Prefix.length + seedBytes.length);
+  pkcs8.set(pkcs8Prefix);
+  pkcs8.set(seedBytes, pkcs8Prefix.length);
+  const privateKey = createPrivateKey({ key: Buffer.from(pkcs8), format: 'der', type: 'pkcs8' });
+  const publicDer = createPublicKey(privateKey).export({ format: 'der', type: 'spki' });
+  const publicKeyBytes = new Uint8Array(publicDer.subarray(publicDer.length - 32));
+  const secretKeyBytes = new Uint8Array(64);
+  secretKeyBytes.set(seedBytes);
+  secretKeyBytes.set(publicKeyBytes, 32);
+  return {
+    privateKey: `ed25519:${base58Encode(secretKeyBytes)}`,
+    publicKey: `ed25519:${base58Encode(publicKeyBytes)}`,
+  };
+}
+
+function parseJsonRpcRequest(value: unknown): JsonRpcRequest {
+  if (!isRecord(value) || typeof value.method !== 'string' || !isRecord(value.params)) {
+    throw new Error('Sponsored NEAR RPC fixture received an invalid JSON-RPC request');
+  }
+  return { id: value.id, method: value.method, params: value.params };
+}
+
+function writeJsonRpcResult(
+  response: ServerResponse,
+  request: JsonRpcRequest,
+  result: unknown,
+): void {
+  response.writeHead(200, { 'content-type': 'application/json' });
+  response.end(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }));
+}
+
+function writeJsonRpcError(
+  response: ServerResponse,
+  request: JsonRpcRequest,
+  name: 'UNKNOWN_ACCOUNT' | 'UNKNOWN_ACCESS_KEY',
+): void {
+  response.writeHead(200, { 'content-type': 'application/json' });
+  response.end(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: request.id,
+      error: {
+        code: -32000,
+        name: 'HANDLER_ERROR',
+        message: 'Server error',
+        data: { name: 'HANDLER_ERROR', cause: { name, info: {} } },
+      },
+    }),
+  );
+}
+
+class SponsoredNearJsonRpcFixture {
+  private readonly server: Server;
+  private transactionLanded = false;
+  private transactionVisible = false;
+  private transactionHash = '';
+  broadcastCount = 0;
+  txStatusCount = 0;
+
+  constructor() {
+    this.server = createServer(this.handle.bind(this));
+  }
+
+  async start(): Promise<string> {
+    const listening = once(this.server, 'listening');
+    this.server.listen(0, '127.0.0.1');
+    await listening;
+    const address = this.server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Sponsored NEAR RPC fixture did not bind a TCP address');
+    }
+    return `http://127.0.0.1:${address.port}`;
+  }
+
+  async close(): Promise<void> {
+    const closed = once(this.server, 'close');
+    this.server.close();
+    await closed;
+  }
+
+  private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of request) {
+      chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    }
+    const body = Buffer.concat(chunks).toString('utf8');
+    const rpc = parseJsonRpcRequest(JSON.parse(body));
+    switch (rpc.method) {
+      case 'query':
+        this.handleQuery(rpc, response);
+        return;
+      case 'block':
+        writeJsonRpcResult(response, rpc, { header: { hash: FINAL_BLOCK_HASH } });
+        return;
+      case 'send_tx':
+        this.broadcastCount += 1;
+        this.transactionLanded = true;
+        request.socket.destroy();
+        return;
+      case 'EXPERIMENTAL_tx_status':
+        this.txStatusCount += 1;
+        this.transactionHash = String(rpc.params.tx_hash || '');
+        this.transactionVisible = this.transactionLanded;
+        writeJsonRpcResult(response, rpc, this.successfulOutcome());
+        return;
+      default:
+        throw new Error(`Unsupported sponsored NEAR RPC fixture method: ${rpc.method}`);
+    }
+  }
+
+  private handleQuery(request: JsonRpcRequest, response: ServerResponse): void {
+    const requestType = String(request.params.request_type || '');
+    const accountId = String(request.params.account_id || '');
+    if (requestType === 'view_access_key' && accountId === RELAYER_ACCOUNT_ID) {
+      writeJsonRpcResult(response, request, {
+        nonce: RELAYER_ACCESS_KEY_NONCE,
+        permission: 'FullAccess',
+        block_height: 1,
+        block_hash: FINAL_BLOCK_HASH,
+      });
+      return;
+    }
+    if (!this.transactionVisible) {
+      writeJsonRpcError(
+        response,
+        request,
+        requestType === 'view_access_key' ? 'UNKNOWN_ACCESS_KEY' : 'UNKNOWN_ACCOUNT',
+      );
+      return;
+    }
+    if (requestType === 'view_account') {
+      writeJsonRpcResult(response, request, {
+        amount: '1000000000000000000000000',
+        locked: '0',
+        code_hash: '11111111111111111111111111111111',
+        storage_usage: 0,
+        storage_paid_at: 0,
+        block_height: 1,
+        block_hash: FINAL_BLOCK_HASH,
+      });
+      return;
+    }
+    writeJsonRpcResult(response, request, {
+      nonce: 0,
+      permission: 'FullAccess',
+      block_height: 1,
+      block_hash: FINAL_BLOCK_HASH,
+    });
+  }
+
+  private successfulOutcome(): Record<string, unknown> {
+    const hash = this.transactionHash || 'transaction-hash';
+    const execution = {
+      logs: [],
+      receipt_ids: [],
+      gas_burnt: 0,
+      tokens_burnt: '0',
+      executor_id: RELAYER_ACCOUNT_ID,
+      status: { SuccessValue: '' },
+    };
+    return {
+      final_execution_status: 'FINAL',
+      status: { SuccessValue: '' },
+      transaction: { hash },
+      transaction_outcome: { id: hash, outcome: execution },
+      receipts_outcome: [],
+    };
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function mutateSignedTransactionSignatureByte(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error('Sponsored prepared artifact is missing signed transaction bytes');
+  }
+  const signedTransactionBytes = Buffer.from(value, 'base64url');
+  if (signedTransactionBytes.length < 65) {
+    throw new Error('Sponsored prepared artifact is too short to contain an Ed25519 signature');
+  }
+  const signatureByteIndex = signedTransactionBytes.length - 1;
+  const signatureByte = signedTransactionBytes[signatureByteIndex];
+  if (signatureByte === undefined) {
+    throw new Error('Sponsored prepared artifact signature byte is missing');
+  }
+  signedTransactionBytes[signatureByteIndex] = signatureByte ^ 0x01;
+  return signedTransactionBytes.toString('base64url');
+}
+
+async function corruptStoredSponsoredPreparedSignature(database: D1DatabaseLike): Promise<void> {
+  const row = await database
+    .prepare(
+      `SELECT json_extract(
+          record_json,
+          '$.prepared.signedTransactionBorshB64u'
+        ) AS signed_transaction_borsh_b64u
+       FROM router_ab_yao_versioned_json_records
+       WHERE record_key LIKE 'router-ab-yao-sponsored-account:%'`,
+    )
+    .first<{ readonly signed_transaction_borsh_b64u?: unknown }>();
+  const corruptedSignature = mutateSignedTransactionSignatureByte(
+    row?.signed_transaction_borsh_b64u,
+  );
+  await database
+    .prepare(
+      `UPDATE router_ab_yao_versioned_json_records
+          SET record_json = json_set(
+            record_json,
+            '$.prepared.signedTransactionBorshB64u',
+            ?
+          )
+        WHERE record_key LIKE 'router-ab-yao-sponsored-account:%'`,
+    )
+    .bind(corruptedSignature)
+    .run();
+}
+
 class FinalizeCeremonyDurableObjectStub implements CloudflareDurableObjectStubLike {
   readonly values = new Map<string, unknown>();
-  private loseSetResponseForKey: string | null = null;
-  private loseDeleteResponseForKey: string | null = null;
-
-  armSetResponseLoss(key: string): void {
-    this.loseSetResponseForKey = key;
-  }
-
-  armDeleteResponseLoss(key: string): void {
-    this.loseDeleteResponseForKey = key;
-  }
 
   async fetch(_input: RequestInfo, init?: RequestInit): Promise<Response> {
     const request = this.parseRequest(init?.body);
@@ -141,19 +373,11 @@ class FinalizeCeremonyDurableObjectStub implements CloudflareDurableObjectStubLi
     switch (request.op) {
       case 'set':
         this.values.set(key, request.value);
-        if (this.loseSetResponseForKey === key) {
-          this.loseSetResponseForKey = null;
-          throw new Error('simulated finalize replay response loss');
-        }
         return jsonResponse({ ok: true, value: true });
       case 'get':
         return jsonResponse({ ok: true, value: this.values.get(key) ?? null });
       case 'del': {
         const deleted = this.values.delete(key);
-        if (this.loseDeleteResponseForKey === key) {
-          this.loseDeleteResponseForKey = null;
-          throw new Error('simulated ceremony delete response loss');
-        }
         return jsonResponse({ ok: true, value: deleted });
       }
       default:
@@ -188,6 +412,8 @@ class ResponseLossD1Database implements D1DatabaseLike {
   private loseWalletCommitResponse = false;
   private loseFinalizeClaimResponse = false;
   private loseFinalizeCompletionResponse = false;
+  private loseRegistrationReplayResponse = false;
+  private loseCeremonyDeleteResponse = false;
 
   constructor(readonly delegate: D1DatabaseLike) {}
 
@@ -201,6 +427,14 @@ class ResponseLossD1Database implements D1DatabaseLike {
 
   armFinalizeCompletionResponseLoss(): void {
     this.loseFinalizeCompletionResponse = true;
+  }
+
+  armRegistrationReplayResponseLoss(): void {
+    this.loseRegistrationReplayResponse = true;
+  }
+
+  armCeremonyDeleteResponseLoss(): void {
+    this.loseCeremonyDeleteResponse = true;
   }
 
   prepare(query: string): D1PreparedStatementLike {
@@ -225,6 +459,25 @@ class ResponseLossD1Database implements D1DatabaseLike {
   }
 
   loseRunResponse(query: string, values: readonly unknown[]): void {
+    const registrationScope = String(values[4] || '');
+    const registrationRecordId = String(values[5] || '');
+    if (
+      this.loseRegistrationReplayResponse &&
+      registrationScope === 'finalize-replay' &&
+      registrationRecordId.includes(REGISTRATION_CEREMONY_ID)
+    ) {
+      this.loseRegistrationReplayResponse = false;
+      throw new Error('simulated finalize replay response loss');
+    }
+    if (
+      this.loseCeremonyDeleteResponse &&
+      registrationScope === 'ceremony' &&
+      registrationRecordId.endsWith(REGISTRATION_CEREMONY_ID) &&
+      /\bDELETE\s+FROM\s+registration_ceremony_records\b/iu.test(query)
+    ) {
+      this.loseCeremonyDeleteResponse = false;
+      throw new Error('simulated ceremony delete response loss');
+    }
     const recordKey = String(values[4] || '');
     if (!recordKey.startsWith('wallet-registration-finalize:')) return;
     if (
@@ -529,13 +782,14 @@ function testRpId() {
 function buildCeremony(input: {
   readonly walletId: WalletId;
   readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  readonly accountProvisioning: RegistrationNearAccountProvisioning;
 }): StoredWalletRegistrationCeremony {
   const signerSelection: RegistrationSignerSetSelection = {
     kind: 'signer_set',
     signers: [
       {
         kind: 'near_ed25519',
-        accountProvisioning: implicitNearAccountProvisioning(),
+        accountProvisioning: input.accountProvisioning,
         signerSlot: 1,
         participantIds: [1, 2],
         derivationVersion: 1,
@@ -665,11 +919,46 @@ export type FinalizeConvergenceHarness = {
   readonly service: CloudflareD1RouterApiAuthService;
   readonly request: WalletRegistrationFinalizeRequest;
   readonly database: D1DatabaseLike;
-  readonly cleanup: () => void;
+  readonly cleanup: () => Promise<void>;
   readonly arm: (fault: FinalizeConvergenceFault) => void;
   readonly expireFinalizeClaim: () => Promise<void>;
   readonly countRows: (table: string) => Promise<number>;
 };
+
+export type SponsoredFinalizeConvergenceHarness = FinalizeConvergenceHarness & {
+  readonly corruptSponsoredPreparedArtifact: () => Promise<void>;
+  readonly corruptSponsoredPreparedSignature: () => Promise<void>;
+  readonly sponsoredNearRpcCounts: () => {
+    readonly broadcastCount: number;
+    readonly txStatusCount: number;
+  };
+};
+
+type FinalizeConvergenceHarnessMode =
+  | { readonly kind: 'implicit' }
+  | {
+      readonly kind: 'sponsored';
+      readonly rpc: SponsoredNearJsonRpcFixture;
+      readonly nearRpcUrl: string;
+      readonly credentials: DeterministicNearCredentials;
+    };
+
+function sponsoredFinalizeAccountProvisioning(): RegistrationNearAccountProvisioning {
+  const accountId = parseNamedNearAccountId(SPONSORED_ACCOUNT_ID);
+  if (!accountId.ok) throw new Error(accountId.message);
+  return sponsoredNamedNearAccountProvisioning(accountId.value);
+}
+
+function accountProvisioningForMode(
+  mode: FinalizeConvergenceHarnessMode,
+): RegistrationNearAccountProvisioning {
+  switch (mode.kind) {
+    case 'implicit':
+      return implicitNearAccountProvisioning();
+    case 'sponsored':
+      return sponsoredFinalizeAccountProvisioning();
+  }
+}
 
 export function buildMismatchedFinalizeConvergenceRequest(
   request: WalletRegistrationFinalizeRequest,
@@ -690,7 +979,9 @@ export function buildMismatchedFinalizeConvergenceRequest(
   };
 }
 
-export async function createFinalizeConvergenceHarness(): Promise<FinalizeConvergenceHarness> {
+async function createFinalizeConvergenceHarnessForMode(
+  mode: FinalizeConvergenceHarnessMode,
+): Promise<FinalizeConvergenceHarness> {
   const temporary = createTemporaryD1Database();
   await applySignerMigrations(temporary.database);
   const database = new ResponseLossD1Database(temporary.database);
@@ -709,17 +1000,28 @@ export async function createFinalizeConvergenceHarness(): Promise<FinalizeConver
     routerAbSigningRuntimes: createSigningRuntimeBundle(normalSigning),
     ed25519YaoProductRegistration: yao.runtime,
     ecdsaStrictRegistration: new UnusedEcdsaStrictRegistration(),
+    ...(mode.kind === 'sponsored'
+      ? {
+          relayerAccount: RELAYER_ACCOUNT_ID,
+          relayerPublicKey: mode.credentials.publicKey,
+          relayerPrivateKey: mode.credentials.privateKey,
+          nearRpcUrl: mode.nearRpcUrl,
+          accountInitialBalance: '1000000000000000000000000',
+        }
+      : {}),
   });
   const ceremonyStore = new CloudflareD1RegistrationCeremonyIntentStore({
-    namespace: durableObjects,
-    objectName: 'threshold-store',
-    prefix: REGISTRATION_STORE_PREFIX,
+    kind: 'partitioned_d1',
+    database,
+    scope: TEST_SCOPE,
+    keyPrefix: 'gateway-registration:',
   });
   const walletId = walletIdFromString(yao.admissionRequest.application_binding.wallet_id);
   await ceremonyStore.putCeremony(
     buildCeremony({
       walletId,
       admissionRequest: yao.admissionRequest,
+      accountProvisioning: accountProvisioningForMode(mode),
     }),
   );
   const request: WalletRegistrationFinalizeRequest = {
@@ -738,14 +1040,16 @@ export async function createFinalizeConvergenceHarness(): Promise<FinalizeConver
     service,
     request,
     database,
-    cleanup: () => cleanupTemporaryD1Database(temporary.tempDir),
+    cleanup: async () => {
+      if (mode.kind === 'sponsored') await mode.rpc.close();
+      cleanupTemporaryD1Database(temporary.tempDir);
+    },
     expireFinalizeClaim: async () => {
       await database
         .prepare(
           `UPDATE router_ab_yao_versioned_json_records
              SET record_json = json_set(record_json, '$.claimedAtMs', 0)
-           WHERE record_key LIKE '%wallet-registration-finalize:%'
-             AND json_extract(record_json, '$.kind') =
+           WHERE json_extract(record_json, '$.kind') =
                'router_ab_ed25519_yao_registration_side_effect_claim_v1'`,
         )
         .run();
@@ -764,14 +1068,10 @@ export async function createFinalizeConvergenceHarness(): Promise<FinalizeConver
           database.armBatchResponseLoss();
           return;
         case 'finalize_replay_response_loss':
-          durableObjects.stub.armSetResponseLoss(
-            `${REGISTRATION_STORE_PREFIX}finalize-replay:${REGISTRATION_CEREMONY_ID}:${IDEMPOTENCY_KEY}`,
-          );
+          database.armRegistrationReplayResponseLoss();
           return;
         case 'ceremony_delete_response_loss':
-          durableObjects.stub.armDeleteResponseLoss(
-            `${REGISTRATION_STORE_PREFIX}ceremony:${REGISTRATION_CEREMONY_ID}`,
-          );
+          database.armCeremonyDeleteResponseLoss();
           return;
         case 'finalize_claim_response_loss':
           database.armFinalizeClaimResponseLoss();
@@ -788,4 +1088,47 @@ export async function createFinalizeConvergenceHarness(): Promise<FinalizeConver
       return Number(row?.count || 0);
     },
   };
+}
+
+export async function createFinalizeConvergenceHarness(): Promise<FinalizeConvergenceHarness> {
+  return await createFinalizeConvergenceHarnessForMode({ kind: 'implicit' });
+}
+
+export async function createSponsoredFinalizeConvergenceHarness(): Promise<SponsoredFinalizeConvergenceHarness> {
+  const rpc = new SponsoredNearJsonRpcFixture();
+  const nearRpcUrl = await rpc.start();
+  try {
+    const harness = await createFinalizeConvergenceHarnessForMode({
+      kind: 'sponsored',
+      rpc,
+      nearRpcUrl,
+      credentials: deterministicNearCredentials(71),
+    });
+    return {
+      ...harness,
+      corruptSponsoredPreparedArtifact: async () => {
+        await harness.database
+          .prepare(
+            `UPDATE router_ab_yao_versioned_json_records
+                SET record_json = json_set(
+                  record_json,
+                  '$.prepared.accountId',
+                  'corrupted-sponsored-account.testnet'
+                )
+              WHERE record_key LIKE 'router-ab-yao-sponsored-account:%'`,
+          )
+          .run();
+      },
+      corruptSponsoredPreparedSignature: async () => {
+        await corruptStoredSponsoredPreparedSignature(harness.database);
+      },
+      sponsoredNearRpcCounts: () => ({
+        broadcastCount: rpc.broadcastCount,
+        txStatusCount: rpc.txStatusCount,
+      }),
+    };
+  } catch (error: unknown) {
+    await rpc.close();
+    throw error;
+  }
 }

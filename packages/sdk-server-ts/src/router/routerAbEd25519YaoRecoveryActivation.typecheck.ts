@@ -1,6 +1,7 @@
 import type {
   RouterAbEd25519YaoCapabilityPersistenceResultV1,
   RouterAbEd25519YaoCapabilityReplacementOperationV1,
+  RouterAbEd25519YaoActiveCapabilityLookupV1,
   RouterAbEd25519YaoRecoveryActivationClaimV1,
   RouterAbEd25519YaoRecoveryActivationCommitInputV1,
 } from './routerAbEd25519YaoRecovery';
@@ -29,6 +30,26 @@ const activationClaim: RouterAbEd25519YaoRecoveryActivationClaimV1 = {
   disposition: 'initial',
 };
 
+const activeCapabilityLookup: RouterAbEd25519YaoActiveCapabilityLookupV1 = {
+  kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
+  walletId: 'wallet-1',
+  nearEd25519SigningKeyId: 'ed25519ks_1',
+  signerSlot: 1,
+  signingWorkerId: 'signing-worker-1',
+  participantIds: [1, 2],
+};
+
+const lookupWithChainProjection: RouterAbEd25519YaoActiveCapabilityLookupV1 = {
+  kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
+  walletId: 'wallet-1',
+  // @ts-expect-error capability selection excludes the mutable NEAR account projection
+  nearAccountId: 'wallet-1.testnet',
+  nearEd25519SigningKeyId: 'ed25519ks_1',
+  signerSlot: 1,
+  signingWorkerId: 'signing-worker-1',
+  participantIds: [1, 2],
+};
+
 // @ts-expect-error activation claims always state whether work is initial or reconciliation
 const claimWithoutDisposition: RouterAbEd25519YaoRecoveryActivationClaimV1 = {
   kind: 'router_ab_ed25519_yao_recovery_activation_claim_v1',
@@ -51,5 +72,7 @@ const uncertainWithoutDisposition: RouterAbEd25519YaoCapabilityPersistenceResult
 };
 
 void claimWithoutDisposition;
+void activeCapabilityLookup;
+void lookupWithChainProjection;
 void successWithoutDisposition;
 void uncertainWithoutDisposition;

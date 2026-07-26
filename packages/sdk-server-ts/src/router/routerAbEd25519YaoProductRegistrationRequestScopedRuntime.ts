@@ -20,6 +20,7 @@ import {
 } from './routerAbEd25519YaoRecovery';
 import {
   mintRouterAbEd25519YaoWalletSessionV1,
+  routerAbEd25519YaoPersistedCapabilityMatchesLookupV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
   type RouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoWalletSessionMintInputV1,
@@ -120,11 +121,17 @@ class RouterAbEd25519YaoProductRegistrationRequestScopedRuntime implements Route
   ): Promise<RouterAbEd25519YaoActiveCapabilityLookupResultV1> {
     const loaded = await this.input.store.load(SHARED_CAPABILITY_READ_LIFECYCLE_ID);
     const result = recoveryService(loaded.state).resolveActiveCapability(input);
-    if (result.ok || result.code !== 'unknown_capability' || !this.input.loadPersistedActiveCapability) {
+    if (
+      result.ok ||
+      result.code !== 'unknown_capability' ||
+      !this.input.loadPersistedActiveCapability
+    ) {
       return result;
     }
     const persisted = await this.input.loadPersistedActiveCapability(input);
-    if (!persisted || !persistedCapabilityMatchesLookup(persisted, input)) return result;
+    if (!persisted || !routerAbEd25519YaoPersistedCapabilityMatchesLookupV1(persisted, input)) {
+      return result;
+    }
     const installed = await this.installPersistedActiveCapability(persisted);
     if (!installed.ok) {
       return {
@@ -225,23 +232,6 @@ function commitInput(
     sharedVersion: loaded.sharedVersion,
     ceremonyVersion: loaded.ceremonyVersion,
   };
-}
-
-function persistedCapabilityMatchesLookup(
-  capability: WalletEd25519YaoActiveCapabilityRecord,
-  lookup: RouterAbEd25519YaoActiveCapabilityLookupV1,
-): boolean {
-  const application = capability.admissionRequest.application_binding;
-  const participants = capability.admissionRequest.participant_ids;
-  return (
-    application.wallet_id === lookup.walletId &&
-    capability.nearAccountId === lookup.nearAccountId &&
-    application.near_ed25519_signing_key_id === lookup.nearEd25519SigningKeyId &&
-    application.key_creation_signer_slot === lookup.signerSlot &&
-    capability.admissionRequest.scope.signing_worker_id === lookup.signingWorkerId &&
-    participants[0] === lookup.participantIds[0] &&
-    participants[1] === lookup.participantIds[1]
-  );
 }
 
 async function rejectUnusedBackend(): Promise<never> {

@@ -4,10 +4,7 @@ import type {
   EmailOtpChallengeAction,
   EmailOtpChallengeOperation,
 } from '../../core/EmailOtpStores';
-import type {
-  SignerWasmModuleSupplier,
-  ThresholdStoreConfigInput,
-} from '../../core/types';
+import type { SignerWasmModuleSupplier, ThresholdStoreConfigInput } from '../../core/types';
 import { EMAIL_OTP_CODE_LENGTH } from '../../core/authService/emailOtpConfig';
 import type { RouterAbSigningRuntimeBundle } from '../../core/routerAbSigning/createRouterAbSigningRuntimes';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAbEd25519YaoProductRegistration';
@@ -97,16 +94,7 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly emailOtpGoogleRegistrationAttemptRateLimitWindowMs?: number | string;
   readonly thresholdStore?: ThresholdStoreConfigInput | null;
   readonly routerAbSigningRuntimes?: RouterAbSigningRuntimeBundle | null;
-  /**
-   * Accepts a resolver so the caller can pick the runtime per request. During a
-   * cutover, registration finalize must read the activation from whichever
-   * store the ceremony's execute step wrote to; a fixed runtime would send
-   * finalize to the legacy store while execute used the partitioned one.
-   */
-  readonly ed25519YaoProductRegistration?:
-    | RouterAbEd25519YaoProductRegistrationRuntimeV1
-    | (() => RouterAbEd25519YaoProductRegistrationRuntimeV1 | null)
-    | null;
+  readonly ed25519YaoProductRegistration?: RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
   readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
 }
 
