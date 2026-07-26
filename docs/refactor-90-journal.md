@@ -19,6 +19,14 @@ here.
   add-signer lifecycle tests pass 8 of 8; Prettier and `git diff --check` pass.
 - The public browser route and worker-owned prepared-journal cut remain open.
   The internal server bridge alone does not close the pre-effect crash window.
+- Exposed public registration prepare/query routes and made activation commit
+  require the exact prepared digest as `90076575c`. The SDK registration path
+  now prepares before committing, while query can reconcile pending D1 state
+  with an already-committed Router receipt.
+- Validation: server, web SDK, and unit type checks pass; focused public
+  registration and orchestration tests pass 17 of 17. The worker still needs to
+  persist encrypted pending state between prepare and commit, so this boundary
+  does not yet satisfy the journal-first invariant by itself.
 - Added fixture-backed coverage for every canonical ECDSA lookup result as
   `bf08f7512`: active, retired, missing, exact binding mismatch, exact record
   conflict, corrupt, and persistence unavailable. The focused store suite
