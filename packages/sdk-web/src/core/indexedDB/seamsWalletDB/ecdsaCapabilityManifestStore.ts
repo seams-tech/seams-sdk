@@ -452,19 +452,16 @@ function buildPreparedJournalFromEncryptedCandidate(input: {
   }
 }
 
-function requireCanonicalStateBlob(value: string, label: string): string {
+function decodeCanonicalStateBlob(value: string, label: string): Uint8Array {
   if (typeof value !== 'string' || value.length === 0 || !/^[A-Za-z0-9_-]+$/.test(value)) {
     throw new Error(`${label} must be non-empty unpadded base64url`);
   }
   const bytes = base64UrlDecode(value);
-  try {
-    if (bytes.length === 0 || base64UrlEncode(bytes) !== value) {
-      throw new Error(`${label} must be canonical base64url`);
-    }
-  } finally {
+  if (bytes.length === 0 || base64UrlEncode(bytes) !== value) {
     bytes.fill(0);
+    throw new Error(`${label} must be canonical base64url`);
   }
-  return value;
+  return bytes;
 }
 
 function activationBindingAadProjection(binding: EcdsaActivationBinding) {
@@ -580,8 +577,7 @@ async function encryptStateBlob(input: {
   readonly ciphertextB64u: ReturnType<typeof parseEcdsaCiphertextB64u>;
   readonly digestB64u: string;
 }> {
-  const stateBlobB64u = requireCanonicalStateBlob(input.stateBlobB64u, 'ECDSA state blob');
-  const plaintext = new TextEncoder().encode(stateBlobB64u);
+  const plaintext = decodeCanonicalStateBlob(input.stateBlobB64u, 'ECDSA state blob');
   const iv12 = crypto.getRandomValues(new Uint8Array(AES_GCM_IV_BYTES));
   const aad = additionalData(input.aadProjection);
   try {
@@ -634,10 +630,10 @@ async function decryptStateBlob(input: {
         ciphertext,
       ),
     );
-    return requireCanonicalStateBlob(
-      new TextDecoder().decode(plaintext),
-      'decrypted ECDSA state blob',
-    );
+    if (plaintext.length === 0) {
+      throw new Error('decrypted ECDSA state blob must not be empty');
+    }
+    return base64UrlEncode(plaintext);
   } finally {
     iv12.fill(0);
     ciphertext.fill(0);
