@@ -64,6 +64,19 @@ test('live staging cohort requires a frozen full commit SHA', () => {
 });
 
 if (REFACTOR93_STAGING_CONFIG.mode === 'live') {
+  test('live staging cohort binds the intended harness to staging', () => {
+    expect(process.env.SEAMS_INTENDED_APP_URL).toBe(REFACTOR93_STAGING_CONFIG.origins.site);
+    expect(process.env.SEAMS_INTENDED_ROUTER_URL).toBe(REFACTOR93_STAGING_CONFIG.origins.gateway);
+    expect(process.env.SEAMS_INTENDED_WALLET_ORIGIN).toBe(
+      REFACTOR93_STAGING_CONFIG.origins.wallet,
+    );
+    expect(process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID).toBe(
+      REFACTOR93_STAGING_CONFIG.projectEnvironmentId,
+    );
+    expect(process.env.SEAMS_INTENDED_PUBLISHABLE_KEY).toBe(
+      REFACTOR93_STAGING_CONFIG.publishableKey,
+    );
+  });
   test(
     'staging registration survives response loss and redelivers exact terminal output',
     runLiveStagingCohort,
