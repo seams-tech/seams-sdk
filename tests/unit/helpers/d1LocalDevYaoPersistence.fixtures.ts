@@ -273,8 +273,6 @@ export function createLocalYaoWorkerEnv(input: {
     SIGNER_DB: input.signerDatabase,
     THRESHOLD_STORE: new UnusedDurableObjectNamespace(),
     MPC_ROUTER: input.router,
-    DERIVER_A: unsupported,
-    DERIVER_B: unsupported,
     SIGNING_WORKER: unsupported,
     SEAMS_TENANT_STORAGE_NAMESPACE: NAMESPACE,
     SEAMS_LOCAL_CONSOLE_USER_ID: 'local-yao-user',

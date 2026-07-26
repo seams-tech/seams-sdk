@@ -34,7 +34,7 @@ import type {
   D1PreparedStatementLike,
 } from '../../../packages/sdk-server-ts/src/storage/tenantRoute';
 import {
-  createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1,
+  createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1,
   createRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
@@ -43,12 +43,19 @@ import {
   type RouterAbEd25519YaoRegistrationBackend,
   type RouterAbEd25519YaoRegistrationBackendResult,
 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistration';
-import type {
-  RouterAbEd25519YaoCapabilityPersistenceV1,
-  RouterAbEd25519YaoCapabilityPersistenceResultV1,
+import { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistrationIntentAuthorization';
+import {
+  InMemoryRouterAbEd25519YaoRecoveryService,
+  type RouterAbEd25519YaoCapabilityPersistenceV1,
+  type RouterAbEd25519YaoCapabilityPersistenceResultV1,
+  type RouterAbEd25519YaoRecoveryBackend,
 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
-import type { RouterAbEd25519YaoRecoveryBackend } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
-import type { RouterAbEd25519YaoExportBackend } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoExport';
+import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
+import {
+  InMemoryRouterAbEd25519YaoExportService,
+  RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter,
+  type RouterAbEd25519YaoExportBackend,
+} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoExport';
 import type { RouterAbEcdsaStrictRegistrationPort } from '../../../packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration';
 import {
   implicitNearAccountProvisioning,
@@ -874,17 +881,33 @@ async function activatedRuntimeFixture(): Promise<{
   if (!admitted.ok) throw new Error(admitted.message);
   const executed = await registration.execute(executeRequest);
   if (!executed.ok) throw new Error(executed.message);
-  const composition = createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1({
-    signingWorkerId: SIGNING_WORKER_ID,
+  const session = new StaticWalletSessionAdapter();
+  const recoveryService = new InMemoryRouterAbEd25519YaoRecoveryService(
     backend,
-    session: new StaticWalletSessionAdapter(),
-    webAuthn: {
+    state.recovery,
+    new AppliedCapabilityPersistence(),
+  );
+  const exportService = new InMemoryRouterAbEd25519YaoExportService(
+    backend,
+    recoveryService,
+    state.export,
+  );
+  const composition = createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1({
+    signingWorkerId: SIGNING_WORKER_ID,
+    registrationService: registration,
+    authorization: new InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter(
+      state.authorization,
+    ),
+    recoveryService,
+    capabilities: recoveryService,
+    recoveryAuthorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(session),
+    exportService,
+    exportAuthorization: new RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter(session, {
       async verifyWebAuthnAuthenticationLite(): Promise<never> {
         throw new Error('WebAuthn export is outside the finalize convergence fixture');
       },
-    },
-    state,
-    capabilityPersistence: new AppliedCapabilityPersistence(),
+    }),
+    session,
   });
   return {
     runtime: new FailureInjectingYaoRuntime(composition.runtime),

@@ -189,21 +189,13 @@ migrations_dir = "../sdk-server-ts/migrations/d1-signer"
 name = "THRESHOLD_STORE"
 class_name = "ThresholdStoreDurableObject"
 
-[[durable_objects.bindings]]
-name = "ROUTER_API_RUNTIME"
-class_name = "RouterApiRuntimeDurableObject"
-
-[[services]]
-binding = "DERIVER_A"
-service = "router-ab-deriver-a-staging"
-
-[[services]]
-binding = "DERIVER_B"
-service = "router-ab-deriver-b-staging"
-
 [[services]]
 binding = "SIGNING_WORKER"
 service = "router-ab-signing-worker-staging"
+
+[[services]]
+binding = "MPC_ROUTER"
+service = "router-ab-mpc-router-staging"
 
 [[migrations]]
 tag = "threshold-store-sqlite-v1"
@@ -212,6 +204,10 @@ new_sqlite_classes = ["ThresholdStoreDurableObject"]
 [[migrations]]
 tag = "router-api-runtime-sqlite-v1"
 new_sqlite_classes = ["RouterApiRuntimeDurableObject"]
+
+[[migrations]]
+tag = "router-api-runtime-delete-v1"
+deleted_classes = ["RouterApiRuntimeDurableObject"]
 
 [[secrets_store_secrets]]
 binding = "SIGNING_ROOT_KEK_STAGING_R1"
@@ -225,12 +221,6 @@ SEAMS_STAGING_PROJECT_ID = "project_staging"
 SEAMS_STAGING_ENV_ID = "staging"
 ROUTER_AB_NORMAL_SIGNING_WORKER_ID = "router-ab-signing-worker-staging"
 SIGNING_WORKER_ID = "router-ab-signing-worker-staging"
-ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS = ""
-ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS = ""
-ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS = ""
-ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS = ""
-ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS = ""
-ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS = ""
 DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY = "x25519:1111111111111111111111111111111111111111111111111111111111111111"
 DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY = "x25519:2222222222222222222222222222222222222222222222222222222222222222"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:3333333333333333333333333333333333333333333333333333333333333333"

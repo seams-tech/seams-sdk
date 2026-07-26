@@ -19,7 +19,6 @@ import {
 import {
   GATEWAY_WORKER_COMPATIBILITY_DATE,
   GATEWAY_WORKER_COMPATIBILITY_FLAGS,
-  parseGatewayCutoverWorkerVars,
   parseGatewayDeploymentConfig,
 } from '../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
 
@@ -226,7 +225,6 @@ function preflightBackend(targetName, target, component, environment = process.e
   }
   if (component === 'gateway') {
     requiredNames.push('SIGNING_ROOT_KEK_VALUE', 'GATEWAY_DEPLOYMENT_CONFIG_JSON');
-    parseGatewayCutoverWorkerVars(environment);
     const config = validateGatewayDeploymentConfig(targetName, target, environment);
     if (config.optional.nearRelayer) requiredNames.push('RELAYER_PRIVATE_KEY');
   }

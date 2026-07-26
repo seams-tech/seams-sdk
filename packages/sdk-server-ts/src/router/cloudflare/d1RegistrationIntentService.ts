@@ -30,10 +30,7 @@ import type {
   CreateRegistrationIntentResponse,
 } from '../../core/registrationContracts';
 import { thresholdEcdsaChainTargetFromValue } from '../../core/thresholdEcdsaChainTarget';
-import {
-  CloudflareD1RegistrationCeremonyIntentStore,
-  missingRegistrationCeremonyDoStore,
-} from './d1RegistrationCeremonyStore';
+import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import {
   buildAddAuthMethodIntent,
   buildAddSignerIntent,
@@ -72,7 +69,7 @@ type CreateAddAuthMethodIntentInput = {
   readonly expectedOrigin?: string;
 };
 
-type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
+type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore;
 type SignerWalletExistenceStore = {
   signerWalletExists(walletId: string): Promise<boolean>;
 };
@@ -112,7 +109,6 @@ export class CloudflareD1RegistrationIntentService {
   ): Promise<CreateRegistrationIntentResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
 
       const signerPlan = normalizeRegistrationSignerPlan(input.request?.signerSelection);
       if (!signerPlan.ok) return signerPlan;
@@ -174,7 +170,6 @@ export class CloudflareD1RegistrationIntentService {
   ): Promise<CancelRegistrationIntentResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const grant = parseRegistrationIntentGrant(input.request?.registrationIntentGrant);
       const digestB64u = toOptionalTrimmedString(input.request?.registrationIntentDigestB64u);
       if (!grant || !digestB64u) {
@@ -218,7 +213,6 @@ export class CloudflareD1RegistrationIntentService {
   ): Promise<CreateAddSignerIntentResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const walletId = parseWalletIdForIntent(input.request?.walletId);
       if (!walletId) {
         return { ok: false, code: 'invalid_body', message: 'walletId is required' };
@@ -269,7 +263,6 @@ export class CloudflareD1RegistrationIntentService {
   ): Promise<CreateAddAuthMethodIntentResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const walletId = parseWalletIdForIntent(input.request?.walletId);
       if (!walletId) {
         return { ok: false, code: 'invalid_body', message: 'walletId is required' };

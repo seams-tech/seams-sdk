@@ -69,10 +69,7 @@ import {
   routerAbEcdsaStrictRegistrationRequestMatchesFacts,
   type RouterAbEcdsaStrictRegistrationPort,
 } from '../routerAbEcdsaStrictRegistration';
-import {
-  CloudflareD1RegistrationCeremonyIntentStore,
-  missingRegistrationCeremonyDoStore,
-} from './d1RegistrationCeremonyStore';
+import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import {
   listThresholdEcdsaKeyIdentityTargetsForUser,
   type ThresholdEcdsaKeyInventoryDiagnostics,
@@ -525,7 +522,7 @@ async function mintD1RegistrationEd25519WalletSession(input: {
   }
 }
 
-type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
+type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore;
 type RouterAbNormalSigningRuntimeProvider = () => RouterAbNormalSigningRuntime | null;
 type WalletStoreProvider = () => D1WalletStore;
 type Ed25519YaoProductRegistrationProvider =
@@ -1137,7 +1134,6 @@ export class CloudflareD1WalletRegistrationService {
     registrationCeremonyId: string,
   ): Promise<RuntimePolicyScope | undefined> {
     const store = this.getRegistrationCeremonyIntentStore();
-    if (!store) return undefined;
     const ceremony = await store.getCeremony(registrationCeremonyId);
     if (!ceremony) return undefined;
     return registrationPreparedContextRuntimePolicyScope(ceremony.preparedContext);
@@ -1706,7 +1702,6 @@ export class CloudflareD1WalletRegistrationService {
     const total = startD1RegistrationRouteTiming('registerStartTotalMs');
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const grant = registrationIntentGrantFromString(
         toOptionalTrimmedString(request.registrationIntentGrant) || '',
       );
@@ -2048,7 +2043,6 @@ export class CloudflareD1WalletRegistrationService {
   ): Promise<WalletRegistrationEcdsaDerivationRespondResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const ceremony = await store.getCeremony(request.registrationCeremonyId);
       if (!ceremony) {
         return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
@@ -2177,7 +2171,6 @@ export class CloudflareD1WalletRegistrationService {
   ): Promise<WalletRegistrationEcdsaActivationResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const ceremony = await store.getCeremony(request.registrationCeremonyId);
       if (!ceremony) {
         return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
@@ -2451,7 +2444,6 @@ export class CloudflareD1WalletRegistrationService {
     const totalTiming = startD1RegistrationRouteTiming('registerFinalizeTotalMs');
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const idempotencyKey = toOptionalTrimmedString(request.idempotencyKey);
       const requestFingerprint = idempotencyKey
         ? await walletRegistrationFinalizeRequestFingerprint(request)

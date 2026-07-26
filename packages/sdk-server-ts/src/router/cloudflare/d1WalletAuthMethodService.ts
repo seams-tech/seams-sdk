@@ -43,10 +43,7 @@ import type {
   WalletRevokeAuthMethodResponse,
 } from '../../core/registrationContracts';
 import { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVerifier';
-import {
-  CloudflareD1RegistrationCeremonyIntentStore,
-  missingRegistrationCeremonyDoStore,
-} from './d1RegistrationCeremonyStore';
+import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import { parseWalletIdForIntent } from './d1RegistrationCeremonyRecords';
 import type { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from './d1GoogleEmailOtpRegistrationAttemptStore';
 import {
@@ -98,7 +95,7 @@ type SimpleWebAuthnServerModule = {
 };
 
 type Sha256Bytes = (input: Uint8Array) => Promise<Uint8Array>;
-type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
+type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore;
 type WalletAuthMethodStoreProvider = () => WalletAuthMethodStore;
 
 function errorMessage(error: unknown): string {
@@ -169,7 +166,6 @@ export class CloudflareD1WalletAuthMethodService {
   ): Promise<StartWalletAddAuthMethodResult> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const walletId = parseWalletIdForIntent(request.walletId);
       if (!walletId) {
         return { ok: false, code: 'invalid_body', message: 'walletId is required' };
@@ -269,7 +265,6 @@ export class CloudflareD1WalletAuthMethodService {
   ): Promise<FinalizeWalletAddAuthMethodResult> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const ceremony = await store.getAddAuthMethodCeremony(request.addAuthMethodCeremonyId);
       if (!ceremony) {
         return { ok: false, code: 'not_found', message: 'add-auth-method ceremony not found' };

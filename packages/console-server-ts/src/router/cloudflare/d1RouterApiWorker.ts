@@ -1,5 +1,1 @@
-export {
-  RouterApiRuntimeDurableObject,
-  ThresholdStoreDurableObject,
-  default,
-} from './d1RouterApiStagingWorker';
+export { ThresholdStoreDurableObject, default } from './d1RouterApiStagingWorker';
