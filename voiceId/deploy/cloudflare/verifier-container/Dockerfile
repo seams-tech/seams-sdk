@@ -21,7 +21,7 @@ COPY verifier/voiceid_verifier /app/verifier/voiceid_verifier
 
 RUN python -m pip install --upgrade pip \
     && python -m pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.6.*" "torchaudio==2.6.*" \
-    && python -m pip install "/app/verifier[ecapa,pad]"
+    && python -m pip install "/app/verifier[ecapa,moonshine,pad]"
 
 ARG PRELOAD_ECAPA_MODEL=0
 RUN if [ "$PRELOAD_ECAPA_MODEL" = "1" ]; then \

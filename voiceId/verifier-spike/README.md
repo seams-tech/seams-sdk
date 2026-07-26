@@ -125,7 +125,7 @@ intent, and phrase decisions as separate fields. The production-shaped
 verification path is `POST /voice-id/verifier/analyze-verification`, which
 shares one canonical decode between Moonshine, speaker verification, and PAD.
 
-## Frozen synthetic corpus
+## Synthetic corpus generation and freeze
 
 `dia2-corpus-plan.json` and `elevenlabs-corpus-plan.json` are the concrete
 subject-disjoint generation inputs. They include stable designed identities,
@@ -136,14 +136,45 @@ the offline fixture pipeline:
 ```sh
 pnpm -C voiceId corpus:generate:dia2 --help
 pnpm -C voiceId corpus:generate:elevenlabs --help
+pnpm -C voiceId corpus:import:consented --help
 pnpm -C voiceId corpus:freeze --help
 ```
 
-The ElevenLabs batch records resolved voice ids plus request/output hashes and
-emits canonical 16 kHz WAV. The API key stays in `voiceId/.env`; plans and
-reports contain no secret. Corpus freezing validates each fragment, copies
-audio with a second hash check, sorts partitions deterministically, and emits a
-corpus tree digest.
+The ElevenLabs batch requires a durable `--state` file. A persistent campaign
+binding prevents another state or plan from using the same output directory.
+State writes are atomic and fsynced; generated audio uses a recoverable
+pending-WAV protocol and a no-clobber final install. A rerun verifies every
+completed artifact before skipping it:
+
+```sh
+python3 voiceId/verifier-spike/elevenlabs_batch.py \
+  --plan voiceId/verifier-spike/elevenlabs-corpus-plan.json \
+  --asset-dir /private/path/to/consented-assets \
+  --output-dir /private/path/to/elevenlabs-audio \
+  --state /private/path/to/elevenlabs-state.json \
+  --manifest-out /private/path/to/elevenlabs-manifest.json \
+  --report-out /private/path/to/elevenlabs-report.json
+```
+
+An ambiguous remote operation, such as a lost POST response, is recorded and
+blocks automatic retry. Preserve the state and supporting account evidence; do
+not delete or replace it. This runner has no audited adopt/abort operation for
+a confirmed remote success or failure. The campaign therefore remains blocked
+until such a recovery action is implemented. Starting another campaign can
+duplicate paid work and requires an explicit operator decision.
+
+The batch records resolved voice ids plus request/output hashes and emits
+canonical 16 kHz WAV. The API key stays in `voiceId/.env`; plans, state, and
+reports contain no API key.
+
+The consented-capture importer copies a canonical owner WAV immutably and emits
+one `consented_human_capture` manifest fragment. Corpus freezing validates each
+fragment, copies audio with a second hash check, sorts partitions
+deterministically, and emits a corpus tree digest.
+
+The current Dia2 and ElevenLabs plans cover synthesis attacks only. Replay,
+voice conversion, splice, relay, and digital-injection transformation
+pipelines remain required before the corpus can pass attack-class readiness.
 
 Run measurements and calibration from the frozen manifest:
 
@@ -168,6 +199,22 @@ and writes paired JSON and Markdown outputs. It binds the corpus and local
 model manifests by SHA-256 and embeds the complete component reports. Run
 `pnpm -C voiceId benchmark:suite --help` for the required model paths and
 output arguments.
+
+Check candidate adapters for repeated-input, cross-input, and
+failure-recovery stability with:
+
+```sh
+pnpm -C voiceId benchmark:stability --help
+```
+
+The pinned Apple Silicon run is recorded in
+[`reports/candidate-adapter-stability-2026-07-27.md`](reports/candidate-adapter-stability-2026-07-27.md).
+Moonshine, ECAPA, and AASIST passed A-A-A, A-B-A, and post-inference A-FAIL-A.
+The harness rejects empty Moonshine transcripts, malformed ECAPA embeddings,
+unavailable AASIST decisions, indistinguishable A/B outputs, mutable model-tree
+symlinks, and numeric tolerances above `1e-5`. This establishes deterministic
+adapter behavior for those probes; it does not establish biometric accuracy or
+PAD calibration.
 
 Run the seeded malformed-media campaign separately from model benchmarks:
 
