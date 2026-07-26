@@ -6,6 +6,56 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records only a one-line status per phase; the narrative history lives
 here.
 
+## July 26, 2026: Full-Plan Consistency Audit
+
+- Removed duplicate status from the execution-order table and moved descoped
+  Phases 15 and 25-26 out of the checkbox tracker.
+- Reconciled companion-plan state: Patch 2 and Refactor 92 list only their real
+  remaining acceptance, Refactor 82B is an implemented Phase 7 baseline, and
+  the completed Refactor 93 deletion branch is a required stable-checkpoint
+  dependency while hosted recovery and latency remain release gates.
+- Kept Phase 4 responsible for typed session-read inputs and Phase 22
+  responsible for iframe initialization sequencing and demo display behavior.
+- Replaced the unconditional MPC `authorizationSessionId` scope recorded in the
+  July 23 entry with `MpcOperationAuthorizationRef`. Its reusable-session branch
+  requires `WalletSessionId` plus `CapabilityGrantId`; its operation-step-up
+  branch requires `CapabilityGrantId` and excludes `WalletSessionId`. Both
+  branches carry the independent exact material activation.
+- Clarified quota behavior: warm reusable-session signing consumes wallet quota,
+  operation step-up consumes only its one-operation grant, and export consumes
+  no wallet-signing quota.
+- Moved one-command Router and exact-replay checks to integration/persistence
+  validation, leaving intended-behaviour E2E focused on user-visible lifecycle
+  transitions.
+- Validation: all 27 phase headings are represented, all 14 plan invariant
+  citations resolve to the SPEC, relative links resolve, Markdown code fences
+  balance, and `git diff --check` passes.
+
+## July 26, 2026: Refactor 93 Yao Execution Reconciliation
+
+- Recorded Refactor 93's request-scoped Gateway persistence, one-command MPC
+  Router execution, pair-bound role-local lifecycle, and atomic SigningWorker
+  delivery as the Near server baseline for Refactor 90.
+- Mapped the Refactor 90 recovery journal's admission, acquisition, and
+  promotion effects onto Refactor 93's request-scoped admission claim, exact
+  Router execution/replay, and explicit client-verified recovery promotion.
+  The client journal continues to correlate receipts by `recoveryId` without
+  mirroring Router role state.
+- Required Near operation grants and applicable quota claims to commit before
+  Router execution, with the admitted authorization digest retained in the
+  canonical input-pair binding. Exact Router replay consumes neither resource
+  twice.
+- Updated Phases 18-21, 24, and 27 to reuse the partitioned server owners,
+  preserve Router/role/SigningWorker custody boundaries, and keep the deleted
+  tenant runtime, family selectors, serial routes, and direct Gateway
+  orchestration absent.
+- Added focused validation for one logical Gateway-to-Router command, exact
+  replay without Yao reevaluation, staged recovery until explicit promotion,
+  and zero Yao calls during normal signing or Wallet Session expiry.
+- Left Refactor 93's remaining hosted recovery and latency acceptance under
+  Refactor 93 ownership. It gates a Near release rather than Foundations A-B or
+  ECDSA implementation.
+
 ## July 23, 2026: Refactor 92 Frozen-Lifecycle Reconciliation
 
 - Added `R90-INV-014` so Refactor 90 preserves Refactor 92's implemented
