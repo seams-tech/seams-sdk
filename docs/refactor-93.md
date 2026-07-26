@@ -1103,7 +1103,7 @@ route-deletion cleanup.
       currently projects one environment `signingRootVersion` onto two
       independently persisted root-share systems, so staging cannot complete a
       dual-branch registration with its existing records.
-- [ ] Reconcile the frozen staging revision's admitted signing-root scope with
+- [x] Reconcile the frozen staging revision's admitted signing-root scope with
       both Ed25519 and ECDSA role-local startup-metadata records. Define the
       deployment-owned root epoch for each root-share system instead of letting
       one tenant environment version initialize or relabel role custody state.
@@ -1117,9 +1117,10 @@ route-deletion cleanup.
       Staging backend run `30174308501` deployed the matched replacement pair
       and fresh role-local object scopes from frozen `dev` revision
       `bf3642dc4` on 2026-07-26. All deployment preflights and five Gateway
-      smoke endpoints passed. This item remains open until a fresh dual-branch
-      registration proves both root-share systems accept `epoch-1` through the
-      product data path.
+      smoke endpoints passed. Backend run `30185829220` and frontend run
+      `30185830270` then deployed merged revision
+      `9791ffc98eaf1799f8fb378e5b09f81b9d654659`. A fresh product registration
+      and export completed through both root-share systems under `epoch-1`.
 - [x] Deploy one frozen staging baseline with every family window unset.
       Backend run `30183541977` and frontend run `30184290832` deployed
       revision `4585f4223a72844bae0ed569601bb34b09804c93` on 2026-07-26.
@@ -1140,10 +1141,15 @@ route-deletion cleanup.
       skew only at the Cloudflare A-to-B peer handoff. Focused core tests, the
       complete feature-enabled Cloudflare adapter suite, and the source-guard
       chain pass. PR #29 merged the fix to `dev` as
-      `9791ffc98eaf1799f8fb378e5b09f81b9d654659`. A frozen staging redeploy and
-      product-path validation remain required before manual acceptance.
-- [ ] With every family window unset, run the staging registration, recovery,
-      and export product paths on the frozen revision. Verify exact replay,
+      `9791ffc98eaf1799f8fb378e5b09f81b9d654659`. Backend run `30185829220`
+      deployed that revision successfully, and the live staging product test
+      completed registration, exact terminal replay, and export.
+- [x] With every family window unset, run the staging registration and export
+      product paths on the frozen revision. The live Playwright test completed
+      both paths and concurrent byte-identical terminal replay against revision
+      `9791ffc98eaf1799f8fb378e5b09f81b9d654659`.
+- [ ] Run the staging recovery product path on the same frozen revision. Verify
+      exact replay,
       conflict, disconnect, terminal redelivery, rollback, restart, and
       concurrency with their focused automated tests rather than expanding the
       hosted staging flow.
