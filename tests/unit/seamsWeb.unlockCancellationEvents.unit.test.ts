@@ -1,13 +1,20 @@
 import { expect, test } from '@playwright/test';
-import { unlock } from '@/SeamsWeb/operations/auth/login';
-import { resolveNearAccountIdForWalletAuthUnlockRecord } from '@/SeamsWeb/operations/auth/walletAuth';
+import {
+  resolveLoginUnlockWarmupBranchPlan,
+  resolveLoginWalletUnlockSelectionForSubjectSet,
+  unlock,
+} from '@/SeamsWeb/operations/auth/login';
+import { unlockDomain, type WalletAuthDomainDeps } from '@/SeamsWeb/operations/auth/walletAuth';
 import {
   resolveNearEd25519WalletUnlockSubject,
   resolveWalletUnlockSubjectSet,
 } from '@/SeamsWeb/operations/auth/walletUnlockSubject';
 import { resolveEvmFamilyEcdsaWalletUnlockSubjectSet } from '@/SeamsWeb/operations/auth/walletUnlockEcdsaSubject';
 import { SeamsWeb } from '@/SeamsWeb';
+import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import { IndexedDBManager } from '@/core/indexedDB';
+import { MinimalNearClient } from '@/core/rpcClients/near/NearClient';
+import type { LoginWebContext } from '@/SeamsWeb/signingSurface/types';
 import { createUnlockFlowEvent, UnlockEventPhase } from '@/core/types/sdkSentEvents';
 import { toAccountId } from '@/core/types/accountIds';
 import {
@@ -18,6 +25,11 @@ import {
 } from '@/core/signingEngine/session/persistence/records';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { seedAccountSignerRecord } from './helpers/accountSignerRecord.fixtures';
+import {
+  walletUnlockPasskeyAuthenticatorFixture,
+  walletUnlockPasskeyAuthMethodFixture,
+  walletUnlockProfileFixture,
+} from './helpers/walletUnlockProfile.fixtures';
 
 const UNLOCK_NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
 const UNLOCK_WALLET_ID = 'frost-unlock-k7p9m2';
@@ -58,17 +70,6 @@ function clearUnlockPasskeyWalletBinding(): void {
 }
 
 test.describe('SeamsWeb unlock cancellation events', () => {
-  test('wallet-auth unlock resolves NEAR binding from stored wallet Ed25519 lane', () => {
-    seedUnlockPasskeyWalletBinding();
-    try {
-      expect(resolveNearAccountIdForWalletAuthUnlockRecord(UNLOCK_WALLET_ID)).toBe(
-        UNLOCK_NEAR_ACCOUNT_ID,
-      );
-    } finally {
-      clearUnlockPasskeyWalletBinding();
-    }
-  });
-
   test('wallet-auth unlock resolves NEAR binding from durable wallet signer metadata', async () => {
     const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
     IndexedDBManager.listActiveWalletSigners = async (args: {
@@ -148,9 +149,166 @@ test.describe('SeamsWeb unlock cancellation events', () => {
           ],
         },
       });
+      if (resolution.kind !== 'resolved') {
+        throw new Error('test fixture requires an ECDSA subject set');
+      }
+      expect(
+        resolveLoginWalletUnlockSelectionForSubjectSet({
+          subjectSet: resolution.subjectSet,
+          selection: undefined,
+        }),
+      ).toEqual({ mode: 'ecdsa_only', ecdsa: true });
+      expect(
+        resolveLoginUnlockWarmupBranchPlan({
+          subjectSet: resolution.subjectSet,
+          selection: { mode: 'ecdsa_only', ecdsa: true },
+          hasConfiguredEcdsaTargets: true,
+        }),
+      ).toEqual({
+        kind: 'evm_family_ecdsa_only',
+        wantsEd25519Warmup: false,
+        wantsEcdsaWarmup: true,
+      });
     } finally {
       clearUnlockPasskeyWalletBinding();
       IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
+    }
+  });
+
+  test('ECDSA-only wallet-auth unlock uses wallet identity without NEAR reads or activation', async () => {
+    const walletIdValue = `frost-ecdsa-only-${crypto.randomUUID()}`;
+    const credentialId = `credential-${crypto.randomUUID()}`;
+    const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
+    const originalGetProfile = IndexedDBManager.getProfile;
+    const originalListWalletPasskeyAuthenticators =
+      IndexedDBManager.listWalletPasskeyAuthenticators;
+    const originalListWalletAuthMethodsForWallet = IndexedDBManager.listWalletAuthMethodsForWallet;
+    let nearReads = 0;
+    let nearActivations = 0;
+    let selectedWalletId = '';
+    let promptSubjectId = '';
+
+    IndexedDBManager.listActiveWalletSigners = async (args: {
+      walletId: string;
+      signerFamily: 'ed25519' | 'ecdsa';
+    }) => {
+      if (args.signerFamily === 'ed25519') {
+        nearReads += 1;
+        throw new Error('ECDSA-only unlock must not query NEAR signer identity');
+      }
+      return [
+        seedAccountSignerRecord({
+          profileId: walletIdValue,
+          metadata: {
+            walletId: walletIdValue,
+            ecdsaThresholdKeyId: UNLOCK_ECDSA_THRESHOLD_KEY_ID,
+          },
+        }),
+      ];
+    };
+    IndexedDBManager.getProfile = async () =>
+      walletUnlockProfileFixture({ walletId: walletIdValue, signerSlot: 1 });
+    IndexedDBManager.listWalletPasskeyAuthenticators = async () => [
+      walletUnlockPasskeyAuthenticatorFixture({
+        walletId: walletIdValue,
+        signerSlot: 1,
+        credentialId,
+      }),
+    ];
+    IndexedDBManager.listWalletAuthMethodsForWallet = async () => [
+      walletUnlockPasskeyAuthMethodFixture({
+        walletId: walletIdValue,
+        credentialId,
+      }),
+    ];
+    try {
+      const signingEngine = {
+        assertSealedRefreshStartupParity: async () => undefined,
+        getLastUser: async () => {
+          nearReads += 1;
+          throw new Error('ECDSA-only unlock must not read the last NEAR user');
+        },
+        getUserBySignerSlot: async () => {
+          nearReads += 1;
+          throw new Error('ECDSA-only unlock must not read a NEAR account projection');
+        },
+        nearAuthenticatorsByAccount: async () => {
+          nearReads += 1;
+          throw new Error('ECDSA-only unlock must not read NEAR authenticators');
+        },
+        getAuthenticationCredentialsSerialized: async (args: { subjectId: string }) => {
+          promptSubjectId = args.subjectId;
+          return {
+            id: credentialId,
+            rawId: credentialId,
+            type: 'public-key',
+            response: {
+              clientDataJSON: 'client-data',
+              authenticatorData: 'authenticator-data',
+              signature: 'signature',
+              userHandle: null,
+            },
+            clientExtensionResults: {},
+          };
+        },
+        setLastUser: async (resolvedWalletId: string) => {
+          selectedWalletId = resolvedWalletId;
+        },
+        getNonceCoordinator: () => ({
+          recoverDurableLeases: async () => undefined,
+          clearAll: () => undefined,
+        }),
+        clearVolatileWarmSigningMaterial: async () => undefined,
+        activateAuthenticatedWalletState: async () => {
+          nearActivations += 1;
+          throw new Error('ECDSA-only unlock must not activate NEAR wallet state');
+        },
+      };
+      const typedSigningEngine = signingEngine as unknown as LoginWebContext['signingEngine'] &
+        WalletAuthDomainDeps['signingEngine'];
+      const nearClient = new MinimalNearClient('https://rpc.testnet.near.org');
+      const configs = buildConfigsFromEnv({
+        relayer: { url: 'https://relay.example' },
+        iframeWallet: { walletOrigin: 'https://wallet.example.test' },
+        signingSessionDefaults: { ttlMs: 0, remainingUses: 0 },
+      });
+      const context: LoginWebContext = {
+        signingEngine: typedSigningEngine,
+        nearClient,
+        configs,
+        theme: 'dark',
+      };
+      const deps: WalletAuthDomainDeps = {
+        getContext: () => context,
+        walletIframe: {
+          shouldUseWalletIframe: () => false,
+          requireRouter: async () => {
+            throw new Error('direct wallet-auth test must not require an iframe router');
+          },
+        },
+        signingEngine: typedSigningEngine,
+        nearClient,
+        initWalletIframe: async () => ({ kind: 'wallet_locked' }),
+      };
+      const result = await unlockDomain(deps, walletIdValue, {
+        unlockSelection: { mode: 'ecdsa_only', ecdsa: true },
+        signingSession: { ttlMs: 0, remainingUses: 0 },
+      });
+
+      expect(result).toEqual({
+        success: true,
+        kind: 'ecdsa_wallet_unlocked',
+        walletId: walletIdValue,
+      });
+      expect(nearReads).toBe(0);
+      expect(nearActivations).toBe(0);
+      expect(promptSubjectId).toBe(walletIdValue);
+      expect(selectedWalletId).toBe(walletIdValue);
+    } finally {
+      IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
+      IndexedDBManager.getProfile = originalGetProfile;
+      IndexedDBManager.listWalletPasskeyAuthenticators = originalListWalletPasskeyAuthenticators;
+      IndexedDBManager.listWalletAuthMethodsForWallet = originalListWalletAuthMethodsForWallet;
     }
   });
 
@@ -198,6 +356,26 @@ test.describe('SeamsWeb unlock cancellation events', () => {
             },
           ],
         },
+      });
+      if (resolution.kind !== 'resolved') {
+        throw new Error('test fixture requires a combined subject set');
+      }
+      expect(
+        resolveLoginWalletUnlockSelectionForSubjectSet({
+          subjectSet: resolution.subjectSet,
+          selection: undefined,
+        }),
+      ).toEqual({ mode: 'ed25519_and_ecdsa', ed25519: true, ecdsa: true });
+      expect(
+        resolveLoginUnlockWarmupBranchPlan({
+          subjectSet: resolution.subjectSet,
+          selection: { mode: 'ed25519_and_ecdsa', ed25519: true, ecdsa: true },
+          hasConfiguredEcdsaTargets: true,
+        }),
+      ).toEqual({
+        kind: 'near_ed25519_and_evm_family_ecdsa',
+        wantsEd25519Warmup: true,
+        wantsEcdsaWarmup: true,
       });
     } finally {
       clearUnlockPasskeyWalletBinding();
@@ -269,6 +447,8 @@ test.describe('SeamsWeb unlock cancellation events', () => {
   });
 
   test('passkey unlock emits unlock.cancelled for WebAuthn cancellation errors', async () => {
+    const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
+    IndexedDBManager.listActiveWalletSigners = async () => [];
     const events: any[] = [];
     const afterCalls: any[] = [];
     const onErrors: string[] = [];
@@ -283,6 +463,7 @@ test.describe('SeamsWeb unlock cancellation events', () => {
           signingEngine: {
             assertSealedRefreshStartupParity: async () => undefined,
             getLastUser: async () => ({
+              walletId: UNLOCK_WALLET_ID,
               nearAccountId: 'alice.testnet',
               signerSlot: 1,
               operationalPublicKey: 'ed25519:alice',
@@ -353,10 +534,13 @@ test.describe('SeamsWeb unlock cancellation events', () => {
       expect(promptedCredentialIds).toEqual(['cred-1']);
     } finally {
       clearUnlockPasskeyWalletBinding();
+      IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
     }
   });
 
   test('passkey prompt is not blocked by slow sealed-refresh parity check', async () => {
+    const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
+    IndexedDBManager.listActiveWalletSigners = async () => [];
     const events: any[] = [];
     let promptStarted = false;
     seedUnlockPasskeyWalletBinding();
@@ -368,6 +552,7 @@ test.describe('SeamsWeb unlock cancellation events', () => {
               await new Promise(() => undefined);
             },
             getLastUser: async () => ({
+              walletId: UNLOCK_WALLET_ID,
               nearAccountId: 'alice.testnet',
               signerSlot: 1,
               operationalPublicKey: 'ed25519:alice',
@@ -408,6 +593,7 @@ test.describe('SeamsWeb unlock cancellation events', () => {
       expect(events.map((event) => event.phase)).toContain(UnlockEventPhase.STEP_07_COMPLETED);
     } finally {
       clearUnlockPasskeyWalletBinding();
+      IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
     }
   });
 
