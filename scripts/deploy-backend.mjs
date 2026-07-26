@@ -151,14 +151,12 @@ function printPlan(targetName, target) {
     '  2. preflight all five backend custody components',
     `  3. migrate ${target.resources.gateway.consoleD1Name} (console D1)`,
     `  4. migrate ${target.resources.gateway.signerD1Name} (signer D1)`,
-    '  5. deploy signing-worker',
-    '  6. deploy deriver-a',
-    '  7. deploy deriver-b',
-    '  8. deploy router',
-    '  9. bootstrap Gateway tenant and publishable key',
-    ' 10. upsert Gateway signing-root KEK',
-    ' 11. deploy gateway',
-    ' 12. smoke Gateway and Router A/B endpoints',
+    '  5. deploy signing-worker, deriver-a, and deriver-b concurrently',
+    '  6. deploy router after all three workers complete',
+    '  7. bootstrap Gateway tenant and publishable key',
+    '  8. upsert Gateway signing-root KEK',
+    '  9. deploy gateway',
+    ' 10. smoke Gateway and Router A/B endpoints',
   ];
   process.stdout.write(`${lines.join('\n')}\n`);
 }
