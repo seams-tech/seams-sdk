@@ -353,6 +353,16 @@ async function cancelActiveWalletRegistrationIntent(
   } catch {}
 }
 
+async function cleanUpFailedWalletRegistration(
+  yaoWork: RegistrationYaoWork,
+  activeIntent: ActiveWalletRegistrationIntent | null,
+): Promise<void> {
+  await Promise.allSettled([
+    yaoWork.dispose(),
+    cancelActiveWalletRegistrationIntent(activeIntent),
+  ]);
+}
+
 type EvmFamilyEcdsaRegistrationBranch = RegistrationEvmFamilyEcdsaSignerPlan;
 
 type PasskeyRegistrationAuthTiming = {
@@ -3768,8 +3778,7 @@ async function registerEcdsaOrMixedWallet(
   } catch (error: unknown) {
     const errorCode = registrationErrorCodeFromUnknown(error);
     const errorMessage = getUserFriendlyErrorMessage(error, 'registration', initialEventAccountId);
-    await yaoWork.dispose();
-    await cancelActiveWalletRegistrationIntent(activeIntent);
+    await cleanUpFailedWalletRegistration(yaoWork, activeIntent);
     if (postTouchIdCompletedAt !== null) {
       emitRegistrationTimingSpan({
         callback: options.onTimingSpan,
@@ -4157,8 +4166,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     options.afterCall?.(true, result);
     return result;
   } catch (error: unknown) {
-    await yaoWork.dispose();
-    await cancelActiveWalletRegistrationIntent(activeIntent);
+    await cleanUpFailedWalletRegistration(yaoWork, activeIntent);
     const errorCode = registrationErrorCodeFromUnknown(error);
     const message = getUserFriendlyErrorMessage(error, 'registration', initialEventAccountId);
     options.onError?.(registrationErrorWithCode(message, errorCode));
