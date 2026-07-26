@@ -1,4 +1,6 @@
 import {
+  parseRouterAbEcdsaDerivationActivationCommitQueryResultV1,
+  parseRouterAbEcdsaDerivationActivationPrepareResultV1,
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
   parseRouterAbEcdsaExplicitExportForwardedResponseV1,
   parseRouterAbEcdsaDerivationRecoveryRequestV1,
@@ -6,6 +8,8 @@ import {
   parseRouterAbEcdsaDerivationActivationRefreshResponseV1,
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
   parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
+  type RouterAbEcdsaDerivationActivationCommitQueryResultV1,
+  type RouterAbEcdsaDerivationActivationPrepareResultV1,
   type RouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
   type RouterAbEcdsaDerivationActivationRefreshRequestV1,
   type RouterAbEcdsaDerivationActivationRefreshResponseV1,
@@ -21,6 +25,7 @@ import {
   type RouterAbEcdsaRegistrationRequestV1,
   type RouterAbEcdsaStrictForwardedRegistrationResponseV1,
   type RouterAbEcdsaVerifiedClientActivationFactsV1,
+  type RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 
@@ -60,6 +65,20 @@ export type RouterAbEcdsaStrictActivationResult =
     }
   | RouterAbEcdsaStrictFailure;
 
+export type RouterAbEcdsaStrictActivationPrepareResult =
+  | {
+      readonly ok: true;
+      readonly value: RouterAbEcdsaDerivationActivationPrepareResultV1;
+    }
+  | RouterAbEcdsaStrictFailure;
+
+export type RouterAbEcdsaStrictActivationQueryResult =
+  | {
+      readonly ok: true;
+      readonly value: RouterAbEcdsaDerivationActivationCommitQueryResultV1;
+    }
+  | RouterAbEcdsaStrictFailure;
+
 export type RouterAbEcdsaStrictRegistrationAuthority = {
   readonly subjectId: string;
   readonly sessionId: string;
@@ -87,10 +106,24 @@ export interface RouterAbEcdsaStrictRegistrationPort {
   }): Promise<RouterAbEcdsaStrictRegistrationResult>;
   activate(input: {
     readonly activationCorrelationId: CorrelationId;
+    readonly expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
   }): Promise<RouterAbEcdsaStrictActivationResult>;
+  prepareActivation(input: {
+    readonly activationCorrelationId: CorrelationId;
+    readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
+    readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+    readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+  }): Promise<RouterAbEcdsaStrictActivationPrepareResult>;
+  queryActivation(input: {
+    readonly activationCorrelationId: CorrelationId;
+    readonly expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+    readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
+    readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+    readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+  }): Promise<RouterAbEcdsaStrictActivationQueryResult>;
 }
 
 export type RouterAbEcdsaStrictPostRegistrationResult =
@@ -174,6 +207,8 @@ type StrictRegistrationForwarderConfig = {
 
 const STRICT_ECDSA_REGISTRATION_PATH = '/router-ab/ecdsa-derivation/register';
 const STRICT_ECDSA_ACTIVATION_PATH = '/router-ab/ecdsa-derivation/activate';
+const STRICT_ECDSA_ACTIVATION_PREPARE_PATH = '/router-ab/ecdsa-derivation/activate/prepare';
+const STRICT_ECDSA_ACTIVATION_QUERY_PATH = '/router-ab/ecdsa-derivation/activate/query';
 const STRICT_ECDSA_EXPORT_PATH = '/router-ab/ecdsa-derivation/export';
 const STRICT_ECDSA_RECOVERY_PATH = '/router-ab/ecdsa-derivation/recover';
 const STRICT_ECDSA_REFRESH_PATH = '/router-ab/ecdsa-derivation/refresh';
@@ -204,6 +239,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
 
   async activate(input: {
     readonly activationCorrelationId: CorrelationId;
+    readonly expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
@@ -222,6 +258,14 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       if (receipt.activation_correlation_id !== input.activationCorrelationId) {
         throw new Error('MPCRouter activation receipt changed the journal correlation');
       }
+      if (
+        !publicDigest32Matches(
+          receipt.activation_request_digest,
+          input.expectedActivationRequestDigest,
+        )
+      ) {
+        throw new Error('MPCRouter activation receipt changed the prepared request digest');
+      }
       return {
         ok: true,
         value: receipt,
@@ -231,6 +275,85 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
         ok: false,
         code: 'mpc_router_activation_response_invalid',
         message: errorMessage(error, 'MPCRouter returned an invalid ECDSA activation receipt'),
+        retryable: false,
+      };
+    }
+  }
+
+  async prepareActivation(input: {
+    readonly activationCorrelationId: CorrelationId;
+    readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
+    readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+    readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+  }): Promise<RouterAbEcdsaStrictActivationPrepareResult> {
+    const body = await this.forward({
+      kind: 'activation_prepare',
+      path: STRICT_ECDSA_ACTIVATION_PREPARE_PATH,
+      authority: input.authority,
+      activationCorrelationId: input.activationCorrelationId,
+      pendingActivation: input.pendingActivation,
+      clientActivation: input.clientActivation,
+    });
+    if (!body.ok) return body;
+    try {
+      const prepared = parseRouterAbEcdsaDerivationActivationPrepareResultV1(body.value);
+      if (prepared.activation_correlation_id !== input.activationCorrelationId) {
+        throw new Error('MPCRouter activation preparation changed the journal correlation');
+      }
+      return { ok: true, value: prepared };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'mpc_router_activation_prepare_response_invalid',
+        message: errorMessage(
+          error,
+          'MPCRouter returned invalid ECDSA activation preparation coordinates',
+        ),
+        retryable: false,
+      };
+    }
+  }
+
+  async queryActivation(input: {
+    readonly activationCorrelationId: CorrelationId;
+    readonly expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+    readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
+    readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+    readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+  }): Promise<RouterAbEcdsaStrictActivationQueryResult> {
+    const body = await this.forward({
+      kind: 'activation_query',
+      path: STRICT_ECDSA_ACTIVATION_QUERY_PATH,
+      authority: input.authority,
+      activationCorrelationId: input.activationCorrelationId,
+      pendingActivation: input.pendingActivation,
+      clientActivation: input.clientActivation,
+    });
+    if (!body.ok) return body;
+    try {
+      const result = parseRouterAbEcdsaDerivationActivationCommitQueryResultV1(body.value);
+      const coordinates =
+        result.kind === 'committed'
+          ? {
+              correlationId: result.receipt.activation_correlation_id,
+              requestDigest: result.receipt.activation_request_digest,
+            }
+          : {
+              correlationId: result.activation_correlation_id,
+              requestDigest: result.activation_request_digest,
+            };
+      if (
+        coordinates.correlationId !== input.activationCorrelationId ||
+        !publicDigest32Matches(coordinates.requestDigest, input.expectedActivationRequestDigest)
+      ) {
+        return activationDigestMismatchFailure();
+      }
+      return { ok: true, value: result };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'mpc_router_activation_query_response_invalid',
+        message: errorMessage(error, 'MPCRouter returned an invalid ECDSA activation query result'),
         retryable: false,
       };
     }
@@ -247,6 +370,12 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
         }
       | {
           readonly kind: 'activation';
+          readonly activationCorrelationId: CorrelationId;
+          readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
+          readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+        }
+      | {
+          readonly kind: 'activation_prepare' | 'activation_query';
           readonly activationCorrelationId: CorrelationId;
           readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
           readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
@@ -473,7 +602,7 @@ function strictForwardBodyJson(
         readonly request: RouterAbEcdsaRegistrationRequestV1;
       }
     | {
-        readonly kind: 'activation';
+        readonly kind: 'activation' | 'activation_prepare' | 'activation_query';
         readonly activationCorrelationId: CorrelationId;
         readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
         readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
@@ -483,10 +612,32 @@ function strictForwardBodyJson(
     case 'registration':
       return JSON.stringify(input.request);
     case 'activation':
+    case 'activation_prepare':
+    case 'activation_query':
       return `{"activation_correlation_id":${JSON.stringify(input.activationCorrelationId)},"pending":${input.pendingActivation.canonicalPayloadJson},"client_activation":${JSON.stringify(input.clientActivation)}}`;
     default:
       return assertNeverStrictForwardBody(input);
   }
+}
+
+function publicDigest32Matches(
+  left: RouterAbPublicDigest32V1Wire,
+  right: RouterAbPublicDigest32V1Wire,
+): boolean {
+  return (
+    left.bytes.length === 32 &&
+    right.bytes.length === 32 &&
+    left.bytes.every((value, index) => value === right.bytes[index])
+  );
+}
+
+function activationDigestMismatchFailure(): RouterAbEcdsaStrictFailure {
+  return {
+    ok: false,
+    code: 'mpc_router_activation_digest_mismatch',
+    message: 'ECDSA activation request digest does not match the prepared journal command',
+    retryable: false,
+  };
 }
 
 function assertNeverStrictForwardBody(value: never): never {

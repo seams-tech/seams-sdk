@@ -600,7 +600,15 @@ class UnusedEcdsaStrictRegistration implements RouterAbEcdsaStrictRegistrationPo
     throw new Error('ECDSA is outside the finalize convergence fixture');
   }
 
+  async prepareActivation(): Promise<never> {
+    throw new Error('ECDSA is outside the finalize convergence fixture');
+  }
+
   async activate(): Promise<never> {
+    throw new Error('ECDSA is outside the finalize convergence fixture');
+  }
+
+  async queryActivation(): Promise<never> {
     throw new Error('ECDSA is outside the finalize convergence fixture');
   }
 }

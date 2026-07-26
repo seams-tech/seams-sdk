@@ -100,8 +100,14 @@ function testStrictRegistrationPort(): RouterAbEcdsaStrictRegistrationPort {
     register: async () => {
       throw new Error('strict registration register() is unreachable in this fixture');
     },
+    prepareActivation: async () => {
+      throw new Error('strict registration prepareActivation() is unreachable in this fixture');
+    },
     activate: async () => {
       throw new Error('strict registration activate() is unreachable in this fixture');
+    },
+    queryActivation: async () => {
+      throw new Error('strict registration queryActivation() is unreachable in this fixture');
     },
   };
 }

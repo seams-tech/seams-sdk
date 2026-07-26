@@ -1075,11 +1075,27 @@ export class CloudflareD1WalletAddSignerService {
         message: 'one pending ECDSA add-signer activation is required',
       };
     }
-    const activated = await this.ecdsaStrictRegistration.activate({
+    const activationInput = {
       activationCorrelationId: request.ecdsa.activationCorrelationId,
       pendingActivation: state.pendingActivation,
       clientActivation: request.ecdsa.publicFacts,
       authority: ecdsaStrictRegistrationAuthority(state.strictRegistration),
+    };
+    const preparedActivation =
+      await this.ecdsaStrictRegistration.prepareActivation(activationInput);
+    if (!preparedActivation.ok) {
+      if (!preparedActivation.retryable) {
+        await store.takeAddSignerCeremony(ceremony.addSignerCeremonyId);
+      }
+      return {
+        ok: false,
+        code: preparedActivation.code,
+        message: preparedActivation.message,
+      };
+    }
+    const activated = await this.ecdsaStrictRegistration.activate({
+      ...activationInput,
+      expectedActivationRequestDigest: preparedActivation.value.activation_request_digest,
     });
     if (!activated.ok) {
       if (!activated.retryable) await store.takeAddSignerCeremony(ceremony.addSignerCeremonyId);
