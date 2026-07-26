@@ -17,14 +17,14 @@ import {
   ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
   ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
   ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH,
-  parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
+  parseRouterAbEcdsaDerivationActivationRefreshResponseV1,
   parseRouterAbEcdsaExplicitExportForwardedResponseV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
   parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
   parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1,
-  type RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
+  type RouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
+  type RouterAbEcdsaDerivationActivationRefreshResponseV1,
   type RouterAbEcdsaExplicitExportForwardedResponseV1,
-  type RouterAbEcdsaDerivationActivationRefreshRequestV1,
   type RouterAbEcdsaDerivationExplicitExportRequestV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaDerivationRecoveryRequestV1,
@@ -33,13 +33,8 @@ import {
   type RouterAbEcdsaStrictForwardedRegistrationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
-import {
-  toWalletId,
-  type WalletId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  EcdsaThresholdKeyId,
-} from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
+import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EcdsaThresholdKeyId } from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import { toEcdsaDerivationThresholdKeyId } from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import type {
   EcdsaClientRootPublicKey33B64u,
@@ -60,10 +55,7 @@ function requireThresholdEcdsaRootShareEpoch(value: unknown, field: string) {
   return parsed.value;
 }
 
-function requireThresholdEcdsaSigningGrantId(
-  value: unknown,
-  field: string,
-): SigningGrantId {
+function requireThresholdEcdsaSigningGrantId(value: unknown, field: string): SigningGrantId {
   const parsed = parseSigningGrantId(value);
   if (!parsed.ok) throw new Error(`${field} is invalid`);
   return parsed.value;
@@ -374,7 +366,10 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
   const record = requireRecord(value, 'value');
   rejectUnexpectedFields(record, NON_EXPORT_BOOTSTRAP_RESPONSE_FIELDS, 'value');
   const walletId = toWalletId(record.walletId);
-  const evmFamilySigningKeySlotId = requireNonEmptyString(record.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId');
+  const evmFamilySigningKeySlotId = requireNonEmptyString(
+    record.evmFamilySigningKeySlotId,
+    'evmFamilySigningKeySlotId',
+  );
   const ecdsaThresholdKeyId = toEcdsaDerivationThresholdKeyId(record.ecdsaThresholdKeyId);
   const relayerKeyId = requireNonEmptyString(record.relayerKeyId, 'relayerKeyId');
   const applicationBindingDigestB64u = requireNonEmptyString(
@@ -396,15 +391,9 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
   );
   const keyHandle = requireNonEmptyString(record.keyHandle, 'keyHandle');
   const signingRootId = requireNonEmptyString(record.signingRootId, 'signingRootId');
-  const signingRootVersion = requireNonEmptyString(
-    record.signingRootVersion,
-    'signingRootVersion',
-  );
+  const signingRootVersion = requireNonEmptyString(record.signingRootVersion, 'signingRootVersion');
   const participantIds = requireParticipantIds(record.participantIds);
-  const thresholdSessionId = requireNonEmptyString(
-    record.thresholdSessionId,
-    'thresholdSessionId',
-  );
+  const thresholdSessionId = requireNonEmptyString(record.thresholdSessionId, 'thresholdSessionId');
   const activationEpoch = requireThresholdEcdsaRootShareEpoch(
     record.activationEpoch,
     'activationEpoch',
@@ -626,11 +615,11 @@ export async function routerAbEcdsaRecovery(
 export async function routerAbEcdsaActivationRefresh(
   relayServerUrl: string,
   input: {
-    readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+    readonly request: RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
     readonly auth: ThresholdEcdsaDerivationRouteAuth;
   },
 ): Promise<
-  ThresholdEcdsaDerivationRoleLocalRouteResult<RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1>
+  ThresholdEcdsaDerivationRoleLocalRouteResult<RouterAbEcdsaDerivationActivationRefreshResponseV1>
 > {
   try {
     const base = normalizeRelayerBaseUrl(relayServerUrl);
@@ -656,7 +645,7 @@ export async function routerAbEcdsaActivationRefresh(
     }
     return {
       ok: true,
-      value: parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1(json),
+      value: parseRouterAbEcdsaDerivationActivationRefreshResponseV1(json),
     };
   } catch (error: unknown) {
     return {
@@ -725,7 +714,9 @@ function parseJsonText<T>(text: string): T {
   try {
     return JSON.parse(text || '{}') as T;
   } catch (error) {
-    throw new Error(`Failed to parse threshold ECDSA relayer response JSON: ${errorMessage(error)}`);
+    throw new Error(
+      `Failed to parse threshold ECDSA relayer response JSON: ${errorMessage(error)}`,
+    );
   }
 }
 
@@ -741,7 +732,10 @@ export async function thresholdEcdsaDerivationRoleLocalBootstrap(
     const bodyBase: ThresholdEcdsaDerivationRoleLocalBootstrapBodyBase = {
       formatVersion: 'ecdsa-derivation-role-local',
       walletId: requireNonEmptyString(args.walletId, 'walletId'),
-      evmFamilySigningKeySlotId: requireNonEmptyString(args.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'),
+      evmFamilySigningKeySlotId: requireNonEmptyString(
+        args.evmFamilySigningKeySlotId,
+        'evmFamilySigningKeySlotId',
+      ),
       ecdsaThresholdKeyId: requireNonEmptyString(args.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
       signingRootId: requireNonEmptyString(args.signingRootId, 'signingRootId'),
       signingRootVersion: requireNonEmptyString(args.signingRootVersion, 'signingRootVersion'),
@@ -761,39 +755,35 @@ export async function thresholdEcdsaDerivationRoleLocalBootstrap(
       ),
       requestId: requireNonEmptyString(args.requestId, 'requestId'),
       sessionId: requireNonEmptyString(args.sessionId, 'sessionId'),
-      signingGrantId: requireNonEmptyString(
-        args.signingGrantId,
-        'signingGrantId',
-      ),
+      signingGrantId: requireNonEmptyString(args.signingGrantId, 'signingGrantId'),
       ttlMs: requireNonNegativeInteger(args.ttlMs, 'ttlMs'),
       remainingUses: requireNonNegativeInteger(args.remainingUses, 'remainingUses'),
       participantIds: requireParticipantIds(args.participantIds),
       ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     };
-    const bodyPasskeyAuthorization = ():
-      | ThresholdEcdsaDerivationRoleLocalBootstrapBodyPasskeyAuthorization
-      | null => {
-      const authorization = args.passkeyBootstrapAuthorization;
-      if (!authorization) return null;
-      const runtimePolicyScope = authorization.runtimePolicyScope;
-      if (runtimePolicyScope) {
+    const bodyPasskeyAuthorization =
+      (): ThresholdEcdsaDerivationRoleLocalBootstrapBodyPasskeyAuthorization | null => {
+        const authorization = args.passkeyBootstrapAuthorization;
+        if (!authorization) return null;
+        const runtimePolicyScope = authorization.runtimePolicyScope;
+        if (runtimePolicyScope) {
+          return {
+            kind: 'passkey_bootstrap',
+            rpId: requireNonEmptyString(authorization.rpId, 'passkeyBootstrapAuthorization.rpId'),
+            webauthn_authentication: authorization.webauthn_authentication,
+            runtimePolicyScope,
+          };
+        }
         return {
           kind: 'passkey_bootstrap',
           rpId: requireNonEmptyString(authorization.rpId, 'passkeyBootstrapAuthorization.rpId'),
           webauthn_authentication: authorization.webauthn_authentication,
-          runtimePolicyScope,
+          projectEnvironmentId: requireNonEmptyString(
+            authorization.projectEnvironmentId,
+            'passkeyBootstrapAuthorization.projectEnvironmentId',
+          ),
         };
-      }
-      return {
-        kind: 'passkey_bootstrap',
-        rpId: requireNonEmptyString(authorization.rpId, 'passkeyBootstrapAuthorization.rpId'),
-        webauthn_authentication: authorization.webauthn_authentication,
-        projectEnvironmentId: requireNonEmptyString(
-          authorization.projectEnvironmentId,
-          'passkeyBootstrapAuthorization.projectEnvironmentId',
-        ),
       };
-    };
     const passkeyAuthorizationBody = bodyPasskeyAuthorization();
     const body: ThresholdEcdsaDerivationRoleLocalBootstrapBody = args.clientRootProof
       ? {

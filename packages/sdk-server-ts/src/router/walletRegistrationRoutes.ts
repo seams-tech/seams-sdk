@@ -84,6 +84,7 @@ import {
   parseRouterAbEcdsaRegistrationRequestV1,
   parseRouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import { parseCorrelationId } from '@shared/utils/canonicalPrimitives';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import { normalizeCorsOrigin } from '../core/SessionService';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
@@ -2069,7 +2070,11 @@ function parseWalletAddSignerEcdsaActivationRequest(
       message: 'strict Router A/B ECDSA add-signer activation is required',
     };
   }
-  const unknownEcdsaField = findUnknownField(ecdsa, ['kind', 'publicFacts']);
+  const unknownEcdsaField = findUnknownField(ecdsa, [
+    'kind',
+    'activationCorrelationId',
+    'publicFacts',
+  ]);
   if (unknownEcdsaField) {
     return {
       ok: false,
@@ -2084,6 +2089,7 @@ function parseWalletAddSignerEcdsaActivationRequest(
         addSignerCeremonyId: addSignerCeremonyId.value,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_activation_v1',
+          activationCorrelationId: parseCorrelationId(ecdsa.activationCorrelationId),
           publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(ecdsa.publicFacts),
         },
       },

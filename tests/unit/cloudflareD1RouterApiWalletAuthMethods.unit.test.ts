@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { parseCorrelationId } from '@shared/utils/canonicalPrimitives';
 import {
   D1WalletStore,
   parseWalletEd25519SignerRecord,
@@ -741,6 +742,7 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
       addSignerCeremonyId: started.addSignerCeremonyId,
       ecdsa: {
         kind: 'router_ab_ecdsa_registration_activation_v1',
+        activationCorrelationId: parseCorrelationId('activation-correlation-add-signer'),
         publicFacts: TEST_ECDSA_ACTIVATION_FACTS,
       },
     });
@@ -750,6 +752,7 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
         addSignerCeremonyId: started.addSignerCeremonyId,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_activation_v1',
+          activationCorrelationId: parseCorrelationId('activation-correlation-add-signer'),
           publicFacts: TEST_ECDSA_ACTIVATION_FACTS,
         },
       }),
