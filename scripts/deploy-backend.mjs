@@ -11,16 +11,11 @@ import {
   readDeploymentTarget,
 } from './deployment-targets.mjs';
 import { readMigrationSet } from './migration-fingerprint.mjs';
-import {
-  formatFailedCheck,
-  isFailedCheck,
-  runReadinessChecks,
-} from './deployment-smoke.mjs';
+import { formatFailedCheck, isFailedCheck, runReadinessChecks } from './deployment-smoke.mjs';
 import {
   GATEWAY_WORKER_COMPATIBILITY_DATE,
   GATEWAY_WORKER_COMPATIBILITY_FLAGS,
   parseGatewayCutoverWorkerVars,
-  parseGatewayDeploymentConfig,
 } from '../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
@@ -80,7 +75,7 @@ async function main(args) {
       preflightBackend(options.target, target, options.component, readPreflightEnvironment());
       return;
     case 'migrate':
-      migrateBackend(options.target, target);
+      migrateBackend(options.target);
       return;
     case 'deploy':
       deployBackend(options.target, target, options.component);
@@ -225,9 +220,9 @@ function preflightBackend(targetName, target, component, environment = process.e
     requiredNames.push(name);
   }
   if (component === 'gateway') {
-    requiredNames.push('SIGNING_ROOT_KEK_VALUE', 'GATEWAY_DEPLOYMENT_CONFIG_JSON');
+    requiredNames.push('SIGNING_ROOT_KEK_VALUE');
     parseGatewayCutoverWorkerVars(environment);
-    const config = validateGatewayDeploymentConfig(targetName, target, environment);
+    const config = target.gatewayDeploymentConfig;
     if (config.optional.nearRelayer) requiredNames.push('RELAYER_PRIVATE_KEY');
   }
   requireEnvironmentValues(unique(requiredNames), environment);
@@ -299,9 +294,9 @@ function componentRuntimeRequirements(targetName, target, component) {
   }
 }
 
-function migrateBackend(targetName, target) {
+function migrateBackend(targetName) {
   requireEnvironmentValues(['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']);
-  renderGatewayConfig(targetName, target);
+  renderGatewayConfig(targetName);
   const migrations = [
     ['CONSOLE_DB', path.join(GATEWAY_ROOT, 'migrations', 'd1-console')],
     ['SIGNER_DB', path.join(GATEWAY_ROOT, '..', 'sdk-server-ts', 'migrations', 'd1-signer')],
@@ -342,7 +337,7 @@ function deployBackend(targetName, target, component) {
       deployMpcRouter(targetName, target);
       return;
     case 'gateway':
-      deployGateway(targetName, target);
+      deployGateway(targetName);
       return;
     default:
       throw new Error(`Unsupported backend component: ${component}`);
@@ -411,8 +406,8 @@ function deployMpcRouter(targetName, target) {
   runRouterCommand(args);
 }
 
-function deployGateway(targetName, target) {
-  renderGatewayConfig(targetName, target);
+function deployGateway(targetName) {
+  renderGatewayConfig(targetName);
   assertFile(GATEWAY_BUNDLE, 'Gateway build entry');
   runCommand(
     'node',
@@ -497,8 +492,7 @@ async function smokeBackend(target) {
   }
 }
 
-function renderGatewayConfig(targetName, target) {
-  validateGatewayDeploymentConfig(targetName, target);
+function renderGatewayConfig(targetName) {
   runCommand(
     'node',
     [
@@ -512,29 +506,6 @@ function renderGatewayConfig(targetName, target) {
     ],
     { cwd: GATEWAY_ROOT },
   );
-}
-
-function validateGatewayDeploymentConfig(targetName, target, environment = process.env) {
-  const config = parseGatewayDeploymentConfig(
-    requireEnvironmentValue('GATEWAY_DEPLOYMENT_CONFIG_JSON', environment),
-    targetName,
-  );
-  const expectedResources = target.resources;
-  if (
-    config.resources.workerName !== expectedResources.gateway.workerName ||
-    config.resources.consoleD1.name !== expectedResources.gateway.consoleD1Name ||
-    config.resources.signerD1.name !== expectedResources.gateway.signerD1Name ||
-    config.origins.gateway !== target.origins.gateway ||
-    config.serviceNames.mpcRouter !== expectedResources.router.workerName ||
-    config.serviceNames.deriverA !== expectedResources.deriverA.workerName ||
-    config.serviceNames.deriverB !== expectedResources.deriverB.workerName ||
-    config.serviceNames.signingWorker !== expectedResources.signingWorker.workerName
-  ) {
-    throw new Error(
-      `GATEWAY_DEPLOYMENT_CONFIG_JSON does not match deployment target ${targetName}`,
-    );
-  }
-  return config;
 }
 
 function requireEnvironmentValues(names, environment = process.env) {

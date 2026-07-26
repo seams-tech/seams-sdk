@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseGatewayDeploymentConfig } from '../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_TARGETS_PATH = path.join(SCRIPT_DIRECTORY, '..', 'deployment', 'targets.json');
@@ -101,12 +102,41 @@ export function componentSecretNames(target, component) {
 
 function parseDeploymentTarget(value, targetName) {
   const target = requireObject(value, targetName);
-  requireExactKeys(target, ['branch', 'origins', 'resources', 'capabilities'], targetName);
+  requireExactKeys(
+    target,
+    ['branch', 'origins', 'resources', 'capabilities', 'gatewayDeploymentConfig'],
+    targetName,
+  );
   const branch = requirePattern(target.branch, /^[a-z0-9._/-]+$/u, `${targetName}.branch`);
   const origins = parseOrigins(target.origins, `${targetName}.origins`);
   const resources = parseResources(target.resources, `${targetName}.resources`);
   const capabilities = parseCapabilities(target.capabilities, `${targetName}.capabilities`);
-  return Object.freeze({ branch, origins, resources, capabilities });
+  const gatewayDeploymentConfig = parseGatewayDeploymentConfig(
+    JSON.stringify(target.gatewayDeploymentConfig),
+    targetName,
+  );
+  assertGatewayDeploymentConfigMatchesTarget(
+    targetName,
+    origins,
+    resources,
+    gatewayDeploymentConfig,
+  );
+  return Object.freeze({ branch, origins, resources, capabilities, gatewayDeploymentConfig });
+}
+
+function assertGatewayDeploymentConfigMatchesTarget(targetName, origins, resources, config) {
+  if (
+    config.resources.workerName !== resources.gateway.workerName ||
+    config.resources.consoleD1.name !== resources.gateway.consoleD1Name ||
+    config.resources.signerD1.name !== resources.gateway.signerD1Name ||
+    config.origins.gateway !== origins.gateway ||
+    config.serviceNames.mpcRouter !== resources.router.workerName ||
+    config.serviceNames.deriverA !== resources.deriverA.workerName ||
+    config.serviceNames.deriverB !== resources.deriverB.workerName ||
+    config.serviceNames.signingWorker !== resources.signingWorker.workerName
+  ) {
+    throw new Error(`gatewayDeploymentConfig does not match deployment target ${targetName}`);
+  }
 }
 
 function parseOrigins(value, pathName) {

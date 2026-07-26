@@ -134,6 +134,22 @@ test('deployment target parsing rejects a partial capability set', async () => {
   );
 });
 
+test('deployment target parsing rejects Gateway configuration drift', async () => {
+  const module = await deploymentTargetsModule;
+  const targets = structuredClone(validTargets());
+  const staging = targets.staging as Record<string, unknown>;
+  const gatewayDeploymentConfig = structuredClone(
+    staging.gatewayDeploymentConfig as Record<string, unknown>,
+  );
+  const origins = gatewayDeploymentConfig.origins as Record<string, unknown>;
+  origins.gateway = 'https://wrong-gateway.example';
+  staging.gatewayDeploymentConfig = gatewayDeploymentConfig;
+
+  expect(() => module.parseDeploymentTargets(targets)).toThrow(
+    /gatewayDeploymentConfig does not match deployment target staging/u,
+  );
+});
+
 test('required secrets are derived from enabled capabilities and their owners', async () => {
   const module = await deploymentTargetsModule;
   const targets = module.parseDeploymentTargets(validTargets());
