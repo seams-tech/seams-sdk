@@ -1,7 +1,18 @@
 import { expect, test } from '@playwright/test';
-import type { FetchHandler } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
+import type {
+  CloudflareDurableObjectNamespaceLike,
+  CloudflareDurableObjectStubLike,
+} from '../../packages/sdk-server-ts/src/core/types';
+import type {
+  CfExecutionContext,
+  FetchHandler,
+} from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
 import type { RouterAbEd25519YaoGatewayCutoverStateV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/routerAbEd25519YaoGatewayCutover';
-import {
+import type {
+  D1DatabaseLike,
+  D1PreparedStatementLike,
+} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import d1RouterApiStagingWorker, {
   dispatchHostedGatewayRequest,
   resolveRouterApiYaoGatewayRequestRouteV1,
 } from '../../packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker';
@@ -73,6 +84,126 @@ const DIRECT_CONTINUATION_PATHS = [
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
 ] as const;
 
+const ALL_YAO_PATHS = [
+  ...FULL_GATEWAY_REGISTRATION_PATHS,
+  ...FULL_GATEWAY_RECOVERY_PATHS,
+  ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
+  ...DIRECT_CONTINUATION_PATHS,
+] as const;
+
+const POST_DRAIN_WINDOW_ENV = {
+  ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS: '0',
+  ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS: '0',
+  ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS: '0',
+  ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS: '0',
+  ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS: '0',
+  ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS: '0',
+} as const;
+
+const PRE_CUTOFF_TIMESTAMP = String(Number.MAX_SAFE_INTEGER);
+const PRE_CUTOFF_WINDOW_ENV = {
+  ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS: PRE_CUTOFF_TIMESTAMP,
+  ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS: PRE_CUTOFF_TIMESTAMP,
+  ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS: PRE_CUTOFF_TIMESTAMP,
+  ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS: PRE_CUTOFF_TIMESTAMP,
+  ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS: PRE_CUTOFF_TIMESTAMP,
+  ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS: PRE_CUTOFF_TIMESTAMP,
+} as const;
+
+class RecordingRuntimeNamespace
+  implements CloudflareDurableObjectNamespaceLike, CloudflareDurableObjectStubLike
+{
+  idFromNameCalls = 0;
+  getCalls = 0;
+  fetchCalls = 0;
+
+  idFromName(name: string): unknown {
+    this.idFromNameCalls += 1;
+    return name;
+  }
+
+  get(): CloudflareDurableObjectStubLike {
+    this.getCalls += 1;
+    return this;
+  }
+
+  async fetch(): Promise<Response> {
+    this.fetchCalls += 1;
+    return new Response('legacy-runtime');
+  }
+}
+
+class RejectingD1Database implements D1DatabaseLike {
+  prepare(): D1PreparedStatementLike {
+    throw new Error('D1 execution is outside the tenant-runtime boundary assertion');
+  }
+
+  async batch<T>(): Promise<readonly T[]> {
+    throw new Error('D1 execution is outside the tenant-runtime boundary assertion');
+  }
+
+  async exec(): Promise<unknown> {
+    throw new Error('D1 execution is outside the tenant-runtime boundary assertion');
+  }
+}
+
+class RejectingServiceBinding {
+  async fetch(): Promise<Response> {
+    throw new Error('service execution is outside the tenant-runtime boundary assertion');
+  }
+}
+
+const FETCH_BOUNDARY_CONTEXT: CfExecutionContext = {
+  waitUntil: ignorePromise,
+  passThroughOnException: ignore,
+};
+
+function ignore(): void {}
+
+function ignorePromise(_promise: Promise<unknown>): void {}
+
+function createFetchBoundaryEnv(
+  runtime: RecordingRuntimeNamespace,
+  window: typeof PRE_CUTOFF_WINDOW_ENV | typeof POST_DRAIN_WINDOW_ENV,
+): Parameters<typeof d1RouterApiStagingWorker.fetch>[1] {
+  const database = new RejectingD1Database();
+  const thresholdStore = new RecordingRuntimeNamespace();
+  const service = new RejectingServiceBinding();
+  return {
+    CONSOLE_DB: database,
+    SIGNER_DB: database,
+    THRESHOLD_STORE: thresholdStore,
+    ROUTER_API_RUNTIME: runtime,
+    MPC_ROUTER: service,
+    DERIVER_A: service,
+    DERIVER_B: service,
+    SIGNING_WORKER: service,
+    SEAMS_TENANT_STORAGE_NAMESPACE: 'test',
+    SEAMS_STAGING_ORG_ID: 'org-test',
+    SEAMS_STAGING_PROJECT_ID: 'project-test',
+    SEAMS_STAGING_ENV_ID: 'env-test',
+    ...window,
+  };
+}
+
+function yaoRequest(pathname: string): Request {
+  return new Request(`https://gateway.example.test${pathname}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+}
+
+async function settleWorkerRequest(request: Promise<Response>): Promise<void> {
+  try {
+    await request;
+  } catch {
+    // The partitioned handler can reject on deliberately absent non-routing fixtures.
+  }
+}
+
 test('hosted gateway dispatches console routes to the console router', async () => {
   await expect(routePath('/console/session')).resolves.toBe('console');
   await expect(routePath('/console/billing/account')).resolves.toBe('console');
@@ -84,30 +215,49 @@ test('hosted gateway keeps Router API routes on the Router API router', async ()
 });
 
 test('Yao runtime consumers stay on the tenant runtime with no cutover window', () => {
-  const paths = [
-    ...FULL_GATEWAY_REGISTRATION_PATHS,
-    ...FULL_GATEWAY_RECOVERY_PATHS,
-    ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
-    ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
-    ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
-    ...DIRECT_CONTINUATION_PATHS,
-  ];
-  for (const pathname of paths) {
+  for (const pathname of ALL_YAO_PATHS) {
     expect(resolveYaoRoute(pathname, 10_000, {}).kind).toBe('legacy_runtime');
   }
 });
 
 test('every Yao runtime consumer stays legacy before its family cutoff', () => {
-  const paths = [
-    ...FULL_GATEWAY_REGISTRATION_PATHS,
-    ...FULL_GATEWAY_RECOVERY_PATHS,
-    ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
-    ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
-    ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
-    ...DIRECT_CONTINUATION_PATHS,
-  ];
-  for (const pathname of paths) {
+  for (const pathname of ALL_YAO_PATHS) {
     expect(resolveYaoRoute(pathname, 999, ALL_FAMILIES_WINDOW).kind).toBe('legacy_runtime');
+  }
+});
+
+test('the Worker fetch boundary bypasses ROUTER_API_RUNTIME for every post-drain Yao route', async () => {
+  for (const pathname of ALL_YAO_PATHS) {
+    const runtime = new RecordingRuntimeNamespace();
+    await settleWorkerRequest(
+      d1RouterApiStagingWorker.fetch(
+        yaoRequest(pathname),
+        createFetchBoundaryEnv(runtime, POST_DRAIN_WINDOW_ENV),
+        FETCH_BOUNDARY_CONTEXT,
+      ),
+    );
+    expect(
+      [runtime.idFromNameCalls, runtime.getCalls, runtime.fetchCalls],
+      `unexpected tenant-runtime access for ${pathname}`,
+    ).toEqual([0, 0, 0]);
+  }
+});
+
+test('the Worker fetch boundary reaches ROUTER_API_RUNTIME for every pre-cutoff Yao route', async () => {
+  for (const pathname of ALL_YAO_PATHS) {
+    const runtime = new RecordingRuntimeNamespace();
+    const response = await d1RouterApiStagingWorker.fetch(
+      yaoRequest(pathname),
+      createFetchBoundaryEnv(runtime, PRE_CUTOFF_WINDOW_ENV),
+      FETCH_BOUNDARY_CONTEXT,
+    );
+    expect(await response.text(), `unexpected legacy response for ${pathname}`).toBe(
+      'legacy-runtime',
+    );
+    expect(
+      [runtime.idFromNameCalls, runtime.getCalls, runtime.fetchCalls],
+      `missing tenant-runtime access for ${pathname}`,
+    ).toEqual([1, 1, 1]);
   }
 });
 
