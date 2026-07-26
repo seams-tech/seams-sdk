@@ -95,7 +95,12 @@ const d1LocalWranglerConfigPath = resolvePath(
 const strictPersistPath = join(root, '.runtime', 'router-ab-strict-state');
 const strictWorkerBuildRoot = join(repoRoot, 'crates', 'router-ab-cloudflare', 'build');
 const strictBuildReceiptPath = join(strictWorkerBuildRoot, 'local-build-receipt.json');
-const strictWorkerBuildProfile = process.env.ROUTER_AB_WORKER_BUILD_PROFILE || 'release';
+const strictWorkerBuildProfile = resolveStrictWorkerBuildProfile({
+  explicitProfile: process.env.ROUTER_AB_WORKER_BUILD_PROFILE,
+  buildOnly: options.buildOnly,
+  help: options.help,
+  receiptPath: strictBuildReceiptPath,
+});
 const ecdsaDerivationClientRoot = join(repoRoot, 'wasm', 'router_ab_ecdsa_derivation_client');
 const ecdsaDerivationClientDependencyPath = join(
   ecdsaDerivationClientRoot,
@@ -337,6 +342,30 @@ function buildProductionWorkerBinaries() {
   );
 }
 
+function resolveStrictWorkerBuildProfile(input) {
+  if (input.explicitProfile) return parseStrictWorkerBuildProfile(input.explicitProfile);
+  if (input.buildOnly || input.help) return 'release';
+  if (!existsSync(input.receiptPath)) {
+    throw new Error(
+      'Router A/B Worker build receipt is missing. Run pnpm build:sdk-dev or pnpm build:sdk-prod before pnpm router.',
+    );
+  }
+  let receipt;
+  try {
+    receipt = JSON.parse(readFileSync(input.receiptPath, 'utf8'));
+  } catch {
+    throw new Error(
+      'Router A/B Worker build receipt is invalid. Run pnpm build:sdk-dev or pnpm build:sdk-prod before pnpm router.',
+    );
+  }
+  return parseStrictWorkerBuildProfile(receipt.worker_build_profile);
+}
+
+function parseStrictWorkerBuildProfile(value) {
+  if (value === 'dev' || value === 'release') return value;
+  throw new Error('ROUTER_AB_WORKER_BUILD_PROFILE must be dev or release');
+}
+
 function assertProductionWorkerBinariesReady() {
   const missingArtifacts = missingProductionWorkerArtifactPaths();
   if (missingArtifacts.length > 0) {
@@ -369,7 +398,7 @@ function assertProductionWorkerBinariesReady() {
     !rolesMatch
   ) {
     throw new Error(
-      `Router A/B Worker artifacts do not match the current ${strictWorkerBuildProfile} build profile. Run pnpm build:sdk before pnpm router.`,
+      `Router A/B Worker artifacts do not match the current ${strictWorkerBuildProfile} build profile. Rebuild with pnpm build:sdk-dev or pnpm build:sdk-prod before pnpm router.`,
     );
   }
 }
