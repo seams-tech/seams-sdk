@@ -253,7 +253,16 @@ test.describe('passkey Ed25519 Yao browser recovery boundary', () => {
     }
   });
 
-  test('rejects wallet, session, participant, worker, root, and public-key substitutions', () => {
+  test('accepts a fresh Wallet Session while preserving the active capability identity', () => {
+    const parsed = parsePasskeyEd25519YaoSyncResponseV1(
+      syncResponseFixture({ sessionId: 'fresh-wallet-session-recovery-1' }),
+    );
+
+    expect(parsed.session.thresholdSessionId).toBe('fresh-wallet-session-recovery-1');
+    expect(parsed.capability.lifecycle.walletSessionId).toBe(WALLET_SESSION_ID);
+  });
+
+  test('rejects wallet, participant, worker, root, and public-key substitutions', () => {
     const substitutions: ReadonlyArray<{
       label: string;
       response: Record<string, unknown>;
@@ -261,10 +270,6 @@ test.describe('passkey Ed25519 Yao browser recovery boundary', () => {
       {
         label: 'wallet',
         response: syncResponseFixture({ capabilityWalletId: 'substituted-wallet' }),
-      },
-      {
-        label: 'session',
-        response: syncResponseFixture({ capabilitySessionId: 'substituted-session' }),
       },
       {
         label: 'NEAR account',

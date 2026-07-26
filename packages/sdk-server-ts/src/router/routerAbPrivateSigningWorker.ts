@@ -967,6 +967,7 @@ async function privateSigningRound1BindingDigest(input: {
     input.scope.request_id,
     input.scope.account_id,
     input.scope.session_id,
+    input.scope.active_state_session_id,
     input.scope.signing_worker_id,
   ]) {
     pushLen32(out, textBytes(value));
