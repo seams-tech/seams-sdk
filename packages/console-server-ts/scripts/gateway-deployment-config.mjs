@@ -35,6 +35,58 @@ export const GATEWAY_EMAIL_OTP_DELIVERY_KINDS = {
   emailProvider: 'email_provider',
   demoCodeResponse: 'demo_code_response',
 };
+export const GATEWAY_CUTOVER_FAMILIES = Object.freeze(['REGISTRATION', 'RECOVERY', 'EXPORT']);
+export const GATEWAY_CUTOVER_WORKER_VAR_NAMES = Object.freeze(
+  GATEWAY_CUTOVER_FAMILIES.flatMap((family) => [
+    `ROUTER_AB_YAO_GATEWAY_${family}_ADMISSION_CUTOFF_MS`,
+    `ROUTER_AB_YAO_GATEWAY_${family}_DRAIN_UNTIL_MS`,
+  ]),
+);
+
+const OBSOLETE_GATEWAY_CUTOVER_WORKER_VAR_NAMES = Object.freeze([
+  'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS',
+  'ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS',
+]);
+
+export function parseGatewayCutoverWorkerVars(environment) {
+  for (const name of OBSOLETE_GATEWAY_CUTOVER_WORKER_VAR_NAMES) {
+    if (Object.hasOwn(environment, name)) {
+      throw new Error(`${name} is obsolete; configure one cutoff and drain pair per family`);
+    }
+  }
+
+  const vars = {};
+  for (const family of GATEWAY_CUTOVER_FAMILIES) {
+    const cutoffName = `ROUTER_AB_YAO_GATEWAY_${family}_ADMISSION_CUTOFF_MS`;
+    const drainName = `ROUTER_AB_YAO_GATEWAY_${family}_DRAIN_UNTIL_MS`;
+    const cutoffRaw = String(environment[cutoffName] || '').trim();
+    const drainRaw = String(environment[drainName] || '').trim();
+    if (!cutoffRaw && !drainRaw) {
+      vars[cutoffName] = '';
+      vars[drainName] = '';
+      continue;
+    }
+    if (!cutoffRaw || !drainRaw) {
+      throw new Error(`${cutoffName} and ${drainName} must be set together`);
+    }
+    const admissionCutoffMs = parseGatewayCutoverTimestamp(cutoffRaw, cutoffName);
+    const drainUntilMs = parseGatewayCutoverTimestamp(drainRaw, drainName);
+    if (admissionCutoffMs > drainUntilMs) {
+      throw new Error(`${cutoffName} must not exceed ${drainName}`);
+    }
+    vars[cutoffName] = String(admissionCutoffMs);
+    vars[drainName] = String(drainUntilMs);
+  }
+  return vars;
+}
+
+function parseGatewayCutoverTimestamp(raw, name) {
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative safe integer when set`);
+  }
+  return value;
+}
 
 export function buildGatewayRuntimeProfile(kind, emailOtpDeliveryKind) {
   switch (kind) {

@@ -79,7 +79,7 @@ export class WalletIframeSessionExpiredRequestError extends Error {
   readonly failure: WalletIframeSessionExpiredFailure;
 
   constructor(failure: WalletIframeSessionExpiredFailure) {
-    super('Wallet signing session expired');
+    super('Wallet session expired');
     this.name = 'WalletIframeSessionExpiredRequestError';
     this.failure = failure;
   }

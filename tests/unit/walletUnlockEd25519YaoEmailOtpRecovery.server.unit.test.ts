@@ -37,11 +37,13 @@ import {
   handleWalletUnlockVerifyRoute,
   type EmitWalletUnlockEmailOtpWebhook,
   type EmitWalletUnlockRouterApiWebhook,
+  type WalletUnlockEd25519YaoSessionContext,
 } from '../../packages/sdk-server-ts/src/router/walletUnlockRouteHandlers';
 import {
   EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND,
   EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND,
   parseWalletUnlockEd25519YaoRequest,
+  type WalletUnlockEmailOtpSessionRequestV1,
 } from '../../packages/sdk-server-ts/src/router/walletUnlockEd25519YaoRequestValidation';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
@@ -49,7 +51,10 @@ import {
   insertSignerWallet,
   insertWalletAuthMethod,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
-import { createRouterAbSigningRuntimesForUnitTests } from '../helpers/routerAbSigningRuntimeTestUtils';
+import {
+  createRouterAbSigningRuntimesForUnitTests,
+  FixtureRouterAbEcdsaStrictRegistrationPort,
+} from '../helpers/routerAbSigningRuntimeTestUtils';
 
 const WALLET_ID = walletIdFromString('wallet-email-yao-1.testnet');
 const ORG_ID = 'org-email-yao';
@@ -70,6 +75,23 @@ const EMAIL_HASH_HEX = 'ab'.repeat(32);
 
 function fixtureBytes(seed: number, length = 32): number[] {
   return new Array<number>(length).fill(seed);
+}
+
+function requireMissingMaterialRecoveryRequest(
+  request: WalletUnlockEmailOtpSessionRequestV1,
+): Extract<
+  WalletUnlockEd25519YaoSessionContext,
+  { kind: 'email_otp_missing_material_recovery' }
+>['request'] {
+  if (request.sessionIntent.kind !== EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND) {
+    throw new Error('expected missing-material recovery request');
+  }
+  return {
+    walletId: request.walletId,
+    orgId: request.orgId,
+    challengeId: request.challengeId,
+    sessionIntent: request.sessionIntent,
+  };
 }
 
 function activationClientPackageFixture(
@@ -311,7 +333,7 @@ class RecordingRecoveryRuntime implements RouterAbEd25519YaoProductRegistrationR
     return { ok: false, code: 'invalid_registration_intent', message: 'unused' };
   }
 
-  consumeActivated(): ReturnType<
+  async consumeActivated(): ReturnType<
     RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']
   > {
     return { ok: false, code: 'unknown_registration', message: 'unused' };
@@ -453,6 +475,7 @@ function createRecoveryService(input: {
     envId: ENV_ID,
     routerAbSigningRuntimes: threshold.runtimes,
     ed25519YaoProductRegistration: input.runtime,
+    ecdsaStrictRegistration: new FixtureRouterAbEcdsaStrictRegistrationPort(),
   });
   return {
     service,
@@ -535,13 +558,14 @@ test('parses exact-local and missing-material Email OTP Ed25519 session intents'
 test('verified missing-material recovery forwards the fresh subject without bearer session state', async () => {
   const parsed = parseWalletUnlockEd25519YaoRequest(unlockBodyFixture());
   if (!parsed.ok || !parsed.request) throw new Error('expected parsed recovery request');
+  const request = requireMissingMaterialRecoveryRequest(parsed.request);
   const recovery = new RecordingRouteRecoveryService();
   const response = await handleWalletUnlockVerifyRoute({
     body: unlockBodyFixture(),
     service: new VerifiedEmailOtpUnlockService(),
     ed25519YaoSession: {
       kind: 'email_otp_missing_material_recovery',
-      request: parsed.request,
+      request,
       recoverWalletSession: recovery.recoverEd25519YaoEmailOtpWalletSession.bind(recovery),
     },
     emitRouterApiWebhook: ignoreRouterWebhook,
@@ -599,7 +623,6 @@ test('D1 recovery issues the authoritative mixed-wallet signing grant', async ()
       {
         kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
         walletId: WALLET_ID,
-        nearAccountId: NEAR_ACCOUNT_ID,
         nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
         signerSlot: SIGNER_SLOT,
         signingWorkerId: SIGNING_WORKER_ID,

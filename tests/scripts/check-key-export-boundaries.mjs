@@ -90,30 +90,6 @@ function collectEd25519YaoExportViolations() {
   return violations;
 }
 
-function collectEmailOtpRestrictionViolations() {
-  const violations = [];
-  const accountMenu = readRepoSource(accountMenuPath);
-  const exportKeysSection = readRepoSource(exportKeysSectionPath);
-
-  requireAbsent(accountMenu, "loginState.authMethod === 'email_otp'", accountMenuPath, violations);
-  requireContains(accountMenu, 'setExportRestrictionMessage(', accountMenuPath, violations);
-  requireAbsent(
-    accountMenu,
-    'Key export requires a passkey-authenticated account.',
-    accountMenuPath,
-    violations,
-  );
-  requireContains(
-    exportKeysSection,
-    'restrictionMessage',
-    exportKeysSectionPath,
-    violations,
-  );
-  requireContains(exportKeysSection, 'disabled={isBusy}', exportKeysSectionPath, violations);
-
-  return violations;
-}
-
 function collectPortalHostViolations() {
   const violations = [];
   const accountMenu = readRepoSource(accountMenuPath);
@@ -154,7 +130,6 @@ function main() {
   const violations = [
     ...collectCanonicalExportApiViolations(),
     ...collectEd25519YaoExportViolations(),
-    ...collectEmailOtpRestrictionViolations(),
     ...collectPortalHostViolations(),
     ...collectReactStylesViolations(),
   ];

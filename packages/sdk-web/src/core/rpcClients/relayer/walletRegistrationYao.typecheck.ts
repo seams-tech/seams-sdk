@@ -14,6 +14,7 @@ declare const activationReference: Extract<
 void buildWalletRegistrationFinalizeBody({
   relayerUrl: 'http://127.0.0.1:8787',
   registrationCeremonyId: 'registration-1',
+  idempotencyKey: 'registration-finalize-1',
   kind: 'near_ed25519',
   ed25519: { activationReference },
 });
@@ -22,6 +23,7 @@ void buildWalletRegistrationFinalizeBody({
 const missingKind: FinalizeWalletRegistrationArgs = {
   relayerUrl: 'http://127.0.0.1:8787',
   registrationCeremonyId: 'registration-1',
+  idempotencyKey: 'registration-finalize-1',
   ed25519: { activationReference },
 };
 void missingKind;
@@ -30,6 +32,7 @@ void missingKind;
 const extraEcdsa: FinalizeWalletRegistrationArgs = {
   relayerUrl: 'http://127.0.0.1:8787',
   registrationCeremonyId: 'registration-1',
+  idempotencyKey: 'registration-finalize-1',
   kind: 'near_ed25519',
   ed25519: { activationReference },
   ecdsa: {},
@@ -39,6 +42,7 @@ void extraEcdsa;
 const callerSuppliedReceipt: FinalizeWalletRegistrationArgs = {
   relayerUrl: 'http://127.0.0.1:8787',
   registrationCeremonyId: 'registration-1',
+  idempotencyKey: 'registration-finalize-1',
   kind: 'near_ed25519',
   ed25519: {
     activationReference,

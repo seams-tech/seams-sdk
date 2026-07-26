@@ -6,6 +6,7 @@
 
 mod ecdsa_threshold_prf_request;
 mod ed25519_yao;
+mod ed25519_yao_router;
 mod engine;
 mod envelope;
 mod error;
@@ -42,6 +43,18 @@ pub use self::ed25519_yao::{
     ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
     ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
     ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
+};
+pub use self::ed25519_yao_router::{
+    ed25519_yao_encrypted_input_digest_v1, ed25519_yao_input_pair_digest_v1,
+    ed25519_yao_recipient_set_digest_v1, Ed25519YaoCeremonyIdentityV1, Ed25519YaoCircuitIdV1,
+    Ed25519YaoExecutionIdV1, Ed25519YaoInputPairBindingV1, Ed25519YaoProtocolIdV1,
+    Ed25519YaoRoleReadinessReceiptV1, Ed25519YaoRoleSignatureSchemeV1, Ed25519YaoRoleSignatureV1,
+    Ed25519YaoRoleStartAcceptanceV1, RouterAdmittedExecutionAuthorityV1,
+    RouterEd25519YaoBurnReasonV1, RouterEd25519YaoExecuteFailureCodeV1,
+    RouterEd25519YaoExecuteRequestV1, RouterEd25519YaoExecuteResultV1,
+    RouterEd25519YaoExecuteSuccessV1, RouterEd25519YaoGatewayExecuteRequestV1,
+    ED25519_YAO_ACTIVATION_CIRCUIT_ID_V1, ED25519_YAO_EXPORT_CIRCUIT_ID_V1,
+    ED25519_YAO_PROTOCOL_ID_V1,
 };
 pub use self::engine::{
     AuditEventV1, AuditSink, Clock, Csprng, DeriverAEngine, DeriverBEngine, PeerTransport,
@@ -177,14 +190,19 @@ pub use self::router_ab_ecdsa_derivation::{
 };
 pub use self::signer_input::build_mpc_prf_threshold_signer_batch_input_v1;
 pub use self::vectors::{
+    generated_ed25519_yao_pair_digest_vector_fixture_json_v1,
+    generated_ed25519_yao_pair_digest_vector_fixture_v1,
     generated_normal_signing_vector_fixture_json_v2, generated_normal_signing_vector_fixture_v2,
     generated_payload_vector_fixture_json_v1, generated_payload_vector_fixture_v1,
     generated_wire_vector_fixture_json_v1, generated_wire_vector_fixture_v1,
-    parse_normal_signing_vector_fixture_v2, parse_payload_vector_fixture_v1,
-    parse_wire_vector_fixture_v1, validate_normal_signing_vector_fixture_v2,
-    validate_payload_vector_fixture_v1, validate_wire_vector_fixture_v1, NormalSigningVectorCaseV2,
-    NormalSigningVectorFixtureV2, PayloadVectorCaseV1, PayloadVectorFixtureV1,
-    WireMessageVectorCaseV1, WireVectorFixtureV1, NORMAL_SIGNING_VECTOR_FIXTURE_VERSION_V2,
+    parse_ed25519_yao_pair_digest_vector_fixture_v1, parse_normal_signing_vector_fixture_v2,
+    parse_payload_vector_fixture_v1, parse_wire_vector_fixture_v1,
+    validate_ed25519_yao_pair_digest_vector_fixture_v1, validate_normal_signing_vector_fixture_v2,
+    validate_payload_vector_fixture_v1, validate_wire_vector_fixture_v1,
+    Ed25519YaoPairDigestVectorCaseV1, Ed25519YaoPairDigestVectorFixtureV1,
+    NormalSigningVectorCaseV2, NormalSigningVectorFixtureV2, PayloadVectorCaseV1,
+    PayloadVectorFixtureV1, WireMessageVectorCaseV1, WireVectorFixtureV1,
+    ED25519_YAO_PAIR_DIGEST_VECTOR_FIXTURE_VERSION_V1, NORMAL_SIGNING_VECTOR_FIXTURE_VERSION_V2,
     PAYLOAD_VECTOR_FIXTURE_VERSION_V1, WIRE_VECTOR_FIXTURE_VERSION_V1,
 };
 pub use self::wire::{

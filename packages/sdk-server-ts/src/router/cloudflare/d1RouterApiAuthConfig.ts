@@ -4,10 +4,7 @@ import type {
   EmailOtpChallengeAction,
   EmailOtpChallengeOperation,
 } from '../../core/EmailOtpStores';
-import type {
-  SignerWasmModuleSupplier,
-  ThresholdStoreConfigInput,
-} from '../../core/types';
+import type { SignerWasmModuleSupplier, ThresholdStoreConfigInput } from '../../core/types';
 import { EMAIL_OTP_CODE_LENGTH } from '../../core/authService/emailOtpConfig';
 import type { RouterAbSigningRuntimeBundle } from '../../core/routerAbSigning/createRouterAbSigningRuntimes';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAbEd25519YaoProductRegistration';

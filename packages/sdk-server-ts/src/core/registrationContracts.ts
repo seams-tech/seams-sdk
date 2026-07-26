@@ -667,7 +667,7 @@ export type WalletRegistrationEcdsaActivationResponse =
 
 type WalletRegistrationFinalizeRequestBase = {
   registrationCeremonyId: string;
-  idempotencyKey?: string;
+  idempotencyKey: string;
   emailOtpEnrollment?: {
     recoveryWrappedEnrollmentEscrows: unknown[];
     enrollmentSealKeyVersion: string;

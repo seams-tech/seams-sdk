@@ -11,6 +11,12 @@ import {
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoBytes32V1,
 } from '@shared/utils/routerAbEd25519Yao';
+import {
+  createRouterAbTraceContextV1,
+  parseRouterAbTraceContextV1,
+  ROUTER_AB_TRACE_ID_HEADER_V1,
+  type RouterAbTraceContextV1,
+} from '@shared/utils/routerAbTraceContext';
 import { json, readJson } from './cloudflare/http';
 import { createRouterApiModule, type RouterApiModule } from './modules';
 import { defineRoute, type RouteDefinition } from './routeDefinitions';
@@ -23,20 +29,22 @@ type RouterAbEd25519YaoRegistrationAdmissionReceiptV1 =
   RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
 type RouterAbEd25519YaoRegistrationExecuteRequestV1 =
   RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
-type RouterAbEd25519YaoRegistrationResultV1 =
-  RouterAbEd25519YaoActivationResultV1<'registration'>;
+type RouterAbEd25519YaoRegistrationResultV1 = RouterAbEd25519YaoActivationResultV1<'registration'>;
 
 export type RouterAbEd25519YaoRegistrationFailureCode =
   | 'invalid_backend_response'
   | 'admission_failed'
+  | 'admission_in_progress'
+  | 'admission_uncertain'
   | 'unknown_registration'
   | 'binding_mismatch'
   | 'execution_in_progress'
-  | 'execution_failed';
+  | 'execution_failed'
+  | 'ceremony_expired';
 
 export type RouterAbEd25519YaoRegistrationFailure = {
   ok: false;
-  status: 400 | 404 | 408 | 409 | 429 | 500 | 502 | 503;
+  status: 400 | 401 | 403 | 404 | 408 | 409 | 429 | 500 | 502 | 503;
   code: RouterAbEd25519YaoRegistrationFailureCode;
   message: string;
 };
@@ -59,11 +67,13 @@ export type RouterAbEd25519YaoRegistrationBackendResult =
 export interface RouterAbEd25519YaoRegistrationBackend {
   admit(
     request: RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ):
     | Promise<RouterAbEd25519YaoRegistrationBackendResult>
     | RouterAbEd25519YaoRegistrationBackendResult;
   execute(
     request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ):
     | Promise<RouterAbEd25519YaoRegistrationBackendResult>
     | RouterAbEd25519YaoRegistrationBackendResult;
@@ -72,12 +82,108 @@ export interface RouterAbEd25519YaoRegistrationBackend {
 export interface RouterAbEd25519YaoRegistrationService {
   admit(
     request: RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<
     RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationAdmissionReceiptV1>
   >;
   execute(
     request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1>>;
+}
+
+export type RouterAbEd25519YaoRegistrationAdmissionClaimV1 = {
+  readonly kind: 'router_ab_ed25519_yao_registration_admission_claim_v1';
+  readonly lifecycleId: string;
+  readonly admissionFingerprint: string;
+};
+
+export type RouterAbEd25519YaoRegistrationAdmissionPreparationV1 =
+  | {
+      readonly kind: 'claimed';
+      readonly claim: RouterAbEd25519YaoRegistrationAdmissionClaimV1;
+    }
+  | {
+      readonly kind: 'completed';
+      readonly value: RouterAbEd25519YaoRegistrationAdmissionReceiptV1;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly failure: RouterAbEd25519YaoRegistrationFailure;
+    };
+
+export type RouterAbEd25519YaoRegistrationAdmissionCommitInputV1 = {
+  readonly request: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  readonly claim: RouterAbEd25519YaoRegistrationAdmissionClaimV1;
+  readonly outcome:
+    | {
+        readonly kind: 'backend_response';
+        readonly result: RouterAbEd25519YaoRegistrationBackendResult;
+      }
+    | { readonly kind: 'backend_uncertain'; readonly message: string };
+};
+
+export interface RouterAbEd25519YaoRegistrationAdmissionBoundaryV1 {
+  prepareAdmit(
+    request: RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+  ): RouterAbEd25519YaoRegistrationAdmissionPreparationV1;
+  commitAdmit(
+    input: RouterAbEd25519YaoRegistrationAdmissionCommitInputV1,
+  ): RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationAdmissionReceiptV1>;
+}
+
+export type RouterAbEd25519YaoRegistrationExecuteClaimV1 = {
+  readonly kind: 'router_ab_ed25519_yao_registration_execute_claim_v1';
+  readonly lifecycleId: string;
+  readonly sessionId: string;
+  readonly executeFingerprint: string;
+};
+
+export type RouterAbEd25519YaoRegistrationExecutePreparationV1 =
+  | {
+      readonly kind: 'claimed';
+      readonly claim: RouterAbEd25519YaoRegistrationExecuteClaimV1;
+    }
+  | {
+      readonly kind: 'completed';
+      readonly value: RouterAbEd25519YaoRegistrationResultV1;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly failure: RouterAbEd25519YaoRegistrationFailure;
+    };
+
+export type RouterAbEd25519YaoRegistrationExecuteCommitInputV1 = {
+  readonly request: RouterAbEd25519YaoRegistrationExecuteRequestV1;
+  readonly claim: RouterAbEd25519YaoRegistrationExecuteClaimV1;
+  readonly outcome:
+    | {
+        readonly kind: 'backend_response';
+        readonly result: RouterAbEd25519YaoRegistrationBackendResult;
+      }
+    | { readonly kind: 'backend_uncertain'; readonly message: string };
+};
+
+export interface RouterAbEd25519YaoRegistrationExecuteBoundaryV1 {
+  prepareExecute(
+    request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+  ): RouterAbEd25519YaoRegistrationExecutePreparationV1;
+  commitExecute(
+    input: RouterAbEd25519YaoRegistrationExecuteCommitInputV1,
+  ): RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1>;
+}
+
+type RouterAbEd25519YaoTraceContextResolutionV1 =
+  | { readonly ok: true; readonly value: RouterAbTraceContextV1 }
+  | { readonly ok: false; readonly message: string };
+
+function resolveTraceContext(request: Request): RouterAbEd25519YaoTraceContextResolutionV1 {
+  const parsed = parseRouterAbTraceContextV1(request.headers.get(ROUTER_AB_TRACE_ID_HEADER_V1));
+  if (parsed.ok) return parsed;
+  if (parsed.reason === 'missing') {
+    return { ok: true, value: createRouterAbTraceContextV1() };
+  }
+  return { ok: false, message: parsed.message };
 }
 
 export type RouterAbEd25519YaoRegistrationAuthorizationInput =
@@ -148,6 +254,7 @@ type RegistrationLifecycleState =
 export class InMemoryRouterAbEd25519YaoRegistrationStateV1 {
   readonly states = new Map<string, RegistrationLifecycleState>();
   readonly lifecycleSessions = new Map<string, string>();
+  readonly admissionClaims = new Map<string, RouterAbEd25519YaoRegistrationAdmissionClaimV1>();
 }
 
 export type RouterAbEd25519YaoActivationReferenceV1 = {
@@ -238,6 +345,14 @@ function backendFailure(
   result: RouterAbEd25519YaoRegistrationBackendFailure,
   code: 'admission_failed' | 'execution_failed',
 ): RouterAbEd25519YaoRegistrationFailure {
+  if (result.code === 'ceremony_expired') {
+    return {
+      ok: false,
+      status: 409,
+      code: 'ceremony_expired',
+      message: result.message,
+    };
+  }
   return {
     ok: false,
     status: result.status,
@@ -338,6 +453,13 @@ class RouterAbEd25519YaoRegistrationRouteExtension implements RouterApiRouteExte
   }
 
   private async handleAdmission(request: Request, rawBody: unknown): Promise<Response> {
+    const traceContext = resolveTraceContext(request);
+    if (!traceContext.ok) {
+      return json(
+        { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+        { status: 400 },
+      );
+    }
     const parsed = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(rawBody);
     if (!parsed.ok) {
       return json({ ok: false, code: parsed.code, message: parsed.message }, { status: 400 });
@@ -348,12 +470,19 @@ class RouterAbEd25519YaoRegistrationRouteExtension implements RouterApiRouteExte
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
-    const result = await this.service.admit(parsed.value);
+    const result = await this.service.admit(parsed.value, traceContext.value);
     if (!result.ok) return routeFailureResponse(result);
     return json(result.value, { status: result.status });
   }
 
   private async handleExecution(request: Request, rawBody: unknown): Promise<Response> {
+    const traceContext = resolveTraceContext(request);
+    if (!traceContext.ok) {
+      return json(
+        { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+        { status: 400 },
+      );
+    }
     const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(rawBody);
     if (!parsed.ok) {
       return json({ ok: false, code: parsed.code, message: parsed.message }, { status: 400 });
@@ -364,7 +493,7 @@ class RouterAbEd25519YaoRegistrationRouteExtension implements RouterApiRouteExte
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
-    const result = await this.service.execute(parsed.value);
+    const result = await this.service.execute(parsed.value, traceContext.value);
     if (!result.ok) return routeFailureResponse(result);
     return json(result.value, { status: result.status });
   }
@@ -383,55 +512,139 @@ export function createRouterAbEd25519YaoRegistrationModule(input: {
 }
 
 export class InMemoryRouterAbEd25519YaoRegistrationService
-  implements RouterAbEd25519YaoRegistrationService, RouterAbEd25519YaoActivationConsumerV1
+  implements
+    RouterAbEd25519YaoRegistrationService,
+    RouterAbEd25519YaoRegistrationAdmissionBoundaryV1,
+    RouterAbEd25519YaoRegistrationExecuteBoundaryV1,
+    RouterAbEd25519YaoActivationConsumerV1
 {
   private readonly states: Map<string, RegistrationLifecycleState>;
   private readonly lifecycleSessions: Map<string, string>;
+  private readonly admissionClaims: Map<string, RouterAbEd25519YaoRegistrationAdmissionClaimV1>;
 
   constructor(
     private readonly backend: RouterAbEd25519YaoRegistrationBackend,
-    state: InMemoryRouterAbEd25519YaoRegistrationStateV1 =
-      new InMemoryRouterAbEd25519YaoRegistrationStateV1(),
+    state: InMemoryRouterAbEd25519YaoRegistrationStateV1 = new InMemoryRouterAbEd25519YaoRegistrationStateV1(),
   ) {
     this.states = state.states;
     this.lifecycleSessions = state.lifecycleSessions;
+    this.admissionClaims = state.admissionClaims;
   }
 
   async admit(
     request: RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<
     RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationAdmissionReceiptV1>
   > {
+    const preparation = this.prepareAdmit(request);
+    switch (preparation.kind) {
+      case 'completed':
+        return { ok: true, status: 200, value: preparation.value };
+      case 'failed':
+        return preparation.failure;
+      case 'claimed': {
+        let outcome: RouterAbEd25519YaoRegistrationAdmissionCommitInputV1['outcome'];
+        try {
+          outcome = {
+            kind: 'backend_response',
+            result: await this.backend.admit(request, traceContext),
+          };
+        } catch (error: unknown) {
+          outcome = {
+            kind: 'backend_uncertain',
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
+        return this.commitAdmit({ request, claim: preparation.claim, outcome });
+      }
+    }
+  }
+
+  prepareAdmit(
+    request: RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+  ): RouterAbEd25519YaoRegistrationAdmissionPreparationV1 {
     const lifecycleId = request.scope.lifecycle_id;
-    if (this.lifecycleSessions.has(lifecycleId)) {
+    const admissionFingerprint = canonicalWireFingerprint(request);
+    const existingSessionKey = this.lifecycleSessions.get(lifecycleId);
+    if (existingSessionKey !== undefined) {
+      return {
+        kind: 'failed',
+        failure: {
+          ok: false,
+          status: 409,
+          code: 'admission_failed',
+          message: 'registration lifecycle already has an admitted Yao session',
+        },
+      };
+    }
+    const existingClaim = this.admissionClaims.get(lifecycleId);
+    if (existingClaim !== undefined) {
+      return {
+        kind: 'failed',
+        failure: {
+          ok: false,
+          status: 409,
+          code:
+            existingClaim.admissionFingerprint === admissionFingerprint
+              ? 'admission_in_progress'
+              : 'admission_failed',
+          message:
+            existingClaim.admissionFingerprint === admissionFingerprint
+              ? 'registration admission is already in progress'
+              : 'registration lifecycle has a conflicting admission claim',
+        },
+      };
+    }
+    const claim: RouterAbEd25519YaoRegistrationAdmissionClaimV1 = {
+      kind: 'router_ab_ed25519_yao_registration_admission_claim_v1',
+      lifecycleId,
+      admissionFingerprint,
+    };
+    this.admissionClaims.set(lifecycleId, claim);
+    return { kind: 'claimed', claim };
+  }
+
+  commitAdmit(
+    input: RouterAbEd25519YaoRegistrationAdmissionCommitInputV1,
+  ): RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationAdmissionReceiptV1> {
+    const currentClaim = this.admissionClaims.get(input.claim.lifecycleId);
+    if (
+      currentClaim === undefined ||
+      currentClaim.admissionFingerprint !== input.claim.admissionFingerprint ||
+      canonicalWireFingerprint(input.request) !== input.claim.admissionFingerprint
+    ) {
       return {
         ok: false,
         status: 409,
         code: 'admission_failed',
-        message: 'registration lifecycle already has an admitted Yao session',
+        message: 'registration admission claim is no longer current',
       };
     }
-    let backendResult: RouterAbEd25519YaoRegistrationBackendResult;
-    try {
-      backendResult = await this.backend.admit(request);
-    } catch (error: unknown) {
+    if (input.outcome.kind === 'backend_uncertain') {
       return {
         ok: false,
         status: 503,
-        code: 'admission_failed',
-        message: error instanceof Error ? error.message : String(error),
+        code: 'admission_uncertain',
+        message: input.outcome.message,
       };
     }
-    if (!backendResult.ok) return backendFailure(backendResult, 'admission_failed');
-
+    const backendResult = input.outcome.result;
+    if (!backendResult.ok) {
+      this.admissionClaims.delete(input.claim.lifecycleId);
+      return backendFailure(backendResult, 'admission_failed');
+    }
     const parsed = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
       backendResult.body,
     );
-    if (!parsed.ok) return invalidBackendResponse(parsed.message);
-    if (!registrationScopeMatchesReceipt(request, parsed.value)) {
+    if (!parsed.ok) {
+      this.admissionClaims.delete(input.claim.lifecycleId);
+      return invalidBackendResponse(parsed.message);
+    }
+    if (!registrationScopeMatchesReceipt(input.request, parsed.value)) {
+      this.admissionClaims.delete(input.claim.lifecycleId);
       return invalidBackendResponse('registration admission receipt scope does not match request');
     }
-
     const key = registrationSessionKey(parsed.value);
     if (this.states.has(key)) {
       return {
@@ -443,32 +656,79 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
     }
     this.states.set(key, {
       kind: 'admitted',
-      admissionRequest: request,
+      admissionRequest: input.request,
       admissionReceipt: parsed.value,
     });
-    this.lifecycleSessions.set(lifecycleId, key);
+    this.lifecycleSessions.set(input.claim.lifecycleId, key);
+    this.admissionClaims.delete(input.claim.lifecycleId);
     return { ok: true, status: 200, value: parsed.value };
   }
 
   async execute(
     request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1>> {
+    const preparation = this.prepareExecute(request);
+    switch (preparation.kind) {
+      case 'completed':
+        return { ok: true, status: 200, value: preparation.value };
+      case 'failed':
+        return preparation.failure;
+      case 'claimed': {
+        let outcome: RouterAbEd25519YaoRegistrationExecuteCommitInputV1['outcome'];
+        try {
+          outcome = {
+            kind: 'backend_response',
+            result: await this.backend.execute(request, traceContext),
+          };
+        } catch (error: unknown) {
+          outcome = {
+            kind: 'backend_uncertain',
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
+        return this.commitExecute({ request, claim: preparation.claim, outcome });
+      }
+    }
+  }
+
+  prepareExecute(
+    request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+  ): RouterAbEd25519YaoRegistrationExecutePreparationV1 {
+    const admissionLifecycleId = request.binding.lifecycle.lifecycle_id;
+    if (this.admissionClaims.has(admissionLifecycleId)) {
+      return {
+        kind: 'failed',
+        failure: {
+          ok: false,
+          status: 409,
+          code: 'admission_in_progress',
+          message: 'registration execution requires a completed admission',
+        },
+      };
+    }
     const key = executeSessionKey(request);
     const state = this.states.get(key);
     if (!state) {
       return {
-        ok: false,
-        status: 404,
-        code: 'unknown_registration',
-        message: 'registration admission was not found',
+        kind: 'failed',
+        failure: {
+          ok: false,
+          status: 404,
+          code: 'unknown_registration',
+          message: 'registration admission was not found',
+        },
       };
     }
     if (!bindingMatchesAdmission(request, state.admissionReceipt)) {
       return {
-        ok: false,
-        status: 409,
-        code: 'binding_mismatch',
-        message: 'registration execution does not match the admitted binding',
+        kind: 'failed',
+        failure: {
+          ok: false,
+          status: 409,
+          code: 'binding_mismatch',
+          message: 'registration execution does not match the admitted binding',
+        },
       };
     }
 
@@ -476,77 +736,106 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
     switch (state.kind) {
       case 'activated':
         if (state.executeFingerprint === executeFingerprint) {
-          return { ok: true, status: 200, value: state.result };
+          return { kind: 'completed', value: state.result };
         }
         return {
-          ok: false,
-          status: 409,
-          code: 'binding_mismatch',
-          message: 'activated registration rejects a different execution payload',
+          kind: 'failed',
+          failure: {
+            ok: false,
+            status: 409,
+            code: 'binding_mismatch',
+            message: 'activated registration rejects a different execution payload',
+          },
         };
       case 'executing':
         return {
-          ok: false,
-          status: 409,
-          code: 'execution_in_progress',
-          message: 'registration execution is already in progress',
+          kind: 'failed',
+          failure: {
+            ok: false,
+            status: 409,
+            code: 'execution_in_progress',
+            message: 'registration execution is already in progress',
+          },
         };
       case 'failed':
-        return state.failure;
-      case 'admitted':
-        return await this.executeAdmitted(state, request, executeFingerprint, key);
+        return { kind: 'failed', failure: state.failure };
+      case 'admitted': {
+        this.states.set(key, {
+          kind: 'executing',
+          admissionRequest: state.admissionRequest,
+          admissionReceipt: state.admissionReceipt,
+          executeFingerprint,
+        });
+        return {
+          kind: 'claimed',
+          claim: {
+            kind: 'router_ab_ed25519_yao_registration_execute_claim_v1',
+            lifecycleId: request.binding.lifecycle.lifecycle_id,
+            sessionId: key,
+            executeFingerprint,
+          },
+        };
+      }
       default:
         return assertNever(state);
     }
   }
 
-  private async executeAdmitted(
-    state: RegistrationAdmittedState,
-    request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
-    executeFingerprint: string,
-    key: string,
-  ): Promise<RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1>> {
-    const executing: RegistrationExecutingState = {
-      kind: 'executing',
-      admissionRequest: state.admissionRequest,
-      admissionReceipt: state.admissionReceipt,
-      executeFingerprint,
-    };
-    this.states.set(key, executing);
-
-    let backendResult: RouterAbEd25519YaoRegistrationBackendResult;
-    try {
-      backendResult = await this.backend.execute(request);
-    } catch (error: unknown) {
-      const failure = uncertainExecutionFailure(error);
-      this.storeFailure(executing, key, failure);
+  commitExecute(
+    input: RouterAbEd25519YaoRegistrationExecuteCommitInputV1,
+  ): RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1> {
+    const key = input.claim.sessionId;
+    const state = this.states.get(key);
+    if (!state) {
+      return {
+        ok: false,
+        status: 404,
+        code: 'unknown_registration',
+        message: 'registration execution claim was not found',
+      };
+    }
+    if (
+      state.kind !== 'executing' ||
+      state.executeFingerprint !== input.claim.executeFingerprint ||
+      !bindingMatchesAdmission(input.request, state.admissionReceipt)
+    ) {
+      return {
+        ok: false,
+        status: 409,
+        code: 'execution_in_progress',
+        message: 'registration execution claim is no longer current',
+      };
+    }
+    if (input.outcome.kind === 'backend_uncertain') {
+      const failure = uncertainExecutionFailure(new Error(input.outcome.message));
+      this.storeFailure(state, key, failure);
       return failure;
     }
+    const backendResult = input.outcome.result;
     if (!backendResult.ok) {
       const failure = backendFailure(backendResult, 'execution_failed');
-      this.storeFailure(executing, key, failure);
+      this.storeFailure(state, key, failure);
       return failure;
     }
-
     const parsed = parseRouterAbEd25519YaoRegistrationActivationResultV1(backendResult.body);
     if (!parsed.ok) {
       const failure = invalidBackendResponse(parsed.message);
-      this.storeFailure(executing, key, failure);
+      this.storeFailure(state, key, failure);
       return failure;
     }
-    if (!resultMatchesExecution(request, parsed.value)) {
+    if (!resultMatchesExecution(input.request, parsed.value)) {
       const failure = invalidBackendResponse(
         'registration backend result binding does not match execution',
       );
-      this.storeFailure(executing, key, failure);
+      this.storeFailure(state, key, failure);
       return failure;
     }
 
     this.states.set(key, {
       kind: 'activated',
-      admissionRequest: executing.admissionRequest,
-      admissionReceipt: executing.admissionReceipt,
-      executeFingerprint,
+      admissionRequest: state.admissionRequest,
+      admissionReceipt: state.admissionReceipt,
+      executeFingerprint: input.claim.executeFingerprint,
       result: parsed.value,
       activationConsumerBinding: null,
     });

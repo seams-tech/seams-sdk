@@ -23,6 +23,14 @@ const deploymentSecretNames = [
   'SIGNING_SESSION_SEAL_E_S_B64U',
   'SIGNING_SESSION_SEAL_D_S_B64U',
 ];
+const gatewayCutoverWorkerVarNames = [
+  'ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS',
+  'ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS',
+  'ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS',
+  'ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS',
+  'ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS',
+  'ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS',
+] as const;
 
 function runCommand(
   script: string,
@@ -166,6 +174,38 @@ test('backend preflight rejects a missing required secret without printing value
   expect(`${result.stdout}${result.stderr}`).not.toContain(secretValue);
 });
 
+test('Gateway preflight rejects an incomplete family cutover window', () => {
+  const result = runCommand(
+    backendScript,
+    ['preflight', '--target', 'staging', '--component', 'gateway'],
+    {
+      ...environmentWithoutDeploymentSecrets(),
+      DEPLOYMENT_SECRETS_JSON: '{}',
+      DEPLOYMENT_VARS_JSON: JSON.stringify({
+        ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS: '1000',
+      }),
+    },
+  );
+
+  expectFailure(result, /must be set together/u);
+});
+
+test('Gateway preflight rejects an obsolete tenant-wide cutover window', () => {
+  const result = runCommand(
+    backendScript,
+    ['preflight', '--target', 'production', '--component', 'gateway'],
+    {
+      ...environmentWithoutDeploymentSecrets(),
+      DEPLOYMENT_SECRETS_JSON: '{}',
+      DEPLOYMENT_VARS_JSON: JSON.stringify({
+        ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS: '',
+      }),
+    },
+  );
+
+  expectFailure(result, /is obsolete/u);
+});
+
 test('frontend commands reject backend-only operations and extra component arguments', () => {
   expectFailure(runCommand(frontendScript, ['migrate', '--target', 'staging']), /usage:/u);
   expectFailure(runCommand(frontendScript, ['plan']), /--target.*required/u);
@@ -211,7 +251,10 @@ test('backend workflows deploy independent workers concurrently before router', 
     const workflow = parseYaml(
       readFileSync(path.join(repoRoot, `.github/workflows/deploy-${target}-backend.yml`), 'utf8'),
     ) as {
-      jobs: Record<string, { needs?: string | readonly string[] }>;
+      jobs: Record<
+        string,
+        { needs?: string | readonly string[]; env?: Readonly<Record<string, string>> }
+      >;
     };
     const needsOf = (jobName: string): readonly string[] => {
       const job = workflow.jobs[jobName];
@@ -232,6 +275,13 @@ test('backend workflows deploy independent workers concurrently before router', 
       'deploy_deriver_b',
     ]);
     expect(needsOf('deploy_gateway')).toEqual(['deploy_router']);
+    for (const jobName of ['migrate', 'deploy_gateway']) {
+      const environment = workflow.jobs[jobName]?.env;
+      expect(environment, `${target}/${jobName} is missing its environment`).toBeTruthy();
+      for (const name of gatewayCutoverWorkerVarNames) {
+        expect(environment?.[name]).toBe(`\${{ vars.${name} }}`);
+      }
+    }
   }
 });
 

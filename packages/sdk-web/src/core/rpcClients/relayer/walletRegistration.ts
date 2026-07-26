@@ -2395,7 +2395,7 @@ type FinalizeWalletRegistrationBaseArgs = {
   relayerUrl: string;
   headers?: Record<string, string>;
   registrationCeremonyId: string;
-  idempotencyKey?: string;
+  idempotencyKey: string;
   emailOtpEnrollment?: WalletRegistrationEmailOtpEnrollmentMaterial;
   emailOtpBackupAck?: WalletRegistrationEmailOtpBackupAck;
 };
@@ -2422,7 +2422,7 @@ export type FinalizeWalletRegistrationArgs = FinalizeWalletRegistrationBaseArgs 
 export function buildWalletRegistrationFinalizeBody(args: FinalizeWalletRegistrationArgs): unknown {
   const base = {
     registrationCeremonyId: args.registrationCeremonyId,
-    ...(args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : {}),
+    idempotencyKey: args.idempotencyKey,
     ...(args.emailOtpEnrollment ? { emailOtpEnrollment: args.emailOtpEnrollment } : {}),
     ...(args.emailOtpBackupAck ? { emailOtpBackupAck: args.emailOtpBackupAck } : {}),
   };

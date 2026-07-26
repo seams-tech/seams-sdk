@@ -1,9 +1,12 @@
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,
+  WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/encoders';
 import type {
   EmailOtpAuthStateRecord,
   EmailOtpChallengeRecord,
@@ -17,6 +20,7 @@ import {
   emailOtpChallengeBindingMismatchCode,
   emailOtpChallengeInvalidOrExpired,
   emailOtpRegistrationChallengeBindingMismatchCode,
+  type EmailOtpRegistrationVerificationReceiptV1,
 } from './d1EmailOtpRecords';
 
 export type EmailOtpExistingChallengeVerifyBaseInput = {
@@ -76,6 +80,12 @@ export type EmailOtpRegistrationChallengeVerifyInput = {
   readonly clientIp?: unknown;
 };
 
+export type EmailOtpRegistrationChallengeResumableVerifyInput =
+  EmailOtpRegistrationChallengeVerifyInput & {
+    readonly operationId: unknown;
+    readonly receiptExpiresAtMs: unknown;
+  };
+
 export type EmailOtpRegistrationChallengeVerifyResult =
   | {
       ok: true;
@@ -100,6 +110,14 @@ type ActiveEmailOtpEnrollmentResult =
   | { readonly ok: true; readonly enrollment: EmailOtpWalletEnrollmentRecord }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
+type EmailOtpRegistrationConsumption =
+  | { readonly kind: 'single_use' }
+  | {
+      readonly kind: 'resumable_registration_start';
+      readonly operationId: string;
+      readonly receiptExpiresAtMs: number;
+    };
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || '');
 }
@@ -110,6 +128,38 @@ function emailOtpEnrollmentTenantMismatch(): ActiveEmailOtpEnrollmentResult {
     code: 'tenant_scope_mismatch',
     message: 'Email OTP enrollment does not match the requested orgId',
   };
+}
+
+async function emailOtpRegistrationVerificationFingerprint(input: {
+  readonly operationId: string;
+  readonly providerSubject: string;
+  readonly walletId: string;
+  readonly orgId: string;
+  readonly challengeId: string;
+  readonly otpCode: string;
+  readonly sessionHash: string;
+  readonly appSessionVersion: string;
+  readonly proofEmail: string;
+}): Promise<string> {
+  return base64UrlEncode(
+    await sha256BytesUtf8(
+      alphabetizeStringify({
+        version: 'email_otp_registration_verification_fingerprint_v1',
+        operationId: input.operationId,
+        action: WALLET_EMAIL_OTP_ACTIONS.registration,
+        operation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+        providerSubject: input.providerSubject,
+        walletId: input.walletId,
+        orgId: input.orgId,
+        challengeId: input.challengeId,
+        otpCode: input.otpCode,
+        otpChannel: EMAIL_OTP_CHANNEL,
+        sessionHash: input.sessionHash,
+        appSessionVersion: input.appSessionVersion,
+        proofEmail: input.proofEmail,
+      }),
+    ),
+  );
 }
 
 function emailOtpProviderIdentityMismatch(): ActiveEmailOtpEnrollmentResult {
@@ -178,7 +228,11 @@ export class CloudflareD1EmailOtpChallengeVerifier {
       });
       if (!rateLimit.ok) return rateLimit;
 
-      const enrollment = await this.readActiveEnrollment({ walletId, orgId, providerUserId: userId });
+      const enrollment = await this.readActiveEnrollment({
+        walletId,
+        orgId,
+        providerUserId: userId,
+      });
       if (!enrollment.ok) return enrollment;
       const authState = await this.emailOtpEnrollments.readAuthStateForEnrollment(
         enrollment.enrollment,
@@ -258,6 +312,35 @@ export class CloudflareD1EmailOtpChallengeVerifier {
   async verifyRegistration(
     input: EmailOtpRegistrationChallengeVerifyInput,
   ): Promise<EmailOtpRegistrationChallengeVerifyResult> {
+    return await this.verifyRegistrationWithConsumption(input, { kind: 'single_use' });
+  }
+
+  async verifyRegistrationResumable(
+    input: EmailOtpRegistrationChallengeResumableVerifyInput,
+  ): Promise<EmailOtpRegistrationChallengeVerifyResult> {
+    const operationId = toOptionalTrimmedString(input.operationId);
+    const receiptExpiresAtMs = Number(input.receiptExpiresAtMs);
+    if (!operationId) {
+      return { ok: false, code: 'invalid_body', message: 'Missing verification operationId' };
+    }
+    if (!Number.isSafeInteger(receiptExpiresAtMs) || receiptExpiresAtMs <= Date.now()) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Verification receipt expiry must be in the future',
+      };
+    }
+    return await this.verifyRegistrationWithConsumption(input, {
+      kind: 'resumable_registration_start',
+      operationId,
+      receiptExpiresAtMs,
+    });
+  }
+
+  private async verifyRegistrationWithConsumption(
+    input: EmailOtpRegistrationChallengeVerifyInput,
+    consumption: EmailOtpRegistrationConsumption,
+  ): Promise<EmailOtpRegistrationChallengeVerifyResult> {
     try {
       const providerSubject = toOptionalTrimmedString(input.providerSubject);
       const walletId = toOptionalTrimmedString(input.walletId);
@@ -291,6 +374,49 @@ export class CloudflareD1EmailOtpChallengeVerifier {
           code: 'invalid_body',
           message: 'Email OTP registration requires proofEmail',
         };
+      }
+
+      const requestFingerprint =
+        consumption.kind === 'resumable_registration_start'
+          ? await emailOtpRegistrationVerificationFingerprint({
+              operationId: consumption.operationId,
+              providerSubject,
+              walletId,
+              orgId,
+              challengeId,
+              otpCode,
+              sessionHash,
+              appSessionVersion,
+              proofEmail,
+            })
+          : null;
+      if (consumption.kind === 'resumable_registration_start' && requestFingerprint) {
+        const receipt = await this.emailOtpChallenges.readRegistrationVerificationReceipt(
+          challengeId,
+          Date.now(),
+        );
+        if (receipt) {
+          if (
+            receipt.requestFingerprint !== requestFingerprint ||
+            receipt.expiresAtMs !== consumption.receiptExpiresAtMs
+          ) {
+            return {
+              ok: false,
+              code: 'verification_receipt_conflict',
+              message: 'Email OTP verification receipt belongs to another registration start',
+            };
+          }
+          await this.resetRegistrationFailureStateForReceipt(receipt);
+          return {
+            ok: true,
+            challengeId: receipt.verified.challengeId,
+            challengeSubjectId: receipt.verified.challengeSubjectId,
+            walletId: receipt.verified.walletId,
+            orgId: receipt.verified.orgId,
+            email: receipt.verified.email,
+            otpChannel: receipt.verified.otpChannel,
+          };
+        }
       }
 
       const rateLimit = await this.emailOtpRateLimits.consume({
@@ -358,8 +484,45 @@ export class CloudflareD1EmailOtpChallengeVerifier {
         });
       }
 
-      const consumed = await this.emailOtpChallenges.consume(record.challengeId);
-      if (!consumed) return emailOtpChallengeInvalidOrExpired();
+      let consumed = record;
+      if (consumption.kind === 'resumable_registration_start' && requestFingerprint) {
+        const receipt: EmailOtpRegistrationVerificationReceiptV1 = {
+          version: 'email_otp_registration_verification_receipt_v1',
+          requestFingerprint,
+          verified: {
+            challengeId: record.challengeId,
+            challengeSubjectId: record.challengeSubjectId,
+            walletId,
+            orgId,
+            email: record.email,
+            otpChannel: EMAIL_OTP_CHANNEL,
+          },
+          verifiedAtMs: nowMs,
+          expiresAtMs: consumption.receiptExpiresAtMs,
+        };
+        const receiptResult = await this.emailOtpChallenges.consumeRegistrationWithReceipt({
+          challenge: record,
+          receipt,
+        });
+        switch (receiptResult.kind) {
+          case 'stored':
+          case 'exact_replay':
+            consumed = record;
+            break;
+          case 'conflict':
+            return {
+              ok: false,
+              code: 'verification_receipt_conflict',
+              message: 'Email OTP verification receipt belongs to another registration start',
+            };
+          case 'challenge_missing':
+            return emailOtpChallengeInvalidOrExpired();
+        }
+      } else {
+        const singleUseConsumed = await this.emailOtpChallenges.consume(record.challengeId);
+        if (!singleUseConsumed) return emailOtpChallengeInvalidOrExpired();
+        consumed = singleUseConsumed;
+      }
       if (existingEnrollment) {
         await this.emailOtpEnrollments.resetFailureState({
           enrollment: existingEnrollment,
@@ -382,6 +545,22 @@ export class CloudflareD1EmailOtpChallengeVerifier {
         message: errorMessage(error) || 'Failed to verify Email OTP enrollment challenge',
       };
     }
+  }
+
+  private async resetRegistrationFailureStateForReceipt(
+    receipt: EmailOtpRegistrationVerificationReceiptV1,
+  ): Promise<void> {
+    const enrollment = await this.emailOtpEnrollments.readEnrollment(receipt.verified.walletId);
+    if (!enrollment) return;
+    if (enrollment.orgId !== receipt.verified.orgId) {
+      throw new Error('Email OTP verification receipt enrollment tenant changed');
+    }
+    const authState = await this.emailOtpEnrollments.readAuthStateForEnrollment(enrollment);
+    if (!authState.ok) throw new Error(authState.message);
+    await this.emailOtpEnrollments.resetFailureState({
+      enrollment,
+      authState: authState.state,
+    });
   }
 
   private async readActiveEnrollment(input: {

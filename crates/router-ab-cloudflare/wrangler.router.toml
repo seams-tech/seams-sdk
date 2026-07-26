@@ -158,7 +158,11 @@ DERIVER_B_PEER_BINDING = "DERIVER_B"
 SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
 
 [observability]
+enabled = true
   [observability.logs]
   enabled = true
   head_sampling_rate = 1
   invocation_logs = true
+  [observability.traces]
+  enabled = true
+  head_sampling_rate = 1

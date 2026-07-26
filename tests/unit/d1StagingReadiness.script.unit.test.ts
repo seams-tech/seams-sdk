@@ -67,6 +67,10 @@ migrations_dir = "migrations/d1-console"
 `;
 }
 
+function gatewayConfigWithCutoverVar(name: string, value: string): string {
+  return validD1GatewayStagingConfig().replace(`${name} = ""`, `${name} = "${value}"`);
+}
+
 function expectErrorContaining(result: ReadinessResult, expected: string): void {
   expect(result.ok).toBe(false);
   for (const error of result.errors) {
@@ -85,18 +89,80 @@ test('D1 staging readiness check accepts the gateway D1/DO/Secrets Store shape',
   expect(result).toMatchObject({ errors: [], ok: true });
 });
 
+test('D1 staging readiness check accepts independent Gateway family windows', async () => {
+  const source = gatewayConfigWithCutoverVar(
+    'ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS',
+    '1000',
+  )
+    .replace(
+      'ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS = ""',
+      'ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS = "2000"',
+    )
+    .replace(
+      'ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS = ""',
+      'ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS = "8000"',
+    )
+    .replace(
+      'ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS = ""',
+      'ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS = "9000"',
+    );
+  const result = await checkConfig(source, 'gateway');
+
+  expect(result).toMatchObject({ errors: [], ok: true });
+});
+
+test('D1 staging readiness check rejects missing and incomplete Gateway family windows', async () => {
+  const missing = validD1GatewayStagingConfig().replace(
+    'ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS = ""\n',
+    '',
+  );
+  expectErrorContaining(
+    await checkConfig(missing, 'gateway'),
+    'ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS must be declared',
+  );
+
+  const incomplete = gatewayConfigWithCutoverVar(
+    'ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS',
+    '1000',
+  );
+  expectErrorContaining(await checkConfig(incomplete, 'gateway'), 'must be set together');
+});
+
+test('D1 staging readiness check rejects reversed and obsolete Gateway windows', async () => {
+  const reversed = gatewayConfigWithCutoverVar(
+    'ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS',
+    '9000',
+  ).replace(
+    'ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS = ""',
+    'ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS = "8000"',
+  );
+  expectErrorContaining(await checkConfig(reversed, 'gateway'), 'must not exceed');
+
+  const obsolete = validD1GatewayStagingConfig().replace(
+    '[vars]\n',
+    '[vars]\nROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS = ""\n',
+  );
+  expectErrorContaining(await checkConfig(obsolete, 'gateway'), 'is obsolete');
+});
+
 test('D1 staging readiness check supports env.staging Wrangler sections', async () => {
   const result = await checkConfig(validEnvGatewayStagingConfig(), 'gateway');
   expect(result).toMatchObject({ errors: [], ok: true });
 });
 
 test('D1 staging readiness check rejects unexpected D1 bindings', async () => {
-  const result = await checkConfig(gatewayConfigWithD1Binding('EXTRA_DB', 'seams-extra-staging'), 'gateway');
+  const result = await checkConfig(
+    gatewayConfigWithD1Binding('EXTRA_DB', 'seams-extra-staging'),
+    'gateway',
+  );
   expectErrorContaining(result, 'unexpected D1 binding EXTRA_DB for Gateway profile');
 });
 
 test('D1 staging readiness check rejects duplicate D1 bindings', async () => {
-  const result = await checkConfig(gatewayConfigWithD1Binding('CONSOLE_DB', 'seams-console-staging'), 'gateway');
+  const result = await checkConfig(
+    gatewayConfigWithD1Binding('CONSOLE_DB', 'seams-console-staging'),
+    'gateway',
+  );
   expectErrorContaining(result, 'duplicate D1 binding CONSOLE_DB');
 });
 
@@ -127,7 +193,10 @@ test('D1 staging readiness check rejects signer bindings in console profile', as
   const result = await checkConfig(validD1GatewayStagingConfig(), 'console');
   expectErrorContaining(result, 'console staging config must not reference SIGNER_DB');
   expectErrorContaining(result, 'console staging config must not reference THRESHOLD_STORE');
-  expectErrorContaining(result, 'console staging config must not reference SIGNING_ROOT_KEK_PROVIDER');
+  expectErrorContaining(
+    result,
+    'console staging config must not reference SIGNING_ROOT_KEK_PROVIDER',
+  );
 });
 
 test('D1 staging readiness check rejects the local development Worker config', async () => {

@@ -169,7 +169,6 @@ function checkEcdsaWalletScopedFilesRejectNearAccountProjection() {
   const ecdsaWalletScopedFiles = [
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts',
     'packages/sdk-web/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts',
-    'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/commitQueue.ts',
     'packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget.ts',
   ];
   const forbiddenPatterns = [

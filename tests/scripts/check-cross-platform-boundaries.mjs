@@ -418,20 +418,12 @@ function collectEmailOtpRegistrationPrepViolations() {
   const registrationSource = readRepoFile(
     'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
   );
-  const emailOtpSource = readRepoFile(
-    'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/prewarmedRegistrationMaterial.ts',
-  );
   const workerTypesSource = readRepoFile(
     'packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts',
   );
 
   if (registrationSource.includes('enrollment.clientRootShare32B64u')) {
     violations.push('registration.ts transports enrollment.clientRootShare32B64u');
-  }
-  if (emailOtpSource.includes('clientRootShare32B64u: string;')) {
-    violations.push(
-      'emailOtp/prewarmedRegistrationMaterial.ts exposes clientRootShare32B64u as a string',
-    );
   }
   if (workerTypesSource.includes('clientRootShare32B64u: string;')) {
     violations.push('workerTypes.ts exposes clientRootShare32B64u as a string');

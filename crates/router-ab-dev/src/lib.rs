@@ -43,7 +43,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
-    fmt,
+    fmt, fs,
+    path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -56,6 +57,7 @@ pub use local_ecdsa_root_shares::{
     local_ecdsa_root_share_package_v1, LocalEcdsaRootSharePackageV1,
 };
 mod local_ed25519_yao_input;
+mod local_ed25519_yao_pair;
 mod local_ed25519_yao_profiles;
 mod local_ed25519_yao_refresh;
 mod local_ed25519_yao_router;
@@ -63,14 +65,18 @@ mod local_ed25519_yao_signing_worker;
 mod local_ed25519_yao_stream;
 mod local_ed25519_yao_worker;
 mod local_router_ab_ecdsa_derivation_pool_store;
+mod local_router_coordinator;
+mod local_router_ed25519_yao_http;
 mod local_service_http;
 mod local_worker_topology;
 
 pub use local_dev_http::{
-    local_dev_http_error_body_v1, local_dev_http_handle_request_v1, local_dev_http_route_error_v1,
-    read_local_dev_http_request_v1, require_local_dev_internal_service_auth_v1,
-    require_local_dev_normal_signing_wallet_session_v2, write_local_dev_http_response_v1,
-    LocalDevHttpErrorBodyV1, LocalDevHttpRequestPartsV1, LocalDevHttpTopologyV1,
+    local_dev_http_error_body_v1, local_dev_http_handle_request_v1,
+    local_dev_http_handle_request_with_dispatcher_v1, local_dev_http_route_error_v1,
+    local_dev_router_request_with_dispatcher_v1, read_local_dev_http_request_v1,
+    require_local_dev_internal_service_auth_v1, require_local_dev_normal_signing_wallet_session_v2,
+    write_local_dev_http_response_v1, LocalDevHttpErrorBodyV1, LocalDevHttpRequestPartsV1,
+    LocalDevHttpTopologyV1, LocalRouterRequestDispatcherV1,
 };
 pub use local_ed25519_yao_api::{
     build_local_activation_deriver_a_v1, build_local_activation_deriver_a_with_server_v1,
@@ -107,6 +113,11 @@ pub use local_ed25519_yao_input::{
     seal_local_ed25519_yao_refresh_deriver_a_input_v1,
     seal_local_ed25519_yao_refresh_deriver_b_input_v1, LocalEd25519YaoEncryptedRefreshInputV1,
 };
+pub use local_ed25519_yao_pair::{
+    LocalEd25519YaoPairLifecycleSnapshotV1, LocalEd25519YaoPairLifecycleStateV1,
+    LocalEd25519YaoPairLifecycleV1, LocalEd25519YaoPairSigningKeysV1,
+    LocalEd25519YaoRoleReadinessReceiptV1,
+};
 pub use local_ed25519_yao_profiles::{
     build_local_ed25519_yao_one_account_plan_v1, build_local_ed25519_yao_two_administrator_plan_v1,
     local_ed25519_yao_worker_artifact_digest_v1, LocalEd25519YaoArtifactIdentityV1,
@@ -142,17 +153,24 @@ pub use local_ed25519_yao_signing_worker::{
 };
 pub use local_ed25519_yao_stream::{
     authenticate_local_ed25519_yao_deriver_b_peer_http_v1, run_local_activation_deriver_a_http_v1,
+    run_local_activation_deriver_a_pair_http_v1,
     run_local_activation_deriver_b_authenticated_http_v1, run_local_activation_deriver_b_http_v1,
-    run_local_export_deriver_a_http_v1, run_local_export_deriver_b_authenticated_http_v1,
-    run_local_export_deriver_b_http_v1, LocalEd25519YaoAuthenticatedDeriverBPeerV1,
-    LocalEd25519YaoStreamErrorV1,
+    run_local_export_deriver_a_http_v1, run_local_export_deriver_a_pair_http_v1,
+    run_local_export_deriver_b_authenticated_http_v1, run_local_export_deriver_b_http_v1,
+    LocalEd25519YaoAuthenticatedDeriverBPeerV1, LocalEd25519YaoStreamErrorV1,
 };
 pub use local_ed25519_yao_worker::{
-    dispatch_local_ed25519_yao_connection_v1, LocalEd25519YaoConnectionDispatchV1,
-    LocalEd25519YaoRefreshPromotionReceiptV1, LocalEd25519YaoRefreshPromotionRequestV1,
-    LocalEd25519YaoRoleCompletionV1, LocalEd25519YaoWorkerStateV1,
+    dispatch_local_ed25519_yao_connection_v1,
+    dispatch_local_ed25519_yao_connection_with_persistence_v1, LocalEd25519YaoConnectionDispatchV1,
+    LocalEd25519YaoPairRoleRecordV1, LocalEd25519YaoRefreshPromotionReceiptV1,
+    LocalEd25519YaoRefreshPromotionRequestV1, LocalEd25519YaoRoleCompletionV1,
+    LocalEd25519YaoWorkerStateV1,
 };
 use local_router_ab_ecdsa_derivation_pool_store::local_signing_worker_ecdsa_pool_mutate_v1;
+pub use local_router_coordinator::LocalRouterEd25519YaoCoordinatorV1;
+pub use local_router_ed25519_yao_http::{
+    decode_local_router_ed25519_yao_execute_request_v1, LocalRouterEd25519YaoPairDispatchV1,
+};
 pub use local_service_http::{
     local_http_service_binding_endpoint_v1, local_http_service_binding_owner_v1,
     local_http_service_binding_path_v1, local_http_service_binding_url_v1,
@@ -281,9 +299,33 @@ pub const LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH: &str = "/router-ab/deriver-b/ed
 /// Deriver A local Ed25519 Yao activation start path.
 pub const LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/activation/start";
+/// Deriver A pair-bound preparation path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH: &str =
+    "/router-ab/deriver-a/ed25519-yao/prepare-pair";
+/// Deriver A pair-bound claim path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH: &str =
+    "/router-ab/deriver-a/ed25519-yao/execute-pair";
+/// Deriver A pair-bound status path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH: &str =
+    "/router-ab/deriver-a/ed25519-yao/read-pair-status";
+/// Deriver A pair-bound burn path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH: &str =
+    "/router-ab/deriver-a/ed25519-yao/burn-pair";
 /// Deriver B local Ed25519 Yao activation staging path.
 pub const LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_STAGE_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/activation/stage";
+/// Deriver B pair-bound preparation path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH: &str =
+    "/router-ab/deriver-b/ed25519-yao/prepare-pair";
+/// Deriver B pair-bound completed-result path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH: &str =
+    "/router-ab/deriver-b/ed25519-yao/read-completed-pair";
+/// Deriver B pair-bound status path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH: &str =
+    "/router-ab/deriver-b/ed25519-yao/read-pair-status";
+/// Deriver B pair-bound burn path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH: &str =
+    "/router-ab/deriver-b/ed25519-yao/burn-pair";
 /// Deriver A local Ed25519 Yao refresh start path.
 pub const LOCAL_DERIVER_A_ED25519_YAO_REFRESH_START_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/refresh/start";
@@ -328,6 +370,11 @@ pub const LOCAL_DERIVER_B_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH: &str 
     "/router-ab/deriver-b/ed25519-yao/refresh/signing-worker-package";
 /// Router public normal-signing path mirrored from production.
 pub const LOCAL_ROUTER_NORMAL_SIGNING_PATH: &str = "/router-ab/ed25519/sign";
+/// Private Router endpoint for one admitted Ed25519 Yao execution.
+pub const LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH: &str = "/router-ab/router/ed25519-yao/execute";
+/// Private Router endpoint for explicit recovery promotion.
+pub const LOCAL_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PATH: &str =
+    "/router-ab/router/ed25519-yao/recovery/promote";
 /// Router public normal-signing round-1 prepare path mirrored from production.
 pub const LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH: &str = "/router-ab/ed25519/sign/prepare";
 /// Router public Router A/B ECDSA derivation digest-signing prepare path mirrored from production.
@@ -667,6 +714,69 @@ pub enum LocalDurableObjectScopeV1 {
     SigningWorkerServerOutput,
 }
 
+/// Receipt returned when local Router-owned persistence is initialized.
+///
+/// This startup receipt records that each Router-owned storage boundary has
+/// been opened and its schema initialized before private workers start.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalRouterPersistenceStartupReceiptV1 {
+    /// Router-owned scopes initialized by the startup boundary.
+    pub scopes: Vec<LocalDurableObjectScopeV1>,
+}
+
+/// Initializes the five Router-owned SQLite boundaries used by local startup.
+///
+/// The native Router executable installs its coordinator separately. This
+/// helper performs no protocol execution.
+pub fn initialize_local_router_persistence_v1(
+    config: &LocalRouterWorkerConfigV1,
+) -> RouterAbProtocolResult<LocalRouterPersistenceStartupReceiptV1> {
+    let boundaries = [
+        (
+            LocalDurableObjectScopeV1::RouterReplay,
+            config.replay_storage_path.as_str(),
+        ),
+        (
+            LocalDurableObjectScopeV1::RouterLifecycle,
+            config.lifecycle_storage_path.as_str(),
+        ),
+        (
+            LocalDurableObjectScopeV1::RouterProjectPolicy,
+            config.project_policy_storage_path.as_str(),
+        ),
+        (
+            LocalDurableObjectScopeV1::RouterQuota,
+            config.quota_storage_path.as_str(),
+        ),
+        (
+            LocalDurableObjectScopeV1::RouterAbuse,
+            config.abuse_storage_path.as_str(),
+        ),
+    ];
+    for &(scope, path) in &boundaries {
+        let path = Path::new(path);
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            fs::create_dir_all(parent).map_err(|error| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    format!(
+                        "local Router {} storage directory initialization failed: {error}",
+                        scope.as_str()
+                    ),
+                )
+            })?;
+        }
+        let connection = Connection::open(path).map_err(map_sqlite_error)?;
+        LocalDurableObjectSqliteStorageV1::new(&connection, scope)?;
+    }
+    Ok(LocalRouterPersistenceStartupReceiptV1 {
+        scopes: boundaries.iter().map(|(scope, _)| *scope).collect(),
+    })
+}
+
 impl LocalDurableObjectScopeV1 {
     /// Returns the stable local storage scope label.
     pub fn as_str(self) -> &'static str {
@@ -744,6 +854,47 @@ impl<'connection> LocalDurableObjectSqliteStorageV1<'connection> {
             )
             .map_err(map_sqlite_error)?;
         Ok(())
+    }
+
+    /// Atomically replaces a role-local value when it still equals `expected`.
+    /// Passing `None` performs an insert-if-absent.
+    pub fn compare_and_swap_bytes(
+        &self,
+        key: &str,
+        expected: Option<&[u8]>,
+        value: &[u8],
+    ) -> RouterAbProtocolResult<bool> {
+        require_non_empty("local durable object key", key)?;
+        if value.is_empty() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::EmptyField,
+                "local durable object value must not be empty",
+            ));
+        }
+        let rows = match expected {
+            Some(expected) => self
+                .connection
+                .execute(
+                    "UPDATE local_durable_object_kv
+                        SET value = ?3
+                      WHERE scope = ?1 AND key = ?2 AND value = ?4",
+                    params![self.scope.as_str(), key, value, expected],
+                )
+                .map_err(map_sqlite_error)?,
+            None => self
+                .connection
+                .execute(
+                    "INSERT INTO local_durable_object_kv (scope, key, value)
+                     SELECT ?1, ?2, ?3
+                      WHERE NOT EXISTS (
+                        SELECT 1 FROM local_durable_object_kv
+                         WHERE scope = ?1 AND key = ?2
+                      )",
+                    params![self.scope.as_str(), key, value],
+                )
+                .map_err(map_sqlite_error)?,
+        };
+        Ok(rows == 1)
     }
 
     /// Reads bytes from a role-local key.
@@ -2696,24 +2847,6 @@ fn materialize_template_v1(
     root_shares: &LocalEcdsaRootSharePackageV1,
 ) -> RouterAbProtocolResult<String> {
     require_non_empty("local env materialization template", template)?;
-    let replacements = [
-        (
-            "dev-only-deriver-a-peer-signing-key",
-            "deriver-a-peer-signing-key",
-        ),
-        (
-            "dev-only-deriver-b-peer-signing-key",
-            "deriver-b-peer-signing-key",
-        ),
-        (
-            "dev-only-deriver-a-peer-verifying-key",
-            "deriver-a-peer-verifying-key",
-        ),
-        (
-            "dev-only-deriver-b-peer-verifying-key",
-            "deriver-b-peer-verifying-key",
-        ),
-    ];
     let mut contents = template.to_owned();
     contents = contents.replace(
         "dev-only-deriver-a-root-share-wire-secret",
@@ -2723,9 +2856,35 @@ fn materialize_template_v1(
         "dev-only-deriver-b-root-share-wire-secret",
         &root_shares.deriver_b_root_share_wire_secret,
     );
-    for (placeholder, label) in replacements {
-        let material = local_generated_secret_v1(label, seed)?;
+    for (placeholder, label) in [
+        (
+            "dev-only-deriver-a-peer-signing-key",
+            "deriver-a-peer-signing-key",
+        ),
+        (
+            "dev-only-deriver-b-peer-signing-key",
+            "deriver-b-peer-signing-key",
+        ),
+    ] {
+        let seed_bytes = local_generated_secret_bytes_v1(label, seed)?;
+        let material = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(seed_bytes);
         contents = contents.replace(placeholder, &material);
+    }
+    for (placeholder, label) in [
+        (
+            "dev-only-deriver-a-peer-verifying-key",
+            "deriver-a-peer-signing-key",
+        ),
+        (
+            "dev-only-deriver-b-peer-verifying-key",
+            "deriver-b-peer-signing-key",
+        ),
+    ] {
+        let seed_bytes = local_generated_secret_bytes_v1(label, seed)?;
+        let verifying_key = ed25519_dalek::SigningKey::from_bytes(&seed_bytes)
+            .verifying_key()
+            .to_bytes();
+        contents = contents.replace(placeholder, &hex::encode(verifying_key));
     }
     for (placeholder, label) in [
         (
@@ -2791,24 +2950,6 @@ fn local_generated_secret_bytes_v1(label: &str, seed: &[u8]) -> RouterAbProtocol
     push_hash_field_v1(&mut hasher, label.as_bytes());
     push_hash_field_v1(&mut hasher, seed);
     Ok(hasher.finalize().into())
-}
-
-fn local_generated_secret_v1(label: &str, seed: &[u8]) -> RouterAbProtocolResult<String> {
-    require_non_empty("local generated secret label", label)?;
-    if seed.is_empty() {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::EmptyField,
-            "local env materialization seed must not be empty",
-        ));
-    }
-    let mut hasher = Sha256::new();
-    push_hash_field_v1(&mut hasher, b"router-ab-dev/local-env-materialization/v1");
-    push_hash_field_v1(&mut hasher, label.as_bytes());
-    push_hash_field_v1(&mut hasher, seed);
-    Ok(format!(
-        "dev-only-generated-{label}-{}",
-        hex::encode(hasher.finalize())
-    ))
 }
 
 fn entries_from_env_map_v1(env: &BTreeMap<String, String>) -> Vec<(String, String)> {
