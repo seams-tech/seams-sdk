@@ -286,6 +286,31 @@ export type RouterAbEcdsaRegistrationActivationReceiptV1 = {
   transcript_digest: RouterAbPublicDigest32V1Wire;
 };
 
+export type RouterAbEcdsaDerivationActivationPrepareResultV1 = {
+  activation_correlation_id: CorrelationId;
+  activation_request_digest: RouterAbPublicDigest32V1Wire;
+};
+
+export type RouterAbEcdsaDerivationActivationCommitQueryResultV1 =
+  | {
+      kind: 'committed';
+      receipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+      activation_correlation_id?: never;
+      activation_request_digest?: never;
+    }
+  | {
+      kind: 'not_committed';
+      activation_correlation_id: CorrelationId;
+      activation_request_digest: RouterAbPublicDigest32V1Wire;
+      receipt?: never;
+    }
+  | {
+      kind: 'correlation_conflict';
+      activation_correlation_id: CorrelationId;
+      activation_request_digest: RouterAbPublicDigest32V1Wire;
+      receipt?: never;
+    };
+
 export type RouterAbEcdsaRegistrationPublicActivationReceiptV1 =
   RouterAbEcdsaRegistrationActivationReceiptV1;
 
@@ -1591,6 +1616,53 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
     lifecycle_id: requireAsciiNonEmptyString(record.lifecycle_id, `${label}.lifecycle_id`),
     transcript_digest: transcriptDigest,
   };
+}
+
+export function parseRouterAbEcdsaDerivationActivationPrepareResultV1(
+  value: unknown,
+): RouterAbEcdsaDerivationActivationPrepareResultV1 {
+  const label = 'activationPrepareResult';
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, ['activation_correlation_id', 'activation_request_digest']);
+  return {
+    activation_correlation_id: parseCorrelationId(record.activation_correlation_id),
+    activation_request_digest: parsePublicDigest32(
+      record.activation_request_digest,
+      `${label}.activation_request_digest`,
+    ),
+  };
+}
+
+export function parseRouterAbEcdsaDerivationActivationCommitQueryResultV1(
+  value: unknown,
+): RouterAbEcdsaDerivationActivationCommitQueryResultV1 {
+  const label = 'activationCommitQueryResult';
+  const record = requireRecord(value, label);
+  switch (record.kind) {
+    case 'committed':
+      requireExactKeys(record, label, ['kind', 'receipt']);
+      return {
+        kind: 'committed',
+        receipt: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.receipt),
+      };
+    case 'not_committed':
+    case 'correlation_conflict':
+      requireExactKeys(record, label, [
+        'kind',
+        'activation_correlation_id',
+        'activation_request_digest',
+      ]);
+      return {
+        kind: record.kind,
+        activation_correlation_id: parseCorrelationId(record.activation_correlation_id),
+        activation_request_digest: parsePublicDigest32(
+          record.activation_request_digest,
+          `${label}.activation_request_digest`,
+        ),
+      };
+    default:
+      throw new Error(`${label}.kind must be committed, not_committed, or correlation_conflict`);
+  }
 }
 
 export function parseRouterAbEcdsaRegistrationPublicActivationReceiptV1(

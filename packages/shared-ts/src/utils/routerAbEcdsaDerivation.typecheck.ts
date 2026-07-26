@@ -1,7 +1,10 @@
 import type { SigningGrantId, ThresholdEcdsaSessionId } from './domainIds';
 import type {
+  RouterAbEcdsaDerivationActivationCommitQueryResultV1,
+  RouterAbEcdsaDerivationActivationPrepareResultV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
   RouterAbEcdsaPostRegistrationSessionPolicyV1,
+  RouterAbEcdsaRegistrationActivationReceiptV1,
   RouterAbEcdsaRegistrationActivationRequestV1,
   RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from './routerAbEcdsaDerivation';
@@ -14,6 +17,7 @@ declare const runtimePolicyScope: RuntimePolicyScope;
 declare const activationResponse: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
 declare const activationCorrelationId: CorrelationId;
 declare const clientActivationFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+declare const activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
 
 const sessionPolicy = {
   threshold_session_id: thresholdSessionId,
@@ -66,3 +70,32 @@ const missingActivationCorrelation = {
   },
 } satisfies RouterAbEcdsaRegistrationActivationRequestV1;
 void missingActivationCorrelation;
+
+const activationPrepareResult = {
+  activation_correlation_id: activationCorrelationId,
+  activation_request_digest: { bytes: new Array<number>(32).fill(1) },
+} satisfies RouterAbEcdsaDerivationActivationPrepareResultV1;
+void activationPrepareResult;
+
+const committedActivationQueryResult = {
+  kind: 'committed',
+  receipt: activationReceipt,
+} satisfies RouterAbEcdsaDerivationActivationCommitQueryResultV1;
+void committedActivationQueryResult;
+
+const invalidCommittedActivationQueryResult = {
+  kind: 'committed',
+  receipt: activationReceipt,
+  activation_correlation_id: activationCorrelationId,
+  // @ts-expect-error A committed query result cannot carry absence coordinates.
+} satisfies RouterAbEcdsaDerivationActivationCommitQueryResultV1;
+void invalidCommittedActivationQueryResult;
+
+const invalidNotCommittedActivationQueryResult = {
+  kind: 'not_committed',
+  activation_correlation_id: activationCorrelationId,
+  activation_request_digest: { bytes: new Array<number>(32).fill(1) },
+  receipt: activationReceipt,
+  // @ts-expect-error An uncommitted query result cannot carry a receipt.
+} satisfies RouterAbEcdsaDerivationActivationCommitQueryResultV1;
+void invalidNotCommittedActivationQueryResult;
