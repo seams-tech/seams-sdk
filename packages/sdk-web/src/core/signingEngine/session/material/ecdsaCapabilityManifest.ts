@@ -288,7 +288,53 @@ class EncryptedEcdsaPendingCandidateProof extends EcdsaCapabilityManifestProof {
 export type EncryptedEcdsaPendingCandidate = EncryptedEcdsaPendingCandidateProof &
   EncryptedEcdsaPendingCandidateExclusions;
 
+type EcdsaActivationBindingExclusions = {
+  readonly encryptedPending?: never;
+  readonly registeredPublicFacts?: never;
+  readonly lifecycleId?: never;
+  readonly activationDigest?: never;
+  readonly activatedAt?: never;
+  readonly finalCiphertextDigest?: never;
+  readonly serverGeneration?: never;
+  readonly serverActivationReceipt?: never;
+};
+
+class EcdsaActivationBindingProof extends EcdsaCapabilityManifestProof {
+  readonly kind = 'ecdsa_activation_binding';
+  readonly targetManifest: EcdsaManifestIdentity;
+  readonly signer: PreparedEvmFamilySigner;
+  readonly activationId: MpcMaterialActivationId;
+  readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
+  readonly bindingDigest: EcdsaRoleLocalBindingDigest;
+  readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+
+  constructor(fields: {
+    readonly targetManifest: EcdsaManifestIdentity;
+    readonly signer: PreparedEvmFamilySigner;
+    readonly activationId: MpcMaterialActivationId;
+    readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
+    readonly bindingDigest: EcdsaRoleLocalBindingDigest;
+    readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+  }) {
+    super();
+    this.targetManifest = fields.targetManifest;
+    this.signer = fields.signer;
+    this.activationId = fields.activationId;
+    this.roleLocalBinding = fields.roleLocalBinding;
+    this.bindingDigest = fields.bindingDigest;
+    this.durableMaterialRef = fields.durableMaterialRef;
+  }
+}
+
+export type EcdsaActivationBinding = EcdsaActivationBindingProof & EcdsaActivationBindingExclusions;
+
 type PreparedEcdsaActivationCandidateExclusions = {
+  readonly targetManifest?: never;
+  readonly signer?: never;
+  readonly activationId?: never;
+  readonly roleLocalBinding?: never;
+  readonly bindingDigest?: never;
+  readonly durableMaterialRef?: never;
   readonly registeredPublicFacts?: never;
   readonly lifecycleId?: never;
   readonly activationDigest?: never;
@@ -300,30 +346,15 @@ type PreparedEcdsaActivationCandidateExclusions = {
 
 class PreparedEcdsaActivationCandidateProof extends EcdsaCapabilityManifestProof {
   readonly kind = 'prepared_ecdsa_activation_candidate';
-  readonly targetManifest: EcdsaManifestIdentity;
-  readonly signer: PreparedEvmFamilySigner;
-  readonly activationId: MpcMaterialActivationId;
-  readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
-  readonly bindingDigest: EcdsaRoleLocalBindingDigest;
-  readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+  readonly activationBinding: EcdsaActivationBinding;
   readonly encryptedPending: EncryptedEcdsaPendingCandidate;
 
   constructor(fields: {
-    readonly targetManifest: EcdsaManifestIdentity;
-    readonly signer: PreparedEvmFamilySigner;
-    readonly activationId: MpcMaterialActivationId;
-    readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
-    readonly bindingDigest: EcdsaRoleLocalBindingDigest;
-    readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+    readonly activationBinding: EcdsaActivationBinding;
     readonly encryptedPending: EncryptedEcdsaPendingCandidate;
   }) {
     super();
-    this.targetManifest = fields.targetManifest;
-    this.signer = fields.signer;
-    this.activationId = fields.activationId;
-    this.roleLocalBinding = fields.roleLocalBinding;
-    this.bindingDigest = fields.bindingDigest;
-    this.durableMaterialRef = fields.durableMaterialRef;
+    this.activationBinding = fields.activationBinding;
     this.encryptedPending = fields.encryptedPending;
   }
 }
@@ -460,8 +491,15 @@ export type EcdsaCapabilityActivationCommitJournal =
   | PreparedEcdsaActivationJournal
   | ServerCommittedEcdsaActivationJournal;
 
-export type DurableEcdsaMaterialBinding = {
-  readonly kind: 'durable_ecdsa_material';
+type DurableEcdsaMaterialBindingExclusions = {
+  readonly runtime?: never;
+  readonly sealingKeyId?: never;
+  readonly iv12B64u?: never;
+  readonly ciphertextB64u?: never;
+};
+
+class DurableEcdsaMaterialBindingProof extends EcdsaCapabilityManifestProof {
+  readonly kind = 'durable_ecdsa_material';
   readonly materialActivation: MpcMaterialActivationRef;
   readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
   readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
@@ -470,8 +508,31 @@ export type DurableEcdsaMaterialBinding = {
   readonly ciphertextDigest: EcdsaCiphertextDigest;
   readonly activationDigest: EcdsaActivationDigest;
   readonly activatedAt: IsoTimestamp;
-  readonly runtime?: never;
-};
+
+  constructor(fields: {
+    readonly materialActivation: MpcMaterialActivationRef;
+    readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
+    readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+    readonly bindingDigest: EcdsaRoleLocalBindingDigest;
+    readonly lifecycleId: EcdsaLifecycleId;
+    readonly ciphertextDigest: EcdsaCiphertextDigest;
+    readonly activationDigest: EcdsaActivationDigest;
+    readonly activatedAt: IsoTimestamp;
+  }) {
+    super();
+    this.materialActivation = fields.materialActivation;
+    this.roleLocalBinding = fields.roleLocalBinding;
+    this.durableMaterialRef = fields.durableMaterialRef;
+    this.bindingDigest = fields.bindingDigest;
+    this.lifecycleId = fields.lifecycleId;
+    this.ciphertextDigest = fields.ciphertextDigest;
+    this.activationDigest = fields.activationDigest;
+    this.activatedAt = fields.activatedAt;
+  }
+}
+
+export type DurableEcdsaMaterialBinding = DurableEcdsaMaterialBindingProof &
+  DurableEcdsaMaterialBindingExclusions;
 
 type ValidatedEncryptedEcdsaReadyMaterialExclusions = {
   readonly plaintext?: never;
@@ -680,7 +741,7 @@ export function buildEncryptedEcdsaPendingCandidate(
   return new EncryptedEcdsaPendingCandidateProof(input);
 }
 
-export function buildPreparedEcdsaActivationCandidate(
+export function buildEcdsaActivationBinding(
   input: {
     readonly targetManifest: EcdsaManifestIdentity;
     readonly signer: PreparedEvmFamilySigner;
@@ -688,6 +749,15 @@ export function buildPreparedEcdsaActivationCandidate(
     readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
     readonly bindingDigest: EcdsaRoleLocalBindingDigest;
     readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+    readonly kind?: never;
+  } & EcdsaActivationBindingExclusions,
+): EcdsaActivationBinding {
+  return new EcdsaActivationBindingProof(input);
+}
+
+export function buildPreparedEcdsaActivationCandidate(
+  input: {
+    readonly activationBinding: EcdsaActivationBinding;
     readonly encryptedPending: EncryptedEcdsaPendingCandidate;
     readonly kind?: never;
   } & PreparedEcdsaActivationCandidateExclusions,
@@ -721,7 +791,10 @@ export type BuildPreparedEcdsaActivationJournalInput = BuildPreparedEcdsaActivat
 export function buildPreparedEcdsaActivationJournal(
   input: BuildPreparedEcdsaActivationJournalInput,
 ): PreparedEcdsaActivationJournal {
-  assertTargetManifestTransition(input.expectedManifest, input.candidate.targetManifest);
+  assertTargetManifestTransition(
+    input.expectedManifest,
+    input.candidate.activationBinding.targetManifest,
+  );
   assertExpectedStatePair(input.expectedManifest, input.expectedGeneration);
   const activationCommand = new EcdsaServerActivationCommandProof({
     correlationId: input.journalId,
@@ -745,6 +818,29 @@ export type ServerReturnedEcdsaActivationCommit = {
   readonly protocolReceipt: unknown;
 };
 
+export function buildEcdsaServerActivationCommit(input: {
+  readonly activationBinding: EcdsaActivationBinding;
+  readonly serverCommit: ServerReturnedEcdsaActivationCommit;
+  readonly kind?: never;
+}): EcdsaServerActivationCommit {
+  const protocolReceipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(
+    input.serverCommit.protocolReceipt,
+  );
+  assertProtocolReceiptMatchesActivationBinding(protocolReceipt, input.activationBinding);
+  const serverActivationReceipt = new EcdsaServerActivationReceiptProof({
+    lifecycleId: lifecycleIdFromProtocolReceipt(protocolReceipt),
+    activationDigest: activationDigestFromProtocolReceipt(protocolReceipt),
+    activatedAt: isoTimestampFromUnixMs(protocolReceipt.ecdsa_activation.activated_at_ms),
+    protocolReceipt,
+  });
+  return new EcdsaServerActivationCommitProof({
+    correlationId: input.serverCommit.correlationId,
+    activationRequestDigest: input.serverCommit.activationRequestDigest,
+    serverGeneration: input.serverCommit.serverGeneration,
+    serverActivationReceipt,
+  });
+}
+
 export function buildServerCommittedEcdsaActivationJournal(input: {
   readonly preparedJournal: PreparedEcdsaActivationJournal;
   readonly serverCommit: ServerReturnedEcdsaActivationCommit;
@@ -754,21 +850,9 @@ export function buildServerCommittedEcdsaActivationJournal(input: {
   readonly kind?: never;
 }): ServerCommittedEcdsaActivationJournal {
   assertServerCommitMatchesPreparedCommand(input.serverCommit, input.preparedJournal);
-  const protocolReceipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(
-    input.serverCommit.protocolReceipt,
-  );
-  assertProtocolReceiptMatchesCandidate(protocolReceipt, input.preparedJournal.candidate);
-  const serverActivationReceipt = new EcdsaServerActivationReceiptProof({
-    lifecycleId: lifecycleIdFromProtocolReceipt(protocolReceipt),
-    activationDigest: activationDigestFromProtocolReceipt(protocolReceipt),
-    activatedAt: isoTimestampFromUnixMs(protocolReceipt.ecdsa_activation.activated_at_ms),
-    protocolReceipt,
-  });
-  const serverActivation = new EcdsaServerActivationCommitProof({
-    correlationId: input.serverCommit.correlationId,
-    activationRequestDigest: input.serverCommit.activationRequestDigest,
-    serverGeneration: input.serverCommit.serverGeneration,
-    serverActivationReceipt,
+  const serverActivation = buildEcdsaServerActivationCommit({
+    activationBinding: input.preparedJournal.candidate.activationBinding,
+    serverCommit: input.serverCommit,
   });
   return new ServerCommittedEcdsaActivationJournalProof({
     journalId: input.preparedJournal.journalId,
@@ -780,33 +864,47 @@ export function buildServerCommittedEcdsaActivationJournal(input: {
   });
 }
 
-export function buildValidatedEncryptedEcdsaReadyMaterial(input: {
-  readonly committedJournal: ServerCommittedEcdsaActivationJournal;
-  readonly sealingKeyId: EcdsaMaterialSealingKeyId;
-  readonly iv12B64u: EcdsaIv12B64u;
-  readonly ciphertextB64u: EcdsaCiphertextB64u;
+export function buildDurableEcdsaMaterialBinding(input: {
+  readonly activationBinding: EcdsaActivationBinding;
+  readonly serverActivation: EcdsaServerActivationCommit;
   readonly ciphertextDigest: EcdsaCiphertextDigest;
-  readonly binding?: never;
-  readonly plaintext?: never;
-  readonly stateBlobB64u?: never;
   readonly kind?: never;
-}): ValidatedEncryptedEcdsaReadyMaterial {
-  const candidate = input.committedJournal.candidate;
-  const receipt = input.committedJournal.serverActivation.serverActivationReceipt;
-  const materialActivation = materialActivationFromCommit(candidate, receipt.protocolReceipt);
-  const binding: DurableEcdsaMaterialBinding = {
-    kind: 'durable_ecdsa_material',
-    materialActivation,
-    roleLocalBinding: candidate.roleLocalBinding,
-    durableMaterialRef: candidate.durableMaterialRef,
-    bindingDigest: candidate.bindingDigest,
+  readonly materialActivation?: never;
+  readonly lifecycleId?: never;
+  readonly activationDigest?: never;
+  readonly activatedAt?: never;
+  readonly runtime?: never;
+}): DurableEcdsaMaterialBinding {
+  assertServerActivationMatchesBinding(input.serverActivation, input.activationBinding);
+  const receipt = input.serverActivation.serverActivationReceipt;
+  return new DurableEcdsaMaterialBindingProof({
+    materialActivation: materialActivationFromCommit(
+      input.activationBinding,
+      receipt.protocolReceipt,
+    ),
+    roleLocalBinding: input.activationBinding.roleLocalBinding,
+    durableMaterialRef: input.activationBinding.durableMaterialRef,
+    bindingDigest: input.activationBinding.bindingDigest,
     lifecycleId: receipt.lifecycleId,
     ciphertextDigest: input.ciphertextDigest,
     activationDigest: receipt.activationDigest,
     activatedAt: receipt.activatedAt,
-  };
+  });
+}
+
+export function buildValidatedEncryptedEcdsaReadyMaterial(input: {
+  readonly binding: DurableEcdsaMaterialBinding;
+  readonly sealingKeyId: EcdsaMaterialSealingKeyId;
+  readonly iv12B64u: EcdsaIv12B64u;
+  readonly ciphertextB64u: EcdsaCiphertextB64u;
+  readonly committedJournal?: never;
+  readonly ciphertextDigest?: never;
+  readonly plaintext?: never;
+  readonly stateBlobB64u?: never;
+  readonly kind?: never;
+}): ValidatedEncryptedEcdsaReadyMaterial {
   return new ValidatedEncryptedEcdsaReadyMaterialProof({
-    binding,
+    binding: input.binding,
     sealingKeyId: input.sealingKeyId,
     iv12B64u: input.iv12B64u,
     ciphertextB64u: input.ciphertextB64u,
@@ -815,35 +913,47 @@ export function buildValidatedEncryptedEcdsaReadyMaterial(input: {
 
 export function buildActiveEcdsaCapabilityManifest(
   input: {
-    readonly committedJournal: ServerCommittedEcdsaActivationJournal;
+    readonly activationBinding: EcdsaActivationBinding;
+    readonly serverActivation: EcdsaServerActivationCommit;
     readonly registeredPublicFacts: VerifiedEcdsaPublicFacts;
-    readonly readyMaterial: ValidatedEncryptedEcdsaReadyMaterial;
+    readonly durableMaterial: DurableEcdsaMaterialBinding;
     readonly committedAt: IsoTimestamp;
+    readonly committedJournal?: never;
+    readonly readyMaterial?: never;
+    readonly encryptedPending?: never;
+    readonly sealingKeyId?: never;
+    readonly iv12B64u?: never;
+    readonly ciphertextB64u?: never;
     readonly identity?: never;
     readonly signer?: never;
     readonly activation?: never;
-    readonly durableMaterial?: never;
     readonly kind?: never;
   } & ActiveEcdsaCapabilityManifestExclusions,
 ): ActiveEcdsaCapabilityManifest {
-  const candidate = input.committedJournal.candidate;
-  assertRegisteredPublicFactsMatchBinding(input.registeredPublicFacts, candidate.roleLocalBinding);
-  assertReadyMaterialMatchesJournal(input.readyMaterial, input.committedJournal);
+  assertRegisteredPublicFactsMatchBinding(
+    input.registeredPublicFacts,
+    input.activationBinding.roleLocalBinding,
+  );
+  assertDurableMaterialMatchesActivation(
+    input.durableMaterial,
+    input.activationBinding,
+    input.serverActivation,
+  );
   const signer = new RegisteredEvmFamilySignerProof({
-    preparedSigner: candidate.signer,
+    preparedSigner: input.activationBinding.signer,
     registeredPublicFacts: input.registeredPublicFacts,
   });
   const activation: ActiveEcdsaMaterialActivation = {
     kind: 'active_ecdsa_material_activation',
-    materialActivation: input.readyMaterial.binding.materialActivation,
-    serverActivation: input.committedJournal.serverActivation,
+    materialActivation: input.durableMaterial.materialActivation,
+    serverActivation: input.serverActivation,
     retention: 'retained',
   };
   return new ActiveEcdsaCapabilityManifestProof({
-    identity: candidate.targetManifest,
+    identity: input.activationBinding.targetManifest,
     signer,
     activation,
-    durableMaterial: input.readyMaterial.binding,
+    durableMaterial: input.durableMaterial,
     committedAt: input.committedAt,
   });
 }
@@ -983,15 +1093,15 @@ function assertServerCommitMatchesPreparedCommand(
   }
 }
 
-function assertProtocolReceiptMatchesCandidate(
+function assertProtocolReceiptMatchesActivationBinding(
   receipt: RouterAbEcdsaRegistrationActivationReceiptV1,
-  candidate: PreparedEcdsaActivationCandidate,
+  activationBinding: EcdsaActivationBinding,
 ): void {
   const publicIdentity = receipt.ecdsa_activation.public_identity;
   if (
-    publicIdentity.context_binding_b64u !== String(candidate.bindingDigest) ||
+    publicIdentity.context_binding_b64u !== String(activationBinding.bindingDigest) ||
     publicIdentity.derivation_client_share_public_key33_b64u !==
-      String(candidate.roleLocalBinding.clientVerifyingPublicKey33B64u)
+      String(activationBinding.roleLocalBinding.clientVerifyingPublicKey33B64u)
   ) {
     throw new Error('ECDSA activation receipt does not match the prepared material binding');
   }
@@ -1015,14 +1125,14 @@ function unwrapDomainId<T>(result: DomainIdParseResult<T>): T {
 }
 
 function materialActivationFromCommit(
-  candidate: PreparedEcdsaActivationCandidate,
+  activationBinding: EcdsaActivationBinding,
   receipt: RouterAbEcdsaRegistrationActivationReceiptV1,
 ): MpcMaterialActivationRef {
   return buildMpcMaterialActivationRef({
-    activationId: candidate.activationId,
-    capability: candidate.signer.capability,
-    materialOwner: candidate.signer.materialOwner,
-    keyBinding: unwrapDomainId(parseMpcKeyBindingRef(candidate.bindingDigest)),
+    activationId: activationBinding.activationId,
+    capability: activationBinding.signer.capability,
+    materialOwner: activationBinding.signer.materialOwner,
+    keyBinding: unwrapDomainId(parseMpcKeyBindingRef(activationBinding.bindingDigest)),
     lifecycleBinding: unwrapDomainId(parseMpcLifecycleBindingRef(receipt.lifecycle_id)),
     signingWorker: unwrapDomainId(
       parseMpcSigningWorkerRef(receipt.ecdsa_activation.signing_worker.server_id),
@@ -1050,25 +1160,34 @@ function participantIdsMatch(
   return left.every((participantId, index) => Number(participantId) === Number(right[index]));
 }
 
-function assertReadyMaterialMatchesJournal(
-  material: ValidatedEncryptedEcdsaReadyMaterial,
-  journal: ServerCommittedEcdsaActivationJournal,
+function assertServerActivationMatchesBinding(
+  serverActivation: EcdsaServerActivationCommit,
+  activationBinding: EcdsaActivationBinding,
 ): void {
-  const binding = material.binding;
-  const candidate = journal.candidate;
-  const receipt = journal.serverActivation.serverActivationReceipt;
+  assertProtocolReceiptMatchesActivationBinding(
+    serverActivation.serverActivationReceipt.protocolReceipt,
+    activationBinding,
+  );
+}
+
+function assertDurableMaterialMatchesActivation(
+  durableMaterial: DurableEcdsaMaterialBinding,
+  activationBinding: EcdsaActivationBinding,
+  serverActivation: EcdsaServerActivationCommit,
+): void {
+  const receipt = serverActivation.serverActivationReceipt;
   if (
-    binding.materialActivation.activationId !== candidate.activationId ||
-    binding.materialActivation.capability !== candidate.signer.capability ||
-    binding.materialActivation.materialOwner !== candidate.signer.materialOwner ||
-    binding.roleLocalBinding !== candidate.roleLocalBinding ||
-    binding.durableMaterialRef !== candidate.durableMaterialRef ||
-    binding.bindingDigest !== candidate.bindingDigest ||
-    binding.lifecycleId !== receipt.lifecycleId ||
-    binding.activationDigest !== receipt.activationDigest ||
-    binding.activatedAt !== receipt.activatedAt
+    durableMaterial.materialActivation.activationId !== activationBinding.activationId ||
+    durableMaterial.materialActivation.capability !== activationBinding.signer.capability ||
+    durableMaterial.materialActivation.materialOwner !== activationBinding.signer.materialOwner ||
+    durableMaterial.roleLocalBinding !== activationBinding.roleLocalBinding ||
+    durableMaterial.durableMaterialRef !== activationBinding.durableMaterialRef ||
+    durableMaterial.bindingDigest !== activationBinding.bindingDigest ||
+    durableMaterial.lifecycleId !== receipt.lifecycleId ||
+    durableMaterial.activationDigest !== receipt.activationDigest ||
+    durableMaterial.activatedAt !== receipt.activatedAt
   ) {
-    throw new Error('Validated ECDSA ready material does not match the committed journal');
+    throw new Error('Durable ECDSA material does not match its activation');
   }
 }
 
