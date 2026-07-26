@@ -5191,7 +5191,15 @@ impl CloudflareDurableObjectResponseV1 {
                 let activation_context = &request.activation.activation_context;
                 if receipt.activation_correlation_id == request.activation_correlation_id
                     && receipt.activation_request_digest == request.activation_request_digest
-                    && receipt.ecdsa_activation == request.ecdsa_activation
+                    && receipt.ecdsa_activation.context == request.ecdsa_activation.context
+                    && receipt.ecdsa_activation.public_identity
+                        == request.ecdsa_activation.public_identity
+                    && receipt.ecdsa_activation.signing_worker
+                        == request.ecdsa_activation.signing_worker
+                    && receipt.ecdsa_activation.activation_epoch
+                        == request.ecdsa_activation.activation_epoch
+                    && receipt.ecdsa_activation.activation_digest_b64u
+                        == request.ecdsa_activation.activation_digest_b64u
                     && receipt.lifecycle_id == activation_context.lifecycle().lifecycle_id
                     && receipt.transcript_digest == activation_context.transcript_digest()
                 {
