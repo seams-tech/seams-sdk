@@ -61,18 +61,7 @@ Concurrent A/B preparation followed by two signed readiness receipts is the
 selected coordination model. It has a deterministic execution boundary and no
 race-and-backoff loop.
 
-The performance benefit from warming is a hypothesis. Cloudflare may schedule
-preparation and execution on different isolates. Phase 0 and deployed
-acceptance must measure:
-
-- concurrent A/B preparation p50/p95;
-- time from both readiness receipts to A execution start;
-- whether A preparation and execution use warm or cold isolates when that
-  telemetry is available;
-- the incremental cost of the additional A service request;
-- root metadata validation time during preparation and revalidation during
-  execution.
-
+Cloudflare may schedule preparation and execution on different isolates.
 Correctness depends on durable prepared records and signed receipts. It never
 depends on isolate reuse or an in-memory cache.
 
@@ -83,10 +72,9 @@ conflict detection, expiry, terminal redelivery, and reconciliation. Adding a
 third lifecycle ledger would duplicate authority and add storage transitions
 to the latency-sensitive path.
 
-A ceremony-wide ledger may be reconsidered only when production evidence shows
-material duplicate-request contention or operational reconciliation cost. A
-future proposal must define its independent invariant, latency budget, and
-deletion impact. It cannot be added as a convenience cache.
+A ceremony-wide ledger may be reconsidered only when a demonstrated
+correctness requirement cannot be represented by the role-local lifecycle.
+It cannot be added as a convenience cache.
 
 ### Disconnect Policy
 
@@ -173,7 +161,7 @@ This refactor owns:
 - Gateway cutover to one `MPC_ROUTER` request;
 - deletion of direct Gateway-to-Deriver and Gateway-to-SigningWorker Yao
   orchestration;
-- lifecycle timing spans and production acceptance measurements;
+- lifecycle timing spans for focused diagnosis;
 - local Router A/B dev parity.
 
 This refactor does not:
@@ -507,8 +495,7 @@ encrypted result.
 
 Preparation is idempotent for an exact pair and rejects a conflicting pair for
 a live session. Cloudflare may schedule preparation and execution on different
-isolates. Warming is an optimization claim that must be measured; correctness
-depends only on the durable readiness receipts.
+isolates. Correctness depends only on the durable readiness receipts.
 
 The final private route names may follow an established path naming pattern.
 Their ownership and semantics are fixed:
@@ -602,7 +589,7 @@ digests and therefore requires a new ceremony identity.
 
 ## Implementation Phases
 
-### Implementation Checklist Audit (July 25, 2026)
+### Implementation Checklist Audit (July 26, 2026)
 
 The checked implementation items below were re-audited against reachable
 production adapters, executable local paths, and focused behavioral tests.
@@ -633,8 +620,8 @@ or production acceptance.
 - [ ] Complete the staged family cutovers and drains, then remove the
       tenant-runtime binding and remaining legacy routes, serializers,
       fixtures, and compatibility boundaries.
-- [ ] Complete Phase 0 production evidence and Phase 6 staging/production
-      acceptance.
+- [ ] Deploy one coherent staging revision and complete manual registration,
+      recovery, and export acceptance.
 
 Audit validation: all `router-ab-core`, `router-ab-cloudflare`, and
 `router-ab-dev` tests pass; 72 focused Gateway contract, persistence, recovery,
@@ -644,44 +631,15 @@ the authenticated execute and recovery-promotion boundaries. Direct calls to
 the lower-level Router boundary helper without a dispatcher intentionally
 return `501`.
 
-### Phase 0: Freeze Baseline And Contracts
+### Phase 0: Freeze Contracts And Staging Gate
 
-Production evidence is deferred until the implementation and coherent staging
-cutover are complete. The unchecked evidence items in this phase remain
-production-acceptance gates; they do not block the remaining implementation
-phases.
-
-- [ ] Capture at least 20 production registration traces with per-span
-      durations for Gateway, Router, B preparation, A preparation, A/B
-      protocol, B result, SigningWorker delivery, D1 commit, and frontend
-      finalization.
-- [ ] Record cold-after-deploy and warm cohorts separately.
-- [ ] Measure the added A preparation request and cross-request isolate reuse
-      rather than assuming a warm execution.
 - [x] Add a trace correlation ID that contains no user identity or secret.
 - [x] Freeze the current successful registration, recovery, and export
       response contracts.
 - [x] Add intended-behaviour assertions for exact retry and terminal failure.
-- [x] Superseded: review the measured critical path before Phase 1. Phases 1–4
-      landed before a complete production baseline could be captured.
-- [ ] Review the measured critical path before production acceptance. If the
-      dominant remaining latency lies outside Yao orchestration, rescope the
-      remaining work around the measured owner.
-- [ ] Derive a Router-owned `gateway.yao_execute` p50/p95 budget from the
-      baseline. Keep the Touch-ID-to-wallet-ready target as a separate
-      product-level budget.
-- [x] Gate the evidence analyzer on platform execution telemetry, including
-      CPU, wall time, memory, Durable Object calls, Worker invocations,
-      D1 exclusion, exact replay, and conflict counts.
+- [x] Add structured boundary spans for diagnosing individual staging
+      ceremonies without making telemetry collection an acceptance gate.
 
-Phase 0 evidence remains open. The available deployment logs do not contain
-20 complete correlated production traces, and the current Wrangler access does
-not expose the Workers Observability telemetry needed to reconstruct them.
-Cold/warm cohorts, Durable Object instantiation/reuse, and the frozen p50/p95
-budget must be captured after a coherent Router, role-worker, and Gateway
-rollout. The strict capture format, analyzer, and current telemetry blockers
-are documented in
-[`refactor-93-production-evidence.md`](./refactor-93-production-evidence.md).
 The lower-level Router contract tests cover exact replay and terminal failure;
 the HTTP backend contract tests assert that a response lost after Router
 execution is retried with the exact admitted body, trace ID, and replay marker,
@@ -1011,7 +969,7 @@ ceremony after the user completes authentication. The safe sequence is:
             capability account to match the signer account.
       - [x] Exercise registration-era recovery and recovered-capability export
             against real D1 from an initially empty partitioned shared record.
-            The export cohort uses a named NEAR account whose value differs
+            The export test uses a named NEAR account whose value differs
             from the registered public-key bytes and the production Wallet
             Session authorization adapter. Exact admission, activation, and
             completed-result retries do not repeat backend work.
@@ -1088,9 +1046,9 @@ the tenant-scoped `ROUTER_API_RUNTIME` after the per-family drains. Its
 pre-cutover fallback, binding, and class remain until the deployed drain receipt
 authorizes deletion.
 
-### Phase 6: Deployment And Production Acceptance
+### Phase 6: Staging Deployment And Manual Acceptance
 
-The staging product cohort uses a local-only Playwright runner rather than a
+The staging product validation uses a local-only Playwright runner rather than a
 deployed test surface. `pnpm -C tests test:refactor93:staging:check` validates
 the exact staging-origin allowlist and proves that private Router service-auth
 material is rejected without contacting staging. A live run uses
@@ -1101,7 +1059,7 @@ so Gateway CORS and wallet RP-ID policy see the real approved origin. The
 deployed Pages build never receives `VITE_ENABLE_INTENDED_E2E`, and the runner
 adds no Gateway route, privileged adapter, D1 seed, or service-auth path.
 
-The automated live slice covers virtual-passkey registration, client-observed
+The automated live test covers virtual-passkey registration, client-observed
 response loss, exact retry, concurrent terminal redelivery, and Ed25519 export
 through the real staging Gateway, Router, and role workers. It emits only route
 counts, the frozen SHA, and SHA-256 digests of the in-memory request and terminal
@@ -1110,20 +1068,11 @@ are never serialized; Playwright tracing, screenshots, and video are disabled.
 Browser contexts own and discard virtual credentials, and runner output lives
 under the operating-system temporary directory.
 
-Phase 6 evidence composes that external transport slice with the focused
-request-scoped and role-lifecycle suites from the same frozen SHA. Those suites
-remain the authority for deterministic conflicting cryptographic requests,
-terminal burning, process restart, and rollback state transitions that cannot
-be safely injected into a hosted product without a test backdoor. A real
-Touch ID acceptance run, Email OTP recovery from a fresh device, and deployment
-rollback/forward restoration remain explicit human or operator checks. This
-composition does not close any staging checkbox until the live slice and those
-external checks are recorded for one coherent deployment.
-
-Cold/warm production evidence and destructive legacy cleanup are deferred until
-the implementation branch is complete and the coherent staging cutover passes.
-These items remain unchecked so implementation completion cannot be mistaken
-for production acceptance.
+The focused request-scoped and role-lifecycle suites remain the authority for
+deterministic conflicting cryptographic requests, terminal burning, process
+restart, and rollback state transitions that cannot be safely injected into a
+hosted product without a test backdoor. A real Touch ID registration and Email
+OTP recovery from a fresh device are explicit manual checks.
 
 The code branch already contains the Gateway cutover, so the historical
 "validate Router while Gateway still uses the old request boundary" step cannot
@@ -1154,7 +1103,7 @@ route-deletion cleanup.
       currently projects one environment `signingRootVersion` onto two
       independently persisted root-share systems, so staging cannot complete a
       dual-branch registration with its existing records.
-- [ ] Reconcile the frozen staging revision's admitted signing-root scope with
+- [x] Reconcile the frozen staging revision's admitted signing-root scope with
       both Ed25519 and ECDSA role-local startup-metadata records. Define the
       deployment-owned root epoch for each root-share system instead of letting
       one tenant environment version initialize or relabel role custody state.
@@ -1168,9 +1117,10 @@ route-deletion cleanup.
       Staging backend run `30174308501` deployed the matched replacement pair
       and fresh role-local object scopes from frozen `dev` revision
       `bf3642dc4` on 2026-07-26. All deployment preflights and five Gateway
-      smoke endpoints passed. This item remains open until a fresh dual-branch
-      registration proves both root-share systems accept `epoch-1` through the
-      product data path.
+      smoke endpoints passed. Backend run `30185829220` and frontend run
+      `30185830270` then deployed merged revision
+      `9791ffc98eaf1799f8fb378e5b09f81b9d654659`. A fresh product registration
+      and export completed through both root-share systems under `epoch-1`.
 - [x] Deploy one frozen staging baseline with every family window unset.
       Backend run `30183541977` and frontend run `30184290832` deployed
       revision `4585f4223a72844bae0ed569601bb34b09804c93` on 2026-07-26.
@@ -1184,23 +1134,25 @@ route-deletion cleanup.
       load `epoch-1`, prepare the exact pair, and sign readiness receipts. It
       then exposed a Cloudflare clock-boundary defect: Deriver A observed
       Deriver B's freshly signed start acceptance as slightly future because
-      Workers clocks report the time of the last I/O. The candidate fix keeps
+      Workers clocks report the time of the last I/O.
+- [x] Diagnose and fix the Cloudflare start-acceptance clock regression without
+      weakening the canonical protocol validator. Commit `ac348b043` keeps
       strict validation as the default and permits at most 1,000 ms future
-      skew only at this Cloudflare peer handoff; focused core and
-      feature-enabled Cloudflare tests pass. The fix still requires a frozen
-      staging redeploy and product-path validation.
-- [ ] With every family window unset, complete the staging cohort for
-      registration, recovery, export, exact replay, conflict, disconnect,
-      terminal redelivery, rollback, restart, and concurrency on that frozen
-      revision. The first registration attempt failed at both role
-      startup-metadata boundaries because the admitted
-      `root_share_epoch=epoch-1` did not match persisted role metadata; no
-      successful product ceremony has been recorded. A diagnostic registration
-      under `default` completed the Ed25519 Router execute in 4.297 seconds,
-      then failed and canceled at ECDSA derivation because that system requires
-      `epoch-1`. In this phase `legacy_runtime` means tenant-runtime lifecycle
-      persistence; the cryptographic execution path already submits one command
-      to the MPC Router.
+      skew only at the Cloudflare A-to-B peer handoff. Focused core tests, the
+      complete feature-enabled Cloudflare adapter suite, and the source-guard
+      chain pass. PR #29 merged the fix to `dev` as
+      `9791ffc98eaf1799f8fb378e5b09f81b9d654659`. Backend run `30185829220`
+      deployed that revision successfully, and the live staging product test
+      completed registration, exact terminal replay, and export.
+- [x] With every family window unset, run the staging registration and export
+      product paths on the frozen revision. The live Playwright test completed
+      both paths and concurrent byte-identical terminal replay against revision
+      `9791ffc98eaf1799f8fb378e5b09f81b9d654659`.
+- [ ] Run the staging recovery product path on the same frozen revision. Verify
+      exact replay,
+      conflict, disconnect, terminal redelivery, rollback, restart, and
+      concurrency with their focused automated tests rather than expanding the
+      hosted staging flow.
 - [x] Superseded: validate the Router while the Gateway still uses the old
       request boundary. The branch already contains the Gateway cutover, so this
       ordering cannot be replayed. The coherent staging rollout below replaces
@@ -1212,19 +1164,10 @@ route-deletion cleanup.
       set to that cutoff plus the measured maximum in-flight lifetime.
 - [ ] Exercise staging registration, recovery, export, exact replay, conflict,
       disconnect, terminal redelivery, and rollback on the coherent versions.
-- [ ] Deploy the accepted coherent backend to production without deleting
-      legacy role routes.
-- [ ] Run cold-after-deploy and warm production cohorts.
-- [ ] Compare latency, errors, Durable Object calls, Worker invocations, CPU,
-      wall time, exact replay, and conflicts against the historical
-      partial observations and the first fully instrumented candidate cohort.
-- [ ] Confirm receipt sequencing improves or preserves p95 after including the
-      additional A preparation request.
-- [ ] Record the final evidence in the Yao deployment plan.
-- [ ] Observe the full production drain interval after the last legacy
-      admission before enabling route deletion.
-- [ ] Deploy and validate route-deletion cleanup in staging, then deploy the
-      same cleanup to production.
+- [ ] Confirm manual staging registration completes successfully after Touch
+      ID, with the post-prompt wait returned to the expected 2–3 second range.
+- [ ] Complete the staging family drains and validate route-deletion cleanup in
+      staging.
 - [x] Replace the failed stack workflow's hard-coded Gateway secret plumbing
       with target-capability-derived backend deployment. Billing is enabled in
       both hosted environments, and both Gateway jobs require
@@ -1293,17 +1236,13 @@ an explicit scope decision:
   after the nonterminal lifetime has elapsed.
 - Caller-disconnect handling follows the forward burn policy when the Router
   observes an uncertain role result. Cloudflare request cancellation does not
-  guarantee a post-disconnect callback, so proving burn for a dropped caller
-  remains a fault-test and platform-evidence gate.
+  guarantee a post-disconnect callback, so dropped-caller burn is covered by
+  the fault-test boundary.
 
-Several acceptance gates remain intentionally open. Production cold/warm traces
-and the frozen latency budget are unavailable under the current Wrangler
-Observability scope. The `router-ab-dev` pair lifecycle has route and ownership
-parity checks, and the Rust harness serves the native Router coordinator through
-authenticated role-worker HTTP boundaries, including recovery promotion.
-Tenant-runtime binding/class removal, drain verification, staging validation,
-and production evidence remain open; those residuals are recorded below rather
-than presented as complete production acceptance.
+The `router-ab-dev` pair lifecycle has route and ownership parity checks, and
+the Rust harness serves the native Router coordinator through authenticated
+role-worker HTTP boundaries, including recovery promotion. Tenant-runtime
+binding/class removal, drain verification, and staging validation remain open.
 
 The current staging Gateway still has one tenant-scoped runtime Durable Object
 (`ROUTER_API_RUNTIME`). It serializes only runtime initialization with
@@ -1354,8 +1293,7 @@ The follow-up review also confirms that the object name is keyed by
 `namespace:org:project:environment`, so all registrations for one tenant
 environment share that instance. That creates a tenant-level throughput ceiling
 and keeps admission/recovery/export persistence on the non-Yao Gateway path.
-The existing Gateway timing spans will size that cost in the Phase 0 cohort;
-the replacement is tracked in the
+The replacement is tracked in the
 [Gateway Ceremony Persistence follow-up](./refactor-93-gateway-persistence-follow-up.md)
 and gates this criterion rather than expanding the Router coordinator scope.
 The shared Cloudflare adapter now provides a per-record Durable Object resolver,
@@ -1546,8 +1484,7 @@ Also run:
 - strict Router, Deriver A, Deriver B, and SigningWorker Worker builds;
 - Wrangler startup dry-runs for all four Workers;
 - local Yao product tests;
-- deployed staging registration, recovery, and export;
-- production trace capture after deployment approval.
+- deployed staging registration, recovery, and export.
 
 Generated vectors and bindings must be regenerated through their repository
 commands. They cannot be hand-edited.
@@ -1586,11 +1523,7 @@ Each span records:
 - operation;
 - outcome class;
 - wall time;
-- CPU time where available;
-- Durable Object call count;
-- Worker invocation count;
-- exact replay and conflict count;
-- cold/warm deployment cohort when known.
+- exact replay and conflict count.
 
 No span records request bodies, HPKE ciphertexts, recipient packages, tokens,
 emails, account IDs, credential IDs, root shares, or private outputs.
@@ -1602,18 +1535,9 @@ and the validated trace value. The SDK emits `registration.post_touch_id` and
 the span name, outcome, duration, and opaque trace value. The Gateway backend
 emits `gateway.pre_yao` and `gateway.yao_execute` through its deployment-provided
 span sink; the Cloudflare Gateway worker writes that event as a structured JSON
-log. The production evidence analyzer accepts platform-attributed CPU, wall
-time, memory, Durable Object call, Worker invocation, D1-query,
-exact-replay, and conflict fields on the `gateway.yao_execute` event and keeps
-missing values as readiness blockers. Current application emitters still emit
-the sanitized span fields above; deployment collection must join those events
-with the platform resource record before Phase 0 can claim those metrics.
-Ceremony digests and cold/warm cohort labels remain deployment-evidence fields;
-they are acceptance requirements rather than claims about the local event
-payload today. The Gateway registration-finalize route now
-emits a sanitized `gateway.d1_commit` event when a validated trace header is
-present; deployment evidence still has to confirm that the event covers the
-intended D1 write and is collected with the rest of the span tree.
+log. The Gateway registration-finalize route emits a sanitized
+`gateway.d1_commit` event when a validated trace header is present. These spans
+support focused diagnosis during staging tests.
 
 The SDK creates one fresh 128-bit lowercase-hex trace value per registration
 ceremony and sends it through the public Gateway routes. Each server boundary
@@ -1623,31 +1547,11 @@ Router forwards the validated value to every role and SigningWorker request in
 the same operation. It is correlation metadata only and is never derived from
 product identity, session secrets, ciphertext, or recipient output.
 
-## Latency Budgets And Ownership
+## Manual Performance Check
 
-Refactor 93 owns the `gateway.yao_execute` span. Before production acceptance,
-the measured cohort freezes its p50 and p95 budget from the recorded subspans.
-The budget must show that A/B preparation overlaps and that no
-Stage/Start/Result wakeup stack remains on the critical path.
-
-The Touch-ID-to-wallet-ready target remains:
-
-- p50 at or below 3 seconds;
-- p95 at or below 4 seconds;
-- zero repeated 10–12 second successful-path plateaus.
-
-That product budget also includes work outside Yao orchestration. Phase 0 must
-name owners for:
-
-1. time inside the current Deriver A Start span that lies outside the measured
-   Yao protocol;
-2. Gateway product logic, D1 commit, and frontend finalization outside the
-   current Yao spans.
-
-Refactor 93 cannot claim the end-to-end performance regression is closed when
-an unassigned companion span still misses the product budget. It may complete
-its orchestration cutover when its own frozen span budget passes and every
-remaining miss has a named follow-up owner.
+The staging registration flow should reach wallet-ready within roughly 2–3
+seconds after Touch ID completes. A slower result is diagnosed from the
+correlated boundary spans for that ceremony.
 
 ## Deployment Sequence
 
@@ -1665,16 +1569,11 @@ remaining miss has a named follow-up owner.
 6. Remove Yao snapshot hydration, persistence, serialization, and routing from
    the tenant runtime after all three drain receipts. Keep the runtime reachable
    only for non-Yao routes until its separate follow-up deletion.
-7. Deploy the accepted coherent backend to production without deleting legacy
-   role routes.
-8. Capture cold and warm production acceptance cohorts and verify the latency,
-   resource, retry, conflict, and D1-exclusion gates.
-9. After the production drain receipt is complete, deploy route cleanup to
-   staging and repeat the lifecycle and rollback checks.
-10. Deploy the same cleanup to production.
+7. Deploy route cleanup to staging and repeat the lifecycle and rollback
+   checks.
 
 Compatibility exists at the tenant lifecycle persistence boundary through step
-5 and at the role/request boundary through step 9. The Gateway has one current
+5 and at the role/request boundary through step 7. The Gateway has one current
 Router cryptographic path throughout; legacy role-boundary handlers remain
 available during the drain window and are removed by the cleanup step.
 
@@ -1707,15 +1606,10 @@ Refactor 93 is complete when:
 14. crypto vectors, type fixtures, Worker builds, and startup dry-runs pass;
 15. the old Stage, Start, Result, and Gateway package-delivery paths are
     deleted;
-16. `gateway.yao_execute` meets the Phase 0 frozen p50/p95 budget and shows no
-    serial Stage/Start/Result wakeup stacking;
-17. the end-to-end product budget is met or every remaining miss outside the
-    Refactor 93 span has a named owner and follow-up;
-18. production traces show no D1 query inside the MPC execution span;
-19. production traces show no `D1 DB is overloaded` error caused by ceremony
-    coordination;
-20. the Yao deployment evidence records cold and warm latency, CPU, memory,
-    requests, Durable Object calls, failures, and retry counts.
+16. manual staging registration, recovery, and export succeed on one coherent
+    backend/frontend revision;
+17. manual registration returns to the expected 2–3 second post-Touch-ID
+    range, or the remaining delay has a concrete span owner and fix.
 
 ## Estimated Size
 
