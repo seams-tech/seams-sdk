@@ -36,6 +36,8 @@
     "benchmark:ecapa": "python3 verifier-spike/benchmark_ecapa.py",
     "benchmark:aasist": "python3 verifier-spike/benchmark_aasist.py",
     "benchmark:suite": "python3 verifier-spike/benchmark_suite.py",
+    "benchmark:check": "python3 verifier-spike/check_benchmark_budgets.py",
+    "fuzz:media": "PYTHONPATH=verifier python3 verifier-spike/fuzz_media.py",
     "pad:evaluate": "python3 verifier-spike/evaluate_pad.py --manifest fixtures/voiceid-pad-evaluation.json",
     "verifier:test": "python3 -m unittest discover verifier -p \"*test*.py\""
   },

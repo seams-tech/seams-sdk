@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import resource
 import sys
 from array import array
 from pathlib import Path
@@ -85,7 +86,9 @@ def benchmark_aasist(
         "acceptThreshold": accept_threshold,
         "entries": [entry_to_json(entry) for entry in entries],
     }
-    return raw_report, report_to_json(evaluation)
+    evaluation_report = report_to_json(evaluation)
+    evaluation_report["peakRssBytes"] = peak_rss_bytes()
+    return raw_report, evaluation_report
 
 
 def evaluate_entry(
@@ -162,6 +165,11 @@ def entry_to_json(entry: PadEvaluationEntry) -> dict[str, Any]:
 def write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
+
+def peak_rss_bytes() -> int:
+    maximum_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return maximum_rss if sys.platform == "darwin" else maximum_rss * 1024
 
 
 def main() -> None:

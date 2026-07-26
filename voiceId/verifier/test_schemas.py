@@ -302,6 +302,16 @@ class VerifierSchemaTest(unittest.TestCase):
                 self.assertEqual(response["kind"], "rejected")
                 self.assertEqual(response["reason"], "decoder_failure")
 
+    def test_rejects_audio_beyond_maximum_decoded_duration(self) -> None:
+        audio_bytes = wav_audio_bytes([(None, 30100)])
+
+        response = build_enrollment_template_from_json(
+            enrollment_request(audio_bytes=audio_bytes, duration_ms=30100)
+        )
+
+        self.assertEqual(response["kind"], "rejected")
+        self.assertEqual(response["reason"], "decoder_failure")
+
     def test_returns_metadata_mismatch_for_false_capture_claims(self) -> None:
         response = build_enrollment_template_from_json(
             enrollment_request(
