@@ -1085,6 +1085,36 @@ authorizes deletion.
 
 ### Phase 6: Deployment And Production Acceptance
 
+The staging product cohort uses a local-only Playwright runner rather than a
+deployed test surface. `pnpm -C tests test:refactor93:staging:check` validates
+the exact staging-origin allowlist and proves that private Router service-auth
+material is rejected without contacting staging. A live run uses
+`pnpm -C tests test:refactor93:staging` with the frozen full commit SHA and the
+public staging frontend configuration in the environment. Playwright serves an
+instrumented frontend locally while fulfilling the exact staging site origin,
+so Gateway CORS and wallet RP-ID policy see the real approved origin. The
+deployed Pages build never receives `VITE_ENABLE_INTENDED_E2E`, and the runner
+adds no Gateway route, privileged adapter, D1 seed, or service-auth path.
+
+The automated live slice covers virtual-passkey registration, client-observed
+response loss, exact retry, concurrent terminal redelivery, and Ed25519 export
+through the real staging Gateway, Router, and role workers. It emits only route
+counts, the frozen SHA, and SHA-256 digests of the in-memory request and terminal
+response. Authorization headers, request bodies, credentials, and wallet state
+are never serialized; Playwright tracing, screenshots, and video are disabled.
+Browser contexts own and discard virtual credentials, and runner output lives
+under the operating-system temporary directory.
+
+Phase 6 evidence composes that external transport slice with the focused
+request-scoped and role-lifecycle suites from the same frozen SHA. Those suites
+remain the authority for deterministic conflicting cryptographic requests,
+terminal burning, process restart, and rollback state transitions that cannot
+be safely injected into a hosted product without a test backdoor. A real
+Touch ID acceptance run, Email OTP recovery from a fresh device, and deployment
+rollback/forward restoration remain explicit human or operator checks. This
+composition does not close any staging checkbox until the live slice and those
+external checks are recorded for one coherent deployment.
+
 Cold/warm production evidence and destructive legacy cleanup are deferred until
 the implementation branch is complete and the coherent staging cutover passes.
 These items remain unchecked so implementation completion cannot be mistaken
