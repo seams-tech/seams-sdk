@@ -1,7 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { unlock } from '@/SeamsWeb/operations/auth/login';
 import { resolveNearAccountIdForWalletAuthUnlockRecord } from '@/SeamsWeb/operations/auth/walletAuth';
-import { resolveNearEd25519WalletUnlockSubject } from '@/SeamsWeb/operations/auth/walletUnlockSubject';
+import {
+  resolveNearEd25519WalletUnlockSubject,
+  resolveWalletUnlockSubjectSet,
+} from '@/SeamsWeb/operations/auth/walletUnlockSubject';
+import { resolveEvmFamilyEcdsaWalletUnlockSubjectSet } from '@/SeamsWeb/operations/auth/walletUnlockEcdsaSubject';
 import { SeamsWeb } from '@/SeamsWeb';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { createUnlockFlowEvent, UnlockEventPhase } from '@/core/types/sdkSentEvents';
@@ -13,10 +17,12 @@ import {
   upsertThresholdEd25519SessionFact,
 } from '@/core/signingEngine/session/persistence/records';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
+import { seedAccountSignerRecord } from './helpers/accountSignerRecord.fixtures';
 
 const UNLOCK_NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
 const UNLOCK_WALLET_ID = 'frost-unlock-k7p9m2';
 const UNLOCK_NEAR_ED25519_SIGNING_KEY_ID = 'near-ed25519-unlock-k7p9m2';
+const UNLOCK_ECDSA_THRESHOLD_KEY_ID = 'ecdsa-threshold-key-unlock-k7p9m2';
 
 function seedUnlockPasskeyWalletBinding(): void {
   upsertThresholdEd25519SessionFact({
@@ -98,6 +104,166 @@ test.describe('SeamsWeb unlock cancellation events', () => {
       expect(subject?.nearEd25519SigningKeyId).toBe(UNLOCK_NEAR_ED25519_SIGNING_KEY_ID);
       expect(subject?.signerSlot).toBe(1);
     } finally {
+      IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
+    }
+  });
+
+  test('ECDSA-only subject resolution reads no NEAR runtime or signer identity', async () => {
+    const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
+    let nearSignerQueries = 0;
+    IndexedDBManager.listActiveWalletSigners = async (args: {
+      walletId: string;
+      signerFamily: 'ed25519' | 'ecdsa';
+    }) => {
+      if (args.signerFamily === 'ed25519') {
+        nearSignerQueries += 1;
+        throw new Error('ECDSA-only resolution must not query NEAR signer identity');
+      }
+      return [
+        seedAccountSignerRecord({
+          profileId: UNLOCK_WALLET_ID,
+          metadata: {
+            walletId: UNLOCK_WALLET_ID,
+            ecdsaThresholdKeyId: UNLOCK_ECDSA_THRESHOLD_KEY_ID,
+          },
+        }),
+      ];
+    };
+    try {
+      seedUnlockPasskeyWalletBinding();
+      const resolution = await resolveEvmFamilyEcdsaWalletUnlockSubjectSet(UNLOCK_WALLET_ID);
+
+      expect(nearSignerQueries).toBe(0);
+      expect(resolution).toEqual({
+        kind: 'resolved',
+        subjectSet: {
+          kind: 'wallet_unlock_subject_set',
+          walletId: UNLOCK_WALLET_ID,
+          subjects: [
+            {
+              kind: 'evm_family_ecdsa_wallet',
+              walletId: UNLOCK_WALLET_ID,
+              ecdsaThresholdKeyId: UNLOCK_ECDSA_THRESHOLD_KEY_ID,
+            },
+          ],
+        },
+      });
+    } finally {
+      clearUnlockPasskeyWalletBinding();
+      IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
+    }
+  });
+
+  test('all-registered subject resolution returns NEAR and ECDSA branches', async () => {
+    const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
+    IndexedDBManager.listActiveWalletSigners = async (args: {
+      walletId: string;
+      signerFamily: 'ed25519' | 'ecdsa';
+    }) => {
+      if (args.signerFamily === 'ed25519') return [];
+      return [
+        seedAccountSignerRecord({
+          profileId: UNLOCK_WALLET_ID,
+          metadata: {
+            walletId: UNLOCK_WALLET_ID,
+            ecdsaThresholdKeyId: UNLOCK_ECDSA_THRESHOLD_KEY_ID,
+          },
+        }),
+      ];
+    };
+    try {
+      seedUnlockPasskeyWalletBinding();
+      const resolution = await resolveWalletUnlockSubjectSet({
+        walletId: UNLOCK_WALLET_ID,
+        requestedCapabilityFamilies: { kind: 'all_registered_mpc' },
+      });
+
+      expect(resolution).toEqual({
+        kind: 'resolved',
+        subjectSet: {
+          kind: 'wallet_unlock_subject_set',
+          walletId: UNLOCK_WALLET_ID,
+          subjects: [
+            {
+              kind: 'near_ed25519_wallet',
+              walletId: UNLOCK_WALLET_ID,
+              nearAccountId: UNLOCK_NEAR_ACCOUNT_ID,
+              nearEd25519SigningKeyId: UNLOCK_NEAR_ED25519_SIGNING_KEY_ID,
+              signerSlot: 1,
+            },
+            {
+              kind: 'evm_family_ecdsa_wallet',
+              walletId: UNLOCK_WALLET_ID,
+              ecdsaThresholdKeyId: UNLOCK_ECDSA_THRESHOLD_KEY_ID,
+            },
+          ],
+        },
+      });
+    } finally {
+      clearUnlockPasskeyWalletBinding();
+      IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
+    }
+  });
+
+  test('all-registered subject resolution fails closed on an unavailable family lookup', async () => {
+    const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
+    IndexedDBManager.listActiveWalletSigners = async (args: {
+      walletId: string;
+      signerFamily: 'ed25519' | 'ecdsa';
+    }) => {
+      if (args.signerFamily === 'ecdsa') {
+        throw new Error('simulated ECDSA signer lookup failure');
+      }
+      return [];
+    };
+    try {
+      seedUnlockPasskeyWalletBinding();
+      const resolution = await resolveWalletUnlockSubjectSet({
+        walletId: UNLOCK_WALLET_ID,
+        requestedCapabilityFamilies: { kind: 'all_registered_mpc' },
+      });
+
+      expect(resolution).toEqual({
+        kind: 'capability_subject_resolution_failed',
+        walletId: UNLOCK_WALLET_ID,
+        reason: 'capability_subject_lookup_failed',
+      });
+    } finally {
+      clearUnlockPasskeyWalletBinding();
+      IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
+    }
+  });
+
+  test('all-registered subject resolution rejects invalid persisted capability identity', async () => {
+    const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
+    IndexedDBManager.listActiveWalletSigners = async (args: {
+      walletId: string;
+      signerFamily: 'ed25519' | 'ecdsa';
+    }) => {
+      if (args.signerFamily === 'ed25519') return [];
+      return [
+        seedAccountSignerRecord({
+          profileId: UNLOCK_WALLET_ID,
+          metadata: {
+            walletId: UNLOCK_WALLET_ID,
+          },
+        }),
+      ];
+    };
+    try {
+      seedUnlockPasskeyWalletBinding();
+      const resolution = await resolveWalletUnlockSubjectSet({
+        walletId: UNLOCK_WALLET_ID,
+        requestedCapabilityFamilies: { kind: 'all_registered_mpc' },
+      });
+
+      expect(resolution).toEqual({
+        kind: 'capability_subject_resolution_failed',
+        walletId: UNLOCK_WALLET_ID,
+        reason: 'invalid_capability_subject',
+      });
+    } finally {
+      clearUnlockPasskeyWalletBinding();
       IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
     }
   });
