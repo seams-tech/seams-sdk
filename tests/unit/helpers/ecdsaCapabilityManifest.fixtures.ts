@@ -1,6 +1,8 @@
 import {
   buildEcdsaActivationBinding,
+  buildActiveEcdsaCapabilityManifest,
   buildEcdsaCapabilityScope,
+  buildDurableEcdsaMaterialBinding,
   buildEcdsaManifestIdentity,
   buildEcdsaRoleLocalMaterialBinding,
   buildEncryptedEcdsaPendingCandidate,
@@ -9,7 +11,12 @@ import {
   buildPreparedEcdsaActivationCandidate,
   buildPreparedEcdsaActivationJournal,
   buildPreparedEvmFamilySigner,
+  buildServerCommittedEcdsaActivationJournal,
+  buildValidatedEncryptedEcdsaReadyMaterial,
+  type ActiveEcdsaCapabilityManifest,
   type PreparedEcdsaActivationJournal,
+  type ServerCommittedEcdsaActivationJournal,
+  type ValidatedEncryptedEcdsaReadyMaterial,
 } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import {
   parseEcdsaClientVerifyingPublicKey33B64u,
@@ -19,7 +26,11 @@ import {
   parseEcdsaRoleLocalDurableMaterialRef,
   parseEcdsaThresholdKeyId,
 } from '@/core/signingEngine/session/keyMaterialBrands';
-import { toParticipantId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  buildVerifiedEcdsaPublicFacts,
+  toEvmFamilyEcdsaKeyHandle,
+  toParticipantId,
+} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   parseSdkEcdsaDerivationSigningRootId,
   parseSdkEcdsaDerivationSigningRootVersion,
@@ -35,6 +46,7 @@ import {
   parseEcdsaCapabilityManifestId,
   parseEcdsaCapabilityManifestRevision,
   parseEcdsaCiphertextB64u,
+  parseEcdsaCiphertextDigest,
   parseEcdsaIv12B64u,
   parseEcdsaMaterialSealingKeyId,
   parseEcdsaPendingCiphertextDigest,
@@ -68,6 +80,9 @@ function unwrap<T>(result: DomainIdParseResult<T>): T {
 
 export type EcdsaCapabilityActivationFixture = {
   readonly preparedJournal: PreparedEcdsaActivationJournal;
+  readonly committedJournal: ServerCommittedEcdsaActivationJournal;
+  readonly readyMaterial: ValidatedEncryptedEcdsaReadyMaterial;
+  readonly activeManifest: ActiveEcdsaCapabilityManifest;
   readonly protocolReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
   readonly requestDigest: ReturnType<typeof parseDigestB64u>;
   readonly serverGeneration: ReturnType<typeof parseEcdsaServerGeneration>;
@@ -136,39 +151,75 @@ export function ecdsaCapabilityActivationFixture(): EcdsaCapabilityActivationFix
     createdAt: parseIsoTimestamp('2026-07-27T00:00:00.000Z'),
   });
   const serverGeneration = parseEcdsaServerGeneration('ecdsa-server-generation-fixture');
+  const protocolReceipt: RouterAbEcdsaRegistrationActivationReceiptV1 = {
+    activation_correlation_id: preparedJournal.journalId,
+    activation_request_digest: { bytes: new Array<number>(32).fill(12) },
+    server_generation: serverGeneration,
+    ecdsa_activation: {
+      context: {
+        application_binding_digest_b64u: DIGEST_B64U,
+      },
+      public_identity: {
+        context_binding_b64u: DIGEST_B64U,
+        derivation_client_share_public_key33_b64u: CLIENT_PUBLIC_KEY_B64U,
+        server_public_key33_b64u: SERVER_PUBLIC_KEY_B64U,
+        threshold_public_key33_b64u: CLIENT_PUBLIC_KEY_B64U,
+        ethereum_address20_b64u: base64UrlEncode(new Uint8Array(20).fill(7)),
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 0,
+      },
+      signing_worker: {
+        server_id: 'signing-worker-fixture',
+        key_epoch: 'key-epoch-fixture',
+        recipient_encryption_key:
+          'x25519:1111111111111111111111111111111111111111111111111111111111111111',
+      },
+      activation_epoch: unwrap(parseRootShareEpoch('activation-epoch-fixture')),
+      activation_digest_b64u: DIGEST_B64U,
+      activated_at_ms: 1_753_574_400_000,
+    },
+    lifecycle_id: 'ecdsa-lifecycle-fixture',
+    transcript_digest: { bytes: new Array<number>(32).fill(8) },
+  };
+  const committedJournal = buildServerCommittedEcdsaActivationJournal({
+    preparedJournal,
+    serverCommit: {
+      correlationId: preparedJournal.journalId,
+      activationRequestDigest: requestDigest,
+      serverGeneration,
+      protocolReceipt,
+    },
+  });
+  const durableMaterial = buildDurableEcdsaMaterialBinding({
+    activationBinding,
+    serverActivation: committedJournal.serverActivation,
+    ciphertextDigest: parseEcdsaCiphertextDigest(DIGEST_B64U),
+  });
+  const readyMaterial = buildValidatedEncryptedEcdsaReadyMaterial({
+    binding: durableMaterial,
+    sealingKeyId: preparedJournal.candidate.encryptedPending.sealingKeyId,
+    iv12B64u: preparedJournal.candidate.encryptedPending.iv12B64u,
+    ciphertextB64u: preparedJournal.candidate.encryptedPending.ciphertextB64u,
+  });
+  const activeManifest = buildActiveEcdsaCapabilityManifest({
+    activationBinding,
+    serverActivation: committedJournal.serverActivation,
+    registeredPublicFacts: buildVerifiedEcdsaPublicFacts({
+      keyHandle: toEvmFamilyEcdsaKeyHandle(roleLocalBinding.keyHandle),
+      publicKeyB64u: CLIENT_PUBLIC_KEY_B64U,
+      participantIds: roleLocalBinding.participantIds,
+      thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
+    }),
+    durableMaterial,
+    committedAt: parseIsoTimestamp('2026-07-27T00:01:00.000Z'),
+  });
   return {
     preparedJournal,
+    committedJournal,
+    readyMaterial,
+    activeManifest,
     requestDigest,
     serverGeneration,
-    protocolReceipt: {
-      activation_correlation_id: preparedJournal.journalId,
-      activation_request_digest: { bytes: new Array<number>(32).fill(12) },
-      server_generation: serverGeneration,
-      ecdsa_activation: {
-        context: {
-          application_binding_digest_b64u: DIGEST_B64U,
-        },
-        public_identity: {
-          context_binding_b64u: DIGEST_B64U,
-          derivation_client_share_public_key33_b64u: CLIENT_PUBLIC_KEY_B64U,
-          server_public_key33_b64u: SERVER_PUBLIC_KEY_B64U,
-          threshold_public_key33_b64u: CLIENT_PUBLIC_KEY_B64U,
-          ethereum_address20_b64u: base64UrlEncode(new Uint8Array(20).fill(7)),
-          client_share_retry_counter: 0,
-          server_share_retry_counter: 0,
-        },
-        signing_worker: {
-          server_id: 'signing-worker-fixture',
-          key_epoch: 'key-epoch-fixture',
-          recipient_encryption_key:
-            'x25519:1111111111111111111111111111111111111111111111111111111111111111',
-        },
-        activation_epoch: unwrap(parseRootShareEpoch('activation-epoch-fixture')),
-        activation_digest_b64u: DIGEST_B64U,
-        activated_at_ms: 1_753_574_400_000,
-      },
-      lifecycle_id: 'ecdsa-lifecycle-fixture',
-      transcript_digest: { bytes: new Array<number>(32).fill(8) },
-    },
+    protocolReceipt,
   };
 }

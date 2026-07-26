@@ -25,6 +25,10 @@ const ECDSA_MATERIAL_STORE_SOURCES = [
     '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaPresignMaterialStore.ts',
     import.meta.url,
   ),
+  new URL(
+    '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.ts',
+    import.meta.url,
+  ),
 ] as const;
 const ROLE_LOCAL_STORE_SOURCE = fileURLToPath(ECDSA_MATERIAL_STORE_SOURCES[0]);
 const ROLE_LOCAL_STORE_BUNDLE_PATH = `${tmpdir()}/seams-ecdsa-role-local-store-${process.pid}.mjs`;
@@ -53,7 +57,7 @@ test.describe('IndexedDB consolidation', () => {
 
   test('canonical wallet schema names use one Seams-prefixed DB and unprefixed snake_case stores', () => {
     expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet');
-    expect(SEAMS_WALLET_DB_VERSION).toBe(9);
+    expect(SEAMS_WALLET_DB_VERSION).toBe(10);
     expect(Object.values(SEAMS_WALLET_STORES).every((name) => !name.startsWith('seams_'))).toBe(
       true,
     );
@@ -119,20 +123,17 @@ test.describe('IndexedDB consolidation', () => {
       const store = new storeModule.IndexedDbEcdsaRoleLocalSessionMaterialStore();
 
       await store.putActive({
-        version: 1,
         durableMaterialRef: 'role-local-material-1',
         bindingDigest: 'binding-digest-1',
         lifecycleId: 'lifecycle-1',
         transcriptDigestB64u: 'transcript-1',
         activationDigestB64u: 'activation-1',
         activatedAtMs: 1_000,
-        expiresAtMs: 10_000,
         stateBlobB64u: 'encrypted-state-blob',
       });
       const restored = await store.restoreActive({
         durableMaterialRef: 'role-local-material-1',
         expectedBindingDigest: 'binding-digest-1',
-        nowMs: 2_000,
       });
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
         const request = indexedDB.open('seams_wallet');
@@ -158,7 +159,6 @@ test.describe('IndexedDB consolidation', () => {
       transcriptDigestB64u: 'transcript-1',
       activationDigestB64u: 'activation-1',
       activatedAtMs: 1_000,
-      expiresAtMs: 10_000,
     });
   });
 

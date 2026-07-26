@@ -1,5 +1,5 @@
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 9 as const;
+export const SEAMS_WALLET_DB_VERSION = 10 as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'app_state',
@@ -18,6 +18,11 @@ export const SEAMS_WALLET_STORES = {
   emailOtpRecoveryCodeBackups: 'email_otp_pending_recovery_code_backups',
   ecdsaRoleLocalSealingKeys: 'ecdsa_role_local_sealing_keys',
   ecdsaRoleLocalActiveMaterial: 'ecdsa_role_local_active_material',
+  ecdsaCapabilityManifests: 'ecdsa_capability_manifests',
+  ecdsaCurrentCapabilityManifests: 'ecdsa_current_capability_manifests',
+  ecdsaRoleLocalMaterial: 'ecdsa_role_local_material',
+  ecdsaActivationCommitJournals: 'ecdsa_activation_commit_journals',
+  ecdsaMaterialSealingKeys: 'ecdsa_material_sealing_keys',
   ecdsaPresignSealingKeys: 'ecdsa_presign_sealing_keys',
   ecdsaPresignRecords: 'ecdsa_presign_records',
 } as const;
@@ -83,6 +88,9 @@ export const SEAMS_WALLET_INDEXES = {
   authIdentifierKey: 'auth_identifier_key',
   kindRpIdAuthIdentifier: 'kind_rp_id_auth_identifier',
   passkeyRpIdCredentialId: 'passkey_rp_id_credential_id',
+  capabilityWallet: 'capability_wallet',
+  capabilityWalletAuthorityState: 'capability_wallet_authority_state',
+  capabilityWalletAuthority: 'capability_wallet_authority',
 } as const;
 
 export type SeamsWalletStoreName = (typeof SEAMS_WALLET_STORES)[keyof typeof SEAMS_WALLET_STORES];
@@ -360,6 +368,48 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
   {
     store: SEAMS_WALLET_STORES.ecdsaRoleLocalActiveMaterial,
     keyPath: 'durableMaterialRef',
+    indexes: [],
+  },
+  {
+    store: SEAMS_WALLET_STORES.ecdsaCapabilityManifests,
+    keyPath: 'manifest_id',
+    indexes: [
+      {
+        name: SEAMS_WALLET_INDEXES.capabilityWallet,
+        keyPath: ['capability_ref', 'wallet_id'],
+        unique: false,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.capabilityWalletAuthorityState,
+        keyPath: ['capability_ref', 'wallet_id', 'authority_digest', 'manifest_state'],
+        unique: false,
+      },
+    ],
+  },
+  {
+    store: SEAMS_WALLET_STORES.ecdsaCurrentCapabilityManifests,
+    keyPath: ['capability_ref', 'wallet_id', 'authority_digest'],
+    indexes: [],
+  },
+  {
+    store: SEAMS_WALLET_STORES.ecdsaRoleLocalMaterial,
+    keyPath: 'durable_material_ref',
+    indexes: [],
+  },
+  {
+    store: SEAMS_WALLET_STORES.ecdsaActivationCommitJournals,
+    keyPath: 'journal_id',
+    indexes: [
+      {
+        name: SEAMS_WALLET_INDEXES.capabilityWalletAuthority,
+        keyPath: ['capability_ref', 'wallet_id', 'authority_digest'],
+        unique: true,
+      },
+    ],
+  },
+  {
+    store: SEAMS_WALLET_STORES.ecdsaMaterialSealingKeys,
+    keyPath: 'key_id',
     indexes: [],
   },
   {
