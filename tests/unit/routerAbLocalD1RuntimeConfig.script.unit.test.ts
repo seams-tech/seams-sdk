@@ -120,10 +120,8 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
   );
   expect(config).toContain('binding = "MPC_ROUTER"');
   expect(config).toContain('service = "router-ab-mpc-router"');
-  expect(config).toContain('binding = "DERIVER_A"');
-  expect(config).toContain('service = "router-ab-deriver-a"');
-  expect(config).toContain('binding = "DERIVER_B"');
-  expect(config).toContain('service = "router-ab-deriver-b"');
+  expect(config).not.toContain('binding = "DERIVER_A"');
+  expect(config).not.toContain('binding = "DERIVER_B"');
   expect(config).toContain('binding = "SIGNING_WORKER"');
   expect(config).toContain('service = "router-ab-signing-worker"');
   expect(config).not.toContain('DERIVER_A_URL =');

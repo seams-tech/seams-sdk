@@ -7,7 +7,7 @@ import {
 import { resolveSponsoredExecutionPricingFromEnv } from '@seams-internal/console-server/sponsorship/pricing';
 import { requireStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
 import { createCloudflareRouter } from '@seams/sdk-server/internal/router/cloudflare/createCloudflareRouter';
-import { json, withCors } from '@seams/sdk-server/internal/router/cloudflare/http';
+import { withCors } from '@seams/sdk-server/internal/router/cloudflare/http';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import { createAppSessionConsoleAuthAdapter } from '../consoleAppSessionAuth';
 import {
@@ -15,10 +15,7 @@ import {
   createCloudflareD1RouterApiRouteExtensions,
 } from './d1ConsoleServices';
 import type { CloudflareD1EmailOtpServerSealConfig } from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthConfig';
-import {
-  createCloudflareD1RouterApiAuthService,
-  createLegacyCloudflareD1RouterApiAuthService,
-} from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthService';
+import { createCloudflareD1RouterApiAuthService } from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthService';
 import { loadCloudflareSignerWasmModule } from './d1SignerWasm';
 import type { ThresholdStoreConfigInput } from '@seams/sdk-server/internal/core/types';
 import { createSigningSessionSealOptions } from '@seams/sdk-server/internal/threshold/session/signingSessionSeal/options';
@@ -37,12 +34,7 @@ import {
   type RouterAbEd25519YaoGatewaySpanV1,
 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoHttpRegistrationBackend';
 import {
-  createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1,
-  createRouterAbEd25519YaoProductRegistrationStateV1,
-  parseRouterAbEd25519YaoProductRegistrationStateV1,
-  type RouterAbEd25519YaoProductRegistrationCompositionV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
-  type RouterAbEd25519YaoProductRegistrationStateV1,
 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoProductRegistration';
 import type { SessionAdapter } from '@seams/sdk-server/internal/router/routerApi';
 import { D1WalletStore } from '@seams/sdk-server/internal/core/d1WalletStore';
@@ -86,16 +78,6 @@ import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } fro
 import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRecoveryRequestScopedCloudflare';
 import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoExportRequestScopedCloudflare';
 import {
-  familyOfRouterAbEd25519YaoGatewayOperationV1,
-  resolveRouterAbEd25519YaoGatewayRouteV1,
-  routerAbEd25519YaoGatewayUsesPartitionedD1V1,
-  validateRouterAbEd25519YaoGatewayCutoverStateV1,
-  type RouterAbEd25519YaoGatewayCutoverFamilyV1,
-  type RouterAbEd25519YaoGatewayOperationV1,
-  type RouterAbEd25519YaoGatewayCutoverStateV1,
-} from '@seams/sdk-server/internal/router/cloudflare/routerAbEd25519YaoGatewayCutover';
-import { ROUTER_AB_ED25519_WALLET_SESSION_PATH } from '@shared/utils/signingSessionSeal';
-import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
@@ -113,13 +95,6 @@ interface CloudflareD1RouterApiStagingEnv
   readonly CONSOLE_DB: D1DatabaseLike;
   readonly SIGNER_DB: D1DatabaseLike;
   readonly THRESHOLD_STORE: CloudflareDurableObjectNamespaceLike;
-  readonly ROUTER_API_RUNTIME: CloudflareDurableObjectNamespaceLike;
-  readonly ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS?: string;
-  readonly ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS?: string;
-  readonly ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS?: string;
-  readonly ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS?: string;
-  readonly ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS?: string;
-  readonly ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS?: string;
   readonly SEAMS_TENANT_STORAGE_NAMESPACE?: string;
   readonly SEAMS_STAGING_ORG_ID?: string;
   readonly SEAMS_STAGING_PROJECT_ID?: string;
@@ -192,35 +167,6 @@ type RouterApiTenantScope = {
   readonly envId: string;
 };
 
-type RouterApiRuntimeDurableObjectStorage = {
-  get(key: string): Promise<unknown>;
-  put(key: string, value: unknown): Promise<void>;
-};
-
-type RouterApiRuntimeDurableObjectState = {
-  readonly storage: RouterApiRuntimeDurableObjectStorage;
-  blockConcurrencyWhile<T>(callback: () => Promise<T>): Promise<T>;
-};
-
-type RouterApiRuntimeContext = {
-  readonly handler: FetchHandler;
-  readonly yaoState: RouterAbEd25519YaoProductRegistrationStateV1;
-};
-
-type RouterApiHandlerFactory = (
-  env: CloudflareD1RouterApiStagingEnv,
-  yaoState: RouterAbEd25519YaoProductRegistrationStateV1,
-) => Promise<FetchHandler>;
-
-type RouterApiYaoRuntimeMode =
-  | {
-      readonly kind: 'legacy_stateful';
-      readonly state: RouterAbEd25519YaoProductRegistrationStateV1;
-    }
-  | { readonly kind: 'partitioned_d1' };
-
-const ROUTER_API_YAO_STATE_KEY = 'router-api:ed25519-yao-product-state:v1';
-
 const RELAY_CONSOLE_READY_TABLES = Object.freeze([
   'organizations',
   'projects',
@@ -288,48 +234,7 @@ function stagingTenantScope(env: CloudflareD1RouterApiStagingEnv): RouterApiTena
   };
 }
 
-async function createStagingEd25519YaoComposition(
-  env: CloudflareD1RouterApiStagingEnv,
-  session: SessionAdapter,
-  state: RouterAbEd25519YaoProductRegistrationStateV1,
-): Promise<RouterAbEd25519YaoProductRegistrationCompositionV1> {
-  const scope = stagingTenantScope(env);
-  const walletStore = new D1WalletStore({
-    database: env.SIGNER_DB,
-    namespace: scope.namespace,
-    orgId: scope.orgId,
-    projectId: scope.projectId,
-    envId: scope.envId,
-    ensureSchema: false,
-  });
-  const composition = createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1({
-    signingWorkerId: requireEnvString(env, 'SIGNING_WORKER_ID'),
-    backend: createStagingEd25519YaoBackend(env),
-    session,
-    webAuthn: new CloudflareD1WebAuthnAuthService({
-      webAuthnStore: new CloudflareD1WebAuthnStore({
-        database: env.SIGNER_DB,
-        namespace: scope.namespace,
-        orgId: scope.orgId,
-        projectId: scope.projectId,
-        envId: scope.envId,
-      }),
-    }),
-    state,
-    capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence({
-      database: env.SIGNER_DB,
-      scope,
-      walletStore,
-      ensureSchema: false,
-    }),
-  });
-  return composition;
-}
-
-async function createRouterApiHandler(
-  env: CloudflareD1RouterApiStagingEnv,
-  yaoMode: RouterApiYaoRuntimeMode,
-): Promise<FetchHandler> {
+async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Promise<FetchHandler> {
   const scope = stagingTenantScope(env);
   const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromWorkerEnv(env);
   const bundle = await createCloudflareD1ConsoleServiceBundle({
@@ -358,14 +263,7 @@ async function createRouterApiHandler(
     issuer: readEnvString(env, 'RELAY_SESSION_ISSUER'),
     audience: readEnvString(env, 'RELAY_SESSION_AUDIENCE'),
   });
-  const ed25519Yao =
-    yaoMode.kind === 'legacy_stateful'
-      ? await createStagingEd25519YaoComposition(env, session, yaoMode.state)
-      : null;
-  const partitionedYaoRuntime =
-    yaoMode.kind === 'partitioned_d1' ? createStagingYaoRequestScopedRuntime(env, session) : null;
-  const yaoRuntime = partitionedYaoRuntime || ed25519Yao?.runtime;
-  if (!yaoRuntime) throw new Error('staging Ed25519 Yao runtime is unavailable');
+  const yaoRuntime = createStagingYaoRequestScopedRuntime(env, session);
   const ecdsaCeremonyTokenIssuer = createStagingEcdsaCeremonyTokenIssuer(env);
   const ecdsaStrictRegistration = createRouterAbEcdsaStrictRegistrationPort({
     router: env.MPC_ROUTER,
@@ -387,11 +285,7 @@ async function createRouterApiHandler(
     },
     topology: requireStagingEcdsaRegistrationTopology(env),
   });
-  const createAuthService =
-    yaoMode.kind === 'legacy_stateful'
-      ? createLegacyCloudflareD1RouterApiAuthService
-      : createCloudflareD1RouterApiAuthService;
-  const service = createAuthService({
+  const service = createCloudflareD1RouterApiAuthService({
     database: env.SIGNER_DB,
     namespace: scope.namespace,
     orgId: scope.orgId,
@@ -459,7 +353,6 @@ async function createRouterApiHandler(
     routerAbEcdsaStrictPostRegistration: ecdsaStrictPostRegistration,
     readyCheck: createRouterApiReadyCheck(env),
     signingSessionSeal: stagingSigningSessionSealOptions(env, thresholdStoreConfig),
-    ...(ed25519Yao ? { modules: [ed25519Yao.module] } : {}),
     routerAbEd25519YaoProduct: yaoRuntime,
   });
   const consoleAuth = createAppSessionConsoleAuthAdapter({
@@ -604,7 +497,6 @@ class RouterApiStagingReadyCheck {
       tables: RELAY_SIGNER_READY_TABLES,
     });
     this.env.THRESHOLD_STORE.idFromName('seams-d1-relay-staging-readyz');
-    this.env.ROUTER_API_RUNTIME.idFromName('seams-d1-router-api-runtime-staging-readyz');
   }
 }
 
@@ -743,112 +635,13 @@ function normalizeString(input: unknown): string {
   return String(input || '').trim();
 }
 
-function readRouterApiYaoState(persisted: unknown): RouterAbEd25519YaoProductRegistrationStateV1 {
-  if (persisted === null || persisted === undefined) {
-    return createRouterAbEd25519YaoProductRegistrationStateV1();
-  }
-  const parsed = parseRouterAbEd25519YaoProductRegistrationStateV1(persisted);
-  if (!parsed.ok) throw new Error(parsed.message);
-  return parsed.value;
-}
-
-function routerApiRuntimeInstanceName(env: CloudflareD1RouterApiStagingEnv): string {
-  const scope = stagingTenantScope(env);
-  return ['router-api-runtime-v1', scope.namespace, scope.orgId, scope.projectId, scope.envId].join(
-    ':',
-  );
-}
-
-function routerApiRuntimeFailureResponse(error: unknown): Response {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error('[gateway-runtime] request failed', { message });
-  return new Response(
-    JSON.stringify({
-      ok: false,
-      code: 'router_api_runtime_failed',
-      message: 'Gateway runtime failed',
-    }),
-    {
-      status: 500,
-      headers: { 'content-type': 'application/json; charset=utf-8' },
-    },
-  );
-}
-
-async function handleRouterApiRuntimeRequest(input: {
-  readonly runtime: RouterApiRuntimeContext;
-  readonly request: Request;
-  readonly env: CloudflareD1RouterApiStagingEnv;
-  readonly storage: RouterApiRuntimeDurableObjectStorage;
-}): Promise<Response> {
-  try {
-    return await input.runtime.handler(input.request, input.env);
-  } finally {
-    await input.storage.put(ROUTER_API_YAO_STATE_KEY, input.runtime.yaoState);
-  }
-}
-
-async function createLegacyRouterApiHandler(
-  env: CloudflareD1RouterApiStagingEnv,
-  state: RouterAbEd25519YaoProductRegistrationStateV1,
-): Promise<FetchHandler> {
-  return await createRouterApiHandler(env, { kind: 'legacy_stateful', state });
-}
-
-function createPartitionedRouterApiHandler(
-  env: CloudflareD1RouterApiStagingEnv,
-): Promise<FetchHandler> {
-  return createRouterApiHandler(env, { kind: 'partitioned_d1' });
-}
-
 async function handlePartitionedRouterApiRequest(
   env: CloudflareD1RouterApiStagingEnv,
   request: Request,
   ctx?: CfExecutionContext,
 ): Promise<Response> {
-  const handler = await createPartitionedRouterApiHandler(env);
+  const handler = await createRouterApiHandler(env);
   return await handler(request, env, ctx);
-}
-
-export class RouterApiRuntimeDurableObject {
-  private runtime: RouterApiRuntimeContext | null = null;
-  private readonly initialization: Promise<void>;
-
-  constructor(
-    private readonly state: RouterApiRuntimeDurableObjectState,
-    private readonly env: CloudflareD1RouterApiStagingEnv,
-    private readonly handlerFactory: RouterApiHandlerFactory = createLegacyRouterApiHandler,
-  ) {
-    this.initialization = this.state.blockConcurrencyWhile(this.initializeRuntime.bind(this));
-  }
-
-  async fetch(request: Request): Promise<Response> {
-    try {
-      await this.initialization;
-      return await handleRouterApiRuntimeRequest({
-        runtime: this.requireRuntime(),
-        request,
-        env: this.env,
-        storage: this.state.storage,
-      });
-    } catch (error: unknown) {
-      return routerApiRuntimeFailureResponse(error);
-    }
-  }
-
-  private async initializeRuntime(): Promise<void> {
-    const persisted = await this.state.storage.get(ROUTER_API_YAO_STATE_KEY);
-    const yaoState = readRouterApiYaoState(persisted);
-    const handler = await this.handlerFactory(this.env, yaoState);
-    this.runtime = { handler, yaoState };
-  }
-
-  private requireRuntime(): RouterApiRuntimeContext {
-    if (!this.runtime) {
-      throw new Error('Gateway runtime initialization did not complete');
-    }
-    return this.runtime;
-  }
 }
 
 async function fetch(
@@ -859,44 +652,13 @@ async function fetch(
   if (request.method === 'GET' && new URL(request.url).pathname === ROUTER_AB_CEREMONY_JWKS_PATH) {
     return routerAbCeremonyJwksResponse(env);
   }
-  const route = resolveRouterApiYaoGatewayRequestRouteV1({
-    request,
-    nowMs: Date.now(),
-    cutover: routerAbGatewayCutoverState(env),
-  });
-  switch (route.kind) {
-    case 'admission_blocked': {
-      const response = json(
-        {
-          ok: false,
-          code: `${route.family}_admission_draining`,
-          message: 'Admission is temporarily paused during deployment drain',
-        },
-        { status: 503 },
-        { 'Retry-After': '1' },
-      );
-      withCors(response.headers, { corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS) }, request);
-      return response;
-    }
-    case 'partitioned_operation': {
-      const response = await handlePartitionedD1Operation(env, request, route.operation);
-      withCors(response.headers, { corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS) }, request);
-      return response;
-    }
-    case 'partitioned_gateway':
-      return await handlePartitionedRouterApiRequest(env, request, ctx);
-    case 'legacy_runtime':
-      return await handleLegacyRouterApiRequest(env, request);
+  const operation = yaoDirectOperationForRequest(request);
+  if (operation !== null) {
+    const response = await handlePartitionedD1Operation(env, request, operation);
+    withCors(response.headers, { corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS) }, request);
+    return response;
   }
-}
-
-async function handleLegacyRouterApiRequest(
-  env: CloudflareD1RouterApiStagingEnv,
-  request: Request,
-): Promise<Response> {
-  const id = env.ROUTER_API_RUNTIME.idFromName(routerApiRuntimeInstanceName(env));
-  const stub = env.ROUTER_API_RUNTIME.get(id);
-  return await stub.fetch(request);
+  return await handlePartitionedRouterApiRequest(env, request, ctx);
 }
 
 type RouterApiYaoDirectOperationV1 =
@@ -909,167 +671,26 @@ type RouterApiYaoDirectOperationV1 =
   | 'export_admission'
   | 'export_execute';
 
-type RouterApiYaoFullGatewayOperationV1 = Exclude<
-  RouterAbEd25519YaoGatewayOperationV1,
-  RouterApiYaoDirectOperationV1
->;
-
-type RouterApiYaoRequestOperationV1 =
-  | {
-      readonly kind: 'family_handler';
-      readonly operation: RouterApiYaoDirectOperationV1;
-    }
-  | {
-      readonly kind: 'full_gateway';
-      readonly operation: RouterApiYaoFullGatewayOperationV1;
-    };
-
-export type RouterApiYaoGatewayRequestRouteV1 =
-  | {
-      readonly kind: 'legacy_runtime';
-      readonly operation: RouterAbEd25519YaoGatewayOperationV1 | null;
-    }
-  | {
-      readonly kind: 'admission_blocked';
-      readonly operation: RouterAbEd25519YaoGatewayOperationV1;
-      readonly family: RouterAbEd25519YaoGatewayCutoverFamilyV1;
-    }
-  | {
-      readonly kind: 'partitioned_operation';
-      readonly operation: RouterApiYaoDirectOperationV1;
-    }
-  | {
-      readonly kind: 'partitioned_gateway';
-      readonly operation: RouterApiYaoFullGatewayOperationV1 | null;
-    };
-
-export function resolveRouterApiYaoGatewayRequestRouteV1(input: {
-  readonly request: Request;
-  readonly nowMs: number;
-  readonly cutover: RouterAbEd25519YaoGatewayCutoverStateV1;
-}): RouterApiYaoGatewayRequestRouteV1 {
-  const classified = yaoOperationForRequest(input.request);
-  if (classified !== null) {
-    const route = resolveRouterAbEd25519YaoGatewayRouteV1({
-      operation: classified.operation,
-      nowMs: input.nowMs,
-      cutover: input.cutover,
-    });
-    switch (route.kind) {
-      case 'legacy_runtime':
-        return { kind: 'legacy_runtime', operation: classified.operation };
-      case 'admission_blocked':
-        return {
-          kind: 'admission_blocked',
-          operation: classified.operation,
-          family: familyOfRouterAbEd25519YaoGatewayOperationV1(classified.operation),
-        };
-      case 'partitioned_d1':
-        return classified.kind === 'family_handler'
-          ? { kind: 'partitioned_operation', operation: classified.operation }
-          : { kind: 'partitioned_gateway', operation: classified.operation };
-    }
-  }
-  return routerAbEd25519YaoGatewayUsesPartitionedD1V1({
-    nowMs: input.nowMs,
-    cutover: input.cutover,
-  })
-    ? { kind: 'partitioned_gateway', operation: null }
-    : { kind: 'legacy_runtime', operation: null };
-}
-
-function yaoOperationForRequest(request: Request): RouterApiYaoRequestOperationV1 | null {
+function yaoDirectOperationForRequest(request: Request): RouterApiYaoDirectOperationV1 | null {
   if (request.method !== 'POST') return null;
   const pathname = new URL(request.url).pathname;
   switch (pathname) {
-    case '/wallets/register/intent':
-      return { kind: 'full_gateway', operation: 'registration_intent' };
-    case '/wallets/register/intent/cancel':
-      return { kind: 'full_gateway', operation: 'registration_intent_cancel' };
-    case '/wallets/register/start':
-      return { kind: 'full_gateway', operation: 'registration_start' };
-    case '/wallets/register/derivation/respond':
-      return { kind: 'full_gateway', operation: 'registration_derivation_respond' };
-    case '/wallets/register/derivation/activate':
-      return { kind: 'full_gateway', operation: 'registration_derivation_activate' };
-    case '/wallets/register/finalize':
-      return { kind: 'full_gateway', operation: 'registration_finalize' };
-    case ROUTER_AB_ED25519_WALLET_SESSION_PATH:
-      return { kind: 'full_gateway', operation: 'recovery_wallet_session' };
-    case '/wallet/unlock/verify':
-      return { kind: 'full_gateway', operation: 'recovery_unlock' };
-    case '/sync-account/verify':
-      return { kind: 'full_gateway', operation: 'recovery_sync_account' };
     case ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1:
-      return { kind: 'family_handler', operation: 'registration_admission' };
+      return 'registration_admission';
     case ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1:
-      return { kind: 'family_handler', operation: 'registration_execute' };
+      return 'registration_execute';
     case ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1:
-      return { kind: 'family_handler', operation: 'recovery_bootstrap' };
+      return 'recovery_bootstrap';
     case ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1:
-      return { kind: 'family_handler', operation: 'recovery_admission' };
+      return 'recovery_admission';
     case ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1:
-      return { kind: 'family_handler', operation: 'recovery_execute' };
+      return 'recovery_execute';
     case ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1:
-      return { kind: 'family_handler', operation: 'recovery_activate' };
+      return 'recovery_activate';
     case ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1:
-      return { kind: 'family_handler', operation: 'export_admission' };
+      return 'export_admission';
     case ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1:
-      return { kind: 'family_handler', operation: 'export_execute' };
-    default:
-      return walletRegistrationOperationForPath(pathname);
-  }
-}
-
-function walletRegistrationOperationForPath(
-  pathname: string,
-): RouterApiYaoRequestOperationV1 | null {
-  const segments = pathname.split('/');
-  if (
-    (segments.length !== 5 && segments.length !== 6) ||
-    segments[0] !== '' ||
-    segments[1] !== 'wallets' ||
-    !segments[2] ||
-    (segments[3] !== 'signers' && segments[3] !== 'auth-methods')
-  ) {
-    return null;
-  }
-  if (segments[3] === 'auth-methods') {
-    if (segments.length !== 5) return null;
-    switch (segments[4]) {
-      case 'intent':
-        return { kind: 'full_gateway', operation: 'registration_add_auth_method_intent' };
-      case 'start':
-        return { kind: 'full_gateway', operation: 'registration_add_auth_method_start' };
-      case 'finalize':
-        return { kind: 'full_gateway', operation: 'registration_add_auth_method_finalize' };
-      default:
-        return null;
-    }
-  }
-  switch (segments[4]) {
-    case 'intent':
-      return { kind: 'full_gateway', operation: 'registration_add_signer_intent' };
-    case 'start':
-      return { kind: 'full_gateway', operation: 'registration_add_signer_start' };
-    case 'finalize':
-      return { kind: 'full_gateway', operation: 'registration_add_signer_finalize' };
-    case 'derivation':
-      if (segments.length !== 6) return null;
-      switch (segments[5]) {
-        case 'respond':
-          return {
-            kind: 'full_gateway',
-            operation: 'registration_add_signer_derivation_respond',
-          };
-        case 'activate':
-          return {
-            kind: 'full_gateway',
-            operation: 'registration_add_signer_derivation_activate',
-          };
-        default:
-          return null;
-      }
+      return 'export_execute';
     default:
       return null;
   }
@@ -1080,70 +701,29 @@ async function handlePartitionedD1Operation(
   request: Request,
   operation: RouterApiYaoDirectOperationV1,
 ): Promise<Response> {
-  switch (familyOfRouterAbEd25519YaoGatewayOperationV1(operation)) {
-    case 'registration':
+  switch (operation) {
+    case 'registration_admission':
+    case 'registration_execute':
       return await handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1({
         request,
         store: createStagingYaoPartitionedStateStore(env),
         backend: createStagingEd25519YaoBackend(env),
       });
-    case 'recovery':
+    case 'recovery_bootstrap':
+    case 'recovery_admission':
+    case 'recovery_execute':
+    case 'recovery_activate':
       return await handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1({
         request,
         ...createStagingRecoveryRequestScopedDependencies(env),
       });
-    case 'export':
+    case 'export_admission':
+    case 'export_execute':
       return await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1({
         request,
         ...createStagingExportRequestScopedDependencies(env),
       });
   }
-}
-
-/**
- * Reads one cutover window per family. A family with neither variable set has
- * not begun its cutover and stays on the legacy runtime, so wiring a family
- * later cannot inherit another family's elapsed window.
- */
-function routerAbGatewayCutoverState(
-  env: CloudflareD1RouterApiStagingEnv,
-): RouterAbEd25519YaoGatewayCutoverStateV1 {
-  const cutover = {
-    ...familyCutoverWindow(env, 'REGISTRATION', 'registration'),
-    ...familyCutoverWindow(env, 'RECOVERY', 'recovery'),
-    ...familyCutoverWindow(env, 'EXPORT', 'export'),
-  };
-  validateRouterAbEd25519YaoGatewayCutoverStateV1(cutover);
-  return cutover;
-}
-
-function familyCutoverWindow(
-  env: CloudflareD1RouterApiStagingEnv,
-  envPrefix: 'REGISTRATION' | 'RECOVERY' | 'EXPORT',
-  family: RouterAbEd25519YaoGatewayCutoverFamilyV1,
-): RouterAbEd25519YaoGatewayCutoverStateV1 {
-  const cutoffName = `ROUTER_AB_YAO_GATEWAY_${envPrefix}_ADMISSION_CUTOFF_MS`;
-  const drainName = `ROUTER_AB_YAO_GATEWAY_${envPrefix}_DRAIN_UNTIL_MS`;
-  const cutoffRaw = readEnvString(env, cutoffName);
-  const drainRaw = readEnvString(env, drainName);
-  if (!cutoffRaw && !drainRaw) return {};
-  if (!cutoffRaw || !drainRaw) {
-    throw new Error(`${cutoffName} and ${drainName} must be set together`);
-  }
-  const admissionCutoffMs = parseGatewayTimestamp(cutoffRaw, cutoffName);
-  const drainUntilMs = parseGatewayTimestamp(drainRaw, drainName);
-  if (admissionCutoffMs > drainUntilMs) {
-    throw new Error(`${cutoffName} must not exceed ${drainName}`);
-  }
-  return { [family]: { admissionCutoffMs, drainUntilMs } };
-}
-
-function parseGatewayTimestamp(raw: string, name: string): number {
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`${name} must be a non-negative safe integer`);
-  }
-  return value;
 }
 
 function createStagingYaoPartitionedStateStore(
