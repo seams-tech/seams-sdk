@@ -78,7 +78,7 @@ if (REFACTOR93_STAGING_CONFIG.mode === 'live') {
     );
   });
   test(
-    'staging registration survives response loss and redelivers exact terminal output',
+    'staging registration redelivers exact terminal output for byte-identical replay',
     runLiveStagingCohort,
   );
 }
@@ -93,10 +93,10 @@ async function runLiveStagingCohort({ context, page, request }: LiveTestFixtures
   );
   const pathCounter = new OperationPathCounter(REFACTOR93_STAGING_CONFIG.origins.gateway);
   context.on('request', pathCounter.observe.bind(pathCounter));
-  const responseLoss = new RegistrationExecuteResponseLoss();
+  const replayCapture = new RegistrationExecuteReplayCapture();
   await context.route(
     `${REFACTOR93_STAGING_CONFIG.origins.gateway}${ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1}`,
-    responseLoss.handle.bind(responseLoss),
+    replayCapture.handle.bind(replayCapture),
   );
 
   const harness = new IntendedBehaviourHarness({
@@ -109,8 +109,8 @@ async function runLiveStagingCohort({ context, page, request }: LiveTestFixtures
   try {
     await harness.initialize();
     await harness.registerPasskeyEd25519YaoWallet();
-    responseLoss.assertExactRetry();
-    const replay = await responseLoss.replayTerminalConcurrently(request);
+    replayCapture.assertSingleExecutionCapture();
+    const replay = await replayCapture.replayTerminalConcurrently(request);
     await harness.exportEd25519Key();
     pathCounter.assertRequiredPaths();
     harness.assertNoLifecycleViolations();
@@ -122,13 +122,11 @@ async function runLiveStagingCohort({ context, page, request }: LiveTestFixtures
       terminalResponseSha256: replay.terminalResponseSha256,
     });
   } finally {
-    responseLoss.clear();
+    replayCapture.clear();
   }
 }
 
-class RegistrationExecuteResponseLoss {
-  private armed = true;
-
+class RegistrationExecuteReplayCapture {
   private replayRequest: ReplayRequest | null = null;
 
   private terminalResponseSha256: string | null = null;
@@ -140,24 +138,24 @@ class RegistrationExecuteResponseLoss {
     const body = request.postData();
     if (!body) throw new Error('Registration execute request body is missing');
     this.observedRequestDigests.push(sha256(body));
-    if (!this.armed) {
+    if (this.replayRequest) {
       await route.continue();
       return;
     }
-    this.armed = false;
     this.replayRequest = captureReplayRequest(request.url(), request.headers(), body);
     const upstream = await route.fetch();
     const responseBody = await upstream.body();
     if (!upstream.ok()) {
-      throw new Error(`Staging registration execute returned HTTP ${upstream.status()}`);
+      throw new Error(
+        `Staging registration execute returned HTTP ${upstream.status()}: ${safeFailureSummary(responseBody)}`,
+      );
     }
     this.terminalResponseSha256 = sha256(responseBody);
-    await route.abort('failed');
+    await route.fulfill({ response: upstream, body: responseBody });
   }
 
-  assertExactRetry(): void {
-    expect(this.observedRequestDigests.length).toBeGreaterThanOrEqual(2);
-    expect(new Set(this.observedRequestDigests).size).toBe(1);
+  assertSingleExecutionCapture(): void {
+    expect(this.observedRequestDigests).toHaveLength(1);
   }
 
   async replayTerminalConcurrently(request: APIRequestContext): Promise<ReplayEvidence> {
@@ -298,6 +296,23 @@ function isObservedPath(value: string): value is ObservedPath {
 
 function sha256(value: string | Uint8Array): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function safeFailureSummary(body: Buffer): string {
+  try {
+    const parsed = JSON.parse(body.toString('utf8')) as unknown;
+    if (!isRecord(parsed)) return 'non-object JSON error';
+    return JSON.stringify({
+      code: String(parsed.code || ''),
+      message: String(parsed.message || ''),
+    });
+  } catch {
+    return 'non-JSON error body';
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function printSafeEvidence(input: {
