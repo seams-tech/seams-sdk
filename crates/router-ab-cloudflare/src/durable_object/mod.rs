@@ -24,11 +24,12 @@ use crate::{
     cloudflare_active_signing_worker_state_from_activation_request_v1,
     cloudflare_signing_worker_recipient_proof_bundle_activation_digest_v1, require_non_empty,
     require_non_empty_vec, require_positive_ms, CloudflareDurableObjectBindingV1,
-    CloudflareDurableObjectScopeV1, CloudflareRouterAbuseCheckV1,
-    CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareRouterProjectPolicyV1,
-    CloudflareRouterQuotaCheckV1, CloudflareRouterTrustedRequestMetadataV1,
-    CloudflareServerOutputMaterialRecordV1, CloudflareSigningWorkerEcdsaPoolCommandV1,
-    CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1,
+    CloudflareDurableObjectScopeV1,
+    CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1,
+    CloudflareRouterAbuseCheckV1, CloudflareRouterNormalSigningTrustedMetadataV1,
+    CloudflareRouterProjectPolicyV1, CloudflareRouterQuotaCheckV1,
+    CloudflareRouterTrustedRequestMetadataV1, CloudflareServerOutputMaterialRecordV1,
+    CloudflareSigningWorkerEcdsaPoolCommandV1, CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1,
     CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1,
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1, CloudflareWorkerRoleV1,
 };
@@ -415,6 +416,10 @@ pub enum CloudflareDurableObjectOperationKindV1 {
     RouterWalletBudgetStatus,
     /// Activate server-output material for the designated server.
     SigningWorkerOutputActivate,
+    /// Atomically commit one journal-correlated ECDSA activation.
+    SigningWorkerEcdsaActivationCommit,
+    /// Read one committed ECDSA activation by journal correlation.
+    SigningWorkerEcdsaActivationCommitGet,
     /// Read active SigningWorker state for normal signing.
     SigningWorkerOutputActiveStateGet,
     /// Read active SigningWorker material for normal signing.
@@ -456,6 +461,10 @@ impl CloudflareDurableObjectOperationKindV1 {
             Self::RouterWalletBudgetRelease => "router_wallet_budget.release",
             Self::RouterWalletBudgetStatus => "router_wallet_budget.status",
             Self::SigningWorkerOutputActivate => "signing_worker_output.activate",
+            Self::SigningWorkerEcdsaActivationCommit => "signing_worker_ecdsa_activation.commit",
+            Self::SigningWorkerEcdsaActivationCommitGet => {
+                "signing_worker_ecdsa_activation.commit_get"
+            }
             Self::SigningWorkerOutputActiveStateGet => "signing_worker_output.active_state_get",
             Self::SigningWorkerOutputMaterialGet => "signing_worker_output.material_get",
             Self::SigningWorkerRound1Put => "signing_worker_round1.put",
@@ -497,6 +506,12 @@ impl CloudflareDurableObjectOperationKindV1 {
             Self::RouterWalletBudgetRelease => "/router-ab/do/router-wallet-budget/release",
             Self::RouterWalletBudgetStatus => "/router-ab/do/router-wallet-budget/status",
             Self::SigningWorkerOutputActivate => "/router-ab/do/signing-worker-output/activate",
+            Self::SigningWorkerEcdsaActivationCommit => {
+                "/router-ab/do/signing-worker-ecdsa-activation/commit"
+            }
+            Self::SigningWorkerEcdsaActivationCommitGet => {
+                "/router-ab/do/signing-worker-ecdsa-activation/commit/get"
+            }
             Self::SigningWorkerOutputActiveStateGet => {
                 "/router-ab/do/signing-worker-output/active-state/get"
             }
@@ -2588,6 +2603,226 @@ impl CloudflareSigningWorkerOutputActivationReceiptV1 {
     }
 }
 
+/// Compare-and-swap expectation for one exact ECDSA server generation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareEcdsaServerGenerationExpectationV1 {
+    /// First activation requires no current server generation.
+    NoCurrentGeneration,
+    /// Refresh requires one exact current server generation.
+    Exact {
+        /// Opaque server generation expected to be current.
+        server_generation: String,
+    },
+}
+
+impl CloudflareEcdsaServerGenerationExpectationV1 {
+    /// Creates an exact-generation expectation.
+    pub fn exact(server_generation: impl Into<String>) -> RouterAbProtocolResult<Self> {
+        let expectation = Self::Exact {
+            server_generation: server_generation.into(),
+        };
+        expectation.validate()?;
+        Ok(expectation)
+    }
+
+    /// Validates the branch-specific generation fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        match self {
+            Self::NoCurrentGeneration => Ok(()),
+            Self::Exact { server_generation } => {
+                require_non_empty("expected ECDSA server generation", server_generation)
+            }
+        }
+    }
+}
+
+/// Atomic SigningWorker ECDSA activation commit request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareSigningWorkerEcdsaActivationCommitRequestV1 {
+    /// Browser activation-journal correlation id.
+    pub activation_correlation_id: String,
+    /// Digest of the exact public activation or refresh request.
+    pub activation_request_digest: PublicDigest32,
+    /// Required current generation.
+    pub expected_server_generation: CloudflareEcdsaServerGenerationExpectationV1,
+    /// Public ECDSA receipt derived from the opened server material.
+    pub ecdsa_activation: router_ab_core::RouterAbEcdsaDerivationActivationReceiptV1,
+    /// Generic proof-bundle activation used to derive SigningWorker material.
+    pub activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
+    /// Server-local opened output material.
+    pub material: CloudflareServerOutputMaterialRecordV1,
+}
+
+impl CloudflareSigningWorkerEcdsaActivationCommitRequestV1 {
+    /// Creates a validated atomic ECDSA activation commit request.
+    pub fn new(
+        activation_correlation_id: impl Into<String>,
+        activation_request_digest: PublicDigest32,
+        expected_server_generation: CloudflareEcdsaServerGenerationExpectationV1,
+        ecdsa_activation: router_ab_core::RouterAbEcdsaDerivationActivationReceiptV1,
+        activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
+        material: CloudflareServerOutputMaterialRecordV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            activation_correlation_id: activation_correlation_id.into(),
+            activation_request_digest,
+            expected_server_generation,
+            ecdsa_activation,
+            activation,
+            material,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Validates exact generation and activation-material bindings.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty(
+            "ECDSA activation correlation id",
+            &self.activation_correlation_id,
+        )?;
+        self.expected_server_generation.validate()?;
+        self.ecdsa_activation.validate()?;
+        self.activation.validate()?;
+        self.material
+            .validate_for_activation_request(&self.activation)?;
+        let selected_server = &self
+            .activation
+            .activation_context
+            .signer_set()
+            .selected_server;
+        let activation_digest =
+            cloudflare_signing_worker_recipient_proof_bundle_activation_digest_v1(
+                &self.activation.activation,
+            )?;
+        if self.ecdsa_activation.signing_worker != *selected_server
+            || self.ecdsa_activation.activation_digest_b64u
+                != URL_SAFE_NO_PAD.encode(activation_digest.as_bytes())
+            || self.ecdsa_activation.activated_at_ms == 0
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "ECDSA activation receipt does not match SigningWorker activation material",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Journal-correlation lookup for an ECDSA activation commit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareSigningWorkerEcdsaActivationCommitLookupV1 {
+    /// Browser activation-journal correlation id.
+    pub activation_correlation_id: String,
+    /// Digest of the exact activation request expected for this correlation.
+    pub activation_request_digest: PublicDigest32,
+}
+
+impl CloudflareSigningWorkerEcdsaActivationCommitLookupV1 {
+    /// Creates a validated journal-correlation lookup.
+    pub fn new(
+        activation_correlation_id: impl Into<String>,
+        activation_request_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<Self> {
+        let lookup = Self {
+            activation_correlation_id: activation_correlation_id.into(),
+            activation_request_digest,
+        };
+        lookup.validate()?;
+        Ok(lookup)
+    }
+
+    /// Validates the exact correlation identity.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty(
+            "ECDSA activation lookup correlation id",
+            &self.activation_correlation_id,
+        )
+    }
+}
+
+/// Query outcome for one exact ECDSA activation journal correlation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1 {
+    /// The exact correlation and request digest are committed.
+    Committed {
+        /// Exact durable receipt.
+        receipt: CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1,
+    },
+    /// No server effect exists for the correlation.
+    NotCommitted {
+        /// Queried journal correlation.
+        activation_correlation_id: String,
+        /// Queried activation request digest.
+        activation_request_digest: PublicDigest32,
+    },
+    /// The correlation is already occupied by a different request or protocol.
+    CorrelationConflict {
+        /// Queried journal correlation.
+        activation_correlation_id: String,
+        /// Queried activation request digest.
+        activation_request_digest: PublicDigest32,
+    },
+}
+
+impl CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1 {
+    /// Validates branch-specific query evidence.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        match self {
+            Self::Committed { receipt } => receipt.validate(),
+            Self::NotCommitted {
+                activation_correlation_id,
+                ..
+            }
+            | Self::CorrelationConflict {
+                activation_correlation_id,
+                ..
+            } => require_non_empty(
+                "ECDSA activation query correlation id",
+                activation_correlation_id,
+            ),
+        }
+    }
+
+    /// Validates that the outcome answers the exact lookup.
+    pub fn validate_for_lookup(
+        &self,
+        lookup: &CloudflareSigningWorkerEcdsaActivationCommitLookupV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        lookup.validate()?;
+        let matches = match self {
+            Self::Committed { receipt } => {
+                receipt.activation_correlation_id == lookup.activation_correlation_id
+                    && receipt.activation_request_digest == lookup.activation_request_digest
+            }
+            Self::NotCommitted {
+                activation_correlation_id,
+                activation_request_digest,
+            }
+            | Self::CorrelationConflict {
+                activation_correlation_id,
+                activation_request_digest,
+            } => {
+                activation_correlation_id == &lookup.activation_correlation_id
+                    && activation_request_digest == &lookup.activation_request_digest
+            }
+        };
+        if matches {
+            Ok(())
+        } else {
+            Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "ECDSA activation query outcome does not match lookup",
+            ))
+        }
+    }
+}
+
 /// Stored SigningWorker activation record inside SigningWorker's output Durable Object.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "protocol", rename_all = "snake_case")]
@@ -2600,6 +2835,17 @@ pub enum CloudflareSigningWorkerOutputActivationRecordV1 {
         active_signing_worker_state: ActiveSigningWorkerStateV1,
         /// SigningWorker-local opened output material.
         material: CloudflareServerOutputMaterialRecordV1,
+    },
+    /// Journal-correlated Router A/B ECDSA activation commit.
+    EcdsaActivationCommit {
+        /// Generic proof-bundle activation used to derive SigningWorker material.
+        activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
+        /// Active SigningWorker state descriptor indexed for normal signing.
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+        /// SigningWorker-local opened output material.
+        material: CloudflareServerOutputMaterialRecordV1,
+        /// Exact committed receipt returned on every replay and correlation query.
+        receipt: CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1,
     },
     /// P0 Half-Gates Ed25519 Yao activation.
     Ed25519Yao {
@@ -2647,10 +2893,31 @@ impl CloudflareSigningWorkerOutputActivationRecordV1 {
         Ok(record)
     }
 
+    /// Creates a validated journal-correlated ECDSA activation record.
+    pub fn ecdsa_activation_commit(
+        activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+        material: CloudflareServerOutputMaterialRecordV1,
+        receipt: CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let record = Self::EcdsaActivationCommit {
+            activation,
+            active_signing_worker_state,
+            material,
+            receipt,
+        };
+        record.validate()?;
+        Ok(record)
+    }
+
     /// Returns the indexed active SigningWorker state.
     pub fn active_signing_worker_state(&self) -> &ActiveSigningWorkerStateV1 {
         match self {
             Self::RecipientProofBundle {
+                active_signing_worker_state,
+                ..
+            }
+            | Self::EcdsaActivationCommit {
                 active_signing_worker_state,
                 ..
             }
@@ -2664,18 +2931,28 @@ impl CloudflareSigningWorkerOutputActivationRecordV1 {
     /// Returns SigningWorker-local signing material.
     pub fn material(&self) -> &CloudflareServerOutputMaterialRecordV1 {
         match self {
-            Self::RecipientProofBundle { material, .. } | Self::Ed25519Yao { material, .. } => {
-                material
-            }
+            Self::RecipientProofBundle { material, .. }
+            | Self::EcdsaActivationCommit { material, .. }
+            | Self::Ed25519Yao { material, .. } => material,
+        }
+    }
+
+    /// Returns the durable ECDSA activation receipt when this is a commit record.
+    pub fn ecdsa_activation_commit_receipt(
+        &self,
+    ) -> Option<&CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1> {
+        match self {
+            Self::EcdsaActivationCommit { receipt, .. } => Some(receipt),
+            Self::RecipientProofBundle { .. } | Self::Ed25519Yao { .. } => None,
         }
     }
 
     /// Consumes the activation record and returns SigningWorker-local material.
     pub fn into_material(self) -> CloudflareServerOutputMaterialRecordV1 {
         match self {
-            Self::RecipientProofBundle { material, .. } | Self::Ed25519Yao { material, .. } => {
-                material
-            }
+            Self::RecipientProofBundle { material, .. }
+            | Self::EcdsaActivationCommit { material, .. }
+            | Self::Ed25519Yao { material, .. } => material,
         }
     }
 
@@ -2709,6 +2986,46 @@ impl CloudflareSigningWorkerOutputActivationRecordV1 {
                 {
                     return Err(invalid_signing_worker_activation_record(
                         "SigningWorker proof-bundle activation record does not match active state",
+                    ));
+                }
+            }
+            Self::EcdsaActivationCommit {
+                activation,
+                active_signing_worker_state,
+                material,
+                receipt,
+            } => {
+                activation.validate()?;
+                active_signing_worker_state.validate()?;
+                material.validate_for_activation_request(activation)?;
+                receipt.validate()?;
+                let activation_context = &activation.activation_context;
+                let lifecycle = activation_context.lifecycle();
+                let selected_server = &activation_context.signer_set().selected_server;
+                if active_signing_worker_state.account_id != lifecycle.account_id
+                    || active_signing_worker_state.session_id != lifecycle.session_id
+                    || active_signing_worker_state.signing_worker != *selected_server
+                    || active_signing_worker_state.activation_transcript_digest
+                        != activation_context.transcript_digest()
+                    || active_signing_worker_state.activation_digest
+                        != cloudflare_signing_worker_recipient_proof_bundle_activation_digest_v1(
+                            &activation.activation,
+                        )?
+                    || material.transcript_digest
+                        != active_signing_worker_state.activation_transcript_digest
+                    || material.recipient_identity
+                        != active_signing_worker_state.signing_worker.server_id
+                    || receipt.lifecycle_id != lifecycle.lifecycle_id
+                    || receipt.transcript_digest != activation_context.transcript_digest()
+                    || receipt.ecdsa_activation.signing_worker != *selected_server
+                    || receipt.ecdsa_activation.activation_digest_b64u
+                        != URL_SAFE_NO_PAD
+                            .encode(active_signing_worker_state.activation_digest.as_bytes())
+                    || receipt.ecdsa_activation.activated_at_ms
+                        != active_signing_worker_state.activated_at_ms
+                {
+                    return Err(invalid_signing_worker_activation_record(
+                        "SigningWorker ECDSA activation commit does not match active state",
                     ));
                 }
             }
@@ -3581,6 +3898,16 @@ pub enum CloudflareDurableObjectRequestV1 {
         /// Activation timestamp in Unix milliseconds.
         activated_at_ms: u64,
     },
+    /// Atomically commit one journal-correlated ECDSA activation.
+    SigningWorkerEcdsaActivationCommit {
+        /// Exact activation commit request.
+        request: CloudflareSigningWorkerEcdsaActivationCommitRequestV1,
+    },
+    /// Read one committed ECDSA activation by journal correlation.
+    SigningWorkerEcdsaActivationCommitGet {
+        /// Exact journal-correlation lookup.
+        lookup: CloudflareSigningWorkerEcdsaActivationCommitLookupV1,
+    },
     /// Read active SigningWorker state for normal signing.
     SigningWorkerOutputActiveStateGet {
         /// Account/session/server lookup.
@@ -3809,6 +4136,24 @@ impl CloudflareDurableObjectRequestV1 {
         Ok(request)
     }
 
+    /// Creates an atomic SigningWorker ECDSA activation commit request.
+    pub fn signing_worker_ecdsa_activation_commit(
+        request: CloudflareSigningWorkerEcdsaActivationCommitRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerEcdsaActivationCommit { request };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a SigningWorker ECDSA activation correlation lookup.
+    pub fn signing_worker_ecdsa_activation_commit_get(
+        lookup: CloudflareSigningWorkerEcdsaActivationCommitLookupV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerEcdsaActivationCommitGet { lookup };
+        request.validate()?;
+        Ok(request)
+    }
+
     /// Creates an active SigningWorker-state lookup request.
     pub fn signing_worker_output_active_state_get(
         lookup: CloudflareActiveSigningWorkerStateLookupV1,
@@ -3927,6 +4272,12 @@ impl CloudflareDurableObjectRequestV1 {
             Self::SigningWorkerOutputActivate { .. } => {
                 CloudflareDurableObjectOperationKindV1::SigningWorkerOutputActivate
             }
+            Self::SigningWorkerEcdsaActivationCommit { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaActivationCommit
+            }
+            Self::SigningWorkerEcdsaActivationCommitGet { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaActivationCommitGet
+            }
             Self::SigningWorkerOutputActiveStateGet { .. } => {
                 CloudflareDurableObjectOperationKindV1::SigningWorkerOutputActiveStateGet
             }
@@ -3990,6 +4341,8 @@ impl CloudflareDurableObjectRequestV1 {
                 CloudflareDurableObjectScopeV1::RouterWalletBudget
             }
             Self::SigningWorkerOutputActivate { .. }
+            | Self::SigningWorkerEcdsaActivationCommit { .. }
+            | Self::SigningWorkerEcdsaActivationCommitGet { .. }
             | Self::SigningWorkerOutputActiveStateGet { .. }
             | Self::SigningWorkerOutputMaterialGet { .. }
             | Self::SigningWorkerRound1Put { .. }
@@ -4033,6 +4386,8 @@ impl CloudflareDurableObjectRequestV1 {
                 material.validate_for_activation_request(activation)?;
                 require_positive_ms("SigningWorker activation activated_at_ms", *activated_at_ms)
             }
+            Self::SigningWorkerEcdsaActivationCommit { request } => request.validate(),
+            Self::SigningWorkerEcdsaActivationCommitGet { lookup } => lookup.validate(),
             Self::SigningWorkerOutputActiveStateGet { lookup } => lookup.validate(),
             Self::SigningWorkerOutputMaterialGet { lookup } => lookup.validate(),
             Self::SigningWorkerRound1Put { record } => record.validate(),
@@ -4159,6 +4514,16 @@ pub enum CloudflareDurableObjectResponseV1 {
     SigningWorkerOutputActivate {
         /// Activation receipt.
         receipt: CloudflareSigningWorkerOutputActivationReceiptV1,
+    },
+    /// Journal-correlated ECDSA activation commit response.
+    SigningWorkerEcdsaActivationCommitted {
+        /// Exact durable receipt.
+        receipt: CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1,
+    },
+    /// Journal-correlated ECDSA activation lookup response.
+    SigningWorkerEcdsaActivationCommitGet {
+        /// Typed query outcome.
+        result: CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1,
     },
     /// Active server-state lookup response.
     SigningWorkerOutputActiveStateGet {
@@ -4394,6 +4759,23 @@ impl CloudflareDurableObjectResponseV1 {
         Ok(response)
     }
 
+    /// Creates an ECDSA activation commit response.
+    pub fn signing_worker_ecdsa_activation_committed(
+        receipt: CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerEcdsaActivationCommitted { receipt };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates an ECDSA activation correlation lookup response.
+    pub fn signing_worker_ecdsa_activation_commit_get(
+        result: CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerEcdsaActivationCommitGet { result };
+        response.validate()?;
+        Ok(response)
+    }
     /// Creates an active SigningWorker-state lookup response.
     pub fn signing_worker_output_active_state_get(
         active_signing_worker_state: ActiveSigningWorkerStateV1,
@@ -4514,6 +4896,12 @@ impl CloudflareDurableObjectResponseV1 {
             Self::SigningWorkerOutputActivate { .. } => {
                 CloudflareDurableObjectOperationKindV1::SigningWorkerOutputActivate
             }
+            Self::SigningWorkerEcdsaActivationCommitted { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaActivationCommit
+            }
+            Self::SigningWorkerEcdsaActivationCommitGet { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaActivationCommitGet
+            }
             Self::SigningWorkerOutputActiveStateGet { .. } => {
                 CloudflareDurableObjectOperationKindV1::SigningWorkerOutputActiveStateGet
             }
@@ -4574,6 +4962,8 @@ impl CloudflareDurableObjectResponseV1 {
                 status.validate()
             }
             Self::SigningWorkerOutputActivate { receipt } => receipt.validate(),
+            Self::SigningWorkerEcdsaActivationCommitted { receipt } => receipt.validate(),
+            Self::SigningWorkerEcdsaActivationCommitGet { result } => result.validate(),
             Self::SigningWorkerOutputActiveStateGet {
                 active_signing_worker_state,
             } => active_signing_worker_state.validate(),
@@ -4794,6 +5184,29 @@ impl CloudflareDurableObjectResponseV1 {
                     ))
                 }
             }
+            (
+                Self::SigningWorkerEcdsaActivationCommitted { receipt },
+                CloudflareDurableObjectRequestV1::SigningWorkerEcdsaActivationCommit { request },
+            ) => {
+                let activation_context = &request.activation.activation_context;
+                if receipt.activation_correlation_id == request.activation_correlation_id
+                    && receipt.activation_request_digest == request.activation_request_digest
+                    && receipt.ecdsa_activation == request.ecdsa_activation
+                    && receipt.lifecycle_id == activation_context.lifecycle().lifecycle_id
+                    && receipt.transcript_digest == activation_context.transcript_digest()
+                {
+                    Ok(())
+                } else {
+                    Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                        "SigningWorker ECDSA activation commit receipt does not match request",
+                    ))
+                }
+            }
+            (
+                Self::SigningWorkerEcdsaActivationCommitGet { result },
+                CloudflareDurableObjectRequestV1::SigningWorkerEcdsaActivationCommitGet { lookup },
+            ) => result.validate_for_lookup(lookup),
             (
                 Self::SigningWorkerOutputActiveStateGet {
                     active_signing_worker_state,
@@ -5029,6 +5442,18 @@ impl CloudflareDurableObjectCallV1 {
                 activation.activation_context.lifecycle().lifecycle_id,
                 digest_hex(activation.activation_context.transcript_digest())
             ),
+            CloudflareDurableObjectRequestV1::SigningWorkerEcdsaActivationCommit { request } => {
+                format!(
+                    "{}signing-worker-ecdsa-activation/{}",
+                    self.binding.key_prefix, request.activation_correlation_id
+                )
+            }
+            CloudflareDurableObjectRequestV1::SigningWorkerEcdsaActivationCommitGet { lookup } => {
+                format!(
+                    "{}signing-worker-ecdsa-activation/{}",
+                    self.binding.key_prefix, lookup.activation_correlation_id
+                )
+            }
             CloudflareDurableObjectRequestV1::SigningWorkerOutputActiveStateGet { lookup } => {
                 format!(
                     "{}active-signing-worker/{}/{}/{}",
@@ -5138,6 +5563,21 @@ impl CloudflareDurableObjectCallV1 {
                     selected_server.server_id
                 ))
             }
+            CloudflareDurableObjectRequestV1::SigningWorkerEcdsaActivationCommit { request } => {
+                let lifecycle = request.activation.activation_context.lifecycle();
+                let selected_server = &request
+                    .activation
+                    .activation_context
+                    .signer_set()
+                    .selected_server;
+                Ok(format!(
+                    "{}active-signing-worker/{}/{}/{}",
+                    self.binding.key_prefix,
+                    lifecycle.account_id,
+                    lifecycle.session_id,
+                    selected_server.server_id
+                ))
+            }
             CloudflareDurableObjectRequestV1::SigningWorkerOutputActiveStateGet { lookup } => {
                 Ok(format!(
                     "{}active-signing-worker/{}/{}/{}",
@@ -5158,6 +5598,48 @@ impl CloudflareDurableObjectCallV1 {
                 "active SigningWorker state index is defined only for SigningWorker-output operations",
             )),
         }
+    }
+
+    /// Returns the session-scoped active-state index key for a validated state.
+    pub(crate) fn active_signing_worker_state_index_storage_key_for(
+        &self,
+        active_state: &ActiveSigningWorkerStateV1,
+    ) -> RouterAbProtocolResult<String> {
+        self.validate()?;
+        active_state.validate()?;
+        Ok(format!(
+            "{}active-signing-worker/{}/{}/{}",
+            self.binding.key_prefix,
+            active_state.account_id,
+            active_state.session_id,
+            active_state.signing_worker.server_id
+        ))
+    }
+
+    /// Returns the stable ECDSA capability-generation head key.
+    pub fn ecdsa_activation_generation_head_storage_key(&self) -> RouterAbProtocolResult<String> {
+        self.validate()?;
+        let CloudflareDurableObjectRequestV1::SigningWorkerEcdsaActivationCommit { request } =
+            &self.request
+        else {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "ECDSA generation head is defined only for ECDSA activation commits",
+            ));
+        };
+        let lifecycle = request.activation.activation_context.lifecycle();
+        let selected_server = &request
+            .activation
+            .activation_context
+            .signer_set()
+            .selected_server;
+        Ok(format!(
+            "{}signing-worker-ecdsa-generation/{}/{}/{}",
+            self.binding.key_prefix,
+            lifecycle.account_id,
+            digest_hex(request.ecdsa_activation.context.context_binding_digest()?),
+            selected_server.server_id
+        ))
     }
 }
 
@@ -5277,6 +5759,16 @@ pub trait CloudflareDurableObjectStorageV1 {
         &mut self,
         storage_key: &str,
         active_state_index_key: &str,
+        record: CloudflareSigningWorkerOutputActivationRecordV1,
+    ) -> RouterAbProtocolResult<()>;
+
+    /// Atomically stores an ECDSA activation record and both active indexes.
+    fn put_signing_worker_ecdsa_activation_commit(
+        &mut self,
+        storage_key: &str,
+        active_state_index_key: &str,
+        generation_head_key: &str,
+        retired_active_state_index_key: Option<&str>,
         record: CloudflareSigningWorkerOutputActivationRecordV1,
     ) -> RouterAbProtocolResult<()>;
 

@@ -68,8 +68,8 @@ use router_ab_cloudflare::{
     CloudflareDurableObjectCallV1, CloudflareDurableObjectMemoryStorageV1,
     CloudflareDurableObjectOperationKindV1, CloudflareDurableObjectRequestV1,
     CloudflareDurableObjectResponseV1, CloudflareDurableObjectScopeV1,
-    CloudflareDurableObjectStorageV1, CloudflareEd25519Round1StateV1,
-    CloudflareEd25519YaoNormalSigningHandlerV1, CloudflareEnvMapV1,
+    CloudflareDurableObjectStorageV1, CloudflareEcdsaServerGenerationExpectationV1,
+    CloudflareEd25519Round1StateV1, CloudflareEd25519YaoNormalSigningHandlerV1, CloudflareEnvMapV1,
     CloudflareExpiredStateCleanupReportV1, CloudflareExpiredStateCleanupRequestV1,
     CloudflareLifecyclePutReceiptV1, CloudflarePeerBindingV1, CloudflarePreloadedSignerHostV1,
     CloudflareReplayReserveRequestV1, CloudflareReplayReserveResponseV1,
@@ -77,6 +77,7 @@ use router_ab_cloudflare::{
     CloudflareRootShareLookupRequestV1, CloudflareRootShareRewrapRequestV1,
     CloudflareRootShareStartupMetadataV1, CloudflareRootShareWireSecretBindingV1,
     CloudflareRouterAbEcdsaDerivationActivationRefreshAdmissionResponseV1,
+    CloudflareRouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverRecoveryPrivateRequestV1,
@@ -85,7 +86,9 @@ use router_ab_cloudflare::{
     CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1,
     CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1,
     CloudflareRouterAbEcdsaDerivationRecoveryAdmissionResponseV1,
+    CloudflareRouterAbEcdsaDerivationSigningWorkerActivationCommitRequestV1,
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1,
+    CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshCommitRequestV1,
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshRequestV1,
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1,
     CloudflareRouterAbuseCheckV1, CloudflareRouterAbuseRecordV1, CloudflareRouterAbuseStoreV1,
@@ -128,8 +131,10 @@ use router_ab_cloudflare::{
     CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2,
     CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1,
     CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
-    CloudflareSigningWorkerBindingsV1, CloudflareSigningWorkerEcdsaPoolCommandV1,
-    CloudflareSigningWorkerEcdsaPoolConsumeDecisionV1,
+    CloudflareSigningWorkerBindingsV1, CloudflareSigningWorkerEcdsaActivationCommitLookupV1,
+    CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1,
+    CloudflareSigningWorkerEcdsaActivationCommitRequestV1,
+    CloudflareSigningWorkerEcdsaPoolCommandV1, CloudflareSigningWorkerEcdsaPoolConsumeDecisionV1,
     CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1,
     CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1,
     CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
@@ -1665,7 +1670,9 @@ fn router_ab_ecdsa_derivation_activation_request(
                 .expect("context binding")
                 .as_bytes(),
         ),
-        derivation_client_share_public_key33_b64u: b64u(&ecdsa_derivation_client_share_public_key33()),
+        derivation_client_share_public_key33_b64u: b64u(
+            &ecdsa_derivation_client_share_public_key33(),
+        ),
         client_share_retry_counter: 0,
         participant_id: 1,
     };
@@ -1704,7 +1711,11 @@ fn router_ab_ecdsa_derivation_activation_refresh_request(
 fn router_ab_ecdsa_derivation_server_material_record(
     activation: &CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1,
 ) -> CloudflareServerOutputMaterialRecordV1 {
-    let selected_server = &activation.pending.activation_context.signer_set().selected_server;
+    let selected_server = &activation
+        .pending
+        .activation_context
+        .signer_set()
+        .selected_server;
     CloudflareServerOutputMaterialRecordV1::new(
         activation.pending.activation_context.transcript_digest(),
         OpenedShareKind::XServerBase,
@@ -6911,40 +6922,39 @@ fn router_ab_ecdsa_derivation_activation_refresh_receipt_rejects_public_identity
 #[test]
 fn router_ab_ecdsa_derivation_activation_refresh_public_admission_response_validates_receipt() {
     let refresh = router_ab_ecdsa_derivation_activation_refresh_request();
-    let material = router_ab_ecdsa_derivation_refresh_server_material_record(&refresh, 0x5a);
-    let receipt =
-        cloudflare_router_ab_ecdsa_derivation_activation_refresh_receipt_from_material_v1(
-            &refresh,
-            &material,
-            TEST_ACTIVATED_AT_MS + 1,
-        )
-        .expect("Router A/B ECDSA derivation activation-refresh receipt");
-    let signing_worker_output = CloudflareSigningWorkerOutputActivationReceiptV1::new(
-        refresh.refresh_request.lifecycle.lifecycle_id.clone(),
-        refresh
-            .activation_context
-            .signer_set()
-            .selected_server
-            .server_id
-            .clone(),
-        refresh.activation_context.transcript_digest(),
-        cloudflare_active_signing_worker_state_from_activation_request_v1(
-            &refresh
-                .to_recipient_proof_bundle_activation_request()
-                .expect("generic refresh activation request"),
-            "router-ab-ecdsa-derivation-refresh-material",
-            TEST_ACTIVATED_AT_MS + 1,
-        )
-        .expect("refreshed active SigningWorker state"),
-        true,
+    let initial_request = router_ab_ecdsa_derivation_activation_commit_request(
+        "activation-journal-refresh-initial",
+        CloudflareEcdsaServerGenerationExpectationV1::NoCurrentGeneration,
+        TEST_ACTIVATED_AT_MS,
+    );
+    let initial_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_ecdsa_activation_commit(initial_request)
+            .expect("initial activation commit operation"),
     )
-    .expect("SigningWorker output activation receipt");
-    let signing_worker_activation =
-        CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1::new(
-            receipt,
-            signing_worker_output,
-        )
-        .expect("Router A/B ECDSA derivation SigningWorker activation-refresh receipt");
+    .expect("initial activation commit call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+    let initial = handle_cloudflare_durable_object_call_v1(&initial_call, &mut storage)
+        .expect("initial activation commit");
+    let initial_generation = committed_ecdsa_activation_receipt(&initial)
+        .server_generation
+        .clone();
+    let refresh_commit = router_ab_ecdsa_derivation_refresh_commit_request(
+        "activation-journal-refresh-1",
+        &initial_generation,
+        TEST_ACTIVATED_AT_MS + 1,
+    );
+    let refresh_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_ecdsa_activation_commit(refresh_commit)
+            .expect("refresh activation commit operation"),
+    )
+    .expect("refresh activation commit call");
+    let committed_refresh = handle_cloudflare_durable_object_call_v1(&refresh_call, &mut storage)
+        .expect("refresh activation commit");
+    let signing_worker_activation = committed_ecdsa_activation_receipt(&committed_refresh).clone();
     let public_request = refresh
         .refresh_request
         .to_threshold_prf_request()
@@ -11305,6 +11315,401 @@ fn durable_object_handler_activates_signing_worker_output_idempotently() {
     assert_eq!(
         err.code(),
         RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+    );
+}
+
+fn router_ab_ecdsa_derivation_activation_commit_request(
+    activation_correlation_id: &str,
+    expected_server_generation: CloudflareEcdsaServerGenerationExpectationV1,
+    activated_at_ms: u64,
+) -> CloudflareSigningWorkerEcdsaActivationCommitRequestV1 {
+    let activation = router_ab_ecdsa_derivation_activation_request();
+    let activation_request_digest =
+        CloudflareRouterAbEcdsaDerivationSigningWorkerActivationCommitRequestV1::new(
+            activation_correlation_id,
+            activation.clone(),
+        )
+        .expect("ECDSA activation commit wire")
+        .activation_request_digest()
+        .expect("ECDSA activation command digest");
+    let material = router_ab_ecdsa_derivation_server_material_record(&activation);
+    let ecdsa_activation =
+        cloudflare_router_ab_ecdsa_derivation_activation_receipt_from_material_v1(
+            &activation,
+            &material,
+            activated_at_ms,
+        )
+        .expect("ECDSA activation receipt");
+    CloudflareSigningWorkerEcdsaActivationCommitRequestV1::new(
+        activation_correlation_id,
+        activation_request_digest,
+        expected_server_generation,
+        ecdsa_activation,
+        activation
+            .to_recipient_proof_bundle_activation_request()
+            .expect("generic ECDSA activation"),
+        material,
+    )
+    .expect("ECDSA activation commit request")
+}
+
+fn router_ab_ecdsa_derivation_refresh_commit_request(
+    activation_correlation_id: &str,
+    expected_server_generation: &str,
+    activated_at_ms: u64,
+) -> CloudflareSigningWorkerEcdsaActivationCommitRequestV1 {
+    let activation = router_ab_ecdsa_derivation_activation_refresh_request();
+    let activation_request_digest =
+        CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshCommitRequestV1::new(
+            activation_correlation_id,
+            expected_server_generation,
+            activation.clone(),
+        )
+        .expect("ECDSA refresh commit wire")
+        .activation_request_digest()
+        .expect("ECDSA refresh activation command digest");
+    let material = router_ab_ecdsa_derivation_refresh_server_material_record(&activation, 0x5a);
+    let ecdsa_activation =
+        cloudflare_router_ab_ecdsa_derivation_activation_refresh_receipt_from_material_v1(
+            &activation,
+            &material,
+            activated_at_ms,
+        )
+        .expect("ECDSA refresh activation receipt");
+    CloudflareSigningWorkerEcdsaActivationCommitRequestV1::new(
+        activation_correlation_id,
+        activation_request_digest,
+        CloudflareEcdsaServerGenerationExpectationV1::exact(expected_server_generation)
+            .expect("exact ECDSA server generation"),
+        ecdsa_activation,
+        activation
+            .to_recipient_proof_bundle_activation_request()
+            .expect("generic ECDSA refresh activation"),
+        material,
+    )
+    .expect("ECDSA refresh commit request")
+}
+
+fn committed_ecdsa_activation_receipt(
+    response: &CloudflareDurableObjectResponseV1,
+) -> &CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1 {
+    match response {
+        CloudflareDurableObjectResponseV1::SigningWorkerEcdsaActivationCommitted { receipt } => {
+            receipt
+        }
+        _ => panic!("expected ECDSA activation commit response"),
+    }
+}
+
+#[test]
+fn ecdsa_activation_commit_wire_requires_correlation_and_server_generation() {
+    let activation = router_ab_ecdsa_derivation_activation_request();
+    let commit = CloudflareRouterAbEcdsaDerivationSigningWorkerActivationCommitRequestV1::new(
+        "activation-journal-wire-1",
+        activation.clone(),
+    )
+    .expect("registration activation commit wire");
+    let encoded = serde_json::to_vec(&commit).expect("encode activation commit wire");
+    let decoded: CloudflareRouterAbEcdsaDerivationSigningWorkerActivationCommitRequestV1 =
+        serde_json::from_slice(&encoded).expect("decode activation commit wire");
+    assert_eq!(decoded, commit);
+    let mut changed_activation = commit.activation.clone();
+    changed_activation
+        .client_activation
+        .client_share_retry_counter += 1;
+    let changed_commit =
+        CloudflareRouterAbEcdsaDerivationSigningWorkerActivationCommitRequestV1::new(
+            "activation-journal-wire-1",
+            changed_activation,
+        )
+        .expect("changed registration activation commit wire");
+    assert_ne!(
+        changed_commit
+            .activation_request_digest()
+            .expect("changed activation digest"),
+        commit
+            .activation_request_digest()
+            .expect("activation digest")
+    );
+    let legacy_value = serde_json::to_value(activation).expect("legacy activation value");
+    assert!(serde_json::from_value::<
+        CloudflareRouterAbEcdsaDerivationSigningWorkerActivationCommitRequestV1,
+    >(legacy_value)
+    .is_err());
+
+    let refresh = router_ab_ecdsa_derivation_activation_refresh_request();
+    let refresh_commit = CloudflareRouterAbEcdsaDerivationActivationRefreshCommitRequestV1::new(
+        "activation-journal-wire-refresh-1",
+        "server-generation-wire-1",
+        refresh.refresh_request.clone(),
+    )
+    .expect("refresh activation commit wire");
+    let changed_refresh_expectation =
+        CloudflareRouterAbEcdsaDerivationActivationRefreshCommitRequestV1::new(
+            "activation-journal-wire-refresh-1",
+            "server-generation-wire-2",
+            refresh.refresh_request,
+        )
+        .expect("changed refresh activation commit wire");
+    assert_ne!(
+        changed_refresh_expectation
+            .activation_request_digest()
+            .expect("changed refresh digest"),
+        refresh_commit
+            .activation_request_digest()
+            .expect("refresh digest")
+    );
+    let mut refresh_value =
+        serde_json::to_value(&refresh_commit).expect("refresh activation commit value");
+    refresh_value
+        .as_object_mut()
+        .expect("refresh activation object")
+        .remove("expected_server_generation");
+    assert!(serde_json::from_value::<
+        CloudflareRouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
+    >(refresh_value)
+    .is_err());
+}
+
+#[test]
+fn durable_object_ecdsa_activation_commit_is_exactly_idempotent_and_queryable() {
+    let request = router_ab_ecdsa_derivation_activation_commit_request(
+        "activation-journal-1",
+        CloudflareEcdsaServerGenerationExpectationV1::NoCurrentGeneration,
+        TEST_ACTIVATED_AT_MS,
+    );
+    let request_digest = request.activation_request_digest;
+    let call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_ecdsa_activation_commit(request)
+            .expect("ECDSA activation commit operation"),
+    )
+    .expect("ECDSA activation commit call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    let first = handle_cloudflare_durable_object_call_v1(&call, &mut storage)
+        .expect("first ECDSA activation commit");
+    let first_receipt = committed_ecdsa_activation_receipt(&first);
+    assert_eq!(
+        first_receipt.activation_correlation_id,
+        "activation-journal-1"
+    );
+    assert_eq!(first_receipt.activation_request_digest, request_digest);
+    assert_ne!(
+        first_receipt.server_generation,
+        first_receipt.ecdsa_activation.activation_epoch
+    );
+    let mut malformed_receipt = first_receipt.clone();
+    malformed_receipt.server_generation =
+        malformed_receipt.ecdsa_activation.activation_epoch.clone();
+    assert_eq!(
+        malformed_receipt
+            .validate()
+            .expect_err("Router epoch cannot parse as the independent server generation")
+            .code(),
+        RouterAbProtocolErrorCode::InvalidLifecycleState
+    );
+
+    let replay = handle_cloudflare_durable_object_call_v1(&call, &mut storage)
+        .expect("exact ECDSA activation replay");
+    assert_eq!(replay, first);
+
+    let query_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_ecdsa_activation_commit_get(
+            CloudflareSigningWorkerEcdsaActivationCommitLookupV1::new(
+                "activation-journal-1",
+                request_digest,
+            )
+            .expect("ECDSA activation lookup"),
+        )
+        .expect("ECDSA activation query operation"),
+    )
+    .expect("ECDSA activation query call");
+    let query = handle_cloudflare_durable_object_call_v1(&query_call, &mut storage)
+        .expect("query committed ECDSA activation");
+    assert_eq!(
+        query,
+        CloudflareDurableObjectResponseV1::signing_worker_ecdsa_activation_commit_get(
+            CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1::Committed {
+                receipt: first_receipt.clone(),
+            },
+        )
+        .expect("committed ECDSA query response")
+    );
+}
+
+#[test]
+fn durable_object_ecdsa_activation_query_types_absence_and_correlation_conflict() {
+    let request = router_ab_ecdsa_derivation_activation_commit_request(
+        "activation-journal-conflict",
+        CloudflareEcdsaServerGenerationExpectationV1::NoCurrentGeneration,
+        TEST_ACTIVATED_AT_MS,
+    );
+    let commit_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_ecdsa_activation_commit(request.clone())
+            .expect("ECDSA activation commit operation"),
+    )
+    .expect("ECDSA activation commit call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    let missing_digest = digest(0xe1);
+    let missing_lookup = CloudflareSigningWorkerEcdsaActivationCommitLookupV1::new(
+        "activation-journal-missing",
+        missing_digest,
+    )
+    .expect("missing ECDSA activation lookup");
+    let missing_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_ecdsa_activation_commit_get(
+            missing_lookup.clone(),
+        )
+        .expect("missing ECDSA activation query operation"),
+    )
+    .expect("missing ECDSA activation query call");
+    let missing = handle_cloudflare_durable_object_call_v1(&missing_call, &mut storage)
+        .expect("query absent ECDSA activation");
+    assert_eq!(
+        missing,
+        CloudflareDurableObjectResponseV1::signing_worker_ecdsa_activation_commit_get(
+            CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1::NotCommitted {
+                activation_correlation_id: missing_lookup.activation_correlation_id,
+                activation_request_digest: missing_digest,
+            },
+        )
+        .expect("not-committed ECDSA query response")
+    );
+
+    handle_cloudflare_durable_object_call_v1(&commit_call, &mut storage)
+        .expect("commit ECDSA activation");
+    let conflicting_digest = digest(0xe2);
+    let conflict_lookup = CloudflareSigningWorkerEcdsaActivationCommitLookupV1::new(
+        "activation-journal-conflict",
+        conflicting_digest,
+    )
+    .expect("conflicting ECDSA activation lookup");
+    let conflict_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_ecdsa_activation_commit_get(
+            conflict_lookup.clone(),
+        )
+        .expect("conflicting ECDSA activation query operation"),
+    )
+    .expect("conflicting ECDSA activation query call");
+    let conflict = handle_cloudflare_durable_object_call_v1(&conflict_call, &mut storage)
+        .expect("query conflicting ECDSA activation");
+    assert_eq!(
+        conflict,
+        CloudflareDurableObjectResponseV1::signing_worker_ecdsa_activation_commit_get(
+            CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1::CorrelationConflict {
+                activation_correlation_id: conflict_lookup.activation_correlation_id,
+                activation_request_digest: conflicting_digest,
+            },
+        )
+        .expect("correlation-conflict ECDSA query response")
+    );
+
+    let mut changed_request = request;
+    changed_request.activation_request_digest = conflicting_digest;
+    let changed_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_ecdsa_activation_commit(changed_request)
+            .expect("changed ECDSA activation commit operation"),
+    )
+    .expect("changed ECDSA activation commit call");
+    let error = handle_cloudflare_durable_object_call_v1(&changed_call, &mut storage)
+        .expect_err("changed digest must conflict at an occupied correlation");
+    assert_eq!(
+        error.code(),
+        RouterAbProtocolErrorCode::ReplayedLocalRequest
+    );
+}
+
+#[test]
+fn durable_object_ecdsa_activation_commit_rejects_stale_server_generation() {
+    let initial_request = router_ab_ecdsa_derivation_activation_commit_request(
+        "activation-journal-generation-1",
+        CloudflareEcdsaServerGenerationExpectationV1::NoCurrentGeneration,
+        TEST_ACTIVATED_AT_MS,
+    );
+    let initial_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_ecdsa_activation_commit(initial_request)
+            .expect("initial ECDSA activation commit operation"),
+    )
+    .expect("initial ECDSA activation commit call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+    let initial = handle_cloudflare_durable_object_call_v1(&initial_call, &mut storage)
+        .expect("initial ECDSA activation commit");
+    let initial_generation = committed_ecdsa_activation_receipt(&initial)
+        .server_generation
+        .clone();
+    let initial_active_state_key = initial_call
+        .active_signing_worker_state_index_storage_key()
+        .expect("initial active-state key");
+
+    let refresh_request = router_ab_ecdsa_derivation_refresh_commit_request(
+        "activation-journal-generation-2",
+        &initial_generation,
+        TEST_ACTIVATED_AT_MS,
+    );
+    let refresh_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_ecdsa_activation_commit(refresh_request)
+            .expect("refresh ECDSA activation commit operation"),
+    )
+    .expect("refresh ECDSA activation commit call");
+    let refreshed = handle_cloudflare_durable_object_call_v1(&refresh_call, &mut storage)
+        .expect("refresh ECDSA activation commit");
+    let refreshed_receipt = committed_ecdsa_activation_receipt(&refreshed);
+    let refreshed_active_state_key = refresh_call
+        .active_signing_worker_state_index_storage_key()
+        .expect("refreshed active-state key");
+    assert_ne!(refreshed_receipt.server_generation, initial_generation);
+    assert_ne!(
+        refreshed_receipt.server_generation,
+        refreshed_receipt.ecdsa_activation.activation_epoch
+    );
+    assert_ne!(refreshed_active_state_key, initial_active_state_key);
+    assert!(
+        storage
+            .active_signing_worker_state(&initial_active_state_key)
+            .is_none(),
+        "refresh must retire the prior session-scoped active pointer atomically"
+    );
+    assert!(
+        storage
+            .active_signing_worker_state(&refreshed_active_state_key)
+            .is_some(),
+        "refresh must publish the replacement session-scoped active pointer"
+    );
+
+    let stale_request = router_ab_ecdsa_derivation_refresh_commit_request(
+        "activation-journal-generation-stale",
+        &initial_generation,
+        TEST_ACTIVATED_AT_MS + 2,
+    );
+    let stale_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_ecdsa_activation_commit(stale_request)
+            .expect("stale ECDSA activation commit operation"),
+    )
+    .expect("stale ECDSA activation commit call");
+    let error = handle_cloudflare_durable_object_call_v1(&stale_call, &mut storage)
+        .expect_err("stale ECDSA server generation must fail");
+    assert_eq!(
+        error.code(),
+        RouterAbProtocolErrorCode::InvalidLifecycleState
     );
 }
 

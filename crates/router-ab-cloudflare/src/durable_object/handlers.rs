@@ -27,6 +27,157 @@ pub(super) fn validate_signing_worker_output_active_state_replacement_v1(
     Ok(())
 }
 
+pub(super) struct CloudflareSigningWorkerEcdsaActivationCommitDecisionV1 {
+    pub record: CloudflareSigningWorkerOutputActivationRecordV1,
+    pub receipt: CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1,
+    pub stored: bool,
+}
+
+pub(super) fn apply_cloudflare_signing_worker_ecdsa_activation_commit_v1(
+    request: &CloudflareSigningWorkerEcdsaActivationCommitRequestV1,
+    material_handle: &str,
+    existing_correlation_record: Option<CloudflareSigningWorkerOutputActivationRecordV1>,
+    existing_active_state: Option<ActiveSigningWorkerStateV1>,
+    existing_active_record: Option<CloudflareSigningWorkerOutputActivationRecordV1>,
+) -> RouterAbProtocolResult<CloudflareSigningWorkerEcdsaActivationCommitDecisionV1> {
+    request.validate()?;
+    require_non_empty("ECDSA activation material handle", material_handle)?;
+    if let Some(existing) = existing_correlation_record {
+        existing.validate()?;
+        let Some(receipt) = existing.ecdsa_activation_commit_receipt() else {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "ECDSA activation correlation is already used by another protocol",
+            ));
+        };
+        if receipt.activation_request_digest != request.activation_request_digest {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "ECDSA activation correlation conflicts with a different request digest",
+            ));
+        }
+        return Ok(CloudflareSigningWorkerEcdsaActivationCommitDecisionV1 {
+            record: existing.clone(),
+            receipt: receipt.clone(),
+            stored: false,
+        });
+    }
+
+    validate_ecdsa_server_generation_expectation_v1(
+        &request.expected_server_generation,
+        existing_active_state.as_ref(),
+        existing_active_record.as_ref(),
+    )?;
+
+    let active_signing_worker_state =
+        cloudflare_active_signing_worker_state_from_activation_request_v1(
+            &request.activation,
+            material_handle,
+            request.ecdsa_activation.activated_at_ms,
+        )?;
+    validate_ecdsa_active_state_replacement_v1(
+        existing_active_state.as_ref(),
+        &active_signing_worker_state,
+    )?;
+    let activation_context = &request.activation.activation_context;
+    let server_generation = crate::derive_cloudflare_ecdsa_server_generation_v1(
+        &request.activation_correlation_id,
+        request.activation_request_digest,
+    );
+    let receipt = CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1::new(
+        request.activation_correlation_id.clone(),
+        request.activation_request_digest,
+        server_generation,
+        request.ecdsa_activation.clone(),
+        activation_context.lifecycle().lifecycle_id.clone(),
+        activation_context.transcript_digest(),
+    )?;
+    let record = CloudflareSigningWorkerOutputActivationRecordV1::ecdsa_activation_commit(
+        request.activation.clone(),
+        active_signing_worker_state.clone(),
+        request.material.clone(),
+        receipt.clone(),
+    )?;
+    Ok(CloudflareSigningWorkerEcdsaActivationCommitDecisionV1 {
+        record,
+        receipt,
+        stored: true,
+    })
+}
+
+fn validate_ecdsa_active_state_replacement_v1(
+    existing: Option<&ActiveSigningWorkerStateV1>,
+    replacement: &ActiveSigningWorkerStateV1,
+) -> RouterAbProtocolResult<()> {
+    replacement.validate()?;
+    let Some(existing) = existing else {
+        return Ok(());
+    };
+    existing.validate()?;
+    if existing.account_id != replacement.account_id
+        || existing.signing_worker.server_id != replacement.signing_worker.server_id
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "ECDSA activation cannot replace a different wallet or SigningWorker",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_ecdsa_server_generation_expectation_v1(
+    expectation: &CloudflareEcdsaServerGenerationExpectationV1,
+    existing_active_state: Option<&ActiveSigningWorkerStateV1>,
+    existing_active_record: Option<&CloudflareSigningWorkerOutputActivationRecordV1>,
+) -> RouterAbProtocolResult<()> {
+    expectation.validate()?;
+    match expectation {
+        CloudflareEcdsaServerGenerationExpectationV1::NoCurrentGeneration => {
+            if existing_active_state.is_some() {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLifecycleState,
+                    "ECDSA first activation requires no current server generation",
+                ));
+            }
+            Ok(())
+        }
+        CloudflareEcdsaServerGenerationExpectationV1::Exact { server_generation } => {
+            let active_state = existing_active_state.ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "ECDSA refresh requires a current server generation",
+                )
+            })?;
+            let active_record = existing_active_record.ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "ECDSA current activation record is missing",
+                )
+            })?;
+            active_record.validate()?;
+            if active_record.active_signing_worker_state() != active_state {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    "ECDSA current active-state index does not match its activation record",
+                ));
+            }
+            let Some(receipt) = active_record.ecdsa_activation_commit_receipt() else {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLifecycleState,
+                    "ECDSA current activation has no canonical server generation",
+                ));
+            };
+            if receipt.server_generation != *server_generation {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLifecycleState,
+                    "ECDSA expected server generation is stale",
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
 pub(super) fn require_existing_record_v1<T>(
     record: Option<T>,
     missing_message: &'static str,
@@ -455,6 +606,73 @@ pub fn handle_cloudflare_durable_object_call_v1(
                     activated,
                 )?,
             )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaActivationCommit { request } => {
+            let active_state_index_key = call.active_signing_worker_state_index_storage_key()?;
+            let generation_head_key = call.ecdsa_activation_generation_head_storage_key()?;
+            let existing_correlation_record =
+                storage.signing_worker_output_activation(&storage_key)?;
+            let existing_active_state =
+                storage.active_signing_worker_state(&generation_head_key)?;
+            let retired_active_state_index_key = existing_active_state
+                .as_ref()
+                .map(|active_state| {
+                    call.active_signing_worker_state_index_storage_key_for(active_state)
+                })
+                .transpose()?;
+            let existing_active_record = match &existing_active_state {
+                Some(active_state) => storage.signing_worker_output_activation(
+                    &active_state.signing_worker_material_handle,
+                )?,
+                None => None,
+            };
+            let decision = apply_cloudflare_signing_worker_ecdsa_activation_commit_v1(
+                request,
+                &storage_key,
+                existing_correlation_record,
+                existing_active_state,
+                existing_active_record,
+            )?;
+            if decision.stored {
+                storage.put_signing_worker_ecdsa_activation_commit(
+                    &storage_key,
+                    &active_state_index_key,
+                    &generation_head_key,
+                    retired_active_state_index_key.as_deref(),
+                    decision.record,
+                )?;
+            }
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_activation_committed(
+                decision.receipt,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaActivationCommitGet { lookup } => {
+            let result = match storage.signing_worker_output_activation(&storage_key)? {
+                None => CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1::NotCommitted {
+                    activation_correlation_id: lookup.activation_correlation_id.clone(),
+                    activation_request_digest: lookup.activation_request_digest,
+                },
+                Some(record) => {
+                    record.validate()?;
+                    match record.ecdsa_activation_commit_receipt() {
+                        Some(receipt)
+                            if receipt.activation_request_digest
+                                == lookup.activation_request_digest =>
+                        {
+                            CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1::Committed {
+                                receipt: receipt.clone(),
+                            }
+                        }
+                        Some(_) | None => {
+                            CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1::CorrelationConflict {
+                                activation_correlation_id: lookup.activation_correlation_id.clone(),
+                                activation_request_digest: lookup.activation_request_digest,
+                            }
+                        }
+                    }
+                }
+            };
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_activation_commit_get(result)?
         }
         CloudflareDurableObjectRequestV1::SigningWorkerOutputActiveStateGet { lookup } => {
             lookup.validate()?;
