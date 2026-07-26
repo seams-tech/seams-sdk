@@ -123,13 +123,35 @@ VOICEID_VERIFIER_QUEUE_WAIT_MS=250
 ```
 
 An exhausted queue returns a deterministic `overloaded` response. The SDK HTTP
-deadline remains the outer request deadline.
+deadline remains the outer request deadline. Model stages also have bounded
+slots and independent deadlines:
+
+```sh
+VOICEID_SPEECH_DEADLINE_MS=900
+VOICEID_SPEAKER_DEADLINE_MS=900
+VOICEID_PAD_DEADLINE_MS=900
+```
 
 The `python-http` plus `python-moonshine` profile routes verification through
 `/voice-id/verifier/analyze-verification`. It decodes one canonical mono 16 kHz
 PCM buffer and derives phrase, intent, speaker, and quality decisions from that
 same buffer. PAD remains explicitly unavailable until its model and calibration
-are complete.
+are configured. The pinned AASIST research baseline uses:
+
+```sh
+VOICEID_PAD_AASIST_SOURCE_PATH=/path/to/AASIST.py
+VOICEID_PAD_AASIST_CHECKPOINT_PATH=/path/to/AASIST.pth
+VOICEID_PAD_AASIST_CONFIG_PATH=/path/to/AASIST.conf
+VOICEID_PAD_DEVICE=auto
+VOICEID_PAD_REJECT_THRESHOLD=<calibrated probability>
+VOICEID_PAD_ACCEPT_THRESHOLD=<calibrated probability>
+VOICEID_PAD_CALIBRATION_VERSION=<immutable calibration id>
+```
+
+With those variables present, AASIST consumes the same accepted VAD region as
+ECAPA and runs concurrently with Moonshine and speaker scoring. A PAD rejection
+terminates experimental verification as `presentation_attack`; PAD uncertainty
+fails closed. Browser evidence remains signing-ineligible regardless of PAD.
 
 The local ECAPA research threshold is `0.6352` under
 `ecapa-local-dev-v1`. It is fixture-derived E0 configuration. Set
@@ -174,7 +196,7 @@ pnpm -C voiceId fixtures:validate
 pnpm -C voiceId fixtures:validate:media
 pnpm -C voiceId fixtures:evaluate:spectral
 pnpm -C voiceId fixtures:evaluate:ecapa
-pnpm -C voiceId pad:test
+pnpm -C voiceId benchmark:test
 pnpm -C voiceId pad:evaluate
 ```
 

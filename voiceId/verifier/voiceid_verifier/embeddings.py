@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -70,8 +71,16 @@ class SpeechBrainEcapaEmbeddingExtractor:
             )
         )
         self.classifier = classifier or self._load_classifier()
+        self._lock = threading.Lock()
 
     def extract_decoded(self, samples: Sequence[float]) -> ExtractedSpeakerEmbedding:
+        with self._lock:
+            return self._extract_decoded_locked(samples)
+
+    def _extract_decoded_locked(
+        self,
+        samples: Sequence[float],
+    ) -> ExtractedSpeakerEmbedding:
         try:
             import torch
         except ImportError as exc:

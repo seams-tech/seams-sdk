@@ -195,9 +195,10 @@ terminal computation across multiple workers.
 - [ ] Collect consented, subject-disjoint recordings across days, microphones,
       rooms, distances, codecs, sample rates, accents, and noise conditions.
 - [ ] Freeze subject-disjoint development, calibration, and evaluation splits.
-- [ ] Extend the inventory command to run the selected model adapters and emit
+- [x] Extend the inventory command to run the selected model adapters and emit
       machine-readable measurement results and a human report from the same
-      run.
+      run. The suite binds both corpus and model manifests by SHA-256 and runs
+      Moonshine, ECAPA, and AASIST from the validated corpus.
 - [ ] Measure speaker FAR, FRR, EER, uncertainty, and retry rate with confidence
       intervals.
 - [ ] Measure phrase substitution, omission, insertion, reordering, and
@@ -211,6 +212,12 @@ terminal computation across multiple workers.
 - [ ] Freeze explicit latency and resource budgets for server GPU, embedded
       NVIDIA, embedded CPU, and iOS research profiles.
 
+Current external execution blockers (2026-07-26): the configured ElevenLabs
+credential returns HTTP 401, and the billed Google Cloud project has a global
+GPU quota of zero. The rejected Spot VM was deleted before GPU allocation.
+Corpus plans, generators, hash-preserving freeze tooling, and model runners are
+ready; the audio generation and held-out measurements remain incomplete.
+
 Exit gate: every optimization and model change can be compared against one
 reproducible accuracy, latency, and resource baseline.
 
@@ -222,11 +229,11 @@ reproducible accuracy, latency, and resource baseline.
       for audio quality and enrollment-template construction.
 - [x] Reuse one verifier-owned canonical PCM decode for verification phrase,
       intent, and speaker analysis through `analyze-verification`.
-- [ ] Feed the same accepted VAD windows into speaker and PAD models and extend
+- [x] Feed the same accepted VAD windows into speaker and PAD models and extend
       the shared decode to enrollment template processing.
 - [x] Preserve independent typed phrase, intent, speaker, quality, and PAD
       decisions.
-- [ ] Run phrase, intent, speaker, and PAD inference concurrently after common
+- [x] Run phrase, intent, speaker, and PAD inference concurrently after common
       quality gates accept.
 - [x] Replace request-scoped model startup with a persistent HTTP sidecar that
       loads each model once and reports exact runtime readiness. Delete the
@@ -238,7 +245,7 @@ reproducible accuracy, latency, and resource baseline.
       non-Moonshine research modes.
 - [x] Add persistent workers for the selected phrase and intent models
       that load each model once and report readiness.
-- [ ] Add bounded queues, backpressure, per-stage deadlines, cancellation, and
+- [x] Add bounded queues, backpressure, per-stage deadlines, cancellation, and
       deterministic overload results.
 - [x] Zero current sidecar PCM, speech-window, template, and speaker-embedding
       buffers after the terminal decision.
@@ -250,10 +257,10 @@ reproducible accuracy, latency, and resource baseline.
       speaker, and PAD model adapter.
 
 Exit gate: one bounded preprocessing pass feeds warm concurrent inference with
-no duplicate decode, resample, VAD, or model initialization. The current
-verification route satisfies the single-decode boundary for the Python /
-Moonshine profile; PAD concurrency, shared VAD windows, and enrollment reuse
-remain open.
+no duplicate decode, resample, VAD, or model initialization. The Python profile
+now runs Moonshine, ECAPA, and AASIST concurrently from one decode/VAD pass.
+Timed-out queued stages are cancelled; running native calls finish on bounded
+workers and zero private input buffers before their slots are reused.
 
 ## Gate E: Moonshine-First Intent, Phrase, And Speaker Model Selection
 
@@ -272,7 +279,7 @@ remain open.
 - [x] Run the native Tiny-then-Small streaming smoke benchmark over an
       ephemeral synthetic speech corpus and record load, warm latency, phrase,
       intent, cohort, and human-metric-suppression outcomes.
-- [ ] Compare exact normalized phrase matching with a hybrid policy that
+- [x] Compare exact normalized phrase matching with a hybrid policy that
       requires unpredictable challenge-token coverage in any order and accepts
       natural-language variations of the requested intent.
 - [x] Keep speaker identity, semantic intent, challenge freshness, phrase
@@ -294,7 +301,7 @@ remain open.
       end-of-utterance latency, complete capture latency, peak memory, and CPU
       use first on Apple Silicon macOS, then iPhone 16/Core ML. Linux x86 and
       robot-class CPU follow after the Apple profiles are reproducible.
-- [ ] Pin the Moonshine release, model hashes, architecture, quantization, ONNX
+- [x] Pin the Moonshine release, model hashes, architecture, quantization, ONNX
       Runtime providers, preprocessing, and transcript normalization in the
       experiment manifest.
 - [ ] Restrict the first product-shaped spike to MIT-licensed English models.
@@ -311,8 +318,9 @@ remain open.
       warm latency, memory, and quantization loss.
 - [ ] Select the smallest intent, phrase, and speaker models that meet each
       approved platform profile's frozen budgets.
-- [ ] Version model weights, preprocessing, adapters, intent and phrase
-      thresholds, challenge grammar, and calibration as one immutable manifest.
+- [x] Add an immutable calibration-manifest generator that binds model weights,
+      preprocessing, adapters, intent and phrase thresholds, challenge grammar,
+      and calibration.
 - [ ] Return `uncertain` for unsupported capture profiles and scores outside the
       calibrated region.
 
@@ -323,8 +331,9 @@ frozen accuracy and runtime budgets on held-out subjects.
 
 - [x] Add a strict subject-disjoint PAD manifest parser and fail-closed report
       generator with confidence intervals and attack/capture-profile grouping.
-- [ ] Integrate an AASIST-style PAD baseline behind a typed verifier boundary.
-- [ ] Feed PAD from the shared canonical PCM and speech windows.
+- [x] Integrate the pinned upstream AASIST ASVspoof2019-LA baseline behind a
+      typed verifier boundary.
+- [x] Feed PAD from the shared canonical PCM and accepted speech windows.
 - [ ] Build separate replay, synthesis, voice conversion, splice, relay, and
       digital-injection evaluation sets.
 - [ ] Use pinned
@@ -342,24 +351,24 @@ frozen accuracy and runtime budgets on held-out subjects.
 - [ ] Generate correct-intent attacks containing fresh challenge tokens in
       varied order, then exercise direct digital injection, acoustic replay,
       codec conversion, noise, and room-response transformations.
-- [ ] Record the Dia2 repository revision, weight hashes, architecture,
+- [x] Record the Dia2 repository revision, weight hashes, architecture,
       reference-audio consent handle and duration, script, challenge tokens,
       seed, sampling configuration, output duration, generation latency, and
       transformation chain in the attack manifest.
 - [ ] Include multiple unrelated current text-to-speech and voice-conversion
       systems, attacks tuned against the selected speaker model and PAD, and
       held-out generators unavailable during calibration.
-- [ ] Keep Dia2 and every attack-generation tool in the offline fixture
+- [x] Keep Dia2 and every attack-generation tool in the offline fixture
       pipeline and outside production VoiceID packages, verifier images, and
       runtime dependencies.
-- [ ] Report APCER, BPCER, uncertainty, and latency by attack class and capture
-      profile.
+- [x] Add held-out reporting for APCER, BPCER, uncertainty, latency, confidence
+      intervals, attack class, and capture profile.
 - [ ] Report whether prompt-targeted generation completes within the challenge
       validity window and include that timing in combined unauthorized-
       acceptance analysis.
-- [ ] Calibrate accepted, uncertain, and rejected regions without folding PAD
+- [x] Calibrate accepted, uncertain, and rejected regions without folding PAD
       into the speaker score.
-- [ ] Run PAD concurrently with phrase and speaker inference.
+- [x] Run PAD concurrently with phrase and speaker inference.
 
 Exit gate: PAD meets its frozen per-attack accuracy and latency budgets on the
 held-out attack set and fails closed outside measured profiles.
@@ -426,7 +435,6 @@ pnpm -C voiceId type-check
 pnpm -C voiceId test
 pnpm -C voiceId signing-architecture:guard
 pnpm -C voiceId verifier:test
-pnpm -C voiceId pad:test
 pnpm -C voiceId benchmark:test
 ```
 

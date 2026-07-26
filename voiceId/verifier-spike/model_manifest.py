@@ -70,6 +70,14 @@ ARTIFACTS = (
         license_name="Apache-2.0",
         expected_published_bytes=89_100_000,
     ),
+    ArtifactSpec(
+        artifact_id="aasist-asvspoof2019-la",
+        relative_path="aasist",
+        source="https://github.com/clovaai/aasist",
+        revision="a04c9863f63d44471dde8a6abcb3b082b07cd1d1",
+        license_name="MIT",
+        expected_published_bytes=1_281_532,
+    ),
 )
 
 

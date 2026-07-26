@@ -53,7 +53,10 @@ class FakeIntentRecognizer:
     def get_closest_intents(self, utterance: str, tolerance_threshold: float) -> list[FakeMatch]:
         if not self.registered:
             return []
-        canonical_phrase = 'approve' if 'approve' in self.registered else self.registered[0]
+        canonical_phrase = next(
+            (phrase for phrase in self.registered if phrase.startswith("approve")),
+            self.registered[0],
+        )
         return [FakeMatch(canonical_phrase=canonical_phrase, similarity=0.91)]
 
 
@@ -70,6 +73,7 @@ class MoonshineRecognizerTest(unittest.TestCase):
             [0.1, -0.1],
             expected_phrase="approve transfer",
             intent_name="approve",
+            challenge_tokens=("approve", "transfer"),
         )
 
         self.assertEqual(result.sample_rate_hz, 16000)
@@ -91,10 +95,63 @@ class MoonshineRecognizerTest(unittest.TestCase):
             [0.1],
             expected_phrase="approve transfer",
             intent_name="approve",
+            challenge_tokens=("approve", "transfer"),
         )
 
         self.assertEqual(result.phrase.kind, "uncertain")
         self.assertEqual(result.intent.kind, "uncertain")
+
+    def test_accepts_fresh_challenge_tokens_in_any_order(self) -> None:
+        recognizer = MoonshineRecognizer(
+            model_path="tiny",
+            model_arch="tiny_streaming",
+            intent_model_path="intent",
+            transcriber_factory=ReorderedTokenTranscriber,
+            intent_factory=FakeIntentRecognizer,
+        )
+
+        result = recognizer.analyze(
+            [0.1],
+            expected_phrase="approve this request maple eight star",
+            intent_name="approve",
+            challenge_tokens=("maple", "eight", "star"),
+        )
+
+        self.assertEqual(result.phrase.kind, "accepted")
+        self.assertEqual(result.intent.kind, "accepted")
+
+    def test_rejects_semantically_correct_utterance_missing_a_fresh_token(self) -> None:
+        recognizer = MoonshineRecognizer(
+            model_path="tiny",
+            model_arch="tiny_streaming",
+            intent_model_path="intent",
+            transcriber_factory=MissingTokenTranscriber,
+            intent_factory=FakeIntentRecognizer,
+        )
+
+        result = recognizer.analyze(
+            [0.1],
+            expected_phrase="approve this request maple eight star",
+            intent_name="approve",
+            challenge_tokens=("maple", "eight", "star"),
+        )
+
+        self.assertEqual(result.phrase.kind, "rejected")
+        self.assertEqual(result.intent.kind, "accepted")
+
+
+class ReorderedTokenTranscriber(FakeTranscriber):
+    def transcribe_without_streaming(self, samples: list[float], sample_rate: int) -> FakeTranscript:
+        return FakeTranscript(
+            lines=(FakeLine("Please approve this request. Star maple eight."),)
+        )
+
+
+class MissingTokenTranscriber(FakeTranscriber):
+    def transcribe_without_streaming(self, samples: list[float], sample_rate: int) -> FakeTranscript:
+        return FakeTranscript(
+            lines=(FakeLine("Please approve this request. Maple star."),)
+        )
 
 
 if __name__ == "__main__":

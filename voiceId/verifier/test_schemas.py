@@ -5,6 +5,7 @@ import json
 import math
 import struct
 import threading
+import time
 import unittest
 import wave
 from collections.abc import Sequence
@@ -12,7 +13,10 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from voiceid_verifier.app import (
+    BoundedStageExecutor,
+    TimedStageResult,
     VoiceIdVerifierHttpServer,
+    VerificationStageDeadlines,
     analyze_verification_from_json,
     analyze_speech_from_json,
     build_enrollment_template_from_json,
@@ -24,6 +28,7 @@ from voiceid_verifier.moonshine import (
     MoonshinePhraseDecision,
     MoonshineSpeechAnalysis,
 )
+from voiceid_verifier.pad import PadDecision
 from voiceid_verifier.runtime import SpeechBrainEcapaVerifierRuntime
 from voiceid_verifier.schemas import (
     VerifierSchemaError,
@@ -135,6 +140,109 @@ class VerifierSchemaTest(unittest.TestCase):
         self.assertEqual(response["speech"]["intent"]["kind"], "accepted")
         self.assertEqual(response["speaker"]["kind"], "accepted")
         self.assertTrue(all(value == 0.0 for value in extractor.sample_references[0]))
+
+    def test_combined_verification_runs_speech_and_windowed_speaker_inference_concurrently(
+        self,
+    ) -> None:
+        template_runtime = SpeechBrainEcapaVerifierRuntime(
+            extractor=InspectingEcapaExtractor()
+        )
+        template_response = build_enrollment_template_from_json(
+            enrollment_request(audio_bytes=enrollment_audio_bytes()),
+            runtime=template_runtime,
+        )
+        barrier = threading.Barrier(2)
+        extractor = CoordinatedEcapaExtractor(barrier)
+        runtime = SpeechBrainEcapaVerifierRuntime(extractor=extractor)
+        audio_bytes = wav_audio_bytes([(None, 300), (240, 1200), (None, 300)])
+
+        response = analyze_verification_from_json(
+            verification_analysis_request(
+                audio_bytes=audio_bytes,
+                template_response=template_response,
+            ),
+            runtime=runtime,
+            recognizer=CoordinatedMoonshineRecognizer(barrier),
+        )
+
+        self.assertEqual(response["speaker"]["kind"], "accepted")
+        self.assertEqual(response["speech"]["intent"]["kind"], "accepted")
+        self.assertLess(len(extractor.sample_references[0]), 1800 * 16)
+        self.assertTrue(all(value == 0.0 for value in extractor.sample_references[0]))
+
+    def test_combined_verification_runs_pad_on_the_same_accepted_speech_region(
+        self,
+    ) -> None:
+        template_runtime = SpeechBrainEcapaVerifierRuntime(
+            extractor=InspectingEcapaExtractor()
+        )
+        template_response = build_enrollment_template_from_json(
+            enrollment_request(audio_bytes=enrollment_audio_bytes()),
+            runtime=template_runtime,
+        )
+        barrier = threading.Barrier(3)
+        extractor = CoordinatedEcapaExtractor(barrier)
+        detector = CoordinatedPadDetector(barrier)
+        runtime = SpeechBrainEcapaVerifierRuntime(extractor=extractor)
+        audio_bytes = wav_audio_bytes([(None, 300), (240, 1200), (None, 300)])
+
+        response = analyze_verification_from_json(
+            verification_analysis_request(
+                audio_bytes=audio_bytes,
+                template_response=template_response,
+            ),
+            runtime=runtime,
+            recognizer=CoordinatedMoonshineRecognizer(barrier),
+            pad_detector=detector,
+        )
+
+        self.assertEqual(response["pad"]["kind"], "accepted")
+        self.assertEqual(len(detector.sample_references[0]), len(extractor.sample_references[0]))
+        self.assertTrue(all(value == 0.0 for value in detector.sample_references[0]))
+
+    def test_combined_verification_fails_closed_at_stage_deadlines(self) -> None:
+        template_runtime = SpeechBrainEcapaVerifierRuntime(
+            extractor=InspectingEcapaExtractor()
+        )
+        template_response = build_enrollment_template_from_json(
+            enrollment_request(audio_bytes=enrollment_audio_bytes()),
+            runtime=template_runtime,
+        )
+
+        response = analyze_verification_from_json(
+            verification_analysis_request(
+                audio_bytes=wav_audio_bytes([(240, 1800)]),
+                template_response=template_response,
+            ),
+            runtime=SpeechBrainEcapaVerifierRuntime(extractor=SlowEcapaExtractor()),
+            recognizer=SlowMoonshineRecognizer(),
+            pad_detector=SlowPadDetector(),
+            stage_deadlines=VerificationStageDeadlines(
+                speech_ms=1,
+                speaker_ms=1,
+                pad_ms=1,
+            ),
+        )
+
+        self.assertEqual(response["speech"]["phrase"]["kind"], "uncertain")
+        self.assertEqual(response["speaker"]["kind"], "uncertain")
+        self.assertEqual(response["pad"]["kind"], "uncertain")
+        self.assertEqual(response["pad"]["reason"], "deadline_exceeded")
+
+    def test_stage_executor_rejects_work_when_all_model_slots_are_active(self) -> None:
+        executor = BoundedStageExecutor(maximum_active_stages=1)
+        started = threading.Event()
+        release = threading.Event()
+        first = executor.submit(blocking_timed_stage, started, release)
+        self.assertIsNotNone(first)
+        self.assertTrue(started.wait(timeout=1))
+
+        second = executor.submit(blocking_timed_stage, started, release)
+
+        self.assertIsNone(second)
+        release.set()
+        if first is not None:
+            self.assertEqual(first.result(timeout=1).value, "complete")
 
     def test_canonical_pipeline_is_stable_across_repeated_runs(self) -> None:
         enrollment_payload = enrollment_request(audio_bytes=enrollment_audio_bytes())
@@ -350,6 +458,7 @@ def verification_analysis_request(
         "threshold": 0.5,
         "expectedPhrase": "approve transfer",
         "intentName": "approve",
+        "challengeTokens": ["approve", "transfer"],
     }
 
 
@@ -460,6 +569,16 @@ class FailingEcapaExtractor(InspectingEcapaExtractor):
         raise AssertionError("speaker extraction should not run for low-quality audio")
 
 
+class CoordinatedEcapaExtractor(InspectingEcapaExtractor):
+    def __init__(self, barrier: threading.Barrier) -> None:
+        super().__init__()
+        self.barrier = barrier
+
+    def extract_decoded(self, samples: Sequence[float]) -> ExtractedSpeakerEmbedding:
+        self.barrier.wait(timeout=1)
+        return super().extract_decoded(samples)
+
+
 class FakeMoonshineRecognizer:
     def analyze(
         self,
@@ -467,6 +586,7 @@ class FakeMoonshineRecognizer:
         *,
         expected_phrase: str,
         intent_name: str,
+        challenge_tokens: Sequence[str],
     ) -> MoonshineSpeechAnalysis:
         return MoonshineSpeechAnalysis(
             transcript="approve transfer",
@@ -482,10 +602,107 @@ class FakeMoonshineRecognizer:
                 intent="approve",
                 canonical_phrase="approve",
                 confidence=0.95,
+                runner_up_intent="cancel",
+                runner_up_confidence=0.2,
                 reason=None,
             ),
             sample_rate_hz=16000,
         )
+
+
+class CoordinatedMoonshineRecognizer(FakeMoonshineRecognizer):
+    def __init__(self, barrier: threading.Barrier) -> None:
+        self.barrier = barrier
+
+    def analyze(
+        self,
+        samples: Sequence[float],
+        *,
+        expected_phrase: str,
+        intent_name: str,
+        challenge_tokens: Sequence[str],
+    ) -> MoonshineSpeechAnalysis:
+        self.barrier.wait(timeout=1)
+        return super().analyze(
+            samples,
+            expected_phrase=expected_phrase,
+            intent_name=intent_name,
+            challenge_tokens=challenge_tokens,
+        )
+
+
+class SlowMoonshineRecognizer(FakeMoonshineRecognizer):
+    def analyze(
+        self,
+        samples: Sequence[float],
+        *,
+        expected_phrase: str,
+        intent_name: str,
+        challenge_tokens: Sequence[str],
+    ) -> MoonshineSpeechAnalysis:
+        time.sleep(0.05)
+        return super().analyze(
+            samples,
+            expected_phrase=expected_phrase,
+            intent_name=intent_name,
+            challenge_tokens=challenge_tokens,
+        )
+
+
+class CoordinatedPadDetector:
+    model_version = "test-pad"
+    calibration_version = "test-calibration"
+    reject_threshold = 0.35
+    accept_threshold = 0.65
+
+    def __init__(self, barrier: threading.Barrier) -> None:
+        self.barrier = barrier
+        self.sample_references: list[Sequence[float]] = []
+
+    def analyze(self, samples: Sequence[float]) -> PadDecision:
+        self.sample_references.append(samples)
+        self.barrier.wait(timeout=1)
+        return accepted_pad_decision()
+
+
+class SlowPadDetector:
+    model_version = "test-pad"
+    calibration_version = "test-calibration"
+    reject_threshold = 0.35
+    accept_threshold = 0.65
+
+    def analyze(self, samples: Sequence[float]) -> PadDecision:
+        time.sleep(0.05)
+        return accepted_pad_decision()
+
+
+class SlowEcapaExtractor(InspectingEcapaExtractor):
+    def extract_decoded(self, samples: Sequence[float]) -> ExtractedSpeakerEmbedding:
+        time.sleep(0.05)
+        return super().extract_decoded(samples)
+
+
+def accepted_pad_decision() -> PadDecision:
+    return PadDecision(
+        kind="accepted",
+        score=0.9,
+        reject_threshold=0.35,
+        accept_threshold=0.65,
+        model_version="test-pad",
+        calibration_version="test-calibration",
+        latency_ms=5.0,
+        reason=None,
+    )
+
+
+def blocking_timed_stage(
+    started: threading.Event,
+    release: threading.Event,
+) -> TimedStageResult:
+    started.set()
+    if not release.wait(timeout=1):
+        raise TimeoutError("test stage was not released")
+    return TimedStageResult(completed_at=time.monotonic(), value="complete")
 
 
 if __name__ == "__main__":
