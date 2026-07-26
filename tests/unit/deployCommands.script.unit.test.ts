@@ -190,6 +190,25 @@ test('Gateway preflight rejects an incomplete family cutover window', () => {
   expectFailure(result, /must be set together/u);
 });
 
+test('Gateway preflight rejects capability consumer cutovers before recovery drains', () => {
+  const result = runCommand(
+    backendScript,
+    ['preflight', '--target', 'production', '--component', 'gateway'],
+    {
+      ...environmentWithoutDeploymentSecrets(),
+      DEPLOYMENT_SECRETS_JSON: '{}',
+      DEPLOYMENT_VARS_JSON: JSON.stringify({
+        ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS: '1000',
+        ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS: '3000',
+        ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS: '1500',
+        ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS: '2000',
+      }),
+    },
+  );
+
+  expectFailure(result, /RECOVERY must finish draining no later than EXPORT/u);
+});
+
 test('Gateway preflight rejects an obsolete tenant-wide cutover window', () => {
   const result = runCommand(
     backendScript,

@@ -33,23 +33,44 @@ test('Gateway cutover config emits the exact six worker variables while every fa
   expect(vars).toEqual(Object.fromEntries(expectedWorkerVarNames.map((name) => [name, ''])));
 });
 
-test('Gateway cutover config preserves independent family schedules', async () => {
+test('Gateway cutover config preserves safe independent family schedules', async () => {
   const module = await gatewayCutoverConfigModule;
   const vars = module.parseGatewayCutoverWorkerVars({
-    ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS: ' 1000 ',
-    ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS: '2000',
-    ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS: '8000',
-    ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS: '9000',
+    ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS: ' 1000 ',
+    ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS: '2000',
+    ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS: '8000',
+    ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS: '9000',
+    ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS: '10000',
+    ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS: '11000',
   });
 
   expect(vars).toEqual({
-    ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS: '1000',
-    ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS: '2000',
-    ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS: '8000',
-    ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS: '9000',
-    ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS: '',
-    ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS: '',
+    ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS: '8000',
+    ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS: '9000',
+    ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS: '1000',
+    ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS: '2000',
+    ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS: '10000',
+    ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS: '11000',
   });
+});
+
+test('Gateway cutover config rejects capability consumers before recovery drains', async () => {
+  const module = await gatewayCutoverConfigModule;
+
+  expect(() =>
+    module.parseGatewayCutoverWorkerVars({
+      ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS: '1000',
+      ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS: '2000',
+    }),
+  ).toThrow(/RECOVERY cutover must be configured before REGISTRATION/u);
+  expect(() =>
+    module.parseGatewayCutoverWorkerVars({
+      ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS: '1000',
+      ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS: '3000',
+      ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS: '1500',
+      ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS: '2000',
+    }),
+  ).toThrow(/RECOVERY must finish draining no later than EXPORT/u);
 });
 
 test('Gateway cutover config rejects incomplete, invalid, and reversed family windows', async () => {

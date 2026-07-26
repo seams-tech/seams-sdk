@@ -1,10 +1,20 @@
 export type RouterAbEd25519YaoGatewayCutoverFamilyV1 = 'registration' | 'recovery' | 'export';
 
 export type RouterAbEd25519YaoGatewayOperationV1 =
+  | 'registration_intent'
+  | 'registration_intent_cancel'
   | 'registration_start'
+  | 'registration_derivation_respond'
+  | 'registration_derivation_activate'
   | 'registration_finalize'
+  | 'registration_add_signer_intent'
   | 'registration_add_signer_start'
+  | 'registration_add_signer_derivation_respond'
+  | 'registration_add_signer_derivation_activate'
   | 'registration_add_signer_finalize'
+  | 'registration_add_auth_method_intent'
+  | 'registration_add_auth_method_start'
+  | 'registration_add_auth_method_finalize'
   | 'registration_admission'
   | 'registration_execute'
   | 'recovery_bootstrap'
@@ -24,14 +34,24 @@ export type RouterAbEd25519YaoGatewayOperationV1 =
  */
 function isAdmissionOperation(operation: RouterAbEd25519YaoGatewayOperationV1): boolean {
   switch (operation) {
-    case 'registration_start':
-    case 'registration_add_signer_start':
-    case 'registration_admission':
+    case 'registration_intent':
+    case 'registration_add_signer_intent':
+    case 'registration_add_auth_method_intent':
     case 'recovery_admission':
     case 'export_admission':
       return true;
+    case 'registration_intent_cancel':
+    case 'registration_start':
+    case 'registration_derivation_respond':
+    case 'registration_derivation_activate':
     case 'registration_finalize':
+    case 'registration_add_signer_start':
+    case 'registration_add_signer_derivation_respond':
+    case 'registration_add_signer_derivation_activate':
     case 'registration_add_signer_finalize':
+    case 'registration_add_auth_method_start':
+    case 'registration_add_auth_method_finalize':
+    case 'registration_admission':
     case 'registration_execute':
     case 'recovery_bootstrap':
     case 'recovery_wallet_session':
@@ -44,14 +64,24 @@ function isAdmissionOperation(operation: RouterAbEd25519YaoGatewayOperationV1): 
   }
 }
 
-function familyOfOperation(
+export function familyOfRouterAbEd25519YaoGatewayOperationV1(
   operation: RouterAbEd25519YaoGatewayOperationV1,
 ): RouterAbEd25519YaoGatewayCutoverFamilyV1 {
   switch (operation) {
+    case 'registration_intent':
+    case 'registration_intent_cancel':
     case 'registration_start':
+    case 'registration_derivation_respond':
+    case 'registration_derivation_activate':
     case 'registration_finalize':
+    case 'registration_add_signer_intent':
     case 'registration_add_signer_start':
+    case 'registration_add_signer_derivation_respond':
+    case 'registration_add_signer_derivation_activate':
     case 'registration_add_signer_finalize':
+    case 'registration_add_auth_method_intent':
+    case 'registration_add_auth_method_start':
+    case 'registration_add_auth_method_finalize':
     case 'registration_admission':
     case 'registration_execute':
       return 'registration';
@@ -98,6 +128,33 @@ export type RouterAbEd25519YaoGatewayRouteV1 =
     }
   | { readonly kind: 'partitioned_d1'; readonly window: RouterAbEd25519YaoGatewayCutoverWindowV1 };
 
+export function validateRouterAbEd25519YaoGatewayCutoverStateV1(
+  cutover: RouterAbEd25519YaoGatewayCutoverStateV1,
+): void {
+  const recovery = cutover.recovery;
+  const registration = cutover.registration;
+  if (registration) {
+    requireRecoveryCutoverBeforeConsumerFamily(recovery, registration, 'registration');
+  }
+  const exportWindow = cutover.export;
+  if (exportWindow) {
+    requireRecoveryCutoverBeforeConsumerFamily(recovery, exportWindow, 'export');
+  }
+}
+
+function requireRecoveryCutoverBeforeConsumerFamily(
+  recovery: RouterAbEd25519YaoGatewayCutoverWindowV1 | undefined,
+  consumer: RouterAbEd25519YaoGatewayCutoverWindowV1,
+  family: 'registration' | 'export',
+): void {
+  if (!recovery) {
+    throw new Error(`Router A/B Gateway recovery cutover must be configured before ${family}`);
+  }
+  if (recovery.drainUntilMs > consumer.drainUntilMs) {
+    throw new Error(`Router A/B Gateway recovery must finish draining no later than ${family}`);
+  }
+}
+
 /**
  * A deployment changes the backing store for every phase of one family at once.
  * New admissions stop at that family's cutoff, while its continuation phases
@@ -111,7 +168,7 @@ export function resolveRouterAbEd25519YaoGatewayRouteV1(input: {
   readonly cutover: RouterAbEd25519YaoGatewayCutoverStateV1;
 }): RouterAbEd25519YaoGatewayRouteV1 {
   validateTimestamp(input.nowMs, 'nowMs');
-  const window = input.cutover[familyOfOperation(input.operation)];
+  const window = input.cutover[familyOfRouterAbEd25519YaoGatewayOperationV1(input.operation)];
   if (!window) return { kind: 'legacy_runtime', window: null };
   validateTimestamp(window.admissionCutoffMs, 'admissionCutoffMs');
   validateTimestamp(window.drainUntilMs, 'drainUntilMs');
@@ -145,25 +202,6 @@ export function routerAbEd25519YaoGatewayUsesPartitionedD1V1(input: {
     if (route.kind !== 'partitioned_d1') return false;
   }
   return true;
-}
-
-export function routerAbEd25519YaoCapabilityConsumersUsePartitionedD1V1(input: {
-  readonly nowMs: number;
-  readonly cutover: RouterAbEd25519YaoGatewayCutoverStateV1;
-}): boolean {
-  const capabilityProducers: readonly RouterAbEd25519YaoGatewayOperationV1[] = [
-    'registration_execute',
-    'recovery_execute',
-  ];
-  for (const operation of capabilityProducers) {
-    const route = resolveRouterAbEd25519YaoGatewayRouteV1({
-      operation,
-      nowMs: input.nowMs,
-      cutover: input.cutover,
-    });
-    if (route.kind === 'partitioned_d1') return true;
-  }
-  return false;
 }
 
 function validateTimestamp(value: number, label: string): void {

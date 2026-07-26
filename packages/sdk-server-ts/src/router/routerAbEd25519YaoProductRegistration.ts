@@ -341,7 +341,6 @@ export function createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1
   readonly webAuthn: Pick<RouterApiWebAuthnService, 'verifyWebAuthnAuthenticationLite'>;
   readonly state: RouterAbEd25519YaoProductRegistrationStateV1;
   readonly capabilityPersistence: RouterAbEd25519YaoCapabilityPersistenceV1;
-  readonly loadPersistedActiveCapability?: RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1;
 }): RouterAbEd25519YaoProductRegistrationCompositionV1 {
   const registrationService = new InMemoryRouterAbEd25519YaoRegistrationService(
     input.backend,
@@ -358,12 +357,7 @@ export function createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1
   const recoveryAuthorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
     input.session,
   );
-  const capabilities = input.loadPersistedActiveCapability
-    ? createRouterAbEd25519YaoPersistedCapabilityFallbackResolverV1({
-        capabilityInstaller: recoveryService,
-        loadPersistedActiveCapability: input.loadPersistedActiveCapability,
-      })
-    : recoveryService;
+  const capabilities = recoveryService;
   const exportService = new InMemoryRouterAbEd25519YaoExportService(
     input.backend,
     capabilities,
