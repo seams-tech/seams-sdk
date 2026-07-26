@@ -25,11 +25,21 @@ import {
   requireRouterAbConfiguredSigningWorkerPrivateTransport,
   RouterAbNormalSigningRuntime,
 } from '@server/core/routerAbSigning/RouterAbNormalSigningRuntime';
-import type {
-  RouterAbEcdsaStrictRegistrationPort,
-  RouterAbEcdsaStrictRegistrationTopology,
+import {
+  parseStoredRouterAbEcdsaPendingActivationV1,
+  type RouterAbEcdsaStrictRegistrationPort,
+  type RouterAbEcdsaStrictRegistrationTopology,
 } from '@server/router/routerAbEcdsaStrictRegistration';
 import type { ThresholdEd25519AuthorityScope, ThresholdStoreConfigInput } from '@server/core/types';
+import {
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
+  parseRouterAbEcdsaRegistrationRequestV1,
+  parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
+  parseRouterAbEcdsaVerifiedClientActivationFactsV1,
+  type RouterAbEcdsaRegistrationRequestFactsV1,
+  type RouterAbEcdsaRegistrationRequestV1,
+  type RouterAbEcdsaVerifiedClientActivationFactsV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import { readFileSync } from 'node:fs';
 
 let fixtureSigningRootShareWires: Map<number, Uint8Array> | null = null;
@@ -77,6 +87,58 @@ const FIXTURE_ECDSA_STRICT_REGISTRATION_TOPOLOGY: RouterAbEcdsaStrictRegistratio
   },
 };
 
+const FIXTURE_ECDSA_DIGEST32_B64U = Buffer.alloc(32).toString('base64url');
+const FIXTURE_ECDSA_CLIENT_PUBLIC_KEY33_B64U = Buffer.from([
+  2,
+  ...new Array<number>(32).fill(0),
+]).toString('base64url');
+const FIXTURE_ECDSA_SERVER_PUBLIC_KEY33_B64U = Buffer.from([
+  3,
+  ...new Array<number>(32).fill(0),
+]).toString('base64url');
+const FIXTURE_ECDSA_ADDRESS20_B64U = Buffer.alloc(20, 1).toString('base64url');
+
+export function fixtureRouterAbEcdsaActivationFacts(): RouterAbEcdsaVerifiedClientActivationFactsV1 {
+  return parseRouterAbEcdsaVerifiedClientActivationFactsV1({
+    registrationRequestDigestB64u: FIXTURE_ECDSA_DIGEST32_B64U,
+    proofTranscriptDigestB64u: FIXTURE_ECDSA_DIGEST32_B64U,
+    contextBinding32B64u: FIXTURE_ECDSA_DIGEST32_B64U,
+    derivationClientSharePublicKey33B64u: FIXTURE_ECDSA_CLIENT_PUBLIC_KEY33_B64U,
+    clientShareRetryCounter: 0,
+    participantId: 1,
+  });
+}
+
+export function buildFixtureRouterAbEcdsaStrictRegistrationRequest(
+  facts: RouterAbEcdsaRegistrationRequestFactsV1,
+): RouterAbEcdsaRegistrationRequestV1 {
+  const digest = { bytes: new Array<number>(32).fill(0) };
+  return parseRouterAbEcdsaRegistrationRequestV1({
+    registration_purpose: facts.registration_purpose,
+    context: facts.context,
+    lifecycle: facts.lifecycle,
+    signer_set: facts.signer_set,
+    router_id: facts.router_id,
+    client_id: facts.client_id,
+    replay_nonce: facts.replay_nonce,
+    expires_at_ms: facts.expires_at_ms,
+    client_ephemeral_public_key:
+      'x25519:4444444444444444444444444444444444444444444444444444444444444444',
+    deriver_a_envelope: {
+      recipient_role: 'signer_a',
+      header_digest: digest,
+      aad_digest: digest,
+      ciphertext: { bytes: [1] },
+    },
+    deriver_b_envelope: {
+      recipient_role: 'signer_b',
+      header_digest: digest,
+      aad_digest: digest,
+      ciphertext: { bytes: [2] },
+    },
+  });
+}
+
 export class FixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsaStrictRegistrationPort {
   topology(): RouterAbEcdsaStrictRegistrationTopology {
     return FIXTURE_ECDSA_STRICT_REGISTRATION_TOPOLOGY;
@@ -88,6 +150,76 @@ export class FixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsa
 
   async activate(): Promise<never> {
     throw new Error('Strict ECDSA activation is outside this fixture');
+  }
+}
+
+export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsaStrictRegistrationPort {
+  registrationRequest: RouterAbEcdsaRegistrationRequestV1 | null = null;
+
+  topology(): RouterAbEcdsaStrictRegistrationTopology {
+    return FIXTURE_ECDSA_STRICT_REGISTRATION_TOPOLOGY;
+  }
+
+  async register(
+    input: Parameters<RouterAbEcdsaStrictRegistrationPort['register']>[0],
+  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['register']> {
+    const request = parseRouterAbEcdsaRegistrationRequestV1(input.request);
+    this.registrationRequest = request;
+    const bundle = {
+      kind: 'recipient_proof_bundle',
+      transcriptDigestB64u: FIXTURE_ECDSA_DIGEST32_B64U,
+      payloadB64u: 'AQ',
+    } as const;
+    return {
+      ok: true,
+      value: {
+        publicResponse: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1({
+          result: 'forwarded',
+          response: {
+            replay: { request_id: request.replay_nonce, reserved: true },
+            lifecycle: { lifecycle_id: request.lifecycle.lifecycle_id, stored: true },
+            bundles: { signerA: bundle, signerB: bundle },
+          },
+        }),
+        pendingActivation: parseStoredRouterAbEcdsaPendingActivationV1({
+          kind: 'router_ab_ecdsa_pending_activation_v1',
+          canonicalPayloadJson: '{"activation":{},"activation_context":{},"registration":{}}',
+        }),
+      },
+    };
+  }
+
+  async activate(
+    input: Parameters<RouterAbEcdsaStrictRegistrationPort['activate']>[0],
+  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['activate']> {
+    const registration = this.registrationRequest;
+    if (!registration) throw new Error('Strict ECDSA activation preceded registration');
+    const publicFacts = parseRouterAbEcdsaVerifiedClientActivationFactsV1(input.clientActivation);
+    return {
+      ok: true,
+      value: parseRouterAbEcdsaRegistrationActivationReceiptV1({
+        ecdsa_activation: {
+          context: registration.context,
+          public_identity: {
+            context_binding_b64u: publicFacts.contextBinding32B64u,
+            derivation_client_share_public_key33_b64u:
+              publicFacts.derivationClientSharePublicKey33B64u,
+            server_public_key33_b64u: FIXTURE_ECDSA_SERVER_PUBLIC_KEY33_B64U,
+            threshold_public_key33_b64u: FIXTURE_ECDSA_CLIENT_PUBLIC_KEY33_B64U,
+            ethereum_address20_b64u: FIXTURE_ECDSA_ADDRESS20_B64U,
+            client_share_retry_counter: publicFacts.clientShareRetryCounter,
+            server_share_retry_counter: 0,
+          },
+          signing_worker: registration.signer_set.selected_server,
+          activation_epoch: registration.lifecycle.root_share_epoch,
+          activation_digest_b64u: FIXTURE_ECDSA_DIGEST32_B64U,
+          activated_at_ms: Date.now(),
+        },
+        lifecycle_id: registration.lifecycle.lifecycle_id,
+        transcript_digest: { bytes: new Array<number>(32).fill(0) },
+        activated: true,
+      }),
+    };
   }
 }
 
