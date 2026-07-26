@@ -17,6 +17,7 @@ const LOCAL_SIGNER_SET_ID = 'signer-set-v1';
 const LOCAL_SIGNER_KEY_EPOCH = 'epoch-1';
 const LOCAL_CEREMONY_JWT_AUDIENCE = 'router-ab';
 const LOCAL_CEREMONY_JWT_KEY_ID = 'local-router-ab-r1';
+const LOCAL_SIGNING_SESSION_PERSISTENCE_MODE = 'sealed_refresh_v1';
 
 const ROUTER_RUNTIME_ASSIGNMENTS = Object.freeze([
   'SIGNING_WORKER_ID',
@@ -113,7 +114,19 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
   mkdirSync(path.dirname(outputConfigPath), { recursive: true });
   writeFileSync(outputConfigPath, runtimeConfig, { mode: 0o600 });
   chmodSync(outputConfigPath, 0o600);
-  return Object.freeze({ outputConfigPath, localConsoleOrganizationId });
+  return Object.freeze({
+    outputConfigPath,
+    localConsoleOrganizationId,
+    signingSessionPersistenceMode: LOCAL_SIGNING_SESSION_PERSISTENCE_MODE,
+    signingSessionSealKeyVersion: readTomlStringAssignment(
+      runtimeConfig,
+      'SIGNING_SESSION_SEAL_KEY_VERSION',
+    ),
+    signingSessionShamirPrimeB64u: readTomlStringAssignment(
+      runtimeConfig,
+      'SIGNING_SESSION_SHAMIR_P_B64U',
+    ),
+  });
 }
 
 function createLocalCeremonyPrivateJwkJson() {
@@ -332,6 +345,22 @@ function replaceTomlAssignment(source, key, value) {
   const matches = source.match(assignment) ?? [];
   if (matches.length !== 1) throw new Error(`D1 local Wrangler config must define ${key} once`);
   return source.replace(assignment, `${key} = ${JSON.stringify(value)}`);
+}
+
+function readTomlStringAssignment(source, key) {
+  const assignment = new RegExp(`^${escapeRegExp(key)}\\s*=.*$`, 'gm');
+  const matches = source.match(assignment) ?? [];
+  if (matches.length !== 1) throw new Error(`D1 local Wrangler config must define ${key} once`);
+  let value;
+  try {
+    value = JSON.parse(matches[0].slice(matches[0].indexOf('=') + 1).trim());
+  } catch {
+    throw new Error(`D1 local Wrangler config must define ${key} as a string`);
+  }
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`D1 local Wrangler config must define ${key} as a non-empty string`);
+  }
+  return value.trim();
 }
 
 function escapeRegExp(value) {

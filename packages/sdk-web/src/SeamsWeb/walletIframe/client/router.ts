@@ -48,6 +48,7 @@ import {
   type ProgressPayload,
   type PreferencesChangedPayload,
   type PMExportKeypairUiPayload,
+  isRegistrationTimingSpanV1,
 } from '../shared/messages';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import {
@@ -61,6 +62,7 @@ import type {
   KeyExportFlowEvent,
   UnlockFlowEvent,
   RegistrationFlowEvent,
+  RegistrationTimingSpanV1,
   SendTransactionHooksOptions,
   SignAndSendTransactionHooksOptions,
   SigningFlowEvent,
@@ -342,6 +344,7 @@ function assertNeverWalletIframeRequestSurfaceKind(value: never): never {
 }
 
 function isTerminalStickyWalletFlowProgress(payload: ProgressPayload): boolean {
+  if (!isWalletFlowEvent(payload)) return false;
   return (
     payload.status === 'cancelled' ||
     payload.status === 'failed' ||
@@ -351,6 +354,7 @@ function isTerminalStickyWalletFlowProgress(payload: ProgressPayload): boolean {
 }
 
 function shouldHideWalletIframeSurface(payload: ProgressPayload): boolean {
+  if (!isWalletFlowEvent(payload)) return false;
   if (payload.interaction?.overlay !== 'hide') return false;
   if (payload.flow !== 'key_export') return true;
   return isTerminalStickyWalletFlowProgress(payload);
@@ -1289,7 +1293,10 @@ export class WalletIframeRouter {
           ...(confirmationConfig ? { confirmationConfig } : {}),
         },
         options: {
-          onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
+          onProgress: bridgeRegistrationProgress(
+            payload.options?.onEvent,
+            payload.options?.onTimingSpan,
+          ),
         },
       },
       { timeoutMs: WALLET_IFRAME_REGISTRATION_TIMEOUT_MS },
@@ -2386,7 +2393,10 @@ export class WalletIframeRouter {
       }
       if (this.progressBus.isSticky(requestId) && isTerminalStickyWalletFlowProgress(payload)) {
         this.progressBus.unregister(requestId);
-        this.finishRequestSurface(requestId as WalletIframeRequestId, payload.status === 'cancelled');
+        this.finishRequestSurface(
+          requestId as WalletIframeRequestId,
+          isWalletFlowEvent(payload) && payload.status === 'cancelled',
+        );
       }
       // Refresh timeout for long-running operations whenever progress is received
       const pend = this.state.pending.get(requestId);
@@ -2686,6 +2696,22 @@ function exactSessionRequestWalletId(envelope: ParentToChildEnvelope): string | 
 // ===== Runtime type guards to safely bridge ProgressPayload -> typed flow events =====
 function isRegistrationFlowEvent(progress: ProgressPayload): progress is RegistrationFlowEvent {
   return isWalletFlowEvent(progress) && progress.flow === 'registration';
+}
+
+function bridgeRegistrationProgress(
+  onEvent: ((event: RegistrationFlowEvent) => void) | undefined,
+  onTimingSpan: ((span: RegistrationTimingSpanV1) => void) | undefined,
+): ((progress: ProgressPayload) => void) | undefined {
+  if (!onEvent && !onTimingSpan) return undefined;
+  return (progress: ProgressPayload) => {
+    try {
+      if (isRegistrationFlowEvent(progress)) {
+        onEvent?.(progress);
+      } else if (isRegistrationTimingSpanV1(progress)) {
+        onTimingSpan?.(progress);
+      }
+    } catch {}
+  };
 }
 
 function isUnlockFlowEvent(p: ProgressPayload): p is UnlockFlowEvent {

@@ -6,7 +6,7 @@ use base64::Engine as _;
 use local_dev_process::{
     normalize_root, post_json_to_path, post_json_to_path_with_authorization,
     post_json_to_path_with_headers, read_worker_config, wait_for_existing_health,
-    LocalWorkerSpawnReceipt, LocalWorkerUrls, LOCAL_WORKER_PROCESS_SPECS,
+    worker_process_spec_for_role_v1, LocalWorkerSpawnReceipt, LocalWorkerUrls,
 };
 use router_ab_cloudflare::CloudflareSigningWorkerEcdsaPoolAdmissionReceiptV1;
 use router_ab_core::{
@@ -421,7 +421,10 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
 fn signing_worker_identity_from_root(
     root: &Path,
 ) -> Result<ServerIdentityV1, Box<dyn std::error::Error>> {
-    let config = read_worker_config(root, LOCAL_WORKER_PROCESS_SPECS[2])?;
+    let config = read_worker_config(
+        root,
+        worker_process_spec_for_role_v1(LocalServiceRoleV1::SigningWorker)?,
+    )?;
     let LocalWorkerRoleConfigV1::SigningWorker(config) = config else {
         return Err("expected signing worker config".into());
     };

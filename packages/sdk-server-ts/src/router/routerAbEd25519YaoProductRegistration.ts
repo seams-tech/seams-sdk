@@ -16,6 +16,7 @@ import type {
   RouterAbEd25519YaoActivationConsumerV1,
   RouterAbEd25519YaoActivationConsumptionRequestV1,
   RouterAbEd25519YaoActivationConsumptionResultV1,
+  RouterAbEd25519YaoRegistrationAdmissionClaimV1,
 } from './routerAbEd25519YaoRegistration';
 import {
   createRouterAbEd25519YaoRegistrationModule,
@@ -35,6 +36,8 @@ import type { SessionAdapter } from './routerApi';
 import { createRouterApiModule, type RouterApiModule } from './modules';
 import { signRouterAbEd25519WalletSessionJwt } from './commonRouterUtils';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import { sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/encoders';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { deriveSigningRootId, type RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
@@ -105,9 +108,9 @@ export type RouterAbEd25519YaoWalletSessionMintInputV1 =
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'add_signer_wallet_session_v1';
-      readonly signingGrantId?: never;
-      readonly expiresAtMs?: never;
-      readonly remainingUses?: never;
+      readonly signingGrantId: string;
+      readonly expiresAtMs: number;
+      readonly remainingUses: number;
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'shared_email_otp_recovery_wallet_session_v1';
@@ -139,6 +142,10 @@ export type RouterAbEd25519YaoProductRegistrationRuntimeV1 =
         input: RouterAbEd25519YaoWalletSessionMintInputV1,
       ): Promise<RouterAbEd25519YaoWalletSessionMintResultV1>;
     };
+
+export type RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1 = (
+  input: RouterAbEd25519YaoActiveCapabilityLookupV1,
+) => Promise<WalletEd25519YaoActiveCapabilityRecord | null>;
 
 export type RouterAbEd25519YaoProductRegistrationCompositionV1 = {
   readonly kind: 'router_ab_ed25519_yao_product_registration_composition_v1';
@@ -173,6 +180,7 @@ export type RouterAbEd25519YaoProductRegistrationPortsV1 = {
   readonly registrationService: RouterAbEd25519YaoProductRegistrationServicePortV1;
   readonly authorization: RouterAbEd25519YaoProductRegistrationAuthorizationPortV1;
   readonly recoveryService: RouterAbEd25519YaoProductRecoveryServicePortV1;
+  readonly capabilities: RouterAbEd25519YaoActiveCapabilityResolverV1;
   readonly recoveryAuthorization: RouterAbEd25519YaoRecoveryAuthorizationAdapter;
   readonly exportService: RouterAbEd25519YaoExportService;
   readonly exportAuthorization: RouterAbEd25519YaoExportAuthorizationAdapter;
@@ -198,6 +206,9 @@ export function createRouterAbEd25519YaoProductRegistrationStateV1(): RouterAbEd
 }
 
 const REGISTRATION_STATE_KINDS = new Set(['admitted', 'executing', 'activated', 'failed']);
+const REGISTRATION_ADMISSION_CLAIM_KINDS = new Set([
+  'router_ab_ed25519_yao_registration_admission_claim_v1',
+]);
 const INTENT_AUTHORITY_KINDS = new Set(['available', 'admitted']);
 const CAPABILITY_STATE_KINDS = new Set(['active', 'suspended', 'retired']);
 const RECOVERY_STATE_KINDS = new Set([
@@ -211,7 +222,17 @@ const RECOVERY_STATE_KINDS = new Set([
   'activation_failed',
   'promoted',
 ]);
-const EXPORT_STATE_KINDS = new Set(['admitted', 'executing', 'completed', 'burned']);
+const EXPORT_STATE_KINDS = new Set([
+  'authorizing',
+  'authorization_failed',
+  'authorized',
+  'admitting',
+  'admission_failed',
+  'admitted',
+  'executing',
+  'execution_failed',
+  'completed',
+]);
 
 function isStringMapWithStateKinds(input: unknown, kinds: ReadonlySet<string>): boolean {
   if (!(input instanceof Map)) return false;
@@ -259,6 +280,11 @@ function hasProductStateCollections(
   return (
     isStringMapWithStateKinds(registration.states, REGISTRATION_STATE_KINDS) &&
     isStringMap(registration.lifecycleSessions) &&
+    (registration.admissionClaims === undefined ||
+      isStringMapWithStateKinds(
+        registration.admissionClaims,
+        REGISTRATION_ADMISSION_CLAIM_KINDS,
+      )) &&
     Array.isArray(authorization.authorities) &&
     authorization.authorities.every(
       (authority) => isPlainObject(authority) && INTENT_AUTHORITY_KINDS.has(String(authority.kind)),
@@ -285,7 +311,25 @@ export function parseRouterAbEd25519YaoProductRegistrationStateV1(
       message: 'persisted Ed25519 Yao product state has invalid lifecycle collections',
     };
   }
-  return { ok: true, value: input };
+  const registration = input.registration;
+  const admissionClaims =
+    registration.admissionClaims === undefined
+      ? new Map<string, RouterAbEd25519YaoRegistrationAdmissionClaimV1>()
+      : registration.admissionClaims;
+  return {
+    ok: true,
+    value: {
+      kind: 'router_ab_ed25519_yao_product_registration_state_v1',
+      registration: {
+        states: registration.states,
+        lifecycleSessions: registration.lifecycleSessions,
+        admissionClaims,
+      },
+      authorization: input.authorization,
+      recovery: input.recovery,
+      export: input.export,
+    },
+  };
 }
 
 export function createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1(input: {
@@ -297,6 +341,7 @@ export function createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1
   readonly webAuthn: Pick<RouterApiWebAuthnService, 'verifyWebAuthnAuthenticationLite'>;
   readonly state: RouterAbEd25519YaoProductRegistrationStateV1;
   readonly capabilityPersistence: RouterAbEd25519YaoCapabilityPersistenceV1;
+  readonly loadPersistedActiveCapability?: RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1;
 }): RouterAbEd25519YaoProductRegistrationCompositionV1 {
   const registrationService = new InMemoryRouterAbEd25519YaoRegistrationService(
     input.backend,
@@ -313,9 +358,15 @@ export function createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1
   const recoveryAuthorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
     input.session,
   );
+  const capabilities = input.loadPersistedActiveCapability
+    ? createRouterAbEd25519YaoPersistedCapabilityFallbackResolverV1({
+        capabilityInstaller: recoveryService,
+        loadPersistedActiveCapability: input.loadPersistedActiveCapability,
+      })
+    : recoveryService;
   const exportService = new InMemoryRouterAbEd25519YaoExportService(
     input.backend,
-    recoveryService,
+    capabilities,
     input.state.export,
   );
   const exportAuthorization = new RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter(
@@ -327,6 +378,7 @@ export function createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1
     registrationService,
     authorization,
     recoveryService,
+    capabilities,
     recoveryAuthorization,
     exportService,
     exportAuthorization,
@@ -342,6 +394,7 @@ export function createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV
     registrationService: input.registrationService,
     authorization: input.authorization,
     capabilityInstaller: input.recoveryService,
+    capabilityResolver: input.capabilities,
     session: input.session,
   });
   const registrationModule = createRouterAbEd25519YaoRegistrationModule({
@@ -350,6 +403,7 @@ export function createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV
   });
   const recoveryModule = createRouterAbEd25519YaoRecoveryModule({
     service: input.recoveryService,
+    capabilities: input.capabilities,
     authorization: input.recoveryAuthorization,
   });
   const exportModule = createRouterAbEd25519YaoExportModule({
@@ -415,18 +469,42 @@ function requireInheritedWalletSessionTerms(args: {
   };
 }
 
-function resolveRouterAbEd25519YaoWalletSessionTermsV1(
+async function deriveRegistrationSigningGrantId(input: {
+  readonly thresholdSessionId: string;
+  readonly signingWorkerId: string;
+}): Promise<string> {
+  const thresholdSessionId = input.thresholdSessionId.trim();
+  const signingWorkerId = input.signingWorkerId.trim();
+  if (!thresholdSessionId) throw new Error('Registration thresholdSessionId is required');
+  if (!signingWorkerId) throw new Error('Registration SigningWorker ID is required');
+  const digest = await sha256BytesUtf8(
+    `seams.router-ab.ed25519-yao.registration-signing-grant.v1\0${signingWorkerId}\0${thresholdSessionId}`,
+  );
+  return `wss_${base64UrlEncode(digest)}`;
+}
+
+async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
   input: RouterAbEd25519YaoWalletSessionMintInputV1,
-): RouterAbEd25519YaoWalletSessionTermsV1 {
+  signingWorkerId: string,
+): Promise<RouterAbEd25519YaoWalletSessionTermsV1> {
   const nowMs = Date.now();
   switch (input.kind) {
     case 'registration_wallet_session_v1':
-    case 'add_signer_wallet_session_v1':
       return {
-        signingGrantId: `wss_${secureRandomBase64Url(24)}`,
+        signingGrantId: await deriveRegistrationSigningGrantId({
+          thresholdSessionId: input.thresholdSessionId,
+          signingWorkerId,
+        }),
         expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
         remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
       };
+    case 'add_signer_wallet_session_v1':
+      return requireInheritedWalletSessionTerms({
+        signingGrantId: input.signingGrantId,
+        expiresAtMs: input.expiresAtMs,
+        remainingUses: input.remainingUses,
+        nowMs,
+      });
     case 'shared_email_otp_recovery_wallet_session_v1':
       return {
         signingGrantId: `wss_${secureRandomBase64Url(24)}`,
@@ -459,8 +537,8 @@ class RouterAbEd25519YaoProductRegistrationRuntime implements RouterAbEd25519Yao
       readonly registrationService: RouterAbEd25519YaoProductRegistrationServicePortV1;
       readonly authorization: RouterAbEd25519YaoProductRegistrationAuthorizationPortV1;
       readonly capabilityInstaller: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1 &
-        RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1 &
-        RouterAbEd25519YaoActiveCapabilityResolverV1;
+        RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1;
+      readonly capabilityResolver: RouterAbEd25519YaoActiveCapabilityResolverV1;
       readonly session: SessionAdapter;
     },
   ) {
@@ -497,64 +575,77 @@ class RouterAbEd25519YaoProductRegistrationRuntime implements RouterAbEd25519Yao
   async resolveActiveCapability(
     input: RouterAbEd25519YaoActiveCapabilityLookupV1,
   ): Promise<RouterAbEd25519YaoActiveCapabilityLookupResultV1> {
-    return await this.input.capabilityInstaller.resolveActiveCapability(input);
+    return await this.input.capabilityResolver.resolveActiveCapability(input);
   }
 
   async mintWalletSession(
     sessionInput: RouterAbEd25519YaoWalletSessionMintInputV1,
   ): Promise<RouterAbEd25519YaoWalletSessionMintResultV1> {
-    const terms = resolveRouterAbEd25519YaoWalletSessionTermsV1(sessionInput);
-    const signingRootId = deriveSigningRootId(sessionInput.runtimePolicyScope);
-    const signingRootVersion = sessionInput.runtimePolicyScope.signingRootVersion;
-    const routerAbNormalSigning = {
-      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-      signingWorkerId: this.signingWorkerId,
-    } as const;
-    const signed = await signRouterAbEd25519WalletSessionJwt({
+    return await mintRouterAbEd25519YaoWalletSessionV1({
       session: this.input.session,
-      userId: sessionInput.walletId,
-      relayerKeyId: this.signingWorkerId,
-      authority: sessionInput.authority,
-      sessionInfo: {
-        sessionKind: 'jwt',
-        walletId: sessionInput.walletId,
-        nearAccountId: sessionInput.nearAccountId,
-        nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
-        thresholdSessionId: sessionInput.thresholdSessionId,
-        signingGrantId: terms.signingGrantId,
-        expiresAtMs: terms.expiresAtMs,
-        participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
-        runtimePolicyScope: sessionInput.runtimePolicyScope,
-        routerAbNormalSigning,
-      },
-      fallbackParticipantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
-      requireJwtErrorMessage: 'Ed25519 Wallet Session must use jwt sessionKind',
-      invalidPayloadErrorMessage: 'invalid Ed25519 Yao Wallet Session payload for jwt signing',
+      signingWorkerId: this.signingWorkerId,
+      sessionInput,
     });
-    if (!signed.ok) return { ok: false, code: signed.code, message: signed.message };
-    return {
-      ok: true,
-      session: {
-        sessionKind: 'jwt',
-        walletSessionJwt: signed.jwt,
-        walletId: sessionInput.walletId,
-        nearAccountId: sessionInput.nearAccountId,
-        nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
-        authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(
-          sessionInput.authority,
-        ),
-        thresholdSessionId: signed.thresholdSessionId,
-        signingGrantId: terms.signingGrantId,
-        expiresAtMs: signed.thresholdExpiresAtMs,
-        participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
-        remainingUses: terms.remainingUses,
-        signingRootId,
-        signingRootVersion,
-        runtimePolicyScope: sessionInput.runtimePolicyScope,
-        routerAbNormalSigning,
-      },
-    };
   }
+}
+
+export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
+  readonly session: SessionAdapter;
+  readonly signingWorkerId: string;
+  readonly sessionInput: RouterAbEd25519YaoWalletSessionMintInputV1;
+}): Promise<RouterAbEd25519YaoWalletSessionMintResultV1> {
+  const signingWorkerId = input.signingWorkerId.trim();
+  if (!signingWorkerId) throw new Error('Ed25519 Yao SigningWorker ID is required');
+  const sessionInput = input.sessionInput;
+  const terms = await resolveRouterAbEd25519YaoWalletSessionTermsV1(sessionInput, signingWorkerId);
+  const signingRootId = deriveSigningRootId(sessionInput.runtimePolicyScope);
+  const signingRootVersion = sessionInput.runtimePolicyScope.signingRootVersion;
+  const routerAbNormalSigning = {
+    kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+    signingWorkerId,
+  } as const;
+  const signed = await signRouterAbEd25519WalletSessionJwt({
+    session: input.session,
+    userId: sessionInput.walletId,
+    relayerKeyId: signingWorkerId,
+    authority: sessionInput.authority,
+    sessionInfo: {
+      sessionKind: 'jwt',
+      walletId: sessionInput.walletId,
+      nearAccountId: sessionInput.nearAccountId,
+      nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
+      thresholdSessionId: sessionInput.thresholdSessionId,
+      signingGrantId: terms.signingGrantId,
+      expiresAtMs: terms.expiresAtMs,
+      participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
+      runtimePolicyScope: sessionInput.runtimePolicyScope,
+      routerAbNormalSigning,
+    },
+    fallbackParticipantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
+    requireJwtErrorMessage: 'Ed25519 Wallet Session must use jwt sessionKind',
+    invalidPayloadErrorMessage: 'invalid Ed25519 Yao Wallet Session payload for jwt signing',
+  });
+  if (!signed.ok) return { ok: false, code: signed.code, message: signed.message };
+  return {
+    ok: true,
+    session: {
+      sessionKind: 'jwt',
+      walletSessionJwt: signed.jwt,
+      walletId: sessionInput.walletId,
+      nearAccountId: sessionInput.nearAccountId,
+      nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
+      authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(sessionInput.authority),
+      thresholdSessionId: signed.thresholdSessionId,
+      signingGrantId: terms.signingGrantId,
+      expiresAtMs: signed.thresholdExpiresAtMs,
+      participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
+      remainingUses: terms.remainingUses,
+      signingRootId,
+      signingRootVersion,
+      runtimePolicyScope: sessionInput.runtimePolicyScope,
+      routerAbNormalSigning,
+    },
+  };
 }
 
 export function createRouterAbEd25519YaoProductRegistrationRuntimeV1(input: {
@@ -562,11 +653,62 @@ export function createRouterAbEd25519YaoProductRegistrationRuntimeV1(input: {
   readonly registrationService: RouterAbEd25519YaoProductRegistrationServicePortV1;
   readonly authorization: RouterAbEd25519YaoProductRegistrationAuthorizationPortV1;
   readonly capabilityInstaller: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1 &
-    RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1 &
-    RouterAbEd25519YaoActiveCapabilityResolverV1;
+    RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1;
+  readonly capabilityResolver: RouterAbEd25519YaoActiveCapabilityResolverV1;
   readonly session: SessionAdapter;
 }): RouterAbEd25519YaoProductRegistrationRuntimeV1 {
   return new RouterAbEd25519YaoProductRegistrationRuntime(input);
+}
+
+export function routerAbEd25519YaoPersistedCapabilityMatchesLookupV1(
+  capability: WalletEd25519YaoActiveCapabilityRecord,
+  lookup: RouterAbEd25519YaoActiveCapabilityLookupV1,
+): boolean {
+  const application = capability.admissionRequest.application_binding;
+  const participants = capability.admissionRequest.participant_ids;
+  return (
+    application.wallet_id === lookup.walletId &&
+    application.near_ed25519_signing_key_id === lookup.nearEd25519SigningKeyId &&
+    application.key_creation_signer_slot === lookup.signerSlot &&
+    capability.admissionRequest.scope.signing_worker_id === lookup.signingWorkerId &&
+    participants[0] === lookup.participantIds[0] &&
+    participants[1] === lookup.participantIds[1]
+  );
+}
+
+export function createRouterAbEd25519YaoPersistedCapabilityFallbackResolverV1(input: {
+  readonly capabilityInstaller: RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1 &
+    RouterAbEd25519YaoActiveCapabilityResolverV1;
+  readonly loadPersistedActiveCapability: RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1;
+}): RouterAbEd25519YaoActiveCapabilityResolverV1 {
+  return new RouterAbEd25519YaoPersistedCapabilityFallbackResolver(input);
+}
+
+class RouterAbEd25519YaoPersistedCapabilityFallbackResolver implements RouterAbEd25519YaoActiveCapabilityResolverV1 {
+  constructor(
+    private readonly input: {
+      readonly capabilityInstaller: RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1 &
+        RouterAbEd25519YaoActiveCapabilityResolverV1;
+      readonly loadPersistedActiveCapability: RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1;
+    },
+  ) {}
+
+  async resolveActiveCapability(
+    lookup: RouterAbEd25519YaoActiveCapabilityLookupV1,
+  ): Promise<RouterAbEd25519YaoActiveCapabilityLookupResultV1> {
+    const current = await this.input.capabilityInstaller.resolveActiveCapability(lookup);
+    if (current.ok || current.code !== 'unknown_capability') return current;
+    const persisted = await this.input.loadPersistedActiveCapability(lookup);
+    if (!persisted || !routerAbEd25519YaoPersistedCapabilityMatchesLookupV1(persisted, lookup)) {
+      return current;
+    }
+    const installed =
+      await this.input.capabilityInstaller.installPersistedActiveCapability(persisted);
+    if (!installed.ok) {
+      return { ok: false, code: 'capability_conflict', message: installed.message };
+    }
+    return await this.input.capabilityInstaller.resolveActiveCapability(lookup);
+  }
 }
 
 export async function buildRouterAbEd25519YaoProductAdmissionRequestV1(input: {

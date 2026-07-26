@@ -51,6 +51,16 @@ pub(super) async fn handle_strict_router_fetch_v1(
         .await;
     }
 
+    if path == CLOUDFLARE_ROUTER_ED25519_YAO_EXECUTE_PRIVATE_REQUEST_PATH {
+        return handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(request, &env).await;
+    }
+    if path == CLOUDFLARE_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PRIVATE_REQUEST_PATH {
+        return handle_cloudflare_router_ed25519_yao_recovery_promote_private_fetch_v1(
+            request, &env,
+        )
+        .await;
+    }
+
     if request.method() == Method::Options
         && (is_cloudflare_router_normal_signing_public_path(&path)
             || is_cloudflare_router_ab_ecdsa_derivation_public_path(&path))

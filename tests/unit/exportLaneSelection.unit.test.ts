@@ -32,6 +32,7 @@ import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import type { EcdsaReauthAnchorPublicRestore } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
 import { runtimeEcdsaRouterAbNormalSigningState } from './helpers/availableSigningLanes.fixtures';
+import { makeEcdsaRoleLocalReadyRecordFixture } from './helpers/ecdsaSessionRecordVariants.fixtures';
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';
@@ -186,6 +187,22 @@ function durablePublicReauthAuthority(
   common: EcdsaLaneCommon,
   auth: ConcreteAvailableEcdsaSigningLane['auth'],
 ): EcdsaReauthAnchorPublicRestore {
+  const normalSigning = runtimeEcdsaRouterAbNormalSigningState({
+    key: common.key,
+    thresholdSessionId: common.thresholdSessionId,
+    thresholdEcdsaPublicKeyB64u: common.publicFacts.publicKeyB64u,
+    thresholdOwnerAddress: common.key.thresholdOwnerAddress,
+  });
+  const roleLocal = makeEcdsaRoleLocalReadyRecordFixture({
+    walletId: common.key.walletId,
+    walletKeyId: common.key.evmFamilySigningKeySlotId,
+    keyHandle: common.publicFacts.keyHandle,
+    chainTarget: common.chainTarget,
+    ecdsaThresholdKeyId: common.key.ecdsaThresholdKeyId,
+    signingRootId: common.key.signingRootId,
+    signingRootVersion: common.key.signingRootVersion,
+    ethereumAddress: common.key.thresholdOwnerAddress,
+  });
   const base = {
     chainTarget: common.chainTarget,
     signingRootId: common.key.signingRootId,
@@ -195,20 +212,18 @@ function durablePublicReauthAuthority(
     ecdsaThresholdKeyId: common.key.ecdsaThresholdKeyId,
     ethereumAddress: common.key.thresholdOwnerAddress,
     relayerKeyId: 'signing-worker-export-lane',
+    relayerUrl: 'https://relay.example',
     thresholdEcdsaPublicKeyB64u: common.publicFacts.publicKeyB64u,
     participantIds: [...common.key.participantIds],
+    roleLocalDurableMaterialRef: `role-local:export-lane:${common.thresholdSessionId}`,
     runtimePolicyScope: {
       orgId: 'org-export-lane',
       projectId: 'project-export-lane',
       envId: 'test',
       signingRootVersion: common.key.signingRootVersion,
     },
-    routerAbEcdsaDerivationNormalSigning: runtimeEcdsaRouterAbNormalSigningState({
-      key: common.key,
-      thresholdSessionId: common.thresholdSessionId,
-      thresholdEcdsaPublicKeyB64u: common.publicFacts.publicKeyB64u,
-      thresholdOwnerAddress: common.key.thresholdOwnerAddress,
-    }),
+    routerAbEcdsaDerivationNormalSigning: normalSigning,
+    publicCapability: roleLocal.publicFacts.publicCapability,
   };
   switch (auth.kind) {
     case 'passkey':

@@ -29,6 +29,7 @@ function requireRegistrationRootShareEpoch(value: unknown) {
 }
 
 export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
+  readonly registrationPurpose: 'wallet_registration' | 'wallet_add_signer';
   readonly registrationCeremonyId: string;
   readonly registrationPreparationId: RegistrationPreparationId;
   readonly walletId: WalletId;
@@ -137,7 +138,7 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
       chainTargets,
       prepare,
       strictRegistration: {
-        registration_purpose: 'wallet_registration',
+        registration_purpose: input.registrationPurpose,
         context: {
           application_binding_digest_b64u: applicationBindingDigestB64u,
         },

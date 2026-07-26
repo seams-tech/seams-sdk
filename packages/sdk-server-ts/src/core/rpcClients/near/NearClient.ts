@@ -23,6 +23,7 @@ type RpcResponse = {
   error?: {
     code?: number;
     name?: string;
+    cause?: unknown;
     data?: unknown;
     message?: string;
   };
@@ -37,6 +38,18 @@ type NearRpcErrorType =
   | 'Failure'
   | 'Unknown';
 
+export type NearRpcFailureKind =
+  | 'transaction_not_found'
+  | 'account_not_found'
+  | 'access_key_not_found'
+  | 'invalid_nonce'
+  | 'expired'
+  | 'invalid_transaction'
+  | 'action_error'
+  | 'execution_failure'
+  | 'infrastructure_failure'
+  | 'unknown';
+
 function isObj(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v);
 }
@@ -47,7 +60,7 @@ function firstKey(o: Record<string, unknown> | undefined): string | undefined {
   return keys.length ? keys[0] : undefined;
 }
 
-class NearRpcError extends Error {
+export class NearRpcError extends Error {
   code?: number;
   type: NearRpcErrorType;
   kind?: string;
@@ -55,10 +68,12 @@ class NearRpcError extends Error {
   short: string;
   details?: unknown;
   operation?: string;
+  readonly failureKind: NearRpcFailureKind;
 
   constructor(params: {
     message: string;
     short: string;
+    failureKind: NearRpcFailureKind;
     type?: NearRpcErrorType;
     kind?: string;
     index?: number;
@@ -76,20 +91,18 @@ class NearRpcError extends Error {
     this.short = params.short;
     this.details = params.details;
     this.operation = params.operation;
+    this.failureKind = params.failureKind;
   }
 
   static fromRpcResponse(operationName: string, rpc: RpcResponse): NearRpcError {
     const err = rpc.error || {};
     const details = err.data as unknown;
     const rpcMessage = typeof err.message === 'string' ? err.message : '';
-    const { message, type, kind, index, short } = describeDetails(
-      operationName,
-      details,
-      rpcMessage,
-    );
+    const { message, type, kind, index, short, failureKind } = describeDetails(operationName, err);
     return new NearRpcError({
       message: message || rpcMessage || `${operationName} RPC error`,
       short: short || kind || 'RPC error',
+      failureKind,
       type: type || 'RpcError',
       kind,
       index,
@@ -101,10 +114,14 @@ class NearRpcError extends Error {
   }
 
   static fromOutcome(operationName: string, outcome: any, failure: any): NearRpcError {
-    const { message, type, kind, index, short } = describeFailure(operationName, failure);
+    const { message, type, kind, index, short, failureKind } = describeFailure(
+      operationName,
+      failure,
+    );
     return new NearRpcError({
       message: message || `${operationName} failed`,
       short: short || kind || 'TxExecutionError',
+      failureKind,
       type: type || 'Failure',
       kind,
       index,
@@ -117,30 +134,65 @@ class NearRpcError extends Error {
 
 function describeDetails(
   operationName: string,
-  details: unknown,
-  rpcMessage = '',
+  error: NonNullable<RpcResponse['error']>,
 ): {
   message: string;
   type?: NearRpcErrorType;
   kind?: string;
   index?: number;
   short?: string;
+  failureKind: NearRpcFailureKind;
 } {
+  const details = error.data;
+  const rpcMessage = typeof error.message === 'string' ? error.message : '';
   const d = isObj(details) ? details : undefined;
   const txExec = isObj(d?.TxExecutionError)
-    ? (d!.TxExecutionError as Record<string, unknown>)
+    ? (d.TxExecutionError as Record<string, unknown>)
     : undefined;
-  if (!txExec) {
-    const detail =
-      typeof details === 'string' && details.trim()
-        ? details.trim()
-        : d
-          ? JSON.stringify(d)
-          : rpcMessage.trim();
-    const suffix = detail ? `: ${detail}` : '';
-    return { message: `${operationName} RPC error${suffix}` };
+  const directExecution = d && ('InvalidTxError' in d || 'ActionError' in d) ? d : undefined;
+  if (txExec) return describeTxExecution(operationName, txExec);
+  if (directExecution) return describeTxExecution(operationName, directExecution);
+
+  const structuredName = rpcFailureName(error, d);
+  const structuredFailureKind = classifyStructuredRpcFailure(structuredName);
+  const detail =
+    typeof details === 'string' && details.trim()
+      ? details.trim()
+      : d
+        ? JSON.stringify(d)
+        : rpcMessage.trim();
+  const suffix = detail ? `: ${detail}` : '';
+  return {
+    message: `${operationName} RPC error${suffix}`,
+    ...(structuredName ? { kind: structuredName } : {}),
+    failureKind: structuredFailureKind,
+  };
+}
+
+function rpcFailureName(
+  error: NonNullable<RpcResponse['error']>,
+  details: Record<string, unknown> | undefined,
+): string | undefined {
+  const directCause = isObj(error.cause) ? error.cause : undefined;
+  const dataCause = isObj(details?.cause) ? details.cause : undefined;
+  const candidates = [directCause?.name, dataCause?.name, details?.name, error.name];
+  return candidates.find((candidate): candidate is string => typeof candidate === 'string');
+}
+
+function classifyStructuredRpcFailure(name: string | undefined): NearRpcFailureKind {
+  switch (name) {
+    case 'UNKNOWN_TRANSACTION':
+    case 'TRANSACTION_NOT_FOUND':
+      return 'transaction_not_found';
+    case 'UNKNOWN_ACCOUNT':
+    case 'ACCOUNT_DOES_NOT_EXIST':
+      return 'account_not_found';
+    case 'UNKNOWN_ACCESS_KEY':
+    case 'ACCESS_KEY_DOES_NOT_EXIST':
+      return 'access_key_not_found';
+    default:
+      return 'infrastructure_failure';
   }
-  return describeTxExecution(operationName, txExec);
 }
 
 function describeFailure(
@@ -152,9 +204,15 @@ function describeFailure(
   kind?: string;
   index?: number;
   short?: string;
+  failureKind: NearRpcFailureKind;
 } {
   const f = isObj(failure) ? (failure as Record<string, unknown>) : undefined;
-  if (!f) return { message: `${operationName} failed (Unknown Failure)` };
+  if (!f) {
+    return {
+      message: `${operationName} failed (Unknown Failure)`,
+      failureKind: 'unknown',
+    };
+  }
   return describeTxExecution(operationName, f);
 }
 
@@ -167,13 +225,10 @@ function describeTxExecution(
   kind?: string;
   index?: number;
   short?: string;
+  failureKind: NearRpcFailureKind;
 } {
-  if (isObj(exec.InvalidTxError)) {
-    const inv = exec.InvalidTxError as Record<string, unknown>;
-    let kind = firstKey(inv) || 'InvalidTxError';
-    if (isObj(inv.ActionsValidation)) {
-      kind = `ActionsValidation.${firstKey(inv.ActionsValidation as Record<string, unknown>)}`;
-    }
+  if ('InvalidTxError' in exec) {
+    const kind = invalidTransactionKind(exec.InvalidTxError);
     const short = kind.startsWith('ActionsValidation.')
       ? `InvalidTxError: ${kind.split('.')[1] || 'ActionsValidation'}`
       : `InvalidTxError: ${kind}`;
@@ -182,6 +237,7 @@ function describeTxExecution(
       type: 'InvalidTxError',
       kind,
       short,
+      failureKind: classifyInvalidTransaction(kind),
     };
   }
 
@@ -197,6 +253,7 @@ function describeTxExecution(
       kind,
       index: idx,
       short: `ActionError: ${kind}`,
+      failureKind: 'action_error',
     };
   }
 
@@ -205,7 +262,28 @@ function describeTxExecution(
     type: 'TxExecutionError',
     kind: 'TxExecutionError',
     short: 'TxExecutionError',
+    failureKind: 'execution_failure',
   };
+}
+
+function invalidTransactionKind(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!isObj(value)) return 'InvalidTxError';
+  if (isObj(value.ActionsValidation)) {
+    return `ActionsValidation.${firstKey(value.ActionsValidation) || 'ActionsValidation'}`;
+  }
+  return firstKey(value) || 'InvalidTxError';
+}
+
+function classifyInvalidTransaction(kind: string): NearRpcFailureKind {
+  switch (kind) {
+    case 'InvalidNonce':
+      return 'invalid_nonce';
+    case 'Expired':
+      return 'expired';
+    default:
+      return 'invalid_transaction';
+  }
 }
 
 export interface ViewAccountParams {
@@ -302,9 +380,7 @@ type EncodableSignedTx =
       base64Encode?: () => string;
     };
 
-function toArrayBufferFromUnknownBytes(
-  bytes: unknown,
-): ArrayBuffer | SharedArrayBuffer | null {
+function toArrayBufferFromUnknownBytes(bytes: unknown): ArrayBuffer | SharedArrayBuffer | null {
   if (!bytes) return null;
   if (Array.isArray(bytes)) return new Uint8Array(bytes as number[]).buffer;
   if (ArrayBuffer.isView(bytes)) {
@@ -407,7 +483,8 @@ export class MinimalNearClient implements NearClient {
       headers: { 'Content-Type': 'application/json' },
       body: requestBody,
     });
-    if (!response.ok) throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
+    if (!response.ok)
+      throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
     const text = await response.text();
     if (!text?.trim()) throw new Error('Empty response from RPC server');
     return JSON.parse(text) as RpcResponse;
@@ -440,6 +517,7 @@ export class MinimalNearClient implements NearClient {
       throw new NearRpcError({
         message: `${operationName} Error: ${msg}`,
         short: 'RpcError',
+        failureKind: 'infrastructure_failure',
         type: 'RpcError',
       });
     }
@@ -448,7 +526,11 @@ export class MinimalNearClient implements NearClient {
 
   private async makeRpcCall<P, T>(method: string, params: P, operationName: string): Promise<T> {
     const requestBody = this.buildRequestBody(method, params);
-    return this.unwrapRpcResult<T>(await this.requestWithFallback(requestBody), operationName);
+    try {
+      return this.unwrapRpcResult<T>(await this.requestWithFallback(requestBody), operationName);
+    } catch (error: unknown) {
+      throw normalizeNearRpcFailure(operationName, error);
+    }
   }
 
   async query<T extends QueryResponseKind>(params: RpcQueryRequest): Promise<T> {
@@ -524,34 +606,16 @@ export class MinimalNearClient implements NearClient {
       signed_tx_base64: encodeSignedTransactionBase64(signedTransaction),
       wait_until: waitUntil,
     };
-    const maxAttempts = 5;
-    let lastError: unknown = null;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const outcome = await this.makeRpcCall<typeof params, FinalExecutionOutcome>(
-          RpcCallType.Send,
-          params,
-          'Send Transaction',
-        );
-        const status = (outcome as any)?.status;
-        if (status && typeof status === 'object' && 'Failure' in status) {
-          throw NearRpcError.fromOutcome('Send Transaction', outcome, (status as any).Failure);
-        }
-        return outcome;
-      } catch (err: unknown) {
-        lastError = err;
-        const msg = errorMessage(err);
-        const retryable =
-          /server error|internal|temporar|timeout|too many requests|429|unavailable|bad gateway|gateway timeout/i.test(
-            msg || '',
-          );
-        if (!retryable || attempt === maxAttempts) throw err;
-        const base = 200 * Math.pow(2, attempt - 1);
-        const jitter = Math.floor(Math.random() * 150);
-        await new Promise((resolve) => setTimeout(resolve, base + jitter));
-      }
+    const outcome = await this.makeRpcCall<typeof params, FinalExecutionOutcome>(
+      RpcCallType.Send,
+      params,
+      'Send Transaction',
+    );
+    const status = (outcome as any)?.status;
+    if (status && typeof status === 'object' && 'Failure' in status) {
+      throw NearRpcError.fromOutcome('Send Transaction', outcome, (status as any).Failure);
     }
-    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    return outcome;
   }
 
   async txStatus(txHash: string, senderAccountId: string): Promise<FinalExecutionOutcome> {
@@ -623,4 +687,17 @@ export class MinimalNearClient implements NearClient {
     }
     return { fullAccessKeys, functionCallAccessKeys };
   }
+}
+
+function normalizeNearRpcFailure(operationName: string, error: unknown): NearRpcError {
+  if (error instanceof NearRpcError) return error;
+  const cause = errorMessage(error) || 'RPC request failed';
+  return new NearRpcError({
+    message: `${operationName} RPC infrastructure failure: ${cause}`,
+    short: 'RPC infrastructure failure',
+    failureKind: 'infrastructure_failure',
+    type: 'RpcError',
+    operation: operationName,
+    details: { cause },
+  });
 }

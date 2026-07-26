@@ -1347,6 +1347,7 @@ Initial audit:
 | `tests/unit/helpers/accountAuth.fixtures.ts` | keep | Account-auth fixture helper with one surviving importer. Retain while `tests/unit/accountAuth.fixtures.unit.test.ts` owns the boundary fixture contract; delete if that importer disappears. |
 | `tests/unit/helpers/availableSigningLanes.fixtures.ts` | keep | Available-signing-lane fixture helper used by duplicate-lane unit tests. It supports focused lane inventory coverage rather than a broad mocked lifecycle graph. |
 | `tests/unit/helpers/cloudflareD1RouterApiAuthService.fixtures.ts` | keep | Shared D1 Router API service fixtures split out of the service-factory monolith for route-family tests. The helper has live importers in the retained D1 route-family suites. |
+| `tests/unit/helpers/d1LocalDevYaoPersistence.fixtures.ts` | keep | Focused local-Worker fixture for real-D1 request reconstruction, exact replay, restart, and duplicate-execution contention coverage. |
 | `tests/unit/helpers/d1StagingScriptFixtures.ts` | keep | D1 staging script fixture helper shared by retained staging-script tests. It supports script/runbook coverage outside wallet lifecycle contracts. |
 | `tests/unit/helpers/ecdsaBootstrap.fixtures.ts` | keep | Focused ECDSA bootstrap fixture helper extracted from the deleted warm-session mega-fixture. It is shared by retained ECDSA bootstrap, reconnect, and request-boundary tests. |
 | `tests/unit/helpers/ecdsaChainTarget.fixtures.ts` | keep | Focused ECDSA chain-target helper used by retained ECDSA and warm-session boundary tests. |
@@ -1358,6 +1359,10 @@ Initial audit:
 | `tests/unit/helpers/accountSignerRecord.fixtures.ts` | keep | Account-signer record builders (seed + activate-input echo) over production types, extracted in the 2026-07-23 inline-fixture migration; shared by bootstrap-persistence, inventory-repair, and email-OTP bootstrap-commit tests. |
 | `tests/unit/helpers/ecdsaSessionRecordVariants.fixtures.ts` | keep | Shared branch-specific Passkey/Email-OTP ECDSA session record builders deduplicated from per-file copies in the identity and export suites; constructed through production build/parse paths. |
 | `tests/unit/helpers/emailOtpRecoveryEscrow.fixtures.ts` | keep | Active/consumed/revoked recovery-escrow record builders routed through the production escrow boundary parser; used by the escrow-store suite. |
+| `tests/unit/helpers/routerAbEd25519YaoExistingWalletD1.fixtures.ts` | keep | Focused real-D1 existing-wallet fixture. It seeds a production-parsed Ed25519 signer capability and exposes the bounded wallet/slot fallback shared by recovery and export continuity tests. |
+| `tests/unit/helpers/routerAbEd25519YaoExportRequestScoped.typecheck.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/helpers/routerAbEd25519YaoRecoveryRequestScoped.fixtures.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/helpers/routerAbEd25519YaoRegistrationBridge.fixtures.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/helpers/sealedSigningSession.fixtures.ts` | keep | Sealed signing-session record, restore-payload, and expired-authorization-state builders via the production seal path; shared by the seal, sealed-store, and refactor-92 idempotency tests. |
 | `tests/unit/helpers/signingRootRecords.fixtures.ts` | keep | Signing-root record and migration-bundle builders via production parse/bundle functions; used by the signing-root script suite. |
 | `tests/unit/helpers/signingSessionActivation.fixtures.ts` | keep | Activation auth/material seeders (passkey and Email-OTP branches) built through production handle/ready-record builders; used by the activation use-case suite. |
@@ -1402,6 +1407,7 @@ Initial audit:
 | `tests/unit/chainFamily.naming.unit.test.ts` | keep | Chain-family normalization coverage. It verifies canonical chain-family predicates and active-network config semantics. |
 | `tests/unit/confirmationReadinessRegistry.unit.test.ts` | keep | Confirmation readiness registry coverage. It verifies one-shot consumption, explicit clearing, TTL cleanup, and concurrent request isolation. |
 | `tests/unit/credentialsHelpers.redaction.test.ts` | keep | Credential-extension redaction coverage. It verifies WebAuthn extension outputs are stripped before crossing display/logging boundaries. |
+| `tests/unit/d1Ed25519YaoCapabilityPersistence.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/d1EvmFamilyEcdsaRegistrationBranch.unit.test.ts` | keep | D1 EVM-family registration branch coverage. It verifies one signing grant can provision all EVM-family chain targets in a single registration. |
 | `tests/unit/d1WalletRegistrationEcdsaKeyHandleSet.unit.test.ts` | keep | D1 wallet-registration ECDSA key-handle coverage. It permits repeated EVM-family handles across chain targets and rejects genuinely different handles. |
 | `tests/unit/demoPasskeyEcdsaSignerOptions.unit.test.ts` | deleted | Deleted 35-line demo-only passkey ECDSA option test. The helper only feeds demo defaults, while intended contracts and retained registration/bootstrap tests own real Tempo and EVM ECDSA provisioning behavior. |
@@ -1553,6 +1559,7 @@ Initial audit:
 | `tests/unit/exactSigningLaneAuthorityBoundaries.guard.unit.test.ts` | deleted | Deleted 990-line exact signing-lane authority Playwright source guard after moving exact identity, fallback selector, export transport, HSS context, Ed25519 mutation, ECDSA server-record, signer-slot, lane-key, grant-clearing, availability, unsafe-cast, and selected-wallet profile checks into `tests/scripts/check-exact-signing-lane-authority-boundaries.mjs`, wired through `pnpm -C tests run check:exact-signing-lane-authority-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/routeLifecycleDomainBoundaries.guard.unit.test.ts` | deleted | Deleted 588-line route/lifecycle Playwright source guard after moving unsafe-cast bans, normalized confirmation config, type-only imports, nonce lifecycle state, public result branch checks, request parser boundaries, absent link-device routes, auth provider mutation parsing, ECDSA key-identity inventory, legacy Ed25519 HSS branch bans, and threshold/session exchange route parser checks into `tests/scripts/check-route-lifecycle-domain-boundaries.mjs`, wired through `pnpm -C tests run check:route-lifecycle-domain-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts` | deleted | Deleted 2,786-line D1 runtime Playwright source guard after moving the D1/DO runtime graph, staging/docs, structural Router API services, registration ceremony split, and HSS/authority boundary checks into `tests/scripts/check-cloudflare-d1-runtime-boundaries.mjs`, wired through `pnpm -C tests run check:cloudflare-d1-runtime-boundaries` and `pnpm -C tests run test:source-guards`. Refactor 82/90 still own the product/runtime cleanup gates named on the retained relayer and budget rows. |
+| `tests/unit/refactor93IntendedFaultIsolation.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/registrationCapabilitySubjects.guard.unit.test.ts` | deleted | Deleted 485-line registration/capability subject Playwright source guard after moving role-local ECDSA handle ownership, wallet unlock subject, visible iframe passkey registration, prepared registration route, registration precompute, active-state/persistence-subject, Email OTP commit, and unlock activation-plan checks into `tests/scripts/check-registration-capability-subjects.mjs`, wired through `pnpm -C tests run check:registration-capability-subjects` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/passkeyRegistrationButtonBoundaries.guard.unit.test.ts` | deleted | Deleted 47-line passkey registration-button Playwright source guard after retained Lit component tests owned button behavior and its static import-independence check moved into `tests/scripts/check-passkey-registration-button-boundaries.mjs`, wired through `pnpm -C tests run check:passkey-registration-button-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` | deleted | Deleted 1,181-line Router A/B normal-signing SDK Playwright source guard after moving local topology, Wallet Session request-builder, active material/readiness, route-core, legacy-route, and budget/reconciliation source checks into `tests/scripts/check-router-ab-normal-signing-sdk-boundaries.mjs`, wired through `pnpm -C tests run check:router-ab-normal-signing-sdk-boundaries` and `pnpm -C tests run test:source-guards`. |
@@ -1664,6 +1671,7 @@ Initial audit:
 | `tests/unit/multichain.tempoTxHash.unit.test.ts` | keep | Tempo transaction-hash coverage. It validates multichain helper behavior. |
 | `tests/unit/multichain.webauthnP256Engine.unit.test.ts` | keep | WebAuthn P-256 engine coverage. It validates multichain crypto engine behavior directly. |
 | `tests/unit/nearClient.test.ts` | keep | NEAR client helper coverage. It validates RPC helper behavior outside wallet lifecycle contracts. |
+| `tests/unit/nearRelayerAccountProvisioning.unit.test.ts` | keep | NEAR sponsored-account reconciliation coverage. It verifies resolved failures, response-loss readback, uncertain transport, and exact prepared-transaction rebroadcast behavior. |
 | `tests/unit/nearEd25519ExportFlow.unit.test.ts` | keep | NEAR Ed25519 export-flow coverage. It validates export-flow domain behavior directly. |
 | `tests/unit/nearSigning.sessionSelection.unit.test.ts` | keep | NEAR signing session-selection coverage. It validates session selection for NEAR signing. |
 | `tests/unit/nearSigningFlow.singleTransaction.unit.test.ts` | keep | NEAR single-transaction signing-flow coverage. It validates focused signing-flow behavior; intended specs own browser lifecycle success. |
@@ -1765,7 +1773,7 @@ Initial audit:
 | `tests/unit/thresholdEcdsa.presignPoolRefill.unit.test.ts` | keep | Threshold ECDSA presign pool refill coverage. It validates refill behavior. |
 | `tests/unit/thresholdEcdsa.publicKeyFieldRegression.unit.test.ts` | keep | Threshold ECDSA public-key field regression coverage. It validates public-key field compatibility and parsing. |
 | `tests/unit/thresholdEcdsa.registrationBootstrapParity.unit.test.ts` | keep | Threshold ECDSA registration/bootstrap parity coverage. It validates parity between registration and bootstrap material. |
-| `tests/unit/thresholdEcdsa.signingRootResolver.script.unit.test.ts` | keep | Threshold ECDSA signing-root resolver script coverage. It validates signing-root resolution tooling. |
+| `tests/unit/thresholdEcdsa.signingRootResolver.script.unit.test.ts` | deleted | Deleted obsolete role-local bootstrap and signing-root verification coverage after the removed bootstrap/export runtime; signing-root resolver behavior remains covered by `tests/unit/signingRootShareResolver.script.unit.test.ts`. |
 | `tests/unit/thresholdEcdsa.walletBudgetRefresh.unit.test.ts` | blocked_on_coverage(90 B3 grant-use migration) | Budget-era threshold ECDSA wallet refresh coverage. Replace with grant-use refresh semantics when 90 B3 lands. |
 | `tests/unit/thresholdEcdsaChainTarget.unit.test.ts` | keep | Threshold ECDSA chain-target coverage. It validates exact chain-target parsing and identity. |
 | `tests/unit/thresholdEcdsaEmailOtpConsumption.unit.test.ts` | keep | Threshold ECDSA Email OTP consumption coverage. It validates Email OTP consumption behavior for ECDSA. |
@@ -1832,6 +1840,116 @@ Initial audit:
 | `tests/unit/webauthnPromptCredentialSelection.unit.test.ts` | keep | WebAuthn prompt credential-selection coverage. It validates credential selection behavior. |
 | `tests/unit/webauthnPromptCoordinator.unit.test.ts` | keep | Focused WebAuthn prompt-coordinator state coverage. It verifies reservation ownership, single consumption, expiry, abort, competing-operation exclusion, and failure cleanup through the coordinator's public state machine. |
 | `tests/unit/workerTransport.multichainTimeout.unit.test.ts` | keep | Worker transport multichain timeout coverage. It validates timeout behavior across chain-family worker requests. |
+
+Post-baseline current test surface:
+
+| `tests/e2e/intended-behaviours/passkey.ed25519-yao-local.contract.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/e2e/intended-behaviours/refactor93-staging-cohort.staging.test.ts` | keep | Refactor 93 staging-only cohort coverage. It exercises the public registration, exact-replay, conflict, and export paths without introducing a test-only production route. |
+| `tests/unit/availableSigningLanes.durableEd25519Projection.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/bootstrapGatewayDeployment.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/cloudflareD1VersionedJsonRecordStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/cloudflareVersionedJsonRecordStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/consoleServer.stripeBillingProvider.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/d1HostedGatewayRouting.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/d1LocalDevYaoPersistenceParity.unit.test.ts` | keep | Real-D1 local Worker behavior coverage for request-scoped registration replay, restart continuity, typed conflict rejection, and one-winner duplicate execution. |
+| `tests/unit/d1RegistrationCeremonyRecordStore.unit.test.ts` | keep | Real-D1 behavioral coverage for partitioned ceremony CAS, atomic multi-record writes, one-time take/delete semantics, restart continuity, contention, and corrupt-record fail-closed handling. |
+| `tests/unit/d1RouterApiRuntime.concurrency.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/d1RouterApiStagingServiceBindings.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/d1WalletRegistrationCommitStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/d1WalletRegistrationFinalizeConvergence.unit.test.ts` | keep | Full-service registration-finalize convergence coverage. It injects response loss after every externally visible finalize step and verifies exact retry, concurrency, and single-row persistence. |
+| `tests/unit/helpers/d1WalletRegistrationFinalizeConvergence.fixtures.ts` | keep | Branch-specific production-builder fixture and response-loss harness for the registration-finalize convergence suite. |
+| `tests/unit/demoNearFundingState.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deployCommands.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentApiCompatibility.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentComponents.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentCoordinationReceipt.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentFinalSmoke.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentRelease.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentSmoke.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage validates deployment smoke retries and readiness classification. |
+| `tests/unit/deploymentTargets.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentWorkflow.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentWorkflowPolicy.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/ecdsaExplicitExportProvisionIsolation.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/ecdsaExportEphemeralIsolation.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/ed25519YaoBudgetRefreshWalletSession.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/ed25519YaoCapabilityLifecycle.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/ed25519YaoExportBoundary.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/ed25519YaoSealedRefreshPersistence.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/ed25519YaoSealedRefreshWiring.guard.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/emailOtpEd25519ExportRegistrationLane.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/emailOtpEd25519YaoBudgetRecovery.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/emailOtpEd25519YaoExportRefresh.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/emailOtpEd25519YaoRootVault.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/emailOtpMixedWalletUnlock.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/emailOtpSecretEscrow.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/emailOtpWalletActivation.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/evmFamilyExecutorThresholdState.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/evmRefreshNonceRecovery.guard.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/loginEcdsaInventoryProfileRepair.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/migrationFingerprint.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/nearClientRpcFailureClassification.unit.test.ts` | keep | Production-shaped NEAR JSON-RPC classification coverage for transaction success, terminal execution failure, pending and missing status, infrastructure failure, exact account/key readback, and byte-exact replay. |
+| `tests/unit/nearImplicitFunding.freshAuth.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/nearRefreshYaoOrdering.guard.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/passkeyEd25519BudgetRefresh.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/passkeyEd25519YaoAddSigner.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/passkeyEd25519YaoExportRefresh.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/passkeyEd25519YaoRecovery.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/passkeyEd25519YaoRegistration.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/passkeyEd25519YaoWarmRecovery.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/postRegistrationSessionActivation.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/readySecp256k1Material.rehydration.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/refactor92.boundaryAndServer.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/refactor92.structuredFailureRetry.audit.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/refactor92.surfacePlanning.audit.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/registrationTerminalCancellation.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/registrationTimingSpans.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEcdsaDerivationBudgetRouteCore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEcdsaDerivationNormalSigning.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEcdsaDerivationPresignBridge.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEcdsaDerivationRefresh.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEcdsaPoolHitWaterfall.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEcdsaRegistrationWaterfall.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoAddSignerIntentAuthorization.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoContracts.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoExport.server.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/gatewayCutoverConfig.script.unit.test.ts` | keep | Deployment/configuration boundary coverage for the three independent Yao cutover windows. It verifies the exact worker variables and rejects obsolete global-window configuration. |
+| `tests/unit/routerAbEd25519YaoGatewayCutover.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoPairDigestVectors.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoProductRegistrationPartitionedStateStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoProductRegistrationPersistence.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoProductState.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoRecovery.domain.guard.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoRecoveryRequestScoped.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoRegistrationBridge.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoRegistrationIntentAuthorization.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoSessionProvisioning.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbLocalD1RuntimeConfig.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbReleaseWorkflowParsing.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbTraceContext.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/seamsSite.demoEmailOtpToast.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/seamsSite.walletSessionExpiry.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/signingSessionExpiryPolicy.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/signingSessionSeal.authorization.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/syncAccount.yaoOrchestration.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/syncAccountYaoEnrichment.domain.guard.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/thresholdEcdsa.derivationBootstrapPolicy.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/thresholdEcdsa.derivationErrorCodes.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/thresholdEcdsa.derivationRoleLocalClientParser.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/thresholdEcdsa.derivationRoleLocalExportPolicy.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/thresholdEcdsa.derivationWasmSurface.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/thresholdEcdsa.signingQueue.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/thresholdEd25519.mpcSessionStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/userConfirmProgressBridge.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletAuthLock.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletRegistrationFinalizeBoundary.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletRegistrationYaoClientContracts.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletRegistrationYaoFinalizeContracts.domain.guard.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletSessionNearIdentityProjection.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletSigningBudgetRecord.parser.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletStoreDurableObjectActivationPair.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletStoreSignerIdentity.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletUnlockEd25519YaoEmailOtpRecovery.server.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 
 Ledger checkpoint, July 5, 2026:
 

@@ -12,7 +12,7 @@ import {
   initSync as initThresholdPrfWasmSync,
   init_threshold_prf,
   threshold_prf_combine_verified_partials,
-  threshold_prf_derive_ecdsa_derivation_y_relayer,
+  threshold_prf_derive_router_ab_ecdsa_derivation_y_relayer,
   threshold_prf_evaluate_partial_with_dleq_proof,
 } from '../../wasm/threshold_prf/pkg/threshold_prf.js';
 
@@ -38,7 +38,7 @@ const THRESHOLD_PRF_WASM_PATH = resolve(
   __dirname,
   '../../wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
 );
-const ECDSA_DERIVATION_FIXTURE_PURPOSE = 'ecdsa-derivation/y_server';
+const ECDSA_DERIVATION_FIXTURE_PURPOSE = 'router-ab-ecdsa-derivation/y-server/v1';
 
 test.beforeAll(() => {
   initThresholdPrfWasmSync({ module: readFileSync(THRESHOLD_PRF_WASM_PATH) });
@@ -154,7 +154,7 @@ test('threshold-prf WASM wrapper derives ECDSA derivation y_server through polic
     shareWires: shareWires(vector, selectedIds),
     context,
   });
-  const expected = threshold_prf_derive_ecdsa_derivation_y_relayer(
+  const expected = threshold_prf_derive_router_ab_ecdsa_derivation_y_relayer(
     policy.threshold,
     policy.shareCount,
     flattenShareWires(vector, selectedIds),

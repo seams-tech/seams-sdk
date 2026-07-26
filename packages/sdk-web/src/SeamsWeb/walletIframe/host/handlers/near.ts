@@ -26,7 +26,7 @@ import {
 } from '@shared/utils/validation';
 import type { ActionArgs } from '@/core/types';
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
-import { respondOk, respondOkResult, withProgress } from './shared';
+import { respondOk, respondOkResult, withProgress, withRegistrationProgress } from './shared';
 
 function walletSessionFromWalletId(walletIdRaw: unknown) {
   const walletId = toWalletId(walletIdRaw);
@@ -65,7 +65,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = deps.getSeamsWeb();
       const payload = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
-      const hooksOptions = withProgress(
+      const hooksOptions = withRegistrationProgress(
         deps,
         req.requestId,
         payload.options || {},

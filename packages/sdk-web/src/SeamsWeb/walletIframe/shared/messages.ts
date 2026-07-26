@@ -16,7 +16,11 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '@/core/types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
-import type { SdkLifecycleEvent, WalletFlowEvent } from '@/core/types/sdkSentEvents';
+import type {
+  RegistrationTimingSpanV1,
+  SdkLifecycleEvent,
+  WalletFlowEvent,
+} from '@/core/types/sdkSentEvents';
 import type {
   GoogleEmailOtpWalletAuthDelivery,
   GoogleEmailOtpWalletAuthEcdsaTargets,
@@ -36,6 +40,7 @@ import type {
   WalletId,
 } from '@shared/utils/registrationIntent';
 import type { PMUnlockPayload } from '@/core/types/login.types';
+import { isPlainObject } from '@shared/utils/validation';
 import type {
   WalletIframeExactSessionIdentity,
   WalletIframeMissingSessionIdentity,
@@ -517,7 +522,22 @@ export interface PMSetRecoveryEmailsPayload {
   };
 }
 
-export type ProgressPayload = WalletFlowEvent;
+export type ProgressPayload = WalletFlowEvent | RegistrationTimingSpanV1;
+
+export function isRegistrationTimingSpanV1(value: unknown): value is RegistrationTimingSpanV1 {
+  if (!isPlainObject(value)) return false;
+  const span = value;
+  return (
+    span.event === 'seams_registration_timing_span_v1' &&
+    (span.span === 'registration.post_touch_id' || span.span === 'frontend.wallet_ready') &&
+    span.operation === 'registration' &&
+    (span.outcome === 'success' || span.outcome === 'failure') &&
+    typeof span.duration_ms === 'number' &&
+    Number.isFinite(span.duration_ms) &&
+    typeof span.trace_id === 'string' &&
+    /^[0-9a-f]{32}$/.test(span.trace_id)
+  );
+}
 
 export interface PMResultPayload {
   ok: boolean;

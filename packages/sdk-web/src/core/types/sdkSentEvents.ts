@@ -19,6 +19,7 @@ import {
   type WalletId,
 } from '@shared/utils/domainIds';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
+import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
 
 /////////////////////////////////////
 // Signing Session Lifecycle Events
@@ -733,6 +734,21 @@ export function isWalletFlowEvent(value: unknown): value is WalletFlowEvent {
 // Base event callback type
 export type EventCallback<T> = (event: T) => void;
 
+/**
+ * Sanitized registration timing emitted to an application-provided telemetry sink.
+ * The trace context is validated at the HTTP boundary and carries no product data.
+ */
+export type RegistrationTimingSpanV1 = {
+  event: 'seams_registration_timing_span_v1';
+  span: 'registration.post_touch_id' | 'frontend.wallet_ready';
+  operation: 'registration';
+  outcome: 'success' | 'failure';
+  duration_ms: number;
+  trace_id: RouterAbTraceContextV1['value'];
+};
+
+export type RegistrationTimingSpanCallbackV1 = (span: RegistrationTimingSpanV1) => void;
+
 // Users can still supply a single implementation: (success: boolean, result?: T) => ...
 export interface AfterCall<T> {
   (success: true, result: T): void | Promise<void>;
@@ -748,6 +764,8 @@ export interface RegistrationHooksOptions {
   onEvent?: EventCallback<RegistrationFlowEvent>;
   onError?: (error: Error) => void;
   afterCall?: AfterCall<RegistrationResult>;
+  /** Optional sink for sanitized Refactor 93 registration timing spans. */
+  onTimingSpan?: RegistrationTimingSpanCallbackV1;
   // Signer provisioning options used during registration.
   // When omitted, defaults are taken from
   // `SeamsConfigsReadonly.signing.thresholdEcdsa.provisioningDefaults`.
