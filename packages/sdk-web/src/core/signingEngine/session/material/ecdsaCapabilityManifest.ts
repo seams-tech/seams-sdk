@@ -9,6 +9,7 @@ import {
   type MpcMaterialActivationRef,
   type MpcMaterialOwnerRef,
 } from '@shared/utils/domainIds';
+import { base64UrlEncode } from '@shared/utils/base64';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
@@ -826,6 +827,7 @@ export function buildEcdsaServerActivationCommit(input: {
   const protocolReceipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(
     input.serverCommit.protocolReceipt,
   );
+  assertProtocolReceiptMatchesServerCommit(protocolReceipt, input.serverCommit);
   assertProtocolReceiptMatchesActivationBinding(protocolReceipt, input.activationBinding);
   const serverActivationReceipt = new EcdsaServerActivationReceiptProof({
     lifecycleId: lifecycleIdFromProtocolReceipt(protocolReceipt),
@@ -1104,6 +1106,22 @@ function assertProtocolReceiptMatchesActivationBinding(
       String(activationBinding.roleLocalBinding.clientVerifyingPublicKey33B64u)
   ) {
     throw new Error('ECDSA activation receipt does not match the prepared material binding');
+  }
+}
+
+function assertProtocolReceiptMatchesServerCommit(
+  receipt: RouterAbEcdsaRegistrationActivationReceiptV1,
+  serverCommit: ServerReturnedEcdsaActivationCommit,
+): void {
+  const receiptRequestDigest = base64UrlEncode(
+    Uint8Array.from(receipt.activation_request_digest.bytes),
+  );
+  if (
+    receipt.activation_correlation_id !== serverCommit.correlationId ||
+    receiptRequestDigest !== serverCommit.activationRequestDigest ||
+    receipt.server_generation !== serverCommit.serverGeneration
+  ) {
+    throw new Error('ECDSA activation receipt does not match the server activation commit');
   }
 }
 
