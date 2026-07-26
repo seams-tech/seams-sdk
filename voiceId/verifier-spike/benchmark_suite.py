@@ -37,16 +37,15 @@ def run_benchmark_suite(
     verify_model_manifest(model_root, model_manifest_path)
     manifest = load_benchmark_manifest(corpus_manifest_path)
     inventory = inventory_to_json(build_inventory_report(manifest))
-    moonshine_model_path = (
-        model_root / "moonshine" / "tiny"
-        if moonshine_model_arch == "tiny_streaming"
-        else model_root / "moonshine" / "small"
+    moonshine_model_path = native_moonshine_model_path(
+        model_root,
+        moonshine_model_arch,
     )
     moonshine = run_moonshine_benchmark(
         manifest,
         model_path=moonshine_model_path,
         model_arch=moonshine_model_arch,
-        intent_model_path=model_root / "moonshine" / "intent",
+        intent_model_path=moonshine_intent_model_path(model_root),
     )
     ecapa_load_started = time.perf_counter()
     ecapa_runtime = SpeechBrainEcapaVerifierRuntime(
@@ -151,6 +150,46 @@ def verify_model_manifest(model_root: Path, manifest_path: Path) -> None:
     expected = json.loads(manifest_path.read_text(encoding="utf-8"))
     if build_model_manifest(model_root) != expected:
         raise ValueError("local model tree does not match the immutable model manifest")
+
+
+def native_moonshine_model_path(model_root: Path, model_arch: str) -> Path:
+    model_name_by_arch = {
+        "tiny_streaming": "tiny",
+        "small_streaming": "small",
+    }
+    model_name = model_name_by_arch.get(model_arch)
+    if model_name is None:
+        raise ValueError("Moonshine model architecture is invalid")
+    model_path = (
+        model_root
+        / "moonshine"
+        / model_name
+        / "download.moonshine.ai"
+        / "model"
+        / f"{model_name}-streaming-en"
+        / "quantized"
+    )
+    if not (model_path / "tokenizer.bin").is_file():
+        raise FileNotFoundError(
+            f"Moonshine native model is incomplete: {model_path}"
+        )
+    return model_path
+
+
+def moonshine_intent_model_path(model_root: Path) -> Path:
+    model_path = (
+        model_root
+        / "moonshine"
+        / "intent"
+        / "download.moonshine.ai"
+        / "model"
+        / "embeddinggemma-300m"
+    )
+    if not (model_path / "model_q4.onnx").is_file():
+        raise FileNotFoundError(
+            f"Moonshine intent model is incomplete: {model_path}"
+        )
+    return model_path
 
 
 def write_reports(

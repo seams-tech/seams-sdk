@@ -53,6 +53,7 @@ class PlaceholderEmbeddingExtractor:
             speaker_label="unknown_speaker",
         )
 
+
 class SpeechBrainEcapaEmbeddingExtractor:
     embedding_dimensions = ECAPA_EMBEDDING_DIMENSIONS
 
@@ -86,17 +87,41 @@ class SpeechBrainEcapaEmbeddingExtractor:
         except ImportError as exc:
             raise EmbeddingExtractionError("torch is required for ECAPA extraction") from exc
 
+        waveform = None
+        embedding = None
+        detached_embedding = None
+        cpu_embedding = None
+        flattened_embedding = None
         try:
             waveform = torch.tensor(samples, dtype=torch.float32).unsqueeze(0)
             with torch.no_grad():
                 embedding = self.classifier.encode_batch(waveform)
+            detached_embedding = embedding.detach()
+            cpu_embedding = detached_embedding.cpu()
+            flattened_embedding = cpu_embedding.reshape(-1)
+            vector = [float(value) for value in flattened_embedding.tolist()]
+            if len(vector) == 0:
+                raise EmbeddingExtractionError(
+                    "ECAPA embedding extraction returned an empty vector"
+                )
+            return ExtractedSpeakerEmbedding(
+                vector=vector,
+                speaker_label="unknown_speaker",
+            )
+        except EmbeddingExtractionError:
+            raise
         except Exception as exc:
             raise EmbeddingExtractionError(f"ECAPA embedding extraction failed: {exc}") from exc
-
-        vector = [float(value) for value in embedding.detach().cpu().reshape(-1).tolist()]
-        if len(vector) == 0:
-            raise EmbeddingExtractionError("ECAPA embedding extraction returned an empty vector")
-        return ExtractedSpeakerEmbedding(vector=vector, speaker_label="unknown_speaker")
+        finally:
+            zero_ecapa_tensors(
+                (
+                    flattened_embedding,
+                    cpu_embedding,
+                    detached_embedding,
+                    embedding,
+                    waveform,
+                )
+            )
 
     def _load_classifier(self) -> Any:
         try:
@@ -116,3 +141,19 @@ class SpeechBrainEcapaEmbeddingExtractor:
             )
         except Exception as exc:
             raise EmbeddingExtractionError(f"failed to load SpeechBrain model {self.model_id}: {exc}") from exc
+
+
+def zero_ecapa_tensors(tensors: Sequence[Any | None]) -> None:
+    first_error: Exception | None = None
+    zeroed_ids: set[int] = set()
+    for tensor in tensors:
+        if tensor is None or id(tensor) in zeroed_ids:
+            continue
+        zeroed_ids.add(id(tensor))
+        try:
+            tensor.zero_()
+        except Exception as error:
+            if first_error is None:
+                first_error = error
+    if first_error is not None:
+        raise EmbeddingExtractionError("failed to zero ECAPA model tensors") from first_error
