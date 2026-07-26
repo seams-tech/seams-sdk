@@ -29,7 +29,6 @@ import type {
 import { EmailRecoveryAuthOperations } from '../../core/authService/emailRecoveryAuthOperations';
 import type { RouterApiServiceBag } from '../authServicePort';
 import type { RouterApiEmailRecoveryAuthService } from '../routerApi';
-import { resolveRegistrationCeremonyDoConfig } from './d1RegistrationCeremonyDo';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import { isRecordValue, sha256BytesPortable } from './d1RouterApiAuthBoundary';
 import { CloudflareD1NearPublicKeyStore } from './d1NearPublicKeyStore';
@@ -134,15 +133,10 @@ type SponsoredNamedNearAccountInput = {
 
 type CloudflareD1RouterApiLazyStoreState = {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
-  readonly registrationPersistence: RegistrationCeremonyPersistence;
   walletStore: D1WalletStore | null;
   walletAuthMethodStore: WalletAuthMethodStore | null;
   registrationCeremonyIntentStore: CloudflareD1RegistrationCeremonyIntentStore | null;
 };
-
-type RegistrationCeremonyPersistence =
-  | { readonly kind: 'partitioned_d1' }
-  | { readonly kind: 'legacy_threshold_do' };
 
 type CloudflareD1RouterApiAuthAssembly = {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
@@ -309,11 +303,9 @@ async function linkD1Identity(
 
 function createLazyStoreState(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
-  registrationPersistence: RegistrationCeremonyPersistence,
 ): CloudflareD1RouterApiLazyStoreState {
   return {
     options,
-    registrationPersistence,
     walletStore: null,
     walletAuthMethodStore: null,
     registrationCeremonyIntentStore: null,
@@ -322,39 +314,20 @@ function createLazyStoreState(
 
 function getRegistrationCeremonyIntentStoreForState(
   state: CloudflareD1RouterApiLazyStoreState,
-): CloudflareD1RegistrationCeremonyIntentStore | null {
+): CloudflareD1RegistrationCeremonyIntentStore {
   if (state.registrationCeremonyIntentStore) return state.registrationCeremonyIntentStore;
-  switch (state.registrationPersistence.kind) {
-    case 'partitioned_d1':
-      state.registrationCeremonyIntentStore = new CloudflareD1RegistrationCeremonyIntentStore({
-        kind: 'partitioned_d1',
-        database: state.options.database,
-        scope: {
-          namespace: state.options.namespace,
-          orgId: state.options.orgId,
-          projectId: state.options.projectId,
-          envId: state.options.envId,
-        },
-        keyPrefix: 'gateway-registration:',
-      });
-      break;
-    case 'legacy_threshold_do': {
-      const config = resolveRegistrationCeremonyDoConfig(state.options.thresholdStore);
-      if (!config) return null;
-      state.registrationCeremonyIntentStore = new CloudflareD1RegistrationCeremonyIntentStore({
-        kind: 'legacy_threshold_do',
-        config,
-      });
-      break;
-    }
-    default:
-      return assertNeverRegistrationCeremonyPersistence(state.registrationPersistence);
-  }
+  state.registrationCeremonyIntentStore = new CloudflareD1RegistrationCeremonyIntentStore({
+    kind: 'partitioned_d1',
+    database: state.options.database,
+    scope: {
+      namespace: state.options.namespace,
+      orgId: state.options.orgId,
+      projectId: state.options.projectId,
+      envId: state.options.envId,
+    },
+    keyPrefix: 'gateway-registration:',
+  });
   return state.registrationCeremonyIntentStore;
-}
-
-function assertNeverRegistrationCeremonyPersistence(value: never): never {
-  throw new Error(`Unhandled registration ceremony persistence: ${JSON.stringify(value)}`);
 }
 
 function getWalletAuthMethodStoreForState(
@@ -884,11 +857,10 @@ async function createSponsoredNamedNearAccountForOptions(
 
 function createCloudflareD1RouterApiAuthAssembly(
   input: CloudflareD1RouterApiAuthServiceOptions,
-  registrationPersistence: RegistrationCeremonyPersistence,
 ): CloudflareD1RouterApiAuthAssembly {
   const options = normalizeD1RouterApiAuthOptions(input);
   const prepare: ScopedD1Prepare = scopePrepareForOptions.bind(undefined, options);
-  const lazyStores = createLazyStoreState(options, registrationPersistence);
+  const lazyStores = createLazyStoreState(options);
   const getRegistrationCeremonyIntentStore = getRegistrationCeremonyIntentStoreForState.bind(
     undefined,
     lazyStores,
@@ -1411,22 +1383,7 @@ function createD1RouterAccountRouteService(
 export function createCloudflareD1RouterApiAuthService(
   input: CloudflareD1RouterApiAuthServiceOptions,
 ): CloudflareD1RouterApiAuthService {
-  return createCloudflareD1RouterApiAuthServiceForPersistence(input, { kind: 'partitioned_d1' });
-}
-
-export function createLegacyCloudflareD1RouterApiAuthService(
-  input: CloudflareD1RouterApiAuthServiceOptions,
-): CloudflareD1RouterApiAuthService {
-  return createCloudflareD1RouterApiAuthServiceForPersistence(input, {
-    kind: 'legacy_threshold_do',
-  });
-}
-
-function createCloudflareD1RouterApiAuthServiceForPersistence(
-  input: CloudflareD1RouterApiAuthServiceOptions,
-  registrationPersistence: RegistrationCeremonyPersistence,
-): CloudflareD1RouterApiAuthService {
-  const assembly = createCloudflareD1RouterApiAuthAssembly(input, registrationPersistence);
+  const assembly = createCloudflareD1RouterApiAuthAssembly(input);
   return {
     walletRegistration: createD1WalletRegistrationRouteService(assembly),
     walletAuthMethods: createD1WalletAuthMethodRouteService(assembly),
@@ -1448,6 +1405,6 @@ function createCloudflareD1RouterApiAuthServiceForPersistence(
 export function createCloudflareD1RouterApiEmailRecoveryAuthService(
   input: CloudflareD1RouterApiAuthServiceOptions,
 ): RouterApiEmailRecoveryAuthService {
-  const assembly = createCloudflareD1RouterApiAuthAssembly(input, { kind: 'partitioned_d1' });
+  const assembly = createCloudflareD1RouterApiAuthAssembly(input);
   return createD1EmailRecoveryAuthService(assembly);
 }

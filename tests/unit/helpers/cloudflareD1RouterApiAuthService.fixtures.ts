@@ -20,7 +20,6 @@ import { createCloudflareD1RouterApiAuthService } from '../../../packages/sdk-se
 import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords';
 import { parseD1RegistrationIntent } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
 import { base64UrlDecode, base64UrlEncode } from '../../../packages/shared-ts/src/utils/encoders';
-import { alphabetizeStringify } from '../../../packages/shared-ts/src/utils/digests';
 import {
   parseRootShareEpoch,
   parseWebAuthnRpId,
@@ -215,9 +214,6 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
     if (op === 'registrationReserveWalletId') {
       return this.handleRegistrationWalletReservation(request);
     }
-    if (op === 'registrationUpdateExpected') {
-      return this.handleRegistrationUpdateExpected(request);
-    }
     if (op === 'registrationCancelTerminal') {
       return this.handleRegistrationTerminalCancellation(request);
     }
@@ -314,23 +310,6 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
       expiresAtMs,
     });
     return recordingDurableObjectJson({ ok: true, value: { reserved: true } });
-  }
-
-  private handleRegistrationUpdateExpected(request: Record<string, unknown>): Response {
-    const key = String(request.key || '').trim();
-    const current = this.values.get(key);
-    if (
-      current === undefined ||
-      alphabetizeStringify(current) !== alphabetizeStringify(request.expected)
-    ) {
-      return recordingDurableObjectJson({
-        ok: false,
-        code: 'registration_ceremony_conflict',
-        message: 'Registration ceremony record changed before update',
-      });
-    }
-    this.values.set(key, request.next);
-    return recordingDurableObjectJson({ ok: true, value: true });
   }
 
   private handleRegistrationTerminalCancellation(request: Record<string, unknown>): Response {

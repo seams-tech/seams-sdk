@@ -142,38 +142,6 @@ test('terminal registration cancellation atomically releases its wallet reservat
   expect(storage.transactionCount).toBe(4);
 });
 
-test('legacy registration ceremony updates reject a stale expected record atomically', async () => {
-  const storage = new MemoryStorage();
-  const durableObject = new ThresholdStoreDurableObject({ storage }, {});
-  const key = 'wallet-registration:ceremony:wrc_cas';
-  const expiresAtMs = Date.now() + 60_000;
-  const initial = { kind: 'prepared', registrationCeremonyId: 'wrc_cas', expiresAtMs };
-  const claimed = { kind: 'claimed', registrationCeremonyId: 'wrc_cas', expiresAtMs };
-  const completed = { kind: 'completed', registrationCeremonyId: 'wrc_cas', expiresAtMs };
-
-  await post(durableObject, { op: 'set', key, value: initial, ttlMs: 60_000 });
-  await expect(
-    post(durableObject, {
-      op: 'registrationUpdateExpected',
-      key,
-      expected: initial,
-      next: claimed,
-      ttlMs: 60_000,
-    }),
-  ).resolves.toEqual({ ok: true, value: true });
-  await expect(
-    post(durableObject, {
-      op: 'registrationUpdateExpected',
-      key,
-      expected: initial,
-      next: completed,
-      ttlMs: 60_000,
-    }),
-  ).resolves.toMatchObject({ ok: false, code: 'registration_ceremony_conflict' });
-  expect(storage.values.get(key)).toEqual(claimed);
-  expect(storage.transactionCount).toBe(2);
-});
-
 test('coordinator configuration failures are terminal registration failures', async () => {
   const request = strictRegistrationRequest();
   const port = createRouterAbEcdsaStrictRegistrationPort({

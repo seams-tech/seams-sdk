@@ -67,10 +67,6 @@ migrations_dir = "migrations/d1-console"
 `;
 }
 
-function gatewayConfigWithCutoverVar(name: string, value: string): string {
-  return validD1GatewayStagingConfig().replace(`${name} = ""`, `${name} = "${value}"`);
-}
-
 function expectErrorContaining(result: ReadinessResult, expected: string): void {
   expect(result.ok).toBe(false);
   for (const error of result.errors) {
@@ -89,60 +85,40 @@ test('D1 staging readiness check accepts the gateway D1/DO/Secrets Store shape',
   expect(result).toMatchObject({ errors: [], ok: true });
 });
 
-test('D1 staging readiness check accepts independent Gateway family windows', async () => {
-  const source = gatewayConfigWithCutoverVar(
-    'ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS',
-    '1000',
-  )
-    .replace(
-      'ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS = ""',
-      'ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS = "2000"',
-    )
-    .replace(
-      'ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS = ""',
-      'ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS = "8000"',
-    )
-    .replace(
-      'ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS = ""',
-      'ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS = "9000"',
-    );
-  const result = await checkConfig(source, 'gateway');
+test('D1 staging readiness check rejects a retired Gateway runtime binding', async () => {
+  const source = validD1GatewayStagingConfig().replace(
+    '[[services]]',
+    '[[durable_objects.bindings]]\nname = "ROUTER_API_RUNTIME"\nclass_name = "RouterApiRuntimeDurableObject"\n\n[[services]]',
+  );
 
-  expect(result).toMatchObject({ errors: [], ok: true });
+  expectErrorContaining(
+    await checkConfig(source, 'gateway'),
+    'retired Durable Object binding ROUTER_API_RUNTIME must be removed',
+  );
 });
 
-test('D1 staging readiness check rejects missing and incomplete Gateway family windows', async () => {
-  const missing = validD1GatewayStagingConfig().replace(
-    'ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS = ""\n',
+test('D1 staging readiness check rejects retired direct role bindings', async () => {
+  const source = validD1GatewayStagingConfig().replace(
+    '[[services]]',
+    '[[services]]\nbinding = "DERIVER_A"\nservice = "router-ab-deriver-a-staging"\n\n[[services]]',
+  );
+
+  expectErrorContaining(
+    await checkConfig(source, 'gateway'),
+    'retired Gateway Service Binding DERIVER_A must be removed',
+  );
+});
+
+test('D1 staging readiness check requires the Gateway runtime deletion migration', async () => {
+  const source = validD1GatewayStagingConfig().replace(
+    '[[migrations]]\ntag = "router-api-runtime-delete-v1"\ndeleted_classes = ["RouterApiRuntimeDurableObject"]\n',
     '',
   );
+
   expectErrorContaining(
-    await checkConfig(missing, 'gateway'),
-    'ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS must be declared',
+    await checkConfig(source, 'gateway'),
+    'missing Durable Object deleted_classes migration for RouterApiRuntimeDurableObject',
   );
-
-  const incomplete = gatewayConfigWithCutoverVar(
-    'ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS',
-    '1000',
-  );
-  expectErrorContaining(await checkConfig(incomplete, 'gateway'), 'must be set together');
-});
-
-test('D1 staging readiness check rejects reversed and obsolete Gateway windows', async () => {
-  const reversed = gatewayConfigWithCutoverVar(
-    'ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS',
-    '9000',
-  ).replace(
-    'ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS = ""',
-    'ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS = "8000"',
-  );
-  expectErrorContaining(await checkConfig(reversed, 'gateway'), 'must not exceed');
-
-  const obsolete = validD1GatewayStagingConfig().replace(
-    '[vars]\n',
-    '[vars]\nROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS = ""\n',
-  );
-  expectErrorContaining(await checkConfig(obsolete, 'gateway'), 'is obsolete');
 });
 
 test('D1 staging readiness check supports env.staging Wrangler sections', async () => {

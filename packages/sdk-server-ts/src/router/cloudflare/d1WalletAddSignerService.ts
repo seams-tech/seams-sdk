@@ -35,10 +35,7 @@ import type {
   StoredWalletAddSignerFinalizeRequest,
   StoredWalletAddSignerSignerState,
 } from '../../core/RegistrationCeremonyStore';
-import {
-  CloudflareD1RegistrationCeremonyIntentStore,
-  missingRegistrationCeremonyDoStore,
-} from './d1RegistrationCeremonyStore';
+import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import {
   buildD1EcdsaWalletKeysFromBootstrap,
   buildD1WalletEcdsaSignerRecords,
@@ -85,7 +82,7 @@ type RespondWalletAddSignerDerivationInput = WalletAddSignerEcdsaDerivationRespo
 type ActivateWalletAddSignerEcdsaInput = WalletAddSignerEcdsaActivationRequest;
 type FinalizeWalletAddSignerInput = WalletAddSignerFinalizeRequest;
 
-type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
+type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore;
 type RouterAbNormalSigningRuntimeProvider = () => RouterAbNormalSigningRuntime | null;
 type WalletStoreProvider = () => D1WalletStore;
 type Ed25519YaoProductRegistrationProvider =
@@ -602,7 +599,6 @@ export class CloudflareD1WalletAddSignerService {
     addSignerCeremonyId: string,
   ): Promise<NonNullable<ReturnType<typeof parseD1RuntimePolicyScope>> | null> {
     const store = this.getRegistrationCeremonyIntentStore();
-    if (!store) return null;
     const ceremony = await store.getAddSignerCeremony(addSignerCeremonyId);
     if (!ceremony) return null;
     return parseD1RuntimePolicyScope(ceremony.intent.runtimePolicyScope) ?? null;
@@ -613,7 +609,6 @@ export class CloudflareD1WalletAddSignerService {
   ): Promise<WalletAddSignerStartResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const walletId = parseWalletIdForIntent(request.walletId);
       if (!walletId) {
         return { ok: false, code: 'invalid_body', message: 'walletId is required' };
@@ -942,7 +937,6 @@ export class CloudflareD1WalletAddSignerService {
   ): Promise<WalletAddSignerEcdsaDerivationRespondResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const ceremony = await store.getAddSignerCeremony(request.addSignerCeremonyId);
       if (!ceremony) {
         return { ok: false, code: 'not_found', message: 'add-signer ceremony not found' };
@@ -1045,7 +1039,6 @@ export class CloudflareD1WalletAddSignerService {
     request: ActivateWalletAddSignerEcdsaInput,
   ): Promise<WalletAddSignerEcdsaActivationResponse> {
     const store = this.getRegistrationCeremonyIntentStore();
-    if (!store) return missingRegistrationCeremonyDoStore();
     const ceremony = await store.getAddSignerCeremony(request.addSignerCeremonyId);
     if (!ceremony) {
       return { ok: false, code: 'not_found', message: 'add-signer ceremony not found' };
@@ -1164,7 +1157,6 @@ export class CloudflareD1WalletAddSignerService {
   ): Promise<WalletAddSignerFinalizeResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const idempotencyKey = toOptionalTrimmedString(request.idempotencyKey);
       if (!idempotencyKey) {
         return { ok: false, code: 'invalid_body', message: 'idempotencyKey is required' };
@@ -1302,7 +1294,7 @@ export class CloudflareD1WalletAddSignerService {
       }
       return replay.response;
     }
-    const ceremony = await store.getAddSignerCeremony(finalizeRequest.addSignerCeremonyId);
+    let ceremony = await store.getAddSignerCeremony(finalizeRequest.addSignerCeremonyId);
     if (!ceremony) {
       return { ok: false, code: 'not_found', message: 'add-signer ceremony not found' };
     }
@@ -1320,6 +1312,7 @@ export class CloudflareD1WalletAddSignerService {
           message: 'authorized WebAuthn Ed25519 Yao add-signer state is required',
         };
       }
+      const webAuthnAuth = ceremony.auth;
       const runtimePolicyScope = parseD1RuntimePolicyScope(ceremony.intent.runtimePolicyScope);
       const participantIds = resolveEd25519AddSignerParticipantIds(ceremony.intent.signerSelection);
       if (!runtimePolicyScope || !participantIds) {
@@ -1390,19 +1383,21 @@ export class CloudflareD1WalletAddSignerService {
           finalizeRequest,
           activation: consumed.activation,
         };
+        const activatedCeremony = updateAddSignerCeremonyState({
+          ceremony,
+          signingRootId,
+          signingRootVersion,
+          signerState: {
+            kind: 'near_ed25519_yao_add_signer_activated',
+            finalizeRequest: activation.finalizeRequest,
+            activation: activation.activation,
+          },
+        });
         await store.updateAddSignerCeremony({
           expected: ceremony,
-          next: updateAddSignerCeremonyState({
-            ceremony,
-            signingRootId,
-            signingRootVersion,
-            signerState: {
-              kind: 'near_ed25519_yao_add_signer_activated',
-              finalizeRequest: activation.finalizeRequest,
-              activation: activation.activation,
-            },
-          }),
+          next: activatedCeremony,
         });
+        ceremony = activatedCeremony;
       } else if (
         currentState.kind === 'near_ed25519_yao_add_signer_activated' ||
         currentState.kind === 'near_ed25519_yao_add_signer_finalizing'
@@ -1454,8 +1449,8 @@ export class CloudflareD1WalletAddSignerService {
         }
         const authority = buildPasskeyWalletAuthAuthority({
           walletId: ceremony.intent.walletId,
-          rpId: ceremony.auth.rpId,
-          credentialIdB64u: ceremony.auth.credentialIdB64u,
+          rpId: webAuthnAuth.rpId,
+          credentialIdB64u: webAuthnAuth.credentialIdB64u,
         });
         const session = await yaoRuntime.mintWalletSession({
           kind: 'add_signer_wallet_session_v1',
@@ -1489,8 +1484,8 @@ export class CloudflareD1WalletAddSignerService {
           ok: true,
           kind: 'near_ed25519',
           walletId: ceremony.intent.walletId,
-          rpId: ceremony.auth.rpId,
-          credentialIdB64u: ceremony.auth.credentialIdB64u,
+          rpId: webAuthnAuth.rpId,
+          credentialIdB64u: webAuthnAuth.credentialIdB64u,
           ed25519,
         };
         signer = buildYaoEd25519WalletSignerRecord({
@@ -1529,8 +1524,8 @@ export class CloudflareD1WalletAddSignerService {
 
       if (
         response.walletId !== ceremony.intent.walletId ||
-        response.rpId !== ceremony.auth.rpId ||
-        response.credentialIdB64u !== ceremony.auth.credentialIdB64u ||
+        response.rpId !== webAuthnAuth.rpId ||
+        response.credentialIdB64u !== webAuthnAuth.credentialIdB64u ||
         response.ed25519.signerSlot !== selection.signerSlot ||
         response.ed25519.session.thresholdSessionId !==
           activation.activation.admissionRequest.scope.wallet_session_id ||

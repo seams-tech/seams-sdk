@@ -14,7 +14,6 @@ import {
   DEFAULT_SESSION_COOKIE_NAME,
   GATEWAY_WORKER_COMPATIBILITY_DATE,
   GATEWAY_WORKER_COMPATIBILITY_FLAGS,
-  parseGatewayCutoverWorkerVars,
   parseGatewayDeploymentConfig,
 } from './gateway-deployment-config.mjs';
 
@@ -102,14 +101,9 @@ function buildConfig(deployment, packageRoot) {
       },
     ],
     durable_objects: {
-      bindings: [
-        { name: 'THRESHOLD_STORE', class_name: 'ThresholdStoreDurableObject' },
-        { name: 'ROUTER_API_RUNTIME', class_name: 'RouterApiRuntimeDurableObject' },
-      ],
+      bindings: [{ name: 'THRESHOLD_STORE', class_name: 'ThresholdStoreDurableObject' }],
     },
     services: [
-      { binding: 'DERIVER_A', service: deployment.serviceNames.deriverA },
-      { binding: 'DERIVER_B', service: deployment.serviceNames.deriverB },
       { binding: 'SIGNING_WORKER', service: deployment.serviceNames.signingWorker },
       { binding: 'MPC_ROUTER', service: deployment.serviceNames.mpcRouter },
     ],
@@ -121,6 +115,10 @@ function buildConfig(deployment, packageRoot) {
       {
         tag: 'router-api-runtime-sqlite-v1',
         new_sqlite_classes: ['RouterApiRuntimeDurableObject'],
+      },
+      {
+        tag: 'router-api-runtime-delete-v1',
+        deleted_classes: ['RouterApiRuntimeDurableObject'],
       },
     ],
     observability: {
@@ -152,7 +150,6 @@ function buildWorkerVars(deployment) {
     deployment.runtimeProfile.nearFunding.kind === 'implicit_account_relayer';
   const demoEmailOtpDelivery =
     deployment.runtimeProfile.emailOtpDelivery.kind === 'demo_code_response';
-  const gatewayDrainWindow = parseGatewayCutoverWorkerVars(process.env);
   const vars = {
     SEAMS_TENANT_STORAGE_NAMESPACE: deployment.tenant.namespace,
     SEAMS_STAGING_ORG_ID: deployment.tenant.orgId,
@@ -163,7 +160,6 @@ function buildWorkerVars(deployment) {
     ROUTER_AB_CEREMONY_JWT_ISSUER: deployment.origins.gateway,
     ROUTER_AB_CEREMONY_JWT_AUDIENCE: deployment.routerAb.ceremonyJwtAudience,
     ROUTER_AB_CEREMONY_JWT_KEY_ID: deployment.routerAb.ceremonyJwtKeyId,
-    ...gatewayDrainWindow,
     ROUTER_AB_PUBLIC_KEYSET_JSON: JSON.stringify(deployment.routerAb.publicKeyset),
     ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON: JSON.stringify(
       deployment.routerAb.registrationTopology,
