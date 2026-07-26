@@ -6,11 +6,7 @@ import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readDeploymentTarget } from './deployment-targets.mjs';
-import {
-  formatFailedCheck,
-  isFailedCheck,
-  runReadinessChecks,
-} from './deployment-smoke.mjs';
+import { formatFailedCheck, isFailedCheck, runReadinessChecks } from './deployment-smoke.mjs';
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, '..');
@@ -102,7 +98,9 @@ function printPlan(targetName, target) {
 function buildFrontend(targetName, target) {
   runCommand('pnpm', ['install', '--frozen-lockfile']);
   const buildEnvironment = buildFrontendEnvironment(targetName, target);
-  runCommand('pnpm', ['build:sdk-prod'], { env: buildEnvironment });
+  runCommand('pnpm', ['-C', 'packages/sdk-web', 'run', 'build:prod'], {
+    env: buildEnvironment,
+  });
   runCommand('pnpm', ['-C', 'apps/seams-site', 'exec', 'vite', 'build'], {
     env: buildEnvironment,
   });
@@ -205,7 +203,6 @@ function addSmokeChecks(checks, surface, origin, requestPaths) {
     });
   }
 }
-
 
 function requireEnvironmentValues(names, environment) {
   for (const name of names) {
