@@ -16,7 +16,6 @@ import {
 
 const VALID_TARGETS = new Set(['staging', 'production']);
 const VALID_DEPLOYMENT_COMPONENTS = new Set(['wallet-core', 'product']);
-const CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
 const githubCli = process.env.GITHUB_CLI_BIN || 'gh';
 const argv = process.argv.slice(2).filter((argument) => argument !== '--');
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -890,7 +889,10 @@ function buildMpcRouterEnvironment(input) {
       variables: {
         ROUTER_AB_JWT_ISSUER: input.configuration.gatewayOrigin,
         ROUTER_AB_JWT_AUDIENCE: input.configuration.routerJwtAudience,
-        ROUTER_AB_JWT_JWKS_URL: buildGatewayJwksUrl(input.configuration.gatewayOrigin),
+        ROUTER_AB_JWT_JWKS_JSON: buildCeremonyPublicJwks(
+          input.generatedSecrets.ceremonyPrivateJwk,
+          input.configuration.ceremonyJwtKeyId,
+        ),
         ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:
           variables.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
         ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:
@@ -1109,8 +1111,28 @@ function generateCeremonyPrivateJwk() {
   });
 }
 
-function buildGatewayJwksUrl(gatewayOrigin) {
-  return `${gatewayOrigin.replace(/\/+$/, '')}${CEREMONY_JWKS_PATH}`;
+function buildCeremonyPublicJwks(privateJwkJson, keyId) {
+  const privateJwk = JSON.parse(privateJwkJson);
+  if (
+    privateJwk.kty !== 'OKP' ||
+    privateJwk.crv !== 'Ed25519' ||
+    typeof privateJwk.x !== 'string' ||
+    !privateJwk.x
+  ) {
+    throw new Error('ceremony JWT private JWK cannot produce an Ed25519 public JWKS');
+  }
+  return JSON.stringify({
+    keys: [
+      {
+        alg: 'EdDSA',
+        crv: privateJwk.crv,
+        kid: keyId,
+        kty: privateJwk.kty,
+        use: 'sig',
+        x: privateJwk.x,
+      },
+    ],
+  });
 }
 
 function hostnameFromOrigin(origin) {
@@ -1880,6 +1902,22 @@ function validateGatewayRegistrationDocuments(outputDocument) {
   assertEqual(ceremonyJwk.kty, 'OKP', 'ceremony JWT JWK kty');
   assertEqual(ceremonyJwk.crv, 'Ed25519', 'ceremony JWT JWK curve');
   assertExactKeys(ceremonyJwk, ['kty', 'crv', 'x', 'd'], 'ceremony JWT private JWK');
+  const ceremonyJwks = JSON.parse(router.variables.ROUTER_AB_JWT_JWKS_JSON);
+  assertEqual(ceremonyJwks.keys.length, 1, 'ceremony JWT public JWKS key count');
+  const ceremonyPublicJwk = ceremonyJwks.keys[0];
+  assertEqual(ceremonyPublicJwk.kty, ceremonyJwk.kty, 'ceremony JWT public JWK kty');
+  assertEqual(ceremonyPublicJwk.crv, ceremonyJwk.crv, 'ceremony JWT public JWK curve');
+  assertEqual(ceremonyPublicJwk.x, ceremonyJwk.x, 'ceremony JWT public key');
+  assertEqual(
+    ceremonyPublicJwk.kid,
+    deploymentConfig.routerAb.ceremonyJwtKeyId,
+    'ceremony JWT public key id',
+  );
+  assertExactKeys(
+    ceremonyPublicJwk,
+    ['alg', 'crv', 'kid', 'kty', 'use', 'x'],
+    'ceremony JWT public JWK',
+  );
 }
 
 function parseGatewayDeploymentConfig(gatewayEnvironment) {
