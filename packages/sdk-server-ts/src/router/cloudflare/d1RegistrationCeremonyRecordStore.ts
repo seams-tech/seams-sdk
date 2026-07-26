@@ -370,10 +370,18 @@ function normalizeTenantScope(
 
 function normalizeKeyPart(value: unknown, field: string, maxLength: number): string {
   const normalized = toOptionalTrimmedString(value);
-  if (!normalized || normalized.length > maxLength || /[\u0000-\u001f\u007f]/u.test(normalized)) {
+  if (!normalized || normalized.length > maxLength || containsAsciiControlCharacter(normalized)) {
     throw new Error(`Registration ceremony D1 ${field} is invalid`);
   }
   return normalized;
+}
+
+function containsAsciiControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
 }
 
 function conflict(message: string): D1RegistrationCeremonyRecordConflictError {
