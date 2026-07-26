@@ -95,7 +95,7 @@ const d1LocalWranglerConfigPath = resolvePath(
 const strictPersistPath = join(root, '.runtime', 'router-ab-strict-state');
 const strictWorkerBuildRoot = join(repoRoot, 'crates', 'router-ab-cloudflare', 'build');
 const strictBuildReceiptPath = join(strictWorkerBuildRoot, 'local-build-receipt.json');
-const strictWorkerBuildProfile = process.env.ROUTER_AB_WORKER_BUILD_PROFILE || 'dev';
+const strictWorkerBuildProfile = process.env.ROUTER_AB_WORKER_BUILD_PROFILE || 'release';
 const ecdsaDerivationClientRoot = join(repoRoot, 'wasm', 'router_ab_ecdsa_derivation_client');
 const ecdsaDerivationClientDependencyPath = join(
   ecdsaDerivationClientRoot,

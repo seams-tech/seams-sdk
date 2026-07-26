@@ -71,12 +71,12 @@ pnpm build:sdk
 pnpm router
 ```
 
-Local `pnpm build:sdk` uses the fast Rust development profile for the strict
-Workers (`--dev --no-opt`). Use
-`ROUTER_AB_WORKER_BUILD_PROFILE=release pnpm build:sdk` when optimized Worker
-artifacts are required, and use the same variable with `pnpm router` to launch
-those artifacts. `pnpm router` checks that all four artifacts exist and match
-the current build profile. It does not compile Rust/WASM during startup. Use
+Local `pnpm build:sdk` uses the optimized Rust release profile for the strict
+Workers so registration timings match the production topology. Set
+`ROUTER_AB_WORKER_BUILD_PROFILE=dev` on both `pnpm build:sdk` and `pnpm router`
+only when faster Rust compilation matters more than representative runtime
+performance. `pnpm router` checks that all four artifacts exist and match the
+current build profile. It does not compile Rust/WASM during startup. Use
 `pnpm router:build` when only the strict Workers need rebuilding. Stop a
 running Router topology before either build command; the build refuses to
 replace artifacts while ports `9100-3` are active.
