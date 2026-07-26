@@ -1,7 +1,13 @@
 import { expect, test } from '@playwright/test';
 import {
+  ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
 } from '@shared/utils/routerAbEd25519Yao';
 import {
   applyD1MigrationFiles,
@@ -11,10 +17,15 @@ import {
 } from '../helpers/sqliteD1';
 import {
   bindLocalYaoRegistrationIntent,
+  buildLocalYaoExistingWalletFixture,
   buildLocalYaoRegistrationFixture,
   callLocalYaoWorker,
   createLocalYaoWorkerEnv,
+  exportExecuteFromAdmission,
+  localYaoOrigin,
   LocalYaoRouterBindingFixture,
+  recoveryActivationFromExecution,
+  recoveryExecuteFromAdmission,
   registrationExecuteFromAdmission,
 } from './helpers/d1LocalDevYaoPersistence.fixtures';
 
@@ -130,6 +141,146 @@ test.describe('local D1 Ed25519 Yao request reconstruction', () => {
       });
       expect(replay.status).toBe(200);
       expect(fixture.router.executeCalls).toBe(1);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('bootstraps persisted capability and replays recovery across a Worker restart', async () => {
+    const fixture = await createFixture();
+    try {
+      const recovery = await buildLocalYaoExistingWalletFixture({
+        signerDatabase: fixture.signer.database,
+        lifecycleId: 'recovery-local-replay-1',
+      });
+      const bootstrap = await callLocalYaoWorker({
+        env: fixture.env,
+        path: ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
+        body: recovery.warmBootstrap,
+        grant: recovery.token,
+      });
+      expect(bootstrap.status, await bootstrap.clone().text()).toBe(200);
+      await expect(bootstrap.json()).resolves.toMatchObject({
+        kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
+        walletId: recovery.capability.admissionRequest.application_binding.wallet_id,
+      });
+
+      const admission = await callLocalYaoWorker({
+        env: fixture.env,
+        path: ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+        body: recovery.recoveryAdmission,
+        grant: recovery.token,
+      });
+      expect(admission.status, await admission.clone().text()).toBe(200);
+      const admissionBody = await admission.json();
+      const executeRequest = recoveryExecuteFromAdmission(admissionBody);
+      const executed = await callLocalYaoWorker({
+        env: fixture.env,
+        path: ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+        body: executeRequest,
+        grant: recovery.token,
+      });
+      expect(executed.status, await executed.clone().text()).toBe(200);
+      const executionBody = await executed.text();
+
+      const restartedEnv = createLocalYaoWorkerEnv({
+        consoleDatabase: fixture.console.database,
+        signerDatabase: fixture.signer.database,
+        router: fixture.router,
+      });
+      const replay = await callLocalYaoWorker({
+        env: restartedEnv,
+        path: ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+        body: executeRequest,
+        grant: recovery.token,
+      });
+      expect(replay.status).toBe(200);
+      expect(await replay.text()).toBe(executionBody);
+      expect(fixture.router.recoveryExecuteCalls).toBe(1);
+
+      const conflict = await callLocalYaoWorker({
+        env: restartedEnv,
+        path: ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+        body: recoveryExecuteFromAdmission(admissionBody, 31),
+        grant: recovery.token,
+      });
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toMatchObject({ ok: false, code: 'binding_mismatch' });
+      expect(fixture.router.recoveryExecuteCalls).toBe(1);
+
+      const activation = recoveryActivationFromExecution(JSON.parse(executionBody));
+      const activated = await callLocalYaoWorker({
+        env: restartedEnv,
+        path: ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
+        body: activation,
+        grant: recovery.token,
+      });
+      expect(activated.status, await activated.clone().text()).toBe(200);
+      expect(fixture.router.recoveryPromotionCalls).toBe(1);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('replays an Email OTP-authorized export across restart with one Router effect', async () => {
+    const fixture = await createFixture();
+    try {
+      const existing = await buildLocalYaoExistingWalletFixture({
+        signerDatabase: fixture.signer.database,
+        lifecycleId: 'export-local-replay-1',
+      });
+      const admission = await callLocalYaoWorker({
+        env: fixture.env,
+        path: ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
+        body: existing.exportAdmission,
+        grant: existing.token,
+        origin: localYaoOrigin(),
+      });
+      expect(admission.status, await admission.clone().text()).toBe(200);
+      const admissionBody = await admission.json();
+      const executeRequest = exportExecuteFromAdmission(admissionBody);
+      const executed = await callLocalYaoWorker({
+        env: fixture.env,
+        path: ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
+        body: {
+          protocol: executeRequest,
+          authorizationIdentity: existing.exportAdmission.authorizationIdentity,
+        },
+        grant: existing.token,
+      });
+      expect(executed.status, await executed.clone().text()).toBe(200);
+      const executionBody = await executed.text();
+
+      const restartedEnv = createLocalYaoWorkerEnv({
+        consoleDatabase: fixture.console.database,
+        signerDatabase: fixture.signer.database,
+        router: fixture.router,
+      });
+      const replay = await callLocalYaoWorker({
+        env: restartedEnv,
+        path: ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
+        body: {
+          protocol: executeRequest,
+          authorizationIdentity: existing.exportAdmission.authorizationIdentity,
+        },
+        grant: existing.token,
+      });
+      expect(replay.status).toBe(200);
+      expect(await replay.text()).toBe(executionBody);
+      expect(fixture.router.exportExecuteCalls).toBe(1);
+
+      const conflict = await callLocalYaoWorker({
+        env: restartedEnv,
+        path: ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
+        body: {
+          protocol: exportExecuteFromAdmission(admissionBody, 41),
+          authorizationIdentity: existing.exportAdmission.authorizationIdentity,
+        },
+        grant: existing.token,
+      });
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toMatchObject({ ok: false, code: 'export_consumed' });
+      expect(fixture.router.exportExecuteCalls).toBe(1);
     } finally {
       fixture.cleanup();
     }
