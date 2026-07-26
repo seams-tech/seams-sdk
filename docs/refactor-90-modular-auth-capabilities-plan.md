@@ -401,6 +401,31 @@ The minimal Slice A vertical must pass before Phase 17 starts migrating live MPC
 signing. Phases 19-20 form one no-release cutover: a supported build cannot expose
 both the old signing authorization flow and the new capability-grant flow.
 
+### Implementation waves
+
+The stable phase numbers remain the source of truth. These waves define practical
+commit and merge boundaries without creating another phase taxonomy.
+
+| Wave | Stable scope | Deliverable | Gate |
+| --- | --- | --- | --- |
+| 0 — stable base | Patch 2, Refactors 91-93, Phases 1-3 | frozen behavior and Router-owned Near baseline | current `dev` merged, plan checkpoint committed, baseline checks green |
+| 1 — hydration foundation | Phase 7 leaf identities required by Foundation A, Foundation A, Phases 4-5 | shared four-outcome hydration contract, protocol observations, exact subjects, role-local boundary cleanup | SDK/type-fixture checks and registration/unlock/refresh equivalence tests |
+| 2 — canonical ECDSA state | Foundation B | required-field `active | retired` record, strict parser, two-state activation journal, atomic finalization, broad-record deletion | adapter round trips, fault injection, runtime-destruction rehydration, focused signing tests |
+| 3 — authorization proving slice | Phase 6, remaining Phase 7, Phases 8-14 and 16 | one real session → evidence → grant → vault operation → audit path | minimal vault E2E passes before live MPC migration |
+| 4 — exact MPC authority and persistence | Phases 17-18 | exact authority, independent activation/session/grant/quota identities, canonical Near/ECDSA owners | strict boundary tests and no compatibility aliases in core code |
+| 5 — MPC no-release cutover | Phases 19-20 | capability modules, minimal recovery journals, operation claims, grant/quota admission | both phases complete before any supported release |
+| 6 — surfaces and hosts | Phases 21-24 | worker, UI, provisioning, and static host assembly migration | focused worker/UI tests and intended lifecycle contracts |
+| 7 — deletion and hardening | Phase 27 | obsolete records, paths, fixtures, guards, and exports removed | deletion ledger closed and final focused validation green |
+
+Foundation A starts by landing only the Phase 7 leaf identities that its public
+contract consumes. The remainder of Phase 7 stays in Wave 3. This ordering avoids
+temporary duplicate identity types and does not make all of Slice A a prerequisite
+for hydration work.
+
+Patch 2 and Refactors 91-93 retain their external acceptance owners. Their open
+hosted checks do not block Waves 1-3. Refactor 92 behavior remains frozen, and
+Refactor 93 hosted recovery and latency acceptance still gate a Near release.
+
 ## Phased Todo Tracker
 
 This is the progress checklist. The phase sections below define scope and exit
@@ -566,6 +591,16 @@ Exit checks (`R90-INV-001`, `R90-INV-002`, `R90-INV-003`, `R90-INV-012`):
 - reusable Wallet Session expiry or exhaustion is handled by Refactor 92 before
   material hydration and cannot select recovery or material reactivation;
 - generic modules contain no `passkey` or `email_otp` lane-selection branches.
+
+First implementation commit:
+
+- add the exact capability, material-owner, runtime, and activation leaf brands
+  and parsers consumed by this contract;
+- add the four-outcome hydration union and branch-specific builders;
+- add type fixtures rejecting direct unbranded identities, broad spreads, and
+  mixed runtime/sealed/anchor branches;
+- leave persistence, tactical resolver callers, and runtime publication
+  unchanged until the shared contract compiles independently.
 
 Open items (nothing from this list is landed at the July 20 checkpoint; the
 tactical ECDSA resolver and Ed25519 local rehydration provide protocol evidence

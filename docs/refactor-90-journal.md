@@ -6,6 +6,50 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records only a one-line status per phase; the narrative history lives
 here.
 
+## July 26, 2026: Implementation Kickoff Prepared
+
+- Created the clean `codex/refactor-90-implementation` worktree from current
+  `origin/dev`, including the completed Refactor 93 deletion baseline, and
+  committed the reconciled Refactor 90 documents as `f9fa3bb85`.
+- Installed the frozen pnpm workspace offline and linked the ignored generated
+  WASM packages from the main checkout. No tracked runtime or generated artifact
+  changed.
+- Classified the first failed baseline checks as
+  `environment_or_infrastructure_failure`: the new worktree initially lacked
+  ignored WASM `pkg/` artifacts. After linking them, `pnpm -s type-check:sdk`
+  and `pnpm -C tests type-check:unit` passed.
+- Classified the focused ECDSA unit baseline as `valid_test_needs_update`: 4 of
+  26 tests pass, while the failing role-local record tests use a local public-
+  facts fixture that no longer satisfies the canonical parser, and the focused
+  rehydration mock returns the retired `roleLocalMaterial` response field
+  instead of `{ ok: true, liveHandle }`. Production already emits the current
+  response. Migrate these fixtures through the shared factories before using
+  the files as Wave 1 gates; do not change runtime behavior to preserve them.
+- Mapped implementation into Waves 0-7 while preserving all stable phase
+  numbers and release gates.
+- Identified the first dependency: Foundation A consumes a small subset of the
+  Phase 7 leaf identity vocabulary. Those leaf brands and parsers land with the
+  hydration contract; the rest of Phase 7 remains in the authorization slice.
+- Scoped the first code commit to leaf identities, the shared four-outcome
+  hydration union/builders, and type fixtures. Existing ECDSA and Email OTP
+  Ed25519 tactical resolvers remain behaviorally unchanged in that commit.
+- Recorded the Wave 1 owner map:
+  - shared identity brands and parsers:
+    `packages/shared-ts/src/utils/domainIds.ts` and its type fixture;
+  - new hydration contract:
+    `packages/sdk-web/src/core/signingEngine/session/material/`;
+  - existing protocol evidence:
+    `ecdsaRoleLocalMaterialResolver.ts` and
+    `emailOtp/ed25519YaoLocalMaterial.ts`;
+  - Foundation B replacement boundary:
+    `session/persistence/records.ts` and its shared record factories;
+  - first focused regression owners: hydration type fixtures,
+    `readySecp256k1Material.rehydration.unit.test.ts`, and the canonical
+    signing-session record factory.
+- Corrected the remaining SPEC wording that allowed routine unlock to republish
+  an ECDSA manifest. Only registration, explicit material reactivation, and
+  recovery write durable activation state; unlock and refresh rehydrate it.
+
 ## July 26, 2026: Full-Plan Consistency Audit
 
 - Removed duplicate status from the execution-order table and moved descoped
