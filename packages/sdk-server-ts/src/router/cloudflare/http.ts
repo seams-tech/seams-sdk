@@ -1,9 +1,22 @@
 import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
 import type { RouterApiOptions } from '../routerApi';
+import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@shared/utils/routerAbTraceContext';
 
 const CORS_ALLOW_METHODS = 'GET,POST,PUT,PATCH,DELETE,OPTIONS';
-const CORS_ALLOW_HEADERS =
-  'Content-Type,Authorization,X-Seams-Benchmark-Diagnostics,X-Seams-Environment-Id,X-Environment-Id,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret';
+const CORS_ALLOW_HEADERS = [
+  'Content-Type',
+  'Authorization',
+  'X-Seams-Benchmark-Diagnostics',
+  ROUTER_AB_TRACE_ID_HEADER_V1,
+  'X-Seams-Environment-Id',
+  'X-Environment-Id',
+  'X-Console-Org-Id',
+  'X-Console-User-Id',
+  'X-Console-Roles',
+  'X-Console-Project-Id',
+  'X-Console-Environment-Id',
+  'X-Console-Stripe-Webhook-Secret',
+].join(',');
 
 export function json(
   body: unknown,
