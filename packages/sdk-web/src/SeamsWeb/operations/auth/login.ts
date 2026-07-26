@@ -206,9 +206,9 @@ import {
 import { resolveRouterAbEd25519WalletSessionStateFromRecord } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   resolveWalletSessionReadResolution,
-  type ResolvedWalletUnlockSubjectSet,
   type WalletSessionReadResolution,
   type WalletUnlockSubject,
+  type WalletUnlockSubjectSet,
 } from './walletUnlockSubject';
 
 type EmitUnlockEventInput = Omit<CreateUnlockFlowEventInput, 'accountId' | 'flowId'>;
@@ -240,7 +240,7 @@ type LoginWalletBindingResolution =
 type WalletSessionStatusIdentity = {
   kind: 'wallet_session_subject_set';
   walletId: WalletId;
-  subjectSet: ResolvedWalletUnlockSubjectSet;
+  subjectSet: WalletUnlockSubjectSet;
 };
 
 function fetchWithGlobalThis(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -375,7 +375,7 @@ function isNearEd25519WalletSubject(
 }
 
 function selectNearEd25519WalletSubject(
-  subjectSet: ResolvedWalletUnlockSubjectSet,
+  subjectSet: WalletUnlockSubjectSet,
 ): NearEd25519WalletSubject | null {
   const nearSubjects = subjectSet.subjects.filter(isNearEd25519WalletSubject);
   if (nearSubjects.length === 0) return null;

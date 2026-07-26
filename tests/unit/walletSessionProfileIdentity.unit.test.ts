@@ -383,7 +383,7 @@ test.describe('wallet session profile identity restore', () => {
           kind?: unknown;
           walletId?: unknown;
           nearAccountId?: unknown;
-          evmFamilySigningKeySlotId?: unknown;
+          ecdsaThresholdKeyId?: unknown;
         };
 
         return {
@@ -395,7 +395,7 @@ test.describe('wallet session profile identity restore', () => {
                   kind: subject.kind,
                   walletId: String(subject.walletId || ''),
                   nearAccountId: String(subject.nearAccountId || ''),
-                  evmFamilySigningKeySlotId: String(subject.evmFamilySigningKeySlotId || ''),
+                  ecdsaThresholdKeyId: String(subject.ecdsaThresholdKeyId || ''),
                 }))
               : [],
           source: resolution.source || null,
@@ -412,8 +412,7 @@ test.describe('wallet session profile identity restore', () => {
           kind: 'evm_family_ecdsa_wallet',
           walletId: 'refresh-wallet-ecdsa-only',
           nearAccountId: '',
-          evmFamilySigningKeySlotId:
-            'wallet-key:evm-family:refresh-wallet-ecdsa-only:proj-refresh:default',
+          ecdsaThresholdKeyId: 'ederivation-refresh-ecdsa-only',
         },
       ],
       source: 'profile_projection',
