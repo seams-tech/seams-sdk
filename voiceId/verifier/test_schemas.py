@@ -9,7 +9,9 @@ import time
 import unittest
 import wave
 from collections.abc import Sequence
+from concurrent.futures import Future
 from http.client import HTTPConnection
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -21,6 +23,7 @@ from voiceid_verifier.app import (
     analyze_verification_from_json,
     analyze_speech_from_json,
     build_enrollment_template_from_json,
+    resolve_stage,
     verify_speaker_from_json,
 )
 from voiceid_verifier.embeddings import ExtractedSpeakerEmbedding
@@ -260,6 +263,33 @@ class VerifierSchemaTest(unittest.TestCase):
         if replacement is not None:
             self.assertEqual(replacement.result(timeout=1).value, "replacement")
 
+    def test_timed_out_running_stage_retains_slot_until_task_completion(self) -> None:
+        executor = BoundedStageExecutor(maximum_active_stages=1)
+        started = threading.Event()
+        release = threading.Event()
+        first = executor.submit(blocking_timed_stage, started, release)
+        self.assertIsNotNone(first)
+        try:
+            self.assertTrue(started.wait(timeout=1))
+            if first is None:
+                self.fail("first stage must be admitted")
+            self.assertIsNone(
+                resolve_stage(
+                    first,
+                    started_at=time.monotonic() - 1,
+                    deadline_ms=1,
+                )
+            )
+            self.assertIsNone(executor.submit(successful_timed_stage))
+
+            release.set()
+            self.assertEqual(first.result(timeout=1).value, "complete")
+            replacement = wait_for_stage_admission(executor)
+            self.assertEqual(replacement.result(timeout=1).value, "replacement")
+        finally:
+            release.set()
+            executor.shutdown()
+
     def test_canonical_pipeline_is_stable_across_repeated_runs(self) -> None:
         enrollment_payload = enrollment_request(audio_bytes=enrollment_audio_bytes())
         first_template = build_enrollment_template_from_json(enrollment_payload)
@@ -457,22 +487,130 @@ class VerifierSchemaTest(unittest.TestCase):
             stop_http_server(server, thread)
 
     def test_http_sidecar_reports_warm_runtime_readiness_and_bounded_admission(self) -> None:
-        server = VoiceIdVerifierHttpServer(
-            ("127.0.0.1", 0),
-            maximum_concurrent_inferences=1,
-            queue_wait_ms=0,
-        )
+        with patch(
+            "voiceid_verifier.app.configured_moonshine_recognizer",
+            return_value=None,
+        ):
+            server = VoiceIdVerifierHttpServer(
+                ("127.0.0.1", 0),
+                maximum_concurrent_inferences=2,
+                queue_wait_ms=0,
+            )
+        stage_executor = server.verification_stage_executor
         try:
             health = server.health_response()
             self.assertEqual(health["readiness"], "ready")
-            self.assertEqual(health["runtime"]["maximumConcurrentInferences"], 1)
+            self.assertEqual(health["runtime"]["maximumConcurrentInferences"], 2)
+            self.assertEqual(stage_executor.maximum_active_stages, 6)
+            self.assertTrue(server.acquire_inference_slot())
             self.assertTrue(server.acquire_inference_slot())
             self.assertFalse(server.acquire_inference_slot())
             server.release_inference_slot()
-            self.assertTrue(server.acquire_inference_slot())
             server.release_inference_slot()
         finally:
             server.server_close()
+        with self.assertRaisesRegex(RuntimeError, "cannot schedule new futures"):
+            stage_executor.submit(successful_timed_stage)
+
+    def test_http_sidecar_caps_admission_at_one_when_moonshine_is_configured(self) -> None:
+        with patch(
+            "voiceid_verifier.app.configured_moonshine_recognizer",
+            return_value=FakeMoonshineRecognizer(),
+        ):
+            server = VoiceIdVerifierHttpServer(
+                ("127.0.0.1", 0),
+                maximum_concurrent_inferences=3,
+                queue_wait_ms=0,
+            )
+        stage_executor = server.verification_stage_executor
+        try:
+            health = server.health_response()
+            self.assertEqual(health["runtime"]["maximumConcurrentInferences"], 1)
+            self.assertEqual(stage_executor.maximum_active_stages, 3)
+            self.assertTrue(server.acquire_inference_slot())
+            self.assertFalse(server.acquire_inference_slot())
+            server.release_inference_slot()
+        finally:
+            server.server_close()
+
+    def test_http_sidecar_returns_exact_overload_and_recovers_capacity(self) -> None:
+        template_runtime = SpeechBrainEcapaVerifierRuntime(
+            extractor=InspectingEcapaExtractor()
+        )
+        template_response = build_enrollment_template_from_json(
+            enrollment_request(audio_bytes=enrollment_audio_bytes()),
+            runtime=template_runtime,
+        )
+        started = threading.Event()
+        release = threading.Event()
+        blocking_runtime = SpeechBrainEcapaVerifierRuntime(
+            extractor=BlockingEcapaExtractor(started, release)
+        )
+        server, server_thread = start_http_server(
+            runtime=blocking_runtime,
+            maximum_concurrent_inferences=1,
+            queue_wait_ms=0,
+        )
+        first_result: dict[str, object] = {}
+        first_thread = threading.Thread(
+            target=capture_post_json,
+            args=(
+                f"http://127.0.0.1:{server.server_port}/voice-id/verifier/verify-speaker",
+                verification_request(
+                    audio_bytes=wav_audio_bytes([(240, 1800)]),
+                    duration_ms=1800,
+                    template_response=template_response,
+                ),
+                first_result,
+            ),
+            daemon=True,
+        )
+        try:
+            first_thread.start()
+            self.assertTrue(started.wait(timeout=2))
+            with self.assertRaises(HTTPError) as caught:
+                post_json(
+                    f"http://127.0.0.1:{server.server_port}/voice-id/verifier/verify-speaker",
+                    verification_request(
+                        audio_bytes=wav_audio_bytes([(260, 1800)]),
+                        duration_ms=1800,
+                        template_response=template_response,
+                    ),
+                )
+            overload = json.loads(caught.exception.read().decode("utf-8"))
+            caught.exception.close()
+            self.assertEqual(caught.exception.code, 503)
+            self.assertEqual(
+                overload,
+                {
+                    "kind": "error",
+                    "error": {
+                        "kind": "overloaded",
+                        "message": "verifier queue did not admit the request within 0ms",
+                    },
+                },
+            )
+
+            release.set()
+            first_thread.join(timeout=2)
+            self.assertFalse(first_thread.is_alive())
+            self.assertNotIn("error", first_result)
+            first_response = first_result.get("response")
+            self.assertIsInstance(first_response, dict)
+
+            recovered = post_json(
+                f"http://127.0.0.1:{server.server_port}/voice-id/verifier/verify-speaker",
+                verification_request(
+                    audio_bytes=wav_audio_bytes([(280, 1800)]),
+                    duration_ms=1800,
+                    template_response=template_response,
+                ),
+            )
+            self.assertEqual(recovered["speaker"]["kind"], "accepted")
+        finally:
+            release.set()
+            first_thread.join(timeout=2)
+            stop_http_server(server, server_thread)
 
 
 def enrollment_request(
@@ -567,8 +705,18 @@ def template_reference(template_response: dict[str, object]) -> dict[str, object
     }
 
 
-def start_http_server() -> tuple[VoiceIdVerifierHttpServer, threading.Thread]:
-    server = VoiceIdVerifierHttpServer(("127.0.0.1", 0))
+def start_http_server(
+    *,
+    runtime: SpeechBrainEcapaVerifierRuntime | None = None,
+    maximum_concurrent_inferences: int = 1,
+    queue_wait_ms: int = 250,
+) -> tuple[VoiceIdVerifierHttpServer, threading.Thread]:
+    server = VoiceIdVerifierHttpServer(
+        ("127.0.0.1", 0),
+        runtime=runtime,
+        maximum_concurrent_inferences=maximum_concurrent_inferences,
+        queue_wait_ms=queue_wait_ms,
+    )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server, thread
@@ -588,6 +736,31 @@ def post_json(url: str, payload: dict[str, object]) -> dict[str, object]:
     if not isinstance(value, dict):
         raise AssertionError("HTTP sidecar response must be a JSON object")
     return value
+
+
+def capture_post_json(
+    url: str,
+    payload: dict[str, object],
+    result: dict[str, object],
+) -> None:
+    try:
+        result["response"] = post_json(url, payload)
+    except Exception as error:
+        result["error"] = error
+
+
+def wait_for_stage_admission(
+    executor: BoundedStageExecutor,
+    *,
+    timeout_seconds: float = 1.0,
+) -> Future[TimedStageResult]:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        future = executor.submit(successful_timed_stage)
+        if future is not None:
+            return future
+        time.sleep(0.001)
+    raise AssertionError("stage executor did not release capacity")
 
 
 def enrollment_audio_bytes() -> bytes:
@@ -669,6 +842,19 @@ class CoordinatedEcapaExtractor(InspectingEcapaExtractor):
 
     def extract_decoded(self, samples: Sequence[float]) -> ExtractedSpeakerEmbedding:
         self.barrier.wait(timeout=1)
+        return super().extract_decoded(samples)
+
+
+class BlockingEcapaExtractor(InspectingEcapaExtractor):
+    def __init__(self, started: threading.Event, release: threading.Event) -> None:
+        super().__init__()
+        self.started = started
+        self.release = release
+
+    def extract_decoded(self, samples: Sequence[float]) -> ExtractedSpeakerEmbedding:
+        self.started.set()
+        if not self.release.wait(timeout=2):
+            raise TimeoutError("test extractor was not released")
         return super().extract_decoded(samples)
 
 

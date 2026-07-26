@@ -105,6 +105,9 @@ class AasistPadDetector:
         started = time.perf_counter()
         prepared = prepare_aasist_samples(samples)
         input_tensor = None
+        feature_tensor = None
+        logits = None
+        probabilities = None
         try:
             input_tensor = self._torch.tensor(
                 prepared,
@@ -112,8 +115,9 @@ class AasistPadDetector:
                 device=self._device,
             ).unsqueeze(0)
             with self._torch.inference_mode():
-                _, logits = self._model(input_tensor)
-                score = float(self._torch.softmax(logits, dim=1)[0, 1].item())
+                feature_tensor, logits = self._model(input_tensor)
+                probabilities = self._torch.softmax(logits, dim=1)
+                score = float(probabilities[0, 1].item())
             return classify_pad_score(
                 score=score,
                 reject_threshold=self.reject_threshold,
@@ -134,9 +138,13 @@ class AasistPadDetector:
                 reason="model_unavailable",
             )
         finally:
-            if input_tensor is not None:
-                input_tensor.zero_()
-            zero_float_sequence(prepared)
+            try:
+                zero_tensors(
+                    self._torch,
+                    (probabilities, logits, feature_tensor, input_tensor),
+                )
+            finally:
+                zero_float_sequence(prepared)
 
 
 def classify_pad_score(
@@ -199,6 +207,21 @@ def prepare_aasist_samples(samples: Sequence[float]) -> array[float]:
             del prepared[AASIST_SAMPLE_COUNT:]
             return prepared
     raise RuntimeError("failed to prepare AASIST input")
+
+
+def zero_tensors(torch: Any, tensors: Sequence[Any | None]) -> None:
+    first_error: Exception | None = None
+    with torch.inference_mode():
+        for tensor in tensors:
+            if tensor is None:
+                continue
+            try:
+                tensor.zero_()
+            except Exception as error:
+                if first_error is None:
+                    first_error = error
+    if first_error is not None:
+        raise RuntimeError("failed to zero PAD model tensors") from first_error
 
 
 def validate_thresholds(reject_threshold: float, accept_threshold: float) -> None:

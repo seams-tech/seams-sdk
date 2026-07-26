@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from benchmark_suite import render_benchmark_suite
+from benchmark_suite import (
+    moonshine_intent_model_path,
+    native_moonshine_model_path,
+    render_benchmark_suite,
+)
 
 
 class BenchmarkSuiteTest(unittest.TestCase):
@@ -48,6 +54,37 @@ class BenchmarkSuiteTest(unittest.TestCase):
         self.assertIn("Evaluation FAR: 1.00%", rendered)
         self.assertIn("APCER: 2.00%", rendered)
         self.assertIn("Human population", rendered)
+
+    def test_resolves_pinned_native_model_payloads_below_download_roots(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            tiny = (
+                root
+                / "moonshine"
+                / "tiny"
+                / "download.moonshine.ai"
+                / "model"
+                / "tiny-streaming-en"
+                / "quantized"
+            )
+            intent = (
+                root
+                / "moonshine"
+                / "intent"
+                / "download.moonshine.ai"
+                / "model"
+                / "embeddinggemma-300m"
+            )
+            tiny.mkdir(parents=True)
+            intent.mkdir(parents=True)
+            (tiny / "tokenizer.bin").write_bytes(b"tokenizer")
+            (intent / "model_q4.onnx").write_bytes(b"model")
+
+            self.assertEqual(
+                native_moonshine_model_path(root, "tiny_streaming"),
+                tiny,
+            )
+            self.assertEqual(moonshine_intent_model_path(root), intent)
 
 
 if __name__ == "__main__":

@@ -74,6 +74,9 @@ class TimedStageResult:
 
 class BoundedStageExecutor:
     def __init__(self, maximum_active_stages: int) -> None:
+        if maximum_active_stages <= 0:
+            raise ValueError("maximum_active_stages must be positive")
+        self.maximum_active_stages = maximum_active_stages
         self._slots = threading.BoundedSemaphore(maximum_active_stages)
         self._executor = ThreadPoolExecutor(
             max_workers=maximum_active_stages,
@@ -98,7 +101,11 @@ class BoundedStageExecutor:
     def _release_slot(self, _: Future[TimedStageResult]) -> None:
         self._slots.release()
 
+    def shutdown(self) -> None:
+        self._executor.shutdown(wait=True, cancel_futures=True)
 
+
+VERIFICATION_STAGE_COUNT = 3
 VERIFICATION_STAGE_EXECUTOR = BoundedStageExecutor(maximum_active_stages=3)
 
 JSON_HEADERS = {
@@ -248,12 +255,14 @@ def analyze_verification_from_json(
     recognizer: MoonshineRecognizer | None = None,
     pad_detector: PadDetector | None = None,
     stage_deadlines: VerificationStageDeadlines | None = None,
+    stage_executor: BoundedStageExecutor | None = None,
 ) -> dict[str, Any]:
     request = parse_analyze_verification_request(value)
     active_runtime = runtime or get_default_runtime()
     active_recognizer = recognizer or get_default_moonshine()
     active_pad_detector = pad_detector if pad_detector is not None else configured_pad_detector()
     deadlines = stage_deadlines or verification_stage_deadlines_from_env()
+    active_stage_executor = stage_executor or VERIFICATION_STAGE_EXECUTOR
     evaluated = active_runtime.evaluate_audio(
         request.audio.audio_bytes,
         _audio_claims(request.audio.metadata),
@@ -278,7 +287,7 @@ def analyze_verification_from_json(
             pad_samples = array("f", shared_speech_samples)
             zero_float_sequence(shared_speech_samples)
             started_at = time.monotonic()
-            speech_future = VERIFICATION_STAGE_EXECUTOR.submit(
+            speech_future = active_stage_executor.submit(
                 _analyze_speech_timed,
                 active_recognizer,
                 speech_samples,
@@ -286,7 +295,7 @@ def analyze_verification_from_json(
                 request.intent_name,
                 request.challenge_tokens,
             )
-            speaker_future = VERIFICATION_STAGE_EXECUTOR.submit(
+            speaker_future = active_stage_executor.submit(
                 _analyze_speaker_timed,
                 active_runtime,
                 speaker_samples,
@@ -294,7 +303,7 @@ def analyze_verification_from_json(
                 request.threshold,
             )
             pad_future = (
-                VERIFICATION_STAGE_EXECUTOR.submit(
+                active_stage_executor.submit(
                     _analyze_pad_timed,
                     active_pad_detector,
                     pad_samples,
@@ -799,6 +808,7 @@ def handle_http_operation(
     runtime: VerifierRuntime | None = None,
     recognizer: MoonshineRecognizer | None = None,
     pad_detector: PadDetector | None = None,
+    stage_executor: BoundedStageExecutor | None = None,
 ) -> dict[str, Any]:
     operation = _operation_for_path(path)
     if operation == "build_enrollment_template":
@@ -813,6 +823,7 @@ def handle_http_operation(
             runtime=runtime,
             recognizer=recognizer,
             pad_detector=pad_detector,
+            stage_executor=stage_executor,
         )
     raise ValueError("unknown verifier operation")
 
@@ -831,18 +842,33 @@ class VoiceIdVerifierHttpServer(ThreadingHTTPServer):
         if queue_wait_ms < 0:
             raise ValueError("queue_wait_ms must be non-negative")
         self.verifier_runtime = runtime or get_default_runtime()
-        self.maximum_concurrent_inferences = maximum_concurrent_inferences
         self.queue_wait_ms = queue_wait_ms
         self.moonshine_recognizer = configured_moonshine_recognizer()
         self.pad_detector = configured_pad_detector()
-        self._inference_slots = threading.BoundedSemaphore(maximum_concurrent_inferences)
+        effective_concurrent_inferences = (
+            1 if self.moonshine_recognizer is not None else maximum_concurrent_inferences
+        )
+        self.maximum_concurrent_inferences = effective_concurrent_inferences
+        self._inference_slots = threading.BoundedSemaphore(effective_concurrent_inferences)
+        self.verification_stage_executor: BoundedStageExecutor | None = None
         super().__init__(server_address, VoiceIdVerifierHttpHandler)
+        self.verification_stage_executor = BoundedStageExecutor(
+            maximum_active_stages=effective_concurrent_inferences * VERIFICATION_STAGE_COUNT
+        )
 
     def acquire_inference_slot(self) -> bool:
         return self._inference_slots.acquire(timeout=self.queue_wait_ms / 1000)
 
     def release_inference_slot(self) -> None:
         self._inference_slots.release()
+
+    def server_close(self) -> None:
+        try:
+            super().server_close()
+        finally:
+            executor = self.verification_stage_executor
+            if executor is not None:
+                executor.shutdown()
 
     def health_response(self) -> dict[str, Any]:
         metadata = self.verifier_runtime.metadata
@@ -912,6 +938,7 @@ class VoiceIdVerifierHttpHandler(BaseHTTPRequestHandler):
                 runtime=server.verifier_runtime,
                 recognizer=server.moonshine_recognizer,
                 pad_detector=server.pad_detector,
+                stage_executor=server.verification_stage_executor,
             )
         except VerifierSchemaError as error:
             self._write_json(400, malformed_request(error))

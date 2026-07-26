@@ -6,6 +6,8 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, Mapping, Sequence
 
+from voiceid_verifier.audio_decode import zero_float_sequence
+
 
 CANONICAL_SAMPLE_RATE_HZ = 16000
 MODEL_ARCHES = {
@@ -103,12 +105,14 @@ class MoonshineRecognizer:
         if not 0 <= intent_margin <= 1:
             raise ValueError("intent_margin must be between 0 and 1")
         factories = load_moonshine_factories(transcriber_factory, intent_factory)
-        model_arch_value = model_arch_for_constructor(model_arch, transcriber_factory)
-        self._transcriber = factories.transcriber(
-            model_path,
-            model_arch=model_arch_value,
-            update_interval=0.5,
+        self._transcriber_factory = factories.transcriber
+        self._model_path = model_path
+        self._model_arch_value = model_arch_for_constructor(
+            model_arch,
+            transcriber_factory,
         )
+        readiness_transcriber = self._new_transcriber()
+        readiness_transcriber.close()
         self._intent_recognizer = factories.intent(
             intent_model_path,
             threshold=intent_threshold,
@@ -117,6 +121,9 @@ class MoonshineRecognizer:
         self._intent_threshold = intent_threshold
         self._intent_margin = intent_margin
         self._intent_phrases = dict(intent_phrases or DEFAULT_INTENT_PHRASES)
+        validate_intent_phrases(self._intent_phrases)
+        for canonical_phrase in self._intent_phrases.values():
+            self._intent_recognizer.register_intent(canonical_phrase)
         self._lock = threading.Lock()
 
     def analyze(
@@ -147,6 +154,8 @@ class MoonshineRecognizer:
             raise ValueError("canonical PCM samples must not be empty")
         if expected_phrase.strip() == "" or intent_name.strip() == "":
             raise ValueError("expected_phrase and intent_name must be non-empty")
+        if intent_name not in self._intent_phrases:
+            raise ValueError("intent_name must belong to the closed intent set")
         normalized_challenge_tokens = tuple(
             normalize_transcript(token)
             for token in challenge_tokens
@@ -156,10 +165,11 @@ class MoonshineRecognizer:
             for token in normalized_challenge_tokens
         ):
             raise ValueError("challenge_tokens must contain normalized non-empty tokens")
-        transcript = self._transcribe(samples)
-        spoken_normalized = normalize_transcript(transcript)
+        raw_transcript = self._transcribe(samples)
+        transcript = normalize_transcript(raw_transcript)
+        spoken_normalized = transcript
         expected_normalized = normalize_transcript(expected_phrase)
-        matches = self._intent_matches(transcript, intent_name)
+        matches = self._intent_matches(transcript)
         phrase = build_phrase_decision(
             expected_normalized=expected_normalized,
             spoken_normalized=spoken_normalized,
@@ -180,23 +190,35 @@ class MoonshineRecognizer:
         )
 
     def _transcribe(self, samples: Sequence[float]) -> str:
-        result = self._transcriber.transcribe_without_streaming(
-            list(samples),
-            sample_rate=CANONICAL_SAMPLE_RATE_HZ,
-        )
-        lines = getattr(result, "lines", ())
-        return " ".join(
-            str(getattr(line, "text", "")).strip()
-            for line in lines
-            if str(getattr(line, "text", "")).strip()
-        ).strip()
+        transcriber_samples = list(samples)
+        transcriber = None
+        try:
+            transcriber = self._new_transcriber()
+            result = transcriber.transcribe_without_streaming(
+                transcriber_samples,
+                sample_rate=CANONICAL_SAMPLE_RATE_HZ,
+            )
+            lines = getattr(result, "lines", ())
+            return " ".join(
+                str(getattr(line, "text", "")).strip()
+                for line in lines
+                if str(getattr(line, "text", "")).strip()
+            ).strip()
+        finally:
+            try:
+                if transcriber is not None:
+                    transcriber.close()
+            finally:
+                zero_float_sequence(transcriber_samples)
 
-    def _intent_matches(self, transcript: str, intent_name: str) -> Sequence[Any]:
-        self._intent_recognizer.clear_intents()
-        intent_phrases = dict(self._intent_phrases)
-        intent_phrases.setdefault(intent_name, intent_name)
-        for canonical_phrase in intent_phrases.values():
-            self._intent_recognizer.register_intent(canonical_phrase)
+    def _new_transcriber(self) -> Any:
+        return self._transcriber_factory(
+            self._model_path,
+            model_arch=self._model_arch_value,
+            update_interval=0.5,
+        )
+
+    def _intent_matches(self, transcript: str) -> Sequence[Any]:
         if transcript == "":
             return ()
         return self._intent_recognizer.get_closest_intents(
@@ -236,6 +258,21 @@ def model_arch_for_constructor(model_arch: str, transcriber_factory: Callable[..
 
 def normalize_transcript(value: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", value.lower()))
+
+
+def validate_intent_phrases(intent_phrases: Mapping[str, str]) -> None:
+    if len(intent_phrases) == 0:
+        raise ValueError("intent_phrases must not be empty")
+    normalized_phrases = tuple(
+        normalize_transcript(phrase)
+        for phrase in intent_phrases.values()
+    )
+    if any(name.strip() == "" for name in intent_phrases):
+        raise ValueError("intent names must be non-empty")
+    if any(phrase == "" for phrase in normalized_phrases):
+        raise ValueError("canonical intent phrases must be non-empty")
+    if len(set(normalized_phrases)) != len(normalized_phrases):
+        raise ValueError("canonical intent phrases must be unique")
 
 
 def build_phrase_decision(
