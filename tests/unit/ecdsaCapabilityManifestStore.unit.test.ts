@@ -7,7 +7,9 @@ import { setupBasicPasskeyTest } from '../setup';
 import {
   ecdsaCapabilityActivationFixture,
   ecdsaCapabilityGenerationMismatchReplacementFixture,
+  ecdsaCapabilityLookupOutcomeFixture,
   ecdsaCapabilityReplacementFixture,
+  type EcdsaCapabilityLookupOutcomeFixture,
   type EcdsaCapabilityReplacementFixture,
 } from './helpers/ecdsaCapabilityManifest.fixtures';
 
@@ -175,6 +177,160 @@ async function exerciseReplacementActivation(input: {
     replacementMaterialPresent: rawState.replacementMaterial !== undefined,
     priorSealingKeyPresent: rawState.priorSealingKey !== undefined,
     replacementSealingKeyPresent: rawState.replacementSealingKey !== undefined,
+  };
+}
+
+async function exerciseLookupOutcomeMatrix(input: {
+  readonly storeModule: string;
+  readonly fixture: EcdsaCapabilityLookupOutcomeFixture;
+}) {
+  await new Promise<void>((resolve) => {
+    const request = indexedDB.deleteDatabase('seams_wallet');
+    request.onsuccess = () => resolve();
+    request.onerror = () => resolve();
+    request.onblocked = () => resolve();
+  });
+  const module = await import(input.storeModule);
+  const store = new module.IndexedDbEcdsaCapabilityManifestStore();
+  const prior = input.fixture.replacement.prior;
+  const replacement = input.fixture.replacement.replacement;
+  const priorPreparation = await store.prepareActivation(prior.prepareInput);
+  if (
+    priorPreparation.kind !== 'stored' ||
+    priorPreparation.journal.kind !== 'activation_prepared'
+  ) {
+    throw new Error(`prior preparation failed: ${priorPreparation.kind}`);
+  }
+  const priorCommit = await store.recordServerActivation({
+    preparedJournal: priorPreparation.journal,
+    serverCommit: prior.serverCommit,
+  });
+  if (priorCommit.kind !== 'stored' || priorCommit.journal.kind !== 'server_activation_committed') {
+    throw new Error(`prior server commit failed: ${priorCommit.kind}`);
+  }
+  const priorFinalization = await store.sealAndFinalizeActivation({
+    committedJournal: priorCommit.journal,
+    ...prior.sealInput,
+  });
+  if (priorFinalization.kind !== 'committed') {
+    throw new Error(`prior finalization failed: ${priorFinalization.kind}`);
+  }
+  const replacementPreparation = await store.prepareActivation(replacement.prepareInput);
+  if (
+    replacementPreparation.kind !== 'stored' ||
+    replacementPreparation.journal.kind !== 'activation_prepared'
+  ) {
+    throw new Error(`replacement preparation failed: ${replacementPreparation.kind}`);
+  }
+  const replacementCommit = await store.recordServerActivation({
+    preparedJournal: replacementPreparation.journal,
+    serverCommit: replacement.serverCommit,
+  });
+  if (
+    replacementCommit.kind !== 'stored' ||
+    replacementCommit.journal.kind !== 'server_activation_committed'
+  ) {
+    throw new Error(`replacement server commit failed: ${replacementCommit.kind}`);
+  }
+  const replacementFinalization = await store.sealAndFinalizeActivation({
+    committedJournal: replacementCommit.journal,
+    ...replacement.sealInput,
+  });
+  if (replacementFinalization.kind !== 'committed') {
+    throw new Error(`replacement finalization failed: ${replacementFinalization.kind}`);
+  }
+
+  const active = await store.lookup(input.fixture.selectors.active);
+  const exactBindingMismatch = await store.lookup(input.fixture.selectors.exactBindingMismatch);
+
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('seams_wallet');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const pointerKey = [
+    input.fixture.selectors.active.capability,
+    input.fixture.selectors.active.authority.walletId,
+    input.fixture.selectors.active.authority.authorityDigest,
+  ];
+  const pointer = await new Promise<Record<string, unknown>>((resolve, reject) => {
+    const transaction = db.transaction('ecdsa_current_capability_manifests', 'readonly');
+    const request = transaction.objectStore('ecdsa_current_capability_manifests').get(pointerKey);
+    request.onsuccess = () => resolve(request.result as Record<string, unknown>);
+    request.onerror = () => reject(request.error);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction('ecdsa_current_capability_manifests', 'readwrite');
+    transaction.objectStore('ecdsa_current_capability_manifests').put({
+      ...pointer,
+      record_version: 'corrupt-pointer-version',
+    });
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  const corrupt = await store.lookup(input.fixture.selectors.active);
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction('ecdsa_current_capability_manifests', 'readwrite');
+    transaction.objectStore('ecdsa_current_capability_manifests').delete(pointerKey);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  const exactRecordConflict = await store.lookup(input.fixture.selectors.active);
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(
+      ['ecdsa_current_capability_manifests', 'ecdsa_capability_manifests'],
+      'readwrite',
+    );
+    transaction.objectStore('ecdsa_current_capability_manifests').put({
+      ...pointer,
+      manifest_id: prior.prepareInput.activationBinding.targetManifest.manifestId,
+      manifest_revision: prior.prepareInput.activationBinding.targetManifest.manifestRevision,
+    });
+    transaction
+      .objectStore('ecdsa_capability_manifests')
+      .delete(replacement.prepareInput.activationBinding.targetManifest.manifestId);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  const retired = await store.lookup(input.fixture.selectors.active);
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(
+      ['ecdsa_current_capability_manifests', 'ecdsa_capability_manifests'],
+      'readwrite',
+    );
+    transaction.objectStore('ecdsa_current_capability_manifests').delete(pointerKey);
+    transaction
+      .objectStore('ecdsa_capability_manifests')
+      .delete(prior.prepareInput.activationBinding.targetManifest.manifestId);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  db.close();
+  const missing = await store.lookup(input.fixture.selectors.missing);
+
+  const unavailableStore = new module.IndexedDbEcdsaCapabilityManifestStore({
+    runTransaction() {
+      throw new Error('injected persistence failure');
+    },
+  });
+  const persistenceUnavailable = await unavailableStore.lookup(input.fixture.selectors.active);
+
+  return {
+    active: active.kind,
+    retired: retired.kind,
+    missing: missing.kind,
+    exactBindingMismatch: exactBindingMismatch.kind,
+    exactRecordConflict: exactRecordConflict.kind,
+    corrupt: corrupt.kind,
+    persistenceUnavailable: persistenceUnavailable.kind,
   };
 }
 
@@ -373,6 +529,25 @@ test.describe('canonical ECDSA capability manifest store', () => {
       replacementMaterialPresent: false,
       priorSealingKeyPresent: true,
       replacementSealingKeyPresent: true,
+    });
+  });
+
+  test('classifies every exact lookup outcome without fallback selection', async ({ page }) => {
+    const fixture = ecdsaCapabilityLookupOutcomeFixture();
+    await prepareStoreModulePage(page);
+    const result = await page.evaluate(exerciseLookupOutcomeMatrix, {
+      storeModule: STORE_MODULE,
+      fixture,
+    });
+
+    expect(result).toEqual({
+      active: 'active',
+      retired: 'retired',
+      missing: 'missing',
+      exactBindingMismatch: 'exact_binding_mismatch',
+      exactRecordConflict: 'exact_record_conflict',
+      corrupt: 'corrupt',
+      persistenceUnavailable: 'persistence_unavailable',
     });
   });
 
