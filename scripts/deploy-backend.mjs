@@ -491,12 +491,32 @@ async function smokeBackend(target) {
       url: new URL(requestPath, target.origins.gateway).toString(),
     });
   }
+  checks.push({
+    name: '/console/session CORS preflight',
+    url: new URL('/console/session', target.origins.gateway).toString(),
+    request: {
+      method: 'OPTIONS',
+      headers: {
+        Origin: target.origins.site,
+        'Access-Control-Request-Method': 'GET',
+      },
+    },
+    isReady: isDashboardConsoleCorsPreflight.bind(null, target.origins.site),
+  });
   const results = await runReadinessChecks(checks);
   const failed = results.filter(isFailedCheck);
   process.stdout.write(`${JSON.stringify({ results })}\n`);
   if (failed.length > 0) {
     throw new Error(`backend smoke failed: ${failed.map(formatFailedCheck).join(', ')}`);
   }
+}
+
+function isDashboardConsoleCorsPreflight(dashboardOrigin, response) {
+  return (
+    response.status === 204 &&
+    response.headers.get('Access-Control-Allow-Origin') === dashboardOrigin &&
+    response.headers.get('Access-Control-Allow-Credentials') === 'true'
+  );
 }
 
 function renderGatewayConfig(targetName, target) {
