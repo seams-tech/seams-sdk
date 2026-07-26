@@ -220,7 +220,11 @@ export function parseGoogleEmailOtpRegistrationAttemptRow(
   const record = parseGoogleEmailOtpRegistrationAttemptRecord(row?.record_json);
   const expiresAtMs = positiveSafeInteger(row?.expires_at_ms);
   const updatedAtMs = positiveSafeInteger(row?.updated_at_ms);
-  if (!record || !expiresAtMs || !updatedAtMs) return null;
+  // D1 is the persistence boundary for the current registration protocol. A
+  // row without a signed runtime scope belongs to the retired pre-scope shape;
+  // treating it as malformed makes callers discard it and issue a fresh offer
+  // instead of attempting to rewrite it through the scoped store.
+  if (!record || !record.runtimePolicyScope || !expiresAtMs || !updatedAtMs) return null;
   if (record.expiresAtMs !== expiresAtMs || record.updatedAtMs !== updatedAtMs) return null;
   return record;
 }
