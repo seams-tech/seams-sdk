@@ -1130,8 +1130,11 @@ remains reachable or configurable.
       Stage/Result flow, or direct Gateway-to-role routing.
 - [x] Add structural tests proving the production Gateway has no tenant-runtime
       binding, no cutover variables, and no direct Ed25519 Yao role routes.
-- [ ] Deploy the deletion revision to staging and production, then remove any
-      retired family cutoff/drain values from GitHub Environments.
+- [x] Deploy the deletion revision to staging and production, then remove any
+      retired family cutoff/drain values from GitHub Environments. Staging run
+      `30198990646` succeeded on attempt 2 after a transient CI download reset;
+      production run `30198991356` succeeded. Both GitHub Environments now
+      contain no `ROUTER_AB_YAO_GATEWAY_*` values.
 - [ ] Confirm registration, recovery, export, retry/redelivery, and terminal
       failure behavior on the sole remaining route.
 
@@ -1251,13 +1254,17 @@ route-deletion cleanup.
       request boundary. The branch already contains the Gateway cutover, so this
       ordering cannot be replayed. The coherent staging rollout below replaces
       it as the first external validation.
-- [x] Configure all three Gateway families with cutoff and drain values of `0`
-      for immediate partitioned-D1 routing in staging and production.
+- [x] Superseded and removed: the temporary zero-valued family cutoff/drain
+      configuration performed the immediate hard cutover before the selector
+      and all six variables were deleted.
 - [ ] Exercise staging registration, recovery, export, exact replay, conflict,
       disconnect, terminal redelivery, and rollback on the coherent versions.
 - [ ] Confirm manual staging registration completes successfully after Touch
       ID, with the post-prompt wait returned to the expected 2–3 second range.
-- [ ] Validate route-deletion cleanup in staging.
+- [x] Validate route-deletion cleanup in staging. Run `30198990646` applied the
+      Durable Object deletion migration and deployed all five Workers from
+      revision `73cb8c0c28aaea5f158bf3637b686ec699ef22af`; the Gateway smoke test
+      passed.
 - [x] Replace the failed stack workflow's hard-coded Gateway secret plumbing
       with target-capability-derived backend deployment. Billing is enabled in
       both hosted environments, and both Gateway jobs require
