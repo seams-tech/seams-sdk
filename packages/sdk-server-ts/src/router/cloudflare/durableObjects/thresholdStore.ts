@@ -4,6 +4,7 @@
 // (by re-exporting from their Worker entrypoint) without vendoring the code.
 
 import { base64UrlEncode } from '@shared/utils/encoders';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import { isPlainObject } from '@shared/utils/validation';
 import {
   computeSigningRootContextHashB64u,
@@ -101,6 +102,13 @@ type DoReq =
       key: string;
       walletId: string;
       expiresAtMs: number;
+    }
+  | {
+      op: 'registrationUpdateExpected';
+      key: string;
+      expected: unknown;
+      next: unknown;
+      ttlMs?: number;
     }
   | {
       op: 'registrationCancelTerminal';
@@ -1147,6 +1155,33 @@ export class ThresholdStoreDurableObject {
         const ttlSeconds = Math.max(1, Math.ceil((expiresAtMs - Date.now()) / 1000));
         await store.put(key, reservation, { expirationTtl: ttlSeconds });
         return ok({ reserved: true });
+      });
+      return json(result);
+    }
+
+    if (op === 'registrationUpdateExpected') {
+      const key = toKey((req as { key?: unknown }).key);
+      const expected = (req as { expected?: unknown }).expected;
+      const next = (req as { next?: unknown }).next;
+      if (!key) return json(err('invalid_body', 'Missing registration ceremony key'));
+      if (!isJsonValue(expected) || !isJsonValue(next)) {
+        return json(err('invalid_body', 'Registration ceremony update values must be JSON'));
+      }
+      const ttl = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs);
+      const result = await withRequiredTxn(this.state, async (store) => {
+        const current = await store.get(key);
+        if (
+          current === null ||
+          current === undefined ||
+          alphabetizeStringify(current) !== alphabetizeStringify(expected)
+        ) {
+          return err(
+            'registration_ceremony_conflict',
+            'Registration ceremony record changed before update',
+          );
+        }
+        await store.put(key, next, ttl ? { expirationTtl: ttl } : undefined);
+        return ok(true);
       });
       return json(result);
     }

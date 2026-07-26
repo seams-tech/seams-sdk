@@ -5,7 +5,6 @@ import {
   createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1,
   createRouterAbEd25519YaoProductRegistrationStateV1,
   parseRouterAbEd25519YaoProductRegistrationStateV1,
-  type RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
 import type { RouterAbEd25519YaoRegistrationBackend } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistration';
 import type {
@@ -40,17 +39,6 @@ const UNUSED_WEBAUTHN = {
 class AppliedCapabilityPersistence implements RouterAbEd25519YaoCapabilityPersistenceV1 {
   replaceActiveCapability(): RouterAbEd25519YaoCapabilityPersistenceResultV1 {
     return { ok: true, disposition: 'applied' };
-  }
-}
-
-class RecordingCapabilityLoader {
-  reads = 0;
-
-  constructor(private readonly capability: WalletEd25519YaoActiveCapabilityRecord | null) {}
-
-  async load(): Promise<WalletEd25519YaoActiveCapabilityRecord | null> {
-    this.reads += 1;
-    return this.capability;
   }
 }
 
@@ -89,17 +77,16 @@ function capabilityLookup(capability: WalletEd25519YaoActiveCapabilityRecord) {
   };
 }
 
-function statefulRuntime(loader: RecordingCapabilityLoader) {
+function statefulRuntime(input: {
+  readonly state: ReturnType<typeof createRouterAbEd25519YaoProductRegistrationStateV1>;
+}) {
   return createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1({
     signingWorkerId: 'signing-worker-stateful-fallback',
     backend: UNUSED_BACKEND,
     session: new UnusedSessionAdapter(),
     webAuthn: UNUSED_WEBAUTHN,
-    state: createRouterAbEd25519YaoProductRegistrationStateV1(),
+    state: input.state,
     capabilityPersistence: new AppliedCapabilityPersistence(),
-    loadPersistedActiveCapability: loader.load.bind(
-      loader,
-    ) satisfies RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1,
   }).runtime;
 }
 
@@ -126,92 +113,21 @@ test('Ed25519 Yao product state rejects JSON-shaped lifecycle collections', () =
   });
 });
 
-test('stateful capability fallback loads one exact persisted record and caches exact retries', async () => {
+test('stateful capability resolution leaves an empty legacy snapshot empty', async () => {
   const capability = capabilityFixture({
     walletId: 'wallet-stateful-fallback',
     nearAccountId: 'wallet-stateful-fallback.testnet',
     seed: 93,
   });
-  const loader = new RecordingCapabilityLoader(capability);
-  const runtime = statefulRuntime(loader);
+  const state = createRouterAbEd25519YaoProductRegistrationStateV1();
+  const runtime = statefulRuntime({ state });
 
   await expect(
     runtime.resolveActiveCapability(capabilityLookup(capability)),
   ).resolves.toMatchObject({
-    ok: true,
+    ok: false,
+    code: 'unknown_capability',
   });
-  await expect(
-    runtime.resolveActiveCapability(capabilityLookup(capability)),
-  ).resolves.toMatchObject({
-    ok: true,
-  });
-  expect(loader.reads).toBe(1);
-});
-
-test('stateful capability fallback leaves an exact lookup mismatch unknown', async () => {
-  const requested = capabilityFixture({
-    walletId: 'wallet-stateful-requested',
-    nearAccountId: 'wallet-stateful-requested.testnet',
-    seed: 94,
-  });
-  const mismatched = capabilityFixture({
-    walletId: 'wallet-stateful-mismatched',
-    nearAccountId: 'wallet-stateful-mismatched.testnet',
-    seed: 95,
-  });
-  const loader = new RecordingCapabilityLoader(mismatched);
-  const runtime = statefulRuntime(loader);
-
-  await expect(runtime.resolveActiveCapability(capabilityLookup(requested))).resolves.toMatchObject(
-    {
-      ok: false,
-      code: 'unknown_capability',
-    },
-  );
-  expect(loader.reads).toBe(1);
-});
-
-test('stateful capability fallback does not query persistence for an invalid lookup', async () => {
-  const capability = capabilityFixture({
-    walletId: 'wallet-stateful-invalid',
-    nearAccountId: 'wallet-stateful-invalid.testnet',
-    seed: 97,
-  });
-  const loader = new RecordingCapabilityLoader(capability);
-  const runtime = statefulRuntime(loader);
-
-  await expect(
-    runtime.resolveActiveCapability({
-      ...capabilityLookup(capability),
-      participantIds: [1, 1],
-    }),
-  ).resolves.toMatchObject({ ok: false, code: 'invalid_lookup' });
-  expect(loader.reads).toBe(0);
-});
-
-test('stateful capability fallback fails closed on a conflicting local binding', async () => {
-  const requested = capabilityFixture({
-    walletId: 'wallet-stateful-requested',
-    nearAccountId: 'wallet-stateful-requested.testnet',
-    seed: 96,
-  });
-  const conflicting = capabilityFixture({
-    walletId: 'wallet-stateful-conflict',
-    nearAccountId: 'wallet-stateful-conflict.testnet',
-    seed: 96,
-  });
-  const loader = new RecordingCapabilityLoader(requested);
-  const runtime = statefulRuntime(loader);
-  await expect(runtime.installPersistedActiveCapability(conflicting)).resolves.toMatchObject({
-    ok: true,
-    disposition: 'installed',
-  });
-
-  await expect(runtime.resolveActiveCapability(capabilityLookup(requested))).resolves.toMatchObject(
-    {
-      ok: false,
-      code: 'capability_conflict',
-    },
-  );
-  expect(loader.reads).toBe(1);
+  expect(state.recovery.capabilities.size).toBe(0);
+  expect(state.recovery.identityCapabilities.size).toBe(0);
 });
