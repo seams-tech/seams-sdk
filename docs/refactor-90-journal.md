@@ -8,6 +8,17 @@ here.
 
 ## July 27, 2026: Canonical Sealing And Server Reconciliation Implemented
 
+- Connected SDK-server registration and add-signer activation to the
+  non-consuming prepare boundary before commit as `112fda830`. Commit now
+  carries and verifies the exact prepared request digest.
+- Registration retains its pending D1 branch after a committed Router receipt
+  when later bootstrap or provisioning fails. An exact retry converges through
+  the Router's query-first activation behavior without creating another D1
+  lifecycle owner.
+- Validation: SDK-server and unit type checks pass; focused registration and
+  add-signer lifecycle tests pass 8 of 8; Prettier and `git diff --check` pass.
+- The public browser route and worker-owned prepared-journal cut remain open.
+  The internal server bridge alone does not close the pre-effect crash window.
 - Moved canonical ECDSA persistence behind high-level prepare, record-commit,
   seal/finalize, and open operations as `c5e3f3efc`. Callers no longer supply
   sealing keys, ciphertext, ciphertext digests, or ready manifests.
