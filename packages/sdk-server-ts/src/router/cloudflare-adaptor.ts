@@ -75,7 +75,6 @@ export {
 export { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from './routerAbEd25519YaoRegistrationIntentAuthorization';
 export {
   buildRouterAbEd25519YaoProductAdmissionRequestV1,
-  createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1,
   createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1,
   createRouterAbEd25519YaoProductRegistrationStateV1,
   createRouterAbEd25519YaoProductRegistrationRuntimeV1,

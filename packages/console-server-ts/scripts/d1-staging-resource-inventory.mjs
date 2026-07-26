@@ -166,6 +166,7 @@ function readDurableObjectMigrations(source) {
     migrations.push({
       tag: readString(block, 'tag'),
       newSqliteClasses: readArray(block, 'new_sqlite_classes'),
+      deletedClasses: readArray(block, 'deleted_classes'),
     });
   }
   return migrations;
