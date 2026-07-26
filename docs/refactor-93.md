@@ -854,7 +854,7 @@ ceremony after the user completes authentication. The safe sequence is:
       binding and SQLite migration so no tenant-wide object coordinates Yao.
   - [x] Route registration admission and execution through typed request-scoped
         CAS behind the disabled two-boundary drain selector.
-  - [ ] Move registration start, bind, finalize, add-signer, and shared
+  - [x] Move registration start, bind, finalize, add-signer, and shared
         wallet/session effects behind idempotent request-safe boundaries.
     - [x] Persist a stable registration/add-signer start claim before consuming
           the grant, binding Yao authorization, preparing either signer branch,
@@ -1042,13 +1042,19 @@ ceremony after the user completes authentication. The safe sequence is:
           migration with
           `deleted_classes = ["RouterApiRuntimeDurableObject"]`. Removing the
           old migration entry does not delete the deployed class namespace.
-  - [ ] Give the local dev worker the same request-scoped path. Its Yao
+  - [x] Give the local dev worker the same request-scoped path. Its Yao
         product runtime and all registration, recovery (including warm
         bootstrap), and export routes use the partitioned D1 store and the
         request-scoped handlers. The local MPC backend keeps the service
         binding and intended-fault controller, so local retries exercise the
         same byte-exact transport boundary as staging. Readiness now checks
-        both versioned JSON CAS tables required by that store.
+        both versioned JSON CAS tables required by that store. The real local
+        Worker and SQLite D1 suite covers registration contention, recovery
+        bootstrap/admission/execution/activation, Email OTP-authorized export,
+        exact replay after Worker reconstruction, typed conflicts, and one
+        Router effect. The native Router executable installs its coordinator
+        dispatcher for execute and recovery-promotion; only the deliberately
+        dispatcher-free lower helper retains the explicit 501 response.
 - [ ] Delete obsolete Deriver Stage and Result route contracts after the
       maximum in-flight ceremony lifetime has elapsed.
 - [ ] Before deleting legacy role routes, complete the cross-key exclusion
