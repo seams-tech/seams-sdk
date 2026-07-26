@@ -186,6 +186,7 @@ export type PMGoogleEmailOtpWalletAuthStartPayload = {
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   diagnostics: {
     emailOtpUnlockTimings: boolean;
+    registrationBenchmarkTimings: boolean;
   };
 };
 
