@@ -283,6 +283,7 @@ function componentRuntimeRequirements(targetName, target, component) {
       ];
     case 'router':
       return [
+        'ROUTER_AB_JWT_JWKS_JSON',
         'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
         'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
         'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
@@ -388,7 +389,7 @@ function deployMpcRouter(targetName, target) {
     '--var',
     'ROUTER_JWT_AUDIENCE:router-ab',
     '--var',
-    `ROUTER_JWT_JWKS_URL:${target.origins.gateway}/.well-known/router-ab-ceremony-jwks.json`,
+    `ROUTER_JWT_JWKS_JSON:${requireEnvironmentValue('ROUTER_AB_JWT_JWKS_JSON')}`,
     '--var',
     `DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:${requireEnvironmentValue('DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY')}`,
     '--var',
