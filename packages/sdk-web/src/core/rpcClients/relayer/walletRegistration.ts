@@ -790,6 +790,86 @@ function parseWalletAddSignerEcdsaActivationResponse(
   };
 }
 
+function parseWalletAddSignerEcdsaActivationPrepareResponse(
+  value: unknown,
+): WalletAddSignerEcdsaActivationPrepareResponse {
+  const responseName = 'Wallet add-signer ECDSA activation preparation';
+  const response = requireResponseRecord({
+    responseName,
+    field: 'response',
+    value,
+  });
+  requireExactResponseKeys(
+    response,
+    ['ok', 'addSignerCeremonyId', 'ecdsa'],
+    `${responseName} response`,
+  );
+  if (response.ok !== true) {
+    throw new Error(`${responseName} response is not successful`);
+  }
+  const ecdsa = requireResponseRecord({
+    responseName,
+    field: 'ecdsa',
+    value: response.ecdsa,
+  });
+  requireExactResponseKeys(ecdsa, ['kind', 'preparation'], `${responseName} response ecdsa`);
+  if (ecdsa.kind !== 'router_ab_ecdsa_registration_activation_prepared_v1') {
+    throw new Error(`${responseName} response kind is invalid`);
+  }
+  return {
+    ok: true,
+    addSignerCeremonyId: requireResponseString({
+      responseName,
+      field: 'addSignerCeremonyId',
+      value: response.addSignerCeremonyId,
+    }),
+    ecdsa: {
+      kind: 'router_ab_ecdsa_registration_activation_prepared_v1',
+      preparation: parseRouterAbEcdsaDerivationActivationPrepareResultV1(ecdsa.preparation),
+    },
+  };
+}
+
+function parseWalletAddSignerEcdsaActivationQueryResponse(
+  value: unknown,
+): WalletAddSignerEcdsaActivationQueryResponse {
+  const responseName = 'Wallet add-signer ECDSA activation query';
+  const response = requireResponseRecord({
+    responseName,
+    field: 'response',
+    value,
+  });
+  requireExactResponseKeys(
+    response,
+    ['ok', 'addSignerCeremonyId', 'ecdsa'],
+    `${responseName} response`,
+  );
+  if (response.ok !== true) {
+    throw new Error(`${responseName} response is not successful`);
+  }
+  const ecdsa = requireResponseRecord({
+    responseName,
+    field: 'ecdsa',
+    value: response.ecdsa,
+  });
+  requireExactResponseKeys(ecdsa, ['kind', 'result'], `${responseName} response ecdsa`);
+  if (ecdsa.kind !== 'router_ab_ecdsa_registration_activation_queried_v1') {
+    throw new Error(`${responseName} response kind is invalid`);
+  }
+  return {
+    ok: true,
+    addSignerCeremonyId: requireResponseString({
+      responseName,
+      field: 'addSignerCeremonyId',
+      value: response.addSignerCeremonyId,
+    }),
+    ecdsa: {
+      kind: 'router_ab_ecdsa_registration_activation_queried_v1',
+      result: parseRouterAbEcdsaDerivationActivationCommitQueryResultV1(ecdsa.result),
+    },
+  };
+}
+
 export type WalletRegistrationFinalizeAuthMethod =
   | {
       kind: 'passkey';
@@ -1087,6 +1167,24 @@ export type WalletAddSignerEcdsaActivationResponse = {
     kind: 'router_ab_ecdsa_registration_activated_v1';
     activation: RouterAbEcdsaRegistrationPublicActivationReceiptV1;
     bootstrap: ThresholdEcdsaDerivationRoleLocalBootstrapValue;
+  };
+};
+
+export type WalletAddSignerEcdsaActivationPrepareResponse = {
+  ok: true;
+  addSignerCeremonyId: string;
+  ecdsa: {
+    kind: 'router_ab_ecdsa_registration_activation_prepared_v1';
+    preparation: RouterAbEcdsaDerivationActivationPrepareResultV1;
+  };
+};
+
+export type WalletAddSignerEcdsaActivationQueryResponse = {
+  ok: true;
+  addSignerCeremonyId: string;
+  ecdsa: {
+    kind: 'router_ab_ecdsa_registration_activation_queried_v1';
+    result: RouterAbEcdsaDerivationActivationCommitQueryResultV1;
   };
 };
 
@@ -3337,6 +3435,7 @@ export async function activateWalletAddSignerEcdsa(args: {
   addSignerCeremonyId: string;
   activationCorrelationId: CorrelationId;
   publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
 }): Promise<WalletAddSignerEcdsaActivationResponse> {
   const walletId = String(args.walletId || '').trim();
   if (!walletId) throw new Error('walletId is required for add-signer ECDSA activation');
@@ -3349,10 +3448,62 @@ export async function activateWalletAddSignerEcdsa(args: {
         kind: 'router_ab_ecdsa_registration_activation_v1',
         activationCorrelationId: args.activationCorrelationId,
         publicFacts: args.publicFacts,
+        expectedActivationRequestDigest: args.expectedActivationRequestDigest,
       },
     },
   });
   return parseWalletAddSignerEcdsaActivationResponse(response);
+}
+
+export async function prepareWalletAddSignerEcdsaActivation(args: {
+  relayerUrl: string;
+  walletId: WalletId;
+  addSignerCeremonyId: string;
+  activationCorrelationId: CorrelationId;
+  publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+}): Promise<WalletAddSignerEcdsaActivationPrepareResponse> {
+  const walletId = String(args.walletId || '').trim();
+  if (!walletId)
+    throw new Error('walletId is required for add-signer ECDSA activation preparation');
+  const response = await postJson<unknown>({
+    relayerUrl: args.relayerUrl,
+    path: `/wallets/${encodeURIComponent(walletId)}/signers/derivation/activate/prepare`,
+    body: {
+      addSignerCeremonyId: args.addSignerCeremonyId,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_v1',
+        activationCorrelationId: args.activationCorrelationId,
+        publicFacts: args.publicFacts,
+      },
+    },
+  });
+  return parseWalletAddSignerEcdsaActivationPrepareResponse(response);
+}
+
+export async function queryWalletAddSignerEcdsaActivation(args: {
+  relayerUrl: string;
+  walletId: WalletId;
+  addSignerCeremonyId: string;
+  activationCorrelationId: CorrelationId;
+  publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+}): Promise<WalletAddSignerEcdsaActivationQueryResponse> {
+  const walletId = String(args.walletId || '').trim();
+  if (!walletId) throw new Error('walletId is required for add-signer ECDSA activation query');
+  const response = await postJson<unknown>({
+    relayerUrl: args.relayerUrl,
+    path: `/wallets/${encodeURIComponent(walletId)}/signers/derivation/activate/query`,
+    body: {
+      addSignerCeremonyId: args.addSignerCeremonyId,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_v1',
+        activationCorrelationId: args.activationCorrelationId,
+        publicFacts: args.publicFacts,
+        expectedActivationRequestDigest: args.expectedActivationRequestDigest,
+      },
+    },
+  });
+  return parseWalletAddSignerEcdsaActivationQueryResponse(response);
 }
 
 export type FinalizeWalletAddSignerArgs = {

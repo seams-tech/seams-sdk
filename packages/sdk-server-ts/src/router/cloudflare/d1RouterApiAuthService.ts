@@ -1139,9 +1139,15 @@ function createD1WalletAuthMethodRouteService(
       assembly.walletAddSigners.respondWalletAddSignerEcdsaDerivation.bind(
         assembly.walletAddSigners,
       ),
+    prepareWalletAddSignerEcdsaActivation:
+      assembly.walletAddSigners.prepareWalletAddSignerEcdsaActivation.bind(
+        assembly.walletAddSigners,
+      ),
     activateWalletAddSignerEcdsa: assembly.walletAddSigners.activateWalletAddSignerEcdsa.bind(
       assembly.walletAddSigners,
     ),
+    queryWalletAddSignerEcdsaActivation:
+      assembly.walletAddSigners.queryWalletAddSignerEcdsaActivation.bind(assembly.walletAddSigners),
     getWalletAddSignerRuntimePolicyScope:
       assembly.walletAddSigners.getWalletAddSignerRuntimePolicyScope.bind(
         assembly.walletAddSigners,
