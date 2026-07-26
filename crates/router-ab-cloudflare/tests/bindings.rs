@@ -11511,9 +11511,32 @@ fn durable_object_ecdsa_activation_commit_is_exactly_idempotent_and_queryable() 
         RouterAbProtocolErrorCode::InvalidLifecycleState
     );
 
-    let replay = handle_cloudflare_durable_object_call_v1(&call, &mut storage)
-        .expect("exact ECDSA activation replay");
+    let replay_request = router_ab_ecdsa_derivation_activation_commit_request(
+        "activation-journal-1",
+        CloudflareEcdsaServerGenerationExpectationV1::NoCurrentGeneration,
+        TEST_ACTIVATED_AT_MS + 1,
+    );
+    assert_eq!(
+        replay_request.activation_request_digest, request_digest,
+        "retries preserve the activation command digest"
+    );
+    let replay_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_ecdsa_activation_commit(replay_request)
+            .expect("ECDSA activation replay operation"),
+    )
+    .expect("ECDSA activation replay call");
+    let replay = handle_cloudflare_durable_object_call_v1(&replay_call, &mut storage)
+        .expect("ECDSA activation replay with a rebuilt timestamp");
     assert_eq!(replay, first);
+    assert_eq!(
+        committed_ecdsa_activation_receipt(&replay)
+            .ecdsa_activation
+            .activated_at_ms,
+        TEST_ACTIVATED_AT_MS,
+        "the original committed activation time remains authoritative"
+    );
 
     let query_call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::SigningWorker,
