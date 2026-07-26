@@ -3,7 +3,6 @@ import { buildReadySecp256k1SigningMaterialFromRecord } from '@/core/signingEngi
 import {
   clearAllThresholdEcdsaSessionRecords,
   getInMemoryEcdsaRoleLocalHandle,
-  upsertThresholdEcdsaSessionFromBootstrap,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
 } from '@/core/signingEngine/session/persistence/records';
@@ -16,8 +15,7 @@ import {
   EcdsaDerivationClientCustomResponseType,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
-import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import { buildPasskeyEcdsaSessionRecordFixture } from './helpers/signingSessionRecord.fixtures';
 
 type RehydrationFixture = {
   record: ThresholdEcdsaSessionRecord;
@@ -26,46 +24,23 @@ type RehydrationFixture = {
 };
 
 function createRehydrationFixture(): RehydrationFixture {
-  const bootstrap = createThresholdEcdsaBootstrapFixture({
-    nearAccountId: 'rehydration.testnet',
+  const durableMaterialRef = 'router-ab-ecdsa-registration:rehydration-fixture';
+  const record = buildPasskeyEcdsaSessionRecordFixture({
+    walletId: 'rehydration.testnet',
     chain: 'evm',
     expiresAtMs: Date.now() + 120_000,
+    roleLocalDurableMaterialRef: durableMaterialRef,
   });
-  const initialBinding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
-  if (initialBinding?.materialKind !== 'role_local_ready_state_blob') {
-    throw new Error('expected ready role-local fixture material');
-  }
-  const readyRecord = initialBinding.ecdsaRoleLocalReadyRecord;
   const roleLocalMaterial = parseEcdsaRoleLocalWorkerHandle({
     kind: 'ecdsa_role_local_worker_handle_v1',
-    materialHandle: 'router-ab-ecdsa-registration:rehydration-fixture',
-    bindingDigest: readyRecord.publicFacts.contextBinding32B64u,
-    durableMaterialRef: 'router-ab-ecdsa-registration:rehydration-fixture',
+    materialHandle: `${durableMaterialRef}:live`,
+    bindingDigest: record.ecdsaRoleLocalPublicFacts.contextBinding32B64u,
+    durableMaterialRef,
   });
-  const workerBootstrap: ThresholdEcdsaSessionBootstrapResult = {
-    ...bootstrap,
-    thresholdEcdsaKeyRef: {
-      ...bootstrap.thresholdEcdsaKeyRef,
-      backendBinding: {
-        materialKind: 'role_local_worker_handle',
-        relayerKeyId: initialBinding.relayerKeyId,
-        clientVerifyingShareB64u: initialBinding.clientVerifyingShareB64u,
-        roleLocalMaterialHandle: roleLocalMaterial,
-        publicFacts: readyRecord.publicFacts,
-        authMethod: readyRecord.authMethod,
-      },
-    },
-  };
   const store: ThresholdEcdsaSessionStoreDeps = {
     recordsByLane: new Map(),
     exportArtifactsByLane: new Map(),
   };
-  const record = upsertThresholdEcdsaSessionFromBootstrap(store, {
-    walletId: workerBootstrap.thresholdEcdsaKeyRef.userId,
-    chainTarget: workerBootstrap.thresholdEcdsaKeyRef.chainTarget!,
-    bootstrap: workerBootstrap,
-    source: 'login',
-  });
   clearAllThresholdEcdsaSessionRecords(store);
   return { record, store, roleLocalMaterial };
 }
@@ -81,7 +56,8 @@ function successfulRehydrationWorkerContext(args: {
         type: EcdsaDerivationClientCustomResponseType.RehydrateEcdsaRoleLocalSigningMaterialSuccess,
         payload: {
           kind: 'ecdsa_role_local_signing_material_rehydrated_v1',
-          roleLocalMaterial: args.expected,
+          ok: true,
+          liveHandle: args.expected,
         },
       } as never;
     },
@@ -104,7 +80,6 @@ test.describe('ready secp256k1 durable role-local material rehydration', () => {
       record: fixture.record,
       requestLabel: 'evm',
       evmFamilySigningKeySlotId: fixture.record.evmFamilySigningKeySlotId,
-      hydrationEntryPoint: 'post_page_refresh',
       workerCtx: successfulRehydrationWorkerContext({
         expected: fixture.roleLocalMaterial,
         requests,
@@ -119,7 +94,11 @@ test.describe('ready secp256k1 durable role-local material rehydration', () => {
           timeoutMs: 20_000,
           payload: {
             kind: 'rehydrate_ecdsa_role_local_signing_material_v1',
-            roleLocalMaterial: fixture.roleLocalMaterial,
+            materialRef: {
+              kind: 'ecdsa_role_local_persisted_material_ref_v1',
+              durableMaterialRef: fixture.roleLocalMaterial.durableMaterialRef,
+              bindingDigest: fixture.roleLocalMaterial.bindingDigest,
+            },
           },
         },
       },
@@ -135,7 +114,7 @@ test.describe('ready secp256k1 durable role-local material rehydration', () => {
     const fixture = createRehydrationFixture();
     const substituted = parseEcdsaRoleLocalWorkerHandle({
       ...fixture.roleLocalMaterial,
-      materialHandle: 'router-ab-ecdsa-registration:substituted',
+      durableMaterialRef: 'router-ab-ecdsa-registration:substituted',
     });
 
     await expect(
@@ -143,7 +122,6 @@ test.describe('ready secp256k1 durable role-local material rehydration', () => {
         record: fixture.record,
         requestLabel: 'evm',
         evmFamilySigningKeySlotId: fixture.record.evmFamilySigningKeySlotId,
-        hydrationEntryPoint: 'post_page_refresh',
         workerCtx: successfulRehydrationWorkerContext({
           expected: substituted,
           requests: [],
