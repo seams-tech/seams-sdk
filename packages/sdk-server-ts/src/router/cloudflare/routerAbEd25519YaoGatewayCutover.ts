@@ -128,6 +128,20 @@ export type RouterAbEd25519YaoGatewayRouteV1 =
     }
   | { readonly kind: 'partitioned_d1'; readonly window: RouterAbEd25519YaoGatewayCutoverWindowV1 };
 
+export function validateRouterAbEd25519YaoGatewayCutoverStateV1(
+  cutover: RouterAbEd25519YaoGatewayCutoverStateV1,
+): void {
+  const registration = cutover.registration;
+  if (!registration) return;
+  const recovery = cutover.recovery;
+  if (!recovery) {
+    throw new Error('Router A/B Gateway recovery cutover must be configured before registration');
+  }
+  if (recovery.drainUntilMs > registration.drainUntilMs) {
+    throw new Error('Router A/B Gateway recovery must drain before registration');
+  }
+}
+
 /**
  * A deployment changes the backing store for every phase of one family at once.
  * New admissions stop at that family's cutoff, while its continuation phases
