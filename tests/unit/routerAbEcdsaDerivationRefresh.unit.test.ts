@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
+  parseRouterAbEcdsaDerivationActivationCommitQueryResultV1,
+  parseRouterAbEcdsaDerivationActivationPrepareResultV1,
   parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
   parseRouterAbEcdsaDerivationActivationRefreshRequestV1,
   parseRouterAbEcdsaDerivationActivationRefreshResponseV1,
@@ -100,6 +102,24 @@ function refreshCommitRequest(): RouterAbEcdsaDerivationActivationRefreshCommitR
     activation_correlation_id: parseCorrelationId('activation-correlation-1'),
     expected_server_generation: parseEcdsaServerGeneration('server-generation-1'),
     refresh_request: refreshRequest(),
+  };
+}
+
+function activationReceipt(): Record<string, unknown> {
+  return {
+    activation_correlation_id: 'activation-correlation-1',
+    activation_request_digest: digest(12),
+    server_generation: 'server-generation-2',
+    ecdsa_activation: {
+      context: refreshRequest().context,
+      public_identity: refreshRequest().public_identity,
+      signing_worker: refreshRequest().signer_set.selected_server,
+      activation_epoch: refreshRequest().next_activation_epoch,
+      activation_digest_b64u: b64u(13, 32),
+      activated_at_ms: 1_800_000_000_000,
+    },
+    lifecycle_id: refreshRequest().lifecycle.lifecycle_id,
+    transcript_digest: digest(14),
   };
 }
 
@@ -263,25 +283,10 @@ test('refresh route rejects missing port, authorization, and malformed body befo
 });
 
 test('refresh response parser preserves forwarded, committed replay, and stopped HTTP bodies', () => {
-  const activationReceipt = {
-    activation_correlation_id: 'activation-correlation-1',
-    activation_request_digest: digest(12),
-    server_generation: 'server-generation-2',
-    ecdsa_activation: {
-      context: refreshRequest().context,
-      public_identity: refreshRequest().public_identity,
-      signing_worker: refreshRequest().signer_set.selected_server,
-      activation_epoch: refreshRequest().next_activation_epoch,
-      activation_digest_b64u: b64u(13, 32),
-      activated_at_ms: 1_800_000_000_000,
-    },
-    lifecycle_id: refreshRequest().lifecycle.lifecycle_id,
-    transcript_digest: digest(14),
-  };
   expect(
     parseRouterAbEcdsaDerivationActivationRefreshResponseV1({
       result: 'activation_committed',
-      signing_worker_activation: activationReceipt,
+      signing_worker_activation: activationReceipt(),
     }),
   ).toMatchObject({
     result: 'activation_committed',
@@ -303,6 +308,60 @@ test('refresh response parser preserves forwarded, committed replay, and stopped
     lifecycle: { lifecycle_id: 'lifecycle-refresh-1', stored: true },
     decision: { kind: 'defer', reason: 'signer_queue_saturated' },
   });
+});
+
+test('activation prepare parser accepts only exact Rust journal coordinates', () => {
+  const prepared = {
+    activation_correlation_id: 'activation-correlation-1',
+    activation_request_digest: digest(12),
+  };
+  expect(parseRouterAbEcdsaDerivationActivationPrepareResultV1(prepared)).toEqual(prepared);
+  expect(() =>
+    parseRouterAbEcdsaDerivationActivationPrepareResultV1({
+      ...prepared,
+      server_generation: 'not-committed-yet',
+    }),
+  ).toThrow('activationPrepareResult.server_generation is not a supported field');
+});
+
+test('activation query parser preserves each exact Rust serde branch', () => {
+  const results = [
+    {
+      kind: 'committed',
+      receipt: activationReceipt(),
+    },
+    {
+      kind: 'not_committed',
+      activation_correlation_id: 'activation-correlation-1',
+      activation_request_digest: digest(12),
+    },
+    {
+      kind: 'correlation_conflict',
+      activation_correlation_id: 'activation-correlation-1',
+      activation_request_digest: digest(12),
+    },
+  ];
+  for (const result of results) {
+    expect(parseRouterAbEcdsaDerivationActivationCommitQueryResultV1(result)).toEqual(result);
+  }
+});
+
+test('activation query parser rejects mixed or unknown branches', () => {
+  expect(() =>
+    parseRouterAbEcdsaDerivationActivationCommitQueryResultV1({
+      kind: 'not_committed',
+      activation_correlation_id: 'activation-correlation-1',
+      activation_request_digest: digest(12),
+      receipt: activationReceipt(),
+    }),
+  ).toThrow('activationCommitQueryResult.receipt is not a supported field');
+  expect(() =>
+    parseRouterAbEcdsaDerivationActivationCommitQueryResultV1({
+      kind: 'missing',
+      activation_correlation_id: 'activation-correlation-1',
+      activation_request_digest: digest(12),
+    }),
+  ).toThrow('activationCommitQueryResult.kind must be committed');
 });
 
 test('strict refresh treats a stopped HTTP 200 as a typed terminal result', async () => {
