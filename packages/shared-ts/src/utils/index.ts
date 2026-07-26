@@ -25,3 +25,5 @@ export * from './routerAbEcdsaDerivation';
 export * from './routerAbEd25519Yao';
 export * from './routerAbTraceContext';
 export * from './authenticatorOptions';
+export * from './canonicalPrimitives';
+export * from './ecdsaCapabilityActivation';
