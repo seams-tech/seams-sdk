@@ -11,12 +11,12 @@ ECAPA_MODEL_ID = "speechbrain/spkrec-ecapa-voxceleb"
 ECAPA_ADAPTER_ID = "speechbrain-ecapa-voxceleb"
 ECAPA_MODEL_VERSION = "speechbrain-ecapa-voxceleb@2026-06-11"
 ECAPA_THRESHOLD_VERSION = "ecapa-local-dev-v1"
-ECAPA_TEMPLATE_VERSION = "ecapa-mean-template-v1"
+ECAPA_TEMPLATE_VERSION = "ecapa-medoid-weighted-template-v2"
 ECAPA_EMBEDDING_DIMENSIONS = 192
 
 PLACEHOLDER_MODEL_VERSION = "python-placeholder-model-v1"
 PLACEHOLDER_THRESHOLD_VERSION = "python-placeholder-threshold-v1"
-PLACEHOLDER_TEMPLATE_VERSION = "python-placeholder-template-v1"
+PLACEHOLDER_TEMPLATE_VERSION = "python-placeholder-medoid-weighted-template-v2"
 
 
 class EmbeddingExtractionError(RuntimeError):

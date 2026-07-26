@@ -153,6 +153,11 @@ ECAPA and runs concurrently with Moonshine and speaker scoring. A PAD rejection
 terminates experimental verification as `presentation_attack`; PAD uncertainty
 fails closed. Browser evidence remains signing-ineligible regardless of PAD.
 
+Continuous enrollment builds a normalized medoid-weighted template and rejects
+window sets whose leave-one-out templates are unstable. The aggregation rule
+is bound into the verifier template version, so mean-template records cannot
+cross the current runtime boundary.
+
 The local ECAPA research threshold is `0.6352` under
 `ecapa-local-dev-v1`. It is fixture-derived E0 configuration. Set
 `VOICEID_SPEAKER_SCORE_THRESHOLD` explicitly when running a calibrated

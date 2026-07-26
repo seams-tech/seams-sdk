@@ -288,6 +288,13 @@ bounded-queue saturation deterministically. Independent speech, speaker, and
 PAD deadlines cancel queued work and fail closed; native calls already running
 finish on bounded workers and zero their private input buffers.
 
+Enrollment templates use a versioned medoid-weighted aggregation rule. Window
+quality weights are adjusted by embedding centrality, the result is normalized,
+and enrollment fails when any leave-one-window-out template falls below the
+frozen stability floor. The sidecar rejects oversized JSON bodies before
+reading them and treats malformed or truncated media as terminal decoder
+failure.
+
 ## Persistence And Privacy
 
 Stores persist complete enrollment and verification union values. Cloudflare D1
