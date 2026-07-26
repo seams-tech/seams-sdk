@@ -2,8 +2,6 @@ import { toError } from '@shared/utils/errors';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { AccountId } from '@/core/types/accountIds';
-import { toAccountId } from '@/core/types/accountIds';
 import type { LoginHooksOptions } from '@/core/types/sdkSentEvents';
 import type {
   GetRecentUnlocksResult,
@@ -18,12 +16,10 @@ import {
 import {
   getWalletSession as getWalletSessionCore,
   getRecentUnlocks as getRecentUnlocksCore,
-  unlockResolvedWalletBinding as unlockCoreWithWalletBinding,
+  unlockResolvedWalletSubjectSet as unlockCoreWithSubjectSet,
   lock as lockCore,
   type LockOperationContext,
-  type LoginResolvedWalletBinding,
 } from '@/SeamsWeb/operations/auth/login';
-import { getStoredThresholdEd25519SessionRecordForWallet } from '@/core/signingEngine/session/persistence/records';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
@@ -35,8 +31,10 @@ import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinato
 import type { WalletIframeExactSessionState } from '@/SeamsWeb/walletIframe/shared/exactSessionState';
 import { walletIframeUnlockRequestFromLoginHooks } from '@/SeamsWeb/walletIframe/shared/unlockOptions';
 import {
-  resolveNearEd25519WalletUnlockSubject,
+  resolveWalletUnlockSubjectSet,
+  type WalletUnlockCapabilityFamilyScope,
   type WalletUnlockSubject,
+  type WalletUnlockSubjectSet,
 } from './walletUnlockSubject';
 
 type WalletAuthSigningSurface = Pick<
@@ -67,32 +65,53 @@ export type WalletLockDomainDeps = {
   };
 };
 
-export function resolveNearAccountIdForWalletAuthUnlockRecord(
-  walletId: string,
-): AccountId | null {
-  const record = getStoredThresholdEd25519SessionRecordForWallet(walletId);
-  if (!record?.nearAccountId) return null;
-  return toAccountId(String(record.nearAccountId));
+function walletUnlockCapabilityScope(
+  selection: LoginHooksOptions['unlockSelection'] | undefined,
+): WalletUnlockCapabilityFamilyScope {
+  switch (selection?.mode) {
+    case 'ed25519_only':
+      return { kind: 'near_ed25519_only' };
+    case 'ecdsa_only':
+      return { kind: 'evm_family_ecdsa_only' };
+    case 'ed25519_and_ecdsa':
+    case undefined:
+      return { kind: 'all_registered_mpc' };
+  }
+  throw new Error('wallet unlock selection is unsupported');
 }
 
-async function requireNearEd25519UnlockSubjectForWallet(
-  walletId: string,
-): Promise<Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }>> {
-  const unlockSubject = await resolveNearEd25519WalletUnlockSubject(walletId);
-  if (unlockSubject) return unlockSubject;
-  throw new Error('wallet unlock requires a NEAR Ed25519 subject for this auth path');
+async function requireWalletUnlockSubjectSet(args: {
+  walletId: string;
+  selection: LoginHooksOptions['unlockSelection'] | undefined;
+}): Promise<WalletUnlockSubjectSet> {
+  const resolution = await resolveWalletUnlockSubjectSet({
+    walletId: args.walletId,
+    requestedCapabilityFamilies: walletUnlockCapabilityScope(args.selection),
+  });
+  switch (resolution.kind) {
+    case 'resolved':
+      return resolution.subjectSet;
+    case 'missing_requested_capability_subject':
+      throw new Error('wallet unlock is missing the requested capability subject');
+    case 'capability_subject_resolution_failed':
+      throw new Error(`wallet unlock subject resolution failed: ${resolution.reason}`);
+  }
+  resolution satisfies never;
+  throw new Error('wallet unlock subject resolution returned an unknown result');
 }
 
-function loginResolvedWalletBindingFromUnlockSubject(
-  subject: Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }>,
-): LoginResolvedWalletBinding {
-  const runtimeRecord = getStoredThresholdEd25519SessionRecordForWallet(subject.walletId);
-  return {
-    walletId: subject.walletId,
-    nearAccountId: subject.nearAccountId,
-    nearEd25519SigningKeyId: subject.nearEd25519SigningKeyId,
-    ed25519Record: runtimeRecord,
-  };
+function selectNearSubjectForActivation(
+  subjectSet: WalletUnlockSubjectSet,
+): Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }> | null {
+  let match: Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }> | null = null;
+  for (const subject of subjectSet.subjects) {
+    if (subject.kind !== 'near_ed25519_wallet') continue;
+    if (match) {
+      throw new Error('wallet unlock resolved multiple NEAR Ed25519 subjects');
+    }
+    match = subject;
+  }
+  return match;
 }
 
 export async function unlockDomain(
@@ -128,28 +147,23 @@ export async function unlockDomain(
     }
   }
 
-  const unlockSubject = await requireNearEd25519UnlockSubjectForWallet(resolvedWalletId);
-  const nearAccountId = unlockSubject.nearAccountId;
-  const result = await unlockCoreWithWalletBinding(
-    deps.getContext(),
-    loginResolvedWalletBindingFromUnlockSubject(unlockSubject),
-    options,
-  );
+  const subjectSet = await requireWalletUnlockSubjectSet({
+    walletId: resolvedWalletId,
+    selection: options?.unlockSelection,
+  });
+  const result = await unlockCoreWithSubjectSet(deps.getContext(), subjectSet, options);
   let activatedWalletId: string | null = null;
   if (result?.success) {
-    // Promote authenticated account to current-user state only after unlock succeeds.
-    const walletSession = await getWalletSessionCore(deps.getContext(), resolvedWalletId).catch(() => null);
-    if (!walletSession?.login.walletId) {
-      throw new Error('unlock requires resolved wallet identity');
+    activatedWalletId = String(subjectSet.walletId);
+    const nearSubject = selectNearSubjectForActivation(subjectSet);
+    if (nearSubject) {
+      await deps.signingEngine.activateAuthenticatedWalletState({
+        walletId: nearSubject.walletId,
+        nearAccountId: nearSubject.nearAccountId,
+        signerSlot: nearSubject.signerSlot,
+        nearClient: deps.nearClient,
+      });
     }
-    const walletId = toWalletId(walletSession.login.walletId);
-    activatedWalletId = String(walletId);
-    await deps.signingEngine.activateAuthenticatedWalletState({
-      walletId,
-      nearAccountId,
-      signerSlot: unlockSubject.signerSlot,
-      nearClient: deps.nearClient,
-    });
   }
   await deps.initWalletIframe(activatedWalletId || undefined);
 

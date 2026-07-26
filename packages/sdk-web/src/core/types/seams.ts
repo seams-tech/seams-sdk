@@ -527,6 +527,8 @@ export type RegistrationErrorCode =
 export type LoginResult =
   | {
       success: true;
+      kind: 'near_wallet_unlocked';
+      walletId: WalletId;
       loggedInNearAccountId: string;
       operationalPublicKey: string | null;
       nearAccountId: AccountId;
@@ -534,8 +536,20 @@ export type LoginResult =
       error?: never;
     }
   | {
+      success: true;
+      kind: 'ecdsa_wallet_unlocked';
+      walletId: WalletId;
+      loggedInNearAccountId?: never;
+      operationalPublicKey?: never;
+      nearAccountId?: never;
+      jwt?: string;
+      error?: never;
+    }
+  | {
       success: false;
       error: string;
+      kind?: never;
+      walletId?: never;
       loggedInNearAccountId?: never;
       operationalPublicKey?: never;
       nearAccountId?: never;
@@ -734,12 +748,12 @@ type ReadonlyDeepPrimitive = string | number | boolean | bigint | symbol | null 
 export type ReadonlyDeep<T> = T extends ReadonlyDeepPrimitive
   ? T
   : T extends (...args: never[]) => unknown
-  ? T
-  : T extends readonly (infer U)[]
-    ? readonly ReadonlyDeep<U>[]
-    : T extends object
-      ? { readonly [K in keyof T]: ReadonlyDeep<T[K]> }
-      : T;
+    ? T
+    : T extends readonly (infer U)[]
+      ? readonly ReadonlyDeep<U>[]
+      : T extends object
+        ? { readonly [K in keyof T]: ReadonlyDeep<T[K]> }
+        : T;
 
 export type SeamsWalletMode = 'direct' | 'iframe';
 

@@ -17,11 +17,20 @@ const implicitNearAccountId = implicitNearAccountIdParse.value;
 
 const loginSuccess: LoginResult = {
   success: true,
+  kind: 'near_wallet_unlocked',
+  walletId,
   loggedInNearAccountId: 'alice.testnet',
   operationalPublicKey: 'ed25519:public-key',
   nearAccountId: 'alice.testnet',
 };
 void loginSuccess;
+
+const ecdsaLoginSuccess: LoginResult = {
+  success: true,
+  kind: 'ecdsa_wallet_unlocked',
+  walletId,
+};
+void ecdsaLoginSuccess;
 
 const loginFailure: LoginResult = {
   success: false,
@@ -32,9 +41,20 @@ void loginFailure;
 // @ts-expect-error login success requires the public account payload.
 const invalidLoginSuccess: LoginResult = {
   success: true,
+  kind: 'near_wallet_unlocked',
+  walletId,
   nearAccountId: 'alice.testnet',
 };
 void invalidLoginSuccess;
+
+// @ts-expect-error ECDSA-only login cannot fabricate NEAR account identity.
+const invalidEcdsaLoginSuccess: LoginResult = {
+  success: true,
+  kind: 'ecdsa_wallet_unlocked',
+  walletId,
+  nearAccountId: 'alice.testnet',
+};
+void invalidEcdsaLoginSuccess;
 
 // @ts-expect-error login failure cannot carry a success-only JWT.
 const invalidLoginFailure: LoginResult = {
