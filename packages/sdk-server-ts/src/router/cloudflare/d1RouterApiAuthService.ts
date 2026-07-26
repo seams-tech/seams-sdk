@@ -1081,8 +1081,16 @@ function createD1WalletRegistrationRouteService(
       assembly.walletRegistrations.respondWalletRegistrationEcdsaDerivation.bind(
         assembly.walletRegistrations,
       ),
+    prepareWalletRegistrationEcdsaActivation:
+      assembly.walletRegistrations.prepareWalletRegistrationEcdsaActivation.bind(
+        assembly.walletRegistrations,
+      ),
     activateWalletRegistrationEcdsa:
       assembly.walletRegistrations.activateWalletRegistrationEcdsa.bind(
+        assembly.walletRegistrations,
+      ),
+    queryWalletRegistrationEcdsaActivation:
+      assembly.walletRegistrations.queryWalletRegistrationEcdsaActivation.bind(
         assembly.walletRegistrations,
       ),
     getWalletRegistrationRuntimePolicyScope:

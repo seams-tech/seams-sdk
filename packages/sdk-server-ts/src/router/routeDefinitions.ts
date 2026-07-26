@@ -1513,6 +1513,32 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
+      'wallet_registration_ecdsa_activation_prepare',
+      'POST',
+      '/wallets/register/derivation/activate/prepare',
+      'Prepare one exact wallet ECDSA family activation command',
+      {
+        plane: 'public',
+        proof: 'threshold_protocol_state',
+        rationale:
+          'Registration activation preparation is bound to one unexpired server-retained Router ceremony.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
+    ),
+    publicRoute(
+      'wallet_registration_ecdsa_activation_query',
+      'POST',
+      '/wallets/register/derivation/activate/query',
+      'Query one exact wallet ECDSA family activation command',
+      {
+        plane: 'public',
+        proof: 'threshold_protocol_state',
+        rationale:
+          'Registration activation query is bound to one unexpired server-retained Router ceremony.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
+    ),
+    publicRoute(
       'wallet_registration_ecdsa_activation',
       'POST',
       '/wallets/register/derivation/activate',

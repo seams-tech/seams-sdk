@@ -40,6 +40,7 @@ import {
   type RouterAbEcdsaRegistrationRequestFactsV1,
   type RouterAbEcdsaStrictForwardedRegistrationResponseV1,
   type RouterAbEcdsaVerifiedClientActivationFactsV1,
+  type RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   thresholdEcdsaChainTargetKey,
@@ -49,6 +50,10 @@ import {
   registrationPreparationIdFromString,
   WalletRegistrationFinalizeRequest,
   WalletRegistrationFinalizeResponse,
+  WalletRegistrationEcdsaActivationPrepareRequest,
+  WalletRegistrationEcdsaActivationPrepareResponse,
+  WalletRegistrationEcdsaActivationQueryRequest,
+  WalletRegistrationEcdsaActivationQueryResponse,
   WalletRegistrationEcdsaActivationRequest,
   WalletRegistrationEcdsaActivationResponse,
   WalletRegistrationEcdsaDerivationRespondRequest,
@@ -159,7 +164,10 @@ import {
 
 type StartWalletRegistrationInput = WalletRegistrationStartRequest;
 type RespondWalletRegistrationDerivationInput = WalletRegistrationEcdsaDerivationRespondRequest;
+type PrepareWalletRegistrationEcdsaActivationInput =
+  WalletRegistrationEcdsaActivationPrepareRequest;
 type ActivateWalletRegistrationEcdsaInput = WalletRegistrationEcdsaActivationRequest;
+type QueryWalletRegistrationEcdsaActivationInput = WalletRegistrationEcdsaActivationQueryRequest;
 type FinalizeWalletRegistrationInput = WalletRegistrationFinalizeRequest;
 
 const WALLET_REGISTRATION_START_RESUME_AFTER_MS = 30_000;
@@ -555,6 +563,17 @@ type SponsoredNamedNearAccountCreator = (input: {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || '');
+}
+
+function publicDigest32Matches(
+  left: RouterAbPublicDigest32V1Wire,
+  right: RouterAbPublicDigest32V1Wire,
+): boolean {
+  return (
+    left.bytes.length === 32 &&
+    right.bytes.length === 32 &&
+    left.bytes.every((value, index) => value === right.bytes[index])
+  );
 }
 
 function assertNeverSponsoredNamedNearAccountCreationResult(value: never): never {
@@ -2189,6 +2208,10 @@ export class CloudflareD1WalletRegistrationService {
         if (
           ecdsaBranch.activation.activation_correlation_id !==
             request.ecdsa.activationCorrelationId ||
+          !publicDigest32Matches(
+            ecdsaBranch.activation.activation_request_digest,
+            request.ecdsa.expectedActivationRequestDigest,
+          ) ||
           alphabetizeStringify(ecdsaBranch.publicFacts) !==
             alphabetizeStringify(request.ecdsa.publicFacts)
         ) {
@@ -2230,9 +2253,21 @@ export class CloudflareD1WalletRegistrationService {
           message: preparedActivation.message,
         };
       }
+      if (
+        !publicDigest32Matches(
+          preparedActivation.value.activation_request_digest,
+          request.ecdsa.expectedActivationRequestDigest,
+        )
+      ) {
+        return {
+          ok: false,
+          code: 'activation_digest_mismatch',
+          message: 'ECDSA activation request digest does not match prepared activation',
+        };
+      }
       const activated = await this.ecdsaStrictRegistration.activate({
         ...activationInput,
-        expectedActivationRequestDigest: preparedActivation.value.activation_request_digest,
+        expectedActivationRequestDigest: request.ecdsa.expectedActivationRequestDigest,
       });
       if (!activated.ok) {
         return {
@@ -2343,6 +2378,167 @@ export class CloudflareD1WalletRegistrationService {
         ok: false,
         code: 'internal',
         message: errorMessage(error) || 'Failed to activate ECDSA wallet registration',
+      };
+    }
+  }
+
+  async prepareWalletRegistrationEcdsaActivation(
+    request: PrepareWalletRegistrationEcdsaActivationInput,
+  ): Promise<WalletRegistrationEcdsaActivationPrepareResponse> {
+    try {
+      const store = this.getRegistrationCeremonyIntentStore();
+      const ceremony = await store.getCeremony(request.registrationCeremonyId);
+      if (!ceremony) {
+        return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
+      }
+      if (
+        !registrationCeremonyWalletsMatch({ ceremony }) ||
+        ceremony.signerState.kind !== 'signer_set_registration'
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'signer-set registration state is required',
+        };
+      }
+      const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
+      if (ecdsaBranch?.kind === 'evm_family_ecdsa_activated') {
+        if (
+          ecdsaBranch.activation.activation_correlation_id !==
+            request.ecdsa.activationCorrelationId ||
+          alphabetizeStringify(ecdsaBranch.publicFacts) !==
+            alphabetizeStringify(request.ecdsa.publicFacts)
+        ) {
+          return {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'ECDSA activation preparation changed the verified client facts',
+          };
+        }
+        return {
+          ok: true,
+          registrationCeremonyId: ceremony.registrationCeremonyId,
+          ecdsa: {
+            kind: 'router_ab_ecdsa_registration_activation_prepared_v1',
+            preparation: {
+              activation_correlation_id: ecdsaBranch.activation.activation_correlation_id,
+              activation_request_digest: ecdsaBranch.activation.activation_request_digest,
+            },
+          },
+        };
+      }
+      if (!ecdsaBranch || ecdsaBranch.kind !== 'evm_family_ecdsa_pending_activation') {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'one pending ECDSA family activation is required',
+        };
+      }
+      const prepared = await this.ecdsaStrictRegistration.prepareActivation({
+        activationCorrelationId: request.ecdsa.activationCorrelationId,
+        pendingActivation: ecdsaBranch.pendingActivation,
+        clientActivation: request.ecdsa.publicFacts,
+        authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
+      });
+      if (!prepared.ok) {
+        return { ok: false, code: prepared.code, message: prepared.message };
+      }
+      return {
+        ok: true,
+        registrationCeremonyId: ceremony.registrationCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_activation_prepared_v1',
+          preparation: prepared.value,
+        },
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to prepare ECDSA wallet registration activation',
+      };
+    }
+  }
+
+  async queryWalletRegistrationEcdsaActivation(
+    request: QueryWalletRegistrationEcdsaActivationInput,
+  ): Promise<WalletRegistrationEcdsaActivationQueryResponse> {
+    try {
+      const store = this.getRegistrationCeremonyIntentStore();
+      const ceremony = await store.getCeremony(request.registrationCeremonyId);
+      if (!ceremony) {
+        return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
+      }
+      if (
+        !registrationCeremonyWalletsMatch({ ceremony }) ||
+        ceremony.signerState.kind !== 'signer_set_registration'
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'signer-set registration state is required',
+        };
+      }
+      const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
+      if (ecdsaBranch?.kind === 'evm_family_ecdsa_activated') {
+        if (
+          ecdsaBranch.activation.activation_correlation_id !==
+            request.ecdsa.activationCorrelationId ||
+          !publicDigest32Matches(
+            ecdsaBranch.activation.activation_request_digest,
+            request.ecdsa.expectedActivationRequestDigest,
+          ) ||
+          alphabetizeStringify(ecdsaBranch.publicFacts) !==
+            alphabetizeStringify(request.ecdsa.publicFacts)
+        ) {
+          return {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'ECDSA activation query changed the committed activation coordinates',
+          };
+        }
+        return {
+          ok: true,
+          registrationCeremonyId: ceremony.registrationCeremonyId,
+          ecdsa: {
+            kind: 'router_ab_ecdsa_registration_activation_queried_v1',
+            result: {
+              kind: 'committed',
+              receipt: ecdsaBranch.activation,
+            },
+          },
+        };
+      }
+      if (!ecdsaBranch || ecdsaBranch.kind !== 'evm_family_ecdsa_pending_activation') {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'one pending ECDSA family activation is required',
+        };
+      }
+      const queried = await this.ecdsaStrictRegistration.queryActivation({
+        activationCorrelationId: request.ecdsa.activationCorrelationId,
+        expectedActivationRequestDigest: request.ecdsa.expectedActivationRequestDigest,
+        pendingActivation: ecdsaBranch.pendingActivation,
+        clientActivation: request.ecdsa.publicFacts,
+        authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
+      });
+      if (!queried.ok) {
+        return { ok: false, code: queried.code, message: queried.message };
+      }
+      return {
+        ok: true,
+        registrationCeremonyId: ceremony.registrationCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_activation_queried_v1',
+          result: queried.value,
+        },
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to query ECDSA wallet registration activation',
       };
     }
   }

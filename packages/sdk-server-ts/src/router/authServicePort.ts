@@ -49,6 +49,10 @@ import type {
   WalletAddSignerStartResponse,
   WalletRegistrationFinalizeRequest,
   WalletRegistrationFinalizeResponse,
+  WalletRegistrationEcdsaActivationPrepareRequest,
+  WalletRegistrationEcdsaActivationPrepareResponse,
+  WalletRegistrationEcdsaActivationQueryRequest,
+  WalletRegistrationEcdsaActivationQueryResponse,
   WalletRegistrationEcdsaActivationRequest,
   WalletRegistrationEcdsaActivationResponse,
   WalletRegistrationEcdsaDerivationRespondRequest,
@@ -776,6 +780,14 @@ export type RouterApiMethodTypes = {
     readonly input: WalletRegistrationEcdsaActivationRequest;
     readonly result: WalletRegistrationEcdsaActivationResponse;
   };
+  prepareWalletRegistrationEcdsaActivation: {
+    readonly input: WalletRegistrationEcdsaActivationPrepareRequest;
+    readonly result: WalletRegistrationEcdsaActivationPrepareResponse;
+  };
+  queryWalletRegistrationEcdsaActivation: {
+    readonly input: WalletRegistrationEcdsaActivationQueryRequest;
+    readonly result: WalletRegistrationEcdsaActivationQueryResponse;
+  };
   resolveGoogleEmailOtpSession: {
     readonly input: {
       readonly providerSubject?: string;
@@ -1073,9 +1085,15 @@ export interface RouterApiWalletRegistrationService {
   respondWalletRegistrationEcdsaDerivation(
     input: WalletRegistrationEcdsaDerivationRespondRequest,
   ): Promise<WalletRegistrationEcdsaDerivationRespondResponse>;
+  prepareWalletRegistrationEcdsaActivation(
+    input: WalletRegistrationEcdsaActivationPrepareRequest,
+  ): Promise<WalletRegistrationEcdsaActivationPrepareResponse>;
   activateWalletRegistrationEcdsa(
     input: WalletRegistrationEcdsaActivationRequest,
   ): Promise<WalletRegistrationEcdsaActivationResponse>;
+  queryWalletRegistrationEcdsaActivation(
+    input: WalletRegistrationEcdsaActivationQueryRequest,
+  ): Promise<WalletRegistrationEcdsaActivationQueryResponse>;
   getWalletRegistrationRuntimePolicyScope(
     registrationCeremonyId: string,
   ): Promise<ThresholdRuntimePolicyScope | undefined>;

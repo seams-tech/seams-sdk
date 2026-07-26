@@ -1556,7 +1556,22 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
           : {}),
       });
     }
+    if (path === '/wallets/register/derivation/activate/prepare') {
+      captures.activationPrepareBody = body;
+      return jsonResponse({
+        ok: true,
+        registrationCeremonyId: body.registrationCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_activation_prepared_v1',
+          preparation: {
+            activation_correlation_id: body.ecdsa.activationCorrelationId,
+            activation_request_digest: { bytes: new Array<number>(32).fill(1) },
+          },
+        },
+      });
+    }
     if (path === '/wallets/register/derivation/activate') {
+      captures.activationBody = body;
       const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
       const prepare = captures.ecdsaPrepare as Record<string, any>;
       let bootstrap = mockedEcdsaServerBootstrap(ecdsaFacts, prepare);
@@ -1799,6 +1814,7 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
       '/wallets/register/intent',
       '/wallets/register/start',
       '/wallets/register/derivation/respond',
+      '/wallets/register/derivation/activate/prepare',
       '/wallets/register/derivation/activate',
       '/wallets/register/finalize',
     ]);
@@ -1808,6 +1824,11 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
       challengeB64u: captures.digest,
     });
     expectSingleRegistrationTouchIdPrompt(captures);
+    expect(captures.activationBody).toMatchObject({
+      ecdsa: {
+        expectedActivationRequestDigest: { bytes: new Array<number>(32).fill(1) },
+      },
+    });
     expect(captures.finalizeBody).toMatchObject({
       ecdsa: {
         expectedKeyHandles: ['ederivation-registration-key'],
@@ -1922,6 +1943,7 @@ test('registerWallet overlaps Email OTP enrollment material with ECDSA-only regi
         'emailOtpEnrollmentMaterialStarted',
         'fetch:/wallets/register/start',
         'fetch:/wallets/register/derivation/respond',
+        'fetch:/wallets/register/derivation/activate/prepare',
         'fetch:/wallets/register/derivation/activate',
         'emailOtpEnrollmentMaterialResolved',
         'fetch:/wallets/register/finalize',
@@ -1932,6 +1954,9 @@ test('registerWallet overlaps Email OTP enrollment material with ECDSA-only regi
     );
     expect(events.indexOf('fetch:/wallets/register/derivation/respond')).toBeLessThan(
       events.indexOf('emailOtpEnrollmentMaterialResolved'),
+    );
+    expect(events.indexOf('fetch:/wallets/register/derivation/activate/prepare')).toBeLessThan(
+      events.indexOf('fetch:/wallets/register/derivation/activate'),
     );
     expect(events.indexOf('emailOtpEnrollmentMaterialResolved')).toBeLessThan(
       events.indexOf('fetch:/wallets/register/finalize'),

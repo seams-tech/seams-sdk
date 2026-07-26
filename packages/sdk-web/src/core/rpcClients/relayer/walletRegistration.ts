@@ -41,6 +41,8 @@ import {
   type RouterAbEd25519NormalSigningState,
 } from '@shared/utils/signingSessionSeal';
 import {
+  parseRouterAbEcdsaDerivationActivationCommitQueryResultV1,
+  parseRouterAbEcdsaDerivationActivationPrepareResultV1,
   parseRouterAbEcdsaRegistrationPublicActivationReceiptV1,
   parseRouterAbEcdsaRegistrationRequestFactsV1,
   parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
@@ -53,6 +55,9 @@ import {
   type RouterAbEcdsaStrictForwardedRegistrationResponseV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
+  type RouterAbEcdsaDerivationActivationCommitQueryResultV1,
+  type RouterAbEcdsaDerivationActivationPrepareResultV1,
+  type RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   computeSdkEcdsaDerivationApplicationBindingDigestB64u,
@@ -497,6 +502,24 @@ export type WalletRegistrationEcdsaActivationResponse = {
   };
 };
 
+export type WalletRegistrationEcdsaActivationPrepareResponse = {
+  ok: true;
+  registrationCeremonyId: string;
+  ecdsa: {
+    kind: 'router_ab_ecdsa_registration_activation_prepared_v1';
+    preparation: RouterAbEcdsaDerivationActivationPrepareResultV1;
+  };
+};
+
+export type WalletRegistrationEcdsaActivationQueryResponse = {
+  ok: true;
+  registrationCeremonyId: string;
+  ecdsa: {
+    kind: 'router_ab_ecdsa_registration_activation_queried_v1';
+    result: RouterAbEcdsaDerivationActivationCommitQueryResultV1;
+  };
+};
+
 function requireExactResponseKeys(
   record: Record<string, unknown>,
   allowed: readonly string[],
@@ -592,6 +615,92 @@ function parseWalletRegistrationEcdsaActivationResponse(
       kind: 'router_ab_ecdsa_registration_activated_v1',
       activation: parseRouterAbEcdsaRegistrationPublicActivationReceiptV1(ecdsa.activation),
       bootstrap: parseThresholdEcdsaDerivationRoleLocalBootstrapValue(ecdsa.bootstrap),
+    },
+  };
+}
+
+function parseWalletRegistrationEcdsaActivationPrepareResponse(
+  value: unknown,
+): WalletRegistrationEcdsaActivationPrepareResponse {
+  const response = requireResponseRecord({
+    responseName: 'ECDSA registration activation preparation',
+    field: 'response',
+    value,
+  });
+  requireExactResponseKeys(
+    response,
+    ['ok', 'registrationCeremonyId', 'ecdsa'],
+    'ECDSA registration activation preparation response',
+  );
+  if (response.ok !== true) {
+    throw new Error('ECDSA registration activation preparation response is not successful');
+  }
+  const ecdsa = requireResponseRecord({
+    responseName: 'ECDSA registration activation preparation',
+    field: 'ecdsa',
+    value: response.ecdsa,
+  });
+  requireExactResponseKeys(
+    ecdsa,
+    ['kind', 'preparation'],
+    'ECDSA registration activation preparation response ecdsa',
+  );
+  if (ecdsa.kind !== 'router_ab_ecdsa_registration_activation_prepared_v1') {
+    throw new Error('ECDSA registration activation preparation response kind is invalid');
+  }
+  return {
+    ok: true,
+    registrationCeremonyId: requireResponseString({
+      responseName: 'ECDSA registration activation preparation',
+      field: 'registrationCeremonyId',
+      value: response.registrationCeremonyId,
+    }),
+    ecdsa: {
+      kind: 'router_ab_ecdsa_registration_activation_prepared_v1',
+      preparation: parseRouterAbEcdsaDerivationActivationPrepareResultV1(ecdsa.preparation),
+    },
+  };
+}
+
+function parseWalletRegistrationEcdsaActivationQueryResponse(
+  value: unknown,
+): WalletRegistrationEcdsaActivationQueryResponse {
+  const response = requireResponseRecord({
+    responseName: 'ECDSA registration activation query',
+    field: 'response',
+    value,
+  });
+  requireExactResponseKeys(
+    response,
+    ['ok', 'registrationCeremonyId', 'ecdsa'],
+    'ECDSA registration activation query response',
+  );
+  if (response.ok !== true) {
+    throw new Error('ECDSA registration activation query response is not successful');
+  }
+  const ecdsa = requireResponseRecord({
+    responseName: 'ECDSA registration activation query',
+    field: 'ecdsa',
+    value: response.ecdsa,
+  });
+  requireExactResponseKeys(
+    ecdsa,
+    ['kind', 'result'],
+    'ECDSA registration activation query response ecdsa',
+  );
+  if (ecdsa.kind !== 'router_ab_ecdsa_registration_activation_queried_v1') {
+    throw new Error('ECDSA registration activation query response kind is invalid');
+  }
+  return {
+    ok: true,
+    registrationCeremonyId: requireResponseString({
+      responseName: 'ECDSA registration activation query',
+      field: 'registrationCeremonyId',
+      value: response.registrationCeremonyId,
+    }),
+    ecdsa: {
+      kind: 'router_ab_ecdsa_registration_activation_queried_v1',
+      result: parseRouterAbEcdsaDerivationActivationCommitQueryResultV1(ecdsa.result),
     },
   };
 }
@@ -2377,6 +2486,7 @@ export async function activateWalletRegistrationEcdsa(args: {
   registrationCeremonyId: string;
   activationCorrelationId: CorrelationId;
   publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
 }): Promise<WalletRegistrationEcdsaActivationResponse> {
   const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
@@ -2388,10 +2498,59 @@ export async function activateWalletRegistrationEcdsa(args: {
         kind: 'router_ab_ecdsa_registration_activation_v1',
         activationCorrelationId: args.activationCorrelationId,
         publicFacts: args.publicFacts,
+        expectedActivationRequestDigest: args.expectedActivationRequestDigest,
       },
     },
   });
   return parseWalletRegistrationEcdsaActivationResponse(response);
+}
+
+export async function prepareWalletRegistrationEcdsaActivation(args: {
+  relayerUrl: string;
+  headers?: Record<string, string>;
+  registrationCeremonyId: string;
+  activationCorrelationId: CorrelationId;
+  publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+}): Promise<WalletRegistrationEcdsaActivationPrepareResponse> {
+  const response = await postJson<unknown>({
+    relayerUrl: args.relayerUrl,
+    path: '/wallets/register/derivation/activate/prepare',
+    headers: args.headers,
+    body: {
+      registrationCeremonyId: args.registrationCeremonyId,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_v1',
+        activationCorrelationId: args.activationCorrelationId,
+        publicFacts: args.publicFacts,
+      },
+    },
+  });
+  return parseWalletRegistrationEcdsaActivationPrepareResponse(response);
+}
+
+export async function queryWalletRegistrationEcdsaActivation(args: {
+  relayerUrl: string;
+  headers?: Record<string, string>;
+  registrationCeremonyId: string;
+  activationCorrelationId: CorrelationId;
+  publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+}): Promise<WalletRegistrationEcdsaActivationQueryResponse> {
+  const response = await postJson<unknown>({
+    relayerUrl: args.relayerUrl,
+    path: '/wallets/register/derivation/activate/query',
+    headers: args.headers,
+    body: {
+      registrationCeremonyId: args.registrationCeremonyId,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_v1',
+        activationCorrelationId: args.activationCorrelationId,
+        publicFacts: args.publicFacts,
+        expectedActivationRequestDigest: args.expectedActivationRequestDigest,
+      },
+    },
+  });
+  return parseWalletRegistrationEcdsaActivationQueryResponse(response);
 }
 
 type FinalizeWalletRegistrationBaseArgs = {

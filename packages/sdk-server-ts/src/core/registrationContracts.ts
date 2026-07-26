@@ -9,6 +9,8 @@ import type {
 } from '@shared/utils/routerAbEd25519Yao';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import type {
+  RouterAbEcdsaDerivationActivationCommitQueryResultV1,
+  RouterAbEcdsaDerivationActivationPrepareResultV1,
   RouterAbEcdsaDerivationPublicCapabilityV1,
   RouterAbEcdsaRegistrationActivationRequestV1,
   RouterAbEcdsaRegistrationActivationReceiptV1,
@@ -16,6 +18,7 @@ import type {
   RouterAbEcdsaRegistrationRequestV1,
   RouterAbEcdsaStrictForwardedRegistrationResponseV1,
   RouterAbEcdsaVerifiedClientActivationFactsV1,
+  RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   AddAuthMethodInput,
@@ -648,7 +651,52 @@ export type WalletRegistrationEcdsaDerivationRespondResponse =
       message: string;
     };
 
-export type WalletRegistrationEcdsaActivationRequest = RouterAbEcdsaRegistrationActivationRequestV1;
+export type WalletRegistrationEcdsaActivationPrepareRequest =
+  RouterAbEcdsaRegistrationActivationRequestV1;
+
+export type WalletRegistrationEcdsaActivationPrepareResponse =
+  | {
+      ok: true;
+      registrationCeremonyId: string;
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_prepared_v1';
+        preparation: RouterAbEcdsaDerivationActivationPrepareResultV1;
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type WalletRegistrationEcdsaActivationRequest = {
+  registrationCeremonyId: string;
+  ecdsa: RouterAbEcdsaRegistrationActivationRequestV1['ecdsa'] & {
+    expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+  };
+};
+
+export type WalletRegistrationEcdsaActivationQueryRequest = {
+  registrationCeremonyId: string;
+  ecdsa: RouterAbEcdsaRegistrationActivationRequestV1['ecdsa'] & {
+    expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+  };
+};
+
+export type WalletRegistrationEcdsaActivationQueryResponse =
+  | {
+      ok: true;
+      registrationCeremonyId: string;
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_queried_v1';
+        result: RouterAbEcdsaDerivationActivationCommitQueryResultV1;
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
 
 export type WalletRegistrationEcdsaActivationResponse =
   | {
