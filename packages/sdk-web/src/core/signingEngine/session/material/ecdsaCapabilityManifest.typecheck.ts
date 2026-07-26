@@ -36,6 +36,8 @@ import type {
 } from '../keyMaterialBrands';
 import {
   buildActiveEcdsaCapabilityManifest,
+  buildDurableEcdsaMaterialBinding,
+  buildEcdsaActivationBinding,
   buildEcdsaCapabilityScope,
   buildEcdsaManifestIdentity,
   buildEcdsaRoleLocalMaterialBinding,
@@ -51,6 +53,8 @@ import {
   buildServerCommittedEcdsaActivationJournal,
   buildValidatedEncryptedEcdsaReadyMaterial,
   type ActiveEcdsaCapabilityManifest,
+  type DurableEcdsaMaterialBinding,
+  type EcdsaActivationBinding,
   type PreparedEcdsaActivationJournal,
   type ValidatedEncryptedEcdsaReadyMaterial,
 } from './ecdsaCapabilityManifest';
@@ -136,13 +140,17 @@ const targetManifest = buildEcdsaManifestIdentity({
   manifestRevision,
 });
 
-const candidate = buildPreparedEcdsaActivationCandidate({
+const activationBinding = buildEcdsaActivationBinding({
   targetManifest,
   signer: preparedSigner,
   activationId,
   roleLocalBinding,
   bindingDigest,
   durableMaterialRef,
+});
+
+const candidate = buildPreparedEcdsaActivationCandidate({
+  activationBinding,
   encryptedPending,
 });
 
@@ -169,18 +177,24 @@ const committedJournal = buildServerCommittedEcdsaActivationJournal({
   },
 });
 
-const readyMaterial = buildValidatedEncryptedEcdsaReadyMaterial({
-  committedJournal,
-  sealingKeyId,
-  iv12B64u,
-  ciphertextB64u,
+const durableMaterial = buildDurableEcdsaMaterialBinding({
+  activationBinding,
+  serverActivation: committedJournal.serverActivation,
   ciphertextDigest,
 });
 
+const readyMaterial = buildValidatedEncryptedEcdsaReadyMaterial({
+  binding: durableMaterial,
+  sealingKeyId,
+  iv12B64u,
+  ciphertextB64u,
+});
+
 const activeManifest = buildActiveEcdsaCapabilityManifest({
-  committedJournal,
+  activationBinding,
+  serverActivation: committedJournal.serverActivation,
   registeredPublicFacts,
-  readyMaterial,
+  durableMaterial,
   committedAt,
 });
 
@@ -200,16 +214,19 @@ const replacementTarget = buildEcdsaManifestIdentity({
   manifestId: replacementManifestId,
   manifestRevision: replacementManifestRevision,
 });
+const replacementActivationBinding = buildEcdsaActivationBinding({
+  targetManifest: replacementTarget,
+  signer: preparedSigner,
+  activationId,
+  roleLocalBinding,
+  bindingDigest,
+  durableMaterialRef,
+});
 
 buildPreparedEcdsaActivationJournal({
   journalId,
   candidate: buildPreparedEcdsaActivationCandidate({
-    targetManifest: replacementTarget,
-    signer: preparedSigner,
-    activationId,
-    roleLocalBinding,
-    bindingDigest,
-    durableMaterialRef,
+    activationBinding: replacementActivationBinding,
     encryptedPending,
   }),
   expectedManifest: exactManifest,
@@ -264,25 +281,26 @@ buildEncryptedEcdsaPendingCandidate({
   ciphertextDigest: pendingCiphertextDigest,
 });
 
-// @ts-expect-error Activation candidates require a durable material reference.
-buildPreparedEcdsaActivationCandidate({
+// @ts-expect-error Activation bindings require a durable material reference.
+buildEcdsaActivationBinding({
   targetManifest,
   signer: preparedSigner,
   activationId,
   roleLocalBinding,
   bindingDigest,
-  encryptedPending,
 });
 
-// @ts-expect-error Activation candidates require an exact role-local binding digest.
-buildPreparedEcdsaActivationCandidate({
+// @ts-expect-error Activation bindings require an exact role-local binding digest.
+buildEcdsaActivationBinding({
   targetManifest,
   signer: preparedSigner,
   activationId,
   roleLocalBinding,
   durableMaterialRef,
-  encryptedPending,
 });
+
+// @ts-expect-error Prepared candidates require a nominal activation binding.
+buildPreparedEcdsaActivationCandidate({ encryptedPending });
 
 // @ts-expect-error Initial local state must pair with no-current server state.
 buildPreparedEcdsaActivationJournal({
@@ -317,9 +335,10 @@ buildServerCommittedEcdsaActivationJournal({
   },
 });
 
-// @ts-expect-error Active manifests require validated encrypted ready material.
+// @ts-expect-error Active manifests require a durable material binding.
 buildActiveEcdsaCapabilityManifest({
-  committedJournal,
+  activationBinding,
+  serverActivation: committedJournal.serverActivation,
   registeredPublicFacts,
   committedAt,
 });
@@ -332,12 +351,48 @@ const rawReadyMaterial = {
 const invalidReadyMaterial: ValidatedEncryptedEcdsaReadyMaterial = rawReadyMaterial;
 
 buildActiveEcdsaCapabilityManifest({
-  committedJournal,
+  activationBinding,
+  serverActivation: committedJournal.serverActivation,
   registeredPublicFacts,
-  // @ts-expect-error Active construction rejects material without its validation proof.
-  readyMaterial: rawReadyMaterial,
+  durableMaterial,
   committedAt,
+  // @ts-expect-error Active construction cannot accept ciphertext-bearing ready material.
+  readyMaterial: rawReadyMaterial,
 });
+
+buildActiveEcdsaCapabilityManifest({
+  activationBinding,
+  serverActivation: committedJournal.serverActivation,
+  registeredPublicFacts,
+  durableMaterial,
+  committedAt,
+  // @ts-expect-error Active manifests cannot carry pending ciphertext.
+  encryptedPending,
+});
+
+buildActiveEcdsaCapabilityManifest({
+  activationBinding,
+  serverActivation: committedJournal.serverActivation,
+  registeredPublicFacts,
+  durableMaterial,
+  committedAt,
+  // @ts-expect-error Active manifests cannot carry ready ciphertext.
+  ciphertextB64u,
+});
+
+const rawActivationBinding = {
+  ...activationBinding,
+};
+
+// @ts-expect-error Activation bindings can only be constructed by their builder.
+const invalidActivationBinding: EcdsaActivationBinding = rawActivationBinding;
+
+const rawDurableMaterial = {
+  ...durableMaterial,
+};
+
+// @ts-expect-error Durable material bindings can only be constructed by their builder.
+const invalidDurableMaterial: DurableEcdsaMaterialBinding = rawDurableMaterial;
 
 const rawPreparedJournal = {
   ...preparedJournal,
@@ -354,9 +409,10 @@ const rawActiveManifest = {
 const invalidActiveManifest: ActiveEcdsaCapabilityManifest = rawActiveManifest;
 
 buildActiveEcdsaCapabilityManifest({
-  committedJournal,
+  activationBinding,
+  serverActivation: committedJournal.serverActivation,
   registeredPublicFacts,
-  readyMaterial,
+  durableMaterial,
   committedAt,
   // @ts-expect-error Durable material activation has no recovery-use policy.
   recoveryPolicy: {
@@ -366,5 +422,7 @@ buildActiveEcdsaCapabilityManifest({
 });
 
 void invalidReadyMaterial;
+void invalidActivationBinding;
+void invalidDurableMaterial;
 void invalidPreparedJournal;
 void invalidActiveManifest;
