@@ -70,6 +70,10 @@ export function parseRefactor93StagingConfig(
 
 export const REFACTOR93_STAGING_CONFIG = parseRefactor93StagingConfig(process.env);
 
+if (REFACTOR93_STAGING_CONFIG.mode === 'live') {
+  installIntendedHarnessEnvironment(REFACTOR93_STAGING_CONFIG);
+}
+
 const webServer =
   REFACTOR93_STAGING_CONFIG.mode === 'live'
     ? {
@@ -168,6 +172,14 @@ function localSiteEnvironment(config: Refactor93StagingLiveConfig): Record<strin
     VITE_ENABLE_INTENDED_E2E: '1',
     VITE_CACHE_DIR: REFACTOR93_STAGING_RUNTIME_PATHS.viteCache,
   };
+}
+
+function installIntendedHarnessEnvironment(config: Refactor93StagingLiveConfig): void {
+  process.env.SEAMS_INTENDED_APP_URL = config.origins.site;
+  process.env.SEAMS_INTENDED_ROUTER_URL = config.origins.gateway;
+  process.env.SEAMS_INTENDED_WALLET_ORIGIN = config.origins.wallet;
+  process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID = config.projectEnvironmentId;
+  process.env.SEAMS_INTENDED_PUBLISHABLE_KEY = config.publishableKey;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
