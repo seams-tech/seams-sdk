@@ -617,9 +617,12 @@ or production acceptance.
       plumbing. Registration, recovery, export, finalize, replay, capability,
       session, and local-dev paths all have partitioned implementations behind
       the independent family selectors.
-- [ ] Complete the staged family cutovers and drains, then remove the
-      tenant-runtime binding and remaining legacy routes, serializers,
-      fixtures, and compatibility boundaries.
+- [x] Configure registration, recovery, and export for immediate partitioned-D1
+      routing in staging and production. All six family boundary variables are
+      `0`; no admission pause or timed compatibility window remains.
+- [ ] Complete the legacy-routing deletion checklist below. The zero-valued
+      selector configuration is a temporary deployment bridge, not a supported
+      runtime mode.
 - [ ] Deploy one coherent staging revision and complete manual registration,
       recovery, and export acceptance.
 
@@ -1008,8 +1011,8 @@ ceremony after the user completes authentication. The safe sequence is:
           it after the registration drain; every public, session, sync-account,
           and non-Yao route leaves the tenant runtime after all three family
           drains.
-    - [ ] Enable the registration selector in staging with a measured cutoff
-          and drain window.
+    - [x] Enable the registration selector in staging and production with an
+          immediate boundary (`0`).
   - [x] Add typed request-scoped recovery admission and execution
         prepare/claim/commit boundaries with a shared backend-session uniqueness
         index, durable uncertainty, and no backend retry.
@@ -1071,10 +1074,9 @@ ceremony after the user completes authentication. The safe sequence is:
         and session state, and route the complete outer Gateway to it after all
         family drains.
   - [ ] Delete the tenant runtime binding, readiness path, serializer, and
-        Durable Object class after the drain.
-    - [ ] Preserve the historical `router-api-runtime-sqlite-v1` migration and,
-          only after the drain receipt, add a new unique Cloudflare legacy
-          migration with
+        Durable Object class.
+    - [ ] Preserve the historical `router-api-runtime-sqlite-v1` migration and
+          add a new unique Cloudflare migration with
           `deleted_classes = ["RouterApiRuntimeDurableObject"]`. Removing the
           old migration entry does not delete the deployed class namespace.
   - [x] Give the local dev worker the same request-scoped path. Its Yao
@@ -1090,33 +1092,69 @@ ceremony after the user completes authentication. The safe sequence is:
         Router effect. The native Router executable installs its coordinator
         dispatcher for execute and recovery-promotion; only the deliberately
         dispatcher-free lower helper retains the explicit 501 response.
-- [ ] Delete obsolete Deriver Stage and Result route contracts after the
-      maximum in-flight ceremony lifetime has elapsed.
-- [ ] Before deleting legacy role routes, complete the cross-key exclusion
-      drain:
-  - [x] Make legacy admission and pair preparation claim both role-record keys
-        through the same Durable Object storage transaction.
-  - [ ] Deploy that version, then observe the maximum in-flight lifetime with
-        no object containing both records.
+- [ ] Delete obsolete Deriver Stage and Result route contracts.
+- [x] Make legacy admission and pair preparation claim both role-record keys
+      through the same Durable Object storage transaction. This protected the
+      transition and does not remain as a deletion gate.
 - [ ] Delete lower-authority tests, fixtures, mocks, and source guards that
       encode the serial flow.
-- [ ] Delete compatibility request parsers after the boundary drain.
+- [ ] Delete compatibility request parsers.
 - [x] Split A's claim, network execution, and completion into separate Worker
       and role-DO commands so no role Durable Object remains active across the
       Yao WebSocket stream.
 - [x] Keep role-local Durable Object classes and their current secret
       boundaries.
-- [ ] After the boundary drain, verify the repository and deployment contain
-      one reachable production Yao orchestration owner.
+- [ ] Verify the repository and deployment contain one reachable production
+      Yao orchestration owner.
 
 The Gateway backend no longer contains the serial Stage/Start/Result or direct
-Yao package-delivery flow. The remaining Deriver Stage/Result handlers and
-direct-origin bindings are retained until the deployed cutover has survived the
-maximum in-flight ceremony lifetime; they are role-boundary drain targets, not
-second Gateway orchestration owners. Request-safe lifecycle storage replaces
-the tenant-scoped `ROUTER_API_RUNTIME` after the per-family drains. Its
-pre-cutover fallback, binding, and class remain until the deployed drain receipt
-authorizes deletion.
+Yao package-delivery flow. The remaining Deriver Stage/Result handlers,
+direct-origin bindings, tenant-scoped `ROUTER_API_RUNTIME`, selector, and
+compatibility parsers are obsolete implementation residue and must be deleted.
+
+### Legacy Routing Deletion Checklist
+
+The immediate cutover makes partitioned D1 and the MPC Router the only selected
+production path. Refactor 93 is not complete while any replaced routing system
+remains reachable or configurable.
+
+- [ ] Delete the Gateway cutover selector module
+      (`routerAbEd25519YaoGatewayCutover.ts`) and route every Gateway request
+      directly through the request-scoped partitioned-D1 handler.
+- [ ] Delete the six
+      `ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_{ADMISSION_CUTOFF_MS,DRAIN_UNTIL_MS}`
+      variables from Worker environment types, deployment config generation,
+      GitHub workflows, examples, readiness checks, and environment variables.
+- [ ] Delete `legacy_runtime`, `legacy_stateful`, and `admission_blocked`
+      branches, including the tenant-runtime request forwarder and the 503
+      deployment-drain response.
+- [ ] Delete `RouterApiRuntimeDurableObject`, its state key and state codec,
+      its readiness probe, `ROUTER_API_RUNTIME` binding, and its tenant-wide
+      instance-name derivation.
+- [ ] Add the Cloudflare Durable Object deletion migration for
+      `RouterApiRuntimeDurableObject`; retain the historical creation migration
+      as immutable deployment history.
+- [ ] Delete the legacy stateful Gateway composition and auth/capability bridge
+      factories. Keep only the environment-built request-scoped D1 adapters.
+- [ ] Remove Gateway-to-Deriver A and Gateway-to-Deriver B service bindings and
+      direct-origin dispatch. Preserve only bindings proven to serve a current
+      non-legacy protocol.
+- [ ] Delete Deriver B activation/export Stage and Result paths, handlers,
+      commands, polling constants, parsers, and exports. The pair-bound
+      Prepared/Running/Completed protocol remains.
+- [ ] Delete obsolete serial lifecycle records and request parsers from the
+      Deriver role Durable Objects while preserving current pair-bound state.
+- [ ] Delete legacy Gateway package-delivery adapters. SigningWorker delivery
+      remains owned by the MPC Router coordinator.
+- [ ] Delete tests, fixtures, inventory assertions, and source guards whose sole
+      purpose is the tenant runtime, selector windows, admission drain, serial
+      Stage/Result flow, or direct Gateway-to-role routing.
+- [ ] Add structural tests proving the production Gateway has no tenant-runtime
+      binding, no cutover variables, and no direct Ed25519 Yao role routes.
+- [ ] Deploy the deletion revision to staging and production, then remove the
+      six zero-valued GitHub environment variables.
+- [ ] Confirm registration, recovery, export, retry/redelivery, and rollback
+      behavior on the sole remaining route.
 
 ### Phase 6: Staging Deployment And Manual Acceptance
 
@@ -1229,17 +1267,13 @@ route-deletion cleanup.
       request boundary. The branch already contains the Gateway cutover, so this
       ordering cannot be replayed. The coherent staging rollout below replaces
       it as the first external validation.
-- [ ] Deploy each Gateway family cutover with its corresponding
-      `ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_ADMISSION_CUTOFF_MS`
-      set at admission quiescence and its corresponding
-      `ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_DRAIN_UNTIL_MS`
-      set to that cutoff plus the measured maximum in-flight lifetime.
+- [x] Configure all three Gateway families with cutoff and drain values of `0`
+      for immediate partitioned-D1 routing in staging and production.
 - [ ] Exercise staging registration, recovery, export, exact replay, conflict,
       disconnect, terminal redelivery, and rollback on the coherent versions.
 - [ ] Confirm manual staging registration completes successfully after Touch
       ID, with the post-prompt wait returned to the expected 2–3 second range.
-- [ ] Complete the staging family drains and validate route-deletion cleanup in
-      staging.
+- [ ] Validate route-deletion cleanup in staging.
 - [x] Replace the failed stack workflow's hard-coded Gateway secret plumbing
       with target-capability-derived backend deployment. Billing is enabled in
       both hosted environments, and both Gateway jobs require
@@ -1635,19 +1669,17 @@ correlated boundary spans for that ceremony.
 4. Exercise registration, recovery, export, exact replay, conflict,
    disconnect, terminal redelivery, rollback, restart, and concurrency in
    staging with every family window unset.
-5. Quiesce and drain registration, recovery, and export independently. Existing
-   continuations stay on the tenant snapshot until their family drain expires;
-   new admissions resume against partitioned D1 after that boundary.
-6. Remove Yao snapshot hydration, persistence, serialization, and routing from
-   the tenant runtime after all three drain receipts. Keep the runtime reachable
-   only for non-Yao routes until its separate follow-up deletion.
-7. Deploy route cleanup to staging and repeat the lifecycle and rollback
-   checks.
+5. Configure all three family boundaries as `0`, redeploy, and verify every
+   family selects partitioned D1 immediately.
+6. Remove Yao snapshot hydration, persistence, serialization, selector logic,
+   and routing from the tenant runtime. Delete the tenant Durable Object and
+   obsolete role routes in the same cleanup series.
+7. Deploy route cleanup to staging and production and repeat the lifecycle and
+   rollback checks.
 
-Compatibility exists at the tenant lifecycle persistence boundary through step
-5 and at the role/request boundary through step 7. The Gateway has one current
-Router cryptographic path throughout; legacy role-boundary handlers remain
-available during the drain window and are removed by the cleanup step.
+No compatibility routing remains part of the supported architecture. The
+zero-valued selector configuration exists only to activate the new path before
+the deletion revision lands.
 
 The cutover uses no backend-selection feature flag. Before hard deletion,
 rollback redeploys the previous Gateway Worker version. Rollback after any
