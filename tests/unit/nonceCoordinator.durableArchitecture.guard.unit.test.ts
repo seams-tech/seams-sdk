@@ -18,6 +18,18 @@ function listSourceFiles(relativeDir: string): string[] {
   });
 }
 
+function importsNonceModule(source: string, moduleName: string): boolean {
+  const importPaths = [...source.matchAll(/(?:from|import)\s*["']([^"']+)["']/g)].map(
+    (match) => match[1].replace(/\.tsx?$/, ''),
+  );
+  return importPaths.some(
+    (importPath) =>
+      importPath === `./${moduleName}` ||
+      importPath === `../nonce/${moduleName}` ||
+      importPath.endsWith(`/nonce/${moduleName}`),
+  );
+}
+
 test.describe('nonce coordinator durable architecture guards', () => {
   test('NonceCoordinator does not own a localStorage durable lease mirror', () => {
     const source = readRepoSource('packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator.ts');
@@ -90,11 +102,8 @@ test.describe('nonce coordinator durable architecture guards', () => {
       .filter((relativePath) => !allowedCallers.has(relativePath))
       .filter((relativePath) => {
         const source = readRepoSource(relativePath);
-        return splitImplementationModules.some(
-          (moduleName) =>
-            source.includes(`/nonce/${moduleName}`) ||
-            source.includes(`./${moduleName}`) ||
-            source.includes(`../nonce/${moduleName}`),
+        return splitImplementationModules.some((moduleName) =>
+          importsNonceModule(source, moduleName),
         );
       });
 
@@ -286,12 +295,14 @@ test.describe('nonce coordinator durable architecture guards', () => {
     expect(recoverySource).not.toContain('rawTransaction');
   });
 
-  test('startup recovery is only invoked from startup or unlock boundaries', () => {
+  test('durable recovery is only invoked from startup, unlock, or signing boundaries', () => {
     const allowedCallers = new Set([
       'packages/sdk-web/src/core/signingEngine/assembly/createManagers.ts',
       'packages/sdk-web/src/SeamsWeb/operations/auth/login.ts',
       'packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator.ts',
       'packages/sdk-web/src/core/signingEngine/nonce/nonceTypes.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
     ]);
     const callers = listSourceFiles('packages/sdk-web/src')
       .filter((relativePath) => readRepoSource(relativePath).includes('recoverDurableLeases('))

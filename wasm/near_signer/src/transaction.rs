@@ -1,5 +1,4 @@
 use borsh;
-use sha2::{Digest, Sha256};
 
 use crate::actions::ActionParams;
 use crate::types::*;
@@ -73,12 +72,8 @@ pub fn sign_transaction(
         .map_err(|e| format!("Signed transaction serialization failed: {}", e))
 }
 
-/// Calculate a proper transaction hash from signed transaction bytes using SHA256
-pub fn calculate_transaction_hash(signed_tx_bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(signed_tx_bytes);
-    let result = hasher.finalize();
-
-    // Convert to hex string for readability and consistency
-    format!("{:x}", result)
+/// Return the base58 SHA-256 hash that NEAR RPC uses to identify a transaction.
+pub fn calculate_transaction_hash(transaction: &Transaction) -> String {
+    let (hash, _) = transaction.get_hash_and_size();
+    bs58::encode(hash.0).into_string()
 }

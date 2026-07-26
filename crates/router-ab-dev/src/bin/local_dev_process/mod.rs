@@ -3,7 +3,7 @@
 use router_ab_core::LocalServiceRoleV1;
 use router_ab_dev::{
     local_env_materialization_plan_v1, local_worker_bind_addr_v1, parse_local_env_file_contents_v1,
-    parse_local_worker_role_config_for_role_v1, LocalWorkerRoleConfigV1,
+    parse_local_worker_role_config_for_role_v1, LocalRouterWorkerConfigV1, LocalWorkerRoleConfigV1,
     LOCAL_DERIVER_A_ENV_FILE_V1, LOCAL_DERIVER_B_ENV_FILE_V1, LOCAL_ROUTER_ENV_FILE_V1,
     LOCAL_SIGNING_WORKER_ENV_FILE_V1, LOCAL_WORKER_HEALTH_PATH,
 };
@@ -36,6 +36,14 @@ pub struct LocalWorkerProcessSpec {
 
 pub const LOCAL_WORKER_PROCESS_SPECS: &[LocalWorkerProcessSpec] = &[
     LocalWorkerProcessSpec {
+        role: LocalServiceRoleV1::Router,
+        role_label: "router",
+        env_file: LOCAL_ROUTER_ENV_FILE_V1,
+        pid_file: "router.pid",
+        stdout_file: "router.stdout.log",
+        stderr_file: "router.stderr.log",
+    },
+    LocalWorkerProcessSpec {
         role: LocalServiceRoleV1::DeriverA,
         role_label: "deriver-a",
         env_file: LOCAL_DERIVER_A_ENV_FILE_V1,
@@ -60,6 +68,16 @@ pub const LOCAL_WORKER_PROCESS_SPECS: &[LocalWorkerProcessSpec] = &[
         stderr_file: "signing-worker.stderr.log",
     },
 ];
+
+pub fn worker_process_spec_for_role_v1(
+    role: LocalServiceRoleV1,
+) -> Result<LocalWorkerProcessSpec, Box<dyn std::error::Error>> {
+    LOCAL_WORKER_PROCESS_SPECS
+        .iter()
+        .copied()
+        .find(|spec| spec.role == role)
+        .ok_or_else(|| format!("local worker process spec missing for {}", role.as_str()).into())
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LocalWorkerSpawnReceipt {
@@ -165,6 +183,22 @@ pub fn read_worker_config(
         spec.role,
         parse_local_env_file_contents_v1(&env_contents)?,
     )?;
+    Ok(config)
+}
+
+pub fn read_router_config(
+    root: &Path,
+) -> Result<LocalRouterWorkerConfigV1, Box<dyn std::error::Error>> {
+    let env_path = root.join(LOCAL_ROUTER_ENV_FILE_V1);
+    let env_contents = fs::read_to_string(&env_path)
+        .map_err(|error| format!("failed to read {}: {error}", env_path.display()))?;
+    let config = parse_local_worker_role_config_for_role_v1(
+        LocalServiceRoleV1::Router,
+        parse_local_env_file_contents_v1(&env_contents)?,
+    )?;
+    let LocalWorkerRoleConfigV1::Router(config) = config else {
+        return Err("Router env parsed into a non-Router branch".into());
+    };
     Ok(config)
 }
 
@@ -292,6 +326,7 @@ pub fn write_materialized_envs_with_urls(
         let contents = file
             .contents
             .replace("http://127.0.0.1:9090", &urls.router)
+            .replace("http://127.0.0.1:9100", &urls.router)
             .replace("http://127.0.0.1:9101", &urls.deriver_a)
             .replace("http://127.0.0.1:9102", &urls.deriver_b)
             .replace("http://127.0.0.1:9103", &urls.signing_worker);
@@ -315,9 +350,18 @@ pub struct LocalWorkerUrls {
 impl LocalWorkerUrls {
     pub fn from_env(root: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let router = read_router_public_url(root)?;
-        let deriver_a = worker_bind_url(root, LOCAL_WORKER_PROCESS_SPECS[0])?;
-        let deriver_b = worker_bind_url(root, LOCAL_WORKER_PROCESS_SPECS[1])?;
-        let signing_worker = worker_bind_url(root, LOCAL_WORKER_PROCESS_SPECS[2])?;
+        let deriver_a = worker_bind_url(
+            root,
+            worker_process_spec_for_role_v1(LocalServiceRoleV1::DeriverA)?,
+        )?;
+        let deriver_b = worker_bind_url(
+            root,
+            worker_process_spec_for_role_v1(LocalServiceRoleV1::DeriverB)?,
+        )?;
+        let signing_worker = worker_bind_url(
+            root,
+            worker_process_spec_for_role_v1(LocalServiceRoleV1::SigningWorker)?,
+        )?;
         Ok(Self {
             router,
             deriver_a,

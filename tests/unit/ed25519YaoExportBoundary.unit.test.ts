@@ -1,9 +1,22 @@
 import { expect, test } from '@playwright/test';
+import { parseSigningGrantId, parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import type { RouterAbEd25519YaoExportAdmissionRequestV1 } from '@shared/utils/routerAbEd25519Yao';
 import { buildRouterAbEd25519YaoExportAdmissionBodyV1 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
 import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
 
 const PARTICIPANT_IDS = [11, 29] as const;
+
+function exportAuthorizationIdentity() {
+  const thresholdSessionId = parseThresholdEd25519SessionId('wallet-session-1');
+  const signingGrantId = parseSigningGrantId('signing-grant-1');
+  if (!thresholdSessionId.ok || !signingGrantId.ok) {
+    throw new Error('invalid export authorization fixture identity');
+  }
+  return {
+    thresholdSessionId: thresholdSessionId.value,
+    signingGrantId: signingGrantId.value,
+  };
+}
 
 function bytes(value: number): number[] {
   return new Array<number>(32).fill(value);
@@ -71,6 +84,7 @@ test.describe('Ed25519 Yao export browser boundary', () => {
         kind: 'passkey',
         webauthnAuthentication: authenticationCredential(),
       },
+      authorizationIdentity: exportAuthorizationIdentity(),
     });
     const serialized = JSON.stringify(body);
 
@@ -90,6 +104,7 @@ test.describe('Ed25519 Yao export browser boundary', () => {
         kind: 'email_otp_factor',
         providerSubjectId: 'google:ed25519-export-user',
       },
+      authorizationIdentity: exportAuthorizationIdentity(),
     });
 
     expect(body).toEqual({
@@ -98,6 +113,7 @@ test.describe('Ed25519 Yao export browser boundary', () => {
         kind: 'email_otp_factor',
         providerSubjectId: 'google:ed25519-export-user',
       },
+      authorizationIdentity: exportAuthorizationIdentity(),
     });
     expect(JSON.stringify(body)).not.toContain('webauthn');
   });

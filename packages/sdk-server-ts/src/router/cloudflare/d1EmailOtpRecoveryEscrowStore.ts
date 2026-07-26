@@ -114,14 +114,28 @@ export class CloudflareD1EmailOtpRecoveryEscrowStore {
 
   async putMany(records: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]): Promise<void> {
     if (records.length === 0) return;
-    const statements: D1PreparedStatementLike[] = [];
-    for (const record of records) {
-      statements.push(this.putStatement(record));
-    }
-    await this.database.batch(statements);
+    await this.database.batch(this.preparePutManyStatements(records));
   }
 
-  private putStatement(
+  prepareDeleteForWalletStatement(walletId: string): D1PreparedStatementLike {
+    return this.prepare(
+      `DELETE FROM email_otp_recovery_wrapped_enrollment_escrows
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND wallet_id = ?`,
+      [walletId],
+    );
+  }
+
+  preparePutManyStatements(
+    records: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[],
+  ): readonly D1PreparedStatementLike[] {
+    return records.map((record) => this.preparePutStatement(record));
+  }
+
+  private preparePutStatement(
     record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   ): D1PreparedStatementLike {
     return this.prepare(

@@ -6,6 +6,11 @@
 ))]
 
 use crate::cloudflare_router_error_status;
+#[cfg(any(
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
+))]
+use crate::CloudflareEd25519YaoRoleFailureResponseV1;
 #[cfg(feature = "strict-worker-router-entrypoint")]
 use crate::{
     build_cloudflare_router_public_keyset_v2, cloudflare_now_unix_ms_v1,
@@ -17,6 +22,8 @@ use crate::{
     handle_cloudflare_router_ab_ecdsa_derivation_explicit_export_authenticated_public_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_recovery_authenticated_public_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1,
+    handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1,
+    handle_cloudflare_router_ed25519_yao_recovery_promote_private_fetch_v1,
     handle_cloudflare_router_normal_signing_finalize_authenticated_public_request_v2,
     handle_cloudflare_router_normal_signing_prepare_authenticated_public_request_v2,
     handle_cloudflare_router_wallet_budget_put_grant_private_fetch_v1,
@@ -37,6 +44,8 @@ use crate::{
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH,
+    CLOUDFLARE_ROUTER_ED25519_YAO_EXECUTE_PRIVATE_REQUEST_PATH,
+    CLOUDFLARE_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_PUBLIC_KEYSET_PATH, CLOUDFLARE_ROUTER_PUBLIC_KEYSET_WELL_KNOWN_PATH,
@@ -107,9 +116,18 @@ use crate::{
 };
 #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
 use crate::{
+    handle_cloudflare_ed25519_yao_deriver_a_burn_pair_v1,
+    handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1,
+    handle_cloudflare_ed25519_yao_deriver_a_prepare_pair_v1,
+    handle_cloudflare_ed25519_yao_deriver_a_read_pair_status_v1,
     handle_cloudflare_ed25519_yao_deriver_a_start_v1, preload_cloudflare_deriver_a_host_v1,
     CloudflareDeriverAWorkerRuntimeV1, CLOUDFLARE_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH,
-    CLOUDFLARE_DERIVER_A_ED25519_YAO_EXPORT_START_PATH, CLOUDFLARE_DERIVER_A_PRIVATE_REQUEST_PATH,
+    CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
+    CLOUDFLARE_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
+    CLOUDFLARE_DERIVER_A_ED25519_YAO_EXPORT_START_PATH,
+    CLOUDFLARE_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
+    CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
+    CLOUDFLARE_DERIVER_A_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_PATH,
@@ -117,20 +135,33 @@ use crate::{
 };
 #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
 use crate::{
+    handle_cloudflare_ed25519_yao_deriver_b_burn_pair_v1,
+    handle_cloudflare_ed25519_yao_deriver_b_prepare_pair_v1,
+    handle_cloudflare_ed25519_yao_deriver_b_read_completed_pair_v1,
+    handle_cloudflare_ed25519_yao_deriver_b_read_pair_status_v1,
     handle_cloudflare_ed25519_yao_deriver_b_result_v1,
     handle_cloudflare_ed25519_yao_deriver_b_stage_v1,
     handle_cloudflare_ed25519_yao_deriver_b_websocket_v1, preload_cloudflare_deriver_b_host_v1,
     CloudflareDeriverBWorkerRuntimeV1, CLOUDFLARE_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_ACTIVATION_STAGE_PATH,
-    CLOUDFLARE_DERIVER_B_ED25519_YAO_DUPLEX_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH, CLOUDFLARE_DERIVER_B_ED25519_YAO_DUPLEX_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH,
-    CLOUDFLARE_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH, CLOUDFLARE_DERIVER_B_PRIVATE_REQUEST_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH,
+    CLOUDFLARE_DERIVER_B_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PRIVATE_REQUEST_PATH,
 };
 use router_ab_core::RouterAbProtocolError;
+#[cfg(any(
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
+))]
+use router_ab_core::RouterEd25519YaoExecuteFailureCodeV1;
 #[cfg(feature = "strict-worker-router-entrypoint")]
 use router_ab_core::{
     parse_router_ab_ecdsa_derivation_activation_refresh_request_v1_json,
@@ -199,4 +230,25 @@ pub(super) fn cloudflare_protocol_error_response_v1(
         format!("{:?}: {}", err.code(), err.message()),
         cloudflare_router_error_status(err.code()),
     )
+}
+
+#[cfg(any(
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
+))]
+pub(super) fn cloudflare_role_failure_response_v1(
+    err: RouterAbProtocolError,
+) -> worker::Result<Response> {
+    let failure = CloudflareEd25519YaoRoleFailureResponseV1::from_protocol_error(&err);
+    let status = match &failure {
+        CloudflareEd25519YaoRoleFailureResponseV1::RecoverableFailure { code, .. }
+            if *code == RouterEd25519YaoExecuteFailureCodeV1::ServiceUnavailable =>
+        {
+            503
+        }
+        CloudflareEd25519YaoRoleFailureResponseV1::RecoverableFailure { .. }
+        | CloudflareEd25519YaoRoleFailureResponseV1::Rejected { .. }
+        | CloudflareEd25519YaoRoleFailureResponseV1::Burned { .. } => 409,
+    };
+    Response::from_json(&failure).map(|response| response.with_status(status))
 }

@@ -121,7 +121,10 @@ function assert(condition, message) {
 }
 
 function collectWebModulesRuntimeServiceViolations() {
-  const allowedPrefixes = ['packages/sdk-web/src/SeamsWeb/assembly/'];
+  const allowedPrefixes = [
+    'packages/sdk-web/src/SeamsWeb/assembly/',
+    'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+  ];
   const sourceFiles = [
     ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb'),
     ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/walletIframe'),

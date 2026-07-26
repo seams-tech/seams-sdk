@@ -84,6 +84,7 @@ import type {
   WalletRegistrationEcdsaWalletKey,
   WalletRegistrationFinalizeAuthMethod,
   WalletRegistrationFinalizeResponse,
+  WalletRegistrationRouteDiagnostics,
   WalletRegistrationEd25519YaoPublicResult,
   WalletRegistrationEd25519YaoBootstrapSession,
   WalletAddSignerFinalizeResponse,
@@ -407,12 +408,14 @@ export function parseD1StoredWalletRegistrationFinalizeReplay(
   if (!record || record.kind !== 'wallet_registration_finalize_replay_v1') return null;
   const registrationCeremonyId = toOptionalTrimmedString(record.registrationCeremonyId);
   const idempotencyKey = toOptionalTrimmedString(record.idempotencyKey);
+  const requestFingerprint = toOptionalTrimmedString(record.requestFingerprint);
   const response = parseD1WalletRegistrationFinalizeReplayResponse(record.response);
   const createdAtMs = safeInteger(record.createdAtMs);
   const expiresAtMs = safeInteger(record.expiresAtMs);
   if (
     !registrationCeremonyId ||
     !idempotencyKey ||
+    !requestFingerprint ||
     !response ||
     createdAtMs === null ||
     createdAtMs <= 0 ||
@@ -425,6 +428,7 @@ export function parseD1StoredWalletRegistrationFinalizeReplay(
     kind: 'wallet_registration_finalize_replay_v1',
     registrationCeremonyId,
     idempotencyKey,
+    requestFingerprint,
     response,
     createdAtMs,
     expiresAtMs,
@@ -438,7 +442,7 @@ export function parseD1StoredWalletAddSignerFinalizeReplay(
   if (!record || record.kind !== 'wallet_add_signer_finalize_replay_v1') return null;
   const addSignerCeremonyId = toOptionalTrimmedString(record.addSignerCeremonyId);
   const idempotencyKey = toOptionalTrimmedString(record.idempotencyKey);
-  const response = parseD1WalletAddSignerFinalizeReplayResponse(record.response);
+  const response = parseD1WalletAddSignerFinalizeSuccessResponse(record.response);
   const request = parseD1WalletAddSignerFinalizeRequest(record.request);
   const createdAtMs = safeInteger(record.createdAtMs);
   const expiresAtMs = safeInteger(record.expiresAtMs);
@@ -468,7 +472,7 @@ export function parseD1StoredWalletAddSignerFinalizeReplay(
   };
 }
 
-function parseD1WalletAddSignerFinalizeReplayResponse(
+function parseD1WalletAddSignerFinalizeSuccessResponse(
   raw: unknown,
 ): Extract<WalletAddSignerFinalizeResponse, { ok: true }> | null {
   const record = toRecordValue(raw);
@@ -500,7 +504,18 @@ function parseD1WalletAddSignerFinalizeReplayResponse(
     : { ok: true, kind: 'evm_family_ecdsa', walletId, ecdsa };
 }
 
-function parseD1WalletRegistrationFinalizeReplayResponse(
+export function parseD1WalletAddSignerFinalizeTerminalResponse(
+  raw: unknown,
+): WalletAddSignerFinalizeResponse | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  if (record.ok === true) return parseD1WalletAddSignerFinalizeSuccessResponse(record);
+  const code = toOptionalTrimmedString(record.code);
+  const message = toOptionalTrimmedString(record.message);
+  return record.ok === false && code && message ? { ok: false, code, message } : null;
+}
+
+export function parseD1WalletRegistrationFinalizeReplayResponse(
   raw: unknown,
 ): D1WalletRegistrationFinalizeSuccess | null {
   const record = toRecordValue(raw);
@@ -622,6 +637,92 @@ function parseD1WalletRegistrationFinalizeReplayResponse(
     resolvedAccount,
     ed25519,
   };
+}
+
+function parseWalletRegistrationRouteTimingName(
+  raw: unknown,
+): WalletRegistrationRouteDiagnostics['entries'][number]['name'] | null {
+  switch (raw) {
+    case 'registrationIntentLoadMs':
+    case 'registrationIntentDigestMs':
+    case 'registrationIntentConsumeMs':
+    case 'registrationAttemptGateMs':
+    case 'registrationPreparationPersistMs':
+    case 'registrationPreparationLoadMs':
+    case 'registrationPreparationConsumeMs':
+    case 'registrationPreparationScopeCheckMs':
+    case 'registrationAuthorityVerifyMs':
+    case 'registrationEcdsaPrepareMs':
+    case 'registrationCeremonyPersistMs':
+    case 'registerPrepareTotalMs':
+    case 'registerStartTotalMs':
+    case 'registrationEcdsaRespondMs':
+    case 'registrationFinalizeReplayLoadMs':
+    case 'registrationCeremonyLoadMs':
+    case 'registrationEcdsaBootstrapVerifyMs':
+    case 'sponsoredNearAccountCreateMs':
+    case 'registrationKeygenMs':
+    case 'registrationEmailOtpEnrollmentPlanMs':
+    case 'relaySessionMintMs':
+    case 'relayGoogleEmailOtpActivationPlanMs':
+    case 'relayPersistenceMs':
+    case 'registrationFinalizeReplayCacheMs':
+    case 'registerFinalizeTotalMs':
+      return raw;
+    default:
+      return null;
+  }
+}
+
+function parseWalletRegistrationRouteDiagnostics(
+  raw: unknown,
+): WalletRegistrationRouteDiagnostics | null {
+  const record = toRecordValue(raw);
+  if (
+    !record ||
+    record.kind !== 'wallet_registration_route_diagnostics_v1' ||
+    record.route !== 'wallets_register_finalize' ||
+    !Array.isArray(record.entries)
+  ) {
+    return null;
+  }
+  const entries: WalletRegistrationRouteDiagnostics['entries'] = [];
+  for (const rawEntry of record.entries) {
+    const entry = toRecordValue(rawEntry);
+    const name = parseWalletRegistrationRouteTimingName(entry?.name);
+    if (!entry || !name || typeof entry.durationMs !== 'number' || entry.durationMs < 0) {
+      return null;
+    }
+    entries.push({ name, durationMs: entry.durationMs });
+  }
+  return {
+    kind: 'wallet_registration_route_diagnostics_v1',
+    route: 'wallets_register_finalize',
+    entries,
+  };
+}
+
+export function parseD1WalletRegistrationFinalizeTerminalResponse(
+  raw: unknown,
+): WalletRegistrationFinalizeResponse | null {
+  const record = toRecordValue(raw);
+  if (!record || typeof record.ok !== 'boolean') return null;
+  if (!record.ok) {
+    const code = toOptionalTrimmedString(record.code);
+    const message = toOptionalTrimmedString(record.message);
+    if (!code || !message) return null;
+    if (record.retryAfterMs === undefined) return { ok: false, code, message };
+    if (!Number.isSafeInteger(record.retryAfterMs) || Number(record.retryAfterMs) < 0) return null;
+    return { ok: false, code, message, retryAfterMs: Number(record.retryAfterMs) };
+  }
+  const success = parseD1WalletRegistrationFinalizeReplayResponse(record);
+  if (!success) return null;
+  if (record.registrationDiagnostics === undefined) return success;
+  const registrationDiagnostics = parseWalletRegistrationRouteDiagnostics(
+    record.registrationDiagnostics,
+  );
+  if (!registrationDiagnostics) return null;
+  return { ...success, registrationDiagnostics };
 }
 
 function registrationNearProvisioningMatchesResolution(
@@ -1186,7 +1287,9 @@ export function parseD1StoredWalletAddSignerCeremony(
   return ceremony;
 }
 
-function parseD1StoredAddSignerAuth(raw: unknown): StoredWalletAddSignerCeremony['auth'] | null {
+export function parseD1StoredAddSignerAuth(
+  raw: unknown,
+): StoredWalletAddSignerCeremony['auth'] | null {
   const record = toRecordValue(raw);
   const kind = toOptionalTrimmedString(record?.kind);
   if (kind === 'app_session') return { kind: 'app_session' };
@@ -1227,7 +1330,7 @@ function parseD1StoredWalletAddSignerSignerState(
         ...activation,
       };
     }
-    const response = parseD1WalletAddSignerFinalizeReplayResponse(record.response);
+    const response = parseD1WalletAddSignerFinalizeSuccessResponse(record.response);
     const signer = parseWalletEd25519SignerRecord(record.signer);
     const finalizingAtMs = safeInteger(record.finalizingAtMs);
     if (
@@ -1306,7 +1409,7 @@ function parseD1StoredEd25519YaoAddSignerActivation(
   };
 }
 
-function parseD1WalletAddSignerFinalizeRequest(
+export function parseD1WalletAddSignerFinalizeRequest(
   raw: unknown,
 ): StoredWalletAddSignerFinalizeRequest | null {
   const record = toRecordValue(raw);
@@ -2217,7 +2320,7 @@ function parseD1StoredAddAuthMethodAuth(
   return null;
 }
 
-function parseD1RegistrationAuthority(raw: unknown): RegistrationAuthority | null {
+export function parseD1RegistrationAuthority(raw: unknown): RegistrationAuthority | null {
   const record = toRecordValue(raw);
   if (!record) return null;
   const kind = toOptionalTrimmedString(record?.kind);

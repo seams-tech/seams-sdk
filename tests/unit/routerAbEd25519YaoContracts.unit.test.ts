@@ -19,6 +19,7 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import {
   InMemoryRouterAbEd25519YaoRegistrationService,
+  InMemoryRouterAbEd25519YaoRegistrationStateV1,
   createRouterAbEd25519YaoRegistrationModule,
   type RouterAbEd25519YaoRegistrationAuthorizationAdapter,
   type RouterAbEd25519YaoRegistrationAuthorizationInput,
@@ -50,6 +51,11 @@ type DeferredExecutionState =
 type ScriptedFetchState =
   | { kind: 'unbound' }
   | { kind: 'bound'; binding: RouterAbEd25519YaoActivationBindingV1 };
+
+type ScriptedExecutionResult =
+  | { kind: 'success' }
+  | { kind: 'burned'; reason: 'protocol_failure' }
+  | { kind: 'recoverable'; code: 'ceremony_expired' };
 
 class TestRegistrationBackend implements RouterAbEd25519YaoRegistrationBackend {
   admitCalls = 0;
@@ -121,6 +127,13 @@ class DeferredRegistrationBackend implements RouterAbEd25519YaoRegistrationBacke
 
 class ScriptedLocalYaoFetch {
   readonly calls: string[] = [];
+  readonly requestUrls: string[] = [];
+  readonly traceIds: string[] = [];
+  readonly requestBodies: string[] = [];
+  readonly replayHeaders: string[] = [];
+  failNextExecute = false;
+  dropNextExecuteResponse = false;
+  executionResult: ScriptedExecutionResult = { kind: 'success' };
   private state: ScriptedFetchState = { kind: 'unbound' };
 
   bindActivation(binding: RouterAbEd25519YaoActivationBindingV1): void {
@@ -132,8 +145,25 @@ class ScriptedLocalYaoFetch {
     if (this.state.kind !== 'bound') throw new Error('scripted fetch session is not bound');
     const url = this.url(input);
     const method = init?.method || 'GET';
+    const traceId = new Headers(init?.headers).get('x-seams-trace-id');
+    if (!traceId || !/^[0-9a-f]{32}$/.test(traceId)) {
+      throw new Error('Router request must carry a canonical opaque trace ID');
+    }
     this.calls.push(`${method} ${url.pathname}`);
-    return this.response(url.pathname, this.state.binding);
+    this.requestUrls.push(url.toString());
+    this.traceIds.push(traceId);
+    this.requestBodies.push(typeof init?.body === 'string' ? init.body : '');
+    this.replayHeaders.push(new Headers(init?.headers).get('x-seams-yao-replay') ?? '');
+    if (this.failNextExecute && url.pathname === '/router-ab/router/ed25519-yao/execute') {
+      this.failNextExecute = false;
+      throw new Error('simulated Router transport failure');
+    }
+    const response = this.response(url.pathname, this.state.binding);
+    if (this.dropNextExecuteResponse && url.pathname === '/router-ab/router/ed25519-yao/execute') {
+      this.dropNextExecuteResponse = false;
+      throw new Error('simulated Router response loss after execution');
+    }
+    return response;
   }
 
   private url(input: RequestInfo | URL): URL {
@@ -145,36 +175,29 @@ class ScriptedLocalYaoFetch {
   private response(path: string, binding: RouterAbEd25519YaoActivationBindingV1): Response {
     const session = binding.session_id;
     switch (path) {
-      case '/router-ab/deriver-b/ed25519-yao/activation/stage':
-        return this.json({ status: 'staged' });
-      case '/router-ab/deriver-a/ed25519-yao/activation/start':
-        return this.json(activationRoleExecution(binding, 'deriver_a', 21, 23, 31, 33));
-      case '/router-ab/deriver-b/ed25519-yao/activation/result':
-        return this.json(activationRoleExecution(binding, 'deriver_b', 22, 15, 32, 34));
-      case '/router-ab/signing-worker/ed25519-yao/activation/packages':
-        if (binding.operation === 'recovery') {
+      case '/router-ab/router/ed25519-yao/execute':
+        if (this.executionResult.kind === 'burned') {
           return this.json({
-            status: 'staged',
-            session,
-            transcript: bytes(11),
-            registered_public_key: bytes(12),
-            joined_client_commitment: bytes(13),
-            joined_signing_worker_commitment: bytes(15),
-            signing_worker_verifying_share: bytes(15),
-            state_epoch: 2,
+            status: 'burned',
+            execution_id: bytes(18),
+            reason: this.executionResult.reason,
+          });
+        }
+        if (this.executionResult.kind === 'recoverable') {
+          return this.json({
+            status: 'recoverable_failure',
+            code: this.executionResult.code,
+            retry_after_ms: 1_000,
           });
         }
         return this.json({
-          status: 'active',
-          session,
-          transcript: bytes(11),
-          registered_public_key: bytes(12),
-          joined_client_commitment: bytes(13),
-          joined_signing_worker_commitment: bytes(15),
-          signing_worker_verifying_share: bytes(15),
-          state_epoch: 1,
+          status: 'succeeded',
+          result: {
+            operation: binding.operation,
+            result: activationResultForBinding(binding),
+          },
         });
-      case '/router-ab/signing-worker/ed25519-yao/recovery/promote':
+      case '/router-ab/router/ed25519-yao/recovery/promote':
         return this.json({
           status: 'active',
           session,
@@ -214,9 +237,7 @@ function x25519(seed: number): string {
 
 function localHttpBackendEnv(): Readonly<Record<string, unknown>> {
   return {
-    DERIVER_A_URL: 'http://a.local',
-    DERIVER_B_URL: 'http://b.local',
-    SIGNING_WORKER_URL: 'http://worker.local',
+    MPC_ROUTER_URL: 'http://router.local',
     SIGNING_WORKER_ID: 'signing-worker-1',
     ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'local-service-auth',
     DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: x25519(1),
@@ -313,52 +334,6 @@ function encryptedInputForBinding(
   };
 }
 
-function activationRoleExecution(
-  binding: RouterAbEd25519YaoActivationBindingV1,
-  deriver: 'deriver_a' | 'deriver_b',
-  clientCommitmentSeed: number,
-  signingWorkerCommitmentSeed: number,
-  clientCiphertextSeed: number,
-  signingWorkerCiphertextSeed: number,
-): Record<string, unknown> {
-  return {
-    family: 'activation',
-    binding,
-    deriver,
-    transcript: bytes(11),
-    client_commitment: bytes(clientCommitmentSeed),
-    signing_worker_commitment: bytes(signingWorkerCommitmentSeed),
-    client_package: encryptedPackage(
-      binding.session_id,
-      'activation_client',
-      deriver,
-      clientCiphertextSeed,
-    ),
-    signing_worker_package: encryptedPackage(
-      binding.session_id,
-      'activation_signing_worker',
-      deriver,
-      signingWorkerCiphertextSeed,
-    ),
-  };
-}
-
-function encryptedPackage(
-  session: readonly number[],
-  kind: 'activation_client' | 'activation_signing_worker',
-  deriver: 'deriver_a' | 'deriver_b',
-  ciphertextSeed: number,
-): Record<string, unknown> {
-  return {
-    kind,
-    deriver,
-    session,
-    transcript: bytes(11),
-    encapsulated_key: bytes(ciphertextSeed + 1),
-    ciphertext: bytes(ciphertextSeed, 32),
-  };
-}
-
 function registrationExecuteRequest(): Record<string, unknown> {
   return {
     binding: registrationBinding(),
@@ -375,6 +350,31 @@ function encryptedClientPackage(deriver: 'deriver_a' | 'deriver_b'): Record<stri
     transcript: bytes(11),
     encapsulated_key: bytes(16),
     ciphertext: bytes(17, 32),
+  };
+}
+
+function activationResultForBinding(
+  binding: RouterAbEd25519YaoActivationBindingV1,
+): Record<string, unknown> {
+  const session = binding.session_id;
+  return {
+    binding,
+    deriver_a_client_package: {
+      ...encryptedClientPackage('deriver_a'),
+      session,
+    },
+    deriver_b_client_package: {
+      ...encryptedClientPackage('deriver_b'),
+      session,
+    },
+    public_receipt: {
+      transcript: bytes(11),
+      registered_public_key: bytes(12),
+      joined_client_commitment: bytes(13),
+      joined_signing_worker_commitment: bytes(15),
+      signing_worker_verifying_share: bytes(15),
+      state_epoch: binding.operation === 'recovery' ? 2 : 1,
+    },
   };
 }
 
@@ -448,9 +448,7 @@ function jsonRequest(path: string, body: unknown): Request {
 function createMalformedLocalRegistrationBackend(): void {
   createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
     env: {
-      DERIVER_A_URL: 'http://a.local',
-      DERIVER_B_URL: 'http://b.local',
-      SIGNING_WORKER_URL: 'http://worker.local',
+      MPC_ROUTER_URL: 'http://router.local',
       SIGNING_WORKER_ID: 'signing-worker-1',
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'local-service-auth',
       DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: x25519(1),
@@ -660,6 +658,93 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect((await firstExecution).ok).toBe(true);
   });
 
+  test('exposes a typed preclaim and terminal commit boundary', async () => {
+    const backend = new TestRegistrationBackend(registrationAdmissionReceipt(), {
+      kind: 'success',
+      body: registrationResult(),
+    });
+    const service = new InMemoryRouterAbEd25519YaoRegistrationService(backend);
+    expect((await service.admit(parsedAdmissionRequest())).ok).toBe(true);
+
+    const request = parsedExecuteRequest();
+    const preparation = service.prepareExecute(request);
+    expect(preparation.kind).toBe('claimed');
+    if (preparation.kind !== 'claimed') throw new Error('execution claim is required');
+    expect(service.prepareExecute(request)).toMatchObject({
+      kind: 'failed',
+      failure: { code: 'execution_in_progress' },
+    });
+    expect(
+      service.commitExecute({
+        request,
+        claim: preparation.claim,
+        outcome: {
+          kind: 'backend_response',
+          result: { ok: true, body: registrationResult() },
+        },
+      }),
+    ).toMatchObject({ ok: true, status: 200 });
+    expect(backend.executeCalls).toBe(0);
+  });
+
+  test('persists an admission claim boundary before the backend is allowed to run', () => {
+    const backend = new TestRegistrationBackend(registrationAdmissionReceipt(), {
+      kind: 'success',
+      body: registrationResult(),
+    });
+    const state = new InMemoryRouterAbEd25519YaoRegistrationStateV1();
+    const service = new InMemoryRouterAbEd25519YaoRegistrationService(backend, state);
+    const request = parsedAdmissionRequest();
+
+    const preparation = service.prepareAdmit(request);
+    expect(preparation.kind).toBe('claimed');
+    expect(backend.admitCalls).toBe(0);
+    expect(state.admissionClaims.get('registration-1')).toMatchObject({
+      lifecycleId: 'registration-1',
+    });
+    expect(service.prepareAdmit(request)).toMatchObject({
+      kind: 'failed',
+      failure: { code: 'admission_in_progress' },
+    });
+    if (preparation.kind !== 'claimed') throw new Error('admission claim is required');
+    const committed = service.commitAdmit({
+      request,
+      claim: preparation.claim,
+      outcome: {
+        kind: 'backend_response',
+        result: backend.admit(),
+      },
+    });
+    expect(committed).toMatchObject({ ok: true, status: 200 });
+    expect(state.admissionClaims.size).toBe(0);
+    expect(state.lifecycleSessions.get('registration-1')).toBeTruthy();
+  });
+
+  test('keeps an uncertain admission claim durable and rejects a duplicate backend call', () => {
+    const backend = new TestRegistrationBackend(registrationAdmissionReceipt(), {
+      kind: 'success',
+      body: registrationResult(),
+    });
+    const state = new InMemoryRouterAbEd25519YaoRegistrationStateV1();
+    const service = new InMemoryRouterAbEd25519YaoRegistrationService(backend, state);
+    const request = parsedAdmissionRequest();
+    const preparation = service.prepareAdmit(request);
+    if (preparation.kind !== 'claimed') throw new Error('admission claim is required');
+
+    expect(
+      service.commitAdmit({
+        request,
+        claim: preparation.claim,
+        outcome: { kind: 'backend_uncertain', message: 'Router response was lost' },
+      }),
+    ).toMatchObject({ ok: false, code: 'admission_uncertain', status: 503 });
+    expect(service.prepareAdmit(request)).toMatchObject({
+      kind: 'failed',
+      failure: { code: 'admission_in_progress' },
+    });
+    expect(backend.admitCalls).toBe(0);
+  });
+
   test('burns a failed execution and never invokes the backend twice', async () => {
     const backend = new TestRegistrationBackend(registrationAdmissionReceipt(), {
       kind: 'failure',
@@ -746,6 +831,37 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect(authorization.inputs[1]?.kind).toBe('execute');
   });
 
+  test('rejects a malformed trace ID at the HTTP boundary before authorization or work', async () => {
+    const backend = new TestRegistrationBackend(registrationAdmissionReceipt(), {
+      kind: 'success',
+      body: registrationResult(),
+    });
+    const service = new InMemoryRouterAbEd25519YaoRegistrationService(backend);
+    const authorization = new TestRegistrationAuthorization({ ok: true });
+    const module = createRouterAbEd25519YaoRegistrationModule({ service, authorization });
+    const extension = module.routeExtensions[0];
+    if (!extension) throw new Error('registration route extension is required');
+    const route = extension.routes[0];
+    if (!route) throw new Error('registration admission route is required');
+    const request = jsonRequest(route.path, registrationAdmissionRequest());
+    request.headers.set('x-seams-trace-id', 'contains-sensitive-data');
+    const response = await extension.handleCloudflareRoute({
+      request,
+      route,
+      pathname: route.path,
+      method: 'POST',
+      logger: coerceRouterLogger(null),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      ok: false,
+      code: 'invalid_trace_id',
+      message: 'Router trace ID must be 32 lowercase hexadecimal characters',
+    });
+    expect(authorization.inputs).toHaveLength(0);
+    expect(backend.admitCalls).toBe(0);
+  });
+
   test('rejects route authorization before invoking registration work', async () => {
     const backend = new TestRegistrationBackend(registrationAdmissionReceipt(), {
       kind: 'success',
@@ -779,19 +895,25 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect(backend.admitCalls).toBe(0);
   });
 
-  test('drives the exact local Deriver and SigningWorker registration sequence', async () => {
+  test('drives one local MPC Router request for registration', async () => {
     const scriptedFetch = new ScriptedLocalYaoFetch();
+    const spans: Array<{
+      span: string;
+      operation: string;
+      outcome: string;
+      duration_ms: number;
+      trace_id: string;
+    }> = [];
     const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: {
-        DERIVER_A_URL: 'http://a.local',
-        DERIVER_B_URL: 'http://b.local',
-        SIGNING_WORKER_URL: 'http://worker.local',
+        MPC_ROUTER_URL: 'http://router.local',
         SIGNING_WORKER_ID: 'signing-worker-1',
         ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'local-service-auth',
         DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: x25519(1),
         DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: x25519(2),
         SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: x25519(3),
       },
+      onSpan: (span) => spans.push(span),
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
     });
 
@@ -809,15 +931,131 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     const parsedExecution = parseRouterAbEd25519YaoRegistrationExecuteRequestV1(rawExecution);
     if (!parsedExecution.ok) throw new Error(parsedExecution.message);
 
+    scriptedFetch.failNextExecute = true;
     const executed = await backend.execute(parsedExecution.value);
     if (!executed.ok) throw new Error(executed.message);
     expect(parseRouterAbEd25519YaoRegistrationResultV1(executed.body).ok).toBe(true);
     expect(scriptedFetch.calls).toEqual([
-      'POST /router-ab/deriver-b/ed25519-yao/activation/stage',
-      'POST /router-ab/deriver-a/ed25519-yao/activation/start',
-      'POST /router-ab/deriver-b/ed25519-yao/activation/result',
-      'POST /router-ab/signing-worker/ed25519-yao/activation/packages',
+      'POST /router-ab/router/ed25519-yao/execute',
+      'POST /router-ab/router/ed25519-yao/execute',
     ]);
+    expect(scriptedFetch.requestUrls.map((url) => new URL(url).origin)).toEqual([
+      'http://router.local',
+      'http://router.local',
+    ]);
+    expect(scriptedFetch.requestBodies[0]).toBe(scriptedFetch.requestBodies[1]);
+    const routerBody = JSON.parse(scriptedFetch.requestBodies[0]) as Record<string, unknown>;
+    expect(routerBody.operation).toBe('registration');
+    expect(routerBody).not.toHaveProperty('authority');
+    expect(routerBody).not.toHaveProperty('pair_binding');
+    expect(scriptedFetch.replayHeaders).toEqual(['', '1']);
+    expect(scriptedFetch.traceIds).toHaveLength(2);
+    expect(scriptedFetch.traceIds[0]).toBe(scriptedFetch.traceIds[1]);
+    expect(scriptedFetch.traceIds[0]).toMatch(/^[0-9a-f]{32}$/);
+    expect(spans.map((span) => span.span)).toEqual(['gateway.pre_yao', 'gateway.yao_execute']);
+    expect(spans.every((span) => span.operation === 'registration')).toBe(true);
+    expect(spans.every((span) => span.outcome === 'success')).toBe(true);
+    expect(spans.every((span) => span.duration_ms >= 0)).toBe(true);
+    expect(spans.map((span) => span.trace_id)).toEqual([
+      scriptedFetch.traceIds[0],
+      scriptedFetch.traceIds[0],
+    ]);
+  });
+
+  test('replays the exact admitted request when the Router response is lost after execution', async () => {
+    const scriptedFetch = new ScriptedLocalYaoFetch();
+    const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
+      env: localHttpBackendEnv(),
+      fetch: scriptedFetch.fetch.bind(scriptedFetch),
+    });
+
+    const admitted = await backend.admit(parsedAdmissionRequest());
+    if (!admitted.ok) throw new Error(admitted.message);
+    const parsedAdmission = parseRouterAbEd25519YaoRegistrationAdmissionReceiptV1(admitted.body);
+    if (!parsedAdmission.ok) throw new Error(parsedAdmission.message);
+    scriptedFetch.bindActivation(parsedAdmission.value.binding);
+
+    const parsedExecution = parseRouterAbEd25519YaoRegistrationExecuteRequestV1({
+      binding: parsedAdmission.value.binding,
+      deriver_a_input: encryptedInputForBinding(parsedAdmission.value.binding, 'deriver_a'),
+      deriver_b_input: encryptedInputForBinding(parsedAdmission.value.binding, 'deriver_b'),
+    });
+    if (!parsedExecution.ok) throw new Error(parsedExecution.message);
+
+    scriptedFetch.dropNextExecuteResponse = true;
+    const executed = await backend.execute(parsedExecution.value);
+    if (!executed.ok) throw new Error(executed.message);
+    expect(parseRouterAbEd25519YaoRegistrationResultV1(executed.body).ok).toBe(true);
+    expect(scriptedFetch.calls).toEqual([
+      'POST /router-ab/router/ed25519-yao/execute',
+      'POST /router-ab/router/ed25519-yao/execute',
+    ]);
+    expect(scriptedFetch.requestBodies[0]).toBe(scriptedFetch.requestBodies[1]);
+    expect(scriptedFetch.replayHeaders).toEqual(['', '1']);
+    expect(scriptedFetch.traceIds).toHaveLength(2);
+    expect(scriptedFetch.traceIds[0]).toBe(scriptedFetch.traceIds[1]);
+  });
+
+  test('surfaces a burned Router execution without retrying it', async () => {
+    const scriptedFetch = new ScriptedLocalYaoFetch();
+    scriptedFetch.executionResult = { kind: 'burned', reason: 'protocol_failure' };
+    const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
+      env: localHttpBackendEnv(),
+      fetch: scriptedFetch.fetch.bind(scriptedFetch),
+    });
+
+    const admitted = await backend.admit(parsedAdmissionRequest());
+    if (!admitted.ok) throw new Error(admitted.message);
+    const parsedAdmission = parseRouterAbEd25519YaoRegistrationAdmissionReceiptV1(admitted.body);
+    if (!parsedAdmission.ok) throw new Error(parsedAdmission.message);
+    scriptedFetch.bindActivation(parsedAdmission.value.binding);
+
+    const parsedExecution = parseRouterAbEd25519YaoRegistrationExecuteRequestV1({
+      binding: parsedAdmission.value.binding,
+      deriver_a_input: encryptedInputForBinding(parsedAdmission.value.binding, 'deriver_a'),
+      deriver_b_input: encryptedInputForBinding(parsedAdmission.value.binding, 'deriver_b'),
+    });
+    if (!parsedExecution.ok) throw new Error(parsedExecution.message);
+
+    const burned = await backend.execute(parsedExecution.value);
+    expect(burned).toEqual({
+      ok: false,
+      status: 502,
+      code: 'router_execution_burned',
+      message: 'Router Yao execution was burned',
+    });
+    expect(scriptedFetch.calls).toEqual(['POST /router-ab/router/ed25519-yao/execute']);
+    expect(scriptedFetch.replayHeaders).toEqual(['']);
+  });
+
+  test('surfaces ceremony expiry as a terminal new-identity failure', async () => {
+    const scriptedFetch = new ScriptedLocalYaoFetch();
+    scriptedFetch.executionResult = { kind: 'recoverable', code: 'ceremony_expired' };
+    const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
+      env: localHttpBackendEnv(),
+      fetch: scriptedFetch.fetch.bind(scriptedFetch),
+    });
+
+    const admitted = await backend.admit(parsedAdmissionRequest());
+    if (!admitted.ok) throw new Error(admitted.message);
+    const parsedAdmission = parseRouterAbEd25519YaoRegistrationAdmissionReceiptV1(admitted.body);
+    if (!parsedAdmission.ok) throw new Error(parsedAdmission.message);
+    scriptedFetch.bindActivation(parsedAdmission.value.binding);
+
+    const parsedExecution = parseRouterAbEd25519YaoRegistrationExecuteRequestV1({
+      binding: parsedAdmission.value.binding,
+      deriver_a_input: encryptedInputForBinding(parsedAdmission.value.binding, 'deriver_a'),
+      deriver_b_input: encryptedInputForBinding(parsedAdmission.value.binding, 'deriver_b'),
+    });
+    if (!parsedExecution.ok) throw new Error(parsedExecution.message);
+
+    await expect(backend.execute(parsedExecution.value)).resolves.toEqual({
+      ok: false,
+      status: 409,
+      code: 'ceremony_expired',
+      message: 'Router Yao ceremony expired; allocate a new ceremony identity',
+    });
+    expect(scriptedFetch.calls).toEqual(['POST /router-ab/router/ed25519-yao/execute']);
   });
 
   test('promotes a SigningWorker-owned staged recovery across request-scoped HTTP backends', async () => {
@@ -873,7 +1111,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     });
     expect(
       scriptedFetch.calls.filter(
-        (call) => call === 'POST /router-ab/signing-worker/ed25519-yao/recovery/promote',
+        (call) => call === 'POST /router-ab/router/ed25519-yao/recovery/promote',
       ),
     ).toHaveLength(2);
 

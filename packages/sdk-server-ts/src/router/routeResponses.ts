@@ -14,7 +14,8 @@ export interface RouteErrorBody {
     | 'wallet_id_collision'
     | 'registration_incomplete'
     | 'stale_identity_mapping'
-    | 'wallet_identity_mismatch';
+    | 'wallet_identity_mismatch'
+    | 'invalid_trace_id';
   message: string;
 }
 

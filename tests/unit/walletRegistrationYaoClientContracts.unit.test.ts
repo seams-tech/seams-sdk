@@ -13,6 +13,7 @@ test('builds Ed25519 finalize with only the opaque one-use activation reference'
     buildWalletRegistrationFinalizeBody({
       relayerUrl: 'http://127.0.0.1:8787',
       registrationCeremonyId: 'registration-42',
+      idempotencyKey: 'registration-finalize-42',
       kind: 'near_ed25519',
       ed25519: {
         activationReference: {
@@ -24,6 +25,7 @@ test('builds Ed25519 finalize with only the opaque one-use activation reference'
     }),
   ).toEqual({
     registrationCeremonyId: 'registration-42',
+    idempotencyKey: 'registration-finalize-42',
     kind: 'near_ed25519',
     ed25519: {
       activationReference: {
@@ -40,6 +42,7 @@ test('builds mixed finalize only through its coherent mixed variant', () => {
     buildWalletRegistrationFinalizeBody({
       relayerUrl: 'http://127.0.0.1:8787',
       registrationCeremonyId: 'registration-42',
+      idempotencyKey: 'registration-finalize-42',
       kind: 'near_ed25519_and_evm_family_ecdsa',
       ed25519: {
         activationReference: {

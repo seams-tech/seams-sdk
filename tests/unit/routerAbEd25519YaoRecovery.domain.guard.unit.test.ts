@@ -130,11 +130,16 @@ class RecordingCapabilityPersistence implements RouterAbEd25519YaoCapabilityPers
   }> = [];
 
   replaceActiveCapability(input: {
+    readonly operation: {
+      readonly kind: 'router_ab_ed25519_yao_capability_replacement_operation_v1';
+      readonly operationId: string;
+      readonly operationFingerprint: string;
+    };
     readonly previous: WalletEd25519YaoActiveCapabilityRecord;
     readonly next: WalletEd25519YaoActiveCapabilityRecord;
   }) {
     this.calls.push(input);
-    return { ok: true } as const;
+    return { ok: true, disposition: 'applied' } as const;
   }
 }
 
@@ -215,24 +220,26 @@ function registrationResult(): RegistrationResult {
 
 function recoveryAdmissionRequest(input?: {
   readonly lifecycleId: string;
+  readonly accountId?: string;
   readonly walletSessionId: string;
   readonly activeCapabilitySeed: number;
   readonly replacementCapabilitySeed: number;
   readonly publicKeySeed: number;
 }): RouterAbEd25519YaoRecoveryAdmissionRequestV1 {
-  const values = input ?? {
-    lifecycleId: 'recovery-1',
-    walletSessionId: 'wallet-session-1',
-    activeCapabilitySeed: 20,
-    replacementCapabilitySeed: 21,
-    publicKeySeed: 12,
+  const values = {
+    lifecycleId: input?.lifecycleId ?? 'recovery-1',
+    accountId: input?.accountId ?? 'wallet-1',
+    walletSessionId: input?.walletSessionId ?? 'wallet-session-1',
+    activeCapabilitySeed: input?.activeCapabilitySeed ?? 20,
+    replacementCapabilitySeed: input?.replacementCapabilitySeed ?? 21,
+    publicKeySeed: input?.publicKeySeed ?? 12,
   };
   return requireParsed(
     parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
       scope: {
         lifecycle_id: values.lifecycleId,
         root_share_epoch: 'root-epoch-1',
-        account_id: 'wallet-1',
+        account_id: values.accountId,
         wallet_session_id: values.walletSessionId,
         signer_set_id: 'signer-set-1',
         signing_worker_id: 'signing-worker-1',
@@ -389,13 +396,12 @@ function registrationCapabilityRecord(): WalletEd25519YaoActiveCapabilityRecord 
 
 function resolveWalletCapability(
   service: InMemoryRouterAbEd25519YaoRecoveryService,
-  nearAccountId = 'wallet-1.testnet',
+  nearEd25519SigningKeyId = 'ed25519ks_1',
 ) {
   return service.resolveActiveCapability({
     kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
     walletId: 'wallet-1',
-    nearAccountId,
-    nearEd25519SigningKeyId: 'ed25519ks_1',
+    nearEd25519SigningKeyId,
     signerSlot: 1,
     signingWorkerId: 'signing-worker-1',
     participantIds: [1, 2],
@@ -416,11 +422,7 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
   const result = recoveryResult(execution);
   const backend = new TestRecoveryBackend({ kind: 'success', result });
   const persistence = new RecordingCapabilityPersistence();
-  const service = new InMemoryRouterAbEd25519YaoRecoveryService(
-    backend,
-    undefined,
-    persistence,
-  );
+  const service = new InMemoryRouterAbEd25519YaoRecoveryService(backend, undefined, persistence);
   const runtime = createRouterAbEd25519YaoRecoveryRuntimePortV1(service);
 
   expect(installRegistrationCapability(service)).toMatchObject({
@@ -448,7 +450,7 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
       stateEpoch: 1,
     },
   });
-  expect(resolveWalletCapability(service, 'substituted.testnet')).toMatchObject({
+  expect(resolveWalletCapability(service, 'substituted-ed25519-key')).toMatchObject({
     ok: false,
     code: 'unknown_capability',
   });
@@ -456,7 +458,6 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
     service.resolveActiveCapability({
       kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
       walletId: 'wallet-1',
-      nearAccountId: 'wallet-1.testnet',
       nearEd25519SigningKeyId: 'ed25519ks_1',
       signerSlot: 1,
       signingWorkerId: 'signing-worker-1',
@@ -610,16 +611,17 @@ async function continuityFailureKeepsCapabilitySuspended(): Promise<void> {
   expect(wrongPublicKey).toMatchObject({ ok: false, code: 'continuity_mismatch' });
   expect(backend.admitCalls).toBe(0);
 
-  const wrongWalletSession = await service.admitRecovery(
+  const wrongAccount = await service.admitRecovery(
     recoveryAdmissionRequest({
-      lifecycleId: 'recovery-wrong-wallet-session',
-      walletSessionId: 'substituted-wallet-session',
+      lifecycleId: 'recovery-wrong-account',
+      accountId: 'substituted-account',
+      walletSessionId: 'wallet-session-1',
       activeCapabilitySeed: 20,
       replacementCapabilitySeed: 22,
       publicKeySeed: 12,
     }),
   );
-  expect(wrongWalletSession).toMatchObject({ ok: false, code: 'continuity_mismatch' });
+  expect(wrongAccount).toMatchObject({ ok: false, code: 'continuity_mismatch' });
   expect(backend.admitCalls).toBe(0);
 
   expect((await service.admitRecovery(admission)).ok).toBe(true);
@@ -638,6 +640,27 @@ async function continuityFailureKeepsCapabilitySuspended(): Promise<void> {
     }),
   );
   expect(replacementAttempt).toMatchObject({ ok: false, code: 'capability_suspended' });
+}
+
+async function recoveryAcceptsFreshWalletSession(): Promise<void> {
+  const request = recoveryAdmissionRequest({
+    lifecycleId: 'recovery-fresh-wallet-session',
+    accountId: 'wallet-1',
+    walletSessionId: 'substituted-wallet-session',
+    activeCapabilitySeed: 20,
+    replacementCapabilitySeed: 22,
+    publicKeySeed: 12,
+  });
+  const execution = recoveryExecuteRequest(request);
+  const backend = new TestRecoveryBackend({
+    kind: 'success',
+    result: recoveryResult(execution),
+  });
+  const service = new InMemoryRouterAbEd25519YaoRecoveryService(backend);
+  expect(installRegistrationCapability(service).ok).toBe(true);
+
+  await expect(service.admitRecovery(request)).resolves.toMatchObject({ ok: true });
+  expect(backend.admitCalls).toBe(1);
 }
 
 function installationRejectsUnboundRuntimePolicy(): void {
@@ -763,14 +786,18 @@ test(
   recoveryPromotesOnlyAfterExactActivation,
 );
 test(
-  'public-key continuity failure keeps the old capability suspended',
+  'public-key and account continuity failures keep the old capability suspended',
   continuityFailureKeepsCapabilitySuspended,
 );
+test('recovery accepts a fresh wallet session', recoveryAcceptsFreshWalletSession);
 test(
   'registration installation binds the exact runtime policy',
   installationRejectsUnboundRuntimePolicy,
 );
-test('persisted active capability rehydrates a fresh runtime', persistedCapabilityRehydratesFreshRuntime);
+test(
+  'persisted active capability rehydrates a fresh runtime',
+  persistedCapabilityRehydratesFreshRuntime,
+);
 test(
   'recovery module exposes all four authorized routes',
   recoveryModuleExposesAllFourAuthorizedRoutes,

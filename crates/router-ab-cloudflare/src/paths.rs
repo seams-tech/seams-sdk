@@ -42,6 +42,12 @@ pub const CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH: &str =
 /// Private Router endpoint for issuing Wallet Session signing-budget grants.
 pub const CLOUDFLARE_ROUTER_WALLET_BUDGET_PUT_GRANT_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/router/wallet-budget/put-grant";
+/// Private Router endpoint for one admitted Ed25519 Yao ceremony execution.
+pub const CLOUDFLARE_ROUTER_ED25519_YAO_EXECUTE_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/router/ed25519-yao/execute";
+/// Private Router endpoint for promoting a verified recovery result.
+pub const CLOUDFLARE_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/router/ed25519-yao/recovery/promote";
 
 /// Returns the exact configured browser Origin allowed for normal-signing CORS.
 pub fn cloudflare_router_normal_signing_cors_allowed_origin_v1(
