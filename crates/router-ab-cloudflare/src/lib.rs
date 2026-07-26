@@ -3264,6 +3264,29 @@ impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationCommitRequestV1 {
     }
 }
 
+/// Non-consuming preparation result for one exact ECDSA activation command.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareRouterAbEcdsaDerivationActivationPrepareResultV1 {
+    /// Browser activation-journal correlation id.
+    pub activation_correlation_id: String,
+    /// Digest of the exact activation command the server will commit or query.
+    pub activation_request_digest: PublicDigest32,
+}
+
+impl CloudflareRouterAbEcdsaDerivationActivationPrepareResultV1 {
+    /// Derives the journal coordinates without performing any durable server effect.
+    pub fn from_command(
+        command: &CloudflareRouterAbEcdsaDerivationSigningWorkerActivationCommitRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        command.validate()?;
+        Ok(Self {
+            activation_correlation_id: command.activation_correlation_id.clone(),
+            activation_request_digest: command.activation_request_digest()?,
+        })
+    }
+}
+
 /// SigningWorker activation-refresh request for Router A/B ECDSA derivation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshRequestV1 {
@@ -5531,19 +5554,16 @@ where
     }
 }
 
-/// Completes strict Router A/B ECDSA registration after the client verifies both proof bundles.
+/// Authenticates one exact ECDSA activation command through the registration session.
 #[cfg(feature = "workers-rs")]
-pub async fn handle_cloudflare_router_ab_ecdsa_derivation_activation_authenticated_public_request_v1<
-    Verifier,
->(
-    env: &worker::Env,
+fn authenticate_cloudflare_router_ab_ecdsa_derivation_activation_command_v1<Verifier>(
     runtime: &CloudflareRouterWorkerRuntimeV1,
     now_unix_ms: u64,
-    request: CloudflareRouterAbEcdsaDerivationSigningWorkerActivationCommitRequestV1,
+    request: &CloudflareRouterAbEcdsaDerivationSigningWorkerActivationCommitRequestV1,
     authorization: CloudflareRouterBearerAuthorizationV1,
     trusted_source_digest: PublicDigest32,
     verifier: Verifier,
-) -> RouterAbProtocolResult<CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1>
+) -> RouterAbProtocolResult<()>
 where
     Verifier: CloudflareRouterJwtVerifierV1,
 {
@@ -5560,7 +5580,120 @@ where
         trusted_source_digest,
         verifier,
     )?;
-    session.verify_public_request_session(&public_request)?;
+    session
+        .verify_public_request_session(&public_request)
+        .map(|_| ())
+}
+
+/// Authenticates and derives the exact non-consuming ECDSA activation journal coordinates.
+#[cfg(feature = "workers-rs")]
+pub async fn handle_cloudflare_router_ab_ecdsa_derivation_activation_prepare_authenticated_public_request_v1<
+    Verifier,
+>(
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    now_unix_ms: u64,
+    request: CloudflareRouterAbEcdsaDerivationSigningWorkerActivationCommitRequestV1,
+    authorization: CloudflareRouterBearerAuthorizationV1,
+    trusted_source_digest: PublicDigest32,
+    verifier: Verifier,
+) -> RouterAbProtocolResult<CloudflareRouterAbEcdsaDerivationActivationPrepareResultV1>
+where
+    Verifier: CloudflareRouterJwtVerifierV1,
+{
+    authenticate_cloudflare_router_ab_ecdsa_derivation_activation_command_v1(
+        runtime,
+        now_unix_ms,
+        &request,
+        authorization,
+        trusted_source_digest,
+        verifier,
+    )?;
+    CloudflareRouterAbEcdsaDerivationActivationPrepareResultV1::from_command(&request)
+}
+
+/// Authenticates and queries the exact ECDSA activation command.
+#[cfg(feature = "workers-rs")]
+pub async fn handle_cloudflare_router_ab_ecdsa_derivation_activation_query_authenticated_public_request_v1<
+    Verifier,
+>(
+    env: &worker::Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    now_unix_ms: u64,
+    request: CloudflareRouterAbEcdsaDerivationSigningWorkerActivationCommitRequestV1,
+    authorization: CloudflareRouterBearerAuthorizationV1,
+    trusted_source_digest: PublicDigest32,
+    verifier: Verifier,
+) -> RouterAbProtocolResult<CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1>
+where
+    Verifier: CloudflareRouterJwtVerifierV1,
+{
+    authenticate_cloudflare_router_ab_ecdsa_derivation_activation_command_v1(
+        runtime,
+        now_unix_ms,
+        &request,
+        authorization,
+        trusted_source_digest,
+        verifier,
+    )?;
+    let activation_request_digest = request.activation_request_digest()?;
+    let lookup = CloudflareSigningWorkerEcdsaActivationCommitLookupV1::new(
+        request.activation_correlation_id,
+        activation_request_digest,
+    )?;
+    execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_service_call_v1(
+        env,
+        runtime.signing_worker_peer(),
+        &lookup,
+    )
+    .await
+}
+
+/// Completes strict Router A/B ECDSA registration after the client verifies both proof bundles.
+#[cfg(feature = "workers-rs")]
+pub async fn handle_cloudflare_router_ab_ecdsa_derivation_activation_authenticated_public_request_v1<
+    Verifier,
+>(
+    env: &worker::Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    now_unix_ms: u64,
+    request: CloudflareRouterAbEcdsaDerivationSigningWorkerActivationCommitRequestV1,
+    authorization: CloudflareRouterBearerAuthorizationV1,
+    trusted_source_digest: PublicDigest32,
+    verifier: Verifier,
+) -> RouterAbProtocolResult<CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1>
+where
+    Verifier: CloudflareRouterJwtVerifierV1,
+{
+    authenticate_cloudflare_router_ab_ecdsa_derivation_activation_command_v1(
+        runtime,
+        now_unix_ms,
+        &request,
+        authorization,
+        trusted_source_digest,
+        verifier,
+    )?;
+    let lookup = CloudflareSigningWorkerEcdsaActivationCommitLookupV1::new(
+        request.activation_correlation_id.clone(),
+        request.activation_request_digest()?,
+    )?;
+    match execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_service_call_v1(
+        env,
+        runtime.signing_worker_peer(),
+        &lookup,
+    )
+    .await?
+    {
+        CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1::Committed { receipt } => {
+            return Ok(receipt);
+        }
+        CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1::CorrelationConflict { .. } => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "Router A/B ECDSA activation correlation is committed for another request",
+            ));
+        }
+        CloudflareSigningWorkerEcdsaActivationCommitQueryResultV1::NotCommitted { .. } => {}
+    }
     execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1(
         env,
         runtime.signing_worker_peer(),
