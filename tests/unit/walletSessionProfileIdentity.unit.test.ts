@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
+import { readAvailableLanesFixture } from './helpers/availableSigningLanes.fixtures';
 
 const IMPORT_PATHS = {
   login: '/_test-sdk/esm/SeamsWeb/operations/auth/login.js',
@@ -16,8 +17,11 @@ test.describe('wallet session profile identity restore', () => {
   test('keeps persisted wallet and NEAR identity logged out when no exact signing lane survives', async ({
     page,
   }) => {
+    const availableLanes = await readAvailableLanesFixture({
+      walletId: 'refresh-wallet-profile-identity',
+    });
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, availableLanes }) => {
         const loginMod = await import(paths.login);
         const indexedDbMod = await import(paths.indexedDB);
         const thresholdSessionStore = await import(paths.thresholdSessionStore);
@@ -78,7 +82,8 @@ test.describe('wallet session profile identity restore', () => {
               }),
               listWarmThresholdEcdsaSessionStatuses: async () => [],
               listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
-              readPersistedAvailableSigningLanes: async () => null,
+              readPersistedAvailableSigningLanes: async () => availableLanes,
+              getReusableWalletSessionStatus: async () => null,
               getNonceCoordinator: () => ({ getDiagnostics: () => null }),
             },
           },
@@ -86,30 +91,42 @@ test.describe('wallet session profile identity restore', () => {
         );
 
         return {
-          isLoggedIn: session.login.isLoggedIn,
-          walletId: String(session.login.walletId || ''),
-          nearAccountId: String(session.login.nearAccountId || ''),
-          publicKey: session.login.publicKey,
-          signingStatus: session.signingSession?.status || null,
+          appIdentityKind: session.appIdentity.kind,
+          walletId:
+            session.appIdentity.kind === 'resolved'
+              ? String(session.appIdentity.walletId)
+              : '',
+          nearAccountId:
+            session.appIdentity.kind === 'resolved'
+              ? String(session.appIdentity.nearAccountId || '')
+              : '',
+          publicKey:
+            session.appIdentity.kind === 'resolved'
+              ? session.appIdentity.nearOperationalPublicKey
+              : null,
+          walletSessionKind: session.reusableWalletSession.kind,
         };
       },
-      { paths: IMPORT_PATHS },
+      { paths: IMPORT_PATHS, availableLanes },
     );
 
     expect(result).toEqual({
-      isLoggedIn: false,
+      appIdentityKind: 'resolved',
       walletId: 'refresh-wallet-profile-identity',
       nearAccountId: 'refresh-profile.testnet',
-      publicKey: null,
-      signingStatus: null,
+      publicKey: 'ed25519:refresh-profile-public-key',
+      walletSessionKind: 'missing',
     });
   });
 
   test('resolves the last profile without activating a wallet that has no exact signing lane', async ({
     page,
   }) => {
+    const availableLanes = await readAvailableLanesFixture({
+      walletId: 'refresh-last-profile-wallet',
+    });
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, availableLanes }) => {
         const loginMod = await import(paths.login);
         const subjectMod = await import(paths.walletUnlockSubject);
         const indexedDbMod = await import(paths.indexedDB);
@@ -171,7 +188,8 @@ test.describe('wallet session profile identity restore', () => {
             }),
             listWarmThresholdEcdsaSessionStatuses: async () => [],
             listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
-            readPersistedAvailableSigningLanes: async () => null,
+            readPersistedAvailableSigningLanes: async () => availableLanes,
+            getReusableWalletSessionStatus: async () => null,
             getNonceCoordinator: () => ({ getDiagnostics: () => null }),
           },
         };
@@ -183,33 +201,45 @@ test.describe('wallet session profile identity restore', () => {
           resolutionKind: resolution.kind,
           resolutionWalletId: String(resolution.walletId || ''),
           resolutionSource: resolution.source || null,
-          isLoggedIn: session.login.isLoggedIn,
-          walletId: String(session.login.walletId || ''),
-          nearAccountId: String(session.login.nearAccountId || ''),
-          publicKey: session.login.publicKey,
-          signingStatus: session.signingSession?.status || null,
+          appIdentityKind: session.appIdentity.kind,
+          walletId:
+            session.appIdentity.kind === 'resolved'
+              ? String(session.appIdentity.walletId)
+              : '',
+          nearAccountId:
+            session.appIdentity.kind === 'resolved'
+              ? String(session.appIdentity.nearAccountId || '')
+              : '',
+          publicKey:
+            session.appIdentity.kind === 'resolved'
+              ? session.appIdentity.nearOperationalPublicKey
+              : null,
+          walletSessionKind: session.reusableWalletSession.kind,
         };
       },
-      { paths: IMPORT_PATHS },
+      { paths: IMPORT_PATHS, availableLanes },
     );
 
     expect(result).toEqual({
       resolutionKind: 'resolved',
       resolutionWalletId: 'refresh-last-profile-wallet',
       resolutionSource: 'host_last_used_profile',
-      isLoggedIn: false,
+      appIdentityKind: 'resolved',
       walletId: 'refresh-last-profile-wallet',
       nearAccountId: 'refresh-last-profile.testnet',
-      publicKey: null,
-      signingStatus: null,
+      publicKey: 'ed25519:refresh-last-profile-public-key',
+      walletSessionKind: 'missing',
     });
   });
 
   test('resolves the last NEAR profile without activating it from advisory warm status alone', async ({
     page,
   }) => {
+    const availableLanes = await readAvailableLanesFixture({
+      walletId: 'refresh-near-profile-wallet',
+    });
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, availableLanes }) => {
         const loginMod = await import(paths.login);
         const subjectMod = await import(paths.walletUnlockSubject);
         const indexedDbMod = await import(paths.indexedDB);
@@ -289,7 +319,8 @@ test.describe('wallet session profile identity restore', () => {
             }),
             listWarmThresholdEcdsaSessionStatuses: async () => [],
             listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
-            readPersistedAvailableSigningLanes: async () => null,
+            readPersistedAvailableSigningLanes: async () => availableLanes,
+            getReusableWalletSessionStatus: async () => null,
             getNonceCoordinator: () => ({ getDiagnostics: () => null }),
           },
         };
@@ -301,25 +332,34 @@ test.describe('wallet session profile identity restore', () => {
           resolutionKind: resolution.kind,
           resolutionWalletId: String(resolution.walletId || ''),
           resolutionSource: resolution.source || null,
-          isLoggedIn: session.login.isLoggedIn,
-          walletId: String(session.login.walletId || ''),
-          nearAccountId: String(session.login.nearAccountId || ''),
-          publicKey: session.login.publicKey,
-          signingStatus: session.signingSession?.status || null,
+          appIdentityKind: session.appIdentity.kind,
+          walletId:
+            session.appIdentity.kind === 'resolved'
+              ? String(session.appIdentity.walletId)
+              : '',
+          nearAccountId:
+            session.appIdentity.kind === 'resolved'
+              ? String(session.appIdentity.nearAccountId || '')
+              : '',
+          publicKey:
+            session.appIdentity.kind === 'resolved'
+              ? session.appIdentity.nearOperationalPublicKey
+              : null,
+          walletSessionKind: session.reusableWalletSession.kind,
         };
       },
-      { paths: IMPORT_PATHS },
+      { paths: IMPORT_PATHS, availableLanes },
     );
 
     expect(result).toEqual({
       resolutionKind: 'resolved',
       resolutionWalletId: 'refresh-near-profile-wallet',
       resolutionSource: 'host_last_used_profile',
-      isLoggedIn: false,
+      appIdentityKind: 'resolved',
       walletId: 'refresh-near-profile-wallet',
       nearAccountId: 'refresh-near-profile.testnet',
-      publicKey: null,
-      signingStatus: null,
+      publicKey: 'ed25519:refresh-near-profile-public-key',
+      walletSessionKind: 'missing',
     });
   });
 
@@ -449,6 +489,7 @@ test.describe('wallet session profile identity restore', () => {
               listWarmThresholdEcdsaSessionStatuses: async () => [],
               listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
               readPersistedAvailableSigningLanes: async () => null,
+              getReusableWalletSessionStatus: async () => null,
               getNonceCoordinator: () => ({ getDiagnostics: () => null }),
             },
           };
@@ -459,8 +500,12 @@ test.describe('wallet session profile identity restore', () => {
             resolutionKind: resolution.kind,
             resolutionWalletId: String(resolution.walletId || ''),
             resolutionReason: resolution.reason || null,
-            isLoggedIn: session.login.isLoggedIn,
-            walletId: String(session.login.walletId || ''),
+            appIdentityKind: session.appIdentity.kind,
+            walletId:
+              session.appIdentity.kind === 'anonymous'
+                ? ''
+                : String(session.appIdentity.walletId),
+            walletSessionKind: session.reusableWalletSession.kind,
             warningCount: warnings.length,
           };
         } finally {
@@ -474,8 +519,9 @@ test.describe('wallet session profile identity restore', () => {
       resolutionKind: 'no_session_for_wallet',
       resolutionWalletId: 'refresh-empty-wallet-selection',
       resolutionReason: 'missing_requested_capability_subject',
-      isLoggedIn: false,
+      appIdentityKind: 'resolved',
       walletId: 'refresh-empty-wallet-selection',
+      walletSessionKind: 'missing',
       warningCount: 0,
     });
   });

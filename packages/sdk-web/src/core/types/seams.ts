@@ -24,10 +24,17 @@ import type {
   ResolvedRegistrationNearAccount,
   WalletId,
 } from '@shared/utils/registrationIntent';
+import type { WalletAuthMethodBinding } from '@shared/utils/walletCapabilityBindings';
 import type {
-  CurrentWalletAuthMethod,
-  WalletAuthMethodBinding,
-} from '@shared/utils/walletCapabilityBindings';
+  SigningGrantId,
+  ThresholdSessionId,
+} from '@shared/utils/domainIds';
+import type { ThresholdEcdsaChainTarget } from '../signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  EvmFamilyEcdsaWalletUnlockSubject,
+  NearEd25519WalletUnlockSubject,
+  WalletUnlockSubjectSet,
+} from '../signingEngine/session/identity/walletUnlockSubject';
 
 export type {
   SensitiveOperationPolicy,
@@ -351,16 +358,247 @@ export type SeamsConfigsReadonly = ReadonlyDeep<SeamsConfigsResolved>;
 /// Result Types
 //////////////////////////////////
 
-export interface LoginState {
-  isLoggedIn: boolean;
-  walletId: WalletId | null;
-  nearAccountId: AccountId | null;
-  publicKey: string | null;
-  userData: ClientUserData | null;
-  currentAuthMethod: CurrentWalletAuthMethod;
-  authMethods: readonly WalletAuthMethodBinding[];
-  thresholdEcdsaEthereumAddress?: string | null;
-  thresholdEcdsaPublicKeyB64u?: string | null;
+export type WalletSessionIdentityResolveFailure =
+  | 'missing_wallet_profile'
+  | 'ambiguous_wallet_profile'
+  | 'missing_requested_capability_subject'
+  | 'capability_subject_lookup_failed'
+  | 'invalid_capability_subject'
+  | 'invalid_wallet_profile';
+
+export type WalletSessionAppIdentity =
+  | {
+      readonly kind: 'anonymous';
+      readonly walletId?: never;
+      readonly reason?: never;
+      readonly nearAccountId?: never;
+      readonly nearOperationalPublicKey?: never;
+      readonly userData?: never;
+      readonly authMethods?: never;
+      readonly thresholdEcdsaEthereumAddress?: never;
+      readonly thresholdEcdsaPublicKeyB64u?: never;
+    }
+  | {
+      readonly kind: 'unresolvable';
+      readonly walletId: WalletId;
+      readonly reason: WalletSessionIdentityResolveFailure;
+      readonly nearAccountId?: never;
+      readonly nearOperationalPublicKey?: never;
+      readonly userData?: never;
+      readonly authMethods?: never;
+      readonly thresholdEcdsaEthereumAddress?: never;
+      readonly thresholdEcdsaPublicKeyB64u?: never;
+    }
+  | {
+      readonly kind: 'resolved';
+      readonly walletId: WalletId;
+      readonly nearAccountId: AccountId | null;
+      readonly nearOperationalPublicKey: string | null;
+      readonly userData: ClientUserData | null;
+      readonly authMethods: readonly WalletAuthMethodBinding[];
+      readonly thresholdEcdsaEthereumAddress: string | null;
+      readonly thresholdEcdsaPublicKeyB64u: string | null;
+      readonly reason?: never;
+    };
+
+export type ReusableWalletSessionState =
+  | {
+      readonly kind: 'not_requested';
+      readonly walletId?: never;
+      readonly walletSessionId?: never;
+      readonly authMethod?: never;
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+      readonly detectedAtMs?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'active';
+      readonly walletId: WalletId;
+      readonly walletSessionId: SigningGrantId;
+      readonly authMethod: WalletAuthMethod;
+      readonly remainingUses: number;
+      readonly expiresAtMs: number;
+      readonly detectedAtMs?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'exhausted';
+      readonly walletId: WalletId;
+      readonly walletSessionId: SigningGrantId;
+      readonly authMethod: WalletAuthMethod;
+      readonly remainingUses: 0;
+      readonly expiresAtMs: number;
+      readonly detectedAtMs?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'expired';
+      readonly walletId: WalletId;
+      readonly walletSessionId: SigningGrantId;
+      readonly authMethod: WalletAuthMethod;
+      readonly expiresAtMs: number;
+      readonly detectedAtMs: number;
+      readonly remainingUses?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'missing';
+      readonly walletId: WalletId;
+      readonly walletSessionId?: never;
+      readonly authMethod?: never;
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+      readonly detectedAtMs?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly walletId: WalletId;
+      readonly reason: 'persistence_unavailable';
+      readonly walletSessionId?: never;
+      readonly authMethod?: never;
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+      readonly detectedAtMs?: never;
+    }
+  | {
+      readonly kind: 'invalid';
+      readonly walletId: WalletId;
+      readonly reason:
+        | 'malformed'
+        | 'identity_mismatch'
+        | 'ambiguous_wallet_session'
+        | 'auth_method_mismatch'
+        | 'lifecycle_mismatch';
+      readonly walletSessionId?: never;
+      readonly authMethod?: never;
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+      readonly detectedAtMs?: never;
+    };
+
+export type WalletSessionCapabilityLaneReadiness =
+  | {
+      readonly kind: 'ready';
+      readonly walletSessionId: SigningGrantId;
+      readonly thresholdSessionId: ThresholdSessionId;
+      readonly authMethod: WalletAuthMethod;
+      readonly remainingUses: number;
+      readonly expiresAtMs: number;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'restorable' | 'deferred';
+      readonly walletSessionId: SigningGrantId;
+      readonly thresholdSessionId: ThresholdSessionId;
+      readonly authMethod: WalletAuthMethod;
+      readonly remainingUses: number;
+      readonly expiresAtMs: number;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'exhausted';
+      readonly walletSessionId: SigningGrantId;
+      readonly thresholdSessionId: ThresholdSessionId;
+      readonly authMethod: WalletAuthMethod;
+      readonly remainingUses: 0;
+      readonly expiresAtMs: number;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'expired';
+      readonly walletSessionId: SigningGrantId;
+      readonly thresholdSessionId: ThresholdSessionId;
+      readonly authMethod: WalletAuthMethod;
+      readonly expiresAtMs: number;
+      readonly remainingUses?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'missing';
+      readonly walletSessionId?: never;
+      readonly thresholdSessionId?: never;
+      readonly authMethod?: never;
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly reason: 'persistence_unavailable';
+      readonly walletSessionId?: never;
+      readonly thresholdSessionId?: never;
+      readonly authMethod?: never;
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+    }
+  | {
+      readonly kind: 'invalid';
+      readonly reason: 'malformed' | 'identity_mismatch' | 'ambiguous_lane';
+      readonly walletSessionId?: never;
+      readonly thresholdSessionId?: never;
+      readonly authMethod?: never;
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+    };
+
+export type WalletSessionCapabilityReadiness =
+  | {
+      readonly kind: 'near_ed25519';
+      readonly subject: NearEd25519WalletUnlockSubject;
+      readonly lane: WalletSessionCapabilityLaneReadiness;
+      readonly targets?: never;
+    }
+  | {
+      readonly kind: 'evm_family_ecdsa';
+      readonly subject: EvmFamilyEcdsaWalletUnlockSubject;
+      readonly targets:
+        | { readonly kind: 'no_configured_target' }
+        | {
+            readonly kind: 'configured_targets';
+            readonly lanes: readonly [
+              {
+                readonly chainTarget: ThresholdEcdsaChainTarget;
+                readonly readiness: WalletSessionCapabilityLaneReadiness;
+              },
+              ...{
+                readonly chainTarget: ThresholdEcdsaChainTarget;
+                readonly readiness: WalletSessionCapabilityLaneReadiness;
+              }[],
+            ];
+          };
+      readonly lane?: never;
+    };
+
+export type WalletSessionCapabilityProjection =
+  | {
+      readonly kind: 'not_requested';
+      readonly subjectSet?: never;
+      readonly capabilities?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'unresolvable';
+      readonly reason: WalletSessionIdentityResolveFailure;
+      readonly subjectSet?: never;
+      readonly capabilities?: never;
+    }
+  | {
+      readonly kind: 'resolved';
+      readonly subjectSet: WalletUnlockSubjectSet;
+      readonly capabilities: readonly [
+        WalletSessionCapabilityReadiness,
+        ...WalletSessionCapabilityReadiness[],
+      ];
+      readonly reason?: never;
+    };
+
+export interface WalletSession {
+  readonly appIdentity: WalletSessionAppIdentity;
+  readonly reusableWalletSession: ReusableWalletSessionState;
+  readonly capabilityProjection: WalletSessionCapabilityProjection;
+  readonly nonceDiagnostics: NonceCoordinatorDiagnostics | null;
 }
 
 export type ThemeMode = 'light' | 'dark';
@@ -592,16 +830,6 @@ export type ThresholdWarmLoginAndCreateSessionResult = Extract<
 > & {
   signingSession: SigningSessionStatus & { status: 'active' };
 };
-
-export interface WalletSession {
-  login: LoginState;
-  signingSession: SigningSessionStatus | null;
-  currentAuthMethod: CurrentWalletAuthMethod;
-  authMethods: readonly WalletAuthMethodBinding[];
-  authMethod?: WalletAuthMethod | null;
-  retention?: SigningSessionRetention | null;
-  nonceDiagnostics?: NonceCoordinatorDiagnostics | null;
-}
 
 export type ActionResult =
   | {

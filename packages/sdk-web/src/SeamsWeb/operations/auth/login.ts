@@ -10,10 +10,15 @@ import type {
   LoginResult,
   RecentUnlockAccount,
   WalletSession,
-  LoginState,
   SigningSessionStatus,
   ThresholdWarmLoginAndCreateSessionResult,
   WalletAuthMethod,
+  ReusableWalletSessionState,
+  WalletSessionAppIdentity,
+  WalletSessionCapabilityLaneReadiness,
+  WalletSessionCapabilityProjection,
+  WalletSessionCapabilityReadiness,
+  WalletSessionIdentityResolveFailure,
 } from '@/core/types/seams';
 import type {
   EcdsaLoginSessionSurface,
@@ -38,7 +43,12 @@ import {
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { isObject } from '@shared/utils/validation';
-import { parseSigningGrantId, parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import {
+  parseSigningGrantId,
+  parseThresholdEd25519SessionId,
+  parseThresholdSessionId,
+  type SigningGrantId,
+} from '@shared/utils/domainIds';
 import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import {
   buildPasskeyWalletAuthAuthority,
@@ -112,6 +122,7 @@ import { listConfiguredThresholdEcdsaPublicationTargets } from '@/SeamsWeb/opera
 import type {
   AvailableSigningLanes,
   ConcreteAvailableEcdsaSigningLane,
+  ConcreteAvailableEd25519SigningLane,
   AvailableEcdsaSigningLane,
   AvailableEd25519SigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
@@ -176,13 +187,10 @@ import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   buildEmailOtpWalletAuthMethodBinding,
-  buildNoCurrentWalletAuthMethod,
   buildPasskeyAuthScope,
   buildPasskeyWalletAuthMethodBinding,
-  buildSelectedCurrentWalletAuthMethod,
   buildWalletIdentity,
   parseRpId,
-  type CurrentWalletAuthMethod,
   type WalletAuthMethodBinding,
 } from '@shared/utils/walletCapabilityBindings';
 import { collectPasskeyLoginAssertion } from '@/SeamsWeb/operations/authMethods/passkey/loginAssertion';
@@ -210,12 +218,6 @@ import {
 } from './walletUnlockSubject';
 
 type EmitUnlockEventInput = Omit<CreateUnlockFlowEventInput, 'accountId' | 'flowId'>;
-
-type WalletSessionStatusIdentity = {
-  kind: 'wallet_session_subject_set';
-  walletId: WalletId;
-  subjectSet: WalletUnlockSubjectSet;
-};
 
 function fetchWithGlobalThis(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   return globalThis.fetch(input, init);
@@ -277,39 +279,11 @@ export function resolveLoginWalletUnlockSelectionForSubjectSet(args: {
   throw new Error('[login] wallet unlock subject set has no supported capability');
 }
 
-function buildLoggedOutLoginState(args: {
-  walletId: WalletId | null;
-  nearAccountId: AccountId | null;
-  thresholdEcdsaEthereumAddress: string | null;
-  thresholdEcdsaPublicKeyB64u: string | null;
-}): LoginState {
-  return {
-    isLoggedIn: false,
-    walletId: args.walletId,
-    nearAccountId: args.nearAccountId,
-    publicKey: null,
-    userData: null,
-    currentAuthMethod: buildNoCurrentWalletAuthMethod(),
-    authMethods: [],
-    thresholdEcdsaEthereumAddress: args.thresholdEcdsaEthereumAddress,
-    thresholdEcdsaPublicKeyB64u: args.thresholdEcdsaPublicKeyB64u,
-  };
-}
-
 function buildAnonymousWalletSession(): WalletSession {
-  const login = buildLoggedOutLoginState({
-    walletId: null,
-    nearAccountId: null,
-    thresholdEcdsaEthereumAddress: null,
-    thresholdEcdsaPublicKeyB64u: null,
-  });
   return {
-    login,
-    signingSession: null,
-    currentAuthMethod: buildNoCurrentWalletAuthMethod(),
-    authMethods: [],
-    authMethod: null,
-    retention: null,
+    appIdentity: { kind: 'anonymous' },
+    reusableWalletSession: { kind: 'not_requested' },
+    capabilityProjection: { kind: 'not_requested' },
     nonceDiagnostics: null,
   };
 }
@@ -441,10 +415,6 @@ function assertEcdsaWarmupMatchesUnlockSubjects(args: {
   }
 }
 
-function isSessionDisplayActive(status: SigningSessionStatus | null | undefined): boolean {
-  return status?.status === 'active' || status?.status === 'active_restorable';
-}
-
 function walletAuthMethodBindingFromRecord(
   record: Awaited<ReturnType<typeof IndexedDBManager.listWalletAuthMethodsForWallet>>[number],
 ): WalletAuthMethodBinding | null {
@@ -497,16 +467,6 @@ async function readWalletAuthMethodBindingsForSession(
     .filter((record) => record.status === 'active')
     .map(walletAuthMethodBindingFromRecord)
     .filter((binding): binding is WalletAuthMethodBinding => Boolean(binding));
-}
-
-function selectCurrentWalletAuthMethod(args: {
-  authMethods: readonly WalletAuthMethodBinding[];
-  authMethod: WalletAuthMethod | null;
-}): CurrentWalletAuthMethod {
-  if (!args.authMethod) return buildNoCurrentWalletAuthMethod();
-  const matches = args.authMethods.filter((binding) => binding.kind === args.authMethod);
-  if (matches.length !== 1) return buildNoCurrentWalletAuthMethod();
-  return buildSelectedCurrentWalletAuthMethod({ binding: matches[0] });
 }
 
 function selectThresholdWarmupAuthMethodBinding(args: {
@@ -3472,14 +3432,6 @@ async function primeThresholdLoginWarmSigners(args: {
   return { ecdsaBootstraps };
 }
 
-/**
- * High-level login snapshot used by React contexts/UI.
- *
- * Login state is derived from:
- * - IndexedDB last-user pointer, and
- * - when threshold-signer warm sessions are enabled, an active PRF-first cache entry
- *   in the UserConfirm worker for the account's active signing session id.
- */
 export async function getWalletSession(
   context: WalletSessionWebContext,
   walletId?: WalletId | string,
@@ -3487,21 +3439,11 @@ export async function getWalletSession(
   const readResolution = await resolveWalletSessionReadResolution(walletId);
   if (readResolution.kind === 'no_session_request') return buildAnonymousWalletSession();
   if (readResolution.kind === 'no_session_for_wallet') {
-    const login = buildLoggedOutLoginState({
+    return await buildCapabilityUnresolvableWalletSession({
+      context,
       walletId: readResolution.walletId,
-      nearAccountId: null,
-      thresholdEcdsaEthereumAddress: null,
-      thresholdEcdsaPublicKeyB64u: null,
+      reason: readResolution.reason,
     });
-    return {
-      login,
-      signingSession: null,
-      currentAuthMethod: login.currentAuthMethod,
-      authMethods: login.authMethods,
-      authMethod: null,
-      retention: null,
-      nonceDiagnostics: null,
-    };
   }
   if (readResolution.kind === 'unresolvable_profile') {
     console.warn('[WalletSession] wallet session profile is unresolvable', {
@@ -3515,21 +3457,11 @@ export async function getWalletSession(
       walletId: String(readResolution.walletId),
       reason: readResolution.reason,
     });
-    const login = buildLoggedOutLoginState({
+    return await buildCapabilityUnresolvableWalletSession({
+      context,
       walletId: readResolution.walletId,
-      nearAccountId: null,
-      thresholdEcdsaEthereumAddress: null,
-      thresholdEcdsaPublicKeyB64u: null,
+      reason: readResolution.reason,
     });
-    return {
-      login,
-      signingSession: null,
-      currentAuthMethod: login.currentAuthMethod,
-      authMethods: login.authMethods,
-      authMethod: null,
-      retention: null,
-      nonceDiagnostics: null,
-    };
   }
 
   await context.signingEngine.assertSealedRefreshStartupParity().catch((error: unknown) => {
@@ -3538,32 +3470,190 @@ export async function getWalletSession(
       error instanceof Error ? error.message : String(error || 'unknown error'),
     );
   });
-  const login = await getLoginStateInternal(context, readResolution);
-  const signingSession =
-    login.isLoggedIn && login.walletId
-      ? await resolveSigningSessionStatusForUi(context, {
-          kind: 'wallet_session_subject_set',
-          walletId: readResolution.walletId,
-          subjectSet: readResolution.subjectSet,
-        }).catch(() => null)
-      : null;
-  const authMethod: WalletAuthMethod | null =
-    signingSession?.authMethod ||
-    (login.currentAuthMethod.kind === 'selected' ? login.currentAuthMethod.binding.kind : null) ||
-    null;
-  const authMethods = login.authMethods;
-  const currentAuthMethod = selectCurrentWalletAuthMethod({ authMethods, authMethod });
-  const retention = signingSession?.retention || null;
-  const nonceDiagnostics = readWalletSessionNonceDiagnostics(context, login.nearAccountId);
+  const nowMs = Date.now();
+  const [appIdentity, reusableWalletSession, availableLanes] = await Promise.all([
+    resolveWalletSessionAppIdentity(context, readResolution),
+    readReusableWalletSessionState(context, readResolution.walletId, nowMs),
+    readExactWalletSessionAvailableLanes(context, readResolution.walletId),
+  ]);
+  const capabilityProjection = buildWalletSessionCapabilityProjection({
+    subjectSet: readResolution.subjectSet,
+    availableLanes,
+    configuredEcdsaTargets: listConfiguredThresholdEcdsaPublicationTargets(
+      context.configs.network.chains,
+    ).map((target) => target.chainTarget),
+    nowMs,
+  });
   return {
-    login: { ...login, currentAuthMethod, authMethods },
-    signingSession,
-    currentAuthMethod,
-    authMethods,
-    authMethod,
-    retention,
-    nonceDiagnostics,
+    appIdentity,
+    reusableWalletSession,
+    capabilityProjection,
+    nonceDiagnostics: readWalletSessionNonceDiagnostics(context, appIdentity.nearAccountId),
   };
+}
+
+async function buildCapabilityUnresolvableWalletSession(args: {
+  readonly context: WalletSessionWebContext;
+  readonly walletId: WalletId;
+  readonly reason: WalletSessionIdentityResolveFailure;
+}): Promise<WalletSession> {
+  const nowMs = Date.now();
+  const [appIdentity, reusableWalletSession] = await Promise.all([
+    resolveWalletSessionAppIdentityForWallet(args.context, args.walletId),
+    readReusableWalletSessionState(args.context, args.walletId, nowMs),
+  ]);
+  return {
+    appIdentity,
+    reusableWalletSession,
+    capabilityProjection: {
+      kind: 'unresolvable',
+      reason: args.reason,
+    },
+    nonceDiagnostics: readWalletSessionNonceDiagnostics(args.context, appIdentity.nearAccountId),
+  };
+}
+
+type ReusableWalletSessionStatusRead =
+  | {
+      readonly kind: 'available';
+      readonly status: SigningSessionStatus | null;
+    }
+  | {
+      readonly kind: 'unavailable';
+    };
+
+async function readReusableWalletSessionStatus(
+  context: WalletSessionWebContext,
+  walletId: WalletId,
+): Promise<ReusableWalletSessionStatusRead> {
+  try {
+    return {
+      kind: 'available',
+      status: await context.signingEngine.getReusableWalletSessionStatus(walletId),
+    };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+function invalidReusableWalletSession(
+  walletId: WalletId,
+  reason: Extract<ReusableWalletSessionState, { kind: 'invalid' }>['reason'],
+): Extract<ReusableWalletSessionState, { kind: 'invalid' }> {
+  return {
+    kind: 'invalid',
+    walletId,
+    reason,
+  };
+}
+
+function parseReusableWalletSessionIdentity(args: {
+  readonly walletId: WalletId;
+  readonly status: SigningSessionStatus;
+}):
+  | {
+      readonly kind: 'valid';
+      readonly walletSessionId: SigningGrantId;
+      readonly authMethod: WalletAuthMethod;
+      readonly expiresAtMs: number;
+    }
+  | {
+      readonly kind: 'invalid';
+    } {
+  const walletSessionId = parseSigningGrantId(args.status.sessionId);
+  const expiresAtMs = Math.floor(Number(args.status.expiresAtMs));
+  if (
+    !walletSessionId.ok ||
+    !args.status.authMethod ||
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= 0
+  ) {
+    return { kind: 'invalid' };
+  }
+  return {
+    kind: 'valid',
+    walletSessionId: walletSessionId.value,
+    authMethod: args.status.authMethod,
+    expiresAtMs,
+  };
+}
+
+async function readReusableWalletSessionState(
+  context: WalletSessionWebContext,
+  walletId: WalletId,
+  nowMs: number,
+): Promise<ReusableWalletSessionState> {
+  const read = await readReusableWalletSessionStatus(context, walletId);
+  if (read.kind === 'unavailable') {
+    return {
+      kind: 'unavailable',
+      walletId,
+      reason: 'persistence_unavailable',
+    };
+  }
+  const status = read.status;
+  if (!status || status.status === 'not_found') {
+    return {
+      kind: 'missing',
+      walletId,
+    };
+  }
+  if (status.status === 'unavailable' || status.status === 'budget_unknown') {
+    return {
+      kind: 'unavailable',
+      walletId,
+      reason: 'persistence_unavailable',
+    };
+  }
+  const identity = parseReusableWalletSessionIdentity({ walletId, status });
+  if (identity.kind === 'invalid') {
+    return invalidReusableWalletSession(walletId, 'malformed');
+  }
+  if (status.status === 'expired' || identity.expiresAtMs <= nowMs) {
+    return {
+      kind: 'expired',
+      walletId,
+      walletSessionId: identity.walletSessionId,
+      authMethod: identity.authMethod,
+      expiresAtMs: identity.expiresAtMs,
+      detectedAtMs: nowMs,
+    };
+  }
+  const remainingUses = Math.floor(Number(status.remainingUses));
+  if (!Number.isSafeInteger(remainingUses) || remainingUses < 0) {
+    return invalidReusableWalletSession(walletId, 'malformed');
+  }
+  if (status.status === 'exhausted' || remainingUses === 0) {
+    return {
+      kind: 'exhausted',
+      walletId,
+      walletSessionId: identity.walletSessionId,
+      authMethod: identity.authMethod,
+      remainingUses: 0,
+      expiresAtMs: identity.expiresAtMs,
+    };
+  }
+  return {
+    kind: 'active',
+    walletId,
+    walletSessionId: identity.walletSessionId,
+    authMethod: identity.authMethod,
+    remainingUses,
+    expiresAtMs: identity.expiresAtMs,
+  };
+}
+
+function readExactWalletSessionAvailableLanes(
+  context: WalletSessionWebContext,
+  walletId: WalletId,
+): Promise<
+  | { readonly kind: 'available'; readonly lanes: AvailableSigningLanes }
+  | { readonly kind: 'unavailable' }
+> {
+  return context.signingEngine
+    .readPersistedAvailableSigningLanes({ walletId })
+    .then((lanes) => ({ kind: 'available' as const, lanes }))
+    .catch(() => ({ kind: 'unavailable' as const }));
 }
 
 function readWalletSessionNonceDiagnostics(
@@ -4552,130 +4642,6 @@ async function resolveThresholdEcdsaLoginMetadata(
   };
 }
 
-function isThresholdSignerMode(context: WalletSessionWebContext): boolean {
-  const signingConfig = context.configs?.signing as { mode?: { mode?: unknown } } | undefined;
-  return String(signingConfig?.mode?.mode || '').trim() === 'threshold-signer';
-}
-
-async function resolveWarmSigningSessionStatusForUi(
-  context: WalletSessionWebContext,
-  identity: WalletSessionStatusIdentity,
-  hints?: {
-    ed25519?: SigningSessionStatus | null;
-  },
-): Promise<SigningSessionStatus | null> {
-  const nearSubject = selectNearEd25519WalletSubject(identity.subjectSet);
-  const ed25519 =
-    nearSubject && hints && 'ed25519' in hints
-      ? hints.ed25519 || null
-      : nearSubject
-        ? await context.signingEngine
-            .getWarmThresholdEd25519SessionStatus(nearSubject.nearAccountId)
-            .catch(() => null)
-        : null;
-  const ecdsaStatusGroups: SigningSessionStatus[][] = [];
-  for (const target of listConfiguredThresholdEcdsaPublicationTargets(
-    context.configs.network.chains,
-  )) {
-    const statuses = await context.signingEngine
-      .listWarmThresholdEcdsaSessionStatuses(identity.walletId, target.chainTarget)
-      .catch(() => []);
-    ecdsaStatusGroups.push(statuses);
-  }
-  const ecdsaStatuses = ecdsaStatusGroups.flat();
-
-  const statuses = [ed25519, ...ecdsaStatuses].filter((status): status is SigningSessionStatus =>
-    Boolean(status),
-  );
-  return selectSigningSessionStatusForDisplay(statuses);
-}
-
-type AvailableSigningLanesLane = AvailableEd25519SigningLane | AvailableEcdsaSigningLane;
-
-function selectSigningSessionStatusForDisplay(
-  statuses: readonly (SigningSessionStatus | null | undefined)[],
-): SigningSessionStatus | null {
-  const candidates = statuses.filter((status): status is SigningSessionStatus => Boolean(status));
-  const active = candidates.filter(isSessionDisplayActive).sort((left, right) => {
-    if (left.status !== right.status) return left.status === 'active' ? -1 : 1;
-    const leftUses = Math.floor(Number(left.remainingUses) || 0);
-    const rightUses = Math.floor(Number(right.remainingUses) || 0);
-    if (leftUses !== rightUses) return leftUses - rightUses;
-    return Math.floor(Number(left.expiresAtMs) || 0) - Math.floor(Number(right.expiresAtMs) || 0);
-  })[0];
-  if (active) return active;
-  return selectDisplayFallbackSigningSessionStatus(candidates);
-}
-
-function selectDisplayFallbackSigningSessionStatus(
-  candidates: readonly SigningSessionStatus[],
-): SigningSessionStatus | null {
-  const priority = ['exhausted', 'expired', 'unavailable', 'budget_unknown', 'not_found'] as const;
-  for (const status of priority) {
-    const candidate = candidates.find((candidateStatus) => candidateStatus.status === status);
-    if (candidate) return candidate;
-  }
-  return null;
-}
-
-function snapshotLaneToDisplaySigningSessionStatus(
-  lane: AvailableSigningLanesLane,
-): SigningSessionStatus | null {
-  if (!isConcreteAvailableSigningLane(lane)) return null;
-  const sessionId = String(lane.thresholdSessionId || '').trim();
-  if (!sessionId) return null;
-  if (
-    lane.state !== 'ready' &&
-    lane.state !== 'restorable' &&
-    lane.state !== 'expired' &&
-    lane.state !== 'exhausted'
-  ) {
-    return null;
-  }
-  const remainingUses = Math.floor(Number(lane.remainingUses ?? lane.policyHint?.remainingUses));
-  const expiresAtMs = Math.floor(Number(lane.expiresAtMs ?? lane.policyHint?.expiresAtMs));
-  const status: SigningSessionStatus = {
-    sessionId,
-    status:
-      lane.state === 'ready'
-        ? 'active'
-        : lane.state === 'restorable'
-          ? 'active_restorable'
-          : lane.state === 'expired'
-            ? 'expired'
-            : 'exhausted',
-    authMethod:
-      lane.curve === 'ecdsa'
-        ? availableEcdsaSigningLaneAuthMethod(lane)
-        : availableEd25519SigningLaneAuthMethod(lane),
-  };
-  if (Number.isFinite(remainingUses) && remainingUses >= 0) {
-    status.remainingUses = remainingUses;
-  }
-  if (Number.isFinite(expiresAtMs) && expiresAtMs > 0) {
-    status.expiresAtMs = expiresAtMs;
-  }
-  return status;
-}
-
-function snapshotToSigningSessionStatusForUi(
-  snapshot: AvailableSigningLanes | null,
-): SigningSessionStatus | null {
-  if (!snapshot) return null;
-  return selectSigningSessionStatusForDisplay([
-    snapshotToEd25519SigningSessionStatusForUi(snapshot),
-    ...ecdsaAvailableLaneTargets(snapshot).map((target) =>
-      snapshotLaneToDisplaySigningSessionStatus(ecdsaAvailableLaneForTarget(snapshot, target)),
-    ),
-  ]);
-}
-
-function snapshotToEd25519SigningSessionStatusForUi(
-  snapshot: AvailableSigningLanes | null,
-): SigningSessionStatus | null {
-  return snapshot ? snapshotLaneToDisplaySigningSessionStatus(snapshot.lanes.ed25519.near) : null;
-}
-
 async function readAvailableSigningLanesForUi(
   context: WalletSessionWebContext,
   walletId: WalletId,
@@ -4685,32 +4651,286 @@ async function readAvailableSigningLanesForUi(
   });
 }
 
-async function resolveSnapshotSigningSessionStatusForUi(
-  context: WalletSessionWebContext,
-  walletId: WalletId,
-): Promise<SigningSessionStatus | null> {
-  return snapshotToSigningSessionStatusForUi(
-    await readAvailableSigningLanesForUi(context, walletId),
+type ExactWalletSessionAvailableLanesRead = Awaited<
+  ReturnType<typeof readExactWalletSessionAvailableLanes>
+>;
+
+type ExactAvailableSigningLane =
+  | ConcreteAvailableEd25519SigningLane
+  | ConcreteAvailableEcdsaSigningLane;
+
+function invalidCapabilityLane(
+  reason: Extract<WalletSessionCapabilityLaneReadiness, { kind: 'invalid' }>['reason'],
+): Extract<WalletSessionCapabilityLaneReadiness, { kind: 'invalid' }> {
+  return {
+    kind: 'invalid',
+    reason,
+  };
+}
+
+function unavailableCapabilityLane(): Extract<
+  WalletSessionCapabilityLaneReadiness,
+  { kind: 'unavailable' }
+> {
+  return {
+    kind: 'unavailable',
+    reason: 'persistence_unavailable',
+  };
+}
+
+function parseExactAvailableLaneReadiness(
+  lane: ExactAvailableSigningLane,
+  nowMs: number,
+): WalletSessionCapabilityLaneReadiness {
+  const walletSessionId = parseSigningGrantId(lane.signingGrantId);
+  const thresholdSessionId = parseThresholdSessionId(lane.thresholdSessionId);
+  const expiresAtMs = Math.floor(Number(lane.expiresAtMs ?? lane.policyHint?.expiresAtMs));
+  const remainingUses = Math.floor(Number(lane.remainingUses ?? lane.policyHint?.remainingUses));
+  if (
+    !walletSessionId.ok ||
+    !thresholdSessionId.ok ||
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= 0
+  ) {
+    return invalidCapabilityLane('malformed');
+  }
+  const authMethod =
+    lane.curve === 'ecdsa'
+      ? availableEcdsaSigningLaneAuthMethod(lane)
+      : availableEd25519SigningLaneAuthMethod(lane);
+  const identity = {
+    walletSessionId: walletSessionId.value,
+    thresholdSessionId: thresholdSessionId.value,
+    authMethod,
+    expiresAtMs,
+  };
+  if (expiresAtMs <= nowMs) {
+    return {
+      kind: 'expired',
+      ...identity,
+    };
+  }
+  if (!Number.isSafeInteger(remainingUses) || remainingUses < 0) {
+    return invalidCapabilityLane('malformed');
+  }
+  if (remainingUses === 0) {
+    return {
+      kind: 'exhausted',
+      ...identity,
+      remainingUses: 0,
+    };
+  }
+  switch (lane.state) {
+    case 'ready':
+    case 'restorable':
+    case 'deferred':
+      return {
+        kind: lane.state,
+        ...identity,
+        remainingUses,
+      };
+    case 'expired':
+    case 'exhausted':
+      return invalidCapabilityLane('malformed');
+  }
+  lane.state satisfies never;
+  return invalidCapabilityLane('malformed');
+}
+
+function invalidLaneReasonForCurve(
+  snapshot: AvailableSigningLanes,
+  curve: 'ed25519' | 'ecdsa',
+): Extract<WalletSessionCapabilityLaneReadiness, { kind: 'invalid' }>['reason'] | null {
+  const diagnostic = snapshot.diagnostics?.invalidLanes.find(
+    (candidate) => candidate.curve === curve,
+  );
+  if (!diagnostic) return null;
+  return diagnostic.reason === 'ambiguous_material' ||
+    diagnostic.reason === 'conflicting_key_material'
+    ? 'ambiguous_lane'
+    : 'malformed';
+}
+
+function invalidEcdsaLaneReasonForTarget(
+  snapshot: AvailableSigningLanes,
+  chainTarget: ThresholdEcdsaChainTarget,
+): Extract<WalletSessionCapabilityLaneReadiness, { kind: 'invalid' }>['reason'] | null {
+  const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
+  const diagnostic = snapshot.diagnostics?.invalidLanes.find(
+    (candidate) =>
+      candidate.curve === 'ecdsa' &&
+      (candidate.targetKey === undefined || candidate.targetKey === targetKey),
+  );
+  if (!diagnostic) return null;
+  return diagnostic.reason === 'ambiguous_material' ||
+    diagnostic.reason === 'conflicting_key_material'
+    ? 'ambiguous_lane'
+    : 'malformed';
+}
+
+function nearSubjectMatchesLane(
+  subject: Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }>,
+  lane: ConcreteAvailableEd25519SigningLane,
+): boolean {
+  return (
+    String(lane.walletId) === String(subject.walletId) &&
+    String(lane.nearAccountId) === String(subject.nearAccountId) &&
+    String(lane.nearEd25519SigningKeyId) === String(subject.nearEd25519SigningKeyId) &&
+    lane.signerSlot === subject.signerSlot
   );
 }
 
-async function resolveSigningSessionStatusForUi(
-  context: WalletSessionWebContext,
-  identity: WalletSessionStatusIdentity,
-  hints?: {
-    ed25519?: SigningSessionStatus | null;
-    snapshot?: SigningSessionStatus | null;
-  },
-): Promise<SigningSessionStatus | null> {
-  const [warmStatus, snapshotStatus] = await Promise.all([
-    resolveWarmSigningSessionStatusForUi(context, identity, hints).catch(() => null),
-    hints && 'snapshot' in hints
-      ? Promise.resolve(hints.snapshot || null)
-      : resolveSnapshotSigningSessionStatusForUi(context, identity.walletId).catch(() => null),
-  ]);
-  // Status reads are side-effect-free. The next signing command owns exact
-  // restore; warm status remains useful to display currently active sessions.
-  return selectSigningSessionStatusForDisplay([snapshotStatus, warmStatus]);
+function ecdsaSubjectMatchesLane(
+  subject: Extract<WalletUnlockSubject, { kind: 'evm_family_ecdsa_wallet' }>,
+  lane: ConcreteAvailableEcdsaSigningLane,
+): boolean {
+  return (
+    String(lane.key.walletId) === String(subject.walletId) &&
+    String(lane.key.ecdsaThresholdKeyId) === String(subject.ecdsaThresholdKeyId)
+  );
+}
+
+function nearCapabilityReadiness(args: {
+  readonly subject: Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }>;
+  readonly availableLanes: ExactWalletSessionAvailableLanesRead;
+  readonly nowMs: number;
+}): WalletSessionCapabilityReadiness {
+  if (args.availableLanes.kind === 'unavailable') {
+    return {
+      kind: 'near_ed25519',
+      subject: args.subject,
+      lane: unavailableCapabilityLane(),
+    };
+  }
+  const snapshot = args.availableLanes.lanes;
+  if (String(snapshot.walletId) !== String(args.subject.walletId)) {
+    return {
+      kind: 'near_ed25519',
+      subject: args.subject,
+      lane: invalidCapabilityLane('identity_mismatch'),
+    };
+  }
+  const invalidReason = invalidLaneReasonForCurve(snapshot, 'ed25519');
+  if (invalidReason) {
+    return {
+      kind: 'near_ed25519',
+      subject: args.subject,
+      lane: invalidCapabilityLane(invalidReason),
+    };
+  }
+  const lane = snapshot.lanes.ed25519.near;
+  if (!isConcreteAvailableSigningLane(lane)) {
+    return {
+      kind: 'near_ed25519',
+      subject: args.subject,
+      lane: { kind: 'missing' },
+    };
+  }
+  return {
+    kind: 'near_ed25519',
+    subject: args.subject,
+    lane: nearSubjectMatchesLane(args.subject, lane)
+      ? parseExactAvailableLaneReadiness(lane, args.nowMs)
+      : invalidCapabilityLane('identity_mismatch'),
+  };
+}
+
+function ecdsaCapabilityLaneReadinessForTarget(args: {
+  readonly subject: Extract<WalletUnlockSubject, { kind: 'evm_family_ecdsa_wallet' }>;
+  readonly availableLanes: ExactWalletSessionAvailableLanesRead;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly nowMs: number;
+}): WalletSessionCapabilityLaneReadiness {
+  if (args.availableLanes.kind === 'unavailable') return unavailableCapabilityLane();
+  const snapshot = args.availableLanes.lanes;
+  if (String(snapshot.walletId) !== String(args.subject.walletId)) {
+    return invalidCapabilityLane('identity_mismatch');
+  }
+  const invalidReason = invalidEcdsaLaneReasonForTarget(snapshot, args.chainTarget);
+  if (invalidReason) return invalidCapabilityLane(invalidReason);
+  const lane = ecdsaAvailableLaneForTarget(snapshot, args.chainTarget);
+  if (!isConcreteAvailableSigningLane(lane)) return { kind: 'missing' };
+  return ecdsaSubjectMatchesLane(args.subject, lane)
+    ? parseExactAvailableLaneReadiness(lane, args.nowMs)
+    : invalidCapabilityLane('identity_mismatch');
+}
+
+function ecdsaCapabilityReadiness(args: {
+  readonly subject: Extract<WalletUnlockSubject, { kind: 'evm_family_ecdsa_wallet' }>;
+  readonly availableLanes: ExactWalletSessionAvailableLanesRead;
+  readonly configuredTargets: readonly ThresholdEcdsaChainTarget[];
+  readonly nowMs: number;
+}): WalletSessionCapabilityReadiness {
+  const [firstTarget, ...remainingTargets] = args.configuredTargets;
+  if (!firstTarget) {
+    return {
+      kind: 'evm_family_ecdsa',
+      subject: args.subject,
+      targets: { kind: 'no_configured_target' },
+    };
+  }
+  return {
+    kind: 'evm_family_ecdsa',
+    subject: args.subject,
+    targets: {
+      kind: 'configured_targets',
+      lanes: [
+        {
+          chainTarget: firstTarget,
+          readiness: ecdsaCapabilityLaneReadinessForTarget({
+            subject: args.subject,
+            availableLanes: args.availableLanes,
+            chainTarget: firstTarget,
+            nowMs: args.nowMs,
+          }),
+        },
+        ...remainingTargets.map((chainTarget) => ({
+          chainTarget,
+          readiness: ecdsaCapabilityLaneReadinessForTarget({
+            subject: args.subject,
+            availableLanes: args.availableLanes,
+            chainTarget,
+            nowMs: args.nowMs,
+          }),
+        })),
+      ],
+    },
+  };
+}
+
+function buildWalletSessionCapabilityProjection(args: {
+  readonly subjectSet: WalletUnlockSubjectSet;
+  readonly availableLanes: ExactWalletSessionAvailableLanesRead;
+  readonly configuredEcdsaTargets: readonly ThresholdEcdsaChainTarget[];
+  readonly nowMs: number;
+}): Extract<WalletSessionCapabilityProjection, { kind: 'resolved' }> {
+  const capabilities = args.subjectSet.subjects.map((subject) => {
+    switch (subject.kind) {
+      case 'near_ed25519_wallet':
+        return nearCapabilityReadiness({
+          subject,
+          availableLanes: args.availableLanes,
+          nowMs: args.nowMs,
+        });
+      case 'evm_family_ecdsa_wallet':
+        return ecdsaCapabilityReadiness({
+          subject,
+          availableLanes: args.availableLanes,
+          configuredTargets: args.configuredEcdsaTargets,
+          nowMs: args.nowMs,
+        });
+    }
+    return assertNeverLoginState(subject);
+  });
+  const firstCapability = capabilities[0];
+  if (!firstCapability) {
+    throw new Error('[WalletSession] resolved capability subjects must be non-empty');
+  }
+  return {
+    kind: 'resolved',
+    subjectSet: args.subjectSet,
+    capabilities: [firstCapability, ...capabilities.slice(1)],
+  };
 }
 
 export function selectNearOperationalPublicKeyForLogin(
@@ -4719,108 +4939,76 @@ export function selectNearOperationalPublicKeyForLogin(
   return userData ? userData.operationalPublicKey : null;
 }
 
-async function getLoginStateInternal(
+function userMatchesNearWalletSubject(
+  user: ClientUserData | null,
+  subject: Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }>,
+): user is ClientUserData {
+  return Boolean(
+    user &&
+    String(user.walletId) === String(subject.walletId) &&
+    String(user.nearAccountId) === String(subject.nearAccountId) &&
+    user.signerSlot === subject.signerSlot,
+  );
+}
+
+async function resolveExactNearWalletUser(
+  signingEngine: WalletSessionWebContext['signingEngine'],
+  subject: Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }>,
+): Promise<ClientUserData | null> {
+  const lastUser = await signingEngine.getLastUser().catch(() => null);
+  if (userMatchesNearWalletSubject(lastUser, subject)) return lastUser;
+  const projected = await getNearAccountProjection(
+    IndexedDBManager,
+    subject.nearAccountId,
+    subject.signerSlot,
+  ).catch(() => null);
+  if (userMatchesNearWalletSubject(projected, subject)) return projected;
+  const stored = await signingEngine
+    .getUserBySignerSlot(subject.nearAccountId, subject.signerSlot)
+    .catch(() => null);
+  return userMatchesNearWalletSubject(stored, subject) ? stored : null;
+}
+
+async function resolveWalletSessionAppIdentityForWallet(
+  context: WalletSessionWebContext,
+  walletId: WalletId,
+): Promise<Extract<WalletSessionAppIdentity, { kind: 'resolved' }>> {
+  const [authMethods, thresholdMetadata] = await Promise.all([
+    readWalletAuthMethodBindingsForSession(walletId),
+    resolveThresholdEcdsaLoginMetadata(context, walletId).catch(() => ({
+      ethereumAddress: null,
+      thresholdEcdsaPublicKeyB64u: null,
+    })),
+  ]);
+  return {
+    kind: 'resolved',
+    walletId,
+    nearAccountId: null,
+    nearOperationalPublicKey: null,
+    userData: null,
+    authMethods,
+    thresholdEcdsaEthereumAddress: thresholdMetadata.ethereumAddress,
+    thresholdEcdsaPublicKeyB64u: thresholdMetadata.thresholdEcdsaPublicKeyB64u,
+  };
+}
+
+async function resolveWalletSessionAppIdentity(
   context: WalletSessionWebContext,
   readResolution: Extract<WalletSessionReadResolution, { kind: 'resolved' }>,
-): Promise<LoginState> {
-  const { signingEngine } = context;
+): Promise<Extract<WalletSessionAppIdentity, { kind: 'resolved' }>> {
   const resolvedWalletId = readResolution.walletId;
   const nearSubject = selectNearEd25519WalletSubject(readResolution.subjectSet);
   const resolvedNearAccountId = nearSubject?.nearAccountId || null;
-  try {
-    const lastUser = await signingEngine.getLastUser().catch(() => null);
-    const latestByAccount = resolvedNearAccountId
-      ? lastUser && lastUser.nearAccountId === resolvedNearAccountId
-        ? null
-        : await getNearAccountProjection(IndexedDBManager, resolvedNearAccountId).catch(() => null)
-      : null;
-    const userData =
-      resolvedNearAccountId && lastUser && lastUser.nearAccountId === resolvedNearAccountId
-        ? lastUser
-        : latestByAccount ||
-          (nearSubject
-            ? await signingEngine
-                .getUserBySignerSlot(nearSubject.nearAccountId, nearSubject.signerSlot)
-                .catch(() => null)
-            : null);
-    const sessionStatusIdentity: WalletSessionStatusIdentity = {
-      kind: 'wallet_session_subject_set',
-      walletId: resolvedWalletId,
-      subjectSet: readResolution.subjectSet,
-    };
-    const thresholdMetadata = await resolveThresholdEcdsaLoginMetadata(context, resolvedWalletId);
-    const requiresWarmSession = shouldRequireThresholdWarmSession(context);
-    const thresholdSignerMode = isThresholdSignerMode(context);
-    const hasThresholdEcdsaLogin = !!(
-      thresholdMetadata.thresholdEcdsaPublicKeyB64u || thresholdMetadata.ethereumAddress
-    );
-    const ed25519WarmStatus = nearSubject
-      ? await signingEngine
-          .getWarmThresholdEd25519SessionStatus(nearSubject.nearAccountId)
-          .catch(() => null)
-      : null;
-    const availableLanesForLogin = await readAvailableSigningLanesForUi(
-      context,
-      resolvedWalletId,
-    ).catch(() => null);
-    const snapshotStatusForLogin = snapshotToSigningSessionStatusForUi(availableLanesForLogin);
-    const publicKey = selectNearOperationalPublicKeyForLogin(userData);
-    const hasNearOperationalLogin = !!(userData && publicKey);
-    const shouldResolveWarmStatusForLogin =
-      requiresWarmSession || thresholdSignerMode || hasThresholdEcdsaLogin || !publicKey;
-    const warmStatusForLogin = shouldResolveWarmStatusForLogin
-      ? await resolveSigningSessionStatusForUi(context, sessionStatusIdentity, {
-          ed25519: ed25519WarmStatus,
-          snapshot: snapshotStatusForLogin,
-        }).catch(() => null)
-      : null;
-    const hasActiveWarmSigningSession = isSessionDisplayActive(snapshotStatusForLogin);
-    const isLoggedIn =
-      hasNearOperationalLogin || hasThresholdEcdsaLogin || hasActiveWarmSigningSession;
-
-    if (isLoggedIn && (requiresWarmSession || !hasNearOperationalLogin)) {
-      const warmStatus =
-        warmStatusForLogin ||
-        (await resolveSigningSessionStatusForUi(context, sessionStatusIdentity, {
-          ed25519: ed25519WarmStatus,
-          snapshot: snapshotStatusForLogin,
-        }));
-      if (!isSessionDisplayActive(warmStatus)) {
-        return buildLoggedOutLoginState({
-          walletId: resolvedWalletId,
-          nearAccountId: resolvedNearAccountId,
-          thresholdEcdsaEthereumAddress: thresholdMetadata.ethereumAddress,
-          thresholdEcdsaPublicKeyB64u: thresholdMetadata.thresholdEcdsaPublicKeyB64u,
-        });
-      }
-    }
-
-    const authMethod: WalletAuthMethod | null = isLoggedIn
-      ? warmStatusForLogin?.authMethod || null
-      : null;
-    const authMethods = await readWalletAuthMethodBindingsForSession(resolvedWalletId);
-    const currentAuthMethod = selectCurrentWalletAuthMethod({ authMethods, authMethod });
-
-    return {
-      isLoggedIn,
-      walletId: resolvedWalletId,
-      nearAccountId: resolvedNearAccountId,
-      publicKey,
-      userData,
-      currentAuthMethod,
-      authMethods,
-      thresholdEcdsaEthereumAddress: thresholdMetadata.ethereumAddress,
-      thresholdEcdsaPublicKeyB64u: thresholdMetadata.thresholdEcdsaPublicKeyB64u,
-    };
-  } catch (error: unknown) {
-    console.warn('Error getting login state:', error);
-    return buildLoggedOutLoginState({
-      walletId: resolvedWalletId,
-      nearAccountId: resolvedNearAccountId,
-      thresholdEcdsaEthereumAddress: null,
-      thresholdEcdsaPublicKeyB64u: null,
-    });
-  }
+  const [userData, base] = await Promise.all([
+    nearSubject ? resolveExactNearWalletUser(context.signingEngine, nearSubject) : null,
+    resolveWalletSessionAppIdentityForWallet(context, resolvedWalletId),
+  ]);
+  return {
+    ...base,
+    nearAccountId: resolvedNearAccountId,
+    nearOperationalPublicKey: selectNearOperationalPublicKeyForLogin(userData),
+    userData,
+  };
 }
 
 /**

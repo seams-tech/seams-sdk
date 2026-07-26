@@ -122,10 +122,7 @@ import type {
   WarmSessionSealAndPersistResult,
   WarmSessionSealTransportInput,
 } from '@/core/types/secure-confirm-worker';
-import type {
-  SdkLifecycleEventListener,
-  SigningFlowEvent,
-} from '@/core/types/sdkSentEvents';
+import type { SdkLifecycleEventListener, SigningFlowEvent } from '@/core/types/sdkSentEvents';
 import type {
   WorkerResourceWarmupAccountContext,
   WorkerResourceWarmupDiagnostics,
@@ -311,6 +308,7 @@ export interface SigningSessionSurface {
     sessionId: string;
     transport?: WarmSessionSealTransportInput;
   }): Promise<WarmSessionSealAndPersistResult>;
+  getReusableWalletSessionStatus(walletId: WalletId | string): Promise<SigningSessionStatus | null>;
   discoverPersistedSessionsForWallet(
     args: DiscoverPersistedSessionsForWalletInput,
   ): Promise<DiscoverPersistedSessionsForWalletResult>;
@@ -338,7 +336,10 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
   NonceCoordinatorSurface &
   UserAccountLookupSurface &
   WarmSessionStatusSurface &
-  Pick<SigningSessionSurface, 'readPersistedAvailableSigningLanes'> &
+  Pick<
+    SigningSessionSurface,
+    'getReusableWalletSessionStatus' | 'readPersistedAvailableSigningLanes'
+  > &
   Pick<EcdsaLoginSessionSurface, 'listThresholdEcdsaSessionRecordsForWalletTarget'>;
 
 export type LoginUnlockSigningSurface = WalletSessionReadSurface &

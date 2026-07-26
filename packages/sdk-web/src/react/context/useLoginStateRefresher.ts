@@ -3,7 +3,10 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { SeamsWeb } from '@/SeamsWeb';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LoginState, SeamsContextType } from '../types';
-import { isWalletSessionReadyForUi } from './walletSessionReadiness';
+import {
+  isWalletSessionReadUnavailable,
+  isWalletSessionReadyForUi,
+} from './walletSessionReadiness';
 import {
   buildReactLoggedInLoginStateFromSession,
   buildReactLoggedOutLoginState,
@@ -43,14 +46,19 @@ export function useLoginStateRefresher(args: {
         }
 
         const session = await seams.auth.getWalletSession(exactWalletId);
+        if (isWalletSessionReadUnavailable(session)) return;
         if (!isWalletSessionReadyForUi({ session })) {
           setLoginState(buildReactLoggedOutLoginState());
           return;
         }
-        const { login: ls } = session;
-        if (ls.walletId) {
-          seams.preferences.setCurrentWallet(toWalletId(ls.walletId));
-          syncInputUsernameFromWalletId(setInputUsername, ls.walletId);
+        if (session.appIdentity.kind !== 'resolved') {
+          setLoginState(buildReactLoggedOutLoginState());
+          return;
+        }
+        const resolvedWalletId = session.appIdentity.walletId;
+        if (resolvedWalletId) {
+          seams.preferences.setCurrentWallet(toWalletId(resolvedWalletId));
+          syncInputUsernameFromWalletId(setInputUsername, resolvedWalletId);
         }
         const nextLoginState = buildReactLoggedInLoginStateFromSession(session);
         setLoginState(nextLoginState ?? buildReactLoggedOutLoginState());

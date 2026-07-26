@@ -44,7 +44,6 @@ import type {
   GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
   WalletSession,
-  LoginState,
   RegistrationResult,
   SignAndSendDelegateActionResult,
   SignDelegateActionResult,
@@ -77,7 +76,6 @@ import {
 } from '@/core/types/signer-worker';
 import type { SignNEP413MessageParams, SignNEP413MessageResult } from '@/SeamsWeb/operations/near';
 import { toError } from '@shared/utils/errors';
-import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBindings';
 import type { WalletUIRegistry } from './host/lit-ui/iframe-lit-element-registry';
 import type { DelegateActionInput, SignedDelegate } from '@/core/types/delegate';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
@@ -684,24 +682,8 @@ export class SeamsWebIframe {
   }
 
   private async getWalletSessionDomain(walletId?: string): Promise<WalletSession> {
-    if (!this.router.isReady()) {
-      const login: LoginState = {
-        isLoggedIn: false,
-        walletId: walletId ? toWalletId(walletId) : null,
-        nearAccountId: null,
-        publicKey: null,
-        userData: null,
-        currentAuthMethod: buildNoCurrentWalletAuthMethod(),
-        authMethods: [],
-      };
-      return {
-        login,
-        signingSession: null,
-        currentAuthMethod: buildNoCurrentWalletAuthMethod(),
-        authMethods: [],
-      };
-    }
-    return await this.router.getWalletSession(walletId);
+    const router = await this.requireRouterReady();
+    return await router.getWalletSession(walletId);
   }
 
   private resolveNearSigningWalletId(args: { walletSession: WalletSessionRef }): string {

@@ -208,6 +208,7 @@ import {
   parseWalletIframeExactSessionLockResult,
   parseWalletIframeExactSessionState,
   parseWalletIframeMissingSessionLockResult,
+  parseWalletSessionFromBoundary,
   WalletIframeSessionExpiredRequestError,
   type WalletIframeExactSessionIdentity,
   type WalletIframeExactSessionLockResult,
@@ -373,9 +374,14 @@ type WalletIframeLoginStatusSnapshot = {
 function walletIframeLoginStatusFromSession(
   session: WalletSession,
 ): WalletIframeLoginStatusSnapshot {
-  const walletId = String(session.login.walletId || '').trim();
+  const walletId =
+    session.appIdentity.kind === 'resolved' ? String(session.appIdentity.walletId).trim() : '';
+  const reusableWalletSession = session.reusableWalletSession;
   return {
-    isLoggedIn: Boolean(session.login.isLoggedIn && walletId),
+    isLoggedIn: Boolean(
+      walletId &&
+      (reusableWalletSession.kind === 'active' || reusableWalletSession.kind === 'exhausted'),
+    ),
     walletId: walletId || null,
   };
 }
@@ -678,7 +684,7 @@ export class WalletIframeRouter {
     sdkLifecycleEvent: new Set<SdkLifecycleEventListener>(),
   };
   private readonly expiredSigningSessionsByWallet = new Map<WalletId, Set<WalletSessionId>>();
-  private exactSessionState: WalletIframeExactSessionState = { kind: 'wallet_locked' };
+  private exactSessionState: WalletIframeExactSessionState | null = null;
   private lastPreferencesChangedPayload: PreferencesChangedPayload | null = null;
   private progressBus: OnEventsProgressBus;
   private debug = false;
@@ -1088,6 +1094,9 @@ export class WalletIframeRouter {
   }
 
   getMirroredExactSessionState(): WalletIframeExactSessionState {
+    if (this.exactSessionState === null) {
+      throw new Error('Wallet iframe exact session state has not been initialized');
+    }
     return this.exactSessionState;
   }
 
@@ -1154,7 +1163,7 @@ export class WalletIframeRouter {
 
   private mirrorExpiredSession(event: SigningSessionExpiredEvent): void {
     const state = this.exactSessionState;
-    if (state.kind !== 'active_session') return;
+    if (state === null || state.kind !== 'active_session') return;
     if (state.walletId !== event.walletId || state.walletSessionId !== event.walletSessionId) return;
     this.exactSessionState = {
       kind: 'expired_session',
@@ -1169,7 +1178,10 @@ export class WalletIframeRouter {
     for (const [requestId, pending] of this.state.pending) {
       const binding = pending.sessionBinding;
       if (binding.kind !== 'exact_session') continue;
-      if (binding.walletId !== event.walletId || binding.walletSessionId !== event.walletSessionId) {
+      if (
+        binding.walletId !== event.walletId ||
+        binding.walletSessionId !== event.walletSessionId
+      ) {
         continue;
       }
       this.state.pending.delete(requestId);
@@ -1366,11 +1378,12 @@ export class WalletIframeRouter {
   }
 
   async getWalletSession(walletId?: string): Promise<WalletSession> {
-    const res = await this.post<WalletSession>({
+    const expectedWalletId = walletId === undefined ? undefined : parseRequestedWalletId(walletId);
+    const res = await this.post<unknown>({
       type: 'PM_GET_WALLET_SESSION',
-      payload: walletId ? { walletId } : undefined,
+      payload: expectedWalletId ? { walletId: expectedWalletId } : undefined,
     });
-    return res.result;
+    return parseWalletSessionFromBoundary(res.result, expectedWalletId);
   }
 
   async requestEmailOtpChallenge(payload: {
@@ -2602,7 +2615,7 @@ export class WalletIframeRouter {
     const requestWalletId = exactSessionRequestWalletId(envelope);
     if (requestWalletId === null) return { kind: 'unbound' };
     const state = this.exactSessionState;
-    if (state.kind !== 'active_session' || state.walletId !== requestWalletId) {
+    if (state === null || state.kind !== 'active_session' || state.walletId !== requestWalletId) {
       return { kind: 'unbound' };
     }
     return {
@@ -2691,6 +2704,12 @@ function exactSessionRequestWalletId(envelope: ParentToChildEnvelope): string | 
     default:
       return null;
   }
+}
+
+function parseRequestedWalletId(value: string): WalletId {
+  const normalized = value.trim();
+  if (!normalized) throw new Error('Wallet Session request walletId is required');
+  return walletIdFromString(normalized);
 }
 
 // ===== Runtime type guards to safely bridge ProgressPayload -> typed flow events =====

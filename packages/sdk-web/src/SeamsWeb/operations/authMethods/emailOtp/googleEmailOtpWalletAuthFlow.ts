@@ -561,7 +561,12 @@ async function assertLoggedIn(
   walletId: WalletId,
 ): Promise<WalletSession> {
   const session = await deps.getWalletSession(walletId);
-  if (!session.login.isLoggedIn) {
+  if (
+    session.appIdentity.kind !== 'resolved' ||
+    String(session.appIdentity.walletId) !== String(walletId) ||
+    session.reusableWalletSession.kind !== 'active' ||
+    String(session.reusableWalletSession.walletId) !== String(walletId)
+  ) {
     throw new Error('Wallet auth completed, but the local signing session is not ready yet.');
   }
   return session;

@@ -53,7 +53,10 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
       const ctx = pm.getContext();
       await ctx?.signingEngine.getLastUser().catch(() => undefined);
       const session = await pm.auth.getWalletSession(walletId).catch(() => null);
-      const nearAccountId = session?.login.nearAccountId ? String(session.login.nearAccountId) : '';
+      const nearAccountId =
+        session?.appIdentity.kind === 'resolved' && session.appIdentity.nearAccountId
+          ? String(session.appIdentity.nearAccountId)
+          : '';
       if (nearAccountId) {
         await ctx?.signingEngine
           .nearAuthenticatorsByAccount(toAccountId(nearAccountId))

@@ -1,117 +1,53 @@
 import { expect, test } from '@playwright/test';
 import { isWalletSessionReadyForUi } from '@/react/context/walletSessionReadiness';
-import type { WalletSession } from '@/core/types/seams';
-import { toAccountId } from '@/core/types/accountIds';
-import { walletIdFromString } from '@shared/utils/registrationIntent';
-import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBindings';
-
-function makeLoginState(
-  overrides?: Partial<WalletSession['login']>,
-): WalletSession['login'] {
-  return {
-    isLoggedIn: true,
-    walletId: walletIdFromString('alice.testnet'),
-    nearAccountId: toAccountId('alice.testnet'),
-    publicKey: 'ed25519:abc',
-    userData: null,
-    currentAuthMethod: buildNoCurrentWalletAuthMethod(),
-    authMethods: [],
-    ...(overrides || {}),
-  };
-}
-
-function makeSession(overrides?: Partial<WalletSession>): WalletSession {
-  return {
-    login: makeLoginState(),
-    signingSession: {
-      sessionId: 'session-1',
-      status: 'active',
-      remainingUses: 3,
-      expiresAtMs: Date.now() + 60_000,
-    },
-    currentAuthMethod: buildNoCurrentWalletAuthMethod(),
-    authMethods: [],
-    ...(overrides || {}),
-  };
-}
+import {
+  activeWalletSessionFixture,
+  anonymousWalletSessionFixture,
+  exhaustedWalletSessionFixture,
+  expiredWalletSessionFixture,
+  missingWalletSessionFixture,
+} from './helpers/walletSessionReadProjection.fixtures';
 
 test.describe('wallet session readiness gate', () => {
-  test('accepts wallet login without requiring NEAR or signing readiness', () => {
+  test('accepts active and exhausted reusable Wallet Sessions', () => {
     expect(
       isWalletSessionReadyForUi({
-        session: makeSession({ signingSession: null }),
+        session: activeWalletSessionFixture(),
       }),
     ).toBe(true);
-
     expect(
       isWalletSessionReadyForUi({
-        session: makeSession({
-          signingSession: { sessionId: 'session-1', status: 'expired' },
-        }),
-      }),
-    ).toBe(true);
-
-    expect(
-      isWalletSessionReadyForUi({
-        session: makeSession({
-          login: makeLoginState({
-            walletId: walletIdFromString('frost-vermillion-k7p9m2'),
-            nearAccountId: null,
-            publicKey: null,
-            userData: null,
-          }),
-          signingSession: null,
-        }),
+        session: exhaustedWalletSessionFixture(),
       }),
     ).toBe(true);
   });
 
-  test('requires a logged-in wallet snapshot', () => {
+  test('rejects anonymous, missing, and expired Wallet Sessions', () => {
     expect(
       isWalletSessionReadyForUi({
-        session: makeSession({
-          login: makeLoginState({
-            isLoggedIn: false,
-            walletId: walletIdFromString('alice.testnet'),
-            nearAccountId: toAccountId('alice.testnet'),
-            publicKey: null,
-            userData: null,
-          }),
-        }),
+        session: anonymousWalletSessionFixture(),
       }),
     ).toBe(false);
-
     expect(
       isWalletSessionReadyForUi({
-        session: makeSession({
-          login: makeLoginState({
-            isLoggedIn: true,
-            walletId: null,
-            nearAccountId: null,
-            publicKey: null,
-            userData: null,
-          }),
-        }),
+        session: missingWalletSessionFixture(),
+      }),
+    ).toBe(false);
+    expect(
+      isWalletSessionReadyForUi({
+        session: expiredWalletSessionFixture(),
       }),
     ).toBe(false);
   });
 
-  test('accepts an active ECDSA warm session without an Ed25519 public key', () => {
+  test('accepts an active ECDSA Wallet Session without NEAR identity', () => {
     expect(
       isWalletSessionReadyForUi({
-        session: makeSession({
-          login: makeLoginState({
-            isLoggedIn: true,
-            walletId: walletIdFromString('email-otp.testnet'),
-            nearAccountId: toAccountId('email-otp.testnet'),
-            publicKey: null,
-            userData: null,
-            thresholdEcdsaPublicKeyB64u: 'threshold-ecdsa-public-key',
-          }),
-          signingSession: {
-            sessionId: 'ecdsa-session-1',
-            status: 'active',
-          },
+        session: activeWalletSessionFixture({
+          walletId: 'email-otp-wallet',
+          nearAccountId: null,
+          nearOperationalPublicKey: null,
+          thresholdEcdsaPublicKeyB64u: 'threshold-ecdsa-public-key',
         }),
       }),
     ).toBe(true);
