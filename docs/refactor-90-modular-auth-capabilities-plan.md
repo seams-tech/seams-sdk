@@ -669,7 +669,7 @@ registration/Email OTP lifecycle repair through the shared tactical resolver.
 
 Open items:
 
-- [ ] required-field `active | retired` record with fixtures rejecting an active
+- [x] required-field `active | retired` record with fixtures rejecting an active
       manifest missing authority, server generation, durable material ref,
       binding digest, or revision;
 - [ ] manifest history keyed by manifest ID plus an exact
@@ -679,7 +679,7 @@ Open items:
       `active` and distinguishing missing, mismatch, conflict, corrupt, and
       unavailable, with exhaustive switches and no timestamp/source-priority
       fallback;
-- [ ] two-state activation journal containing encrypted pending client state
+- [x] two-state activation journal containing encrypted pending client state
       and the exact replayable server command, with atomic
       ready-material/manifest/retirement/current-pointer/journal-delete
       finalization;

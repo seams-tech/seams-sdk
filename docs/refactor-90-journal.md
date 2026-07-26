@@ -6,6 +6,39 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records only a one-line status per phase; the narrative history lives
 here.
 
+## July 27, 2026: Canonical Sealing And Server Reconciliation Implemented
+
+- Moved canonical ECDSA persistence behind high-level prepare, record-commit,
+  seal/finalize, and open operations as `c5e3f3efc`. Callers no longer supply
+  sealing keys, ciphertext, ciphertext digests, or ready manifests.
+- Pending and ready signer state now use AES-256-GCM with nonextractable,
+  activation-scoped keys, canonical authenticated headers, and recomputed
+  SHA-256 ciphertext digests. `75517ba90` encrypts the decoded state bytes
+  directly so the store does not create a second textual plaintext copy.
+- Replacement atomically retires the prior manifest, deletes its encrypted
+  material and sealing key, publishes the replacement, advances the exact
+  pointer, and deletes the committed journal. A failed generation CAS preserves
+  both the prior active state and the replacement journal/key for
+  reconciliation.
+- Fixed a server replay regression as `ffb5fc5e7`: an exact activation retry may
+  rebuild a later local timestamp, while the durable original activation time
+  remains authoritative and all stable activation fields still match.
+- Exposed authenticated, non-consuming activation preparation and exact
+  three-way query routes as `672d7fa9a`. They reuse the existing SigningWorker
+  durable commit/query record and add no server ledger or schema. Activation
+  commit now queries first and returns the stored receipt on exact replay.
+- Added strict shared TypeScript parsers and type fixtures for preparation and
+  `committed | not_committed | correlation_conflict` outcomes as `8e71f2f3d`.
+- Validation: canonical-store browser tests pass 6 of 6; shared activation
+  parser tests pass 12 of 12; focused Rust activation tests and strict Router
+  boundaries pass; SDK, shared, unit, and strict-Router type/check gates pass;
+  Prettier, rustfmt, and `git diff --check` pass.
+- These foundations are not live consumers yet. Registration still needs the
+  TypeScript server/browser bridge, the worker must persist prepared state
+  before the consuming call, refresh/sign/export must hydrate through the
+  canonical store, and the tactical store/record family remains until that
+  atomic cut.
+
 ## July 27, 2026: Exact Session Projection And Activation CAS Checkpoint
 
 - Landed the canonical ECDSA manifest/history/current-pointer store and
