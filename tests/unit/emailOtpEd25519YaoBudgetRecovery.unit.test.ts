@@ -289,6 +289,7 @@ class RecoveryWorkerFixture {
   private readonly substituteParticipantIds: boolean;
   private readonly substituteSignerSetId: boolean;
   private readonly failRecoveryDispatch: boolean;
+  private readonly disposeBoundRootResult: boolean;
 
   constructor(args: {
     prior: RouterAbEd25519YaoActiveClientMetadataV1;
@@ -296,12 +297,14 @@ class RecoveryWorkerFixture {
     substituteParticipantIds?: boolean;
     substituteSignerSetId?: boolean;
     failRecoveryDispatch?: boolean;
+    disposeBoundRootResult?: boolean;
   }) {
     this.prior = args.prior;
     this.substitutePublicKey = args.substitutePublicKey;
     this.substituteParticipantIds = args.substituteParticipantIds === true;
     this.substituteSignerSetId = args.substituteSignerSetId === true;
     this.failRecoveryDispatch = args.failRecoveryDispatch === true;
+    this.disposeBoundRootResult = args.disposeBoundRootResult !== false;
   }
 
   async requestWorkerOperation(args: any): Promise<any> {
@@ -414,7 +417,7 @@ class RecoveryWorkerFixture {
         this.disposedPendingFactor = request.payload.pendingFactorHandle;
         return { removed: true };
       case 'disposeEmailOtpEd25519YaoRoot':
-        return { removed: true };
+        return { removed: this.disposeBoundRootResult };
       case 'disposeEmailOtpEd25519YaoActiveClient':
         return { removed: true };
       default:
@@ -1048,6 +1051,45 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         pendingFactorHandle: {
           kind: 'email_otp_ed25519_yao_pending_factor_handle_v1',
           handleId: 'pending-factor-dispatch-failure',
+          purpose: 'recovery',
+          expiresAtMs: Date.now() + 60_000,
+        },
+        bootstrap: recoveryBootstrap({
+          remainingUses: 3,
+          prior,
+          substitutePublicKey: false,
+          substituteParticipantIds: false,
+          substituteSignerSetId: false,
+        }),
+        expectedPriorMetadata: prior,
+        providerSubject: PROVIDER_SUBJECT,
+        registrationAuthorityId: 'email-otp-authority-1',
+        routerOrigin: RELAYER_URL,
+      }),
+    ).rejects.toThrow('injected recovery dispatch failure');
+
+    expect(worker.operations).toEqual([
+      'bindEmailOtpEd25519YaoRoot',
+      'recoverEmailOtpEd25519Yao',
+      'disposeEmailOtpEd25519YaoRoot',
+    ]);
+  });
+
+  test('worker helper preserves the primary failure when the consumed root is already absent', async () => {
+    const prior = activeMetadata();
+    const worker = new RecoveryWorkerFixture({
+      prior,
+      substitutePublicKey: false,
+      failRecoveryDispatch: true,
+      disposeBoundRootResult: false,
+    });
+
+    await expect(
+      recoverEmailOtpEd25519YaoWorkerClientV1({
+        workerContext: worker.context(),
+        pendingFactorHandle: {
+          kind: 'email_otp_ed25519_yao_pending_factor_handle_v1',
+          handleId: 'pending-factor-consumed-root',
           purpose: 'recovery',
           expiresAtMs: Date.now() + 60_000,
         },

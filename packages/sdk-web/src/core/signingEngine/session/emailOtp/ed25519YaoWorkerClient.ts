@@ -569,23 +569,17 @@ async function disposeWorkerFactorOwnership(args: {
 }): Promise<void> {
   switch (args.ownership.kind) {
     case 'pending_factor': {
-      const removed = await disposeEmailOtpEd25519YaoPendingFactorV1({
+      await disposeEmailOtpEd25519YaoPendingFactorV1({
         workerContext: args.workerContext,
         pendingFactorHandle: args.ownership.pendingFactorHandle,
       });
-      if (!removed) {
-        throw new Error('Email OTP Ed25519 Yao pending factor was unavailable for disposal');
-      }
       return;
     }
     case 'bound_root': {
-      const removed = await disposeEmailOtpEd25519YaoRootV1({
+      await disposeEmailOtpEd25519YaoRootV1({
         workerContext: args.workerContext,
         rootHandle: args.ownership.rootHandle,
       });
-      if (!removed) {
-        throw new Error('Email OTP Ed25519 Yao root was unavailable for disposal');
-      }
       return;
     }
     case 'pending_registration':
@@ -666,12 +660,7 @@ export async function startEmailOtpEd25519YaoWorkerRegistrationV1(
   } catch (error) {
     try {
       await disposeWorkerFactorOwnership({ workerContext: input.workerContext, ownership });
-    } catch (disposalError) {
-      throw new AggregateError(
-        [error, disposalError],
-        'Email OTP Ed25519 Yao registration failed and factor disposal failed',
-      );
-    }
+    } catch {}
     throw error;
   }
 }
@@ -753,12 +742,7 @@ export async function recoverEmailOtpEd25519YaoWorkerClientV1(
   } catch (error) {
     try {
       await disposeWorkerFactorOwnership({ workerContext: input.workerContext, ownership });
-    } catch (disposalError) {
-      throw new AggregateError(
-        [error, disposalError],
-        'Email OTP Ed25519 Yao recovery failed and factor disposal failed',
-      );
-    }
+    } catch {}
     throw error;
   }
 }
