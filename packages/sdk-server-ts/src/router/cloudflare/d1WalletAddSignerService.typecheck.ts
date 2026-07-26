@@ -1,4 +1,23 @@
 import type { D1WalletAddSignerFinalizePreparedV1 } from './d1WalletAddSignerService';
+import type {
+  WalletAddSignerEcdsaActivationPrepareRequest,
+  WalletAddSignerEcdsaActivationQueryRequest,
+  WalletAddSignerEcdsaActivationRequest,
+} from '../../core/registrationContracts';
+
+declare const activationPrepareRequest: WalletAddSignerEcdsaActivationPrepareRequest;
+
+const activationCommitWithoutPreparedDigest = {
+  addSignerCeremonyId: activationPrepareRequest.addSignerCeremonyId,
+  // @ts-expect-error Add-signer activation commit requires the prepared request digest.
+  ecdsa: activationPrepareRequest.ecdsa,
+} satisfies WalletAddSignerEcdsaActivationRequest;
+
+const activationQueryWithoutPreparedDigest = {
+  addSignerCeremonyId: activationPrepareRequest.addSignerCeremonyId,
+  // @ts-expect-error Add-signer activation query requires the prepared request digest.
+  ecdsa: activationPrepareRequest.ecdsa,
+} satisfies WalletAddSignerEcdsaActivationQueryRequest;
 
 const validEd25519FinalizePrepared = {
   kind: 'd1_wallet_add_signer_finalize_ed25519_prepared_v1',
@@ -30,3 +49,5 @@ void validEd25519FinalizePrepared;
 void validEcdsaFinalizePrepared;
 void ecdsaFinalizeWithSessionTerms;
 void ed25519FinalizeWithoutSessionTerms;
+void activationCommitWithoutPreparedDigest;
+void activationQueryWithoutPreparedDigest;

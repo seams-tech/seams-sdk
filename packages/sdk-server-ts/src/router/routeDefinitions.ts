@@ -1605,6 +1605,32 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
+      'wallet_add_signer_ecdsa_activation_prepare',
+      'POST',
+      '/wallets/:walletId/signers/derivation/activate/prepare',
+      'Prepare one exact wallet add-signer ECDSA activation command',
+      {
+        plane: 'public',
+        proof: 'threshold_protocol_state',
+        rationale:
+          'Add-signer activation preparation is bound to one unexpired server-retained Router ceremony.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
+    ),
+    publicRoute(
+      'wallet_add_signer_ecdsa_activation_query',
+      'POST',
+      '/wallets/:walletId/signers/derivation/activate/query',
+      'Query one exact wallet add-signer ECDSA activation command',
+      {
+        plane: 'public',
+        proof: 'threshold_protocol_state',
+        rationale:
+          'Add-signer activation query is bound to one unexpired server-retained Router ceremony.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
+    ),
+    publicRoute(
       'wallet_add_signer_ecdsa_activation',
       'POST',
       '/wallets/:walletId/signers/derivation/activate',

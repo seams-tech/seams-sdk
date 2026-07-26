@@ -362,7 +362,7 @@ export type WalletAddSignerEcdsaDerivationRespondResponse =
       message: string;
     };
 
-export type WalletAddSignerEcdsaActivationRequest = {
+export type WalletAddSignerEcdsaActivationPrepareRequest = {
   addSignerCeremonyId: string;
   ecdsa: {
     kind: 'router_ab_ecdsa_registration_activation_v1';
@@ -370,6 +370,50 @@ export type WalletAddSignerEcdsaActivationRequest = {
     publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
   };
 };
+
+export type WalletAddSignerEcdsaActivationPrepareResponse =
+  | {
+      ok: true;
+      addSignerCeremonyId: string;
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_prepared_v1';
+        preparation: RouterAbEcdsaDerivationActivationPrepareResultV1;
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type WalletAddSignerEcdsaActivationRequest = {
+  addSignerCeremonyId: string;
+  ecdsa: WalletAddSignerEcdsaActivationPrepareRequest['ecdsa'] & {
+    expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+  };
+};
+
+export type WalletAddSignerEcdsaActivationQueryRequest = {
+  addSignerCeremonyId: string;
+  ecdsa: WalletAddSignerEcdsaActivationPrepareRequest['ecdsa'] & {
+    expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+  };
+};
+
+export type WalletAddSignerEcdsaActivationQueryResponse =
+  | {
+      ok: true;
+      addSignerCeremonyId: string;
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_queried_v1';
+        result: RouterAbEcdsaDerivationActivationCommitQueryResultV1;
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
 
 export type WalletAddSignerEcdsaActivationResponse =
   | {

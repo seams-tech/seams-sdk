@@ -738,25 +738,99 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
       }),
     ).resolves.toEqual(responded);
 
-    const activated = await service.walletAuthMethods.activateWalletAddSignerEcdsa({
+    const unconfiguredSigningService = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      routerAbSigningRuntimes: null,
+      ecdsaStrictRegistration: strictRegistration,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: new RecordingDurableObjectNamespace(),
+        THRESHOLD_PREFIX: 'strict-add-signer-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+    const activationRequest = {
       addSignerCeremonyId: started.addSignerCeremonyId,
       ecdsa: {
         kind: 'router_ab_ecdsa_registration_activation_v1',
         activationCorrelationId: parseCorrelationId('activation-correlation-add-signer'),
         publicFacts: TEST_ECDSA_ACTIVATION_FACTS,
       },
+    } as const;
+    const preparedActivation =
+      await service.walletAuthMethods.prepareWalletAddSignerEcdsaActivation(activationRequest);
+    if (!preparedActivation.ok) throw new Error(preparedActivation.message);
+    const activationCommitRequest = {
+      addSignerCeremonyId: activationRequest.addSignerCeremonyId,
+      ecdsa: {
+        kind: activationRequest.ecdsa.kind,
+        activationCorrelationId: activationRequest.ecdsa.activationCorrelationId,
+        publicFacts: activationRequest.ecdsa.publicFacts,
+        expectedActivationRequestDigest:
+          preparedActivation.ecdsa.preparation.activation_request_digest,
+      },
+    };
+    await expect(
+      service.walletAuthMethods.queryWalletAddSignerEcdsaActivation(activationCommitRequest),
+    ).resolves.toMatchObject({
+      ok: true,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_queried_v1',
+        result: { kind: 'not_committed' },
+      },
     });
-    if (!activated.ok) throw new Error(activated.message);
     await expect(
       service.walletAuthMethods.activateWalletAddSignerEcdsa({
-        addSignerCeremonyId: started.addSignerCeremonyId,
+        addSignerCeremonyId: activationCommitRequest.addSignerCeremonyId,
         ecdsa: {
-          kind: 'router_ab_ecdsa_registration_activation_v1',
-          activationCorrelationId: parseCorrelationId('activation-correlation-add-signer'),
-          publicFacts: TEST_ECDSA_ACTIVATION_FACTS,
+          ...activationCommitRequest.ecdsa,
+          expectedActivationRequestDigest: { bytes: new Array<number>(32).fill(13) },
         },
       }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'activation_digest_mismatch',
+    });
+    await expect(
+      unconfiguredSigningService.walletAuthMethods.activateWalletAddSignerEcdsa(
+        activationCommitRequest,
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'ecdsa_activation_terminal_failure',
+    });
+    await expect(
+      service.walletAuthMethods.queryWalletAddSignerEcdsaActivation(activationCommitRequest),
+    ).resolves.toMatchObject({
+      ok: true,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_queried_v1',
+        result: { kind: 'committed' },
+      },
+    });
+    const activated =
+      await service.walletAuthMethods.activateWalletAddSignerEcdsa(activationCommitRequest);
+    if (!activated.ok) throw new Error(activated.message);
+    await expect(
+      service.walletAuthMethods.queryWalletAddSignerEcdsaActivation(activationCommitRequest),
+    ).resolves.toMatchObject({
+      ok: true,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_queried_v1',
+        result: {
+          kind: 'committed',
+          receipt: activated.ecdsa.activation,
+        },
+      },
+    });
+    await expect(
+      service.walletAuthMethods.activateWalletAddSignerEcdsa(activationCommitRequest),
     ).resolves.toEqual(activated);
+    expect(strictRegistration.activationPrepareCalls).toBe(4);
 
     const finalizeRequest = {
       kind: 'evm_family_ecdsa' as const,

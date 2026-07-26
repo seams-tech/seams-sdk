@@ -7,6 +7,8 @@ import {
   handleRouterApiWalletAddSignerFinalize,
   handleRouterApiWalletAddSignerEcdsaDerivationRespond,
   handleRouterApiWalletAddSignerEcdsaActivation,
+  handleRouterApiWalletAddSignerEcdsaActivationPrepare,
+  handleRouterApiWalletAddSignerEcdsaActivationQuery,
   handleRouterApiWalletAddSignerIntent,
   handleRouterApiWalletAddSignerStart,
   handleRouterApiWalletRegistrationFinalize,
@@ -43,6 +45,8 @@ const ROUTE_IDS = [
   'wallet_add_signer_intent',
   'wallet_add_signer_start',
   'wallet_add_signer_ecdsa_derivation_respond',
+  'wallet_add_signer_ecdsa_activation_prepare',
+  'wallet_add_signer_ecdsa_activation_query',
   'wallet_add_signer_ecdsa_activation',
   'wallet_add_signer_finalize',
   'wallet_add_auth_method_intent',
@@ -111,6 +115,16 @@ export async function handleWalletRegistration(
   if (route.id === 'wallet_registration_ecdsa_activation_query') {
     return toFetchRouteResponse(
       await handleRouterApiWalletRegistrationEcdsaActivationQuery(common),
+    );
+  }
+  if (route.id === 'wallet_add_signer_ecdsa_activation_prepare') {
+    return toFetchRouteResponse(
+      await handleRouterApiWalletAddSignerEcdsaActivationPrepare(common),
+    );
+  }
+  if (route.id === 'wallet_add_signer_ecdsa_activation_query') {
+    return toFetchRouteResponse(
+      await handleRouterApiWalletAddSignerEcdsaActivationQuery(common),
     );
   }
   const response: RouteResponse<unknown> =

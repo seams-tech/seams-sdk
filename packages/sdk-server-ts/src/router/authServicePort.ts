@@ -43,6 +43,10 @@ import type {
   WalletAddSignerFinalizeResponse,
   WalletAddSignerEcdsaActivationRequest,
   WalletAddSignerEcdsaActivationResponse,
+  WalletAddSignerEcdsaActivationPrepareRequest,
+  WalletAddSignerEcdsaActivationPrepareResponse,
+  WalletAddSignerEcdsaActivationQueryRequest,
+  WalletAddSignerEcdsaActivationQueryResponse,
   WalletAddSignerEcdsaDerivationRespondRequest,
   WalletAddSignerEcdsaDerivationRespondResponse,
   WalletAddSignerStartRequest,
@@ -768,6 +772,14 @@ export type RouterApiMethodTypes = {
     readonly input: WalletAddSignerEcdsaActivationRequest;
     readonly result: WalletAddSignerEcdsaActivationResponse;
   };
+  prepareWalletAddSignerEcdsaActivation: {
+    readonly input: WalletAddSignerEcdsaActivationPrepareRequest;
+    readonly result: WalletAddSignerEcdsaActivationPrepareResponse;
+  };
+  queryWalletAddSignerEcdsaActivation: {
+    readonly input: WalletAddSignerEcdsaActivationQueryRequest;
+    readonly result: WalletAddSignerEcdsaActivationQueryResponse;
+  };
   getWalletAddSignerRuntimePolicyScope: {
     readonly input: { readonly addSignerCeremonyId: string };
     readonly result: ThresholdRuntimePolicyScope | null;
@@ -1174,9 +1186,15 @@ export interface RouterApiWalletAuthMethodService {
   respondWalletAddSignerEcdsaDerivation(
     input: WalletAddSignerEcdsaDerivationRespondRequest,
   ): Promise<WalletAddSignerEcdsaDerivationRespondResponse>;
+  prepareWalletAddSignerEcdsaActivation(
+    input: WalletAddSignerEcdsaActivationPrepareRequest,
+  ): Promise<WalletAddSignerEcdsaActivationPrepareResponse>;
   activateWalletAddSignerEcdsa(
     input: WalletAddSignerEcdsaActivationRequest,
   ): Promise<WalletAddSignerEcdsaActivationResponse>;
+  queryWalletAddSignerEcdsaActivation(
+    input: WalletAddSignerEcdsaActivationQueryRequest,
+  ): Promise<WalletAddSignerEcdsaActivationQueryResponse>;
   getWalletAddSignerRuntimePolicyScope(
     addSignerCeremonyId: string,
   ): Promise<ThresholdRuntimePolicyScope | null>;

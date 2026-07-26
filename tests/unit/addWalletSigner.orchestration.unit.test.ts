@@ -2705,7 +2705,22 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
         });
       }
     }
+    if (path === `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/activate/prepare`) {
+      captures.addSignerActivationPrepareBody = body;
+      return jsonResponse({
+        ok: true,
+        addSignerCeremonyId: body.addSignerCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_activation_prepared_v1',
+          preparation: {
+            activation_correlation_id: body.ecdsa.activationCorrelationId,
+            activation_request_digest: { bytes: new Array<number>(32).fill(1) },
+          },
+        },
+      });
+    }
     if (path === `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/activate`) {
+      captures.addSignerActivationBody = body;
       const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
       const prepare = captures.ecdsaPrepare as Record<string, any>;
       let bootstrap = mockedEcdsaServerBootstrap(ecdsaFacts, prepare);
@@ -2803,6 +2818,7 @@ test('addWalletSigner orchestrates later ECDSA from an Ed25519 wallet', async ()
       `/wallets/${WALLET_SUBJECT_ID}/signers/intent`,
       `/wallets/${WALLET_SUBJECT_ID}/signers/start`,
       `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/respond`,
+      `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/activate/prepare`,
       `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/activate`,
       `/wallets/${WALLET_SUBJECT_ID}/signers/finalize`,
     ]);
@@ -2816,6 +2832,11 @@ test('addWalletSigner orchestrates later ECDSA from an Ed25519 wallet', async ()
         credential: {
           clientExtensionResults: null,
         },
+      },
+    });
+    expect(captures.addSignerActivationBody).toMatchObject({
+      ecdsa: {
+        expectedActivationRequestDigest: { bytes: new Array<number>(32).fill(1) },
       },
     });
     expect(captures.finalizeBody).toMatchObject({
