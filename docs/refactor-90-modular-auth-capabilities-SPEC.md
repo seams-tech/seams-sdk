@@ -7,6 +7,7 @@ MPC lifecycle convergence: July 16, 2026
 ECDSA state and persistence convergence: July 18, 2026
 Authorization and material identity separation: July 23, 2026
 Refactor 92 lifecycle reconciliation: July 23, 2026
+Refactor 93 Yao execution reconciliation: July 26, 2026
 
 Status: planning.
 
@@ -23,6 +24,13 @@ Lifecycle dependency: [Refactor 92](./refactor-92-session-expiry-handling.md)
 owns the implemented reusable Wallet Session behavior. Refactor 90 may replace
 the underlying authorization and material representations only while preserving
 that behavior under `R90-INV-014`.
+
+Execution dependency: [Refactor 93](./refactor-93.md) owns the current
+Cloudflare Near Yao ceremony boundary: request-scoped Gateway persistence, one
+operation-specific MPC Router command, pair-bound role-local execution state,
+and atomic SigningWorker delivery. Refactor 90 composes capability
+authorization and client material lifecycle around that boundary. It does not
+duplicate Router ceremony state or restore deleted direct orchestration.
 
 ## Normative Invariant Index
 
@@ -61,10 +69,12 @@ invariant.
 - **R90-INV-009 — Exact operation claim.** The stable operation fingerprint
   excludes rotating authorization, quota, session, and runtime identities. One
   absent-claim transaction consumes the exact grant and applicable quota and
-  creates the claim and audit linkage. Operation descriptors declare quota
-  applicability: normal signing consumes one wallet-quota use beside its grant;
-  key export declares no quota use and consumes only its exact grant. Quota
-  exhaustion never blocks export, and export never spends signing quota.
+  creates the claim and audit linkage. Operation descriptors and authorization
+  branches declare quota applicability. Warm signing through
+  `reusable_wallet_session` consumes one wallet-quota use beside its grant.
+  Signing through `operation_step_up` consumes only its one-operation grant.
+  Key export declares no quota use in either branch. Quota exhaustion never
+  blocks export, and export never spends signing quota.
 - **R90-INV-010 — Supersession invalidates preparation.** Authority or lifecycle
   replacement returns `superseded`; callers discard the prepared lane and
   resolve current canonical state again.
@@ -81,10 +91,13 @@ invariant.
   `MpcWalletSigningQuotaId` identifies its remaining-use allowance, a
   `CapabilityGrantId` identifies authority for one operation, and an opaque
   `MpcMaterialActivationId` identifies one exact activated MPC material
-  instance. None of these IDs locates, owns, or aliases another domain. Unlock
-  or refresh may replace the Wallet Session while preserving an unchanged exact
-  material activation through a validated `MpcMaterialActivationRef`;
-  registration or explicit material reactivation creates a new activation ID.
+  instance. None of these IDs locates, owns, or aliases another domain. An MPC
+  execution scope carries either reusable-session authority plus its operation
+  grant or an operation-step-up grant with no `WalletSessionId`. Explicit unlock
+  or Wallet Session renewal may replace the Wallet Session while preserving an
+  unchanged exact material activation through a validated
+  `MpcMaterialActivationRef`; ordinary page refresh does not replace it.
+  Registration or explicit material reactivation creates a new activation ID.
 - **R90-INV-014 — Refactor 92 wallet-session lifecycle preservation.**
   Refactor 92 is the normative behavior for reusable Wallet Sessions during
   this migration. Ordinary unlock creates a 24-hour session with three
@@ -139,7 +152,8 @@ evidence from the progress journal.
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently
-  idempotent and queryable by exact recovery ID, including injected crash cases.
+  idempotent and queryable by exact recovery ID, including Refactor 93 exact
+  Router replay, role-local reconciliation, and injected crash cases.
 - [ ] `R90-INV-005` — Near finalization atomically swaps or retires material,
   persists lifecycle facts, and deletes the journal.
 - [ ] `R90-INV-006` — Near durable journals contain only server uncertainty and
@@ -158,7 +172,8 @@ evidence from the progress journal.
   checks follow the one-enforcement-per-failure-mode rule.
 - [ ] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
   and export use an exact material-activation reference independently from the
-  current authorization session.
+  discriminated reusable-session or operation-step-up authority; step-up
+  carries no `WalletSessionId`.
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.
@@ -533,11 +548,13 @@ below the session-read boundary. NEAR account identity exists only on the
 account validators or fabricate a NEAR account subject. Auth-method display
 must come from wallet-auth-method bindings or session evidence, never from
 `publicKey` heuristics. `WalletSessionDisplayState` cannot authorize signing,
-material recovery, or export. Generic operations consume the exact reusable
-Wallet Session state, operation grant, quota claim, and capability-local
-hydration plan. The live demo alone uses the display projection as lock policy:
-authoritative expiry locks once, exhaustion requests step-up while remaining
-unlocked, and app identity remains active.
+material recovery, or export. Generic operations consume the exact
+`MpcOperationAuthorizationRef`, the quota claim applicable to its branch, and
+the capability-local hydration plan. The reusable-session branch requires exact
+active Wallet Session state; the operation-step-up branch excludes it. The live
+demo alone uses the display projection as lock policy: authoritative expiry
+locks once, exhaustion requests step-up while remaining unlocked, and app
+identity remains active.
 
 ### Signing-Centered Grant-Evidence UI
 
@@ -2410,8 +2427,20 @@ type MpcMaterialActivationRef = {
   signingWorker: MpcSigningWorkerRef;
 };
 
+type MpcOperationAuthorizationRef =
+  | {
+      kind: "reusable_wallet_session";
+      walletSessionId: WalletSessionId;
+      grantId: CapabilityGrantId;
+    }
+  | {
+      kind: "operation_step_up";
+      grantId: CapabilityGrantId;
+      walletSessionId?: never;
+    };
+
 type MpcOperationExecutionScope = {
-  authorizationSessionId: WalletSessionId;
+  authorization: MpcOperationAuthorizationRef;
   materialActivation: MpcMaterialActivationRef;
   operation: CapabilityOperationRef;
 };
@@ -2541,18 +2570,19 @@ refreshing a `SeamsSession` or reusable Wallet Session never renames, rekeys, or
 relocates activated MPC material. Activation creates a fresh opaque
 `MpcMaterialActivationId`; the durable material record, registered capability,
 SigningWorker state, and signed operation context bind the corresponding
-`MpcMaterialActivationRef`. Normal signing validates the active authorization
-Wallet Session and exact material activation independently. The operation grant
-remains bound to the active `SeamsSession`, while the reusable warm allowance
-remains bound to the exact Wallet Session. The wire scope therefore uses
-`authorization_session_id: WalletSessionId` and `material_activation`; the
-tactical `session_id` plus `active_state_session_id` pair is deleted rather than
-retained as aliases. Explicit unlock or Wallet Session refresh may replace the
-authorization session ID while preserving the exact activation. Ordinary page
-refresh reuses the same valid Wallet Session and remaining allowance.
-Re-activation creates a new activation ID. Session renewal preserves the
-activation reference only when all capability, owner, key, lifecycle, and
-SigningWorker bindings still match.
+`MpcMaterialActivationRef`. Warm signing validates active reusable-session
+authority and exact material activation independently. Step-up signing validates
+the exact one-operation grant and carries no reusable-session identity. Every
+operation grant remains bound to the active `SeamsSession`; reusable warm
+allowance remains bound only to the exact Wallet Session. The wire scope
+therefore uses the discriminated `authorization` branch and
+`material_activation`; the tactical `session_id` plus
+`active_state_session_id` pair is deleted rather than retained as aliases.
+Explicit unlock or Wallet Session renewal may replace the authorization session
+ID while preserving the exact activation. Ordinary page refresh reuses the same
+valid Wallet Session and remaining allowance. Re-activation creates a new
+activation ID. Session renewal preserves the activation reference only when all
+capability, owner, key, lifecycle, and SigningWorker bindings still match.
 
 Reusable Wallet Session expiry is an authorization transition. It cannot
 retire a capability manifest, replace a material activation, or select
@@ -2614,6 +2644,20 @@ promotion are independently idempotent and queryable by `recoveryId`
 (R90-INV-004). A cancellation changes `disposition` with compare-and-swap;
 reload reconciles it and cannot silently execute the abandoned parent operation
 (R90-INV-007).
+
+For Near, Refactor 93 implements those server effects without adding another
+client journal or ceremony-wide Router ledger. Request-scoped Gateway state
+maps `recoveryId` to the exact admitted ceremony. Acquisition submits one
+operation-specific MPC Router command; exact replay resolves through the
+canonical ceremony identity, input-pair digest, and role-local
+`Prepared | Running | Completed | Burned` state without repeating
+cryptographic evaluation. Promotion remains the separate client-verified
+recovery-promotion boundary. The Refactor 90 capability module consumes these
+typed receipts and never schedules Deriver A/B or SigningWorker directly. The
+request-scoped Gateway commits the exact operation grant and applicable quota
+claim before Router execution; the admitted authorization digest remains bound
+into Refactor 93's canonical input-pair digest, and exact replay spends neither
+resource again.
 
 After promotion, one IndexedDB transaction persists the replacement seal or
 volatile-retention record, retires or removes the prior source, persists the

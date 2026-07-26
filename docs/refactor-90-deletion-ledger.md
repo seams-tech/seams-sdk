@@ -118,17 +118,18 @@ exact parser, and two-state activation journal.
 
 Replacement: branded `MpcMaterialActivationId`, exact
 `MpcMaterialActivationRef`, and an operation scope that carries an independent
-`authorizationSessionId`.
+discriminated `MpcOperationAuthorizationRef`.
 
 - `ActiveMpcMaterialSessionRef`
 - `ActiveEcdsaMaterialSession`
 - `rehydrate_active_session`
 - `active_state_session_id`
 - ambiguous normal-signing `session_id` fields that represent authorization;
-  the replacement wire field is `authorization_session_id`
-- `authorizationSessionId: SeamsSessionId` on MPC operation scopes; reusable
-  wallet authorization uses `WalletSessionId`, while operation grants retain
-  their independent `SeamsSessionId` binding
+  the replacement wire field is the discriminated `authorization` branch
+- unconditional `authorizationSessionId: SeamsSessionId | WalletSessionId` on
+  MPC operation scopes; reusable-session authorization carries
+  `WalletSessionId` plus `CapabilityGrantId`, while operation step-up carries
+  only `CapabilityGrantId`
 - every `thresholdSessionId` or Wallet Session ID used as a material activation
   locator, persistence key, worker-state key, or hydration identity
 - compatibility aliases between authorization session IDs and material
@@ -151,6 +152,27 @@ single-operation same-method step-up, composed with the new branded identities.
   initialization or independently parses Wallet Session lifecycle
 - fixtures that equate Wallet Session, signing grant, quota, threshold session,
   or material activation IDs solely to preserve pre-cutover behavior
+
+## Phases 19/21/24/27 — Refactor 93 Yao server boundary
+
+Retained foundation: request-scoped Gateway persistence, the operation-specific
+MPC Router execute boundary, canonical ceremony/input-pair identity, pair-bound
+role-local lifecycle, exact encrypted-output replay, explicit recovery
+promotion, and atomic SigningWorker package delivery. These are Refactor 93
+owners and are not Refactor 90 deletion targets.
+
+Completed deletions that must stay absent:
+
+- ~~Gateway serial Stage/Start/Result and direct Yao package-delivery
+  orchestration~~ — deleted by `8a3c49145`
+- ~~direct Gateway Deriver A/B and Yao SigningWorker origins~~ — deleted by
+  `8a3c49145`
+- ~~tenant-runtime Yao lifecycle ownership, family cutover selectors, and
+  admission-drain routing~~ — deleted by `8a3c49145`
+- ~~legacy serial Deriver Stage/Start/Result role routes and compatibility
+  parsers~~ — deleted by `feba59d7a`
+- lower-authority fixtures, mocks, or source guards that reconstruct any of
+  those deleted paths
 
 ## Phase 19 — Email OTP patch tactical surface
 
