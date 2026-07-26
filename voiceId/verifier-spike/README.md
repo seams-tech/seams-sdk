@@ -169,6 +169,34 @@ model manifests by SHA-256 and embeds the complete component reports. Run
 `pnpm -C voiceId benchmark:suite --help` for the required model paths and
 output arguments.
 
+Run the seeded malformed-media campaign separately from model benchmarks:
+
+```sh
+pnpm -C voiceId fuzz:media \
+  --cases 64 \
+  --seed 20260726 \
+  --output /tmp/voiceid-media-fuzz.json
+```
+
+The campaign records only input hashes, sizes, outcomes, and latency. Expected
+decoder rejections pass. Unexpected exceptions, duration-limit violations, or
+p99 latency beyond the supplied budget fail the command.
+
+After calibration freezes a dataset-specific budget file, enforce it against
+the combined suite:
+
+```sh
+pnpm -C voiceId benchmark:check \
+  --suite /path/to/benchmark-suite.json \
+  --budgets /path/to/frozen-budgets.json \
+  --output /tmp/voiceid-budget-check.json
+```
+
+The strict budget boundary binds the dataset and model-manifest digest, then
+checks phrase accuracy, FAR/FRR/EER-derived speaker accuracy, APCER/BPCER,
+uncertainty or retry rates, p95/p99 latency, memory, corpus readiness, and PAD
+attack-class readiness.
+
 ## Model Comparison
 
 After fixture validation, the report template records candidate model ids,

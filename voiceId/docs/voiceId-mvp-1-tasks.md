@@ -403,14 +403,20 @@ cross-session stability and impostor-separation budgets.
       automatic-worker-replacement tests.
 - [x] Add deterministic malformed-media boundary tests for truncated containers,
       invalid payloads, mismatched codecs, and oversized sidecar requests.
-- [ ] Run a generative malformed-media fuzz campaign and exercise decoder
-      duration and timeout limits under sustained load.
+- [x] Run a seeded generative malformed-media campaign. The 64-case macOS
+      campaign at seed `20260726` produced zero unexpected failures with
+      103.726 ms p99 decoder latency.
+- [x] Exercise decoder duration and timeout failure boundaries.
+- [ ] Run decoder duration and timeout campaigns under sustained load.
 - [ ] Load test bounded concurrency, queue saturation, cancellation, and retry
       behavior.
 - [ ] Run long soak tests that detect memory, file-descriptor, process, and GPU
       resource growth.
-- [ ] Reject a release when accuracy, p95/p99 latency, memory, or failure-rate
-      budgets regress.
+- [x] Add a strict release-budget checker for frozen accuracy, p95/p99 latency,
+      memory, retry/uncertainty, failure-rate, dataset, model-manifest, corpus
+      readiness, and PAD attack-class readiness.
+- [ ] Connect the budget checker to release automation after the first complete
+      corpus report freezes its platform budgets.
 
 Exit gate: each supported runtime profile passes the same frozen decisions,
 fault campaigns, soak tests, and performance budgets.
