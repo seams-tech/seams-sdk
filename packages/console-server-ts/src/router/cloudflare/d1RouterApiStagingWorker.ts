@@ -321,7 +321,6 @@ async function createStagingEd25519YaoComposition(
       walletStore,
       ensureSchema: false,
     }),
-    loadPersistedActiveCapability: loadStagingPersistedActiveCapability.bind(undefined, env),
   });
   return composition;
 }
@@ -1017,20 +1016,35 @@ function yaoOperationForRequest(request: Request): RouterApiYaoRequestOperationV
     case ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1:
       return { kind: 'family_handler', operation: 'export_execute' };
     default:
-      return walletAddSignerOperationForPath(pathname);
+      return walletRegistrationOperationForPath(pathname);
   }
 }
 
-function walletAddSignerOperationForPath(pathname: string): RouterApiYaoRequestOperationV1 | null {
+function walletRegistrationOperationForPath(
+  pathname: string,
+): RouterApiYaoRequestOperationV1 | null {
   const segments = pathname.split('/');
   if (
     (segments.length !== 5 && segments.length !== 6) ||
     segments[0] !== '' ||
     segments[1] !== 'wallets' ||
     !segments[2] ||
-    segments[3] !== 'signers'
+    (segments[3] !== 'signers' && segments[3] !== 'auth-methods')
   ) {
     return null;
+  }
+  if (segments[3] === 'auth-methods') {
+    if (segments.length !== 5) return null;
+    switch (segments[4]) {
+      case 'intent':
+        return { kind: 'full_gateway', operation: 'registration_add_auth_method_intent' };
+      case 'start':
+        return { kind: 'full_gateway', operation: 'registration_add_auth_method_start' };
+      case 'finalize':
+        return { kind: 'full_gateway', operation: 'registration_add_auth_method_finalize' };
+      default:
+        return null;
+    }
   }
   switch (segments[4]) {
     case 'intent':
