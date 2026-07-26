@@ -144,7 +144,7 @@ jobs:
       - name: Build SDK (production)
         env:
           WASM_SDK_USE_PREBUILT: '1'
-        run: pnpm build:sdk-prod
+        run: pnpm -C packages/sdk-web run build:prod
 
       - name: Assert generated palette CSS
         run: node packages/sdk-web/scripts/checks/assert-palette-css.mjs
@@ -259,7 +259,7 @@ jobs:
         run: pnpm -C tests exec playwright install --with-deps chromium
 
       - name: Build SDK (production)
-        run: pnpm build:sdk-prod
+        run: pnpm -C packages/sdk-web run build:prod
 
       - name: Smoke check EVM crypto runtime loading (Node + Workers)
         run: pnpm -C packages/sdk-web smoke:evm-crypto:runtimes
