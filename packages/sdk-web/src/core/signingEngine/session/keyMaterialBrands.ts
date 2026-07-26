@@ -2,6 +2,7 @@ import {
   parseSdkEcdsaDerivationThresholdKeyId,
   type EcdsaThresholdKeyId,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 
 export type { EcdsaThresholdKeyId };
 
@@ -11,6 +12,10 @@ export type Ed25519KeyVersion = Brand<string, 'Ed25519KeyVersion'>;
 export type EcdsaDerivationKeyVersion = Brand<string, 'EcdsaDerivationKeyVersion'>;
 export type SigningSessionSealKeyVersion = Brand<string, 'SigningSessionSealKeyVersion'>;
 export type EcdsaClientVerifyingShareB64u = Brand<string, 'EcdsaClientVerifyingShareB64u'>;
+export type EcdsaClientVerifyingPublicKey33B64u = Brand<
+  string,
+  'EcdsaClientVerifyingPublicKey33B64u'
+>;
 export type Ed25519RelayerKeyId = Brand<string, 'Ed25519RelayerKeyId'>;
 export type EcdsaRelayerKeyId = Brand<string, 'EcdsaRelayerKeyId'>;
 export type EcdsaKeyHandle = Brand<string, 'EcdsaKeyHandle'>;
@@ -56,6 +61,31 @@ export function parseSigningSessionSealKeyVersion(value: unknown): SigningSessio
 
 export function parseEcdsaClientVerifyingShareB64u(value: unknown): EcdsaClientVerifyingShareB64u {
   return parseNonEmptyBrand<'EcdsaClientVerifyingShareB64u'>(value, 'ECDSA client verifying share');
+}
+
+export function parseEcdsaClientVerifyingPublicKey33B64u(
+  value: unknown,
+): EcdsaClientVerifyingPublicKey33B64u {
+  if (typeof value !== 'string') {
+    throw new Error('ECDSA client verifying public key must be a string');
+  }
+  const normalized = value.trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(normalized)) {
+    throw new Error('ECDSA client verifying public key must be unpadded base64url');
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = base64UrlDecode(normalized);
+  } catch {
+    throw new Error('ECDSA client verifying public key must be valid base64url');
+  }
+  if (bytes.length !== 33 || base64UrlEncode(bytes) !== normalized) {
+    throw new Error('ECDSA client verifying public key must be canonical base64url for 33 bytes');
+  }
+  if (bytes[0] !== 0x02 && bytes[0] !== 0x03) {
+    throw new Error('ECDSA client verifying public key must be compressed secp256k1');
+  }
+  return normalized as EcdsaClientVerifyingPublicKey33B64u;
 }
 
 export function parseEd25519RelayerKeyId(value: unknown): Ed25519RelayerKeyId {
@@ -180,6 +210,12 @@ export function formatSigningSessionSealKeyVersionForWire(
 
 export function formatEcdsaClientVerifyingShareB64uForWire(
   value: EcdsaClientVerifyingShareB64u,
+): string {
+  return value;
+}
+
+export function formatEcdsaClientVerifyingPublicKey33B64uForWire(
+  value: EcdsaClientVerifyingPublicKey33B64u,
 ): string {
   return value;
 }

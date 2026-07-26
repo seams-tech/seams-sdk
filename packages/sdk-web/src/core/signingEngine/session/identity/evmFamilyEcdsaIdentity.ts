@@ -60,7 +60,7 @@ import {
   type SigningGrantId,
 } from '../operationState/types';
 import {
-  parseEcdsaClientVerifyingShareB64u,
+  parseEcdsaClientVerifyingPublicKey33B64u,
   parseEcdsaKeyHandle,
   parseEcdsaRelayerKeyId,
   parseEcdsaRoleLocalBindingDigest,
@@ -751,6 +751,19 @@ function participantIdKey(participantIds: readonly ParticipantId[]): string {
   return participantIds.map((id) => String(Number(id))).join(',');
 }
 
+function ecdsaRoleLocalParticipantIds(
+  participantIds: readonly ParticipantId[],
+): readonly [number, ...number[]] {
+  const [firstParticipantId, ...remainingParticipantIds] = participantIds;
+  if (firstParticipantId === undefined) {
+    throw new Error('[evm-family-ecdsa] ECDSA role-local participantIds are required');
+  }
+  return [
+    Number(firstParticipantId),
+    ...remainingParticipantIds.map((participantId) => Number(participantId)),
+  ];
+}
+
 function authMethodForRecord(record: ThresholdEcdsaSessionRecord): EvmFamilyEcdsaAuthMethod {
   const source = record.source;
   switch (source) {
@@ -1160,20 +1173,14 @@ function buildThresholdEcdsaSignerClientShare(args: {
       return {
         kind: 'role_local_worker_share',
         handle: buildEcdsaRoleLocalSigningMaterialHandle({
-          thresholdSessionId: String(args.session.thresholdSessionId),
-          signingGrantId: String(args.session.signingGrantId),
           keyHandle: parseEcdsaKeyHandle(args.publicFacts.keyHandle),
-          activeStateId: args.activeStateId,
-          chainTarget: args.chainTarget,
-          clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(
+          clientVerifyingPublicKey33B64u: parseEcdsaClientVerifyingPublicKey33B64u(
             args.backendBinding.clientVerifyingShareB64u,
           ),
           ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(
             args.backendBinding.ecdsaRoleLocalReadyRecord.publicFacts.ecdsaThresholdKeyId,
           ),
-          participantIds: args.publicFacts.participantIds.map((participantId) =>
-            Number(participantId),
-          ),
+          participantIds: ecdsaRoleLocalParticipantIds(args.publicFacts.participantIds),
           relayerKeyId: parseEcdsaRelayerKeyId(args.backendBinding.relayerKeyId),
         }),
         material: {
