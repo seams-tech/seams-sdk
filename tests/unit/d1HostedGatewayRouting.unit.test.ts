@@ -75,6 +75,9 @@ const FULL_GATEWAY_REGISTRATION_PATHS = [
   '/wallets/wallet-1/signers/derivation/respond',
   '/wallets/wallet-1/signers/derivation/activate',
   '/wallets/wallet-1/signers/finalize',
+  '/wallets/wallet-1/auth-methods/intent',
+  '/wallets/wallet-1/auth-methods/start',
+  '/wallets/wallet-1/auth-methods/finalize',
 ] as const;
 
 const FULL_GATEWAY_RECOVERY_PATHS = [
@@ -272,6 +275,11 @@ test('the drain blocks public and internal admissions', () => {
   const expected = [
     ['/wallets/register/intent', 'registration_intent', 'registration'],
     ['/wallets/wallet-1/signers/intent', 'registration_add_signer_intent', 'registration'],
+    [
+      '/wallets/wallet-1/auth-methods/intent',
+      'registration_add_auth_method_intent',
+      'registration',
+    ],
     [ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1, 'recovery_admission', 'recovery'],
     [ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1, 'export_admission', 'export'],
   ] as const;
@@ -295,6 +303,8 @@ test('the drain keeps every continuation on the tenant runtime', () => {
     '/wallets/wallet-1/signers/derivation/respond',
     '/wallets/wallet-1/signers/derivation/activate',
     '/wallets/wallet-1/signers/finalize',
+    '/wallets/wallet-1/auth-methods/start',
+    '/wallets/wallet-1/auth-methods/finalize',
     ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
     ...FULL_GATEWAY_RECOVERY_PATHS,
     ...DIRECT_CONTINUATION_PATHS,

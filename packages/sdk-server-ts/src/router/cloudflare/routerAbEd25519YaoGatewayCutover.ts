@@ -12,6 +12,9 @@ export type RouterAbEd25519YaoGatewayOperationV1 =
   | 'registration_add_signer_derivation_respond'
   | 'registration_add_signer_derivation_activate'
   | 'registration_add_signer_finalize'
+  | 'registration_add_auth_method_intent'
+  | 'registration_add_auth_method_start'
+  | 'registration_add_auth_method_finalize'
   | 'registration_admission'
   | 'registration_execute'
   | 'recovery_bootstrap'
@@ -33,6 +36,7 @@ function isAdmissionOperation(operation: RouterAbEd25519YaoGatewayOperationV1): 
   switch (operation) {
     case 'registration_intent':
     case 'registration_add_signer_intent':
+    case 'registration_add_auth_method_intent':
     case 'recovery_admission':
     case 'export_admission':
       return true;
@@ -45,6 +49,8 @@ function isAdmissionOperation(operation: RouterAbEd25519YaoGatewayOperationV1): 
     case 'registration_add_signer_derivation_respond':
     case 'registration_add_signer_derivation_activate':
     case 'registration_add_signer_finalize':
+    case 'registration_add_auth_method_start':
+    case 'registration_add_auth_method_finalize':
     case 'registration_admission':
     case 'registration_execute':
     case 'recovery_bootstrap':
@@ -73,6 +79,9 @@ export function familyOfRouterAbEd25519YaoGatewayOperationV1(
     case 'registration_add_signer_derivation_respond':
     case 'registration_add_signer_derivation_activate':
     case 'registration_add_signer_finalize':
+    case 'registration_add_auth_method_intent':
+    case 'registration_add_auth_method_start':
+    case 'registration_add_auth_method_finalize':
     case 'registration_admission':
     case 'registration_execute':
       return 'registration';

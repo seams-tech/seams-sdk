@@ -114,6 +114,7 @@ test('every ceremony phase pairs with the store its admission used', () => {
   const admissions = [
     'registration_intent',
     'registration_add_signer_intent',
+    'registration_add_auth_method_intent',
     'recovery_admission',
     'export_admission',
   ] as const;
@@ -127,6 +128,8 @@ test('every ceremony phase pairs with the store its admission used', () => {
     'registration_add_signer_derivation_respond',
     'registration_add_signer_derivation_activate',
     'registration_add_signer_finalize',
+    'registration_add_auth_method_start',
+    'registration_add_auth_method_finalize',
     'registration_admission',
     'registration_execute',
     'recovery_bootstrap',
