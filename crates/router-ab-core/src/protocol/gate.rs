@@ -7,7 +7,12 @@ use crate::protocol::error::{
 
 /// Expensive-work class protected by Router admission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(rename = "RouterAbEd25519YaoWorkKindV1", rename_all = "snake_case")
+)]
 pub enum ExpensiveWorkKindV1 {
     /// Early registration preparation before expensive signer/cryptographic work.
     RegistrationPrepare,

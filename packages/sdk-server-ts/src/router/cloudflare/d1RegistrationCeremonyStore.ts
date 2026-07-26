@@ -1,9 +1,8 @@
-import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   parseServerAllocatedWalletId,
   type ServerAllocatedWalletId,
 } from '@shared/utils/registrationIntent';
-import type { CloudflareDurableObjectStubLike } from '../../core/types';
 import {
   StoredAddAuthMethodIntent,
   StoredAddSignerIntent,
@@ -13,15 +12,10 @@ import {
   StoredWalletAddSignerFinalizeReplay,
   StoredWalletRegistrationCeremony,
   StoredWalletRegistrationFinalizeReplay,
-  parseTerminalRegistrationCeremonyCancellationResult,
   type TerminalRegistrationCeremonyCancellationResult,
 } from '../../core/RegistrationCeremonyStore';
 import type { WalletId } from '../../core/registrationContracts';
-import {
-  callRegistrationCeremonyDo,
-  resolveRegistrationCeremonyDoStub,
-  type RegistrationCeremonyDoConfig,
-} from './d1RegistrationCeremonyDo';
+import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import {
   parseD1StoredAddAuthMethodIntent,
   parseD1StoredAddSignerIntent,
@@ -32,6 +26,10 @@ import {
   parseD1StoredWalletRegistrationCeremony,
   parseD1StoredWalletRegistrationFinalizeReplay,
 } from './d1RegistrationCeremonyRecords';
+import {
+  D1RegistrationCeremonyRecordStore,
+  type D1RegistrationCeremonyRecordScope,
+} from './d1RegistrationCeremonyRecordStore';
 
 type RegistrationCeremonyIntentScope =
   | 'intent'
@@ -45,7 +43,7 @@ type RegistrationCeremonyIntentScope =
   | 'add-signer'
   | 'server-allocated-wallet-reservation';
 
-type RegistrationIntentDoPutInput =
+type RegistrationIntentPutInput =
   | StoredRegistrationIntent
   | StoredWalletRegistrationCeremony
   | StoredWalletRegistrationFinalizeReplay
@@ -55,13 +53,18 @@ type RegistrationIntentDoPutInput =
   | StoredAddAuthMethodIntent
   | StoredWalletAddAuthMethodCeremony;
 
-export class CloudflareD1RegistrationCeremonyIntentStore {
-  private readonly stub: CloudflareDurableObjectStubLike;
-  private readonly prefix: string;
+export type RegistrationCeremonyIntentStoreConfig = {
+  readonly kind: 'partitioned_d1';
+  readonly database: D1DatabaseLike;
+  readonly scope: D1RegistrationCeremonyRecordScope;
+  readonly keyPrefix: string;
+};
 
-  constructor(input: RegistrationCeremonyDoConfig) {
-    this.stub = resolveRegistrationCeremonyDoStub(input);
-    this.prefix = input.prefix;
+export class CloudflareD1RegistrationCeremonyIntentStore {
+  private readonly storage: D1RegistrationCeremonyRecordStore;
+
+  constructor(input: RegistrationCeremonyIntentStoreConfig) {
+    this.storage = new D1RegistrationCeremonyRecordStore(input);
   }
 
   async reserveServerAllocatedWalletId(input: {
@@ -73,16 +76,20 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
     if (!walletId || !Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
       return false;
     }
-    const response = await callRegistrationCeremonyDo<unknown>(this.stub, {
-      op: 'registrationReserveWalletId',
-      key: this.key(
-        'server-allocated-wallet-reservation',
-        serverAllocatedWalletReservationKey(input),
-      ),
-      walletId,
-      expiresAtMs,
-    });
-    return response.ok;
+    try {
+      return await this.storage.reserveExclusive({
+        scope: 'server-allocated-wallet-reservation',
+        id: serverAllocatedWalletReservationKey(input),
+        value: {
+          kind: 'registration_wallet_reservation_v1',
+          walletId,
+          expiresAtMs,
+        },
+        expiresAtMs,
+      });
+    } catch {
+      return false;
+    }
   }
 
   async releaseServerAllocatedWalletId(input: {
@@ -143,12 +150,19 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
     return ceremony;
   }
 
-  async updateCeremony(ceremony: StoredWalletRegistrationCeremony): Promise<void> {
-    await this.put({
+  async updateCeremony(input: {
+    readonly expected: StoredWalletRegistrationCeremony;
+    readonly next: StoredWalletRegistrationCeremony;
+  }): Promise<void> {
+    if (input.expected.registrationCeremonyId !== input.next.registrationCeremonyId) {
+      throw new Error('Registration ceremony update cannot change its identity');
+    }
+    await this.storage.updateExpected({
       scope: 'ceremony',
-      id: ceremony.registrationCeremonyId,
-      record: ceremony,
-      expiresAtMs: ceremony.expiresAtMs,
+      id: input.next.registrationCeremonyId,
+      expected: encodeRecord(input.expected),
+      next: encodeRecord(input.next),
+      expiresAtMs: input.next.expiresAtMs,
     });
   }
 
@@ -179,27 +193,61 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
       throw new Error('Terminal registration cancellation requires ceremony and wallet IDs');
     }
     const serverAllocatedWalletId = parseServerAllocatedWalletId(input.walletId);
-    const response = await callRegistrationCeremonyDo<unknown>(this.stub, {
-      op: 'registrationCancelTerminal',
-      ceremonyKey: this.key('ceremony', registrationCeremonyId),
-      registrationCeremonyId,
-      walletId,
-      reservation: serverAllocatedWalletId.ok
-        ? {
-            kind: 'server_allocated_wallet',
-            key: this.key(
-              'server-allocated-wallet-reservation',
-              serverAllocatedWalletReservationKey({
-                walletId: serverAllocatedWalletId.value,
-              }),
-            ),
-          }
-        : { kind: 'none' },
+    const ceremony = await this.getCeremony(registrationCeremonyId);
+    if (!ceremony) {
+      return { kind: 'not_found', ceremonyDeleted: false, walletReservationReleased: false };
+    }
+    if (
+      ceremony.registrationCeremonyId !== registrationCeremonyId ||
+      ceremony.intent.walletId !== walletId
+    ) {
+      throw new Error('Terminal registration cancellation does not match the stored ceremony');
+    }
+    let reservation:
+      | { readonly kind: 'none' }
+      | {
+          readonly kind: 'server_allocated_wallet';
+          readonly scope: 'server-allocated-wallet-reservation';
+          readonly id: string;
+          readonly expected: Record<string, unknown>;
+        } = { kind: 'none' };
+    if (serverAllocatedWalletId.ok) {
+      const reservationId = serverAllocatedWalletReservationKey({
+        walletId: serverAllocatedWalletId.value,
+      });
+      const storedReservation = await this.storage.get(
+        'server-allocated-wallet-reservation',
+        reservationId,
+      );
+      if (storedReservation) {
+        if (
+          storedReservation.value.kind !== 'registration_wallet_reservation_v1' ||
+          storedReservation.value.walletId !== walletId ||
+          !Number.isSafeInteger(storedReservation.value.expiresAtMs)
+        ) {
+          throw new Error('Terminal registration cancellation found a mismatched reservation');
+        }
+        reservation = {
+          kind: 'server_allocated_wallet',
+          scope: 'server-allocated-wallet-reservation',
+          id: reservationId,
+          expected: storedReservation.value,
+        };
+      }
+    }
+    const deleted = await this.storage.deleteCeremonyAndReservation({
+      ceremonyScope: 'ceremony',
+      ceremonyId: registrationCeremonyId,
+      expectedCeremony: encodeRecord(ceremony),
+      reservation,
     });
-    if (!response.ok) throw new Error(response.message);
-    const result = parseTerminalRegistrationCeremonyCancellationResult(response.value);
-    if (!result) throw new Error('Terminal registration cancellation returned an invalid result');
-    return result;
+    return deleted.ceremonyDeleted
+      ? {
+          kind: 'cancelled',
+          ceremonyDeleted: true,
+          walletReservationReleased: deleted.reservationDeleted,
+        }
+      : { kind: 'not_found', ceremonyDeleted: false, walletReservationReleased: false };
   }
 
   async putFinalizeReplay(replay: StoredWalletRegistrationFinalizeReplay): Promise<void> {
@@ -224,18 +272,21 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
   }
 
   async putAddSignerFinalizeReplay(replay: StoredWalletAddSignerFinalizeReplay): Promise<void> {
-    await this.put({
-      scope: 'add-signer-finalize-replay',
-      id: addSignerFinalizeReplayKey(replay),
-      record: replay,
-      expiresAtMs: replay.expiresAtMs,
-    });
-    await this.put({
-      scope: 'add-signer-finalize-claim',
-      id: replay.addSignerCeremonyId,
-      record: replay,
-      expiresAtMs: replay.expiresAtMs,
-    });
+    const record = encodeRecord(replay);
+    await this.storage.putManyExact([
+      {
+        scope: 'add-signer-finalize-replay',
+        id: addSignerFinalizeReplayKey(replay),
+        value: record,
+        expiresAtMs: replay.expiresAtMs,
+      },
+      {
+        scope: 'add-signer-finalize-claim',
+        id: replay.addSignerCeremonyId,
+        value: record,
+        expiresAtMs: replay.expiresAtMs,
+      },
+    ]);
   }
 
   async getAddSignerFinalizeReplay(input: {
@@ -308,12 +359,19 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
     return ceremony;
   }
 
-  async updateAddSignerCeremony(ceremony: StoredWalletAddSignerCeremony): Promise<void> {
-    await this.put({
+  async updateAddSignerCeremony(input: {
+    readonly expected: StoredWalletAddSignerCeremony;
+    readonly next: StoredWalletAddSignerCeremony;
+  }): Promise<void> {
+    if (input.expected.addSignerCeremonyId !== input.next.addSignerCeremonyId) {
+      throw new Error('Add-signer ceremony update cannot change its identity');
+    }
+    await this.storage.updateExpected({
       scope: 'add-signer',
-      id: ceremony.addSignerCeremonyId,
-      record: ceremony,
-      expiresAtMs: ceremony.expiresAtMs,
+      id: input.next.addSignerCeremonyId,
+      expected: encodeRecord(input.expected),
+      next: encodeRecord(input.next),
+      expiresAtMs: input.next.expiresAtMs,
     });
   }
 
@@ -389,64 +447,33 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
   private async put(input: {
     readonly scope: RegistrationCeremonyIntentScope;
     readonly id: string;
-    readonly record: RegistrationIntentDoPutInput;
+    readonly record: RegistrationIntentPutInput;
     readonly expiresAtMs: number;
   }): Promise<void> {
     const id = toOptionalTrimmedString(input.id);
     if (!id) throw new Error('Registration ceremony intent id is required');
-    const ttlMs = Math.max(1, input.expiresAtMs - Date.now());
-    const response = await callRegistrationCeremonyDo<boolean>(this.stub, {
-      op: 'set',
-      key: this.key(input.scope, id),
-      value: input.record,
-      ttlMs,
+    await this.storage.putExact({
+      scope: input.scope,
+      id,
+      value: encodeRecord(input.record),
+      expiresAtMs: input.expiresAtMs,
     });
-    if (!response.ok) throw new Error(response.message || 'Registration ceremony DO write failed');
   }
 
   private async get(scope: RegistrationCeremonyIntentScope, id: string): Promise<unknown | null> {
-    const response = await callRegistrationCeremonyDo<unknown | null>(this.stub, {
-      op: 'get',
-      key: this.key(scope, id),
-    });
-    return response.ok ? response.value : null;
+    return (await this.storage.get(scope, id))?.value ?? null;
   }
 
   private async getDel(
     scope: RegistrationCeremonyIntentScope,
     id: string,
   ): Promise<unknown | null> {
-    const response = await callRegistrationCeremonyDo<unknown | null>(this.stub, {
-      op: 'getdel',
-      key: this.key(scope, id),
-    });
-    return response.ok ? response.value : null;
+    return await this.storage.take(scope, id);
   }
 
   private async del(scope: RegistrationCeremonyIntentScope, id: string): Promise<boolean> {
-    const response = await callRegistrationCeremonyDo<boolean>(this.stub, {
-      op: 'del',
-      key: this.key(scope, id),
-    });
-    return response.ok && response.value === true;
+    return await this.storage.delete(scope, id);
   }
-
-  private key(scope: RegistrationCeremonyIntentScope, id: string): string {
-    return `${this.prefix}${scope}:${id}`;
-  }
-}
-
-export function missingRegistrationCeremonyDoStore(): {
-  readonly ok: false;
-  readonly code: 'configuration';
-  readonly message: string;
-} {
-  return {
-    ok: false,
-    code: 'configuration',
-    message:
-      'Cloudflare D1 Router API registration intents require thresholdStore.kind cloudflare-do',
-  };
 }
 
 function serverAllocatedWalletReservationKey(input: {
@@ -475,4 +502,9 @@ function addSignerFinalizeReplayKey(input: {
   const idempotencyKey = toOptionalTrimmedString(input.idempotencyKey);
   if (!addSignerCeremonyId || !idempotencyKey) return '';
   return `${encodeURIComponent(addSignerCeremonyId)}:${encodeURIComponent(idempotencyKey)}`;
+}
+
+function encodeRecord(value: unknown): Record<string, unknown> {
+  if (!isPlainObject(value)) throw new Error('Registration ceremony record must be an object');
+  return value;
 }

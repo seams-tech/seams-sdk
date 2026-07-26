@@ -1,0 +1,1319 @@
+//! Cloudflare Worker adapter for the Router-owned Refactor 93 ceremony.
+
+use crate::{
+    build_cloudflare_router_public_keyset_v2, cloudflare_now_unix_ms_v1,
+    cloudflare_router_error_status, cloudflare_service_json_request_body_v1,
+    parse_cloudflare_deriver_peer_verifying_key_set_v1, parse_cloudflare_trace_id_from_request_v1,
+    require_cloudflare_internal_service_auth_request_v1,
+    set_cloudflare_internal_service_auth_header_v1, set_cloudflare_trace_id_header_v1,
+    CloudflareEd25519YaoPackagePairDeliveryV1, CloudflareEd25519YaoPairCompletionAcknowledgementV1,
+    CloudflareEd25519YaoPairExecuteRequestV1, CloudflareEd25519YaoPairPrepareRequestV1,
+    CloudflareEd25519YaoPairStatusResponseV1, CloudflareEd25519YaoReadCompletedPairRequestV1,
+    CloudflareEd25519YaoRoleFailureResponseV1, CloudflareRouterWorkerRuntimeV1,
+    CloudflareWorkerEnvReaderV1, CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
+    CLOUDFLARE_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
+    CLOUDFLARE_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
+    CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH,
+    CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH,
+    CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
+};
+use router_ab_core::{
+    ed25519_yao_recipient_set_digest_v1, Ed25519YaoDeriverRoleV1, Ed25519YaoInputPairBindingV1,
+    Ed25519YaoOperationV1, Ed25519YaoRoleReadinessReceiptV1, PublicDigest32,
+    RouterAbEd25519YaoActivationPublicReceiptV1, RouterAbEd25519YaoActivationResultV1,
+    RouterAbEd25519YaoExportResultV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
+    RouterAbProtocolResult, RouterEd25519YaoExecuteRequestV1, RouterEd25519YaoExecuteResultV1,
+    RouterEd25519YaoExecuteSuccessV1, RouterEd25519YaoGatewayExecuteRequestV1,
+};
+use router_ab_ed25519_yao::{
+    Ed25519YaoActivationRoleExecutionV1, Ed25519YaoExportRoleExecutionV1,
+    Ed25519YaoRoleExecutionV1, Ed25519YaoSigningWorkerPackageDeliveryV1,
+};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use worker::{Env, Method, Request, RequestInit, Response};
+
+const DERIVER_A_SERVICE_URL: &str = "https://router-ab-deriver-a.internal";
+const DERIVER_B_SERVICE_URL: &str = "https://router-ab-deriver-b.internal";
+const SIGNING_WORKER_SERVICE_URL: &str = "https://router-ab-signing-worker.internal";
+const ROUTER_SPAN_EVENT: &str = "router_ab_yao_coordinator_span_v1";
+const ROUTER_REPLAY_HEADER: &str = "x-seams-yao-replay";
+const ROUTER_AUTHORITY_TTL_MS: u64 = 60_000;
+
+enum RouterRoleCallError {
+    Protocol(RouterAbProtocolError),
+    Failure(CloudflareEd25519YaoRoleFailureResponseV1),
+}
+
+impl From<RouterAbProtocolError> for RouterRoleCallError {
+    fn from(error: RouterAbProtocolError) -> Self {
+        Self::Protocol(error)
+    }
+}
+
+#[derive(Serialize)]
+struct CoordinatorSpan<'a> {
+    event: &'static str,
+    span: &'a str,
+    operation: &'a str,
+    outcome: &'a str,
+    duration_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trace_id: Option<String>,
+}
+
+fn emit_span(
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+    span: &str,
+    operation: &str,
+    started_at_ms: u64,
+    outcome: &str,
+) {
+    let event = CoordinatorSpan {
+        event: ROUTER_SPAN_EVENT,
+        span,
+        operation,
+        outcome,
+        duration_ms: cloudflare_now_unix_ms_v1()
+            .unwrap_or(started_at_ms)
+            .saturating_sub(started_at_ms),
+        trace_id: trace_id.map(crate::CloudflareTraceIdV1::as_hex),
+    };
+    if let Ok(serialized) = serde_json::to_string(&event) {
+        worker::console_log!("{serialized}");
+    }
+}
+
+/// Handles one authenticated Gateway-to-Router Yao execution request.
+pub async fn handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(
+    mut request: Request,
+    env: &Env,
+) -> worker::Result<Response> {
+    if request.method() != Method::Post {
+        return Response::error("Router Yao execute route requires POST", 405);
+    }
+    if let Err(error) = require_cloudflare_internal_service_auth_request_v1(&request, env) {
+        return crate::cloudflare_private_service_auth_error_response_v1(error);
+    }
+    let parse_started_at_ms = cloudflare_now_unix_ms_v1().unwrap_or_default();
+    let trace_id = match parse_cloudflare_trace_id_from_request_v1(&request) {
+        Ok(trace_id) => trace_id,
+        Err(error) => return protocol_error_response(error),
+    };
+    let replay = match parse_router_replay_header(&request) {
+        Ok(replay) => replay,
+        Err(error) => return protocol_error_response(error),
+    };
+    let gateway_request = match request
+        .json::<RouterEd25519YaoGatewayExecuteRequestV1>()
+        .await
+    {
+        Ok(request) => request,
+        Err(error) => {
+            return protocol_error_response(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("Router Yao execute request JSON is malformed: {error}"),
+            ))
+        }
+    };
+    let now_ms = match cloudflare_now_unix_ms_v1() {
+        Ok(now_ms) => now_ms,
+        Err(error) => return protocol_error_response(error),
+    };
+    let runtime = match CloudflareRouterWorkerRuntimeV1::from_worker_env(env) {
+        Ok(runtime) => runtime,
+        Err(error) => return protocol_error_response(error),
+    };
+    let recipient_set_digest = match router_recipient_set_digest_v1(env) {
+        Ok(digest) => digest,
+        Err(error) => return protocol_error_response(error),
+    };
+    let execute_request = match gateway_request.into_execute_request(
+        recipient_set_digest,
+        now_ms,
+        now_ms.saturating_add(ROUTER_AUTHORITY_TTL_MS),
+    ) {
+        Ok(request) => request,
+        Err(error) => return protocol_error_response(error),
+    };
+    let operation = execute_request.operation();
+    emit_span(
+        trace_id,
+        "router.parse_and_authorize",
+        operation_label(operation),
+        parse_started_at_ms,
+        "success",
+    );
+    let started_at_ms = now_ms;
+    let result =
+        execute_router_ceremony_v1(env, &runtime, execute_request, now_ms, trace_id, replay).await;
+    emit_span(
+        trace_id,
+        "router.yao_execute",
+        operation_label(operation),
+        started_at_ms,
+        if result.is_ok() { "success" } else { "failure" },
+    );
+    match result {
+        Ok(result) => Response::from_json(&result),
+        Err(error) => protocol_error_response(error),
+    }
+}
+
+fn router_recipient_set_digest_v1(env: &Env) -> RouterAbProtocolResult<PublicDigest32> {
+    let keyset = build_cloudflare_router_public_keyset_v2(&CloudflareWorkerEnvReaderV1::new(env))?;
+    let deriver_a = crate::hpke::cloudflare_hpke_x25519_public_key_bytes_v1(
+        &keyset.signer_envelope_hpke.current.deriver_a.public_key,
+    )?;
+    let deriver_b = crate::hpke::cloudflare_hpke_x25519_public_key_bytes_v1(
+        &keyset.signer_envelope_hpke.current.deriver_b.public_key,
+    )?;
+    let signing_worker = crate::hpke::cloudflare_hpke_x25519_public_key_bytes_v1(
+        &keyset.signing_worker_server_output_hpke.public_key,
+    )?;
+    ed25519_yao_recipient_set_digest_v1(deriver_a, deriver_b, signing_worker)
+}
+
+/// Handles explicit recovery promotion without exposing the SigningWorker to the Gateway.
+pub async fn handle_cloudflare_router_ed25519_yao_recovery_promote_private_fetch_v1(
+    mut request: Request,
+    env: &Env,
+) -> worker::Result<Response> {
+    if request.method() != Method::Post {
+        return Response::error("Router recovery promotion route requires POST", 405);
+    }
+    if let Err(error) = require_cloudflare_internal_service_auth_request_v1(&request, env) {
+        return crate::cloudflare_private_service_auth_error_response_v1(error);
+    }
+    let trace_id = match parse_cloudflare_trace_id_from_request_v1(&request) {
+        Ok(trace_id) => trace_id,
+        Err(error) => return protocol_error_response(error),
+    };
+    let promotion = match request
+        .json::<crate::CloudflareEd25519YaoRecoveryPromotionRequestV1>()
+        .await
+    {
+        Ok(promotion) => promotion,
+        Err(error) => {
+            return protocol_error_response(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("Router recovery promotion JSON is malformed: {error}"),
+            ))
+        }
+    };
+    if let Err(error) = promotion.validate() {
+        return protocol_error_response(error);
+    }
+    let runtime = match CloudflareRouterWorkerRuntimeV1::from_worker_env(env) {
+        Ok(runtime) => runtime,
+        Err(error) => return protocol_error_response(error),
+    };
+    let result = post_role_json::<_, SigningWorkerReceiptV1>(
+        env,
+        runtime.signing_worker_peer().binding_name.as_str(),
+        SIGNING_WORKER_SERVICE_URL,
+        CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
+        "SigningWorker recovery promotion",
+        &promotion,
+        trace_id,
+    )
+    .await;
+    match result {
+        Ok(receipt) => match receipt.validate_for_recovery_promotion() {
+            Ok(()) => Response::from_json(&receipt),
+            Err(error) => protocol_error_response(error),
+        },
+        Err(error) => protocol_error_response(error),
+    }
+}
+
+async fn execute_router_ceremony_v1(
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    request: RouterEd25519YaoExecuteRequestV1,
+    now_ms: u64,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+    replay: bool,
+) -> RouterAbProtocolResult<RouterEd25519YaoExecuteResultV1> {
+    request.authority().validate_at(now_ms)?;
+    request.pair_binding().validate()?;
+    let verifying_keys =
+        parse_cloudflare_deriver_peer_verifying_key_set_v1(&CloudflareWorkerEnvReaderV1::new(env))?;
+    let (binding, input_a, input_b) = request_parts(&request);
+    let operation = request.operation();
+    let pair_binding = request.pair_binding().clone();
+
+    if replay {
+        if let Some(result) =
+            reconcile_router_replay_v1(env, runtime, &request, &binding, &pair_binding, trace_id)
+                .await?
+        {
+            return Ok(result);
+        }
+    }
+
+    let prepare_started_at_ms = cloudflare_now_unix_ms_v1()?;
+    let prepare_request_a = CloudflareEd25519YaoPairPrepareRequestV1 {
+        pair_binding: pair_binding.clone(),
+        input: input_a,
+    };
+    let prepare_request_b = CloudflareEd25519YaoPairPrepareRequestV1 {
+        pair_binding: pair_binding.clone(),
+        input: input_b,
+    };
+    let prepare_a = post_role_json_for_ceremony_with_span::<_, Ed25519YaoRoleReadinessReceiptV1>(
+        env,
+        runtime.deriver_a_peer().binding_name.as_str(),
+        DERIVER_A_SERVICE_URL,
+        CLOUDFLARE_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
+        "Deriver A pair preparation",
+        &prepare_request_a,
+        trace_id,
+        "router.prepare_pair.deriver_a",
+        operation_label(operation),
+    );
+    let prepare_b = post_role_json_for_ceremony_with_span::<_, Ed25519YaoRoleReadinessReceiptV1>(
+        env,
+        runtime.deriver_b_peer().binding_name.as_str(),
+        DERIVER_B_SERVICE_URL,
+        CLOUDFLARE_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH,
+        "Deriver B pair preparation",
+        &prepare_request_b,
+        trace_id,
+        "router.prepare_pair.deriver_b",
+        operation_label(operation),
+    );
+    let (receipt_a, receipt_b) = match futures::try_join!(prepare_a, prepare_b) {
+        Ok(receipts) => receipts,
+        Err(error) => {
+            emit_span(
+                trace_id,
+                "router.prepare_pair",
+                operation_label(operation),
+                prepare_started_at_ms,
+                "failure",
+            );
+            return resolve_role_call_error(error, &pair_binding);
+        }
+    };
+    emit_span(
+        trace_id,
+        "router.prepare_pair",
+        operation_label(operation),
+        prepare_started_at_ms,
+        "success",
+    );
+    let readiness_now_ms = cloudflare_now_unix_ms_v1()?;
+    let readiness_started_at_ms = cloudflare_now_unix_ms_v1()?;
+    let readiness_result = validate_readiness(
+        &receipt_a,
+        &pair_binding,
+        readiness_now_ms,
+        Ed25519YaoDeriverRoleV1::DeriverA,
+        &verifying_keys,
+    )
+    .and_then(|()| {
+        validate_readiness(
+            &receipt_b,
+            &pair_binding,
+            readiness_now_ms,
+            Ed25519YaoDeriverRoleV1::DeriverB,
+            &verifying_keys,
+        )
+    });
+    emit_span(
+        trace_id,
+        "router.verify_readiness_receipts",
+        operation_label(operation),
+        readiness_started_at_ms,
+        if readiness_result.is_ok() {
+            "success"
+        } else {
+            "failure"
+        },
+    );
+    readiness_result?;
+    let execute_started_at_ms = cloudflare_now_unix_ms_v1()?;
+    let execution = match post_role_json_for_ceremony_with_span::<_, Ed25519YaoRoleExecutionV1>(
+        env,
+        runtime.deriver_a_peer().binding_name.as_str(),
+        DERIVER_A_SERVICE_URL,
+        CLOUDFLARE_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
+        "Deriver A pair execution",
+        &CloudflareEd25519YaoPairExecuteRequestV1 {
+            pair_binding: pair_binding.clone(),
+            peer_receipt: receipt_b,
+        },
+        trace_id,
+        "router.deriver_a_execute.http",
+        operation_label(operation),
+    )
+    .await
+    {
+        Ok(execution) => execution,
+        Err(error) => {
+            emit_span(
+                trace_id,
+                "router.deriver_a_execute",
+                operation_label(operation),
+                execute_started_at_ms,
+                "failure",
+            );
+            return resolve_role_call_error(error, &pair_binding);
+        }
+    };
+    let execution_validation = match execution.validate() {
+        Ok(()) => validate_execution(
+            &execution,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            &binding,
+            None,
+        ),
+        Err(error) => Err(error),
+    };
+    emit_span(
+        trace_id,
+        "router.deriver_a_execute",
+        operation_label(operation),
+        execute_started_at_ms,
+        if execution_validation.is_ok() {
+            "success"
+        } else {
+            "failure"
+        },
+    );
+    execution_validation?;
+
+    let transcript = execution_transcript(&execution);
+    let completed_read_started_at_ms = cloudflare_now_unix_ms_v1()?;
+    let completed_b = post_role_json_for_ceremony_with_span::<
+        _,
+        CloudflareEd25519YaoPairCompletionAcknowledgementV1,
+    >(
+        env,
+        runtime.deriver_b_peer().binding_name.as_str(),
+        DERIVER_B_SERVICE_URL,
+        CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH,
+        "Deriver B completed pair read",
+        &CloudflareEd25519YaoReadCompletedPairRequestV1 {
+            session: pair_binding.session(),
+            pair_digest: pair_binding.pair_digest().bytes,
+        },
+        trace_id,
+        "router.deriver_b_completed_read.http",
+        operation_label(operation),
+    )
+    .await;
+    let completed_b = match completed_b {
+        Ok(acknowledgement) => {
+            let result = acknowledgement.validate_for_request(
+                &CloudflareEd25519YaoReadCompletedPairRequestV1 {
+                    session: pair_binding.session(),
+                    pair_digest: pair_binding.pair_digest().bytes,
+                },
+            );
+            emit_span(
+                trace_id,
+                "router.deriver_b_completed_read",
+                operation_label(operation),
+                completed_read_started_at_ms,
+                if result.is_ok() { "success" } else { "failure" },
+            );
+            result?
+        }
+        Err(error) => {
+            emit_span(
+                trace_id,
+                "router.deriver_b_completed_read",
+                operation_label(operation),
+                completed_read_started_at_ms,
+                "failure",
+            );
+            return resolve_role_call_error(error, &pair_binding);
+        }
+    };
+    validate_execution(
+        &completed_b,
+        Ed25519YaoDeriverRoleV1::DeriverB,
+        &binding,
+        Some(transcript),
+    )?;
+
+    finalize_router_result_v1(
+        env,
+        runtime,
+        &request,
+        &binding,
+        execution,
+        completed_b,
+        trace_id,
+    )
+    .await
+}
+
+async fn reconcile_router_replay_v1(
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    request: &RouterEd25519YaoExecuteRequestV1,
+    binding: &router_ab_core::Ed25519YaoCeremonyBindingV1,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+) -> RouterAbProtocolResult<Option<RouterEd25519YaoExecuteResultV1>> {
+    let reconciliation_started_at_ms = cloudflare_now_unix_ms_v1()?;
+    let statuses = futures::try_join!(
+        read_pair_status_v1(
+            env,
+            runtime.deriver_a_peer().binding_name.as_str(),
+            DERIVER_A_SERVICE_URL,
+            CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
+            "Deriver A pair status",
+            pair_binding,
+            trace_id,
+        ),
+        read_pair_status_v1(
+            env,
+            runtime.deriver_b_peer().binding_name.as_str(),
+            DERIVER_B_SERVICE_URL,
+            CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH,
+            "Deriver B pair status",
+            pair_binding,
+            trace_id,
+        )
+    );
+    let (status_a, status_b) = match statuses {
+        Ok(statuses) => {
+            emit_span(
+                trace_id,
+                "router.role_status_reconciliation",
+                operation_label(request.operation()),
+                reconciliation_started_at_ms,
+                "success",
+            );
+            statuses
+        }
+        Err(error) => {
+            emit_span(
+                trace_id,
+                "router.role_status_reconciliation",
+                operation_label(request.operation()),
+                reconciliation_started_at_ms,
+                "failure",
+            );
+            return Err(error);
+        }
+    };
+    if pair_status_is_completed(&status_a) && pair_status_is_completed(&status_b) {
+        let execution_a = completed_execution(&status_a)?;
+        let execution_b = completed_execution(&status_b)?;
+        execution_a.validate()?;
+        execution_b.validate()?;
+        validate_execution(
+            &execution_a,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            binding,
+            None,
+        )?;
+        let transcript = execution_transcript(&execution_a);
+        validate_execution(
+            &execution_b,
+            Ed25519YaoDeriverRoleV1::DeriverB,
+            binding,
+            Some(transcript),
+        )?;
+        return finalize_router_result_v1(
+            env,
+            runtime,
+            request,
+            binding,
+            execution_a,
+            execution_b,
+            trace_id,
+        )
+        .await
+        .map(Some);
+    }
+
+    if pair_status_is_running(&status_a)
+        || pair_status_is_running(&status_b)
+        || pair_status_is_completed(&status_a)
+        || pair_status_is_completed(&status_b)
+    {
+        let _ = burn_pair_v1(
+            env,
+            runtime.deriver_a_peer().binding_name.as_str(),
+            DERIVER_A_SERVICE_URL,
+            CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
+            "Deriver A pair burn",
+            pair_binding,
+            trace_id,
+        )
+        .await;
+        let _ = burn_pair_v1(
+            env,
+            runtime.deriver_b_peer().binding_name.as_str(),
+            DERIVER_B_SERVICE_URL,
+            CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH,
+            "Deriver B pair burn",
+            pair_binding,
+            trace_id,
+        )
+        .await;
+        let execution_id = router_execution_id(pair_binding)?;
+        return Ok(Some(RouterEd25519YaoExecuteResultV1::burned(
+            execution_id,
+            router_ab_core::RouterEd25519YaoBurnReasonV1::PeerUncertain,
+        )));
+    }
+
+    if pair_status_is_burned(&status_a) || pair_status_is_burned(&status_b) {
+        let execution_id = router_execution_id(pair_binding)?;
+        return Ok(Some(RouterEd25519YaoExecuteResultV1::burned(
+            execution_id,
+            router_ab_core::RouterEd25519YaoBurnReasonV1::PeerUncertain,
+        )));
+    }
+
+    if pair_status_is_expired(&status_a) || pair_status_is_expired(&status_b) {
+        return Ok(Some(RouterEd25519YaoExecuteResultV1::recoverable(
+            router_ab_core::RouterEd25519YaoExecuteFailureCodeV1::CeremonyExpired,
+            1_000,
+        )?));
+    }
+
+    Ok(None)
+}
+
+fn completed_execution(
+    status: &CloudflareEd25519YaoPairStatusResponseV1,
+) -> RouterAbProtocolResult<Ed25519YaoRoleExecutionV1> {
+    match status {
+        CloudflareEd25519YaoPairStatusResponseV1::Completed { execution } => {
+            Ok((**execution).clone())
+        }
+        _ => Err(invalid_coordinator(
+            "completed pair status is missing execution",
+        )),
+    }
+}
+
+fn router_execution_id(
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+) -> RouterAbProtocolResult<router_ab_core::Ed25519YaoExecutionIdV1> {
+    router_ab_core::Ed25519YaoExecutionIdV1::new(pair_binding.pair_digest().bytes)
+}
+
+async fn read_pair_status_v1(
+    env: &Env,
+    binding_name: &str,
+    service_origin: &str,
+    path: &str,
+    label: &str,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+) -> RouterAbProtocolResult<CloudflareEd25519YaoPairStatusResponseV1> {
+    post_role_json::<_, CloudflareEd25519YaoPairStatusResponseV1>(
+        env,
+        binding_name,
+        service_origin,
+        path,
+        label,
+        &CloudflareEd25519YaoReadCompletedPairRequestV1 {
+            session: pair_binding.session(),
+            pair_digest: pair_binding.pair_digest().bytes,
+        },
+        trace_id,
+    )
+    .await
+}
+
+async fn burn_pair_v1(
+    env: &Env,
+    binding_name: &str,
+    service_origin: &str,
+    path: &str,
+    label: &str,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+) -> RouterAbProtocolResult<CloudflareEd25519YaoPairStatusResponseV1> {
+    post_role_json::<_, CloudflareEd25519YaoPairStatusResponseV1>(
+        env,
+        binding_name,
+        service_origin,
+        path,
+        label,
+        &CloudflareEd25519YaoReadCompletedPairRequestV1 {
+            session: pair_binding.session(),
+            pair_digest: pair_binding.pair_digest().bytes,
+        },
+        trace_id,
+    )
+    .await
+}
+
+async fn finalize_router_result_v1(
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    request: &RouterEd25519YaoExecuteRequestV1,
+    binding: &router_ab_core::Ed25519YaoCeremonyBindingV1,
+    execution: Ed25519YaoRoleExecutionV1,
+    completed_b: Ed25519YaoRoleExecutionV1,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+) -> RouterAbProtocolResult<RouterEd25519YaoExecuteResultV1> {
+    let operation = request.operation();
+    let success = match operation {
+        Ed25519YaoOperationV1::Registration | Ed25519YaoOperationV1::Recovery => {
+            let activation_a = activation_execution(&execution)?;
+            let activation_b = activation_execution(&completed_b)?;
+            let delivery = CloudflareEd25519YaoPackagePairDeliveryV1 {
+                deriver_a: signing_worker_delivery(activation_a),
+                deriver_b: signing_worker_delivery(activation_b),
+            };
+            let delivery_started_at_ms = cloudflare_now_unix_ms_v1()?;
+            let worker_response = post_role_json::<_, SigningWorkerReceiptV1>(
+                env,
+                runtime.signing_worker_peer().binding_name.as_str(),
+                SIGNING_WORKER_SERVICE_URL,
+                CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH,
+                "SigningWorker Yao package delivery",
+                &delivery,
+                trace_id,
+            )
+            .await;
+            let worker_response = match worker_response {
+                Ok(receipt) => {
+                    emit_span(
+                        trace_id,
+                        "router.signing_worker_delivery",
+                        operation_label(operation),
+                        delivery_started_at_ms,
+                        "success",
+                    );
+                    receipt
+                }
+                Err(error) => {
+                    emit_span(
+                        trace_id,
+                        "router.signing_worker_delivery",
+                        operation_label(operation),
+                        delivery_started_at_ms,
+                        "failure",
+                    );
+                    return Err(error);
+                }
+            };
+            worker_response.validate_for_operation(operation)?;
+            let public_receipt = worker_response.into_public_receipt()?;
+            let result = RouterAbEd25519YaoActivationResultV1::new(
+                binding.clone(),
+                activation_a.client_package.clone(),
+                activation_b.client_package.clone(),
+                public_receipt,
+            )?;
+            match operation {
+                Ed25519YaoOperationV1::Registration => {
+                    RouterEd25519YaoExecuteSuccessV1::registration(result)?
+                }
+                Ed25519YaoOperationV1::Recovery => {
+                    RouterEd25519YaoExecuteSuccessV1::recovery(result)?
+                }
+                Ed25519YaoOperationV1::Export | Ed25519YaoOperationV1::Refresh => {
+                    unreachable!("activation branch excludes this operation")
+                }
+            }
+        }
+        Ed25519YaoOperationV1::Export => {
+            let export_binding = match request {
+                RouterEd25519YaoExecuteRequestV1::Export { binding, .. } => binding.clone(),
+                _ => unreachable!("export operation must carry export binding"),
+            };
+            let export_a = export_execution(&execution)?;
+            let export_b = export_execution(&completed_b)?;
+            let result = RouterAbEd25519YaoExportResultV1::new(
+                export_binding,
+                execution_transcript(&execution),
+                export_a.client_package.clone(),
+                export_b.client_package.clone(),
+            )?;
+            RouterEd25519YaoExecuteSuccessV1::export(result)?
+        }
+        Ed25519YaoOperationV1::Refresh => {
+            return Err(invalid_coordinator(
+                "Refresh is not an admitted Ed25519 Yao operation",
+            ))
+        }
+    };
+    Ok(RouterEd25519YaoExecuteResultV1::succeeded(success))
+}
+
+fn pair_status_is_completed(status: &CloudflareEd25519YaoPairStatusResponseV1) -> bool {
+    matches!(
+        status,
+        CloudflareEd25519YaoPairStatusResponseV1::Completed { .. }
+    )
+}
+
+fn pair_status_is_running(status: &CloudflareEd25519YaoPairStatusResponseV1) -> bool {
+    matches!(
+        status,
+        CloudflareEd25519YaoPairStatusResponseV1::Running { .. }
+    )
+}
+
+fn pair_status_is_burned(status: &CloudflareEd25519YaoPairStatusResponseV1) -> bool {
+    matches!(
+        status,
+        CloudflareEd25519YaoPairStatusResponseV1::Burned { .. }
+    )
+}
+
+fn pair_status_is_expired(status: &CloudflareEd25519YaoPairStatusResponseV1) -> bool {
+    matches!(
+        status,
+        CloudflareEd25519YaoPairStatusResponseV1::Expired { .. }
+    )
+}
+
+fn request_parts(
+    request: &RouterEd25519YaoExecuteRequestV1,
+) -> (
+    router_ab_core::Ed25519YaoCeremonyBindingV1,
+    router_ab_core::Ed25519YaoEncryptedInputV1,
+    router_ab_core::Ed25519YaoEncryptedInputV1,
+) {
+    match request {
+        RouterEd25519YaoExecuteRequestV1::Registration {
+            binding,
+            deriver_a_input,
+            deriver_b_input,
+            ..
+        }
+        | RouterEd25519YaoExecuteRequestV1::Recovery {
+            binding,
+            deriver_a_input,
+            deriver_b_input,
+            ..
+        } => (
+            binding.clone(),
+            deriver_a_input.clone(),
+            deriver_b_input.clone(),
+        ),
+        RouterEd25519YaoExecuteRequestV1::Export {
+            binding,
+            deriver_a_input,
+            deriver_b_input,
+            ..
+        } => (
+            binding.ceremony().clone(),
+            deriver_a_input.clone(),
+            deriver_b_input.clone(),
+        ),
+    }
+}
+
+fn validate_readiness(
+    receipt: &Ed25519YaoRoleReadinessReceiptV1,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+    now_ms: u64,
+    role: Ed25519YaoDeriverRoleV1,
+    verifying_keys: &crate::CloudflareSignerPeerVerifyingKeySetV1,
+) -> RouterAbProtocolResult<()> {
+    if receipt.role() != role {
+        return Err(invalid_coordinator("readiness receipt role mismatch"));
+    }
+    receipt.validate_for_pair(pair_binding)?;
+    crate::ed25519_yao_lifecycle::validate_cloudflare_role_readiness_receipt_v1(receipt, now_ms)?;
+    crate::verify_role_readiness_receipt_v1(receipt, verifying_keys)
+}
+
+fn validate_execution(
+    execution: &Ed25519YaoRoleExecutionV1,
+    role: Ed25519YaoDeriverRoleV1,
+    binding: &router_ab_core::Ed25519YaoCeremonyBindingV1,
+    transcript: Option<[u8; 32]>,
+) -> RouterAbProtocolResult<()> {
+    if execution.deriver() != role || execution_binding(execution) != binding {
+        return Err(invalid_coordinator("role execution binding mismatch"));
+    }
+    if let Some(transcript) = transcript {
+        if execution_transcript(execution) != transcript {
+            return Err(invalid_coordinator("role execution transcript mismatch"));
+        }
+    }
+    Ok(())
+}
+
+fn execution_binding(
+    execution: &Ed25519YaoRoleExecutionV1,
+) -> &router_ab_core::Ed25519YaoCeremonyBindingV1 {
+    match execution {
+        Ed25519YaoRoleExecutionV1::Activation(value) => &value.binding,
+        Ed25519YaoRoleExecutionV1::Export(value) => &value.binding,
+    }
+}
+
+fn execution_transcript(execution: &Ed25519YaoRoleExecutionV1) -> [u8; 32] {
+    match execution {
+        Ed25519YaoRoleExecutionV1::Activation(value) => value.transcript,
+        Ed25519YaoRoleExecutionV1::Export(value) => value.transcript,
+    }
+}
+
+fn activation_execution(
+    execution: &Ed25519YaoRoleExecutionV1,
+) -> RouterAbProtocolResult<&Ed25519YaoActivationRoleExecutionV1> {
+    match execution {
+        Ed25519YaoRoleExecutionV1::Activation(value) => Ok(value),
+        Ed25519YaoRoleExecutionV1::Export(_) => Err(invalid_coordinator(
+            "activation operation returned an export role execution",
+        )),
+    }
+}
+
+fn export_execution(
+    execution: &Ed25519YaoRoleExecutionV1,
+) -> RouterAbProtocolResult<&Ed25519YaoExportRoleExecutionV1> {
+    match execution {
+        Ed25519YaoRoleExecutionV1::Export(value) => Ok(value),
+        Ed25519YaoRoleExecutionV1::Activation(_) => Err(invalid_coordinator(
+            "export operation returned an activation role execution",
+        )),
+    }
+}
+
+fn signing_worker_delivery(
+    execution: &Ed25519YaoActivationRoleExecutionV1,
+) -> Ed25519YaoSigningWorkerPackageDeliveryV1 {
+    Ed25519YaoSigningWorkerPackageDeliveryV1 {
+        binding: execution.binding.clone(),
+        client_commitment: execution.client_commitment,
+        signing_worker_commitment: execution.signing_worker_commitment,
+        package: execution.signing_worker_package.clone(),
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+enum SigningWorkerReceiptV1 {
+    Active {
+        session: [u8; 32],
+        transcript: [u8; 32],
+        registered_public_key: [u8; 32],
+        joined_client_commitment: [u8; 32],
+        joined_signing_worker_commitment: [u8; 32],
+        signing_worker_verifying_share: [u8; 32],
+        state_epoch: router_ab_core::Ed25519YaoStateEpochV1,
+    },
+    Staged {
+        session: [u8; 32],
+        transcript: [u8; 32],
+        registered_public_key: [u8; 32],
+        joined_client_commitment: [u8; 32],
+        joined_signing_worker_commitment: [u8; 32],
+        signing_worker_verifying_share: [u8; 32],
+        state_epoch: router_ab_core::Ed25519YaoStateEpochV1,
+    },
+}
+
+impl SigningWorkerReceiptV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        let (session, transcript, public_key, client, worker, verifying) = match self {
+            Self::Active {
+                session,
+                transcript,
+                registered_public_key,
+                joined_client_commitment,
+                joined_signing_worker_commitment,
+                signing_worker_verifying_share,
+                ..
+            }
+            | Self::Staged {
+                session,
+                transcript,
+                registered_public_key,
+                joined_client_commitment,
+                joined_signing_worker_commitment,
+                signing_worker_verifying_share,
+                ..
+            } => (
+                session,
+                transcript,
+                registered_public_key,
+                joined_client_commitment,
+                joined_signing_worker_commitment,
+                signing_worker_verifying_share,
+            ),
+        };
+        if [session, transcript, public_key, client, worker, verifying]
+            .iter()
+            .any(|value| value.iter().all(|byte| *byte == 0))
+        {
+            return Err(invalid_coordinator(
+                "SigningWorker receipt contains a zero field",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_for_operation(
+        &self,
+        operation: Ed25519YaoOperationV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        match (operation, self) {
+            (Ed25519YaoOperationV1::Registration, Self::Active { .. })
+            | (Ed25519YaoOperationV1::Recovery, Self::Staged { .. }) => Ok(()),
+            (Ed25519YaoOperationV1::Registration, Self::Staged { .. }) => Err(invalid_coordinator(
+                "registration requires an Active SigningWorker receipt",
+            )),
+            (Ed25519YaoOperationV1::Recovery, Self::Active { .. }) => Err(invalid_coordinator(
+                "recovery requires a Staged SigningWorker receipt",
+            )),
+            (Ed25519YaoOperationV1::Export | Ed25519YaoOperationV1::Refresh, _) => Err(
+                invalid_coordinator("activation delivery cannot produce this operation receipt"),
+            ),
+        }
+    }
+
+    fn validate_for_recovery_promotion(&self) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        match self {
+            Self::Active { .. } => Ok(()),
+            Self::Staged { .. } => Err(invalid_coordinator(
+                "recovery promotion requires an Active SigningWorker receipt",
+            )),
+        }
+    }
+
+    fn into_public_receipt(
+        self,
+    ) -> RouterAbProtocolResult<RouterAbEd25519YaoActivationPublicReceiptV1> {
+        let (transcript, public_key, client, worker, verifying, epoch) = match self {
+            Self::Active {
+                transcript,
+                registered_public_key,
+                joined_client_commitment,
+                joined_signing_worker_commitment,
+                signing_worker_verifying_share,
+                state_epoch,
+                ..
+            }
+            | Self::Staged {
+                transcript,
+                registered_public_key,
+                joined_client_commitment,
+                joined_signing_worker_commitment,
+                signing_worker_verifying_share,
+                state_epoch,
+                ..
+            } => (
+                transcript,
+                registered_public_key,
+                joined_client_commitment,
+                joined_signing_worker_commitment,
+                signing_worker_verifying_share,
+                state_epoch,
+            ),
+        };
+        RouterAbEd25519YaoActivationPublicReceiptV1::new(
+            transcript, public_key, client, worker, verifying, epoch,
+        )
+    }
+}
+
+async fn post_role_json<TRequest, TResponse>(
+    env: &Env,
+    binding_name: &str,
+    service_origin: &str,
+    path: &str,
+    label: &str,
+    body: &TRequest,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+) -> RouterAbProtocolResult<TResponse>
+where
+    TRequest: Serialize,
+    TResponse: DeserializeOwned,
+{
+    let mut response = post_role_request(
+        env,
+        binding_name,
+        service_origin,
+        path,
+        label,
+        body,
+        trace_id,
+    )
+    .await?;
+    if !(200..=299).contains(&response.status_code()) {
+        let status = response.status_code();
+        let _ = response.text().await;
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("{label} service returned HTTP {status}"),
+        ));
+    }
+    response.json::<TResponse>().await.map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{label} response JSON parse failed: {error}"),
+        )
+    })
+}
+
+async fn post_role_json_for_ceremony<TRequest, TResponse>(
+    env: &Env,
+    binding_name: &str,
+    service_origin: &str,
+    path: &str,
+    label: &str,
+    body: &TRequest,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+) -> Result<TResponse, RouterRoleCallError>
+where
+    TRequest: Serialize,
+    TResponse: DeserializeOwned,
+{
+    let mut response = post_role_request(
+        env,
+        binding_name,
+        service_origin,
+        path,
+        label,
+        body,
+        trace_id,
+    )
+    .await
+    .map_err(RouterRoleCallError::Protocol)?;
+    if !(200..=299).contains(&response.status_code()) {
+        let status = response.status_code();
+        let response_body = response.text().await.map_err(|error| {
+            RouterRoleCallError::Protocol(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("{label} error response body read failed: {error}"),
+            ))
+        })?;
+        if let Ok(failure) =
+            serde_json::from_str::<CloudflareEd25519YaoRoleFailureResponseV1>(&response_body)
+        {
+            return Err(RouterRoleCallError::Failure(failure));
+        }
+        return Err(RouterRoleCallError::Protocol(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("{label} service returned HTTP {status}"),
+        )));
+    }
+    response.json::<TResponse>().await.map_err(|error| {
+        RouterRoleCallError::Protocol(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{label} response JSON parse failed: {error}"),
+        ))
+    })
+}
+
+async fn post_role_request<TRequest>(
+    env: &Env,
+    binding_name: &str,
+    service_origin: &str,
+    path: &str,
+    label: &str,
+    body: &TRequest,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+) -> RouterAbProtocolResult<Response>
+where
+    TRequest: Serialize,
+{
+    let fetcher = env.service(binding_name).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("{label} service binding lookup failed: {error}"),
+        )
+    })?;
+    let serialized = cloudflare_service_json_request_body_v1(label, body)?;
+    let headers = worker::Headers::new();
+    headers
+        .set("content-type", "application/json")
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("{label} content-type header failed: {error}"),
+            )
+        })?;
+    set_cloudflare_internal_service_auth_header_v1(env, &headers, label)?;
+    if let Some(trace_id) = trace_id {
+        set_cloudflare_trace_id_header_v1(&headers, trace_id)?;
+    }
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post)
+        .with_headers(headers)
+        .with_body(Some(worker::wasm_bindgen::JsValue::from_str(&serialized)));
+    let request =
+        Request::new_with_init(&format!("{service_origin}{path}"), &init).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("{label} request construction failed: {error}"),
+            )
+        })?;
+    let response = fetcher.fetch_request(request).await.map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("{label} service request failed: {error}"),
+        )
+    })?;
+    Ok(response)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn post_role_json_for_ceremony_with_span<TRequest, TResponse>(
+    env: &Env,
+    binding_name: &str,
+    service_origin: &str,
+    path: &str,
+    label: &str,
+    body: &TRequest,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+    span: &str,
+    operation: &str,
+) -> Result<TResponse, RouterRoleCallError>
+where
+    TRequest: Serialize,
+    TResponse: DeserializeOwned,
+{
+    let started_at_ms = cloudflare_now_unix_ms_v1().unwrap_or_default();
+    let result = post_role_json_for_ceremony(
+        env,
+        binding_name,
+        service_origin,
+        path,
+        label,
+        body,
+        trace_id,
+    )
+    .await;
+    emit_span(
+        trace_id,
+        span,
+        operation,
+        started_at_ms,
+        if result.is_ok() { "success" } else { "failure" },
+    );
+    result
+}
+
+fn invalid_coordinator(message: &str) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(RouterAbProtocolErrorCode::MalformedWirePayload, message)
+}
+
+fn resolve_role_call_error(
+    error: RouterRoleCallError,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+) -> RouterAbProtocolResult<RouterEd25519YaoExecuteResultV1> {
+    match error {
+        RouterRoleCallError::Protocol(error) => Err(error),
+        RouterRoleCallError::Failure(
+            CloudflareEd25519YaoRoleFailureResponseV1::RecoverableFailure {
+                code,
+                retry_after_ms,
+            },
+        ) => RouterEd25519YaoExecuteResultV1::recoverable(code, retry_after_ms),
+        RouterRoleCallError::Failure(CloudflareEd25519YaoRoleFailureResponseV1::Rejected {
+            code,
+        }) => Ok(RouterEd25519YaoExecuteResultV1::rejected(code)),
+        RouterRoleCallError::Failure(CloudflareEd25519YaoRoleFailureResponseV1::Burned {
+            reason,
+        }) => Ok(RouterEd25519YaoExecuteResultV1::burned(
+            router_execution_id(pair_binding)?,
+            reason,
+        )),
+    }
+}
+
+fn parse_router_replay_header(request: &Request) -> RouterAbProtocolResult<bool> {
+    let value = request
+        .headers()
+        .get(ROUTER_REPLAY_HEADER)
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                format!("Router replay header read failed: {error}"),
+            )
+        })?;
+    match value.as_deref() {
+        None => Ok(false),
+        Some("1") => Ok(true),
+        Some("0") => Ok(false),
+        Some(_) => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            "Router replay header must be 0 or 1",
+        )),
+    }
+}
+
+fn operation_label(operation: Ed25519YaoOperationV1) -> &'static str {
+    match operation {
+        Ed25519YaoOperationV1::Registration => "registration",
+        Ed25519YaoOperationV1::Recovery => "recovery",
+        Ed25519YaoOperationV1::Export => "export",
+        Ed25519YaoOperationV1::Refresh => "refresh",
+    }
+}
+
+fn protocol_error_response(error: RouterAbProtocolError) -> worker::Result<Response> {
+    Response::error(
+        format!("{:?}: {}", error.code(), error.message()),
+        cloudflare_router_error_status(error.code()),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn receipt(active: bool) -> SigningWorkerReceiptV1 {
+        let epoch = router_ab_core::Ed25519YaoStateEpochV1::new(1).expect("nonzero epoch");
+        if active {
+            SigningWorkerReceiptV1::Active {
+                session: [1; 32],
+                transcript: [2; 32],
+                registered_public_key: [3; 32],
+                joined_client_commitment: [4; 32],
+                joined_signing_worker_commitment: [5; 32],
+                signing_worker_verifying_share: [5; 32],
+                state_epoch: epoch,
+            }
+        } else {
+            SigningWorkerReceiptV1::Staged {
+                session: [1; 32],
+                transcript: [2; 32],
+                registered_public_key: [3; 32],
+                joined_client_commitment: [4; 32],
+                joined_signing_worker_commitment: [5; 32],
+                signing_worker_verifying_share: [5; 32],
+                state_epoch: epoch,
+            }
+        }
+    }
+
+    #[test]
+    fn signing_worker_receipt_status_is_bound_to_activation_operation() {
+        assert!(receipt(true)
+            .validate_for_operation(Ed25519YaoOperationV1::Registration)
+            .is_ok());
+        assert!(receipt(false)
+            .validate_for_operation(Ed25519YaoOperationV1::Registration)
+            .is_err());
+        assert!(receipt(false)
+            .validate_for_operation(Ed25519YaoOperationV1::Recovery)
+            .is_ok());
+        assert!(receipt(true)
+            .validate_for_operation(Ed25519YaoOperationV1::Recovery)
+            .is_err());
+    }
+
+    #[test]
+    fn recovery_promotion_requires_an_active_receipt() {
+        assert!(receipt(true).validate_for_recovery_promotion().is_ok());
+        assert!(receipt(false).validate_for_recovery_promotion().is_err());
+    }
+}

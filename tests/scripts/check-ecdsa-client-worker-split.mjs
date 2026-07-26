@@ -404,7 +404,7 @@ requireArtifactTokensAbsent(
   wasmExportNames(
     'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm',
   ),
-  ['presign', 'triple', 'signature_share', 'signing_worker', 'deriver_relayer'],
+  ['presign', 'triple', 'signature_share', 'deriver_relayer'],
   'generated ECDSA derivation client WASM exports',
 );
 requireArtifactTokensAbsent(

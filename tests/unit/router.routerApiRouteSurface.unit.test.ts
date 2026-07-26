@@ -15,6 +15,7 @@ import {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
 } from '@shared/utils/routerAbPublicKeyset';
+import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@shared/utils/routerAbTraceContext';
 import { callCf } from '../relayer/helpers';
 
 type CloudflareRouterApiHandler = ReturnType<typeof createCloudflareRouter>;
@@ -211,7 +212,6 @@ const EMAIL_RECOVERY_EXECUTION_SERVICE = {
   },
 };
 
-
 test.describe('Router API route surface wiring', () => {
   test('Express adapter route surface matches canonical fetch router surface', async () => {
     const service = makeRouterApiServiceBagFixture();
@@ -345,6 +345,32 @@ test.describe('Router API route surface wiring', () => {
       });
       expect(response.status, `${route.method} ${route.path}`).not.toBe(404);
     }
+  });
+
+  test('cloudflare registration preflight allows the trace correlation header', async () => {
+    const origin = 'https://sign.seams.sh';
+    const handler = createCloudflareRouter(makeRouterApiServiceBagFixture(), {
+      corsOrigins: [origin],
+    });
+
+    const response = await callCf(handler, {
+      method: 'OPTIONS',
+      path: '/wallets/register/start',
+      origin,
+      headers: {
+        'Access-Control-Request-Headers': `content-type,${ROUTER_AB_TRACE_ID_HEADER_V1}`,
+        'Access-Control-Request-Method': 'POST',
+      },
+    });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe(origin);
+    const allowedHeaders = new Set(
+      (response.headers.get('Access-Control-Allow-Headers') || '')
+        .split(',')
+        .map((header) => header.trim().toLowerCase()),
+    );
+    expect(allowedHeaders.has(ROUTER_AB_TRACE_ID_HEADER_V1)).toBe(true);
   });
 
   test('route extensions are surfaced and mounted by supported transport', async () => {

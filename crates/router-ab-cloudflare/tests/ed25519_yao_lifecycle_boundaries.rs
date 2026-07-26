@@ -3,68 +3,79 @@ mod support;
 use support::{extract_function_body, read_src_file};
 
 #[test]
-fn yao_session_lifecycle_has_absorbing_failure_and_expiry_states() {
+fn pair_lifecycle_is_pair_bound_and_has_signed_readiness_states() {
     let source = read_src_file("ed25519_yao_lifecycle.rs");
     for required in [
-        "enum YaoSessionRecordV1",
-        "Staged",
-        "Running",
-        "Completed",
-        "Failed",
-        "Expired",
-        "YAO_STAGED_INPUT_LIFETIME_MS",
-        "YAO_RUNNING_LIFETIME_MS",
-        "yao_expiry_from_now",
+        "enum PairYaoSessionRecordV1",
+        "Prepared",
+        "Burned",
+        "pair_digest",
+        "input_digest",
+        "root_metadata_digest",
+        "Ed25519YaoRoleReadinessReceiptV1",
+        "PreparePair",
+        "ClaimPair",
+        "StartPair",
+        "BeginPair",
+        "Ed25519YaoRoleStartAcceptanceV1",
+        "CompletePair",
+        "ReadCompletedPair",
     ] {
         assert!(
             source.contains(required),
-            "Yao session lifecycle must include `{required}`"
+            "pair-bound lifecycle must include `{required}`"
         );
     }
+}
+
+#[test]
+fn deriver_a_claim_does_not_hold_the_durable_object_across_yao_execution() {
+    let source = read_src_file("ed25519_yao_lifecycle.rs");
+    let body = extract_function_body(&source, "handle_claim_pair");
     assert!(
-        !source.contains("STAGED_INPUT_STORAGE_KEY"),
-        "Yao staged ciphertext must live in the discriminated lifecycle record"
+        body.contains("DeriverAYaoSessionResponseV1::Claimed"),
+        "Deriver A claim must return the claimed execution envelope"
+    );
+    assert!(
+        !body.contains("execute_deriver_a_role"),
+        "Deriver A Durable Object must not own the Yao network stream"
     );
 }
 
 #[test]
-fn yao_websocket_prepares_transport_before_consuming_staged_input() {
+fn deriver_b_completed_read_returns_an_explicit_acknowledgement_envelope() {
     let source = read_src_file("ed25519_yao_lifecycle.rs");
     let body = extract_function_body(
         &source,
-        "handle_cloudflare_ed25519_yao_deriver_b_websocket_v1",
+        "handle_cloudflare_ed25519_yao_deriver_b_read_completed_pair_v1",
     );
-    let pair = body
-        .find("WebSocketPair::new")
-        .expect("WebSocket pair must be prepared");
-    let response = body
-        .find("Response::from_websocket")
-        .expect("upgrade response must be prepared");
-    let begin = body
-        .find("DeriverBYaoSessionCommandV1::Begin")
-        .expect("staged input must be consumed");
-    let fail = body
-        .find("DeriverBYaoSessionCommandV1::Fail")
-        .expect("asynchronous role failure must become terminal");
     assert!(
-        pair < response && response < begin && begin < fail,
-        "all fallible WebSocket setup must precede Begin, and role failures must persist Fail"
+        source.contains("CloudflareEd25519YaoPairCompletionAcknowledgementV1"),
+        "B completion acknowledgement must be a named boundary type"
+    );
+    assert!(
+        body.contains("acknowledgement.validate_for_request"),
+        "B completion read must validate the acknowledgement identity"
     );
 }
 
 #[test]
-fn yao_result_reads_surface_terminal_states_without_polling() {
+fn pair_websocket_requires_the_exact_pair_digest_and_peer_receipt() {
     let source = read_src_file("ed25519_yao_lifecycle.rs");
-    let body = extract_function_body(&source, "handle_cloudflare_ed25519_yao_deriver_b_result_v1");
+    let body = extract_function_body(&source, "handle_pair_bound_deriver_b_websocket");
     for required in [
-        "DeriverBYaoSessionResponseV1::Failed",
-        "Deriver B role execution failed",
-        "DeriverBYaoSessionResponseV1::Expired",
-        "Deriver B role execution expired",
+        "binding.pair_digest",
+        "x-seams-yao-readiness-receipt",
+        "EXECUTION_ID_HEADER",
+        "verify_role_readiness_receipt_v1",
+        "BeginPair",
+        "PairStarted",
+        "sign_role_start_acceptance_v1",
+        "START_ACCEPTANCE_HEADER",
     ] {
         assert!(
             body.contains(required),
-            "Yao result reads must surface `{required}`"
+            "pair-bound WebSocket must enforce `{required}`"
         );
     }
 }

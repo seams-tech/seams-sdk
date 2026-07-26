@@ -286,7 +286,6 @@ function passingManifests(dir: string): PassingEvidenceManifests {
           ],
           durableObjects: [
             { name: 'THRESHOLD_STORE', className: 'ThresholdStore' },
-            { name: 'ROUTER_API_RUNTIME', className: 'RouterApiRuntimeDurableObject' },
           ],
           secretsStoreSecrets: [
             {
@@ -817,6 +816,18 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
     name: 'D1 staging evidence verifier rejects gateway resource inventory without signer DO binding',
     mutate: (m) => patchResourceWorker(m.resources, 'gatewayWorker', { durableObjects: [] }),
     expectedError: /resource_inventory: resources\.gatewayWorker\.durableObjects missing THRESHOLD_STORE/,
+  },
+  {
+    name: 'D1 staging evidence verifier rejects a retired Gateway runtime binding',
+    mutate: (m) =>
+      patchResourceWorker(m.resources, 'gatewayWorker', {
+        durableObjects: [
+          { name: 'THRESHOLD_STORE', className: 'ThresholdStore' },
+          { name: 'ROUTER_API_RUNTIME', className: 'RouterApiRuntimeDurableObject' },
+        ],
+      }),
+    expectedError:
+      /resource_inventory: resources\.gatewayWorker\.durableObjects includes unexpected binding ROUTER_API_RUNTIME/,
   },
   {
     name: 'D1 staging evidence verifier rejects gateway resource inventory without configured signer KEKs',

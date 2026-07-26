@@ -36,9 +36,16 @@ const targetContractFolders = [
 const allowedSessionFlowImports = new Set([
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/companionSessions.ts -> ../../flows/signEvmFamily/ecdsaMaterialState',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/companionSessions.ts -> ../../flows/signEvmFamily/ecdsaSelection',
+  'packages/sdk-web/src/core/signingEngine/session/emailOtp/coordinatorRuntime.ts -> ../../flows/signEvmFamily/ecdsaSelection',
+  'packages/sdk-web/src/core/signingEngine/session/emailOtp/coordinatorRuntime.ts -> ../../flows/recovery/ecdsaExportMaterial',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts -> ../../flows/signEvmFamily/ecdsaSelection',
+  'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoActivation.ts -> @/core/signingEngine/flows/registration/services/ed25519YaoRegistration',
+  'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery.ts -> ../../flows/recovery/passkeyEd25519YaoRecovery',
+  'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoWorkerClient.ts -> @/core/signingEngine/flows/registration/services/ed25519YaoRegistration',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts -> ../../flows/recovery/ecdsaExportMaterial',
+  'packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts -> ../../flows/recovery/ecdsaDerivationExport',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecoveryRuntime.ts -> ../../flows/recovery/ecdsaExportMaterial',
+  'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoWarmRecovery.ts -> @/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery',
 ]);
 
 const allowedSessionFlowImportFiles = new Set();
@@ -440,7 +447,7 @@ function checkTargetFoldersFollowImportDirectionContract() {
       'useCases',
     ],
     chains: ['workers', 'workerManager', 'session', 'signers', 'interfaces', 'threshold'],
-    stepUpConfirmation: ['interfaces', 'webauthnAuth'],
+    stepUpConfirmation: ['interfaces', 'webauthnAuth', 'nonce', 'session'],
     uiConfirm: [
       'chains',
       'stepUpConfirmation',
@@ -497,12 +504,10 @@ function checkAuthPromptAndUiRuntimeBoundariesStayOneWay() {
     ],
     stepUpConfirmation: [
       'uiConfirm',
-      'session',
       'flows',
       'assembly',
       'threshold',
       'chains',
-      'nonce',
       'workerManager',
     ],
     uiConfirm: ['flows', 'assembly', 'SigningEngine.ts'],
@@ -1059,6 +1064,7 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'operationState',
       'persistence',
       'routerAbSigningWalletSession',
+      'warmCapabilities',
     ],
     availability: [
       'keyMaterialBrands',
@@ -1079,6 +1085,7 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'sealedRecovery',
       'operationState',
       'warmCapabilities',
+      'material',
     ],
     sealedRecovery: ['identity', 'keyMaterialBrands', 'persistence'],
     operationState: [
@@ -1099,6 +1106,7 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'operationState',
       'persistence',
       'routerAbSigningWalletSession',
+      'material',
     ],
     passkey: [
       'identity',
@@ -1108,6 +1116,7 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'routerAbSigningWalletSession',
       'sealedRecovery',
       'warmCapabilities',
+      'lifecycle',
     ],
     emailOtp: [
       'availability',
@@ -1119,6 +1128,8 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'routerAbSigningWalletSession',
       'sealedRecovery',
       'warmCapabilities',
+      'material',
+      'passkey',
     ],
   };
   const offenders = [];

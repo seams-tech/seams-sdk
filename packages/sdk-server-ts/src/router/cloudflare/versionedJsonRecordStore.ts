@@ -1,7 +1,4 @@
-import {
-  isPlainObject,
-  toOptionalTrimmedString,
-} from '@shared/utils/validation';
+import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
@@ -46,17 +43,14 @@ type VersionedJsonPutResponse =
   | { readonly status: 'version_mismatch' }
   | { readonly status: 'invalid_record' };
 
-type VersionedJsonDoResponse<T> =
-  | { readonly ok: true; readonly value: T }
+type VersionedJsonDoResponse =
+  | { readonly ok: true; readonly value: unknown }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
 export class CloudflareVersionedJsonRecordStoreError extends Error {
   readonly code: 'invalid_response' | 'invalid_record' | 'request_failed';
 
-  constructor(
-    code: 'invalid_response' | 'invalid_record' | 'request_failed',
-    message: string,
-  ) {
+  constructor(code: 'invalid_response' | 'invalid_record' | 'request_failed', message: string) {
     super(message);
     this.name = 'CloudflareVersionedJsonRecordStoreError';
     this.code = code;
@@ -88,26 +82,29 @@ export class CloudflareDurableObjectVersionedJsonRecordStore<T> {
   }
 
   async read(key: string): Promise<CloudflareVersionedJsonRecordReadResult<T>> {
-    const storageKey = this.storageKey(key);
-    const response = await this.call<VersionedJsonReadResponse>(storageKey, {
+    const recordKey = normalizeRecordKey(key);
+    const storageKey = this.storageKey(recordKey);
+    const response = await this.call(recordKey, {
       op: 'readVersionedJson',
       key: storageKey,
     });
     if (!response.ok) throw requestFailure(response.message);
-    switch (response.value.status) {
+    const parsed = parseVersionedJsonReadResponse(response.value);
+    if (!parsed) throw invalidResponseFailure('Versioned JSON read response is invalid');
+    switch (parsed.status) {
       case 'missing':
         return { kind: 'missing' };
       case 'invalid_record':
         throw invalidRecordFailure('Stored versioned JSON record envelope is invalid');
       case 'present': {
-        const value = this.parse(response.value.value);
+        const value = this.parse(parsed.value);
         if (value === null) throw invalidRecordFailure('Stored versioned JSON record is invalid');
-        const version = toOptionalTrimmedString(response.value.version);
+        const version = toOptionalTrimmedString(parsed.version);
         if (!version) throw invalidRecordFailure('Stored versioned JSON record version is invalid');
         return { kind: 'present', value, version };
       }
       default:
-        return assertNever(response.value);
+        return assertNever(parsed);
     }
   }
 
@@ -117,7 +114,8 @@ export class CloudflareDurableObjectVersionedJsonRecordStore<T> {
     expectedVersion: string | null,
     options: { readonly ttlMs?: number } = {},
   ): Promise<CloudflareVersionedJsonRecordPutResult> {
-    const storageKey = this.storageKey(key);
+    const recordKey = normalizeRecordKey(key);
+    const storageKey = this.storageKey(recordKey);
     if (expectedVersion !== null && !toOptionalTrimmedString(expectedVersion)) {
       throw new Error('Versioned JSON record expectedVersion must be null or non-empty');
     }
@@ -125,7 +123,7 @@ export class CloudflareDurableObjectVersionedJsonRecordStore<T> {
     if (!isJsonObject(encoded)) {
       throw new Error('Versioned JSON record encoder returned a non-object value');
     }
-    const response = await this.call<VersionedJsonPutResponse>(storageKey, {
+    const response = await this.call(recordKey, {
       op: 'putVersionedJson',
       key: storageKey,
       expectedVersion,
@@ -133,9 +131,11 @@ export class CloudflareDurableObjectVersionedJsonRecordStore<T> {
       ...(options.ttlMs === undefined ? {} : { ttlMs: options.ttlMs }),
     });
     if (!response.ok) throw requestFailure(response.message);
-    switch (response.value.status) {
+    const parsed = parseVersionedJsonPutResponse(response.value);
+    if (!parsed) throw invalidResponseFailure('Versioned JSON put response is invalid');
+    switch (parsed.status) {
       case 'stored': {
-        const version = toOptionalTrimmedString(response.value.version);
+        const version = toOptionalTrimmedString(parsed.version);
         if (!version) throw invalidResponseFailure('Stored version is invalid');
         return { kind: 'stored', version };
       }
@@ -144,7 +144,7 @@ export class CloudflareDurableObjectVersionedJsonRecordStore<T> {
       case 'invalid_record':
         throw invalidRecordFailure('Stored versioned JSON record envelope is invalid');
       default:
-        return assertNever(response.value);
+        return assertNever(parsed);
     }
   }
 
@@ -161,8 +161,11 @@ export class CloudflareDurableObjectVersionedJsonRecordStore<T> {
     return this.namespace.get(this.namespace.idFromName(objectName));
   }
 
-  private async call<T>(key: string, request: Record<string, unknown>): Promise<VersionedJsonDoResponse<T>> {
-    const stub = this.stubForKey(key);
+  private async call(
+    objectNameKey: string,
+    request: Record<string, unknown>,
+  ): Promise<VersionedJsonDoResponse> {
+    const stub = this.stubForKey(objectNameKey);
     let response: Response;
     try {
       response = await stub.fetch('https://threshold-store.invalid/', {
@@ -171,7 +174,9 @@ export class CloudflareDurableObjectVersionedJsonRecordStore<T> {
         body: JSON.stringify(request),
       });
     } catch (error) {
-      throw requestFailure(error instanceof Error ? error.message : 'Versioned JSON request failed');
+      throw requestFailure(
+        error instanceof Error ? error.message : 'Versioned JSON request failed',
+      );
     }
     const text = await response.text();
     if (!response.ok) throw requestFailure(`Durable Object HTTP ${response.status}: ${text}`);
@@ -181,13 +186,15 @@ export class CloudflareDurableObjectVersionedJsonRecordStore<T> {
     } catch {
       throw invalidResponseFailure('Versioned JSON Durable Object returned invalid JSON');
     }
-    if (!isPlainObject(parsed)) throw invalidResponseFailure('Versioned JSON Durable Object response is not an object');
+    if (!isPlainObject(parsed))
+      throw invalidResponseFailure('Versioned JSON Durable Object response is not an object');
     if (parsed.ok === true && 'value' in parsed) {
-      return { ok: true, value: parsed.value as T };
+      return { ok: true, value: parsed.value };
     }
     if (parsed.ok === false) {
       const code = toOptionalTrimmedString(parsed.code) || 'request_failed';
-      const message = toOptionalTrimmedString(parsed.message) || 'Versioned JSON Durable Object request failed';
+      const message =
+        toOptionalTrimmedString(parsed.message) || 'Versioned JSON Durable Object request failed';
       return { ok: false, code, message };
     }
     throw invalidResponseFailure('Versioned JSON Durable Object response has invalid status');
@@ -200,6 +207,24 @@ export function createCloudflareDurableObjectVersionedJsonRecordStore<T>(
   return new CloudflareDurableObjectVersionedJsonRecordStore(options);
 }
 
+function parseVersionedJsonReadResponse(value: unknown): VersionedJsonReadResponse | null {
+  if (!isPlainObject(value)) return null;
+  const status = toOptionalTrimmedString(value.status);
+  if (status === 'missing' || status === 'invalid_record') return { status };
+  if (status !== 'present' || !('value' in value)) return null;
+  const version = toOptionalTrimmedString(value.version);
+  return version ? { status, value: value.value, version } : null;
+}
+
+function parseVersionedJsonPutResponse(value: unknown): VersionedJsonPutResponse | null {
+  if (!isPlainObject(value)) return null;
+  const status = toOptionalTrimmedString(value.status);
+  if (status === 'version_mismatch' || status === 'invalid_record') return { status };
+  if (status !== 'stored') return null;
+  const version = toOptionalTrimmedString(value.version);
+  return version ? { status, version } : null;
+}
+
 function normalizeKeyPrefix(value: unknown): string {
   const prefix = toOptionalTrimmedString(value);
   if (!prefix) return 'versioned-json:';
@@ -209,14 +234,28 @@ function normalizeKeyPrefix(value: unknown): string {
 function normalizeRecordKey(value: unknown): string {
   const key = toOptionalTrimmedString(value);
   if (!key) throw new Error('Versioned JSON record key is required');
-  if (key.length > 512 || /[\u0000-\u001f\u007f]/u.test(key)) {
+  if (key.length > 512 || containsControlCharacter(key)) {
     throw new Error('Versioned JSON record key is invalid');
   }
   return key;
 }
 
-function isDurableObjectNamespaceLike(value: unknown): value is CloudflareDurableObjectNamespaceLike {
-  return Boolean(value) && typeof value === 'object' && typeof (value as CloudflareDurableObjectNamespaceLike).idFromName === 'function' && typeof (value as CloudflareDurableObjectNamespaceLike).get === 'function';
+export function containsControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
+function isDurableObjectNamespaceLike(
+  value: unknown,
+): value is CloudflareDurableObjectNamespaceLike {
+  return (
+    isPlainObject(value) &&
+    typeof value.idFromName === 'function' &&
+    typeof value.get === 'function'
+  );
 }
 
 function isJsonObject(value: unknown): value is CloudflareVersionedJsonObject {

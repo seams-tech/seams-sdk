@@ -10,6 +10,7 @@
  */
 
 import type { ProgressPayload as MessageProgressPayload } from '../../shared/messages';
+import { isWalletFlowEvent } from '@/core/types/sdkSentEvents';
 
 export type ProgressPayload = MessageProgressPayload;
 
@@ -110,12 +111,17 @@ export class OnEventsProgressBus {
       });
       return true;
     }
-    this.log('dispatch-miss', {
-      requestId,
-      flow: payload?.flow,
-      phase: payload?.phase,
-      status: payload?.status,
-    });
+    this.log(
+      'dispatch-miss',
+      isWalletFlowEvent(payload)
+        ? {
+            requestId,
+            flow: payload.flow,
+            phase: payload.phase,
+            status: payload.status,
+          }
+        : { requestId, span: payload.span },
+    );
     return false;
   }
 
@@ -133,9 +139,15 @@ export class OnEventsProgressBus {
 
   private bumpStats(sub: ProgressSubscriber, payload: ProgressPayload) {
     sub.stats.count += 1;
-    sub.stats.flow = payload?.flow ? String(payload.flow) : null;
-    sub.stats.phase = payload?.phase ? String(payload.phase) : null;
-    sub.stats.status = payload?.status ? String(payload.status) : null;
+    if (isWalletFlowEvent(payload)) {
+      sub.stats.flow = payload.flow ? String(payload.flow) : null;
+      sub.stats.phase = payload.phase ? String(payload.phase) : null;
+      sub.stats.status = payload.status ? String(payload.status) : null;
+    } else {
+      sub.stats.flow = null;
+      sub.stats.phase = null;
+      sub.stats.status = null;
+    }
     sub.stats.lastAt = Date.now();
   }
 

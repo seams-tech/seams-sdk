@@ -12,6 +12,11 @@ type SharedRegistrationWalletSessionIdentity = Omit<
 
 declare const identity: SharedRegistrationWalletSessionIdentity;
 
+type AddSignerWalletSessionMintInput = Extract<
+  RouterAbEd25519YaoWalletSessionMintInputV1,
+  { readonly kind: 'add_signer_wallet_session_v1' }
+>;
+
 const validSharedRegistrationWalletSessionMintInput: SharedRegistrationWalletSessionMintInput = {
   ...identity,
   kind: 'shared_registration_wallet_session_v1',
@@ -38,6 +43,22 @@ const generatedRegistrationWalletSessionWithGrant: RouterAbEd25519YaoWalletSessi
   remainingUses: 3,
 };
 
+const validAddSignerWalletSessionMintInput: AddSignerWalletSessionMintInput = {
+  ...identity,
+  kind: 'add_signer_wallet_session_v1',
+  signingGrantId: 'add-signer-grant-1',
+  expiresAtMs: 1_900_000_000_000,
+  remainingUses: 3,
+};
+
+// @ts-expect-error An add-signer mint must carry its durable pre-claim session terms.
+const missingTermsAddSignerWalletSessionMintInput: AddSignerWalletSessionMintInput = {
+  ...identity,
+  kind: 'add_signer_wallet_session_v1',
+};
+
 void validSharedRegistrationWalletSessionMintInput;
 void missingGrantSharedRegistrationWalletSessionMintInput;
 void generatedRegistrationWalletSessionWithGrant;
+void validAddSignerWalletSessionMintInput;
+void missingTermsAddSignerWalletSessionMintInput;

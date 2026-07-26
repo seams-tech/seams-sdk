@@ -11,6 +11,8 @@ import { prepareRouterAbStrictLocalRuntimeConfigs } from '../../crates/router-ab
 
 const DERIVER_A_PEER_KEY_HEX = '11'.repeat(32);
 const DERIVER_B_PEER_KEY_HEX = '22'.repeat(32);
+const DERIVER_A_PEER_SIGNING_KEY = Buffer.from(DERIVER_A_PEER_KEY_HEX, 'hex').toString('base64url');
+const DERIVER_B_PEER_SIGNING_KEY = Buffer.from(DERIVER_B_PEER_KEY_HEX, 'hex').toString('base64url');
 type X25519Fixture = {
   readonly publicKey: string;
   readonly privateKeyHex: string;
@@ -66,17 +68,17 @@ function createRuntimeFixture(): RuntimeFixture {
     DERIVER_A_URL: router.DERIVER_A_URL,
     DERIVER_A_ROOT_SHARE_WIRE_SECRET: `mpc-prf-root-share-wire-v1:${'33'.repeat(32)}`,
     DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: deriverA.privateKeyHex,
-    DERIVER_A_PEER_SIGNING_KEY: `dev-only-generated-a:${DERIVER_A_PEER_KEY_HEX}`,
-    DERIVER_A_PEER_VERIFYING_KEY: `dev-only-generated-a:${DERIVER_A_PEER_KEY_HEX}`,
-    DERIVER_B_PEER_VERIFYING_KEY: `dev-only-generated-b:${DERIVER_B_PEER_KEY_HEX}`,
+    DERIVER_A_PEER_SIGNING_KEY: DERIVER_A_PEER_SIGNING_KEY,
+    DERIVER_A_PEER_VERIFYING_KEY: localPeerVerifyingKeyHex(DERIVER_A_PEER_SIGNING_KEY),
+    DERIVER_B_PEER_VERIFYING_KEY: localPeerVerifyingKeyHex(DERIVER_B_PEER_SIGNING_KEY),
   });
   writeEnv(root, '.env.router-ab.deriver-b.local', {
     DERIVER_B_URL: router.DERIVER_B_URL,
     DERIVER_B_ROOT_SHARE_WIRE_SECRET: `mpc-prf-root-share-wire-v1:${'44'.repeat(32)}`,
     DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY: deriverB.privateKeyHex,
-    DERIVER_B_PEER_SIGNING_KEY: `dev-only-generated-b:${DERIVER_B_PEER_KEY_HEX}`,
-    DERIVER_A_PEER_VERIFYING_KEY: `dev-only-generated-a:${DERIVER_A_PEER_KEY_HEX}`,
-    DERIVER_B_PEER_VERIFYING_KEY: `dev-only-generated-b:${DERIVER_B_PEER_KEY_HEX}`,
+    DERIVER_B_PEER_SIGNING_KEY: DERIVER_B_PEER_SIGNING_KEY,
+    DERIVER_A_PEER_VERIFYING_KEY: localPeerVerifyingKeyHex(DERIVER_A_PEER_SIGNING_KEY),
+    DERIVER_B_PEER_VERIFYING_KEY: localPeerVerifyingKeyHex(DERIVER_B_PEER_SIGNING_KEY),
   });
   writeEnv(root, '.env.router-ab.signing-worker.local', {
     SIGNING_WORKER_URL: router.SIGNING_WORKER_URL,
@@ -90,16 +92,36 @@ function createRuntimeFixture(): RuntimeFixture {
   return { root, outputConfigPath, deriverA, deriverB, signingWorker };
 }
 
+function prepareStrictRuntime(fixture: RuntimeFixture) {
+  const d1Runtime = prepareRouterAbD1LocalRuntimeConfig({
+    repoRoot: repoRoot(),
+    localEnvRoot: fixture.root,
+    outputConfigPath: fixture.outputConfigPath,
+  });
+  return prepareRouterAbStrictLocalRuntimeConfigs({
+    repoRoot: repoRoot(),
+    localEnvRoot: fixture.root,
+    ceremonyJwksJson: d1Runtime.ceremonyJwksJson,
+  });
+}
+
 test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler', () => {
   const fixture = createRuntimeFixture();
 
-  prepareRouterAbD1LocalRuntimeConfig({
+  const runtime = prepareRouterAbD1LocalRuntimeConfig({
     repoRoot: repoRoot(),
     localEnvRoot: fixture.root,
     outputConfigPath: fixture.outputConfigPath,
   });
 
   const config = readFileSync(fixture.outputConfigPath, 'utf8');
+  expect(runtime.signingSessionPersistenceMode).toBe('sealed_refresh_v1');
+  expect(runtime.signingSessionSealKeyVersion).toBe(
+    parseTomlStringAssignment(config, 'SIGNING_SESSION_SEAL_KEY_VERSION'),
+  );
+  expect(runtime.signingSessionShamirPrimeB64u).toBe(
+    parseTomlStringAssignment(config, 'SIGNING_SESSION_SHAMIR_P_B64U'),
+  );
   expect(config).toContain(
     `DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY = ${JSON.stringify(fixture.deriverB.publicKey)}`,
   );
@@ -111,10 +133,8 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
   );
   expect(config).toContain('binding = "MPC_ROUTER"');
   expect(config).toContain('service = "router-ab-mpc-router"');
-  expect(config).toContain('binding = "DERIVER_A"');
-  expect(config).toContain('service = "router-ab-deriver-a"');
-  expect(config).toContain('binding = "DERIVER_B"');
-  expect(config).toContain('service = "router-ab-deriver-b"');
+  expect(config).not.toContain('binding = "DERIVER_A"');
+  expect(config).not.toContain('binding = "DERIVER_B"');
   expect(config).toContain('binding = "SIGNING_WORKER"');
   expect(config).toContain('service = "router-ab-signing-worker"');
   expect(config).not.toContain('DERIVER_A_URL =');
@@ -129,9 +149,7 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
   );
   expect(localConsoleOrganizationId).toMatch(/^org_[a-z0-9]{12}$/);
   expect(config).toContain(
-    `DERIVER_A_PEER_VERIFYING_KEY_HEX = "${localPeerVerifyingKeyHex(
-      `dev-only-generated-a:${DERIVER_A_PEER_KEY_HEX}`,
-    )}"`,
+    `DERIVER_A_PEER_VERIFYING_KEY_HEX = "${localPeerVerifyingKeyHex(DERIVER_A_PEER_SIGNING_KEY)}"`,
   );
 
   const ceremonyPrivateJwk = parseTomlJsonAssignment(config, 'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK');
@@ -197,10 +215,7 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
 
 test('local Gateway startup renders the production-shaped MPC Worker topology', () => {
   const fixture = createRuntimeFixture();
-  const runtime = prepareRouterAbStrictLocalRuntimeConfigs({
-    repoRoot: repoRoot(),
-    localEnvRoot: fixture.root,
-  });
+  const runtime = prepareStrictRuntime(fixture);
 
   expect(runtime.mpcRouterUrl).toBe('http://127.0.0.1:9100');
   expect(runtime.workerUrls).toEqual({
@@ -218,9 +233,10 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
 
   const routerConfig = readFileSync(runtime.configs[0].configPath, 'utf8');
   expect(routerConfig).toContain('ROUTER_JWT_ISSUER = "http://127.0.0.1:9190"');
-  expect(routerConfig).toContain(
-    'ROUTER_JWT_JWKS_URL = "http://127.0.0.1:9190/.well-known/router-ab-ceremony-jwks.json"',
-  );
+  const routerJwks = parseTomlJsonAssignment(routerConfig, 'ROUTER_JWT_JWKS_JSON');
+  expect(routerJwks).toMatchObject({
+    keys: [{ alg: 'EdDSA', crv: 'Ed25519', kid: 'local-router-ab-r1', kty: 'OKP', use: 'sig' }],
+  });
   expect(routerConfig).toContain('binding = "DERIVER_A"');
   expect(routerConfig).toContain('service = "router-ab-deriver-a"');
   expect(routerConfig).not.toContain('[build]');
@@ -248,6 +264,41 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   expect(signingWorkerSecretFile).not.toContain('DERIVER_A_ROOT_SHARE_WIRE_SECRET');
   for (const config of runtime.configs) {
     expect(statSync(config.secretPath).mode & 0o777).toBe(0o600);
+  }
+});
+
+test('strict local mode serves pair commands through production Wrangler shims', () => {
+  const fixture = createRuntimeFixture();
+  const runtime = prepareStrictRuntime(fixture);
+
+  for (const config of runtime.configs) {
+    const generated = readFileSync(config.configPath, 'utf8');
+    expect(generated).toMatch(new RegExp(`build/${config.role}/worker/shim\\.mjs`));
+  }
+
+  const launcher = readFileSync(
+    path.join(repoRoot(), 'crates/router-ab-dev/scripts/dev-local-workers.mjs'),
+    'utf8',
+  );
+  expect(launcher).toContain("'wrangler'");
+  expect(launcher).toContain("'--local'");
+  expect(launcher).toContain("'--config'");
+
+  const deriverEntrypoint = readFileSync(
+    path.join(repoRoot(), 'crates/router-ab-cloudflare/src/strict_worker/deriver.rs'),
+    'utf8',
+  );
+  for (const route of [
+    'CLOUDFLARE_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH',
+    'CLOUDFLARE_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH',
+    'CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH',
+    'CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH',
+    'CLOUDFLARE_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH',
+    'CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH',
+    'CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH',
+    'CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH',
+  ]) {
+    expect(deriverEntrypoint).toContain(route);
   }
 });
 

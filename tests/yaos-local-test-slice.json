@@ -30,7 +30,7 @@
     "unit/googleEmailOtpWalletAuthFlow.unit.test.ts",
     "unit/walletUnlockEd25519YaoEmailOtpRecovery.server.unit.test.ts",
     "unit/registrationWalletPersistence.unit.test.ts",
-    "unit/cloudflareD1ConsoleServices.unit.test.ts",
+    "unit/d1LocalDevYaoPersistenceParity.unit.test.ts",
     "unit/walletRegistrationYaoFinalizeContracts.domain.guard.unit.test.ts",
     "unit/walletRegistrationYaoClientContracts.unit.test.ts",
     "unit/walletIframeHost.exportUi.unit.test.ts"

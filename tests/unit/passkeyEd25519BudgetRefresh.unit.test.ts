@@ -308,8 +308,8 @@ test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
       },
       resolveActiveEd25519YaoSigningCapability: (requestedIdentity) =>
         registry.resolve(requestedIdentity),
-      recoverPasskeyEd25519YaoCapabilityForSigning: async () => {
-        throw new Error('active-client refresh must not enter cold recovery');
+      rehydratePasskeyEd25519YaoCapabilityAfterRefresh: async () => {
+        throw new Error('active-client refresh must not rehydrate');
       },
       refreshActiveEd25519YaoWalletSession: (refresh) =>
         registry.refreshWalletSession({
@@ -368,13 +368,8 @@ test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
         };
       },
       resolveActiveEd25519YaoSigningCapability: () => null,
-      recoverPasskeyEd25519YaoCapabilityForSigning: async (identity) => {
-        expect(identity).toEqual({
-          walletId: oldRecord.walletId,
-          nearAccountId: ACCOUNT_ID,
-          signerSlot: oldRecord.signerSlot,
-          thresholdSessionId: oldRecord.thresholdSessionId,
-        });
+      rehydratePasskeyEd25519YaoCapabilityAfterRefresh: async ({ expectedLaneIdentity }) => {
+        expect(expectedLaneIdentity).toEqual(refreshLaneIdentityFixture(oldRecord));
         if (!recoveredRecord) throw new Error('expected refreshed record before recovery');
         return yaoCapabilityFixture(recoveredRecord, recoveredClient);
       },
@@ -408,8 +403,8 @@ test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
           throw new Error('provision must not run');
         },
         resolveActiveEd25519YaoSigningCapability: () => null,
-        recoverPasskeyEd25519YaoCapabilityForSigning: async () => {
-          throw new Error('recovery must not run');
+        rehydratePasskeyEd25519YaoCapabilityAfterRefresh: async () => {
+          throw new Error('rehydration must not run');
         },
         refreshActiveEd25519YaoWalletSession: () => {
           throw new Error('refresh must not run');

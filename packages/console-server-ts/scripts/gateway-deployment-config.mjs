@@ -35,7 +35,6 @@ export const GATEWAY_EMAIL_OTP_DELIVERY_KINDS = {
   emailProvider: 'email_provider',
   demoCodeResponse: 'demo_code_response',
 };
-
 export function buildGatewayRuntimeProfile(kind, emailOtpDeliveryKind) {
   switch (kind) {
     case GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo: {

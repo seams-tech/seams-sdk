@@ -7,10 +7,26 @@ const ACTIVATION_REFERENCE = {
   lifecycle_id: 'registration-lifecycle-1',
   session_id: Array.from({ length: 32 }, (_, index) => index + 1),
 };
+const IDEMPOTENCY_KEY = 'registration-finalize-contract';
+
+test('rejects finalize without an idempotency key', () => {
+  const parsed = parseWalletRegistrationFinalizeRequest({
+    registrationCeremonyId: 'registration-ceremony-without-idempotency',
+    kind: 'near_ed25519',
+    ed25519: { activationReference: ACTIVATION_REFERENCE },
+  });
+
+  expect(parsed).toEqual({
+    ok: false,
+    code: 'invalid_body',
+    message: 'idempotencyKey is required',
+  });
+});
 
 test('parses Ed25519-only finalize without an ECDSA branch', () => {
   const parsed = parseWalletRegistrationFinalizeRequest({
     registrationCeremonyId: 'registration-ceremony-1',
+    idempotencyKey: IDEMPOTENCY_KEY,
     kind: 'near_ed25519',
     ed25519: { activationReference: ACTIVATION_REFERENCE },
   });
@@ -19,6 +35,7 @@ test('parses Ed25519-only finalize without an ECDSA branch', () => {
     ok: true,
     value: {
       registrationCeremonyId: 'registration-ceremony-1',
+      idempotencyKey: IDEMPOTENCY_KEY,
       kind: 'near_ed25519',
       ed25519: { activationReference: ACTIVATION_REFERENCE },
     },
@@ -28,6 +45,7 @@ test('parses Ed25519-only finalize without an ECDSA branch', () => {
 test('parses mixed Ed25519 and ECDSA finalize as one coherent variant', () => {
   const parsed = parseWalletRegistrationFinalizeRequest({
     registrationCeremonyId: 'registration-ceremony-2',
+    idempotencyKey: IDEMPOTENCY_KEY,
     kind: 'near_ed25519_and_evm_family_ecdsa',
     ed25519: { activationReference: ACTIVATION_REFERENCE },
     ecdsa: { expectedKeyHandles: [' key-handle-1 '] },
@@ -37,6 +55,7 @@ test('parses mixed Ed25519 and ECDSA finalize as one coherent variant', () => {
     ok: true,
     value: {
       registrationCeremonyId: 'registration-ceremony-2',
+      idempotencyKey: IDEMPOTENCY_KEY,
       kind: 'near_ed25519_and_evm_family_ecdsa',
       ed25519: { activationReference: ACTIVATION_REFERENCE },
       ecdsa: { expectedKeyHandles: ['key-handle-1'] },
@@ -47,16 +66,18 @@ test('parses mixed Ed25519 and ECDSA finalize as one coherent variant', () => {
 test('keeps strict ECDSA finalize available through its explicit variant', () => {
   const parsed = parseWalletRegistrationFinalizeRequest({
     registrationCeremonyId: 'registration-ceremony-3',
+    idempotencyKey: IDEMPOTENCY_KEY,
     kind: 'evm_family_ecdsa',
-    ecdsa: {},
+    ecdsa: { expectedKeyHandles: [' key-handle-3 '] },
   });
 
   expect(parsed).toEqual({
     ok: true,
     value: {
       registrationCeremonyId: 'registration-ceremony-3',
+      idempotencyKey: IDEMPOTENCY_KEY,
       kind: 'evm_family_ecdsa',
-      ecdsa: {},
+      ecdsa: { expectedKeyHandles: ['key-handle-3'] },
     },
   });
 });
@@ -64,6 +85,7 @@ test('keeps strict ECDSA finalize available through its explicit variant', () =>
 test('rejects an Ed25519 finalize without its activation reference', () => {
   const parsed = parseWalletRegistrationFinalizeRequest({
     registrationCeremonyId: 'registration-ceremony-4',
+    idempotencyKey: IDEMPOTENCY_KEY,
     kind: 'near_ed25519',
     ed25519: {},
   });
@@ -78,6 +100,7 @@ test('rejects an Ed25519 finalize without its activation reference', () => {
 test('rejects caller-supplied Yao public receipts', () => {
   const parsed = parseWalletRegistrationFinalizeRequest({
     registrationCeremonyId: 'registration-ceremony-5',
+    idempotencyKey: IDEMPOTENCY_KEY,
     kind: 'near_ed25519',
     ed25519: {
       activationReference: ACTIVATION_REFERENCE,
@@ -95,6 +118,7 @@ test('rejects caller-supplied Yao public receipts', () => {
 test('rejects the former un-discriminated ECDSA finalize shape', () => {
   const parsed = parseWalletRegistrationFinalizeRequest({
     registrationCeremonyId: 'registration-ceremony-6',
+    idempotencyKey: IDEMPOTENCY_KEY,
     ecdsa: {},
   });
 
@@ -108,6 +132,7 @@ test('rejects the former un-discriminated ECDSA finalize shape', () => {
 test('rejects zero and malformed Yao activation session identifiers', () => {
   const zeroSession = parseWalletRegistrationFinalizeRequest({
     registrationCeremonyId: 'registration-ceremony-7',
+    idempotencyKey: IDEMPOTENCY_KEY,
     kind: 'near_ed25519',
     ed25519: {
       activationReference: {
@@ -118,6 +143,7 @@ test('rejects zero and malformed Yao activation session identifiers', () => {
   });
   const shortSession = parseWalletRegistrationFinalizeRequest({
     registrationCeremonyId: 'registration-ceremony-8',
+    idempotencyKey: IDEMPOTENCY_KEY,
     kind: 'near_ed25519',
     ed25519: {
       activationReference: {

@@ -215,8 +215,10 @@ async function authenticatedBudgetRefreshPreservesYaoLifecycleIdentity(): Promis
   });
   expect(refreshedSession?.expiresAtMs).toBeGreaterThan(input.expiresAtMs);
   const refreshedBudget = await walletBudgetSessionStore.getSessionStatus(budgetId);
-  expect(refreshedBudget?.remainingUses).toBe(3);
-  expect(refreshedBudget?.expiresAtMs).toBeGreaterThan(input.expiresAtMs);
+  expect(refreshedBudget.ok).toBe(true);
+  if (!refreshedBudget.ok) throw new Error('expected refreshed wallet-session budget');
+  expect(refreshedBudget.status.remainingUses).toBe(3);
+  expect(refreshedBudget.status.expiresAtMs).toBeGreaterThan(input.expiresAtMs);
 }
 
 async function authenticatedBudgetRefreshRecreatesExpiredPublicState(): Promise<void> {
@@ -262,9 +264,10 @@ async function authenticatedBudgetRefreshRecreatesExpiredPublicState(): Promise<
     participantIds: input.participantIds,
   });
   const budgetId = walletSigningBudgetSessionId({ signingGrantId: input.signingGrantId });
-  expect(await walletBudgetSessionStore.getSessionStatus(budgetId)).toMatchObject({
-    remainingUses: 3,
-  });
+  const budget = await walletBudgetSessionStore.getSessionStatus(budgetId);
+  expect(budget.ok).toBe(true);
+  if (!budget.ok) throw new Error('expected recreated wallet-session budget');
+  expect(budget.status.remainingUses).toBe(3);
 }
 
 async function authenticatedBudgetRefreshRejectsCurveBindingSubstitution(): Promise<void> {

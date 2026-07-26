@@ -43,10 +43,7 @@ import type {
   WalletRevokeAuthMethodResponse,
 } from '../../core/registrationContracts';
 import { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVerifier';
-import {
-  CloudflareD1RegistrationCeremonyIntentStore,
-  missingRegistrationCeremonyDoStore,
-} from './d1RegistrationCeremonyStore';
+import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import { parseWalletIdForIntent } from './d1RegistrationCeremonyRecords';
 import type { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from './d1GoogleEmailOtpRegistrationAttemptStore';
 import {
@@ -98,7 +95,7 @@ type SimpleWebAuthnServerModule = {
 };
 
 type Sha256Bytes = (input: Uint8Array) => Promise<Uint8Array>;
-type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
+type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore;
 type WalletAuthMethodStoreProvider = () => WalletAuthMethodStore;
 
 function errorMessage(error: unknown): string {
@@ -169,7 +166,6 @@ export class CloudflareD1WalletAuthMethodService {
   ): Promise<StartWalletAddAuthMethodResult> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const walletId = parseWalletIdForIntent(request.walletId);
       if (!walletId) {
         return { ok: false, code: 'invalid_body', message: 'walletId is required' };
@@ -269,7 +265,6 @@ export class CloudflareD1WalletAuthMethodService {
   ): Promise<FinalizeWalletAddAuthMethodResult> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const ceremony = await store.getAddAuthMethodCeremony(request.addAuthMethodCeremonyId);
       if (!ceremony) {
         return { ok: false, code: 'not_found', message: 'add-auth-method ceremony not found' };
@@ -348,6 +343,8 @@ export class CloudflareD1WalletAuthMethodService {
     readonly expectedDigestB64u: string;
     readonly expectedOrigin: string;
     readonly intent: RegistrationIntentV1;
+    readonly verificationOperationId: string;
+    readonly verificationReceiptExpiresAtMs: number;
     readonly userAgent?: string;
   }): Promise<WalletAuthMethodAuthorityResult> {
     const authority = input.authority;
@@ -366,6 +363,8 @@ export class CloudflareD1WalletAuthMethodService {
           authority,
           expectedDigestB64u: input.expectedDigestB64u,
           intent: input.intent,
+          verificationOperationId: input.verificationOperationId,
+          verificationReceiptExpiresAtMs: input.verificationReceiptExpiresAtMs,
         });
     }
     return unreachableRegistrationStartAuthority(authority);
@@ -801,6 +800,8 @@ export class CloudflareD1WalletAuthMethodService {
     readonly authority: EmailOtpWalletRegistrationAuthorityInput;
     readonly expectedDigestB64u: string;
     readonly intent: RegistrationIntentV1;
+    readonly verificationOperationId: string;
+    readonly verificationReceiptExpiresAtMs: number;
   }): Promise<WalletAuthMethodAuthorityResult> {
     const proof = normalizeEmailOtpRegistrationProof(input.authority.emailOtpRegistrationProof);
     if (!proof) {
@@ -1011,7 +1012,7 @@ export class CloudflareD1WalletAuthMethodService {
         message: 'Email OTP registration proof email does not match the intent',
       };
     }
-    const verified = await this.emailOtpChallengeVerifier.verifyRegistration({
+    const verified = await this.emailOtpChallengeVerifier.verifyRegistrationResumable({
       providerSubject: proof.providerSubject,
       proofEmail: proof.email,
       walletId: input.intent.walletId,
@@ -1021,6 +1022,8 @@ export class CloudflareD1WalletAuthMethodService {
       otpChannel: proof.otpChannel,
       sessionHash: input.expectedDigestB64u,
       appSessionVersion: proof.appSessionVersion,
+      operationId: input.verificationOperationId,
+      receiptExpiresAtMs: input.verificationReceiptExpiresAtMs,
     });
     if (!verified.ok) return verified;
     const verifiedEmail = toOptionalTrimmedString(verified.email)?.toLowerCase();

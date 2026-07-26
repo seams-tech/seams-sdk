@@ -18,7 +18,10 @@ import type {
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { emailOtpChallengeResponseBody } from '../../packages/sdk-server-ts/src/router/emailOtpSessionRouteHelpers';
-import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords';
+import {
+  parseGoogleEmailOtpRegistrationAttemptRecord,
+  parseGoogleEmailOtpRegistrationAttemptRow,
+} from '../../packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords';
 import { parseD1RegistrationIntent } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
@@ -220,6 +223,22 @@ test('Cloudflare D1 Google Email OTP registration attempt parser rejects legacy 
     googleEmailOtpD1RegistrationAttemptBoundaryFixture({ authProvider: 'google_oidc' }),
   );
   expect(legacy).toBeNull();
+});
+
+test('Cloudflare D1 Google Email OTP registration rows without runtime scope are discarded', () => {
+  const legacy = googleEmailOtpD1RegistrationAttemptBoundaryFixture({
+    authProvider: 'google',
+  });
+  delete legacy.runtimePolicyScope;
+
+  expect(
+    parseGoogleEmailOtpRegistrationAttemptRow({
+      record_json: JSON.stringify(legacy),
+      expires_at_ms: legacy.expiresAtMs,
+      updated_at_ms: legacy.updatedAtMs,
+      attempt_id: legacy.attemptId,
+    }),
+  ).toBeNull();
 });
 
 test('Cloudflare D1 Router API auth service starts, reuses, and restarts Google Email OTP registration attempts', async () => {

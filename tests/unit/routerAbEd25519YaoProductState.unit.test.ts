@@ -9,9 +9,7 @@ test('Ed25519 Yao product state survives the Durable Object structured-clone bou
   state.registration.lifecycleSessions.set('lifecycle-1', 'session-1');
   state.export.authorizationNonces.add('nonce-1');
 
-  const parsed = parseRouterAbEd25519YaoProductRegistrationStateV1(
-    structuredClone(state),
-  );
+  const parsed = parseRouterAbEd25519YaoProductRegistrationStateV1(structuredClone(state));
 
   expect(parsed.ok).toBe(true);
   if (!parsed.ok) throw new Error(parsed.message);

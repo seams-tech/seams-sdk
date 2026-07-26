@@ -341,7 +341,6 @@ test('exact signing-lane authority ECDSA keygen and session envelopes expose wal
     'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts',
     'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
     'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts',
-    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime.ts',
   ];
   const violations = [];
   for (const relativePath of guardedFiles) {
@@ -589,7 +588,6 @@ test('exact signing-lane authority ECDSA MPC sessions are native EVM-family sign
 test('exact signing-lane authority normalized server ECDSA records do not expose walletSessionUserId', () => {
   const normalizedServerRecordFiles = [
     'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaPresignRuntime.ts',
-    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime.ts',
     'packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore.ts',
     'packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore.ts',
     'packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore.ts',
