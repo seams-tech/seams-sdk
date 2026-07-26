@@ -84,6 +84,8 @@ fn strict_router_router_ab_ecdsa_derivation_routes_apply_boundary_parsers() {
     for required in [
         "is_cloudflare_router_ab_ecdsa_derivation_public_path",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PUBLIC_REQUEST_PATH",
+        "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PREPARE_PUBLIC_REQUEST_PATH",
+        "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_QUERY_PUBLIC_REQUEST_PATH",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ADD_SIGNER_PUBLIC_REQUEST_PATH",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PUBLIC_REQUEST_PATH",
@@ -100,6 +102,8 @@ fn strict_router_router_ab_ecdsa_derivation_routes_apply_boundary_parsers() {
         "parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_commit_request_v1_json",
         "parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json",
         "parse_cloudflare_router_budgeted_router_ab_ecdsa_derivation_finalize_request_v1_json",
+        "handle_cloudflare_router_ab_ecdsa_derivation_activation_prepare_authenticated_public_request_v1",
+        "handle_cloudflare_router_ab_ecdsa_derivation_activation_query_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_explicit_export_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_recovery_authenticated_public_request_v1",
@@ -154,10 +158,55 @@ fn ecdsa_activation_replay_reconciles_before_refresh_replay_reservation() {
         &lib_rs,
         "handle_cloudflare_router_ab_ecdsa_derivation_activation_authenticated_public_request_v1",
     );
+    let query_position = registration_activation_body
+        .find("execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_service_call_v1")
+        .expect("registration activation must query its exact prior commit");
+    let commit_position = registration_activation_body
+        .find("execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1")
+        .expect("registration activation must retain its commit path");
+    assert!(
+        query_position < commit_position,
+        "authenticated registration activation must reconcile an exact server commit before reopening material"
+    );
     assert!(
         !registration_activation_body.contains("execute_cloudflare_router_replay_reserve_v1"),
         "registration activation replay must reach the idempotent SigningWorker commit directly"
     );
+
+    let prepare_body = extract_function_body(
+        &lib_rs,
+        "handle_cloudflare_router_ab_ecdsa_derivation_activation_prepare_authenticated_public_request_v1",
+    );
+    assert!(
+        prepare_body
+            .contains("CloudflareRouterAbEcdsaDerivationActivationPrepareResultV1::from_command"),
+        "activation prepare must derive the exact correlation and request digest"
+    );
+    for forbidden in [
+        "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1",
+        "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_service_call_v1",
+    ] {
+        assert!(
+            !prepare_body.contains(forbidden),
+            "activation prepare must remain non-consuming and avoid `{forbidden}`"
+        );
+    }
+
+    let query_body = extract_function_body(
+        &lib_rs,
+        "handle_cloudflare_router_ab_ecdsa_derivation_activation_query_authenticated_public_request_v1",
+    );
+    for required in [
+        "authenticate_cloudflare_router_ab_ecdsa_derivation_activation_command_v1",
+        "request.activation_request_digest()",
+        "CloudflareSigningWorkerEcdsaActivationCommitLookupV1::new",
+        "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_service_call_v1",
+    ] {
+        assert!(
+            query_body.contains(required),
+            "activation query must authenticate and recompute the exact command through `{required}`"
+        );
+    }
 }
 
 #[test]

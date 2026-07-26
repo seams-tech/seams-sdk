@@ -76,6 +76,7 @@ use router_ab_cloudflare::{
     CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1,
     CloudflareRootShareLookupRequestV1, CloudflareRootShareRewrapRequestV1,
     CloudflareRootShareStartupMetadataV1, CloudflareRootShareWireSecretBindingV1,
+    CloudflareRouterAbEcdsaDerivationActivationPrepareResultV1,
     CloudflareRouterAbEcdsaDerivationActivationRefreshAdmissionResponseV1,
     CloudflareRouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1,
@@ -11436,6 +11437,19 @@ fn ecdsa_activation_commit_wire_requires_correlation_and_server_generation() {
         CloudflareRouterAbEcdsaDerivationSigningWorkerActivationCommitRequestV1,
     >(legacy_value)
     .is_err());
+    let prepared =
+        CloudflareRouterAbEcdsaDerivationActivationPrepareResultV1::from_command(&commit)
+            .expect("non-consuming activation preparation");
+    assert_eq!(
+        prepared.activation_correlation_id,
+        commit.activation_correlation_id
+    );
+    assert_eq!(
+        prepared.activation_request_digest,
+        commit
+            .activation_request_digest()
+            .expect("prepared activation digest")
+    );
 
     let refresh = router_ab_ecdsa_derivation_activation_refresh_request();
     let refresh_commit = CloudflareRouterAbEcdsaDerivationActivationRefreshCommitRequestV1::new(
