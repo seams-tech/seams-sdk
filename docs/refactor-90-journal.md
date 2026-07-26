@@ -6,6 +6,22 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records only a one-line status per phase; the narrative history lives
 here.
 
+## July 26, 2026: Foundation B Durable Model Corrected
+
+- Reconciled the canonical ECDSA model with the implemented material lifecycle:
+  Wallet Session expiry and operation budgets do not expire or exhaust sealed
+  ECDSA material, and replacement remains the sole modeled retirement.
+- Made the two-state activation journal crash-complete. Its prepared branch now
+  owns encrypted pending client state, fresh target identities, and the exact
+  replayable server command; the committed branch owns the correlated server
+  generation and structured receipt.
+- Split immutable manifest history from the exact capability/authority current
+  pointer so same-capability replacement can retire the old manifest and publish
+  the new one atomically.
+- Required active parser results to include validated encrypted material and
+  recorded the missing server generation CAS and idempotent activation-query
+  boundary as Foundation B implementation work.
+
 ## July 26, 2026: Wave 1 Phase 4A And Phase 5 Boundaries Implemented
 
 - Landed the exact-subject Phase 4A slice as `b54cd1bca` and the role-local

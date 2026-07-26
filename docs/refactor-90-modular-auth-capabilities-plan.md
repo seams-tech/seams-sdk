@@ -165,11 +165,15 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-005`, `R90-INV-006`,
 Foundation B replaces `ThresholdEcdsaSessionRecordCore` with one boundary-parsed
 `active | retired` ECDSA capability record. The active branch requires:
 
-- registered signer and exact capability scope;
+- registered signer and nonempty EVM-family target membership;
 - exact wallet authority;
-- exact material activation and server generation;
+- exact material activation and grouped server generation/activation receipt;
 - durable role-local material ref and authenticated binding digests;
-- lifecycle, revision, expiry, and activation receipt.
+- lifecycle and manifest identity/revision.
+
+Durable ECDSA material has no Wallet Session-derived expiry or recovery-use
+budget. Replacement is the only canonical ECDSA retirement until an independent
+material-lifecycle policy and exact server retirement receipt exist.
 
 Runtime handles, bearer credentials, operation grants, wallet quota, nonce,
 entry-point provenance, diagnostics, and provider data are separate domains.
@@ -177,14 +181,19 @@ There is one IndexedDB capability adapter and one volatile worker-runtime
 registry.
 
 ECDSA activation uses only `activation_prepared` and
-`server_activation_committed` journal branches. The final IndexedDB transaction
-writes encrypted material, writes the active manifest, retires the replaced
-record when applicable, and deletes the journal atomically. Runtime publication
-occurs afterward and can be reconstructed from canonical durable state.
+`server_activation_committed` journal branches. The prepared branch contains a
+fresh target manifest/material identity, the exact replayable server command,
+and encrypted pending client state. Server activation is idempotent and
+queryable by journal correlation. The final IndexedDB transaction writes
+encrypted ready material and the active manifest, retires the replaced record,
+removes its material, updates the exact current pointer, and deletes the journal
+atomically. Runtime publication occurs afterward and can be reconstructed from
+canonical durable state.
 
 An immediate read through the canonical parser may run after transaction
-completion for high-value writes. It can fail the current operation, but it does
-not create a durable `*_readback_pending` or `runtime_publication_pending` state.
+completion for high-value writes. Its active result includes validated encrypted
+material. It can fail the current operation, but it does not create a durable
+`*_readback_pending` or `runtime_publication_pending` state.
 
 ### 3. Minimal recovery journal
 
@@ -643,9 +652,13 @@ Exit checks (`R90-INV-001`, `R90-INV-002`, `R90-INV-005`, `R90-INV-006`,
 - core identity, authority, session, material, persistence, recovery, export,
   and lifecycle fields are required in their valid branch;
 - invalid branch combinations fail type checking;
-- material, manifest, retirement of a replaced record, and journal deletion
-  commit atomically after server activation;
-- activation is idempotent and queryable by journal correlation;
+- ready material, manifest history, replacement retirement, old-material
+  deletion, exact-current-pointer update, and journal deletion commit atomically
+  after server activation;
+- the prepared journal durably owns encrypted pending client state and the exact
+  replayable server command;
+- activation is idempotent and queryable by journal correlation, returning the
+  same request digest, server generation, and structured receipt;
 - an optional post-commit read uses the canonical parser and creates no durable
   readback state;
 - no compatibility reader or timestamp/source-priority selector survives.
@@ -659,12 +672,20 @@ Open items:
 - [ ] required-field `active | retired` record with fixtures rejecting an active
       manifest missing authority, server generation, durable material ref,
       binding digest, or revision;
-- [ ] exact persistence parser distinguishing missing, mismatch, conflict,
-      corrupt, and unavailable, with exhaustive switches and no
-      timestamp/source-priority fallback;
-- [ ] two-state activation journal with atomic
-      material/manifest/retirement/journal-delete finalization, idempotent and
-      queryable by correlation;
+- [ ] manifest history keyed by manifest ID plus an exact
+      capability/authority current pointer; activation planning creates fresh
+      manifest, activation, and durable-material identities;
+- [ ] exact persistence parser returning validated encrypted material for
+      `active` and distinguishing missing, mismatch, conflict, corrupt, and
+      unavailable, with exhaustive switches and no timestamp/source-priority
+      fallback;
+- [ ] two-state activation journal containing encrypted pending client state
+      and the exact replayable server command, with atomic
+      ready-material/manifest/retirement/current-pointer/journal-delete
+      finalization;
+- [ ] server generation CAS plus idempotent activation commit/query by journal
+      correlation; query returns the exact request digest, generation, and
+      structured protocol receipt;
 - [ ] one activation commit port shared by registration, explicit reactivation,
       and recovery; routine Passkey and Email OTP unlock/refresh do not rewrite
       durable activation state or introduce a second writer;
