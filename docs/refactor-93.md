@@ -602,7 +602,7 @@ digests and therefore requires a new ceremony identity.
 
 ## Implementation Phases
 
-### Implementation Checklist Audit (July 25, 2026)
+### Implementation Checklist Audit (July 26, 2026)
 
 The checked implementation items below were re-audited against reachable
 production adapters, executable local paths, and focused behavioral tests.
@@ -1184,11 +1184,15 @@ route-deletion cleanup.
       load `epoch-1`, prepare the exact pair, and sign readiness receipts. It
       then exposed a Cloudflare clock-boundary defect: Deriver A observed
       Deriver B's freshly signed start acceptance as slightly future because
-      Workers clocks report the time of the last I/O. The candidate fix keeps
+      Workers clocks report the time of the last I/O.
+- [x] Diagnose and fix the Cloudflare start-acceptance clock regression without
+      weakening the canonical protocol validator. Commit `ac348b043` keeps
       strict validation as the default and permits at most 1,000 ms future
-      skew only at this Cloudflare peer handoff; focused core and
-      feature-enabled Cloudflare tests pass. The fix still requires a frozen
-      staging redeploy and product-path validation.
+      skew only at the Cloudflare A-to-B peer handoff. Focused core tests, the
+      complete feature-enabled Cloudflare adapter suite, and the source-guard
+      chain pass. PR #29 merged the fix to `dev` as
+      `9791ffc98eaf1799f8fb378e5b09f81b9d654659`. A frozen staging redeploy and
+      product-path validation remain required before the cohort can be checked.
 - [ ] With every family window unset, complete the staging cohort for
       registration, recovery, export, exact replay, conflict, disconnect,
       terminal redelivery, rollback, restart, and concurrency on that frozen
