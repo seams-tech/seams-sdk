@@ -66,6 +66,8 @@ exact parser, and two-state activation journal.
 
 ## Phase 4 — subject and session-read residue
 
+- ~~`evmFamilySigningKeySlotId` in `WalletUnlockSubject`~~ — replaced by exact
+  `ecdsaThresholdKeyId` capability identity in `b54cd1bca`
 - `WalletSessionReadSubject` / `wallet_near_subject` sibling aliases
 - `WalletSessionReadResolution` (replaced by
   `WalletCapabilitySubjectResolution`)
@@ -80,18 +82,26 @@ exact parser, and two-state activation journal.
 - `evmFamilySigningKeySlotId` in runtime paths (audit first: delete, or rename
   to `EvmFamilyEcdsaProvisioningReservationId` confined to
   registration/bootstrap). Forbidden in `ExactSigningLaneIdentity`,
-  `WalletUnlockSubject`, Wallet Session claims, Router A/B normal-signing
-  scope, `EcdsaRoleLocalPublicFacts`, sealed recovery records, and material
-  handles/digests.
-- `clientVerifyingShareB64u` on ECDSA role-local surfaces (rename to
-  `clientVerifyingPublicKey33B64u`; Ed25519 out of scope)
-- `chainTarget`, `thresholdSessionId`, `activeStateId`/`routerAbStateSessionId`,
-  `signingGrantId`, `CapabilityGrantId`, `MpcWalletSigningQuotaId`, and
-  remaining-use/expiry fields inside `EcdsaRoleLocalMaterialBinding`, its
-  binding digest, and material handle
-- the legacy regression test expecting Tempo and ARC to produce different
-  role-local worker material handles for the same material (replace with a
-  cross-chain lane-mismatch rejection test)
+  Wallet Session claims, Router A/B normal-signing scope,
+  `EcdsaRoleLocalPublicFacts`, sealed recovery records, and remaining runtime
+  identity surfaces.
+- ~~`clientVerifyingShareB64u` inside `EcdsaRoleLocalMaterialBinding`, its
+  digest, and material handle~~ — replaced by the strict
+  `EcdsaClientVerifyingPublicKey33B64u` fact in `fcdf0ad3c`
+- `clientVerifyingShareB64u` on remaining ECDSA role-local persistence, worker,
+  and wire surfaces (rename where it represents the role-local public-key fact;
+  Ed25519 out of scope)
+- ~~`chainTarget`, `thresholdSessionId`, `activeStateId`, and `signingGrantId`
+  inside `EcdsaRoleLocalMaterialBinding`, its binding digest, and material
+  handle~~ — deleted in `fcdf0ad3c`
+- `routerAbStateSessionId`, `CapabilityGrantId`, `MpcWalletSigningQuotaId`, and
+  remaining-use/expiry fields inside role-local material identity if found by
+  the remaining runtime audit
+- ~~`ecdsaRoleLocalSigningMaterialHandleFromReadySignerSession`~~ — deleted in
+  favor of constructing the exact handle from material facts in `fcdf0ad3c`
+- ~~the legacy regression expectation that Tempo and ARC produce different
+  role-local worker material handles for the same material~~ — deleted in
+  `fcdf0ad3c`; the lane-level mismatch-rejection test remains open
 
 ## Phase 17 — interim authority adapters
 

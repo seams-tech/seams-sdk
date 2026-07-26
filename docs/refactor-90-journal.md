@@ -6,6 +6,39 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records only a one-line status per phase; the narrative history lives
 here.
 
+## July 26, 2026: Wave 1 Phase 4A And Phase 5 Boundaries Implemented
+
+- Landed the exact-subject Phase 4A slice as `b54cd1bca` and the role-local
+  material boundary slice as `fcdf0ad3c`.
+- Added an ECDSA-only wallet-unlock subject resolver whose import graph and
+  reads contain no NEAR account or runtime-session identity. ECDSA subjects use
+  exact `ecdsaThresholdKeyId`; broad mixed-family subjects fail type checking.
+- Made combined subject discovery fail closed with typed lookup and validation
+  failures. An unavailable or invalid family cannot be published as a partial
+  `all_registered_mpc` subject set.
+- Slimmed `buildEcdsaRoleLocalSigningMaterialHandle()` to exact material facts.
+  Chain target, wallet, session, active-state, grant, quota, remaining-use, and
+  expiry inputs are rejected, including through broad variables.
+- Replaced the role-local handle's ambiguous verifying-share field with strict
+  `EcdsaClientVerifyingPublicKey33B64u`. Its parser requires canonical unpadded
+  base64url, 33 decoded bytes, and a compressed secp256k1 prefix.
+- Deleted the ready-session handle adapter and the regression expectation that
+  the same material produces different Tempo and ARC handles. Lane-level
+  cross-chain rejection, combined unlock orchestration, complete refresh
+  parity, and profile lifecycle separation remain open Phase 4/5 work.
+- Classified the unchanged broader ECDSA failure as
+  `valid_test_needs_update`: its fail-closed invariant is valid, while its exact
+  `hydration is blocked: missing_material` message belongs to the future Wave 2
+  protocol adapter rather than this handle-boundary slice.
+- Classified the three unchanged profile-lifecycle failures as pre-existing
+  `production_regression` evidence: current profile projections can still
+  activate login state without an exact surviving signing lane. Their owning
+  Phase 4 session-read/lifecycle items remain open; this slice changed neither
+  those assertions nor their production behavior.
+- Validation: SDK and unit type checks pass, the wallet-scoped lookup guard
+  passes, seven focused subject/material assertions pass, the touched
+  TypeScript files pass Prettier checks, and `git diff --check` passes.
+
 ## July 26, 2026: Wave 1 Leaf Hydration Contract Implemented
 
 - Reclassified the focused ECDSA failures as `obsolete_test_or_fixture` under
