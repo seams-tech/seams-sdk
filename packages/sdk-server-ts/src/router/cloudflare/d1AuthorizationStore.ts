@@ -290,7 +290,6 @@ export class CloudflareD1AuthorizationStore implements AuthorizationStore {
            AND session.session_id = ?
            AND session.principal_id = ?
            AND session.device_id = ?
-           AND session.assurance = ?
            AND session.lifecycle_kind = 'active'
            AND session.expires_at_ms >= ?`,
       )
@@ -315,7 +314,6 @@ export class CloudflareD1AuthorizationStore implements AuthorizationStore {
         evidenceSet.sessionId,
         evidenceSet.principalId,
         evidenceSet.deviceId,
-        evidenceSet.assurance,
         evidenceSet.expiresAtMs,
       )
       .run();
