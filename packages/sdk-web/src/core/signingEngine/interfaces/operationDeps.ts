@@ -52,7 +52,7 @@ import type { Ed25519SigningLane } from '../session/emailOtp/ed25519SigningLane'
 import type { ExactEd25519SigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
 import type { EmailOtpEd25519YaoSilentRecoveryResultV1 } from '../session/emailOtp/ed25519YaoSealedRecovery';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../flows/signEvmFamily/ecdsaSigningCapability';
+import type { AuthorizedEvmFamilyEcdsaSigningCapability } from '../flows/signEvmFamily/ecdsaSigningCapability';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { EcdsaOperationStepUpSessionAuth } from '../threshold/ecdsa/operationStepUp';
 
@@ -190,11 +190,11 @@ export type EvmFamilyEcdsaSessionReaderDeps = {
 export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
   DurableEmailOtpEcdsaSigningSessionAuthorityResolver &
   EcdsaOperationStepUpSessionAuthResolver & {
-    resolveCanonicalEcdsaSigningCapability: (args: {
+    resolveAuthorizedEcdsaSigningCapability: (args: {
       walletId: WalletId;
       chainTarget: ThresholdEcdsaChainTarget;
       materialActivation: MpcMaterialActivationRef;
-    }) => Promise<CanonicalEvmFamilyEcdsaSigningCapability>;
+    }) => Promise<AuthorizedEvmFamilyEcdsaSigningCapability>;
     walletSignerStore: EvmFamilyWalletSignerStorePort;
     passkeyAuthenticatorStore: EvmFamilyPasskeyAuthenticatorStorePort;
     seamsWebConfigs: SeamsConfigsReadonly;

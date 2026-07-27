@@ -29,6 +29,37 @@ export type CanonicalEvmFamilyEcdsaSigningCapability = {
   readonly material: PersistedEcdsaRoleLocalMaterial;
 };
 
+// The canonical capability is durable state: it must resolve from persistence
+// alone so hydration can rebind exact material while no reusable Wallet Session
+// is active. Authorization is the independent second proof, paired with the
+// capability only on the signing path.
+export type AuthorizedEvmFamilyEcdsaSigningCapability = {
+  readonly kind: 'authorized_evm_family_ecdsa_signing_capability';
+  readonly capability: CanonicalEvmFamilyEcdsaSigningCapability;
+  readonly authorization: ActiveEvmFamilyWalletSessionAuthorization;
+};
+
+export function authorizeEvmFamilyEcdsaSigningCapability(input: {
+  readonly capability: CanonicalEvmFamilyEcdsaSigningCapability;
+  readonly authorization: ActiveEvmFamilyWalletSessionAuthorization;
+}): AuthorizedEvmFamilyEcdsaSigningCapability {
+  const signer = input.capability.manifest.signer;
+  const projection = input.authorization.projection;
+  if (
+    projection.walletId !== signer.walletId ||
+    projection.authority.authorityDigest !== signer.authority.authorityDigest
+  ) {
+    throw new Error(
+      'Reusable Wallet Session authorization does not bind the ECDSA signing capability',
+    );
+  }
+  return {
+    kind: 'authorized_evm_family_ecdsa_signing_capability',
+    capability: input.capability,
+    authorization: input.authorization,
+  };
+}
+
 export async function buildCanonicalEvmFamilyEcdsaSigningCapability(input: {
   readonly authority: WalletAuthAuthority;
   readonly manifest: ActiveEcdsaCapabilityManifest;

@@ -31,14 +31,14 @@ function requireEvmFamilyRelayerUrl(deps: EvmFamilySigningDeps): string {
 }
 
 async function resolveEcdsaSigningMaterialHydrationPlan(args: {
-  capability: Awaited<ReturnType<EvmFamilySigningDeps['resolveCanonicalEcdsaSigningCapability']>>;
+  authorized: Awaited<ReturnType<EvmFamilySigningDeps['resolveAuthorizedEcdsaSigningCapability']>>;
   relayerUrl: string;
   requestLabel: unknown;
   materialActivation: ResolvedEvmFamilyEcdsaSigningLane['materialActivation'];
   workerCtx: ReturnType<EvmFamilySigningDeps['getSignerWorkerContext']>;
 }): Promise<EcdsaSigningMaterialPlan> {
   const resolution = await resolveReadySecp256k1SigningMaterial({
-    capability: args.capability,
+    authorized: args.authorized,
     relayerUrl: args.relayerUrl,
     requestLabel: args.requestLabel,
     materialActivation: args.materialActivation,
@@ -83,8 +83,8 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           'ECDSA signing material hydration',
         )
       : undefined;
-  const capability = resolvedSigner
-    ? await args.deps.resolveCanonicalEcdsaSigningCapability({
+  const authorized = resolvedSigner
+    ? await args.deps.resolveAuthorizedEcdsaSigningCapability({
         walletId: resolvedSigner.walletId,
         chainTarget: resolvedSigner.chainTarget,
         materialActivation: resolvedSigner.materialActivation,
@@ -92,7 +92,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
     : undefined;
 
   const thresholdEcdsaStepUpRuntime: EvmFamilyThresholdEcdsaStepUpRuntime | undefined =
-    capability
+    authorized
       ? {
           ...(args.emailOtpSigningForFlow
             ? { emailOtpSigning: args.emailOtpSigningForFlow }
@@ -104,7 +104,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
                 operationDigests,
                 material,
                 evmFamilySigningKeySlotId:
-                  capability.material.publicFacts.evmFamilySigningKeySlotId,
+                  authorized.capability.material.publicFacts.evmFamilySigningKeySlotId,
               }),
             authorize: async ({ authorization, prepared, material }) => {
               args.onAuthSideEffectStarted?.(
@@ -117,7 +117,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               return await authorizeEvmFamilyEcdsaOperationStepUp({
                 relayerUrl,
                 sessionAuth,
-                authority: capability.authority,
+                authority: authorized.capability.authority,
                 authorization,
                 prepared,
                 material,
@@ -144,11 +144,11 @@ export async function createEvmFamilySigningFlowRuntime(args: {
       }),
       webauthnP256: new WebAuthnP256Engine(workerCtx),
     },
-    ...(resolvedSigner && capability
+    ...(resolvedSigner && authorized
       ? {
           resolveEcdsaSigningMaterialPlan: async ({ requestLabel }: { requestLabel: unknown }) =>
             await resolveEcdsaSigningMaterialHydrationPlan({
-              capability,
+              authorized,
               relayerUrl,
               requestLabel,
               materialActivation: resolvedSigner.materialActivation,

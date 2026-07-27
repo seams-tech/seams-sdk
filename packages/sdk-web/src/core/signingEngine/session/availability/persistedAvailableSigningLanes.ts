@@ -57,7 +57,7 @@ import {
   type AvailableSigningLanesRuntimeEcdsaRecord,
   type AvailableSigningLanesRuntimeEd25519Record,
 } from './availableSigningLanes';
-import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { AuthorizedEvmFamilyEcdsaSigningCapability } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildPasskeyEcdsaAuthBinding,
@@ -74,7 +74,7 @@ export type PersistedAvailableSigningLanesDeps = {
     walletId: string;
     chainTargets: readonly ThresholdEcdsaChainTarget[];
     authMethod?: SignerAuthMethod;
-  }) => Promise<readonly CanonicalEvmFamilyEcdsaSigningCapability[]>;
+  }) => Promise<readonly AuthorizedEvmFamilyEcdsaSigningCapability[]>;
   statusReader: {
     getWarmSessionStatus: (args: { sessionId: string }) => Promise<WarmSessionStatusResult>;
   };
@@ -716,12 +716,12 @@ export async function readPersistedAvailableSigningLanesForTargets(
           chainTargets: args.ecdsaChainTargets,
           ...(args.authMethod ? { authMethod: args.authMethod } : {}),
         });
-        for (const capability of capabilities) {
-          const signer = capability.manifest.signer;
+        for (const authorized of capabilities) {
+          const signer = authorized.capability.manifest.signer;
           const facts = signer.registeredPublicFacts;
           const key = buildBaseEvmFamilyEcdsaKeyIdentity({
             walletId: signer.walletId,
-            ecdsaThresholdKeyId: capability.manifest.durableMaterial.roleLocalBinding.ecdsaThresholdKeyId,
+            ecdsaThresholdKeyId: authorized.capability.manifest.durableMaterial.roleLocalBinding.ecdsaThresholdKeyId,
             signingRootId: signer.signingRootId,
             signingRootVersion: signer.signingRootVersion,
             participantIds: facts.participantIds,
@@ -739,18 +739,18 @@ export async function readPersistedAvailableSigningLanesForTargets(
             }
             const baseRecord = {
               key,
-              materialActivation: capability.manifest.activation.materialActivation,
+              materialActivation: authorized.capability.manifest.activation.materialActivation,
               verifiedPublicFacts: facts,
               keyHandle: facts.keyHandle,
               curve: 'ecdsa' as const,
               chainTarget,
-              authorization: capability.authorization,
+              authorization: authorized.authorization,
             };
-            if (isPasskeyWalletAuthAuthority(capability.authority)) {
+            if (isPasskeyWalletAuthAuthority(authorized.capability.authority)) {
               const auth = {
                 kind: 'passkey' as const,
-                rpId: toRpId(capability.authority.verifier.rpId),
-                credentialIdB64u: capability.authority.factor.credentialIdB64u,
+                rpId: toRpId(authorized.capability.authority.verifier.rpId),
+                credentialIdB64u: authorized.capability.authority.factor.credentialIdB64u,
               };
               await pushRuntimeEcdsaRecord(records, seen, {
                 ...baseRecord,
@@ -763,12 +763,12 @@ export async function readPersistedAvailableSigningLanesForTargets(
               });
               continue;
             }
-            if (isEmailOtpWalletAuthAuthority(capability.authority)) {
+            if (isEmailOtpWalletAuthAuthority(authorized.capability.authority)) {
               await pushRuntimeEcdsaRecord(records, seen, {
                 ...baseRecord,
                 auth: {
                   kind: 'email_otp',
-                  providerSubjectId: capability.authority.factor.providerUserId,
+                  providerSubjectId: authorized.capability.authority.factor.providerUserId,
                 },
               });
             }
