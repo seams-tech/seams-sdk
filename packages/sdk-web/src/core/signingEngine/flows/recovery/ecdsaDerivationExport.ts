@@ -31,7 +31,10 @@ import {
   resolveEcdsaRoleLocalMaterial,
   type EcdsaRoleLocalMaterialResolution,
 } from '../../session/material/ecdsaRoleLocalMaterialResolver';
-import type { EcdsaRoleLocalWorkerHandle } from '../../session/keyMaterialBrands';
+import type {
+  EcdsaRoleLocalPersistedMaterialRef,
+  EcdsaRoleLocalWorkerHandle,
+} from '../../session/keyMaterialBrands';
 import type { ReadyEcdsaExportLane } from './ecdsaExportMaterial';
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
 import type { FinalizeRouterAbEcdsaExplicitExportRequestV1 } from '../../workerManager/ecdsaClientWorkerChannels';
@@ -211,15 +214,13 @@ function requireResolvedEcdsaExportMaterial(
   }
 }
 
-async function resolveEcdsaExportMaterial(args: {
-  readonly record: ThresholdEcdsaSessionRecord;
+export async function hydrateEcdsaRoleLocalMaterialForExport(args: {
+  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
   readonly workerCtx: WorkerOperationContext;
 }): Promise<EcdsaRoleLocalWorkerHandle> {
   const resolution = await resolveEcdsaRoleLocalMaterial({
     purpose: 'explicit_key_export',
-    source: ecdsaRoleLocalPersistedMaterialRefSource(
-      requirePersistedEcdsaRoleLocalMaterial(args.record).materialRef,
-    ),
+    source: ecdsaRoleLocalPersistedMaterialRefSource(args.materialRef),
     workerCtx: args.workerCtx,
   });
   return requireResolvedEcdsaExportMaterial(resolution);
@@ -567,11 +568,11 @@ export async function exportEcdsaDerivationKeyWithWalletSession(
     throw new Error('[SigningEngine][ecdsa-export] passkey export requires passkey ready material');
   }
   const publicFacts = record.ecdsaRoleLocalPublicFacts;
-  const exactRoleLocalMaterial = await resolveEcdsaExportMaterial({
-    record,
+  const persistedRoleLocalMaterial = requirePersistedEcdsaRoleLocalMaterial(record);
+  const exactRoleLocalMaterial = await hydrateEcdsaRoleLocalMaterialForExport({
+    materialRef: persistedRoleLocalMaterial.materialRef,
     workerCtx: deps.getSignerWorkerContext(),
   });
-  const persistedRoleLocalMaterial = requirePersistedEcdsaRoleLocalMaterial(record);
   const evmFamilySigningKeySlotId = String(record.evmFamilySigningKeySlotId).trim();
   if (!evmFamilySigningKeySlotId) {
     throw new Error(

@@ -19,7 +19,6 @@ import {
   ecdsaRoleLocalReadyRecordStorageKey,
   parseEcdsaRoleLocalReadyRecord,
   parseRawEcdsaRoleLocalRecord,
-  parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial,
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
   serializeEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
@@ -451,32 +450,6 @@ test.describe('ECDSA role-local record boundary parser', () => {
         rawSessionRecord({ ecdsaRoleLocalReadyRecord: undefined }),
       ),
     ).toThrow(/role-local/i);
-  });
-
-  test('parses export material without exposing raw role-local state to export consumers', () => {
-    const material = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
-      emailOtpRawSessionRecord(),
-    );
-    expect(material.readyRecord.publicFacts.groupPublicKey33B64u).toBe(
-      publicFacts().groupPublicKey33B64u,
-    );
-    expect(material.contextBinding32B64u).toBe(publicFacts().contextBinding32B64u);
-  });
-
-  test('rejects export material when required public identity is missing', () => {
-    expect(() =>
-      parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
-        emailOtpRawSessionRecord({
-          ecdsaRoleLocalReadyRecord: {
-            ...readyRecord(emailOtpAuthMethod),
-            publicFacts: {
-              ...readyRecord(emailOtpAuthMethod).publicFacts,
-              relayerPublicKey33B64u: '',
-            },
-          },
-        }),
-      ),
-    ).toThrow(/role-local|public/i);
   });
 
   test('classifies passkey durable material without inline share fields', () => {

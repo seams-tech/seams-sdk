@@ -32,11 +32,6 @@ import type {
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
-export type EcdsaRoleLocalExportMaterial = {
-  readyRecord: EcdsaRoleLocalReadyRecord;
-  contextBinding32B64u: string;
-};
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -515,24 +510,6 @@ export function classifyThresholdEcdsaSessionRecordRoleLocalState(args: {
     authMethod,
     publicFacts,
     reason: 'unsupported_material_owner',
-  };
-}
-
-export function parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
-  input: unknown,
-): EcdsaRoleLocalExportMaterial {
-  return thresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
-    parseRawThresholdEcdsaSessionRecord(input),
-  );
-}
-
-function thresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
-  record: ThresholdEcdsaSessionRecord,
-): EcdsaRoleLocalExportMaterial {
-  const readyRecord = thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
-  return {
-    readyRecord,
-    contextBinding32B64u: readyRecord.publicFacts.contextBinding32B64u,
   };
 }
 

@@ -57,7 +57,6 @@ import {
   buildPersistedEcdsaRoleLocalMaterial,
   clearEcdsaRoleLocalWorkerRuntimeState,
   forgetLiveEcdsaRoleLocalMaterial,
-  getLiveEcdsaRoleLocalMaterial,
   requireMatchingLiveEcdsaRoleLocalMaterial,
   type PersistedEcdsaRoleLocalMaterial,
 } from '../material/ecdsaRoleLocalMaterialResolver';
@@ -2901,13 +2900,6 @@ export function requirePersistedEcdsaRoleLocalMaterial(
     materialRef: record.roleLocalMaterialRef,
     publicFacts: record.ecdsaRoleLocalPublicFacts,
   });
-}
-
-export function getInMemoryEcdsaRoleLocalHandle(
-  record: ThresholdEcdsaSessionRecord,
-): EcdsaRoleLocalWorkerHandle | null {
-  if (!record.roleLocalMaterialRef) return null;
-  return getLiveEcdsaRoleLocalMaterial(requirePersistedEcdsaRoleLocalMaterial(record));
 }
 
 function getInMemoryThresholdEcdsaSessionRecordByThresholdSessionId(

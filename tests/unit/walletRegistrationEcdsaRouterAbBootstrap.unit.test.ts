@@ -24,12 +24,15 @@ import {
 import { toEcdsaDerivationThresholdKeyId } from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import {
   clearAllThresholdEcdsaSessionRecords,
-  getInMemoryEcdsaRoleLocalHandle,
   listThresholdEcdsaRuntimeLanesForWallet,
   parseRawThresholdEcdsaSessionRecord,
   upsertThresholdEcdsaSessionFromBootstrap,
   type ThresholdEcdsaSessionStoreDeps,
 } from '@/core/signingEngine/session/persistence/records';
+import {
+  buildPersistedEcdsaRoleLocalMaterial,
+  getLiveEcdsaRoleLocalMaterial,
+} from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import {
   buildEcdsaRoleLocalPublicFacts,
   thresholdEcdsaRecordHasRoleLocalSigningMaterial,
@@ -482,7 +485,14 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
     });
     const durableRecord = Array.from(store.recordsByLane.values())[0];
 
-    expect(getInMemoryEcdsaRoleLocalHandle(runtimeRecord)).toEqual(
+    expect(
+      getLiveEcdsaRoleLocalMaterial(
+        buildPersistedEcdsaRoleLocalMaterial({
+          materialRef: runtimeRecord.roleLocalMaterialRef,
+          publicFacts: runtimeRecord.ecdsaRoleLocalPublicFacts,
+        }),
+      ),
+    ).toEqual(
       ROLE_LOCAL_SIGNING_MATERIAL_HANDLE,
     );
     expect(durableRecord).not.toHaveProperty('roleLocalMaterialHandle');
@@ -495,7 +505,14 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
     const reloadedDurableRecord = parseRawThresholdEcdsaSessionRecord(
       structuredClone(durableRecord),
     );
-    expect(getInMemoryEcdsaRoleLocalHandle(reloadedDurableRecord)).toEqual(
+    expect(
+      getLiveEcdsaRoleLocalMaterial(
+        buildPersistedEcdsaRoleLocalMaterial({
+          materialRef: reloadedDurableRecord.roleLocalMaterialRef,
+          publicFacts: reloadedDurableRecord.ecdsaRoleLocalPublicFacts,
+        }),
+      ),
+    ).toEqual(
       ROLE_LOCAL_SIGNING_MATERIAL_HANDLE,
     );
     const durableKeyRef = buildThresholdEcdsaSecp256k1KeyRefFromRecord({
