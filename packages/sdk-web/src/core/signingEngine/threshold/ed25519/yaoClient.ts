@@ -396,6 +396,18 @@ function consumeOwnedFactorSecret(
   }
 }
 
+function reownConsumedFactorSecret(
+  kind: RouterAbEd25519YaoClientRootFactorV1['kind'],
+  ownedSecret32: Uint8Array,
+): RouterAbEd25519YaoClientRootFactorV1 {
+  switch (kind) {
+    case 'passkey_prf_first':
+      return { kind, ownedSecret32 };
+    case 'email_otp_factor':
+      return { kind, ownedSecret32 };
+  }
+}
+
 type WasmRegistrationSessionV1 =
   | WasmClientRegistrationSessionV1
   | WasmEmailOtpClientRegistrationSessionV1;
@@ -1084,7 +1096,6 @@ export class RouterAbEd25519YaoClientV1 {
     const consumedFactor = consumeOwnedFactorSecret(args.factor);
     if (!consumedFactor.ok) return consumedFactor;
     const factorSecret32 = consumedFactor.value;
-
     const admissionResponse = await args.transport.send({
       kind: 'admit',
       path: ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
@@ -1096,6 +1107,31 @@ export class RouterAbEd25519YaoClientV1 {
     }
     const admission = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
       admissionResponse.value,
+    );
+    if (!admission.ok) {
+      factorSecret32.fill(0);
+      return { ok: false, code: 'invalid_router_response', status: 0, message: admission.message };
+    }
+    return await this.registerAdmitted({
+      request: args.request,
+      admissionReceipt: admission.value,
+      factor: reownConsumedFactorSecret(factorKind, factorSecret32),
+      transport: args.transport,
+    });
+  }
+
+  async registerAdmitted(args: {
+    request: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+    admissionReceipt: RegistrationAdmissionReceiptV1;
+    factor: RouterAbEd25519YaoClientRootFactorV1;
+    transport: RouterAbEd25519YaoRegistrationTransportV1;
+  }): Promise<RouterAbEd25519YaoRegistrationResultV1> {
+    const factorKind = args.factor.kind;
+    const consumedFactor = consumeOwnedFactorSecret(args.factor);
+    if (!consumedFactor.ok) return consumedFactor;
+    const factorSecret32 = consumedFactor.value;
+    const admission = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+      args.admissionReceipt,
     );
     if (!admission.ok) {
       factorSecret32.fill(0);

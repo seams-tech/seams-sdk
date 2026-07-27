@@ -83,6 +83,7 @@ import type {
 import {
   ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
   type RouterAbEd25519YaoApplicationBindingFactsV1,
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoBytes32V1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoRecoveryActivationReceiptV1,
@@ -483,9 +484,7 @@ export type EmailOtpEcdsaBootstrapStrictPayload = EmailOtpEcdsaBootstrapBasePayl
 
 export type EmailOtpYaoPrewarmFailureStage = 'worker_ready' | 'yao_wasm_init';
 
-export type EmailOtpYaoPrewarmRequest =
-  | { kind: 'not_requested' }
-  | { kind: 'requested' };
+export type EmailOtpYaoPrewarmRequest = { kind: 'not_requested' } | { kind: 'requested' };
 
 export type EmailOtpYaoPrewarmWorkerResult =
   | {
@@ -618,6 +617,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       rootHandle: EmailOtpEd25519YaoRootHandle;
       admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+      admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
       walletId: string;
       providerSubject: string;
       registrationAuthorityId: string;

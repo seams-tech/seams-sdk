@@ -632,16 +632,16 @@ html[data-w3a-theme='light'] .navbar-static,
 .navbar-static__auth-modal {
   position: relative;
   isolation: isolate;
-  width: min(540px, 100%);
+  width: min(400px, 100%);
   max-height: min(92vh, 720px);
   overflow: auto;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid #ebe8e4;
   background: #ffffff;
   box-shadow: 0 28px 70px -52px rgba(10, 10, 10, 0.42);
-  padding: 1.35rem;
+  padding: 1.5rem;
   display: grid;
-  gap: 1rem;
+  gap: 1.15rem;
 }
 
 .navbar-static__auth-header {

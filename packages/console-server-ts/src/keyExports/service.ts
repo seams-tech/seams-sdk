@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams-internal/shared-ts/utils/secureRandomId';
+import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
 import { ConsoleKeyExportError } from './errors';
 import type {
   ApproveConsoleKeyExportRequest,
@@ -11,7 +11,6 @@ import type {
 export interface ConsoleKeyExportsContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
 }
 
 export interface InMemoryConsoleKeyExportServiceOptions {

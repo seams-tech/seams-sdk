@@ -1,9 +1,27 @@
-use router_ab_core::{LocalHttpPathV1, LocalServiceRoleV1};
+use router_ab_core::{
+    LocalHttpPathV1, LocalServiceRoleV1, RootShareEpoch, RouterEd25519YaoExecuteResultV1,
+    RouterEd25519YaoExecuteSuccessV1, RouterEd25519YaoGatewayExecuteRequestV1,
+};
 use router_ab_dev::{
+    admit_local_ed25519_yao_registration_v1, generate_local_ed25519_yao_recipient_key_pair_v1,
     local_env_materialization_plan_v1, run_example_local_router_ab_dev_http_ceremony_v1,
-    LocalDeriverPeerMessageReceiptV1, LocalHttpServiceBindingClientV1,
+    seal_local_ed25519_yao_activation_deriver_a_input_v1,
+    seal_local_ed25519_yao_activation_deriver_b_input_v1, LocalDeriverPeerMessageReceiptV1,
+    LocalEd25519YaoActivationDeriverARequestV1, LocalEd25519YaoActivationDeriverBRequestV1,
+    LocalEd25519YaoActivationRecipientsV1, LocalEd25519YaoClientContributionV1,
+    LocalHttpServiceBindingClientV1, RouterAbEd25519YaoApplicationBindingFactsV1,
+    RouterAbEd25519YaoLifecycleScopeV1, RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+    LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_DEFAULT_SECRET_V1,
+    LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1, LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH,
 };
 use serde::Serialize;
+use signer_core::ed25519_yao_derivation::{
+    derive_ed25519_yao_client_contributions_v1, Ed25519YaoApplicationBindingFactsV1,
+    Ed25519YaoApplicationBindingKeyCreationSignerSlotV1,
+    Ed25519YaoApplicationBindingSigningKeyIdV1, Ed25519YaoApplicationBindingSigningRootIdV1,
+    Ed25519YaoApplicationBindingWalletIdV1, Ed25519YaoClientDerivationRootV1,
+    Ed25519YaoStableKeyDerivationContextV1,
+};
 use std::{
     collections::BTreeSet,
     fs,
@@ -13,7 +31,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{Mutex, MutexGuard, OnceLock},
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 fn router_ab_dev_source() -> String {
@@ -331,6 +349,192 @@ fn local_worker_survives_malformed_http_probe() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+#[derive(Debug, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LocalEd25519YaoProductLatencySampleV1 {
+    schema: &'static str,
+    profile: &'static str,
+    registration_microseconds: u64,
+}
+
+#[test]
+fn product_topology_completes_local_ed25519_yao_registration(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let _process_guard = local_worker_process_test_guard();
+    let binary = env!("CARGO_BIN_EXE_router_ab_local_worker");
+    let temp = temp_dir("product-yao-registration")?;
+    let router_url = format!("http://127.0.0.1:{}", free_port()?);
+    let deriver_a_url = format!("http://127.0.0.1:{}", free_port()?);
+    let deriver_b_url = format!("http://127.0.0.1:{}", free_port()?);
+    let signing_worker_url = format!("http://127.0.0.1:{}", free_port()?);
+    let router_env = write_product_worker_envs(
+        &temp,
+        &router_url,
+        &deriver_a_url,
+        &deriver_b_url,
+        &signing_worker_url,
+    )?;
+
+    let mut router = ChildGuard::spawn_in_root(
+        binary,
+        "router",
+        temp.join(router_ab_dev::LOCAL_ROUTER_ENV_FILE_V1),
+        &temp,
+    )?;
+    let mut deriver_a = ChildGuard::spawn_in_root(
+        binary,
+        "deriver-a",
+        temp.join(router_ab_dev::LOCAL_DERIVER_A_ENV_FILE_V1),
+        &temp,
+    )?;
+    let mut deriver_b = ChildGuard::spawn_in_root(
+        binary,
+        "deriver-b",
+        temp.join(router_ab_dev::LOCAL_DERIVER_B_ENV_FILE_V1),
+        &temp,
+    )?;
+    let mut signing_worker = ChildGuard::spawn_in_root(
+        binary,
+        "signing-worker",
+        temp.join(router_ab_dev::LOCAL_SIGNING_WORKER_ENV_FILE_V1),
+        &temp,
+    )?;
+    wait_for_health(&router_url, router.child_mut())?;
+    wait_for_health(&deriver_a_url, deriver_a.child_mut())?;
+    wait_for_health(&deriver_b_url, deriver_b.child_mut())?;
+    wait_for_health(&signing_worker_url, signing_worker.child_mut())?;
+
+    let request = product_registration_request(&router_env)?;
+    let started = Instant::now();
+    let (status, body) = post_json_to_path_with_headers(
+        &router_url,
+        LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH,
+        &request,
+        &[(
+            LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
+            LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_DEFAULT_SECRET_V1,
+        )],
+    )?;
+    let registration_microseconds =
+        u64::try_from(started.elapsed().as_micros()).map_err(|_| "latency exceeds u64")?;
+    assert_eq!(status, 200, "{body}");
+    let result = serde_json::from_str::<RouterEd25519YaoExecuteResultV1>(&body)?;
+    let RouterEd25519YaoExecuteResultV1::Succeeded { result } = result else {
+        return Err("product Yao registration did not succeed".into());
+    };
+    assert!(matches!(
+        *result,
+        RouterEd25519YaoExecuteSuccessV1::Registration { .. }
+    ));
+    println!(
+        "YAOS_AB_LOCAL_SAMPLE {}",
+        serde_json::to_string(&LocalEd25519YaoProductLatencySampleV1 {
+            schema: "seams-ed25519-yao-local-latency-sample-v2",
+            profile: "ed25519-yao-product-topology",
+            registration_microseconds,
+        })?
+    );
+
+    drop(router);
+    drop(deriver_a);
+    drop(deriver_b);
+    drop(signing_worker);
+    let _ = fs::remove_dir_all(temp);
+    Ok(())
+}
+
+fn product_registration_request(
+    router_env: &str,
+) -> Result<RouterEd25519YaoGatewayExecuteRequestV1, Box<dyn std::error::Error>> {
+    let application = Ed25519YaoApplicationBindingFactsV1::new(
+        Ed25519YaoApplicationBindingWalletIdV1::parse("wallet-product-benchmark")?,
+        Ed25519YaoApplicationBindingSigningKeyIdV1::parse("ed25519ks_product_benchmark")?,
+        Ed25519YaoApplicationBindingSigningRootIdV1::parse("project:local")?,
+        Ed25519YaoApplicationBindingKeyCreationSignerSlotV1::new(1)?,
+    );
+    let context = Ed25519YaoStableKeyDerivationContextV1::new(application.digest(), 1, 2)?;
+    let client_root =
+        Ed25519YaoClientDerivationRootV1::from_secret_bytes(fresh_nonzero_bytes_32()?);
+    let (client_a, client_b) =
+        derive_ed25519_yao_client_contributions_v1(&client_root, &context)?.into_parts();
+    let application_binding = RouterAbEd25519YaoApplicationBindingFactsV1::new(
+        "wallet-product-benchmark",
+        "ed25519ks_product_benchmark",
+        "project:local",
+        1,
+    )?;
+    let admission = admit_local_ed25519_yao_registration_v1(
+        RouterAbEd25519YaoRegistrationAdmissionRequestV1::new(
+            RouterAbEd25519YaoLifecycleScopeV1::new(
+                "product-benchmark-registration",
+                RootShareEpoch::new("local-root-v1")?,
+                "account-product-benchmark",
+                "wallet-session-product-benchmark",
+                "signer-set-product-benchmark",
+                "signing-worker-local",
+            )?,
+            application_binding.clone(),
+            [1, 2],
+        )?,
+    )?;
+    let recipients = LocalEd25519YaoActivationRecipientsV1 {
+        client_public_key: generate_local_ed25519_yao_recipient_key_pair_v1()?.public_key,
+        signing_worker_public_key: x25519_public_key_from_env(
+            router_env,
+            "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY",
+        )?,
+    };
+    let (client_a_y, client_a_tau) = client_a.into_parts();
+    let (client_b_y, client_b_tau) = client_b.into_parts();
+    let request_a = LocalEd25519YaoActivationDeriverARequestV1 {
+        binding: admission.binding.clone(),
+        application_binding: application_binding.clone(),
+        participant_ids: [1, 2],
+        client_contribution: LocalEd25519YaoClientContributionV1 {
+            y: client_a_y.into_bytes(),
+            tau: client_a_tau.into_bytes(),
+        },
+        recipients,
+    };
+    let request_b = LocalEd25519YaoActivationDeriverBRequestV1 {
+        binding: admission.binding.clone(),
+        application_binding,
+        participant_ids: [1, 2],
+        client_contribution: LocalEd25519YaoClientContributionV1 {
+            y: client_b_y.into_bytes(),
+            tau: client_b_tau.into_bytes(),
+        },
+        recipients,
+    };
+    let input_a = seal_local_ed25519_yao_activation_deriver_a_input_v1(
+        &request_a,
+        x25519_public_key_from_env(router_env, "DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY")?,
+    )?;
+    let input_b = seal_local_ed25519_yao_activation_deriver_b_input_v1(
+        &request_b,
+        x25519_public_key_from_env(router_env, "DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY")?,
+    )?;
+    Ok(RouterEd25519YaoGatewayExecuteRequestV1::registration(
+        admission.binding,
+        input_a,
+        input_b,
+    )?)
+}
+
+fn x25519_public_key_from_env(
+    contents: &str,
+    key: &str,
+) -> Result<[u8; 32], Box<dyn std::error::Error>> {
+    let prefix = format!("{key}=x25519:");
+    let encoded = contents
+        .lines()
+        .find_map(|line| line.strip_prefix(&prefix))
+        .ok_or("x25519 public key is missing")?;
+    Ok(hex::decode(encoded)?
+        .try_into()
+        .map_err(|_| "x25519 key length")?)
+}
+
 struct ChildGuard {
     child: Child,
 }
@@ -346,6 +550,24 @@ impl ChildGuard {
             .arg(role)
             .arg("--env")
             .arg(env_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
+        Ok(Self { child })
+    }
+
+    fn spawn_in_root(
+        binary: &str,
+        role: &str,
+        env_path: PathBuf,
+        root: &Path,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let child = Command::new(binary)
+            .arg("--role")
+            .arg(role)
+            .arg("--env")
+            .arg(env_path)
+            .current_dir(root)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()?;
@@ -395,6 +617,34 @@ fn write_router_env(
     fs::create_dir_all(root)?;
     fs::write(root.join(file.path), contents)?;
     Ok(())
+}
+
+fn write_product_worker_envs(
+    root: &Path,
+    router_url: &str,
+    deriver_a_url: &str,
+    deriver_b_url: &str,
+    signing_worker_url: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let seed = fresh_nonzero_bytes_32()?;
+    let plan = local_env_materialization_plan_v1(&seed)?;
+    for directory in plan.directories {
+        fs::create_dir_all(root.join(directory))?;
+    }
+    let mut router_env = None;
+    for file in plan.files {
+        let contents = file
+            .contents
+            .replace("http://127.0.0.1:9090", router_url)
+            .replace("http://127.0.0.1:9101", deriver_a_url)
+            .replace("http://127.0.0.1:9102", deriver_b_url)
+            .replace("http://127.0.0.1:9103", signing_worker_url);
+        if file.role == LocalServiceRoleV1::Router {
+            router_env = Some(contents.clone());
+        }
+        fs::write(root.join(file.path), contents)?;
+    }
+    router_env.ok_or_else(|| "local env plan is missing Router file".into())
 }
 
 fn write_deriver_envs_to_roots(

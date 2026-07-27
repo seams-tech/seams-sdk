@@ -15,8 +15,5 @@
   },
   "scripts": {
     "type-check": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@seams-internal/shared-ts": "workspace:*"
   }
 }

@@ -254,16 +254,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     : '';
   const billingReady = onboardingState?.billingReady === true;
   const isPlatformRoute = pathname === PLATFORM_BILLING_ROUTE || pathname.startsWith('/platform/');
-  const isPlatformAdmin = React.useMemo(
-    () =>
-      (consoleSession.claims?.roles || []).some(
-        (role) =>
-          String(role || '')
-            .trim()
-            .toLowerCase() === 'platform_admin',
-      ),
-    [consoleSession.claims?.roles],
-  );
+  const isPlatformAdmin = consoleSession.claims?.platformSupport === true;
   const isSidebarNavigationLocked =
     !isPlatformRoute &&
     onboardingGateEnabled &&

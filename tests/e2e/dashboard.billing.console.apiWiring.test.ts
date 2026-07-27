@@ -28,7 +28,7 @@ async function routeWorkspaceScaffold(
   _consoleOrigin: string,
   input: {
     userId: string;
-    roles?: string[];
+    platformSupport?: boolean;
     org: Record<string, unknown>;
     project: Record<string, unknown>;
     environment: Record<string, unknown>;
@@ -52,7 +52,12 @@ async function routeWorkspaceScaffold(
         claims: {
           userId: input.userId,
           orgId: String(input.org.id || ''),
-          roles: Array.isArray(input.roles) && input.roles.length > 0 ? input.roles : ['admin'],
+          membershipId: `membership-${input.userId}`,
+          authorizationVersion: 1,
+          role: 'OWNER',
+          adminPermissions: [],
+          projectAccess: [],
+          platformSupport: input.platformSupport === true,
           projectId: String(input.project.id || ''),
           environmentId: String(input.environment.id || ''),
         },
@@ -386,6 +391,32 @@ test.describe('dashboard billing prepaid console api wiring', () => {
           return true;
         }
 
+        if (method === 'GET' && pathname === '/console/billing/refunds') {
+          await fulfillJson(route, {
+            ok: true,
+            refunds: [
+              {
+                id: 'refund_dash_billing_prepaid',
+                orgId: org.id,
+                purchaseId: 'bcp_prior_refunded',
+                amountMinor: 500,
+                currency: 'USD',
+                reason: 'customer_request',
+                origin: 'console',
+                requesterUserId: 'support-user',
+                idempotencyKey: 'refund-dash-billing-prepaid',
+                status: 'succeeded',
+                providerRefundId: 're_dash_billing_prepaid',
+                failureCode: null,
+                journalEntryId: 'ble_refund_dash_billing_prepaid',
+                createdAt: iso('2026-02-25T00:00:00.000Z'),
+                updatedAt: iso('2026-02-25T00:01:00.000Z'),
+              },
+            ],
+          });
+          return true;
+        }
+
         if (method === 'POST' && pathname === '/console/billing/stripe/checkout-session') {
           checkoutBodies.push(parseJsonBody(route.request().postData()));
           await fulfillJson(
@@ -394,6 +425,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
               ok: true,
               checkoutSession: {
                 id: 'cs_dash_billing_prepaid',
+                purchaseId: 'bcp_dash_billing_prepaid',
                 url: `${consoleOrigin}/dashboard/billing/account?checkout=success&checkout_session_id=cs_dash_billing_prepaid`,
                 customerRef: 'cus_dash_billing_prepaid',
                 creditPackId: 'usd_25',
@@ -428,8 +460,10 @@ test.describe('dashboard billing prepaid console api wiring', () => {
                 status: 'SETTLED',
                 amountMinor: 2500,
                 currency: 'USD',
+                provider: 'stripe',
                 providerCheckoutSessionRef: 'cs_dash_billing_prepaid',
                 providerCustomerRef: 'cus_dash_billing_prepaid',
+                providerPaymentRef: 'pi_dash_billing_prepaid',
                 relatedInvoiceId: 'receipt_cs_dash_billing_prepaid',
                 settledAt: iso('2026-03-01T00:31:00.000Z'),
                 createdAt: iso('2026-03-01T00:30:00.000Z'),
@@ -456,12 +490,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     await page.goto('/dashboard/billing/account');
 
-    const billingScope = page.locator('section[aria-label="Billing scope and actions"]');
-    await expect(billingScope).toContainText('Billing is organization-scoped');
-    await expect(billingScope).toContainText('Organization');
-    await expect(billingScope).toContainText(project.name);
-    await expect(billingScope).toContainText(environment.name);
-    await expect(billingScope).not.toContainText(environment.id);
+    await expect(page.getByText(/Billing is organization-scoped/)).toBeVisible();
     await expect(page.getByText(/subscription/i)).toHaveCount(0);
 
     const metrics = page.locator('section[aria-label="Billing account summary metrics"]');
@@ -475,10 +504,10 @@ test.describe('dashboard billing prepaid console api wiring', () => {
       'Production ERC20',
     );
     await expect(
-      page.locator('section[aria-label="Sponsored execution reconciliation"]'),
+      page.locator('details[aria-label="Sponsored execution reconciliation"]'),
     ).toContainText('Reconciliation');
     await expect(
-      page.locator('section[aria-label="Sponsored execution reconciliation"]'),
+      page.locator('details[aria-label="Sponsored execution reconciliation"]'),
     ).toContainText('Matched');
 
     await expect(page.locator('.dashboard-warning-banner')).toContainText(
@@ -487,13 +516,16 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     const topUpSection = page.locator('section[aria-label="Prepaid top-up actions"]');
     await expect(topUpSection).toContainText('Top up credits');
+    const refundHistory = page.locator('section[aria-label="Refund history"]');
+    await expect(refundHistory).toContainText('$5.00 refund');
+    await expect(refundHistory).toContainText('Refunded');
+    await expect(topUpSection.getByRole('button', { name: 'Custom' })).toHaveCount(0);
+    await topUpSection.getByRole('button', { name: '$25', exact: true }).click();
     await topUpSection.getByRole('button', { name: 'Buy $25' }).click();
     await expect.poll(() => checkoutBodies.length).toBe(1);
     await expect.poll(() => checkoutReconcileBodies.length).toBe(1);
     expect(String(checkoutBodies[0]?.creditPackId || '')).toBe('usd_25');
-    expect(String(checkoutBodies[0]?.successUrl || '')).toContain(
-      '/dashboard/billing/account?checkout=success&checkout_session_id={CHECKOUT_SESSION_ID}',
-    );
+    expect(checkoutBodies[0]).toEqual({ creditPackId: 'usd_25' });
     expect(String(checkoutReconcileBodies[0]?.checkoutSessionId || '')).toBe(
       'cs_dash_billing_prepaid',
     );
@@ -607,7 +639,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     await routeWorkspaceScaffold(page, consoleOrigin, {
       userId: 'user_dash_billing_adjustments_admin',
-      roles: ['platform_admin'],
+      platformSupport: true,
       org: {
         id: 'org_dash_billing_adjustments',
         name: 'Dashboard Billing Adjustments Org',
@@ -688,26 +720,6 @@ test.describe('dashboard billing prepaid console api wiring', () => {
                 slug: 'target-billing-org',
                 status: 'ACTIVE',
               },
-              teamMembers: [
-                {
-                  id: 'tm_target_owner',
-                  userId: 'user_target_owner',
-                  email: 'owner@target.example',
-                  displayName: 'Tina Owner',
-                  status: 'ACTIVE',
-                  access: 'OWNER',
-                  addedAt: iso('2026-03-01T00:00:00.000Z'),
-                },
-                {
-                  id: 'tm_target_admin',
-                  userId: 'user_target_admin',
-                  email: 'admin@target.example',
-                  displayName: 'Alex Admin',
-                  status: 'INVITED',
-                  access: 'ADMIN',
-                  addedAt: iso('2026-03-02T00:00:00.000Z'),
-                },
-              ],
               project: null,
               overview: {
                 usageMetricVersion: 'maw_v1',
@@ -723,6 +735,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
               activity: {
                 entries: filteredEntries,
               },
+              refunds: [],
             },
           });
           return true;
@@ -778,7 +791,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     await expect(
       page.getByText(
-        'Search for a customer organisation name or organisation ID to review account activity and apply bill adjustments.',
+        'Search by customer organization name or ID to review account activity and apply bill adjustments.',
       ),
     ).toBeVisible();
     await expect(page.locator('section[aria-label="Internal billing adjustments"]')).toHaveCount(0);
@@ -822,30 +835,15 @@ test.describe('dashboard billing prepaid console api wiring', () => {
       .toBe('Target Billing Org');
 
     await expect(
-      page.locator('section[aria-label="Customer organisation account summary"]'),
+      page.locator('section[aria-label="Customer organization account summary"]'),
     ).toContainText('Target Billing Org');
-    await expect(
-      page.locator('section[aria-label="Customer organisation account summary"]'),
-    ).toContainText('Team members');
-    await expect(
-      page.locator('section[aria-label="Customer organisation account summary"]'),
-    ).toContainText('Tina Owner');
-    await expect(
-      page.locator('section[aria-label="Customer organisation account summary"]'),
-    ).toContainText('Alex Admin');
-    await expect(
-      page.locator('section[aria-label="Customer organisation account summary"]'),
-    ).toContainText('Added 2026-03-01');
-    await expect(
-      page.locator('section[aria-label="Customer organisation account summary"]'),
-    ).toContainText('Invited 2026-03-02');
     await expect(page.getByText('$50.00').first()).toBeVisible();
 
     await page.reload();
     await expect.poll(() => lookupRequests.length).toBe(2);
     await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue('Target Billing Org');
     await expect(
-      page.locator('section[aria-label="Customer organisation account summary"]'),
+      page.locator('section[aria-label="Customer organization account summary"]'),
     ).toContainText('Target Billing Org');
 
     const activitySection = page.locator('section[aria-label="Customer account activity"]');
@@ -937,7 +935,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     await routeWorkspaceScaffold(page, consoleOrigin, {
       userId: 'user_dash_platform_billing_restore',
-      roles: ['platform_admin'],
+      platformSupport: true,
       org: {
         id: 'org_platform_admin_home',
         name: 'Platform Admin Org',
@@ -998,17 +996,6 @@ test.describe('dashboard billing prepaid console api wiring', () => {
             result: {
               resolvedBy: 'org_id',
               organization,
-              teamMembers: [
-                {
-                  id: `${organization.id}_owner`,
-                  userId: `${organization.id}_owner_user`,
-                  email: `owner@${organization.slug}.example`,
-                  displayName: `${organization.name} Owner`,
-                  status: 'ACTIVE',
-                  access: 'OWNER',
-                  addedAt: iso('2026-02-01T00:00:00.000Z'),
-                },
-              ],
               project: null,
               overview: {
                 usageMetricVersion: 'maw_v1',
@@ -1024,6 +1011,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
               activity: {
                 entries: [],
               },
+              refunds: [],
             },
           });
           return true;
@@ -1038,7 +1026,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     await expect.poll(() => lookupRequests.length).toBe(1);
     await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue('Watchbook');
     await expect(
-      page.locator('section[aria-label="Customer organisation account summary"]'),
+      page.locator('section[aria-label="Customer organization account summary"]'),
     ).toContainText('Watchbook');
 
     const searchInput = page.getByRole('combobox', { name: 'Search' });
@@ -1058,21 +1046,21 @@ test.describe('dashboard billing prepaid console api wiring', () => {
       .toBe('Pokopia Labs');
     await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue('Pokopia Labs');
     await expect(
-      page.locator('section[aria-label="Customer organisation account summary"]'),
+      page.locator('section[aria-label="Customer organization account summary"]'),
     ).toContainText('Pokopia Labs');
 
     await page.goBack();
     await expect.poll(() => lookupRequests.length).toBe(3);
     await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue('Watchbook');
     await expect(
-      page.locator('section[aria-label="Customer organisation account summary"]'),
+      page.locator('section[aria-label="Customer organization account summary"]'),
     ).toContainText('Watchbook');
 
     await page.goForward();
     await expect.poll(() => lookupRequests.length).toBe(4);
     await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue('Pokopia Labs');
     await expect(
-      page.locator('section[aria-label="Customer organisation account summary"]'),
+      page.locator('section[aria-label="Customer organization account summary"]'),
     ).toContainText('Pokopia Labs');
   });
 
@@ -1173,9 +1161,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     });
 
     await page.goto('/platform/billing');
-    await expect(
-      page.getByText('Customer Accounts is only available to platform admin users.'),
-    ).toBeVisible();
+    await expect(page.locator('.dashboard-platform-billing-search-card')).toHaveCount(0);
     await expect(page.locator('section[aria-label="Internal billing adjustments"]')).toHaveCount(0);
   });
 
@@ -1449,16 +1435,13 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     await page.goto('/dashboard/invoices');
 
     const invoicesTable = page.locator('section[aria-label="Billing documents table"]');
-    await expect(
-      page.locator('section[aria-label="Billing document sponsorship links"]'),
-    ).toContainText('Usage statements stay aggregated by billing period');
     await expect(invoicesTable).toContainText('receipt_dash_billing_1');
     await expect(invoicesTable).toContainText('stmt_dash_billing_1');
     expect(invoiceListUrls.length).toBe(1);
     expect(overviewRequestCount).toBe(0);
     expect(usageRequestCount).toBe(0);
 
-    await page.locator('select.dashboard-input').first().selectOption('PURCHASE_RECEIPT');
+    await page.getByRole('combobox', { name: 'Document type' }).selectOption('PURCHASE_RECEIPT');
     await expect(invoicesTable).toContainText('receipt_dash_billing_1');
     await expect(invoicesTable).not.toContainText('stmt_dash_billing_1');
     expect(invoiceListUrls.length).toBe(1);
@@ -1497,7 +1480,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     await page.getByRole('button', { name: 'Back to invoices' }).click();
     await expect(page).toHaveURL(/\/dashboard\/invoices$/);
-    await page.locator('select.dashboard-input').first().selectOption('USAGE_STATEMENT');
+    await page.getByRole('combobox', { name: 'Document type' }).selectOption('USAGE_STATEMENT');
     await invoicesTable.locator('button:has-text("View document")').click();
     await expect(page).toHaveURL(/\/dashboard\/invoices\/stmt_dash_billing_1$/);
     await expect(

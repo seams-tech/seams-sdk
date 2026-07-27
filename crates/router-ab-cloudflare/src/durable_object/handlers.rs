@@ -194,12 +194,69 @@ pub fn handle_cloudflare_durable_object_call_v1(
                 storage.cleanup_expired_replay_reservations(cleanup.now_unix_ms)?,
             )?
         }
-        CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } => {
+        CloudflareDurableObjectRequestV1::RouterPublicAdmission { replay, state } => {
+            let replay_key = call.public_admission_replay_index_storage_key()?;
+            let completion_key = call.public_registration_completion_storage_key()?;
+            let reserved = validate_router_replay_reservation_v1(
+                storage.replay_reservation_by_request_id(&replay_key)?,
+                replay,
+            )?;
             let previous = storage.router_lifecycle_state(&storage_key)?;
-            RouterAbLifecycleStateV1::validate_transition_from(previous.as_ref(), state)?;
-            storage.put_router_lifecycle_state(&storage_key, state.clone())?;
-            CloudflareDurableObjectResponseV1::router_lifecycle_put_public_state(
-                CloudflareLifecyclePutReceiptV1::new(state.scope().lifecycle_id.clone(), true)?,
+            if reserved && previous.is_some() {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                    "public Router lifecycle already has an admission",
+                ));
+            }
+            if reserved {
+                storage.put_replay_reservation(&replay_key, &replay_key, replay.clone())?;
+                storage.put_router_lifecycle_state(&storage_key, state.clone())?;
+            }
+            let completion = match storage.public_registration_completion(&completion_key)? {
+                Some(response_json) => {
+                    CloudflareRouterPublicAdmissionCompletionV1::Completed { response_json }
+                }
+                None => CloudflareRouterPublicAdmissionCompletionV1::Pending,
+            };
+            CloudflareDurableObjectResponseV1::router_public_admission(
+                CloudflareReplayReserveResponseV1::new(replay.request_id.clone(), reserved)?,
+                CloudflareLifecyclePutReceiptV1::new(state.scope().lifecycle_id.clone(), reserved)?,
+                completion,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::RouterPublicRegistrationComplete {
+            replay,
+            response_json,
+            ..
+        } => {
+            let replay_key = call.public_admission_replay_index_storage_key()?;
+            let stored_replay = require_existing_record_v1(
+                storage.replay_reservation_by_request_id(&replay_key)?,
+                "public registration replay reservation is missing",
+            )?;
+            if stored_replay != *replay || storage.router_lifecycle_state(&storage_key)?.is_none() {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                    "public registration completion does not match its admission",
+                ));
+            }
+            let completion_key = call.public_registration_completion_storage_key()?;
+            let stored = storage.public_registration_completion(&completion_key)?;
+            if let Some(stored) = stored {
+                if stored != *response_json {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                        "public registration completion conflicts with the stored response",
+                    ));
+                }
+            } else {
+                storage
+                    .put_public_registration_completion(&completion_key, response_json.clone())?;
+            }
+            CloudflareDurableObjectResponseV1::router_public_registration_complete(
+                CloudflareRouterPublicAdmissionCompletionV1::Completed {
+                    response_json: response_json.clone(),
+                },
             )?
         }
         CloudflareDurableObjectRequestV1::DerivationCeremonyPutState { ceremony } => {

@@ -1,46 +1,46 @@
-import type { CloudflareDurableObjectNamespaceLike } from '@seams/sdk-server/internal/core/types';
-import type { D1DatabaseLike } from '@seams/sdk-server/internal/storage/tenantRoute';
+import type { CloudflareDurableObjectNamespaceLike } from '@seams/sdk-server/cloud-host';
+import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
 import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,
 } from '@seams-internal/console-server/sponsorship/evmWorkerExecutionAdapter';
 import { resolveSponsoredExecutionPricingFromEnv } from '@seams-internal/console-server/sponsorship/pricing';
 import { requireStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
-import { createCloudflareRouter } from '@seams/sdk-server/internal/router/cloudflare/createCloudflareRouter';
-import { withCors } from '@seams/sdk-server/internal/router/cloudflare/http';
+import { createCloudflareRouter } from '@seams/sdk-server/cloud-host';
+import { withCors } from '@seams/sdk-server/cloud-host';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import { createAppSessionConsoleAuthAdapter } from '../consoleAppSessionAuth';
 import {
   createCloudflareD1ConsoleServiceBundle,
   createCloudflareD1RouterApiRouteExtensions,
 } from './d1ConsoleServices';
-import type { CloudflareD1EmailOtpServerSealConfig } from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthConfig';
-import { createCloudflareD1RouterApiAuthService } from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthService';
+import type { CloudflareD1EmailOtpServerSealConfig } from '@seams/sdk-server/cloud-host';
+import { createCloudflareD1RouterApiAuthService } from '@seams/sdk-server/cloud-host';
 import { loadCloudflareSignerWasmModule } from './d1SignerWasm';
-import type { ThresholdStoreConfigInput } from '@seams/sdk-server/internal/core/types';
-import { createSigningSessionSealOptions } from '@seams/sdk-server/internal/threshold/session/signingSessionSeal/options';
-import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/internal/threshold/session/signingSessionSeal/signingSessionSeal.types';
+import type { ThresholdStoreConfigInput } from '@seams/sdk-server/cloud-host';
+import { createSigningSessionSealOptions } from '@seams/sdk-server/cloud-host';
+import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/cloud-host';
 import type {
   CloudflareD1OidcExchangeConfig,
   CloudflareD1OidcExchangeIssuerConfig,
-} from '@seams/sdk-server/internal/router/cloudflare/d1OidcBoundary';
+} from '@seams/sdk-server/cloud-host';
 import type {
   CfExecutionContext,
+  CfScheduledEvent,
   FetchHandler,
-} from '@seams/sdk-server/internal/router/cloudflare/cloudflare.types';
-import { ThresholdStoreDurableObject } from '@seams/sdk-server/internal/router/cloudflare/durableObjects/thresholdStore';
+  ScheduledHandler,
+} from '@seams/sdk-server/cloud-host';
+import { ThresholdStoreDurableObject } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
   type RouterAbEd25519YaoGatewaySpanV1,
-} from '@seams/sdk-server/internal/router/routerAbEd25519YaoHttpRegistrationBackend';
-import {
-  type RouterAbEd25519YaoProductRegistrationRuntimeV1,
-} from '@seams/sdk-server/internal/router/routerAbEd25519YaoProductRegistration';
-import type { SessionAdapter } from '@seams/sdk-server/internal/router/routerApi';
-import { D1WalletStore } from '@seams/sdk-server/internal/core/d1WalletStore';
-import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/internal/router/cloudflare/d1Ed25519YaoCapabilityPersistence';
-import { CloudflareD1WebAuthnAuthService } from '@seams/sdk-server/internal/router/cloudflare/d1WebAuthnAuthService';
-import { CloudflareD1WebAuthnStore } from '@seams/sdk-server/internal/router/cloudflare/d1WebAuthnStore';
+} from '@seams/sdk-server/cloud-host';
+import { type RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '@seams/sdk-server/cloud-host';
+import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
+import { D1WalletStore } from '@seams/sdk-server/cloud-host';
+import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/cloud-host';
+import { CloudflareD1WebAuthnAuthService } from '@seams/sdk-server/cloud-host';
+import { CloudflareD1WebAuthnStore } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEcdsaEd25519CeremonyTokenIssuer,
   createRouterAbEcdsaStrictPostRegistrationPort,
@@ -49,7 +49,7 @@ import {
   parseRouterAbEcdsaStrictRegistrationTopology,
   type RouterAbEcdsaCeremonyTokenIssuer,
   type RouterAbEcdsaStrictRegistrationTopology,
-} from '@seams/sdk-server/internal/router/routerAbEcdsaStrictRegistration';
+} from '@seams/sdk-server/cloud-host';
 import {
   createCloudflareSecretsStoreKekProviderFromEnv,
   createHmacSessionAdapterFromEnv,
@@ -62,21 +62,21 @@ import {
 import {
   parseRouterAbPublicKeysetV2,
   type RouterAbPublicKeysetV2,
-} from '@seams-internal/shared-ts/utils/routerAbPublicKeyset';
-import { parseWalletId } from '@seams-internal/shared-ts/utils/domainIds';
+} from '@seams/sdk-server/cloud-host';
+import { parseWalletId } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbServiceBindingFetch,
   ROUTER_AB_MPC_ROUTER_ORIGIN,
   ROUTER_AB_SIGNING_WORKER_ORIGIN,
   type RouterAbServiceBindingEnv,
 } from './routerAbServiceBindings';
-import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRegistrationRequestScopedCloudflare';
-import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
-import { RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter } from '@seams/sdk-server/internal/router/routerAbEd25519YaoExport';
-import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
-import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRecoveryRequestScopedCloudflare';
-import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoExportRequestScopedCloudflare';
+import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
+import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '@seams/sdk-server/cloud-host';
+import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
+import { RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
+import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '@seams/sdk-server/cloud-host';
+import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
+import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
 import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
@@ -86,12 +86,18 @@ import {
   ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
-} from '@shared/utils/routerAbEd25519Yao';
+} from '@seams/sdk-server/cloud-host';
+import { createCloudflareCron } from './cron';
+import type { RouterApiCloudflareConsoleWorkerEnv } from './cloudflareConsole.types';
 
 export { ThresholdStoreDurableObject };
 
 interface CloudflareD1RouterApiStagingEnv
-  extends CloudflareD1StagingSecretEnv, CloudflareD1StagingSessionEnv, RouterAbServiceBindingEnv {
+  extends
+    CloudflareD1StagingSecretEnv,
+    CloudflareD1StagingSessionEnv,
+    RouterAbServiceBindingEnv,
+    RouterApiCloudflareConsoleWorkerEnv {
   readonly CONSOLE_DB: D1DatabaseLike;
   readonly SIGNER_DB: D1DatabaseLike;
   readonly THRESHOLD_STORE: CloudflareDurableObjectNamespaceLike;
@@ -150,10 +156,11 @@ interface CloudflareD1RouterApiStagingEnv
   readonly SPONSORED_EXECUTION_REAL_PRICING_JSON?: string;
   readonly SPONSORED_EXECUTION_STATIC_PRICING_JSON?: string;
   readonly STRIPE_API_SK?: string;
-  readonly STRIPE_CHECKOUT_PRICE_ID?: string;
+  readonly STRIPE_WEBHOOK_SECRET?: string;
   readonly STRIPE_API_BASE_URL?: string;
   readonly STRIPE_API_TIMEOUT_MS?: string;
-  readonly CONSOLE_PLATFORM_ADMIN_EMAILS?: string;
+  readonly CONSOLE_PLATFORM_SUPPORT_EMAILS?: string;
+  readonly CONSOLE_BASE_URL?: string;
 }
 
 type RouterApiReadyRow = {
@@ -171,12 +178,25 @@ const RELAY_CONSOLE_READY_TABLES = Object.freeze([
   'organizations',
   'projects',
   'environments',
+  'organization_memberships',
+  'organization_admin_permissions',
+  'organization_invitations',
+  'project_member_access',
+  'organization_owner_events',
   'api_keys',
   'billing_accounts',
+  'billing_ledger_entries',
+  'billing_ledger_postings',
+  'billing_credit_purchases',
+  'billing_refunds',
   'billing_prepaid_reservations',
+  'stripe_webhook_events',
+  'billing_stripe_post_processing_outbox',
   'sponsorship_spend_cap_reservations',
   'sponsorship_pricing_rules',
   'sponsored_call_records',
+  'console_email_outbox',
+  'console_email_deliveries',
 ]);
 const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'wallets',
@@ -250,6 +270,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     adapters: {
       ensureSchema: false,
       billingProviders: requireStripeBillingProviderAdaptersFromEnv(env),
+      billingEmailConsoleBaseUrl: requireEnvString(env, 'CONSOLE_BASE_URL'),
       sponsoredEvmCallConfig,
       resolveSponsoredEvmExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
       sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
@@ -358,14 +379,13 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
   const consoleAuth = createAppSessionConsoleAuthAdapter({
     session,
     authService: service.sessionVersions,
+    organizationAccess: bundle.organizationAccess,
     defaultOrgId: scope.orgId,
     defaultProjectId: scope.projectId,
     defaultEnvironmentId: scope.envId,
-    platformAdminEmails: readEnvString(env, 'CONSOLE_PLATFORM_ADMIN_EMAILS'),
+    platformSupportEmails: readEnvString(env, 'CONSOLE_PLATFORM_SUPPORT_EMAILS'),
     provisioning: {
-      bootstrapRoles: ['owner', 'admin'],
       orgProjectEnv: bundle.orgProjectEnv,
-      teamRbac: bundle.teamRbac,
       audit: bundle.audit,
       logger: console,
     },
@@ -377,6 +397,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS),
     auth: consoleAuth,
     readyCheck: createRouterApiReadyCheck(env),
+    billingStripeWebhookSigningSecret: readEnvString(env, 'STRIPE_WEBHOOK_SECRET'),
   });
   return dispatchHostedGatewayRequest.bind(null, consoleHandler, routerApiHandler);
 }
@@ -662,6 +683,18 @@ async function fetch(
   return await handlePartitionedRouterApiRequest(env, request, ctx);
 }
 
+function gatewayScheduledHandler(env: CloudflareD1RouterApiStagingEnv): ScheduledHandler {
+  return createCloudflareCron({});
+}
+
+async function scheduled(
+  event: CfScheduledEvent,
+  env: CloudflareD1RouterApiStagingEnv,
+  ctx: CfExecutionContext,
+): Promise<void> {
+  await gatewayScheduledHandler(env)(event, env, ctx);
+}
+
 type RouterApiYaoDirectOperationV1 =
   | 'registration_admission'
   | 'registration_execute'
@@ -758,11 +791,12 @@ function createStagingYaoRequestScopedRuntime(
     signingWorkerId: requireEnvString(env, 'SIGNING_WORKER_ID'),
     session,
     store: createStagingYaoPartitionedStateStore(env),
+    registrationBackend: createStagingEd25519YaoBackend(env),
     loadPersistedActiveCapability: loadStagingPersistedActiveCapability.bind(undefined, env),
   });
 }
 
-export default { fetch };
+export default { fetch, scheduled };
 
 /**
  * Builds the recovery request-scoped dependencies from the environment alone.
