@@ -328,21 +328,37 @@ and the WASM material seal from the critical path, but not the activation.
       `registrationWarmupUiConfirmPrewarmMs: 0` and every
       `ecdsaRegistrationWarmSession*` bucket at 0, confirming this is a
       passkey-path change that costs Email OTP nothing.
-- [ ] Consider firing the NEAR RPC prefetch (`accountLifecycle.ts:657`)
-      fire-and-forget; it is a UX prefetch on the critical path.
-- [ ] Add timing spans covering `finalize_response_received` →
-      SeamsWalletDB `batch_started` (the 613 ms window). Wrapping
-      `finalizeRegistrationEcdsaSessions` at `registration.ts:3313` is the
-      single highest-value span: the inner buckets already exist and `record`
-      is additive.
+- [x] Fire the NEAR RPC prefetch (`accountLifecycle.ts:657`) fire-and-forget.
+      It was awaited on the critical path despite its own comment describing it
+      as non-fatal UX warm-up.
+The remaining client-side span work was **dropped as unnecessary**, on
+evidence. The 613 ms and 291 ms windows were local-workerd artifacts, not a
+production cost:
+
+- production span coverage is already 94.7–96.7% with only 154–210 ms
+  unattributed, against 39% locally;
+- `ecdsaRegistrationSessionFinalizeMs` — the wrapper that was to be the
+  "single highest-value span" — is already instrumented and reads **12–15 ms**
+  in production;
+- every `ecdsaRegistrationWarmSession*` bucket reads **0** on production Email
+  OTP, so the Shamir seal cycle that dominated the local window does not run
+  on that path at all.
+
+Adding spans to attribute ~180 ms of production time, in the file that Phases
+4–5 are about to restructure, is not worth the churn. Revisit only if a
+passkey production run shows a large unattributed remainder.
+
+- [x] ~~Add timing spans covering `finalize_response_received` →
+      SeamsWalletDB `batch_started`~~ — dropped, see above.
 - [ ] Thread diagnostics through `ed25519YaoSealedSession.ts:55,62`, which
-      currently pass none, so the Ed25519 seal cycle is invisible.
-- [ ] Add timing spans covering `transaction_committed` → timing summary
-      emission (the 291 ms window).
-- [ ] Attribute `assertMixedRegistrationSharedSigningBudget`
-      (`registration.ts:2370`) separately from persistence.
-- [ ] Attribute Ed25519 SigningWorker activation
-      (`activateVerifiedNearEd25519YaoSigningCapability`) separately.
+      currently pass none, so the Ed25519 seal cycle is invisible. Keep: this
+      is the passkey path, still unmeasured in production.
+- [x] ~~Add timing spans covering `transaction_committed` → timing summary
+      emission~~ — dropped, see above.
+- [x] ~~Attribute `assertMixedRegistrationSharedSigningBudget`~~ — dropped; it
+      is synchronous pure JS and costs nanoseconds.
+- [x] ~~Attribute Ed25519 SigningWorker activation separately~~ — dropped; it
+      is an in-memory registry write and is sub-millisecond.
 - [ ] Record the post-instrumentation measurement in this document.
 - [ ] Re-decide Phases 3–8 against that measurement before implementing them.
 
