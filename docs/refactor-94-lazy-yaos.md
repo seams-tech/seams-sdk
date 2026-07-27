@@ -123,7 +123,38 @@ These runs came from production `seams.sh` on the previously deployed frontend,
 not from the staging revision. That build predates the new Yao buckets, which
 is why none appear.
 
-Caveats: n=2, Email OTP only. Passkey has not been measured in production.
+### Second production pair, on the instrumented frontend (2026-07-28)
+
+Two further Email OTP registrations after the frontend deploy, now with the
+dedicated buckets:
+
+| Measure                 | Run 3 (cold) | Run 4 (warm) |
+| ----------------------- | -----------: | -----------: |
+| Total                   |     4,685 ms | **3,963 ms** |
+| ECDSA total             |     3,420 ms |       627 ms |
+| ECDSA ends at           |     4,013 ms |   **1,340 ms** |
+| Yao total               |     2,895 ms |     2,626 ms |
+| Yao ends at             |     3,487 ms |   **3,339 ms** |
+| Finalize starts at      |     4,013 ms |   **3,339 ms** |
+| **`yaoClientCompletionMs`** |        0 ms |  **2,000 ms** |
+
+Run 4 measures the payoff directly rather than inferring it from span offsets:
+registration idles **2,000 ms** after ECDSA completes, waiting on Yao. Detaching
+the join lands it near 1.96 s — roughly a **50% reduction**, and inside the
+2–3 s target. Run 3 is the cold shape, where ECDSA again dominates.
+
+All ten `yaoServer*Ms` buckets read 0 in both runs. The client half is
+provably live — `yaoBranchTotalMs`, `yaoClientSessionCreateMs` and the
+worker-sourced `clientTimings` all populate — so the missing piece is the
+`Server-Timing` header itself. The header emission and its
+`Access-Control-Expose-Headers` live in the same backend commit, and the
+deploy runs referenced staging, so **production is serving an older backend**.
+An unauthenticated probe cannot distinguish the builds, because the expose
+header is conditional on `Server-Timing` being present and both gateways
+return 400 without it. Deploying the production backend and re-running is the
+decisive test.
+
+Caveats: Email OTP only. Passkey has still not been measured in production.
 
 No phase in this document may be justified by a latency claim that has not been
 measured on the environment it claims to improve.
@@ -247,9 +278,14 @@ Two independent halves:
 **Server side (implemented, not deployed).** The `Server-Timing` breakdown on
 `/router-ab/ed25519/yao/registration/execute` listed under Premise correction.
 
-- [ ] Deploy the Yao `Server-Timing` instrumentation.
+- [x] Deploy the Yao `Server-Timing` instrumentation. Frontend is live in
+      production; the **backend is not** — see below.
 - [ ] Record one production registration and locate the 2,348 ms Yao interval.
-- [ ] Confirm whether the production Yao branch is on the critical path.
+      Blocked on the production backend deploy.
+- [x] **Confirm whether the production Yao branch is on the critical path.
+      Yes.** Four production Email OTP registrations, two before and two after
+      the frontend deploy, all show finalize beginning exactly when the Yao
+      branch ends once ECDSA is warm.
 
 **Client side (the local 1,026 ms).** Root-caused 2026-07-27 by code reading;
 spans still needed to confirm the split.
@@ -284,8 +320,14 @@ write and is sub-millisecond.
 Consequence for this refactor: detaching Ed25519 removes the second seal cycle
 and the WASM material seal from the critical path, but not the activation.
 
-- [ ] **Prewarm the Shamir 3-pass worker and its WASM.** Largest single lever
-      found, no architectural change, independent of every other phase here.
+- [x] **Prewarm the Shamir 3-pass worker and its WASM.** Landed. It is the
+      only worker on the passkey registration path without a prewarm, paying a
+      nested worker spawn plus a 422 KB WASM instantiate inside the
+      post-finalize window. Chained onto `prewarmUiConfirmUi`, best-effort,
+      every failure swallowed. Scope note: production Email OTP runs report
+      `registrationWarmupUiConfirmPrewarmMs: 0` and every
+      `ecdsaRegistrationWarmSession*` bucket at 0, confirming this is a
+      passkey-path change that costs Email OTP nothing.
 - [ ] Consider firing the NEAR RPC prefetch (`accountLifecycle.ts:657`)
       fire-and-forget; it is a UX prefetch on the critical path.
 - [ ] Add timing spans covering `finalize_response_received` →
