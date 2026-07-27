@@ -187,6 +187,7 @@ export async function registerVerifiedPasskeyEd25519YaoAddSignerV1(
         kind: 'passkey_prf_first',
         ownedSecret32: input.verifiedAuthority.ownedPasskeyPrfFirst,
       },
+      admission: { kind: 'transport_request' },
       transport: new RouterAbEd25519YaoHttpActivationTransportV1(prepared.transportConfig),
     });
   } finally {

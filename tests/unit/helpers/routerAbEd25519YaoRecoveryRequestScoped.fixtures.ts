@@ -256,6 +256,8 @@ export async function buildSecondRouterAbEd25519YaoRecoveryRequestScopedFixture(
     sharedState: loaded.sharedState,
     sharedVersion: loaded.sharedVersion,
     ceremonyVersion: loaded.ceremonyVersion,
+    execution: loaded.execution,
+    executionVersion: loaded.executionVersion,
   });
   if (committed.kind !== 'stored') {
     throw new Error('secondary recovery fixture state did not commit');
@@ -384,6 +386,8 @@ async function seedState(
     sharedState: loaded.sharedState,
     sharedVersion: loaded.sharedVersion,
     ceremonyVersion: loaded.ceremonyVersion,
+    execution: loaded.execution,
+    executionVersion: loaded.executionVersion,
   });
   if (committed.kind !== 'stored') throw new Error('recovery fixture state did not commit');
 }

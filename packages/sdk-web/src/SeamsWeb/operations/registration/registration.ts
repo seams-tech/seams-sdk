@@ -250,7 +250,12 @@ type RegistrationTimingBucketValues = {
   emailOtpYaoTotalMs: number;
   walletRegisterStartMs: number;
   ecdsaClientBootstrapMs: number;
-  walletRegisterDerivationRespondMs: number;
+  ecdsaRegistrationTotalMs: number;
+  ecdsaRegistrationClientCreateMs: number;
+  ecdsaRegistrationGatewayRespondMs: number;
+  ecdsaRegistrationClientProofVerifyMs: number;
+  ecdsaRegistrationGatewayActivateMs: number;
+  ecdsaRegistrationClientActivationFinalizeMs: number;
   emailOtpRecoveryCodeBackupMs: number;
   walletRegisterFinalizeMs: number;
   ecdsaRegistrationPersistenceMs: number;
@@ -357,10 +362,7 @@ async function cleanUpFailedWalletRegistration(
   yaoWork: RegistrationYaoWork,
   activeIntent: ActiveWalletRegistrationIntent | null,
 ): Promise<void> {
-  await Promise.allSettled([
-    yaoWork.dispose(),
-    cancelActiveWalletRegistrationIntent(activeIntent),
-  ]);
+  await Promise.allSettled([yaoWork.dispose(), cancelActiveWalletRegistrationIntent(activeIntent)]);
 }
 
 type EvmFamilyEcdsaRegistrationBranch = RegistrationEvmFamilyEcdsaSignerPlan;
@@ -436,6 +438,12 @@ type RegistrationEd25519Timing =
 type EcdsaEnabledRegistrationTiming = {
   kind: 'ecdsa_enabled';
   ecdsaClientBootstrapMs: number;
+  ecdsaRegistrationTotalMs: number;
+  ecdsaRegistrationClientCreateMs: number;
+  ecdsaRegistrationGatewayRespondMs: number;
+  ecdsaRegistrationClientProofVerifyMs: number;
+  ecdsaRegistrationGatewayActivateMs: number;
+  ecdsaRegistrationClientActivationFinalizeMs: number;
   ecdsaRegistrationPersistenceMs: number;
   ecdsaRegistrationSessionFinalizeMs: number;
   ecdsaRegistrationLocalRecordPersistenceMs: number;
@@ -466,6 +474,12 @@ type EcdsaEnabledRegistrationTiming = {
 type EcdsaDisabledRegistrationTiming = {
   kind: 'ecdsa_disabled';
   ecdsaClientBootstrapMs: 0;
+  ecdsaRegistrationTotalMs: 0;
+  ecdsaRegistrationClientCreateMs: 0;
+  ecdsaRegistrationGatewayRespondMs: 0;
+  ecdsaRegistrationClientProofVerifyMs: 0;
+  ecdsaRegistrationGatewayActivateMs: 0;
+  ecdsaRegistrationClientActivationFinalizeMs: 0;
   ecdsaRegistrationPersistenceMs: 0;
   ecdsaRegistrationSessionFinalizeMs: 0;
   ecdsaRegistrationLocalRecordPersistenceMs: 0;
@@ -735,7 +749,12 @@ function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketVal
     emailOtpYaoTotalMs: 0,
     walletRegisterStartMs: 0,
     ecdsaClientBootstrapMs: 0,
-    walletRegisterDerivationRespondMs: 0,
+    ecdsaRegistrationTotalMs: 0,
+    ecdsaRegistrationClientCreateMs: 0,
+    ecdsaRegistrationGatewayRespondMs: 0,
+    ecdsaRegistrationClientProofVerifyMs: 0,
+    ecdsaRegistrationGatewayActivateMs: 0,
+    ecdsaRegistrationClientActivationFinalizeMs: 0,
     emailOtpRecoveryCodeBackupMs: 0,
     walletRegisterFinalizeMs: 0,
     ecdsaRegistrationPersistenceMs: 0,
@@ -809,7 +828,13 @@ function copyRegistrationTimingBucketValues(
     emailOtpYaoTotalMs: buckets.emailOtpYaoTotalMs,
     walletRegisterStartMs: buckets.walletRegisterStartMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
-    walletRegisterDerivationRespondMs: buckets.walletRegisterDerivationRespondMs,
+    ecdsaRegistrationTotalMs: buckets.ecdsaRegistrationTotalMs,
+    ecdsaRegistrationClientCreateMs: buckets.ecdsaRegistrationClientCreateMs,
+    ecdsaRegistrationGatewayRespondMs: buckets.ecdsaRegistrationGatewayRespondMs,
+    ecdsaRegistrationClientProofVerifyMs: buckets.ecdsaRegistrationClientProofVerifyMs,
+    ecdsaRegistrationGatewayActivateMs: buckets.ecdsaRegistrationGatewayActivateMs,
+    ecdsaRegistrationClientActivationFinalizeMs:
+      buckets.ecdsaRegistrationClientActivationFinalizeMs,
     emailOtpRecoveryCodeBackupMs: buckets.emailOtpRecoveryCodeBackupMs,
     walletRegisterFinalizeMs: buckets.walletRegisterFinalizeMs,
     ecdsaRegistrationPersistenceMs: buckets.ecdsaRegistrationPersistenceMs,
@@ -941,6 +966,13 @@ function buildRegistrationEcdsaTiming(input: {
     return {
       kind: 'ecdsa_enabled',
       ecdsaClientBootstrapMs: input.buckets.ecdsaClientBootstrapMs,
+      ecdsaRegistrationTotalMs: input.buckets.ecdsaRegistrationTotalMs,
+      ecdsaRegistrationClientCreateMs: input.buckets.ecdsaRegistrationClientCreateMs,
+      ecdsaRegistrationGatewayRespondMs: input.buckets.ecdsaRegistrationGatewayRespondMs,
+      ecdsaRegistrationClientProofVerifyMs: input.buckets.ecdsaRegistrationClientProofVerifyMs,
+      ecdsaRegistrationGatewayActivateMs: input.buckets.ecdsaRegistrationGatewayActivateMs,
+      ecdsaRegistrationClientActivationFinalizeMs:
+        input.buckets.ecdsaRegistrationClientActivationFinalizeMs,
       ecdsaRegistrationPersistenceMs: input.buckets.ecdsaRegistrationPersistenceMs,
       ecdsaRegistrationSessionFinalizeMs: input.buckets.ecdsaRegistrationSessionFinalizeMs,
       ecdsaRegistrationLocalRecordPersistenceMs:
@@ -990,6 +1022,12 @@ function buildRegistrationEcdsaTiming(input: {
   return {
     kind: 'ecdsa_disabled',
     ecdsaClientBootstrapMs: 0,
+    ecdsaRegistrationTotalMs: 0,
+    ecdsaRegistrationClientCreateMs: 0,
+    ecdsaRegistrationGatewayRespondMs: 0,
+    ecdsaRegistrationClientProofVerifyMs: 0,
+    ecdsaRegistrationGatewayActivateMs: 0,
+    ecdsaRegistrationClientActivationFinalizeMs: 0,
     ecdsaRegistrationPersistenceMs: 0,
     ecdsaRegistrationSessionFinalizeMs: 0,
     ecdsaRegistrationLocalRecordPersistenceMs: 0,
@@ -1030,7 +1068,7 @@ const REGISTRATION_CRITICAL_PATH_BUCKETS: readonly RegistrationTimingBucketName[
   'emailOtpYaoTotalMs',
   'walletRegisterStartMs',
   'ecdsaClientBootstrapMs',
-  'walletRegisterDerivationRespondMs',
+  'ecdsaRegistrationTotalMs',
   'emailOtpRecoveryCodeBackupMs',
   'walletRegisterFinalizeMs',
   'ecdsaRegistrationPersistenceMs',
@@ -1042,7 +1080,7 @@ function registrationTimingSpanKindFromBucket(
   if (bucket.startsWith('registrationWarmup')) return 'warmup';
   if (bucket.startsWith('passkeyAuth') || bucket === 'authProofMs') return 'auth';
   if (bucket.includes('Yao') || bucket.includes('yao')) return 'ed25519_yao';
-  if (bucket.includes('ecdsa') || bucket === 'walletRegisterDerivationRespondMs') return 'ecdsa';
+  if (bucket.includes('ecdsa')) return 'ecdsa';
   return 'registration';
 }
 
@@ -1169,7 +1207,13 @@ function buildRegistrationTimingBuckets(input: {
     emailOtpYaoTotalMs: buckets.emailOtpYaoTotalMs,
     walletRegisterStartMs: buckets.walletRegisterStartMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
-    walletRegisterDerivationRespondMs: buckets.walletRegisterDerivationRespondMs,
+    ecdsaRegistrationTotalMs: buckets.ecdsaRegistrationTotalMs,
+    ecdsaRegistrationClientCreateMs: buckets.ecdsaRegistrationClientCreateMs,
+    ecdsaRegistrationGatewayRespondMs: buckets.ecdsaRegistrationGatewayRespondMs,
+    ecdsaRegistrationClientProofVerifyMs: buckets.ecdsaRegistrationClientProofVerifyMs,
+    ecdsaRegistrationGatewayActivateMs: buckets.ecdsaRegistrationGatewayActivateMs,
+    ecdsaRegistrationClientActivationFinalizeMs:
+      buckets.ecdsaRegistrationClientActivationFinalizeMs,
     emailOtpRecoveryCodeBackupMs: buckets.emailOtpRecoveryCodeBackupMs,
     walletRegisterFinalizeMs: buckets.walletRegisterFinalizeMs,
     ecdsaRegistrationPersistenceMs: buckets.ecdsaRegistrationPersistenceMs,
@@ -1538,9 +1582,9 @@ function executeRegistrationEmailOtpYaoPrewarm(input: {
   prewarm: () => Promise<EmailOtpYaoPrewarmOutcome>;
 }): Promise<EmailOtpYaoPrewarmOutcome> {
   const startedAt = performance.now();
-  return input.prewarm().catch((error: unknown) =>
-    recoverEmailOtpYaoPrewarmFailure(error, startedAt),
-  );
+  return input
+    .prewarm()
+    .catch((error: unknown) => recoverEmailOtpYaoPrewarmFailure(error, startedAt));
 }
 
 function completedRegistrationWarmup(
@@ -2559,11 +2603,28 @@ async function activateStrictEcdsaFamilyRegistration(args: {
   }
 }
 
+type StrictEcdsaCeremonyTimingBucket =
+  | 'ecdsaRegistrationClientCreateMs'
+  | 'ecdsaRegistrationGatewayRespondMs'
+  | 'ecdsaRegistrationClientProofVerifyMs'
+  | 'ecdsaRegistrationGatewayActivateMs'
+  | 'ecdsaRegistrationClientActivationFinalizeMs';
+
+async function measureStrictEcdsaCeremonyStep<T>(args: {
+  registrationTiming: RegistrationTimingRecorder | null;
+  bucket: StrictEcdsaCeremonyTimingBucket;
+  operation: () => Promise<T>;
+}): Promise<T> {
+  if (!args.registrationTiming) return await args.operation();
+  return await args.registrationTiming.measure(args.bucket, args.operation);
+}
+
 async function runStrictEcdsaFamilyCeremony(args: {
   context: RegistrationWebContext;
   relayerUrl: string;
   route: StrictEcdsaFamilyCeremonyRoute;
   started: WalletRegistrationEcdsaPreparePayload;
+  registrationTiming: RegistrationTimingRecorder | null;
 }): Promise<RegistrationEcdsaSession> {
   const [firstChainTarget, ...remainingChainTargets] = args.started.chainTargets;
   if (!firstChainTarget) {
@@ -2571,34 +2632,63 @@ async function runStrictEcdsaFamilyCeremony(args: {
   }
   const ceremonyId = strictEcdsaFamilyCeremonyId(args.route);
   try {
-    const created = await args.context.signingEngine.createRouterAbEcdsaRegistrationCeremony({
-      kind: 'create_router_ab_ecdsa_registration_ceremony_v1',
-      ceremonyId,
-      registration: args.started.strictRegistration,
+    const created = await measureStrictEcdsaCeremonyStep({
+      registrationTiming: args.registrationTiming,
+      bucket: 'ecdsaRegistrationClientCreateMs',
+      operation: args.context.signingEngine.createRouterAbEcdsaRegistrationCeremony.bind(
+        args.context.signingEngine,
+        {
+          kind: 'create_router_ab_ecdsa_registration_ceremony_v1',
+          ceremonyId,
+          registration: args.started.strictRegistration,
+        },
+      ),
     });
-    const forwarded = await forwardStrictEcdsaFamilyRegistration({
-      relayerUrl: args.relayerUrl,
-      route: args.route,
-      strictRegistration: created.registrationRequest,
+    const forwarded = await measureStrictEcdsaCeremonyStep({
+      registrationTiming: args.registrationTiming,
+      bucket: 'ecdsaRegistrationGatewayRespondMs',
+      operation: forwardStrictEcdsaFamilyRegistration.bind(undefined, {
+        relayerUrl: args.relayerUrl,
+        route: args.route,
+        strictRegistration: created.registrationRequest,
+      }),
     });
-    const verified = await args.context.signingEngine.verifyRouterAbEcdsaRegistrationClientProofs({
-      kind: 'verify_router_ab_ecdsa_registration_client_proofs_v1',
-      ceremonyId,
-      clientProofFinalization: {
-        kind: 'finalize_encrypted_client_proof_bundles_v1',
-        bundles: forwarded.ecdsa.strictResult.response.bundles,
-      },
+    const verified = await measureStrictEcdsaCeremonyStep({
+      registrationTiming: args.registrationTiming,
+      bucket: 'ecdsaRegistrationClientProofVerifyMs',
+      operation: args.context.signingEngine.verifyRouterAbEcdsaRegistrationClientProofs.bind(
+        args.context.signingEngine,
+        {
+          kind: 'verify_router_ab_ecdsa_registration_client_proofs_v1',
+          ceremonyId,
+          clientProofFinalization: {
+            kind: 'finalize_encrypted_client_proof_bundles_v1',
+            bundles: forwarded.ecdsa.strictResult.response.bundles,
+          },
+        },
+      ),
     });
-    const activated = await activateStrictEcdsaFamilyRegistration({
-      relayerUrl: args.relayerUrl,
-      route: args.route,
-      publicFacts: verified.publicFacts,
+    const activated = await measureStrictEcdsaCeremonyStep({
+      registrationTiming: args.registrationTiming,
+      bucket: 'ecdsaRegistrationGatewayActivateMs',
+      operation: activateStrictEcdsaFamilyRegistration.bind(undefined, {
+        relayerUrl: args.relayerUrl,
+        route: args.route,
+        publicFacts: verified.publicFacts,
+      }),
     });
-    const finalized = await args.context.signingEngine.finalizeRouterAbEcdsaRegistrationActivation({
-      kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
-      ceremonyId,
-      relayerKeyId: args.started.prepare.relayerKeyId,
-      activationReceipt: activated.ecdsa.activation,
+    const finalized = await measureStrictEcdsaCeremonyStep({
+      registrationTiming: args.registrationTiming,
+      bucket: 'ecdsaRegistrationClientActivationFinalizeMs',
+      operation: args.context.signingEngine.finalizeRouterAbEcdsaRegistrationActivation.bind(
+        args.context.signingEngine,
+        {
+          kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
+          ceremonyId,
+          relayerKeyId: args.started.prepare.relayerKeyId,
+          activationReceipt: activated.ecdsa.activation,
+        },
+      ),
     });
     const clientBootstrap = buildStrictRegistrationClientBootstrap({
       prepare: args.started.prepare,
@@ -3066,6 +3156,7 @@ function startMixedRegistrationYaoWork(args: {
       ownedPasskeyPrfFirst: base64UrlDecode(args.passkeyAuthority.prfFirstB64u),
     },
     admissionRequest: args.started.ed25519.admissionRequest,
+    admissionReceipt: args.started.ed25519.admissionReceipt,
     httpTransport: {
       kind: 'passkey_ed25519_yao_http_transport_v1',
       routerOrigin: new URL(args.relayerUrl).origin,
@@ -3134,6 +3225,7 @@ async function createEmailOtpRegistrationYaoPending(args: {
       workerContext: args.context.signingEngine.getSignerWorkerContext(),
       pendingFactorHandle: requireEmailOtpEd25519YaoPendingFactorHandle(material),
       admissionRequest: args.started.ed25519.admissionRequest,
+      admissionReceipt: args.started.ed25519.admissionReceipt,
       walletId: args.walletId,
       providerSubject: args.providerSubject,
       registrationAuthorityId: args.registrationAuthorityId,
@@ -3600,7 +3692,7 @@ async function registerEcdsaOrMixedWallet(
     }
     const startedEcdsa = started.ecdsa;
     const ecdsaSession = await registrationTiming.measure(
-      'walletRegisterDerivationRespondMs',
+      'ecdsaRegistrationTotalMs',
       runStrictEcdsaFamilyCeremony.bind(undefined, {
         context,
         relayerUrl,
@@ -3609,6 +3701,7 @@ async function registerEcdsaOrMixedWallet(
           registrationCeremonyId: startedCeremony.registrationCeremonyId,
         },
         started: startedEcdsa,
+        registrationTiming,
       }),
     );
     const emailOtpEnrollmentMaterialForFinalize =
@@ -4290,6 +4383,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         ownedPasskeyPrfFirst: base64UrlDecode(passkeyAuthority.prfFirstB64u),
       },
       admissionRequest: started.ed25519.admissionRequest,
+      admissionReceipt: started.ed25519.admissionReceipt,
       httpTransport: {
         kind: 'passkey_ed25519_yao_http_transport_v1',
         routerOrigin: new URL(relayerUrl).origin,
@@ -4945,6 +5039,7 @@ async function addPasskeyEcdsaWalletSigner(
       addSignerCeremonyId: input.started.addSignerCeremonyId,
     },
     started: input.started.ecdsa,
+    registrationTiming: null,
   });
   const finalized = await finalizeWalletAddSigner({
     relayerUrl: input.relayerUrl,

@@ -26,6 +26,7 @@ import {
   type SigningGrantId,
 } from '@shared/utils/domainIds';
 import {
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoBytes32V1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
@@ -442,6 +443,7 @@ export type WalletRegistrationRouteDiagnostics = {
 
 export type WalletRegistrationEd25519YaoStart = {
   admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
 };
 
 export type WalletRegistrationEcdsaPreparePayload = {
@@ -951,7 +953,9 @@ export type WalletAddSignerStartResponse = {
 } & (
   | {
       kind: 'near_ed25519';
-      ed25519: WalletRegistrationEd25519YaoStart;
+      ed25519: {
+        admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+      };
       ecdsa?: never;
     }
   | {

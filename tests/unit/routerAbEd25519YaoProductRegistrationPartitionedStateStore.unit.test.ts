@@ -119,6 +119,7 @@ async function uncertainTwoPhaseBackend(
 
 class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1 {
   readonly records = new Map<string, StoredRecord>();
+  readManyCallCount = 0;
 
   constructor(private readonly cloneReads = true) {}
 
@@ -128,6 +129,7 @@ class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistratio
       readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
     }[]
   > {
+    this.readManyCallCount += 1;
     return keys.map((key) => {
       const record = this.records.get(key);
       return {
@@ -573,6 +575,7 @@ test.describe('partitioned Gateway product-state composition', () => {
       value: { status: 'activated' },
     });
     expect(harness.events).toEqual(['prepare', 'backend', 'complete']);
+    expect(backend.readManyCallCount).toBe(2);
     await expect(store.load('lifecycle-two-phase')).resolves.toMatchObject({
       state: {
         registration: {

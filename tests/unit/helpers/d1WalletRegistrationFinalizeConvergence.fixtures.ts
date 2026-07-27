@@ -626,6 +626,18 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
     return await this.delegate.bindVerifiedIntent(input);
   }
 
+  async bindAndAdmitVerifiedRegistration(
+    input: Parameters<
+      RouterAbEd25519YaoProductRegistrationRuntimeV1['bindAndAdmitVerifiedRegistration']
+    >[0],
+  ): Promise<
+    Awaited<
+      ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['bindAndAdmitVerifiedRegistration']>
+    >
+  > {
+    return await this.delegate.bindAndAdmitVerifiedRegistration(input);
+  }
+
   async consumeActivated(
     input: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']>[0],
   ): Promise<
@@ -789,6 +801,7 @@ function testRpId() {
 function buildCeremony(input: {
   readonly walletId: WalletId;
   readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
   readonly accountProvisioning: RegistrationNearAccountProvisioning;
 }): StoredWalletRegistrationCeremony {
   const signerSelection: RegistrationSignerSetSelection = {
@@ -838,6 +851,7 @@ function buildCeremony(input: {
         buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch({
           branchKey: registrationNearEd25519BranchKey(1),
           admissionRequest: input.admissionRequest,
+          admissionReceipt: input.admissionReceipt,
         }),
       ],
     },
@@ -1044,6 +1058,7 @@ async function createFinalizeConvergenceHarnessForMode(
     buildCeremony({
       walletId,
       admissionRequest: yao.admissionRequest,
+      admissionReceipt: buildAdmissionReceipt(yao.activationResult),
       accountProvisioning: accountProvisioningForMode(mode),
     }),
   );
