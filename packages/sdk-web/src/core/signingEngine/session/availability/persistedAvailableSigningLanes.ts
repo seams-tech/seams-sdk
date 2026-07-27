@@ -57,7 +57,7 @@ import {
   type AvailableSigningLanesRuntimeEcdsaRecord,
   type AvailableSigningLanesRuntimeEd25519Record,
 } from './availableSigningLanes';
-import type { EvmFamilyEcdsaSigningCapability } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildPasskeyEcdsaAuthBinding,
@@ -74,7 +74,7 @@ export type PersistedAvailableSigningLanesDeps = {
     walletId: string;
     chainTargets: readonly ThresholdEcdsaChainTarget[];
     authMethod?: SignerAuthMethod;
-  }) => Promise<readonly EvmFamilyEcdsaSigningCapability[]>;
+  }) => Promise<readonly CanonicalEvmFamilyEcdsaSigningCapability[]>;
   statusReader: {
     getWarmSessionStatus: (args: { sessionId: string }) => Promise<WarmSessionStatusResult>;
   };

@@ -33,7 +33,7 @@ import {
   buildReadySecp256k1SigningMaterial,
   type ReadySecp256k1SigningMaterial,
 } from './signers/secp256k1';
-import type { EvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
+import type { CanonicalEvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
 
 type EcdsaSessionChain = 'tempo' | 'evm';
 
@@ -112,7 +112,7 @@ function parseCanonicalEcdsaSessionIdentity(walletSessionJwt: string): {
 }
 
 export async function resolveReadySecp256k1SigningMaterial(args: {
-  capability: EvmFamilyEcdsaSigningCapability;
+  capability: CanonicalEvmFamilyEcdsaSigningCapability;
   relayerUrl: string;
   requestLabel: unknown;
   materialActivation: MpcMaterialActivationRef;
