@@ -89,7 +89,7 @@ export async function authorizeEvmFamilyEcdsaOperationStepUp(args: {
       : { kind: 'app_session_cookie' as const };
   return buildReadySecp256k1SigningMaterial({
     walletId: args.material.walletId,
-    signerSession,
+    signerSession: args.material.signerSession,
     authorization: grant.authorization,
     credential,
     expiresAtMs: grant.expires_at_ms,

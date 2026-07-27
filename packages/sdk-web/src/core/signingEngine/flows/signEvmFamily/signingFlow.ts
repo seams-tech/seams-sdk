@@ -420,12 +420,21 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     if (!thresholdEcdsaStepUpRuntime) {
       throw new Error('[chains] ECDSA operation step-up runtime is unavailable');
     }
+    // NOTE: preparation runs here, after confirmation, which preserves the
+    // pre-cutover ordering but leaves the passkey challenge bound to the
+    // placeholder digest rather than this prepared operation. Correcting that
+    // ordering is the operation-step-up challenge-binding fix, tracked
+    // separately -- it is deliberately not attempted here.
+    const prepared = await thresholdEcdsaStepUpRuntime.operationStepUp.prepare({
+      operation,
+      operationDigests,
+      material: source.material,
+    });
     return {
       kind: 'material_from_step_up',
       material: await thresholdEcdsaStepUpRuntime.operationStepUp.authorize({
         authorization: stepUpAuthorization,
-        operation,
-        operationDigests,
+        prepared,
         material: source.material,
       }),
     };
