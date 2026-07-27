@@ -8,6 +8,24 @@ here.
 
 ## July 27, 2026: Canonical Sealing And Server Reconciliation Implemented
 
+- Wired registration and add-signer through the exact canonical activation
+  planner, encrypted worker journal, server commit, journal-backed finalizer,
+  and atomic canonical material publication as `ab510dab8`.
+- Moved ECDSA refresh and export hydration to exact canonical material refs.
+  The tactical role-local store and its two IndexedDB object stores were
+  deleted in the same checkpoint; the wallet schema advanced to v11.
+- Added immediate activation reconciliation as `4c9e8c942`: ambiguous committed
+  requests query then replay exactly for bootstrap, `not_committed` retries the
+  exact command, and correlation conflicts fail closed while retaining the
+  journal.
+- Validation: SDK and unit type checks pass; canonical store, schema,
+  rehydration, registration orchestration, and worker waterfall tests pass 55
+  of 55; focused IndexedDB, worker-split, ECDSA identity, and key-material
+  boundary guards pass; Prettier and `git diff --check` pass.
+- `R90-INV-005`, `R90-INV-006`, and `R90-INV-011` now have implementation and
+  focused verification evidence. Foundation B remains open for a real
+  destroy/reopen/hydrate/sign test and deletion of the legacy session-record
+  family.
 - Connected SDK-server registration and add-signer activation to the
   non-consuming prepare boundary before commit as `112fda830`. Commit now
   carries and verifies the exact prepared request digest.
