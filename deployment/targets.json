@@ -55,10 +55,7 @@
         "enabled": true,
         "owner": "gateway",
         "secrets": [
-          "STRIPE_API_SK",
-          "STRIPE_WEBHOOK_SECRET",
-          "RESEND_API_KEY",
-          "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U"
+          "STRIPE_API_SK"
         ]
       },
       "sponsoredExecution": {
@@ -130,10 +127,7 @@
         "enabled": true,
         "owner": "gateway",
         "secrets": [
-          "STRIPE_API_SK",
-          "STRIPE_WEBHOOK_SECRET",
-          "RESEND_API_KEY",
-          "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U"
+          "STRIPE_API_SK"
         ]
       },
       "sponsoredExecution": {
