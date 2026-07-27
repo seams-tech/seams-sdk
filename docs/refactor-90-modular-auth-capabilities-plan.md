@@ -83,7 +83,7 @@ their implementation ownership without restating them.
 
 | Decision                                         | Normative invariants                                                                     | Owning unit        | Load-bearing result                                                                                         |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------- |
-| Exact subject resolution and canonical hydration | `R90-INV-001`, `R90-INV-002`, `R90-INV-003`                                              | Unit 1             | Each protocol-local resolver returns the same four-outcome union.                                           |
+| Exact subject resolution and canonical hydration | `R90-INV-001`, `R90-INV-002`, `R90-INV-003`                                              | Units 1 and 3a      | Unit 1 establishes the shared contract and ECDSA adapter; Unit 3a supplies the canonical Near adapter.       |
 | ECDSA persistence and activation identity        | `R90-INV-001`, `R90-INV-002`, `R90-INV-005`, `R90-INV-006`, `R90-INV-011`, `R90-INV-013` | Unit 1             | Required `active \| retired` records and stable material activation identity replace optional session bags. |
 | Durable recovery journals                        | `R90-INV-004`, `R90-INV-005`, `R90-INV-006`, `R90-INV-007`                               | Units 1 and 3a     | Durable state records server uncertainty and final material promotion only.                                 |
 | Preparation outcomes                             | `R90-INV-010`                                                                            | Units 3a and 4     | Every preparation ends as `ready`, `pending`, `authorization_required`, `superseded`, or `failed`.          |
@@ -226,7 +226,6 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
 - [x] Define the protocol-neutral four-outcome hydration union.
 - [x] Add branch-specific builders and type fixtures that reject invalid
       combinations.
-- [ ] Normalize NEAR observations once into the shared hydration input.
 - [ ] Normalize ECDSA observations once into the shared hydration input.
 - [ ] Prove live runtime, local rehydration, public-anchor reauthorization, and
       blocked behavior for registration, unlock, and refresh.
@@ -236,6 +235,11 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
 - [ ] Prove routine Passkey/OTP local rehydration makes zero Deriver A/B calls.
 - [ ] Fail closed for missing, mismatched, corrupt, conflicting, or unavailable
       canonical observations.
+
+Near normalization begins Unit 3a after its session-shaped persistence and
+runtime identity are replaced. An adapter over `thresholdSessionId` or
+`activeStateSessionId` would preserve the identity coupling this refactor
+removes.
 
 ### 1C. Canonical ECDSA record and activation journal
 
@@ -407,6 +411,8 @@ the replacement and legacy MPC paths must not ship together.
       and sealed recovery source; create no parallel D1/DO material owner.
 - [ ] Parse Near persistence once with no dual-schema core reader or legacy
       lifecycle inference.
+- [ ] Normalize the exact Near record, runtime binding, and unlock-source
+      observation once into the shared hydration input.
 - [ ] Reduce NEAR recovery persistence to `prepared | promotion_committed`.
 - [ ] Persist `prepared` before the first consuming call, query before replay
       after reload, and persist `promotion_committed` from the exact receipt.
