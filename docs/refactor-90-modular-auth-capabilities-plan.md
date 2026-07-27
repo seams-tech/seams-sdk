@@ -333,11 +333,11 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
       policy grammar or speculative factor/provider taxonomy.
 - [x] Preserve Refactor 82B `WalletAuthAuthority` types and fixtures as the
       baseline instead of restaging that cut.
-- [ ] Make SDK capability selection exhaustive and reject implicit fallbacks.
-- [ ] Make disabled capability requests fail early with a typed result.
+- [x] Make SDK capability selection exhaustive and reject implicit fallbacks.
+- [x] Make disabled capability requests fail early with a typed result.
 - [x] Keep protocol, auth method, capability, and lifecycle as separate unions.
 - [ ] Remove duplicate aliases and direct string comparisons from generic code.
-- [ ] Add type fixtures for invalid capability/auth/protocol combinations.
+- [x] Add type fixtures for invalid capability/auth/protocol combinations.
 
 ### Ports and host-independent assembly
 
@@ -357,19 +357,19 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 - [ ] Persist precise records for session exchange codes, authorization
       sessions, factor evidence, capability instances/bindings, operation
       grants, operation claims, and audit events.
-- [ ] Implement opaque native session exchange bound to tenant, principal,
+- [x] Implement opaque native session exchange bound to tenant, principal,
       audience/origin, and the minimum required device fact.
-- [ ] Keep session transport and management authorization separate from
+- [x] Keep session transport and management authorization separate from
       capability-operation grants.
 - [ ] Normalize DB and route data once into required-field domain unions.
-- [ ] Define the stable operation fingerprint from operation semantics without
+- [x] Define the stable operation fingerprint from operation semantics without
       rotating authorization, quota, session, or runtime identities.
-- [ ] Atomically create an absent claim, consume its grant, and consume reusable
+- [x] Atomically create an absent claim, consume its grant, and consume reusable
       quota when the operation declares quota use.
-- [ ] Make repeated claims return the recorded outcome without double
+- [x] Make repeated claims return the recorded outcome without double
       consumption.
-- [ ] Keep export quota-neutral.
-- [ ] Keep step-up grants single-operation and incapable of creating a reusable
+- [x] Keep export quota-neutral.
+- [x] Keep step-up grants single-operation and incapable of creating a reusable
       Wallet Session.
 
 ### Shared authorization behavior
@@ -380,10 +380,10 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
       current authorization state.
 - [ ] Fail `mpc_signer_proof` policy evaluation closed until a verified producer
       exists.
-- [ ] Audit records the decision and identifiers without secret material.
+- [x] Audit records the decision and identifiers without secret material.
 - [ ] Move management and session routes to exact subjects, keep their policy
       separate from operation grants, and delete wallet-first policy aliases.
-- [ ] One DB-backed integration test proves
+- [x] One DB-backed integration test proves
       session → evidence → grant → claim → audit before Units 3a/3b depend on the
       core.
 - [ ] Keep the no-factor-literal guard in generic preparation and coordination

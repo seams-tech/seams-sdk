@@ -99,6 +99,9 @@ replacement.
   failures instead)
 - fallback paths inferring a wallet from `nearAccountId` outside explicit
   boundary parsers
+- ~~the missing-`ClientUserData.authMethod` → Passkey fallback during NEAR
+  unlock~~ — deleted by `4f51048c5`; malformed stored projections now fail
+  before a prompt
 
 ## Phase 5 — role-local material identity
 
@@ -125,6 +128,10 @@ replacement.
 - ~~the legacy regression expectation that Tempo and ARC produce different
   role-local worker material handles for the same material~~ — deleted in
   `fcdf0ad3c`; the lane-level mismatch-rejection test remains open
+- ~~`roleLocalDurableMaterialRef` as a standalone field on
+  `ThresholdEcdsaSessionRecord*` and sealed ECDSA session/recovery payloads~~ —
+  replaced by the exact `EcdsaRoleLocalPersistedMaterialRef`, including
+  `MpcMaterialActivationRef`, in `fc0e4874e`
 
 ## Phase 17 — interim authority adapters
 
@@ -375,6 +382,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - remaining `signing-session` terminology and old route planes
   (`threshold_session`, `user_session` on migrated surfaces)
 - wallet-only `AuthMethod` usages outside capability-local modules
+- ~~optional `authMethod` and implicit Passkey defaults on generic
+  `registerNearWallet` / `registerEvmWallet` host and iframe paths~~ — deleted
+  by `4f51048c5`; Passkey-named convenience APIs remain explicit
 - auto-signer registration paths
 - public exports implying wallet-only auth/sessions/grants
 - source guards and fixtures whose invariant became structural during the
