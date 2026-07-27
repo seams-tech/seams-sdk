@@ -87,7 +87,7 @@ import {
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
 } from '@seams/sdk-server/cloud-host';
-import { createCloudflareCron, resolveCloudflareConsoleEmailDispatchCronOptions } from './cron';
+import { createCloudflareCron } from './cron';
 import type { RouterApiCloudflareConsoleWorkerEnv } from './cloudflareConsole.types';
 
 export { ThresholdStoreDurableObject };
@@ -397,7 +397,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS),
     auth: consoleAuth,
     readyCheck: createRouterApiReadyCheck(env),
-    billingStripeWebhookSigningSecret: requireEnvString(env, 'STRIPE_WEBHOOK_SECRET'),
+    billingStripeWebhookSigningSecret: readEnvString(env, 'STRIPE_WEBHOOK_SECRET'),
   });
   return dispatchHostedGatewayRequest.bind(null, consoleHandler, routerApiHandler);
 }
@@ -684,14 +684,7 @@ async function fetch(
 }
 
 function gatewayScheduledHandler(env: CloudflareD1RouterApiStagingEnv): ScheduledHandler {
-  return createCloudflareCron({
-    consoleEmailDispatch: resolveCloudflareConsoleEmailDispatchCronOptions({
-      env,
-      database: env.CONSOLE_DB,
-      namespace: requireEnvString(env, 'SEAMS_TENANT_STORAGE_NAMESPACE'),
-      ensureSchema: false,
-    }),
-  });
+  return createCloudflareCron({});
 }
 
 async function scheduled(
