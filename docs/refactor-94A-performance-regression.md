@@ -381,6 +381,35 @@ separate admission call (Phase 4).
 This is the local lower bound. The same buckets will attribute the 2,348 ms
 production interval once the instrumentation is deployed.
 
+### Staging gap: Email OTP bypasses the capture point
+
+Two staging Email OTP registrations on 2026-07-28 returned **no** `yaoServer*Ms`
+or `yaoBranchTotalMs` values. Two independent causes:
+
+1. The deployed frontend predates the bucket commit — its `timings` object goes
+   straight from `emailOtpYaoTotalMs` to `walletRegisterStartMs`.
+2. More fundamentally, **the capture only covers the passkey path.**
+   `Server-Timing` is read in the main-thread
+   `RouterAbEd25519YaoHttpActivationTransportV1`, but Email OTP runs its Yao
+   ceremony inside the Email OTP worker
+   (`startEmailOtpEd25519YaoWorkerRegistrationV1` →
+   `workerContext.requestWorkerOperation`), which issues the execute call
+   itself. The header never reaches the main thread.
+
+So `emailOtpYaoWorkerRegistrationMs` — 2,171 ms warm, 4,017 ms cold on staging —
+is still unattributed. Locating it requires the worker transport to capture the
+header and return it alongside its result, mirroring what the main-thread
+transport already does.
+
+- [ ] Capture `Server-Timing` in the Email OTP worker's Yao transport and
+      surface it through the worker result.
+
+Note also that every `ecdsaRegistrationWarmSession*` bucket is 0 on the staging
+Email OTP runs, so the Shamir 3-pass seal path — the suspected cost in the local
+613 ms window — is a **passkey** path. The Shamir prewarm therefore targets
+passkey registration, not Email OTP. The Email OTP Yao prewarm already exists
+and works: `emailOtpYaoPrewarm` reports 107 ms with 105 ms of WASM init.
+
 `yaoAdmissionMs` (admission-receipt parse and scope validation) and
 `yaoClientSessionCreateMs` (WASM registration-session construction) are
 measured inside `yaoClient.ts` and returned on the success result, then
