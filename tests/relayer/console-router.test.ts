@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createHmac } from 'node:crypto';
 import {
   createConsoleRouter,
   createInMemoryConsoleApprovalService,
@@ -13,7 +14,7 @@ import {
   createInMemoryConsoleOrgProjectEnvService,
   createInMemoryConsolePolicyService,
   createInMemoryConsoleRuntimeSnapshotService,
-  createInMemoryConsoleTeamRbacService,
+  createInMemoryConsoleOrganizationAccessService,
   createInMemoryConsoleWalletService,
   createInMemoryConsoleWebhookService,
   type ConsoleApiKeyService,
@@ -21,6 +22,8 @@ import {
   type ConsoleAuditService,
   type ConsoleAuditExportsService,
   type ConsoleAuthAdapter,
+  type ConsoleAuthAdapterResult,
+  type ConsoleAuthClaims,
   type ConsoleBillingService,
   type ConsoleObservabilityService,
   type ConsoleEnterpriseIsolationService,
@@ -28,17 +31,78 @@ import {
   type ConsoleOrgProjectEnvService,
   type ConsolePolicyService,
   type ConsoleWallet,
-  type ConsoleTeamRbacService,
   type ConsoleWalletService,
   type ConsoleWebhookService,
+  type OrganizationAdminPermission,
+  type ProjectAccessAssignment,
 } from '@seams-internal/console-server/router/express-adaptor';
 import { createCloudflareConsoleRouter } from '@seams-internal/console-server/router/cloudflare-adaptor';
 import { callCf, fetchJson, getPath, startExpressRouter } from './helpers';
 import type {
   PostgresTenantStorageRoute,
   TenantStorageRouteResolver,
-} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+} from '../../packages/console-server-ts/src/router/cloudflare/tenantStorageRoute';
 import { parseOrgId, type OrgId } from '../../packages/shared-ts/src/utils/domainIds';
+
+function stripeSignatureHeader(secret: string, rawBody: string): string {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const signature = createHmac('sha256', secret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest('hex');
+  return `t=${timestamp},v1=${signature}`;
+}
+
+function stripeCheckoutCompletedBody(input: {
+  eventId: string;
+  orgId: string;
+  checkoutSessionId: string;
+  providerCustomerRef?: string;
+  providerPaymentRef?: string;
+  purchaseId?: string;
+  creditPackId?: 'usd_10' | 'usd_25' | 'usd_50';
+  amountMinor?: number;
+}): string {
+  return JSON.stringify({
+    id: input.eventId,
+    type: 'checkout.session.completed',
+    data: {
+      object: {
+        id: input.checkoutSessionId,
+        client_reference_id: input.orgId,
+        customer: input.providerCustomerRef || `cus_${input.checkoutSessionId}`,
+        payment_intent: input.providerPaymentRef || `pi_${input.checkoutSessionId}`,
+        payment_status: 'paid',
+        currency: 'usd',
+        amount_total: input.amountMinor || 2500,
+        metadata: {
+          org_id: input.orgId,
+          purchase_id: input.purchaseId || `purchase_${input.checkoutSessionId}`,
+          credit_pack_id: input.creditPackId || 'usd_25',
+        },
+      },
+    },
+  });
+}
+
+async function createSettledBillingPurchase(
+  billing: ConsoleBillingService,
+  orgId: string,
+): Promise<{ id: string }> {
+  const billingContext = {
+    orgId,
+    actorUserId: 'refund-route-fixture',
+  };
+  const checkout = await billing.createStripeCheckoutSession(billingContext, {
+    creditPackId: 'usd_25',
+  });
+  const settled = await billing.reconcileStripeCheckoutSession(billingContext, {
+    checkoutSessionId: checkout.id,
+  });
+  if (!settled.purchase || settled.purchase.status !== 'SETTLED') {
+    throw new Error('Expected refund route fixture purchase to settle');
+  }
+  return settled.purchase;
+}
 
 function orgIdFromString(input: string): OrgId {
   const parsed = parseOrgId(input);
@@ -81,21 +145,123 @@ const postgresTenantStorageRouteResolver: TenantStorageRouteResolver = {
   },
 };
 
+type ConsoleAuthFixtureAuthorization =
+  | { readonly kind: 'owner' }
+  | {
+      readonly kind: 'admin';
+      readonly adminPermissions: readonly OrganizationAdminPermission[];
+    }
+  | {
+      readonly kind: 'member';
+      readonly projectAccess: readonly ProjectAccessAssignment[];
+    };
+
+interface ConsoleAuthFixtureInput {
+  readonly authorization: ConsoleAuthFixtureAuthorization;
+  readonly support: 'organization' | 'platform';
+}
+
+const CONSOLE_AUTH_OWNER = {
+  authorization: { kind: 'owner' },
+  support: 'organization',
+} as const satisfies ConsoleAuthFixtureInput;
+
+const CONSOLE_AUTH_BILLING_MANAGER = {
+  authorization: {
+    kind: 'admin',
+    adminPermissions: ['billing.view', 'billing.manage'],
+  },
+  support: 'organization',
+} as const satisfies ConsoleAuthFixtureInput;
+
+const CONSOLE_AUTH_MEMBER = {
+  authorization: {
+    kind: 'member',
+    projectAccess: [],
+  },
+  support: 'organization',
+} as const satisfies ConsoleAuthFixtureInput;
+
+const CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER = {
+  authorization: { kind: 'owner' },
+  support: 'platform',
+} as const satisfies ConsoleAuthFixtureInput;
+
+const CONSOLE_AUTH_PLATFORM_SUPPORT_BILLING_ADMIN = {
+  authorization: {
+    kind: 'admin',
+    adminPermissions: ['billing.view', 'billing.manage'],
+  },
+  support: 'platform',
+} as const satisfies ConsoleAuthFixtureInput;
+
+function assertNeverConsoleAuthFixture(input: never): never {
+  throw new Error(`Unsupported console auth fixture: ${JSON.stringify(input)}`);
+}
+
+function makeConsoleAuthClaims(
+  input: ConsoleAuthFixtureInput,
+  orgId: string,
+  userId: string,
+): ConsoleAuthClaims {
+  const common = {
+    userId,
+    orgId,
+    platformSupport: input.support === 'platform',
+    membershipId: `membership-${userId}`,
+    authorizationVersion: 1,
+    email: `${userId}@example.com`,
+    name: userId,
+  };
+
+  switch (input.authorization.kind) {
+    case 'owner':
+      return {
+        ...common,
+        role: 'OWNER',
+        adminPermissions: ['members.manage', 'projects.manage', 'billing.view', 'billing.manage'],
+        projectAccess: { kind: 'all' },
+      };
+    case 'admin':
+      return {
+        ...common,
+        role: 'ADMIN',
+        adminPermissions: input.authorization.adminPermissions,
+        projectAccess: { kind: 'all' },
+      };
+    case 'member':
+      return {
+        ...common,
+        role: 'MEMBER',
+        adminPermissions: [],
+        projectAccess: {
+          kind: 'assigned',
+          assignments: input.authorization.projectAccess,
+        },
+      };
+    default:
+      return assertNeverConsoleAuthFixture(input.authorization);
+  }
+}
+
+class ConsoleAuthFixtureAdapter implements ConsoleAuthAdapter {
+  readonly #claims: ConsoleAuthClaims;
+
+  constructor(claims: ConsoleAuthClaims) {
+    this.#claims = claims;
+  }
+
+  authenticate(): ConsoleAuthAdapterResult {
+    return { ok: true, claims: this.#claims };
+  }
+}
+
 function makeConsoleAuthAdapter(
-  roles: string[],
+  input: ConsoleAuthFixtureInput,
   orgId = 'org-1',
   userId = 'user-1',
 ): ConsoleAuthAdapter {
-  return {
-    authenticate: async () => ({
-      ok: true,
-      claims: {
-        userId,
-        orgId,
-        roles,
-      },
-    }),
-  };
+  return new ConsoleAuthFixtureAdapter(makeConsoleAuthClaims(input, orgId, userId));
 }
 
 type EvmGasSponsorshipRulesFixtureInput = {
@@ -273,7 +439,6 @@ async function seedOrgProjectEnvironment(
   const ctx = {
     orgId: input.orgId,
     actorUserId: input.actorUserId,
-    roles: ['admin'],
   };
   await service.upsertOrganization(ctx, {
     name: 'Default Organization',
@@ -310,7 +475,7 @@ test.describe('console router (express)', () => {
 
   test('GET /console/webhooks returns webhooks_not_configured without webhook service', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -324,7 +489,7 @@ test.describe('console router (express)', () => {
 
   test('GET /console/api-keys returns api_keys_not_configured without API key service', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -338,7 +503,7 @@ test.describe('console router (express)', () => {
 
   test('GET /console/org returns org_project_env_not_configured without org/project/env service', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -350,23 +515,9 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('GET /console/members returns team_rbac_not_configured without Team RBAC service', async () => {
-    const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const res = await fetchJson(`${srv.baseUrl}/console/members`, { method: 'GET' });
-      expect(res.status).toBe(501);
-      expect(res.json?.code).toBe('team_rbac_not_configured');
-    } finally {
-      await srv.close();
-    }
-  });
-
   test('GET /console/approvals returns approvals_not_configured without approvals service', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -380,7 +531,7 @@ test.describe('console router (express)', () => {
 
   test('GET /console/audit/events returns audit_not_configured without audit service', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -394,7 +545,7 @@ test.describe('console router (express)', () => {
 
   test('GET /console/audit/exports returns audit_exports_not_configured without export service', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -408,7 +559,7 @@ test.describe('console router (express)', () => {
 
   test('GET /console/observability/summary returns observability_not_configured without service', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -425,8 +576,7 @@ test.describe('console router (express)', () => {
   test('GET /console/observability/* returns scaffolded responses when service is configured', async () => {
     const observability = createInMemoryConsoleObservabilityService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['support'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-observability-express',
         'user-observability-express',
       ),
@@ -473,8 +623,7 @@ test.describe('console router (express)', () => {
       event: Record<string, unknown>;
     }> = [];
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['support'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-observability-express-read-noise',
         'user-observability-express-read-noise',
       ),
@@ -502,8 +651,7 @@ test.describe('console router (express)', () => {
   test('GET /console/observability/* requires observability read role', async () => {
     const observability = createInMemoryConsoleObservabilityService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-observability-express-forbidden',
         'user-observability-express-forbidden',
       ),
@@ -530,8 +678,7 @@ test.describe('console router (express)', () => {
   test('GET /console/observability/events rejects query windows larger than 7 days', async () => {
     const observability = createInMemoryConsoleObservabilityService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['ops'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-observability-express-window',
         'user-observability-express-window',
       ),
@@ -553,8 +700,7 @@ test.describe('console router (express)', () => {
   test('GET /console/observability/events forwards component and query filters to observability service', async () => {
     const recorder = makeObservabilityRequestRecorder();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['ops'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-observability-express-component',
         'user-observability-express-component',
       ),
@@ -597,8 +743,7 @@ test.describe('console router (express)', () => {
       },
     };
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-observability-express-failure',
         'user-observability-express-failure',
       ),
@@ -657,8 +802,7 @@ test.describe('console router (express)', () => {
       },
     };
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['ops'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-observability-express-billing',
         'user-observability-express-billing',
       ),
@@ -716,8 +860,7 @@ test.describe('console router (express)', () => {
       },
     };
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-observability-express-reconcile',
         'user-observability-express-reconcile',
       ),
@@ -766,7 +909,7 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('invalid Stripe webhook secrets emit invalid signature observability events (express)', async () => {
+  test('invalid Stripe signatures emit observability events (express)', async () => {
     const ingested: Array<{
       ingestCtx: Record<string, unknown>;
       event: Record<string, unknown>;
@@ -774,28 +917,28 @@ test.describe('console router (express)', () => {
     const observabilityIngestion = makeObservabilityIngestionCollector(ingested);
     const router = createConsoleRouter({
       billing: createInMemoryConsoleBillingService(),
-      billingStripeWebhookSecret: 'whsec_expected_express',
+      billingStripeWebhookSigningSecret: 'whsec_expected_express',
       observabilityIngestion,
     });
     const srv = await startExpressRouter(router);
     try {
+      const rawBody = stripeCheckoutCompletedBody({
+        eventId: 'evt_obs_invalid_signature',
+        orgId: 'org-observability-express-webhook-invalid',
+        checkoutSessionId: 'cs_obs_invalid_signature',
+        providerPaymentRef: 'cs_obs_invalid_signature',
+      });
       const res = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-console-stripe-webhook-secret': 'whsec_wrong_express',
+          'Stripe-Signature': stripeSignatureHeader('whsec_wrong_express', rawBody),
           'x-request-id': 'req_obs_stripe_invalid_signature',
         },
-        body: JSON.stringify({
-          eventId: 'evt_obs_invalid_signature',
-          eventType: 'checkout.session.completed',
-          orgId: 'org-observability-express-webhook-invalid',
-          checkoutSessionId: 'cs_obs_invalid_signature',
-          providerRef: 'cs_obs_invalid_signature',
-        }),
+        body: rawBody,
       });
-      expect(res.status).toBe(401);
-      expect(res.json?.code).toBe('unauthorized');
+      expect(res.status).toBe(400);
+      expect(res.json?.code).toBe('invalid_stripe_signature');
 
       await expect
         .poll(
@@ -842,25 +985,28 @@ test.describe('console router (express)', () => {
     };
     const router = createConsoleRouter({
       billing: failingBilling,
-      billingStripeWebhookSecret: 'whsec_expected_processing_express',
+      billingStripeWebhookSigningSecret: 'whsec_expected_processing_express',
       observabilityIngestion,
     });
     const srv = await startExpressRouter(router);
     try {
+      const rawBody = stripeCheckoutCompletedBody({
+        eventId: 'evt_obs_processing_failed',
+        orgId: 'org-observability-express-webhook-processing',
+        checkoutSessionId: 'cs_obs_processing_failed',
+        providerPaymentRef: 'cs_obs_processing_failed',
+      });
       const res = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-console-stripe-webhook-secret': 'whsec_expected_processing_express',
+          'Stripe-Signature': stripeSignatureHeader(
+            'whsec_expected_processing_express',
+            rawBody,
+          ),
           'x-request-id': 'req_obs_stripe_processing',
         },
-        body: JSON.stringify({
-          eventId: 'evt_obs_processing_failed',
-          eventType: 'checkout.session.completed',
-          orgId: 'org-observability-express-webhook-processing',
-          checkoutSessionId: 'cs_obs_processing_failed',
-          providerRef: 'cs_obs_processing_failed',
-        }),
+        body: rawBody,
       });
       expect(res.status).toBe(500);
       expect(res.json?.code).toBe('internal');
@@ -897,7 +1043,7 @@ test.describe('console router (express)', () => {
 
   test('GET /console/isolation/status returns enterprise_isolation_not_configured without service', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -911,7 +1057,7 @@ test.describe('console router (express)', () => {
 
   test('GET /console/onboarding/state and telemetry return onboarding_not_configured without onboarding service', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -934,11 +1080,10 @@ test.describe('console router (express)', () => {
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
       apiKeys: createInMemoryConsoleApiKeyService(),
       billing: createInMemoryConsoleBillingService(),
-      teamRbac: createInMemoryConsoleTeamRbacService(),
+      organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-onboarding-telemetry-role',
         'user-onboarding-telemetry-role',
       ),
@@ -961,11 +1106,10 @@ test.describe('console router (express)', () => {
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
       apiKeys: createInMemoryConsoleApiKeyService(),
       billing: createInMemoryConsoleBillingService(),
-      teamRbac: createInMemoryConsoleTeamRbacService(),
+      organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-onboarding-telemetry-query',
         'user-onboarding-telemetry-query',
       ),
@@ -986,8 +1130,7 @@ test.describe('console router (express)', () => {
   test('GET /console/ops-cockpit/summary aggregates operator queues', async () => {
     const orgId = 'org-ops-cockpit-summary-express';
     const actorUserId = 'user-ops-cockpit-summary-express';
-    const roles = ['admin'];
-    const serviceCtx = { orgId, actorUserId, roles };
+    const serviceCtx = { orgId, actorUserId };
 
     const approvals = createInMemoryConsoleApprovalService();
     const billing = createInMemoryConsoleBillingService();
@@ -1008,7 +1151,7 @@ test.describe('console router (express)', () => {
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
       apiKeys: createInMemoryConsoleApiKeyService(),
       billing,
-      teamRbac: createInMemoryConsoleTeamRbacService(),
+      organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
 
     await approvals.createApprovalRequest(serviceCtx, {
@@ -1041,7 +1184,7 @@ test.describe('console router (express)', () => {
     });
 
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(roles, orgId, actorUserId),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, orgId, actorUserId),
       approvals,
       billing,
       webhooks,
@@ -1074,10 +1217,10 @@ test.describe('console router (express)', () => {
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
       apiKeys: createInMemoryConsoleApiKeyService(),
       billing: createInMemoryConsoleBillingService(),
-      teamRbac: createInMemoryConsoleTeamRbacService(),
+      organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['security_admin'], orgId, actorUserId),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, orgId, actorUserId),
       onboarding,
     });
     const srv = await startExpressRouter(router);
@@ -1099,8 +1242,7 @@ test.describe('console router (express)', () => {
 
   test('GET /console/ops-cockpit/summary requires ops cockpit read role', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-ops-cockpit-summary-forbidden-express',
         'user-ops-cockpit-summary-forbidden-express',
       ),
@@ -1108,7 +1250,7 @@ test.describe('console router (express)', () => {
         orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
         apiKeys: createInMemoryConsoleApiKeyService(),
         billing: createInMemoryConsoleBillingService(),
-        teamRbac: createInMemoryConsoleTeamRbacService(),
+        organizationAccess: createInMemoryConsoleOrganizationAccessService(),
       }),
     });
     const srv = await startExpressRouter(router);
@@ -1127,19 +1269,19 @@ test.describe('console router (express)', () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const apiKeys = createInMemoryConsoleApiKeyService();
     const billing = createInMemoryConsoleBillingService();
-    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const organizationAccess = createInMemoryConsoleOrganizationAccessService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv,
       apiKeys,
       billing,
-      teamRbac,
+      organizationAccess,
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-onboarding-1', 'user-onboarding-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-onboarding-1', 'user-onboarding-1'),
       onboarding,
       billing,
-      teamRbac,
+      organizationAccess,
       audit,
     });
     const srv = await startExpressRouter(router);
@@ -1209,23 +1351,12 @@ test.describe('console router (express)', () => {
       expect(actions).not.toContain('environment.create');
       expect(actions).not.toContain('api_key.create');
 
-      const members = await fetchJson(`${srv.baseUrl}/console/members?status=ACTIVE`, {
-        method: 'GET',
+      const actorAuthorization = await organizationAccess.lookupAuthorization({
+        orgId: 'org-onboarding-1',
+        userId: 'user-onboarding-1',
       });
-      expect(members.status).toBe(200);
-      const memberRows = Array.isArray(members.json?.members) ? members.json?.members : [];
-      const actorMember = memberRows.find(
-        (entry: any) => String(entry?.userId || '') === 'user-onboarding-1',
-      );
-      expect(actorMember).toBeTruthy();
-      const actorRoles = Array.isArray(actorMember?.roles) ? actorMember.roles : [];
-      expect(
-        actorRoles.some(
-          (entry: any) =>
-            String(entry?.scope || '').toUpperCase() === 'ORG' &&
-            String(entry?.role || '').toLowerCase() === 'owner',
-        ),
-      ).toBe(true);
+      expect(actorAuthorization?.kind).toBe('authorized');
+      expect(actorAuthorization?.role).toBe('OWNER');
     } finally {
       await srv.close();
     }
@@ -1234,20 +1365,19 @@ test.describe('console router (express)', () => {
   test('onboarding organization step configures org profile and is idempotent', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const organizationAccess = createInMemoryConsoleOrganizationAccessService();
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv,
       apiKeys,
-      teamRbac,
+      organizationAccess,
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-onboarding-org-step',
         'user-onboarding-org-step',
       ),
       onboarding,
-      teamRbac,
+      organizationAccess,
     });
     const srv = await startExpressRouter(router);
     try {
@@ -1291,22 +1421,21 @@ test.describe('console router (express)', () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const apiKeys = createInMemoryConsoleApiKeyService();
     const billing = createInMemoryConsoleBillingService();
-    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const organizationAccess = createInMemoryConsoleOrganizationAccessService();
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv,
       apiKeys,
       billing,
-      teamRbac,
+      organizationAccess,
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-onboarding-project-step',
         'user-onboarding-project-step',
       ),
       onboarding,
       billing,
-      teamRbac,
+      organizationAccess,
     });
     const srv = await startExpressRouter(router);
     try {
@@ -1394,13 +1523,11 @@ test.describe('console router (express)', () => {
       {
         orgId: 'org-project-billing-gate',
         actorUserId: 'user-project-billing-gate',
-        roles: ['admin'],
       },
       { name: 'Project Billing Gate Org', slug: 'project-billing-gate-org' },
     );
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-project-billing-gate',
         'user-project-billing-gate',
       ),
@@ -1429,12 +1556,11 @@ test.describe('console router (express)', () => {
       {
         orgId: 'org-env-billing-gate',
         actorUserId: 'user-env-billing-gate',
-        roles: ['admin'],
       },
       { name: 'Environment Billing Gate Org', slug: 'environment-billing-gate-org' },
     );
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-env-billing-gate', 'user-env-billing-gate'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-env-billing-gate', 'user-env-billing-gate'),
       orgProjectEnv,
       billing,
     });
@@ -1475,13 +1601,11 @@ test.describe('console router (express)', () => {
       {
         orgId: 'org-project-live-billing-ready',
         actorUserId: 'user-project-live-billing-ready',
-        roles: ['admin'],
       },
       { name: 'Project Billing Ready Org', slug: 'project-billing-ready-org' },
     );
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-project-live-billing-ready',
         'user-project-live-billing-ready',
       ),
@@ -1494,11 +1618,8 @@ test.describe('console router (express)', () => {
         {
           orgId: 'org-project-live-billing-ready',
           actorUserId: 'user-project-live-billing-ready',
-          roles: ['admin'],
         },
         {
-          successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
-          cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
           creditPackId: 'usd_25',
         },
       );
@@ -1508,7 +1629,13 @@ test.describe('console router (express)', () => {
         orgId: 'org-project-live-billing-ready',
         checkoutSessionId: checkoutSession.id,
         providerCustomerRef: checkoutSession.customerRef,
+        providerPaymentRef: `pi_${checkoutSession.purchaseId}`,
         providerRef: checkoutSession.id,
+        purchaseId: checkoutSession.purchaseId,
+        creditPackId: checkoutSession.creditPackId,
+        amountMinor: checkoutSession.amountMinor,
+        currency: 'USD',
+        paymentStatus: 'paid',
       });
       expect(settle.accepted).toBe(true);
 
@@ -1546,13 +1673,11 @@ test.describe('console router (express)', () => {
       {
         orgId: 'org-env-no-billing-service',
         actorUserId: 'user-env-no-billing-service',
-        roles: ['admin'],
       },
       { name: 'No Billing Service Org', slug: 'no-billing-service-org' },
     );
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-env-no-billing-service',
         'user-env-no-billing-service',
       ),
@@ -1597,12 +1722,11 @@ test.describe('console router (express)', () => {
       {
         orgId: 'org-env-billing-bypass',
         actorUserId: 'user-env-billing-bypass',
-        roles: ['admin'],
       },
       { name: 'Billing Bypass Org', slug: 'billing-bypass-org' },
     );
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-env-billing-bypass', 'user-env-billing-bypass'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-env-billing-bypass', 'user-env-billing-bypass'),
       orgProjectEnv,
       allowLiveEnvironmentBillingBypass: true,
     });
@@ -1645,13 +1769,11 @@ test.describe('console router (express)', () => {
       {
         orgId: 'org-env-billing-bypass-gate',
         actorUserId: 'user-env-billing-bypass-gate',
-        roles: ['admin'],
       },
       { name: 'Billing Bypass Gate Org', slug: 'billing-bypass-gate-org' },
     );
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-env-billing-bypass-gate',
         'user-env-billing-bypass-gate',
       ),
@@ -1683,13 +1805,11 @@ test.describe('console router (express)', () => {
       {
         orgId: 'org-env-no-billing-service-gate',
         actorUserId: 'user-env-no-billing-service-gate',
-        roles: ['admin'],
       },
       { name: 'No Billing Service Gate Org', slug: 'no-billing-service-gate-org' },
     );
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-env-no-billing-service-gate',
         'user-env-no-billing-service-gate',
       ),
@@ -1720,7 +1840,6 @@ test.describe('console router (express)', () => {
     const claims = {
       orgId: 'org-env-low-balance-live-enabled',
       actorUserId: 'user-env-low-balance-live-enabled',
-      roles: ['platform_admin'],
     };
     await orgProjectEnv.upsertOrganization(claims, {
       name: 'Low Balance Live Enabled Org',
@@ -1734,8 +1853,7 @@ test.describe('console router (express)', () => {
     });
 
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-env-low-balance-live-enabled',
         'user-env-low-balance-live-enabled',
       ),
@@ -1775,7 +1893,7 @@ test.describe('console router (express)', () => {
   test('audit routes return seeded timeline and evidence rows', async () => {
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-audit-1', 'user-audit-admin'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-audit-1', 'user-audit-admin'),
       audit,
     });
     const srv = await startExpressRouter(router);
@@ -1806,8 +1924,7 @@ test.describe('console router (express)', () => {
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService();
     const auditExports: ConsoleAuditExportsService = createInMemoryConsoleAuditExportsService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-audit-read-role-1',
         'user-audit-read-role-1',
       ),
@@ -1837,7 +1954,6 @@ test.describe('console router (express)', () => {
       {
         orgId: 'org-audit-search-1',
         actorUserId: 'user-audit-search-admin',
-        roles: ['admin'],
       },
       { q: 'pi_demo_01', limit: 20 },
     );
@@ -1852,14 +1968,13 @@ test.describe('console router (express)', () => {
     const policyCtx = {
       orgId: 'org-audit-live-1',
       actorUserId: 'user-audit-live-admin',
-      roles: ['admin'],
     };
     const gasPolicy = await policies.createPolicy(policyCtx, {
       kind: 'GAS_SPONSORSHIP',
       name: 'Gas publish policy',
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-audit-live-1', 'user-audit-live-admin'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-audit-live-1', 'user-audit-live-admin'),
       approvals,
       audit,
       policies,
@@ -1913,7 +2028,7 @@ test.describe('console router (express)', () => {
     const enterpriseIsolation: ConsoleEnterpriseIsolationService =
       createInMemoryConsoleEnterpriseIsolationService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-audit-export-1', 'user-audit-export-admin'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-audit-export-1', 'user-audit-export-admin'),
       auditExports,
       enterpriseIsolation,
     });
@@ -1974,107 +2089,10 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('team member routes enforce role scope validation and mutation RBAC', async () => {
-    const teamRbac = createInMemoryConsoleTeamRbacService();
-    const adminRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-team-1', 'user-team-admin-1'),
-      teamRbac,
-    });
-    const adminServer = await startExpressRouter(adminRouter);
-    try {
-      const initial = await fetchJson(`${adminServer.baseUrl}/console/members`, { method: 'GET' });
-      expect(initial.status).toBe(200);
-      const initialRows = Array.isArray(initial.json?.members) ? initial.json?.members : [];
-      expect(initialRows.length).toBeGreaterThanOrEqual(1);
-
-      const invited = await fetchJson(`${adminServer.baseUrl}/console/members/invite`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: 'member-team-1-user',
-          email: 'dev1@example.com',
-          roles: [{ role: 'admin_manage_members' }, { role: 'wallet_operations_write' }],
-        }),
-      });
-      expect(invited.status).toBe(201);
-      const invitedMemberId = String(getPath(invited.json, 'member', 'id') || '');
-      expect(invitedMemberId).toContain('mbr_');
-      expect(getPath(invited.json, 'member', 'status')).toBe('ACTIVE');
-
-      const invitedOnly = await fetchJson(`${adminServer.baseUrl}/console/members?status=ACTIVE`, {
-        method: 'GET',
-      });
-      expect(invitedOnly.status).toBe(200);
-      const invitedRows = Array.isArray(invitedOnly.json?.members) ? invitedOnly.json?.members : [];
-      expect(invitedRows.some((entry: any) => String(entry?.id || '') === invitedMemberId)).toBe(
-        true,
-      );
-
-      const updated = await fetchJson(
-        `${adminServer.baseUrl}/console/members/${encodeURIComponent(invitedMemberId)}/roles`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            roles: [{ role: 'integrations_read' }],
-          }),
-        },
-      );
-      expect(updated.status).toBe(200);
-      expect(getPath(updated.json, 'member', 'roles', 0, 'role')).toBe('integrations_read');
-      expect(getPath(updated.json, 'member', 'roles', 0, 'scope')).toBe('ORG');
-
-      const removed = await fetchJson(
-        `${adminServer.baseUrl}/console/members/${encodeURIComponent(invitedMemberId)}`,
-        {
-          method: 'DELETE',
-        },
-      );
-      expect(removed.status).toBe(200);
-      expect(removed.json?.removed).toBe(true);
-      expect(getPath(removed.json, 'member', 'status')).toBe('REMOVED');
-
-      const invalidScope = await fetchJson(`${adminServer.baseUrl}/console/members/invite`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: 'member-team-invalid-user',
-          email: 'invalid@example.com',
-          roles: [{ role: 'wallet_operations_read', projectId: 'project-team-1' }],
-        }),
-      });
-      expect(invalidScope.status).toBe(400);
-      expect(invalidScope.json?.code).toBe('invalid_body');
-    } finally {
-      await adminServer.close();
-    }
-
-    const developerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer'], 'org-team-1', 'user-team-dev-1'),
-      teamRbac,
-    });
-    const developerServer = await startExpressRouter(developerRouter);
-    try {
-      const forbidden = await fetchJson(`${developerServer.baseUrl}/console/members/invite`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: 'member-team-forbidden-user',
-          email: 'forbidden@example.com',
-          roles: [{ role: 'overview_read' }],
-        }),
-      });
-      expect(forbidden.status).toBe(403);
-      expect(forbidden.json?.code).toBe('forbidden');
-    } finally {
-      await developerServer.close();
-    }
-  });
-
   test('approval routes enforce mutation RBAC, MFA requirements, and state transitions', async () => {
     const approvals = createInMemoryConsoleApprovalService();
     const adminRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-approvals-1', 'user-approvals-admin-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-approvals-1', 'user-approvals-admin-1'),
       approvals,
     });
     const adminServer = await startExpressRouter(adminRouter);
@@ -2131,8 +2149,7 @@ test.describe('console router (express)', () => {
       expect(Number(getPath(firstApproval.json, 'approval', 'decisions', 'length') || 0)).toBe(1);
 
       const securityAdminRouter = createConsoleRouter({
-        auth: makeConsoleAuthAdapter(
-          ['security_admin'],
+        auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
           'org-approvals-1',
           'user-approvals-security-admin-1',
         ),
@@ -2190,7 +2207,7 @@ test.describe('console router (express)', () => {
     }
 
     const developerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer'], 'org-approvals-1', 'user-approvals-developer-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER, 'org-approvals-1', 'user-approvals-developer-1'),
       approvals,
     });
     const developerServer = await startExpressRouter(developerRouter);
@@ -2221,15 +2238,10 @@ test.describe('console router (express)', () => {
     const keyExports = createInMemoryConsoleKeyExportService();
     const orgId = 'org-sensitive-approval-1';
     const actorUserId = 'user-sensitive-approval-admin-1';
-    const claimsRoles = ['admin'];
-    const approvalCtx = {
-      orgId,
-      actorUserId,
-      roles: claimsRoles,
-    };
+    const approvalCtx = { orgId, actorUserId };
 
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(claimsRoles, orgId, actorUserId),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, orgId, actorUserId),
       approvals,
       policies,
       keyExports,
@@ -2355,7 +2367,7 @@ test.describe('console router (express)', () => {
       },
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-approval-events-1', 'user-approval-events-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-approval-events-1', 'user-approval-events-1'),
       approvals,
       webhooks,
     });
@@ -2436,12 +2448,11 @@ test.describe('console router (express)', () => {
       {
         orgId: 'org-meta-1',
         actorUserId: 'user-meta-1',
-        roles: ['admin'],
       },
       { name: 'Org Meta 1', slug: 'org-meta-1' },
     );
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-meta-1', 'user-meta-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-meta-1', 'user-meta-1'),
       orgProjectEnv,
     });
     const srv = await startExpressRouter(router);
@@ -2505,12 +2516,11 @@ test.describe('console router (express)', () => {
       {
         orgId: 'org-meta-mutate-1',
         actorUserId: 'user-meta-mutate-1',
-        roles: ['admin'],
       },
       { name: 'Org Meta Mutate 1', slug: 'org-meta-mutate-1' },
     );
     const adminRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-meta-mutate-1', 'user-meta-mutate-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-meta-mutate-1', 'user-meta-mutate-1'),
       orgProjectEnv,
     });
     const adminServer = await startExpressRouter(adminRouter);
@@ -2652,7 +2662,7 @@ test.describe('console router (express)', () => {
     }
 
     const devRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer'], 'org-meta-mutate-1', 'user-meta-dev-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER, 'org-meta-mutate-1', 'user-meta-dev-1'),
       orgProjectEnv,
     });
     const devServer = await startExpressRouter(devRouter);
@@ -2673,7 +2683,7 @@ test.describe('console router (express)', () => {
 
   test('GET /console/wallets returns wallets_not_configured without wallet service', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -2687,7 +2697,7 @@ test.describe('console router (express)', () => {
 
   test('GET /console/policies returns policies_not_configured without policy service', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -2701,7 +2711,7 @@ test.describe('console router (express)', () => {
 
   test('GET /console/policy/coverage returns wallets_not_configured without wallet service', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -2715,7 +2725,7 @@ test.describe('console router (express)', () => {
 
   test('GET /console/export/governance returns key_exports_not_configured without key export service', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       wallets: createInMemoryConsoleWalletService(),
     });
     const srv = await startExpressRouter(router);
@@ -2730,7 +2740,7 @@ test.describe('console router (express)', () => {
 
   test('new console endpoints return *_not_configured when services are not wired', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -2760,7 +2770,7 @@ test.describe('console router (express)', () => {
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-scaffold-express-1', 'user-scaffold-express-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-scaffold-express-1', 'user-scaffold-express-1'),
       policies,
       keyExports,
       runtimeSnapshots,
@@ -2890,8 +2900,7 @@ test.describe('console router (express)', () => {
   test('runtime snapshot publish-current emits not_configured markers and monotonic versions', async () => {
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-runtime-contract-express-1',
         'user-runtime-contract-express-1',
       ),
@@ -2958,8 +2967,7 @@ test.describe('console router (express)', () => {
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const policies = createInMemoryConsolePolicyService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-runtime-policy-express-1',
         'user-runtime-policy-express-1',
       ),
@@ -3054,8 +3062,7 @@ test.describe('console router (express)', () => {
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const policies = createInMemoryConsolePolicyService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-runtime-gas-policy-express-1',
         'user-runtime-gas-policy-express-1',
       ),
@@ -3173,25 +3180,24 @@ test.describe('console router (express)', () => {
     const billing = createInMemoryConsoleBillingService();
     const enterpriseIsolation = createInMemoryConsoleEnterpriseIsolationService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const organizationAccess = createInMemoryConsoleOrganizationAccessService();
     const approvals = createInMemoryConsoleApprovalService();
     const onboarding = createInMemoryConsoleOnboardingService({
       apiKeys,
       orgProjectEnv,
-      teamRbac,
+      organizationAccess,
     });
     const policies = createInMemoryConsolePolicyService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-scaffold-express-rbac-1',
         'user-scaffold-express-rbac-1',
       ),
       onboarding,
       orgProjectEnv,
-      teamRbac,
+      organizationAccess,
       approvals,
       apiKeys,
       auditExports,
@@ -3214,20 +3220,6 @@ test.describe('console router (express)', () => {
       expect(gasCreate.status).toBe(403);
       expect(gasCreate.json?.code).toBe('forbidden');
 
-      const configureOnboardingOrganization = await fetchJson(
-        `${srv.baseUrl}/console/onboarding/organization`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: 'Forbidden onboarding organization express',
-            slug: 'forbidden-onboarding-org-express',
-          }),
-        },
-      );
-      expect(configureOnboardingOrganization.status).toBe(403);
-      expect(configureOnboardingOrganization.json?.code).toBe('forbidden');
-
       const createProject = await fetchJson(`${srv.baseUrl}/console/projects`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3239,13 +3231,13 @@ test.describe('console router (express)', () => {
       expect(createProject.status).toBe(403);
       expect(createProject.json?.code).toBe('forbidden');
 
-      const inviteMember = await fetchJson(`${srv.baseUrl}/console/members/invite`, {
+      const inviteMember = await fetchJson(`${srv.baseUrl}/console/organization/invitations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: 'member-express-rbac-1',
           email: 'forbidden-member-express@example.com',
-          roles: [{ role: 'overview_read' }],
+          role: 'MEMBER',
+          projectAccess: [],
         }),
       });
       expect(inviteMember.status).toBe(403);
@@ -3375,8 +3367,7 @@ test.describe('console router (express)', () => {
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-scaffold-express-validation-1',
         'user-scaffold-express-validation-1',
       ),
@@ -3484,7 +3475,7 @@ test.describe('console router (express)', () => {
     const ownerEnvironmentId = 'env-isolation-owner';
 
     const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-scaffold-express-isolation-user'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, ownerOrgId, 'owner-scaffold-express-isolation-user'),
       policies,
       keyExports,
       runtimeSnapshots,
@@ -3539,8 +3530,7 @@ test.describe('console router (express)', () => {
     }
 
     const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         attackerOrgId,
         'attacker-scaffold-express-isolation-user',
       ),
@@ -3626,7 +3616,7 @@ test.describe('console router (express)', () => {
       ],
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-wallet-express-1', 'user-wallet-express-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-wallet-express-1', 'user-wallet-express-1'),
       wallets,
     });
     const srv = await startExpressRouter(router);
@@ -3677,8 +3667,7 @@ test.describe('console router (express)', () => {
       ],
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-wallet-read-role-1',
         'user-wallet-read-role-1',
       ),
@@ -3723,7 +3712,7 @@ test.describe('console router (express)', () => {
       actorUserId: 'user-insights-express-1',
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], orgId, 'user-insights-express-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, orgId, 'user-insights-express-1'),
       wallets,
       keyExports,
       policies,
@@ -3735,7 +3724,6 @@ test.describe('console router (express)', () => {
         {
           orgId,
           actorUserId: 'user-insights-express-1',
-          roles: ['admin'],
         },
         {
           environmentId,
@@ -3747,7 +3735,6 @@ test.describe('console router (express)', () => {
         {
           orgId,
           actorUserId: 'user-insights-approver-1',
-          roles: ['admin'],
         },
         {
           environmentId: `${projectId}:stage`,
@@ -3759,7 +3746,6 @@ test.describe('console router (express)', () => {
         {
           orgId,
           actorUserId: 'user-insights-approver-1',
-          roles: ['admin'],
         },
         approvedRequest.id,
         {
@@ -3825,7 +3811,7 @@ test.describe('console router (express)', () => {
   test('policy routes support draft/update/simulate/publish lifecycle with role gates', async () => {
     const policies = createInMemoryConsolePolicyService();
     const adminRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-policy-express-1', 'user-policy-admin-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-policy-express-1', 'user-policy-admin-1'),
       policies,
     });
     const adminServer = await startExpressRouter(adminRouter);
@@ -3921,7 +3907,7 @@ test.describe('console router (express)', () => {
     }
 
     const developerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer'], 'org-policy-express-1', 'user-policy-dev-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER, 'org-policy-express-1', 'user-policy-dev-1'),
       policies,
     });
     const developerServer = await startExpressRouter(developerRouter);
@@ -3943,7 +3929,7 @@ test.describe('console router (express)', () => {
   test('policy routes enforce org isolation', async () => {
     const policies = createInMemoryConsolePolicyService();
     const ownerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-policy-owner-express', 'owner-policy-user'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-policy-owner-express', 'owner-policy-user'),
       policies,
     });
     const ownerServer = await startExpressRouter(ownerRouter);
@@ -3964,8 +3950,7 @@ test.describe('console router (express)', () => {
     }
 
     const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-policy-attacker-express',
         'attacker-policy-user',
       ),
@@ -4011,7 +3996,7 @@ test.describe('console router (express)', () => {
   test('policy create rejects client-supplied ids', async () => {
     const policies = createInMemoryConsolePolicyService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-policy-create-id-validation', 'user-policy-id'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-policy-create-id-validation', 'user-policy-id'),
       policies,
     });
     const srv = await startExpressRouter(router);
@@ -4035,8 +4020,7 @@ test.describe('console router (express)', () => {
     const policies = createInMemoryConsolePolicyService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-policy-audit-express',
         'user-policy-audit-express',
       ),
@@ -4088,7 +4072,6 @@ test.describe('console router (express)', () => {
         {
           orgId: 'org-policy-audit-express',
           actorUserId: 'user-policy-audit-express',
-          roles: ['admin'],
         },
         { category: 'POLICY', limit: 20 },
       );
@@ -4133,8 +4116,7 @@ test.describe('console router (express)', () => {
   test('successful policy create stays quiet while Stripe top-up emits billing observability', async () => {
     const ingested: ObservabilityIngestionEntry[] = [];
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-observability-success-express',
         'user-observability-success-express',
       ),
@@ -4168,8 +4150,6 @@ test.describe('console router (express)', () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
-            cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
             creditPackId: 'usd_25',
           }),
         },
@@ -4179,6 +4159,7 @@ test.describe('console router (express)', () => {
         getPath(createdCheckout.json, 'checkoutSession', 'id') || '',
       );
       expect(checkoutSessionId).toBeTruthy();
+      expect(String(getPath(created.json, 'checkoutSession', 'purchaseId') || '')).toBeTruthy();
 
       const reconciled = await fetchJson(
         `${srv.baseUrl}/console/billing/stripe/checkout-session/reconcile`,
@@ -4202,8 +4183,7 @@ test.describe('console router (express)', () => {
     const policies = createInMemoryConsolePolicyService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-policy-assignment-audit-express',
         'user-policy-assignment-audit-express',
       ),
@@ -4248,7 +4228,6 @@ test.describe('console router (express)', () => {
         {
           orgId: 'org-policy-assignment-audit-express',
           actorUserId: 'user-policy-assignment-audit-express',
-          roles: ['admin'],
         },
         { category: 'POLICY', limit: 20 },
       );
@@ -4294,8 +4273,7 @@ test.describe('console router (express)', () => {
     const policies = createInMemoryConsolePolicyService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-policy-publish-audit-express',
         'user-policy-publish-audit-express',
       ),
@@ -4338,7 +4316,6 @@ test.describe('console router (express)', () => {
         {
           orgId: 'org-policy-publish-audit-express',
           actorUserId: 'user-policy-publish-audit-express',
-          roles: ['admin'],
         },
         { category: 'POLICY', limit: 20 },
       );
@@ -4371,8 +4348,7 @@ test.describe('console router (express)', () => {
   test('policy creation can attach a draft to scope in one request', async () => {
     const policies = createInMemoryConsolePolicyService();
     const adminRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-policy-create-attach-express',
         'policy-create-attach-admin',
       ),
@@ -4426,7 +4402,7 @@ test.describe('console router (express)', () => {
       ],
     });
     const adminRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-policy-assign-express', 'policy-assign-admin'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-policy-assign-express', 'policy-assign-admin'),
       policies,
       wallets,
     });
@@ -4572,8 +4548,7 @@ test.describe('console router (express)', () => {
     }
 
     const developerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-policy-assign-express',
         'policy-assign-developer',
       ),
@@ -4612,7 +4587,7 @@ test.describe('console router (express)', () => {
     });
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       apiKeys,
       orgProjectEnv,
     });
@@ -4688,7 +4663,7 @@ test.describe('console router (express)', () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-api-key-env-validation', 'user-api-key-admin'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-api-key-env-validation', 'user-api-key-admin'),
       apiKeys,
       orgProjectEnv,
     });
@@ -4715,8 +4690,7 @@ test.describe('console router (express)', () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-api-key-expiry-validation',
         'user-api-key-admin',
       ),
@@ -4743,12 +4717,12 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('API key mutation routes require owner/admin/security_admin role', async () => {
+  test('API key mutation routes require project editor access', async () => {
     const orgId = 'org-api-key-rbac';
     const apiKeys = createInMemoryConsoleApiKeyService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const created = await apiKeys.createApiKey(
-      { orgId, actorUserId: 'seed-admin', roles: ['admin'] },
+      { orgId, actorUserId: 'seed-admin' },
       {
         name: 'seed-key',
         environmentId: 'env-rbac',
@@ -4758,7 +4732,7 @@ test.describe('console router (express)', () => {
     );
 
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer'], orgId, 'user-api-key-developer'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER, orgId, 'user-api-key-developer'),
       apiKeys,
       orgProjectEnv,
     });
@@ -4822,7 +4796,7 @@ test.describe('console router (express)', () => {
       },
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       webhooks,
     });
     const srv = await startExpressRouter(router);
@@ -4849,9 +4823,9 @@ test.describe('console router (express)', () => {
         {
           orgId: 'org-1',
           actorUserId: 'system-webhooks-test',
-          roles: ['ops'],
         },
         {
+          eventId: 'evt_webhook_delivery_deduplication',
           eventType: 'billing.invoice.paid',
           payload: {
             invoiceId: 'inv_router_1',
@@ -4861,6 +4835,22 @@ test.describe('console router (express)', () => {
       expect(emitted.attempted).toBe(1);
       expect(emitted.delivered).toBe(0);
       expect(emitted.failed).toBe(1);
+      const duplicate = await webhooks.emitEvent(
+        {
+          orgId: 'org-1',
+          actorUserId: 'system-webhooks-test',
+        },
+        {
+          eventId: 'evt_webhook_delivery_deduplication',
+          eventType: 'billing.invoice.paid',
+          payload: {
+            invoiceId: 'inv_router_1',
+          },
+        },
+      );
+      expect(duplicate.attempted).toBe(1);
+      expect(duplicate.failed).toBe(1);
+      expect(dispatchCalls).toBe(1);
 
       const deliveries = await fetchJson(
         `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`,
@@ -4989,7 +4979,6 @@ test.describe('console router (express)', () => {
         {
           orgId: 'org-1',
           actorUserId: 'system-webhooks-test',
-          roles: ['ops'],
         },
         {
           eventType: 'billing.invoice.paid',
@@ -5039,8 +5028,7 @@ test.describe('console router (express)', () => {
     });
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-webhook-audit-express',
         'user-webhook-audit-express',
       ),
@@ -5077,7 +5065,6 @@ test.describe('console router (express)', () => {
         {
           orgId: 'org-webhook-audit-express',
           actorUserId: 'system-webhooks-audit-express',
-          roles: ['ops'],
         },
         {
           eventType: 'billing.invoice.generated',
@@ -5119,7 +5106,6 @@ test.describe('console router (express)', () => {
         {
           orgId: 'org-webhook-audit-express',
           actorUserId: 'user-webhook-audit-express',
-          roles: ['admin'],
         },
         { category: 'WEBHOOK', limit: 20 },
       );
@@ -5218,7 +5204,7 @@ test.describe('console router (express)', () => {
       },
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       webhooks,
     });
     const srv = await startExpressRouter(router);
@@ -5239,7 +5225,6 @@ test.describe('console router (express)', () => {
         {
           orgId: 'org-1',
           actorUserId: 'system-webhooks-observability',
-          roles: ['ops'],
         },
         {
           eventType: 'billing.invoice.failed',
@@ -5250,7 +5235,6 @@ test.describe('console router (express)', () => {
         {
           orgId: 'org-1',
           actorUserId: 'system-webhooks-observability',
-          roles: ['ops'],
         },
         {
           eventType: 'billing.invoice.failed',
@@ -5280,11 +5264,11 @@ test.describe('console router (express)', () => {
   test('webhook mutations require console config mutation role', async () => {
     const webhooks = createInMemoryConsoleWebhookService();
     const adminRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       webhooks,
     });
     const developerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER),
       webhooks,
     });
     const adminServer = await startExpressRouter(adminRouter);
@@ -5322,7 +5306,6 @@ test.describe('console router (express)', () => {
         {
           orgId: 'org-1',
           actorUserId: 'system-webhooks-rbac-test',
-          roles: ['ops'],
         },
         {
           eventType: 'billing.invoice.paid',
@@ -5379,7 +5362,7 @@ test.describe('console router (express)', () => {
 
   test('webhook list endpoints reject malformed cursor', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       webhooks: createInMemoryConsoleWebhookService(),
     });
     const srv = await startExpressRouter(router);
@@ -5437,15 +5420,14 @@ test.describe('console router (express)', () => {
   });
 
   test('POST /console/billing/stripe/checkout-session returns billing_not_configured without billing service', async () => {
-    const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
+    const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER) });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/console/billing/stripe/checkout-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
-          cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+          creditPackId: 'usd_25',
         }),
       });
       expect(res.status).toBe(501);
@@ -5457,8 +5439,10 @@ test.describe('console router (express)', () => {
 
   test('POST /console/billing/stripe/checkout-session creates checkout session', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing: createInMemoryConsoleBillingService(),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
+      billing: createInMemoryConsoleBillingService({
+        consoleBaseUrl: 'https://app.example.com',
+      }),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -5466,8 +5450,8 @@ test.describe('console router (express)', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
-          cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+          successUrl: 'https://attacker.example/success',
+          cancelUrl: 'https://attacker.example/cancel',
           creditPackId: 'usd_25',
         }),
       });
@@ -5476,8 +5460,9 @@ test.describe('console router (express)', () => {
       const checkoutSessionUrl = String(getPath(created.json, 'checkoutSession', 'url') || '');
       expect(checkoutSessionId).toBeTruthy();
       expect(checkoutSessionUrl).toContain(
-        'https://app.example.com/dashboard/billing?checkout=success',
+        'https://app.example.com/dashboard/billing/account?checkout=success',
       );
+      expect(checkoutSessionUrl).not.toContain('attacker.example');
       expect(new URL(checkoutSessionUrl).searchParams.get('checkout_session_id')).toBe(
         checkoutSessionId,
       );
@@ -5490,51 +5475,71 @@ test.describe('console router (express)', () => {
         /^\d{4}-\d{2}-\d{2}T/,
       );
 
-      const customCreated = await fetchJson(
-        `${srv.baseUrl}/console/billing/stripe/checkout-session`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
-            cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-            creditPackId: 'usd_custom',
-            customAmountMinor: 12345,
-          }),
-        },
-      );
-      expect(customCreated.status).toBe(201);
-      expect(getPath(customCreated.json, 'checkoutSession', 'creditPackId')).toBe('usd_custom');
-      expect(Number(getPath(customCreated.json, 'checkoutSession', 'amountMinor') || 0)).toBe(
-        12345,
-      );
-
       const invalid = await fetchJson(`${srv.baseUrl}/console/billing/stripe/checkout-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          successUrl: '/dashboard/billing',
-          cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-          creditPackId: 'usd_25',
+          creditPackId: 'usd_75',
         }),
       });
       expect(invalid.status).toBe(400);
       expect(invalid.json?.code).toBe('invalid_body');
 
-      const missingCustomAmount = await fetchJson(
-        `${srv.baseUrl}/console/billing/stripe/checkout-session`,
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('platform billing refund routes mutate the explicit target organization', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const targetOrgId = 'org-platform-refund-target';
+    const purchase = await createSettledBillingPurchase(billing, targetOrgId);
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER),
+      billing,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/platform/billing/refunds`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orgId: targetOrgId,
+          purchaseId: purchase.id,
+          amountMinor: 1000,
+          reason: 'customer_request',
+          idempotencyKey: 'refund-route-express-1',
+        }),
+      });
+      expect(created.status).toBe(201);
+      const refundId = String(getPath(created.json, 'result', 'refund', 'id') || '');
+      expect(refundId).toBeTruthy();
+      expect(getPath(created.json, 'result', 'refund', 'status')).toBe('succeeded');
+
+      const history = await fetchJson(`${srv.baseUrl}/console/billing/refunds`, {
+        method: 'GET',
+      });
+      expect(history.status).toBe(200);
+      expect(getPath(history.json, 'refunds')).toEqual([]);
+      expect(
+        (
+          await billing.listRefunds({
+            orgId: targetOrgId,
+            actorUserId: 'platform-support-test',
+          })
+        )[0]?.id,
+      ).toBe(refundId);
+
+      const reconciled = await fetchJson(
+        `${srv.baseUrl}/console/platform/billing/refunds/reconcile`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
-            cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-            creditPackId: 'usd_custom',
-          }),
+          body: JSON.stringify({ orgId: targetOrgId, refundId }),
         },
       );
-      expect(missingCustomAmount.status).toBe(400);
-      expect(missingCustomAmount.json?.code).toBe('invalid_body');
+      expect(reconciled.status).toBe(200);
+      expect(getPath(reconciled.json, 'result', 'refund', 'status')).toBe('succeeded');
     } finally {
       await srv.close();
     }
@@ -5543,7 +5548,7 @@ test.describe('console router (express)', () => {
   test('POST /console/billing/stripe/checkout-session/reconcile settles a paid checkout session', async () => {
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing: createInMemoryConsoleBillingService(),
       audit,
     });
@@ -5553,8 +5558,6 @@ test.describe('console router (express)', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
-          cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
           creditPackId: 'usd_25',
         }),
       });
@@ -5603,7 +5606,6 @@ test.describe('console router (express)', () => {
       const auditEvents = await audit.listEvents({
         orgId: 'org-1',
         actorUserId: 'user-1',
-        roles: ['admin'],
       });
       const settlementEvents = auditEvents.filter(
         (event) => String(event.action || '') === 'billing.credit_purchase.settled',
@@ -5628,42 +5630,20 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('GET /console/platform/billing/account resolves project-scoped lookup for platform_admin', async () => {
+  test('GET /console/platform/billing/account resolves project-scoped lookup for platform support', async () => {
     const billing = createInMemoryConsoleBillingService({
       now: () => new Date('2026-03-20T00:00:00.000Z'),
     });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const teamRbac = createInMemoryConsoleTeamRbacService();
     const targetCtx = {
       orgId: 'org-platform-target-express',
       actorUserId: 'platform-user-express',
-      roles: ['platform_admin'],
     };
     await seedOrgProjectEnvironment(orgProjectEnv, {
       orgId: 'org-platform-target-express',
       projectId: 'proj-platform-target-express',
       actorUserId: 'platform-user-express',
     });
-    await teamRbac.bootstrapOwner({
-      orgId: 'org-platform-target-express',
-      actorUserId: 'owner-platform-target-express',
-      roles: ['owner'],
-      actorEmail: 'owner-platform-target-express@example.com',
-      actorDisplayName: 'Owner Express',
-    });
-    await teamRbac.inviteMember(
-      {
-        orgId: 'org-platform-target-express',
-        actorUserId: 'owner-platform-target-express',
-        roles: ['owner'],
-      },
-      {
-        userId: 'admin-platform-target-express',
-        email: 'admin-platform-target-express@example.com',
-        displayName: 'Admin Express',
-        roles: [{ role: 'admin', scope: 'ORG' }],
-      },
-    );
     await billing.grantManualSupportCredit(targetCtx, {
       amountMinor: 1200,
       reasonCode: 'incident_credit',
@@ -5679,14 +5659,12 @@ test.describe('console router (express)', () => {
     });
 
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['platform_admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-platform-session-express',
         'platform-user-express',
       ),
       billing,
       orgProjectEnv,
-      teamRbac,
     });
     const srv = await startExpressRouter(router);
     try {
@@ -5710,26 +5688,16 @@ test.describe('console router (express)', () => {
       expect(entries).toHaveLength(1);
       expect(String(entries[0]?.type || '')).toBe('MANUAL_ADJUSTMENT');
       expect(String(entries[0]?.reasonCode || '')).toBe('incident_credit');
-      const teamMembers = Array.isArray(getPath(res.json, 'result', 'teamMembers'))
-        ? (getPath(res.json, 'result', 'teamMembers') as any[])
-        : [];
-      expect(teamMembers.map((entry) => String(entry?.displayName || ''))).toEqual([
-        'Owner Express',
-        'Admin Express',
-      ]);
-      expect(teamMembers.map((entry) => String(entry?.access || ''))).toEqual(['OWNER', 'ADMIN']);
-      expect(teamMembers.map((entry) => String(entry?.status || ''))).toEqual(['ACTIVE', 'ACTIVE']);
     } finally {
       await srv.close();
     }
   });
 
-  test('GET /console/platform/billing/search finds organization matches for platform_admin', async () => {
+  test('GET /console/platform/billing/search finds organization matches for platform support', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const searchCtx = {
       orgId: 'org-platform-search-primary-express',
       actorUserId: 'platform-user-express',
-      roles: ['platform_admin'],
     };
     await orgProjectEnv.upsertOrganization(searchCtx, {
       name: 'Watchbook Marketplace',
@@ -5744,7 +5712,6 @@ test.describe('console router (express)', () => {
       {
         orgId: 'org-platform-search-secondary-express',
         actorUserId: 'platform-user-express',
-        roles: ['platform_admin'],
       },
       {
         name: 'Acme Labs',
@@ -5753,8 +5720,7 @@ test.describe('console router (express)', () => {
     );
 
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['platform_admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-platform-session-express',
         'platform-user-express',
       ),
@@ -5797,7 +5763,6 @@ test.describe('console router (express)', () => {
         {
           orgId,
           actorUserId: 'platform-user-express',
-          roles: ['platform_admin'],
         },
         {
           name,
@@ -5807,8 +5772,7 @@ test.describe('console router (express)', () => {
     }
 
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['platform_admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-platform-session-express',
         'platform-user-express',
       ),
@@ -5835,13 +5799,12 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('POST /console/platform/billing/adjustments/support-credit applies to target org for platform_admin', async () => {
+  test('POST /console/platform/billing/adjustments/support-credit applies to target org for platform support', async () => {
     const billing = createInMemoryConsoleBillingService({
       now: () => new Date('2026-03-20T00:00:00.000Z'),
     });
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const teamRbac = createInMemoryConsoleTeamRbacService();
     await seedOrgProjectEnvironment(orgProjectEnv, {
       orgId: 'org-platform-adjust-target-express',
       projectId: 'proj-platform-adjust-target-express',
@@ -5849,15 +5812,13 @@ test.describe('console router (express)', () => {
     });
 
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['platform_admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-platform-session-express',
         'platform-user-express',
       ),
       billing,
       audit,
       orgProjectEnv,
-      teamRbac,
     });
     const srv = await startExpressRouter(router);
     try {
@@ -5896,7 +5857,6 @@ test.describe('console router (express)', () => {
         {
           orgId: 'org-platform-adjust-target-express',
           actorUserId: 'platform-user-express',
-          roles: ['platform_admin'],
         },
         { limit: 10 },
       );
@@ -5916,9 +5876,9 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('POST /console/billing/adjustments/support-credit requires platform_admin role', async () => {
+  test('POST /console/billing/adjustments/support-credit requires platform support', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['ops']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER),
       billing: createInMemoryConsoleBillingService(),
     });
     const srv = await startExpressRouter(router);
@@ -5935,15 +5895,15 @@ test.describe('console router (express)', () => {
       });
       expect(res.status).toBe(403);
       expect(res.json?.code).toBe('forbidden');
-      expect(String(res.json?.message || '')).toContain('platform_admin');
+      expect(String(res.json?.message || '')).toContain('platform.support');
     } finally {
       await srv.close();
     }
   });
 
-  test('POST /console/billing/adjustments/admin-debit allows platform_admin for large debit amounts', async () => {
+  test('POST /console/billing/adjustments/admin-debit allows platform support for large debit amounts', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['platform_admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER),
       billing: createInMemoryConsoleBillingService(),
     });
     const srv = await startExpressRouter(router);
@@ -5969,7 +5929,7 @@ test.describe('console router (express)', () => {
     const billing = createInMemoryConsoleBillingService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['platform_admin', 'billing_admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_BILLING_ADMIN),
       billing,
       audit,
     });
@@ -6047,7 +6007,7 @@ test.describe('console router (express)', () => {
       ).toEqual([-200, 1200]);
 
       const auditEvents = await audit.listEvents(
-        { orgId: 'org-1', actorUserId: 'user-1', roles: ['platform_admin'] },
+        { orgId: 'org-1', actorUserId: 'user-1' },
         { limit: 20 },
       );
       expect(
@@ -6075,7 +6035,7 @@ test.describe('console router (express)', () => {
       event: Record<string, unknown>;
     }> = [];
     await billing.grantManualSupportCredit(
-      { orgId: 'org-1', actorUserId: 'seed-user', roles: ['platform_admin'] },
+      { orgId: 'org-1', actorUserId: 'seed-user' },
       {
         amountMinor: 4000,
         reasonCode: 'seed_credit',
@@ -6093,14 +6053,14 @@ test.describe('console router (express)', () => {
       },
     });
     const endpoint = await webhooks.createEndpoint(
-      { orgId: 'org-1', actorUserId: 'user-1', roles: ['platform_admin'] },
+      { orgId: 'org-1', actorUserId: 'user-1' },
       {
         url: 'https://example.com/billing-transition-express',
         eventCategories: ['billing'],
       },
     );
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['platform_admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER),
       billing,
       webhooks,
       observabilityIngestion: makeObservabilityIngestionCollector(ingested),
@@ -6147,7 +6107,7 @@ test.describe('console router (express)', () => {
       expect(recovered.status).toBe(201);
 
       const deliveries = await webhooks.listDeliveries(
-        { orgId: 'org-1', actorUserId: 'user-1', roles: ['platform_admin'] },
+        { orgId: 'org-1', actorUserId: 'user-1' },
         endpoint.id,
       );
       expect(sortedWebhookDeliveryEventTypes(deliveries)).toEqual([
@@ -6168,9 +6128,9 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('POST /console/billing/stripe/webhook requires configured shared secret', async () => {
+  test('POST /console/billing/stripe/webhook requires a configured signing secret', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing: createInMemoryConsoleBillingService(),
     });
     const srv = await startExpressRouter(router);
@@ -6196,10 +6156,10 @@ test.describe('console router (express)', () => {
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const secret = 'whsec_console_router_projection_test';
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing,
       audit,
-      billingStripeWebhookSecret: secret,
+      billingStripeWebhookSigningSecret: secret,
     });
     const srv = await startExpressRouter(router);
     try {
@@ -6211,8 +6171,6 @@ test.describe('console router (express)', () => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
-            cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
             creditPackId: 'usd_25',
           }),
         },
@@ -6224,24 +6182,31 @@ test.describe('console router (express)', () => {
       const providerCustomerRef = String(
         getPath(checkoutSession.json, 'checkoutSession', 'customerRef') || '',
       );
+      const purchaseId = String(
+        getPath(checkoutSession.json, 'checkoutSession', 'purchaseId') || '',
+      );
       expect(checkoutSessionId).toBeTruthy();
       expect(providerCustomerRef).toBeTruthy();
 
       const purchaseEventId = `evt_express_purchase_projection_${Date.now()}`;
+      const rawBody = stripeCheckoutCompletedBody({
+        eventId: purchaseEventId,
+        orgId: 'org-1',
+        checkoutSessionId,
+        providerCustomerRef,
+        providerPaymentRef: `pi_${checkoutSessionId}`,
+        purchaseId,
+        creditPackId: 'usd_25',
+        amountMinor: 2500,
+      });
+      const stripeSignature = stripeSignatureHeader(secret, rawBody);
       const projectedPurchase = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-console-stripe-webhook-secret': secret,
+          'Stripe-Signature': stripeSignature,
         },
-        body: JSON.stringify({
-          eventId: purchaseEventId,
-          eventType: 'checkout.session.completed',
-          orgId: 'org-1',
-          checkoutSessionId,
-          providerCustomerRef,
-          providerRef: checkoutSessionId,
-        }),
+        body: rawBody,
       });
       expect(projectedPurchase.status).toBe(200);
       expect(projectedPurchase.json?.accepted).toBe(true);
@@ -6256,16 +6221,9 @@ test.describe('console router (express)', () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-console-stripe-webhook-secret': secret,
+            'Stripe-Signature': stripeSignature,
           },
-          body: JSON.stringify({
-            eventId: purchaseEventId,
-            eventType: 'checkout.session.completed',
-            orgId: 'org-1',
-            checkoutSessionId,
-            providerCustomerRef,
-            providerRef: checkoutSessionId,
-          }),
+          body: rawBody,
         },
       );
       expect(projectedPurchaseDuplicate.status).toBe(200);
@@ -6281,7 +6239,6 @@ test.describe('console router (express)', () => {
       const auditEvents = await audit.listEvents({
         orgId: 'org-1',
         actorUserId: 'user-1',
-        roles: ['admin'],
       });
       const settlementEvents = auditEvents.filter(
         (event) => String(event.action || '') === 'billing.credit_purchase.settled',
@@ -6301,11 +6258,90 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('Stripe retries resume durable post-processing after an audit crash', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const storedAudit = createInMemoryConsoleAuditService({ seedDemoData: false });
+    let crashAfterAppend = true;
+    const audit: ConsoleAuditService = new Proxy(storedAudit, {
+      get(target, property, receiver) {
+        if (property !== 'appendEvent') return Reflect.get(target, property, receiver);
+        return async (...args: Parameters<ConsoleAuditService['appendEvent']>) => {
+          const event = await target.appendEvent(...args);
+          if (crashAfterAppend) {
+            crashAfterAppend = false;
+            throw new Error('simulated audit post-append crash');
+          }
+          return event;
+        };
+      },
+    });
+    const secret = 'whsec_console_router_post_processing_retry';
+    const checkout = await billing.createStripeCheckoutSession(
+      { orgId: 'org-1', actorUserId: 'user-1' },
+      { creditPackId: 'usd_10' },
+    );
+    const eventId = 'evt_express_post_processing_retry';
+    const rawBody = stripeCheckoutCompletedBody({
+      eventId,
+      orgId: 'org-1',
+      checkoutSessionId: checkout.id,
+      providerCustomerRef: checkout.customerRef,
+      providerPaymentRef: `pi_${checkout.id}`,
+      purchaseId: checkout.purchaseId,
+      creditPackId: checkout.creditPackId,
+      amountMinor: checkout.amountMinor,
+    });
+    const signature = stripeSignatureHeader(secret, rawBody);
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
+      billing,
+      audit,
+      billingStripeWebhookSigningSecret: secret,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const first = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Stripe-Signature': signature,
+        },
+        body: rawBody,
+      });
+      expect(first.status).toBe(503);
+      expect(first.json?.code).toBe('stripe_post_processing_pending');
+
+      const replay = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Stripe-Signature': signature,
+        },
+        body: rawBody,
+      });
+      expect(replay.status).toBe(200);
+      expect(replay.json?.accepted).toBe(false);
+      expect(await billing.getStripePostProcessingOutboxItem(eventId)).toMatchObject({
+        attemptCount: 1,
+        lastError: null,
+      });
+      const events = await storedAudit.listEvents({
+        orgId: 'org-1',
+        actorUserId: 'user-1',
+      });
+      expect(
+        events.filter((event) => event.action === 'billing.credit_purchase.settled'),
+      ).toHaveLength(1);
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('GET /console/billing/invoices/:id/pdf returns billing document PDF export', async () => {
     const billing = createInMemoryConsoleBillingService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing,
       audit,
     });
@@ -6342,7 +6378,6 @@ test.describe('console router (express)', () => {
       const auditEvents = await audit.listEvents({
         orgId: 'org-1',
         actorUserId: 'user-1',
-        roles: ['admin'],
       });
       expect(auditEvents.length).toBe(1);
       expect(auditEvents[0]?.action).toBe('billing.invoice.pdf_export');
@@ -6373,7 +6408,6 @@ test.describe('console router (express)', () => {
     const billingCtx = {
       orgId: 'org-1',
       actorUserId: 'admin-activity-user',
-      roles: ['admin'],
     };
     await billing.recordUsageEvent(billingCtx, {
       walletId: 'wallet_january_1',
@@ -6402,8 +6436,6 @@ test.describe('console router (express)', () => {
     });
     const march = await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-03' });
     const checkoutSession = await billing.createStripeCheckoutSession(billingCtx, {
-      successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
-      cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
       creditPackId: 'usd_25',
     });
     await billing.processStripeWebhookEvent({
@@ -6412,11 +6444,17 @@ test.describe('console router (express)', () => {
       orgId: billingCtx.orgId,
       checkoutSessionId: checkoutSession.id,
       providerCustomerRef: checkoutSession.customerRef,
+      providerPaymentRef: `pi_${checkoutSession.purchaseId}`,
       providerRef: checkoutSession.id,
+      purchaseId: checkoutSession.purchaseId,
+      creditPackId: checkoutSession.creditPackId,
+      amountMinor: checkoutSession.amountMinor,
+      currency: 'USD',
+      paymentStatus: 'paid',
     });
 
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing,
     });
     const srv = await startExpressRouter(router);
@@ -6497,7 +6535,7 @@ test.describe('console router (express)', () => {
   test('billing usage endpoints compute MAW with exclusions and idempotency', async () => {
     const billing = createInMemoryConsoleBillingService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing,
     });
     const srv = await startExpressRouter(router);
@@ -6591,7 +6629,7 @@ test.describe('console router (express)', () => {
 
   test('POST /console/billing/usage/events requires admin or ops role', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['billing_admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_BILLING_MANAGER),
       billing: createInMemoryConsoleBillingService(),
     });
     const srv = await startExpressRouter(router);
@@ -6615,7 +6653,7 @@ test.describe('console router (express)', () => {
 
   test('POST /console/billing/invoices/generate requires admin or ops role', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['billing_admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_BILLING_MANAGER),
       billing: createInMemoryConsoleBillingService(),
     });
     const srv = await startExpressRouter(router);
@@ -6637,8 +6675,7 @@ test.describe('console router (express)', () => {
   test('billing read routes require billing read role', async () => {
     const billing = createInMemoryConsoleBillingService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-billing-read-role-1',
         'user-billing-read-role-1',
       ),
@@ -6665,10 +6702,10 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('billing_admin can access billing read routes', async () => {
+  test('administrator with billing permissions can access billing read routes', async () => {
     const billing = createInMemoryConsoleBillingService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['billing_admin'], 'org-1', 'user-billing-admin-read-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_BILLING_MANAGER, 'org-1', 'user-billing-manager-read-1'),
       billing,
     });
     const srv = await startExpressRouter(router);
@@ -6690,7 +6727,7 @@ test.describe('console router (express)', () => {
   test('invoice generation endpoint returns deterministic prepaid statement line items', async () => {
     const billing = createInMemoryConsoleBillingService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['ops']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER),
       billing,
     });
     const srv = await startExpressRouter(router);
@@ -6761,8 +6798,7 @@ test.describe('console router (express)', () => {
     const billing = createInMemoryConsoleBillingService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-billing-invoice-audit-express',
         'user-billing-invoice-audit-express',
       ),
@@ -6799,7 +6835,6 @@ test.describe('console router (express)', () => {
         {
           orgId: 'org-billing-invoice-audit-express',
           actorUserId: 'user-billing-invoice-audit-express',
-          roles: ['admin'],
         },
         { category: 'BILLING', limit: 20 },
       );
@@ -6836,7 +6871,7 @@ test.describe('console router (express)', () => {
       },
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing,
       webhooks,
     });
@@ -6913,7 +6948,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('GET /console/webhooks returns webhooks_not_configured without webhook service', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const res = await callCf(handler, {
       method: 'GET',
@@ -6925,7 +6960,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('GET /console/webhooks rejects Postgres tenant routes in Cloudflare runtime', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       tenantStorageRouteResolver: postgresTenantStorageRouteResolver,
       tenantStorageNamespace: 'seams',
     });
@@ -6945,7 +6980,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('GET /console/api-keys returns api_keys_not_configured without API key service', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const res = await callCf(handler, {
       method: 'GET',
@@ -6957,7 +6992,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('GET /console/org returns org_project_env_not_configured without org/project/env service', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const res = await callCf(handler, {
       method: 'GET',
@@ -6967,21 +7002,9 @@ test.describe('console router (cloudflare)', () => {
     expect(res.json?.code).toBe('org_project_env_not_configured');
   });
 
-  test('GET /console/members returns team_rbac_not_configured without Team RBAC service', async () => {
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-    });
-    const res = await callCf(handler, {
-      method: 'GET',
-      path: '/console/members',
-    });
-    expect(res.status).toBe(501);
-    expect(res.json?.code).toBe('team_rbac_not_configured');
-  });
-
   test('GET /console/approvals returns approvals_not_configured without approvals service', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const res = await callCf(handler, {
       method: 'GET',
@@ -6993,7 +7016,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('GET /console/audit/events returns audit_not_configured without audit service', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const res = await callCf(handler, {
       method: 'GET',
@@ -7005,7 +7028,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('GET /console/audit/exports returns audit_exports_not_configured without export service', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const res = await callCf(handler, {
       method: 'GET',
@@ -7017,7 +7040,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('GET /console/observability/summary returns observability_not_configured without service', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const res = await callCf(handler, {
       method: 'GET',
@@ -7029,7 +7052,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare GET /console/observability/* returns scaffolded responses when service is configured', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['support'], 'org-observability-cf', 'user-observability-cf'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER, 'org-observability-cf', 'user-observability-cf'),
       observability: createInMemoryConsoleObservabilityService(),
     });
 
@@ -7072,8 +7095,7 @@ test.describe('console router (cloudflare)', () => {
       event: Record<string, unknown>;
     }> = [];
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['support'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-observability-cf-read-noise',
         'user-observability-cf-read-noise',
       ),
@@ -7095,8 +7117,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare GET /console/observability/* requires observability read role', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-observability-cf-forbidden',
         'user-observability-cf-forbidden',
       ),
@@ -7120,8 +7141,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare GET /console/observability/events rejects query windows larger than 7 days', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['ops'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-observability-cf-window',
         'user-observability-cf-window',
       ),
@@ -7138,8 +7158,7 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare GET /console/observability/events forwards component and query filters to observability service', async () => {
     const recorder = makeObservabilityRequestRecorder();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['ops'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-observability-cf-component',
         'user-observability-cf-component',
       ),
@@ -7177,8 +7196,7 @@ test.describe('console router (cloudflare)', () => {
       },
     };
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-observability-cf-failure',
         'user-observability-cf-failure',
       ),
@@ -7233,8 +7251,7 @@ test.describe('console router (cloudflare)', () => {
       },
     };
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['ops'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-observability-cf-billing',
         'user-observability-cf-billing',
       ),
@@ -7288,8 +7305,7 @@ test.describe('console router (cloudflare)', () => {
       },
     };
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-observability-cf-reconcile',
         'user-observability-cf-reconcile',
       ),
@@ -7331,7 +7347,7 @@ test.describe('console router (cloudflare)', () => {
     );
   });
 
-  test('cloudflare invalid Stripe webhook secrets emit invalid signature observability events', async () => {
+  test('cloudflare invalid Stripe signatures emit observability events', async () => {
     const ingested: Array<{
       ingestCtx: Record<string, unknown>;
       event: Record<string, unknown>;
@@ -7339,27 +7355,27 @@ test.describe('console router (cloudflare)', () => {
     const observabilityIngestion = makeObservabilityIngestionCollector(ingested);
     const handler = createCloudflareConsoleRouter({
       billing: createInMemoryConsoleBillingService(),
-      billingStripeWebhookSecret: 'whsec_expected_cf',
+      billingStripeWebhookSigningSecret: 'whsec_expected_cf',
       observabilityIngestion,
     });
 
+    const rawBody = stripeCheckoutCompletedBody({
+      eventId: 'evt_obs_invalid_signature_cf',
+      orgId: 'org-observability-cf-webhook-invalid',
+      checkoutSessionId: 'cs_obs_invalid_signature_cf',
+      providerPaymentRef: 'cs_obs_invalid_signature_cf',
+    });
     const res = await callCf(handler, {
       method: 'POST',
       path: '/console/billing/stripe/webhook',
       headers: {
-        'x-console-stripe-webhook-secret': 'whsec_wrong_cf',
+        'Stripe-Signature': stripeSignatureHeader('whsec_wrong_cf', rawBody),
         'x-request-id': 'req_obs_stripe_invalid_signature_cf',
       },
-      body: {
-        eventId: 'evt_obs_invalid_signature_cf',
-        eventType: 'checkout.session.completed',
-        orgId: 'org-observability-cf-webhook-invalid',
-        checkoutSessionId: 'cs_obs_invalid_signature_cf',
-        providerRef: 'cs_obs_invalid_signature_cf',
-      },
+      body: rawBody,
     });
-    expect(res.status).toBe(401);
-    expect(res.json?.code).toBe('unauthorized');
+    expect(res.status).toBe(400);
+    expect(res.json?.code).toBe('invalid_stripe_signature');
 
     await expect
       .poll(
@@ -7401,24 +7417,27 @@ test.describe('console router (cloudflare)', () => {
     };
     const handler = createCloudflareConsoleRouter({
       billing: failingBilling,
-      billingStripeWebhookSecret: 'whsec_expected_processing_cf',
+      billingStripeWebhookSigningSecret: 'whsec_expected_processing_cf',
       observabilityIngestion,
     });
 
+    const rawBody = stripeCheckoutCompletedBody({
+      eventId: 'evt_obs_processing_failed_cf',
+      orgId: 'org-observability-cf-webhook-processing',
+      checkoutSessionId: 'cs_obs_processing_failed_cf',
+      providerPaymentRef: 'cs_obs_processing_failed_cf',
+    });
     const res = await callCf(handler, {
       method: 'POST',
       path: '/console/billing/stripe/webhook',
       headers: {
-        'x-console-stripe-webhook-secret': 'whsec_expected_processing_cf',
+        'Stripe-Signature': stripeSignatureHeader(
+          'whsec_expected_processing_cf',
+          rawBody,
+        ),
         'x-request-id': 'req_obs_stripe_processing_cf',
       },
-      body: {
-        eventId: 'evt_obs_processing_failed_cf',
-        eventType: 'checkout.session.completed',
-        orgId: 'org-observability-cf-webhook-processing',
-        checkoutSessionId: 'cs_obs_processing_failed_cf',
-        providerRef: 'cs_obs_processing_failed_cf',
-      },
+      body: rawBody,
     });
     expect(res.status).toBe(500);
     expect(res.json?.code).toBe('internal');
@@ -7452,7 +7471,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('GET /console/isolation/status returns enterprise_isolation_not_configured without service', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const res = await callCf(handler, {
       method: 'GET',
@@ -7464,7 +7483,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('GET /console/onboarding/state and telemetry return onboarding_not_configured without onboarding service', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const res = await callCf(handler, {
       method: 'GET',
@@ -7486,11 +7505,10 @@ test.describe('console router (cloudflare)', () => {
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
       apiKeys: createInMemoryConsoleApiKeyService(),
       billing: createInMemoryConsoleBillingService(),
-      teamRbac: createInMemoryConsoleTeamRbacService(),
+      organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-onboarding-telemetry-role-cf',
         'user-onboarding-telemetry-role-cf',
       ),
@@ -7509,11 +7527,10 @@ test.describe('console router (cloudflare)', () => {
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
       apiKeys: createInMemoryConsoleApiKeyService(),
       billing: createInMemoryConsoleBillingService(),
-      teamRbac: createInMemoryConsoleTeamRbacService(),
+      organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-onboarding-telemetry-query-cf',
         'user-onboarding-telemetry-query-cf',
       ),
@@ -7530,8 +7547,7 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare GET /console/ops-cockpit/summary aggregates operator queues', async () => {
     const orgId = 'org-ops-cockpit-summary-cf';
     const actorUserId = 'user-ops-cockpit-summary-cf';
-    const roles = ['admin'];
-    const serviceCtx = { orgId, actorUserId, roles };
+    const serviceCtx = { orgId, actorUserId };
 
     const approvals = createInMemoryConsoleApprovalService();
     const billing = createInMemoryConsoleBillingService();
@@ -7552,7 +7568,7 @@ test.describe('console router (cloudflare)', () => {
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
       apiKeys: createInMemoryConsoleApiKeyService(),
       billing,
-      teamRbac: createInMemoryConsoleTeamRbacService(),
+      organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
 
     await approvals.createApprovalRequest(serviceCtx, {
@@ -7585,7 +7601,7 @@ test.describe('console router (cloudflare)', () => {
     });
 
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(roles, orgId, actorUserId),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, orgId, actorUserId),
       approvals,
       billing,
       webhooks,
@@ -7614,10 +7630,10 @@ test.describe('console router (cloudflare)', () => {
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
       apiKeys: createInMemoryConsoleApiKeyService(),
       billing: createInMemoryConsoleBillingService(),
-      teamRbac: createInMemoryConsoleTeamRbacService(),
+      organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['security_admin'], orgId, actorUserId),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, orgId, actorUserId),
       onboarding,
     });
     const res = await callCf(handler, {
@@ -7633,8 +7649,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare GET /console/ops-cockpit/summary requires ops cockpit read role', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-ops-cockpit-summary-forbidden-cf',
         'user-ops-cockpit-summary-forbidden-cf',
       ),
@@ -7642,7 +7657,7 @@ test.describe('console router (cloudflare)', () => {
         orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
         apiKeys: createInMemoryConsoleApiKeyService(),
         billing: createInMemoryConsoleBillingService(),
-        teamRbac: createInMemoryConsoleTeamRbacService(),
+        organizationAccess: createInMemoryConsoleOrganizationAccessService(),
       }),
     });
     const res = await callCf(handler, {
@@ -7657,19 +7672,19 @@ test.describe('console router (cloudflare)', () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const apiKeys = createInMemoryConsoleApiKeyService();
     const billing = createInMemoryConsoleBillingService();
-    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const organizationAccess = createInMemoryConsoleOrganizationAccessService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv,
       apiKeys,
       billing,
-      teamRbac,
+      organizationAccess,
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-onboarding-cf-1', 'user-onboarding-cf-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-onboarding-cf-1', 'user-onboarding-cf-1'),
       onboarding,
       billing,
-      teamRbac,
+      organizationAccess,
       audit,
     });
 
@@ -7742,46 +7757,33 @@ test.describe('console router (cloudflare)', () => {
     expect(actions).not.toContain('environment.create');
     expect(actions).not.toContain('api_key.create');
 
-    const members = await callCf(handler, {
-      method: 'GET',
-      path: '/console/members?status=ACTIVE',
+    const actorAuthorization = await organizationAccess.lookupAuthorization({
+      orgId: 'org-onboarding-cf-1',
+      userId: 'user-onboarding-cf-1',
     });
-    expect(members.status).toBe(200);
-    const memberRows = Array.isArray(members.json?.members) ? members.json?.members : [];
-    const actorMember = memberRows.find(
-      (entry: any) => String(entry?.userId || '') === 'user-onboarding-cf-1',
-    );
-    expect(actorMember).toBeTruthy();
-    const actorRoles = Array.isArray(actorMember?.roles) ? actorMember.roles : [];
-    expect(
-      actorRoles.some(
-        (entry: any) =>
-          String(entry?.scope || '').toUpperCase() === 'ORG' &&
-          String(entry?.role || '').toLowerCase() === 'owner',
-      ),
-    ).toBe(true);
+    expect(actorAuthorization?.kind).toBe('authorized');
+    expect(actorAuthorization?.role).toBe('OWNER');
   });
 
   test('cloudflare onboarding project step creates default development environment without billing', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const apiKeys = createInMemoryConsoleApiKeyService();
     const billing = createInMemoryConsoleBillingService();
-    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const organizationAccess = createInMemoryConsoleOrganizationAccessService();
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv,
       apiKeys,
       billing,
-      teamRbac,
+      organizationAccess,
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-onboarding-project-step-cf',
         'user-onboarding-project-step-cf',
       ),
       onboarding,
       billing,
-      teamRbac,
+      organizationAccess,
     });
 
     const blocked = await callCf(handler, {
@@ -7861,20 +7863,19 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare onboarding organization step configures org profile and is idempotent', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const organizationAccess = createInMemoryConsoleOrganizationAccessService();
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv,
       apiKeys,
-      teamRbac,
+      organizationAccess,
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-onboarding-org-step-cf',
         'user-onboarding-org-step-cf',
       ),
       onboarding,
-      teamRbac,
+      organizationAccess,
     });
 
     const before = await callCf(handler, {
@@ -7920,13 +7921,11 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-project-billing-gate-cf',
         actorUserId: 'user-project-billing-gate-cf',
-        roles: ['admin'],
       },
       { name: 'Project Billing Gate Org CF', slug: 'project-billing-gate-org-cf' },
     );
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-project-billing-gate-cf',
         'user-project-billing-gate-cf',
       ),
@@ -7951,13 +7950,11 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-env-billing-gate-cf',
         actorUserId: 'user-env-billing-gate-cf',
-        roles: ['admin'],
       },
       { name: 'Environment Billing Gate Org CF', slug: 'environment-billing-gate-org-cf' },
     );
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-env-billing-gate-cf',
         'user-env-billing-gate-cf',
       ),
@@ -7995,13 +7992,11 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-project-live-billing-ready-cf',
         actorUserId: 'user-project-live-billing-ready-cf',
-        roles: ['admin'],
       },
       { name: 'Project Billing Ready Org CF', slug: 'project-billing-ready-org-cf' },
     );
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-project-live-billing-ready-cf',
         'user-project-live-billing-ready-cf',
       ),
@@ -8013,11 +8008,8 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-project-live-billing-ready-cf',
         actorUserId: 'user-project-live-billing-ready-cf',
-        roles: ['admin'],
       },
       {
-        successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
-        cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
         creditPackId: 'usd_25',
       },
     );
@@ -8027,7 +8019,13 @@ test.describe('console router (cloudflare)', () => {
       orgId: 'org-project-live-billing-ready-cf',
       checkoutSessionId: checkoutSession.id,
       providerCustomerRef: checkoutSession.customerRef,
+      providerPaymentRef: `pi_${checkoutSession.purchaseId}`,
       providerRef: checkoutSession.id,
+      purchaseId: checkoutSession.purchaseId,
+      creditPackId: checkoutSession.creditPackId,
+      amountMinor: checkoutSession.amountMinor,
+      currency: 'USD',
+      paymentStatus: 'paid',
     });
     expect(settle.accepted).toBe(true);
 
@@ -8060,13 +8058,11 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-env-no-billing-service-cf',
         actorUserId: 'user-env-no-billing-service-cf',
-        roles: ['admin'],
       },
       { name: 'No Billing Service Org CF', slug: 'no-billing-service-org-cf' },
     );
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-env-no-billing-service-cf',
         'user-env-no-billing-service-cf',
       ),
@@ -8102,13 +8098,11 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-env-billing-bypass-cf',
         actorUserId: 'user-env-billing-bypass-cf',
-        roles: ['admin'],
       },
       { name: 'Billing Bypass Org CF', slug: 'billing-bypass-org-cf' },
     );
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-env-billing-bypass-cf',
         'user-env-billing-bypass-cf',
       ),
@@ -8145,13 +8139,11 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-env-billing-bypass-gate-cf',
         actorUserId: 'user-env-billing-bypass-gate-cf',
-        roles: ['admin'],
       },
       { name: 'Billing Bypass Gate Org CF', slug: 'billing-bypass-gate-org-cf' },
     );
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-env-billing-bypass-gate-cf',
         'user-env-billing-bypass-gate-cf',
       ),
@@ -8179,13 +8171,11 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-env-no-billing-service-gate-cf',
         actorUserId: 'user-env-no-billing-service-gate-cf',
-        roles: ['admin'],
       },
       { name: 'No Billing Service Gate Org CF', slug: 'no-billing-service-gate-org-cf' },
     );
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-env-no-billing-service-gate-cf',
         'user-env-no-billing-service-gate-cf',
       ),
@@ -8212,7 +8202,6 @@ test.describe('console router (cloudflare)', () => {
     const claims = {
       orgId: 'org-env-low-balance-live-enabled-cf',
       actorUserId: 'user-env-low-balance-live-enabled-cf',
-      roles: ['platform_admin'],
     };
     await orgProjectEnv.upsertOrganization(claims, {
       name: 'Low Balance Live Enabled Org CF',
@@ -8226,8 +8215,7 @@ test.describe('console router (cloudflare)', () => {
     });
 
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-env-low-balance-live-enabled-cf',
         'user-env-low-balance-live-enabled-cf',
       ),
@@ -8261,7 +8249,7 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare audit routes return seeded timeline and evidence rows', async () => {
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-audit-cf-1', 'user-audit-cf-admin'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-audit-cf-1', 'user-audit-cf-admin'),
       audit,
     });
 
@@ -8288,8 +8276,7 @@ test.describe('console router (cloudflare)', () => {
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService();
     const auditExports: ConsoleAuditExportsService = createInMemoryConsoleAuditExportsService();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-audit-read-role-cf-1',
         'user-audit-read-role-cf-1',
       ),
@@ -8318,7 +8305,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-audit-search-cf-1',
         actorUserId: 'user-audit-search-cf-admin',
-        roles: ['admin'],
       },
       { q: 'pi_demo_01', limit: 20 },
     );
@@ -8333,14 +8319,13 @@ test.describe('console router (cloudflare)', () => {
     const policyCtx = {
       orgId: 'org-audit-cf-live-1',
       actorUserId: 'user-audit-cf-live-admin',
-      roles: ['admin'],
     };
     const gasPolicy = await policies.createPolicy(policyCtx, {
       kind: 'GAS_SPONSORSHIP',
       name: 'Gas publish policy CF',
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-audit-cf-live-1', 'user-audit-cf-live-admin'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-audit-cf-live-1', 'user-audit-cf-live-admin'),
       approvals,
       audit,
       policies,
@@ -8388,8 +8373,7 @@ test.describe('console router (cloudflare)', () => {
     const enterpriseIsolation: ConsoleEnterpriseIsolationService =
       createInMemoryConsoleEnterpriseIsolationService();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-audit-export-cf-1',
         'user-audit-export-cf-admin',
       ),
@@ -8450,97 +8434,10 @@ test.describe('console router (cloudflare)', () => {
     expect(String(getPath(triggerIsolation.json, 'isolation', 'mode') || '')).toBe('DEDICATED');
   });
 
-  test('cloudflare team member routes enforce role scope validation and mutation RBAC', async () => {
-    const teamRbac = createInMemoryConsoleTeamRbacService();
-    const adminHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-team-cf-1', 'user-team-cf-admin-1'),
-      teamRbac,
-    });
-
-    const initial = await callCf(adminHandler, {
-      method: 'GET',
-      path: '/console/members',
-    });
-    expect(initial.status).toBe(200);
-    const initialRows = Array.isArray(initial.json?.members) ? initial.json?.members : [];
-    expect(initialRows.length).toBeGreaterThanOrEqual(1);
-
-    const invited = await callCf(adminHandler, {
-      method: 'POST',
-      path: '/console/members/invite',
-      body: {
-        userId: 'member-team-cf-1-user',
-        email: 'cf-dev@example.com',
-        roles: [{ role: 'admin_manage_members' }, { role: 'wallet_operations_write' }],
-      },
-    });
-    expect(invited.status).toBe(201);
-    const invitedMemberId = String(getPath(invited.json, 'member', 'id') || '');
-    expect(invitedMemberId).toContain('mbr_');
-    expect(getPath(invited.json, 'member', 'status')).toBe('ACTIVE');
-
-    const invitedOnly = await callCf(adminHandler, {
-      method: 'GET',
-      path: '/console/members?status=ACTIVE',
-    });
-    expect(invitedOnly.status).toBe(200);
-    const invitedRows = Array.isArray(invitedOnly.json?.members) ? invitedOnly.json?.members : [];
-    expect(invitedRows.some((entry: any) => String(entry?.id || '') === invitedMemberId)).toBe(
-      true,
-    );
-
-    const updated = await callCf(adminHandler, {
-      method: 'PATCH',
-      path: `/console/members/${encodeURIComponent(invitedMemberId)}/roles`,
-      body: {
-        roles: [{ role: 'integrations_read' }],
-      },
-    });
-    expect(updated.status).toBe(200);
-    expect(getPath(updated.json, 'member', 'roles', 0, 'role')).toBe('integrations_read');
-    expect(getPath(updated.json, 'member', 'roles', 0, 'scope')).toBe('ORG');
-
-    const removed = await callCf(adminHandler, {
-      method: 'DELETE',
-      path: `/console/members/${encodeURIComponent(invitedMemberId)}`,
-    });
-    expect(removed.status).toBe(200);
-    expect(removed.json?.removed).toBe(true);
-    expect(getPath(removed.json, 'member', 'status')).toBe('REMOVED');
-
-    const invalidScope = await callCf(adminHandler, {
-      method: 'POST',
-      path: '/console/members/invite',
-      body: {
-        userId: 'member-team-cf-invalid-user',
-        email: 'cf-invalid@example.com',
-        roles: [{ role: 'wallet_operations_read', projectId: 'project-team-cf-1' }],
-      },
-    });
-    expect(invalidScope.status).toBe(400);
-    expect(invalidScope.json?.code).toBe('invalid_body');
-
-    const developerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer'], 'org-team-cf-1', 'user-team-cf-dev-1'),
-      teamRbac,
-    });
-    const forbidden = await callCf(developerHandler, {
-      method: 'POST',
-      path: '/console/members/invite',
-      body: {
-        userId: 'member-team-cf-forbidden-user',
-        email: 'cf-forbidden@example.com',
-        roles: [{ role: 'overview_read' }],
-      },
-    });
-    expect(forbidden.status).toBe(403);
-    expect(forbidden.json?.code).toBe('forbidden');
-  });
-
   test('cloudflare approval routes enforce mutation RBAC, MFA requirements, and state transitions', async () => {
     const approvals = createInMemoryConsoleApprovalService();
     const adminHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-approvals-cf-1', 'user-approvals-cf-admin-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-approvals-cf-1', 'user-approvals-cf-admin-1'),
       approvals,
     });
 
@@ -8590,8 +8487,7 @@ test.describe('console router (cloudflare)', () => {
     expect(Number(getPath(firstApproval.json, 'approval', 'decisions', 'length') || 0)).toBe(1);
 
     const securityAdminHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['security_admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-approvals-cf-1',
         'user-approvals-cf-security-admin-1',
       ),
@@ -8631,8 +8527,7 @@ test.describe('console router (cloudflare)', () => {
     ).toBe(true);
 
     const developerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-approvals-cf-1',
         'user-approvals-cf-developer-1',
       ),
@@ -8662,15 +8557,10 @@ test.describe('console router (cloudflare)', () => {
     const keyExports = createInMemoryConsoleKeyExportService();
     const orgId = 'org-sensitive-approval-cf-1';
     const actorUserId = 'user-sensitive-approval-cf-admin-1';
-    const claimsRoles = ['admin'];
-    const approvalCtx = {
-      orgId,
-      actorUserId,
-      roles: claimsRoles,
-    };
+    const approvalCtx = { orgId, actorUserId };
 
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(claimsRoles, orgId, actorUserId),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, orgId, actorUserId),
       approvals,
       policies,
       keyExports,
@@ -8780,8 +8670,7 @@ test.describe('console router (cloudflare)', () => {
       },
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-approval-events-cf-1',
         'user-approval-events-cf-1',
       ),
@@ -8861,12 +8750,11 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-meta-cf-1',
         actorUserId: 'user-meta-cf-1',
-        roles: ['admin'],
       },
       { name: 'Org Meta CF 1', slug: 'org-meta-cf-1' },
     );
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-meta-cf-1', 'user-meta-cf-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-meta-cf-1', 'user-meta-cf-1'),
       orgProjectEnv,
     });
 
@@ -8931,12 +8819,11 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-meta-cf-mutate-1',
         actorUserId: 'user-meta-cf-mutate-1',
-        roles: ['admin'],
       },
       { name: 'Org Meta CF Mutate 1', slug: 'org-meta-cf-mutate-1' },
     );
     const adminHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-meta-cf-mutate-1', 'user-meta-cf-mutate-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-meta-cf-mutate-1', 'user-meta-cf-mutate-1'),
       orgProjectEnv,
     });
 
@@ -9058,7 +8945,7 @@ test.describe('console router (cloudflare)', () => {
     expect(createOnArchived.json?.code).toBe('project_archived');
 
     const devHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer'], 'org-meta-cf-mutate-1', 'user-meta-cf-dev-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER, 'org-meta-cf-mutate-1', 'user-meta-cf-dev-1'),
       orgProjectEnv,
     });
     const forbidden = await callCf(devHandler, {
@@ -9074,7 +8961,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('GET /console/wallets returns wallets_not_configured without wallet service', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const res = await callCf(handler, {
       method: 'GET',
@@ -9086,7 +8973,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('GET /console/policies returns policies_not_configured without policy service', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const res = await callCf(handler, {
       method: 'GET',
@@ -9098,7 +8985,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('GET /console/policy/coverage returns wallets_not_configured without wallet service', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const res = await callCf(handler, {
       method: 'GET',
@@ -9110,7 +8997,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('GET /console/export/governance returns key_exports_not_configured without key export service', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       wallets: createInMemoryConsoleWalletService(),
     });
     const res = await callCf(handler, {
@@ -9123,7 +9010,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare new console endpoints return *_not_configured when services are not wired', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
 
     const gas = await callCf(handler, {
@@ -9153,7 +9040,7 @@ test.describe('console router (cloudflare)', () => {
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-scaffold-cf-1', 'user-scaffold-cf-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-scaffold-cf-1', 'user-scaffold-cf-1'),
       policies,
       keyExports,
       runtimeSnapshots,
@@ -9271,8 +9158,7 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare runtime snapshot publish-current emits not_configured markers and monotonic versions', async () => {
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-runtime-contract-cf-1',
         'user-runtime-contract-cf-1',
       ),
@@ -9335,8 +9221,7 @@ test.describe('console router (cloudflare)', () => {
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const policies = createInMemoryConsolePolicyService();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-runtime-policy-cf-1',
         'user-runtime-policy-cf-1',
       ),
@@ -9424,8 +9309,7 @@ test.describe('console router (cloudflare)', () => {
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const policies = createInMemoryConsolePolicyService();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-runtime-gas-policy-cf-1',
         'user-runtime-gas-policy-cf-1',
       ),
@@ -9536,25 +9420,24 @@ test.describe('console router (cloudflare)', () => {
     const billing = createInMemoryConsoleBillingService();
     const enterpriseIsolation = createInMemoryConsoleEnterpriseIsolationService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const organizationAccess = createInMemoryConsoleOrganizationAccessService();
     const approvals = createInMemoryConsoleApprovalService();
     const onboarding = createInMemoryConsoleOnboardingService({
       apiKeys,
       orgProjectEnv,
-      teamRbac,
+      organizationAccess,
     });
     const policies = createInMemoryConsolePolicyService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-scaffold-cf-rbac-1',
         'user-scaffold-cf-rbac-1',
       ),
       onboarding,
       orgProjectEnv,
-      teamRbac,
+      organizationAccess,
       approvals,
       apiKeys,
       auditExports,
@@ -9576,17 +9459,6 @@ test.describe('console router (cloudflare)', () => {
     expect(gasCreate.status).toBe(403);
     expect(gasCreate.json?.code).toBe('forbidden');
 
-    const configureOnboardingOrganization = await callCf(handler, {
-      method: 'POST',
-      path: '/console/onboarding/organization',
-      body: {
-        name: 'Forbidden onboarding organization cloudflare',
-        slug: 'forbidden-onboarding-org-cloudflare',
-      },
-    });
-    expect(configureOnboardingOrganization.status).toBe(403);
-    expect(configureOnboardingOrganization.json?.code).toBe('forbidden');
-
     const createProject = await callCf(handler, {
       method: 'POST',
       path: '/console/projects',
@@ -9600,11 +9472,11 @@ test.describe('console router (cloudflare)', () => {
 
     const inviteMember = await callCf(handler, {
       method: 'POST',
-      path: '/console/members/invite',
+      path: '/console/organization/invitations',
       body: {
-        userId: 'member-cf-rbac-1',
         email: 'forbidden-member-cloudflare@example.com',
-        roles: [{ role: 'overview_read' }],
+        role: 'MEMBER',
+        projectAccess: [],
       },
     });
     expect(inviteMember.status).toBe(403);
@@ -9722,8 +9594,7 @@ test.describe('console router (cloudflare)', () => {
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-scaffold-cf-validation-1',
         'user-scaffold-cf-validation-1',
       ),
@@ -9816,7 +9687,7 @@ test.describe('console router (cloudflare)', () => {
     const ownerEnvironmentId = 'env-isolation-owner-cf';
 
     const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-scaffold-cf-isolation-user'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, ownerOrgId, 'owner-scaffold-cf-isolation-user'),
       policies,
       keyExports,
       runtimeSnapshots,
@@ -9862,7 +9733,7 @@ test.describe('console router (cloudflare)', () => {
     expect(publishSnapshot.status).toBe(201);
 
     const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-scaffold-cf-isolation-user'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, attackerOrgId, 'attacker-scaffold-cf-isolation-user'),
       policies,
       keyExports,
       runtimeSnapshots,
@@ -9934,7 +9805,7 @@ test.describe('console router (cloudflare)', () => {
       ],
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-wallet-cf-1', 'user-wallet-cf-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-wallet-cf-1', 'user-wallet-cf-1'),
       wallets,
     });
 
@@ -9983,8 +9854,7 @@ test.describe('console router (cloudflare)', () => {
       ],
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-wallet-read-role-cf-1',
         'user-wallet-read-role-cf-1',
       ),
@@ -10028,7 +9898,7 @@ test.describe('console router (cloudflare)', () => {
       actorUserId: 'user-insights-cloudflare-1',
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], orgId, 'user-insights-cloudflare-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, orgId, 'user-insights-cloudflare-1'),
       wallets,
       keyExports,
       policies,
@@ -10039,7 +9909,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId,
         actorUserId: 'user-insights-cloudflare-1',
-        roles: ['admin'],
       },
       {
         environmentId,
@@ -10051,7 +9920,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId,
         actorUserId: 'user-insights-cloudflare-approver-1',
-        roles: ['admin'],
       },
       {
         environmentId: `${projectId}:stage`,
@@ -10063,7 +9931,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId,
         actorUserId: 'user-insights-cloudflare-approver-1',
-        roles: ['admin'],
       },
       approvedRequest.id,
       {
@@ -10128,7 +9995,7 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare policy routes support draft/update/simulate/publish lifecycle with role gates', async () => {
     const policies = createInMemoryConsolePolicyService();
     const adminHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-policy-cf-1', 'user-policy-admin-cf-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-policy-cf-1', 'user-policy-admin-cf-1'),
       policies,
     });
 
@@ -10212,7 +10079,7 @@ test.describe('console router (cloudflare)', () => {
     expect(Number(getPath(published.json, 'result', 'policy', 'version') || 0)).toBe(1);
 
     const developerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer'], 'org-policy-cf-1', 'user-policy-dev-cf-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER, 'org-policy-cf-1', 'user-policy-dev-cf-1'),
       policies,
     });
     const forbiddenCreate = await callCf(developerHandler, {
@@ -10231,7 +10098,7 @@ test.describe('console router (cloudflare)', () => {
     let ownerPolicyId = '';
 
     const ownerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-policy-owner-cf', 'owner-policy-user-cf'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-policy-owner-cf', 'owner-policy-user-cf'),
       policies,
     });
     const created = await callCf(ownerHandler, {
@@ -10246,7 +10113,7 @@ test.describe('console router (cloudflare)', () => {
     expect(ownerPolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
     const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-policy-attacker-cf', 'attacker-policy-user-cf'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER, 'org-policy-attacker-cf', 'attacker-policy-user-cf'),
       policies,
     });
     const listed = await callCf(attackerHandler, {
@@ -10283,8 +10150,7 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare policy create rejects client-supplied ids', async () => {
     const policies = createInMemoryConsolePolicyService();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-policy-create-id-validation-cf',
         'user-policy-id-cf',
       ),
@@ -10306,8 +10172,7 @@ test.describe('console router (cloudflare)', () => {
     const policies = createInMemoryConsolePolicyService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-policy-audit-cloudflare',
         'user-policy-audit-cloudflare',
       ),
@@ -10353,7 +10218,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-policy-audit-cloudflare',
         actorUserId: 'user-policy-audit-cloudflare',
-        roles: ['admin'],
       },
       { category: 'POLICY', limit: 20 },
     );
@@ -10393,8 +10257,7 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare successful policy create stays quiet while Stripe top-up emits billing observability', async () => {
     const ingested: ObservabilityIngestionEntry[] = [];
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-observability-success-cf',
         'user-observability-success-cf',
       ),
@@ -10425,14 +10288,13 @@ test.describe('console router (cloudflare)', () => {
       method: 'POST',
       path: '/console/billing/stripe/checkout-session',
       body: {
-        successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
-        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
         creditPackId: 'usd_25',
       },
     });
     expect(createdCheckout.status).toBe(201);
     const checkoutSessionId = String(getPath(createdCheckout.json, 'checkoutSession', 'id') || '');
     expect(checkoutSessionId).toBeTruthy();
+    expect(String(getPath(created.json, 'checkoutSession', 'purchaseId') || '')).toBeTruthy();
 
     const reconciled = await callCf(handler, {
       method: 'POST',
@@ -10450,8 +10312,7 @@ test.describe('console router (cloudflare)', () => {
     const policies = createInMemoryConsolePolicyService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-policy-assignment-audit-cloudflare',
         'user-policy-assignment-audit-cloudflare',
       ),
@@ -10493,7 +10354,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-policy-assignment-audit-cloudflare',
         actorUserId: 'user-policy-assignment-audit-cloudflare',
-        roles: ['admin'],
       },
       { category: 'POLICY', limit: 20 },
     );
@@ -10534,8 +10394,7 @@ test.describe('console router (cloudflare)', () => {
     const policies = createInMemoryConsolePolicyService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-policy-publish-audit-cloudflare',
         'user-policy-publish-audit-cloudflare',
       ),
@@ -10575,7 +10434,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-policy-publish-audit-cloudflare',
         actorUserId: 'user-policy-publish-audit-cloudflare',
-        roles: ['admin'],
       },
       { category: 'POLICY', limit: 20 },
     );
@@ -10615,8 +10473,7 @@ test.describe('console router (cloudflare)', () => {
       ],
     });
     const adminHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-policy-assign-cloudflare',
         'policy-assign-admin-cf',
       ),
@@ -10755,8 +10612,7 @@ test.describe('console router (cloudflare)', () => {
     ).toBe(true);
 
     const developerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-policy-assign-cloudflare',
         'policy-assign-developer-cf',
       ),
@@ -10779,8 +10635,7 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare policy creation can attach a draft to scope in one request', async () => {
     const policies = createInMemoryConsolePolicyService();
     const adminHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-policy-create-attach-cloudflare',
         'policy-create-attach-admin-cf',
       ),
@@ -10828,7 +10683,7 @@ test.describe('console router (cloudflare)', () => {
     });
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       apiKeys,
       orgProjectEnv,
     });
@@ -10898,8 +10753,7 @@ test.describe('console router (cloudflare)', () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-api-key-env-validation-cf',
         'user-api-key-admin-cf',
       ),
@@ -10925,8 +10779,7 @@ test.describe('console router (cloudflare)', () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-api-key-expiry-validation-cf',
         'user-api-key-admin-cf',
       ),
@@ -10949,12 +10802,12 @@ test.describe('console router (cloudflare)', () => {
     expect(created.json?.code).toBe('invalid_body');
   });
 
-  test('cloudflare API key mutation routes require owner/admin/security_admin role', async () => {
+  test('cloudflare API key mutation routes require project editor access', async () => {
     const orgId = 'org-api-key-rbac-cf';
     const apiKeys = createInMemoryConsoleApiKeyService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const created = await apiKeys.createApiKey(
-      { orgId, actorUserId: 'seed-admin-cf', roles: ['admin'] },
+      { orgId, actorUserId: 'seed-admin-cf' },
       {
         name: 'seed-key-cf',
         environmentId: 'env-rbac-cf',
@@ -10964,7 +10817,7 @@ test.describe('console router (cloudflare)', () => {
     );
 
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer'], orgId, 'user-api-key-developer-cf'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER, orgId, 'user-api-key-developer-cf'),
       apiKeys,
       orgProjectEnv,
     });
@@ -11023,7 +10876,7 @@ test.describe('console router (cloudflare)', () => {
       },
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       webhooks,
     });
 
@@ -11051,7 +10904,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-1',
         actorUserId: 'system-webhooks-test',
-        roles: ['ops'],
       },
       {
         eventType: 'billing.invoice.paid',
@@ -11194,8 +11046,7 @@ test.describe('console router (cloudflare)', () => {
     });
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-webhook-audit-cloudflare',
         'user-webhook-audit-cloudflare',
       ),
@@ -11228,7 +11079,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-webhook-audit-cloudflare',
         actorUserId: 'system-webhooks-audit-cloudflare',
-        roles: ['ops'],
       },
       {
         eventType: 'billing.invoice.generated',
@@ -11267,7 +11117,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-webhook-audit-cloudflare',
         actorUserId: 'user-webhook-audit-cloudflare',
-        roles: ['admin'],
       },
       { category: 'WEBHOOK', limit: 20 },
     );
@@ -11360,7 +11209,7 @@ test.describe('console router (cloudflare)', () => {
       },
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       webhooks,
     });
 
@@ -11380,7 +11229,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-1',
         actorUserId: 'system-webhooks-observability',
-        roles: ['ops'],
       },
       {
         eventType: 'billing.invoice.failed',
@@ -11391,7 +11239,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-1',
         actorUserId: 'system-webhooks-observability',
-        roles: ['ops'],
       },
       {
         eventType: 'billing.invoice.failed',
@@ -11418,11 +11265,11 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare webhook mutations require console config mutation role', async () => {
     const webhooks = createInMemoryConsoleWebhookService();
     const adminHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       webhooks,
     });
     const developerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER),
       webhooks,
     });
 
@@ -11459,7 +11306,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-1',
         actorUserId: 'system-webhooks-rbac-cloudflare',
-        roles: ['ops'],
       },
       {
         eventType: 'billing.invoice.paid',
@@ -11504,7 +11350,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare webhook list endpoints reject malformed cursor', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       webhooks: createInMemoryConsoleWebhookService(),
     });
 
@@ -11551,14 +11397,13 @@ test.describe('console router (cloudflare)', () => {
 
   test('POST /console/billing/stripe/checkout-session returns billing_not_configured without billing service', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
     });
     const res = await callCf(handler, {
       method: 'POST',
       path: '/console/billing/stripe/checkout-session',
       body: {
-        successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
-        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+        creditPackId: 'usd_25',
       },
     });
     expect(res.status).toBe(501);
@@ -11567,15 +11412,17 @@ test.describe('console router (cloudflare)', () => {
 
   test('POST /console/billing/stripe/checkout-session creates checkout session', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing: createInMemoryConsoleBillingService(),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
+      billing: createInMemoryConsoleBillingService({
+        consoleBaseUrl: 'https://app.example.com',
+      }),
     });
     const created = await callCf(handler, {
       method: 'POST',
       path: '/console/billing/stripe/checkout-session',
       body: {
-        successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
-        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+        successUrl: 'https://attacker.example/success',
+        cancelUrl: 'https://attacker.example/cancel',
         creditPackId: 'usd_25',
       },
     });
@@ -11584,8 +11431,9 @@ test.describe('console router (cloudflare)', () => {
     const checkoutSessionUrl = String(getPath(created.json, 'checkoutSession', 'url') || '');
     expect(checkoutSessionId).toBeTruthy();
     expect(checkoutSessionUrl).toContain(
-      'https://app.example.com/dashboard/billing?checkout=success',
+      'https://app.example.com/dashboard/billing/account?checkout=success',
     );
+    expect(checkoutSessionUrl).not.toContain('attacker.example');
     expect(new URL(checkoutSessionUrl).searchParams.get('checkout_session_id')).toBe(
       checkoutSessionId,
     );
@@ -11596,49 +11444,71 @@ test.describe('console router (cloudflare)', () => {
       /^\d{4}-\d{2}-\d{2}T/,
     );
 
-    const customCreated = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stripe/checkout-session',
-      body: {
-        successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
-        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-        creditPackId: 'usd_custom',
-        customAmountMinor: 12345,
-      },
-    });
-    expect(customCreated.status).toBe(201);
-    expect(getPath(customCreated.json, 'checkoutSession', 'creditPackId')).toBe('usd_custom');
-    expect(Number(getPath(customCreated.json, 'checkoutSession', 'amountMinor') || 0)).toBe(12345);
-
     const invalid = await callCf(handler, {
       method: 'POST',
       path: '/console/billing/stripe/checkout-session',
       body: {
-        successUrl: '/dashboard/billing',
-        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-        creditPackId: 'usd_25',
+        creditPackId: 'usd_75',
       },
     });
     expect(invalid.status).toBe(400);
     expect(invalid.json?.code).toBe('invalid_body');
 
-    const missingCustomAmount = await callCf(handler, {
+  });
+
+  test('cloudflare platform refund routes mutate the explicit target organization', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const targetOrgId = 'org-platform-refund-target';
+    const purchase = await createSettledBillingPurchase(billing, targetOrgId);
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER),
+      billing,
+    });
+
+    const created = await callCf(handler, {
       method: 'POST',
-      path: '/console/billing/stripe/checkout-session',
+      path: '/console/platform/billing/refunds',
       body: {
-        successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
-        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-        creditPackId: 'usd_custom',
+        orgId: targetOrgId,
+        purchaseId: purchase.id,
+        amountMinor: 1000,
+        reason: 'customer_request',
+        idempotencyKey: 'refund-route-cloudflare-1',
       },
     });
-    expect(missingCustomAmount.status).toBe(400);
-    expect(missingCustomAmount.json?.code).toBe('invalid_body');
+    expect(created.status).toBe(201);
+    const refundId = String(getPath(created.json, 'result', 'refund', 'id') || '');
+    expect(refundId).toBeTruthy();
+    expect(getPath(created.json, 'result', 'refund', 'status')).toBe('succeeded');
+
+    const history = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/refunds',
+    });
+    expect(history.status).toBe(200);
+    expect(getPath(history.json, 'refunds')).toEqual([]);
+    expect(
+      (
+        await billing.listRefunds({
+          orgId: targetOrgId,
+          actorUserId: 'platform-support-test',
+        })
+      )[0]?.id,
+    ).toBe(refundId);
+
+    const reconciled = await callCf(handler, {
+      method: 'POST',
+      path: '/console/platform/billing/refunds/reconcile',
+      body: { orgId: targetOrgId, refundId },
+    });
+    expect(reconciled.status).toBe(200);
+    expect(getPath(reconciled.json, 'result', 'refund', 'status')).toBe('succeeded');
   });
 
   test('POST /console/billing/stripe/checkout-session/reconcile settles a paid checkout session', async () => {
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing: createInMemoryConsoleBillingService(),
       audit,
     });
@@ -11646,8 +11516,6 @@ test.describe('console router (cloudflare)', () => {
       method: 'POST',
       path: '/console/billing/stripe/checkout-session',
       body: {
-        successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
-        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
         creditPackId: 'usd_25',
       },
     });
@@ -11689,7 +11557,6 @@ test.describe('console router (cloudflare)', () => {
     const auditEvents = await audit.listEvents({
       orgId: 'org-1',
       actorUserId: 'user-1',
-      roles: ['admin'],
     });
     const settlementEvents = auditEvents.filter(
       (event) => String(event.action || '') === 'billing.credit_purchase.settled',
@@ -11711,42 +11578,20 @@ test.describe('console router (cloudflare)', () => {
     );
   });
 
-  test('GET /console/platform/billing/account resolves project-scoped lookup for platform_admin', async () => {
+  test('GET /console/platform/billing/account resolves project-scoped lookup for platform support', async () => {
     const billing = createInMemoryConsoleBillingService({
       now: () => new Date('2026-03-20T00:00:00.000Z'),
     });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const teamRbac = createInMemoryConsoleTeamRbacService();
     const targetCtx = {
       orgId: 'org-platform-target-cloudflare',
       actorUserId: 'platform-user-cloudflare',
-      roles: ['platform_admin'],
     };
     await seedOrgProjectEnvironment(orgProjectEnv, {
       orgId: 'org-platform-target-cloudflare',
       projectId: 'proj-platform-target-cloudflare',
       actorUserId: 'platform-user-cloudflare',
     });
-    await teamRbac.bootstrapOwner({
-      orgId: 'org-platform-target-cloudflare',
-      actorUserId: 'owner-platform-target-cloudflare',
-      roles: ['owner'],
-      actorEmail: 'owner-platform-target-cloudflare@example.com',
-      actorDisplayName: 'Owner Cloudflare',
-    });
-    await teamRbac.inviteMember(
-      {
-        orgId: 'org-platform-target-cloudflare',
-        actorUserId: 'owner-platform-target-cloudflare',
-        roles: ['owner'],
-      },
-      {
-        userId: 'admin-platform-target-cloudflare',
-        email: 'admin-platform-target-cloudflare@example.com',
-        displayName: 'Admin Cloudflare',
-        roles: [{ role: 'admin', scope: 'ORG' }],
-      },
-    );
     await billing.grantManualSupportCredit(targetCtx, {
       amountMinor: 1200,
       reasonCode: 'incident_credit',
@@ -11762,14 +11607,12 @@ test.describe('console router (cloudflare)', () => {
     });
 
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['platform_admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-platform-session-cloudflare',
         'platform-user-cloudflare',
       ),
       billing,
       orgProjectEnv,
-      teamRbac,
     });
     const res = await callCf(handler, {
       method: 'GET',
@@ -11791,23 +11634,13 @@ test.describe('console router (cloudflare)', () => {
     expect(entries).toHaveLength(1);
     expect(String(entries[0]?.type || '')).toBe('MANUAL_ADJUSTMENT');
     expect(String(entries[0]?.reasonCode || '')).toBe('incident_credit');
-    const teamMembers = Array.isArray(getPath(res.json, 'result', 'teamMembers'))
-      ? (getPath(res.json, 'result', 'teamMembers') as any[])
-      : [];
-    expect(teamMembers.map((entry) => String(entry?.displayName || ''))).toEqual([
-      'Owner Cloudflare',
-      'Admin Cloudflare',
-    ]);
-    expect(teamMembers.map((entry) => String(entry?.access || ''))).toEqual(['OWNER', 'ADMIN']);
-    expect(teamMembers.map((entry) => String(entry?.status || ''))).toEqual(['ACTIVE', 'ACTIVE']);
   });
 
-  test('GET /console/platform/billing/search finds organization matches for platform_admin', async () => {
+  test('GET /console/platform/billing/search finds organization matches for platform support', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const searchCtx = {
       orgId: 'org-platform-search-primary-cloudflare',
       actorUserId: 'platform-user-cloudflare',
-      roles: ['platform_admin'],
     };
     await orgProjectEnv.upsertOrganization(searchCtx, {
       name: 'Watchbook Marketplace',
@@ -11822,7 +11655,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-platform-search-secondary-cloudflare',
         actorUserId: 'platform-user-cloudflare',
-        roles: ['platform_admin'],
       },
       {
         name: 'Acme Labs',
@@ -11831,8 +11663,7 @@ test.describe('console router (cloudflare)', () => {
     );
 
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['platform_admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-platform-session-cloudflare',
         'platform-user-cloudflare',
       ),
@@ -11870,7 +11701,6 @@ test.describe('console router (cloudflare)', () => {
         {
           orgId,
           actorUserId: 'platform-user-cloudflare',
-          roles: ['platform_admin'],
         },
         {
           name,
@@ -11880,8 +11710,7 @@ test.describe('console router (cloudflare)', () => {
     }
 
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['platform_admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-platform-session-cloudflare',
         'platform-user-cloudflare',
       ),
@@ -11904,13 +11733,12 @@ test.describe('console router (cloudflare)', () => {
     ]);
   });
 
-  test('POST /console/platform/billing/adjustments/support-credit applies to target org for platform_admin', async () => {
+  test('POST /console/platform/billing/adjustments/support-credit applies to target org for platform support', async () => {
     const billing = createInMemoryConsoleBillingService({
       now: () => new Date('2026-03-20T00:00:00.000Z'),
     });
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const teamRbac = createInMemoryConsoleTeamRbacService();
     await seedOrgProjectEnvironment(orgProjectEnv, {
       orgId: 'org-platform-adjust-target-cloudflare',
       projectId: 'proj-platform-adjust-target-cloudflare',
@@ -11918,15 +11746,13 @@ test.describe('console router (cloudflare)', () => {
     });
 
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['platform_admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER,
         'org-platform-session-cloudflare',
         'platform-user-cloudflare',
       ),
       billing,
       audit,
       orgProjectEnv,
-      teamRbac,
     });
     const res = await callCf(handler, {
       method: 'POST',
@@ -11960,7 +11786,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-platform-adjust-target-cloudflare',
         actorUserId: 'platform-user-cloudflare',
-        roles: ['platform_admin'],
       },
       { limit: 10 },
     );
@@ -11975,9 +11800,9 @@ test.describe('console router (cloudflare)', () => {
     expect(String(adjustmentAudit?.metadata?.platformBilling || '')).toBe('true');
   });
 
-  test('POST /console/billing/stripe/webhook requires configured shared secret', async () => {
+  test('POST /console/billing/stripe/webhook requires a configured signing secret', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing: createInMemoryConsoleBillingService(),
     });
     const res = await callCf(handler, {
@@ -11995,7 +11820,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('POST /console/billing/invoices/generate requires admin or ops role', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['billing_admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_BILLING_MANAGER),
       billing: createInMemoryConsoleBillingService(),
     });
     const res = await callCf(handler, {
@@ -12009,9 +11834,9 @@ test.describe('console router (cloudflare)', () => {
     expect(res.json?.code).toBe('forbidden');
   });
 
-  test('POST /console/billing/adjustments/support-credit requires platform_admin role (cloudflare)', async () => {
+  test('POST /console/billing/adjustments/support-credit requires platform support (cloudflare)', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['ops']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER),
       billing: createInMemoryConsoleBillingService(),
     });
     const res = await callCf(handler, {
@@ -12026,12 +11851,12 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(res.status).toBe(403);
     expect(res.json?.code).toBe('forbidden');
-    expect(String(res.json?.message || '')).toContain('platform_admin');
+    expect(String(res.json?.message || '')).toContain('platform.support');
   });
 
-  test('POST /console/billing/adjustments/admin-debit allows platform_admin for large debit amounts (cloudflare)', async () => {
+  test('POST /console/billing/adjustments/admin-debit allows platform support for large debit amounts (cloudflare)', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['platform_admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER),
       billing: createInMemoryConsoleBillingService(),
     });
     const res = await callCf(handler, {
@@ -12052,7 +11877,7 @@ test.describe('console router (cloudflare)', () => {
     const billing = createInMemoryConsoleBillingService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['platform_admin', 'billing_admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_BILLING_ADMIN),
       billing,
       audit,
     });
@@ -12123,7 +11948,7 @@ test.describe('console router (cloudflare)', () => {
     ).toEqual([-200, 1200]);
 
     const auditEvents = await audit.listEvents(
-      { orgId: 'org-1', actorUserId: 'user-1', roles: ['platform_admin'] },
+      { orgId: 'org-1', actorUserId: 'user-1' },
       { limit: 20 },
     );
     expect(
@@ -12149,7 +11974,7 @@ test.describe('console router (cloudflare)', () => {
       event: Record<string, unknown>;
     }> = [];
     await billing.grantManualSupportCredit(
-      { orgId: 'org-1', actorUserId: 'seed-user', roles: ['platform_admin'] },
+      { orgId: 'org-1', actorUserId: 'seed-user' },
       {
         amountMinor: 4000,
         reasonCode: 'seed_credit',
@@ -12167,14 +11992,14 @@ test.describe('console router (cloudflare)', () => {
       },
     });
     const endpoint = await webhooks.createEndpoint(
-      { orgId: 'org-1', actorUserId: 'user-1', roles: ['platform_admin'] },
+      { orgId: 'org-1', actorUserId: 'user-1' },
       {
         url: 'https://example.com/billing-transition-cloudflare',
         eventCategories: ['billing'],
       },
     );
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['platform_admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_PLATFORM_SUPPORT_OWNER),
       billing,
       webhooks,
       observabilityIngestion: makeObservabilityIngestionCollector(ingested),
@@ -12217,7 +12042,7 @@ test.describe('console router (cloudflare)', () => {
     expect(recovered.status).toBe(201);
 
     const deliveries = await webhooks.listDeliveries(
-      { orgId: 'org-1', actorUserId: 'user-1', roles: ['platform_admin'] },
+      { orgId: 'org-1', actorUserId: 'user-1' },
       endpoint.id,
     );
     expect(sortedWebhookDeliveryEventTypes(deliveries)).toEqual([
@@ -12240,18 +12065,16 @@ test.describe('console router (cloudflare)', () => {
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const secret = 'whsec_console_router_cf_projection_test';
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing,
       audit,
-      billingStripeWebhookSecret: secret,
+      billingStripeWebhookSigningSecret: secret,
     });
 
     const checkoutSession = await callCf(handler, {
       method: 'POST',
       path: '/console/billing/stripe/checkout-session',
       body: {
-        successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
-        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
         creditPackId: 'usd_25',
       },
     });
@@ -12260,24 +12083,31 @@ test.describe('console router (cloudflare)', () => {
     const providerCustomerRef = String(
       getPath(checkoutSession.json, 'checkoutSession', 'customerRef') || '',
     );
+    const purchaseId = String(
+      getPath(checkoutSession.json, 'checkoutSession', 'purchaseId') || '',
+    );
     expect(checkoutSessionId).toBeTruthy();
     expect(providerCustomerRef).toBeTruthy();
 
     const purchaseEventId = `evt_cf_purchase_projection_${Date.now()}`;
+    const rawBody = stripeCheckoutCompletedBody({
+      eventId: purchaseEventId,
+      orgId: 'org-1',
+      checkoutSessionId,
+      providerCustomerRef,
+      providerPaymentRef: `pi_${checkoutSessionId}`,
+      purchaseId,
+      creditPackId: 'usd_25',
+      amountMinor: 2500,
+    });
+    const stripeSignature = stripeSignatureHeader(secret, rawBody);
     const projectedPurchase = await callCf(handler, {
       method: 'POST',
       path: '/console/billing/stripe/webhook',
       headers: {
-        'x-console-stripe-webhook-secret': secret,
+        'Stripe-Signature': stripeSignature,
       },
-      body: {
-        eventId: purchaseEventId,
-        eventType: 'checkout.session.completed',
-        orgId: 'org-1',
-        checkoutSessionId,
-        providerCustomerRef,
-        providerRef: checkoutSessionId,
-      },
+      body: rawBody,
     });
     expect(projectedPurchase.status).toBe(200);
     expect(projectedPurchase.json?.accepted).toBe(true);
@@ -12290,16 +12120,9 @@ test.describe('console router (cloudflare)', () => {
       method: 'POST',
       path: '/console/billing/stripe/webhook',
       headers: {
-        'x-console-stripe-webhook-secret': secret,
+        'Stripe-Signature': stripeSignature,
       },
-      body: {
-        eventId: purchaseEventId,
-        eventType: 'checkout.session.completed',
-        orgId: 'org-1',
-        checkoutSessionId,
-        providerCustomerRef,
-        providerRef: checkoutSessionId,
-      },
+      body: rawBody,
     });
     expect(projectedPurchaseDuplicate.status).toBe(200);
     expect(projectedPurchaseDuplicate.json?.accepted).toBe(false);
@@ -12315,7 +12138,6 @@ test.describe('console router (cloudflare)', () => {
     const auditEvents = await audit.listEvents({
       orgId: 'org-1',
       actorUserId: 'user-1',
-      roles: ['admin'],
     });
     const settlementEvents = auditEvents.filter(
       (event) => String(event.action || '') === 'billing.credit_purchase.settled',
@@ -12336,7 +12158,7 @@ test.describe('console router (cloudflare)', () => {
     const billing = createInMemoryConsoleBillingService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing,
       audit,
     });
@@ -12371,7 +12193,6 @@ test.describe('console router (cloudflare)', () => {
     const auditEvents = await audit.listEvents({
       orgId: 'org-1',
       actorUserId: 'user-1',
-      roles: ['admin'],
     });
     expect(auditEvents.length).toBe(1);
     expect(auditEvents[0]?.action).toBe('billing.invoice.pdf_export');
@@ -12399,7 +12220,6 @@ test.describe('console router (cloudflare)', () => {
     const billingCtx = {
       orgId: 'org-1',
       actorUserId: 'admin-activity-user-cf',
-      roles: ['admin'],
     };
     await billing.recordUsageEvent(billingCtx, {
       walletId: 'wallet_january_1_cf',
@@ -12428,8 +12248,6 @@ test.describe('console router (cloudflare)', () => {
     });
     const march = await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-03' });
     const checkoutSession = await billing.createStripeCheckoutSession(billingCtx, {
-      successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
-      cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
       creditPackId: 'usd_25',
     });
     await billing.processStripeWebhookEvent({
@@ -12438,11 +12256,17 @@ test.describe('console router (cloudflare)', () => {
       orgId: billingCtx.orgId,
       checkoutSessionId: checkoutSession.id,
       providerCustomerRef: checkoutSession.customerRef,
+      providerPaymentRef: `pi_${checkoutSession.purchaseId}`,
       providerRef: checkoutSession.id,
+      purchaseId: checkoutSession.purchaseId,
+      creditPackId: checkoutSession.creditPackId,
+      amountMinor: checkoutSession.amountMinor,
+      currency: 'USD',
+      paymentStatus: 'paid',
     });
 
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing,
     });
 
@@ -12512,7 +12336,7 @@ test.describe('console router (cloudflare)', () => {
   test('billing usage endpoints compute MAW with exclusions and idempotency', async () => {
     const billing = createInMemoryConsoleBillingService();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing,
     });
 
@@ -12585,7 +12409,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare POST /console/billing/usage/events requires admin or ops role', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['billing_admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_BILLING_MANAGER),
       billing: createInMemoryConsoleBillingService(),
     });
 
@@ -12605,8 +12429,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare billing read routes require billing read role', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['developer'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_MEMBER,
         'org-billing-read-role-cf-1',
         'user-billing-read-role-cf-1',
       ),
@@ -12632,9 +12455,9 @@ test.describe('console router (cloudflare)', () => {
     }
   });
 
-  test('cloudflare billing_admin can access billing read routes', async () => {
+  test('administrator with billing permissions can access billing read routes', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['billing_admin'], 'org-1', 'user-billing-admin-read-cf-1'),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_BILLING_MANAGER, 'org-1', 'user-billing-manager-read-cf-1'),
       billing: createInMemoryConsoleBillingService(),
     });
 
@@ -12654,7 +12477,7 @@ test.describe('console router (cloudflare)', () => {
   test('invoice generation endpoint returns deterministic prepaid statement line items', async () => {
     const billing = createInMemoryConsoleBillingService();
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing,
     });
 
@@ -12710,8 +12533,7 @@ test.describe('console router (cloudflare)', () => {
     const billing = createInMemoryConsoleBillingService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER,
         'org-billing-invoice-audit-cloudflare',
         'user-billing-invoice-audit-cloudflare',
       ),
@@ -12747,7 +12569,6 @@ test.describe('console router (cloudflare)', () => {
       {
         orgId: 'org-billing-invoice-audit-cloudflare',
         actorUserId: 'user-billing-invoice-audit-cloudflare',
-        roles: ['admin'],
       },
       { category: 'BILLING', limit: 20 },
     );
@@ -12781,7 +12602,7 @@ test.describe('console router (cloudflare)', () => {
       },
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       billing,
       webhooks,
     });

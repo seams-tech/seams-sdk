@@ -38,21 +38,23 @@
       "import": "./dist/esm/wasm/signer.js",
       "default": "./dist/esm/wasm/signer.js"
     },
-    "./internal/*": {
-      "types": "./dist/types/sdk-server-ts/src/*.d.ts",
-      "import": "./dist/esm/*.js",
-      "default": "./dist/esm/*.js"
-    }
+    "./cloud-host": {
+      "types": "./dist/types/sdk-server-ts/src/cloud-host.d.ts",
+      "import": "./dist/esm/cloud-host.js",
+      "default": "./dist/esm/cloud-host.js"
+    },
+    "./migrations/d1-signer/*": "./migrations/d1-signer/*"
   },
   "files": [
     "dist/",
+    "migrations/d1-signer/",
     "src/README.md"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && rolldown -c rolldown.config.ts && node ./scripts/copy-wasm-assets.mjs",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node ./scripts/rewrite-declaration-imports.mjs && rolldown -c rolldown.config.ts && node ./scripts/copy-wasm-assets.mjs",
     "type-check": "tsc --noEmit"
   },
   "keywords": [

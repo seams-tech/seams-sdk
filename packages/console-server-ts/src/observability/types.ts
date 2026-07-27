@@ -136,7 +136,6 @@ export interface ConsoleObservabilityEventIngestResult {
 export interface ConsoleObservabilityIngestionContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
 }
 
 export interface ConsoleObservabilityRequestMetricInput {

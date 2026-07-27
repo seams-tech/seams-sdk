@@ -17,7 +17,7 @@ import type {
   RouterApiPublishableKeyAuthResult,
   RouterApiUsageMeterAdapter,
   RouterApiUsageMeterEvent,
-} from '@seams/sdk-server/internal/router/apiCredentialPorts';
+} from '@seams/sdk-server/cloud-host';
 
 function toPrincipal(apiKey: ConsoleApiKey): RouterApiKeyPrincipal {
   return {
@@ -108,7 +108,6 @@ class ConsoleRouterApiBillingUsageMeterAdapter implements RouterApiUsageMeterAda
       {
         orgId: input.orgId,
         actorUserId: 'relay-api-key',
-        roles: ['system'],
       },
       {
         walletId: input.walletId,
@@ -130,7 +129,6 @@ class ConsoleRouterApiBillingUsageMeterAdapter implements RouterApiUsageMeterAda
     const envs = await orgProjectEnv.listEnvironments({
       orgId: input.orgId,
       actorUserId: 'relay-api-key',
-      roles: ['system'],
       environmentId: input.environmentId,
     });
     const environment = envs.find((entry) => entry.id === input.environmentId) || null;
@@ -140,7 +138,6 @@ class ConsoleRouterApiBillingUsageMeterAdapter implements RouterApiUsageMeterAda
       {
         orgId: input.orgId,
         actorUserId: 'relay-api-key',
-        roles: ['system'],
         projectId: environment.projectId,
         environmentId: environment.id,
       },

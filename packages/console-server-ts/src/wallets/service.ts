@@ -33,7 +33,6 @@ export interface UpsertConsoleWalletRequest {
 export interface ConsoleWalletsContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 }

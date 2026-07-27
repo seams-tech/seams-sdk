@@ -17,18 +17,6 @@ const coordinatorSharedSecretB64u =
   String(process.env.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U || '').trim() ||
   crypto.randomBytes(32).toString('base64url');
 
-// Default behavior: keep startup deterministic by avoiding concurrent SDK rebuilds while
-// relay `node --watch` is running. This prevents transient ESM export mismatches mid-restart.
-const watchSdk =
-  String(process.env.RELAY_WATCH_SDK || '').trim() === '1' ||
-  String(process.env.RELAY_WATCH_SDK || '')
-    .trim()
-    .toLowerCase() === 'true';
-const sdk = watchSdk ? run('pnpm', ['-C', '../../packages/sdk-web', 'dev']) : null;
-if (!watchSdk) {
-  console.log('[relay dev] SDK watch disabled (set RELAY_WATCH_SDK=1 to enable)');
-}
-
 // Run TypeScript compiler in watch mode once.
 const tsc = run('pnpm', ['run', 'build:watch']);
 
@@ -88,9 +76,6 @@ const cosigner3 = run('node', ['--watch', 'dist/index.js'], {
 
 function shutdown(signal) {
   console.log(`[shutdown] received ${signal}, closing relay fleet...`);
-  try {
-    sdk?.kill();
-  } catch {}
   try {
     tsc.kill();
   } catch {}

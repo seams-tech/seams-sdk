@@ -14,7 +14,6 @@ import {
   type RouterAbEcdsaDerivationRecoveryRequestV1,
   type RouterAbEcdsaDerivationSignerSetV1,
   type RouterAbEcdsaRegistrationActivationReceiptV1,
-  type RouterAbEcdsaRegistrationLifecycleV1,
   type RouterAbEcdsaRegistrationRecipientKeysV1,
   type RouterAbEcdsaRegistrationRequestFactsV1,
   type RouterAbEcdsaRegistrationRequestV1,
@@ -635,55 +634,43 @@ export function routerAbEcdsaStrictRegistrationRequestMatchesFacts(input: {
   readonly facts: RouterAbEcdsaRegistrationRequestFactsV1;
 }): boolean {
   return (
-    input.request.registration_purpose === input.facts.registration_purpose &&
-    input.request.context.application_binding_digest_b64u ===
-      input.facts.context.application_binding_digest_b64u &&
-    registrationLifecycleMatches(input.request.lifecycle, input.facts.lifecycle) &&
-    signerSetMatches(input.request.signer_set, input.facts.signer_set) &&
-    input.request.router_id === input.facts.router_id &&
-    input.request.client_id === input.facts.client_id &&
-    input.request.replay_nonce === input.facts.replay_nonce &&
-    input.request.expires_at_ms === input.facts.expires_at_ms &&
-    input.request.deriver_a_envelope.recipient_role ===
-      input.facts.deriver_recipient_keys.deriver_a.role &&
-    input.request.deriver_b_envelope.recipient_role ===
-      input.facts.deriver_recipient_keys.deriver_b.role
+    routerAbEcdsaStrictRegistrationRequestBindingJson(input.request) ===
+    routerAbEcdsaStrictRegistrationFactsBindingJson(input.facts)
   );
 }
 
-function registrationLifecycleMatches(
-  left: RouterAbEcdsaRegistrationLifecycleV1,
-  right: RouterAbEcdsaRegistrationLifecycleV1,
-): boolean {
-  return (
-    left.lifecycle_id === right.lifecycle_id &&
-    left.work_kind === right.work_kind &&
-    left.primitive_request_kind === right.primitive_request_kind &&
-    left.root_share_epoch === right.root_share_epoch &&
-    left.account_id === right.account_id &&
-    left.session_id === right.session_id &&
-    left.signer_set_id === right.signer_set_id &&
-    left.selected_server_id === right.selected_server_id
-  );
+export function routerAbEcdsaStrictRegistrationFactsBindingJson(
+  facts: RouterAbEcdsaRegistrationRequestFactsV1,
+): string {
+  return canonicalJson({
+    registration_purpose: facts.registration_purpose,
+    context: facts.context,
+    lifecycle: facts.lifecycle,
+    signer_set: facts.signer_set,
+    router_id: facts.router_id,
+    client_id: facts.client_id,
+    replay_nonce: facts.replay_nonce,
+    expires_at_ms: facts.expires_at_ms,
+    deriver_a_role: facts.deriver_recipient_keys.deriver_a.role,
+    deriver_b_role: facts.deriver_recipient_keys.deriver_b.role,
+  });
 }
 
-function signerSetMatches(
-  left: RouterAbEcdsaDerivationSignerSetV1,
-  right: RouterAbEcdsaDerivationSignerSetV1,
-): boolean {
-  return (
-    left.signer_set_id === right.signer_set_id &&
-    left.policy === right.policy &&
-    left.signer_a.role === right.signer_a.role &&
-    left.signer_a.signer_id === right.signer_a.signer_id &&
-    left.signer_a.key_epoch === right.signer_a.key_epoch &&
-    left.signer_b.role === right.signer_b.role &&
-    left.signer_b.signer_id === right.signer_b.signer_id &&
-    left.signer_b.key_epoch === right.signer_b.key_epoch &&
-    left.selected_server.server_id === right.selected_server.server_id &&
-    left.selected_server.key_epoch === right.selected_server.key_epoch &&
-    left.selected_server.recipient_encryption_key === right.selected_server.recipient_encryption_key
-  );
+export function routerAbEcdsaStrictRegistrationRequestBindingJson(
+  request: RouterAbEcdsaRegistrationRequestV1,
+): string {
+  return canonicalJson({
+    registration_purpose: request.registration_purpose,
+    context: request.context,
+    lifecycle: request.lifecycle,
+    signer_set: request.signer_set,
+    router_id: request.router_id,
+    client_id: request.client_id,
+    replay_nonce: request.replay_nonce,
+    expires_at_ms: request.expires_at_ms,
+    deriver_a_role: request.deriver_a_envelope.recipient_role,
+    deriver_b_role: request.deriver_b_envelope.recipient_role,
+  });
 }
 
 class Ed25519CeremonyTokenIssuer implements RouterAbEcdsaCeremonyTokenIssuer {

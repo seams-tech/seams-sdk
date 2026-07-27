@@ -12,6 +12,8 @@ import {
   StoredWalletAddSignerFinalizeReplay,
   StoredWalletRegistrationCeremony,
   StoredWalletRegistrationFinalizeReplay,
+  type StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch,
+  type StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch,
   type TerminalRegistrationCeremonyCancellationResult,
 } from '../../core/RegistrationCeremonyStore';
 import type { WalletId } from '../../core/registrationContracts';
@@ -58,6 +60,11 @@ export type RegistrationCeremonyIntentStoreConfig = {
   readonly database: D1DatabaseLike;
   readonly scope: D1RegistrationCeremonyRecordScope;
   readonly keyPrefix: string;
+};
+
+export type D1WalletRegistrationEcdsaCeremonyClaimV1 = {
+  readonly ceremony: StoredWalletRegistrationCeremony;
+  readonly version: number;
 };
 
 export class CloudflareD1RegistrationCeremonyIntentStore {
@@ -142,12 +149,19 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
   async getCeremony(
     registrationCeremonyId: string,
   ): Promise<StoredWalletRegistrationCeremony | null> {
+    return (await this.getCeremonySnapshot(registrationCeremonyId))?.ceremony ?? null;
+  }
+
+  async getCeremonySnapshot(
+    registrationCeremonyId: string,
+  ): Promise<D1WalletRegistrationEcdsaCeremonyClaimV1 | null> {
     const id = toOptionalTrimmedString(registrationCeremonyId);
     if (!id) return null;
-    const value = await this.get('ceremony', id);
-    const ceremony = parseD1StoredWalletRegistrationCeremony(value);
+    const stored = await this.storage.get('ceremony', id);
+    if (!stored) return null;
+    const ceremony = parseD1StoredWalletRegistrationCeremony(stored.value);
     if (!ceremony || ceremony.expiresAtMs <= Date.now()) return null;
-    return ceremony;
+    return { ceremony, version: stored.version };
   }
 
   async updateCeremony(input: {
@@ -161,6 +175,58 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
       scope: 'ceremony',
       id: input.next.registrationCeremonyId,
       expected: encodeRecord(input.expected),
+      next: encodeRecord(input.next),
+      expiresAtMs: input.next.expiresAtMs,
+    });
+  }
+
+  async claimEcdsaRespond(input: {
+    readonly registrationCeremonyId: string;
+    readonly strictRegistrationBindingJson: string;
+    readonly registrationRequest: StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch['registrationRequest'];
+  }): Promise<D1WalletRegistrationEcdsaCeremonyClaimV1 | null> {
+    return await this.claimEcdsaBranch({
+      registrationCeremonyId: input.registrationCeremonyId,
+      expectedKind: 'evm_family_ecdsa_prepared',
+      binding: {
+        kind: 'strict_registration',
+        strictRegistrationBindingJson: input.strictRegistrationBindingJson,
+      },
+      patch: {
+        kind: 'evm_family_ecdsa_response_claimed',
+        registrationRequest: input.registrationRequest,
+      },
+    });
+  }
+
+  async claimEcdsaActivation(input: {
+    readonly registrationCeremonyId: string;
+    readonly publicFacts: StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch['publicFacts'];
+  }): Promise<D1WalletRegistrationEcdsaCeremonyClaimV1 | null> {
+    return await this.claimEcdsaBranch({
+      registrationCeremonyId: input.registrationCeremonyId,
+      expectedKind: 'evm_family_ecdsa_pending_activation',
+      binding: { kind: 'pending_activation' },
+      patch: {
+        kind: 'evm_family_ecdsa_activation_claimed',
+        publicFacts: input.publicFacts,
+      },
+    });
+  }
+
+  async commitEcdsaClaim(input: {
+    readonly expected: D1WalletRegistrationEcdsaCeremonyClaimV1;
+    readonly next: StoredWalletRegistrationCeremony;
+  }): Promise<void> {
+    if (
+      input.expected.ceremony.registrationCeremonyId !== input.next.registrationCeremonyId
+    ) {
+      throw new Error('ECDSA registration claim commit cannot change its ceremony identity');
+    }
+    await this.storage.updateExpectedVersion({
+      scope: 'ceremony',
+      id: input.next.registrationCeremonyId,
+      expectedVersion: input.expected.version,
       next: encodeRecord(input.next),
       expiresAtMs: input.next.expiresAtMs,
     });
@@ -458,6 +524,40 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
       value: encodeRecord(input.record),
       expiresAtMs: input.expiresAtMs,
     });
+  }
+
+  private async claimEcdsaBranch(input: {
+    readonly registrationCeremonyId: string;
+    readonly expectedKind:
+      | 'evm_family_ecdsa_prepared'
+      | 'evm_family_ecdsa_pending_activation';
+    readonly binding:
+      | {
+          readonly kind: 'strict_registration';
+          readonly strictRegistrationBindingJson: string;
+        }
+      | { readonly kind: 'pending_activation' };
+    readonly patch: Record<string, unknown>;
+  }): Promise<D1WalletRegistrationEcdsaCeremonyClaimV1 | null> {
+    const registrationCeremonyId = toOptionalTrimmedString(input.registrationCeremonyId);
+    if (!registrationCeremonyId) return null;
+    const claimed = await this.storage.claimEcdsaRegistrationBranch({
+      scope: 'ceremony',
+      id: registrationCeremonyId,
+      expectedKind: input.expectedKind,
+      binding: input.binding,
+      patch: input.patch,
+    });
+    if (!claimed) return null;
+    const ceremony = parseD1StoredWalletRegistrationCeremony(claimed.value);
+    if (
+      !ceremony ||
+      ceremony.registrationCeremonyId !== registrationCeremonyId ||
+      ceremony.expiresAtMs <= Date.now()
+    ) {
+      throw new Error('Claimed ECDSA registration ceremony is invalid');
+    }
+    return { ceremony, version: claimed.version };
   }
 
   private async get(scope: RegistrationCeremonyIntentScope, id: string): Promise<unknown | null> {

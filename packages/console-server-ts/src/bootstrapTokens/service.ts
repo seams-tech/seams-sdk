@@ -1,4 +1,4 @@
-import { normalizeCorsOrigin } from '@seams/sdk-server/internal/core/SessionService';
+import { normalizeCorsOrigin } from '@seams/sdk-server/cloud-host';
 import { makeId } from '../apiKeys/secret';
 import {
   hashBootstrapToken,
@@ -18,7 +18,6 @@ import type {
 export interface ConsoleBootstrapTokensContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
 }
 
 export interface ConsoleBootstrapTokenService {

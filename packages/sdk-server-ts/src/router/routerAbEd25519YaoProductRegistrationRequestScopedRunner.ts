@@ -27,7 +27,7 @@ export type RouterAbEd25519YaoProductRegistrationRequestScopedRunResultV1<T> =
     }
   | {
       readonly kind: 'version_mismatch';
-      readonly key: 'shared' | 'ceremony';
+      readonly key: 'shared' | 'ceremony' | 'execution';
     };
 
 /**
@@ -67,5 +67,7 @@ function buildCommitInput(
     sharedState: loaded.sharedState,
     sharedVersion: loaded.sharedVersion,
     ceremonyVersion: loaded.ceremonyVersion,
+    execution: loaded.execution,
+    executionVersion: loaded.executionVersion,
   };
 }

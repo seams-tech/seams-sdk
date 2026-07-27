@@ -609,6 +609,7 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
   readonly kind = 'router_ab_ed25519_yao_product_registration_runtime_v1' as const;
   readonly signingWorkerId: string;
   private fault: YaoFault | null = null;
+  private lastConsumerBinding: string | null = null;
 
   constructor(private readonly delegate: RouterAbEd25519YaoProductRegistrationRuntimeV1) {
     this.signingWorkerId = delegate.signingWorkerId;
@@ -616,6 +617,10 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
 
   arm(fault: YaoFault): void {
     this.fault = fault;
+  }
+
+  consumerBinding(): string | null {
+    return this.lastConsumerBinding;
   }
 
   async bindVerifiedIntent(
@@ -626,11 +631,24 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
     return await this.delegate.bindVerifiedIntent(input);
   }
 
+  async bindAndAdmitVerifiedRegistration(
+    input: Parameters<
+      RouterAbEd25519YaoProductRegistrationRuntimeV1['bindAndAdmitVerifiedRegistration']
+    >[0],
+  ): Promise<
+    Awaited<
+      ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['bindAndAdmitVerifiedRegistration']>
+    >
+  > {
+    return await this.delegate.bindAndAdmitVerifiedRegistration(input);
+  }
+
   async consumeActivated(
     input: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']>[0],
   ): Promise<
     Awaited<ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']>>
   > {
+    this.lastConsumerBinding = input.consumerBinding;
     const result = await this.delegate.consumeActivated(input);
     this.throwAfter('activation_consume_response_loss');
     return result;
@@ -789,6 +807,7 @@ function testRpId() {
 function buildCeremony(input: {
   readonly walletId: WalletId;
   readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
   readonly accountProvisioning: RegistrationNearAccountProvisioning;
 }): StoredWalletRegistrationCeremony {
   const signerSelection: RegistrationSignerSetSelection = {
@@ -838,6 +857,7 @@ function buildCeremony(input: {
         buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch({
           branchKey: registrationNearEd25519BranchKey(1),
           admissionRequest: input.admissionRequest,
+          admissionReceipt: input.admissionReceipt,
         }),
       ],
     },
@@ -944,6 +964,7 @@ export type FinalizeConvergenceHarness = {
   readonly database: D1DatabaseLike;
   readonly cleanup: () => Promise<void>;
   readonly arm: (fault: FinalizeConvergenceFault) => void;
+  readonly activationConsumerBinding: () => string | null;
   readonly expireFinalizeClaim: () => Promise<void>;
   readonly countRows: (table: string) => Promise<number>;
 };
@@ -1044,6 +1065,7 @@ async function createFinalizeConvergenceHarnessForMode(
     buildCeremony({
       walletId,
       admissionRequest: yao.admissionRequest,
+      admissionReceipt: buildAdmissionReceipt(yao.activationResult),
       accountProvisioning: accountProvisioningForMode(mode),
     }),
   );
@@ -1104,6 +1126,7 @@ async function createFinalizeConvergenceHarnessForMode(
           return;
       }
     },
+    activationConsumerBinding: () => yao.runtime.consumerBinding(),
     countRows: async (table) => {
       const row = await database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first<{
         readonly count?: unknown;

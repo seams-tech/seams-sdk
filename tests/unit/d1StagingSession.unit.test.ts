@@ -1,15 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type {
-  ConsoleTeamMember,
-  ConsoleTeamRoleAssignment,
-  InviteConsoleTeamMemberRequest,
-  ListConsoleTeamMembersRequest,
-  UpdateConsoleTeamMemberRolesRequest,
-} from '../../packages/console-server-ts/src/teamRbac/types';
-import type {
-  ConsoleTeamRbacContext,
-  ConsoleTeamRbacService,
-} from '../../packages/console-server-ts/src/teamRbac/service';
+import { createInMemoryConsoleOrganizationAccessService } from '../../packages/console-server-ts/src/teamRbac/service';
 import {
   createCloudflareSecretsStoreKekProviderFromEnv,
   createConsoleSessionAuthAdapter,
@@ -18,96 +8,6 @@ import {
 } from '../../packages/console-server-ts/src/router/cloudflare/d1StagingSession';
 
 const SESSION_SECRET = '0123456789abcdef0123456789abcdef';
-
-class FakeConsoleTeamRbacService implements ConsoleTeamRbacService {
-  constructor(private readonly members: readonly ConsoleTeamMember[]) {}
-
-  async bootstrapOwner(ctx: ConsoleTeamRbacContext): Promise<ConsoleTeamMember> {
-    return activeConsoleMember({
-      orgId: ctx.orgId,
-      userId: ctx.actorUserId,
-      email: ctx.actorEmail || `${ctx.actorUserId}@example.test`,
-      roles: [{ role: 'owner', scope: 'ORG' }],
-    });
-  }
-
-  async listMembers(): Promise<ConsoleTeamMember[]> {
-    return [...this.members];
-  }
-
-  async listOrganizationMembers(
-    orgId: string,
-    request?: ListConsoleTeamMembersRequest,
-  ): Promise<ConsoleTeamMember[]> {
-    const status = request?.status || 'ALL';
-    return this.members.filter((member) => {
-      if (member.orgId !== orgId) return false;
-      return status === 'ALL' || member.status === status;
-    });
-  }
-
-  async purgeOrganization(): Promise<void> {}
-
-  async transferOwner(): Promise<{
-    previousOwner: ConsoleTeamMember;
-    nextOwner: ConsoleTeamMember;
-  }> {
-    const [first] = this.members;
-    if (!first) throw new Error('missing fake member');
-    return { previousOwner: first, nextOwner: first };
-  }
-
-  async inviteMember(
-    ctx: ConsoleTeamRbacContext,
-    request: InviteConsoleTeamMemberRequest,
-  ): Promise<ConsoleTeamMember> {
-    return activeConsoleMember({
-      orgId: ctx.orgId,
-      userId: request.userId,
-      email: request.email,
-      roles: request.roles,
-    });
-  }
-
-  async updateMemberRoles(
-    ctx: ConsoleTeamRbacContext,
-    memberId: string,
-    request: UpdateConsoleTeamMemberRolesRequest,
-  ): Promise<ConsoleTeamMember | null> {
-    const member = this.members.find((entry) => entry.id === memberId && entry.orgId === ctx.orgId);
-    if (!member) return null;
-    return {
-      ...member,
-      roles: request.roles,
-    };
-  }
-
-  async removeMember(): Promise<{ removed: boolean; member: ConsoleTeamMember | null }> {
-    return { removed: false, member: null };
-  }
-}
-
-function activeConsoleMember(input: {
-  readonly orgId: string;
-  readonly userId: string;
-  readonly email: string;
-  readonly roles: readonly ConsoleTeamRoleAssignment[];
-}): ConsoleTeamMember {
-  const timestamp = '2026-06-28T00:00:00.000Z';
-  return {
-    id: `member_${input.userId}`,
-    orgId: input.orgId,
-    userId: input.userId,
-    email: input.email,
-    status: 'ACTIVE',
-    roles: [...input.roles],
-    invitedByUserId: 'system',
-    invitedAt: timestamp,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    lastStatusChangedAt: timestamp,
-  };
-}
 
 function bearerHeaders(token: string): Record<string, string> {
   return {
@@ -184,7 +84,14 @@ function hmacSessionUsesCrossSiteCookiePolicy(): void {
   );
 }
 
-async function consoleAuthUsesTeamRbacRoles(): Promise<void> {
+async function consoleAuthUsesCurrentOrganizationAuthorization(): Promise<void> {
+  const organizationAccess = createInMemoryConsoleOrganizationAccessService();
+  await organizationAccess.bootstrapInitialOwner({
+    orgId: 'org_staging',
+    userId: 'console-user',
+    email: 'console-user@example.test',
+    displayName: 'Console User',
+  });
   const token = await signConsoleSession({
     userId: 'console-user',
     orgId: 'org_staging',
@@ -195,19 +102,17 @@ async function consoleAuthUsesTeamRbacRoles(): Promise<void> {
       issuer: 'seams-console-staging',
       audience: 'seams-console-dashboard',
     }),
-    teamRbac: new FakeConsoleTeamRbacService([
-      activeConsoleMember({
-        orgId: 'org_staging',
-        userId: 'console-user',
-        email: 'console-user@example.test',
-        roles: [{ role: 'billing_read', scope: 'ORG' }],
-      }),
-    ]),
+    organizationAccess,
   });
   const result = await auth.authenticate(bearerHeaders(token));
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error('expected console auth to pass');
-  expect(result.claims.roles).toEqual(['billing_read']);
+  expect(result.claims).toMatchObject({
+    role: 'OWNER',
+    projectAccess: { kind: 'all' },
+    platformSupport: false,
+  });
+  expect('roles' in result.claims).toBe(false);
 }
 
 async function consoleAuthIgnoresTokenRoleEscalation(): Promise<void> {
@@ -222,7 +127,7 @@ async function consoleAuthIgnoresTokenRoleEscalation(): Promise<void> {
       issuer: 'seams-console-staging',
       audience: 'seams-console-dashboard',
     }),
-    teamRbac: new FakeConsoleTeamRbacService([]),
+    organizationAccess: createInMemoryConsoleOrganizationAccessService(),
   });
   const result = await auth.authenticate(bearerHeaders(token));
   expect(result).toMatchObject({
@@ -274,7 +179,10 @@ test(
   'HMAC staging session cookies support cross-site credentialed requests',
   hmacSessionUsesCrossSiteCookiePolicy,
 );
-test('console staging auth resolves roles from Team RBAC', consoleAuthUsesTeamRbacRoles);
+test(
+  'console staging auth resolves current organization authorization',
+  consoleAuthUsesCurrentOrganizationAuthorization,
+);
 test('console staging auth rejects token role escalation', consoleAuthIgnoresTokenRoleEscalation);
 test('Secrets Store KEK provider resolves upper-snake bindings', secretsStoreKekProviderUsesExpectedBindingName);
 test('Secrets Store KEK provider rejects missing bindings', secretsStoreKekProviderRejectsMissingBinding);

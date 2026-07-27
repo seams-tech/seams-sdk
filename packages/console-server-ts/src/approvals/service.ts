@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams-internal/shared-ts/utils/secureRandomId';
+import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
 import { ConsoleApprovalsError } from './errors';
 import type {
   ApproveConsoleApprovalRequest,
@@ -13,7 +13,6 @@ import type {
 export interface ConsoleApprovalsContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 }

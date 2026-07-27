@@ -1,4 +1,4 @@
-import { normalizeCorsOrigin } from '@seams/sdk-server/internal/core/SessionService';
+import { normalizeCorsOrigin } from '@seams/sdk-server/cloud-host';
 import type { ConsoleApiKeyService } from '../apiKeys';
 import type { ConsoleBootstrapTokenService } from '../bootstrapTokens';
 import type { ConsoleOrgProjectEnvService } from '../orgProjectEnv';
@@ -10,7 +10,7 @@ import type {
   RouterApiBootstrapGrantIssueRequest,
   RouterApiBootstrapGrantIssueResult,
   RouterApiBootstrapGrantPublishableKeyAuthResult,
-} from '@seams/sdk-server/internal/router/routerApi';
+} from '@seams/sdk-server/cloud-host';
 
 export interface RouterApiBootstrapGrantRateLimitPolicy {
   windowMs: number;
@@ -217,7 +217,6 @@ class ConsoleRouterApiBootstrapGrantBroker implements RouterApiBootstrapGrantBro
     const orgScope = {
       orgId: authenticatedCredential.orgId,
       actorUserId: 'relay-bootstrap-broker',
-      roles: ['system'],
     };
     const environments = await this.options.orgProjectEnv.listEnvironments(orgScope);
     const environment = environments.find(
@@ -287,7 +286,7 @@ class ConsoleRouterApiBootstrapGrantBroker implements RouterApiBootstrapGrantBro
 
   private async checkQuota(input: {
     credential: RouterApiAuthenticatedPublishableCredential;
-    orgScope: { orgId: string; actorUserId: string; roles: string[] };
+    orgScope: { orgId: string; actorUserId: string };
   }): Promise<RouterApiBootstrapGrantIssueResult | { ok: true }> {
     const currentNow = this.now();
     const currentNowMs = currentNow.getTime();

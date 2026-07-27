@@ -14,49 +14,16 @@ fn pair_lifecycle_is_pair_bound_and_has_signed_readiness_states() {
         "root_metadata_digest",
         "Ed25519YaoRoleReadinessReceiptV1",
         "PreparePair",
-        "ClaimPair",
         "StartPair",
         "BeginPair",
         "Ed25519YaoRoleStartAcceptanceV1",
         "CompletePair",
-        "ReadCompletedPair",
     ] {
         assert!(
             source.contains(required),
             "pair-bound lifecycle must include `{required}`"
         );
     }
-}
-
-#[test]
-fn deriver_a_claim_does_not_hold_the_durable_object_across_yao_execution() {
-    let source = read_src_file("ed25519_yao_lifecycle.rs");
-    let body = extract_function_body(&source, "handle_claim_pair");
-    assert!(
-        body.contains("DeriverAYaoSessionResponseV1::Claimed"),
-        "Deriver A claim must return the claimed execution envelope"
-    );
-    assert!(
-        !body.contains("execute_deriver_a_role"),
-        "Deriver A Durable Object must not own the Yao network stream"
-    );
-}
-
-#[test]
-fn deriver_b_completed_read_returns_an_explicit_acknowledgement_envelope() {
-    let source = read_src_file("ed25519_yao_lifecycle.rs");
-    let body = extract_function_body(
-        &source,
-        "handle_cloudflare_ed25519_yao_deriver_b_read_completed_pair_v1",
-    );
-    assert!(
-        source.contains("CloudflareEd25519YaoPairCompletionAcknowledgementV1"),
-        "B completion acknowledgement must be a named boundary type"
-    );
-    assert!(
-        body.contains("acknowledgement.validate_for_request"),
-        "B completion read must validate the acknowledgement identity"
-    );
 }
 
 #[test]

@@ -158,41 +158,43 @@ async function applyDemoWalletSessionLifecycleAction(args: {
       case 'preserve_unlocked':
         return;
       case 'lock_missing_session': {
+        const identity = action.identity;
         try {
-          const result = await args.seams.lockWalletIframeMissingSession(action.identity);
+          const result = await args.seams.lockWalletIframeMissingSession(identity);
           if (result.kind === 'stale_session') {
-            args.controller.releaseMissingSessionLock(action.identity.walletId);
+            args.controller.releaseMissingSessionLock(identity.walletId);
             action = args.controller.observeExactState(result.current, 'poll');
             continue;
           }
-          args.controller.confirmMissingSessionLocked(action.identity.walletId);
+          args.controller.confirmMissingSessionLocked(identity.walletId);
           toast.error(DEMO_SIGNING_SESSION_MISSING_MESSAGE, {
-            id: `demo-session-missing:${encodeURIComponent(action.identity.walletId)}`,
+            id: `demo-session-missing:${encodeURIComponent(identity.walletId)}`,
           });
         } catch (error: unknown) {
-          args.controller.releaseMissingSessionLock(action.identity.walletId);
+          args.controller.releaseMissingSessionLock(identity.walletId);
           throw error;
         }
         return;
       }
       case 'lock_expired': {
+        const identity = action.identity;
         try {
-          const result = await args.seams.lockWalletIframeExactSession(action.identity);
+          const result = await args.seams.lockWalletIframeExactSession(identity);
           if (result.kind === 'stale_session') {
-            args.controller.releaseExpiredSessionLock(action.identity);
+            args.controller.releaseExpiredSessionLock(identity);
             action = args.controller.observeExactState(result.current, 'poll');
             continue;
           }
-          args.controller.confirmExpiredSessionLocked(action.identity);
+          args.controller.confirmExpiredSessionLocked(identity);
           const toastId = demoSigningSessionExpiryKey(
-            String(action.identity.walletId),
-            String(action.identity.walletSessionId),
+            String(identity.walletId),
+            String(identity.walletSessionId),
           );
           toast.error(DEMO_SIGNING_SESSION_EXPIRY_MESSAGE, {
             id: `demo-session-expired:${toastId}`,
           });
         } catch (error: unknown) {
-          args.controller.releaseExpiredSessionLock(action.identity);
+          args.controller.releaseExpiredSessionLock(identity);
           throw error;
         }
         return;

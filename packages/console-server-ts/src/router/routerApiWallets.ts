@@ -5,13 +5,13 @@ import {
   parseListConsoleWalletsRequest,
   parseSearchConsoleWalletsRequest,
 } from '../wallets/requests';
-import { enforceRoutePolicy } from '@seams/sdk-server/internal/router/enforceRoutePolicy';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/internal/router/logger';
-import { resolveSecretKeyApiCredentialAuth } from '@seams/sdk-server/internal/router/routerApiCredentialAuth';
-import type { RouterApiKeyAuthAdapter, RouterApiKeyPrincipal } from '@seams/sdk-server/internal/router/routerApi';
-import type { HeaderRecord, RouteResponse } from '@seams/sdk-server/internal/router/routeExecutionContext';
-import type { RouteDefinition } from '@seams/sdk-server/internal/router/routeDefinitions';
-import { routeJson } from '@seams/sdk-server/internal/router/routeResponses';
+import { enforceRoutePolicy } from '@seams/sdk-server/cloud-host';
+import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
+import { resolveSecretKeyApiCredentialAuth } from '@seams/sdk-server/cloud-host';
+import type { RouterApiKeyAuthAdapter, RouterApiKeyPrincipal } from '@seams/sdk-server/cloud-host';
+import type { HeaderRecord, RouteResponse } from '@seams/sdk-server/cloud-host';
+import type { RouteDefinition } from '@seams/sdk-server/cloud-host';
+import { routeJson } from '@seams/sdk-server/cloud-host';
 
 type RouterApiWalletErrorBody = {
   ok: false;
@@ -74,7 +74,6 @@ function toApiWalletContext(principal: RouterApiKeyPrincipal): ConsoleWalletsCon
   return {
     orgId: principal.orgId,
     actorUserId: `api_credentials:${principal.apiKeyId}`,
-    roles: ['api_credential'],
     environmentId: principal.environmentId,
   };
 }

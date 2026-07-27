@@ -1,4 +1,4 @@
-import { buildCorsOrigins, normalizeCorsOrigin } from '@seams/sdk-server/internal/core/SessionService';
+import { buildCorsOrigins, normalizeCorsOrigin } from '@seams/sdk-server/cloud-host';
 import type { ConsoleBillingService } from '@seams-internal/console-server/billing/service';
 import {
   buildConsoleBillingInvoicePdf,
@@ -17,10 +17,13 @@ import {
   parseStripeCheckoutSessionReconcileRequest,
   parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
-  parseStripeWebhookEventRequest,
   parseStripeCheckoutSessionRequest,
 } from '@seams-internal/console-server/billing/requests';
-import { ConsoleBillingError, isConsoleBillingError } from '@seams-internal/console-server/billing/errors';
+import { verifyAndParseStripeWebhookRequest } from '@seams-internal/console-server/billing/stripeWebhook';
+import {
+  ConsoleBillingError,
+  isConsoleBillingError,
+} from '@seams-internal/console-server/billing/errors';
 import type { ConsoleBillingPrepaidReservationService } from '@seams-internal/console-server/billingPrepaidReservations/service';
 import type { ConsoleSponsoredCallService } from '@seams-internal/console-server/sponsoredCalls/service';
 import { isConsoleSponsoredCallError } from '@seams-internal/console-server/sponsoredCalls/errors';
@@ -46,7 +49,10 @@ import {
 } from '@seams-internal/console-server/orgProjectEnv/requests';
 import type { ConsoleWalletService } from '@seams-internal/console-server/wallets/service';
 import { isConsoleWalletError } from '@seams-internal/console-server/wallets/errors';
-import { parseListConsoleWalletsRequest, parseSearchConsoleWalletsRequest } from '@seams-internal/console-server/wallets/requests';
+import {
+  parseListConsoleWalletsRequest,
+  parseSearchConsoleWalletsRequest,
+} from '@seams-internal/console-server/wallets/requests';
 import type { ConsolePolicyService } from '@seams-internal/console-server/policies/service';
 import { isConsolePolicyError } from '@seams-internal/console-server/policies/errors';
 import {
@@ -82,14 +88,21 @@ import {
   parsePublishCurrentConsoleRuntimeSnapshotRequest,
   parsePublishConsoleRuntimeSnapshotRequest,
 } from '@seams-internal/console-server/runtimeSnapshots/requests';
-import type { ConsoleTeamRbacService } from '@seams-internal/console-server/teamRbac/service';
-import { isConsoleTeamRbacError } from '@seams-internal/console-server/teamRbac/errors';
 import {
-  parseInviteConsoleTeamMemberRequest,
-  parseListConsoleTeamMembersRequest,
-  parseUpdateConsoleTeamMemberRolesRequest,
-} from '@seams-internal/console-server/teamRbac/requests';
-import type { CreateConsoleApprovalRequest, ConsoleApprovalOperationType } from '@seams-internal/console-server/approvals/types';
+  isConsoleOrganizationAccessError,
+  parseChangeOrganizationMembershipRoleRequest,
+  parseInviteOrganizationMemberRequest,
+  parseListOrganizationInvitationsRequest,
+  parseListOrganizationMembershipsRequest,
+  parseRedeemOrganizationInvitationRequest,
+  parseSetOrganizationAdminPermissionsRequest,
+  parseSetProjectMemberAccessRequest,
+  type ConsoleOrganizationAccessService,
+} from '@seams-internal/console-server/teamRbac';
+import type {
+  CreateConsoleApprovalRequest,
+  ConsoleApprovalOperationType,
+} from '@seams-internal/console-server/approvals/types';
 import type { ConsoleApprovalService } from '@seams-internal/console-server/approvals/service';
 import { isConsoleApprovalsError } from '@seams-internal/console-server/approvals/errors';
 import {
@@ -100,7 +113,10 @@ import {
 } from '@seams-internal/console-server/approvals/requests';
 import type { ConsoleAuditService } from '@seams-internal/console-server/audit/service';
 import { isConsoleAuditError } from '@seams-internal/console-server/audit/errors';
-import { parseListConsoleAuditEventsRequest, parseListConsoleAuditEvidenceRequest } from '@seams-internal/console-server/audit/requests';
+import {
+  parseListConsoleAuditEventsRequest,
+  parseListConsoleAuditEvidenceRequest,
+} from '@seams-internal/console-server/audit/requests';
 import type { ConsoleAuditExportsService } from '@seams-internal/console-server/auditExports/service';
 import { isConsoleAuditExportsError } from '@seams-internal/console-server/auditExports/errors';
 import {
@@ -113,7 +129,10 @@ import {
   parseGetConsoleEnterpriseIsolationRequest,
   parseTriggerConsoleEnterpriseIsolationRequest,
 } from '@seams-internal/console-server/enterpriseIsolation/requests';
-import type { ConsoleOnboardingService } from '@seams-internal/console-server/onboarding/service';
+import type {
+  ConsoleOnboardingContext,
+  ConsoleOnboardingService,
+} from '@seams-internal/console-server/onboarding/service';
 import { isConsoleOnboardingError } from '@seams-internal/console-server/onboarding/errors';
 import {
   parseCreateConsoleOnboardingOrganizationRequest,
@@ -121,12 +140,14 @@ import {
   parseGetConsoleOnboardingStateRequest,
   parseGetConsoleOnboardingTelemetryRequest,
 } from '@seams-internal/console-server/onboarding/requests';
-import type { ConsoleAccountService } from '@seams-internal/console-server/account/service';
+import type {
+  ConsoleAccountContext,
+  ConsoleAccountService,
+} from '@seams-internal/console-server/account/service';
 import { isConsoleAccountError } from '@seams-internal/console-server/account/errors';
 import {
   parseCreateConsoleAccountOrganizationRequest,
   parsePatchConsoleAccountProfileRequest,
-  parseTransferConsoleAccountOrganizationOwnerRequest,
   parseUpdateConsoleAccountOrganizationRequest,
 } from '@seams-internal/console-server/account/requests';
 import type { ConsoleObservabilityIngestionService } from '@seams-internal/console-server/observability/ingestionService';
@@ -135,10 +156,9 @@ import { isConsoleObservabilityError } from '@seams-internal/console-server/obse
 import type { ConsoleRouterOptions } from '@seams-internal/console-server/router/console';
 import {
   authenticateConsoleRequest,
-  hasConsoleRole,
   type ConsoleAuthClaims,
   type ConsoleAuthResult,
-} from '@seams/sdk-server/internal/router/consoleAuth';
+} from '../consoleAuth';
 import {
   emitConsoleApprovalFailureObservabilityEvent,
   emitConsoleBillingFailureObservabilityEvent,
@@ -174,30 +194,36 @@ import {
   parsePlatformBillingLookupRequest,
   parsePlatformBillingSearchRequest,
   parsePlatformBillingManualAdjustmentRequest,
+  parsePlatformBillingRefundReconcileRequest,
+  parsePlatformBillingRefundRequest,
   resolvePlatformBillingLookup,
   searchPlatformBillingOrganizations,
 } from '../platformBilling';
 import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/internal/router/logger';
-import { coerceRouterLogger } from '@seams/sdk-server/internal/router/logger';
+import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
+import { coerceRouterLogger } from '@seams/sdk-server/cloud-host';
 import { buildConsoleOpsCockpitSummary } from '../opsCockpitSummary';
 import {
   emitSponsorshipBalanceTransitionEvents,
   readSponsorshipBillingBalanceSnapshot,
 } from '@seams-internal/console-server/router/sponsorshipBillingEvents';
 import { attachConsoleRouteSurface, resolveConsoleRouteSurface } from '../consoleRouteSurface';
-import { authorizeConsoleRouteRequest } from '../consoleRoutePolicy';
-import type { RouteDefinition } from '@seams/sdk-server/internal/router/routeDefinitions';
-import { handleConsoleObservabilityRoutes } from './consoleObservabilityRoutes';
-import type { CfEnv, CfExecutionContext, FetchHandler } from '@seams/sdk-server/internal/router/cloudflare/cloudflare.types';
-import { headersToRecord, json, readJson } from '@seams/sdk-server/internal/router/cloudflare/http';
 import {
-  type CloudflareTenantStorageRoute,
-  type TenantStorageRouteDiagnostic,
-  type TenantStorageRouteResolver,
+  authorizeConsoleRouteRequest,
+  hasConsoleProjectAccess,
+} from '../consoleRoutePolicy';
+import type { ConsoleRouteDefinition } from '../consoleRouteDefinitions';
+import { handleConsoleObservabilityRoutes } from './consoleObservabilityRoutes';
+import type { CfEnv, CfExecutionContext, FetchHandler } from '@seams/sdk-server/cloud-host';
+import { headersToRecord, json, readJson } from '@seams/sdk-server/cloud-host';
+import {
   tenantStorageRouteDiagnostic,
-} from '@seams/sdk-server/internal/storage/tenantRoute';
-import { parseOrgId } from '@seams-internal/shared-ts/utils/domainIds';
+  type CloudflareTenantStorageRoute,
+  type TenantStorageRouteResolver,
+} from './tenantStorageRoute';
+import type { TenantStorageRouteDiagnostic } from '@seams/sdk-server/cloud-host';
+import { parseOrgId } from '@seams/sdk-server/cloud-host';
+import { dispatchBillingStripePostProcessingEvent } from '../stripePostProcessing';
 
 export interface CloudflareConsoleContext {
   request: Request;
@@ -209,7 +235,7 @@ export interface CloudflareConsoleContext {
 
   opts: ConsoleRouterOptions;
   logger: NormalizedRouterLogger;
-  routeDefinitions: readonly RouteDefinition[];
+  routeDefinitions: readonly ConsoleRouteDefinition[];
   billing: ConsoleBillingService | null;
   prepaidReservations: ConsoleBillingPrepaidReservationService | null;
   sponsoredCalls: ConsoleSponsoredCallService | null;
@@ -220,7 +246,7 @@ export interface CloudflareConsoleContext {
   webhooks: ConsoleWebhookService | null;
   keyExports: ConsoleKeyExportService | null;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
-  teamRbac: ConsoleTeamRbacService | null;
+  organizationAccess: ConsoleOrganizationAccessService | null;
   approvals: ConsoleApprovalService | null;
   audit: ConsoleAuditService | null;
   auditExports: ConsoleAuditExportsService | null;
@@ -237,7 +263,7 @@ export interface CloudflareConsoleContext {
 }
 
 const CONSOLE_CORS_ALLOW_HEADERS =
-  'Content-Type,Authorization,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret';
+  'Content-Type,Authorization,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id';
 
 function toArrayBufferCopy(bytes: Uint8Array): ArrayBuffer {
   const out = new ArrayBuffer(bytes.byteLength);
@@ -284,6 +310,7 @@ function requireConsoleRoutePolicy(
     definitions: ctx.routeDefinitions,
     method: ctx.method,
     pathname: ctx.pathname,
+    projectId: ctx.url.searchParams.get('projectId') || claims.projectId,
   });
   if (authz.ok) return null;
   return json(authz.body, { status: authz.status });
@@ -591,8 +618,8 @@ function sendRuntimeSnapshotError(error: unknown): Response {
   );
 }
 
-function sendTeamRbacError(error: unknown): Response {
-  if (isConsoleTeamRbacError(error)) {
+function sendOrganizationAccessError(error: unknown): Response {
+  if (isConsoleOrganizationAccessError(error)) {
     return json(
       {
         ok: false,
@@ -784,6 +811,8 @@ async function requireConsoleAuth(
   if (!auth.ok) {
     return { ok: false, response: sendAuthFailure(auth) };
   }
+  const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+  if (routePolicy) return { ok: false, response: routePolicy };
   ctx.authClaims = auth.claims;
   const routeResolutionFailure = resolveTenantStorageRouteForConsoleRequest(ctx, auth.claims);
   if (routeResolutionFailure) {
@@ -982,13 +1011,15 @@ function requireRuntimeSnapshotService(
   );
 }
 
-function requireTeamRbacService(ctx: CloudflareConsoleContext): ConsoleTeamRbacService | Response {
-  if (ctx.teamRbac) return ctx.teamRbac;
+function requireOrganizationAccessService(
+  ctx: CloudflareConsoleContext,
+): ConsoleOrganizationAccessService | Response {
+  if (ctx.organizationAccess) return ctx.organizationAccess;
   return json(
     {
       ok: false,
-      code: 'team_rbac_not_configured',
-      message: 'Team RBAC service is not configured on this server',
+      code: 'organization_access_not_configured',
+      message: 'Organization access service is not configured on this server',
     },
     { status: 501 },
   );
@@ -1100,55 +1131,40 @@ function requireObservabilityService(
   );
 }
 
-function requireStripeWebhookSecret(ctx: CloudflareConsoleContext): Response | null {
-  const configured = String(ctx.opts.billingStripeWebhookSecret || '').trim();
+function requireStripeWebhookSigningSecret(ctx: CloudflareConsoleContext): string | Response {
+  const configured = String(ctx.opts.billingStripeWebhookSigningSecret || '').trim();
   if (!configured) {
     return json(
       {
         ok: false,
         code: 'stripe_webhook_not_configured',
-        message: 'Stripe webhook secret is not configured on this server',
+        message: 'Stripe webhook signing secret is not configured on this server',
       },
       { status: 501 },
     );
   }
-  const provided = String(ctx.request.headers.get('x-console-stripe-webhook-secret') || '').trim();
-  if (!provided || provided !== configured) {
-    return json(
-      {
-        ok: false,
-        code: 'unauthorized',
-        message: 'Invalid Stripe webhook secret',
-      },
-      { status: 401 },
-    );
-  }
-  return null;
+  return configured;
 }
 
 function toBillingContext(claims: ConsoleAuthClaims): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
   };
 }
 
 function toOrgProjectEnvContext(claims: ConsoleAuthClaims): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
   };
@@ -1157,68 +1173,57 @@ function toOrgProjectEnvContext(claims: ConsoleAuthClaims): {
 function toWalletContext(claims: ConsoleAuthClaims): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
   };
 }
 
-function toTeamRbacContext(claims: ConsoleAuthClaims): {
+function toOrganizationAccessContext(claims: ConsoleAuthClaims): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
-  actorEmail?: string;
-  actorDisplayName?: string;
-  projectId?: string;
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
-    ...(typeof claims.email === 'string' && claims.email.trim()
-      ? { actorEmail: claims.email.trim().toLowerCase() }
-      : {}),
-    ...(typeof claims.name === 'string' && claims.name.trim()
-      ? { actorDisplayName: claims.name.trim() }
-      : {}),
-    ...(claims.projectId ? { projectId: claims.projectId } : {}),
   };
 }
 
 function toApprovalContext(claims: ConsoleAuthClaims): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
   };
 }
 
-function toAuditContext(claims: ConsoleAuthClaims): {
+interface ConsoleAuditActorScope {
+  readonly orgId: string;
+  readonly userId: string;
+  readonly projectId?: string;
+  readonly environmentId?: string;
+}
+
+function toAuditContext(claims: ConsoleAuditActorScope): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
   };
@@ -1248,11 +1253,13 @@ async function projectApprovalResponse(
   };
 }
 
-async function projectApprovalResponses<T extends {
-  resourceType: string | null;
-  resourceId: string | null;
-  metadata: Record<string, unknown>;
-}>(
+async function projectApprovalResponses<
+  T extends {
+    resourceType: string | null;
+    resourceId: string | null;
+    metadata: Record<string, unknown>;
+  },
+>(
   ctx: CloudflareConsoleContext,
   claims: ConsoleAuthClaims,
   rows: readonly T[],
@@ -1278,10 +1285,16 @@ async function enrichPolicyApprovalCreateRequest(
   request: CreateConsoleApprovalRequest,
 ): Promise<CreateConsoleApprovalRequest> {
   if (request.operationType !== 'POLICY_PUBLISH') return request;
-  const resourceType = String(request.resourceType || '').trim().toUpperCase();
+  const resourceType = String(request.resourceType || '')
+    .trim()
+    .toUpperCase();
   const resourceId = String(request.resourceId || '').trim();
   if (resourceType !== 'POLICY' || !resourceId) return request;
-  const policy = await resolveConsolePolicyPresentation(ctx.policies, toBillingContext(claims), resourceId);
+  const policy = await resolveConsolePolicyPresentation(
+    ctx.policies,
+    toBillingContext(claims),
+    resourceId,
+  );
   const metadata =
     request.metadata && typeof request.metadata === 'object' && !Array.isArray(request.metadata)
       ? { ...request.metadata }
@@ -1295,9 +1308,11 @@ async function enrichPolicyApprovalCreateRequest(
   };
 }
 
-async function projectAuditEventResponses<T extends {
-  metadata: Record<string, unknown>;
-}>(
+async function projectAuditEventResponses<
+  T extends {
+    metadata: Record<string, unknown>;
+  },
+>(
   ctx: CloudflareConsoleContext,
   claims: ConsoleAuthClaims,
   rows: readonly T[],
@@ -1341,7 +1356,9 @@ async function resolveWalletPolicyPresentationByWalletId(
   const out: Record<string, ConsolePolicyPresentation> = {};
   for (const wallet of walletRows) {
     const policyIdRaw =
-      resolvedPolicyIds[wallet.id] === undefined ? wallet.policyId || null : resolvedPolicyIds[wallet.id];
+      resolvedPolicyIds[wallet.id] === undefined
+        ? wallet.policyId || null
+        : resolvedPolicyIds[wallet.id];
     const policyId = String(policyIdRaw || '').trim() || null;
     const policy = policyId ? policyPresentationLookup[policyId] : undefined;
     out[wallet.id] = {
@@ -1353,46 +1370,68 @@ async function resolveWalletPolicyPresentationByWalletId(
   return out;
 }
 
-function toOnboardingContext(claims: ConsoleAuthClaims): {
-  orgId: string;
-  actorUserId: string;
-  roles: string[];
-  projectId?: string;
-  environmentId?: string;
-} {
+function consoleClaimsEmail(claims: ConsoleAuthClaims): string {
+  const claimed = String(claims.email ?? '')
+    .trim()
+    .toLowerCase();
+  if (claimed) return claimed;
+  const emailUser = claims.userId.toLowerCase().replace(/[^a-z0-9._+-]/gu, '_');
+  return `${emailUser || 'user'}@console.local`;
+}
+
+function toOnboardingContext(claims: ConsoleAuthClaims): ConsoleOnboardingContext {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
-    ...(claims.projectId ? { projectId: claims.projectId } : {}),
-    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+    actorEmail: consoleClaimsEmail(claims),
+    actorDisplayName: String(claims.name ?? '').trim() || null,
+    projectId: claims.projectId ?? null,
+    environmentId: claims.environmentId ?? null,
   };
 }
 
-function toAccountContext(claims: ConsoleAuthClaims): {
-  userId: string;
-  orgId: string;
-  roles: string[];
-  email?: string;
-  name?: string;
-  provider?: string;
-  projectId?: string;
-  environmentId?: string;
-} {
-  return {
+function toAccountContext(claims: ConsoleAuthClaims): ConsoleAccountContext {
+  const identity = {
     userId: claims.userId,
     orgId: claims.orgId,
-    roles: claims.roles,
-    ...(typeof claims.email === 'string' && claims.email.trim()
-      ? { email: claims.email.trim().toLowerCase() }
-      : {}),
-    ...(typeof claims.name === 'string' && claims.name.trim() ? { name: claims.name.trim() } : {}),
-    ...(typeof claims.provider === 'string' && claims.provider.trim()
-      ? { provider: claims.provider.trim() }
-      : {}),
-    ...(claims.projectId ? { projectId: claims.projectId } : {}),
-    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+    email: consoleClaimsEmail(claims),
+    name: String(claims.name ?? '').trim() || null,
+    provider: String(claims.provider ?? '').trim() || null,
+    projectId: claims.projectId ?? null,
+    environmentId: claims.environmentId ?? null,
+    platformSupport: claims.platformSupport,
+    membershipId: claims.membershipId,
+    authorizationVersion: claims.authorizationVersion,
   };
+  switch (claims.role) {
+    case 'OWNER':
+      return {
+        ...identity,
+        role: 'OWNER',
+        adminPermissions: [...claims.adminPermissions],
+        projectAccess: { kind: 'all' },
+      };
+    case 'ADMIN':
+      return {
+        ...identity,
+        role: 'ADMIN',
+        adminPermissions: [...claims.adminPermissions],
+        projectAccess: { kind: 'all' },
+      };
+    case 'MEMBER':
+      return {
+        ...identity,
+        role: 'MEMBER',
+        adminPermissions: [],
+        projectAccess: {
+          kind: 'assigned',
+          assignments: claims.projectAccess.assignments.map((assignment) => ({
+            projectId: assignment.projectId,
+            accessLevel: assignment.accessLevel,
+          })),
+        },
+      };
+  }
 }
 
 function readApprovalIdFromBody(body: unknown): string {
@@ -1571,7 +1610,6 @@ async function emitBillingWebhookEvent(
       {
         orgId: input.orgId,
         actorUserId: input.actorUserId,
-        roles: ['ops'],
       },
       {
         eventId: input.eventId,
@@ -1603,7 +1641,6 @@ async function emitApprovalWebhookEvent(
       {
         orgId: input.orgId,
         actorUserId: input.actorUserId,
-        roles: ['ops'],
       },
       {
         eventType: input.eventType,
@@ -1621,7 +1658,7 @@ async function emitApprovalWebhookEvent(
 
 async function emitConsoleAuditEvent(
   ctx: CloudflareConsoleContext,
-  claims: ConsoleAuthClaims,
+  claims: ConsoleAuditActorScope,
   input: {
     category:
       | 'POLICY'
@@ -1782,7 +1819,7 @@ async function handleConsoleAccount(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     const orgMatch = ctx.pathname.match(
-      /^\/console\/account\/organizations\/([^/]+?)(?:\/(transfer-owner|switch-context))?$/,
+      /^\/console\/account\/organizations\/([^/]+?)(?:\/(switch-context))?$/,
     );
     const orgId = orgMatch?.[1] ? decodePathPart(orgMatch[1]) : '';
     const action = String(orgMatch?.[2] || '').trim();
@@ -1829,31 +1866,6 @@ async function handleConsoleAccount(ctx: CloudflareConsoleContext): Promise<Resp
         },
       });
       return json({ ok: true, deleted }, { status: 200 });
-    }
-
-    if (ctx.method === 'POST' && action === 'transfer-owner') {
-      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
-      if (routePolicy) return routePolicy;
-      const request = parseTransferConsoleAccountOrganizationOwnerRequest(
-        await readJson(ctx.request),
-      );
-      const transfer = await account.transferOrganizationOwner(
-        toAccountContext(auth.claims),
-        orgId,
-        request,
-      );
-      await emitConsoleAuditEvent(ctx, auth.claims, {
-        category: 'TEAM',
-        action: 'member.owner.transfer',
-        summary: `Transferred organization ${transfer.organization.id} ownership to ${transfer.nextOwner.userId}`,
-        metadata: {
-          organizationId: transfer.organization.id,
-          previousOwnerUserId: transfer.previousOwner.userId,
-          nextOwnerUserId: transfer.nextOwner.userId,
-          source: 'account_settings',
-        },
-      });
-      return json({ ok: true, transfer }, { status: 200 });
     }
 
     if (ctx.method === 'POST' && action === 'switch-context') {
@@ -2033,8 +2045,7 @@ async function handleConsoleOpsCockpit(ctx: CloudflareConsoleContext): Promise<R
       auditExports: ctx.auditExports,
       enterpriseIsolation: ctx.enterpriseIsolation,
       onboarding: ctx.onboarding,
-      canViewOnboardingTelemetry:
-        hasConsoleRole(auth.claims, 'admin') || hasConsoleRole(auth.claims, 'ops'),
+      canViewOnboardingTelemetry: auth.claims.platformSupport,
       telemetryWindowMinutes: telemetryRequest.windowMinutes,
       logger: ctx.logger,
     });
@@ -2058,8 +2069,7 @@ async function handleConsoleObservability(ctx: CloudflareConsoleContext): Promis
 
 function isConsoleBillingPath(pathname: string): boolean {
   return (
-    pathname.startsWith('/console/billing/') ||
-    pathname.startsWith('/console/platform/billing/')
+    pathname.startsWith('/console/billing/') || pathname.startsWith('/console/platform/billing/')
   );
 }
 
@@ -2101,11 +2111,15 @@ function isConsoleOrgProjectEnvPath(pathname: string): boolean {
   );
 }
 
-function isConsoleTeamRbacPath(pathname: string): boolean {
+function isConsoleOrganizationAccessPath(pathname: string): boolean {
   return (
-    pathname === '/console/members' ||
-    pathname === '/console/members/invite' ||
-    pathname.startsWith('/console/members/')
+    pathname === '/console/organization/memberships' ||
+    pathname === '/console/organization/invitations' ||
+    pathname === '/console/organization/leave' ||
+    pathname.startsWith('/console/organization/memberships/') ||
+    pathname.startsWith('/console/organization/invitations/') ||
+    pathname.startsWith('/console/organization/projects/') ||
+    pathname.startsWith('/console/account/invitations/')
   );
 }
 
@@ -2297,7 +2311,6 @@ async function handleConsoleRuntimeSnapshots(
       const payload = await resolveConsoleRuntimeSnapshotPayload({
         orgId: auth.claims.orgId,
         actorUserId: auth.claims.userId,
-        roles: auth.claims.roles,
         environmentId: request.environmentId,
         ...(request.projectId ? { projectId: request.projectId } : {}),
         policies: ctx.policies,
@@ -2556,7 +2569,10 @@ async function handleConsoleOrgProjectEnv(ctx: CloudflareConsoleContext): Promis
         status: ctx.url.searchParams.get('status') || undefined,
       });
       const projects = await orgProjectEnv.listProjects(orgProjectEnvCtx, request);
-      return json({ ok: true, projects }, { status: 200 });
+      const visibleProjects = projects.filter((project) =>
+        hasConsoleProjectAccess(auth.claims, project.id, 'viewer'),
+      );
+      return json({ ok: true, projects: visibleProjects }, { status: 200 });
     }
 
     if (ctx.method === 'GET' && ctx.pathname === '/console/environments') {
@@ -2690,81 +2706,195 @@ async function handleConsoleOrgProjectEnv(ctx: CloudflareConsoleContext): Promis
   return new Response('Not Found', { status: 404 });
 }
 
-async function handleConsoleTeamRbac(ctx: CloudflareConsoleContext): Promise<Response | null> {
-  if (!isConsoleTeamRbacPath(ctx.pathname)) return null;
+function verifiedInvitationAccountOrResponse(
+  claims: ConsoleAuthClaims,
+): { userId: string; verifiedEmail: string } | Response {
+  const verifiedEmail = String(claims.email ?? '')
+    .trim()
+    .toLowerCase();
+  if (!verifiedEmail) {
+    return json(
+      {
+        ok: false,
+        code: 'verified_email_required',
+        message: 'A verified account email is required to redeem an organization invitation',
+      },
+      { status: 403 },
+    );
+  }
+  return { userId: claims.userId, verifiedEmail };
+}
+
+async function handleConsoleOrganizationAccess(
+  ctx: CloudflareConsoleContext,
+): Promise<Response | null> {
+  if (!isConsoleOrganizationAccessPath(ctx.pathname)) return null;
 
   const auth = await requireConsoleAuth(ctx);
   if (!auth.ok) return auth.response;
 
-  const teamRbacOrResponse = requireTeamRbacService(ctx);
-  if (teamRbacOrResponse instanceof Response) return teamRbacOrResponse;
-  const teamRbac = teamRbacOrResponse;
-  const teamRbacCtx = toTeamRbacContext(auth.claims);
-  const memberRolesPathMatch = ctx.pathname.match(/^\/console\/members\/([^/]+)\/roles$/);
-  const memberDeletePathMatch = ctx.pathname.match(/^\/console\/members\/([^/]+)$/);
+  const organizationAccessOrResponse = requireOrganizationAccessService(ctx);
+  if (organizationAccessOrResponse instanceof Response) return organizationAccessOrResponse;
+  const organizationAccess = organizationAccessOrResponse;
+  const accessContext = toOrganizationAccessContext(auth.claims);
+  const query = Object.fromEntries(ctx.url.searchParams.entries());
+
+  const invitationResendMatch = ctx.pathname.match(
+    /^\/console\/organization\/invitations\/([^/]+)\/resend$/,
+  );
+  const invitationMatch = ctx.pathname.match(/^\/console\/organization\/invitations\/([^/]+)$/);
+  const invitationRedemptionMatch = ctx.pathname.match(
+    /^\/console\/account\/invitations\/([^/]+)\/(accept|decline)$/,
+  );
+  const membershipActionMatch = ctx.pathname.match(
+    /^\/console\/organization\/memberships\/([^/]+)\/(change-role|admin-permissions|suspend|reactivate)$/,
+  );
+  const membershipMatch = ctx.pathname.match(/^\/console\/organization\/memberships\/([^/]+)$/);
+  const projectMemberMatch = ctx.pathname.match(
+    /^\/console\/organization\/projects\/([^/]+)\/members\/([^/]+)$/,
+  );
 
   try {
-    if (ctx.method === 'GET' && ctx.pathname === '/console/members') {
-      const request = parseListConsoleTeamMembersRequest({
-        status: ctx.url.searchParams.get('status') || undefined,
-      });
-      const members = await teamRbac.listMembers(teamRbacCtx, request);
-      return json({ ok: true, members }, { status: 200 });
-    }
-
-    if (ctx.method === 'POST' && ctx.pathname === '/console/members/invite') {
-      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
-      if (routePolicy) return routePolicy;
-      const request = parseInviteConsoleTeamMemberRequest(await readJson(ctx.request));
-      const member = await teamRbac.inviteMember(teamRbacCtx, request);
-      return json({ ok: true, member }, { status: 201 });
-    }
-
-    if (ctx.method === 'PATCH' && memberRolesPathMatch) {
-      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
-      if (routePolicy) return routePolicy;
-      const memberId = decodePathPart(memberRolesPathMatch[1]);
-      const request = parseUpdateConsoleTeamMemberRolesRequest(await readJson(ctx.request));
-      const member = await teamRbac.updateMemberRoles(teamRbacCtx, memberId, request);
-      if (!member) {
-        return json(
-          {
-            ok: false,
-            code: 'member_not_found',
-            message: `Member ${memberId} was not found`,
-          },
-          { status: 404 },
-        );
-      }
-      return json({ ok: true, member }, { status: 200 });
-    }
-
-    if (ctx.method === 'DELETE' && memberDeletePathMatch) {
-      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
-      if (routePolicy) return routePolicy;
-      const memberId = decodePathPart(memberDeletePathMatch[1]);
-      const removed = await teamRbac.removeMember(teamRbacCtx, memberId);
-      if (!removed.removed || !removed.member) {
-        return json(
-          {
-            ok: false,
-            code: 'member_not_found',
-            message: `Member ${memberId} was not found`,
-          },
-          { status: 404 },
-        );
-      }
-      return json(
-        {
-          ok: true,
-          removed: true,
-          member: removed.member,
-        },
-        { status: 200 },
+    if (ctx.method === 'GET' && ctx.pathname === '/console/organization/memberships') {
+      const memberships = await organizationAccess.listMemberships(
+        accessContext,
+        parseListOrganizationMembershipsRequest(query),
       );
+      return json({ ok: true, memberships }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/organization/invitations') {
+      const invitations = await organizationAccess.listInvitations(
+        accessContext,
+        parseListOrganizationInvitationsRequest(query),
+      );
+      return json({ ok: true, invitations }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/organization/invitations') {
+      const issued = await organizationAccess.invite(
+        accessContext,
+        parseInviteOrganizationMemberRequest(await readJson(ctx.request)),
+      );
+      return json({ ok: true, invitation: issued.invitation }, { status: 201 });
+    }
+
+    if (ctx.method === 'POST' && invitationResendMatch?.[1]) {
+      const issued = await organizationAccess.resendInvitation(
+        accessContext,
+        decodePathPart(invitationResendMatch[1]),
+      );
+      return json({ ok: true, invitation: issued.invitation }, { status: 200 });
+    }
+
+    if (ctx.method === 'DELETE' && invitationMatch?.[1]) {
+      const invitation = await organizationAccess.revokeInvitation(
+        accessContext,
+        decodePathPart(invitationMatch[1]),
+      );
+      return json({ ok: true, invitation }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && invitationRedemptionMatch?.[1]) {
+      const account = verifiedInvitationAccountOrResponse(auth.claims);
+      if (account instanceof Response) return account;
+      const request = parseRedeemOrganizationInvitationRequest(await readJson(ctx.request));
+      const invitationId = decodePathPart(invitationRedemptionMatch[1]);
+      if (invitationRedemptionMatch[2] === 'accept') {
+        const membership = await organizationAccess.acceptInvitation(
+          account,
+          invitationId,
+          request,
+        );
+        return json({ ok: true, membership }, { status: 200 });
+      }
+      const invitation = await organizationAccess.declineInvitation(account, invitationId, request);
+      return json({ ok: true, invitation }, { status: 200 });
+    }
+
+    if (
+      ctx.method === 'POST' &&
+      membershipActionMatch?.[1] &&
+      membershipActionMatch[2] === 'change-role'
+    ) {
+      const membership = await organizationAccess.changeRole(
+        accessContext,
+        decodePathPart(membershipActionMatch[1]),
+        parseChangeOrganizationMembershipRoleRequest(await readJson(ctx.request)),
+      );
+      return json({ ok: true, membership }, { status: 200 });
+    }
+
+    if (
+      ctx.method === 'PATCH' &&
+      membershipActionMatch?.[1] &&
+      membershipActionMatch[2] === 'admin-permissions'
+    ) {
+      const membership = await organizationAccess.setAdminPermissions(
+        accessContext,
+        decodePathPart(membershipActionMatch[1]),
+        parseSetOrganizationAdminPermissionsRequest(await readJson(ctx.request)),
+      );
+      return json({ ok: true, membership }, { status: 200 });
+    }
+
+    if (
+      ctx.method === 'POST' &&
+      membershipActionMatch?.[1] &&
+      membershipActionMatch[2] === 'suspend'
+    ) {
+      const membership = await organizationAccess.suspendMembership(
+        accessContext,
+        decodePathPart(membershipActionMatch[1]),
+      );
+      return json({ ok: true, membership }, { status: 200 });
+    }
+
+    if (
+      ctx.method === 'POST' &&
+      membershipActionMatch?.[1] &&
+      membershipActionMatch[2] === 'reactivate'
+    ) {
+      const membership = await organizationAccess.reactivateMembership(
+        accessContext,
+        decodePathPart(membershipActionMatch[1]),
+      );
+      return json({ ok: true, membership }, { status: 200 });
+    }
+
+    if (ctx.method === 'DELETE' && membershipMatch?.[1]) {
+      const membership = await organizationAccess.removeMembership(
+        accessContext,
+        decodePathPart(membershipMatch[1]),
+      );
+      return json({ ok: true, membership }, { status: 200 });
+    }
+
+    if (ctx.method === 'PUT' && projectMemberMatch?.[1] && projectMemberMatch[2]) {
+      const membership = await organizationAccess.setProjectAccess(
+        accessContext,
+        decodePathPart(projectMemberMatch[1]),
+        decodePathPart(projectMemberMatch[2]),
+        parseSetProjectMemberAccessRequest(await readJson(ctx.request)),
+      );
+      return json({ ok: true, membership }, { status: 200 });
+    }
+
+    if (ctx.method === 'DELETE' && projectMemberMatch?.[1] && projectMemberMatch[2]) {
+      const membership = await organizationAccess.removeProjectAccess(
+        accessContext,
+        decodePathPart(projectMemberMatch[1]),
+        decodePathPart(projectMemberMatch[2]),
+      );
+      return json({ ok: true, membership }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/organization/leave') {
+      const membership = await organizationAccess.leaveOrganization(accessContext);
+      return json({ ok: true, membership }, { status: 200 });
     }
   } catch (error: unknown) {
-    return sendTeamRbacError(error);
+    return sendOrganizationAccessError(error);
   }
 
   return new Response('Not Found', { status: 404 });
@@ -3783,88 +3913,49 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
 async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Response | null> {
   if (!isConsoleBillingPath(ctx.pathname)) return null;
 
-  if (
-    ctx.pathname === '/console/billing/subscription' ||
-    ctx.pathname === '/console/billing/subscription/cancel' ||
-    ctx.pathname === '/console/billing/subscription/resume'
-  ) {
-    return new Response('Not Found', { status: 404 });
-  }
-
-  if (
-    (ctx.method === 'POST' && ctx.pathname === '/console/billing/stripe/payment-intent') ||
-    (ctx.method === 'GET' && ctx.pathname === '/console/billing/stablecoins/assets') ||
-    (ctx.method === 'POST' && ctx.pathname === '/console/billing/stablecoins/quotes') ||
-    (ctx.method === 'POST' && ctx.pathname === '/console/billing/stablecoins/payment-intents') ||
-    /^\/console\/billing\/stripe\/payment-intents\/[^/]+\/reconcile$/.test(ctx.pathname) ||
-    /^\/console\/billing\/stablecoins\/payment-intents\/[^/]+$/.test(ctx.pathname) ||
-    /^\/console\/billing\/stablecoins\/payment-intents\/[^/]+\/cancel$/.test(ctx.pathname) ||
-    /^\/console\/billing\/stablecoins\/payment-intents\/[^/]+\/reconcile$/.test(ctx.pathname)
-  ) {
-    return new Response('Not Found', { status: 404 });
-  }
-
   if (ctx.method === 'POST' && ctx.pathname === '/console/billing/stripe/webhook') {
-    const rawBody = await readJson(ctx.request);
-    const secretRequired = requireStripeWebhookSecret(ctx);
-    if (secretRequired) {
-      if (secretRequired.status === 401) {
-        await emitStripeWebhookFailureObservabilityEvent(ctx, {
-          rawBody,
-          eventType: 'billing.stripe_webhook.invalid_signature',
-          failureCode: 'invalid_signature',
-          failureMessage: 'Invalid Stripe webhook secret',
-        });
-      }
-      return secretRequired;
-    }
+    const signingSecret = requireStripeWebhookSigningSecret(ctx);
+    if (signingSecret instanceof Response) return signingSecret;
+    const rawBody = new Uint8Array(await ctx.request.arrayBuffer());
     const billingOrResponse = requireBillingService(ctx);
     if (billingOrResponse instanceof Response) return billingOrResponse;
     try {
-      const request = parseStripeWebhookEventRequest(rawBody);
+      const request = await verifyAndParseStripeWebhookRequest({
+        rawBody,
+        signatureHeader: ctx.request.headers.get('Stripe-Signature') || '',
+        secret: signingSecret,
+      });
+      if (!request) {
+        return json({ ok: true, accepted: false, ignored: true }, { status: 200 });
+      }
       const result = await billingOrResponse.processStripeWebhookEvent(request);
-      if (result.accepted && result.purchase && result.orgId) {
-        await emitBillingWebhookEvent(ctx, {
-          orgId: result.orgId,
-          actorUserId: 'system-stripe-webhook',
-          eventType: 'billing.credit_purchase.settled',
-          eventId: request.eventId,
-          payload: {
-            purchaseId: result.purchase.id,
-            creditPackId: result.purchase.creditPackId,
-            amountMinor: result.purchase.amountMinor,
-            receiptId: result.invoice?.id || null,
-            source: 'stripe_webhook',
-          },
-        });
-        const auditEvent = buildConsoleBillingCreditPurchaseSettledAuditEvent({
-          purchase: result.purchase,
-          invoice: result.invoice,
-          source: 'stripe_webhook',
-          settlementEventId: request.eventId,
-        });
-        await emitConsoleAuditEvent(
-          ctx,
+      const postProcessing = await dispatchBillingStripePostProcessingEvent(
+        {
+          billing: billingOrResponse,
+          audit: ctx.audit,
+          webhooks: ctx.webhooks,
+          logger: ctx.logger,
+        },
+        request.eventId,
+      );
+      if (!postProcessing.completed) {
+        return json(
           {
-            orgId: result.orgId,
-            userId: 'system-stripe-webhook',
-            roles: ['ops'],
+            ok: false,
+            code: 'stripe_post_processing_pending',
+            message: 'Stripe event committed; post-processing remains pending',
           },
-          {
-            category: 'BILLING',
-            action: 'billing.credit_purchase.settled',
-            summary: auditEvent.summary,
-            actorUserId: 'system-stripe-webhook',
-            actorType: 'SYSTEM',
-            metadata: auditEvent.metadata,
-          },
+          { status: 503 },
         );
       }
       return json({ ok: true, ...result }, { status: 200 });
     } catch (error: unknown) {
       await emitStripeWebhookFailureObservabilityEvent(ctx, {
         rawBody,
-        eventType: 'billing.stripe_webhook.processing.failed',
+        eventType:
+          isConsoleBillingError(error) && error.code === 'invalid_stripe_signature'
+            ? 'billing.stripe_webhook.invalid_signature'
+            : 'billing.stripe_webhook.processing.failed',
         failureCode: isConsoleBillingError(error) ? error.code : 'internal',
         failureMessage: error instanceof Error ? error.message : String(error),
       });
@@ -3906,7 +3997,10 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
 
     const billingCtx = toBillingContext(auth.claims);
 
-    if (ctx.method === 'GET' && ctx.pathname === '/console/billing/sponsored-executions/reconciliation') {
+    if (
+      ctx.method === 'GET' &&
+      ctx.pathname === '/console/billing/sponsored-executions/reconciliation'
+    ) {
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
       const sponsoredCallsOrResponse = requireSponsoredCallService(ctx);
@@ -3948,6 +4042,13 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       return json({ ok: true, overview }, { status: 200 });
     }
 
+    if (ctx.method === 'GET' && ctx.pathname === '/console/billing/refunds') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
+      const refunds = await billing.listRefunds(billingCtx);
+      return json({ ok: true, refunds }, { status: 200 });
+    }
+
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/account/activity') {
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
@@ -3963,13 +4064,10 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       if (routePolicy) return routePolicy;
       const orgProjectEnvOrResponse = requireOrgProjectEnvService(ctx);
       if (orgProjectEnvOrResponse instanceof Response) return orgProjectEnvOrResponse;
-      const teamRbacOrResponse = requireTeamRbacService(ctx);
-      if (teamRbacOrResponse instanceof Response) return teamRbacOrResponse;
       const result = await resolvePlatformBillingLookup({
         claims: auth.claims,
         billing,
         orgProjectEnv: orgProjectEnvOrResponse,
-        teamRbac: teamRbacOrResponse,
         request: parsePlatformBillingLookupRequest(
           Object.fromEntries(ctx.url.searchParams.entries()),
         ),
@@ -4079,14 +4177,12 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       const organization = await orgProjectEnvOrResponse.getOrganization({
         orgId,
         actorUserId: auth.claims.userId,
-        roles: auth.claims.roles,
         ...(auth.claims.projectId ? { projectId: auth.claims.projectId } : {}),
         ...(auth.claims.environmentId ? { environmentId: auth.claims.environmentId } : {}),
       });
       const targetBillingCtx = {
         orgId,
         actorUserId: auth.claims.userId,
-        roles: auth.claims.roles,
       };
       const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(
         billing,
@@ -4189,14 +4285,12 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       const organization = await orgProjectEnvOrResponse.getOrganization({
         orgId,
         actorUserId: auth.claims.userId,
-        roles: auth.claims.roles,
         ...(auth.claims.projectId ? { projectId: auth.claims.projectId } : {}),
         ...(auth.claims.environmentId ? { environmentId: auth.claims.environmentId } : {}),
       });
       const targetBillingCtx = {
         orgId,
         actorUserId: auth.claims.userId,
-        roles: auth.claims.roles,
       };
       const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(
         billing,
@@ -4244,6 +4338,82 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
         },
       );
       return json({ ok: true, result }, { status: result.created ? 201 : 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/platform/billing/refunds') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
+      const request = parsePlatformBillingRefundRequest(await readJson(ctx.request));
+      const { orgId, ...refundRequest } = request;
+      const result = await billing.createRefund(
+        {
+          orgId,
+          actorUserId: auth.claims.userId,
+          platformSupport: true,
+        },
+        refundRequest,
+      );
+      await emitConsoleAuditEvent(
+        ctx,
+        {
+          ...auth.claims,
+          orgId,
+        },
+        {
+          category: 'BILLING',
+          action: 'billing.refund.requested',
+          summary: `Requested refund for org ${orgId}`,
+          metadata: {
+            organizationId: orgId,
+            refundId: result.refund.id,
+            purchaseId: result.refund.purchaseId,
+            amountMinor: result.refund.amountMinor,
+            status: result.refund.status,
+            created: result.created,
+            platformBilling: true,
+          },
+        },
+      );
+      return json({ ok: true, result }, { status: result.created ? 201 : 200 });
+    }
+
+    if (
+      ctx.method === 'POST' &&
+      ctx.pathname === '/console/platform/billing/refunds/reconcile'
+    ) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
+      const request = parsePlatformBillingRefundReconcileRequest(await readJson(ctx.request));
+      const { orgId, ...reconcileRequest } = request;
+      const result = await billing.reconcileRefund(
+        {
+          orgId,
+          actorUserId: auth.claims.userId,
+          platformSupport: true,
+        },
+        reconcileRequest,
+      );
+      await emitConsoleAuditEvent(
+        ctx,
+        {
+          ...auth.claims,
+          orgId,
+        },
+        {
+          category: 'BILLING',
+          action: 'billing.refund.reconciled',
+          summary: `Reconciled refund for org ${orgId}`,
+          metadata: {
+            organizationId: orgId,
+            refundId: result.refund.id,
+            purchaseId: result.refund.purchaseId,
+            amountMinor: result.refund.amountMinor,
+            status: result.refund.status,
+            platformBilling: true,
+          },
+        },
+      );
+      return json({ ok: true, result }, { status: 200 });
     }
 
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/invoices') {
@@ -4319,13 +4489,10 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
         invoice,
         lineItems,
       });
-      return new Response(
-        toArrayBufferCopy(pdfBytes),
-        {
-          status: 200,
-          headers,
-        },
-      );
+      return new Response(toArrayBufferCopy(pdfBytes), {
+        status: 200,
+        headers,
+      });
     }
 
     if (ctx.method === 'GET' && invoiceActivityMatch) {
@@ -4437,7 +4604,9 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       await emitBillingFailureObservabilityEvent(ctx, auth.claims, {
         operation: billingFailureEvent.operation,
         ...(billingFailureEvent.invoiceId ? { invoiceId: billingFailureEvent.invoiceId } : {}),
-        ...(billingFailureEvent.providerRef ? { providerRef: billingFailureEvent.providerRef } : {}),
+        ...(billingFailureEvent.providerRef
+          ? { providerRef: billingFailureEvent.providerRef }
+          : {}),
         error,
       });
     }
@@ -4469,7 +4638,7 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
   const webhooks = opts.webhooks === undefined ? null : opts.webhooks;
   const keyExports = opts.keyExports === undefined ? null : opts.keyExports;
   const runtimeSnapshots = opts.runtimeSnapshots === undefined ? null : opts.runtimeSnapshots;
-  const teamRbac = opts.teamRbac === undefined ? null : opts.teamRbac;
+  const organizationAccess = opts.organizationAccess === undefined ? null : opts.organizationAccess;
   const approvals = opts.approvals === undefined ? null : opts.approvals;
   const audit = opts.audit === undefined ? null : opts.audit;
   const auditExports = opts.auditExports === undefined ? null : opts.auditExports;
@@ -4494,7 +4663,7 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
     handleConsoleOpsCockpit,
     handleConsoleObservability,
     handleConsoleOrgProjectEnv,
-    handleConsoleTeamRbac,
+    handleConsoleOrganizationAccess,
     handleConsoleApprovals,
     handleConsoleAudit,
     handleConsoleAuditExports,
@@ -4545,7 +4714,7 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
       webhooks,
       keyExports,
       runtimeSnapshots,
-      teamRbac,
+      organizationAccess,
       approvals,
       audit,
       auditExports,

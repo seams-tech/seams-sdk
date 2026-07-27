@@ -3,7 +3,11 @@ import path from 'node:path';
 import process from 'node:process';
 import { gatewaySecretNames, readDeploymentTarget } from '../../../scripts/deployment-targets.mjs';
 
-const OPTIONAL_SECRET_NAMES = ['RELAYER_PRIVATE_KEY', 'SPONSORED_EVM_EXECUTORS_JSON'];
+const OPTIONAL_SECRET_NAMES = [
+  'STRIPE_WEBHOOK_SECRET',
+  'RELAYER_PRIVATE_KEY',
+  'SPONSORED_EVM_EXECUTORS_JSON',
+];
 
 function main() {
   const outputPath = readOutputPath(process.argv.slice(2));

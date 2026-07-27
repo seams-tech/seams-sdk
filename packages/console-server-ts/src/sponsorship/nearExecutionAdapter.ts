@@ -2,7 +2,7 @@ import {
   buildDelegateActionPolicyFromResolvedRule,
   type ResolvedSponsoredNearDelegatePolicy,
 } from './near';
-import type { ExecuteSignedDelegateRequest, ExecuteSignedDelegateResult } from '@seams/sdk-server/internal/delegateAction';
+import type { ExecuteSignedDelegateRequest, ExecuteSignedDelegateResult } from '@seams/sdk-server/cloud-host';
 import type { SponsorshipExecutionAdapter } from './executionAdapter';
 
 export interface SponsoredNearDelegateAuthService {

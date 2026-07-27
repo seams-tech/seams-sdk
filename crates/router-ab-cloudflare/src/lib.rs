@@ -185,9 +185,9 @@ pub use durable_object::{
     CloudflareRootShareRewrapReceiptV1, CloudflareRootShareRewrapRequestV1,
     CloudflareRootShareStartupMetadataV1, CloudflareRouterAbuseRecordV1,
     CloudflareRouterAdmissionStoreRequestV1, CloudflareRouterNormalSigningAdmissionStoreRequestV1,
-    CloudflareRouterProjectPolicyRecordV1, CloudflareRouterQuotaReservationV1,
-    CloudflareRouterWalletBudgetCurveV1, CloudflareRouterWalletBudgetPutGrantRequestV1,
-    CloudflareRouterWalletBudgetReleaseRequestV1,
+    CloudflareRouterProjectPolicyRecordV1, CloudflareRouterPublicAdmissionCompletionV1,
+    CloudflareRouterQuotaReservationV1, CloudflareRouterWalletBudgetCurveV1,
+    CloudflareRouterWalletBudgetPutGrantRequestV1, CloudflareRouterWalletBudgetReleaseRequestV1,
     CloudflareRouterWalletBudgetReservationIdentityV1,
     CloudflareRouterWalletBudgetReserveRequestV1, CloudflareRouterWalletBudgetSignerBindingV1,
     CloudflareRouterWalletBudgetStatusRequestV1, CloudflareRouterWalletBudgetStatusV1,
@@ -1471,8 +1471,7 @@ impl CloudflareRouterJwtVerifierBindingV1 {
         jwks_json: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let jwks_json = jwks_json.into();
-        let verifier =
-            CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)?;
+        let verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)?;
         let binding = Self {
             issuer: issuer.into(),
             audience: audience.into(),
@@ -4228,15 +4227,34 @@ impl CloudflareRouterWorkerRuntimeV1 {
         self.replay_reserve_call(replay_request)
     }
 
-    /// Builds a Router public-lifecycle Durable Object call.
-    pub fn lifecycle_put_public_state_call(
+    /// Builds one atomic Router public replay-and-lifecycle admission call.
+    pub fn public_admission_call(
         &self,
+        replay: CloudflareReplayReserveRequestV1,
         state: RouterAbLifecycleStateV1,
     ) -> RouterAbProtocolResult<CloudflareDurableObjectCallV1> {
         CloudflareDurableObjectCallV1::new(
             CloudflareWorkerRoleV1::Router,
             self.bindings.lifecycle.clone(),
-            CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(state)?,
+            CloudflareDurableObjectRequestV1::router_public_admission(replay, state)?,
+        )
+    }
+
+    /// Builds one exact strict-registration completion call.
+    pub fn public_registration_completion_call(
+        &self,
+        replay: CloudflareReplayReserveRequestV1,
+        lifecycle_id: impl Into<String>,
+        response_json: impl Into<String>,
+    ) -> RouterAbProtocolResult<CloudflareDurableObjectCallV1> {
+        CloudflareDurableObjectCallV1::new(
+            CloudflareWorkerRoleV1::Router,
+            self.bindings.lifecycle.clone(),
+            CloudflareDurableObjectRequestV1::router_public_registration_complete(
+                replay,
+                lifecycle_id,
+                response_json,
+            )?,
         )
     }
 
@@ -4266,28 +4284,21 @@ impl CloudflareRouterWorkerRuntimeV1 {
             request.router_replay_digest(),
             request.expires_at_ms,
         )?;
-        let replay_reserve_call = self.replay_reserve_call(replay_request)?;
-        let lifecycle_requested_put_call = self.lifecycle_put_public_state_call(
-            RouterAbLifecycleStateV1::requested(request.lifecycle.clone())?,
-        )?;
-        let lifecycle_put_call = self.lifecycle_put_public_state_call(
+        let admission_call = self.public_admission_call(
+            replay_request,
             trusted_admission.lifecycle_state_for_request(&request)?,
         )?;
         let plan = if trusted_admission.allows_signer_forwarding()? {
             let (deriver_a_message, deriver_b_message) = request.to_signer_wire_messages()?;
             CloudflareRouterPublicAdmissionPlanV1::Forward {
-                replay_reserve_call,
-                lifecycle_requested_put_call,
-                lifecycle_put_call,
+                admission_call,
                 trusted_admission,
                 deriver_a_message,
                 deriver_b_message,
             }
         } else {
             CloudflareRouterPublicAdmissionPlanV1::Stop {
-                replay_reserve_call,
-                lifecycle_requested_put_call,
-                lifecycle_put_call,
+                admission_call,
                 trusted_admission,
             }
         };
@@ -5201,20 +5212,26 @@ where
     .await?;
     let plan =
         runtime.public_request_admission_plan_at(now_unix_ms, public_request, trusted_admission)?;
-    let replay =
-        execute_cloudflare_router_replay_reserve_v1(env, plan.replay_reserve_call()).await?;
+    let (replay, lifecycle, completion) =
+        execute_cloudflare_router_public_admission_v1(env, plan.admission_call()).await?;
+    if let CloudflareRouterPublicAdmissionCompletionV1::Completed { response_json } = completion {
+        let completed: CloudflareRouterAbEcdsaDerivationRegistrationAdmissionResponseV1 =
+            serde_json::from_str(&response_json).map_err(|error| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    format!("stored strict ECDSA registration response is invalid: {error}"),
+                )
+            })?;
+        completed.validate()?;
+        return Ok(completed);
+    }
     if !replay.reserved {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::ReplayedLocalRequest,
-            "Router A/B ECDSA derivation registration replay reservation already exists",
+            "Router A/B ECDSA derivation registration is already in progress",
         ));
     }
-    let _requested_lifecycle =
-        execute_cloudflare_router_lifecycle_put_v1(env, plan.lifecycle_requested_put_call())
-            .await?;
-    let lifecycle =
-        execute_cloudflare_router_lifecycle_put_v1(env, plan.lifecycle_put_call()).await?;
-    match &plan {
+    let result = match &plan {
         CloudflareRouterPublicAdmissionPlanV1::Forward {
             deriver_a_message,
             deriver_b_message,
@@ -5266,7 +5283,40 @@ where
             lifecycle,
             trusted_admission.decision.clone(),
         ),
-    }
+    }?;
+    let response_json = serde_json::to_string(&result).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("strict ECDSA registration response serialization failed: {error}"),
+        )
+    })?;
+    let (admission_replay, lifecycle_id) = match &plan.admission_call().request {
+        CloudflareDurableObjectRequestV1::RouterPublicAdmission { replay, state } => {
+            (replay.clone(), state.scope().lifecycle_id.clone())
+        }
+        _ => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "strict ECDSA registration admission call has the wrong operation",
+            ));
+        }
+    };
+    let completion_call = runtime.public_registration_completion_call(
+        admission_replay,
+        lifecycle_id,
+        response_json,
+    )?;
+    let completed_json =
+        execute_cloudflare_router_public_registration_completion_v1(env, &completion_call).await?;
+    let completed: CloudflareRouterAbEcdsaDerivationRegistrationAdmissionResponseV1 =
+        serde_json::from_str(&completed_json).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("completed strict ECDSA registration response is invalid: {error}"),
+            )
+        })?;
+    completed.validate()?;
+    Ok(completed)
 }
 
 /// Completes strict Router A/B ECDSA registration after the client verifies both proof bundles.
@@ -5365,8 +5415,8 @@ where
     .await?;
     let plan =
         runtime.public_request_admission_plan_at(now_unix_ms, public_request, trusted_admission)?;
-    let replay =
-        execute_cloudflare_router_replay_reserve_v1(env, plan.replay_reserve_call()).await?;
+    let (replay, lifecycle, _) =
+        execute_cloudflare_router_public_admission_v1(env, plan.admission_call()).await?;
     if !replay.reserved {
         emit_cloudflare_router_ab_ecdsa_derivation_explicit_export_audit_event_v1(
             &request,
@@ -5378,11 +5428,6 @@ where
             "Router A/B ECDSA derivation export replay reservation already exists",
         ));
     }
-    let _requested_lifecycle =
-        execute_cloudflare_router_lifecycle_put_v1(env, plan.lifecycle_requested_put_call())
-            .await?;
-    let lifecycle =
-        execute_cloudflare_router_lifecycle_put_v1(env, plan.lifecycle_put_call()).await?;
     match &plan {
         CloudflareRouterPublicAdmissionPlanV1::Forward {
             deriver_a_message,
@@ -5504,19 +5549,14 @@ where
     .await?;
     let plan =
         runtime.public_request_admission_plan_at(now_unix_ms, public_request, trusted_admission)?;
-    let replay =
-        execute_cloudflare_router_replay_reserve_v1(env, plan.replay_reserve_call()).await?;
+    let (replay, lifecycle, _) =
+        execute_cloudflare_router_public_admission_v1(env, plan.admission_call()).await?;
     if !replay.reserved {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::ReplayedLocalRequest,
             "Router A/B ECDSA derivation recovery replay reservation already exists",
         ));
     }
-    let _requested_lifecycle =
-        execute_cloudflare_router_lifecycle_put_v1(env, plan.lifecycle_requested_put_call())
-            .await?;
-    let lifecycle =
-        execute_cloudflare_router_lifecycle_put_v1(env, plan.lifecycle_put_call()).await?;
     match &plan {
         CloudflareRouterPublicAdmissionPlanV1::Forward {
             deriver_a_message,
@@ -5593,19 +5633,14 @@ where
     .await?;
     let plan =
         runtime.public_request_admission_plan_at(now_unix_ms, public_request, trusted_admission)?;
-    let replay =
-        execute_cloudflare_router_replay_reserve_v1(env, plan.replay_reserve_call()).await?;
+    let (replay, lifecycle, _) =
+        execute_cloudflare_router_public_admission_v1(env, plan.admission_call()).await?;
     if !replay.reserved {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::ReplayedLocalRequest,
             "Router A/B ECDSA derivation activation-refresh replay reservation already exists",
         ));
     }
-    let _requested_lifecycle =
-        execute_cloudflare_router_lifecycle_put_v1(env, plan.lifecycle_requested_put_call())
-            .await?;
-    let lifecycle =
-        execute_cloudflare_router_lifecycle_put_v1(env, plan.lifecycle_put_call()).await?;
     match &plan {
         CloudflareRouterPublicAdmissionPlanV1::Forward {
             deriver_a_message,
@@ -10683,12 +10718,41 @@ async fn execute_cloudflare_router_replay_reserve_v1(
 }
 
 #[cfg(feature = "workers-rs")]
-async fn execute_cloudflare_router_lifecycle_put_v1(
+async fn execute_cloudflare_router_public_admission_v1(
     env: &worker::Env,
     call: &CloudflareDurableObjectCallV1,
-) -> RouterAbProtocolResult<CloudflareLifecyclePutReceiptV1> {
+) -> RouterAbProtocolResult<(
+    CloudflareReplayReserveResponseV1,
+    CloudflareLifecyclePutReceiptV1,
+    CloudflareRouterPublicAdmissionCompletionV1,
+)> {
     let response = execute_cloudflare_durable_object_call_v1(env, call).await?;
-    require_router_lifecycle_put_response_v1(call, response)
+    require_router_public_admission_response_v1(call, response)
+}
+
+#[cfg(feature = "workers-rs")]
+async fn execute_cloudflare_router_public_registration_completion_v1(
+    env: &worker::Env,
+    call: &CloudflareDurableObjectCallV1,
+) -> RouterAbProtocolResult<String> {
+    let response = execute_cloudflare_durable_object_call_v1(env, call).await?;
+    response.validate_for_request(&call.request)?;
+    let CloudflareDurableObjectResponseV1::RouterPublicRegistrationComplete { completion } =
+        response
+    else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "Router public registration completion Durable Object returned wrong response branch",
+        ));
+    };
+    let CloudflareRouterPublicAdmissionCompletionV1::Completed { response_json } = completion
+    else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "Router public registration completion Durable Object returned pending state",
+        ));
+    };
+    Ok(response_json)
 }
 
 /// Executes a Router project-policy Durable Object evaluation call.
@@ -10821,19 +10885,27 @@ fn require_router_replay_reserve_response_v1(
 }
 
 #[cfg(feature = "workers-rs")]
-fn require_router_lifecycle_put_response_v1(
+fn require_router_public_admission_response_v1(
     call: &CloudflareDurableObjectCallV1,
     response: CloudflareDurableObjectResponseV1,
-) -> RouterAbProtocolResult<CloudflareLifecyclePutReceiptV1> {
+) -> RouterAbProtocolResult<(
+    CloudflareReplayReserveResponseV1,
+    CloudflareLifecyclePutReceiptV1,
+    CloudflareRouterPublicAdmissionCompletionV1,
+)> {
     response.validate_for_request(&call.request)?;
-    let CloudflareDurableObjectResponseV1::RouterLifecyclePutPublicState { receipt } = response
+    let CloudflareDurableObjectResponseV1::RouterPublicAdmission {
+        replay,
+        lifecycle,
+        completion,
+    } = response
     else {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "Router lifecycle Durable Object returned wrong response branch",
+            "Router public admission Durable Object returned wrong response branch",
         ));
     };
-    Ok(receipt)
+    Ok((replay, lifecycle, completion))
 }
 
 #[cfg(feature = "workers-rs")]

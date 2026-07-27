@@ -135,13 +135,11 @@ use crate::{
 use crate::{
     handle_cloudflare_ed25519_yao_deriver_b_burn_pair_v1,
     handle_cloudflare_ed25519_yao_deriver_b_prepare_pair_v1,
-    handle_cloudflare_ed25519_yao_deriver_b_read_completed_pair_v1,
     handle_cloudflare_ed25519_yao_deriver_b_read_pair_status_v1,
     handle_cloudflare_ed25519_yao_deriver_b_websocket_v1, preload_cloudflare_deriver_b_host_v1,
     CloudflareDeriverBWorkerRuntimeV1, CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_DUPLEX_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH,
-    CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH,
     CLOUDFLARE_DERIVER_B_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH,

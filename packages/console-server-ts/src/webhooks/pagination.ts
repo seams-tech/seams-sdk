@@ -1,5 +1,5 @@
 import { ConsoleWebhookError } from './errors';
-import { normalizeBoundedPositiveInteger } from '@seams-internal/shared-ts/utils/normalize';
+import { normalizeBoundedPositiveInteger } from '@seams/sdk-server/cloud-host';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;

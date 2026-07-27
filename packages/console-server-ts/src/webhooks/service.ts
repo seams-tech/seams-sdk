@@ -686,6 +686,14 @@ export function createInMemoryConsoleWebhookService(
       let failed = 0;
 
       for (const endpoint of targets) {
+        const existingDelivery = getEndpointDeliveries(store, endpoint.id).find(
+          (entry) => entry.eventId === eventId,
+        );
+        if (existingDelivery) {
+          if (existingDelivery.status === 'SUCCEEDED') delivered += 1;
+          else failed += 1;
+          continue;
+        }
         const createdAt = coerceIsoDate(now());
         const delivery: StoredWebhookDelivery = {
           id: makeId('whd', now()),

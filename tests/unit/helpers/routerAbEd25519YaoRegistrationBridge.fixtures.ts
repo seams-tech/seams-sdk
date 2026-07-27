@@ -4,6 +4,10 @@ import type {
 } from '../../../packages/sdk-server-ts/src/router/cloudflare/versionedJsonRecordStore';
 import type { SessionAdapter } from '../../../packages/sdk-server-ts/src/router/routerApi';
 import type {
+  RouterAbEd25519YaoRegistrationBackend,
+  RouterAbEd25519YaoRegistrationBackendResult,
+} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistration';
+import type {
   RouterAbEd25519YaoRegistrationSideEffectRecordV1,
   RouterAbEd25519YaoRegistrationSideEffectStoreV1,
 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistrationSideEffectBoundary';
@@ -24,9 +28,20 @@ type StoredSideEffect<T, P = undefined> = {
   readonly value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>;
 };
 
-export class RegistrationSideEffectMemoryStore<T, P = undefined>
-  implements RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P>
-{
+export class UnavailableRouterAbEd25519YaoRegistrationBackend implements RouterAbEd25519YaoRegistrationBackend {
+  admit(): RouterAbEd25519YaoRegistrationBackendResult {
+    throw new Error('Test invoked an unavailable registration backend');
+  }
+
+  execute(): RouterAbEd25519YaoRegistrationBackendResult {
+    throw new Error('Test invoked an unavailable registration backend');
+  }
+}
+
+export class RegistrationSideEffectMemoryStore<
+  T,
+  P = undefined,
+> implements RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P> {
   readonly records = new Map<string, StoredSideEffect<T, P>>();
   claimWinner: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P> | null = null;
   terminalWinner: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P> | null = null;
@@ -249,10 +264,36 @@ export class OneConflictRegistrationBridgePartitionStore implements RouterAbEd25
         sharedState: winner.sharedState,
         sharedVersion: winner.sharedVersion,
         ceremonyVersion: winner.ceremonyVersion,
+        execution: winner.execution,
+        executionVersion: winner.executionVersion,
       });
       if (committed.kind !== 'stored') throw new Error('fixture winner failed to commit');
     }
     return await this.delegate.commit(input);
+  }
+
+  async claimRegistrationExecution(
+    input: Parameters<
+      RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1['claimRegistrationExecution']
+    >[0],
+  ) {
+    return await this.delegate.claimRegistrationExecution(input);
+  }
+
+  async commitRegistrationExecution(
+    input: Parameters<
+      RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1['commitRegistrationExecution']
+    >[0],
+  ) {
+    return await this.delegate.commitRegistrationExecution(input);
+  }
+
+  async consumeRegistrationExecution(
+    input: Parameters<
+      RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1['consumeRegistrationExecution']
+    >[0],
+  ) {
+    return await this.delegate.consumeRegistrationExecution(input);
   }
 }
 
@@ -281,8 +322,34 @@ export class AlwaysConflictRegistrationBridgePartitionStore implements RouterAbE
       sharedState: winner.sharedState,
       sharedVersion: winner.sharedVersion,
       ceremonyVersion: winner.ceremonyVersion,
+      execution: winner.execution,
+      executionVersion: winner.executionVersion,
     });
     if (committed.kind !== 'stored') throw new Error('fixture winner failed to commit');
     return await this.delegate.commit(input);
+  }
+
+  async claimRegistrationExecution(
+    input: Parameters<
+      RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1['claimRegistrationExecution']
+    >[0],
+  ) {
+    return await this.delegate.claimRegistrationExecution(input);
+  }
+
+  async commitRegistrationExecution(
+    input: Parameters<
+      RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1['commitRegistrationExecution']
+    >[0],
+  ) {
+    return await this.delegate.commitRegistrationExecution(input);
+  }
+
+  async consumeRegistrationExecution(
+    input: Parameters<
+      RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1['consumeRegistrationExecution']
+    >[0],
+  ) {
+    return await this.delegate.consumeRegistrationExecution(input);
   }
 }
