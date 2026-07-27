@@ -1,13 +1,16 @@
-import { base64UrlDecode, base64UrlEncode } from '@seams-internal/shared-ts/utils/encoders';
-import { SessionService } from '@seams/sdk-server/internal/core/SessionService';
+import { base64UrlDecode, base64UrlEncode } from '@seams/sdk-server/cloud-host';
+import { SessionService } from '@seams/sdk-server/cloud-host';
 import type {
   CloudflareSecretsStoreSecretBinding,
   SigningRootEncodedKekMaterialEncoding,
   SigningRootKekProvider,
-} from '@seams/sdk-server/internal/core/ThresholdService/signingRootKekProvider';
-import type { ConsoleTeamRbacService } from '@seams-internal/console-server/teamRbac/service';
-import type { ConsoleAuthAdapter, ConsoleAuthAdapterResult, HeaderRecord } from '@seams/sdk-server/internal/router/consoleAuth';
-import type { SessionAdapter } from '@seams/sdk-server/internal/router/routerApi';
+} from '@seams/sdk-server/cloud-host';
+import type {
+  ActiveOrganizationAuthorization,
+  ConsoleOrganizationAccessService,
+} from '@seams-internal/console-server/teamRbac';
+import type { ConsoleAuthAdapter, ConsoleAuthAdapterResult, HeaderRecord } from '../consoleAuth';
+import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
 
 export interface CloudflareD1StagingSecretEnv extends Readonly<Record<string, unknown>> {
   readonly SIGNING_ROOT_KEK_PROVIDER?: string;
@@ -36,11 +39,11 @@ export interface HmacSessionEnvOptions {
 
 export interface ConsoleSessionAuthAdapterOptions {
   readonly session: SessionAdapter;
-  readonly teamRbac: ConsoleTeamRbacService;
+  readonly organizationAccess: ConsoleOrganizationAccessService;
   readonly defaultOrgId?: string;
   readonly defaultProjectId?: string;
   readonly defaultEnvironmentId?: string;
-  readonly platformAdminEmails?: string;
+  readonly platformSupportEmails?: string;
 }
 
 type HmacVerificationResult =
@@ -185,19 +188,19 @@ class CrossSiteSessionCookieAdapter {
 
 class ConsoleSessionAuthAdapter implements ConsoleAuthAdapter {
   private readonly session: SessionAdapter;
-  private readonly teamRbac: ConsoleTeamRbacService;
+  private readonly organizationAccess: ConsoleOrganizationAccessService;
   private readonly defaultOrgId: string;
   private readonly defaultProjectId: string;
   private readonly defaultEnvironmentId: string;
-  private readonly platformAdminEmails: readonly string[];
+  private readonly platformSupportEmails: readonly string[];
 
   constructor(options: ConsoleSessionAuthAdapterOptions) {
     this.session = options.session;
-    this.teamRbac = options.teamRbac;
+    this.organizationAccess = options.organizationAccess;
     this.defaultOrgId = normalizeString(options.defaultOrgId);
     this.defaultProjectId = normalizeString(options.defaultProjectId);
     this.defaultEnvironmentId = normalizeString(options.defaultEnvironmentId);
-    this.platformAdminEmails = normalizeEmailList(options.platformAdminEmails);
+    this.platformSupportEmails = normalizeEmailList(options.platformSupportEmails);
   }
 
   async authenticate(headers: HeaderRecord): Promise<ConsoleAuthAdapterResult> {
@@ -232,48 +235,84 @@ class ConsoleSessionAuthAdapter implements ConsoleAuthAdapter {
       };
     }
 
-    const roles = await this.resolveRoles({ claims, orgId, userId });
-    if (roles.length === 0) {
+    const authorization = await this.organizationAccess.lookupAuthorization({ orgId, userId });
+    if (!authorization || authorization.kind === 'denied') {
       return {
         ok: false,
         code: 'forbidden',
-        message: 'No console roles assigned',
+        message: 'No active organization membership',
         status: 403,
       };
     }
 
-    return {
-      ok: true,
-      claims: {
-        userId,
-        orgId,
-        roles,
-        ...(normalizeString(claims.projectId) || this.defaultProjectId
-          ? { projectId: normalizeString(claims.projectId) || this.defaultProjectId }
-          : {}),
-        ...(normalizeString(claims.environmentId) || this.defaultEnvironmentId
-          ? { environmentId: normalizeString(claims.environmentId) || this.defaultEnvironmentId }
-          : {}),
-        ...(normalizeString(claims.email) ? { email: normalizeString(claims.email) } : {}),
-        ...(normalizeString(claims.name) ? { name: normalizeString(claims.name) } : {}),
-      },
+    const claimedProjectId = normalizeString(claims.projectId) || this.defaultProjectId;
+    const projectId =
+      authorization.role === 'MEMBER'
+        ? resolveMemberProjectId(authorization, claimedProjectId)
+        : claimedProjectId;
+    const claimedEnvironmentId =
+      normalizeString(claims.environmentId) || this.defaultEnvironmentId;
+    const environmentId =
+      authorization.role === 'MEMBER' && projectId !== claimedProjectId
+        ? ''
+        : claimedEnvironmentId;
+    const email = normalizeString(claims.email).toLowerCase();
+    const identity = {
+      userId,
+      orgId,
+      platformSupport: this.platformSupportEmails.includes(email),
+      ...(projectId ? { projectId } : {}),
+      ...(environmentId ? { environmentId } : {}),
+      ...(email ? { email } : {}),
+      ...(normalizeString(claims.name) ? { name: normalizeString(claims.name) } : {}),
+      ...(normalizeString(claims.provider)
+        ? { provider: normalizeString(claims.provider) }
+        : {}),
     };
-  }
-
-  private async resolveRoles(input: {
-    readonly claims: Record<string, unknown>;
-    readonly orgId: string;
-    readonly userId: string;
-  }): Promise<string[]> {
-    const memberRoles = await loadActiveConsoleMemberRoles({
-      teamRbac: this.teamRbac,
-      orgId: input.orgId,
-      userId: input.userId,
-    });
-    const adminRoles = this.platformAdminEmails.includes(normalizeString(input.claims.email))
-      ? ['platform_admin']
-      : [];
-    return mergeRoleLists(memberRoles, adminRoles);
+    switch (authorization.role) {
+      case 'OWNER':
+        return {
+          ok: true,
+          claims: {
+            ...identity,
+            membershipId: authorization.membershipId,
+            authorizationVersion: authorization.authorizationVersion,
+            role: 'OWNER',
+            adminPermissions: [...authorization.adminPermissions],
+            projectAccess: { kind: 'all' },
+          },
+        };
+      case 'ADMIN':
+        return {
+          ok: true,
+          claims: {
+            ...identity,
+            membershipId: authorization.membershipId,
+            authorizationVersion: authorization.authorizationVersion,
+            role: 'ADMIN',
+            adminPermissions: [...authorization.adminPermissions],
+            projectAccess: { kind: 'all' },
+          },
+        };
+      case 'MEMBER':
+        return {
+          ok: true,
+          claims: {
+            ...identity,
+            membershipId: authorization.membershipId,
+            authorizationVersion: authorization.authorizationVersion,
+            role: 'MEMBER',
+            adminPermissions: [],
+            projectAccess: {
+              kind: 'assigned',
+              assignments: authorization.projectAccess.assignments.map((assignment) => ({
+                projectId: assignment.projectId,
+                accessLevel: assignment.accessLevel,
+              })),
+            },
+          },
+        };
+    }
   }
 }
 
@@ -436,51 +475,19 @@ function toArrayBufferCopy(bytes: Uint8Array): ArrayBuffer {
   return out;
 }
 
-async function loadActiveConsoleMemberRoles(input: {
-  readonly teamRbac: ConsoleTeamRbacService;
-  readonly orgId: string;
-  readonly userId: string;
-}): Promise<string[]> {
-  if (!input.teamRbac.listOrganizationMembers) return [];
-  const members = await input.teamRbac.listOrganizationMembers(input.orgId, {
-    status: 'ACTIVE',
-  });
-  for (const member of members) {
-    if (member.userId !== input.userId) continue;
-    return normalizeRoleList(member.roles.map(readRoleAssignmentRole));
+function resolveMemberProjectId(
+  authorization: Extract<ActiveOrganizationAuthorization, { readonly role: 'MEMBER' }>,
+  requestedProjectId: string,
+): string {
+  if (
+    requestedProjectId &&
+    authorization.projectAccess.assignments.some(
+      (assignment) => assignment.projectId === requestedProjectId,
+    )
+  ) {
+    return requestedProjectId;
   }
-  return [];
-}
-
-function readRoleAssignmentRole(input: { readonly role: unknown }): string {
-  return normalizeString(input.role);
-}
-
-function normalizeRoleList(input: unknown): string[] {
-  const rawValues = Array.isArray(input) ? input : normalizeString(input).split(',');
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const raw of rawValues) {
-    const role = normalizeString(raw).toLowerCase();
-    if (!role || seen.has(role)) continue;
-    out.push(role);
-    seen.add(role);
-  }
-  return out;
-}
-
-function mergeRoleLists(...lists: readonly string[][]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const list of lists) {
-    for (const role of list) {
-      const normalized = normalizeString(role).toLowerCase();
-      if (!normalized || seen.has(normalized)) continue;
-      out.push(normalized);
-      seen.add(normalized);
-    }
-  }
-  return out;
+  return authorization.projectAccess.assignments[0]?.projectId ?? '';
 }
 
 function normalizeEmailList(input: unknown): string[] {

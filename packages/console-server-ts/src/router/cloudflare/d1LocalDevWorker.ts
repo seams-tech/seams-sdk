@@ -1,40 +1,40 @@
-import type { RouterAbNormalSigningAdmissionInput } from '@seams/sdk-server/internal/router/routerAbPrivateSigningWorker';
-import type { D1DatabaseLike } from '@seams/sdk-server/internal/storage/tenantRoute';
+import type { RouterAbNormalSigningAdmissionInput } from '@seams/sdk-server/cloud-host';
+import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
 import type {
   ConsoleAuthAdapter,
   ConsoleAuthClaims,
   HeaderRecord,
-} from '@seams/sdk-server/internal/router/consoleAuth';
+} from '../consoleAuth';
 import {
   createSigningRootSecretShareKekResolver,
   type SigningRootKekProvider,
-} from '@seams/sdk-server/internal/core/ThresholdService/signingRootKekProvider';
-import { sealSigningRootSecretShareWireV1 } from '@seams/sdk-server/internal/core/ThresholdService/signingRootSecretSealing';
+} from '@seams/sdk-server/cloud-host';
+import { sealSigningRootSecretShareWireV1 } from '@seams/sdk-server/cloud-host';
 import {
   normalizeSigningRootSecretShareId,
   type SigningRootSecretShareWireV1,
-} from '@seams/sdk-server/internal/core/ThresholdService/signingRootSecretShareWires';
+} from '@seams/sdk-server/cloud-host';
 import type {
   CreateHostedSigningRootShareResolverInput,
   SealedSigningRootShare as ResolverSealedSigningRootShare,
   SigningRootShareSource,
   ThresholdPrfPolicy,
-} from '@seams/sdk-server/internal/core/ThresholdService/signingRootShareResolver';
-import { D1SigningRootSecretStore } from '@seams/sdk-server/internal/core/ThresholdService/stores/SigningRootSecretStore.d1';
+} from '@seams/sdk-server/cloud-host';
+import { D1SigningRootSecretStore } from '@seams/sdk-server/cloud-host';
 import type {
   CfEnv,
   CfExecutionContext,
   FetchHandler,
-} from '@seams/sdk-server/internal/router/cloudflare/cloudflare.types';
-import { ThresholdStoreDurableObject } from '@seams/sdk-server/internal/router/cloudflare/durableObjects/thresholdStore';
+} from '@seams/sdk-server/cloud-host';
+import { ThresholdStoreDurableObject } from '@seams/sdk-server/cloud-host';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
   ThresholdStoreConfigInput,
-} from '@seams/sdk-server/internal/core/types';
-import { createSigningSessionSealOptions } from '@seams/sdk-server/internal/threshold/session/signingSessionSeal/options';
-import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/internal/threshold/session/signingSessionSeal/signingSessionSeal.types';
-import { createCloudflareRouter } from '@seams/sdk-server/internal/router/cloudflare/createCloudflareRouter';
+} from '@seams/sdk-server/cloud-host';
+import { createSigningSessionSealOptions } from '@seams/sdk-server/cloud-host';
+import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/cloud-host';
+import { createCloudflareRouter } from '@seams/sdk-server/cloud-host';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import {
   createCloudflareD1ConsoleServiceBundle,
@@ -46,12 +46,12 @@ import {
   createCloudflareD1RouterApiAuthService,
   type CloudflareD1EmailOtpServerSealConfig,
   type CloudflareD1RouterApiAuthServiceOptions,
-} from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthService';
+} from '@seams/sdk-server/cloud-host';
 import { loadCloudflareSignerWasmModule } from './d1SignerWasm';
 import type {
   CloudflareD1OidcExchangeConfig,
   CloudflareD1OidcExchangeIssuerConfig,
-} from '@seams/sdk-server/internal/router/cloudflare/d1OidcBoundary';
+} from '@seams/sdk-server/cloud-host';
 import { createHmacSessionAdapter } from './d1StagingSession';
 import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
@@ -64,15 +64,15 @@ import {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   type RouterAbPublicKeysetV2,
-} from '@seams-internal/shared-ts/utils/routerAbPublicKeyset';
-import { parseWalletId, parseWebAuthnRpId } from '@seams-internal/shared-ts/utils/domainIds';
+} from '@seams/sdk-server/cloud-host';
+import { parseWalletId, parseWebAuthnRpId } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1,
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
-} from '@seams/sdk-server/internal/router/cloudflare-adaptor';
-import type { SessionAdapter } from '@seams/sdk-server/internal/router/routerApi';
-import { D1WalletStore } from '@seams/sdk-server/internal/core/d1WalletStore';
+} from '@seams/sdk-server/cloud-host';
+import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
+import { D1WalletStore } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEcdsaEd25519CeremonyTokenIssuer,
   createRouterAbEcdsaStrictPostRegistrationPort,
@@ -82,25 +82,25 @@ import {
   type RouterAbEcdsaEd25519PrivateJwk,
   type RouterAbEcdsaStrictPostRegistrationPort,
   type RouterAbEcdsaStrictRegistrationPort,
-} from '@seams/sdk-server/internal/router/routerAbEcdsaStrictRegistration';
+} from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbServiceBindingFetch,
   ROUTER_AB_MPC_ROUTER_ORIGIN,
   ROUTER_AB_SIGNING_WORKER_ORIGIN,
   type RouterAbServiceBindingEnv,
 } from './routerAbServiceBindings';
-import { withCors } from '@seams/sdk-server/internal/router/cloudflare/http';
+import { withCors } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
-} from '@seams/sdk-server/internal/router/routerAbEd25519YaoHttpRegistrationBackend';
-import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/internal/router/cloudflare/d1Ed25519YaoCapabilityPersistence';
-import { CloudflareD1WebAuthnAuthService } from '@seams/sdk-server/internal/router/cloudflare/d1WebAuthnAuthService';
-import { CloudflareD1WebAuthnStore } from '@seams/sdk-server/internal/router/cloudflare/d1WebAuthnStore';
-import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRegistrationRequestScopedCloudflare';
-import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRecoveryRequestScopedCloudflare';
-import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoExportRequestScopedCloudflare';
-import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
-import { RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter } from '@seams/sdk-server/internal/router/routerAbEd25519YaoExport';
+} from '@seams/sdk-server/cloud-host';
+import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/cloud-host';
+import { CloudflareD1WebAuthnAuthService } from '@seams/sdk-server/cloud-host';
+import { CloudflareD1WebAuthnStore } from '@seams/sdk-server/cloud-host';
+import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
+import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
+import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
+import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
+import { RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
 import {
   ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
@@ -110,8 +110,8 @@ import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
-} from '@shared/utils/routerAbEd25519Yao';
-import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@shared/utils/routerAbTraceContext';
+} from '@seams/sdk-server/cloud-host';
+import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@seams/sdk-server/cloud-host';
 
 export { ThresholdStoreDurableObject };
 
@@ -124,7 +124,6 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly SEAMS_LOCAL_CONSOLE_ORG_ID: string;
   readonly SEAMS_LOCAL_CONSOLE_PROJECT_ID?: string;
   readonly SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID?: string;
-  readonly SEAMS_LOCAL_CONSOLE_ROLES?: string;
   readonly SEAMS_LOCAL_RELAYER_ACCOUNT?: string;
   readonly SEAMS_LOCAL_RELAYER_PUBLIC_KEY?: string;
   readonly SEAMS_LOCAL_RELAYER_PRIVATE_KEY?: string;
@@ -187,9 +186,10 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly SPONSORED_EXECUTION_REAL_PRICING_JSON?: string;
   readonly SPONSORED_EXECUTION_STATIC_PRICING_JSON?: string;
   readonly STRIPE_API_SK?: string;
-  readonly STRIPE_CHECKOUT_PRICE_ID?: string;
+  readonly STRIPE_WEBHOOK_SECRET?: string;
   readonly STRIPE_API_BASE_URL?: string;
   readonly STRIPE_API_TIMEOUT_MS?: string;
+  readonly CONSOLE_BASE_URL?: string;
 }
 
 type TableCountRow = {
@@ -222,15 +222,6 @@ const DEFAULT_LOCAL_RELAY_SESSION_HMAC_SECRET =
   'seams-local-d1-relay-session-secret-change-before-shared-dev';
 const DEFAULT_LOCAL_RELAY_SESSION_ISSUER = 'seams-local-d1-relay';
 const DEFAULT_LOCAL_RELAY_SESSION_AUDIENCE = 'seams-local-d1';
-const DEFAULT_LOCAL_CONSOLE_ROLES = Object.freeze([
-  'owner',
-  'admin',
-  'platform_admin',
-  'security_admin',
-  'billing_admin',
-  'developer',
-  'ops',
-]);
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID = 'signing-root-kek-local-r1';
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
@@ -613,7 +604,11 @@ const CONSOLE_READY_TABLES = Object.freeze([
   'organizations',
   'projects',
   'environments',
-  'team_members',
+  'organization_memberships',
+  'organization_admin_permissions',
+  'organization_invitations',
+  'project_member_access',
+  'organization_owner_events',
   'user_profiles',
   'user_backup_emails',
   'policies',
@@ -877,39 +872,35 @@ function headerOrEnvString(input: {
   );
 }
 
-function parseLocalConsoleRoles(input: string): string[] {
-  const roles: string[] = [];
-  for (const role of input.split(',')) {
-    const normalized = role.trim().toLowerCase();
-    if (normalized) roles.push(normalized);
-  }
-  return roles.length > 0 ? roles : [...DEFAULT_LOCAL_CONSOLE_ROLES];
-}
-
 function localConsoleAuthClaims(env: LocalD1DevEnv, headers: HeaderRecord): ConsoleAuthClaims {
-  const roles = parseLocalConsoleRoles(
+  const userId = headerOrEnvString({
+    headers,
+    headerName: 'x-console-user-id',
+    envValue: env.SEAMS_LOCAL_CONSOLE_USER_ID,
+    fallback: DEFAULT_LOCAL_CONSOLE_USER_ID,
+  });
+  const orgId = parseLocalConsoleOrganizationId(
     headerOrEnvString({
       headers,
-      headerName: 'x-console-roles',
-      envValue: env.SEAMS_LOCAL_CONSOLE_ROLES,
-      fallback: DEFAULT_LOCAL_CONSOLE_ROLES.join(','),
+      headerName: 'x-console-org-id',
+      envValue: env.SEAMS_LOCAL_CONSOLE_ORG_ID,
+      fallback: env.SEAMS_LOCAL_CONSOLE_ORG_ID,
     }),
   );
   return {
-    userId: headerOrEnvString({
-      headers,
-      headerName: 'x-console-user-id',
-      envValue: env.SEAMS_LOCAL_CONSOLE_USER_ID,
-      fallback: DEFAULT_LOCAL_CONSOLE_USER_ID,
-    }),
-    orgId: parseLocalConsoleOrganizationId(
-      headerOrEnvString({
-        headers,
-        headerName: 'x-console-org-id',
-        envValue: env.SEAMS_LOCAL_CONSOLE_ORG_ID,
-        fallback: env.SEAMS_LOCAL_CONSOLE_ORG_ID,
-      }),
-    ),
+    userId,
+    orgId,
+    membershipId: `local-owner:${orgId}:${userId}`,
+    authorizationVersion: 1,
+    role: 'OWNER',
+    adminPermissions: [
+      'members.manage',
+      'projects.manage',
+      'billing.view',
+      'billing.manage',
+    ],
+    projectAccess: { kind: 'all' },
+    platformSupport: true,
     projectId: headerOrEnvString({
       headers,
       headerName: 'x-console-project-id',
@@ -922,7 +913,6 @@ function localConsoleAuthClaims(env: LocalD1DevEnv, headers: HeaderRecord): Cons
       envValue: env.SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID,
       fallback: DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID,
     }),
-    roles,
   };
 }
 
@@ -1181,6 +1171,8 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
       sponsoredEvmCallConfig,
       sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
       billingProviders: createStripeBillingProviderAdaptersFromEnv(env),
+      billingEmailConsoleBaseUrl:
+        String(env.CONSOLE_BASE_URL || '').trim() || 'https://localhost',
     },
   });
   return createCloudflareConsoleRouter({
@@ -1189,6 +1181,7 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
     readyz: true,
     auth: new LocalD1DevConsoleAuthAdapter(env),
     readyCheck: createLocalReadyCheck(env),
+    billingStripeWebhookSigningSecret: String(env.STRIPE_WEBHOOK_SECRET || '').trim() || undefined,
     // Local dev runs as a single auto-authenticated admin, so the 4-eyes
     // approval gate can't be satisfied and only blocks policy publishing
     // (POLICY_PUBLISH -> "approvalId is required"). Disable it so the console

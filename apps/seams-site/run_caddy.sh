@@ -5,7 +5,8 @@ SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CADDYFILE="$SCRIPT_DIR/Caddyfile"
-WALLET_PUBLIC_ROOT="$REPO_ROOT/packages/sdk-web/dist/public"
+SDK_PACKAGE_JSON="$(cd "$SCRIPT_DIR" && node -p "require.resolve('@seams/sdk/package.json')")"
+WALLET_PUBLIC_ROOT="$(dirname "$SDK_PACKAGE_JSON")/dist/public"
 
 if ! command -v caddy >/dev/null 2>&1; then
   echo "Caddy not found. Install it with: brew install caddy" >&2
@@ -14,7 +15,7 @@ fi
 
 if [[ ! -f "$WALLET_PUBLIC_ROOT/wallet-assets.manifest.json" ]]; then
   echo "Wallet static assets not found at $WALLET_PUBLIC_ROOT" >&2
-  echo "Run: pnpm -C packages/sdk-web build:sdk" >&2
+  echo "Install an @seams/sdk package that includes the built wallet assets." >&2
   exit 1
 fi
 

@@ -295,7 +295,7 @@ function componentRuntimeRequirements(targetName, target, component) {
         ...(targetName === 'production' ? ['ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON'] : []),
       ];
     case 'gateway':
-      return [];
+      return ['CONSOLE_EMAIL_FROM'];
     default:
       throw new Error(`Unsupported backend component: ${component}`);
   }

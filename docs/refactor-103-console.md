@@ -2,9 +2,9 @@
 
 Date created: July 20, 2026
 
-Last reconciled: July 22, 2026
+Last reconciled: July 27, 2026
 
-Status: Planned
+Status: Phases 1-4 implemented; Phase 5 validation in progress; Phase 6 extraction prepared
 
 ## Goal
 
@@ -223,7 +223,9 @@ Rules:
 - Resend rotates the token and extends expiry.
 - The database stores only the token hash.
 
-## Current Gaps
+## Starting Gaps
+
+This section records the pre-refactor baseline. Phases 1-5 replace these paths directly; it is not a list of current supported behavior.
 
 ### Organization And Permissions
 
@@ -395,9 +397,16 @@ Corporate accounting, Stripe payout reconciliation, tax, and revenue-recognition
 - Construct success and cancellation URLs from the configured console origin.
 - Verify the raw request body with `Stripe-Signature`.
 - Store processed Stripe event IDs.
-- Treat event replay as successful and side-effect free.
+- Commit the processed event marker and post-processing outbox row together.
+- Deliver the settlement audit event and customer webhook from the durable outbox.
+- Return a retryable response while either effect remains pending.
+- Deduplicate both effects by deterministic Stripe event IDs.
+- Treat event replay as successful and resume any pending post-processing.
 - Live Stripe requires durable D1 billing repositories.
 - Mock providers are explicit test dependencies.
+
+Financial mutations, customer email, settlement audit events, and customer webhook delivery are
+durable and idempotent.
 
 Handle:
 
@@ -435,6 +444,8 @@ type BillingRefundStatus =
 Rules:
 
 - Only internal support authorization can initiate a refund.
+- Support mutations use explicit target-organization platform routes; there is no active-session
+  organization refund mutation route.
 - Customers with billing read access can view refund status.
 - Refund amount cannot exceed the unrefunded purchase amount.
 - A console-initiated refund cannot exceed unused prepaid credit.
@@ -477,6 +488,8 @@ Flow:
 Development uses an explicit capture provider. Production requires a configured live provider. Invitation token material is encrypted in the outbox and erased after provider acceptance, invitation acceptance, revocation, or expiry.
 
 Notification preferences, marketing email, bounce-management UI, notification centers, and security-event email beyond the list above are deferred.
+
+Organization billing email goes to every active owner. Low-balance email is emitted once when an organization moves from healthy credit into low balance, then re-arms after the balance recovers.
 
 ## Migration
 
@@ -528,14 +541,14 @@ Phases 1-4 finish the lean console product. Phase 5 is the mandatory split gate.
 
 ### Phase 1: Organization Ownership And Invitations
 
-- [ ] Add precise membership, invitation, administrator-permission, and project-access types.
-- [ ] Add the organization schema migration.
-- [ ] Implement owner invite, promotion, demotion, leave, and last-owner protection.
-- [ ] Implement pending invitation acceptance, decline, resend, expiry, and revocation.
-- [ ] Implement administrator permissions.
-- [ ] Implement member project access.
-- [ ] Increment authorization version on every access change.
-- [ ] Add owner and membership audit events.
+- [x] Add precise membership, invitation, administrator-permission, and project-access types.
+- [x] Add the organization schema migration.
+- [x] Implement owner invite, promotion, demotion, leave, and last-owner protection.
+- [x] Implement pending invitation acceptance, decline, resend, expiry, and revocation.
+- [x] Implement administrator permissions.
+- [x] Implement member project access.
+- [x] Increment authorization version on every access change.
+- [x] Add owner and membership audit events.
 
 Likely files:
 
@@ -552,16 +565,16 @@ Exit:
 
 ### Phase 2: Route And Dashboard Cutover
 
-- [ ] Move console authentication, principals, route definitions, and route policies from `packages/sdk-server-ts` to `packages/console-server-ts`.
-- [ ] Make the public SDK route definition and tenant-storage models signer-only.
-- [ ] Replace route roles with the lean policy matrix.
-- [ ] Add one shared policy evaluator for Express and Cloudflare.
-- [ ] Add authorization-version refresh.
-- [ ] Replace member and ownership routes.
-- [ ] Update Team and Account Settings pages.
-- [ ] Show all owners and recommend a second owner.
-- [ ] Add project viewer/editor assignment.
-- [ ] Delete current role checkboxes and transfer-owner UI.
+- [x] Move console authentication, principals, route definitions, and route policies from `packages/sdk-server-ts` to `packages/console-server-ts`.
+- [x] Make the public SDK route definition and tenant-storage models signer-only.
+- [x] Replace route roles with the lean policy matrix.
+- [x] Add one shared policy evaluator for Express and Cloudflare.
+- [x] Add authorization-version refresh.
+- [x] Replace member and ownership routes.
+- [x] Update Team and Account Settings pages.
+- [x] Show all owners and recommend a second owner.
+- [x] Add project viewer/editor assignment.
+- [x] Delete current role checkboxes and transfer-owner UI.
 
 Likely files:
 
@@ -581,15 +594,18 @@ Exit:
 
 ### Phase 3: Billing And Refunds
 
-- [ ] Route every financial event through balanced postings.
-- [ ] Rebuild balances from the ledger.
-- [ ] Verify raw Stripe webhook signatures.
-- [ ] Add durable Stripe event idempotency.
-- [ ] Add full and partial refund persistence and provider calls.
-- [ ] Add minimal dispute balance handling.
-- [ ] Show refunds in billing history.
-- [ ] Remove live-Stripe/in-memory-billing wiring.
-- [ ] Remove direct balance mutation.
+- [x] Route every financial event through balanced postings.
+- [x] Rebuild balances from the ledger.
+- [x] Verify raw Stripe webhook signatures.
+- [x] Add durable Stripe event idempotency.
+- [x] Add full and partial refund persistence and provider calls.
+- [x] Add minimal dispute balance handling.
+- [x] Show refunds in billing history.
+- [x] Remove live-Stripe/in-memory-billing wiring.
+- [x] Remove direct balance mutation.
+- [x] Derive Stripe return URLs from the configured console origin.
+- [x] Reserve refund capacity atomically before calling Stripe.
+- [x] Keep support refund mutations on explicit target-organization platform routes.
 
 Likely files:
 
@@ -607,12 +623,12 @@ Exit:
 
 ### Phase 4: Essential Email
 
-- [ ] Add the email outbox and delivery tables.
-- [ ] Write outbox records in the relevant domain transactions.
-- [ ] Add the six required template families.
-- [ ] Add development capture and live provider adapters.
-- [ ] Add the lease, retry, and final-failure worker.
-- [ ] Redact and erase invitation secrets.
+- [x] Add the email outbox and delivery tables.
+- [x] Write outbox records in the relevant domain transactions.
+- [x] Add the six required template families.
+- [x] Add development capture and live provider adapters.
+- [x] Add the lease, retry, and final-failure worker.
+- [x] Redact and erase invitation secrets.
 
 Exit:
 
@@ -621,23 +637,23 @@ Exit:
 
 ### Phase 5: Establish The Repository Boundary In Place
 
-- [ ] Delete `team_members`, role JSON, and legacy role aliases.
-- [ ] Delete old ownership-transfer code and tests.
-- [ ] Delete incomplete refund state paths.
-- [ ] Delete direct balance mutation and non-posting writers.
-- [ ] Delete tests and fixtures that preserve obsolete behavior.
-- [ ] Inventory the private cloud's actual `@seams/sdk-server/internal/*` imports; do not turn the wildcard surface into a public API.
-- [ ] Add the `@seams/sdk-server/cloud-host` entrypoint with only the existing signer composition primitives required by the hosted gateway.
-- [ ] Replace private `@seams/sdk-server/internal/*` imports with supported public exports.
-- [ ] Remove the public SDK `internal/*` wildcard export after all private consumers use supported exports.
-- [ ] Eliminate private imports of unpublished `packages/shared-ts` source; do not create a third public shared package.
-- [ ] Include signer migrations and existing built Wasm assets in `@seams/sdk-server` and make private migration/deployment scripts resolve them from the installed package.
+- [x] Delete `team_members`, role JSON, and legacy role aliases.
+- [x] Delete old ownership-transfer code and tests.
+- [x] Delete incomplete refund state paths.
+- [x] Delete direct balance mutation and non-posting writers.
+- [x] Delete tests and fixtures that preserve obsolete behavior.
+- [x] Inventory the private cloud's actual `@seams/sdk-server/internal/*` imports; do not turn the wildcard surface into a public API.
+- [x] Add the `@seams/sdk-server/cloud-host` entrypoint with only the existing signer composition primitives required by the hosted gateway.
+- [x] Replace private `@seams/sdk-server/internal/*` imports with supported public exports.
+- [x] Remove the public SDK `internal/*` wildcard export after all private consumers use supported exports.
+- [x] Eliminate private imports of unpublished `packages/shared-ts` source; do not create a third public shared package.
+- [x] Include signer migrations and existing built Wasm assets in `@seams/sdk-server` and make private migration/deployment scripts resolve them from the installed package.
 - [ ] Define public and private path allowlists, including required root configuration, shared utilities, Rust/Wasm crates, migrations, tests, and assets.
-- [ ] Strengthen the boundary guard to reject console concepts anywhere in public SDK source and package artifacts.
+- [x] Strengthen the boundary guard to reject console concepts anywhere in public SDK source and package artifacts.
 - [ ] Add a standalone build that installs the packed public SDK into the self-host example.
 - [ ] Build the private packages and applications against the packed public SDK with workspace links and source-path aliases disabled.
-- [ ] Update affected `docs/saas/` documents.
-- [ ] Update the D1 local smoke table list.
+- [x] Update affected `docs/saas/` documents.
+- [x] Update the D1 local smoke table list.
 
 Exit:
 
@@ -653,8 +669,16 @@ Exit:
 
 #### 6.1 Prepare Independent Builds
 
-- [ ] Freeze the Phase 5 path allowlists and passing package versions used for extraction.
-- [ ] Fix only extraction-specific configuration, workflow, or asset ownership issues; return any API or runtime redesign to Phase 5.
+- [x] Freeze the Phase 5 path allowlists and package version used for extraction in `repository-split.json`.
+- [x] Add a non-destructive materializer that produces candidate public and private trees and exact-pins the public SDK dependencies.
+
+Remaining cutover gates:
+
+- Split the mixed top-level TypeScript test workspace so each repository keeps its own tests.
+- Generate independent lockfiles and repeat clean installs when dependency access is available.
+- Change hosted deploy scripts to consume versioned public release artifacts instead of public source directories.
+- Choose and add the public repository license file.
+- Remove developer-machine paths from the candidate public tree, then scan the complete filtered Git history.
 
 #### 6.2 Extract The Repositories
 
@@ -718,6 +742,7 @@ Exit:
 - balance reconstruction matches the projection
 - Stripe signatures reject changed or stale payloads
 - provider event replay creates no duplicate effect
+- concurrent support refunds cannot reserve more than the purchase remainder or unused credit
 - partial refunds cannot exceed the purchase remainder
 - console refunds cannot exceed unused credit
 - refund webhook and reconciliation finalize once

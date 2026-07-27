@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams-internal/shared-ts/utils/secureRandomId';
+import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
 import { ConsoleAuditExportsError } from './errors';
 import type {
   ConsoleAuditExportRecord,
@@ -9,7 +9,6 @@ import type {
 export interface ConsoleAuditExportsContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 }

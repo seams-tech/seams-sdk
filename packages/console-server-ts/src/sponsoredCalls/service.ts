@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams-internal/shared-ts/utils/secureRandomId';
+import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
 import type {
   ConsoleSponsoredCallRecord,
   ConsoleSponsoredCallRecordPage,
@@ -11,7 +11,6 @@ import { ConsoleSponsoredCallError } from './errors';
 export interface ConsoleSponsoredCallContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
 }
 
 export interface InMemoryConsoleSponsoredCallServiceOptions {

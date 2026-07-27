@@ -1,6 +1,6 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import express from 'express';
-import { buildCorsOrigins, normalizeCorsOrigin } from '@seams/sdk-server/internal/core/SessionService';
+import { buildCorsOrigins, normalizeCorsOrigin } from '@seams/sdk-server/cloud-host';
 import {
   buildConsoleBillingInvoicePdf,
   buildConsoleBillingInvoicePdfFilename,
@@ -16,8 +16,8 @@ import {
   parseStripeCheckoutSessionReconcileRequest,
   parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
-  parseStripeWebhookEventRequest,
   parseStripeCheckoutSessionRequest,
+  verifyAndParseStripeWebhookRequest,
   type ConsoleBillingService,
 } from '@seams-internal/console-server/billing';
 import type { ConsoleBillingPrepaidReservationService } from '@seams-internal/console-server/billingPrepaidReservations';
@@ -87,11 +87,15 @@ import {
   type ConsoleRuntimeSnapshotService,
 } from '@seams-internal/console-server/runtimeSnapshots';
 import {
-  isConsoleTeamRbacError,
-  parseInviteConsoleTeamMemberRequest,
-  parseListConsoleTeamMembersRequest,
-  parseUpdateConsoleTeamMemberRolesRequest,
-  type ConsoleTeamRbacService,
+  isConsoleOrganizationAccessError,
+  parseChangeOrganizationMembershipRoleRequest,
+  parseInviteOrganizationMemberRequest,
+  parseListOrganizationInvitationsRequest,
+  parseListOrganizationMembershipsRequest,
+  parseRedeemOrganizationInvitationRequest,
+  parseSetOrganizationAdminPermissionsRequest,
+  parseSetProjectMemberAccessRequest,
+  type ConsoleOrganizationAccessService,
 } from '@seams-internal/console-server/teamRbac';
 import {
   type CreateConsoleApprovalRequest,
@@ -127,14 +131,15 @@ import {
   parseCreateConsoleOnboardingProjectRequest,
   parseGetConsoleOnboardingStateRequest,
   parseGetConsoleOnboardingTelemetryRequest,
+  type ConsoleOnboardingContext,
   type ConsoleOnboardingService,
 } from '@seams-internal/console-server/onboarding';
 import {
   isConsoleAccountError,
   parseCreateConsoleAccountOrganizationRequest,
   parsePatchConsoleAccountProfileRequest,
-  parseTransferConsoleAccountOrganizationOwnerRequest,
   parseUpdateConsoleAccountOrganizationRequest,
+  type ConsoleAccountContext,
   type ConsoleAccountService,
 } from '@seams-internal/console-server/account';
 import {
@@ -145,10 +150,9 @@ import {
 import type { ConsoleRouterOptions } from '@seams-internal/console-server/router/console';
 import {
   authenticateConsoleRequest,
-  hasConsoleRole,
   type ConsoleAuthClaims,
   type ConsoleAuthResult,
-} from '@seams/sdk-server/internal/router/consoleAuth';
+} from '../consoleAuth';
 import {
   emitConsoleApprovalFailureObservabilityEvent,
   emitConsoleBillingFailureObservabilityEvent,
@@ -184,27 +188,33 @@ import {
   parsePlatformBillingLookupRequest,
   parsePlatformBillingSearchRequest,
   parsePlatformBillingManualAdjustmentRequest,
+  parsePlatformBillingRefundReconcileRequest,
+  parsePlatformBillingRefundRequest,
   resolvePlatformBillingLookup,
   searchPlatformBillingOrganizations,
 } from '../platformBilling';
 import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/internal/router/logger';
-import { coerceRouterLogger } from '@seams/sdk-server/internal/router/logger';
+import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
+import { coerceRouterLogger } from '@seams/sdk-server/cloud-host';
 import { buildConsoleOpsCockpitSummary } from '../opsCockpitSummary';
-import type { SessionAdapter } from '@seams/sdk-server/internal/router/routerApi';
+import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
 import {
   emitSponsorshipBalanceTransitionEvents,
   readSponsorshipBillingBalanceSnapshot,
 } from '@seams-internal/console-server/router/sponsorshipBillingEvents';
 import { attachConsoleRouteSurface, resolveConsoleRouteSurface } from '../consoleRouteSurface';
-import { authorizeConsoleRouteRequest } from '../consoleRoutePolicy';
-import type { RouteDefinition } from '@seams/sdk-server/internal/router/routeDefinitions';
+import {
+  authorizeConsoleRouteRequest,
+  hasConsoleProjectAccess,
+} from '../consoleRoutePolicy';
+import type { ConsoleRouteDefinition } from '../consoleRouteDefinitions';
 import { registerConsoleObservabilityRoutes } from './consoleObservabilityRoutes';
+import { dispatchBillingStripePostProcessingEvent } from '../stripePostProcessing';
 
 export interface ExpressConsoleContext {
   opts: ConsoleRouterOptions;
   logger: NormalizedRouterLogger;
-  routeDefinitions: readonly RouteDefinition[];
+  routeDefinitions: readonly ConsoleRouteDefinition[];
   billing: ConsoleBillingService | null;
   prepaidReservations: ConsoleBillingPrepaidReservationService | null;
   sponsoredCalls: ConsoleSponsoredCallService | null;
@@ -215,7 +225,7 @@ export interface ExpressConsoleContext {
   webhooks: ConsoleWebhookService | null;
   keyExports: ConsoleKeyExportService | null;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
-  teamRbac: ConsoleTeamRbacService | null;
+  organizationAccess: ConsoleOrganizationAccessService | null;
   approvals: ConsoleApprovalService | null;
   audit: ConsoleAuditService | null;
   auditExports: ConsoleAuditExportsService | null;
@@ -227,7 +237,7 @@ export interface ExpressConsoleContext {
 }
 
 const CONSOLE_CORS_ALLOW_HEADERS =
-  'Content-Type,Authorization,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret';
+  'Content-Type,Authorization,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id';
 const consoleAuthClaimsByRequest = new WeakMap<Request, ConsoleAuthClaims>();
 
 function withConsoleCors(res: Response, opts?: ConsoleRouterOptions, req?: Request): void {
@@ -558,8 +568,8 @@ function sendRuntimeSnapshotError(res: Response, error: unknown): void {
   });
 }
 
-function sendTeamRbacError(res: Response, error: unknown): void {
-  if (isConsoleTeamRbacError(error)) {
+function sendOrganizationAccessError(res: Response, error: unknown): void {
+  if (isConsoleOrganizationAccessError(error)) {
     res.status(error.status).json({
       ok: false,
       code: error.code,
@@ -714,6 +724,8 @@ async function requireConsoleAuth(
     sendAuthFailure(res, auth);
     return null;
   }
+  const routePolicy = requireConsoleRoutePolicy(req, res, ctx, auth.claims);
+  if (!routePolicy) return null;
   setRequestAuthClaims(req, auth.claims);
   return auth.claims;
 }
@@ -863,15 +875,15 @@ function requireRuntimeSnapshotService(
   return null;
 }
 
-function requireTeamRbacService(
+function requireOrganizationAccessService(
   res: Response,
   ctx: ExpressConsoleContext,
-): ConsoleTeamRbacService | null {
-  if (ctx.teamRbac) return ctx.teamRbac;
+): ConsoleOrganizationAccessService | null {
+  if (ctx.organizationAccess) return ctx.organizationAccess;
   res.status(501).json({
     ok: false,
-    code: 'team_rbac_not_configured',
-    message: 'Team RBAC service is not configured on this server',
+    code: 'organization_access_not_configured',
+    message: 'Organization access service is not configured on this server',
   });
   return null;
 }
@@ -977,56 +989,41 @@ function requireObservabilityService(
   return null;
 }
 
-function requireStripeWebhookSecret(
-  req: Request,
+function requireStripeWebhookSigningSecret(
   res: Response,
   ctx: ExpressConsoleContext,
-): boolean {
-  const configured = String(ctx.opts.billingStripeWebhookSecret || '').trim();
+): string | null {
+  const configured = String(ctx.opts.billingStripeWebhookSigningSecret || '').trim();
   if (!configured) {
     res.status(501).json({
       ok: false,
       code: 'stripe_webhook_not_configured',
-      message: 'Stripe webhook secret is not configured on this server',
+      message: 'Stripe webhook signing secret is not configured on this server',
     });
-    return false;
+    return null;
   }
-  const raw = (req as any)?.headers?.['x-console-stripe-webhook-secret'];
-  const provided = Array.isArray(raw) ? String(raw[0] || '').trim() : String(raw || '').trim();
-  if (!provided || provided !== configured) {
-    res.status(401).json({
-      ok: false,
-      code: 'unauthorized',
-      message: 'Invalid Stripe webhook secret',
-    });
-    return false;
-  }
-  return true;
+  return configured;
 }
 
 function toBillingContext(claims: ConsoleAuthClaims): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
   };
 }
 
 function toOrgProjectEnvContext(claims: ConsoleAuthClaims): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
   };
@@ -1035,68 +1032,57 @@ function toOrgProjectEnvContext(claims: ConsoleAuthClaims): {
 function toWalletContext(claims: ConsoleAuthClaims): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
   };
 }
 
-function toTeamRbacContext(claims: ConsoleAuthClaims): {
+function toOrganizationAccessContext(claims: ConsoleAuthClaims): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
-  actorEmail?: string;
-  actorDisplayName?: string;
-  projectId?: string;
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
-    ...(typeof claims.email === 'string' && claims.email.trim()
-      ? { actorEmail: claims.email.trim().toLowerCase() }
-      : {}),
-    ...(typeof claims.name === 'string' && claims.name.trim()
-      ? { actorDisplayName: claims.name.trim() }
-      : {}),
-    ...(claims.projectId ? { projectId: claims.projectId } : {}),
   };
 }
 
 function toApprovalContext(claims: ConsoleAuthClaims): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
   };
 }
 
-function toAuditContext(claims: ConsoleAuthClaims): {
+interface ConsoleAuditActorScope {
+  readonly orgId: string;
+  readonly userId: string;
+  readonly projectId?: string;
+  readonly environmentId?: string;
+}
+
+function toAuditContext(claims: ConsoleAuditActorScope): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
   };
@@ -1231,46 +1217,66 @@ async function resolveWalletPolicyPresentationByWalletId(
   return out;
 }
 
-function toOnboardingContext(claims: ConsoleAuthClaims): {
-  orgId: string;
-  actorUserId: string;
-  roles: string[];
-  projectId?: string;
-  environmentId?: string;
-} {
+function consoleClaimsEmail(claims: ConsoleAuthClaims): string {
+  const claimed = String(claims.email ?? '').trim().toLowerCase();
+  if (claimed) return claimed;
+  const emailUser = claims.userId.toLowerCase().replace(/[^a-z0-9._+-]/gu, '_');
+  return `${emailUser || 'user'}@console.local`;
+}
+
+function toOnboardingContext(claims: ConsoleAuthClaims): ConsoleOnboardingContext {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
-    ...(claims.projectId ? { projectId: claims.projectId } : {}),
-    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+    actorEmail: consoleClaimsEmail(claims),
+    actorDisplayName: String(claims.name ?? '').trim() || null,
+    projectId: claims.projectId ?? null,
+    environmentId: claims.environmentId ?? null,
   };
 }
 
-function toAccountContext(claims: ConsoleAuthClaims): {
-  userId: string;
-  orgId: string;
-  roles: string[];
-  email?: string;
-  name?: string;
-  provider?: string;
-  projectId?: string;
-  environmentId?: string;
-} {
-  return {
+function toAccountContext(claims: ConsoleAuthClaims): ConsoleAccountContext {
+  const identity = {
     userId: claims.userId,
     orgId: claims.orgId,
-    roles: claims.roles,
-    ...(typeof claims.email === 'string' && claims.email.trim()
-      ? { email: claims.email.trim().toLowerCase() }
-      : {}),
-    ...(typeof claims.name === 'string' && claims.name.trim() ? { name: claims.name.trim() } : {}),
-    ...(typeof claims.provider === 'string' && claims.provider.trim()
-      ? { provider: claims.provider.trim() }
-      : {}),
-    ...(claims.projectId ? { projectId: claims.projectId } : {}),
-    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+    email: consoleClaimsEmail(claims),
+    name: String(claims.name ?? '').trim() || null,
+    provider: String(claims.provider ?? '').trim() || null,
+    projectId: claims.projectId ?? null,
+    environmentId: claims.environmentId ?? null,
+    platformSupport: claims.platformSupport,
+    membershipId: claims.membershipId,
+    authorizationVersion: claims.authorizationVersion,
   };
+  switch (claims.role) {
+    case 'OWNER':
+      return {
+        ...identity,
+        role: 'OWNER',
+        adminPermissions: [...claims.adminPermissions],
+        projectAccess: { kind: 'all' },
+      };
+    case 'ADMIN':
+      return {
+        ...identity,
+        role: 'ADMIN',
+        adminPermissions: [...claims.adminPermissions],
+        projectAccess: { kind: 'all' },
+      };
+    case 'MEMBER':
+      return {
+        ...identity,
+        role: 'MEMBER',
+        adminPermissions: [],
+        projectAccess: {
+          kind: 'assigned',
+          assignments: claims.projectAccess.assignments.map((assignment) => ({
+            projectId: assignment.projectId,
+            accessLevel: assignment.accessLevel,
+          })),
+        },
+      };
+  }
 }
 
 function readApprovalIdFromBody(body: unknown): string {
@@ -1396,16 +1402,30 @@ function requireConsoleRoutePolicy(
   res: Response,
   ctx: ExpressConsoleContext,
   claims: ConsoleAuthClaims,
-): RouteDefinition | null {
+): ConsoleRouteDefinition | null {
   const authz = authorizeConsoleRouteRequest({
     claims,
     definitions: ctx.routeDefinitions,
     method: String((req as any)?.method || '').trim().toUpperCase(),
     pathname: readRoutePattern(req),
+    projectId: readRequestProjectId(req, claims),
   });
   if (authz.ok) return authz.route;
   res.status(authz.status).json(authz.body);
   return null;
+}
+
+function readRequestProjectId(req: Request, claims: ConsoleAuthClaims): string {
+  const body = (req as any)?.body;
+  const query = (req as any)?.query;
+  const params = (req as any)?.params;
+  return String(
+    body?.projectId ||
+      query?.projectId ||
+      params?.projectId ||
+      claims.projectId ||
+      '',
+  ).trim();
 }
 
 async function requireActiveApiKeyEnvironmentForCreate(
@@ -1458,7 +1478,6 @@ async function emitBillingWebhookEvent(
       {
         orgId: input.orgId,
         actorUserId: input.actorUserId,
-        roles: ['ops'],
       },
       {
         eventId: input.eventId,
@@ -1490,7 +1509,6 @@ async function emitApprovalWebhookEvent(
       {
         orgId: input.orgId,
         actorUserId: input.actorUserId,
-        roles: ['ops'],
       },
       {
         eventType: input.eventType,
@@ -1508,7 +1526,7 @@ async function emitApprovalWebhookEvent(
 
 async function emitConsoleAuditEvent(
   ctx: ExpressConsoleContext,
-  claims: ConsoleAuthClaims,
+  claims: ConsoleAuditActorScope,
   input: {
     category:
       | 'POLICY'
@@ -1739,49 +1757,6 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
   });
 
   router.post(
-    '/console/account/organizations/:orgId/transfer-owner',
-    async (req: Request, res: Response) => {
-      const claims = await requireConsoleAuth(req, res, ctx);
-      if (!claims) return;
-      const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
-      if (!routePolicy) return;
-      const account = requireAccountService(res, ctx);
-      if (!account) return;
-      const orgId = readPathParam(req, 'orgId');
-      if (!orgId) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_path', message: 'Missing organization id' });
-        return;
-      }
-      try {
-        const request = parseTransferConsoleAccountOrganizationOwnerRequest(
-          (req as any).body || {},
-        );
-        const transfer = await account.transferOrganizationOwner(
-          toAccountContext(claims),
-          orgId,
-          request,
-        );
-        await emitConsoleAuditEvent(ctx, claims, {
-          category: 'TEAM',
-          action: 'member.owner.transfer',
-          summary: `Transferred organization ${transfer.organization.id} ownership to ${transfer.nextOwner.userId}`,
-          metadata: {
-            organizationId: transfer.organization.id,
-            previousOwnerUserId: transfer.previousOwner.userId,
-            nextOwnerUserId: transfer.nextOwner.userId,
-            source: 'account_settings',
-          },
-        });
-        res.status(200).json({ ok: true, transfer });
-      } catch (error: unknown) {
-        sendAccountError(res, error);
-      }
-    },
-  );
-
-  router.post(
     '/console/account/organizations/:orgId/switch-context',
     async (req: Request, res: Response) => {
       const claims = await requireConsoleAuth(req, res, ctx);
@@ -1971,8 +1946,7 @@ function registerConsoleOpsCockpitRoutes(router: ExpressRouter, ctx: ExpressCons
         auditExports: ctx.auditExports,
         enterpriseIsolation: ctx.enterpriseIsolation,
         onboarding: ctx.onboarding,
-        canViewOnboardingTelemetry:
-          hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'ops'),
+        canViewOnboardingTelemetry: claims.platformSupport,
         telemetryWindowMinutes: telemetryRequest.windowMinutes,
         logger: ctx.logger,
       });
@@ -2008,7 +1982,10 @@ function registerConsoleOrgProjectEnvRoutes(
     try {
       const request = parseListConsoleProjectsRequest((req as any).query || {});
       const projects = await orgProjectEnv.listProjects(toOrgProjectEnvContext(claims), request);
-      res.status(200).json({ ok: true, projects });
+      const visibleProjects = projects.filter((project) =>
+        hasConsoleProjectAccess(claims, project.id, 'viewer'),
+      );
+      res.status(200).json({ ok: true, projects: visibleProjects });
     } catch (error: unknown) {
       sendOrgProjectEnvError(res, error);
     }
@@ -2223,91 +2200,316 @@ function registerConsoleOrgProjectEnvRoutes(
   });
 }
 
-function registerConsoleTeamRbacRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
-  router.get('/console/members', async (req: Request, res: Response) => {
+function requireVerifiedInvitationAccount(
+  res: Response,
+  claims: ConsoleAuthClaims,
+): { userId: string; verifiedEmail: string } | null {
+  const verifiedEmail = String(claims.email ?? '')
+    .trim()
+    .toLowerCase();
+  if (!verifiedEmail) {
+    res.status(403).json({
+      ok: false,
+      code: 'verified_email_required',
+      message: 'A verified account email is required to redeem an organization invitation',
+    });
+    return null;
+  }
+  return { userId: claims.userId, verifiedEmail };
+}
+
+function registerConsoleOrganizationAccessRoutes(
+  router: ExpressRouter,
+  ctx: ExpressConsoleContext,
+): void {
+  router.get('/console/organization/memberships', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
-    const teamRbac = requireTeamRbacService(res, ctx);
-    if (!teamRbac) return;
+    const organizationAccess = requireOrganizationAccessService(res, ctx);
+    if (!organizationAccess) return;
     try {
-      const request = parseListConsoleTeamMembersRequest((req as any).query || {});
-      const members = await teamRbac.listMembers(toTeamRbacContext(claims), request);
-      res.status(200).json({ ok: true, members });
+      const request = parseListOrganizationMembershipsRequest((req as any).query || {});
+      const memberships = await organizationAccess.listMemberships(
+        toOrganizationAccessContext(claims),
+        request,
+      );
+      res.status(200).json({ ok: true, memberships });
     } catch (error: unknown) {
-      sendTeamRbacError(res, error);
+      sendOrganizationAccessError(res, error);
     }
   });
 
-  router.post('/console/members/invite', async (req: Request, res: Response) => {
+  router.get('/console/organization/invitations', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
-    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
-    if (!routePolicy) return;
-    const teamRbac = requireTeamRbacService(res, ctx);
-    if (!teamRbac) return;
+    const organizationAccess = requireOrganizationAccessService(res, ctx);
+    if (!organizationAccess) return;
     try {
-      const request = parseInviteConsoleTeamMemberRequest((req as any).body || {});
-      const member = await teamRbac.inviteMember(toTeamRbacContext(claims), request);
-      res.status(201).json({ ok: true, member });
+      const request = parseListOrganizationInvitationsRequest((req as any).query || {});
+      const invitations = await organizationAccess.listInvitations(
+        toOrganizationAccessContext(claims),
+        request,
+      );
+      res.status(200).json({ ok: true, invitations });
     } catch (error: unknown) {
-      sendTeamRbacError(res, error);
+      sendOrganizationAccessError(res, error);
     }
   });
 
-  router.patch('/console/members/:id/roles', async (req: Request, res: Response) => {
+  router.post('/console/organization/invitations', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
-    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
-    if (!routePolicy) return;
-    const teamRbac = requireTeamRbacService(res, ctx);
-    if (!teamRbac) return;
-    const memberId = readPathParam(req, 'id');
-    if (!memberId) {
-      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing member id' });
-      return;
-    }
+    const organizationAccess = requireOrganizationAccessService(res, ctx);
+    if (!organizationAccess) return;
     try {
-      const request = parseUpdateConsoleTeamMemberRolesRequest((req as any).body || {});
-      const member = await teamRbac.updateMemberRoles(toTeamRbacContext(claims), memberId, request);
-      if (!member) {
-        res.status(404).json({
-          ok: false,
-          code: 'member_not_found',
-          message: `Member ${memberId} was not found`,
-        });
-        return;
+      const request = parseInviteOrganizationMemberRequest((req as any).body || {});
+      const issued = await organizationAccess.invite(
+        toOrganizationAccessContext(claims),
+        request,
+      );
+      res.status(201).json({ ok: true, invitation: issued.invitation });
+    } catch (error: unknown) {
+      sendOrganizationAccessError(res, error);
+    }
+  });
+
+  router.post(
+    '/console/organization/invitations/:invitationId/resend',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const organizationAccess = requireOrganizationAccessService(res, ctx);
+      if (!organizationAccess) return;
+      try {
+        const issued = await organizationAccess.resendInvitation(
+          toOrganizationAccessContext(claims),
+          readPathParam(req, 'invitationId'),
+        );
+        res.status(200).json({ ok: true, invitation: issued.invitation });
+      } catch (error: unknown) {
+        sendOrganizationAccessError(res, error);
       }
-      res.status(200).json({ ok: true, member });
-    } catch (error: unknown) {
-      sendTeamRbacError(res, error);
-    }
-  });
+    },
+  );
 
-  router.delete('/console/members/:id', async (req: Request, res: Response) => {
+  router.delete(
+    '/console/organization/invitations/:invitationId',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const organizationAccess = requireOrganizationAccessService(res, ctx);
+      if (!organizationAccess) return;
+      try {
+        const invitation = await organizationAccess.revokeInvitation(
+          toOrganizationAccessContext(claims),
+          readPathParam(req, 'invitationId'),
+        );
+        res.status(200).json({ ok: true, invitation });
+      } catch (error: unknown) {
+        sendOrganizationAccessError(res, error);
+      }
+    },
+  );
+
+  router.post(
+    '/console/account/invitations/:invitationId/accept',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const account = requireVerifiedInvitationAccount(res, claims);
+      if (!account) return;
+      const organizationAccess = requireOrganizationAccessService(res, ctx);
+      if (!organizationAccess) return;
+      try {
+        const request = parseRedeemOrganizationInvitationRequest((req as any).body || {});
+        const membership = await organizationAccess.acceptInvitation(
+          account,
+          readPathParam(req, 'invitationId'),
+          request,
+        );
+        res.status(200).json({ ok: true, membership });
+      } catch (error: unknown) {
+        sendOrganizationAccessError(res, error);
+      }
+    },
+  );
+
+  router.post(
+    '/console/account/invitations/:invitationId/decline',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const account = requireVerifiedInvitationAccount(res, claims);
+      if (!account) return;
+      const organizationAccess = requireOrganizationAccessService(res, ctx);
+      if (!organizationAccess) return;
+      try {
+        const request = parseRedeemOrganizationInvitationRequest((req as any).body || {});
+        const invitation = await organizationAccess.declineInvitation(
+          account,
+          readPathParam(req, 'invitationId'),
+          request,
+        );
+        res.status(200).json({ ok: true, invitation });
+      } catch (error: unknown) {
+        sendOrganizationAccessError(res, error);
+      }
+    },
+  );
+
+  router.post(
+    '/console/organization/memberships/:membershipId/change-role',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const organizationAccess = requireOrganizationAccessService(res, ctx);
+      if (!organizationAccess) return;
+      try {
+        const request = parseChangeOrganizationMembershipRoleRequest((req as any).body || {});
+        const membership = await organizationAccess.changeRole(
+          toOrganizationAccessContext(claims),
+          readPathParam(req, 'membershipId'),
+          request,
+        );
+        res.status(200).json({ ok: true, membership });
+      } catch (error: unknown) {
+        sendOrganizationAccessError(res, error);
+      }
+    },
+  );
+
+  router.patch(
+    '/console/organization/memberships/:membershipId/admin-permissions',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const organizationAccess = requireOrganizationAccessService(res, ctx);
+      if (!organizationAccess) return;
+      try {
+        const request = parseSetOrganizationAdminPermissionsRequest((req as any).body || {});
+        const membership = await organizationAccess.setAdminPermissions(
+          toOrganizationAccessContext(claims),
+          readPathParam(req, 'membershipId'),
+          request,
+        );
+        res.status(200).json({ ok: true, membership });
+      } catch (error: unknown) {
+        sendOrganizationAccessError(res, error);
+      }
+    },
+  );
+
+  router.post(
+    '/console/organization/memberships/:membershipId/suspend',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const organizationAccess = requireOrganizationAccessService(res, ctx);
+      if (!organizationAccess) return;
+      try {
+        const membership = await organizationAccess.suspendMembership(
+          toOrganizationAccessContext(claims),
+          readPathParam(req, 'membershipId'),
+        );
+        res.status(200).json({ ok: true, membership });
+      } catch (error: unknown) {
+        sendOrganizationAccessError(res, error);
+      }
+    },
+  );
+
+  router.post(
+    '/console/organization/memberships/:membershipId/reactivate',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const organizationAccess = requireOrganizationAccessService(res, ctx);
+      if (!organizationAccess) return;
+      try {
+        const membership = await organizationAccess.reactivateMembership(
+          toOrganizationAccessContext(claims),
+          readPathParam(req, 'membershipId'),
+        );
+        res.status(200).json({ ok: true, membership });
+      } catch (error: unknown) {
+        sendOrganizationAccessError(res, error);
+      }
+    },
+  );
+
+  router.delete(
+    '/console/organization/memberships/:membershipId',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const organizationAccess = requireOrganizationAccessService(res, ctx);
+      if (!organizationAccess) return;
+      try {
+        const membership = await organizationAccess.removeMembership(
+          toOrganizationAccessContext(claims),
+          readPathParam(req, 'membershipId'),
+        );
+        res.status(200).json({ ok: true, membership });
+      } catch (error: unknown) {
+        sendOrganizationAccessError(res, error);
+      }
+    },
+  );
+
+  router.put(
+    '/console/organization/projects/:projectId/members/:membershipId',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const organizationAccess = requireOrganizationAccessService(res, ctx);
+      if (!organizationAccess) return;
+      try {
+        const request = parseSetProjectMemberAccessRequest((req as any).body || {});
+        const membership = await organizationAccess.setProjectAccess(
+          toOrganizationAccessContext(claims),
+          readPathParam(req, 'projectId'),
+          readPathParam(req, 'membershipId'),
+          request,
+        );
+        res.status(200).json({ ok: true, membership });
+      } catch (error: unknown) {
+        sendOrganizationAccessError(res, error);
+      }
+    },
+  );
+
+  router.delete(
+    '/console/organization/projects/:projectId/members/:membershipId',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const organizationAccess = requireOrganizationAccessService(res, ctx);
+      if (!organizationAccess) return;
+      try {
+        const membership = await organizationAccess.removeProjectAccess(
+          toOrganizationAccessContext(claims),
+          readPathParam(req, 'projectId'),
+          readPathParam(req, 'membershipId'),
+        );
+        res.status(200).json({ ok: true, membership });
+      } catch (error: unknown) {
+        sendOrganizationAccessError(res, error);
+      }
+    },
+  );
+
+  router.post('/console/organization/leave', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
-    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
-    if (!routePolicy) return;
-    const teamRbac = requireTeamRbacService(res, ctx);
-    if (!teamRbac) return;
-    const memberId = readPathParam(req, 'id');
-    if (!memberId) {
-      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing member id' });
-      return;
-    }
+    const organizationAccess = requireOrganizationAccessService(res, ctx);
+    if (!organizationAccess) return;
     try {
-      const out = await teamRbac.removeMember(toTeamRbacContext(claims), memberId);
-      if (!out.removed || !out.member) {
-        res.status(404).json({
-          ok: false,
-          code: 'member_not_found',
-          message: `Member ${memberId} was not found`,
-        });
-        return;
-      }
-      res.status(200).json({ ok: true, removed: true, member: out.member });
+      const membership = await organizationAccess.leaveOrganization(
+        toOrganizationAccessContext(claims),
+      );
+      res.status(200).json({ ok: true, membership });
     } catch (error: unknown) {
-      sendTeamRbacError(res, error);
+      sendOrganizationAccessError(res, error);
     }
   });
 }
@@ -3325,7 +3527,6 @@ function registerConsoleRuntimeSnapshotRoutes(
       const payload = await resolveConsoleRuntimeSnapshotPayload({
         orgId: claims.orgId,
         actorUserId: claims.userId,
-        roles: claims.roles,
         environmentId: request.environmentId,
         ...(request.projectId ? { projectId: request.projectId } : {}),
         policies: ctx.policies,
@@ -3819,65 +4020,55 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
 
 function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
   router.post('/console/billing/stripe/webhook', async (req: Request, res: Response) => {
-    const rawBody = (req as any).body;
-    if (!requireStripeWebhookSecret(req, res, ctx)) {
-      if (Number((res as any).statusCode || 0) === 401) {
-        await emitStripeWebhookFailureObservabilityEvent(ctx, req, {
-          rawBody,
-          eventType: 'billing.stripe_webhook.invalid_signature',
-          failureCode: 'invalid_signature',
-          failureMessage: 'Invalid Stripe webhook secret',
-        });
-      }
-      return;
-    }
+    const signingSecret = requireStripeWebhookSigningSecret(res, ctx);
+    if (!signingSecret) return;
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
+    const rawBody = (req as Request & { rawBody?: Uint8Array }).rawBody;
+    if (!rawBody) {
+      res.status(400).json({
+        ok: false,
+        code: 'invalid_stripe_payload',
+        message: 'Stripe webhook raw request body is unavailable',
+      });
+      return;
+    }
     try {
-      const request = parseStripeWebhookEventRequest(rawBody);
+      const request = await verifyAndParseStripeWebhookRequest({
+        rawBody,
+        signatureHeader: readOptionalExpressHeader(req, 'stripe-signature') || '',
+        secret: signingSecret,
+      });
+      if (!request) {
+        res.status(200).json({ ok: true, accepted: false, ignored: true });
+        return;
+      }
       const result = await billing.processStripeWebhookEvent(request);
-      if (result.accepted && result.purchase && result.orgId) {
-        await emitBillingWebhookEvent(ctx, {
-          orgId: result.orgId,
-          actorUserId: 'system-stripe-webhook',
-          eventType: 'billing.credit_purchase.settled',
-          eventId: request.eventId,
-          payload: {
-            purchaseId: result.purchase.id,
-            creditPackId: result.purchase.creditPackId,
-            amountMinor: result.purchase.amountMinor,
-            receiptId: result.invoice?.id || null,
-            source: 'stripe_webhook',
-          },
+      const postProcessing = await dispatchBillingStripePostProcessingEvent(
+        {
+          billing,
+          audit: ctx.audit,
+          webhooks: ctx.webhooks,
+          logger: ctx.logger,
+        },
+        request.eventId,
+      );
+      if (!postProcessing.completed) {
+        res.status(503).json({
+          ok: false,
+          code: 'stripe_post_processing_pending',
+          message: 'Stripe event committed; post-processing remains pending',
         });
-        const auditEvent = buildConsoleBillingCreditPurchaseSettledAuditEvent({
-          purchase: result.purchase,
-          invoice: result.invoice,
-          source: 'stripe_webhook',
-          settlementEventId: request.eventId,
-        });
-        await emitConsoleAuditEvent(
-          ctx,
-          {
-            orgId: result.orgId,
-            userId: 'system-stripe-webhook',
-            roles: ['ops'],
-          },
-          {
-            category: 'BILLING',
-            action: 'billing.credit_purchase.settled',
-            summary: auditEvent.summary,
-            actorUserId: 'system-stripe-webhook',
-            actorType: 'SYSTEM',
-            metadata: auditEvent.metadata,
-          },
-        );
+        return;
       }
       res.status(200).json({ ok: true, ...result });
     } catch (error: unknown) {
       await emitStripeWebhookFailureObservabilityEvent(ctx, req, {
         rawBody,
-        eventType: 'billing.stripe_webhook.processing.failed',
+        eventType:
+          isConsoleBillingError(error) && error.code === 'invalid_stripe_signature'
+            ? 'billing.stripe_webhook.invalid_signature'
+            : 'billing.stripe_webhook.processing.failed',
         failureCode: isConsoleBillingError(error) ? error.code : 'internal',
         failureMessage: error instanceof Error ? error.message : String(error),
       });
@@ -3894,6 +4085,20 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     try {
       const overview = await buildConsoleBillingOverviewResponse(ctx, claims, billing);
       res.status(200).json({ ok: true, overview });
+    } catch (error: unknown) {
+      sendBillingError(res, error);
+    }
+  });
+
+  router.get('/console/billing/refunds', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
+    const billing = requireBillingService(res, ctx);
+    if (!billing) return;
+    try {
+      const refunds = await billing.listRefunds(toBillingContext(claims));
+      res.status(200).json({ ok: true, refunds });
     } catch (error: unknown) {
       sendBillingError(res, error);
     }
@@ -3980,15 +4185,12 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     if (!billing) return;
     const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
     if (!orgProjectEnv) return;
-    const teamRbac = requireTeamRbacService(res, ctx);
-    if (!teamRbac) return;
     try {
       const request = parsePlatformBillingLookupRequest((req as any).query);
       const result = await resolvePlatformBillingLookup({
         claims,
         billing,
         orgProjectEnv,
-        teamRbac,
         request,
       });
       res.status(200).json({ ok: true, result });
@@ -4144,14 +4346,12 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
         const organization = await orgProjectEnv.getOrganization({
           orgId,
           actorUserId: claims.userId,
-          roles: claims.roles,
           ...(claims.projectId ? { projectId: claims.projectId } : {}),
           ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
         });
         const billingCtx = {
           orgId,
           actorUserId: claims.userId,
-          roles: claims.roles,
         };
         const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
         const result = await billing.grantManualSupportCredit(billingCtx, adjustmentRequest);
@@ -4270,14 +4470,12 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
         const organization = await orgProjectEnv.getOrganization({
           orgId,
           actorUserId: claims.userId,
-          roles: claims.roles,
           ...(claims.projectId ? { projectId: claims.projectId } : {}),
           ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
         });
         const billingCtx = {
           orgId,
           actorUserId: claims.userId,
-          roles: claims.roles,
         };
         const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
         const result = await billing.appendManualAdminDebit(
@@ -4330,6 +4528,96 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
           sendOrgProjectEnvError(res, error);
           return;
         }
+        sendBillingError(res, error);
+      }
+    },
+  );
+
+  router.post('/console/platform/billing/refunds', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
+    const billing = requireBillingService(res, ctx);
+    if (!billing) return;
+    try {
+      const request = parsePlatformBillingRefundRequest((req as any).body);
+      const { orgId, ...refundRequest } = request;
+      const result = await billing.createRefund(
+        {
+          orgId,
+          actorUserId: claims.userId,
+          platformSupport: true,
+        },
+        refundRequest,
+      );
+      await emitConsoleAuditEvent(
+        ctx,
+        {
+          ...claims,
+          orgId,
+        },
+        {
+          category: 'BILLING',
+          action: 'billing.refund.requested',
+          summary: `Requested refund for org ${orgId}`,
+          metadata: {
+            organizationId: orgId,
+            refundId: result.refund.id,
+            purchaseId: result.refund.purchaseId,
+            amountMinor: result.refund.amountMinor,
+            status: result.refund.status,
+            created: result.created,
+            platformBilling: true,
+          },
+        },
+      );
+      res.status(result.created ? 201 : 200).json({ ok: true, result });
+    } catch (error: unknown) {
+      sendBillingError(res, error);
+    }
+  });
+
+  router.post(
+    '/console/platform/billing/refunds/reconcile',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      try {
+        const request = parsePlatformBillingRefundReconcileRequest((req as any).body);
+        const { orgId, ...reconcileRequest } = request;
+        const result = await billing.reconcileRefund(
+          {
+            orgId,
+            actorUserId: claims.userId,
+            platformSupport: true,
+          },
+          reconcileRequest,
+        );
+        await emitConsoleAuditEvent(
+          ctx,
+          {
+            ...claims,
+            orgId,
+          },
+          {
+            category: 'BILLING',
+            action: 'billing.refund.reconciled',
+            summary: `Reconciled refund for org ${orgId}`,
+            metadata: {
+              organizationId: orgId,
+              refundId: result.refund.id,
+              purchaseId: result.refund.purchaseId,
+              amountMinor: result.refund.amountMinor,
+              status: result.refund.status,
+              platformBilling: true,
+            },
+          },
+        );
+        res.status(200).json({ ok: true, result });
+      } catch (error: unknown) {
         sendBillingError(res, error);
       }
     },
@@ -4598,7 +4886,8 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   const webhooks = opts.webhooks === undefined ? null : opts.webhooks;
   const keyExports = opts.keyExports === undefined ? null : opts.keyExports;
   const runtimeSnapshots = opts.runtimeSnapshots === undefined ? null : opts.runtimeSnapshots;
-  const teamRbac = opts.teamRbac === undefined ? null : opts.teamRbac;
+  const organizationAccess =
+    opts.organizationAccess === undefined ? null : opts.organizationAccess;
   const approvals = opts.approvals === undefined ? null : opts.approvals;
   const audit = opts.audit === undefined ? null : opts.audit;
   const auditExports = opts.auditExports === undefined ? null : opts.auditExports;
@@ -4626,7 +4915,7 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
     webhooks,
     keyExports,
     runtimeSnapshots,
-    teamRbac,
+    organizationAccess,
     approvals,
     audit,
     auditExports,
@@ -4652,7 +4941,7 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
     sendObservabilityError,
   });
   registerConsoleOrgProjectEnvRoutes(router, ctx);
-  registerConsoleTeamRbacRoutes(router, ctx);
+  registerConsoleOrganizationAccessRoutes(router, ctx);
   registerConsoleApprovalRoutes(router, ctx);
   registerConsoleAuditRoutes(router, ctx);
   registerConsoleAuditExportRoutes(router, ctx);

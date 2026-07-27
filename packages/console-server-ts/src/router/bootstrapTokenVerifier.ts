@@ -5,7 +5,7 @@ import type {
   RouterApiBootstrapTokenRecord,
   RouterApiBootstrapTokenRedeemResult,
   RouterApiBootstrapTokenVerifier,
-} from '@seams/sdk-server/internal/router/apiCredentialPorts';
+} from '@seams/sdk-server/cloud-host';
 
 function isBootstrapToken(token: string): boolean {
   return parseBootstrapToken(token) !== null;

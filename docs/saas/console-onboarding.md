@@ -258,8 +258,8 @@ Exit criteria:
 - [x] Add server-side summary endpoint `GET /console/ops-cockpit/summary` (Express + Cloudflare parity) to aggregate operator queues.
 - [x] Keep endpoint resilient by returning per-module statuses (`ok`, `not_configured`, `forbidden`, `error`) instead of failing whole responses when optional modules are disabled.
 - [x] Enforce role-aware onboarding telemetry behavior in summary payload:
-  - [x] `admin`/`ops`: include telemetry snapshot + alerts.
-  - [x] non-`admin`/`ops`: return telemetry section as `forbidden` while preserving other sections.
+  - [x] platform support: include telemetry snapshot + alerts.
+  - [x] other organization users: return telemetry as `forbidden` while preserving other sections.
 - [x] Switch dashboard Ops Cockpit page to consume summary endpoint directly (single request model).
 - [x] Add route + e2e wiring coverage for summary endpoint integration.
 - [x] Add Ops Cockpit dead-letter row quick action to replay deliveries via `POST /console/webhooks/:id/replay`.

@@ -13,7 +13,7 @@ migrations_dir = "migrations/d1-console"
 binding = "SIGNER_DB"
 database_name = "seams-signer-staging"
 database_id = "<remote-signer-d1-database-id>"
-migrations_dir = "../sdk-server-ts/migrations/d1-signer"
+migrations_dir = "node_modules/@seams/sdk-server/migrations/d1-signer"
 
 [[durable_objects.bindings]]
 name = "THRESHOLD_STORE"
@@ -46,6 +46,12 @@ secret_name = "signing-root-kek-staging-r1"
 
 [vars]
 SEAMS_TENANT_STORAGE_NAMESPACE = "seams-staging"
+CONSOLE_BASE_URL = "https://<console-staging-host>"
+CONSOLE_EMAIL_RUNTIME_PROFILE = "PRODUCTION"
+CONSOLE_EMAIL_PROVIDER = "RESEND"
+CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID = "console-email-staging-r1"
+CONSOLE_EMAIL_FROM = "Seams <notifications@<verified-email-domain>>"
+CONSOLE_EMAIL_CRON_EXPRESSIONS = "*/5 * * * *"
 SEAMS_STAGING_ORG_ID = "org_staging"
 SEAMS_STAGING_PROJECT_ID = "project_staging"
 SEAMS_STAGING_ENV_ID = "staging"
@@ -70,6 +76,9 @@ SIGNING_ROOT_KEK_PROVIDER = "cloudflare_secrets_store"
 SIGNING_ROOT_KEK_ENCODING = "base64url"
 SIGNING_ROOT_KEK_IDS = "signing-root-kek-staging-r1"
 
+[triggers]
+crons = ["*/5 * * * *"]
+
 [secrets]
 required = [
   "RELAY_SESSION_HMAC_SECRET",
@@ -79,4 +88,7 @@ required = [
   "RELAYER_PRIVATE_KEY",
   "SPONSORED_EVM_EXECUTORS_JSON",
   "STRIPE_API_SK",
+  "STRIPE_WEBHOOK_SECRET",
+  "RESEND_API_KEY",
+  "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U",
 ]
