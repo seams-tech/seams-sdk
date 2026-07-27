@@ -9,12 +9,9 @@ import type {
   MpcRegisteredPublicKeyBindingRef,
 } from '@shared/utils/domainIds';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { RestorableMpcMaterialRef } from './restorableMpcMaterialRef.internal';
 
-declare const restorableMpcMaterialRefBrand: unique symbol;
-
-export type RestorableMpcMaterialRef = string & {
-  readonly [restorableMpcMaterialRefBrand]: true;
-};
+export type { RestorableMpcMaterialRef } from './restorableMpcMaterialRef.internal';
 
 abstract class MpcHydrationProof {
   private retainProof(): true {

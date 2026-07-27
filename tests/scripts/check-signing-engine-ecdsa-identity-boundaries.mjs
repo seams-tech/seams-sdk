@@ -832,6 +832,34 @@ function checkMpcHydrationProofsAvoidCastEscapes() {
   assertNoOffenders(offenders, 'MPC hydration proof cast escapes');
 }
 
+function checkRestorableMpcMaterialConstructionStaysProtocolOwned() {
+  const offenders = [];
+  const constructorName = 'buildRestorableMpcMaterialRefInternal';
+  const internalModule = 'restorableMpcMaterialRef.internal';
+  const allowedConstructorFiles = new Set([
+    'packages/sdk-web/src/core/signingEngine/session/material/restorableMpcMaterialRef.internal.ts',
+    'packages/sdk-web/src/core/signingEngine/session/material/ecdsaCapabilityHydration.ts',
+  ]);
+  const allowedInternalImports = new Set([
+    'packages/sdk-web/src/core/signingEngine/session/material/mpcCapabilityHydration.ts',
+    'packages/sdk-web/src/core/signingEngine/session/material/ecdsaCapabilityHydration.ts',
+  ]);
+  for (const relativePath of listTsFiles('packages/sdk-web/src')) {
+    const source = readRepoFile(relativePath);
+    if (source.includes(constructorName) && !allowedConstructorFiles.has(relativePath)) {
+      offenders.push(`${relativePath} constructs generic restorable MPC material`);
+    }
+    if (
+      source.includes(internalModule) &&
+      !relativePath.endsWith(`${internalModule}.ts`) &&
+      !allowedInternalImports.has(relativePath)
+    ) {
+      offenders.push(`${relativePath} imports the internal restorable MPC material module`);
+    }
+  }
+  assertNoOffenders(offenders, 'restorable MPC material protocol construction boundary');
+}
+
 function checkStrictActivationSessionBuildersAvoidBroadSpreadShortcuts() {
   const offenders = [];
   const pattern = /\.\.\.(?:baseArgs|args\.signingAuthPlan|activation|effectivePlan)\b/;
@@ -1318,6 +1346,7 @@ function runChecks() {
   checkStrictEcdsaActivationBranchesOnlyComeFromBuilders();
   checkStrictActivationSessionStateAvoidsCastEscapes();
   checkMpcHydrationProofsAvoidCastEscapes();
+  checkRestorableMpcMaterialConstructionStaysProtocolOwned();
   checkStrictActivationSessionBuildersAvoidBroadSpreadShortcuts();
   checkPublicSdkEcdsaInputsStayWalletSessionShaped();
   checkEcdsaIframePayloadsStayWalletSessionShaped();

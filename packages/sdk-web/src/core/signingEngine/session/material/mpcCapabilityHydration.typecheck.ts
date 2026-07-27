@@ -40,6 +40,15 @@ declare const registeredPublicKeyBinding: MpcRegisteredPublicKeyBindingRef;
 declare const walletId: WalletId;
 declare const authorityDigest: WalletAuthorityBindingDigest;
 
+// @ts-expect-error Restorable material is constructed only by protocol hydration adapters.
+const rawRestorableMaterial: RestorableMpcMaterialRef = 'raw-material-ref';
+
+// @ts-expect-error Structural lookalikes cannot forge protocol-owned restorable material.
+const structuralRestorableMaterial: RestorableMpcMaterialRef = {
+  kind: 'restorable_mpc_material_ref',
+  durableMaterialRef: 'raw-material-ref',
+};
+
 const authority: WalletAuthAuthorityRef = {
   kind: 'wallet_auth_authority_ref',
   walletId,
@@ -195,3 +204,5 @@ void directActivation;
 void directAnchor;
 void directBlockedPlan;
 void broadSpreadPlan;
+void rawRestorableMaterial;
+void structuralRestorableMaterial;
