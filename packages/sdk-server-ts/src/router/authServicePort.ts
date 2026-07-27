@@ -81,6 +81,15 @@ import type {
   RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   RouterAbEcdsaStrictForwardedRegistrationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  ActiveAuthorizationSession,
+  HostedWalletSeamsSessionExchangeCode,
+  HostedWalletSeamsSessionExchangeDelivery,
+  HostedWalletSeamsSessionExchangeNonce,
+  RedeemHostedWalletSeamsSessionExchangeResult,
+  SessionOrigin,
+} from '../authorization/domain';
+import type { PrincipalId, SeamsSessionId, TenantId } from '@shared/authorization/capabilityKinds';
 
 export type EmailOtpChallengeDelivery =
   | {
@@ -1397,10 +1406,36 @@ export interface RouterApiServiceBag {
   webAuthn: RouterApiWebAuthnService;
   identity: RouterApiIdentityService;
   sessionVersions: RouterApiSessionVersionService;
+  authorizationSessions: RouterApiAuthorizationSessionService;
   thresholdRuntime: RouterApiThresholdRuntimeService;
   nearFunding: RouterApiNearFundingService;
   recovery: RouterApiRecoveryRouteService;
   router: RouterApiRouterAccountService;
+}
+
+export interface RouterApiAuthorizationSessionService {
+  readonly tenantId: TenantId;
+  recordActiveSession(session: ActiveAuthorizationSession): Promise<void>;
+  readActiveSession(input: {
+    readonly tenantId: TenantId;
+    readonly sessionId: SeamsSessionId;
+    readonly nowMs: number;
+  }): Promise<ActiveAuthorizationSession | null>;
+  mintHostedWalletSeamsSessionExchange(input: {
+    readonly tenantId: TenantId;
+    readonly principalId: PrincipalId;
+    readonly sourceSessionId: SeamsSessionId;
+    readonly appOrigin: SessionOrigin;
+    readonly walletOrigin: SessionOrigin;
+    readonly issuedAtMs: number;
+    readonly expiresAtMs: number;
+  }): Promise<HostedWalletSeamsSessionExchangeDelivery>;
+  redeemHostedWalletSeamsSessionExchange(input: {
+    readonly exchangeCode: HostedWalletSeamsSessionExchangeCode;
+    readonly nonce: HostedWalletSeamsSessionExchangeNonce;
+    readonly walletOrigin: SessionOrigin;
+    readonly redeemedAtMs: number;
+  }): Promise<RedeemHostedWalletSeamsSessionExchangeResult>;
 }
 
 export function routerApiWalletRegistrationRouteService(

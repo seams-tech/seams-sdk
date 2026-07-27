@@ -10,6 +10,7 @@ import type {
 } from '@shared/authorization/operationFingerprint';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
+  ActiveAuthorizationSession,
   ActiveCapabilityGrant,
   CapabilityOperationClaim,
   CapabilityOperationClaimInput,
@@ -74,3 +75,25 @@ const invalidStepUpGrant: ActiveCapabilityGrant = {
 };
 
 void invalidStepUpGrant;
+
+declare const normalizedSession: ActiveAuthorizationSession;
+
+const invalidSessionVersion = {
+  ...normalizedSession,
+  appSessionVersion: 'raw-session-version',
+};
+
+// @ts-expect-error normalized sessions require the branded app-session version
+invalidSessionVersion satisfies ActiveAuthorizationSession;
+
+const invalidProvider = {
+  ...normalizedSession,
+  authSource: {
+    kind: 'oidc_provider',
+    providerId: 'future-provider',
+    providerSubject: 'raw-provider-subject',
+  },
+};
+
+// @ts-expect-error normalized sessions require a closed provider and branded subject
+invalidProvider satisfies ActiveAuthorizationSession;
