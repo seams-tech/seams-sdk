@@ -1,7 +1,4 @@
-import { execFileSync } from 'node:child_process';
-import { readFileSync, unlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import {
@@ -18,10 +15,6 @@ const CANONICAL_NAME_PATTERN = /^seams_[a-z0-9]+(?:_[a-z0-9]+)*$/;
 const SNAKE_CASE_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 const ECDSA_MATERIAL_STORE_SOURCES = [
   new URL(
-    '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaRoleLocalSessionMaterialStore.ts',
-    import.meta.url,
-  ),
-  new URL(
     '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaPresignMaterialStore.ts',
     import.meta.url,
   ),
@@ -30,34 +23,11 @@ const ECDSA_MATERIAL_STORE_SOURCES = [
     import.meta.url,
   ),
 ] as const;
-const ROLE_LOCAL_STORE_SOURCE = fileURLToPath(ECDSA_MATERIAL_STORE_SOURCES[0]);
-const ROLE_LOCAL_STORE_BUNDLE_PATH = `${tmpdir()}/seams-ecdsa-role-local-store-${process.pid}.mjs`;
-const ROLE_LOCAL_STORE_MODULE = '/__ecdsa-role-local-material-store-test.mjs';
 
 test.describe('IndexedDB consolidation', () => {
-  test.beforeAll(() => {
-    execFileSync(
-      'bun',
-      [
-        'build',
-        ROLE_LOCAL_STORE_SOURCE,
-        '--target=browser',
-        '--format=esm',
-        `--outfile=${ROLE_LOCAL_STORE_BUNDLE_PATH}`,
-      ],
-      { stdio: 'pipe' },
-    );
-  });
-
-  test.afterAll(() => {
-    try {
-      unlinkSync(ROLE_LOCAL_STORE_BUNDLE_PATH);
-    } catch {}
-  });
-
   test('canonical wallet schema names use one Seams-prefixed DB and unprefixed snake_case stores', () => {
     expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet');
-    expect(SEAMS_WALLET_DB_VERSION).toBe(10);
+    expect(SEAMS_WALLET_DB_VERSION).toBe(11);
     expect(Object.values(SEAMS_WALLET_STORES).every((name) => !name.startsWith('seams_'))).toBe(
       true,
     );
@@ -102,64 +72,6 @@ test.describe('IndexedDB consolidation', () => {
       expect(source).not.toContain('seams_router_ab_ecdsa_role_local_session_v1');
       expect(source).not.toContain('seams_router_ab_ecdsa_presign_material_v2');
     }
-  });
-
-  test('ECDSA role-local material persists in the canonical wallet schema', async ({ page }) => {
-    await page.route(`**${ROLE_LOCAL_STORE_MODULE}`, async (route) => {
-      await route.fulfill({
-        path: ROLE_LOCAL_STORE_BUNDLE_PATH,
-        contentType: 'application/javascript',
-      });
-    });
-    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
-    const result = await page.evaluate(async (storeModulePath) => {
-      await new Promise<void>((resolve) => {
-        const request = indexedDB.deleteDatabase('seams_wallet');
-        request.onsuccess = () => resolve();
-        request.onerror = () => resolve();
-        request.onblocked = () => resolve();
-      });
-      const storeModule = await import(storeModulePath);
-      const store = new storeModule.IndexedDbEcdsaRoleLocalSessionMaterialStore();
-
-      await store.putActive({
-        durableMaterialRef: 'role-local-material-1',
-        bindingDigest: 'binding-digest-1',
-        lifecycleId: 'lifecycle-1',
-        transcriptDigestB64u: 'transcript-1',
-        activationDigestB64u: 'activation-1',
-        activatedAtMs: 1_000,
-        stateBlobB64u: 'encrypted-state-blob',
-      });
-      const restored = await store.restoreActive({
-        durableMaterialRef: 'role-local-material-1',
-        expectedBindingDigest: 'binding-digest-1',
-      });
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open('seams_wallet');
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-      const observed = {
-        restored,
-        dbName: db.name,
-        stores: Array.from(db.objectStoreNames),
-      };
-      db.close();
-      return observed;
-    }, ROLE_LOCAL_STORE_MODULE);
-
-    expect(result.dbName).toBe(SEAMS_WALLET_DB_NAME);
-    expect(result.stores).toContain(SEAMS_WALLET_STORES.ecdsaRoleLocalSealingKeys);
-    expect(result.stores).toContain(SEAMS_WALLET_STORES.ecdsaRoleLocalActiveMaterial);
-    expect(result.restored).toEqual({
-      ok: true,
-      stateBlobB64u: 'encrypted-state-blob',
-      lifecycleId: 'lifecycle-1',
-      transcriptDigestB64u: 'transcript-1',
-      activationDigestB64u: 'activation-1',
-      activatedAtMs: 1_000,
-    });
   });
 
   test('opening seams_wallet deletes obsolete standalone ECDSA databases', async ({ page }) => {

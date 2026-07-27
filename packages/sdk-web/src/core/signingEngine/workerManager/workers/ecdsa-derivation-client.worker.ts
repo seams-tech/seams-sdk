@@ -10,8 +10,13 @@ import initEcdsaRegistrationClient, {
 } from '../../../../../../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
-import { parseCorrelationId } from '@shared/utils/canonicalPrimitives';
+import {
+  parseCorrelationId,
+  parseDigestB64u,
+  parseIsoTimestamp,
+} from '@shared/utils/canonicalPrimitives';
 import { errorLogSummary, safeErrorMessage } from '@shared/utils/errors';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import {
   EcdsaDerivationClientCustomRequestType,
   EcdsaDerivationClientCustomResponseType,
@@ -48,6 +53,7 @@ import type {
 import {
   buildRouterAbEcdsaDerivationPublicCapabilityV1,
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
   parseRouterAbEcdsaRegistrationRequestV1,
   parseRouterAbEcdsaDerivationActivationRefreshRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
@@ -69,11 +75,19 @@ import {
   type EcdsaRoleLocalPersistedMaterialRef,
   type EcdsaRoleLocalWorkerHandle,
 } from '@/core/signingEngine/session/keyMaterialBrands';
-import { IndexedDbEcdsaRoleLocalSessionMaterialStore } from '../../../indexedDB/seamsWalletDB/ecdsaRoleLocalSessionMaterialStore';
 import { IndexedDbEcdsaCapabilityManifestStore } from '../../../indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import { buildInitialEcdsaCapabilityActivationPlan } from '../../session/material/initialEcdsaCapabilityActivation';
 import {
+  buildVerifiedEcdsaPublicFacts,
+  toEvmFamilyEcdsaKeyHandle,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
+import type {
+  PreparedEcdsaActivationJournal,
+  ServerCommittedEcdsaActivationJournal,
+} from '../../session/material/ecdsaCapabilityManifest';
+import {
   buildRouterAbEcdsaRegistrationPendingFinalizationV1,
+  decodeRouterAbEcdsaRegistrationPendingFinalizationV1,
   encodeRouterAbEcdsaRegistrationPendingFinalizationV1,
 } from '../../routerAb/ecdsaDerivation/registrationPendingFinalization';
 
@@ -109,7 +123,6 @@ type StoredEcdsaRoleLocalSigningMaterial = {
 };
 
 const ecdsaRoleLocalSigningMaterialStore = new Map<string, StoredEcdsaRoleLocalSigningMaterial>();
-const durableEcdsaRoleLocalMaterialStore = new IndexedDbEcdsaRoleLocalSessionMaterialStore();
 const ecdsaCapabilityManifestStore = new IndexedDbEcdsaCapabilityManifestStore();
 
 type ActiveRouterAbEcdsaRegistrationCeremony =
@@ -690,221 +703,238 @@ async function persistInitialCanonicalEcdsaActivation(
   }
 }
 
-function routerAbEcdsaRegistrationMaterialHandle(ceremonyId: string): string {
-  return `router-ab-ecdsa-registration:${ceremonyId}`;
-}
-
-function routerAbEcdsaDurableMaterialRef(materialHandle: string): string {
-  return materialHandle;
-}
-
 type FinalizedEcdsaRoleLocalActivation = {
   roleLocalMaterial: FinalizeRouterAbEcdsaRegistrationActivationResultV1['roleLocalMaterial'];
   publicFacts: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicFacts'];
+  readyStateBlobB64u: string;
+  liveMaterial: StoredEcdsaRoleLocalSigningMaterial;
 };
 
-async function finalizeAndPersistEcdsaRoleLocalActivation(input: {
-  preparedClientBootstrap: WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapResult;
+function finalizeEcdsaRoleLocalActivation(input: {
+  pendingStateBlob: WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapResult['pendingStateBlob'];
   activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
   relayerKeyId: string;
   materialHandle: string;
-}): Promise<FinalizedEcdsaRoleLocalActivation> {
+  durableMaterialRef: string;
+  bindingDigest: string;
+}): FinalizedEcdsaRoleLocalActivation {
   const materialHandle = parseEcdsaRoleLocalMaterialHandle(input.materialHandle);
-  const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef(
-    routerAbEcdsaDurableMaterialRef(materialHandle),
-  );
+  const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef(input.durableMaterialRef);
   const relayerKeyId = String(input.relayerKeyId || '').trim();
   if (!relayerKeyId) {
     throw new Error('Router A/B ECDSA registration activation requires relayerKeyId');
   }
   const activation = input.activationReceipt.ecdsa_activation;
-  try {
-    const finalizedClientBootstrap = requireRecordPayload(
-      JSON.parse(
-        finalize_ecdsa_client_bootstrap_v1(
-          JSON.stringify({
-            kind: 'finalize_ecdsa_client_bootstrap_v1',
-            pendingStateBlob: input.preparedClientBootstrap.pendingStateBlob,
-            relayerPublicIdentity: {
-              relayerKeyId,
-              relayerPublicKey33B64u: activation.public_identity.server_public_key33_b64u,
-              groupPublicKey33B64u: activation.public_identity.threshold_public_key33_b64u,
-              ethereumAddress: ethereumAddressFromBase64Url(
-                activation.public_identity.ethereum_address20_b64u,
-              ),
-              relayerShareRetryCounter: activation.public_identity.server_share_retry_counter,
-            },
-          }),
-        ),
+  const finalizedClientBootstrap = requireRecordPayload(
+    JSON.parse(
+      finalize_ecdsa_client_bootstrap_v1(
+        JSON.stringify({
+          kind: 'finalize_ecdsa_client_bootstrap_v1',
+          pendingStateBlob: input.pendingStateBlob,
+          relayerPublicIdentity: {
+            relayerKeyId,
+            relayerPublicKey33B64u: activation.public_identity.server_public_key33_b64u,
+            groupPublicKey33B64u: activation.public_identity.threshold_public_key33_b64u,
+            ethereumAddress: ethereumAddressFromBase64Url(
+              activation.public_identity.ethereum_address20_b64u,
+            ),
+            relayerShareRetryCounter: activation.public_identity.server_share_retry_counter,
+          },
+        }),
       ),
-    );
-    requireExactKeys(
-      finalizedClientBootstrap,
-      ['stateBlob', 'publicFacts'],
-      'Router A/B ECDSA finalized client bootstrap',
-    );
-    const stateBlob = requireRecordPayload(finalizedClientBootstrap.stateBlob);
-    requireExactKeys(
-      stateBlob,
-      ['kind', 'curve', 'encoding', 'producer', 'stateBlobB64u'],
-      'Router A/B ECDSA ready state blob',
-    );
-    if (
-      stateBlob.kind !== 'ecdsa_role_local_state_blob_v1' ||
-      stateBlob.curve !== 'secp256k1' ||
-      stateBlob.encoding !== 'base64url' ||
-      stateBlob.producer !== 'signer_core'
-    ) {
-      throw new Error('Router A/B ECDSA ready state blob metadata is invalid');
-    }
-    const publicFacts = requireRecordPayload(finalizedClientBootstrap.publicFacts);
-    requireExactKeys(
-      publicFacts,
-      [
-        'contextBinding32B64u',
-        'derivationClientSharePublicKey33B64u',
-        'clientVerifyingShareB64u',
-        'relayerPublicKey33B64u',
-        'groupPublicKey33B64u',
-        'ethereumAddress',
-      ],
-      'Router A/B ECDSA ready public facts',
-    );
-    const bindingDigest = parseEcdsaRoleLocalBindingDigest(
-      readNonEmptyString(publicFacts, 'contextBinding32B64u'),
-    );
-    const stateBlobB64u = readNonEmptyString(stateBlob, 'stateBlobB64u');
-    const activationBinding = {
-      kind: 'strict_router_ab_activation_v1',
-      lifecycleId: input.activationReceipt.lifecycle_id,
-      transcriptDigestB64u: base64UrlEncode(
-        Uint8Array.from(input.activationReceipt.transcript_digest.bytes),
-      ),
-      activationDigestB64u: activation.activation_digest_b64u,
-      activatedAtMs: activation.activated_at_ms,
-    } as const;
-    await durableEcdsaRoleLocalMaterialStore.putActive({
-      durableMaterialRef,
-      bindingDigest,
-      lifecycleId: activationBinding.lifecycleId,
-      transcriptDigestB64u: activationBinding.transcriptDigestB64u,
-      activationDigestB64u: activationBinding.activationDigestB64u,
-      activatedAtMs: activationBinding.activatedAtMs,
-      stateBlobB64u,
-    });
-    ecdsaRoleLocalSigningMaterialStore.set(materialHandle, {
+    ),
+  );
+  requireExactKeys(
+    finalizedClientBootstrap,
+    ['stateBlob', 'publicFacts'],
+    'Router A/B ECDSA finalized client bootstrap',
+  );
+  const stateBlob = requireRecordPayload(finalizedClientBootstrap.stateBlob);
+  requireExactKeys(
+    stateBlob,
+    ['kind', 'curve', 'encoding', 'producer', 'stateBlobB64u'],
+    'Router A/B ECDSA ready state blob',
+  );
+  if (
+    stateBlob.kind !== 'ecdsa_role_local_state_blob_v1' ||
+    stateBlob.curve !== 'secp256k1' ||
+    stateBlob.encoding !== 'base64url' ||
+    stateBlob.producer !== 'signer_core'
+  ) {
+    throw new Error('Router A/B ECDSA ready state blob metadata is invalid');
+  }
+  const publicFacts = requireRecordPayload(finalizedClientBootstrap.publicFacts);
+  requireExactKeys(
+    publicFacts,
+    [
+      'contextBinding32B64u',
+      'derivationClientSharePublicKey33B64u',
+      'clientVerifyingShareB64u',
+      'relayerPublicKey33B64u',
+      'groupPublicKey33B64u',
+      'ethereumAddress',
+    ],
+    'Router A/B ECDSA ready public facts',
+  );
+  const bindingDigest = parseEcdsaRoleLocalBindingDigest(
+    readNonEmptyString(publicFacts, 'contextBinding32B64u'),
+  );
+  if (bindingDigest !== parseEcdsaRoleLocalBindingDigest(input.bindingDigest)) {
+    throw new Error('Router A/B ECDSA ready state changed the persisted binding digest');
+  }
+  const readyStateBlobB64u = readNonEmptyString(stateBlob, 'stateBlobB64u');
+  const activationBinding = {
+    kind: 'strict_router_ab_activation_v1',
+    lifecycleId: input.activationReceipt.lifecycle_id,
+    transcriptDigestB64u: base64UrlEncode(
+      Uint8Array.from(input.activationReceipt.transcript_digest.bytes),
+    ),
+    activationDigestB64u: activation.activation_digest_b64u,
+    activatedAtMs: activation.activated_at_ms,
+  } as const;
+  const liveMaterial: StoredEcdsaRoleLocalSigningMaterial = {
+    materialHandle,
+    bindingDigest,
+    stateBlobB64u: readyStateBlobB64u,
+    activationBinding,
+  };
+  return {
+    roleLocalMaterial: {
+      kind: 'ecdsa_role_local_worker_handle_v1',
       materialHandle,
       bindingDigest,
-      stateBlobB64u,
-      activationBinding,
-    });
-    return {
-      roleLocalMaterial: {
-        kind: 'ecdsa_role_local_worker_handle_v1',
-        materialHandle,
-        bindingDigest,
-        durableMaterialRef,
-      },
-      publicFacts: {
-        contextBinding32B64u: bindingDigest,
-        derivationClientSharePublicKey33B64u: readNonEmptyString(
-          publicFacts,
-          'derivationClientSharePublicKey33B64u',
-        ),
-        clientVerifyingShareB64u: readNonEmptyString(publicFacts, 'clientVerifyingShareB64u'),
-        relayerPublicKey33B64u: readNonEmptyString(publicFacts, 'relayerPublicKey33B64u'),
-        groupPublicKey33B64u: readNonEmptyString(publicFacts, 'groupPublicKey33B64u'),
-        ethereumAddress: requireEthereumAddress(publicFacts.ethereumAddress, 'ethereumAddress'),
-      },
-    };
-  } catch (error: unknown) {
-    ecdsaRoleLocalSigningMaterialStore.delete(materialHandle);
-    await durableEcdsaRoleLocalMaterialStore.burn(durableMaterialRef).catch(() => undefined);
-    throw error;
+      durableMaterialRef,
+    },
+    publicFacts: {
+      contextBinding32B64u: bindingDigest,
+      derivationClientSharePublicKey33B64u: readNonEmptyString(
+        publicFacts,
+        'derivationClientSharePublicKey33B64u',
+      ),
+      clientVerifyingShareB64u: readNonEmptyString(publicFacts, 'clientVerifyingShareB64u'),
+      relayerPublicKey33B64u: readNonEmptyString(publicFacts, 'relayerPublicKey33B64u'),
+      groupPublicKey33B64u: readNonEmptyString(publicFacts, 'groupPublicKey33B64u'),
+      ethereumAddress: requireEthereumAddress(publicFacts.ethereumAddress, 'ethereumAddress'),
+    },
+    readyStateBlobB64u,
+    liveMaterial,
+  };
+}
+
+function assertRegistrationActivationReceiptTimestamp(
+  expiresAtMs: number,
+  receipt: RouterAbEcdsaRegistrationActivationReceiptV1,
+): void {
+  const activation = receipt.ecdsa_activation;
+  const nowMs = Date.now();
+  if (activation.activated_at_ms > expiresAtMs || activation.activated_at_ms > nowMs + 60_000) {
+    throw new Error('Router A/B ECDSA activation receipt timestamp is outside ceremony policy');
   }
 }
 
-function assertRegistrationActivationReceiptMatchesCeremony(
-  active: Extract<ActiveRouterAbEcdsaRegistrationCeremony, { kind: 'client_proofs_verified' }>,
-  request: FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
-): void {
-  const receipt = request.activationReceipt;
-  const activation = receipt.ecdsa_activation;
-  const selectedWorker = active.registration.signer_set.selected_server;
-  const publicIdentity = activation.public_identity;
-  if (
-    receipt.activation_correlation_id !== parseCorrelationId(request.ceremonyId) ||
-    receipt.lifecycle_id !== active.registration.lifecycle.lifecycle_id ||
-    base64UrlEncode(Uint8Array.from(receipt.transcript_digest.bytes)) !==
-      active.activationFacts.proofTranscriptDigestB64u
-  ) {
-    throw new Error('Router A/B ECDSA activation receipt transcript is not bound to phase 1');
-  }
-  if (
-    activation.context.application_binding_digest_b64u !==
-      active.registration.context.application_binding_digest_b64u ||
-    activation.activation_epoch !== active.registration.lifecycle.root_share_epoch
-  ) {
-    throw new Error('Router A/B ECDSA activation receipt context is not bound to registration');
-  }
-  if (
-    activation.signing_worker.server_id !== selectedWorker.server_id ||
-    activation.signing_worker.key_epoch !== selectedWorker.key_epoch ||
-    activation.signing_worker.recipient_encryption_key !== selectedWorker.recipient_encryption_key
-  ) {
-    throw new Error('Router A/B ECDSA activation receipt changed the selected SigningWorker');
-  }
-  if (
-    publicIdentity.context_binding_b64u !== active.activationFacts.contextBinding32B64u ||
-    publicIdentity.derivation_client_share_public_key33_b64u !==
-      active.activationFacts.derivationClientSharePublicKey33B64u ||
-    publicIdentity.client_share_retry_counter !== active.activationFacts.clientShareRetryCounter
-  ) {
-    throw new Error('Router A/B ECDSA activation receipt changed the verified client identity');
-  }
-  const nowMs = Date.now();
-  if (
-    activation.activated_at_ms > active.registration.expires_at_ms ||
-    activation.activated_at_ms > nowMs + 60_000
-  ) {
-    throw new Error('Router A/B ECDSA activation receipt timestamp is outside ceremony policy');
+function serverCommitFromActivationReceipt(receipt: RouterAbEcdsaRegistrationActivationReceiptV1) {
+  return {
+    correlationId: receipt.activation_correlation_id,
+    activationRequestDigest: parseDigestB64u(
+      base64UrlEncode(Uint8Array.from(receipt.activation_request_digest.bytes)),
+    ),
+    serverGeneration: receipt.server_generation,
+    protocolReceipt: receipt,
+  };
+}
+
+async function committedJournalForActivationReceipt(input: {
+  journal: PreparedEcdsaActivationJournal | ServerCommittedEcdsaActivationJournal;
+  receipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+}): Promise<ServerCommittedEcdsaActivationJournal> {
+  switch (input.journal.kind) {
+    case 'activation_prepared': {
+      const recorded = await ecdsaCapabilityManifestStore.recordServerActivation({
+        preparedJournal: input.journal,
+        serverCommit: serverCommitFromActivationReceipt(input.receipt),
+      });
+      if (recorded.kind !== 'stored') {
+        throw new Error(`Canonical ECDSA server activation commit returned ${recorded.kind}`);
+      }
+      return recorded.journal;
+    }
+    case 'server_activation_committed':
+      if (
+        alphabetizeStringify(
+          input.journal.serverActivation.serverActivationReceipt.protocolReceipt,
+        ) !== alphabetizeStringify(input.receipt)
+      ) {
+        throw new Error('Canonical ECDSA activation receipt conflicts with the committed journal');
+      }
+      return input.journal;
   }
 }
 
 async function finalizeRouterAbEcdsaRegistrationActivation(
   request: FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
 ): Promise<FinalizeRouterAbEcdsaRegistrationActivationResultV1> {
-  const ceremonyId = requireCeremonyId(request.ceremonyId);
   if (request.kind !== 'finalize_router_ab_ecdsa_registration_activation_v1') {
     throw new Error('Router A/B ECDSA registration activation command kind is invalid');
   }
-  const active = requireActiveRouterAbEcdsaRegistrationCeremony(ceremonyId);
-  if (active.kind !== 'client_proofs_verified') {
-    throw new Error('Router A/B ECDSA registration activation requires verified client proofs');
+  const journalId = parseCorrelationId(request.journalId);
+  const receipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(request.activationReceipt);
+  const opened = await ecdsaCapabilityManifestStore.openPreparedActivation(journalId);
+  if (opened.kind !== 'found') {
+    throw new Error(`Canonical ECDSA activation journal open returned ${opened.kind}`);
   }
-  assertRegistrationActivationReceiptMatchesCeremony(active, request);
-  try {
-    const finalized = await finalizeAndPersistEcdsaRoleLocalActivation({
-      preparedClientBootstrap: active.preparedClientBootstrap,
-      activationReceipt: request.activationReceipt,
-      relayerKeyId: request.relayerKeyId,
-      materialHandle: routerAbEcdsaRegistrationMaterialHandle(ceremonyId),
-    });
-    return {
-      kind: 'router_ab_ecdsa_registration_activation_finalized_v1',
-      ceremonyId,
-      roleLocalMaterial: finalized.roleLocalMaterial,
-      publicFacts: finalized.publicFacts,
-      publicCapability: buildRouterAbEcdsaDerivationPublicCapabilityV1({
-        registrationFacts: active.registration,
-        registrationRequest: active.registrationRequest,
-        clientActivation: active.activationFacts,
-        activationReceipt: request.activationReceipt,
-      }),
-    };
-  } finally {
-    closeRouterAbEcdsaRegistrationCeremonyState(ceremonyId, active);
+  const pending = decodeRouterAbEcdsaRegistrationPendingFinalizationV1(opened.pendingPayloadB64u);
+  assertRegistrationActivationReceiptTimestamp(pending.registrationFacts.expires_at_ms, receipt);
+  const publicCapability = buildRouterAbEcdsaDerivationPublicCapabilityV1({
+    registrationFacts: pending.registrationFacts,
+    registrationRequest: pending.registrationRequest,
+    clientActivation: pending.clientActivation,
+    activationReceipt: receipt,
+  });
+  const committedJournal = await committedJournalForActivationReceipt({
+    journal: opened.journal,
+    receipt,
+  });
+  const activationBinding = committedJournal.candidate.activationBinding;
+  const materialHandle = parseEcdsaRoleLocalMaterialHandle(activationBinding.durableMaterialRef);
+  const finalized = finalizeEcdsaRoleLocalActivation({
+    pendingStateBlob: pending.pendingStateBlob,
+    activationReceipt: receipt,
+    relayerKeyId: activationBinding.roleLocalBinding.relayerKeyId,
+    materialHandle,
+    durableMaterialRef: activationBinding.durableMaterialRef,
+    bindingDigest: activationBinding.bindingDigest,
+  });
+  if (
+    finalized.publicFacts.derivationClientSharePublicKey33B64u !==
+    activationBinding.roleLocalBinding.clientVerifyingPublicKey33B64u
+  ) {
+    throw new Error('Router A/B ECDSA ready state changed the persisted client identity');
   }
+  const registeredPublicFacts = buildVerifiedEcdsaPublicFacts({
+    keyHandle: toEvmFamilyEcdsaKeyHandle(activationBinding.roleLocalBinding.keyHandle),
+    publicKeyB64u: finalized.publicFacts.groupPublicKey33B64u,
+    participantIds: activationBinding.roleLocalBinding.participantIds,
+    thresholdOwnerAddress: finalized.publicFacts.ethereumAddress,
+  });
+  const sealed = await ecdsaCapabilityManifestStore.sealAndFinalizeActivation({
+    committedJournal,
+    readyStateBlobB64u: finalized.readyStateBlobB64u,
+    registeredPublicFacts,
+    committedAt: parseIsoTimestamp(
+      new Date(receipt.ecdsa_activation.activated_at_ms).toISOString(),
+    ),
+  });
+  if (sealed.kind !== 'committed') {
+    throw new Error(`Canonical ECDSA activation finalization returned ${sealed.kind}`);
+  }
+  ecdsaRoleLocalSigningMaterialStore.set(materialHandle, finalized.liveMaterial);
+  return {
+    kind: 'router_ab_ecdsa_registration_activation_finalized_v1',
+    journalId,
+    roleLocalMaterial: finalized.roleLocalMaterial,
+    publicFacts: finalized.publicFacts,
+    publicCapability,
+  };
 }
 
 function closeRouterAbEcdsaRegistrationCeremony(
@@ -1056,25 +1086,17 @@ async function finalizeRouterAbEcdsaExplicitExport(
     const materialHandle = request.roleLocalMaterial.materialHandle;
     const bindingDigest = request.roleLocalMaterial.bindingDigest;
     if (!ecdsaRoleLocalSigningMaterialStore.has(materialHandle)) {
-      const restored = await durableEcdsaRoleLocalMaterialStore.restoreActive({
+      const restored = await restoreEcdsaRoleLocalSigningMaterialForRequest({
+        kind: 'ecdsa_role_local_persisted_material_ref_v1',
         durableMaterialRef: request.roleLocalMaterial.durableMaterialRef,
-        expectedBindingDigest: bindingDigest,
+        bindingDigest,
       });
       if (!restored.ok) {
         throw new Error(`ECDSA explicit export material hydration failed: ${restored.reason}`);
       }
-      ecdsaRoleLocalSigningMaterialStore.set(materialHandle, {
-        materialHandle,
-        bindingDigest,
-        stateBlobB64u: restored.stateBlobB64u,
-        activationBinding: {
-          kind: 'strict_router_ab_activation_v1',
-          lifecycleId: restored.lifecycleId,
-          transcriptDigestB64u: restored.transcriptDigestB64u,
-          activationDigestB64u: restored.activationDigestB64u,
-          activatedAtMs: restored.activatedAtMs,
-        },
-      });
+      if (restored.liveHandle.materialHandle !== materialHandle) {
+        throw new Error('ECDSA explicit export material handle is not canonical');
+      }
     }
     const stored = ecdsaRoleLocalSigningMaterialStore.get(materialHandle);
     if (!stored || stored.bindingDigest !== bindingDigest) {
@@ -1240,23 +1262,31 @@ async function restoreEcdsaRoleLocalSigningMaterialForRequest(
       },
     };
   }
-  const restored = await durableEcdsaRoleLocalMaterialStore.restoreActive({
-    durableMaterialRef: materialRef.durableMaterialRef,
-    expectedBindingDigest: materialRef.bindingDigest,
-  });
-  if (!restored.ok) {
-    return restored;
+  const restored = await ecdsaCapabilityManifestStore.openActiveMaterialByRef(materialRef);
+  if (restored.kind === 'persistence_unavailable') {
+    throw new Error('Canonical ECDSA role-local material persistence is unavailable');
   }
+  if (restored.kind !== 'active') {
+    return {
+      ok: false,
+      reason: restored.kind,
+    };
+  }
+  const activationReceipt =
+    restored.manifest.activation.serverActivation.serverActivationReceipt.protocolReceipt;
+  const activation = activationReceipt.ecdsa_activation;
   ecdsaRoleLocalSigningMaterialStore.set(materialHandle, {
     materialHandle,
     bindingDigest: materialRef.bindingDigest,
-    stateBlobB64u: restored.stateBlobB64u,
+    stateBlobB64u: restored.readyStateBlobB64u,
     activationBinding: {
       kind: 'strict_router_ab_activation_v1',
-      lifecycleId: restored.lifecycleId,
-      transcriptDigestB64u: restored.transcriptDigestB64u,
-      activationDigestB64u: restored.activationDigestB64u,
-      activatedAtMs: restored.activatedAtMs,
+      lifecycleId: activationReceipt.lifecycle_id,
+      transcriptDigestB64u: base64UrlEncode(
+        Uint8Array.from(activationReceipt.transcript_digest.bytes),
+      ),
+      activationDigestB64u: activation.activation_digest_b64u,
+      activatedAtMs: activation.activated_at_ms,
     },
   });
   return {
@@ -1444,12 +1474,14 @@ async function initializeEcdsaDerivationOperationWasm(
       await initializeEcdsaDerivationClientWasm();
       return;
     case EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRegistrationClientProofs:
-    case EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRegistrationActivation:
       // Proof opening stays with the ceremony WASM; role-local bootstrap belongs to registration.
       await Promise.all([
         initializeEcdsaDerivationClientWasm(),
         initializeEcdsaRegistrationClientWasm(),
       ]);
+      return;
+    case EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRegistrationActivation:
+      await initializeEcdsaRegistrationClientWasm();
       return;
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaPostRegistrationCeremony:

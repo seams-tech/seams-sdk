@@ -1,5 +1,10 @@
 import { isObject } from '@shared/utils/validation';
-import { parseCorrelationId, type CorrelationId } from '@shared/utils/canonicalPrimitives';
+import {
+  parseCorrelationId,
+  parseDigestB64u,
+  parseIsoTimestamp,
+  type CorrelationId,
+} from '@shared/utils/canonicalPrimitives';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import type {
   CreateRegistrationFlowEventInput,
@@ -53,12 +58,23 @@ import {
   parseNearEd25519SigningKeyId,
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
-import { base64UrlDecode } from '@shared/utils/base64';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
+  toParticipantId,
   toEvmFamilyEcdsaKeyHandle,
   toRpId,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  parseEcdsaClientVerifyingPublicKey33B64u,
+  parseEcdsaRelayerKeyId,
+  parseEcdsaRoleLocalBindingDigest,
+  parseEcdsaThresholdKeyId,
+} from '@/core/signingEngine/session/keyMaterialBrands';
+import {
+  parseSdkEcdsaDerivationSigningRootId,
+  parseSdkEcdsaDerivationSigningRootVersion,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import {
   buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
@@ -76,6 +92,8 @@ import {
   cancelWalletRegistrationIntent,
   activateWalletAddSignerEcdsa,
   activateWalletRegistrationEcdsa,
+  canonicalWalletAddSignerEcdsaActivationCommitRequest,
+  canonicalWalletRegistrationEcdsaActivationCommitRequest,
   createWalletAddSignerIntent,
   createWalletRegistrationIntent,
   finalizeWalletAddSigner,
@@ -127,8 +145,11 @@ import {
   type ThresholdEcdsaEmailOtpAuthContext,
 } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
+  buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
   type WalletAuthAuthority,
+  type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { registerVerifiedPasskeyEd25519YaoV1 } from '@/core/signingEngine/flows/registration/services/passkeyEd25519YaoRegistration';
 import { registerVerifiedPasskeyEd25519YaoAddSignerV1 } from '@/core/signingEngine/flows/registration/services/passkeyEd25519YaoAddSigner';
@@ -2534,47 +2555,90 @@ async function forwardStrictEcdsaFamilyRegistration(args: {
   }
 }
 
-async function activateStrictEcdsaFamilyRegistration(args: {
+async function prepareStrictEcdsaFamilyActivation(args: {
   relayerUrl: string;
   route: StrictEcdsaFamilyCeremonyRoute;
   activationCorrelationId: CorrelationId;
   publicFacts: Parameters<typeof activateWalletRegistrationEcdsa>[0]['publicFacts'];
 }) {
   switch (args.route.kind) {
-    case 'registration': {
-      const prepared = await prepareWalletRegistrationEcdsaActivation({
-        relayerUrl: args.relayerUrl,
-        headers: registrationRouteHeaders(),
-        registrationCeremonyId: args.route.registrationCeremonyId,
-        activationCorrelationId: args.activationCorrelationId,
-        publicFacts: args.publicFacts,
+    case 'registration':
+      return (
+        await prepareWalletRegistrationEcdsaActivation({
+          relayerUrl: args.relayerUrl,
+          headers: registrationRouteHeaders(),
+          registrationCeremonyId: args.route.registrationCeremonyId,
+          activationCorrelationId: args.activationCorrelationId,
+          publicFacts: args.publicFacts,
+        })
+      ).ecdsa.preparation;
+    case 'add_signer':
+      return (
+        await prepareWalletAddSignerEcdsaActivation({
+          relayerUrl: args.relayerUrl,
+          walletId: args.route.walletId,
+          addSignerCeremonyId: args.route.addSignerCeremonyId,
+          activationCorrelationId: args.activationCorrelationId,
+          publicFacts: args.publicFacts,
+        })
+      ).ecdsa.preparation;
+    default:
+      return assertNever(args.route);
+  }
+}
+
+type StrictEcdsaActivationCommitInput = {
+  route: StrictEcdsaFamilyCeremonyRoute;
+  activationCorrelationId: CorrelationId;
+  publicFacts: Parameters<typeof activateWalletRegistrationEcdsa>[0]['publicFacts'];
+  expectedActivationRequestDigest: Parameters<
+    typeof activateWalletRegistrationEcdsa
+  >[0]['expectedActivationRequestDigest'];
+};
+
+function canonicalStrictEcdsaFamilyActivationRequest(input: StrictEcdsaActivationCommitInput) {
+  switch (input.route.kind) {
+    case 'registration':
+      return canonicalWalletRegistrationEcdsaActivationCommitRequest({
+        registrationCeremonyId: input.route.registrationCeremonyId,
+        activationCorrelationId: input.activationCorrelationId,
+        publicFacts: input.publicFacts,
+        expectedActivationRequestDigest: input.expectedActivationRequestDigest,
       });
+    case 'add_signer':
+      return canonicalWalletAddSignerEcdsaActivationCommitRequest({
+        addSignerCeremonyId: input.route.addSignerCeremonyId,
+        activationCorrelationId: input.activationCorrelationId,
+        publicFacts: input.publicFacts,
+        expectedActivationRequestDigest: input.expectedActivationRequestDigest,
+      });
+    default:
+      return assertNever(input.route);
+  }
+}
+
+async function activateStrictEcdsaFamilyRegistration(
+  args: StrictEcdsaActivationCommitInput & { relayerUrl: string },
+) {
+  switch (args.route.kind) {
+    case 'registration':
       return await activateWalletRegistrationEcdsa({
         relayerUrl: args.relayerUrl,
         headers: registrationRouteHeaders(),
         registrationCeremonyId: args.route.registrationCeremonyId,
         activationCorrelationId: args.activationCorrelationId,
         publicFacts: args.publicFacts,
-        expectedActivationRequestDigest: prepared.ecdsa.preparation.activation_request_digest,
+        expectedActivationRequestDigest: args.expectedActivationRequestDigest,
       });
-    }
-    case 'add_signer': {
-      const prepared = await prepareWalletAddSignerEcdsaActivation({
-        relayerUrl: args.relayerUrl,
-        walletId: args.route.walletId,
-        addSignerCeremonyId: args.route.addSignerCeremonyId,
-        activationCorrelationId: args.activationCorrelationId,
-        publicFacts: args.publicFacts,
-      });
+    case 'add_signer':
       return await activateWalletAddSignerEcdsa({
         relayerUrl: args.relayerUrl,
         walletId: args.route.walletId,
         addSignerCeremonyId: args.route.addSignerCeremonyId,
         activationCorrelationId: args.activationCorrelationId,
         publicFacts: args.publicFacts,
-        expectedActivationRequestDigest: prepared.ecdsa.preparation.activation_request_digest,
+        expectedActivationRequestDigest: args.expectedActivationRequestDigest,
       });
-    }
     default:
       return assertNever(args.route);
   }
@@ -2585,6 +2649,7 @@ async function runStrictEcdsaFamilyCeremony(args: {
   relayerUrl: string;
   route: StrictEcdsaFamilyCeremonyRoute;
   started: WalletRegistrationEcdsaPreparePayload;
+  authority: WalletAuthAuthorityRef;
 }): Promise<RegistrationEcdsaSession> {
   const [firstChainTarget, ...remainingChainTargets] = args.started.chainTargets;
   if (!firstChainTarget) {
@@ -2611,16 +2676,62 @@ async function runStrictEcdsaFamilyCeremony(args: {
         bundles: forwarded.ecdsa.strictResult.response.bundles,
       },
     });
-    const activated = await activateStrictEcdsaFamilyRegistration({
+    const activationPreparation = await prepareStrictEcdsaFamilyActivation({
       relayerUrl: args.relayerUrl,
       route: args.route,
       activationCorrelationId,
       publicFacts: verified.publicFacts,
     });
+    const expectedActivationRequestDigest = activationPreparation.activation_request_digest;
+    const canonicalRequest = canonicalStrictEcdsaFamilyActivationRequest({
+      route: args.route,
+      activationCorrelationId,
+      publicFacts: verified.publicFacts,
+      expectedActivationRequestDigest,
+    });
+    const persisted = await args.context.signingEngine.persistInitialCanonicalEcdsaActivation({
+      kind: 'persist_initial_canonical_ecdsa_activation_v1',
+      ceremonyId,
+      planInput: {
+        authority: args.authority,
+        targetMemberships: [firstChainTarget, ...remainingChainTargets],
+        ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(args.started.prepare.ecdsaThresholdKeyId),
+        signingRootId: parseSdkEcdsaDerivationSigningRootId(args.started.prepare.signingRootId),
+        signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(
+          args.started.prepare.signingRootVersion,
+        ),
+        clientVerifyingPublicKey33B64u: parseEcdsaClientVerifyingPublicKey33B64u(
+          verified.publicFacts.derivationClientSharePublicKey33B64u,
+        ),
+        participantIds: [
+          toParticipantId(args.started.prepare.participantIds[0]),
+          toParticipantId(args.started.prepare.participantIds[1]),
+        ],
+        relayerKeyId: parseEcdsaRelayerKeyId(args.started.prepare.relayerKeyId),
+        bindingDigest: parseEcdsaRoleLocalBindingDigest(verified.publicFacts.contextBinding32B64u),
+        journalId: activationCorrelationId,
+        requestDigest: parseDigestB64u(
+          base64UrlEncode(Uint8Array.from(expectedActivationRequestDigest.bytes)),
+        ),
+        canonicalRequest,
+        createdAt: parseIsoTimestamp(new Date().toISOString()),
+      },
+    });
+    if (!persisted.ok) {
+      throw new Error(
+        `Canonical ECDSA activation persistence failed (${persisted.code}): ${persisted.message}`,
+      );
+    }
+    const activated = await activateStrictEcdsaFamilyRegistration({
+      relayerUrl: args.relayerUrl,
+      route: args.route,
+      activationCorrelationId,
+      publicFacts: verified.publicFacts,
+      expectedActivationRequestDigest,
+    });
     const finalized = await args.context.signingEngine.finalizeRouterAbEcdsaRegistrationActivation({
       kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
-      ceremonyId,
-      relayerKeyId: args.started.prepare.relayerKeyId,
+      journalId: persisted.journalId,
       activationReceipt: activated.ecdsa.activation,
     });
     const clientBootstrap = buildStrictRegistrationClientBootstrap({
@@ -3622,6 +3733,28 @@ async function registerEcdsaOrMixedWallet(
       }
     }
     const startedEcdsa = started.ecdsa;
+    let ecdsaAuthority: WalletAuthAuthorityRef;
+    if (args.authMethod.kind === 'passkey') {
+      if (!passkeyAuthority) {
+        throw new Error('Passkey ECDSA registration is missing its verified authority');
+      }
+      ecdsaAuthority = await walletAuthAuthorityRef({
+        authority: passkeyWalletAuthAuthorityFromCredential({
+          walletId,
+          rpId: requireWebAuthnRpId(context.signingEngine.getRpId()),
+          credential: passkeyAuthority.credential,
+        }),
+      });
+    } else {
+      ecdsaAuthority = await walletAuthAuthorityRef({
+        authority: buildEmailOtpWalletAuthAuthority({
+          walletId,
+          provider: 'google',
+          providerUserId: emailOtpProviderSubject,
+          emailHashHex: await emailOtpEmailHashHex(emailOtpEmail),
+        }),
+      });
+    }
     const ecdsaSession = await registrationTiming.measure(
       'walletRegisterDerivationRespondMs',
       runStrictEcdsaFamilyCeremony.bind(undefined, {
@@ -3632,6 +3765,7 @@ async function registerEcdsaOrMixedWallet(
           registrationCeremonyId: startedCeremony.registrationCeremonyId,
         },
         started: startedEcdsa,
+        authority: ecdsaAuthority,
       }),
     );
     const emailOtpEnrollmentMaterialForFinalize =
@@ -4959,6 +5093,13 @@ async function addPasskeyEcdsaWalletSigner(
     started: Extract<WalletAddSignerStartResponse, { kind: 'evm_family_ecdsa' }>;
   },
 ): Promise<RegistrationResult> {
+  const authority = await walletAuthAuthorityRef({
+    authority: passkeyWalletAuthAuthorityFromCredential({
+      walletId: input.walletId,
+      rpId: input.rpId,
+      credential: input.credential,
+    }),
+  });
   const session = await runStrictEcdsaFamilyCeremony({
     context: input.context,
     relayerUrl: input.relayerUrl,
@@ -4968,6 +5109,7 @@ async function addPasskeyEcdsaWalletSigner(
       addSignerCeremonyId: input.started.addSignerCeremonyId,
     },
     started: input.started.ecdsa,
+    authority,
   });
   const finalized = await finalizeWalletAddSigner({
     relayerUrl: input.relayerUrl,
