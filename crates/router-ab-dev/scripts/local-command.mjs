@@ -22,13 +22,7 @@ switch (command) {
     cargoRun('router_ab_local_smoke', args);
     break;
   case 'yao-smoke':
-    runYaoSmoke('profile_completes_the_local_ed25519_yao_lifecycle', false);
-    break;
-  case 'yao-smoke-one-account':
-    runYaoSmoke('one_account_profile_completes_the_local_ed25519_yao_lifecycle', true);
-    break;
-  case 'yao-smoke-two-administrator':
-    runYaoSmoke('two_administrator_profile_completes_the_local_ed25519_yao_lifecycle', true);
+    runYaoSmoke('product_topology_completes_local_ed25519_yao_registration');
     break;
   case 'release-evidence':
     cargoBuild('router_ab_local_release_evidence');
@@ -58,7 +52,7 @@ function cargoBuild(...bins) {
   ]);
 }
 
-function runYaoSmoke(testName, exact) {
+function runYaoSmoke(testName) {
   run('cargo', [
     'test',
     '--offline',
@@ -68,7 +62,7 @@ function runYaoSmoke(testName, exact) {
     'local_worker_http',
     testName,
     '--',
-    ...(exact ? ['--exact'] : []),
+    '--exact',
     '--nocapture',
   ]);
 }
@@ -99,11 +93,7 @@ Commands:
   router:init             materialize local env and seed data
   router:up               start detached private local workers
   router:check            smoke-test the running SDK Router and private workers
-  router:yao-smoke        run the complete lifecycle in both fixed local Yao layouts
-  router:yao-smoke-one-account
-                          run the fixed one-account development layout
-  router:yao-smoke-two-administrator
-                          run the fixed split-root development layout
+  router:yao-smoke        run registration through the product Router/role topology
   router:down             stop detached local workers
   router:evidence         run local protocol timing evidence
   router:seed:sqlite      seed local SQLite state`);
