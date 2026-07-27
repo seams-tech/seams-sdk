@@ -93,13 +93,34 @@ Does not buy:
   created for every registration, including users who never use NEAR. Only
   Phase 11 removes that.
 
-Undetermined:
+Also buys, resolved 2026-07-28 on staging:
 
-- **Latency.** Locally, approximately zero — Yao already finishes before
-  finalize. In production the Yao interval is under investigation at 2,348 ms;
-  if that is real and on the critical path, detaching the join converts
-  directly into saved wall time. Phase 2 settles this on both sides before
-  Phases 3–8 are justified on latency grounds.
+- **Latency, ~1.07 s on a warm registration.** See below. The earlier "removing
+  Yao saves approximately zero" finding held only for local workerd, which
+  collapses the network boundaries that dominate a deployed environment.
+
+### Staging evidence (Email OTP, 2 runs)
+
+| Measure            | Run 1 (cold) |         Run 2 (warm) |
+| ------------------ | -----------: | -------------------: |
+| Total              |     6,350 ms |         **3,439 ms** |
+| ECDSA total        |  5,154 ms    |          1,097 ms    |
+| ECDSA ends at      |     5,783 ms |          **1,776 ms** |
+| Yao total          |     4,089 ms |          2,171 ms    |
+| Yao ends at        |     4,718 ms |          **2,850 ms** |
+| Finalize starts at |     5,783 ms |          **2,850 ms** |
+
+The branches invert. Cold, ECDSA determines finalization. **Warm, Yao does**:
+finalize begins exactly when Yao ends, 1,074 ms after ECDSA already finished.
+Detaching the join takes the warm run from 3,439 ms to roughly 2,365 ms — a 31%
+reduction that lands inside the 2–3 s target.
+
+The warm run is the case to design against; cold-start variance dwarfs
+everything else (Gateway respond/activate went 2,508/2,514 ms cold to
+915/165 ms warm), so no single sample is decisive on its own.
+
+Caveats on this evidence: n=2, one environment, Email OTP only. Passkey has not
+been measured on staging.
 
 No phase in this document may be justified by a latency claim that has not been
 measured on the environment it claims to improve.
