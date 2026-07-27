@@ -12,6 +12,7 @@ import { secureRandomId } from '@shared/utils/secureRandomId';
 import { WorkerControlMessage } from '../workerTypes';
 
 type Shamir3PassWorkerRequest =
+  | { id: string; type: 'warmup'; payload?: never }
   | { id: string; type: 'createClientKeyHandle'; payload: { shamirPrimeB64u: unknown } }
   | { id: string; type: 'destroyClientKeyHandle'; payload: { keyHandle: unknown } }
   | {
@@ -149,6 +150,12 @@ self.addEventListener('message', async (event: MessageEvent) => {
   try {
     await ensureWasm();
     switch (msg.type) {
+      // Prewarm: ensureWasm() above already did the work (worker spawn + 422KB
+      // WASM instantiate). Responding proves the runtime is ready.
+      case 'warmup': {
+        postToMainThread({ id: msg.id, ok: true, result: { ready: true } });
+        return;
+      }
       case 'createClientKeyHandle': {
         const shamirPrimeB64u = asNonEmptyString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u');
         const result = shamir3pass_generate_client_lock_keys(shamirPrimeB64u) as {
