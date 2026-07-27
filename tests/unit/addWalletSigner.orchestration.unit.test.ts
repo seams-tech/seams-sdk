@@ -1293,14 +1293,24 @@ function createContext(captures: Record<string, unknown>): any {
           participantId: 1,
         },
       }),
+      persistInitialCanonicalEcdsaActivation: async (args: Record<string, any>) => {
+        captures.initialCanonicalEcdsaActivation = args;
+        return {
+          ok: true,
+          kind: 'initial_canonical_ecdsa_activation_persisted_v1',
+          ceremonyId: args.ceremonyId,
+          journalId: args.planInput.journalId,
+        };
+      },
       finalizeRouterAbEcdsaRegistrationActivation: async (args: Record<string, any>) => {
+        captures.finalizeCanonicalEcdsaActivation = args;
         const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
         const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
           mockedEcdsaPublicCapability(ecdsaFacts),
         );
         return {
           kind: 'router_ab_ecdsa_registration_activation_finalized_v1',
-          ceremonyId: args.ceremonyId,
+          journalId: args.journalId,
           roleLocalMaterial: {
             kind: 'ecdsa_role_local_worker_handle_v1',
             materialHandle: parseEcdsaRoleLocalMaterialHandle(
@@ -1828,6 +1838,21 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
       ecdsa: {
         expectedActivationRequestDigest: { bytes: new Array<number>(32).fill(1) },
       },
+    });
+    expect(captures.initialCanonicalEcdsaActivation).toMatchObject({
+      ceremonyId: 'registration-ceremony',
+      planInput: {
+        authority: {
+          kind: 'wallet_auth_authority_ref',
+          walletId: WALLET_SUBJECT_ID,
+          authorityDigest: expect.any(String),
+        },
+        targetMemberships: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
+        journalId: 'registration-ceremony',
+      },
+    });
+    expect(captures.finalizeCanonicalEcdsaActivation).toMatchObject({
+      journalId: 'registration-ceremony',
     });
     expect(captures.finalizeBody).toMatchObject({
       ecdsa: {
@@ -2838,6 +2863,21 @@ test('addWalletSigner orchestrates later ECDSA from an Ed25519 wallet', async ()
       ecdsa: {
         expectedActivationRequestDigest: { bytes: new Array<number>(32).fill(1) },
       },
+    });
+    expect(captures.initialCanonicalEcdsaActivation).toMatchObject({
+      ceremonyId: 'add-signer-ceremony',
+      planInput: {
+        authority: {
+          kind: 'wallet_auth_authority_ref',
+          walletId: WALLET_SUBJECT_ID,
+          authorityDigest: expect.any(String),
+        },
+        targetMemberships: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
+        journalId: 'add-signer-ceremony',
+      },
+    });
+    expect(captures.finalizeCanonicalEcdsaActivation).toMatchObject({
+      journalId: 'add-signer-ceremony',
     });
     expect(captures.finalizeBody).toMatchObject({
       kind: 'evm_family_ecdsa',

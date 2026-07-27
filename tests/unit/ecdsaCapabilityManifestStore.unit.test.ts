@@ -624,6 +624,7 @@ test.describe('canonical ECDSA capability manifest store', () => {
         ) {
           throw new Error(`server commit failed: ${committedWrite.kind}`);
         }
+        const committedOpen = await store.openPreparedActivation(committedWrite.journal.journalId);
         const beforeFinalize = await store.readActivationJournal(preparedWrite.journal.journalId);
         const finalization = await store.sealAndFinalizeActivation({
           committedJournal: committedWrite.journal,
@@ -634,24 +635,25 @@ test.describe('canonical ECDSA capability manifest store', () => {
           capability: fixture.prepareInput.activationBinding.signer.capability,
           authority: fixture.prepareInput.activationBinding.signer.authority,
         });
-        const legacyMarker = await new Promise<string | null>((resolve, reject) => {
+        const openedByMaterialRef = await store.openActiveMaterialByRef({
+          kind: 'ecdsa_role_local_persisted_material_ref_v1',
+          durableMaterialRef:
+            fixture.prepareInput.activationBinding.durableMaterialRef,
+          bindingDigest: fixture.prepareInput.activationBinding.bindingDigest,
+        });
+        const mismatchedMaterialRef = await store.openActiveMaterialByRef({
+          kind: 'ecdsa_role_local_persisted_material_ref_v1',
+          durableMaterialRef:
+            fixture.prepareInput.activationBinding.durableMaterialRef,
+          bindingDigest: 'different-binding-digest',
+        });
+        const legacyStorePresent = await new Promise<boolean>((resolve, reject) => {
           const request = indexedDB.open('seams_wallet');
           request.onsuccess = () => {
             const db = request.result;
-            const transaction = db.transaction('ecdsa_role_local_active_material', 'readonly');
-            const get = transaction
-              .objectStore('ecdsa_role_local_active_material')
-              .get('pre-v10-material');
-            get.onsuccess = () => {
-              const marker =
-                get.result && typeof get.result.marker === 'string' ? get.result.marker : null;
-              db.close();
-              resolve(marker);
-            };
-            get.onerror = () => {
-              db.close();
-              reject(get.error);
-            };
+            const present = db.objectStoreNames.contains('ecdsa_role_local_active_material');
+            db.close();
+            resolve(present);
           };
           request.onerror = () => reject(request.error);
         });
@@ -661,12 +663,21 @@ test.describe('canonical ECDSA capability manifest store', () => {
           beforeCommitOpenKind: beforeCommitOpen.kind,
           pendingPayloadB64u:
             beforeCommitOpen.kind === 'found' ? beforeCommitOpen.pendingPayloadB64u : null,
+          committedOpenKind: committedOpen.kind,
+          committedPendingPayloadB64u:
+            committedOpen.kind === 'found' ? committedOpen.pendingPayloadB64u : null,
           beforeFinalizeKind: beforeFinalize.kind,
           finalizationKind: finalization.kind,
           afterFinalizeKind: afterFinalize.kind,
           openKind: opened.kind,
           readyStateBlobB64u: opened.kind === 'active' ? opened.readyStateBlobB64u : null,
-          legacyMarker,
+          openByMaterialRefKind: openedByMaterialRef.kind,
+          materialRefStateBlobB64u:
+            openedByMaterialRef.kind === 'active'
+              ? openedByMaterialRef.readyStateBlobB64u
+              : null,
+          mismatchedMaterialRefKind: mismatchedMaterialRef.kind,
+          legacyStorePresent,
         };
       },
       {
@@ -680,12 +691,17 @@ test.describe('canonical ECDSA capability manifest store', () => {
       committedWriteKind: 'stored',
       beforeCommitOpenKind: 'found',
       pendingPayloadB64u: fixture.prepareInput.pendingPayloadB64u,
+      committedOpenKind: 'found',
+      committedPendingPayloadB64u: fixture.prepareInput.pendingPayloadB64u,
       beforeFinalizeKind: 'found',
       finalizationKind: 'committed',
       afterFinalizeKind: 'missing',
       openKind: 'active',
       readyStateBlobB64u: fixture.sealInput.readyStateBlobB64u,
-      legacyMarker: 'preserved',
+      openByMaterialRefKind: 'active',
+      materialRefStateBlobB64u: fixture.sealInput.readyStateBlobB64u,
+      mismatchedMaterialRefKind: 'binding_mismatch',
+      legacyStorePresent: false,
     });
   });
 

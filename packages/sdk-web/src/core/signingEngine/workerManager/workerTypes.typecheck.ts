@@ -29,7 +29,12 @@ import type {
   InitialEcdsaCapabilityActivationPlan,
   InitialEcdsaCapabilityActivationPlanInput,
 } from '../session/material/initialEcdsaCapabilityActivation';
-import type { PersistInitialCanonicalEcdsaActivationRequestV1 } from '../routerAb/ecdsaDerivation/clientCeremony';
+import type {
+  FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
+  PersistInitialCanonicalEcdsaActivationRequestV1,
+} from '../routerAb/ecdsaDerivation/clientCeremony';
+import type { RouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 
 declare const rootShareEpoch: RootShareEpoch;
 declare const chainTarget: ThresholdEcdsaChainTarget;
@@ -41,6 +46,8 @@ declare const incomingMessage: ArrayBuffer;
 declare const emailOtpEd25519YaoSession: WalletRegistrationEd25519YaoBootstrapSession;
 declare const initialEcdsaActivationPlanInput: InitialEcdsaCapabilityActivationPlanInput;
 declare const initialEcdsaActivationPlan: InitialEcdsaCapabilityActivationPlan;
+declare const activationJournalId: CorrelationId;
+declare const activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
 
 const persistInitialCanonicalEcdsaActivationRequest: EcdsaDerivationRoleLocalMaterialOperationRequest<
   typeof EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation
@@ -70,6 +77,31 @@ const persistInitialActivationWithConstructedPlan = {
   planInput: initialEcdsaActivationPlan,
 } satisfies PersistInitialCanonicalEcdsaActivationRequestV1;
 void persistInitialActivationWithConstructedPlan;
+
+const finalizePersistedCanonicalEcdsaActivation = {
+  kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
+  journalId: activationJournalId,
+  activationReceipt,
+} satisfies FinalizeRouterAbEcdsaRegistrationActivationRequestV1;
+void finalizePersistedCanonicalEcdsaActivation;
+
+const finalizeCanonicalEcdsaActivationWithCallerRelayer = {
+  kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
+  journalId: activationJournalId,
+  activationReceipt,
+  // @ts-expect-error Finalization derives relayer identity from the committed journal.
+  relayerKeyId: 'caller-selected-relayer',
+} satisfies FinalizeRouterAbEcdsaRegistrationActivationRequestV1;
+void finalizeCanonicalEcdsaActivationWithCallerRelayer;
+
+const finalizeCanonicalEcdsaActivationWithCeremonyAlias = {
+  kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
+  journalId: activationJournalId,
+  activationReceipt,
+  // @ts-expect-error Canonical finalization accepts only the persisted journal identity.
+  ceremonyId: 'legacy-ceremony-alias',
+} satisfies FinalizeRouterAbEcdsaRegistrationActivationRequestV1;
+void finalizeCanonicalEcdsaActivationWithCeremonyAlias;
 
 const clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1',

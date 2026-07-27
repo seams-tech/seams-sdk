@@ -54,7 +54,9 @@ import {
   parseEcdsaRelayerKeyId,
   parseEcdsaRoleLocalBindingDigest,
   parseEcdsaRoleLocalDurableMaterialRef,
+  parseEcdsaRoleLocalPersistedMaterialRef,
   parseEcdsaThresholdKeyId,
+  type EcdsaRoleLocalPersistedMaterialRef,
 } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
   buildActiveEcdsaCapabilityManifest,
@@ -240,6 +242,18 @@ export type EcdsaActiveMaterialOpenResult =
       readonly readyStateBlobB64u: string;
     }
   | Exclude<EcdsaCapabilityManifestLookup, { readonly kind: 'active' }>;
+
+export type EcdsaActiveMaterialRefOpenResult =
+  | {
+      readonly kind: 'active';
+      readonly manifest: ActiveEcdsaCapabilityManifest;
+      readonly readyStateBlobB64u: string;
+    }
+  | {
+      readonly kind: 'missing' | 'binding_mismatch' | 'corrupt' | 'persistence_unavailable';
+      readonly manifest?: never;
+      readonly readyStateBlobB64u?: never;
+    };
 
 export type EcdsaCapabilityActivationFinalizationResult =
   | {
@@ -1268,13 +1282,59 @@ function parsePointerRow(value: unknown): ParsedPointerRow {
   };
 }
 
-function storedMaterialRow(material: ValidatedEncryptedEcdsaReadyMaterial) {
+function storedMaterialRow(
+  material: ValidatedEncryptedEcdsaReadyMaterial,
+  manifest: ActiveEcdsaCapabilityManifest,
+) {
+  const selector = selectorFromManifest(manifest);
   return {
     record_version: MATERIAL_RECORD_VERSION,
     durable_material_ref: material.binding.durableMaterialRef,
+    binding_digest: material.binding.bindingDigest,
+    capability_ref: selector.capability,
+    wallet_id: selector.authority.walletId,
+    authority_digest: selector.authority.authorityDigest,
     sealing_key_id: material.sealingKeyId,
     iv: material.iv12B64u,
     ciphertext: material.ciphertextB64u,
+  };
+}
+
+type ParsedMaterialLocator = {
+  readonly durableMaterialRef: ReturnType<typeof parseEcdsaRoleLocalDurableMaterialRef>;
+  readonly bindingDigest: ReturnType<typeof parseEcdsaRoleLocalBindingDigest>;
+  readonly selector: EcdsaCapabilitySelector;
+};
+
+function parseMaterialLocator(value: unknown): ParsedMaterialLocator {
+  const record = requireRecord(value, 'ECDSA role-local material row');
+  requireExactKeys(record, 'ECDSA role-local material row', [
+    'record_version',
+    'durable_material_ref',
+    'binding_digest',
+    'capability_ref',
+    'wallet_id',
+    'authority_digest',
+    'sealing_key_id',
+    'iv',
+    'ciphertext',
+  ]);
+  if (record.record_version !== MATERIAL_RECORD_VERSION) {
+    throw new Error('ECDSA role-local material row version is invalid');
+  }
+  const authority = parseWalletAuthAuthorityRef({
+    kind: 'wallet_auth_authority_ref',
+    walletId: record.wallet_id,
+    authorityDigest: record.authority_digest,
+  });
+  if (!authority) throw new Error('ECDSA role-local material authority is invalid');
+  return {
+    durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(record.durable_material_ref),
+    bindingDigest: parseEcdsaRoleLocalBindingDigest(record.binding_digest),
+    selector: {
+      capability: unwrapDomainId(parseCapabilityInstanceRef(record.capability_ref)),
+      authority,
+    },
   };
 }
 
@@ -1283,16 +1343,7 @@ function parseMaterialRow(
   activeProof: ParsedActiveManifestProof,
 ): ValidatedEncryptedEcdsaReadyMaterial {
   const record = requireRecord(value, 'ECDSA role-local material row');
-  requireExactKeys(record, 'ECDSA role-local material row', [
-    'record_version',
-    'durable_material_ref',
-    'sealing_key_id',
-    'iv',
-    'ciphertext',
-  ]);
-  if (record.record_version !== MATERIAL_RECORD_VERSION) {
-    throw new Error('ECDSA role-local material row version is invalid');
-  }
+  const locator = parseMaterialLocator(record);
   const material = buildValidatedEncryptedEcdsaReadyMaterial({
     binding: activeProof.durableMaterial,
     sealingKeyId: parseEcdsaMaterialSealingKeyId(record.sealing_key_id),
@@ -1300,8 +1351,9 @@ function parseMaterialRow(
     ciphertextB64u: parseEcdsaCiphertextB64u(record.ciphertext),
   });
   if (
-    parseEcdsaRoleLocalDurableMaterialRef(record.durable_material_ref) !==
-    material.binding.durableMaterialRef
+    locator.durableMaterialRef !== material.binding.durableMaterialRef ||
+    locator.bindingDigest !== material.binding.bindingDigest ||
+    !selectorsMatch(locator.selector, selectorFromManifest(activeProof.activeManifest))
   ) {
     throw new Error('ECDSA role-local material row binding is inconsistent');
   }
@@ -1890,6 +1942,62 @@ export class IndexedDbEcdsaCapabilityManifestStore {
     }
   }
 
+  async openActiveMaterialByRef(
+    materialRefInput: EcdsaRoleLocalPersistedMaterialRef,
+  ): Promise<EcdsaActiveMaterialRefOpenResult> {
+    let materialRef: EcdsaRoleLocalPersistedMaterialRef;
+    try {
+      materialRef = parseEcdsaRoleLocalPersistedMaterialRef(materialRefInput);
+    } catch {
+      return { kind: 'corrupt' };
+    }
+    let raw: unknown;
+    try {
+      raw = await this.manager.runTransaction(
+        [MATERIAL_STORE],
+        'readonly',
+        async (context) => await context.store(MATERIAL_STORE).get(materialRef.durableMaterialRef),
+      );
+    } catch {
+      return { kind: 'persistence_unavailable' };
+    }
+    if (raw === undefined) return { kind: 'missing' };
+    let locator: ParsedMaterialLocator;
+    try {
+      locator = parseMaterialLocator(raw);
+    } catch {
+      return { kind: 'corrupt' };
+    }
+    if (
+      locator.durableMaterialRef !== materialRef.durableMaterialRef ||
+      locator.bindingDigest !== materialRef.bindingDigest
+    ) {
+      return { kind: 'binding_mismatch' };
+    }
+    const opened = await this.openActiveMaterial(locator.selector);
+    switch (opened.kind) {
+      case 'active':
+        if (
+          opened.manifest.durableMaterial.durableMaterialRef !== materialRef.durableMaterialRef ||
+          opened.manifest.durableMaterial.bindingDigest !== materialRef.bindingDigest
+        ) {
+          return { kind: 'binding_mismatch' };
+        }
+        return opened;
+      case 'missing':
+      case 'retired':
+        return { kind: 'missing' };
+      case 'exact_binding_mismatch':
+        return { kind: 'binding_mismatch' };
+      case 'exact_record_conflict':
+      case 'corrupt':
+        return { kind: 'corrupt' };
+      case 'persistence_unavailable':
+        return { kind: 'persistence_unavailable' };
+    }
+    return assertNever(opened);
+  }
+
   async sealAndFinalizeActivation(
     input: SealEcdsaCapabilityActivationInput,
   ): Promise<EcdsaCapabilityActivationFinalizationResult> {
@@ -2360,7 +2468,7 @@ async function finalizeInTransaction(
     await materialStore.delete(previousProof.durableMaterial.durableMaterialRef);
     await context.store(SEALING_KEY_STORE).delete(previousSealingKeyId);
   }
-  await materialStore.add(storedMaterialRow(input.readyMaterial));
+  await materialStore.add(storedMaterialRow(input.readyMaterial, activeProof.activeManifest));
   await manifestStore.add(storedActiveManifestRow(activeProof));
   await pointerStore.put(storedPointerRow(activeProof.activeManifest));
   await journalStore.delete(input.committedJournal.journalId);

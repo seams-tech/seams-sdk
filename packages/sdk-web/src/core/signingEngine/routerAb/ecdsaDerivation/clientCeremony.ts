@@ -12,6 +12,7 @@ import type {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { EcdsaRoleLocalWorkerHandle } from '@/core/signingEngine/session/keyMaterialBrands';
 import type { InitialEcdsaCapabilityActivationPlanInput } from '@/core/signingEngine/session/material/initialEcdsaCapabilityActivation';
+import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 
 export type CreateRouterAbEcdsaRegistrationCeremonyRequestV1 = {
   readonly kind: 'create_router_ab_ecdsa_registration_ceremony_v1';
@@ -72,14 +73,13 @@ export type PersistInitialCanonicalEcdsaActivationResultV1 =
 
 export type FinalizeRouterAbEcdsaRegistrationActivationRequestV1 = {
   readonly kind: 'finalize_router_ab_ecdsa_registration_activation_v1';
-  readonly ceremonyId: string;
-  readonly relayerKeyId: string;
+  readonly journalId: CorrelationId;
   readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
 };
 
 export type FinalizeRouterAbEcdsaRegistrationActivationResultV1 = {
   readonly kind: 'router_ab_ecdsa_registration_activation_finalized_v1';
-  readonly ceremonyId: string;
+  readonly journalId: CorrelationId;
   readonly roleLocalMaterial: EcdsaRoleLocalWorkerHandle;
   readonly publicFacts: WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapResult['publicFacts'];
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
