@@ -1035,6 +1035,16 @@ function strictEcdsaExportAuthority(input: {
   ) {
     return null;
   }
+  // The authenticated reusable Wallet Session is the attested authority. The
+  // router additionally rejects any request whose own authorization branch
+  // names a different session, so a step-up-authorized export cannot be
+  // presented on a reusable-session route.
+  if (
+    input.request.authorization.kind !== 'reusable_wallet_session' ||
+    input.request.authorization.wallet_session_id !== claims.walletSessionId
+  ) {
+    return null;
+  }
   const scope = claims.routerAbEcdsaDerivationNormalSigning.scope;
   if (
     scope.wallet_id !== input.request.lifecycle.account_id ||
@@ -1055,7 +1065,10 @@ function strictEcdsaExportAuthority(input: {
     accountId: input.authorization.authority.accountId,
     expiresAtMs: input.authorization.authority.expiresAtMs,
     keyHandle: claims.keyHandle,
-    signingGrantId: claims.signingGrantId,
+    authorization: {
+      kind: 'reusable_wallet_session',
+      wallet_session_id: claims.walletSessionId,
+    },
     normalSigningScope: scope,
   };
 }

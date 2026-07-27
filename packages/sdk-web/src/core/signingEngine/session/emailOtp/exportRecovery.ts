@@ -15,7 +15,8 @@ import {
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type {
-  EcdsaExportLane,
+  EmailOtpEcdsaExportAuthLane,
+  EmailOtpEcdsaExportSessionRecord,
   EmailOtpEcdsaPublicReauthExportAuthority,
 } from '../../flows/recovery/ecdsaExportMaterial';
 import {
@@ -89,24 +90,31 @@ function requireProvidedEmailOtpSigningSessionAuthLane(args: {
   return authLane;
 }
 
-function assertEmailOtpEcdsaExportCommittedLaneMatchesRecord(args: {
-  committedLane: EcdsaExportLane<EmailOtpWalletAuthAuthority>;
+// The export operation is authorized by the discriminated branch and bound to
+// the exact material activation. The record supplies transport only, so the
+// check is that the route auth was derived from this very record's material.
+function requireEmailOtpEcdsaExportRuntimePolicyScope(
+  record: EmailOtpEcdsaExportSessionRecord,
+): ThresholdRuntimePolicyScope {
+  const scope = record.runtimePolicyScope;
+  if (!scope) {
+    throw new Error('Email OTP ECDSA export requires runtime policy scope');
+  }
+  return scope;
+}
+
+function assertEmailOtpEcdsaExportAuthorizationMatchesRecord(args: {
+  record: EmailOtpEcdsaExportSessionRecord;
+  authLane: EmailOtpEcdsaExportAuthLane;
+  materialActivationId: string;
 }): void {
-  const record = args.committedLane.record;
-  const authority = args.committedLane.walletSessionAuthority;
-  if (
-    authority.thresholdSessionId !== record.thresholdSessionId ||
-    authority.signingGrantId !== record.signingGrantId
-  ) {
+  if (String(args.record.materialActivation.activationId) !== args.materialActivationId) {
     throw new Error(
-      'Email OTP ECDSA export committed lane authority does not match the session record',
+      'Email OTP ECDSA export record does not carry the authorized material activation',
     );
   }
-  if (
-    args.committedLane.authLane.thresholdSessionId !== record.thresholdSessionId ||
-    args.committedLane.authLane.authorizingSigningGrantId !== record.signingGrantId
-  ) {
-    throw new Error('Email OTP ECDSA export auth lane does not match the session record');
+  if (!String(args.authLane.jwt || '').trim()) {
+    throw new Error('Email OTP ECDSA export auth lane is missing route authorization');
   }
 }
 
@@ -318,22 +326,23 @@ export async function exportEcdsaKeyWithAuthorization(
     walletSession: WalletSessionRef;
     challengeId: string;
     otpCode: string;
-    committedLane: EcdsaExportLane<EmailOtpWalletAuthAuthority>;
+    record: EmailOtpEcdsaExportSessionRecord;
+    authLane: EmailOtpEcdsaExportAuthLane;
+    materialActivationId: string;
     prepareEcdsaExportCapability: EmailOtpEcdsaExportLogin;
   },
 ): Promise<EmailOtpEcdsaExportArtifact> {
-  assertEmailOtpEcdsaExportCommittedLaneMatchesRecord({
-    committedLane: args.committedLane,
+  assertEmailOtpEcdsaExportAuthorizationMatchesRecord({
+    record: args.record,
+    authLane: args.authLane,
+    materialActivationId: args.materialActivationId,
   });
-  const record = args.committedLane.record;
-  if (record.source !== 'email_otp' || !record.emailOtpAuthContext) {
+  const record = args.record;
+  if (!record.emailOtpAuthContext) {
     throw new Error('Email OTP ECDSA export requires Email OTP record authority');
   }
-  if (!record.runtimePolicyScope) {
-    throw new Error('Email OTP ECDSA export requires runtime policy scope');
-  }
   const routePlan = ports.buildSigningSessionRoutePlan({
-    authLane: args.committedLane.authLane,
+    authLane: args.authLane,
     operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
   });
   return await exportEcdsaKeyWithFreshLoginAuthorization({
@@ -347,7 +356,7 @@ export async function exportEcdsaKeyWithAuthorization(
     participantIds: record.participantIds.map(Number),
     emailHashHex: emailOtpAuthContextEmailHashHex(record.emailOtpAuthContext),
     providerUserId: emailOtpAuthContextProviderUserId(record.emailOtpAuthContext),
-    runtimePolicyScope: record.runtimePolicyScope,
+    runtimePolicyScope: requireEmailOtpEcdsaExportRuntimePolicyScope(record),
     relayUrl: String(record.relayerUrl || ports.requireRelayUrl()).trim(),
     getSignerWorkerContext: ports.getSignerWorkerContext,
     prepareEcdsaExportCapability: args.prepareEcdsaExportCapability,

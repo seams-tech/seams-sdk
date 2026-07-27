@@ -3,7 +3,8 @@ use router_ab_core::derivation::{PublicDigest32, Role, RootShareEpoch};
 use router_ab_core::protocol::{
     decode_signer_envelope_hpke_payload_v1, role_encrypted_envelope_digest_v1,
     EcdsaThresholdPrfRequestV1, EncryptedPayloadV1, ExpensiveWorkKindV1, LifecycleScopeV1,
-    RoleEncryptedEnvelopeV1, RoleEnvelopeAadV1, RouterAbEcdsaDerivationActivationRefreshRequestV1,
+    NormalSigningAuthorizationV1, RoleEncryptedEnvelopeV1, RoleEnvelopeAadV1,
+    RouterAbEcdsaDerivationActivationRefreshRequestV1,
     RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
     RouterAbEcdsaDerivationExplicitExportRequestV1, RouterAbEcdsaDerivationPublicIdentityV1,
     RouterAbEcdsaDerivationRecoveryRequestV1, RouterAbEcdsaDerivationStableKeyContextV1,
@@ -274,6 +275,9 @@ fn operation(ceremony: EcdsaPostRegistrationCeremonyV1) -> EcdsaPostRegistration
     match ceremony {
         EcdsaPostRegistrationCeremonyV1::ExplicitExport => {
             EcdsaPostRegistrationOperationV1::ExplicitExport {
+                authorization_kind: "reusable_wallet_session".to_owned(),
+                authorization_id: "wallet-session-1".to_owned(),
+                material_activation_id: "material-activation-1".to_owned(),
                 authorization_digest_b64u: b64u(&[0x51; 32]),
                 nonce: "export-nonce-1".to_owned(),
             }
@@ -399,6 +403,11 @@ fn core_request(
                 router_id: common.4,
                 client_id: common.5,
                 client_ephemeral_public_key: common.6,
+                authorization: NormalSigningAuthorizationV1::reusable_wallet_session(
+                    "wallet-session-1",
+                )
+                .expect("core export authorization"),
+                material_activation_id: "material-activation-1".to_owned(),
                 export_authorization_digest_b64u: b64u(&[0x51; 32]),
                 export_nonce: "export-nonce-1".to_owned(),
                 expires_at_ms: common.7,
@@ -596,6 +605,9 @@ fn post_registration_rejects_lifecycle_output_authorization_nonce_epoch_and_reci
             client_id: "client-1".to_owned(),
             recipient: recipient(EcdsaPostRegistrationCeremonyV1::ExplicitExport),
             operation: EcdsaPostRegistrationOperationV1::ExplicitExport {
+                authorization_kind: "reusable_wallet_session".to_owned(),
+                authorization_id: "wallet-session-1".to_owned(),
+                material_activation_id: "material-activation-1".to_owned(),
                 authorization_digest_b64u: b64u(&[0x11; 31]),
                 nonce: "export-nonce-1".to_owned(),
             },
@@ -615,6 +627,9 @@ fn post_registration_rejects_lifecycle_output_authorization_nonce_epoch_and_reci
         client_id: "client-1".to_owned(),
         recipient: recipient(EcdsaPostRegistrationCeremonyV1::ExplicitExport),
         operation: EcdsaPostRegistrationOperationV1::ExplicitExport {
+            authorization_kind: "reusable_wallet_session".to_owned(),
+            authorization_id: "wallet-session-1".to_owned(),
+            material_activation_id: "material-activation-1".to_owned(),
             authorization_digest_b64u: b64u(&[0x51; 32]),
             nonce: String::new(),
         },

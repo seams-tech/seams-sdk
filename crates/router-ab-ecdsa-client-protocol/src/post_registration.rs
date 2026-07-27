@@ -344,6 +344,12 @@ impl EcdsaPostRegistrationRecipientV1 {
 pub enum EcdsaPostRegistrationOperationV1 {
     /// Explicit export authorization.
     ExplicitExport {
+        /// Exact authorization branch label; reusable and step-up identities remain disjoint.
+        authorization_kind: String,
+        /// Exact authorization identifier carried by the authorization branch.
+        authorization_id: String,
+        /// Exact material activation this export binds.
+        material_activation_id: String,
         /// Fresh export authorization digest in unpadded base64url.
         authorization_digest_b64u: String,
         /// Export replay nonce.
@@ -455,6 +461,7 @@ impl EcdsaPostRegistrationHeaderV1 {
         decode_x25519_public_key(input.recipient.public_key())?;
         decode_fixed::<32>(input.operation.authorization_digest_b64u())?;
         validate_recipient_branch(input.lifecycle.ceremony, &input.recipient)?;
+        validate_export_authorization(&input.operation)?;
         validate_refresh_epochs(&input.lifecycle, &input.operation)?;
         Ok(Self { input })
     }
@@ -520,6 +527,17 @@ impl EcdsaPostRegistrationHeaderV1 {
         push_bytes(&mut output, self.input.router_id.as_bytes());
         push_bytes(&mut output, self.input.client_id.as_bytes());
         push_bytes(&mut output, self.input.recipient.public_key().as_bytes());
+        if let EcdsaPostRegistrationOperationV1::ExplicitExport {
+            authorization_kind,
+            authorization_id,
+            material_activation_id,
+            ..
+        } = &self.input.operation
+        {
+            push_bytes(&mut output, authorization_kind.as_bytes());
+            push_bytes(&mut output, authorization_id.as_bytes());
+            push_bytes(&mut output, material_activation_id.as_bytes());
+        }
         push_bytes(
             &mut output,
             self.input.operation.authorization_digest_b64u().as_bytes(),
@@ -771,6 +789,29 @@ fn validate_recipient_branch(
             EcdsaPostRegistrationRecipientV1::SigningWorkerActivation { .. },
         ) => Ok(()),
         _ => Err(EcdsaClientProtocolError::InvalidShape),
+    }
+}
+
+fn validate_export_authorization(
+    operation: &EcdsaPostRegistrationOperationV1,
+) -> Result<(), EcdsaClientProtocolError> {
+    match operation {
+        EcdsaPostRegistrationOperationV1::ExplicitExport {
+            authorization_kind,
+            authorization_id,
+            material_activation_id,
+            ..
+        } => {
+            require_ascii_fields(&[authorization_id, material_activation_id])?;
+            if authorization_kind != "reusable_wallet_session"
+                && authorization_kind != "operation_step_up"
+            {
+                return Err(EcdsaClientProtocolError::InvalidShape);
+            }
+            Ok(())
+        }
+        EcdsaPostRegistrationOperationV1::Recovery { .. }
+        | EcdsaPostRegistrationOperationV1::ActivationRefresh { .. } => Ok(()),
     }
 }
 

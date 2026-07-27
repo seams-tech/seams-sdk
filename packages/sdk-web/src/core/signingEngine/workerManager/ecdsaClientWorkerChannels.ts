@@ -159,7 +159,9 @@ export type FinalizeRouterAbEcdsaExplicitExportRequestV1 = {
   readonly ceremonyId: string;
   readonly clientProofFinalization: RouterAbEcdsaClientProofFinalizationV1;
   readonly signingWorkerExport: RouterAbEcdsaSigningWorkerExportShareEnvelopeV1;
-  readonly signingGrantId: RouterAbEcdsaSigningWorkerExportShareBindingV1['signing_grant_id'];
+  readonly authorizationKind: RouterAbEcdsaSigningWorkerExportShareBindingV1['authorization_kind'];
+  readonly authorizationId: RouterAbEcdsaSigningWorkerExportShareBindingV1['authorization_id'];
+  readonly materialActivationId: RouterAbEcdsaSigningWorkerExportShareBindingV1['material_activation_id'];
   readonly roleLocalMaterial: EcdsaRoleLocalWorkerHandle;
   readonly roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
   readonly publicFacts: EcdsaRoleLocalPublicFacts;

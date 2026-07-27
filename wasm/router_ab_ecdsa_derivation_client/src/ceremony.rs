@@ -121,6 +121,9 @@ impl RouterAbEcdsaClientCeremonyV1 {
                 client_ephemeral_public_key: self.active_keypair()?.public_key().to_owned(),
             },
             EcdsaPostRegistrationOperationV1::ExplicitExport {
+                authorization_kind: input.authorization.kind_label().to_owned(),
+                authorization_id: input.authorization.authorization_id().to_owned(),
+                material_activation_id: input.material_activation_id.clone(),
                 authorization_digest_b64u: input.export_authorization_digest_b64u.clone(),
                 nonce: input.export_nonce.clone(),
             },
@@ -394,11 +397,36 @@ struct PostRegistrationCommonInputV1 {
     deriver_recipient_keys: RecipientKeysInputV1,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum NormalSigningAuthorizationInputV1 {
+    ReusableWalletSession { wallet_session_id: String },
+    OperationStepUp { grant_id: String },
+}
+
+impl NormalSigningAuthorizationInputV1 {
+    fn kind_label(&self) -> &'static str {
+        match self {
+            Self::ReusableWalletSession { .. } => "reusable_wallet_session",
+            Self::OperationStepUp { .. } => "operation_step_up",
+        }
+    }
+
+    fn authorization_id(&self) -> &str {
+        match self {
+            Self::ReusableWalletSession { wallet_session_id } => wallet_session_id,
+            Self::OperationStepUp { grant_id } => grant_id,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ExplicitExportRequestInputV1 {
     #[serde(flatten)]
     common: PostRegistrationCommonInputV1,
+    authorization: NormalSigningAuthorizationInputV1,
+    material_activation_id: String,
     export_authorization_digest_b64u: String,
     export_nonce: String,
 }
@@ -457,6 +485,8 @@ struct ExplicitExportRequestWireV1 {
     router_id: String,
     client_id: String,
     client_ephemeral_public_key: String,
+    authorization: NormalSigningAuthorizationInputV1,
+    material_activation_id: String,
     export_authorization_digest_b64u: String,
     export_nonce: String,
     expires_at_ms: u64,
@@ -613,6 +643,8 @@ fn serialize_export_request(
         router_id: input.common.router_id,
         client_id: input.common.client_id,
         client_ephemeral_public_key: public_key.to_owned(),
+        authorization: input.authorization,
+        material_activation_id: input.material_activation_id,
         export_authorization_digest_b64u: input.export_authorization_digest_b64u,
         export_nonce: input.export_nonce,
         expires_at_ms: input.common.expires_at_ms,
@@ -714,6 +746,7 @@ mod tests {
                     .expect("client ceremony keypair"),
             ),
             registration_binding: None,
+            explicit_export_request_digest: None,
         }
     }
 
@@ -886,6 +919,10 @@ mod tests {
                 "export",
                 "root-epoch-1",
             )),
+            authorization: NormalSigningAuthorizationInputV1::ReusableWalletSession {
+                wallet_session_id: "wallet-session-1".to_owned(),
+            },
+            material_activation_id: "material-activation-1".to_owned(),
             export_authorization_digest_b64u: b64u(&[0x51; 32]),
             export_nonce: "export-nonce-1".to_owned(),
         };
@@ -897,6 +934,12 @@ mod tests {
                 .expect("export request"),
         );
         assert_eq!(export["client_ephemeral_public_key"], client_public_key);
+        assert_eq!(export["authorization"]["kind"], "reusable_wallet_session");
+        assert_eq!(
+            export["authorization"]["wallet_session_id"],
+            "wallet-session-1"
+        );
+        assert_eq!(export["material_activation_id"], "material-activation-1");
 
         let signing_worker_public_key = x25519_public_key([0x81; 32]);
         let refresh_input = ActivationRefreshRequestInputV1 {

@@ -3998,8 +3998,9 @@ impl CloudflareRouterAbEcdsaDerivationRegistrationAdmissionResponseV1 {
 pub struct CloudflareRouterAbEcdsaDerivationExportAuthorityV1 {
     /// Exact key handle selected by the authenticated Wallet Session.
     pub key_handle: String,
-    /// Exact signing grant carried by the authenticated Wallet Session.
-    pub signing_grant_id: String,
+    /// Exact operation authority the route authenticated; reusable and step-up
+    /// identities remain disjoint.
+    pub authorization: NormalSigningAuthorizationV1,
     /// Exact active normal-signing capability carried by the Wallet Session.
     pub normal_signing_scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
 }
@@ -4013,11 +4014,20 @@ impl CloudflareRouterAbEcdsaDerivationExportAuthorityV1 {
         request.validate()?;
         self.normal_signing_scope.validate()?;
         require_non_empty("ECDSA export authority key_handle", &self.key_handle)?;
-        require_non_empty(
-            "ECDSA export authority signing_grant_id",
-            &self.signing_grant_id,
-        )?;
+        self.authorization.validate()?;
+        if request.authorization != self.authorization {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "ECDSA export request authorization does not match the authenticated export authority",
+            ));
+        }
         let scope = &self.normal_signing_scope;
+        if request.material_activation_id != scope.material_activation_id()? {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "ECDSA export request material activation does not match the authenticated capability",
+            ));
+        }
         if scope.wallet_id != request.lifecycle.account_id
             || scope.context != request.context
             || scope.public_identity != request.public_identity
@@ -4089,8 +4099,9 @@ impl CloudflareSigningWorkerEcdsaExportShareRequestV1 {
             ),
             export_authorization_digest_b64u: self.request.export_authorization_digest_b64u.clone(),
             export_nonce: self.request.export_nonce.clone(),
-            threshold_session_id: self.request.lifecycle.session_id.clone(),
-            signing_grant_id: self.export_authority.signing_grant_id.clone(),
+            authorization_kind: self.request.authorization.kind_label().to_owned(),
+            authorization_id: self.request.authorization.authorization_id().to_owned(),
+            material_activation_id: self.request.material_activation_id.clone(),
             lifecycle_id: self.request.lifecycle.lifecycle_id.clone(),
             recipient_identity: self.request.client_id.clone(),
             recipient_public_key: self.request.client_ephemeral_public_key.clone(),
@@ -6512,7 +6523,14 @@ fn cloudflare_router_ed25519_budget_request_digest_v2(
         &[
             ("request_id", scope.request_id.clone()),
             ("account_id", scope.account_id.clone()),
-            ("session_id", scope.session_id.clone()),
+            (
+                "authorization_kind",
+                scope.authorization.kind_label().to_owned(),
+            ),
+            (
+                "authorization_id",
+                scope.authorization.authorization_id().to_owned(),
+            ),
             ("scope_signing_worker_id", scope.signing_worker_id.clone()),
             (
                 "claims_signing_worker_id",

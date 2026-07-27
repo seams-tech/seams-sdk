@@ -10,8 +10,9 @@ import type { WorkerOperationContext } from '../../workerManager/executeWorkerOp
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import {
   ecdsaExportBoundaryChain,
-  type EcdsaExportLane,
   type EcdsaExportSessionStoreDeps,
+  type EmailOtpEcdsaExportAuthLane,
+  type EmailOtpEcdsaExportSessionRecord,
   type ExactEcdsaExportLane,
   type FreshEmailOtpEcdsaExportMaterial,
   type FreshPasskeyEcdsaExportMaterial,
@@ -62,23 +63,13 @@ export type EcdsaExportFlowDeps = {
   emailOtp: {
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
     requestPublicReauthExportChallenge: EmailOtpEcdsaExportAuthorizationDeps['requestPublicReauthExportChallenge'];
-    exportEcdsaKeyWithDurableAuthorization: (args: {
-      walletSession: ReturnType<typeof walletSessionRefFromSession>;
-      chainTarget: ThresholdEcdsaChainTarget;
-      challengeId: string;
-      otpCode: string;
-      publicFacts: FreshEmailOtpEcdsaExportMaterial['publicFacts'];
-      runtimePolicyScope: FreshEmailOtpEcdsaExportMaterial['runtimePolicyScope'];
-      signingSessionAuthority: Extract<
-        FreshEmailOtpEcdsaExportMaterial['authorization'],
-        { kind: 'durable_authority_backed' }
-      >['signingSessionAuthority'];
-    }) => Promise<EcdsaExportArtifact>;
     exportEcdsaKeyWithAuthorization: (args: {
       walletSession: ReturnType<typeof walletSessionRefFromSession>;
       challengeId: string;
       otpCode: string;
-      committedLane: EcdsaExportLane<EmailOtpWalletAuthAuthority>;
+      record: EmailOtpEcdsaExportSessionRecord;
+      authLane: EmailOtpEcdsaExportAuthLane;
+      materialActivationId: string;
     }) => Promise<EcdsaExportArtifact>;
     exportEcdsaKeyWithPublicReauthAuthorization: (args: {
       walletSession: ReturnType<typeof walletSessionRefFromSession>;
@@ -410,17 +401,21 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
   };
 }
 
+function requireEmailOtpEcdsaExportSessionRecordForReady(
+  record: ReadyEcdsaExportMaterial['record'],
+): EmailOtpEcdsaExportSessionRecord {
+  if (record.source === 'email_otp') return record;
+  throw new Error(
+    '[SigningEngine][ecdsa-export] ready Email OTP export requires an Email OTP record with runtimePolicyScope',
+  );
+}
+
 function emailOtpEcdsaExportChallengeAuthority(material: FreshEmailOtpEcdsaExportMaterial) {
   switch (material.authorization.kind) {
-    case 'record_backed':
+    case 'wallet_session_authorized':
       return {
         kind: 'signing_session' as const,
-        authLane: material.authorization.committedLane.authLane,
-      };
-    case 'durable_authority_backed':
-      return {
-        kind: 'signing_session' as const,
-        authLane: material.authorization.signingSessionAuthority.authLane,
+        authLane: material.authorization.authLane,
       };
     case 'public_reauth_authority_backed':
       return { kind: 'public_reauth' as const };
@@ -438,22 +433,16 @@ async function prepareFreshEmailOtpEcdsaExportArtifact(args: {
     walletSessionUserId: args.walletId,
   });
   switch (args.material.authorization.kind) {
-    case 'record_backed':
+    case 'wallet_session_authorized':
       return await args.deps.emailOtp.exportEcdsaKeyWithAuthorization({
         walletSession,
         challengeId: args.authorization.challengeId,
         otpCode: args.authorization.otpCode,
-        committedLane: args.material.authorization.committedLane,
-      });
-    case 'durable_authority_backed':
-      return await args.deps.emailOtp.exportEcdsaKeyWithDurableAuthorization({
-        walletSession,
-        chainTarget: args.material.chainTarget,
-        challengeId: args.authorization.challengeId,
-        otpCode: args.authorization.otpCode,
-        publicFacts: args.material.publicFacts,
-        runtimePolicyScope: args.material.runtimePolicyScope,
-        signingSessionAuthority: args.material.authorization.signingSessionAuthority,
+        record: args.material.authorization.record,
+        authLane: args.material.authorization.authLane,
+        materialActivationId: String(
+          args.material.authorization.record.materialActivation.activationId,
+        ),
       });
     case 'public_reauth_authority_backed':
       return await args.deps.emailOtp.exportEcdsaKeyWithPublicReauthAuthorization({
@@ -573,7 +562,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
   const cachedArtifact = args.material.cachedExportArtifact;
 
   if (args.material.authMethod === 'email_otp') {
-    const committedLane = args.material.committedLane;
+    const readyAuthLane = args.material.authLane;
     const authorization = await requestEmailOtpKeyExportAuthorization(
       {
         touchConfirm: deps.touchConfirm,
@@ -589,7 +578,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
         chain: exportChain,
         publicKey: exportPublicKey,
         curve: 'ecdsa',
-        challengeAuthority: { kind: 'signing_session', authLane: committedLane.authLane },
+        challengeAuthority: { kind: 'signing_session', authLane: readyAuthLane },
       },
     );
     return await prepareAndShowEcdsaExportArtifact(deps, {
@@ -607,12 +596,16 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
           }),
           challengeId: authorization.challengeId,
           otpCode: authorization.otpCode,
-          committedLane,
+          record: requireEmailOtpEcdsaExportSessionRecordForReady(args.material.record),
+          authLane: readyAuthLane,
+          materialActivationId: String(
+            args.material.laneIdentity.signer.materialActivation.activationId,
+          ),
         }),
     });
   }
 
-  const passkeyCommittedLane = args.material.committedLane;
+
   if (cachedArtifact) {
     emitEcdsaMaterialStarted({
       flowId: args.flowId,
@@ -663,7 +656,8 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
         {
           walletSessionUserId: args.walletId,
           signerSession: args.material.signerSession,
-          committedLane: passkeyCommittedLane,
+          laneIdentity: args.material.laneIdentity,
+          record: args.material.record,
           credential: exportCredential.credential,
         },
       ),

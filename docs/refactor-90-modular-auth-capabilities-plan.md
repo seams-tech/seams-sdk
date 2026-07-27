@@ -143,7 +143,7 @@ work is tracked in five units.
 | -------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | **1. Canonical hydration + canonical ECDSA state** | Foundations A/B, Phases 4–5, ECDSA identity work from 18 | Implementation complete; exit validation open | Exact subjects, protocol-local resolvers with shared outcomes, required ECDSA state, and slim material references. |
 | **2. Shared authorization core**                   | Phases 7–14, including Phase 8 SDK selection             | Operating core complete; cleanup gate open    | Closed capability vocabulary plus DB-backed session → evidence → grant → claim → audit flow.                       |
-| **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | In progress                                   | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
+| **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | ECDSA signing/provisioning green; export cutover open | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
 | **3b. Vault proving vertical**                     | Phase 16                                                 | Complete                                      | [Satyr vault plan Phase 6](./satyr-secrets-vault.md) proves one real vault operation.                              |
 | **4. UI + provisioning**                           | Phases 22–23                                             | Started; typed expiry complete                | Typed lifecycle events and provisioning use the canonical capability model.                                        |
 
@@ -446,6 +446,18 @@ the replacement and legacy MPC paths must not ship together.
 
 ### Capability-owned MPC operations
 
+- [x] Keep the durable ECDSA capability and material activation independent
+      from active reusable-session authorization; preserve material facts and
+      return `authorization_required` when authorization is absent.
+- [x] Delete the client-side ECDSA wallet-budget lane path; keep the remaining
+      client budget subsystem Ed25519-only and fail closed for other curves.
+- [x] Select ECDSA signing lanes and live material by exact canonical material
+      identity; delete the source-priority scan, record-candidate builders,
+      `findExact`/`readSelected` readers, and obsolete budget-blocked lane kind.
+- [x] Key ECDSA provisioning and reconnect by exact material activation, flow
+      kind, and budget; remove authorization-session/grant identity from the
+      reconnect key, delete record/lane fallback paths, and reject rehydration
+      that changes the activation.
 - [ ] Move registration, unlock, refresh, signing, step-up, and export to
       capability-owned modules using the shared authorization core.
 - [ ] Use the five preparation outcomes exhaustively:

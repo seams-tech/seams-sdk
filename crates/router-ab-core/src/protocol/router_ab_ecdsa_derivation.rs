@@ -1198,6 +1198,11 @@ pub struct RouterAbEcdsaDerivationExplicitExportRequestV1 {
     pub client_id: String,
     /// Client ephemeral public key used for client-output encryption.
     pub client_ephemeral_public_key: String,
+    /// Exact operation authority for this export; session and grant identifiers
+    /// never re-enter this request outside the authorization branch.
+    pub authorization: NormalSigningAuthorizationV1,
+    /// Exact material activation this export binds.
+    pub material_activation_id: String,
     /// User-confirmed export authorization digest encoded as unpadded base64url.
     pub export_authorization_digest_b64u: String,
     /// Request-scoped export replay nonce.
@@ -1222,6 +1227,11 @@ impl RouterAbEcdsaDerivationExplicitExportRequestV1 {
         require_ascii_non_empty(
             "export.client_ephemeral_public_key",
             &self.client_ephemeral_public_key,
+        )?;
+        self.authorization.validate()?;
+        require_ascii_non_empty(
+            "export.material_activation_id",
+            &self.material_activation_id,
         )?;
         validate_lifecycle_for_context("export.lifecycle", &self.lifecycle, &self.context)?;
         decode_base64url_fixed_32(
@@ -1275,6 +1285,8 @@ impl RouterAbEcdsaDerivationExplicitExportRequestV1 {
         push_len32(&mut out, self.router_id.as_bytes());
         push_len32(&mut out, self.client_id.as_bytes());
         push_len32(&mut out, self.client_ephemeral_public_key.as_bytes());
+        push_normal_signing_authorization(&mut out, &self.authorization)?;
+        push_len32(&mut out, self.material_activation_id.as_bytes());
         push_len32(&mut out, self.export_authorization_digest_b64u.as_bytes());
         push_len32(&mut out, self.export_nonce.as_bytes());
         push_u64(&mut out, self.expires_at_ms);
