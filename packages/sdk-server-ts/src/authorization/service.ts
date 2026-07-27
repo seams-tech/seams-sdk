@@ -32,6 +32,12 @@ import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import {
+  buildCapabilityGrantRequest,
+  buildVerifiedFactorEvidenceSet,
+  type CapabilityGrantRequestInput,
+  type VerifiedFactorEvidenceSetInput,
+} from './factorEvidence';
 
 export interface AuthorizationStore {
   putActiveSession(session: ActiveAuthorizationSession): Promise<void>;
@@ -162,8 +168,17 @@ export class AuthorizationService {
     await this.store.putVerifiedEvidenceSet(evidenceSet);
   }
 
-  async issueGrant(grant: ActiveCapabilityGrant): Promise<void> {
-    await this.store.putActiveGrant(grant);
+  async recordVerifiedFactorEvidenceSet(
+    input: VerifiedFactorEvidenceSetInput,
+  ): Promise<VerifiedGrantEvidenceSet> {
+    const evidenceSet = await buildVerifiedFactorEvidenceSet(input);
+    await this.store.putVerifiedEvidenceSet(evidenceSet);
+    return evidenceSet;
+  }
+
+  async issueGrant(input: CapabilityGrantRequestInput): Promise<void> {
+    const request = buildCapabilityGrantRequest(input);
+    await this.store.putActiveGrant(request.grant);
   }
 
   async recordWalletSessionQuota(quota: ActiveWalletSessionQuota): Promise<void> {

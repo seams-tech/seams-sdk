@@ -1,6 +1,7 @@
 import {
   buildEvmEcdsaMpcOperationRef,
   parseAuthorizationAuditEventId,
+  parseAuthFactorId,
   parseCapabilityBindingId,
   parseCapabilityGrantId,
   parseCapabilityGrantUseId,
@@ -21,8 +22,13 @@ import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 import {
   parseAppSessionVersion,
+  parseEmailOtpChallengeId,
   parseProviderSubject,
+  parseWalletAuthorityBindingDigest,
+  parseWalletId,
+  parseWebAuthnCredentialIdB64u,
 } from '../../../packages/shared-ts/src/utils/domainIds';
+import { parseWalletAuthAuthorityRef } from '../../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
   buildActiveAuthorizationSession,
   buildActiveCapabilityGrant,
@@ -33,6 +39,10 @@ import {
   parseSessionOrigin,
   parseWalletSessionId,
 } from '../../../packages/sdk-server-ts/src/authorization/domain';
+import {
+  buildVerifiedEmailOtpFactorResult,
+  buildVerifiedPasskeyFactorResult,
+} from '../../../packages/sdk-server-ts/src/authorization/factorEvidence';
 
 const FIXTURE_NOW_MS = 1_900_000_000_000;
 
@@ -221,6 +231,62 @@ export async function buildStepUpAuthorizationCoreFixture() {
   };
 }
 
+export async function buildPasskeyVerifiedFactorFixture() {
+  const authorization = await buildReusableAuthorizationCoreFixture();
+  const authorityRef = parseWalletAuthAuthorityRef({
+    kind: 'wallet_auth_authority_ref',
+    walletId: parsedDomain('wallet-passkey', parseWalletId),
+    authorityDigest: parsedDomain(fixtureDigest(7), parseWalletAuthorityBindingDigest),
+  });
+  if (!authorityRef) throw new Error('Passkey authority ref fixture is invalid');
+  return {
+    authorization,
+    evidenceId: parsed('evidence-passkey-adapter', parseGrantEvidenceId),
+    evidenceSetId: parsed('evidence-set-passkey-adapter', parseGrantEvidenceSetId),
+    factor: buildVerifiedPasskeyFactorResult({
+      tenantId: authorization.session.tenantId,
+      principalId: authorization.session.principalId,
+      sessionId: authorization.session.sessionId,
+      deviceId: authorization.session.deviceId,
+      factorId: parsed('factor-passkey-adapter', parseAuthFactorId),
+      authorityRef,
+      operation: authorization.claim.operation,
+      credentialIdB64u: parsedDomain('credential-passkey-adapter', parseWebAuthnCredentialIdB64u),
+      assertionDigest: fixtureDigest(8),
+      verifiedAtMs: authorization.session.createdAtMs + 1_000,
+      expiresAtMs: authorization.session.createdAtMs + 60_000,
+    }),
+  };
+}
+
+export async function buildEmailOtpVerifiedFactorFixture() {
+  const authorization = await buildReusableAuthorizationCoreFixture();
+  const authorityRef = parseWalletAuthAuthorityRef({
+    kind: 'wallet_auth_authority_ref',
+    walletId: parsedDomain('wallet-email-otp', parseWalletId),
+    authorityDigest: parsedDomain(fixtureDigest(9), parseWalletAuthorityBindingDigest),
+  });
+  if (!authorityRef) throw new Error('Email OTP authority ref fixture is invalid');
+  return {
+    authorization,
+    evidenceId: parsed('evidence-email-otp-adapter', parseGrantEvidenceId),
+    evidenceSetId: parsed('evidence-set-email-otp-adapter', parseGrantEvidenceSetId),
+    factor: buildVerifiedEmailOtpFactorResult({
+      tenantId: authorization.session.tenantId,
+      principalId: authorization.session.principalId,
+      sessionId: authorization.session.sessionId,
+      deviceId: authorization.session.deviceId,
+      factorId: parsed('factor-email-otp-adapter', parseAuthFactorId),
+      authorityRef,
+      operation: authorization.claim.operation,
+      challengeId: parsedDomain('challenge-email-otp-adapter', parseEmailOtpChallengeId),
+      verificationReceiptDigest: fixtureDigest(10),
+      verifiedAtMs: authorization.session.createdAtMs + 1_000,
+      expiresAtMs: authorization.session.createdAtMs + 60_000,
+    }),
+  };
+}
+
 function fixtureDigest(fill: number) {
   return parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(fill)));
 }
@@ -228,5 +294,14 @@ function fixtureDigest(fill: number) {
 function parsed<T>(value: string, parser: (raw: unknown) => AuthorizationParseResult<T>): T {
   const result = parser(value);
   if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
+
+function parsedDomain<T>(
+  value: unknown,
+  parser: (raw: unknown) => { readonly ok: true; readonly value: T } | { readonly ok: false },
+): T {
+  const result = parser(value);
+  if (!result.ok) throw new Error('authorization fixture domain identifier is invalid');
   return result.value;
 }
