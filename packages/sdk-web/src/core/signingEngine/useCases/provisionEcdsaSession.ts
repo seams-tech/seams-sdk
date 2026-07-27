@@ -1,12 +1,10 @@
 import { thresholdEcdsaRecordHasRoleLocalSigningMaterial } from '../session/persistence/ecdsaRoleLocalRecords';
 import {
   requirePersistedEcdsaRoleLocalMaterial,
-  toExactEcdsaSigningLaneIdentity,
   type PersistedEcdsaRoleLocalMaterial,
   type ThresholdEcdsaSessionRecord,
 } from '../session/persistence/records';
-import type { ExactEcdsaSigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
-import type { ResolveExactEcdsaRecordResult } from '../session/warmCapabilities/statusReader';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import {
   isEmailOtpPendingSingleUseAuthContext,
   isEmailOtpSessionAuthContext,
@@ -33,13 +31,8 @@ import {
 } from '../session/warmCapabilities/transitions';
 import {
   buildEmailOtpEcdsaProvisionSecretSource,
-  buildEcdsaSessionIdentity,
-  ecdsaSessionIdentitiesEqual,
-  ecdsaSessionIdentityMatches,
   type EcdsaSessionIdentity,
   getEcdsaProvisionPlanLaneIdentity,
-  getEcdsaReconnectSessionIdentity,
-  tryBuildEcdsaSessionIdentity,
   type EcdsaSessionProvisionPlan,
 } from '../session/warmCapabilities/ecdsaProvisionPlan';
 import { hasSufficientWarmClaim } from '../session/warmCapabilities/readModel';
@@ -96,13 +89,6 @@ export type WarmSessionEcdsaReconnectDeps = {
     args: ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   touchConfirm: PasskeyWarmSessionRecoveryPorts;
-  resolveExactEcdsaRecord: (args: {
-    lane: ExactEcdsaSigningLaneIdentity;
-    source?: ThresholdEcdsaSessionStoreSource;
-  }) => ResolveExactEcdsaRecordResult;
-  readEcdsaCapabilityForLane: (
-    lane: ExactEcdsaSigningLaneIdentity,
-  ) => Promise<WarmSessionEcdsaCapabilityState | null>;
   reconnectInFlightByCapability: Map<string, Promise<EnsureWarmEcdsaCapabilityReadyResult>>;
   onTransition?: (event: WarmSessionTransitionEvent) => void | Promise<void>;
 };
@@ -186,22 +172,6 @@ type EcdsaActivationIdentityPair = {
   existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
 };
 
-function assertPersistedEcdsaWarmSessionRecord(args: {
-  walletId: WalletId;
-  expectedSessionId: string;
-  persistedSessionIdRaw: unknown;
-  fallbackPersistedSessionIdRaw?: unknown;
-}): void {
-  const persistedSessionId = String(args.persistedSessionIdRaw || '').trim();
-  if (persistedSessionId === args.expectedSessionId) {
-    return;
-  }
-  const fallbackPersistedSessionId = String(args.fallbackPersistedSessionIdRaw || '').trim();
-  throw new Error(
-    `[WarmSessionStore] provisioned ECDSA capability was not persisted for ${args.walletId} (expected sessionId=${args.expectedSessionId}, found=${persistedSessionId || fallbackPersistedSessionId || 'missing'})`,
-  );
-}
-
 type EcdsaRecordCandidate = {
   source: ThresholdEcdsaSessionStoreSource;
   record: ThresholdEcdsaSessionRecord;
@@ -241,10 +211,9 @@ function readEcdsaRecordCandidates(
     const record = candidate.record;
     if (args.source && source !== args.source) continue;
     try {
-      const identity = buildEcdsaSessionIdentity(record);
       const key = [
         source,
-        identity.thresholdSessionId,
+        String(record.materialActivation.activationId),
         resolveThresholdEcdsaKeyIdFromRecord({ record }),
       ].join(':');
       if (seen.has(key)) continue;
@@ -267,14 +236,6 @@ function ecdsaReconnectProvisionPlan(
   }
   plan satisfies never;
   return null;
-}
-
-function recordMatchesReconnectIdentity(args: {
-  record: ThresholdEcdsaSessionRecord;
-  plan: EcdsaReconnectProvisionPlan;
-}): boolean {
-  const identity = getEcdsaReconnectSessionIdentity(args.plan);
-  return ecdsaSessionIdentityMatches(identity, args.record);
 }
 
 function buildDefaultEcdsaActivationPolicy(): EcdsaActivationPolicy {
@@ -765,79 +726,32 @@ function requireActivationRelayerUrl(args: {
   return relayerUrl;
 }
 
+// Reconnects serialize per exact material owner: the key is the material
+// activation (plus flow kind and requested budget), never a session or grant
+// id. The reusable authorization is the OUTPUT of a reconnect, so concurrent
+// requests for the same material coalesce regardless of which authorization
+// they would mint.
 function buildEcdsaCapabilityInflightKey(args: {
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
+  planKind: EcdsaSessionProvisionPlan['kind'];
   usesNeeded?: number;
   sessionBudgetUses: number;
   record: ThresholdEcdsaSessionRecord | null;
 }): string {
-  const keyId = args.record
-    ? String(resolveThresholdEcdsaKeyIdFromRecord({ record: args.record }) || '').trim() || 'auto'
+  const activationId = args.record
+    ? String(args.record.materialActivation.activationId)
     : 'auto';
-  const sessionIdentity = args.record ? tryBuildEcdsaSessionIdentity(args.record) : null;
   const usesNeeded = Math.floor(Number(args.usesNeeded) || 0);
   const sessionBudgetUses = Math.floor(Number(args.sessionBudgetUses) || 0);
   return [
     String(args.walletId),
     thresholdEcdsaChainTargetKey(args.chainTarget),
+    args.planKind,
+    activationId,
     String(usesNeeded > 0 ? usesNeeded : 1),
     String(sessionBudgetUses > 0 ? sessionBudgetUses : 1),
-    keyId,
-    sessionIdentity?.thresholdSessionId || 'auto',
   ].join('::');
-}
-
-function foundExactEcdsaRecordFromResult(
-  result: ResolveExactEcdsaRecordResult,
-  context: string,
-): ThresholdEcdsaSessionRecord | null {
-  switch (result.kind) {
-    case 'found':
-      return result.record;
-    case 'not_found':
-      return null;
-    case 'duplicate_records':
-      throw new Error(`[WarmSessionStore] duplicate exact ECDSA records for ${context}`);
-  }
-  result satisfies never;
-  throw new Error('[WarmSessionStore] unsupported exact ECDSA record result');
-}
-
-function exactEcdsaLaneFromRecordOrNull(
-  record: ThresholdEcdsaSessionRecord | null | undefined,
-): ExactEcdsaSigningLaneIdentity | null {
-  if (!record) return null;
-  try {
-    return toExactEcdsaSigningLaneIdentity(record);
-  } catch {
-    return null;
-  }
-}
-
-function resolveExactEcdsaRecordWithSourceFallback(
-  deps: Pick<WarmSessionEcdsaReconnectDeps, 'resolveExactEcdsaRecord'>,
-  args: {
-    lane: ExactEcdsaSigningLaneIdentity;
-    source?: ThresholdEcdsaSessionStoreSource;
-  },
-): ThresholdEcdsaSessionRecord | null {
-  if (args.source) {
-    const sourcedRecord = foundExactEcdsaRecordFromResult(
-      deps.resolveExactEcdsaRecord({
-        lane: args.lane,
-        source: args.source,
-      }),
-      `reconnect:${String(args.lane.thresholdSessionId)}:${args.source}`,
-    );
-    if (sourcedRecord) return sourcedRecord;
-  }
-  return foundExactEcdsaRecordFromResult(
-    deps.resolveExactEcdsaRecord({
-      lane: args.lane,
-    }),
-    `reconnect:${String(args.lane.thresholdSessionId)}`,
-  );
 }
 
 export async function ensureWarmEcdsaCapabilityReady(
@@ -864,19 +778,6 @@ export async function ensureWarmEcdsaCapabilityReady(
       '[WarmSessionStore] ECDSA readiness record chain target does not match request',
     );
   }
-  const plannedIdentity = getEcdsaProvisionPlanLaneIdentity(args.plan);
-  const plannedRecordIdentity = plannedRecord
-    ? buildEcdsaSessionIdentity({
-        thresholdSessionId: plannedRecord.thresholdSessionId,
-        signingGrantId: plannedRecord.signingGrantId,
-      })
-    : null;
-  if (
-    reconnectPlan &&
-    (!plannedRecordIdentity || !ecdsaSessionIdentitiesEqual(plannedRecordIdentity, plannedIdentity))
-  ) {
-    throw new Error('[WarmSessionStore] ECDSA readiness record identity does not match plan');
-  }
   const recordCandidates: EcdsaRecordCandidate[] = [];
   const seenRecordCandidates = new Set<string>();
   for (const candidate of [
@@ -887,11 +788,9 @@ export async function ensureWarmEcdsaCapabilityReady(
       source: args.source,
     }),
   ]) {
-    const candidateIdentity = tryBuildEcdsaSessionIdentity(candidate.record);
     const candidateKey = [
       candidate.source,
-      candidateIdentity?.signingGrantId || '',
-      candidateIdentity?.thresholdSessionId || '',
+      String(candidate.record.materialActivation.activationId),
       String(resolveThresholdEcdsaKeyIdFromRecord({ record: candidate.record }) || '').trim(),
     ].join(':');
     if (seenRecordCandidates.has(candidateKey)) continue;
@@ -919,7 +818,11 @@ export async function ensureWarmEcdsaCapabilityReady(
     }
     if (
       reconnectPlan &&
-      !recordMatchesReconnectIdentity({ record: candidate.record, plan: reconnectPlan })
+      plannedRecord &&
+      !mpcMaterialActivationRefsEqual(
+        candidate.record.materialActivation,
+        plannedRecord.materialActivation,
+      )
     ) {
       reconnectCandidateRecord = candidate.record;
       reconnectCandidateSource = candidate.source;
@@ -941,59 +844,14 @@ export async function ensureWarmEcdsaCapabilityReady(
       reconnected: false,
     };
   }
-  for (const candidate of recordCandidates) {
-    const candidateLane = exactEcdsaLaneFromRecordOrNull(candidate.record);
-    if (!candidateLane) continue;
-    const directCapability = await deps.readEcdsaCapabilityForLane(candidateLane);
-    if (
-      directCapability?.record?.chainTarget &&
-      thresholdEcdsaChainTargetsEqual(directCapability.record.chainTarget, chainTarget) &&
-      directCapability.state === 'ready' &&
-      hasSufficientWarmClaim(directCapability.prfClaim, args.usesNeeded)
-    ) {
-      if (hasEcdsaRecordSigningMaterial(candidate.record)) {
-        if (
-          reconnectPlan &&
-          !recordMatchesReconnectIdentity({ record: candidate.record, plan: reconnectPlan })
-        ) {
-          reconnectCandidateRecord = candidate.record;
-          reconnectCandidateSource = candidate.source;
-          continue;
-        }
-        if (confirmedReconnectRequested) {
-          reconnectCandidateRecord = candidate.record;
-          reconnectCandidateSource = candidate.source;
-          continue;
-        }
-        const readyRecord = directCapability.record;
-        if (!readyRecord) continue;
-        return {
-          record: readyRecord,
-          warmSession,
-          capability: directCapability,
-          reconnected: false,
-        };
-      }
-      if (!reconnectCandidateRecord) {
-        reconnectCandidateRecord = candidate.record;
-        reconnectCandidateSource = candidate.source;
-      }
-    }
-  }
-
   if (!deps.canProvisionEcdsaCapability) {
     throw new Error(
       '[WarmSessionStore] provisionThresholdEcdsaSession is required to reconnect ECDSA capability',
     );
   }
-  const plannedLane = exactEcdsaLaneFromRecordOrNull(plannedRecord);
-  const reconnectRecord =
-    (plannedLane
-      ? resolveExactEcdsaRecordWithSourceFallback(deps, {
-          lane: plannedLane,
-          ...(args.source ? { source: args.source } : {}),
-        })
-      : null) || plannedRecord;
+  // The caller supplies the exact record whose material this reconnect
+  // rehydrates; there is no re-read or source fallback.
+  const reconnectRecord = plannedRecord;
   const secondaryRecord = args.source
     ? null
     : getPrimaryAndSecondaryEcdsaCapabilities({
@@ -1007,9 +865,10 @@ export async function ensureWarmEcdsaCapabilityReady(
   const inflightKey = buildEcdsaCapabilityInflightKey({
     walletId,
     chainTarget,
+    planKind: args.plan.kind,
     usesNeeded: args.usesNeeded,
     sessionBudgetUses: args.sessionBudgetUses,
-    record: reconnectCandidateRecord,
+    record: reconnectCandidateRecord || plannedRecord,
   });
   let reconnectPromise = deps.reconnectInFlightByCapability.get(inflightKey);
   if (!reconnectPromise) {
@@ -1097,60 +956,44 @@ export async function ensureWarmEcdsaCapabilityReady(
 
       const refreshedKeyRef = provisioned.thresholdEcdsaKeyRef;
       const refreshedWarmSession = await deps.getWarmSession(exactWalletId);
-      const refreshedIdentity = refreshedKeyRef
-        ? tryBuildEcdsaSessionIdentity(refreshedKeyRef)
-        : null;
-      const refreshedCapabilities = getPrimaryAndSecondaryEcdsaCapabilities({
+      const refreshedPrimary = getPrimaryAndSecondaryEcdsaCapabilities({
         warmSession: refreshedWarmSession,
         chainTarget,
-      });
-      const refreshedPrimaryRecord = refreshedCapabilities.primary.record;
-      const refreshedPrimaryIdentity = refreshedPrimaryRecord
-        ? tryBuildEcdsaSessionIdentity(refreshedPrimaryRecord)
-        : null;
-      const refreshedCandidateRecord =
-        refreshedIdentity &&
-        refreshedPrimaryRecord &&
-        refreshedPrimaryIdentity &&
-        ecdsaSessionIdentitiesEqual(refreshedPrimaryIdentity, refreshedIdentity)
-          ? refreshedPrimaryRecord
+      }).primary;
+      const readyRefreshedRecord =
+        refreshedPrimary.state === 'ready' &&
+        refreshedPrimary.record &&
+        thresholdEcdsaChainTargetsEqual(refreshedPrimary.record.chainTarget, chainTarget) &&
+        hasSufficientWarmClaim(refreshedPrimary.prfClaim, args.usesNeeded)
+          ? refreshedPrimary.record
           : null;
-      const refreshedLane = exactEcdsaLaneFromRecordOrNull(refreshedCandidateRecord);
-      const refreshedRecord =
-        refreshedIdentity && refreshedLane
-          ? resolveExactEcdsaRecordWithSourceFallback(deps, {
-              lane: refreshedLane,
-              ...(activationSource ? { source: activationSource } : {}),
-            })
-          : refreshedCandidateRecord;
-      let refreshedCapability = getMatchingReadyEcdsaCapability({
-        warmSession: refreshedWarmSession,
-        chainTarget,
-        record: refreshedRecord,
-        usesNeeded: args.usesNeeded,
-      });
-      if (!refreshedCapability && refreshedLane) {
-        const directCapability = await deps.readEcdsaCapabilityForLane(refreshedLane);
-        if (
-          directCapability?.record?.chainTarget &&
-          thresholdEcdsaChainTargetsEqual(directCapability.record.chainTarget, chainTarget) &&
-          directCapability.state === 'ready' &&
-          hasSufficientWarmClaim(directCapability.prfClaim, args.usesNeeded)
-        ) {
-          refreshedCapability = directCapability;
-        }
-      }
-      if (!refreshedKeyRef || !refreshedIdentity || !refreshedCapability) {
+      if (!refreshedKeyRef || !readyRefreshedRecord) {
         throw new Error(
           '[WarmSessionStore] threshold ECDSA warm capability is not ready after reconnect',
         );
       }
-      const readyRefreshedRecord = refreshedCapability.record;
-      if (!readyRefreshedRecord) {
+      // This path only ever rehydrates existing role-local material and mints
+      // a fresh authorization for it. Rehydration preserves the exact material
+      // activation; a changed activation would be a re-activation, which only
+      // registration or explicit re-activation may perform.
+      const activationRecord =
+        reconnectRecord ||
+        inheritedEmailOtpRecord ||
+        secondaryRecord ||
+        reconnectCandidateRecord ||
+        plannedRecord;
+      if (
+        activationRecord &&
+        !mpcMaterialActivationRefsEqual(
+          readyRefreshedRecord.materialActivation,
+          activationRecord.materialActivation,
+        )
+      ) {
         throw new Error(
-          '[WarmSessionStore] threshold ECDSA warm capability record is missing after reconnect',
+          '[WarmSessionStore] ECDSA reconnect changed the material activation; rehydration must preserve it',
         );
       }
+      const refreshedCapability = refreshedPrimary;
 
       emitWarmSessionTransition({
         onTransition: deps.onTransition,
@@ -1158,7 +1001,7 @@ export async function ensureWarmEcdsaCapabilityReady(
           type: 'ecdsa_capability_reconnected',
           walletId,
           chainTarget,
-          thresholdSessionId: refreshedIdentity.thresholdSessionId,
+          thresholdSessionId: readyRefreshedRecord.thresholdSessionId,
           before: summarizeWarmSessionTransition(warmSession),
           after: summarizeWarmSessionTransition(refreshedWarmSession),
         },
@@ -1198,31 +1041,15 @@ export function getMatchingReadyEcdsaCapability(args: {
 }): WarmSessionEcdsaCapabilityState | null {
   const chain = args.chainTarget.kind;
   const capability = args.warmSession.capabilities.ecdsa[chain];
-  if (!args.record || capability.state !== 'ready') return null;
+  if (!args.record || capability.state !== 'ready' || !capability.record) return null;
 
-  const recordIdentity = capability.record ? tryBuildEcdsaSessionIdentity(capability.record) : null;
-  const candidateIdentity = tryBuildEcdsaSessionIdentity(args.record);
+  // Exact material identity: the activation reference alone names the
+  // material instance; session and grant identifiers do not participate.
   if (
-    !recordIdentity ||
-    !candidateIdentity ||
-    !ecdsaSessionIdentitiesEqual(recordIdentity, candidateIdentity)
-  ) {
-    return null;
-  }
-
-  const recordThresholdKeyId = String(
-    capability.record
-      ? resolveThresholdEcdsaKeyIdFromRecord({
-          record: capability.record,
-        })
-      : '',
-  ).trim();
-  const candidateThresholdKeyId = String(
-    resolveThresholdEcdsaKeyIdFromRecord({ record: args.record }),
-  ).trim();
-  if (
-    !recordThresholdKeyId ||
-    (candidateThresholdKeyId && recordThresholdKeyId !== candidateThresholdKeyId)
+    !mpcMaterialActivationRefsEqual(
+      capability.record.materialActivation,
+      args.record.materialActivation,
+    )
   ) {
     return null;
   }

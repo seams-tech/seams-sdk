@@ -119,8 +119,6 @@ export function createEvmFamilyWarmSessionServices(
           provisionThresholdEcdsaSession: (provisionRequest) =>
             deps.provisionThresholdEcdsaSession(provisionRequest),
           touchConfirm: deps.touchConfirm,
-          resolveExactEcdsaRecord: (recordArgs) => statusReader.resolveExactEcdsaRecord(recordArgs),
-          readEcdsaCapabilityForLane: (lane) => capabilityReader.getEcdsaCapabilityForLane(lane),
           reconnectInFlightByCapability,
         },
         readyArgs,
