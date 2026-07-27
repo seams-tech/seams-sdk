@@ -250,16 +250,6 @@ async fn handle_strict_deriver_fetch_v1(
     }
 
     #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
-    if path == CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH {
-        return match handle_cloudflare_ed25519_yao_deriver_b_read_completed_pair_v1(request, &env)
-            .await
-        {
-            Ok(response) => Ok(response),
-            Err(error) => cloudflare_role_failure_response_v1(error),
-        };
-    }
-
-    #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
     if path == CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH {
         return match handle_cloudflare_ed25519_yao_deriver_b_read_pair_status_v1(request, &env)
             .await

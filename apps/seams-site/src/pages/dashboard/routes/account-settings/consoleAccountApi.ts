@@ -24,15 +24,44 @@ export interface DashboardAccountProfile {
   updatedAt: string;
 }
 
-export interface DashboardAccountOrganizationAdminCandidate {
-  memberId: string;
-  userId: string;
-  email: string;
-  displayName: string;
-  isOwner: boolean;
+export type DashboardAccountAdminPermission =
+  | 'members.manage'
+  | 'projects.manage'
+  | 'billing.view'
+  | 'billing.manage';
+
+export interface DashboardAccountProjectAccessAssignment {
+  projectId: string;
+  accessLevel: 'viewer' | 'editor';
 }
 
-export interface DashboardAccountOrganization {
+type DashboardAccountOrganizationAccess =
+  | {
+      membershipId: string;
+      authorizationVersion: number;
+      role: 'OWNER';
+      adminPermissions: DashboardAccountAdminPermission[];
+      projectAccess: { kind: 'all' };
+    }
+  | {
+      membershipId: string;
+      authorizationVersion: number;
+      role: 'ADMIN';
+      adminPermissions: DashboardAccountAdminPermission[];
+      projectAccess: { kind: 'all' };
+    }
+  | {
+      membershipId: string;
+      authorizationVersion: number;
+      role: 'MEMBER';
+      adminPermissions: [];
+      projectAccess: {
+        kind: 'assigned';
+        assignments: DashboardAccountProjectAccessAssignment[];
+      };
+    };
+
+interface DashboardAccountOrganizationIdentity {
   id: string;
   name: string;
   slug: string;
@@ -40,24 +69,26 @@ export interface DashboardAccountOrganization {
   createdAt: string;
   updatedAt: string;
   isCurrentOrg: boolean;
-  actorRoles: string[];
-  actorIsOwner: boolean;
-  actorIsAdmin: boolean;
   onboardingComplete: boolean;
   selectedProjectId: string | null;
   selectedProjectName: string | null;
   selectedEnvironmentId: string | null;
   selectedEnvironmentName: string | null;
-  adminCandidates: DashboardAccountOrganizationAdminCandidate[];
 }
 
-export interface DashboardSwitchOrganizationContextResult {
+export type DashboardAccountOrganization =
+  DashboardAccountOrganizationIdentity & DashboardAccountOrganizationAccess;
+
+interface DashboardSwitchOrganizationContextIdentity {
   orgId: string;
   projectId: string | null;
   environmentId: string | null;
-  actorRoles: string[];
   onboardingComplete: boolean;
+  platformSupport: boolean;
 }
+
+export type DashboardSwitchOrganizationContextResult =
+  DashboardSwitchOrganizationContextIdentity & DashboardAccountOrganizationAccess;
 
 export interface DashboardAccountApiErrorBody {
   ok?: boolean;
@@ -125,25 +156,87 @@ function parseProfile(raw: unknown): DashboardAccountProfile | null {
   };
 }
 
-function parseAdminCandidate(raw: unknown): DashboardAccountOrganizationAdminCandidate | null {
-  if (!isRecord(raw)) return null;
-  const memberId = readString(raw.memberId);
-  const userId = readString(raw.userId);
-  if (!memberId || !userId) return null;
+function parseAdminPermissions(raw: unknown): DashboardAccountAdminPermission[] {
+  if (!Array.isArray(raw)) return [];
+  const permissions = new Set<DashboardAccountAdminPermission>();
+  for (const entry of raw) {
+    const permission = readString(entry);
+    if (
+      permission === 'members.manage' ||
+      permission === 'projects.manage' ||
+      permission === 'billing.view' ||
+      permission === 'billing.manage'
+    ) {
+      permissions.add(permission);
+    }
+  }
+  if (permissions.has('billing.manage')) permissions.add('billing.view');
+  return ['members.manage', 'projects.manage', 'billing.view', 'billing.manage'].filter(
+    (permission): permission is DashboardAccountAdminPermission =>
+      permissions.has(permission as DashboardAccountAdminPermission),
+  );
+}
+
+function parseProjectAssignments(raw: unknown): DashboardAccountProjectAccessAssignment[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const projectId = readString(entry.projectId);
+    const accessLevel = readString(entry.accessLevel).toLowerCase();
+    if (!projectId || (accessLevel !== 'viewer' && accessLevel !== 'editor')) return [];
+    return [{ projectId, accessLevel }];
+  });
+}
+
+function parseOrganizationAccess(raw: Record<string, unknown>): DashboardAccountOrganizationAccess | null {
+  const membershipId = readString(raw.membershipId);
+  const authorizationVersion = Number(raw.authorizationVersion);
+  const role = readString(raw.role).toUpperCase();
+  if (
+    !membershipId ||
+    !Number.isSafeInteger(authorizationVersion) ||
+    authorizationVersion < 1
+  ) {
+    return null;
+  }
+  if (role === 'OWNER' || role === 'ADMIN') {
+    if (!isRecord(raw.projectAccess) || raw.projectAccess.kind !== 'all') return null;
+    const common = {
+      membershipId,
+      authorizationVersion,
+      adminPermissions: parseAdminPermissions(raw.adminPermissions),
+      projectAccess: { kind: 'all' as const },
+    };
+    return role === 'OWNER'
+      ? { ...common, role: 'OWNER' }
+      : { ...common, role: 'ADMIN' };
+  }
+  if (
+    role !== 'MEMBER' ||
+    !isRecord(raw.projectAccess) ||
+    raw.projectAccess.kind !== 'assigned'
+  ) {
+    return null;
+  }
   return {
-    memberId,
-    userId,
-    email: readString(raw.email).toLowerCase(),
-    displayName: readString(raw.displayName) || userId,
-    isOwner: readBoolean(raw.isOwner),
+    membershipId,
+    authorizationVersion,
+    role: 'MEMBER',
+    adminPermissions: [],
+    projectAccess: {
+      kind: 'assigned',
+      assignments: parseProjectAssignments(raw.projectAccess.assignments),
+    },
   };
 }
 
 function parseOrganization(raw: unknown): DashboardAccountOrganization | null {
   if (!isRecord(raw)) return null;
   const id = readString(raw.id);
-  if (!id) return null;
+  const access = parseOrganizationAccess(raw);
+  if (!id || !access) return null;
   return {
+    ...access,
     id,
     name: readString(raw.name) || id,
     slug: readString(raw.slug),
@@ -151,36 +244,26 @@ function parseOrganization(raw: unknown): DashboardAccountOrganization | null {
     createdAt: readString(raw.createdAt),
     updatedAt: readString(raw.updatedAt),
     isCurrentOrg: readBoolean(raw.isCurrentOrg),
-    actorRoles: Array.isArray(raw.actorRoles)
-      ? raw.actorRoles.map((entry) => readString(entry)).filter(Boolean)
-      : [],
-    actorIsOwner: readBoolean(raw.actorIsOwner),
-    actorIsAdmin: readBoolean(raw.actorIsAdmin),
     onboardingComplete: readBoolean(raw.onboardingComplete),
     selectedProjectId: readString(raw.selectedProjectId) || null,
     selectedProjectName: readString(raw.selectedProjectName) || null,
     selectedEnvironmentId: readString(raw.selectedEnvironmentId) || null,
     selectedEnvironmentName: readString(raw.selectedEnvironmentName) || null,
-    adminCandidates: Array.isArray(raw.adminCandidates)
-      ? raw.adminCandidates
-          .map((entry) => parseAdminCandidate(entry))
-          .filter((entry): entry is DashboardAccountOrganizationAdminCandidate => entry !== null)
-      : [],
   };
 }
 
 function parseSwitchContext(raw: unknown): DashboardSwitchOrganizationContextResult | null {
   if (!isRecord(raw)) return null;
   const orgId = readString(raw.orgId);
-  if (!orgId) return null;
+  const access = parseOrganizationAccess(raw);
+  if (!orgId || !access) return null;
   return {
+    ...access,
     orgId,
     projectId: readString(raw.projectId) || null,
     environmentId: readString(raw.environmentId) || null,
-    actorRoles: Array.isArray(raw.actorRoles)
-      ? raw.actorRoles.map((entry) => readString(entry)).filter(Boolean)
-      : [],
     onboardingComplete: readBoolean(raw.onboardingComplete),
+    platformSupport: readBoolean(raw.platformSupport),
   };
 }
 
@@ -328,25 +411,16 @@ export async function deleteDashboardAccountOrganization(orgId: string): Promise
   );
 }
 
-export async function transferDashboardAccountOrganizationOwner(
-  orgId: string,
-  input: { targetMemberId?: string; targetUserId?: string },
-): Promise<DashboardAccountOrganization> {
-  const normalizedOrgId = readString(orgId);
-  if (!normalizedOrgId) throw new Error('Organization id is required');
-  const body = await requestJson(
-    `/console/account/organizations/${encodeURIComponent(normalizedOrgId)}/transfer-owner`,
+export async function leaveDashboardAccountOrganization(): Promise<void> {
+  await requestJson(
+    '/console/organization/leave',
     {
       method: 'POST',
       headers: buildConsoleJsonHeaders(),
-      body: JSON.stringify(input),
+      body: JSON.stringify({}),
     },
-    'Account organization owner transfer failed',
+    'Leave organization failed',
   );
-  const transfer = isRecord(body.transfer) ? body.transfer : null;
-  const organization = parseOrganization(transfer?.organization);
-  if (!organization) throw new Error('Account owner transfer response was invalid');
-  return organization;
 }
 
 export async function switchDashboardAccountOrganizationContext(

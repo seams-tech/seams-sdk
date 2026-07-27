@@ -1,6 +1,6 @@
 use router_ab_cloudflare::{
-    CloudflareEd25519YaoPairCompletionAcknowledgementV1, CloudflareEd25519YaoPairExecuteRequestV1,
-    CloudflareEd25519YaoPairPrepareRequestV1, CloudflareEd25519YaoReadCompletedPairRequestV1,
+    CloudflareEd25519YaoPairExecuteRequestV1, CloudflareEd25519YaoPairExecuteResponseV1,
+    CloudflareEd25519YaoPairLookupRequestV1, CloudflareEd25519YaoPairPrepareRequestV1,
 };
 use router_ab_core::{
     ed25519_yao_recipient_set_digest_v1, Ed25519YaoDeriverRoleV1, Ed25519YaoOperationV1,
@@ -39,8 +39,7 @@ use super::{
     LocalRouterRequestDispatcherV1, LocalRouterWorkerConfigV1, LocalServiceRoleV1,
     LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH, LOCAL_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH, LOCAL_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH, LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH,
+    LOCAL_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH, LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH,
     LOCAL_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
     LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH,
     LOCAL_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
@@ -106,16 +105,20 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
                 router_ab_core::RouterEd25519YaoBurnReasonV1::ProtocolFailure,
             ));
         }
-        let execution = match self.client.post_json_authenticated_v1(
-            &config.deriver_a_url,
-            LocalServiceRoleV1::DeriverA,
-            LOCAL_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
-            &config.internal_service_auth,
-            &CloudflareEd25519YaoPairExecuteRequestV1 {
-                pair_binding: pair.clone(),
-                peer_receipt: receipt_b,
-            },
-        ) {
+        let execution = match self
+            .client
+            .post_json_authenticated_v1::<_, CloudflareEd25519YaoPairExecuteResponseV1>(
+                &config.deriver_a_url,
+                LocalServiceRoleV1::DeriverA,
+                LOCAL_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
+                &config.internal_service_auth,
+                &CloudflareEd25519YaoPairExecuteRequestV1 {
+                    pair_binding: pair.clone(),
+                    input: request.deriver_a_input.clone(),
+                    local_receipt: receipt_a,
+                    peer_receipt: receipt_b,
+                },
+            ) {
             Ok(execution) => execution,
             Err(_) => {
                 self.burn_pair(config, &pair);
@@ -125,36 +128,28 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
                 ));
             }
         };
-        if validate_execution(&execution, Ed25519YaoDeriverRoleV1::DeriverA, &request).is_err() {
+        if validate_execution(
+            &execution.deriver_a_execution,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            &request,
+        )
+        .is_err()
+        {
             self.burn_pair(config, &pair);
             return Ok(RouterEd25519YaoExecuteResultV1::burned(
                 execution_id_for_pair(&pair)?,
                 router_ab_core::RouterEd25519YaoBurnReasonV1::ProtocolFailure,
             ));
         }
-        let completed_request = CloudflareEd25519YaoReadCompletedPairRequestV1 {
-            session: pair.session(),
-            pair_digest: pair.pair_digest().bytes,
-        };
-        let completed = match self
-            .client
-            .post_json_authenticated_v1::<_, CloudflareEd25519YaoPairCompletionAcknowledgementV1>(
-                &config.deriver_b_url,
-                LocalServiceRoleV1::DeriverB,
-                LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH,
-                &config.internal_service_auth,
-                &completed_request,
-            ) {
-            Ok(acknowledgement) => acknowledgement.validate_for_request(&completed_request),
-            Err(error) => Err(error),
-        };
-        let completed = match completed {
+        let completed = match serde_json::from_str::<Ed25519YaoRoleExecutionV1>(
+            &execution.deriver_b_sealed_execution_json,
+        ) {
             Ok(execution) => execution,
             Err(_) => {
                 self.burn_pair(config, &pair);
                 return Ok(RouterEd25519YaoExecuteResultV1::burned(
                     execution_id_for_pair(&pair)?,
-                    router_ab_core::RouterEd25519YaoBurnReasonV1::PeerUncertain,
+                    router_ab_core::RouterEd25519YaoBurnReasonV1::ProtocolFailure,
                 ));
             }
         };
@@ -165,14 +160,15 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
                 router_ab_core::RouterEd25519YaoBurnReasonV1::ProtocolFailure,
             ));
         }
-        if execution_transcript(&execution) != execution_transcript(&completed) {
+        if execution_transcript(&execution.deriver_a_execution) != execution_transcript(&completed)
+        {
             self.burn_pair(config, &pair);
             return Ok(RouterEd25519YaoExecuteResultV1::burned(
                 execution_id_for_pair(&pair)?,
                 router_ab_core::RouterEd25519YaoBurnReasonV1::ProtocolFailure,
             ));
         }
-        match self.finalize(config, &request, execution, completed) {
+        match self.finalize(config, &request, execution.deriver_a_execution, completed) {
             Ok(result) => Ok(result),
             Err(_) => {
                 self.burn_pair(config, &pair);
@@ -278,7 +274,7 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
         config: &LocalRouterWorkerConfigV1,
         pair: &router_ab_core::Ed25519YaoInputPairBindingV1,
     ) {
-        let request = CloudflareEd25519YaoReadCompletedPairRequestV1 {
+        let request = CloudflareEd25519YaoPairLookupRequestV1 {
             session: pair.session(),
             pair_digest: pair.pair_digest().bytes,
         };

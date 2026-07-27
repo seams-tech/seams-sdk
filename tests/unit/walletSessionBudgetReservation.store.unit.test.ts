@@ -13,6 +13,15 @@ import type {
   ThresholdStoreConfigInput,
 } from '../../packages/sdk-server-ts/src/core/types';
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
+import {
+  createCloudflareDurableObjectThresholdEcdsaStores,
+  createCloudflareDurableObjectThresholdEd25519Stores,
+  createCloudflareDurableObjectWalletSigningBudgetStores,
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore';
+import {
+  parseRouterAbNormalSigningRuntimeConfig,
+  RouterAbNormalSigningRuntime,
+} from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime';
 
 const logger = {
   info() {},
@@ -661,6 +670,85 @@ test.describe('Wallet Session budget reservations', () => {
 });
 
 test.describe('Wallet Session budget reservation backend contracts', () => {
+  test('Cloudflare provisions an ECDSA session and budget atomically without replenishing exact retries', async () => {
+    const namespace = createMemoryDurableObjectNamespace();
+    const config = storeConfig({
+      kind: 'cloudflare-do',
+      namespace,
+      THRESHOLD_PREFIX: randomPrefix('ecdsa-atomic-provision'),
+      ROUTER_AB_NORMAL_SIGNING_WORKER_ID: testSigningWorkerId,
+    });
+    const ed25519Stores = createCloudflareDurableObjectThresholdEd25519Stores({
+      config,
+      logger,
+    });
+    const ecdsaStores = createCloudflareDurableObjectThresholdEcdsaStores({
+      config,
+      logger,
+    });
+    const budgetStores = createCloudflareDurableObjectWalletSigningBudgetStores({
+      config,
+      logger,
+    });
+    if (!ed25519Stores || !ecdsaStores || !budgetStores) {
+      throw new Error('Cloudflare Durable Object stores were not created');
+    }
+    const runtime = new RouterAbNormalSigningRuntime({
+      walletSessionStore: ed25519Stores.walletSessionStore,
+      ecdsaWalletSessionStore: ecdsaStores.walletSessionStore,
+      walletBudgetSessionStore: budgetStores.walletSessionStore,
+      ecdsaNormalSigningProvisioner: ecdsaStores.normalSigningProvisioner,
+      config: parseRouterAbNormalSigningRuntimeConfig(config),
+    });
+    const expiresAtMs = Date.now() + 60_000;
+    const request = {
+      kind: 'router_ab_ecdsa_normal_signing_session_v1' as const,
+      walletId: 'ecdsa-atomic-wallet',
+      evmFamilySigningKeySlotId:
+        'wallet-key:evm-family:ecdsa-atomic-wallet:ecdsa-atomic-root:ecdsa-atomic-root-version',
+      relayerKeyId: 'ecdsa-atomic-relayer',
+      thresholdSessionId: 'ecdsa-atomic-threshold-session',
+      signingGrantId: 'ecdsa-atomic-signing-grant',
+      signingRootId: 'ecdsa-atomic-root',
+      signingRootVersion: 'ecdsa-atomic-root-version',
+      participantIds: [1, 2] as const,
+      expiresAtMs,
+      remainingUses: 3,
+    };
+
+    const provisioned = await runtime.provisionRouterAbEcdsaNormalSigningSession(request);
+    if (!provisioned.ok) throw new Error(`${provisioned.code}: ${provisioned.message}`);
+    expect(provisioned).toMatchObject({ ok: true, remainingUses: 3 });
+    const consumed = await ecdsaStores.walletSessionStore.consumeUseCountOnce(
+      request.thresholdSessionId,
+      'ecdsa-atomic-use',
+    );
+    expect(consumed).toEqual({ ok: true, remainingUses: 2 });
+    await expect(
+      runtime.provisionRouterAbEcdsaNormalSigningSession(request),
+    ).resolves.toMatchObject({
+      ok: true,
+      remainingUses: 3,
+    });
+    await expect(
+      ecdsaStores.walletSessionStore.getSessionStatus(request.thresholdSessionId),
+    ).resolves.toMatchObject({
+      ok: true,
+      status: { committedRemainingUses: 2 },
+    });
+    await expect(
+      runtime.provisionRouterAbEcdsaNormalSigningSession({
+        ...request,
+        walletId: 'ecdsa-conflicting-wallet',
+        evmFamilySigningKeySlotId:
+          'wallet-key:evm-family:ecdsa-conflicting-wallet:ecdsa-atomic-root:ecdsa-atomic-root-version',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'conflict',
+    });
+  });
+
   test('in-memory store preserves reservation lifecycle semantics', async () => {
     await expectReservationLifecycleContract({
       store: createStore(),

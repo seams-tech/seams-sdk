@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams-internal/shared-ts/utils/secureRandomId';
+import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
 import { ConsoleBillingPrepaidReservationError } from './errors';
 import {
   buildEmptySummary,
@@ -26,7 +26,6 @@ import type {
 export interface ConsoleBillingPrepaidReservationContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
 }
 
 export interface InMemoryConsoleBillingPrepaidReservationServiceOptions {

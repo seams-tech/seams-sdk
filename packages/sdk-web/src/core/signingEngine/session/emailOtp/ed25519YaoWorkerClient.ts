@@ -1,6 +1,7 @@
 import { base58Encode } from '@shared/utils/base58';
 import {
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoRecoveryActivationReceiptV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
@@ -77,6 +78,7 @@ export type VerifiedEmailOtpEd25519YaoRegistrationWorkerInputV1 = {
   workerContext: WorkerOperationContext;
   pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
   admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
   walletId: string;
   providerSubject: string;
   registrationAuthorityId: string;
@@ -346,7 +348,9 @@ export async function disposeEmailOtpEd25519YaoActiveClientV1(args: {
     kind: 'emailOtp',
     request: {
       type: 'disposeEmailOtpEd25519YaoActiveClient',
-      payload: { activeClientHandle: requireNonEmpty(args.activeClientHandle, 'activeClientHandle') },
+      payload: {
+        activeClientHandle: requireNonEmpty(args.activeClientHandle, 'activeClientHandle'),
+      },
     },
   });
   return result.removed;
@@ -633,6 +637,7 @@ export async function startEmailOtpEd25519YaoWorkerRegistrationV1(
         payload: {
           rootHandle: bound.rootHandle,
           admissionRequest: input.admissionRequest,
+          admissionReceipt: input.admissionReceipt,
           walletId: input.walletId,
           providerSubject: input.providerSubject,
           registrationAuthorityId: input.registrationAuthorityId,

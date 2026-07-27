@@ -97,7 +97,10 @@ function buildConfig(deployment, packageRoot) {
         binding: 'SIGNER_DB',
         database_name: resources.signerD1.name,
         database_id: resources.signerD1.id,
-        migrations_dir: path.join(packageRoot, '../sdk-server-ts/migrations/d1-signer'),
+        migrations_dir: path.join(
+          packageRoot,
+          'node_modules/@seams/sdk-server/migrations/d1-signer',
+        ),
       },
     ],
     durable_objects: {
@@ -171,6 +174,7 @@ function buildWorkerVars(deployment) {
     RELAY_SESSION_ISSUER: deployment.session.issuer,
     RELAY_SESSION_AUDIENCE: DEFAULT_RELAY_SESSION_AUDIENCE,
     RELAY_CORS_ORIGINS: deployment.origins.allowedCors.join(','),
+    CONSOLE_BASE_URL: deployment.origins.allowedCors[0],
     SESSION_COOKIE_NAME: DEFAULT_SESSION_COOKIE_NAME,
     EMAIL_OTP_RUNTIME_PROFILE: deployment.runtimeProfile.kind,
     EMAIL_OTP_DELIVERY_MODE: deployment.runtimeProfile.emailOtpDelivery.kind,
@@ -230,6 +234,12 @@ function assertNearRelayerSecretConsistency(nearRelayer) {
   if (!nearRelayer && hasPrivateKey) {
     throw new Error('RELAYER_PRIVATE_KEY must be absent when optional.nearRelayer is null');
   }
+}
+
+function requireEnvironmentValue(name) {
+  const value = String(process.env[name] || '').trim();
+  if (!value) throw new Error(`${name} is required`);
+  return value;
 }
 
 function signingRootBindingName(kekId) {

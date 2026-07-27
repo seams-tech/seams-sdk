@@ -30,9 +30,9 @@ import { isDashboardDefaultOrganizationName } from '../../utils/organizationIden
 import {
   deleteDashboardAccountOrganization,
   getDashboardAccountProfile,
+  leaveDashboardAccountOrganization,
   listDashboardAccountOrganizations,
   switchDashboardAccountOrganizationContext,
-  transferDashboardAccountOrganizationOwner,
   updateDashboardAccountOrganization,
   updateDashboardAccountProfile,
   type DashboardAccountOrganization,
@@ -74,19 +74,17 @@ export function AccountSettingsPage(): React.JSX.Element {
   const [primaryEmailDraft, setPrimaryEmailDraft] = React.useState<string>('');
   const [newBackupEmail, setNewBackupEmail] = React.useState<string>('');
   const [renameDrafts, setRenameDrafts] = React.useState<Record<string, string>>({});
-  const [transferTargets, setTransferTargets] = React.useState<Record<string, string>>({});
 
   const [savingProfile, setSavingProfile] = React.useState<boolean>(false);
   const [addingBackupEmail, setAddingBackupEmail] = React.useState<boolean>(false);
   const [removingBackupEmail, setRemovingBackupEmail] = React.useState<string>('');
   const [renamingOrganizationId, setRenamingOrganizationId] = React.useState<string>('');
-  const [transferringOrganizationId, setTransferringOrganizationId] = React.useState<string>('');
+  const [leavingOrganizationId, setLeavingOrganizationId] = React.useState<string>('');
   const [switchingOrganizationId, setSwitchingOrganizationId] = React.useState<string>('');
   const [deletingOrganizationId, setDeletingOrganizationId] = React.useState<string>('');
   const [profileModalOpen, setProfileModalOpen] = React.useState<boolean>(false);
   const [profileModalErrorMessage, setProfileModalErrorMessage] = React.useState<string>('');
   const [renameModalOrganizationId, setRenameModalOrganizationId] = React.useState<string>('');
-  const [transferModalOrganizationId, setTransferModalOrganizationId] = React.useState<string>('');
 
   React.useEffect(() => {
     if (session.loading) {
@@ -152,30 +150,12 @@ export function AccountSettingsPage(): React.JSX.Element {
     setRenameDrafts(
       Object.fromEntries(organizations.map((organization) => [organization.id, organization.name])),
     );
-    setTransferTargets((current) => {
-      const next: Record<string, string> = {};
-      for (const organization of organizations) {
-        const previousValue = current[organization.id];
-        const defaultCandidate =
-          organization.adminCandidates.find(
-            (candidate) => candidate.userId !== session.claims?.userId && !candidate.isOwner,
-          )?.memberId || '';
-        next[organization.id] = previousValue || defaultCandidate;
-      }
-      return next;
-    });
-  }, [organizations, session.claims?.userId]);
+  }, [organizations]);
 
   const renameOrganization = React.useMemo(
     () =>
       organizations.find((organization) => organization.id === renameModalOrganizationId) || null,
     [organizations, renameModalOrganizationId],
-  );
-
-  const transferOrganization = React.useMemo(
-    () =>
-      organizations.find((organization) => organization.id === transferModalOrganizationId) || null,
-    [organizations, transferModalOrganizationId],
   );
 
   const onSaveProfile = React.useCallback(async () => {
@@ -289,34 +269,32 @@ export function AccountSettingsPage(): React.JSX.Element {
     setRenameModalOrganizationId('');
   }, []);
 
-  const onOpenTransferModal = React.useCallback((organization: DashboardAccountOrganization) => {
-    setActionErrorMessage('');
-    setTransferModalOrganizationId(organization.id);
-  }, []);
-
-  const onCloseTransferModal = React.useCallback(() => {
-    setActionErrorMessage('');
-    setTransferModalOrganizationId('');
-  }, []);
-
-  const onTransferOwner = React.useCallback(
+  const onLeaveOrganization = React.useCallback(
     async (organization: DashboardAccountOrganization) => {
-      const targetMemberId = String(transferTargets[organization.id] || '').trim();
-      setTransferringOrganizationId(organization.id);
+      if (typeof window !== 'undefined') {
+        const confirmed = window.confirm(
+          `Leave ${organization.name}? Owners can leave only when another owner remains.`,
+        );
+        if (!confirmed) return;
+      }
+      setLeavingOrganizationId(organization.id);
       setActionErrorMessage('');
       setNoticeMessage('');
       try {
-        await transferDashboardAccountOrganizationOwner(organization.id, { targetMemberId });
-        await reloadAccountSettings();
-        setTransferModalOrganizationId('');
-        setNoticeMessage(`Transferred ownership for ${organization.name}.`);
+        await leaveDashboardAccountOrganization();
+        clearDashboardUiState();
+        if (typeof window !== 'undefined') {
+          window.location.assign('/dashboard');
+          return;
+        }
+        go('/dashboard');
       } catch (error: unknown) {
         setActionErrorMessage(toErrorMessage(error));
       } finally {
-        setTransferringOrganizationId('');
+        setLeavingOrganizationId('');
       }
     },
-    [reloadAccountSettings, transferTargets],
+    [go],
   );
 
   const onOpenOrganization = React.useCallback(
@@ -450,81 +428,6 @@ export function AccountSettingsPage(): React.JSX.Element {
               }
             >
               {renamingOrganizationId === renameOrganization.id ? 'Saving...' : 'Rename'}
-            </button>
-          </div>
-        </form>
-      </DashboardInlineModal>
-    ) : null;
-
-  const transferModal =
-    transferOrganization !== null ? (
-      <DashboardInlineModal
-        isOpen
-        ariaLabel="Transfer ownership modal"
-        onRequestClose={onCloseTransferModal}
-      >
-        <h2>Transfer ownership</h2>
-        <p className="dashboard-pagination-note">
-          {transferOrganization.name} · {transferOrganization.slug || transferOrganization.id}
-        </p>
-        <form
-          className="dashboard-view-grid"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void onTransferOwner(transferOrganization);
-          }}
-        >
-          <label className="dashboard-form-field">
-            <span>New owner</span>
-            <select
-              className="dashboard-input"
-              value={transferTargets[transferOrganization.id] || ''}
-              onChange={(event) =>
-                setTransferTargets((current) => ({
-                  ...current,
-                  [transferOrganization.id]: event.target.value,
-                }))
-              }
-              disabled={transferringOrganizationId === transferOrganization.id}
-              autoFocus
-            >
-              <option value="">Select an admin</option>
-              {transferOrganization.adminCandidates
-                .filter(
-                  (candidate) => candidate.userId !== session.claims?.userId && !candidate.isOwner,
-                )
-                .map((candidate) => (
-                  <option key={candidate.memberId} value={candidate.memberId}>
-                    {candidate.displayName || candidate.email || candidate.userId}
-                  </option>
-                ))}
-            </select>
-          </label>
-          {actionErrorMessage ? (
-            <p className="dashboard-form-alert" role="alert">
-              {actionErrorMessage}
-            </p>
-          ) : null}
-          <div className="dashboard-form-actions">
-            <button
-              type="button"
-              className="dashboard-pagination-button dashboard-pagination-button--secondary"
-              onClick={onCloseTransferModal}
-              disabled={transferringOrganizationId === transferOrganization.id}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="dashboard-pagination-button"
-              disabled={
-                transferringOrganizationId === transferOrganization.id ||
-                !String(transferTargets[transferOrganization.id] || '').trim()
-              }
-            >
-              {transferringOrganizationId === transferOrganization.id
-                ? 'Transferring...'
-                : 'Transfer ownership'}
             </button>
           </div>
         </form>
@@ -710,8 +613,8 @@ export function AccountSettingsPage(): React.JSX.Element {
           <div className="dashboard-section-toolbar__copy">
             <h2>My Organizations</h2>
             <p className="dashboard-pagination-note">
-              Create new organizations, rename the ones you manage, delete empty orgs, or transfer
-              ownership.
+              Create organizations, rename the ones you manage, or leave the current organization.
+              Manage owners and administrators from Team.
             </p>
           </div>
           <button
@@ -737,11 +640,12 @@ export function AccountSettingsPage(): React.JSX.Element {
           </DashboardTableHeader>
           {organizations.length ? (
             organizations.map((organization) => {
-              const transferOptions = organization.adminCandidates.filter(
-                (candidate) => candidate.userId !== session.claims?.userId && !candidate.isOwner,
-              );
+              const canRename =
+                organization.role === 'OWNER' ||
+                (organization.role === 'ADMIN' &&
+                  organization.adminPermissions.includes('projects.manage'));
               const menuItems: DashboardTableActionMenuItem[] = [
-                ...(organization.actorIsAdmin
+                ...(canRename
                   ? [
                       {
                         label: 'Rename…',
@@ -750,19 +654,8 @@ export function AccountSettingsPage(): React.JSX.Element {
                       },
                     ]
                   : []),
-                ...(organization.actorIsOwner
+                ...(organization.role === 'OWNER'
                   ? [
-                      {
-                        label: 'Transfer ownership…',
-                        onSelect: () => onOpenTransferModal(organization),
-                        disabled:
-                          transferOptions.length === 0 ||
-                          transferringOrganizationId === organization.id,
-                        title:
-                          transferOptions.length === 0
-                            ? 'No eligible admins to transfer to.'
-                            : undefined,
-                      },
                       {
                         label: deletingOrganizationId === organization.id ? 'Deleting…' : 'Delete',
                         onSelect: () => void onDeleteOrganization(organization),
@@ -772,6 +665,23 @@ export function AccountSettingsPage(): React.JSX.Element {
                         title: organization.isCurrentOrg
                           ? 'Switch to a different organization before deleting it.'
                           : undefined,
+                      },
+                    ]
+                  : []),
+                ...(organization.isCurrentOrg
+                  ? [
+                      {
+                        label:
+                          leavingOrganizationId === organization.id
+                            ? 'Leaving…'
+                            : 'Leave organization',
+                        onSelect: () => void onLeaveOrganization(organization),
+                        tone: 'danger' as const,
+                        disabled: leavingOrganizationId === organization.id,
+                        title:
+                          organization.role === 'OWNER'
+                            ? 'At least one other owner must remain.'
+                            : undefined,
                       },
                     ]
                   : []),
@@ -836,7 +746,6 @@ export function AccountSettingsPage(): React.JSX.Element {
       </section>
       {profileModal}
       {renameModal}
-      {transferModal}
     </div>
   );
 }

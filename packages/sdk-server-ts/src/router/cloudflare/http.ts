@@ -10,12 +10,6 @@ const CORS_ALLOW_HEADERS = [
   ROUTER_AB_TRACE_ID_HEADER_V1,
   'X-Seams-Environment-Id',
   'X-Environment-Id',
-  'X-Console-Org-Id',
-  'X-Console-User-Id',
-  'X-Console-Roles',
-  'X-Console-Project-Id',
-  'X-Console-Environment-Id',
-  'X-Console-Stripe-Webhook-Secret',
 ].join(',');
 
 export function json(

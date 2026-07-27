@@ -1,4 +1,4 @@
-import { normalizeCorsOrigin } from '@seams/sdk-server/internal/core/SessionService';
+import { normalizeCorsOrigin } from '@seams/sdk-server/cloud-host';
 import {
   d1Integer as toNumber,
   d1ChangedRows,
@@ -6,8 +6,8 @@ import {
   parseD1JsonArrayColumn as parseJsonArray,
   parseD1JsonObjectColumn as parseJsonObject,
   type D1Row,
-} from '@seams/sdk-server/internal/storage/d1Sql';
-import type { D1DatabaseLike } from '@seams/sdk-server/internal/storage/tenantRoute';
+} from '@seams/sdk-server/cloud-host';
+import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
 import {
   isApiCredentialScope,
   type ApiCredentialScope,

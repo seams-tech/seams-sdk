@@ -1,6 +1,8 @@
 import {
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
@@ -44,6 +46,7 @@ export type EmailOtpEd25519YaoRegistrationInputV1 = {
   authority: VerifiedEmailOtpEd25519YaoAuthorityV1;
   rootHandle: EmailOtpEd25519YaoRootHandle;
   admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
   transport: EmailOtpEd25519YaoActivationTransportV1;
   nowMs: number;
 };
@@ -148,6 +151,7 @@ class EmailOtpRegistrationRootConsumer implements EmailOtpEd25519YaoRootConsumer
   constructor(
     private readonly binding: EmailOtpEd25519YaoRootBinding,
     private readonly admission: RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+    private readonly receipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>,
     private readonly transport: RouterAbEd25519YaoHttpActivationTransportV1,
   ) {}
 
@@ -160,6 +164,7 @@ class EmailOtpRegistrationRootConsumer implements EmailOtpEd25519YaoRootConsumer
       const result = await registerProductEd25519YaoV1({
         request: this.admission,
         factor: { kind: 'email_otp_factor', ownedSecret32: owned.factorSecret32 },
+        admission: { kind: 'verified_receipt', receipt: this.receipt },
         transport: this.transport,
       });
       if (!result.ok) {
@@ -259,6 +264,10 @@ export async function registerEmailOtpEd25519YaoV1(args: {
 }): Promise<EmailOtpEd25519YaoRootConsumeResult<RetainedEmailOtpEd25519YaoRegistrationV1>> {
   const parsed = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(args.input.admissionRequest);
   if (!parsed.ok) throw new Error(parsed.message);
+  const parsedReceipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+    args.input.admissionReceipt,
+  );
+  if (!parsedReceipt.ok) throw new Error(parsedReceipt.message);
   const scope = rootScopeFromAdmission({
     purpose: 'registration',
     providerSubject: args.input.authority.providerSubject,
@@ -276,6 +285,7 @@ export async function registerEmailOtpEd25519YaoV1(args: {
     consumer: new EmailOtpRegistrationRootConsumer(
       binding,
       parsed.value,
+      parsedReceipt.value,
       new RouterAbEd25519YaoHttpActivationTransportV1(
         transportConfig({ authority: args.input.authority, transport: args.input.transport }),
       ),

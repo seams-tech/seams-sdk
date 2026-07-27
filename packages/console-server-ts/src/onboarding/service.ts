@@ -2,15 +2,15 @@ import type { ConsoleApiKeyService } from '../apiKeys/service';
 import type { ConsoleApiKey } from '../apiKeys/types';
 import type { ConsoleBillingService } from '../billing/service';
 import { getBillingLiveEnvironmentReadiness } from '../billing/readiness';
-import { normalizeLogger, type Logger } from '@seams/sdk-server/internal/core/logger';
+import { normalizeLogger, type Logger } from '@seams/sdk-server/cloud-host';
 import type {
   ConsoleEnvironment,
   ConsoleOrganization,
   ConsoleProject,
 } from '../orgProjectEnv/types';
 import type { ConsoleOrgProjectEnvService } from '../orgProjectEnv/service';
-import type { ConsoleTeamRbacService } from '../teamRbac/service';
-import { isConsoleTeamRbacError } from '../teamRbac/errors';
+import type { ConsoleOrganizationAccessService } from '../teamRbac/service';
+import { isConsoleOrganizationAccessError } from '../teamRbac/errors';
 import { ConsoleOnboardingError } from './errors';
 import type {
   ConsoleOnboardingState,
@@ -28,11 +28,12 @@ import type {
 } from './types';
 
 export interface ConsoleOnboardingContext {
-  orgId: string;
-  actorUserId: string;
-  roles: string[];
-  projectId?: string;
-  environmentId?: string;
+  readonly orgId: string;
+  readonly actorUserId: string;
+  readonly actorEmail: string;
+  readonly actorDisplayName: string | null;
+  readonly projectId: string | null;
+  readonly environmentId: string | null;
 }
 
 export interface ConsoleOnboardingService {
@@ -57,8 +58,8 @@ export interface ConsoleOnboardingService {
 export interface InMemoryConsoleOnboardingServiceOptions {
   orgProjectEnv: ConsoleOrgProjectEnvService;
   apiKeys: ConsoleApiKeyService;
+  organizationAccess: ConsoleOrganizationAccessService;
   billing?: ConsoleBillingService | null;
-  teamRbac?: ConsoleTeamRbacService | null;
   logger?: Logger | null;
   telemetry?: {
     windowMinutes?: number;
@@ -87,14 +88,12 @@ function normalizeString(raw: unknown): string {
 function toOrgProjectEnvContext(ctx: ConsoleOnboardingContext): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 } {
   return {
     orgId: ctx.orgId,
     actorUserId: ctx.actorUserId,
-    roles: ctx.roles,
     ...(ctx.projectId ? { projectId: ctx.projectId } : {}),
     ...(ctx.environmentId ? { environmentId: ctx.environmentId } : {}),
   };
@@ -103,12 +102,10 @@ function toOrgProjectEnvContext(ctx: ConsoleOnboardingContext): {
 function toApiKeyContext(ctx: ConsoleOnboardingContext): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
 } {
   return {
     orgId: ctx.orgId,
     actorUserId: ctx.actorUserId,
-    roles: ctx.roles,
   };
 }
 
@@ -120,21 +117,7 @@ function toBillingContext(ctx: ConsoleOnboardingContext): {
   return {
     orgId: ctx.orgId,
     actorUserId: ctx.actorUserId,
-    roles: ctx.roles,
-  };
-}
-
-function toTeamRbacContext(ctx: ConsoleOnboardingContext): {
-  orgId: string;
-  actorUserId: string;
-  roles: string[];
-  projectId?: string;
-} {
-  return {
-    orgId: ctx.orgId,
-    actorUserId: ctx.actorUserId,
-    roles: ctx.roles,
-    ...(ctx.projectId ? { projectId: ctx.projectId } : {}),
+    roles: [],
   };
 }
 
@@ -371,7 +354,7 @@ export function createInMemoryConsoleOnboardingService(
   const orgProjectEnv = opts.orgProjectEnv;
   const apiKeys = opts.apiKeys;
   const billing = opts.billing ?? null;
-  const teamRbac = opts.teamRbac ?? null;
+  const organizationAccess = opts.organizationAccess;
   const logger = normalizeLogger(opts.logger);
   const telemetryWindowMinutes = coerceIntegerInRange({
     value: opts.telemetry?.windowMinutes,
@@ -562,22 +545,29 @@ export function createInMemoryConsoleOnboardingService(
   }
 
   async function ensureOwner(ctx: ConsoleOnboardingContext): Promise<{ created: boolean }> {
-    if (!teamRbac) return { created: false };
     try {
-      const teamCtx = toTeamRbacContext(ctx);
-      const actorUserId = normalizeString(ctx.actorUserId);
-      const beforeMembers = await teamRbac.listMembers(teamCtx, { status: 'ACTIVE' });
-      const actorHadOwnerBefore = beforeMembers.some(
-        (member) =>
-          normalizeString(member.userId) === actorUserId &&
-          member.roles.some((role) => role.scope === 'ORG' && role.role === 'owner'),
-      );
-      const member = await teamRbac.bootstrapOwner(teamCtx);
-      const hasOwner = member.roles.some((role) => role.scope === 'ORG' && role.role === 'owner');
-      return { created: hasOwner && !actorHadOwnerBefore };
+      const authorization = await organizationAccess.lookupAuthorization({
+        orgId: ctx.orgId,
+        userId: ctx.actorUserId,
+      });
+      if (authorization?.kind === 'authorized' && authorization.role === 'OWNER') {
+        return { created: false };
+      }
+      await organizationAccess.bootstrapInitialOwner({
+        orgId: ctx.orgId,
+        userId: ctx.actorUserId,
+        email: ctx.actorEmail,
+        displayName: ctx.actorDisplayName,
+      });
+      return { created: true };
     } catch (error: unknown) {
-      if (isConsoleTeamRbacError(error)) {
-        throw new ConsoleOnboardingError(error.code, error.status, error.message, error.details);
+      if (isConsoleOrganizationAccessError(error)) {
+        throw new ConsoleOnboardingError(
+          error.code,
+          error.status,
+          error.message,
+          error.details ? { ...error.details } : undefined,
+        );
       }
       throw error;
     }
@@ -869,8 +859,8 @@ export function createInMemoryConsoleOnboardingService(
         ctx,
         operation: 'organization',
         run: async () => {
-          const owner = await ensureOwner(ctx);
           const { organization, created } = await upsertOrganizationProfile(ctx, request.org);
+          const owner = await ensureOwner(ctx);
           return {
             organization,
             created: {

@@ -54,7 +54,9 @@
       "billing": {
         "enabled": true,
         "owner": "gateway",
-        "secrets": ["STRIPE_API_SK"]
+        "secrets": [
+          "STRIPE_API_SK"
+        ]
       },
       "sponsoredExecution": {
         "enabled": true,
@@ -124,7 +126,9 @@
       "billing": {
         "enabled": true,
         "owner": "gateway",
-        "secrets": ["STRIPE_API_SK"]
+        "secrets": [
+          "STRIPE_API_SK"
+        ]
       },
       "sponsoredExecution": {
         "enabled": true,

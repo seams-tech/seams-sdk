@@ -311,9 +311,6 @@ pub const LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH: &str =
 /// Deriver B pair-bound preparation path mirrored from the strict Cloudflare worker.
 pub const LOCAL_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/prepare-pair";
-/// Deriver B pair-bound completed-result path mirrored from the strict Cloudflare worker.
-pub const LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/read-completed-pair";
 /// Deriver B pair-bound status path mirrored from the strict Cloudflare worker.
 pub const LOCAL_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/read-pair-status";

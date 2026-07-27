@@ -145,14 +145,8 @@ function activeYaoCapabilityRecordFixture() {
   };
   const activationResult = parseRouterAbEd25519YaoRegistrationActivationResultV1({
     binding,
-    deriver_a_client_package: activationClientPackageFixture(
-      binding.session_id,
-      'deriver_a',
-    ),
-    deriver_b_client_package: activationClientPackageFixture(
-      binding.session_id,
-      'deriver_b',
-    ),
+    deriver_a_client_package: activationClientPackageFixture(binding.session_id, 'deriver_a'),
+    deriver_b_client_package: activationClientPackageFixture(binding.session_id, 'deriver_b'),
     public_receipt: {
       transcript: fixtureBytes(33),
       registered_public_key: REGISTERED_PUBLIC_KEY,
@@ -215,8 +209,7 @@ function activeCapabilityFixture(
 function unlockBodyFixture(
   kind:
     | typeof EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND
-    | typeof EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND =
-    EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND,
+    | typeof EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND = EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND,
 ): Record<string, unknown> {
   return {
     unlockBackend: 'email_otp',
@@ -329,6 +322,12 @@ class RecordingRecoveryRuntime implements RouterAbEd25519YaoProductRegistrationR
 
   async bindVerifiedIntent(): ReturnType<
     RouterAbEd25519YaoProductRegistrationRuntimeV1['bindVerifiedIntent']
+  > {
+    return { ok: false, code: 'invalid_registration_intent', message: 'unused' };
+  }
+
+  async bindAndAdmitVerifiedRegistration(): ReturnType<
+    RouterAbEd25519YaoProductRegistrationRuntimeV1['bindAndAdmitVerifiedRegistration']
   > {
     return { ok: false, code: 'invalid_registration_intent', message: 'unused' };
   }

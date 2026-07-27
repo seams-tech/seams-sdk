@@ -32,7 +32,10 @@ import {
   listDashboardWallets,
   type DashboardConsoleWallet,
 } from '../wallets/consoleWalletApi';
-import { useDashboardConsoleSession } from '../../consoleSession';
+import {
+  canDashboardEditProject,
+  useDashboardConsoleSession,
+} from '../../consoleSession';
 import { useSessionDraft } from '../../drafts/useSessionDraft';
 import type { DashboardDraftIdentity } from '../../drafts/sessionDraftStore';
 import { useDashboardSelectedContext } from '../../selectedContext';
@@ -638,12 +641,8 @@ export function PolicyEnginePage(): React.JSX.Element {
   }, [currentContextScopeType, environmentScopeId, orgScopeId, projectScopeId]);
 
   const canMutatePolicies = React.useMemo(() => {
-    if (!session.claims) return false;
-    const roles = Array.isArray(session.claims.roles)
-      ? session.claims.roles.map((role) => String(role || '').toLowerCase())
-      : [];
-    return roles.includes('owner') || roles.includes('admin') || roles.includes('security_admin');
-  }, [session.claims]);
+    return canDashboardEditProject(session.claims, projectScopeId);
+  }, [projectScopeId, session.claims]);
 
   const selectedPolicy = React.useMemo(
     () => policies.find((entry) => entry.id === selectedPolicyId) || null,
@@ -1098,7 +1097,7 @@ export function PolicyEnginePage(): React.JSX.Element {
         return;
       }
       if (!canMutatePolicies) {
-        setMutationErrorMessage('Owner, admin, or security_admin is required for policy changes.');
+        setMutationErrorMessage('Owner, administrator, or project editor access is required.');
         return;
       }
 
@@ -1207,7 +1206,7 @@ export function PolicyEnginePage(): React.JSX.Element {
       return;
     }
     if (!canMutatePolicies) {
-      setMutationErrorMessage('Owner, admin, or security_admin is required for policy deletion.');
+      setMutationErrorMessage('Owner, administrator, or project editor access is required.');
       return;
     }
     if (!selectedPolicyId) {
@@ -1246,7 +1245,7 @@ export function PolicyEnginePage(): React.JSX.Element {
       return;
     }
     if (!canMutatePolicies) {
-      setMutationErrorMessage('Owner, admin, or security_admin is required for policy publish.');
+      setMutationErrorMessage('Owner, administrator, or project editor access is required.');
       return;
     }
     if (!selectedPolicyId) {
@@ -1286,7 +1285,7 @@ export function PolicyEnginePage(): React.JSX.Element {
       return;
     }
     if (!canMutatePolicies) {
-      setMutationErrorMessage('Owner, admin, or security_admin is required to create approvals.');
+      setMutationErrorMessage('Owner, administrator, or project editor access is required.');
       return;
     }
     if (!selectedPolicyId) {
@@ -1340,7 +1339,7 @@ export function PolicyEnginePage(): React.JSX.Element {
   const approveRequest = React.useCallback(
     async (approval: DashboardConsoleApprovalRequest) => {
       if (!canMutatePolicies) {
-        setMutationErrorMessage('Owner, admin, or security_admin is required to approve requests.');
+        setMutationErrorMessage('Owner, administrator, or project editor access is required.');
         return;
       }
       setMutationBusy(`approve:${approval.id}`);
@@ -1367,7 +1366,7 @@ export function PolicyEnginePage(): React.JSX.Element {
   const rejectRequest = React.useCallback(
     async (approval: DashboardConsoleApprovalRequest) => {
       if (!canMutatePolicies) {
-        setMutationErrorMessage('Owner, admin, or security_admin is required to reject requests.');
+        setMutationErrorMessage('Owner, administrator, or project editor access is required.');
         return;
       }
       setMutationBusy(`reject:${approval.id}`);

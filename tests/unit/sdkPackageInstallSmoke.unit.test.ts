@@ -171,6 +171,12 @@ test.describe('SDK package install smoke', () => {
           } catch (error) {
             if (!error || error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error;
           }
+          try {
+            import.meta.resolve('@seams/sdk-server/internal/storage/tenantRoute');
+            throw new Error('server internal wildcard subpath still resolves');
+          } catch (error) {
+            if (!error || error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error;
+          }
 
           const expressRouter = await import('@seams/sdk-server/router/express');
           if (typeof expressRouter.createRouterApiRouter !== 'function') {
@@ -195,6 +201,11 @@ test.describe('SDK package install smoke', () => {
           }
           if (typeof cloudflareRouter.createPostgresConsoleBootstrapTokenService !== 'undefined') {
             throw new Error('unexpected Cloudflare Postgres service export');
+          }
+
+          const tenantStorage = await import('@seams/sdk-server/storage/tenant-route');
+          if (typeof tenantStorage.createConsoleD1StorageTarget !== 'undefined') {
+            throw new Error('unexpected public console storage target export');
           }
         `,
       );

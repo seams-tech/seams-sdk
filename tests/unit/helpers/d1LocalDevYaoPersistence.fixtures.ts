@@ -49,7 +49,10 @@ import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } fro
 import type { D1DatabaseLike } from '../../../packages/sdk-server-ts/src/storage/tenantRoute';
 import type { CloudflareServiceBindingFetcher } from '../../../packages/console-server-ts/src/router/cloudflare/routerAbServiceBindings';
 import localD1DevWorker from '../../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
-import { UnusedSessionAdapter } from './routerAbEd25519YaoRegistrationBridge.fixtures';
+import {
+  UnavailableRouterAbEd25519YaoRegistrationBackend,
+  UnusedSessionAdapter,
+} from './routerAbEd25519YaoRegistrationBridge.fixtures';
 
 const NAMESPACE = 'seams-local-yao-persistence';
 const ORG_ID = 'org_abcdefgh1234';
@@ -279,7 +282,6 @@ export function createLocalYaoWorkerEnv(input: {
     SEAMS_LOCAL_CONSOLE_ORG_ID: ORG_ID,
     SEAMS_LOCAL_CONSOLE_PROJECT_ID: PROJECT_ID,
     SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID: ENV_ID,
-    SEAMS_LOCAL_CONSOLE_ROLES: 'owner,admin,developer',
     ROUTER_AB_NORMAL_SIGNING_WORKER_ID: SIGNING_WORKER_ID,
     SIGNING_WORKER_ID,
     ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'local-yao-internal-auth',
@@ -364,6 +366,7 @@ export async function bindLocalYaoRegistrationIntent(input: {
     signingWorkerId: SIGNING_WORKER_ID,
     session: new UnusedSessionAdapter(),
     store,
+    registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
   });
   const result = await runtime.bindVerifiedIntent({
     kind: 'verified_registration_intent',
