@@ -134,6 +134,7 @@ export type EcdsaCapabilityManifestLookup =
   | ({
       readonly kind: 'missing';
       readonly selector: EcdsaCapabilitySelector;
+      readonly subject: 'capability' | 'material';
     } & LookupFailureExclusions)
   | ({
       readonly kind: 'exact_binding_mismatch';
@@ -322,7 +323,12 @@ type LookupTransactionObservation =
       readonly manifest: ReplacedEcdsaCapabilityManifest;
     }
   | {
-      readonly kind: 'missing' | 'exact_binding_mismatch' | 'exact_record_conflict' | 'corrupt';
+      readonly kind: 'missing';
+      readonly subject: 'capability' | 'material';
+      readonly detail: string;
+    }
+  | {
+      readonly kind: 'exact_binding_mismatch' | 'exact_record_conflict' | 'corrupt';
       readonly detail: string;
     };
 
@@ -1881,6 +1887,7 @@ export class IndexedDbEcdsaCapabilityManifestStore {
         return {
           kind: 'missing',
           selector,
+          subject: observation.subject,
         };
       case 'exact_binding_mismatch':
         return {
@@ -2243,6 +2250,7 @@ async function lookupInTransaction(
   if (materialRaw === undefined) {
     return {
       kind: 'missing',
+      subject: 'material',
       detail: 'active ECDSA manifest is missing its ready material',
     };
   }
@@ -2262,6 +2270,7 @@ async function lookupInTransaction(
   if (sealingKeyRaw === undefined) {
     return {
       kind: 'missing',
+      subject: 'material',
       detail: 'active ECDSA material is missing its sealing key',
     };
   }
@@ -2300,6 +2309,7 @@ async function lookupWithoutPointer(
   if (rows.length === 0) {
     return {
       kind: 'missing',
+      subject: 'capability',
       detail: 'no ECDSA capability manifest exists',
     };
   }
@@ -2332,6 +2342,7 @@ async function lookupWithoutPointer(
   }
   return {
     kind: 'missing',
+    subject: 'capability',
     detail: 'no exact ECDSA capability manifest exists',
   };
 }
