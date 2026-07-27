@@ -1308,7 +1308,13 @@ async function readNearLoginUnlockAccountPhase(args: {
   if (baseSignerSlot === null) {
     throw new Error('[login] wallet signer projection is missing its exact signerSlot');
   }
-  const localUnlockAuthMethod = userData.authMethod || SIGNER_AUTH_METHODS.passkey;
+  const localUnlockAuthMethod = userData.authMethod;
+  if (
+    localUnlockAuthMethod !== SIGNER_AUTH_METHODS.passkey &&
+    localUnlockAuthMethod !== SIGNER_AUTH_METHODS.emailOtp
+  ) {
+    throw new Error('[login] wallet signer projection is missing a valid authMethod');
+  }
   return {
     kind: 'login_unlock_account_phase_ready',
     accountSubject,

@@ -1,40 +1,25 @@
 import type { EvmSignerCapability, RegistrationCapability } from '@/SeamsWeb/signingSurface/types';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import type { RegistrationSigningSurface } from '@/SeamsWeb/signingSurface/types';
-import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 
 type EvmWalletRegistrationArgs = Parameters<RegistrationCapability['registerWallet']>[0] & {
   options: NonNullable<Parameters<RegistrationCapability['registerWallet']>[0]['options']>;
 };
 
-function requireEvmRegistrationRpId(value: string): WebAuthnRpId {
-  const parsed = parseWebAuthnRpId(value);
-  if (!parsed.ok) {
-    throw new Error(parsed.error.message);
-  }
-  return parsed.value;
-}
-
 export function buildEvmWalletRegistrationArgs(
-  deps: {
-    signingEngine: Pick<RegistrationSigningSurface, 'getRpId'>;
-  },
   args: Parameters<EvmSignerCapability['registerEvmWallet']>[0],
 ): EvmWalletRegistrationArgs {
-  const rpId = requireEvmRegistrationRpId(deps.signingEngine.getRpId());
-  if (!rpId) {
-    throw new Error('[SeamsWeb][evm] registerEvmWallet requires rpId');
-  }
   if (!args.chainTargets.length) {
     throw new Error('[SeamsWeb][evm] registerEvmWallet requires at least one chain target');
   }
   if (!args.participantIds.length) {
     throw new Error('[SeamsWeb][evm] registerEvmWallet requires participant ids');
   }
-  const authMethod = args.authMethod || { kind: 'passkey' as const, rpId };
+  if (!args.authMethod) {
+    throw new Error('[SeamsWeb][evm] registerEvmWallet requires an explicit authMethod');
+  }
   return {
     wallet: { kind: 'server_allocated' },
-    authMethod,
+    authMethod: args.authMethod,
     signerSelection: {
       kind: 'signer_set',
       signers: [

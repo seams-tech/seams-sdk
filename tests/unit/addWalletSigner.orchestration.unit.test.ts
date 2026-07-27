@@ -4,6 +4,8 @@ import {
   registerWallet,
 } from '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration';
 import { createEvmSignerCapability } from '../../packages/sdk-web/src/SeamsWeb/publicApi/evm';
+import { buildEvmWalletRegistrationArgs } from '../../packages/sdk-web/src/SeamsWeb/operations/evm';
+import { buildNearWalletRegistrationArgs } from '../../packages/sdk-web/src/SeamsWeb/operations/near';
 import { IndexedDBManager } from '../../packages/sdk-web/src/core/indexedDB';
 import { finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation } from '../../packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
 import { UserVerificationPolicy } from '../../packages/sdk-web/src/core/types/authenticatorOptions';
@@ -1823,6 +1825,7 @@ test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
       signer.registerEvmWallet({
         chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1, networkSlug: 'ethereum' }],
         participantIds: [1, 2],
+        authMethod: { kind: 'passkey', rpId: RP_ID },
         options: {},
       }),
     );
@@ -1859,6 +1862,27 @@ test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
   } finally {
     fetchMock.restore();
   }
+});
+
+test('generic registration builders reject a missing auth method', () => {
+  const context = createContext({});
+  expect(() =>
+    buildNearWalletRegistrationArgs(
+      context,
+      // @ts-expect-error Generic NEAR registration requires an explicit auth method.
+      {},
+    ),
+  ).toThrow('[SeamsWeb][near] registerNearWallet requires an explicit authMethod');
+
+  expect(() =>
+    buildEvmWalletRegistrationArgs(
+      // @ts-expect-error Generic EVM registration requires an explicit auth method.
+      {
+        chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1, networkSlug: 'ethereum' }],
+        participantIds: [1, 2],
+      },
+    ),
+  ).toThrow('[SeamsWeb][evm] registerEvmWallet requires an explicit authMethod');
 });
 
 test('registerWallet replays an ambiguously committed ECDSA activation for bootstrap', async () => {

@@ -30,6 +30,7 @@ import {
   walletUnlockPasskeyAuthMethodFixture,
   walletUnlockProfileFixture,
 } from './helpers/walletUnlockProfile.fixtures';
+import { nearPasskeyAccountProjectionFixture } from './helpers/nearAccountProjection.fixtures';
 
 const UNLOCK_NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
 const UNLOCK_WALLET_ID = 'frost-unlock-k7p9m2';
@@ -532,6 +533,49 @@ test.describe('SeamsWeb unlock cancellation events', () => {
       expect(afterCalls).toEqual([false]);
       expect(onErrors).toEqual(['The operation either timed out or was not allowed']);
       expect(promptedCredentialIds).toEqual(['cred-1']);
+    } finally {
+      clearUnlockPasskeyWalletBinding();
+      IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
+    }
+  });
+
+  test('NEAR unlock rejects a stored signer projection without auth method', async () => {
+    const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
+    IndexedDBManager.listActiveWalletSigners = async () => [];
+    let promptCalls = 0;
+    const validProjection = nearPasskeyAccountProjectionFixture({
+      walletId: UNLOCK_WALLET_ID,
+      nearAccountId: UNLOCK_NEAR_ACCOUNT_ID,
+      operationalPublicKey: 'ed25519:alice',
+      credentialId: 'cred-1',
+    });
+    const corruptProjection = {
+      ...validProjection,
+      authMethod: undefined,
+    };
+
+    seedUnlockPasskeyWalletBinding();
+    try {
+      const result = await unlock(
+        {
+          signingEngine: {
+            assertSealedRefreshStartupParity: async () => undefined,
+            getLastUser: async () => corruptProjection,
+            nearAuthenticatorsByAccount: async () => [{ credentialId: 'cred-1', signerSlot: 1 }],
+            getAuthenticationCredentialsSerialized: async () => {
+              promptCalls += 1;
+              throw new Error('missing auth method must fail before prompting');
+            },
+          },
+        } as any,
+        UNLOCK_NEAR_ACCOUNT_ID,
+      );
+
+      expect(result).toEqual({
+        success: false,
+        error: '[login] wallet signer projection is missing a valid authMethod',
+      });
+      expect(promptCalls).toBe(0);
     } finally {
       clearUnlockPasskeyWalletBinding();
       IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;

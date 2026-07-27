@@ -179,6 +179,12 @@ const validNearEmailOtpRegistrationInput: Parameters<
 };
 void validNearEmailOtpRegistrationInput;
 
+// @ts-expect-error Generic NEAR registration requires an explicit auth method.
+const invalidNearRegistrationWithoutAuth: Parameters<
+  NearSignerCapability['registerNearWallet']
+>[0] = {};
+void invalidNearRegistrationWithoutAuth;
+
 declare const signedNearTransaction: SignedTransaction;
 
 // @ts-expect-error Public NEAR broadcast requires wallet session and account subject.
@@ -208,6 +214,13 @@ const validEvmEmailOtpRegistrationInput: Parameters<EvmSignerCapability['registe
   },
 };
 void validEvmEmailOtpRegistrationInput;
+
+// @ts-expect-error Generic EVM registration requires an explicit auth method.
+const invalidEvmRegistrationWithoutAuth: Parameters<EvmSignerCapability['registerEvmWallet']>[0] = {
+  chainTargets: [tempoChainTarget],
+  participantIds: [1, 2],
+};
+void invalidEvmRegistrationWithoutAuth;
 
 declare const registrationCapability: RegistrationCapability;
 const legacyPublicNearMode = ['ed25519', 'only'].join('_');

@@ -39,10 +39,7 @@ export function createEvmSignerCapability(deps: {
   return {
     registerEvmWallet: async (args) => {
       const walletIframe = deps.getWalletIframe();
-      const registerWalletArgs = buildEvmWalletRegistrationArgs(
-        { signingEngine: deps.signingEngine },
-        args,
-      );
+      const registerWalletArgs = buildEvmWalletRegistrationArgs(args);
       if (!walletIframe.shouldUseWalletIframe()) {
         const context: RegistrationWebContext = {
           signingEngine: deps.signingEngine,
