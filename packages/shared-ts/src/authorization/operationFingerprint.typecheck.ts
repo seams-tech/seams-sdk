@@ -9,6 +9,7 @@ import {
   buildVaultOperationRef,
   type CapabilityId,
   type CapabilityOperationId,
+  type PrincipalId,
   type TenantId,
 } from './capabilityKinds';
 import {
@@ -18,6 +19,7 @@ import {
 } from './operationFingerprint';
 
 declare const tenantId: TenantId;
+declare const principalId: PrincipalId;
 declare const capabilityId: CapabilityId;
 declare const operationId: CapabilityOperationId;
 declare const laneDigest: DigestB64u;
@@ -27,6 +29,7 @@ declare const fingerprintDigest: CapabilityOperationFingerprintDigest;
 
 const vaultEnvelope = buildCapabilityOperationEnvelope({
   tenantId,
+  principalId,
   capabilityId,
   operationId,
   operation: buildVaultOperationRef(VAULT_OPERATION_KINDS.proxyUse),
@@ -39,6 +42,7 @@ const vaultEnvelope = buildCapabilityOperationEnvelope({
 
 const nearEnvelope = buildCapabilityOperationEnvelope({
   tenantId,
+  principalId,
   capabilityId,
   operationId,
   operation: buildNearEd25519MpcOperationRef(NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction),
@@ -51,6 +55,7 @@ const nearEnvelope = buildCapabilityOperationEnvelope({
 
 const evmEnvelope = buildCapabilityOperationEnvelope({
   tenantId,
+  principalId,
   capabilityId,
   operationId,
   operation: buildEvmEcdsaMpcOperationRef(EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction),
@@ -69,6 +74,7 @@ void fingerprintDigest;
 buildCapabilityOperationEnvelope({
   // @ts-expect-error Capability-operation envelopes require branded tenant identity.
   tenantId: 'tenant-1',
+  principalId,
   capabilityId,
   operationId,
   operation: buildVaultOperationRef(VAULT_OPERATION_KINDS.proxyUse),
@@ -77,6 +83,26 @@ buildCapabilityOperationEnvelope({
 
 buildCapabilityOperationEnvelope({
   tenantId,
+  // @ts-expect-error Capability-operation envelopes require branded principal identity.
+  principalId: 'principal-1',
+  capabilityId,
+  operationId,
+  operation: buildVaultOperationRef(VAULT_OPERATION_KINDS.proxyUse),
+  digests: { laneDigest, intentDigest, displayDigest },
+});
+
+// @ts-expect-error Principal identity is required for replay isolation.
+buildCapabilityOperationEnvelope({
+  tenantId,
+  capabilityId,
+  operationId,
+  operation: buildVaultOperationRef(VAULT_OPERATION_KINDS.proxyUse),
+  digests: { laneDigest, intentDigest, displayDigest },
+});
+
+buildCapabilityOperationEnvelope({
+  tenantId,
+  principalId,
   capabilityId,
   operationId,
   // @ts-expect-error A vault capability cannot carry a NEAR operation.
@@ -89,6 +115,7 @@ buildCapabilityOperationEnvelope({
 
 buildCapabilityOperationEnvelope({
   tenantId,
+  principalId,
   capabilityId,
   operationId,
   operation: buildVaultOperationRef(VAULT_OPERATION_KINDS.proxyUse),
@@ -102,6 +129,7 @@ buildCapabilityOperationEnvelope({
 
 buildCapabilityOperationEnvelope({
   tenantId,
+  principalId,
   capabilityId,
   operationId,
   operation: buildVaultOperationRef(VAULT_OPERATION_KINDS.proxyUse),
@@ -113,6 +141,7 @@ buildCapabilityOperationEnvelope({
 // @ts-expect-error The private proof prevents direct envelope construction.
 const forgedEnvelope: CapabilityOperationEnvelope = {
   tenantId,
+  principalId,
   capabilityId,
   operationId,
   operation: buildVaultOperationRef(VAULT_OPERATION_KINDS.proxyUse),

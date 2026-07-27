@@ -3565,10 +3565,9 @@ type CapabilityOperationEnvelope = {
   tenantId: TenantId;
   principalId: PrincipalId;
   capabilityId: CapabilityId;
-  operation: CapabilityOperationRef;
   operationId: CapabilityOperationId;
-  operationFingerprintDigest: CapabilityOperationFingerprintDigest;
-  operationDigests: OperationDigestSet;
+  operation: CapabilityOperationRef;
+  digests: OperationDigestSet;
 };
 
 type CapabilityGrantRecord = {
@@ -3643,6 +3642,9 @@ type CapabilityGrantUse =
     });
 
 ```
+
+`operationFingerprintDigest` is computed from the canonical
+`CapabilityOperationEnvelope`; it is not embedded in the envelope.
 
 Grant-use consumption is one-way. Handlers must complete cheap boundary parsing,
 route policy checks, capability lookup, and replay checks before consuming a
@@ -4423,8 +4425,8 @@ Atomic grant-use algorithm:
 
 1. Parse the request into a `CapabilityOperationEnvelope`. The capability module
    computes `operationFingerprintDigest` from a versioned canonical preimage
-   containing tenant, grant, capability, correlated operation, operation ID,
-   and lane/intent/display digests.
+   containing tenant, principal, capability, correlated operation, operation
+   ID, and lane/intent/display digests.
 2. In one transaction, insert a `claimed` grant-use row and decrement
    `remaining_uses` with a compare-and-swap that requires an active, unexpired
    grant with a positive balance and matching operation/digests. A failed CAS
