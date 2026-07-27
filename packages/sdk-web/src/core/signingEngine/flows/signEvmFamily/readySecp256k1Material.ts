@@ -33,7 +33,7 @@ import {
   buildReadySecp256k1SigningMaterial,
   type ReadySecp256k1SigningMaterial,
 } from './signers/secp256k1';
-import type { CanonicalEvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
+import type { AuthorizedEvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
 
 type EcdsaSessionChain = 'tempo' | 'evm';
 
@@ -112,17 +112,17 @@ function parseCanonicalEcdsaSessionIdentity(walletSessionJwt: string): {
 }
 
 export async function resolveReadySecp256k1SigningMaterial(args: {
-  capability: CanonicalEvmFamilyEcdsaSigningCapability;
+  authorized: AuthorizedEvmFamilyEcdsaSigningCapability;
   relayerUrl: string;
   requestLabel: unknown;
   materialActivation: MpcMaterialActivationRef;
   workerCtx: WorkerOperationContext;
 }): Promise<ReadySecp256k1SigningMaterialResolution> {
-  const capability = args.capability;
+  const capability = args.authorized.capability;
   const manifest = capability.manifest;
   const persistedMaterial = capability.material;
-  const projection = capability.authorization.projection;
-  const status = capability.authorization.status;
+  const projection = args.authorized.authorization.projection;
+  const status = args.authorized.authorization.status;
   if (
     !mpcMaterialActivationRefsEqual(
       args.materialActivation,
