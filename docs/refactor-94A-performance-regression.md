@@ -419,9 +419,20 @@ recorded at the same join point.
 - [ ] Add Gateway spans around each registration D1 claim and terminal CAS.
 - [ ] Add Router spans around the ECDSA replay/lifecycle transaction, parallel
       Deriver work, SigningWorker activation, and session/budget provisioning.
-- [ ] Keep the existing opaque trace correlation value across every new span.
-- [ ] Verify trace fields contain no wallet ID, email, credential ID, session
+- [x] Keep the existing opaque trace correlation value across every new span.
+      The Yao execute request still carries `ROUTER_AB_TRACE_ID_HEADER_V1`
+      unchanged, and every new timing value rides the response of that same
+      traced request.
+- [x] Verify trace fields contain no wallet ID, email, credential ID, session
       secret, ciphertext, root-share identifier, or other identifying data.
+      Audited 2026-07-28: the Gateway composes fixed metric names with
+      `dur=<number.toFixed(1)>` only
+      (`routerAbEd25519YaoRegistrationRequestScopedCloudflare.ts:509-524`);
+      the Router formats four fixed names with numeric durations
+      (`router_coordinator.rs:54-58`); the client parses only `dur=` values
+      into buckets typed `number`, ignores unknown names, and never logs or
+      emits the raw header string — it is held transiently on internal result
+      types and consumed by the parser.
 - [ ] Produce one local trace and one staging trace whose child intervals
       account for each ECDSA and Yao branch.
 
