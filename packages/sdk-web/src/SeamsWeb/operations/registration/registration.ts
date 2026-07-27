@@ -116,7 +116,10 @@ import { collectEmailOtpRegistrationAuthority } from '@/SeamsWeb/operations/auth
 import type { PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult as EmailOtpRegistrationEnrollmentMaterial } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import { requirePasskeyPrfFirstB64u } from '@/SeamsWeb/operations/authMethods/passkey/ecdsaBootstrap';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
-import { startEmailOtpEd25519YaoWorkerRegistrationV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoWorkerClient';
+import {
+  startEmailOtpEd25519YaoWorkerRegistrationV1,
+  type EmailOtpEd25519YaoRegistrationDiagnosticsV1,
+} from '@/core/signingEngine/session/emailOtp/ed25519YaoWorkerClient';
 import {
   buildEmailOtpAuthContextForWalletAuthMethod,
   emailOtpAuthContextEmailHashHex,
@@ -3372,24 +3375,23 @@ async function createEmailOtpRegistrationYaoPending(args: {
       registrationAuthorityId: args.registrationAuthorityId,
       registrationIntentGrant: args.registrationIntentGrant,
       routerOrigin: args.relayerUrl,
-      /* Email OTP runs Yao inside the worker, so the Router breakdown arrives
-         through this sink rather than the main-thread transport. */
-      onYaoDiagnostics: (diagnostics) => {
-        for (const [bucket, durationMs] of parseYaoServerTimingBuckets(
-          diagnostics.routerServerTiming,
-        )) {
-          args.recorder.record(bucket, durationMs);
-        }
-        if (diagnostics.clientTimings) {
-          args.recorder.record('yaoAdmissionMs', diagnostics.clientTimings.admissionMs);
-          args.recorder.record(
-            'yaoClientSessionCreateMs',
-            diagnostics.clientTimings.sessionCreateMs,
-          );
-        }
-      },
+      onYaoDiagnostics: recordEmailOtpRegistrationYaoDiagnostics.bind(undefined, args.recorder),
     }),
   );
+}
+
+function recordEmailOtpRegistrationYaoDiagnostics(
+  recorder: RegistrationTimingRecorder,
+  diagnostics: EmailOtpEd25519YaoRegistrationDiagnosticsV1,
+): void {
+  for (const [bucket, durationMs] of parseYaoServerTimingBuckets(
+    diagnostics.routerServerTiming,
+  )) {
+    recorder.record(bucket, durationMs);
+  }
+  if (!diagnostics.clientTimings) return;
+  recorder.record('yaoAdmissionMs', diagnostics.clientTimings.admissionMs);
+  recorder.record('yaoClientSessionCreateMs', diagnostics.clientTimings.sessionCreateMs);
 }
 
 async function claimRegistrationYao(
