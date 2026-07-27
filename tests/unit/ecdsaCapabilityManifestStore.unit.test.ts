@@ -257,6 +257,50 @@ async function exerciseLookupOutcomeMatrix(input: {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+  const materialKey = replacement.prepareInput.activationBinding.durableMaterialRef;
+  const persistedMaterial = await new Promise<Record<string, unknown>>((resolve, reject) => {
+    const transaction = db.transaction('ecdsa_role_local_material', 'readonly');
+    const request = transaction.objectStore('ecdsa_role_local_material').get(materialKey);
+    request.onsuccess = () => resolve(request.result as Record<string, unknown>);
+    request.onerror = () => reject(request.error);
+  });
+  const sealingKeyId = String(persistedMaterial.sealing_key_id);
+  const persistedSealingKey = await new Promise<Record<string, unknown>>((resolve, reject) => {
+    const transaction = db.transaction('ecdsa_material_sealing_keys', 'readonly');
+    const request = transaction.objectStore('ecdsa_material_sealing_keys').get(sealingKeyId);
+    request.onsuccess = () => resolve(request.result as Record<string, unknown>);
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction('ecdsa_role_local_material', 'readwrite');
+    transaction.objectStore('ecdsa_role_local_material').delete(materialKey);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  const missingReadyMaterial = await store.lookup(input.fixture.selectors.active);
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction('ecdsa_role_local_material', 'readwrite');
+    transaction.objectStore('ecdsa_role_local_material').put(persistedMaterial);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction('ecdsa_material_sealing_keys', 'readwrite');
+    transaction.objectStore('ecdsa_material_sealing_keys').delete(sealingKeyId);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  const missingSealingKey = await store.lookup(input.fixture.selectors.active);
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction('ecdsa_material_sealing_keys', 'readwrite');
+    transaction.objectStore('ecdsa_material_sealing_keys').put(persistedSealingKey);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
   const pointerKey = [
     input.fixture.selectors.active.capability,
     input.fixture.selectors.active.authority.walletId,
@@ -336,6 +380,21 @@ async function exerciseLookupOutcomeMatrix(input: {
     active: active.kind,
     retired: retired.kind,
     missing: missing.kind,
+    missingSubject: missing.kind === 'missing' ? missing.subject : null,
+    missingReadyMaterial:
+      missingReadyMaterial.kind === 'missing'
+        ? {
+            kind: missingReadyMaterial.kind,
+            subject: missingReadyMaterial.subject,
+          }
+        : { kind: missingReadyMaterial.kind, subject: null },
+    missingSealingKey:
+      missingSealingKey.kind === 'missing'
+        ? {
+            kind: missingSealingKey.kind,
+            subject: missingSealingKey.subject,
+          }
+        : { kind: missingSealingKey.kind, subject: null },
     exactBindingMismatch: exactBindingMismatch.kind,
     exactRecordConflict: exactRecordConflict.kind,
     corrupt: corrupt.kind,
@@ -951,6 +1010,15 @@ test.describe('canonical ECDSA capability manifest store', () => {
       active: 'active',
       retired: 'retired',
       missing: 'missing',
+      missingSubject: 'capability',
+      missingReadyMaterial: {
+        kind: 'missing',
+        subject: 'material',
+      },
+      missingSealingKey: {
+        kind: 'missing',
+        subject: 'material',
+      },
       exactBindingMismatch: 'exact_binding_mismatch',
       exactRecordConflict: 'exact_record_conflict',
       corrupt: 'corrupt',
