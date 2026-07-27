@@ -123,10 +123,22 @@ export function createWarmSessionCapabilityReader(
     getEmailOtpWarmSessionStatus: ports.getEmailOtpWarmSessionStatus,
     getThresholdEcdsaSessionRecordByThresholdSessionId:
       deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
+    ...(deps.resolveActiveEcdsaWalletSessionAuthorization
+      ? {
+          resolveActiveEcdsaWalletSessionAuthorization:
+            deps.resolveActiveEcdsaWalletSessionAuthorization,
+        }
+      : {}),
   });
   return createWarmSessionCapabilityReaderCore({
     touchConfirm: ports.touchConfirm,
     statusReader,
     signingSessionSeal: normalizeWarmSessionCapabilityReaderSeal(deps.signingSessionSeal),
+    ...(deps.resolveActiveEcdsaWalletSessionAuthorization
+      ? {
+          resolveActiveEcdsaWalletSessionAuthorization:
+            deps.resolveActiveEcdsaWalletSessionAuthorization,
+        }
+      : {}),
   });
 }

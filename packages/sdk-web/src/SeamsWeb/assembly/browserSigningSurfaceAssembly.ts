@@ -35,6 +35,7 @@ import {
 import {
   authorizeEvmFamilyEcdsaSigningCapability,
   buildCanonicalEvmFamilyEcdsaSigningCapability,
+  type ActiveEvmFamilyWalletSessionAuthorization,
   type AuthorizedEvmFamilyEcdsaSigningCapability,
 } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSigningCapability';
 import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
@@ -132,19 +133,30 @@ async function resolveExactWalletAuthAuthority(
   throw new Error('Exact wallet authentication authority is unavailable');
 }
 
-async function getBrowserEcdsaSigningCapability(
+export type BrowserWalletSessionAuthorizationResolution =
+  | { kind: 'active'; authorization: ActiveEvmFamilyWalletSessionAuthorization }
+  | { kind: 'inactive'; reason: string };
+
+// Resolves the wallet's reusable Wallet Session authorization pair (persisted
+// projection + live relayer status). Configuration failures throw; inactive
+// session states return `inactive` so warm-capability readers can degrade to
+// `authorization_required` without treating them as errors.
+export async function resolveBrowserActiveEcdsaWalletSessionAuthorization(
   args: BrowserEcdsaCapabilityReaderContext,
-  input: Parameters<
+  walletId: Parameters<
     Parameters<typeof createSigningEnginePorts>[0]['resolveAuthorizedEcdsaSigningCapability']
-  >[0],
-): Promise<AuthorizedEvmFamilyEcdsaSigningCapability> {
-  const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(input.walletId);
+  >[0]['walletId'],
+): Promise<BrowserWalletSessionAuthorizationResolution> {
+  const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(walletId);
   if (authorizationRead.kind !== 'found') {
-    throw new Error(`Reusable Wallet Session authorization is ${authorizationRead.kind}`);
+    return {
+      kind: 'inactive',
+      reason: `Reusable Wallet Session authorization is ${authorizationRead.kind}`,
+    };
   }
   const projection = authorizationRead.projection;
   if (projection.expiresAtMs <= Date.now()) {
-    throw new Error('Reusable Wallet Session authorization is expired');
+    return { kind: 'inactive', reason: 'Reusable Wallet Session authorization is expired' };
   }
   const relayerUrl = String(args.seamsWebConfigs.network.relayer?.url || '').trim();
   if (!relayerUrl) throw new Error('Reusable Wallet Session status requires a relayer URL');
@@ -152,7 +164,7 @@ async function getBrowserEcdsaSigningCapability(
   if (projection.authMethod === WALLET_AUTH_METHODS.emailOtp) {
     const jwt = await args.emailOtpSessions.resolveAppSessionJwt({
       walletSession: {
-        walletId: input.walletId,
+        walletId,
         walletSessionUserId: String(projection.authority.authorityDigest),
       },
       relayUrl: relayerUrl,
@@ -168,8 +180,44 @@ async function getBrowserEcdsaSigningCapability(
     quotaId: projection.quotaId,
   });
   if (status.status !== 'active') {
-    throw new Error(`Reusable Wallet Session is ${status.status}`);
+    return { kind: 'inactive', reason: `Reusable Wallet Session is ${status.status}` };
   }
+  return {
+    kind: 'active',
+    authorization: {
+      kind: 'active_reusable_wallet_session_authorization',
+      projection,
+      status,
+    },
+  };
+}
+
+export function createBrowserActiveEcdsaWalletSessionAuthorizationResolver(
+  args: BrowserEcdsaCapabilityReaderContext,
+): (
+  walletId: Parameters<typeof resolveBrowserActiveEcdsaWalletSessionAuthorization>[1],
+) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null> {
+  return async (walletId) => {
+    const resolution = await resolveBrowserActiveEcdsaWalletSessionAuthorization(args, walletId);
+    return resolution.kind === 'active' ? resolution.authorization : null;
+  };
+}
+
+async function getBrowserEcdsaSigningCapability(
+  args: BrowserEcdsaCapabilityReaderContext,
+  input: Parameters<
+    Parameters<typeof createSigningEnginePorts>[0]['resolveAuthorizedEcdsaSigningCapability']
+  >[0],
+): Promise<AuthorizedEvmFamilyEcdsaSigningCapability> {
+  const resolution = await resolveBrowserActiveEcdsaWalletSessionAuthorization(
+    args,
+    input.walletId,
+  );
+  if (resolution.kind !== 'active') {
+    throw new Error(resolution.reason);
+  }
+  const browserAuthorization = resolution.authorization;
+  const projection = browserAuthorization.projection;
   const manifestLookup = await ecdsaCapabilityManifestStore.lookup({
     capability: input.materialActivation.capability,
     authority: projection.authority,
@@ -200,11 +248,7 @@ async function getBrowserEcdsaSigningCapability(
         publicFacts: manifest.durableMaterial.roleLocalPublicFacts,
       }),
     }),
-    authorization: {
-      kind: 'active_reusable_wallet_session_authorization',
-      projection,
-      status,
-    },
+    authorization: browserAuthorization,
   });
 }
 
@@ -405,6 +449,8 @@ export function createBrowserSigningSurfaceEnginePorts(
         statusArgs,
       ),
     resolveAuthorizedEcdsaSigningCapability: (input) => getBrowserEcdsaSigningCapability(args, input),
+    resolveActiveEcdsaWalletSessionAuthorization:
+      createBrowserActiveEcdsaWalletSessionAuthorizationResolver(args),
     resolveEcdsaOperationStepUpSessionAuth: (input) =>
       resolveBrowserEcdsaOperationStepUpSessionAuth({
         context: args,

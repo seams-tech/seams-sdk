@@ -9,6 +9,7 @@ import {
 import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
 import {
   createWarmSessionStatusReader,
+  type WarmSessionStatusReaderDeps,
   type WarmSigningStatusReader,
 } from '../../session/warmCapabilities/statusReader';
 import type { WarmSessionCapabilityReader } from '../../session/warmCapabilities/types';
@@ -44,11 +45,16 @@ export type EcdsaRoleLocalReadyRecordStorePorts = {
   exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
 };
 
+type WarmSigningAuthorizationResolver = NonNullable<
+  WarmSessionStatusReaderDeps['resolveActiveEcdsaWalletSessionAuthorization']
+>;
+
 type WarmSigningPortsArgs = {
   touchConfirm: UiConfirmRuntimeBridgePort;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
   signingSessionSeal: SeamsConfigsReadonly['signing']['sessionSeal'];
   ecdsaRoleLocalReadyRecords: EcdsaRoleLocalReadyRecordStorePorts;
+  resolveActiveEcdsaWalletSessionAuthorization?: WarmSigningAuthorizationResolver;
 };
 
 export type WarmSigningPorts = {
@@ -89,6 +95,12 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
     touchConfirm: statusUiConfirm,
     getThresholdEcdsaSessionRecordByThresholdSessionId: getSessionRecordByThresholdSessionId,
     getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
+    ...(args.resolveActiveEcdsaWalletSessionAuthorization
+      ? {
+          resolveActiveEcdsaWalletSessionAuthorization:
+            args.resolveActiveEcdsaWalletSessionAuthorization,
+        }
+      : {}),
   });
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: args.touchConfirm,
@@ -103,6 +115,12 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
         : null,
     getThresholdEcdsaSessionRecordByThresholdSessionId: getSessionRecordByThresholdSessionId,
     getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
+    ...(args.resolveActiveEcdsaWalletSessionAuthorization
+      ? {
+          resolveActiveEcdsaWalletSessionAuthorization:
+            args.resolveActiveEcdsaWalletSessionAuthorization,
+        }
+      : {}),
   });
 
   return {

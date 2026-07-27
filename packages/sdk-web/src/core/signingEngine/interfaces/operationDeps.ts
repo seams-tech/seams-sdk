@@ -52,7 +52,10 @@ import type { Ed25519SigningLane } from '../session/emailOtp/ed25519SigningLane'
 import type { ExactEd25519SigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
 import type { EmailOtpEd25519YaoSilentRecoveryResultV1 } from '../session/emailOtp/ed25519YaoSealedRecovery';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { AuthorizedEvmFamilyEcdsaSigningCapability } from '../flows/signEvmFamily/ecdsaSigningCapability';
+import type {
+  ActiveEvmFamilyWalletSessionAuthorization,
+  AuthorizedEvmFamilyEcdsaSigningCapability,
+} from '../flows/signEvmFamily/ecdsaSigningCapability';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { EcdsaOperationStepUpSessionAuth } from '../threshold/ecdsa/operationStepUp';
 
@@ -195,6 +198,12 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
       chainTarget: ThresholdEcdsaChainTarget;
       materialActivation: MpcMaterialActivationRef;
     }) => Promise<AuthorizedEvmFamilyEcdsaSigningCapability>;
+    // Optional wallet-level view of the same reusable Wallet Session
+    // authorization, for warm-capability status. Null means no active
+    // authorization; it never throws for inactive session states.
+    resolveActiveEcdsaWalletSessionAuthorization?: (
+      walletId: WalletId,
+    ) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
     walletSignerStore: EvmFamilyWalletSignerStorePort;
     passkeyAuthenticatorStore: EvmFamilyPasskeyAuthenticatorStorePort;
     seamsWebConfigs: SeamsConfigsReadonly;

@@ -7,14 +7,14 @@ import {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
   getStoredThresholdEd25519SessionRecordForAccount,
-  toExactEcdsaSigningLaneIdentity,
-  thresholdEcdsaLaneCandidateFromSessionRecord,
   thresholdEcdsaSessionRecordReadModel,
 } from '../persistence/records';
+import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import {
-  exactSigningLaneIdentityMatches,
-  type ExactEcdsaSigningLaneIdentity,
-} from '../identity/exactSigningLaneIdentity';
+  ecdsaRecordMatchesExactLaneIdentity,
+  ecdsaSigningLaneAuthBindingForRecord,
+} from './ecdsaRecordLane';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import {
   emailOtpAuthContextRetention,
   selectedEcdsaLane,
@@ -136,6 +136,12 @@ export type WarmSessionStatusReaderDeps = {
   getThresholdEcdsaSessionRecordByThresholdSessionId?: (
     thresholdSessionId: string,
   ) => ThresholdEcdsaSessionRecord | null;
+  // Resolves the active reusable Wallet Session authorization for a wallet.
+  // Absent or failing resolution reports statuses with `lane: null`; it never
+  // fabricates an authorization.
+  resolveActiveEcdsaWalletSessionAuthorization?: (
+    walletId: WalletId,
+  ) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
 };
 
 export type WarmSigningStatusReader = ThresholdWarmSessionStatusReader & {
@@ -303,11 +309,7 @@ export function createWarmSessionStatusReader(
     record: ThresholdEcdsaSessionRecord,
     lane: ExactEcdsaSigningLaneIdentity,
   ): boolean {
-    try {
-      return exactSigningLaneIdentityMatches(toExactEcdsaSigningLaneIdentity(record), lane);
-    } catch {
-      return false;
-    }
+    return ecdsaRecordMatchesExactLaneIdentity({ record, lane });
   }
 
   function resolveExactEcdsaRecord(args: {
@@ -516,13 +518,25 @@ export function createWarmSessionStatusReader(
     });
   }
 
+  async function resolveEcdsaAuthorizationForWallet(
+    walletId: WalletId,
+  ): Promise<ActiveEvmFamilyWalletSessionAuthorization | null> {
+    const resolve = deps.resolveActiveEcdsaWalletSessionAuthorization;
+    if (!resolve) return null;
+    try {
+      return await resolve(walletId);
+    } catch {
+      return null;
+    }
+  }
+
   function toEcdsaSigningSessionStatus(args: {
     record: ThresholdEcdsaSessionRecord;
     claim: WarmSessionPrfClaim | null;
+    authorization: ActiveEvmFamilyWalletSessionAuthorization | null;
   }): WarmEcdsaRecordBackedSigningSessionStatus {
     const identity = buildEcdsaSessionIdentity(args.record);
     const key = thresholdEcdsaSessionRecordReadModel(args.record).key;
-    const candidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record: args.record });
     return {
       ...toSigningSessionStatus({
         sessionId: identity.thresholdSessionId,
@@ -534,16 +548,17 @@ export function createWarmSessionStatusReader(
             : null,
       }),
       key,
-      lane: selectedEcdsaLane({
-        key,
-        materialActivation: args.record.materialActivation,
-        keyHandle: args.record.keyHandle,
-        walletId: args.record.walletId,
-        auth: candidate.auth,
-        signingGrantId: identity.signingGrantId,
-        thresholdSessionId: identity.thresholdSessionId,
-        chainTarget: args.record.chainTarget,
-      }),
+      lane: args.authorization
+        ? selectedEcdsaLane({
+            key,
+            materialActivation: args.record.materialActivation,
+            keyHandle: args.record.keyHandle,
+            walletId: args.record.walletId,
+            auth: ecdsaSigningLaneAuthBindingForRecord(args.record),
+            authorization: args.authorization,
+            chainTarget: args.record.chainTarget,
+          })
+        : null,
       chainTarget: args.record.chainTarget,
       source: args.record.source,
       signingGrantId: identity.signingGrantId,
@@ -559,10 +574,13 @@ export function createWarmSessionStatusReader(
       chainTarget: args.chainTarget,
     });
     if (!records.length) return [];
-    const claimsByThresholdSessionId = await readWalletScopedLaneClaimsForExactLanes({
-      deps: claimReaderDeps,
-      lanes: buildLanesForRecords(records),
-    });
+    const [claimsByThresholdSessionId, authorization] = await Promise.all([
+      readWalletScopedLaneClaimsForExactLanes({
+        deps: claimReaderDeps,
+        lanes: buildLanesForRecords(records),
+      }),
+      resolveEcdsaAuthorizationForWallet(args.walletId),
+    ]);
     return records.map((record) => {
       const recordBackedClaim = readStrictRouterAbEcdsaRecordClaim(record);
       return toEcdsaSigningSessionStatus({
@@ -571,6 +589,7 @@ export function createWarmSessionStatusReader(
           recordBackedClaim ||
           claimsByThresholdSessionId.get(buildEcdsaSessionIdentity(record).thresholdSessionId) ||
           null,
+        authorization,
       });
     });
   }
@@ -596,10 +615,13 @@ export function createWarmSessionStatusReader(
         chainTarget: args.chainTarget,
       };
     }
-    const claimsByThresholdSessionId = await readWalletScopedLaneClaimsForExactLanes({
-      deps: claimReaderDeps,
-      lanes: buildLanesForRecords([record]),
-    });
+    const [claimsByThresholdSessionId, authorization] = await Promise.all([
+      readWalletScopedLaneClaimsForExactLanes({
+        deps: claimReaderDeps,
+        lanes: buildLanesForRecords([record]),
+      }),
+      resolveEcdsaAuthorizationForWallet(args.walletId),
+    ]);
     const recordBackedClaim = readStrictRouterAbEcdsaRecordClaim(record);
     return toEcdsaSigningSessionStatus({
       record,
@@ -607,6 +629,7 @@ export function createWarmSessionStatusReader(
         recordBackedClaim ||
         claimsByThresholdSessionId.get(buildEcdsaSessionIdentity(record).thresholdSessionId) ||
         (await readEcdsaWarmSessionClaimForRecord(record)),
+      authorization,
     });
   }
 
