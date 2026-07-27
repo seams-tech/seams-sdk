@@ -204,7 +204,7 @@ export type RegisterNearImplicitWalletArgs = {
   accountProvisioning?: Extract<RegistrationNearAccountProvisioning, { kind: 'implicit_account' }>;
   nearAccountId?: never;
   wallet?: Extract<RegisterWalletInput, { kind: 'provided' }>;
-  authMethod?: RegistrationAuthMethodInput;
+  authMethod: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
 
@@ -215,7 +215,7 @@ export type RegisterNearSponsoredWalletArgs = {
   >;
   wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
   nearAccountId?: never;
-  authMethod?: RegistrationAuthMethodInput;
+  authMethod: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
 
@@ -246,7 +246,7 @@ export type PasskeyRegistrationOptions = RegistrationHooksOptions & {
 export type RegisterEvmWalletArgs = {
   chainTargets: readonly ThresholdEcdsaChainTarget[];
   participantIds: readonly number[];
-  authMethod?: RegistrationAuthMethodInput;
+  authMethod: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
 

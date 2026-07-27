@@ -362,7 +362,11 @@ export class SeamsWebIframe {
 
     this.near = {
       registerNearWallet: async (args) => {
-        const rpId = this.resolveRegistrationRpId('near.registerNearWallet');
+        if (!args.authMethod) {
+          throw new Error(
+            '[SeamsWebIframe][near] registerNearWallet requires an explicit authMethod',
+          );
+        }
         const accountProvisioning =
           args.accountProvisioning?.kind === 'sponsored_named_account'
             ? args.accountProvisioning
@@ -385,7 +389,7 @@ export class SeamsWebIframe {
         }
         return await this.registration.registerWallet({
           wallet,
-          authMethod: args.authMethod || { kind: 'passkey' as const, rpId },
+          authMethod: args.authMethod,
           signerSelection: buildNearWalletRegistrationSignerSetSelection({
             configs: this.configs,
             accountProvisioning,
@@ -437,10 +441,14 @@ export class SeamsWebIframe {
         if (!args.participantIds.length) {
           throw new Error('[SeamsWeb][evm] registerEvmWallet requires participant ids');
         }
-        const rpId = this.resolveRegistrationRpId('evm.registerEvmWallet');
+        if (!args.authMethod) {
+          throw new Error(
+            '[SeamsWebIframe][evm] registerEvmWallet requires an explicit authMethod',
+          );
+        }
         return await this.registration.registerWallet({
           wallet: { kind: 'server_allocated' },
-          authMethod: args.authMethod || { kind: 'passkey' as const, rpId },
+          authMethod: args.authMethod,
           signerSelection: {
             kind: 'signer_set',
             signers: [
@@ -637,6 +645,7 @@ export class SeamsWebIframe {
       );
     }
     const { wallet, nearAccountProvisioning, ...registrationOptions } = options || {};
+    const rpId = this.resolveRegistrationRpId('registration.registerPasskey');
     const provisioningPreference =
       nearAccountProvisioning ?? this.configs.registration.nearAccountProvisioning;
     const resolvedWallet =
@@ -658,12 +667,14 @@ export class SeamsWebIframe {
       return await this.near.registerNearWallet({
         wallet: resolvedWallet,
         accountProvisioning,
+        authMethod: { kind: 'passkey', rpId },
         options: registrationOptions,
       });
     }
     return await this.near.registerNearWallet({
       ...(resolvedWallet.kind === 'provided' ? { wallet: resolvedWallet } : {}),
       accountProvisioning,
+      authMethod: { kind: 'passkey', rpId },
       options: registrationOptions,
     });
   }

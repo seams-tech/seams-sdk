@@ -3,9 +3,11 @@ import {
   thresholdEcdsaChainTargetFromChainFamily,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { SeamsWeb } from './index';
 
 declare const seams: SeamsWeb;
+declare const rpId: WebAuthnRpId;
 
 const nearAccount = nearAccountRefFromAccountId('alice.testnet');
 const walletSession = walletSessionRefFromSession({
@@ -39,6 +41,7 @@ void seams.near.signNEP413Message({
 void seams.evm.registerEvmWallet({
   chainTargets: [evmChainTarget],
   participantIds: [1, 2],
+  authMethod: { kind: 'passkey', rpId },
 });
 
 void seams.evm.bootstrapEcdsaSession({
