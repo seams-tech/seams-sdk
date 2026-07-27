@@ -10,8 +10,21 @@ Rules:
   (no third implementation, no compatibility alias).
 - When an entry is deleted, strike it here and record the commit in the
   [journal](./refactor-90-journal.md).
-- Phases add newly discovered targets here instead of growing prose in the
-  [plan](./refactor-90-modular-auth-capabilities-plan.md).
+- Execution units add newly discovered targets here instead of growing prose
+  in the [plan](./refactor-90-modular-auth-capabilities-plan.md).
+
+The headings retain their historical phase names so existing journal and
+commit references stay understandable. Current ownership is:
+
+- Unit 1: Foundations A/B, Phases 4–5, and the ECDSA portion of historical
+  Phase 18;
+- Unit 2: Phases 7–14;
+- Unit 3a: Phases 17–21, 24, the authorization/wire portion of historical
+  Phase 18, and MPC-owned final deletions;
+- Unit 4: Phases 22–23 and UI-owned final deletions.
+
+Historical Phase 6 inventory is absorbed by every unit. Unit 3b adds and closes
+any concrete vault target discovered by its Satyr Phase 6 inventory.
 
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
