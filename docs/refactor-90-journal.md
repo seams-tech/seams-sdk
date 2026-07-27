@@ -15,6 +15,18 @@ phase record live here.
 - Cross-protocol hydration invariants close only after the Unit 3a Near adapter
   is live.
 
+## July 27, 2026: Unit 2 Reconciled With Refactors 91–93
+
+- The existing capability/auth vocabulary, wallet-authority types, static
+  shared route graph, app-session provider boundary, and request-scoped
+  `MPC_ROUTER` ownership are completed inputs. Unit 2 will extend them instead
+  of rebuilding them.
+- The missing vertical is limited to normalized authorization sessions,
+  operation-bound evidence, capability grants, atomic claims/completion,
+  quota coupling, result replay, and authorization audit linkage.
+- Existing Email OTP transport grants, normal-signing admission, Wallet Session
+  reservation, and console audit remain separate domains.
+
 ## July 27, 2026: Plan Consolidated Into Five Execution Units
 
 - Consolidated Foundations A/B, Phases 4–5, and the ECDSA portion of Phase 18

@@ -303,6 +303,19 @@ removes.
 Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 `R90-INV-013`.
 
+### Completed inputs
+
+- [x] Refactor 91 supplies the closed capability, operation, evidence, signer
+      auth, and wallet-authority vocabularies with boundary parsers and type
+      fixtures.
+- [x] Refactor 93 supplies the static shared route graph and request-scoped
+      `MPC_ROUTER` ownership used by Cloudflare, Node, local, and self-hosted
+      execution.
+- [x] The existing app-session exchange and provider-verification boundary is
+      the transport entry point to extend.
+- [x] Existing D1 CAS batches and Wallet Session budget tests provide the
+      transaction pattern; they are not the new authorization domain.
+
 ### Inventory
 
 - [ ] Seed the scoped inventory from Phase 7–14 rows in the deletion ledger.
@@ -312,17 +325,17 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 
 ### Closed vocabulary and selection
 
-- [ ] Define one closed capability vocabulary used by SDK, server, UI, and
-      persistence boundaries.
+- [ ] Adopt the existing closed capability vocabulary in production SDK,
+      server, UI, and persistence boundaries.
 - [ ] Include only the tenant, principal, session, factor, capability,
       operation, grant, and evidence references required by current verticals.
 - [ ] Use named or flat `all | any` evidence requirements; add no recursive
       policy grammar or speculative factor/provider taxonomy.
-- [ ] Preserve Refactor 82B `WalletAuthAuthority` types and fixtures as the
+- [x] Preserve Refactor 82B `WalletAuthAuthority` types and fixtures as the
       baseline instead of restaging that cut.
 - [ ] Make SDK capability selection exhaustive and reject implicit fallbacks.
 - [ ] Make disabled capability requests fail early with a typed result.
-- [ ] Keep protocol, auth method, capability, and lifecycle as separate unions.
+- [x] Keep protocol, auth method, capability, and lifecycle as separate unions.
 - [ ] Remove duplicate aliases and direct string comparisons from generic code.
 - [ ] Add type fixtures for invalid capability/auth/protocol combinations.
 
@@ -332,9 +345,9 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
       evidence, grants, claims, and audit.
 - [ ] Keep Cloudflare, Node, local, and self-hosted adapters behind the same
       static port shapes.
-- [ ] Use one statically composed module graph; add no runtime plugin registry,
+- [x] Use one statically composed module graph; add no runtime plugin registry,
       tenant-mutated route table, or deployment module-selection framework.
-- [ ] Preserve Refactor 93 gateway ownership and `MPC_ROUTER` request-scoped
+- [x] Preserve Refactor 93 gateway ownership and `MPC_ROUTER` request-scoped
       binding.
 - [ ] Reject tenant-runtime service locators and direct infrastructure roles in
       domain handlers.
