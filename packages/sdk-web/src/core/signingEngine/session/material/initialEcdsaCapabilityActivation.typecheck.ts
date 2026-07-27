@@ -71,8 +71,20 @@ const validInput = {
 void buildInitialEcdsaCapabilityActivationPlan(validInput);
 
 // @ts-expect-error The worker must add pending plaintext after planning.
-const persistenceInput: { readonly pendingStateBlobB64u: string } = plan;
+const persistenceInput: { readonly pendingPayloadB64u: string } = plan;
 void persistenceInput;
+
+buildInitialEcdsaCapabilityActivationPlan({
+  ...validInput,
+  // @ts-expect-error The worker owns the pending protocol payload.
+  pendingPayloadB64u: 'worker-owned-pending-payload',
+});
+
+buildInitialEcdsaCapabilityActivationPlan({
+  ...validInput,
+  // @ts-expect-error The retired state-blob field is not a compatibility alias.
+  pendingStateBlobB64u: 'retired-pending-state-blob',
+});
 
 buildInitialEcdsaCapabilityActivationPlan({
   ...validInput,

@@ -33,6 +33,7 @@ test('initial ECDSA activation planner owns fresh independent identities', async
   expect(first.expectedManifest.kind).toBe('no_current_manifest');
   expect(first.expectedGeneration.kind).toBe('no_current_generation');
   expect(first.activationBinding.signer.authority).toEqual(fixture.input.authority);
+  expect('pendingPayloadB64u' in first).toBe(false);
   expect('pendingStateBlobB64u' in first).toBe(false);
 });
 

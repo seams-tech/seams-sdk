@@ -659,8 +659,8 @@ test.describe('canonical ECDSA capability manifest store', () => {
           preparedWriteKind: preparedWrite.kind,
           committedWriteKind: committedWrite.kind,
           beforeCommitOpenKind: beforeCommitOpen.kind,
-          pendingStateBlobB64u:
-            beforeCommitOpen.kind === 'found' ? beforeCommitOpen.pendingStateBlobB64u : null,
+          pendingPayloadB64u:
+            beforeCommitOpen.kind === 'found' ? beforeCommitOpen.pendingPayloadB64u : null,
           beforeFinalizeKind: beforeFinalize.kind,
           finalizationKind: finalization.kind,
           afterFinalizeKind: afterFinalize.kind,
@@ -679,7 +679,7 @@ test.describe('canonical ECDSA capability manifest store', () => {
       preparedWriteKind: 'stored',
       committedWriteKind: 'stored',
       beforeCommitOpenKind: 'found',
-      pendingStateBlobB64u: fixture.prepareInput.pendingStateBlobB64u,
+      pendingPayloadB64u: fixture.prepareInput.pendingPayloadB64u,
       beforeFinalizeKind: 'found',
       finalizationKind: 'committed',
       afterFinalizeKind: 'missing',

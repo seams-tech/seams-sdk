@@ -186,7 +186,7 @@ export function ecdsaCapabilityActivationFixture(): EcdsaCapabilityActivationFix
       requestDigest,
       canonicalRequest: parseCanonicalEcdsaServerActivationRequest('{"kind":"fixture"}'),
       createdAt: parseIsoTimestamp('2026-07-27T00:00:00.000Z'),
-      pendingStateBlobB64u: fixtureStateBlob('pending-state-fixture'),
+      pendingPayloadB64u: fixtureStateBlob('pending-state-fixture'),
     },
     serverCommit: {
       correlationId: journalId,
@@ -328,7 +328,7 @@ function buildEcdsaCapabilityReplacementFixture(
           '{"kind":"replacement-fixture"}',
         ),
         createdAt: parseIsoTimestamp('2026-07-27T01:00:00.000Z'),
-        pendingStateBlobB64u: fixtureStateBlob('pending-state-replacement-fixture'),
+        pendingPayloadB64u: fixtureStateBlob('pending-state-replacement-fixture'),
       },
       serverCommit: {
         correlationId: journalId,
