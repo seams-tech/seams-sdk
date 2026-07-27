@@ -16,7 +16,10 @@ import type {
   WarmSessionCapabilityReader,
   WarmSessionProvisioner,
 } from '../../session/warmCapabilities/types';
-import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
+import {
+  createWarmSessionStatusReader,
+  type WarmSessionStatusReaderDeps,
+} from '../../session/warmCapabilities/statusReader';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import { type ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
 import type { EvmFamilyEcdsaSessionReaderDeps } from '../../interfaces/operationDeps';
@@ -38,6 +41,7 @@ export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps &
     args: ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  resolveActiveEcdsaWalletSessionAuthorization?: WarmSessionStatusReaderDeps['resolveActiveEcdsaWalletSessionAuthorization'];
 };
 
 export type EvmFamilyWarmSessionServices = Pick<
@@ -81,14 +85,22 @@ export function createEvmFamilyWarmSessionServices(
         record,
       }));
   };
+  const resolveActiveEcdsaWalletSessionAuthorization =
+    deps.resolveActiveEcdsaWalletSessionAuthorization;
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: deps.touchConfirm,
     signingSessionSeal: null,
     getEmailOtpWarmSessionStatus,
+    ...(resolveActiveEcdsaWalletSessionAuthorization
+      ? { resolveActiveEcdsaWalletSessionAuthorization }
+      : {}),
   });
   const statusReader = createWarmSessionStatusReader({
     touchConfirm: deps.touchConfirm,
     getEmailOtpWarmSessionStatus,
+    ...(resolveActiveEcdsaWalletSessionAuthorization
+      ? { resolveActiveEcdsaWalletSessionAuthorization }
+      : {}),
   });
   return {
     getWarmSession: (walletId) => capabilityReader.getWarmSession(walletId),

@@ -194,6 +194,7 @@ type WarmSessionEd25519PresentCapabilityStateValue = Exclude<
 >;
 type WarmSessionEcdsaPresentCapabilityStateValue =
   | 'ready'
+  | 'authorization_required'
   | 'auth_missing'
   | 'material_pending'
   | 'prf_missing'
@@ -279,6 +280,24 @@ type WarmSessionEcdsaAuthMissingState = WarmSessionEcdsaCapabilityFields & {
   state: 'auth_missing';
 };
 
+// Durable ECDSA capability material exists and its material activation remains
+// valid, but no active reusable Wallet Session authorizes signing. A
+// SelectedEcdsaLane embeds that authorization, so no lane can exist here:
+// operation planning must request step-up while material hydration
+// independently resolves live or sealed material. Distinct from
+// `auth_missing`, which reports missing or unusable transport auth for an
+// authorization that otherwise exists.
+type WarmSessionEcdsaAuthorizationRequiredState = {
+  capability: 'ecdsa';
+  record: ThresholdEcdsaSessionRecord;
+  key: EvmFamilyEcdsaKeyIdentity;
+  lane: null;
+  auth: WarmSessionEcdsaAuthMaterial | null;
+  prfClaim: WarmSessionPrfClaim | null;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
+  state: 'authorization_required';
+};
+
 type WarmSessionEcdsaPrfReadyState = WarmSessionEcdsaCapabilityFields & {
   auth: WarmSessionEcdsaAuthMaterialWithToken;
   prfClaim: WarmSessionWarmPrfClaim;
@@ -289,12 +308,13 @@ type WarmSessionEcdsaPrfBlockedState = WarmSessionEcdsaCapabilityFields & {
   auth: WarmSessionEcdsaAuthMaterialWithToken;
   state: Exclude<
     WarmSessionEcdsaPresentCapabilityStateValue,
-    'auth_missing' | 'ready' | 'material_pending'
+    'authorization_required' | 'auth_missing' | 'ready' | 'material_pending'
   >;
 };
 
 export type WarmSessionEcdsaCapabilityState =
   | WarmSessionMissingEcdsaCapabilityState
+  | WarmSessionEcdsaAuthorizationRequiredState
   | WarmSessionEcdsaAuthMissingState
   | WarmSessionEcdsaPrfReadyState
   | WarmSessionEcdsaPrfBlockedState;
@@ -397,7 +417,18 @@ function assertCapabilityStateInvariant(args: {
   }
 
   if (capability.capability === 'ecdsa') {
-    if (!capability.key || !capability.lane) {
+    if (!capability.key) {
+      throw new Error(
+        `[WarmSessionStore] invalid ${args.label} capability: ECDSA record requires key identity`,
+      );
+    }
+    if (capability.state === 'authorization_required') {
+      if (capability.lane) {
+        throw new Error(
+          `[WarmSessionStore] invalid ${args.label} capability: authorization_required cannot carry a selected lane`,
+        );
+      }
+    } else if (!capability.lane) {
       throw new Error(
         `[WarmSessionStore] invalid ${args.label} capability: ECDSA record requires key/lane identity`,
       );
@@ -420,29 +451,31 @@ function assertCapabilityStateInvariant(args: {
         `[WarmSessionStore] invalid ${args.label} capability: key owner address does not match record owner address`,
       );
     }
-    if (
-      !thresholdEcdsaChainTargetsEqual(
-        capability.lane.identity.signer.chainTarget,
-        capability.record.chainTarget,
-      )
-    ) {
-      throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: lane chain target does not match record chain target`,
-      );
-    }
-    if (
-      String(capability.lane.materialActivation.activationId) !==
-      String(capability.record.materialActivation.activationId)
-    ) {
-      throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: lane material activation does not match record`,
-      );
-    }
-    const expectedAuthMethod = authMethodForThresholdEcdsaSessionSource(capability.record.source);
-    if (signingLaneAuthMethod(capability.lane.auth) !== expectedAuthMethod) {
-      throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: lane authMethod does not match record source`,
-      );
+    if (capability.lane) {
+      if (
+        !thresholdEcdsaChainTargetsEqual(
+          capability.lane.identity.signer.chainTarget,
+          capability.record.chainTarget,
+        )
+      ) {
+        throw new Error(
+          `[WarmSessionStore] invalid ${args.label} capability: lane chain target does not match record chain target`,
+        );
+      }
+      if (
+        String(capability.lane.materialActivation.activationId) !==
+        String(capability.record.materialActivation.activationId)
+      ) {
+        throw new Error(
+          `[WarmSessionStore] invalid ${args.label} capability: lane material activation does not match record`,
+        );
+      }
+      const expectedAuthMethod = authMethodForThresholdEcdsaSessionSource(capability.record.source);
+      if (signingLaneAuthMethod(capability.lane.auth) !== expectedAuthMethod) {
+        throw new Error(
+          `[WarmSessionStore] invalid ${args.label} capability: lane authMethod does not match record source`,
+        );
+      }
     }
   } else if (String(capability.record.walletId) !== String(args.walletId)) {
     throw new Error(
@@ -516,6 +549,7 @@ function assertCapabilityStateInvariant(args: {
     emailOtpAuthContext &&
     emailOtpAuthContextRetention(emailOtpAuthContext) === 'single_use' &&
     Number(emailOtpAuthContextConsumedAtMs(emailOtpAuthContext)) > 0;
+  if (capability.state === 'authorization_required') return;
   const expectedState = expectedPresentCapabilityState({
     capability,
     hasWalletSessionJwt,
@@ -713,7 +747,9 @@ export type ClaimWarmSessionPrfArgs =
 
 export type WarmEcdsaRecordBackedSigningSessionStatus = SigningSessionStatus & {
   key: EvmFamilyEcdsaKeyIdentity;
-  lane: SelectedEcdsaLane;
+  // Null when no active reusable Wallet Session authorization exists for the
+  // wallet: a SelectedEcdsaLane embeds that authorization by construction.
+  lane: SelectedEcdsaLane | null;
   chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
   signingGrantId: string;

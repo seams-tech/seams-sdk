@@ -202,6 +202,7 @@ import { createBrowserRecoveryPublicDeps } from '../assembly/createBrowserRecove
 import { createBrowserStepUpRuntime } from '../assembly/createBrowserStepUpRuntime';
 import { createBrowserWarmSessionPublicDeps } from '../assembly/createBrowserWarmSessionPublicDeps';
 import {
+  createBrowserActiveEcdsaWalletSessionAuthorizationResolver,
   createBrowserSigningSurfaceEnginePorts,
   listBrowserEcdsaSigningCapabilitiesForWallet,
   type BrowserSigningSurfaceEnginePorts,
@@ -490,6 +491,11 @@ export class BrowserSigningSurface {
         this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
       signingSessionSeal: this.seamsWebConfigs.signing.sessionSeal,
       ecdsaRoleLocalReadyRecords: ecdsaRoleLocalReadyRecordStore,
+      resolveActiveEcdsaWalletSessionAuthorization:
+        createBrowserActiveEcdsaWalletSessionAuthorizationResolver({
+          seamsWebConfigs: this.seamsWebConfigs,
+          emailOtpSessions: this.emailOtpSessions,
+        }),
     });
     this.sessionPublicDeps = createSessionPublicDeps({
       seamsWebConfigs: this.seamsWebConfigs,

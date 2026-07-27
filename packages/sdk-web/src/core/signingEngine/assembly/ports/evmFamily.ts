@@ -37,6 +37,12 @@ export function createEvmFamilySigningDeps(args: {
   const { createArgs, signingSessionCoordinator, getEmailOtpWarmSessionStatus } = args;
   return {
     resolveAuthorizedEcdsaSigningCapability: createArgs.resolveAuthorizedEcdsaSigningCapability,
+    ...(createArgs.resolveActiveEcdsaWalletSessionAuthorization
+      ? {
+          resolveActiveEcdsaWalletSessionAuthorization:
+            createArgs.resolveActiveEcdsaWalletSessionAuthorization,
+        }
+      : {}),
     walletSignerStore: args.walletSignerStore,
     passkeyAuthenticatorStore: args.passkeyAuthenticatorStore,
     seamsWebConfigs: createArgs.seamsWebConfigs,

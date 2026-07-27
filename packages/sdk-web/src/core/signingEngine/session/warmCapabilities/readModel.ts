@@ -1,3 +1,4 @@
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import type {
   SigningSessionRetention,
   SigningSessionStatus,
@@ -283,8 +284,13 @@ export function deriveEcdsaCapabilityState(args: {
   record: WarmSessionEcdsaCapabilityState['record'];
   auth: WarmSessionEcdsaAuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
+  authorization: ActiveEvmFamilyWalletSessionAuthorization | null;
 }): WarmSessionEcdsaCapabilityState['state'] {
   if (!args.record) return 'missing';
+  // The reusable Wallet Session authorization is the independent second proof:
+  // without it the capability is not signable regardless of transport auth,
+  // and no SelectedEcdsaLane can exist.
+  if (!args.authorization) return 'authorization_required';
   if (!args.auth || args.auth.state === 'unavailable') {
     return 'auth_missing';
   }
