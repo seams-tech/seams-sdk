@@ -632,6 +632,13 @@ export interface EmailOtpWorkerOperationMap {
         lifecycle_id: string;
         session_id: readonly number[];
       };
+      /**
+       * Yao timing breakdown observed inside the worker. Email OTP runs its
+       * ceremony here, so this is how the Router's `Server-Timing` reaches the
+       * main thread. Diagnostics only, and always optional.
+       */
+      routerServerTiming?: string;
+      clientTimings?: { admissionMs: number; sessionCreateMs: number };
     };
   };
   commitEmailOtpEd25519YaoRegistration: {

@@ -84,6 +84,18 @@ export type VerifiedEmailOtpEd25519YaoRegistrationWorkerInputV1 = {
   registrationAuthorityId: string;
   registrationIntentGrant: string;
   routerOrigin: string;
+  /**
+   * Receives the Yao timing breakdown once the worker reports it. Email OTP
+   * runs its ceremony inside the worker, so this callback is the only path by
+   * which the Router's `Server-Timing` reaches the caller. Diagnostics only:
+   * it never affects control flow, and a throwing sink is swallowed.
+   */
+  onYaoDiagnostics?: (diagnostics: EmailOtpEd25519YaoRegistrationDiagnosticsV1) => void;
+};
+
+export type EmailOtpEd25519YaoRegistrationDiagnosticsV1 = {
+  routerServerTiming?: string;
+  clientTimings?: { admissionMs: number; sessionCreateMs: number };
 };
 
 export type VerifiedEmailOtpEd25519YaoRecoveryWorkerInputV1 = {
@@ -650,6 +662,16 @@ export async function startEmailOtpEd25519YaoWorkerRegistrationV1(
       kind: 'pending_registration',
       pendingRegistrationHandle: started.pendingHandle,
     };
+    if (input.onYaoDiagnostics && (started.routerServerTiming || started.clientTimings)) {
+      try {
+        input.onYaoDiagnostics({
+          ...(started.routerServerTiming ? { routerServerTiming: started.routerServerTiming } : {}),
+          ...(started.clientTimings ? { clientTimings: started.clientTimings } : {}),
+        });
+      } catch {
+        // Diagnostics must never change registration behavior.
+      }
+    }
     const pending = new EmailOtpEd25519YaoWorkerPendingRegistrationV1(
       input.workerContext,
       started.pendingHandle,
