@@ -116,7 +116,10 @@ import { collectEmailOtpRegistrationAuthority } from '@/SeamsWeb/operations/auth
 import type { PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult as EmailOtpRegistrationEnrollmentMaterial } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import { requirePasskeyPrfFirstB64u } from '@/SeamsWeb/operations/authMethods/passkey/ecdsaBootstrap';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
-import { startEmailOtpEd25519YaoWorkerRegistrationV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoWorkerClient';
+import {
+  startEmailOtpEd25519YaoWorkerRegistrationV1,
+  type EmailOtpEd25519YaoRegistrationDiagnosticsV1,
+} from '@/core/signingEngine/session/emailOtp/ed25519YaoWorkerClient';
 import {
   buildEmailOtpAuthContextForWalletAuthMethod,
   emailOtpAuthContextEmailHashHex,
@@ -162,6 +165,52 @@ import {
 // Registration forces a visible, clickable confirmation for cross-origin safety.
 
 export const REGISTRATION_TIMING_LABEL = '[Registration] wallet timing summary';
+
+/**
+ * Router `Server-Timing` metric name → timing bucket. The Router emits these on
+ * the Ed25519 Yao registration execute response; anything unrecognised is
+ * ignored so a Router-side rename can never break registration.
+ */
+const YAO_SERVER_TIMING_BUCKET_BY_METRIC = {
+  yao_credential_digest: 'yaoServerCredentialDigestMs',
+  yao_request_digest: 'yaoServerRequestDigestMs',
+  yao_d1_claim: 'yaoServerD1ClaimMs',
+  yao_router_execution: 'yaoServerRouterExecutionMs',
+  yao_result_reconstruction: 'yaoServerResultReconstructionMs',
+  yao_d1_terminal_commit: 'yaoServerD1TerminalCommitMs',
+  yao_router_prepare_pair: 'yaoServerRouterPreparePairMs',
+  yao_router_verify_readiness: 'yaoServerRouterVerifyReadinessMs',
+  yao_router_role_execution: 'yaoServerRouterRoleExecutionMs',
+  yao_router_signing_worker_delivery: 'yaoServerRouterSigningWorkerDeliveryMs',
+} as const satisfies Record<string, RegistrationTimingBucketName>;
+
+/**
+ * Parses a `Server-Timing` header into bucket durations. Diagnostics only: a
+ * malformed or absent header yields an empty map and never throws.
+ */
+export function parseYaoServerTimingBuckets(
+  header: string | null | undefined,
+): ReadonlyArray<readonly [RegistrationTimingBucketName, number]> {
+  if (!header) return [];
+  const parsed: Array<readonly [RegistrationTimingBucketName, number]> = [];
+  for (const entry of header.split(',')) {
+    const parts = entry.split(';');
+    const name = String(parts[0] || '').trim();
+    const bucket = (
+      YAO_SERVER_TIMING_BUCKET_BY_METRIC as Record<string, RegistrationTimingBucketName | undefined>
+    )[name];
+    if (!bucket) continue;
+    for (const part of parts.slice(1)) {
+      const [key, rawValue] = part.split('=');
+      if (String(key || '').trim() !== 'dur') continue;
+      const duration = Number(String(rawValue || '').trim());
+      if (!Number.isFinite(duration) || duration < 0) break;
+      parsed.push([bucket, duration]);
+      break;
+    }
+  }
+  return parsed;
+}
 export const WALLET_IFRAME_TRANSPORT_TIMING_LABEL =
   '[Registration] wallet iframe transport timing summary';
 
@@ -248,6 +297,24 @@ type RegistrationTimingBucketValues = {
   emailOtpYaoEnrollmentMaterialWaitMs: number;
   emailOtpYaoWorkerRegistrationMs: number;
   emailOtpYaoTotalMs: number;
+  // Ed25519 Yao branch, client-observed. Applies to passkey and Email OTP
+  // alike; the emailOtpYao* buckets above stay Email-OTP specific.
+  yaoBranchTotalMs: number;
+  yaoAdmissionMs: number;
+  yaoClientSessionCreateMs: number;
+  yaoClientCompletionMs: number;
+  // Router-reported, parsed from the execute call's Server-Timing header.
+  // Names mirror the server metric names exactly.
+  yaoServerCredentialDigestMs: number;
+  yaoServerRequestDigestMs: number;
+  yaoServerD1ClaimMs: number;
+  yaoServerRouterExecutionMs: number;
+  yaoServerResultReconstructionMs: number;
+  yaoServerD1TerminalCommitMs: number;
+  yaoServerRouterPreparePairMs: number;
+  yaoServerRouterVerifyReadinessMs: number;
+  yaoServerRouterRoleExecutionMs: number;
+  yaoServerRouterSigningWorkerDeliveryMs: number;
   walletRegisterStartMs: number;
   ecdsaClientBootstrapMs: number;
   ecdsaRegistrationTotalMs: number;
@@ -747,6 +814,20 @@ function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketVal
     emailOtpYaoEnrollmentMaterialWaitMs: 0,
     emailOtpYaoWorkerRegistrationMs: 0,
     emailOtpYaoTotalMs: 0,
+    yaoBranchTotalMs: 0,
+    yaoAdmissionMs: 0,
+    yaoClientSessionCreateMs: 0,
+    yaoClientCompletionMs: 0,
+    yaoServerCredentialDigestMs: 0,
+    yaoServerRequestDigestMs: 0,
+    yaoServerD1ClaimMs: 0,
+    yaoServerRouterExecutionMs: 0,
+    yaoServerResultReconstructionMs: 0,
+    yaoServerD1TerminalCommitMs: 0,
+    yaoServerRouterPreparePairMs: 0,
+    yaoServerRouterVerifyReadinessMs: 0,
+    yaoServerRouterRoleExecutionMs: 0,
+    yaoServerRouterSigningWorkerDeliveryMs: 0,
     walletRegisterStartMs: 0,
     ecdsaClientBootstrapMs: 0,
     ecdsaRegistrationTotalMs: 0,
@@ -826,6 +907,20 @@ function copyRegistrationTimingBucketValues(
     emailOtpYaoEnrollmentMaterialWaitMs: buckets.emailOtpYaoEnrollmentMaterialWaitMs,
     emailOtpYaoWorkerRegistrationMs: buckets.emailOtpYaoWorkerRegistrationMs,
     emailOtpYaoTotalMs: buckets.emailOtpYaoTotalMs,
+    yaoBranchTotalMs: buckets.yaoBranchTotalMs,
+    yaoAdmissionMs: buckets.yaoAdmissionMs,
+    yaoClientSessionCreateMs: buckets.yaoClientSessionCreateMs,
+    yaoClientCompletionMs: buckets.yaoClientCompletionMs,
+    yaoServerCredentialDigestMs: buckets.yaoServerCredentialDigestMs,
+    yaoServerRequestDigestMs: buckets.yaoServerRequestDigestMs,
+    yaoServerD1ClaimMs: buckets.yaoServerD1ClaimMs,
+    yaoServerRouterExecutionMs: buckets.yaoServerRouterExecutionMs,
+    yaoServerResultReconstructionMs: buckets.yaoServerResultReconstructionMs,
+    yaoServerD1TerminalCommitMs: buckets.yaoServerD1TerminalCommitMs,
+    yaoServerRouterPreparePairMs: buckets.yaoServerRouterPreparePairMs,
+    yaoServerRouterVerifyReadinessMs: buckets.yaoServerRouterVerifyReadinessMs,
+    yaoServerRouterRoleExecutionMs: buckets.yaoServerRouterRoleExecutionMs,
+    yaoServerRouterSigningWorkerDeliveryMs: buckets.yaoServerRouterSigningWorkerDeliveryMs,
     walletRegisterStartMs: buckets.walletRegisterStartMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
     ecdsaRegistrationTotalMs: buckets.ecdsaRegistrationTotalMs,
@@ -1205,6 +1300,20 @@ function buildRegistrationTimingBuckets(input: {
     emailOtpYaoEnrollmentMaterialWaitMs: buckets.emailOtpYaoEnrollmentMaterialWaitMs,
     emailOtpYaoWorkerRegistrationMs: buckets.emailOtpYaoWorkerRegistrationMs,
     emailOtpYaoTotalMs: buckets.emailOtpYaoTotalMs,
+    yaoBranchTotalMs: buckets.yaoBranchTotalMs,
+    yaoAdmissionMs: buckets.yaoAdmissionMs,
+    yaoClientSessionCreateMs: buckets.yaoClientSessionCreateMs,
+    yaoClientCompletionMs: buckets.yaoClientCompletionMs,
+    yaoServerCredentialDigestMs: buckets.yaoServerCredentialDigestMs,
+    yaoServerRequestDigestMs: buckets.yaoServerRequestDigestMs,
+    yaoServerD1ClaimMs: buckets.yaoServerD1ClaimMs,
+    yaoServerRouterExecutionMs: buckets.yaoServerRouterExecutionMs,
+    yaoServerResultReconstructionMs: buckets.yaoServerResultReconstructionMs,
+    yaoServerD1TerminalCommitMs: buckets.yaoServerD1TerminalCommitMs,
+    yaoServerRouterPreparePairMs: buckets.yaoServerRouterPreparePairMs,
+    yaoServerRouterVerifyReadinessMs: buckets.yaoServerRouterVerifyReadinessMs,
+    yaoServerRouterRoleExecutionMs: buckets.yaoServerRouterRoleExecutionMs,
+    yaoServerRouterSigningWorkerDeliveryMs: buckets.yaoServerRouterSigningWorkerDeliveryMs,
     walletRegisterStartMs: buckets.walletRegisterStartMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
     ecdsaRegistrationTotalMs: buckets.ecdsaRegistrationTotalMs,
@@ -2876,6 +2985,10 @@ type RegistrationYaoWorkCompletion =
   | {
       kind: 'pending';
       pending: ProductEd25519YaoPendingRegistrationPortV1;
+      /** Raw Router Server-Timing for the execute call. Diagnostics only. */
+      routerServerTiming?: string;
+      /** Client-observed Yao sub-steps in ms. Diagnostics only. */
+      clientTimings?: { admissionMs: number; sessionCreateMs: number };
     }
   | {
       kind: 'failed';
@@ -2890,7 +3003,12 @@ function completeRegistrationYaoWork(
   result: ProductEd25519YaoRegistrationResultV1,
 ): RegistrationYaoWorkCompletion {
   return result.ok
-    ? { kind: 'pending', pending: result.registration }
+    ? {
+        kind: 'pending',
+        pending: result.registration,
+        ...(result.routerServerTiming ? { routerServerTiming: result.routerServerTiming } : {}),
+        ...(result.clientTimings ? { clientTimings: result.clientTimings } : {}),
+      }
     : { kind: 'failed', error: new Error(result.message) };
 }
 
@@ -2940,9 +3058,21 @@ type ClaimedRegistrationYao =
 
 class RegistrationYaoWork {
   private state: RegistrationYaoWorkState;
+  /** Router Server-Timing captured when the ceremony settled. Diagnostics only. */
+  private routerServerTiming: string | null = null;
+  /** Client-observed Yao sub-step durations. Diagnostics only. */
+  private yaoClientTimings: { admissionMs: number; sessionCreateMs: number } | null = null;
+
+  /** Wall-clock start of the Yao branch, for `yaoBranchTotalMs`. */
+  private readonly startedAtMs: number = performance.now();
 
   private constructor(state: RegistrationYaoWorkState) {
     this.state = state;
+  }
+
+  /** Elapsed time since the Yao branch was started. Diagnostics only. */
+  elapsedMs(): number {
+    return Math.max(0, performance.now() - this.startedAtMs);
   }
 
   static disabled(): RegistrationYaoWork {
@@ -2967,6 +3097,18 @@ class RegistrationYaoWork {
     });
   }
 
+  consumeClientTimings(): { admissionMs: number; sessionCreateMs: number } | null {
+    const value = this.yaoClientTimings;
+    this.yaoClientTimings = null;
+    return value;
+  }
+
+  consumeRouterServerTiming(): string | null {
+    const value = this.routerServerTiming;
+    this.routerServerTiming = null;
+    return value;
+  }
+
   async requirePending(): Promise<ProductEd25519YaoPendingRegistrationPortV1> {
     switch (this.state.kind) {
       case 'running': {
@@ -2975,6 +3117,8 @@ class RegistrationYaoWork {
           this.state = completion;
           throw completion.error;
         }
+        this.routerServerTiming = completion.routerServerTiming || null;
+        this.yaoClientTimings = completion.clientTimings || null;
         this.state = completion;
         return completion.pending;
       }
@@ -3231,8 +3375,23 @@ async function createEmailOtpRegistrationYaoPending(args: {
       registrationAuthorityId: args.registrationAuthorityId,
       registrationIntentGrant: args.registrationIntentGrant,
       routerOrigin: args.relayerUrl,
+      onYaoDiagnostics: recordEmailOtpRegistrationYaoDiagnostics.bind(undefined, args.recorder),
     }),
   );
+}
+
+function recordEmailOtpRegistrationYaoDiagnostics(
+  recorder: RegistrationTimingRecorder,
+  diagnostics: EmailOtpEd25519YaoRegistrationDiagnosticsV1,
+): void {
+  for (const [bucket, durationMs] of parseYaoServerTimingBuckets(
+    diagnostics.routerServerTiming,
+  )) {
+    recorder.record(bucket, durationMs);
+  }
+  if (!diagnostics.clientTimings) return;
+  recorder.record('yaoAdmissionMs', diagnostics.clientTimings.admissionMs);
+  recorder.record('yaoClientSessionCreateMs', diagnostics.clientTimings.sessionCreateMs);
 }
 
 async function claimRegistrationYao(
@@ -3717,7 +3876,30 @@ async function registerEcdsaOrMixedWallet(
         authMethod: args.authMethod,
         backup: emailOtpRecoveryCodeBackup,
       })) ?? null;
+    const yaoClaimStartedAt = performance.now();
     const claimedYao = await claimRegistrationYao(args.kind, yaoWork);
+    /* Only meaningful when the Yao branch actually ran; an ECDSA-only
+       registration claims a disabled branch and must leave these at zero. */
+    if (claimedYao.kind === 'pending') {
+      /* Yao runs concurrently with ECDSA, so this measures only how long the
+         branch kept registration waiting after ECDSA finished — not the
+         ceremony duration. The Router's breakdown arrives via Server-Timing. */
+      registrationTiming.record('yaoClientCompletionMs', performance.now() - yaoClaimStartedAt);
+      /* Wall time of the whole concurrent branch, for the <=1.5s branch target.
+         Distinct from yaoClientCompletionMs, which is only the tail that
+         outlasted ECDSA. */
+      registrationTiming.record('yaoBranchTotalMs', yaoWork.elapsedMs());
+      for (const [bucket, durationMs] of parseYaoServerTimingBuckets(
+        yaoWork.consumeRouterServerTiming(),
+      )) {
+        registrationTiming.record(bucket, durationMs);
+      }
+      const yaoClientTimings = yaoWork.consumeClientTimings();
+      if (yaoClientTimings) {
+        registrationTiming.record('yaoAdmissionMs', yaoClientTimings.admissionMs);
+        registrationTiming.record('yaoClientSessionCreateMs', yaoClientTimings.sessionCreateMs);
+      }
+    }
     const finalized = await registrationTiming.measure(
       'walletRegisterFinalizeMs',
       finalizeEcdsaOrMixedRegistration.bind(undefined, {

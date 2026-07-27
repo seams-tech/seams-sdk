@@ -42,6 +42,27 @@ const ROUTER_SPAN_EVENT: &str = "router_ab_yao_coordinator_span_v1";
 const ROUTER_REPLAY_HEADER: &str = "x-seams-yao-replay";
 const ROUTER_AUTHORITY_TTL_MS: u64 = 60_000;
 
+#[derive(Default)]
+struct RouterExecutionTimingV1 {
+    prepare_pair_ms: u64,
+    verify_readiness_ms: u64,
+    role_execution_ms: u64,
+    signing_worker_delivery_ms: u64,
+}
+
+impl RouterExecutionTimingV1 {
+    fn server_timing(&self) -> String {
+        format!(
+            "yao_router_prepare_pair;dur={}, yao_router_verify_readiness;dur={}, \
+             yao_router_role_execution;dur={}, yao_router_signing_worker_delivery;dur={}",
+            self.prepare_pair_ms,
+            self.verify_readiness_ms,
+            self.role_execution_ms,
+            self.signing_worker_delivery_ms,
+        )
+    }
+}
+
 enum RouterRoleCallError {
     Protocol(RouterAbProtocolError),
     Failure(CloudflareEd25519YaoRoleFailureResponseV1),
@@ -147,8 +168,17 @@ pub async fn handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(
         "success",
     );
     let started_at_ms = now_ms;
-    let result =
-        execute_router_ceremony_v1(env, &runtime, execute_request, now_ms, trace_id, replay).await;
+    let mut timing = RouterExecutionTimingV1::default();
+    let result = execute_router_ceremony_v1(
+        env,
+        &runtime,
+        execute_request,
+        now_ms,
+        trace_id,
+        replay,
+        &mut timing,
+    )
+    .await;
     emit_span(
         trace_id,
         "router.yao_execute",
@@ -156,10 +186,14 @@ pub async fn handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(
         started_at_ms,
         if result.is_ok() { "success" } else { "failure" },
     );
-    match result {
-        Ok(result) => Response::from_json(&result),
-        Err(error) => protocol_error_response(error),
-    }
+    let response = match result {
+        Ok(result) => Response::from_json(&result)?,
+        Err(error) => protocol_error_response(error)?,
+    };
+    response
+        .headers()
+        .set("Server-Timing", &timing.server_timing())?;
+    Ok(response)
 }
 
 fn router_recipient_set_digest_v1(env: &Env) -> RouterAbProtocolResult<PublicDigest32> {
@@ -236,6 +270,7 @@ async fn execute_router_ceremony_v1(
     now_ms: u64,
     trace_id: Option<crate::CloudflareTraceIdV1>,
     replay: bool,
+    timing: &mut RouterExecutionTimingV1,
 ) -> RouterAbProtocolResult<RouterEd25519YaoExecuteResultV1> {
     request.authority().validate_at(now_ms)?;
     request.pair_binding().validate()?;
@@ -246,9 +281,16 @@ async fn execute_router_ceremony_v1(
     let pair_binding = request.pair_binding().clone();
 
     if replay {
-        if let Some(result) =
-            reconcile_router_replay_v1(env, runtime, &request, &binding, &pair_binding, trace_id)
-                .await?
+        if let Some(result) = reconcile_router_replay_v1(
+            env,
+            runtime,
+            &request,
+            &binding,
+            &pair_binding,
+            trace_id,
+            timing,
+        )
+        .await?
         {
             return Ok(result);
         }
@@ -305,6 +347,7 @@ async fn execute_router_ceremony_v1(
         prepare_started_at_ms,
         "success",
     );
+    timing.prepare_pair_ms = cloudflare_now_unix_ms_v1()?.saturating_sub(prepare_started_at_ms);
     let readiness_now_ms = cloudflare_now_unix_ms_v1()?;
     let readiness_started_at_ms = cloudflare_now_unix_ms_v1()?;
     let readiness_result = validate_readiness(
@@ -334,6 +377,8 @@ async fn execute_router_ceremony_v1(
             "failure"
         },
     );
+    timing.verify_readiness_ms =
+        cloudflare_now_unix_ms_v1()?.saturating_sub(readiness_started_at_ms);
     readiness_result?;
     let execute_started_at_ms = cloudflare_now_unix_ms_v1()?;
     let execution = match post_role_json_for_ceremony_with_span::<
@@ -389,6 +434,7 @@ async fn execute_router_ceremony_v1(
             "failure"
         },
     );
+    timing.role_execution_ms = cloudflare_now_unix_ms_v1()?.saturating_sub(execute_started_at_ms);
     execution_validation?;
 
     let transcript = execution_transcript(&execution.deriver_a_execution);
@@ -411,6 +457,7 @@ async fn execute_router_ceremony_v1(
         execution.deriver_a_execution,
         completed_b,
         trace_id,
+        timing,
     )
     .await
 }
@@ -422,6 +469,7 @@ async fn reconcile_router_replay_v1(
     binding: &router_ab_core::Ed25519YaoCeremonyBindingV1,
     pair_binding: &Ed25519YaoInputPairBindingV1,
     trace_id: Option<crate::CloudflareTraceIdV1>,
+    timing: &mut RouterExecutionTimingV1,
 ) -> RouterAbProtocolResult<Option<RouterEd25519YaoExecuteResultV1>> {
     let reconciliation_started_at_ms = cloudflare_now_unix_ms_v1()?;
     let statuses = futures::try_join!(
@@ -492,6 +540,7 @@ async fn reconcile_router_replay_v1(
             execution_a,
             execution_b,
             trace_id,
+            timing,
         )
         .await
         .map(Some);
@@ -622,6 +671,7 @@ async fn finalize_router_result_v1(
     execution: Ed25519YaoRoleExecutionV1,
     completed_b: Ed25519YaoRoleExecutionV1,
     trace_id: Option<crate::CloudflareTraceIdV1>,
+    timing: &mut RouterExecutionTimingV1,
 ) -> RouterAbProtocolResult<RouterEd25519YaoExecuteResultV1> {
     let operation = request.operation();
     let success = match operation {
@@ -645,6 +695,8 @@ async fn finalize_router_result_v1(
             .await;
             let worker_response = match worker_response {
                 Ok(receipt) => {
+                    timing.signing_worker_delivery_ms =
+                        cloudflare_now_unix_ms_v1()?.saturating_sub(delivery_started_at_ms);
                     emit_span(
                         trace_id,
                         "router.signing_worker_delivery",
@@ -655,6 +707,8 @@ async fn finalize_router_result_v1(
                     receipt
                 }
                 Err(error) => {
+                    timing.signing_worker_delivery_ms =
+                        cloudflare_now_unix_ms_v1()?.saturating_sub(delivery_started_at_ms);
                     emit_span(
                         trace_id,
                         "router.signing_worker_delivery",

@@ -8,8 +8,8 @@ Rules:
 
 - Delete an entry in the same change that replaces its behavior
   (no third implementation, no compatibility alias).
-- When an entry is deleted, strike it here and record the commit in the
-  [journal](./refactor-90-journal.md).
+- When an entry is deleted, strike it here and append the commit SHA to the
+  entry. Git history is the progress record; there is no separate journal.
 - Phases add newly discovered targets here instead of growing prose in the
   [plan](./refactor-90-modular-auth-capabilities-plan.md).
 

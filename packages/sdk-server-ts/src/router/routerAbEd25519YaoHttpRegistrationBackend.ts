@@ -74,7 +74,7 @@ type ValidatedHttpBackendConfig = {
   onSpan: ((span: RouterAbEd25519YaoGatewaySpanV1) => void) | undefined;
 };
 
-type HttpSuccess = { ok: true; body: unknown };
+type HttpSuccess = { ok: true; body: unknown; serverTiming: string | null };
 type HttpResult = HttpSuccess | RouterAbEd25519YaoRegistrationBackendFailure;
 
 type ActiveSigningWorkerReceipt = {
@@ -550,9 +550,16 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
   implements RouterAbEd25519YaoRegistrationBackend, RouterAbEd25519YaoExportBackend
 {
   private readonly config: ValidatedHttpBackendConfig;
+  private lastRouterServerTiming: string | null = null;
 
   constructor(config: RouterAbEd25519YaoHttpRegistrationBackendConfig) {
     this.config = validateConfig(config);
+  }
+
+  takeLastRouterServerTiming(): string | null {
+    const timing = this.lastRouterServerTiming;
+    this.lastRouterServerTiming = null;
+    return timing;
   }
 
   async admit(
@@ -748,6 +755,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
     const executeStartedAt = performance.now();
     try {
       const response = await this.post(ROUTER_EXECUTE_PATH, routerRequest, traceId, true);
+      this.lastRouterServerTiming = response.ok ? response.serverTiming : null;
       const result = response.ok ? parseRouterExecuteResult(response.body, request) : response;
       emitGatewaySpan(
         this.config.onSpan,
@@ -851,8 +859,28 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
         `worker ${path} returned HTTP ${response.status} with invalid JSON`,
       );
     }
-    return { ok: true, body };
+    return {
+      ok: true,
+      body,
+      serverTiming: parseRouterServerTiming(response.headers.get('Server-Timing')),
+    };
   }
+}
+
+function parseRouterServerTiming(value: string | null): string | null {
+  if (!value) return null;
+  const metrics = value.split(',').map((metric) => metric.trim());
+  const allowedNames = new Set([
+    'yao_router_prepare_pair',
+    'yao_router_verify_readiness',
+    'yao_router_role_execution',
+    'yao_router_signing_worker_delivery',
+  ]);
+  for (const metric of metrics) {
+    const match = /^([a-z0-9_]+);dur=(\d+(?:\.\d+)?)$/.exec(metric);
+    if (!match || !allowedNames.has(match[1] || '')) return null;
+  }
+  return metrics.join(', ');
 }
 
 export function createRouterAbEd25519YaoHttpRegistrationBackendFromEnv(input: {
