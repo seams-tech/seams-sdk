@@ -50,6 +50,26 @@ row in this table.
 | Broad vault product slice           | Architectural proof                    | One real Satyr Phase 6 operation.                                            |
 | Speculative capability kinds        | Current closed vocabulary              | Add a kind only with its first real consumer.                                |
 
+## July 27, 2026: Canonical ECDSA Hydration Boundary Started
+
+- Committed `bee19500b`, making canonical lookup distinguish a missing
+  capability from missing ready material or its sealing key. The canonical
+  store suite passes 10 of 10 tests.
+- Rejected a generic exported restorable-material proof wrapper because any
+  importer could subclass it and launder an unchecked string.
+- Committed `98b07c672`, adding the ECDSA protocol normalizer from exact
+  canonical lookup and runtime observations into the shared four-outcome
+  hydration plan. The internal restorable-material constructor is nominal,
+  absent from public barrels, and guarded to the protocol adapter.
+- Validation: SDK and unit type checks pass; the ECDSA identity boundary guard
+  passes; hydration mapping and entry-point equivalence tests pass 3 of 3;
+  `git diff --check` passes.
+- The legacy `ThresholdEcdsaSessionRecord*` family currently mixes material
+  ownership with authorization/session/quota state. Unit 1 removes its material
+  responsibility. Final family/API/map deletion moves to Unit 3a after Unit 2
+  installs the narrow authorization projection, avoiding a temporary
+  replacement mega-record.
+
 ## July 27, 2026: Canonical Sealing And Server Reconciliation Implemented
 
 - Wired registration and add-signer through the exact canonical activation

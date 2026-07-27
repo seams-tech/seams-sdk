@@ -259,8 +259,9 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
       IndexedDB transaction.
 - [ ] Rehydrate the same exact material activation across refresh while
       authorization session identity may change.
-- [ ] Delete the legacy `ThresholdEcdsaSessionRecord*` family and pre-cutover
-      fixtures in the same changes that remove their last readers.
+- [ ] Remove canonical material ownership, material readers, and material
+      writers from the legacy `ThresholdEcdsaSessionRecord*` family; forbid new
+      legacy material writes.
 - [ ] Reject and clear pre-cutover development records at the persistence
       boundary; add no dual-schema core reader, alias, or fallback.
 - [ ] Prove persisted hydration → worker bind → sign through the shared path.
@@ -489,6 +490,10 @@ the replacement and legacy MPC paths must not ship together.
 
 ### Same-change deletion
 
+- [ ] Delete the complete `ThresholdEcdsaSessionRecord*` family, public APIs,
+      runtime maps, and fixtures after Unit 2 supplies the narrow
+      authorization/session/quota projection and this cutover removes the final
+      reader.
 - [ ] Delete `active_state_session_id`, generic wire session aliases, and
       remaining authorization/material-scope aliases owned by this cutover.
 - [ ] Delete legacy recovery microstates and compensation branches.

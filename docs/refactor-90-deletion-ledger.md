@@ -31,6 +31,11 @@ any concrete vault target discovered by its Satyr Phase 6 inventory.
 Replacement: the required-field `active | retired` ECDSA capability record,
 exact parser, and two-state activation journal.
 
+Unit 1 removes material ownership and all material readers/writers from this
+family. Unit 3a deletes the remaining authorization/session/quota record types,
+public APIs, runtime maps, and fixtures after Unit 2 supplies their narrow
+replacement.
+
 - `ThresholdEcdsaSessionRecordCore`
 - `NormalizedThresholdEcdsaSessionRecordShared`
 - `NormalizedThresholdEcdsaSessionRecord`
