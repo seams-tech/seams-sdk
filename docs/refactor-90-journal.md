@@ -6,6 +6,35 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records active execution-unit status; the narrative and historical
 phase record live here.
 
+## July 27, 2026: Authorization Core Checkpoint
+
+- `18b6d6363` and `182f107df` added the canonical, principal-bound operation
+  fingerprint with exact parsers, type fixtures, and behavioral vectors.
+- `16f6db39e` added the D1 authorization session, evidence, grant, quota, claim,
+  completion/replay, and audit transaction. Export remains quota-neutral and
+  step-up remains single-operation.
+- `c17c02db6` added one-time hosted-wallet Seams Session exchange on the server,
+  bound to the source principal, device, audience, and exact app/wallet
+  origins. The iframe JWT exchange client cut remains deliberately open.
+
+## July 27, 2026: Browser Capability Selection And Auth Fallback Cleanup
+
+- `10548aaed` added one exhaustive SDK selector for current NEAR, EVM-family,
+  export, and undeployed vault operations. Disabled operations fail before
+  router, IndexedDB, or worker access with a public typed error.
+- `4f51048c5` made generic NEAR/EVM registration auth explicit in direct and
+  iframe paths and removed stored-login Passkey inference. Passkey-named
+  convenience APIs still construct the explicit Passkey branch.
+
+## July 27, 2026: Exact ECDSA Activation Identity Threaded
+
+- `fc0e4874e` threaded `MpcMaterialActivationRef` through persisted ECDSA
+  material references, sealed state, registration, unlock, signing, export,
+  and worker messages.
+- The legacy ECDSA session-record family and the server/iframe
+  `active_state_session_id` cut remain open, so Unit 1 and Unit 3a are not
+  complete.
+
 ## July 27, 2026: Canonical Hydration Sequencing Corrected
 
 - Unit 1 now owns the shared hydration contract and its ECDSA adapter.
