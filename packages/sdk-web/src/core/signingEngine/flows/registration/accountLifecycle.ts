@@ -653,9 +653,13 @@ export async function activateAuthenticatedWalletState(
     publicKey: binding.operationalPublicKey,
   });
 
-  // Prefetch block height for better UX (non-fatal if it fails and nearClient is provided)
+  /* Prefetch block height for better UX. Deliberately not awaited: it is a
+     warm-up whose only effect is making a later signature slightly faster, and
+     awaiting it puts a NEAR RPC round trip on the registration critical path.
+     Failures stay non-fatal, and a signature that arrives first simply fetches
+     the context itself. */
   if (args.nearClient) {
-    await deps.nonceCoordinator
+    void deps.nonceCoordinator
       .prefetchNearContext({ kind: 'initialized_state', nearClient: args.nearClient })
       .catch((prefetchErr) =>
         console.debug(
