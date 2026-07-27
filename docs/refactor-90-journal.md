@@ -6,6 +6,15 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records active execution-unit status; the narrative and historical
 phase record live here.
 
+## July 27, 2026: Canonical Hydration Sequencing Corrected
+
+- Unit 1 now owns the shared hydration contract and its ECDSA adapter.
+- Near hydration starts Unit 3a alongside the canonical sealed-active-client
+  cut. Current Near persistence and runtime registries still use Wallet Session
+  identities, so adapting them earlier would preserve the modelling gap.
+- Cross-protocol hydration invariants close only after the Unit 3a Near adapter
+  is live.
+
 ## July 27, 2026: Plan Consolidated Into Five Execution Units
 
 - Consolidated Foundations A/B, Phases 4–5, and the ECDSA portion of Phase 18
