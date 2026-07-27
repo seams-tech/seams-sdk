@@ -48,8 +48,6 @@
     "router:up": "node ./crates/router-ab-dev/scripts/local-command.mjs up",
     "router:check": "node ./crates/router-ab-dev/scripts/local-command.mjs check",
     "router:yao-smoke": "node ./crates/router-ab-dev/scripts/local-command.mjs yao-smoke",
-    "router:yao-smoke:one-account": "node ./crates/router-ab-dev/scripts/local-command.mjs yao-smoke-one-account",
-    "router:yao-smoke:two-administrator": "node ./crates/router-ab-dev/scripts/local-command.mjs yao-smoke-two-administrator",
     "router:yao-measure-local": "node ./crates/router-ab-dev/scripts/measure-ed25519-yao-local.mjs",
     "router:down": "node ./crates/router-ab-dev/scripts/local-command.mjs down",
     "router:public-route-smoke": "node ./crates/router-ab-dev/scripts/assert-public-router-routes.mjs",
