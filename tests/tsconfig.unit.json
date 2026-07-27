@@ -7,6 +7,7 @@
     "unit/helpers/**/*.ts",
     "types/**/*.d.ts",
     "unit/activateSigningSessionUseCase.unit.test.ts",
+    "unit/authorizationOperationFingerprint.unit.test.ts",
     "unit/d1EvmFamilyEcdsaRegistrationBranch.unit.test.ts",
     "unit/d1WalletRegistrationFinalizeConvergence.unit.test.ts",
     "unit/d1WalletRegistrationCommitStore.unit.test.ts",
