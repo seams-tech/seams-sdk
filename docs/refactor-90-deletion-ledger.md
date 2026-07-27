@@ -37,6 +37,11 @@ exact parser, and two-state activation journal.
   canonical activation commit port)
 - obsolete IndexedDB ECDSA session records (reject and clear at the boundary;
   no dual-schema reader)
+- ~~`IndexedDbEcdsaRoleLocalSessionMaterialStore` and
+  `ecdsaRoleLocalSessionMaterialStore.ts`~~ — deleted by `ab510dab8`
+- ~~`ecdsa_role_local_sealing_keys` and
+  `ecdsa_role_local_active_material` object stores~~ — removed from the v11
+  schema and deleted during upgrade by `ab510dab8`
 
 ## Foundation A — tactical unions replaced by the shared hydration plan
 

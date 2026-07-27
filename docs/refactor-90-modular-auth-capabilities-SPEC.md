@@ -127,11 +127,11 @@ evidence from the progress journal.
   volatile runtime owner.
 - [ ] `R90-INV-003` — registration, unlock, and refresh equivalence tests select
   the same hydration outcome from equivalent canonical observations.
-- [ ] `R90-INV-005` — ECDSA activation finalization atomically writes material,
+- [x] `R90-INV-005` — ECDSA activation finalization atomically writes material,
   manifest, replacement retirement, and journal deletion.
-- [ ] `R90-INV-006` — ECDSA journal types contain no runtime-publication,
+- [x] `R90-INV-006` — ECDSA journal types contain no runtime-publication,
   disposal, zeroization, or other volatile facts.
-- [ ] `R90-INV-011` — ECDSA post-commit verification creates no durable
+- [x] `R90-INV-011` — ECDSA post-commit verification creates no durable
   readback/publication state.
 - [ ] `R90-INV-012` — Foundation type fixtures, parser tests, persistence tests,
   and generic-module guards each cover their assigned failure mode once.

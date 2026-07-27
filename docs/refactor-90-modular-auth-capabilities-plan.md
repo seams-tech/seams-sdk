@@ -691,7 +691,7 @@ Open items:
       durable activation state or introduce a second writer;
 - [ ] refresh after worker destruction observes runtime `absent` and resolves
       `rehydrate_material_activation`;
-- [ ] persisted activation identity uses a branded `MpcMaterialActivationId`
+- [x] persisted activation identity uses a branded `MpcMaterialActivationId`
       independently from every authorization or Wallet Session ID;
 - [ ] legacy `ThresholdEcdsaSessionRecordCore` family deleted (see the
       [deletion ledger](./refactor-90-deletion-ledger.md));
