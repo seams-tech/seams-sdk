@@ -1582,9 +1582,19 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
     }
     if (path === '/wallets/register/derivation/activate') {
       captures.activationBody = body;
+      incrementCaptureCounter(captures, 'registrationActivationAttempts');
+      if (
+        captures.registrationActivationFirstResponseIsAmbiguous === true &&
+        captures.registrationActivationAttempts === 1
+      ) {
+        return jsonResponse({ ok: false, message: 'ambiguous activation response' }, 503);
+      }
       const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
       const prepare = captures.ecdsaPrepare as Record<string, any>;
       let bootstrap = mockedEcdsaServerBootstrap(ecdsaFacts, prepare);
+      const activationReceipt =
+        captures.committedRegistrationActivationReceipt ||
+        mockedEcdsaActivationReceipt(ecdsaFacts, body.ecdsa.activationCorrelationId);
       captures.sharedRegistrationExpiresAtMs = bootstrap.expiresAtMs;
       const sessionJwt = ecdsaWalletSessionJwtForBootstrap(bootstrap);
       const patchRegistrationBootstrap = captures.patchRegistrationBootstrap as
@@ -1599,8 +1609,38 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         registrationCeremonyId: body.registrationCeremonyId,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_activated_v1',
-          activation: mockedEcdsaActivationReceipt(ecdsaFacts, body.ecdsa.activationCorrelationId),
+          activation: activationReceipt,
           bootstrap,
+        },
+      });
+    }
+    if (path === '/wallets/register/derivation/activate/query') {
+      captures.activationQueryBody = body;
+      const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
+      const resultKind = String(captures.registrationActivationQueryResultKind || 'committed');
+      const result =
+        resultKind === 'committed'
+          ? {
+              kind: 'committed',
+              receipt: mockedEcdsaActivationReceipt(
+                ecdsaFacts,
+                body.ecdsa.activationCorrelationId,
+              ),
+            }
+          : {
+              kind: resultKind,
+              activation_correlation_id: body.ecdsa.activationCorrelationId,
+              activation_request_digest: body.ecdsa.expectedActivationRequestDigest,
+            };
+      if (result.kind === 'committed') {
+        captures.committedRegistrationActivationReceipt = result.receipt;
+      }
+      return jsonResponse({
+        ok: true,
+        registrationCeremonyId: body.registrationCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_activation_queried_v1',
+          result,
         },
       });
     }
@@ -1745,6 +1785,29 @@ async function withMockedIndexedDb<T>(run: () => Promise<T>): Promise<T> {
     clearAllStoredThresholdEd25519SessionRecords();
   }
 }
+
+async function registerPasskeyEcdsaOnly(captures: Record<string, unknown>) {
+  return await withMockedIndexedDb(() =>
+    registerWallet({
+      context: createContext(captures),
+      authMethod: { kind: 'passkey', rpId: RP_ID },
+      wallet: { kind: 'server_allocated' },
+      signerSelection: registrationSignerSet(
+        evmFamilyRegistrationSigner([{ kind: 'evm', namespace: 'eip155', chainId: 1 }]),
+      ),
+      options: {},
+      authenticatorOptions: {
+        userVerification: UserVerificationPolicy.Preferred,
+        originPolicy: {
+          single: true,
+          all_subdomains: false,
+          multiple: [],
+        },
+      },
+    }),
+  );
+}
+
 test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
   const captures: Record<string, unknown> = {};
   const fetchMock = installRegisterWalletFetch(captures);
@@ -1785,6 +1848,70 @@ test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
         rpId: RP_ID,
       },
     });
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test('registerWallet replays an ambiguously committed ECDSA activation for bootstrap', async () => {
+  const captures: Record<string, unknown> = {
+    registrationActivationFirstResponseIsAmbiguous: true,
+  };
+  const fetchMock = installRegisterWalletFetch(captures);
+  try {
+    const result = await registerPasskeyEcdsaOnly(captures);
+
+    expectRegistrationSuccess(result);
+    expect(captures.registrationActivationAttempts).toBe(2);
+    expect(captures.activationQueryBody).toMatchObject({
+      registrationCeremonyId: 'registration-ceremony',
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_v1',
+      },
+    });
+    const activationPaths = fetchMock.paths.filter((path) =>
+      path.startsWith('/wallets/register/derivation/activate'),
+    );
+    expect(activationPaths).toEqual([
+      '/wallets/register/derivation/activate/prepare',
+      '/wallets/register/derivation/activate',
+      '/wallets/register/derivation/activate/query',
+      '/wallets/register/derivation/activate',
+    ]);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test('registerWallet retries an ECDSA activation confirmed not committed', async () => {
+  const captures: Record<string, unknown> = {
+    registrationActivationFirstResponseIsAmbiguous: true,
+    registrationActivationQueryResultKind: 'not_committed',
+  };
+  const fetchMock = installRegisterWalletFetch(captures);
+  try {
+    const result = await registerPasskeyEcdsaOnly(captures);
+
+    expectRegistrationSuccess(result);
+    expect(captures.registrationActivationAttempts).toBe(2);
+    expect(captures.finalizeCanonicalEcdsaActivation).toBeDefined();
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test('registerWallet fails closed on an ECDSA activation correlation conflict', async () => {
+  const captures: Record<string, unknown> = {
+    registrationActivationFirstResponseIsAmbiguous: true,
+    registrationActivationQueryResultKind: 'correlation_conflict',
+  };
+  const fetchMock = installRegisterWalletFetch(captures);
+  try {
+    const result = await registerPasskeyEcdsaOnly(captures);
+
+    expect(result).toMatchObject({ success: false });
+    expect(captures.registrationActivationAttempts).toBe(1);
+    expect(captures.finalizeCanonicalEcdsaActivation).toBeUndefined();
   } finally {
     fetchMock.restore();
   }
@@ -2749,6 +2876,9 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
       const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
       const prepare = captures.ecdsaPrepare as Record<string, any>;
       let bootstrap = mockedEcdsaServerBootstrap(ecdsaFacts, prepare);
+      const activationReceipt =
+        captures.committedAddSignerActivationReceipt ||
+        mockedEcdsaActivationReceipt(ecdsaFacts, body.ecdsa.activationCorrelationId);
       const sessionJwt = ecdsaWalletSessionJwtForBootstrap(bootstrap);
       const patchAddSignerBootstrap = captures.patchAddSignerBootstrap as
         | ((value: Record<string, unknown>) => Record<string, unknown>)
@@ -2762,8 +2892,27 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
         addSignerCeremonyId: body.addSignerCeremonyId,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_activated_v1',
-          activation: mockedEcdsaActivationReceipt(ecdsaFacts, body.ecdsa.activationCorrelationId),
+          activation: activationReceipt,
           bootstrap,
+        },
+      });
+    }
+    if (path === `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/activate/query`) {
+      const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
+      const receipt = mockedEcdsaActivationReceipt(
+        ecdsaFacts,
+        body.ecdsa.activationCorrelationId,
+      );
+      captures.committedAddSignerActivationReceipt = receipt;
+      return jsonResponse({
+        ok: true,
+        addSignerCeremonyId: body.addSignerCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_activation_queried_v1',
+          result: {
+            kind: 'committed',
+            receipt,
+          },
         },
       });
     }

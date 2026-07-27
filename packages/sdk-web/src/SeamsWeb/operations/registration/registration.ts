@@ -102,6 +102,8 @@ import {
   parseWalletRegistrationEcdsaDerivationRespond,
   prepareWalletAddSignerEcdsaActivation,
   prepareWalletRegistrationEcdsaActivation,
+  queryWalletAddSignerEcdsaActivation,
+  queryWalletRegistrationEcdsaActivation,
   respondWalletAddSignerEcdsa,
   respondWalletRegistrationEcdsa,
   startWalletAddSigner,
@@ -2644,6 +2646,81 @@ async function activateStrictEcdsaFamilyRegistration(
   }
 }
 
+async function queryStrictEcdsaFamilyActivation(
+  args: StrictEcdsaActivationCommitInput & { relayerUrl: string },
+) {
+  switch (args.route.kind) {
+    case 'registration':
+      return (
+        await queryWalletRegistrationEcdsaActivation({
+          relayerUrl: args.relayerUrl,
+          headers: registrationRouteHeaders(),
+          registrationCeremonyId: args.route.registrationCeremonyId,
+          activationCorrelationId: args.activationCorrelationId,
+          publicFacts: args.publicFacts,
+          expectedActivationRequestDigest: args.expectedActivationRequestDigest,
+        })
+      ).ecdsa.result;
+    case 'add_signer':
+      return (
+        await queryWalletAddSignerEcdsaActivation({
+          relayerUrl: args.relayerUrl,
+          walletId: args.route.walletId,
+          addSignerCeremonyId: args.route.addSignerCeremonyId,
+          activationCorrelationId: args.activationCorrelationId,
+          publicFacts: args.publicFacts,
+          expectedActivationRequestDigest: args.expectedActivationRequestDigest,
+        })
+      ).ecdsa.result;
+    default:
+      return assertNever(args.route);
+  }
+}
+
+function assertActivationQueryCoordinates(
+  result: Extract<
+    Awaited<ReturnType<typeof queryStrictEcdsaFamilyActivation>>,
+    { readonly kind: 'not_committed' }
+  >,
+  input: StrictEcdsaActivationCommitInput,
+): void {
+  if (
+    result.activation_correlation_id !== input.activationCorrelationId ||
+    alphabetizeStringify(result.activation_request_digest) !==
+      alphabetizeStringify(input.expectedActivationRequestDigest)
+  ) {
+    throw new Error('ECDSA activation query changed the prepared activation coordinates');
+  }
+}
+
+async function activateStrictEcdsaFamilyRegistrationWithReconciliation(
+  args: StrictEcdsaActivationCommitInput & { relayerUrl: string },
+) {
+  try {
+    return await activateStrictEcdsaFamilyRegistration(args);
+  } catch {
+    const queried = await queryStrictEcdsaFamilyActivation(args);
+    switch (queried.kind) {
+      case 'committed': {
+        const replayed = await activateStrictEcdsaFamilyRegistration(args);
+        if (
+          alphabetizeStringify(replayed.ecdsa.activation) !== alphabetizeStringify(queried.receipt)
+        ) {
+          throw new Error('ECDSA activation replay changed the committed receipt');
+        }
+        return replayed;
+      }
+      case 'not_committed':
+        assertActivationQueryCoordinates(queried, args);
+        return await activateStrictEcdsaFamilyRegistration(args);
+      case 'correlation_conflict':
+        throw new Error('ECDSA activation query reported a correlation conflict');
+      default:
+        return assertNever(queried);
+    }
+  }
+}
+
 async function runStrictEcdsaFamilyCeremony(args: {
   context: RegistrationWebContext;
   relayerUrl: string;
@@ -2722,7 +2799,7 @@ async function runStrictEcdsaFamilyCeremony(args: {
         `Canonical ECDSA activation persistence failed (${persisted.code}): ${persisted.message}`,
       );
     }
-    const activated = await activateStrictEcdsaFamilyRegistration({
+    const activated = await activateStrictEcdsaFamilyRegistrationWithReconciliation({
       relayerUrl: args.relayerUrl,
       route: args.route,
       activationCorrelationId,
