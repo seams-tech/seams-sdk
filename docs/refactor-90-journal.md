@@ -15,7 +15,12 @@ phase record live here.
   step-up remains single-operation.
 - `c17c02db6` added one-time hosted-wallet Seams Session exchange on the server,
   bound to the source principal, device, audience, and exact app/wallet
-  origins. The iframe JWT exchange client cut remains deliberately open.
+  origins.
+- The iframe client cut is deferred to Unit 3a. Current Email OTP recovery and
+  signing still require Wallet Session/material claims from `appSessionJwt`;
+  the client cannot remove that transport until those consumers use canonical
+  Wallet Session/material authorization. Those claims must never be copied
+  into `SeamsSession`.
 
 ## July 27, 2026: Browser Capability Selection And Auth Fallback Cleanup
 

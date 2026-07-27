@@ -495,6 +495,11 @@ the replacement and legacy MPC paths must not ship together.
 
 ### Host assembly
 
+- [ ] Complete the hosted-wallet Seams Session one-time exchange in the iframe
+      client only after Email OTP recovery and signing consume canonical Wallet
+      Session/material authorization. Until then, removing parent-posted
+      `appSessionJwt` would strand required wallet/material claims; copying
+      those claims into `SeamsSession` is forbidden.
 - [ ] Update Cloudflare, Node, local, and self-hosted call sites in the same
       cutover.
 - [ ] Preserve static host ports and Refactor 93 request-scoped gateways.
