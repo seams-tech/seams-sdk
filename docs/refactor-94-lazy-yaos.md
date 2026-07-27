@@ -93,13 +93,13 @@ Does not buy:
   created for every registration, including users who never use NEAR. Only
   Phase 11 removes that.
 
-Also buys, resolved 2026-07-28 on staging:
+Also buys, resolved 2026-07-28 in production:
 
 - **Latency, ~1.07 s on a warm registration.** See below. The earlier "removing
   Yao saves approximately zero" finding held only for local workerd, which
   collapses the network boundaries that dominate a deployed environment.
 
-### Staging evidence (Email OTP, 2 runs)
+### Production evidence (seams.sh, Email OTP, 2 runs)
 
 | Measure            | Run 1 (cold) |         Run 2 (warm) |
 | ------------------ | -----------: | -------------------: |
@@ -119,8 +119,11 @@ The warm run is the case to design against; cold-start variance dwarfs
 everything else (Gateway respond/activate went 2,508/2,514 ms cold to
 915/165 ms warm), so no single sample is decisive on its own.
 
-Caveats on this evidence: n=2, one environment, Email OTP only. Passkey has not
-been measured on staging.
+These runs came from production `seams.sh` on the previously deployed frontend,
+not from the staging revision. That build predates the new Yao buckets, which
+is why none appear.
+
+Caveats: n=2, Email OTP only. Passkey has not been measured in production.
 
 No phase in this document may be justified by a latency claim that has not been
 measured on the environment it claims to improve.
