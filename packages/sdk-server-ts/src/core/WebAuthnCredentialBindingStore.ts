@@ -24,16 +24,34 @@ import {
 } from '../storage/d1Sql';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../storage/tenantRoute';
 
-export type WebAuthnCredentialBindingRecord = {
-  version: 'webauthn_credential_binding_v1';
-  rpId: string;
-  credentialIdB64u: string;
-  userId: string;
+/**
+ * The Ed25519 facts on a credential binding are denormalized from the wallet's
+ * Ed25519 signer row. A passkey wallet can exist before its Ed25519 Yao
+ * ceremony has settled (non-blocking provisioning), so they are absent until
+ * that signer is committed. They are written together or not at all — a
+ * binding never carries a partial Ed25519 identity.
+ */
+export type WebAuthnCredentialBindingEd25519Facts = {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   signerSlot: number;
   /** NEAR ed25519 public key (e.g. `ed25519:...`). In threshold-signer mode, this is the group public key. */
   publicKey: string;
+};
+
+/** Present only once the wallet's Ed25519 signer is committed. */
+type WebAuthnCredentialBindingEd25519Present = WebAuthnCredentialBindingEd25519Facts;
+
+/** Absent as a set, so a partial Ed25519 identity cannot be constructed. */
+type WebAuthnCredentialBindingEd25519Absent = {
+  [K in keyof WebAuthnCredentialBindingEd25519Facts]?: never;
+};
+
+type WebAuthnCredentialBindingBase = {
+  version: 'webauthn_credential_binding_v1';
+  rpId: string;
+  credentialIdB64u: string;
+  userId: string;
   /** Threshold relayer key id (often equal to `publicKey`). */
   relayerKeyId?: string;
   keyVersion?: string;
@@ -45,6 +63,9 @@ export type WebAuthnCredentialBindingRecord = {
   createdAtMs: number;
   updatedAtMs: number;
 };
+
+export type WebAuthnCredentialBindingRecord = WebAuthnCredentialBindingBase &
+  (WebAuthnCredentialBindingEd25519Present | WebAuthnCredentialBindingEd25519Absent);
 
 export interface WebAuthnCredentialBindingStore {
   get(rpId: string, credentialIdB64u: string): Promise<WebAuthnCredentialBindingRecord | null>;
@@ -136,7 +157,7 @@ export function prepareD1WebAuthnCredentialBindingPutStatement(input: {
       parsed.rpId,
       parsed.credentialIdB64u,
       parsed.userId,
-      parsed.signerSlot,
+      parsed.signerSlot ?? null,
       JSON.stringify(parsed),
       parsed.createdAtMs,
       parsed.updatedAtMs,
@@ -158,7 +179,9 @@ export const WEBAUTHN_CREDENTIAL_BINDING_STORE_D1_SCHEMA_SQL = Object.freeze([
       rp_id TEXT NOT NULL,
       credential_id_b64u TEXT NOT NULL,
       user_id TEXT NOT NULL,
-      signer_slot INTEGER NOT NULL,
+      -- Nullable until the wallet's Ed25519 Yao ceremony settles; kept in sync
+      -- with migration 0016_signer_webauthn_optional_ed25519.sql.
+      signer_slot INTEGER,
       record_json TEXT NOT NULL,
       created_at_ms INTEGER NOT NULL,
       updated_at_ms INTEGER NOT NULL,
@@ -166,7 +189,7 @@ export const WEBAUTHN_CREDENTIAL_BINDING_STORE_D1_SCHEMA_SQL = Object.freeze([
       CHECK (length(rp_id) > 0),
       CHECK (length(credential_id_b64u) > 0),
       CHECK (length(user_id) > 0),
-      CHECK (signer_slot >= 1),
+      CHECK (signer_slot IS NULL OR signer_slot >= 1),
       CHECK (json_valid(record_json)),
       CHECK (created_at_ms > 0),
       CHECK (updated_at_ms > 0)
@@ -235,9 +258,24 @@ function parseWebAuthnCredentialBindingRecord(
   const updatedAtMs = typeof updatedAtMsRaw === 'number' ? updatedAtMsRaw : Number(updatedAtMsRaw);
 
   if (version !== 'webauthn_credential_binding_v1') return null;
-  if (!rpId || !credentialIdB64u || !userId || !nearAccountId || !nearEd25519SigningKeyId || !publicKey)
-    return null;
-  if (!Number.isFinite(signerSlot) || signerSlot < 1) return null;
+  if (!rpId || !credentialIdB64u || !userId) return null;
+  /* Ed25519 facts are all-or-nothing. Absent means the wallet's Yao ceremony
+     has not settled; a partial set means a corrupt record and is rejected.
+     Resolved into one typed value so the record type's union stays the only
+     way to express presence. */
+  const hasAnyEd25519Fact =
+    Boolean(nearAccountId || nearEd25519SigningKeyId || publicKey) || Number.isFinite(signerSlot);
+  let ed25519Facts: WebAuthnCredentialBindingEd25519Facts | null = null;
+  if (hasAnyEd25519Fact) {
+    if (!nearAccountId || !nearEd25519SigningKeyId || !publicKey) return null;
+    if (!Number.isFinite(signerSlot) || signerSlot < 1) return null;
+    ed25519Facts = {
+      nearAccountId,
+      nearEd25519SigningKeyId,
+      signerSlot: Math.floor(signerSlot),
+      publicKey,
+    };
+  }
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
   if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
 
@@ -275,15 +313,11 @@ function parseWebAuthnCredentialBindingRecord(
       })()
     : null;
 
-  return {
+  const base: WebAuthnCredentialBindingBase = {
     version: 'webauthn_credential_binding_v1',
     rpId,
     credentialIdB64u,
     userId,
-    nearAccountId,
-    nearEd25519SigningKeyId,
-    signerSlot: Math.floor(signerSlot),
-    publicKey,
     ...(relayerKeyId ? { relayerKeyId } : {}),
     ...(keyVersion ? { keyVersion } : {}),
     ...(typeof recoveryExportCapable === 'boolean' ? { recoveryExportCapable } : {}),
@@ -298,6 +332,9 @@ function parseWebAuthnCredentialBindingRecord(
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
   };
+  // Spreading the facts selects the union's present branch; omitting them
+  // selects the absent branch. A partial spread cannot type-check.
+  return ed25519Facts ? { ...base, ...ed25519Facts } : base;
 }
 
 function requireD1ScopeString(input: unknown, field: string): string {
@@ -381,7 +418,8 @@ class InMemoryWebAuthnCredentialBindingStore implements WebAuthnCredentialBindin
       if (rpId && parsed.rpId !== rpId) continue;
       out.push(parsed);
     }
-    out.sort((a, b) => a.signerSlot - b.signerSlot);
+    // Bindings without an Ed25519 signer yet sort last; their slot is unknown.
+    out.sort((a, b) => (a.signerSlot ?? Number.MAX_SAFE_INTEGER) - (b.signerSlot ?? Number.MAX_SAFE_INTEGER));
     return out;
   }
 }

@@ -112,6 +112,54 @@ async function countRows(database: D1DatabaseLike, table: string): Promise<numbe
   return Number(row?.count || 0);
 }
 
+test('D1 registration commit binds the passkey credential before Ed25519 exists', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const walletId = walletIdFromString('amber-atlas-abcdef');
+    const now = 1_900_000_000_000;
+    const store = new CloudflareD1WalletRegistrationCommitStore({
+      database,
+      ...TEST_SCOPE,
+    });
+
+    // An ECDSA-only passkey wallet: the Ed25519 Yao ceremony has not settled.
+    await store.commit({
+      kind: 'passkey_wallet_registration_commit_v1',
+      wallet: testWalletRecord(walletId, now),
+      walletSigners: [testEcdsaSigner(walletId, now)],
+      authority: testPasskeyAuthority(walletId),
+      now,
+    });
+
+    await expect(countRows(database, 'wallets')).resolves.toBe(1);
+    await expect(countRows(database, 'wallet_signers')).resolves.toBe(1);
+    await expect(countRows(database, 'webauthn_authenticators')).resolves.toBe(1);
+    // The binding must exist, or the next passkey login fails unknown_credential.
+    await expect(countRows(database, 'webauthn_credential_bindings')).resolves.toBe(1);
+
+    const webAuthnStore = new CloudflareD1WebAuthnStore({
+      database,
+      ...TEST_SCOPE,
+    });
+    const binding = await webAuthnStore.readBindingByCredential({
+      rpId: testRpId(),
+      credentialIdB64u: 'credential-a',
+    });
+    expect(binding).toMatchObject({
+      userId: String(walletId),
+      credentialIdB64u: 'credential-a',
+    });
+    // Ed25519 facts are absent as a set, not partially populated.
+    expect(binding?.nearAccountId).toBeUndefined();
+    expect(binding?.nearEd25519SigningKeyId).toBeUndefined();
+    expect(binding?.signerSlot).toBeUndefined();
+    expect(binding?.publicKey).toBeUndefined();
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
 test('D1 registration commit stores a mixed Ed25519 and ECDSA wallet atomically', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {

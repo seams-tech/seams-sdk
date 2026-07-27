@@ -17,6 +17,7 @@ void requestEmailOtpKeyExportAuthorization(walletDeps, {
   chain: 'evm',
   publicKey: '02'.padEnd(66, '1'),
   curve: 'ecdsa',
+  flowId: 'key-export-flow-1',
   challengeAuthority: {
     // @ts-expect-error ECDSA export requires exact signing-session authority.
     kind: 'fresh_login',
@@ -32,6 +33,7 @@ void requestEmailOtpKeyExportAuthorization(walletDeps, {
   chain: 'evm',
   publicKey: '02'.padEnd(66, '1'),
   curve: 'ecdsa',
+  flowId: 'key-export-flow-2',
   challengeAuthority: { kind: 'public_reauth' },
 });
 
@@ -44,6 +46,7 @@ void requestEmailOtpKeyExportAuthorization(walletDeps, {
   chain: 'evm',
   publicKey: '02'.padEnd(66, '1'),
   curve: 'ecdsa',
+  flowId: 'key-export-flow-3',
   challengeAuthority: { kind: 'signing_session', authLane: ecdsaAuthLane },
 });
 
@@ -56,6 +59,7 @@ void requestEmailOtpKeyExportAuthorization(walletDeps, {
   chain: 'evm',
   publicKey: '02'.padEnd(66, '1'),
   curve: 'ecdsa',
+  flowId: 'key-export-flow-4',
   challengeAuthority: {
     kind: 'signing_session',
     // @ts-expect-error committed wallet-session ECDSA export requires ECDSA signing-session authority.

@@ -25,6 +25,8 @@ import {
   type KeyExportEventCallback,
 } from './keyExportFlow';
 import { KeyExportEventPhase } from '@/core/types/sdkSentEvents';
+import { demoEmailOtpCodeFromDelivery } from '../../session/emailOtp/challengeDelivery';
+import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 
 export type KeyExportConfirmationDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'requestUserConfirmation'>;
@@ -40,16 +42,15 @@ export type EmailOtpWalletSessionExportAuthorizationDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'requestUserConfirmation'>;
   requestExportChallenge: (
     args: EmailOtpWalletSessionExportChallengeArgs,
-  ) => Promise<{ challengeId: string; emailHint?: string }>;
+  ) => Promise<EmailOtpTransactionSigningChallenge>;
 };
 
-export type EmailOtpEcdsaExportAuthorizationDeps =
-  EmailOtpWalletSessionExportAuthorizationDeps & {
-    requestPublicReauthExportChallenge: (args: {
-      walletSession: WalletSessionRef;
-      chain: ThresholdEcdsaChainTarget['kind'];
-    }) => Promise<{ challengeId: string; emailHint?: string }>;
-  };
+export type EmailOtpEcdsaExportAuthorizationDeps = EmailOtpWalletSessionExportAuthorizationDeps & {
+  requestPublicReauthExportChallenge: (args: {
+    walletSession: WalletSessionRef;
+    chain: ThresholdEcdsaChainTarget['kind'];
+  }) => Promise<EmailOtpTransactionSigningChallenge>;
+};
 
 type WalletSessionEcdsaExportChallengeAuthority =
   | {
@@ -70,6 +71,8 @@ type WalletSessionEcdsaExportAuthorizationArgs = {
   challengeAuthority: WalletSessionEcdsaExportChallengeAuthority;
   routeAuth?: never;
   authLane?: never;
+  flowId: string;
+  onEvent?: KeyExportEventCallback;
 };
 
 type WalletSessionEd25519ExportAuthorizationArgs = {
@@ -84,12 +87,14 @@ type WalletSessionEd25519ExportAuthorizationArgs = {
   curve: 'ed25519';
   chain: 'near';
   authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
+  flowId: string;
+  onEvent?: KeyExportEventCallback;
 };
 
 async function requestWalletSessionEcdsaExportChallenge(
   deps: EmailOtpEcdsaExportAuthorizationDeps,
   args: WalletSessionEcdsaExportAuthorizationArgs,
-): Promise<{ challengeId: string; emailHint?: string }> {
+): Promise<EmailOtpTransactionSigningChallenge> {
   switch (args.challengeAuthority.kind) {
     case 'signing_session':
       return await deps.requestExportChallenge({
@@ -104,6 +109,24 @@ async function requestWalletSessionEcdsaExportChallenge(
         chain: args.chain,
       });
   }
+}
+
+function emitEmailOtpExportChallenge(
+  args: WalletSessionEcdsaExportAuthorizationArgs | WalletSessionEd25519ExportAuthorizationArgs,
+  challenge: EmailOtpTransactionSigningChallenge,
+): void {
+  emitKeyExportEvent(args.onEvent, {
+    phase: KeyExportEventPhase.STEP_02_AUTH_EMAIL_OTP_INPUT_REQUIRED,
+    status: 'waiting_for_user',
+    flowId: args.flowId,
+    accountId: String(args.walletSession.walletSessionUserId),
+    authMethod: 'email_otp',
+    interaction: { kind: 'otp_input', overlay: 'show' },
+    data: {
+      emailHint: challenge.emailHint,
+      demoOtpCode: demoEmailOtpCodeFromDelivery(challenge.delivery),
+    },
+  });
 }
 
 type UiConfirmRequest = Parameters<UiConfirmRuntimeBridgePort['requestUserConfirmation']>[0];
@@ -185,13 +208,13 @@ export async function requestEmailOtpKeyExportAuthorization(
     publicKey: args.publicKey,
     curve: args.curve,
     challengeSource: {
-      requestChallenge: async () =>
-        await requestWalletSessionEcdsaExportChallenge(deps, args),
+      requestChallenge: async () => await requestWalletSessionEcdsaExportChallenge(deps, args),
     },
     confirmer: {
       requestUserConfirmation: async (request) =>
         await deps.touchConfirm.requestUserConfirmation(request),
     },
+    onChallenge: emitEmailOtpExportChallenge.bind(undefined, args),
   });
   const emailOtpPrompt = {
     challengeId: authorization.challengeId,
@@ -244,6 +267,7 @@ export async function requestEmailOtpEd25519KeyExportAuthorization(
       requestUserConfirmation: async (request) =>
         await deps.touchConfirm.requestUserConfirmation(request),
     },
+    onChallenge: emitEmailOtpExportChallenge.bind(undefined, args),
   });
   const exportAuthorization = buildExportStepUpAuthorization({
     method: 'email_otp',

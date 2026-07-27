@@ -10,12 +10,20 @@ import {
   readEvmGreeting,
 } from '../demoEvmHelpers';
 
+/* `tempoEnabled` / `arcEnabled` are the selected-chain gates. A greeting is only
+   ever displayed on its own tab, so the initial read is deferred until that tab
+   is shown. Manual refresh (`fetchTempoGreeting` / `fetchArcGreeting`) stays
+   available regardless — the gate covers only the automatic read. */
 type UseDemoEvmGreetingsArgs = {
   isLoggedIn: boolean;
+  tempoEnabled?: boolean;
+  arcEnabled?: boolean;
 };
 
 export function useDemoEvmGreetings(args: UseDemoEvmGreetingsArgs) {
   const { isLoggedIn } = args;
+  const tempoEnabled = args.tempoEnabled ?? true;
+  const arcEnabled = args.arcEnabled ?? true;
 
   const [tempoGreeting, setTempoGreeting] = useState<string | null>(null);
   const [arcGreeting, setArcGreeting] = useState<string | null>(null);
@@ -72,9 +80,9 @@ export function useDemoEvmGreetings(args: UseDemoEvmGreetingsArgs) {
 
   useEffect(() => {
     if (!isLoggedIn) return;
-    void fetchTempoGreeting({ silent: true });
-    void fetchArcGreeting({ silent: true });
-  }, [fetchArcGreeting, fetchTempoGreeting, isLoggedIn]);
+    if (tempoEnabled) void fetchTempoGreeting({ silent: true });
+    if (arcEnabled) void fetchArcGreeting({ silent: true });
+  }, [arcEnabled, fetchArcGreeting, fetchTempoGreeting, isLoggedIn, tempoEnabled]);
 
   return {
     tempoGreeting,

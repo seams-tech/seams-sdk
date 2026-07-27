@@ -21,7 +21,12 @@ function parseGreeting(value: unknown): string | null {
   throw new Error('NEAR greeting response must be a string or null');
 }
 
-export const useSetGreeting = (): SetGreetingHook => {
+/* `enabled` defers the initial NEAR view call until the caller actually shows
+   NEAR data. It stays true by default so callers that always want the greeting
+   need not opt in. The one-shot semantics are preserved: the fetch still runs
+   at most once, just on the first render where it is enabled. */
+export const useSetGreeting = (options?: { enabled?: boolean }): SetGreetingHook => {
+  const enabled = options?.enabled ?? true;
   const nearClient = useNearClient();
   const [onchainGreeting, setOnchainGreeting] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -69,10 +74,11 @@ export const useSetGreeting = (): SetGreetingHook => {
 
   // Auto-fetch greeting on mount with protection against React StrictMode double-mounting
   useEffect(() => {
+    if (!enabled) return;
     if (didInit.current) return;
     didInit.current = true;
     void fetchGreeting();
-  }, []); // Empty dependency array - only run on mount
+  }, [enabled]); // Runs once, on the first render where the caller enables it
 
   return {
     onchainGreeting,

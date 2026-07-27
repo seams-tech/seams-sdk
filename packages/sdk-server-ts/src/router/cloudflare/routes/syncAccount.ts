@@ -7,6 +7,20 @@ import {
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 
+function syncAccountResponseStatus(result: { ok: boolean; verified?: boolean; code?: string }) {
+  if (result.ok && result.verified) return 200;
+  switch (result.code) {
+    case 'internal':
+      return 500;
+    // The credential is valid and the request is well formed; the wallet's
+    // Ed25519 signer just does not exist yet. Retryable, not a client error.
+    case 'ed25519_not_provisioned':
+      return 409;
+    default:
+      return 400;
+  }
+}
+
 export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST') return null;
 
@@ -164,9 +178,7 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
         },
       };
     }
-    return json(responseBody, {
-      status: result.ok && result.verified ? 200 : result.code === 'internal' ? 500 : 400,
-    });
+    return json(responseBody, { status: syncAccountResponseStatus(result) });
   }
 
   return null;

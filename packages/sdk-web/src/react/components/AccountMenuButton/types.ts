@@ -1,5 +1,5 @@
 import type { ToggleColorProps } from './Toggle';
-import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
+import type { KeyExportFlowEvent, LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { ThemeMode } from '@/core/signingEngine/uiConfirm/ui/confirm-ui-types';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 
@@ -65,7 +65,11 @@ export interface DeviceLinkingScannerParams {
 }
 
 export interface AccountMenuButtonProps {
-  nearAccountId: string;
+  /**
+   * Null while the wallet has no NEAR account yet — its Ed25519 Yao ceremony
+   * has not settled. The menu renders without NEAR rows in that state.
+   */
+  nearAccountId: string | null;
   nearExplorerBaseUrl?: string;
   username?: string | null;
   hideUsername?: boolean;
@@ -73,6 +77,7 @@ export interface AccountMenuButtonProps {
   // Key-export failures surface here so the host can toast/log them;
   // the menu itself never renders error text inline
   onExportKeyError?: (error: Error) => void;
+  onExportKeyEvent?: (event: KeyExportFlowEvent) => void;
   // QR Code Scanner parameters
   deviceLinkingScannerParams?: DeviceLinkingScannerParams;
   // styles
