@@ -41,10 +41,10 @@ import {
 } from '../../routerAb/ecdsaDerivation/signingMaterialRef';
 import { thresholdEcdsaRecordHasRoleLocalSigningMaterial } from '../persistence/ecdsaRoleLocalRecords';
 import {
-  getInMemoryEcdsaRoleLocalHandle,
   requirePersistedEcdsaRoleLocalMaterial,
   type ThresholdEcdsaSessionRecord,
 } from '../persistence/records';
+import { getLiveEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import { classifyRouterAbEcdsaDerivationPersistedSigningRecord } from '../routerAbSigningWalletSession';
 import type { ThresholdEcdsaSessionStoreSource } from './laneIdentity';
 import {
@@ -1365,18 +1365,22 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
 function buildThresholdEcdsaBackendBindingFromSessionRecord(
   record: ThresholdEcdsaSessionRecord,
 ): ThresholdEcdsaBackendBinding {
-  const roleLocalMaterialHandle = getInMemoryEcdsaRoleLocalHandle(record);
-  if (roleLocalMaterialHandle) {
-    const persistedMaterial = requirePersistedEcdsaRoleLocalMaterial(record);
-    return {
-      materialKind: 'role_local_worker_handle',
-      relayerKeyId: record.relayerKeyId,
-      clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-      roleLocalMaterialHandle,
-      roleLocalMaterialRef: persistedMaterial.materialRef,
-      publicFacts: record.ecdsaRoleLocalPublicFacts,
-      authMethod: record.ecdsaRoleLocalAuthMethod,
-    };
+  const persistedMaterial = record.roleLocalMaterialRef
+    ? requirePersistedEcdsaRoleLocalMaterial(record)
+    : null;
+  if (persistedMaterial) {
+    const roleLocalMaterialHandle = getLiveEcdsaRoleLocalMaterial(persistedMaterial);
+    if (roleLocalMaterialHandle) {
+      return {
+        materialKind: 'role_local_worker_handle',
+        relayerKeyId: record.relayerKeyId,
+        clientVerifyingShareB64u: record.clientVerifyingShareB64u,
+        roleLocalMaterialHandle,
+        roleLocalMaterialRef: persistedMaterial.materialRef,
+        publicFacts: record.ecdsaRoleLocalPublicFacts,
+        authMethod: record.ecdsaRoleLocalAuthMethod,
+      };
+    }
   }
   if (record.clientAdditiveShareHandle && record.ecdsaRoleLocalReadyRecord) {
     return {

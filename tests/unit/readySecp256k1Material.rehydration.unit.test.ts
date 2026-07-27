@@ -2,10 +2,13 @@ import { expect, test } from '@playwright/test';
 import { buildReadySecp256k1SigningMaterialFromRecord } from '@/core/signingEngine/flows/signEvmFamily/readySecp256k1Material';
 import {
   clearAllThresholdEcdsaSessionRecords,
-  getInMemoryEcdsaRoleLocalHandle,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
 } from '@/core/signingEngine/session/persistence/records';
+import {
+  buildPersistedEcdsaRoleLocalMaterial,
+  getLiveEcdsaRoleLocalMaterial,
+} from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import {
   parseEcdsaRoleLocalWorkerHandle,
   type EcdsaRoleLocalWorkerHandle,
@@ -64,6 +67,18 @@ function successfulRehydrationWorkerContext(args: {
   };
 }
 
+function liveMaterialForRecord(
+  record: ThresholdEcdsaSessionRecord,
+): EcdsaRoleLocalWorkerHandle | null {
+  if (!record.roleLocalMaterialRef) return null;
+  return getLiveEcdsaRoleLocalMaterial(
+    buildPersistedEcdsaRoleLocalMaterial({
+      materialRef: record.roleLocalMaterialRef,
+      publicFacts: record.ecdsaRoleLocalPublicFacts,
+    }),
+  );
+}
+
 test.describe('ready secp256k1 durable role-local material rehydration', () => {
   test.afterEach(() => {
     clearAllThresholdEcdsaSessionRecords({
@@ -99,7 +114,7 @@ test.describe('ready secp256k1 durable role-local material rehydration', () => {
         },
       },
     ]);
-    expect(getInMemoryEcdsaRoleLocalHandle(fixture.record)).toEqual(fixture.roleLocalMaterial);
+    expect(liveMaterialForRecord(fixture.record)).toEqual(fixture.roleLocalMaterial);
     expect(material.signerSession.clientShare).toMatchObject({
       kind: 'role_local_worker_share',
       handle: fixture.roleLocalMaterial,
@@ -124,6 +139,6 @@ test.describe('ready secp256k1 durable role-local material rehydration', () => {
         }),
       }),
     ).rejects.toThrow('ECDSA role-local signing material hydration changed its identity');
-    expect(getInMemoryEcdsaRoleLocalHandle(fixture.record)).toBeNull();
+    expect(liveMaterialForRecord(fixture.record)).toBeNull();
   });
 });

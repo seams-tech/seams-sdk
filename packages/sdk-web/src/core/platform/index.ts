@@ -106,7 +106,6 @@ export {
   ecdsaRoleLocalReadyRecordStorageKey,
   parseEcdsaRoleLocalReadyRecord,
   parseRawEcdsaRoleLocalRecord,
-  parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial,
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
   serializeEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
