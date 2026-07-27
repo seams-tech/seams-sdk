@@ -27,7 +27,10 @@ import {
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { SigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
+import type {
+  EcdsaRoleLocalPersistedMaterialRef,
+  SigningSessionSealKeyVersion,
+} from '@/core/signingEngine/session/keyMaterialBrands';
 import type { EcdsaClientPresignPoolIdentity } from './ecdsaPresignPoolIdentity';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
@@ -1243,8 +1246,17 @@ export type EcdsaPresignClientSessionInitRequest = EcdsaPresignClientSessionPara
         authority: {
           kind: 'role_local_derivation_handle';
           materialHandle: string;
-          durableMaterialRef: string;
-          expectedBindingDigest: string;
+          material:
+            | {
+                kind: 'persisted';
+                materialRef: EcdsaRoleLocalPersistedMaterialRef;
+                expectedBindingDigest?: never;
+              }
+            | {
+                kind: 'runtime_loaded';
+                expectedBindingDigest: string;
+                materialRef?: never;
+              };
           emailOtpSessionId?: never;
         };
       }
@@ -1253,8 +1265,7 @@ export type EcdsaPresignClientSessionInitRequest = EcdsaPresignClientSessionPara
           kind: 'email_otp_worker_session';
           emailOtpSessionId: string;
           materialHandle?: never;
-          durableMaterialRef?: never;
-          expectedBindingDigest?: never;
+          material?: never;
         };
       }
   );

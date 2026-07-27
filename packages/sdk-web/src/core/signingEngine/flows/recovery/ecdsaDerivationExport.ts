@@ -71,6 +71,7 @@ type ResolvedEcdsaDerivationExportMaterial = {
   relayerUrl: string;
   publicFacts: EcdsaRoleLocalPublicFacts;
   roleLocalMaterial: FinalizeRouterAbEcdsaExplicitExportRequestV1['roleLocalMaterial'];
+  roleLocalMaterialRef: FinalizeRouterAbEcdsaExplicitExportRequestV1['roleLocalMaterialRef'];
   ecdsaThresholdKeyId: ReturnType<typeof toEcdsaDerivationThresholdKeyId>;
   signingRootId: string;
   signingRootVersion: string;
@@ -396,6 +397,7 @@ async function executeEcdsaDerivationExport(
         signingWorkerExport: forwarded.value.signing_worker_export,
         signingGrantId: material.walletSessionAuthority.signingGrantId,
         roleLocalMaterial: material.roleLocalMaterial,
+        roleLocalMaterialRef: material.roleLocalMaterialRef,
         publicFacts: material.publicFacts,
       },
     });
@@ -494,6 +496,7 @@ export async function exportEcdsaDerivationKeyWithExplicitExportSession(
     relayerUrl,
     publicFacts,
     roleLocalMaterial: material.roleLocalMaterial,
+    roleLocalMaterialRef: material.roleLocalMaterialRef,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -568,6 +571,7 @@ export async function exportEcdsaDerivationKeyWithWalletSession(
     record,
     workerCtx: deps.getSignerWorkerContext(),
   });
+  const persistedRoleLocalMaterial = requirePersistedEcdsaRoleLocalMaterial(record);
   const evmFamilySigningKeySlotId = String(record.evmFamilySigningKeySlotId).trim();
   if (!evmFamilySigningKeySlotId) {
     throw new Error(
@@ -592,6 +596,7 @@ export async function exportEcdsaDerivationKeyWithWalletSession(
     relayerUrl,
     publicFacts,
     roleLocalMaterial: exactRoleLocalMaterial,
+    roleLocalMaterialRef: persistedRoleLocalMaterial.materialRef,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -656,6 +661,7 @@ export async function exportEcdsaDerivationKeyWithEmailOtpSession(
     relayerUrl,
     publicFacts,
     roleLocalMaterial: backendBinding.roleLocalMaterialHandle,
+    roleLocalMaterialRef: backendBinding.roleLocalMaterialRef,
     ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId(keyRef.ecdsaThresholdKeyId),
     signingRootId: toEcdsaDerivationSigningRootId(publicFacts.signingRootId),
     signingRootVersion: toEcdsaDerivationSigningRootVersion(

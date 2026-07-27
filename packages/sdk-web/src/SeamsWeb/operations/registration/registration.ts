@@ -2232,6 +2232,7 @@ type RegistrationEcdsaSession = {
   clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
   bootstrap: WalletRegistrationEcdsaDerivationRespondBootstrap;
   roleLocalMaterial: FinalizeRouterAbEcdsaRegistrationActivationResultV1['roleLocalMaterial'];
+  materialActivation: FinalizeRouterAbEcdsaRegistrationActivationResultV1['materialActivation'];
   clientPublicFacts: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicFacts'];
   publicCapability: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicCapability'];
 };
@@ -2857,6 +2858,7 @@ async function finalizeStrictEcdsaFamilyLocalActivation(args: {
     clientBootstrap: args.pending.clientBootstrap,
     bootstrap: args.pending.bootstrap,
     roleLocalMaterial: finalized.roleLocalMaterial,
+    materialActivation: finalized.materialActivation,
     clientPublicFacts: finalized.publicFacts,
     publicCapability: finalized.publicCapability,
   };

@@ -21,6 +21,10 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import type { RawSealedSessionRecord } from '../persistence/sealedSessionStore';
 import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
+import {
+  parseEcdsaRoleLocalPersistedMaterialRef,
+  type EcdsaRoleLocalPersistedMaterialRef,
+} from '../keyMaterialBrands';
 
 type RawThresholdSessionIds = {
   ecdsa?: unknown;
@@ -48,7 +52,7 @@ type RawEcdsaRestoreMetadata = {
   runtimePolicyScope?: unknown;
   routerAbEcdsaDerivationNormalSigning?: unknown;
   publicCapability?: unknown;
-  roleLocalDurableMaterialRef?: unknown;
+  roleLocalMaterialRef?: unknown;
 };
 
 export type RawSigningSessionSealedStoreRecord = RawSealedSessionRecord & {
@@ -140,7 +144,7 @@ export type PasskeyEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
     authority: PasskeyWalletAuthAuthority;
     evmFamilySigningKeySlotId: string;
     clientVerifyingShareB64u: string;
-    roleLocalDurableMaterialRef: string;
+    roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
     rpId?: never;
     credentialIdB64u?: never;
     providerSubjectId?: never;
@@ -159,7 +163,7 @@ export type EmailOtpEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
     providerSubjectId?: never;
     emailHashHex?: never;
     authSubjectId?: never;
-    roleLocalDurableMaterialRef: string;
+    roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
     rpId?: never;
   };
 
@@ -473,9 +477,14 @@ export function normalizeSealedRecoveryRecord(
   const publicCapability = normalizeRouterAbEcdsaDerivationPublicCapability(
     restore?.publicCapability,
   );
-  const roleLocalDurableMaterialRef = normalizeNonEmptyString(
-    restore?.roleLocalDurableMaterialRef,
-  );
+  let roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef | null = null;
+  try {
+    roleLocalMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef(
+      restore?.roleLocalMaterialRef,
+    );
+  } catch {
+    roleLocalMaterialRef = null;
+  }
   const clientVerifyingShareB64u = normalizeNonEmptyString(restore?.clientVerifyingShareB64u);
   const passkeyClientVerifyingShareB64u =
     raw.authMethod === 'passkey' ? clientVerifyingShareB64u : null;
@@ -511,7 +520,7 @@ export function normalizeSealedRecoveryRecord(
     !routerAbEcdsaDerivationNormalSigning ||
     !publicCapability ||
     !participantIds.length ||
-    !roleLocalDurableMaterialRef ||
+    !roleLocalMaterialRef ||
     (raw.authMethod === 'passkey' && !passkeyClientVerifyingShareB64u)
   ) {
     return reject(raw, 'missing_restore_metadata');
@@ -584,7 +593,7 @@ export function normalizeSealedRecoveryRecord(
           routerAbEcdsaDerivationNormalSigning,
           publicCapability,
           clientVerifyingShareB64u: passkeyClientVerifyingShareB64u!,
-          roleLocalDurableMaterialRef: roleLocalDurableMaterialRef!,
+          roleLocalMaterialRef: roleLocalMaterialRef!,
         }
       : {
           storeKey,
@@ -622,7 +631,7 @@ export function normalizeSealedRecoveryRecord(
           routerAbEcdsaDerivationNormalSigning,
           publicCapability,
           ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
-          roleLocalDurableMaterialRef,
+          roleLocalMaterialRef,
         };
   return { kind: 'accepted', record: accepted };
 }

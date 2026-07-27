@@ -27,7 +27,11 @@ import {
   type ThresholdEcdsaBootstrapSignerAuth,
   type ThresholdEcdsaBootstrapStorePort,
 } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
-import type { SigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
+import {
+  parseEcdsaRoleLocalPersistedMaterialRef,
+  type EcdsaRoleLocalPersistedMaterialRef,
+  type SigningSessionSealKeyVersion,
+} from '@/core/signingEngine/session/keyMaterialBrands';
 import type { WarmSessionHydrationService } from '@/core/signingEngine/session/passkey/warmSessionHydration';
 import type {
   WarmSessionMaterialWriteDiagnosticBucket,
@@ -75,6 +79,7 @@ export type FinalizeWalletRegistrationEcdsaFamilySession = {
   clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
   bootstrap: WalletRegistrationEcdsaDerivationRespondBootstrap;
   roleLocalMaterial: FinalizeRouterAbEcdsaRegistrationActivationResultV1['roleLocalMaterial'];
+  materialActivation: FinalizeRouterAbEcdsaRegistrationActivationResultV1['materialActivation'];
   clientPublicFacts: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicFacts'];
   publicCapability: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicCapability'];
 };
@@ -174,7 +179,7 @@ function sessionTargetsMatchWalletKeys(args: {
 function storeWalletEcdsaKeyWithRoleLocalMaterial(args: {
   walletKey: WalletRegistrationEcdsaWalletKey;
   publicFacts: ReturnType<typeof buildEcdsaRoleLocalPublicFacts>;
-  durableMaterialRef: FinalizeRouterAbEcdsaRegistrationActivationResultV1['roleLocalMaterial']['durableMaterialRef'];
+  materialRef: EcdsaRoleLocalPersistedMaterialRef;
 }): StoreWalletEcdsaWalletKey {
   const walletKey = args.walletKey;
   return {
@@ -192,7 +197,7 @@ function storeWalletEcdsaKeyWithRoleLocalMaterial(args: {
     relayerVerifyingShareB64u: walletKey.relayerVerifyingShareB64u,
     participantIds: walletKey.participantIds,
     publicCapability: walletKey.publicCapability,
-    roleLocalDurableMaterialRef: args.durableMaterialRef,
+    roleLocalMaterialRef: args.materialRef,
     ecdsaRoleLocalPublicFacts: args.publicFacts,
   };
 }
@@ -353,6 +358,12 @@ export async function finalizeWalletRegistrationEcdsaSessions(
   const authMethod = bootstrapAuthMethod(input.auth);
   const signerAuth = bootstrapSignerAuth(input.auth);
   const workerHandle = input.session.roleLocalMaterial;
+  const materialRef = parseEcdsaRoleLocalPersistedMaterialRef({
+    kind: 'ecdsa_role_local_persisted_material_ref_v1',
+    durableMaterialRef: workerHandle.durableMaterialRef,
+    bindingDigest: workerHandle.bindingDigest,
+    materialActivation: input.session.materialActivation,
+  });
   const storedWalletKeys: StoreWalletEcdsaWalletKey[] = [];
 
   for (const walletKey of input.walletKeys) {
@@ -391,6 +402,7 @@ export async function finalizeWalletRegistrationEcdsaSessions(
       material: {
         kind: 'worker_handle',
         handle: workerHandle,
+        materialRef,
         publicFacts,
       },
     });
@@ -454,7 +466,7 @@ export async function finalizeWalletRegistrationEcdsaSessions(
       storeWalletEcdsaKeyWithRoleLocalMaterial({
         walletKey,
         publicFacts,
-        durableMaterialRef: workerHandle.durableMaterialRef,
+        materialRef,
       }),
     );
     recordDiagnosticDuration({

@@ -7,7 +7,10 @@ import type {
   PublishResolvedIdentityInput,
   UpdateExactSealedSessionPolicyInput,
 } from './sealedSessionStore';
-import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
+import type {
+  SealedSigningSessionEcdsaRestoreMetadata,
+  SealedSigningSessionEcdsaRoleLocalMaterialRef,
+} from '@shared/utils/signingSessionSeal';
 import type { SealedSigningSessionEd25519RestoreMetadata } from '@shared/utils/signingSessionSeal';
 import type {
   RouterAbEcdsaDerivationNormalSigningStateV1,
@@ -18,6 +21,7 @@ declare const currentEd25519Record: CurrentEd25519SealedSessionRecord;
 declare const currentEcdsaRecord: CurrentEcdsaSealedSessionRecord;
 declare const routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+declare const roleLocalMaterialRef: SealedSigningSessionEcdsaRoleLocalMaterialRef;
 declare const ecdsaReauthAnchorPublicRestore: EcdsaReauthAnchorPublicRestore;
 void currentEd25519Record;
 void currentEcdsaRecord;
@@ -197,7 +201,7 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
     chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
     source: 'manual-bootstrap',
     evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet.testnet:project%3Adev:default',
-    roleLocalDurableMaterialRef: 'router-ab-ecdsa-registration:ceremony',
+    roleLocalMaterialRef,
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
     rpId: 'wallet.example.localhost',

@@ -164,13 +164,14 @@ function makeKeyRef(input: KeyRefFixtureInput = {}): ThresholdEcdsaSecp256k1KeyR
             roleLocalMaterialHandle: parseEcdsaRoleLocalWorkerHandle({
               kind: 'ecdsa_role_local_worker_handle_v1',
               materialHandle: parseEcdsaRoleLocalMaterialHandle(
-                String(record.roleLocalDurableMaterialRef),
+                String(record.roleLocalMaterialRef.durableMaterialRef),
               ),
               bindingDigest: parseEcdsaRoleLocalBindingDigest(
                 record.ecdsaRoleLocalPublicFacts.contextBinding32B64u,
               ),
-              durableMaterialRef: record.roleLocalDurableMaterialRef,
+              durableMaterialRef: record.roleLocalMaterialRef.durableMaterialRef,
             }),
+            roleLocalMaterialRef: record.roleLocalMaterialRef,
             publicFacts: record.ecdsaRoleLocalPublicFacts,
             authMethod: record.ecdsaRoleLocalAuthMethod,
           },
@@ -476,7 +477,9 @@ test.describe('EVM-family ECDSA identity', () => {
     if (keyRef.backendBinding?.materialKind !== 'role_local_durable_sealed_ref') {
       throw new Error('expected durable sealed backend binding');
     }
-    expect(keyRef.backendBinding.durableMaterialRef).toBe(record.roleLocalDurableMaterialRef);
+    expect(keyRef.backendBinding.roleLocalMaterialRef).toStrictEqual(
+      record.roleLocalMaterialRef,
+    );
     expect(keyRef.backendBinding.publicFacts).toStrictEqual(record.ecdsaRoleLocalPublicFacts);
   });
 
@@ -618,7 +621,7 @@ test.describe('EVM-family ECDSA identity', () => {
           },
         },
       }),
-    ).rejects.toThrow(/hydration is blocked: missing_material/);
+    ).rejects.toThrow(/requires durable role-local material/);
   });
 
   test('builds Email OTP worker share handles with exact lane identity', async () => {

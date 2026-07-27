@@ -34,6 +34,7 @@ import {
 } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import { fixtureRouterAbEcdsaDerivationPublicCapability } from './ecdsaBootstrap.fixtures';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './ecdsaMaterialRef.fixtures';
 
 export type PasskeyEcdsaSessionRecord = Exclude<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
 export type EmailOtpEcdsaSessionRecord = Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
@@ -348,6 +349,10 @@ export function makePasskeyEcdsaSessionRecord(
     input.roleLocalDurableMaterialRef ??
       `router-ab-ecdsa-role-local:${keyHandleForRecord}:${chainTarget.kind}:${chainTarget.chainId}`,
   );
+  const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+    durableMaterialRef: roleLocalDurableMaterialRef,
+    bindingDigest: roleLocalReadyRecord.publicFacts.contextBinding32B64u,
+  });
   const record: PasskeyEcdsaSessionRecord = {
     purpose: 'transaction_signing' as const,
     walletId,
@@ -361,7 +366,7 @@ export function makePasskeyEcdsaSessionRecord(
     ...(input.relayerVerifyingShareB64u
       ? { relayerVerifyingShareB64u: input.relayerVerifyingShareB64u }
       : {}),
-    roleLocalDurableMaterialRef,
+    roleLocalMaterialRef,
     ecdsaRoleLocalAuthMethod: roleLocalReadyRecord.authMethod as Extract<
       typeof roleLocalReadyRecord.authMethod,
       { kind: 'passkey' }
@@ -406,7 +411,7 @@ export function makePasskeyEcdsaSessionRecord(
   };
   if (input.bindLiveRoleLocalWorkerMaterial) {
     const persistedMaterial = buildPersistedEcdsaRoleLocalMaterial({
-      durableMaterialRef: roleLocalDurableMaterialRef,
+      materialRef: roleLocalMaterialRef,
       publicFacts: roleLocalReadyRecord.publicFacts,
     });
     bindLiveEcdsaRoleLocalMaterial({
@@ -475,7 +480,7 @@ export function makeEmailOtpEcdsaSessionRecord(
       : {}),
   });
   const {
-    roleLocalDurableMaterialRef: _roleLocalDurableMaterialRef,
+    roleLocalMaterialRef: _roleLocalMaterialRef,
     ecdsaRoleLocalAuthMethod: _ecdsaRoleLocalAuthMethod,
     ecdsaRoleLocalPublicFacts: _ecdsaRoleLocalPublicFacts,
     ...emailOtpBase

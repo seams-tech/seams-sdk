@@ -140,6 +140,7 @@ export type ThresholdEcdsaExplicitKeyExportActivationResult = {
     remainingUses: number;
     walletSessionJwt: string;
     roleLocalMaterial: ExistingEcdsaRoleLocalActivation['roleLocalMaterial'];
+    roleLocalMaterialRef: ExistingEcdsaRoleLocalActivation['roleLocalMaterialRef'];
     publicFacts: EcdsaRoleLocalPublicFacts;
   };
   passkeyPrfFirstB64u: string;
@@ -845,6 +846,7 @@ async function activateEcdsaSessionByPurpose(
         remainingUses,
         walletSessionJwt,
         roleLocalMaterial: bootstrap.roleLocalActivation.roleLocalMaterial,
+        roleLocalMaterialRef: bootstrap.roleLocalActivation.roleLocalMaterialRef,
         publicFacts: roleLocalPublicFacts,
       },
       passkeyPrfFirstB64u: bootstrap.passkeyPrfFirstB64u,
@@ -902,6 +904,7 @@ async function activateEcdsaSessionByPurpose(
       relayerKeyId,
       clientVerifyingShareB64u,
       roleLocalMaterialHandle,
+      roleLocalMaterialRef: bootstrap.roleLocalActivation.roleLocalMaterialRef,
       publicFacts: roleLocalPublicFacts,
       authMethod: roleLocalAuthMethod,
     },

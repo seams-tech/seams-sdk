@@ -23,7 +23,10 @@ import {
   EcdsaDerivationClientCustomRequestType,
   EcdsaPresignClientRequestType,
 } from './workerTypes';
-import { parseSigningSessionSealKeyVersion } from '../session/keyMaterialBrands';
+import {
+  parseSigningSessionSealKeyVersion,
+  type EcdsaRoleLocalPersistedMaterialRef,
+} from '../session/keyMaterialBrands';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
 import type {
   InitialEcdsaCapabilityActivationPlan,
@@ -53,6 +56,7 @@ declare const finalizedRoleLocalMaterial: FinalizeRouterAbEcdsaRegistrationActiv
 declare const finalizedMaterialActivation: FinalizeRouterAbEcdsaRegistrationActivationResultV1['materialActivation'];
 declare const finalizedPublicFacts: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicFacts'];
 declare const finalizedPublicCapability: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicCapability'];
+declare const roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
 
 const persistInitialCanonicalEcdsaActivationRequest: EcdsaDerivationRoleLocalMaterialOperationRequest<
   typeof EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation
@@ -417,8 +421,10 @@ const ecdsaPresignInitRequest: EcdsaPresignClientSessionInitRequest = {
   authority: {
     kind: 'role_local_derivation_handle',
     materialHandle: 'ecdsa-material-handle',
-    durableMaterialRef: 'ecdsa-durable-material',
-    expectedBindingDigest: 'ecdsa-binding-digest',
+    material: {
+      kind: 'persisted',
+      materialRef: roleLocalMaterialRef,
+    },
   },
   sessionId: 'presign-session',
   groupPublicKey33: incomingMessage,
@@ -441,8 +447,10 @@ const ecdsaPresignInitWithoutMaterialExpiry: EcdsaPresignClientSessionInitReques
   authority: {
     kind: 'role_local_derivation_handle',
     materialHandle: 'ecdsa-material-handle',
-    durableMaterialRef: 'ecdsa-durable-material',
-    expectedBindingDigest: 'ecdsa-binding-digest',
+    material: {
+      kind: 'persisted',
+      materialRef: roleLocalMaterialRef,
+    },
   },
   sessionId: 'presign-session',
   groupPublicKey33: incomingMessage,
@@ -467,7 +475,10 @@ const invalidRoleLocalPresignAuthorityWithEmailOtpSession: EcdsaPresignClientSes
   authority: {
     kind: 'role_local_derivation_handle',
     materialHandle: 'ecdsa-material-handle',
-    expectedBindingDigest: 'ecdsa-binding-digest',
+    material: {
+      kind: 'runtime_loaded',
+      expectedBindingDigest: 'ecdsa-binding-digest',
+    },
     emailOtpSessionId: 'email-otp-session',
   },
   sessionId: 'presign-session',

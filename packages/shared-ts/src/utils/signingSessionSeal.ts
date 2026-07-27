@@ -3,6 +3,7 @@ import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
 } from './routerAbEcdsaDerivation';
 import type { EmailOtpProvider } from './walletAuthAuthority';
+import type { MpcMaterialActivationRef } from './domainIds';
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from './signerDomain';
 
 export const SIGNING_SESSION_SEALED_RECORD_VERSION = 1 as const;
@@ -121,11 +122,18 @@ type SealedSigningSessionEcdsaRestoreMetadataBase = SealedSigningSessionWalletSe
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
 
+export type SealedSigningSessionEcdsaRoleLocalMaterialRef = {
+  kind: 'ecdsa_role_local_persisted_material_ref_v1';
+  durableMaterialRef: string;
+  bindingDigest: string;
+  materialActivation: MpcMaterialActivationRef;
+};
+
 export type SealedSigningSessionEcdsaRestoreMetadata =
   | (SealedSigningSessionEcdsaRestoreMetadataBase & {
       source: Exclude<SealedSigningSessionEcdsaRestoreSource, 'email_otp'>;
       evmFamilySigningKeySlotId: string;
-      roleLocalDurableMaterialRef: string;
+      roleLocalMaterialRef: SealedSigningSessionEcdsaRoleLocalMaterialRef;
       rpId: string;
       credentialIdB64u: string;
       providerSubjectId?: never;
@@ -138,7 +146,7 @@ export type SealedSigningSessionEcdsaRestoreMetadata =
       providerSubjectId: string;
       emailHashHex: string;
       authSubjectId?: never;
-      roleLocalDurableMaterialRef: string;
+      roleLocalMaterialRef: SealedSigningSessionEcdsaRoleLocalMaterialRef;
       rpId?: never;
       credentialIdB64u?: never;
     });

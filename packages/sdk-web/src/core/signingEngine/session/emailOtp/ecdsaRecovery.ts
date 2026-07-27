@@ -26,7 +26,6 @@ import {
   requestRehydrateEmailOtpEcdsaWarmSessionMaterial,
 } from './workerRequests';
 import {
-  parseEcdsaRoleLocalDurableMaterialRef,
   parseSigningSessionSealKeyVersion,
 } from '../keyMaterialBrands';
 import { requireEvmFamilySigningKeySlotId, type EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
@@ -207,9 +206,7 @@ function emailOtpSealedExistingKey(
     publicCapability: capability,
     walletKey,
     persistedRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
-      durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(
-        sealedRecord.roleLocalDurableMaterialRef,
-      ),
+      materialRef: sealedRecord.roleLocalMaterialRef,
       publicFacts,
     }),
   };

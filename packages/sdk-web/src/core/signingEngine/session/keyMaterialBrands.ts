@@ -3,6 +3,10 @@ import {
   type EcdsaThresholdKeyId,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
+import {
+  parseMpcMaterialActivationRef,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 
 export type { EcdsaThresholdKeyId };
 
@@ -26,6 +30,7 @@ export type EcdsaRoleLocalPersistedMaterialRef = {
   readonly kind: 'ecdsa_role_local_persisted_material_ref_v1';
   readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
   readonly bindingDigest: EcdsaRoleLocalBindingDigest;
+  readonly materialActivation: MpcMaterialActivationRef;
 };
 export type EcdsaRoleLocalWorkerHandle = {
   readonly kind: 'ecdsa_role_local_worker_handle_v1';
@@ -135,7 +140,7 @@ export function parseEcdsaRoleLocalPersistedMaterialRef(
   }
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record).sort();
-  const expectedKeys = ['bindingDigest', 'durableMaterialRef', 'kind'];
+  const expectedKeys = ['bindingDigest', 'durableMaterialRef', 'kind', 'materialActivation'];
   if (
     keys.length !== expectedKeys.length ||
     keys.some((key, index) => key !== expectedKeys[index])
@@ -145,10 +150,15 @@ export function parseEcdsaRoleLocalPersistedMaterialRef(
   if (record.kind !== 'ecdsa_role_local_persisted_material_ref_v1') {
     throw new Error('ECDSA role-local persisted material reference kind is invalid');
   }
+  const materialActivation = parseMpcMaterialActivationRef(record.materialActivation);
+  if (!materialActivation.ok) {
+    throw new Error(materialActivation.error.message);
+  }
   return {
     kind: 'ecdsa_role_local_persisted_material_ref_v1',
     durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(record.durableMaterialRef),
     bindingDigest: parseEcdsaRoleLocalBindingDigest(record.bindingDigest),
+    materialActivation: materialActivation.value,
   };
 }
 

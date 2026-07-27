@@ -83,6 +83,7 @@ import {
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
   parseEcdsaThresholdKeyId,
+  type EcdsaRoleLocalPersistedMaterialRef,
   type EcdsaRoleLocalWorkerHandle,
 } from '@/core/signingEngine/session/keyMaterialBrands';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
@@ -2237,6 +2238,7 @@ export async function buildWalletRegistrationEcdsaSessionBootstrap(args: {
   material: {
     kind: 'worker_handle';
     handle: EcdsaRoleLocalWorkerHandle;
+    materialRef: EcdsaRoleLocalPersistedMaterialRef;
     publicFacts: EcdsaRoleLocalPublicFacts;
   };
 }): Promise<ThresholdEcdsaSessionBootstrapResult> {
@@ -2427,6 +2429,7 @@ function buildWalletRegistrationEcdsaBackendBinding(args: {
   material: {
     kind: 'worker_handle';
     handle: EcdsaRoleLocalWorkerHandle;
+    materialRef: EcdsaRoleLocalPersistedMaterialRef;
     publicFacts: EcdsaRoleLocalPublicFacts;
   };
   relayerKeyId: string;
@@ -2441,6 +2444,7 @@ function buildWalletRegistrationEcdsaBackendBinding(args: {
     relayerKeyId: args.relayerKeyId,
     clientVerifyingShareB64u: args.clientVerifyingShareB64u,
     roleLocalMaterialHandle: args.material.handle,
+    roleLocalMaterialRef: args.material.materialRef,
     publicFacts: args.material.publicFacts,
     authMethod: args.authMethod,
   };

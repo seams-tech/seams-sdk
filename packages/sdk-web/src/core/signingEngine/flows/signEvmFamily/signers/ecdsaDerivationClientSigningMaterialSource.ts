@@ -146,8 +146,16 @@ export async function loadRouterAbEcdsaDerivationSigningMaterialSource(args: {
         });
         return await thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm({
           materialHandle: signerSession.clientShare.handle.materialHandle,
-          durableMaterialRef: signerSession.clientShare.handle.durableMaterialRef,
-          expectedBindingDigest: signerSession.clientShare.handle.bindingDigest,
+          material:
+            signerSession.clientShare.material.kind === 'worker_loaded'
+              ? {
+                  kind: 'persisted',
+                  materialRef: signerSession.clientShare.material.materialRef,
+                }
+              : {
+                  kind: 'runtime_loaded',
+                  expectedBindingDigest: signerSession.clientShare.handle.bindingDigest,
+                },
           ...input,
         });
       },

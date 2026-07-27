@@ -12,6 +12,7 @@ import {
 } from '@/core/signingEngine/session/identity/clientSessionPersistenceState';
 import type { ExactSigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { createThresholdEcdsaBootstrapFixture } from './ecdsaBootstrap.fixtures';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './ecdsaMaterialRef.fixtures';
 
 export type EmailOtpEcdsaSealedSigningSessionRecord = Extract<
   SealedSigningSessionRecord,
@@ -114,7 +115,11 @@ function emailOtpEcdsaSealedFixtureParts(
       ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
       ethereumAddress: keyRef.ethereumAddress,
       relayerKeyId: backendBinding.relayerKeyId,
-      roleLocalDurableMaterialRef: 'role-local-material',
+      roleLocalMaterialRef: buildEcdsaRoleLocalPersistedMaterialRefFixture({
+        durableMaterialRef: 'role-local-material',
+        bindingDigest:
+          backendBinding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+      }),
       participantIds: [...(keyRef.participantIds || [1, 2])],
       routerAbEcdsaDerivationNormalSigning,
       publicCapability: backendBinding.ecdsaRoleLocalReadyRecord.publicFacts.publicCapability,

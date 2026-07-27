@@ -42,6 +42,7 @@ import {
 import { thresholdEcdsaRecordHasRoleLocalSigningMaterial } from '../persistence/ecdsaRoleLocalRecords';
 import {
   getInMemoryEcdsaRoleLocalHandle,
+  requirePersistedEcdsaRoleLocalMaterial,
   type ThresholdEcdsaSessionRecord,
 } from '../persistence/records';
 import { classifyRouterAbEcdsaDerivationPersistedSigningRecord } from '../routerAbSigningWalletSession';
@@ -63,9 +64,9 @@ import {
   parseEcdsaClientVerifyingPublicKey33B64u,
   parseEcdsaKeyHandle,
   parseEcdsaRelayerKeyId,
-  parseEcdsaRoleLocalBindingDigest,
   parseEcdsaRoleLocalMaterialHandle,
   parseEcdsaThresholdKeyId,
+  type EcdsaRoleLocalPersistedMaterialRef,
   type EcdsaRoleLocalWorkerHandle,
 } from '../keyMaterialBrands';
 import type {
@@ -285,6 +286,7 @@ export type ThresholdEcdsaEmailOtpWorkerShare = {
 export type ThresholdEcdsaRoleLocalWorkerMaterial =
   | {
       kind: 'worker_loaded';
+      materialRef: EcdsaRoleLocalPersistedMaterialRef;
       stateBlob?: never;
       ecdsaRoleLocalReadyRecord?: never;
     }
@@ -292,6 +294,7 @@ export type ThresholdEcdsaRoleLocalWorkerMaterial =
       kind: 'ready_state_blob';
       stateBlob: EcdsaRoleLocalReadyStateBlob;
       ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
+      materialRef?: never;
     };
 
 export type ThresholdEcdsaRoleLocalWorkerShare = {
@@ -1156,18 +1159,26 @@ function buildThresholdEcdsaSignerClientShare(args: {
       return {
         kind: 'role_local_worker_share',
         handle: args.backendBinding.roleLocalMaterialHandle,
-        material: { kind: 'worker_loaded' },
+        material: {
+          kind: 'worker_loaded',
+          materialRef: args.backendBinding.roleLocalMaterialRef,
+        },
       };
     case 'role_local_durable_sealed_ref':
       return {
         kind: 'role_local_worker_share',
         handle: {
           kind: 'ecdsa_role_local_worker_handle_v1',
-          materialHandle: parseEcdsaRoleLocalMaterialHandle(args.backendBinding.durableMaterialRef),
-          durableMaterialRef: args.backendBinding.durableMaterialRef,
-          bindingDigest: args.backendBinding.bindingDigest,
+          materialHandle: parseEcdsaRoleLocalMaterialHandle(
+            args.backendBinding.roleLocalMaterialRef.durableMaterialRef,
+          ),
+          durableMaterialRef: args.backendBinding.roleLocalMaterialRef.durableMaterialRef,
+          bindingDigest: args.backendBinding.roleLocalMaterialRef.bindingDigest,
         },
-        material: { kind: 'worker_loaded' },
+        material: {
+          kind: 'worker_loaded',
+          materialRef: args.backendBinding.roleLocalMaterialRef,
+        },
       };
     case 'role_local_ready_state_blob':
       return {
@@ -1356,11 +1367,13 @@ function buildThresholdEcdsaBackendBindingFromSessionRecord(
 ): ThresholdEcdsaBackendBinding {
   const roleLocalMaterialHandle = getInMemoryEcdsaRoleLocalHandle(record);
   if (roleLocalMaterialHandle) {
+    const persistedMaterial = requirePersistedEcdsaRoleLocalMaterial(record);
     return {
       materialKind: 'role_local_worker_handle',
       relayerKeyId: record.relayerKeyId,
       clientVerifyingShareB64u: record.clientVerifyingShareB64u,
       roleLocalMaterialHandle,
+      roleLocalMaterialRef: persistedMaterial.materialRef,
       publicFacts: record.ecdsaRoleLocalPublicFacts,
       authMethod: record.ecdsaRoleLocalAuthMethod,
     };
@@ -1374,15 +1387,12 @@ function buildThresholdEcdsaBackendBindingFromSessionRecord(
       ecdsaRoleLocalReadyRecord: record.ecdsaRoleLocalReadyRecord,
     };
   }
-  if (record.roleLocalDurableMaterialRef) {
+  if (record.roleLocalMaterialRef) {
     return {
       materialKind: 'role_local_durable_sealed_ref',
       relayerKeyId: record.relayerKeyId,
       clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-      durableMaterialRef: record.roleLocalDurableMaterialRef,
-      bindingDigest: parseEcdsaRoleLocalBindingDigest(
-        record.ecdsaRoleLocalPublicFacts.contextBinding32B64u,
-      ),
+      roleLocalMaterialRef: record.roleLocalMaterialRef,
       publicFacts: record.ecdsaRoleLocalPublicFacts,
     };
   }
@@ -1395,12 +1405,7 @@ function buildThresholdEcdsaBackendBindingFromSessionRecord(
       ecdsaRoleLocalReadyRecord: record.ecdsaRoleLocalReadyRecord,
     };
   }
-  return {
-    materialKind: 'role_local_durable_public_anchor',
-    relayerKeyId: record.relayerKeyId,
-    clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-    publicFacts: record.ecdsaRoleLocalPublicFacts,
-  };
+  throw new Error('[evm-family-ecdsa] session record has no usable backend binding');
 }
 
 export function buildReadyEcdsaSignerSessionFromReadyMaterial(args: {

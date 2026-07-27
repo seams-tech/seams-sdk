@@ -372,10 +372,10 @@ function resolveEcdsaRuntimeMaterialIdentity(
       materialBindingDigest: bindingDigest,
     };
   }
-  if (!record.roleLocalDurableMaterialRef) return null;
+  if (!record.roleLocalMaterialRef) return null;
   try {
     const persistedMaterial = buildPersistedEcdsaRoleLocalMaterial({
-      durableMaterialRef: record.roleLocalDurableMaterialRef,
+      materialRef: record.roleLocalMaterialRef,
       publicFacts: record.ecdsaRoleLocalPublicFacts,
     });
     const liveHandle = getLiveEcdsaRoleLocalMaterial(persistedMaterial);

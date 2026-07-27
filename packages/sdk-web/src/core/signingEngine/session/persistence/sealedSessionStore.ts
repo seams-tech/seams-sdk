@@ -52,6 +52,10 @@ import {
   emailOtpAuthContextProvider,
   emailOtpAuthContextProviderUserId,
 } from '../identity/laneIdentity';
+import {
+  parseEcdsaRoleLocalPersistedMaterialRef,
+  type EcdsaRoleLocalPersistedMaterialRef,
+} from '../keyMaterialBrands';
 
 export type SigningSessionRestoreLease = {
   v: 1;
@@ -188,7 +192,7 @@ export type EcdsaReauthAnchorPublicRestore =
       source: Exclude<SealedSigningSessionEcdsaRestoreSource, 'email_otp'>;
       rpId: string;
       credentialIdB64u: string;
-      roleLocalDurableMaterialRef: string;
+      roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
       providerSubjectId?: never;
       emailHashHex?: never;
     })
@@ -197,7 +201,7 @@ export type EcdsaReauthAnchorPublicRestore =
       provider: 'google' | 'email';
       providerSubjectId: string;
       emailHashHex: string;
-      roleLocalDurableMaterialRef: string;
+      roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
       rpId?: never;
       credentialIdB64u?: never;
     });
@@ -631,9 +635,12 @@ function normalizeEcdsaRestoreMetadata(
   const signingRootVersion =
     explicitSigningRootVersion || runtimeSigningRootBinding?.signingRootVersion || '';
   const credentialIdB64u = normalizeOptionalNonEmptyString(obj.credentialIdB64u);
-  const roleLocalDurableMaterialRef = normalizeOptionalNonEmptyString(
-    obj.roleLocalDurableMaterialRef,
-  );
+  let roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef | null = null;
+  try {
+    roleLocalMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef(obj.roleLocalMaterialRef);
+  } catch {
+    roleLocalMaterialRef = null;
+  }
   const provider = obj.provider === 'google' || obj.provider === 'email' ? obj.provider : null;
   const providerSubjectId = normalizeOptionalNonEmptyString(obj.providerSubjectId);
   const emailHashHex = normalizeOptionalNonEmptyString(obj.emailHashHex);
@@ -677,12 +684,12 @@ function normalizeEcdsaRestoreMetadata(
     evmFamilySigningKeySlotId &&
     credentialIdB64u &&
     rpId &&
-    roleLocalDurableMaterialRef &&
+    roleLocalMaterialRef &&
     source !== 'email_otp'
       ? ({
           source,
           evmFamilySigningKeySlotId,
-          roleLocalDurableMaterialRef,
+          roleLocalMaterialRef,
           rpId,
           credentialIdB64u,
         } as const)
@@ -690,7 +697,7 @@ function normalizeEcdsaRestoreMetadata(
           providerSubjectId &&
           provider &&
           emailHashHex &&
-          roleLocalDurableMaterialRef &&
+          roleLocalMaterialRef &&
           source === 'email_otp'
         ? ({
             source,
@@ -698,7 +705,7 @@ function normalizeEcdsaRestoreMetadata(
             provider,
             providerSubjectId,
             emailHashHex,
-            roleLocalDurableMaterialRef,
+            roleLocalMaterialRef,
           } as const)
         : null;
   if (!authBranch) return undefined;
@@ -1500,9 +1507,12 @@ function normalizeEcdsaReauthAnchorPublicRestore(
   const relayerUrl = normalizeOptionalNonEmptyString(obj.relayerUrl);
   const signingRootVersion = normalizeOptionalNonEmptyString(obj.signingRootVersion);
   const evmFamilySigningKeySlotId = normalizeOptionalNonEmptyString(obj.evmFamilySigningKeySlotId);
-  const roleLocalDurableMaterialRef = normalizeOptionalNonEmptyString(
-    obj.roleLocalDurableMaterialRef,
-  );
+  let roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef | null = null;
+  try {
+    roleLocalMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef(obj.roleLocalMaterialRef);
+  } catch {
+    roleLocalMaterialRef = null;
+  }
   const keyHandle = normalizeOptionalNonEmptyString(obj.keyHandle);
   const ecdsaThresholdKeyId = normalizeOptionalNonEmptyString(obj.ecdsaThresholdKeyId);
   const ethereumAddress = normalizeOptionalNonEmptyString(obj.ethereumAddress);
@@ -1534,7 +1544,7 @@ function normalizeEcdsaReauthAnchorPublicRestore(
         !provider ||
         !providerSubjectId ||
         !emailHashHex ||
-        !roleLocalDurableMaterialRef ||
+        !roleLocalMaterialRef ||
         obj.rpId != null ||
         obj.credentialIdB64u != null
       ) {
@@ -1559,7 +1569,7 @@ function normalizeEcdsaReauthAnchorPublicRestore(
         provider,
         providerSubjectId,
         emailHashHex,
-        roleLocalDurableMaterialRef,
+        roleLocalMaterialRef,
       };
     }
     case 'login':
@@ -1570,7 +1580,7 @@ function normalizeEcdsaReauthAnchorPublicRestore(
       if (
         !rpId ||
         !credentialIdB64u ||
-        !roleLocalDurableMaterialRef ||
+        !roleLocalMaterialRef ||
         obj.providerSubjectId != null ||
         obj.emailHashHex != null
       ) {
@@ -1592,7 +1602,7 @@ function normalizeEcdsaReauthAnchorPublicRestore(
         routerAbEcdsaDerivationNormalSigning,
         publicCapability,
         source: obj.source,
-        roleLocalDurableMaterialRef,
+        roleLocalMaterialRef,
         rpId,
         credentialIdB64u,
       };
@@ -2206,7 +2216,9 @@ export function buildEcdsaReauthAnchorPublicRestore(
         provider: restore.provider,
         providerSubjectId: restore.providerSubjectId,
         emailHashHex: restore.emailHashHex,
-        roleLocalDurableMaterialRef: restore.roleLocalDurableMaterialRef,
+        roleLocalMaterialRef: parseEcdsaRoleLocalPersistedMaterialRef(
+          restore.roleLocalMaterialRef,
+        ),
       };
     case 'login':
     case 'registration':
@@ -2227,7 +2239,9 @@ export function buildEcdsaReauthAnchorPublicRestore(
         routerAbEcdsaDerivationNormalSigning: restore.routerAbEcdsaDerivationNormalSigning,
         publicCapability: restore.publicCapability,
         source: restore.source,
-        roleLocalDurableMaterialRef: restore.roleLocalDurableMaterialRef,
+        roleLocalMaterialRef: parseEcdsaRoleLocalPersistedMaterialRef(
+          restore.roleLocalMaterialRef,
+        ),
         rpId: restore.rpId,
         credentialIdB64u: restore.credentialIdB64u,
       };
@@ -2306,14 +2320,12 @@ function registrationEcdsaPublicRestore(
     ? parseRouterAbEcdsaDerivationNormalSigningStateV1(record.routerAbEcdsaDerivationNormalSigning)
     : null;
   const ethereumAddress = normalizeOptionalNonEmptyString(record.ethereumAddress);
-  const roleLocalDurableMaterialRef = normalizeOptionalNonEmptyString(
-    record.roleLocalDurableMaterialRef,
-  );
+  const roleLocalMaterialRef = record.roleLocalMaterialRef;
   if (
     !thresholdEcdsaPublicKeyB64u ||
     !routerAbEcdsaDerivationNormalSigning ||
     !ethereumAddress ||
-    !roleLocalDurableMaterialRef ||
+    !roleLocalMaterialRef ||
     !/^0x[0-9a-f]{40}$/i.test(ethereumAddress)
   ) {
     throw new Error(
@@ -2337,7 +2349,7 @@ function registrationEcdsaPublicRestore(
     publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
       record.ecdsaRoleLocalPublicFacts.publicCapability,
     ),
-    roleLocalDurableMaterialRef,
+    roleLocalMaterialRef,
   };
   switch (record.ecdsaRoleLocalAuthMethod.kind) {
     case 'passkey':

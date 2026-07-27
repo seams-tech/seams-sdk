@@ -26,6 +26,7 @@ const POST_REGISTRATION_ROUTE_AUTH_KINDS = new Set(['app_session', 'wallet_sessi
 export type ExistingEcdsaRoleLocalActivation = {
   readonly kind: 'existing_ecdsa_role_local_material_activated_v1';
   readonly roleLocalMaterial: EcdsaRoleLocalWorkerHandle;
+  readonly roleLocalMaterialRef: PersistedEcdsaRoleLocalMaterial['materialRef'];
   readonly publicFacts: EcdsaRoleLocalPublicFacts;
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
@@ -180,6 +181,7 @@ export async function activateStrictEcdsaPostRegistrationSession(
     roleLocalActivation: {
       kind: 'existing_ecdsa_role_local_material_activated_v1',
       roleLocalMaterial,
+      roleLocalMaterialRef: input.persistedRoleLocalMaterial.materialRef,
       publicFacts: roleLocalPublicFacts,
       publicCapability: input.publicCapability,
     },

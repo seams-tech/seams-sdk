@@ -7,8 +7,6 @@ import {
   type RehydrateEcdsaRoleLocalSigningMaterialWasmResult,
 } from '../../threshold/crypto/ecdsaDerivationClientWasm';
 import {
-  parseEcdsaRoleLocalBindingDigest,
-  parseEcdsaRoleLocalDurableMaterialRef,
   parseEcdsaRoleLocalPersistedMaterialRef,
   parseEcdsaRoleLocalWorkerHandle,
   type EcdsaRoleLocalDurableMaterialRef,
@@ -168,14 +166,10 @@ function resolutionFromRehydrationFailure(args: {
 }
 
 export function buildPersistedEcdsaRoleLocalMaterial(input: {
-  readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
   readonly publicFacts: EcdsaRoleLocalPublicFacts;
 }): PersistedEcdsaRoleLocalMaterial {
-  const materialRef = parseEcdsaRoleLocalPersistedMaterialRef({
-    kind: 'ecdsa_role_local_persisted_material_ref_v1',
-    durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(input.durableMaterialRef),
-    bindingDigest: parseEcdsaRoleLocalBindingDigest(input.publicFacts.contextBinding32B64u),
-  });
+  const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(input.materialRef);
   if (!materialRefMatchesPublicFacts(materialRef, input.publicFacts)) {
     throw new Error('ECDSA role-local persisted material does not match its public facts');
   }

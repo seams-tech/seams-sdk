@@ -452,7 +452,7 @@ export function classifyThresholdEcdsaSessionRecordRoleLocalState(args: {
         reason: 'unsupported_material_owner',
       };
     }
-    if (!record.roleLocalDurableMaterialRef) {
+    if (!record.roleLocalMaterialRef) {
       return {
         kind: 'reauth_required_role_local_material_v1',
         authMethod,
@@ -464,18 +464,18 @@ export function classifyThresholdEcdsaSessionRecordRoleLocalState(args: {
       kind: 'ready_passkey_role_local_material_v1',
       authMethod,
       publicFacts,
-      durableMaterialRef: record.roleLocalDurableMaterialRef,
+      durableMaterialRef: record.roleLocalMaterialRef.durableMaterialRef,
     };
   }
 
-  if (record.roleLocalDurableMaterialRef) {
+  if (record.roleLocalMaterialRef) {
     return {
       kind: 'ready_email_otp_role_local_material_v1',
       authMethod,
       publicFacts,
       inlineSigningMaterial: {
         kind: 'role_local_durable_material',
-        durableMaterialRef: record.roleLocalDurableMaterialRef,
+        durableMaterialRef: record.roleLocalMaterialRef.durableMaterialRef,
       },
     };
   }
