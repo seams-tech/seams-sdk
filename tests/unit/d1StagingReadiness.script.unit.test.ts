@@ -86,15 +86,6 @@ test('D1 staging readiness check accepts the gateway D1/DO/Secrets Store shape',
   expect(result).toMatchObject({ errors: [], ok: true });
 });
 
-test('D1 staging readiness check requires the Gateway console email cron', async () => {
-  const source = validD1GatewayStagingConfig().replace('crons = ["*/5 * * * *"]', 'crons = []');
-
-  expectErrorContaining(
-    await checkConfig(source, 'gateway'),
-    'CONSOLE_EMAIL_CRON_EXPRESSIONS must be present under [triggers].crons',
-  );
-});
-
 test('D1 staging readiness check rejects a retired Gateway runtime binding', async () => {
   const source = validD1GatewayStagingConfig().replace(
     '[[services]]',

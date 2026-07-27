@@ -16,9 +16,6 @@ const backendScript = path.join(repoRoot, 'scripts/deploy-backend.mjs');
 const frontendScript = path.join(repoRoot, 'scripts/deploy-frontend.mjs');
 const deploymentSecretNames = [
   'STRIPE_API_SK',
-  'STRIPE_WEBHOOK_SECRET',
-  'RESEND_API_KEY',
-  'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
   'RELAYER_PRIVATE_KEY',
   'SPONSORED_EVM_EXECUTORS_JSON',
   'SIGNING_SESSION_SEAL_KEY_VERSION',

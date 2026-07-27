@@ -236,7 +236,19 @@ function preflightBackend(targetName, target, component, environment = process.e
     if (config.optional.nearRelayer) requiredNames.push('RELAYER_PRIVATE_KEY');
   }
   requireEnvironmentValues(unique(requiredNames), environment);
+  if (component === 'gateway') warnDisabledGatewayIntegrations(environment);
   process.stdout.write(`Preflight passed: ${targetName}/${component}\n`);
+}
+
+function warnDisabledGatewayIntegrations(environment) {
+  if (!String(environment.STRIPE_WEBHOOK_SECRET || '').trim()) {
+    process.stderr.write(
+      'Warning: Stripe webhook processing is disabled because STRIPE_WEBHOOK_SECRET is not configured.\n',
+    );
+  }
+  process.stderr.write(
+    'Warning: Console email delivery is disabled because no email provider is configured.\n',
+  );
 }
 
 function readPreflightEnvironment() {
@@ -299,7 +311,7 @@ function componentRuntimeRequirements(targetName, target, component) {
         ...(targetName === 'production' ? ['ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON'] : []),
       ];
     case 'gateway':
-      return ['CONSOLE_EMAIL_FROM'];
+      return [];
     default:
       throw new Error(`Unsupported backend component: ${component}`);
   }
