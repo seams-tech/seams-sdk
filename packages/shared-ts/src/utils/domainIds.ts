@@ -381,6 +381,20 @@ export function buildMpcMaterialActivationRef(
   return new MpcMaterialActivationReference(fields);
 }
 
+export function mpcMaterialActivationRefsEqual(
+  left: MpcMaterialActivationRef,
+  right: MpcMaterialActivationRef,
+): boolean {
+  return (
+    left.activationId === right.activationId &&
+    left.capability === right.capability &&
+    left.materialOwner === right.materialOwner &&
+    left.keyBinding === right.keyBinding &&
+    left.lifecycleBinding === right.lifecycleBinding &&
+    left.signingWorker === right.signingWorker
+  );
+}
+
 function isMpcMaterialActivationRefField(field: string): boolean {
   switch (field) {
     case 'kind':

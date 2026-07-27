@@ -15,7 +15,10 @@ import {
   parseDigestB64u,
   parseIsoTimestamp,
 } from '@shared/utils/canonicalPrimitives';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import {
+  parseMpcCapabilityRuntimeRef,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 import { errorLogSummary, safeErrorMessage } from '@shared/utils/errors';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import {
@@ -94,6 +97,8 @@ import {
   decodeRouterAbEcdsaRegistrationPendingFinalizationV1,
   encodeRouterAbEcdsaRegistrationPendingFinalizationV1,
 } from '../../routerAb/ecdsaDerivation/registrationPendingFinalization';
+import { resolveEcdsaCapabilityHydration } from '../../session/material/ecdsaCapabilityHydration';
+import type { MpcCapabilityHydrationBlockedReason } from '../../session/material/mpcCapabilityHydration';
 
 const ecdsaDerivationClientWasmUrl = resolveWasmUrl(
   'router_ab_ecdsa_derivation_client_bg.wasm',
@@ -1107,16 +1112,14 @@ async function finalizeRouterAbEcdsaExplicitExport(
     requireExactKeys(openedShare, ['serverExportShare32B64u'], 'SigningWorker ECDSA export share');
     const materialHandle = request.roleLocalMaterial.materialHandle;
     const bindingDigest = request.roleLocalMaterial.bindingDigest;
-    if (!ecdsaRoleLocalSigningMaterialStore.has(materialHandle)) {
-      const restored = await restoreEcdsaRoleLocalSigningMaterialForRequest(
-        request.roleLocalMaterialRef,
-      );
-      if (!restored.ok) {
-        throw new Error(`ECDSA explicit export material hydration failed: ${restored.reason}`);
-      }
-      if (restored.liveHandle.materialHandle !== materialHandle) {
-        throw new Error('ECDSA explicit export material handle is not canonical');
-      }
+    const restored = await restoreEcdsaRoleLocalSigningMaterialForRequest(
+      request.roleLocalMaterialRef,
+    );
+    if (!restored.ok) {
+      throw new Error(`ECDSA explicit export material hydration failed: ${restored.reason}`);
+    }
+    if (restored.liveHandle.materialHandle !== materialHandle) {
+      throw new Error('ECDSA explicit export material handle is not canonical');
     }
     const stored = ecdsaRoleLocalSigningMaterialStore.get(materialHandle);
     if (!stored || stored.bindingDigest !== bindingDigest) {
@@ -1268,28 +1271,53 @@ async function restoreEcdsaRoleLocalSigningMaterialForRequest(
 > {
   const materialHandle = parseEcdsaRoleLocalMaterialHandle(materialRef.durableMaterialRef);
   const loaded = ecdsaRoleLocalSigningMaterialStore.get(materialHandle);
-  if (loaded) {
-    if (loaded.bindingDigest !== materialRef.bindingDigest) {
-      return { ok: false, reason: 'binding_mismatch' };
-    }
-    return {
-      ok: true,
-      liveHandle: {
-        kind: 'ecdsa_role_local_worker_handle_v1',
-        materialHandle,
-        bindingDigest: materialRef.bindingDigest,
-        durableMaterialRef: materialRef.durableMaterialRef,
-      },
-    };
+  const lookup = await ecdsaCapabilityManifestStore.lookupByMaterialRef(materialRef);
+  const runtime =
+    loaded?.materialActivation === undefined
+      ? { kind: 'absent' as const }
+      : {
+          kind: 'live' as const,
+          runtime: parseEcdsaRoleLocalRuntimeRef(materialHandle),
+          materialActivation: loaded.materialActivation,
+        };
+  const resolution = resolveEcdsaCapabilityHydration({
+    entryPoint: 'post_page_refresh',
+    lookup,
+    runtime,
+  });
+  switch (resolution.plan.kind) {
+    case 'use_live_runtime':
+      if (!loaded || loaded.bindingDigest !== materialRef.bindingDigest) {
+        return { ok: false, reason: 'binding_mismatch' };
+      }
+      return {
+        ok: true,
+        liveHandle: buildEcdsaRoleLocalWorkerHandle(materialRef, materialHandle),
+      };
+    case 'blocked':
+      if (resolution.plan.reason === 'persistence_unavailable') {
+        throw new Error('Canonical ECDSA role-local material persistence is unavailable');
+      }
+      return {
+        ok: false,
+        reason: restoreFailureReasonFromHydrationBlock(resolution.plan.reason),
+      };
+    case 'rehydrate_material_activation':
+      break;
+    case 'reauthorize_public_anchor':
+      return { ok: false, reason: 'expired' };
   }
-  const restored = await ecdsaCapabilityManifestStore.openActiveMaterialByRef(materialRef);
+  if (lookup.kind !== 'active') {
+    return { ok: false, reason: 'corrupt' };
+  }
+  const restored = await ecdsaCapabilityManifestStore.openActiveMaterialLookup(lookup);
   if (restored.kind === 'persistence_unavailable') {
     throw new Error('Canonical ECDSA role-local material persistence is unavailable');
   }
   if (restored.kind !== 'active') {
     return {
       ok: false,
-      reason: restored.kind,
+      reason: restoreFailureReasonFromManifestObservation(restored.kind),
     };
   }
   const activationReceipt =
@@ -1315,13 +1343,66 @@ async function restoreEcdsaRoleLocalSigningMaterialForRequest(
   );
   return {
     ok: true,
-    liveHandle: {
-      kind: 'ecdsa_role_local_worker_handle_v1',
-      materialHandle,
-      bindingDigest: materialRef.bindingDigest,
-      durableMaterialRef: materialRef.durableMaterialRef,
-    },
+    liveHandle: buildEcdsaRoleLocalWorkerHandle(materialRef, materialHandle),
   };
+}
+
+function parseEcdsaRoleLocalRuntimeRef(materialHandle: string) {
+  const parsed = parseMpcCapabilityRuntimeRef(`ecdsa-role-local-runtime:${materialHandle}`);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function buildEcdsaRoleLocalWorkerHandle(
+  materialRef: EcdsaRoleLocalPersistedMaterialRef,
+  materialHandle: ReturnType<typeof parseEcdsaRoleLocalMaterialHandle>,
+): EcdsaRoleLocalWorkerHandle {
+  return {
+    kind: 'ecdsa_role_local_worker_handle_v1',
+    materialHandle,
+    bindingDigest: materialRef.bindingDigest,
+    durableMaterialRef: materialRef.durableMaterialRef,
+  };
+}
+
+function restoreFailureReasonFromHydrationBlock(
+  reason: Exclude<MpcCapabilityHydrationBlockedReason, 'persistence_unavailable'>,
+): 'missing' | 'expired' | 'binding_mismatch' | 'corrupt' {
+  switch (reason) {
+    case 'missing_capability':
+    case 'missing_material':
+      return 'missing';
+    case 'revoked':
+    case 'replaced':
+      return 'expired';
+    case 'authority_ambiguous':
+    case 'binding_mismatch':
+      return 'binding_mismatch';
+    case 'exact_record_conflict':
+    case 'corrupt':
+      return 'corrupt';
+  }
+}
+
+function restoreFailureReasonFromManifestObservation(
+  kind:
+    | 'missing'
+    | 'retired'
+    | 'exact_binding_mismatch'
+    | 'exact_record_conflict'
+    | 'corrupt',
+): 'missing' | 'expired' | 'binding_mismatch' | 'corrupt' {
+  switch (kind) {
+    case 'missing':
+      return 'missing';
+    case 'retired':
+      return 'expired';
+    case 'exact_binding_mismatch':
+      return 'binding_mismatch';
+    case 'exact_record_conflict':
+    case 'corrupt':
+      return 'corrupt';
+  }
 }
 
 async function rehydrateEcdsaRoleLocalSigningMaterial(

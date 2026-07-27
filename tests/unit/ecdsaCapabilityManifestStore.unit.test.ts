@@ -105,6 +105,16 @@ async function exerciseReplacementActivation(input: {
     capability: input.fixture.prior.prepareInput.activationBinding.signer.capability,
     authority: input.fixture.prior.prepareInput.activationBinding.signer.authority,
   });
+  const priorByMaterialRef =
+    priorFinalization.kind === 'committed'
+      ? await store.lookupByMaterialRef({
+          kind: 'ecdsa_role_local_persisted_material_ref_v1',
+          durableMaterialRef:
+            input.fixture.prior.prepareInput.activationBinding.durableMaterialRef,
+          bindingDigest: input.fixture.prior.prepareInput.activationBinding.bindingDigest,
+          materialActivation: priorFinalization.manifest.activation.materialActivation,
+        })
+      : null;
   const replacementJournal = await store.readActivationJournal(replacementCommit.journal.journalId);
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open('seams_wallet');
@@ -174,6 +184,7 @@ async function exerciseReplacementActivation(input: {
     priorFinalizationKind: priorFinalization.kind,
     replacementFinalizationKind: replacementFinalization.kind,
     lookupKind: lookup.kind,
+    priorByMaterialRefKind: priorByMaterialRef?.kind,
     lookupManifestId: lookup.kind === 'active' ? lookup.manifest.identity.manifestId : null,
     openKind: opened.kind,
     openedStateBlobB64u: opened.kind === 'active' ? opened.readyStateBlobB64u : null,
@@ -712,6 +723,21 @@ test.describe('canonical ECDSA capability manifest store', () => {
           bindingDigest: fixture.prepareInput.activationBinding.bindingDigest,
           materialActivation,
         });
+        const lookupByMaterialRef = await store.lookupByMaterialRef({
+          kind: 'ecdsa_role_local_persisted_material_ref_v1',
+          durableMaterialRef: fixture.prepareInput.activationBinding.durableMaterialRef,
+          bindingDigest: fixture.prepareInput.activationBinding.bindingDigest,
+          materialActivation,
+        });
+        const activationMismatch = await store.lookupByMaterialRef({
+          kind: 'ecdsa_role_local_persisted_material_ref_v1',
+          durableMaterialRef: fixture.prepareInput.activationBinding.durableMaterialRef,
+          bindingDigest: fixture.prepareInput.activationBinding.bindingDigest,
+          materialActivation: {
+            ...materialActivation,
+            signingWorker: `${materialActivation.signingWorker}:mismatch`,
+          },
+        });
         const mismatchedMaterialRef = await store.openActiveMaterialByRef({
           kind: 'ecdsa_role_local_persisted_material_ref_v1',
           durableMaterialRef: fixture.prepareInput.activationBinding.durableMaterialRef,
@@ -743,6 +769,8 @@ test.describe('canonical ECDSA capability manifest store', () => {
           openKind: opened.kind,
           readyStateBlobB64u: opened.kind === 'active' ? opened.readyStateBlobB64u : null,
           openByMaterialRefKind: openedByMaterialRef.kind,
+          lookupByMaterialRefKind: lookupByMaterialRef.kind,
+          activationMismatchKind: activationMismatch.kind,
           materialRefStateBlobB64u:
             openedByMaterialRef.kind === 'active' ? openedByMaterialRef.readyStateBlobB64u : null,
           mismatchedMaterialRefKind: mismatchedMaterialRef.kind,
@@ -768,6 +796,8 @@ test.describe('canonical ECDSA capability manifest store', () => {
       openKind: 'active',
       readyStateBlobB64u: fixture.sealInput.readyStateBlobB64u,
       openByMaterialRefKind: 'active',
+      lookupByMaterialRefKind: 'active',
+      activationMismatchKind: 'exact_binding_mismatch',
       materialRefStateBlobB64u: fixture.sealInput.readyStateBlobB64u,
       mismatchedMaterialRefKind: 'binding_mismatch',
       legacyStorePresent: false,
@@ -870,6 +900,124 @@ test.describe('canonical ECDSA capability manifest store', () => {
             },
           });
         });
+
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          const request = indexedDB.open('seams_wallet');
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        const persistedMaterial = await new Promise<Record<string, unknown>>((resolve, reject) => {
+          const transaction = db.transaction('ecdsa_role_local_material', 'readonly');
+          const request = transaction
+            .objectStore('ecdsa_role_local_material')
+            .get(materialRef.durableMaterialRef);
+          request.onsuccess = () => resolve(request.result as Record<string, unknown>);
+          request.onerror = () => reject(request.error);
+        });
+        const sealingKeyId = String(persistedMaterial.sealing_key_id);
+        const persistedSealingKey = await new Promise<Record<string, unknown>>(
+          (resolve, reject) => {
+            const transaction = db.transaction('ecdsa_material_sealing_keys', 'readonly');
+            const request = transaction
+              .objectStore('ecdsa_material_sealing_keys')
+              .get(sealingKeyId);
+            request.onsuccess = () => resolve(request.result as Record<string, unknown>);
+            request.onerror = () => reject(request.error);
+          },
+        );
+        const unusableSealingKey = await crypto.subtle.generateKey(
+          { name: 'AES-GCM', length: 256 },
+          false,
+          ['encrypt', 'decrypt'],
+        );
+        await new Promise<void>((resolve, reject) => {
+          const transaction = db.transaction('ecdsa_material_sealing_keys', 'readwrite');
+          transaction.objectStore('ecdsa_material_sealing_keys').put({
+            ...persistedSealingKey,
+            key: unusableSealingKey,
+          });
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error);
+        });
+
+        const live = await new Promise<Record<string, unknown>>((resolve, reject) => {
+          const requestId = 'canonical-rehydrate-live';
+          const timeout = window.setTimeout(
+            () => reject(new Error('live worker RPC timeout')),
+            10_000,
+          );
+          firstWorker.addEventListener('message', (event) => {
+            const value = event.data as {
+              id?: unknown;
+              ok?: unknown;
+              error?: unknown;
+              result?: Record<string, unknown>;
+            };
+            if (value.id !== requestId) return;
+            window.clearTimeout(timeout);
+            if (value.ok !== true || !value.result) {
+              reject(new Error(String(value.error || 'live worker RPC failed')));
+              return;
+            }
+            resolve(value.result);
+          });
+          firstWorker.postMessage({
+            id: requestId,
+            type: 70_015,
+            payload: {
+              kind: 'rehydrate_ecdsa_role_local_signing_material_v1',
+              materialRef,
+            },
+          });
+        });
+        const mismatch = await new Promise<Record<string, unknown>>((resolve, reject) => {
+          const requestId = 'canonical-rehydrate-mismatch';
+          const timeout = window.setTimeout(
+            () => reject(new Error('mismatch worker RPC timeout')),
+            10_000,
+          );
+          firstWorker.addEventListener('message', (event) => {
+            const value = event.data as {
+              id?: unknown;
+              ok?: unknown;
+              error?: unknown;
+              result?: Record<string, unknown>;
+            };
+            if (value.id !== requestId) return;
+            window.clearTimeout(timeout);
+            if (value.ok !== true || !value.result) {
+              reject(new Error(String(value.error || 'mismatch worker RPC failed')));
+              return;
+            }
+            resolve(value.result);
+          });
+          firstWorker.postMessage({
+            id: requestId,
+            type: 70_015,
+            payload: {
+              kind: 'rehydrate_ecdsa_role_local_signing_material_v1',
+              materialRef: {
+                ...materialRef,
+                materialActivation: {
+                  ...materialRef.materialActivation,
+                  signingWorker: `${materialRef.materialActivation.signingWorker}:mismatch`,
+                },
+              },
+            },
+          });
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          const transaction = db.transaction('ecdsa_material_sealing_keys', 'readwrite');
+          transaction
+            .objectStore('ecdsa_material_sealing_keys')
+            .put(persistedSealingKey);
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error);
+        });
+        db.close();
         firstWorker.terminate();
 
         const secondWorker = new Worker(workerUrl, { type: 'module' });
@@ -920,7 +1068,7 @@ test.describe('canonical ECDSA capability manifest store', () => {
         });
         secondWorker.terminate();
 
-        return { firstReady, secondReady, first, second };
+        return { firstReady, secondReady, first, live, mismatch, second };
       },
       {
         storeModule: STORE_MODULE,
@@ -932,6 +1080,18 @@ test.describe('canonical ECDSA capability manifest store', () => {
     expect(result.firstReady).toBe(true);
     expect(result.secondReady).toBe(true);
     expect(result.first.type).toBe(70_115);
+    expect(result.live).toMatchObject({
+      type: result.first.type,
+      payload: result.first.payload,
+    });
+    expect(result.mismatch).toMatchObject({
+      type: 70_115,
+      payload: {
+        kind: 'ecdsa_role_local_signing_material_unavailable_v1',
+        ok: false,
+        reason: 'binding_mismatch',
+      },
+    });
     expect(result.second.type).toBe(70_115);
     expect(result.second.payload).toEqual(result.first.payload);
     expect(result.second.payload).toMatchObject({
@@ -957,6 +1117,7 @@ test.describe('canonical ECDSA capability manifest store', () => {
       priorFinalizationKind: 'committed',
       replacementFinalizationKind: 'committed',
       lookupKind: 'active',
+      priorByMaterialRefKind: 'retired',
       lookupManifestId:
         fixture.replacement.prepareInput.activationBinding.targetManifest.manifestId,
       openKind: 'active',
@@ -989,6 +1150,7 @@ test.describe('canonical ECDSA capability manifest store', () => {
       priorFinalizationKind: 'committed',
       replacementFinalizationKind: 'exact_record_conflict',
       lookupKind: 'active',
+      priorByMaterialRefKind: 'active',
       lookupManifestId: fixture.prior.prepareInput.activationBinding.targetManifest.manifestId,
       openKind: 'active',
       openedStateBlobB64u: fixture.prior.sealInput.readyStateBlobB64u,

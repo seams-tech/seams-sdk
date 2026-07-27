@@ -8,6 +8,7 @@ import {
   type IsoTimestamp,
 } from '@shared/utils/canonicalPrimitives';
 import {
+  mpcMaterialActivationRefsEqual,
   parseCapabilityInstanceRef,
   parseMpcMaterialActivationId,
   parseMpcMaterialActivationRef,
@@ -255,6 +256,26 @@ export type EcdsaActiveMaterialRefOpenResult =
       readonly manifest?: never;
       readonly readyStateBlobB64u?: never;
     };
+
+type EcdsaCapabilityMaterialRefLookupFailure =
+  | {
+      readonly kind: 'missing';
+      readonly subject: 'capability' | 'material';
+      readonly capability: CapabilityInstanceRef;
+    }
+  | {
+      readonly kind:
+        | 'exact_binding_mismatch'
+        | 'exact_record_conflict'
+        | 'corrupt'
+        | 'persistence_unavailable';
+      readonly capability: CapabilityInstanceRef;
+      readonly subject?: never;
+    };
+
+export type EcdsaCapabilityMaterialRefLookup =
+  | Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'active' | 'retired' }>
+  | EcdsaCapabilityMaterialRefLookupFailure;
 
 export type EcdsaCapabilityActivationFinalizationResult =
   | {
@@ -1917,6 +1938,133 @@ export class IndexedDbEcdsaCapabilityManifestStore {
     const selector = normalizeSelector(selectorInput);
     const lookup = await this.lookup(selector);
     if (lookup.kind !== 'active') return lookup;
+    return await this.openActiveMaterialLookup(lookup);
+  }
+
+  async lookupByMaterialRef(
+    materialRefInput: EcdsaRoleLocalPersistedMaterialRef,
+  ): Promise<EcdsaCapabilityMaterialRefLookup> {
+    const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(materialRefInput);
+    const capability = materialRef.materialActivation.capability;
+    let raw: unknown;
+    try {
+      raw = await this.manager.runTransaction(
+        [MATERIAL_STORE],
+        'readonly',
+        async (context) => await context.store(MATERIAL_STORE).get(materialRef.durableMaterialRef),
+      );
+    } catch {
+      return { kind: 'persistence_unavailable', capability };
+    }
+    if (raw === undefined) return await this.lookupMissingMaterialByRef(materialRef);
+    let locator: ParsedMaterialLocator;
+    try {
+      locator = parseMaterialLocator(raw);
+    } catch {
+      return { kind: 'corrupt', capability };
+    }
+    if (
+      locator.durableMaterialRef !== materialRef.durableMaterialRef ||
+      locator.bindingDigest !== materialRef.bindingDigest ||
+      locator.selector.capability !== capability
+    ) {
+      return { kind: 'exact_binding_mismatch', capability };
+    }
+    const lookup = await this.lookup(locator.selector);
+    switch (lookup.kind) {
+      case 'active':
+        if (
+          lookup.manifest.durableMaterial.durableMaterialRef !==
+            materialRef.durableMaterialRef ||
+          lookup.manifest.durableMaterial.bindingDigest !== materialRef.bindingDigest ||
+          !mpcMaterialActivationRefsEqual(
+            lookup.manifest.activation.materialActivation,
+            materialRef.materialActivation,
+          ) ||
+          !mpcMaterialActivationRefsEqual(
+            lookup.manifest.durableMaterial.materialActivation,
+            materialRef.materialActivation,
+          ) ||
+          !mpcMaterialActivationRefsEqual(
+            lookup.material.binding.materialActivation,
+            materialRef.materialActivation,
+          )
+        ) {
+          return { kind: 'exact_binding_mismatch', capability };
+        }
+        return lookup;
+      case 'retired':
+        return lookup;
+      case 'missing':
+        return {
+          kind: 'missing',
+          subject: lookup.subject,
+          capability,
+        };
+      case 'exact_binding_mismatch':
+      case 'exact_record_conflict':
+      case 'corrupt':
+      case 'persistence_unavailable':
+        return { kind: lookup.kind, capability };
+    }
+    return assertNever(lookup);
+  }
+
+  private async lookupMissingMaterialByRef(
+    materialRef: EcdsaRoleLocalPersistedMaterialRef,
+  ): Promise<EcdsaCapabilityMaterialRefLookup> {
+    const capability = materialRef.materialActivation.capability;
+    let rows: unknown[];
+    try {
+      rows = await this.manager.runTransaction(
+        [MANIFEST_STORE],
+        'readonly',
+        async (context) => await context.store(MANIFEST_STORE).getAll(),
+      );
+    } catch {
+      return { kind: 'persistence_unavailable', capability };
+    }
+    const exact: ParsedManifestRow[] = [];
+    let bindingMismatch = false;
+    for (const raw of rows) {
+      let parsed: ParsedManifestRow;
+      try {
+        parsed = parseManifestRow(raw);
+      } catch {
+        return { kind: 'corrupt', capability };
+      }
+      const durableMaterial = parsed.activeProof.durableMaterial;
+      if (durableMaterial.durableMaterialRef !== materialRef.durableMaterialRef) continue;
+      if (
+        parsed.selector.capability !== capability ||
+        durableMaterial.bindingDigest !== materialRef.bindingDigest ||
+        !mpcMaterialActivationRefsEqual(
+          durableMaterial.materialActivation,
+          materialRef.materialActivation,
+        )
+      ) {
+        bindingMismatch = true;
+        continue;
+      }
+      exact.push(parsed);
+    }
+    if (exact.length > 1) return { kind: 'exact_record_conflict', capability };
+    const [matched] = exact;
+    if (!matched) {
+      return bindingMismatch
+        ? { kind: 'exact_binding_mismatch', capability }
+        : { kind: 'missing', subject: 'material', capability };
+    }
+    if (matched.state === 'replaced') {
+      return { kind: 'retired', manifest: matched.manifest };
+    }
+    return { kind: 'missing', subject: 'material', capability };
+  }
+
+  async openActiveMaterialLookup(
+    lookup: Extract<EcdsaCapabilityMaterialRefLookup, { readonly kind: 'active' }>,
+  ): Promise<EcdsaActiveMaterialOpenResult> {
+    const selector = selectorFromManifest(lookup.manifest);
     try {
       if (
         (await ciphertextDigestB64u(lookup.material.ciphertextB64u)) !==
@@ -1952,45 +2100,31 @@ export class IndexedDbEcdsaCapabilityManifestStore {
   async openActiveMaterialByRef(
     materialRefInput: EcdsaRoleLocalPersistedMaterialRef,
   ): Promise<EcdsaActiveMaterialRefOpenResult> {
-    let materialRef: EcdsaRoleLocalPersistedMaterialRef;
+    let lookup: EcdsaCapabilityMaterialRefLookup;
     try {
-      materialRef = parseEcdsaRoleLocalPersistedMaterialRef(materialRefInput);
+      lookup = await this.lookupByMaterialRef(materialRefInput);
     } catch {
       return { kind: 'corrupt' };
     }
-    let raw: unknown;
-    try {
-      raw = await this.manager.runTransaction(
-        [MATERIAL_STORE],
-        'readonly',
-        async (context) => await context.store(MATERIAL_STORE).get(materialRef.durableMaterialRef),
-      );
-    } catch {
-      return { kind: 'persistence_unavailable' };
-    }
-    if (raw === undefined) return { kind: 'missing' };
-    let locator: ParsedMaterialLocator;
-    try {
-      locator = parseMaterialLocator(raw);
-    } catch {
-      return { kind: 'corrupt' };
-    }
-    if (
-      locator.durableMaterialRef !== materialRef.durableMaterialRef ||
-      locator.bindingDigest !== materialRef.bindingDigest
-    ) {
-      return { kind: 'binding_mismatch' };
-    }
-    const opened = await this.openActiveMaterial(locator.selector);
-    switch (opened.kind) {
-      case 'active':
-        if (
-          opened.manifest.durableMaterial.durableMaterialRef !== materialRef.durableMaterialRef ||
-          opened.manifest.durableMaterial.bindingDigest !== materialRef.bindingDigest
-        ) {
-          return { kind: 'binding_mismatch' };
+    switch (lookup.kind) {
+      case 'active': {
+        const opened = await this.openActiveMaterialLookup(lookup);
+        switch (opened.kind) {
+          case 'active':
+            return opened;
+          case 'missing':
+          case 'retired':
+            return { kind: 'missing' };
+          case 'exact_binding_mismatch':
+            return { kind: 'binding_mismatch' };
+          case 'exact_record_conflict':
+          case 'corrupt':
+            return { kind: 'corrupt' };
+          case 'persistence_unavailable':
+            return { kind: 'persistence_unavailable' };
         }
-        return opened;
+        return assertNever(opened);
+      }
       case 'missing':
       case 'retired':
         return { kind: 'missing' };
@@ -2002,7 +2136,7 @@ export class IndexedDbEcdsaCapabilityManifestStore {
       case 'persistence_unavailable':
         return { kind: 'persistence_unavailable' };
     }
-    return assertNever(opened);
+    return assertNever(lookup);
   }
 
   async sealAndFinalizeActivation(
