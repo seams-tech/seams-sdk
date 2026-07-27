@@ -11,6 +11,7 @@ import {
   type EcdsaDerivationClientCustomRequest,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import { parseSigningGrantId, parseThresholdEcdsaSessionId } from '@shared/utils/domainIds';
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
 import type {
@@ -86,7 +87,8 @@ async function activationWorkerRequest(
     type: EcdsaDerivationClientCustomResponseType.RehydrateEcdsaRoleLocalSigningMaterialSuccess,
     payload: {
       kind: 'ecdsa_role_local_signing_material_rehydrated_v1',
-      roleLocalMaterial,
+      ok: true,
+      liveHandle: roleLocalMaterial,
     },
   } as never;
 }
@@ -142,8 +144,10 @@ test('existing-account activation rehydrates registered material without recover
       routeAuth: { kind: 'app_session', jwt: appSessionJwt() },
       workerCtx,
       publicCapability,
-      roleLocalMaterial,
-      roleLocalPublicFacts: publicFacts,
+      persistedRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
+        durableMaterialRef: roleLocalMaterial.durableMaterialRef,
+        publicFacts,
+      }),
       walletId: String(publicFacts.walletId),
       thresholdSessionId,
       signingGrantId,
