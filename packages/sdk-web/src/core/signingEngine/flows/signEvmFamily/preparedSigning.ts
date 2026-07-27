@@ -94,7 +94,10 @@ import {
   requirePersistedEcdsaRoleLocalMaterial,
   thresholdEcdsaLaneCandidateFromSessionRecord,
 } from '../../session/persistence/records';
-import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '../../session/routerAbSigningWalletSession';
+import {
+  markResolvedEcdsaRoleLocalMaterialRuntimeValidated,
+  requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord,
+} from '../../session/routerAbSigningWalletSession';
 import {
   resolveEvmFamilyEcdsaPlannerReadiness,
   resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth,
@@ -621,11 +624,20 @@ async function resolveRestoredPasskeyEcdsaMaterial(args: {
     return { kind: 'fresh_auth_required', laneCandidate };
   }
   const persistedMaterial = requirePersistedEcdsaRoleLocalMaterial(record);
-  await hydrateEcdsaRoleLocalMaterialForSigning({
+  const resolvedMaterial = await hydrateEcdsaRoleLocalMaterialForSigning({
     materialRef: persistedMaterial.materialRef,
     workerCtx: args.deps.getSignerWorkerContext(),
   });
-  if (!markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)) {
+  const signingWalletSession = requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord(record);
+  if (
+    !markResolvedEcdsaRoleLocalMaterialRuntimeValidated({
+      material: resolvedMaterial,
+      session: signingWalletSession,
+      keyHandle: record.keyHandle,
+      chainTarget: record.chainTarget,
+      participantIds: record.participantIds,
+    })
+  ) {
     throw new Error(
       '[SigningEngine][ecdsa] hydrated material could not be bound to its Wallet Session',
     );

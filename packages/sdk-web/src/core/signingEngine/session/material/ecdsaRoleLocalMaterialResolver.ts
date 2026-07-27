@@ -52,13 +52,12 @@ type EcdsaRoleLocalMaterialResolved = {
   readonly message?: never;
 };
 
+export type ResolvedEcdsaRoleLocalSigningMaterial = EcdsaRoleLocalMaterialResolved & {
+  readonly kind: 'live' | 'rehydrated';
+};
+
 export type EcdsaRoleLocalMaterialResolution =
-  | (EcdsaRoleLocalMaterialResolved & {
-      readonly kind: 'live';
-    })
-  | (EcdsaRoleLocalMaterialResolved & {
-      readonly kind: 'rehydrated';
-    })
+  | ResolvedEcdsaRoleLocalSigningMaterial
   | {
       readonly kind: 'device_link_required';
       readonly purpose: EcdsaRoleLocalMaterialResolutionPurpose;
