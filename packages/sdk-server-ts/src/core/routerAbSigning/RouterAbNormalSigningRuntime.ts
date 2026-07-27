@@ -7,6 +7,7 @@ import {
   type NearEd25519SigningKeyId,
 } from '@shared/utils/registrationIntent';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import { assertEvmFamilySigningKeySlotIdMatchesPlan } from '@shared/signing-lanes';
 import {
   MAX_WALLET_SESSION_REMAINING_USES,
   MAX_WALLET_SESSION_TTL_MS,
@@ -21,6 +22,7 @@ import {
 import type {
   Ed25519WalletSessionStore,
   Ed25519WalletSessionRecord,
+  EcdsaNormalSigningSessionProvisioner,
   EcdsaWalletSessionRecord,
   EcdsaWalletSessionStore,
   WalletSigningBudgetEcdsaBinding,
@@ -688,17 +690,20 @@ export class RouterAbNormalSigningRuntime {
   private readonly walletSessionStore: Ed25519WalletSessionStore;
   private readonly ecdsaWalletSessionStore: EcdsaWalletSessionStore;
   private readonly walletBudgetSessionStore: WalletSigningBudgetSessionStore;
+  private readonly ecdsaNormalSigningProvisioner: EcdsaNormalSigningSessionProvisioner | null;
   private readonly config: RouterAbNormalSigningRuntimeConfig;
 
   constructor(input: {
     readonly walletSessionStore: Ed25519WalletSessionStore;
     readonly ecdsaWalletSessionStore: EcdsaWalletSessionStore;
     readonly walletBudgetSessionStore: WalletSigningBudgetSessionStore;
+    readonly ecdsaNormalSigningProvisioner?: EcdsaNormalSigningSessionProvisioner;
     readonly config: RouterAbNormalSigningRuntimeConfig;
   }) {
     this.walletSessionStore = input.walletSessionStore;
     this.ecdsaWalletSessionStore = input.ecdsaWalletSessionStore;
     this.walletBudgetSessionStore = input.walletBudgetSessionStore;
+    this.ecdsaNormalSigningProvisioner = input.ecdsaNormalSigningProvisioner || null;
     this.config = input.config;
   }
 
@@ -880,7 +885,6 @@ export class RouterAbNormalSigningRuntime {
     input: RouterAbEcdsaNormalSigningSessionProvisionInput,
   ): Promise<RouterAbEcdsaNormalSigningSessionProvisionResult> {
     const walletId = parseWalletId(input.walletId);
-    const evmFamilySigningKeySlotId = toOptionalTrimmedString(input.evmFamilySigningKeySlotId);
     const relayerKeyId = toOptionalTrimmedString(input.relayerKeyId);
     const thresholdSessionId = toOptionalTrimmedString(input.thresholdSessionId);
     const signingGrantId = toOptionalTrimmedString(input.signingGrantId);
@@ -889,6 +893,21 @@ export class RouterAbNormalSigningRuntime {
     const expiresAtMs = Number(input.expiresAtMs);
     const remainingUses = Math.floor(Number(input.remainingUses));
     const participantIds = normalizeExactEcdsaParticipantIds(input.participantIds);
+    let evmFamilySigningKeySlotId: string;
+    try {
+      evmFamilySigningKeySlotId = assertEvmFamilySigningKeySlotIdMatchesPlan({
+        evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+        walletId: input.walletId,
+        signingRootId: input.signingRootId,
+        signingRootVersion: input.signingRootVersion,
+      });
+    } catch {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'ECDSA signing key slot does not match its wallet and signing-root epoch',
+      };
+    }
     if (
       input.kind !== 'router_ab_ecdsa_normal_signing_session_v1' ||
       !walletId.ok ||
@@ -917,6 +936,23 @@ export class RouterAbNormalSigningRuntime {
       evmFamilySigningKeySlotId,
       participantIds,
     };
+    if (this.ecdsaNormalSigningProvisioner) {
+      const provisioned = await this.ecdsaNormalSigningProvisioner.provisionSessionWithBudget({
+        thresholdSessionId,
+        signingGrantId,
+        session: requestedSession,
+        remainingUses,
+      });
+      if (!provisioned.ok) return provisioned;
+      return {
+        ok: true,
+        thresholdSessionId,
+        signingGrantId,
+        expiresAtMs: provisioned.expiresAtMs,
+        remainingUses: provisioned.remainingUses,
+        participantIds,
+      };
+    }
     const existingSession = await this.ecdsaWalletSessionStore.getSession(thresholdSessionId);
     if (
       existingSession &&
@@ -1523,9 +1559,7 @@ export class RouterAbNormalSigningRuntime {
     if (!budgetSessionId) {
       return { ok: false, code: 'invalid_budget_request', message: 'signingGrantId is required' };
     }
-    let budgetLookup: Awaited<
-      ReturnType<WalletSigningBudgetSessionStore['getSessionStatus']>
-    >;
+    let budgetLookup: Awaited<ReturnType<WalletSigningBudgetSessionStore['getSessionStatus']>>;
     try {
       budgetLookup = await this.walletBudgetSessionStore.getSessionStatus(budgetSessionId);
     } catch {

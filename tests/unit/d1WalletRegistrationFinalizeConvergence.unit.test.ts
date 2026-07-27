@@ -18,6 +18,19 @@ const RESPONSE_LOSS_FAULTS: readonly FinalizeConvergenceFault[] = [
   'finalize_completion_response_loss',
 ];
 
+test('wallet registration binds Yao consumption to the bounded finalize fingerprint', async () => {
+  const harness = await createFinalizeConvergenceHarness();
+  try {
+    const response = await harness.service.walletRegistration.finalizeWalletRegistration(
+      harness.request,
+    );
+    expect(response.ok, response.ok ? undefined : response.message).toBe(true);
+    expect(harness.activationConsumerBinding()).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
 for (const fault of RESPONSE_LOSS_FAULTS) {
   test(`wallet registration finalize converges after ${fault}`, async () => {
     const harness = await createFinalizeConvergenceHarness();

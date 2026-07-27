@@ -285,22 +285,18 @@ Canonical Ed25519 Yao local commands:
 
 ```text
 pnpm router:yao-smoke
-pnpm router:yao-smoke:one-account
-pnpm router:yao-smoke:two-administrator
 pnpm validate:yaos-ab-local
 pnpm router:yao-measure-local
 ```
 
-- `router:yao-smoke` runs the complete lifecycle in both fixed local profiles
-  and cleans up every spawned process.
-- The profile-specific commands run the identical protocol with either one
-  shared development state root or separate A/B/SigningWorker roots and
-  working directories.
+- `router:yao-smoke` runs registration through the product Router, Deriver A,
+  Deriver B, and SigningWorker topology and cleans up every spawned process.
 - `validate:yaos-ab-local` runs the canonical KDF, adapter, process lifecycle,
   fault matrix, source boundaries, and optimized host/Worker-WASM
   constant-time code-generation checks.
-- `router:yao-measure-local` collects release-mode local p50/p95/p99 latency
-  and exact directional A/B bytes. Its report is local nonproduction evidence.
+- `router:yao-measure-local` collects release-mode product-topology
+  registration p50/p95/p99 latency. Its report is local nonproduction
+  evidence.
 
 The broader SDK Router development harness also exposes:
 

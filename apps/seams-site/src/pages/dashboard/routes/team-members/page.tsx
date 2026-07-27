@@ -1,5 +1,4 @@
 import React from 'react';
-import { formatDashboardTimestamp } from '../../utils/timestamps';
 import {
   DashboardTable,
   DashboardTableActionButton,
@@ -15,789 +14,548 @@ import {
   useDashboardTablePagination,
 } from '../../components/DashboardTable';
 import { DashboardInlineModal } from '../../components/DashboardInlineModal';
+import { listDashboardProjects, type DashboardConsoleProject } from '../../consoleContextApi';
+import { useDashboardConsoleSession } from '../../consoleSession';
+import { formatDashboardTimestamp } from '../../utils/timestamps';
 import {
-  useDashboardConsoleSession,
-  type DashboardConsoleSessionClaims,
-} from '../../consoleSession';
-import {
-  buildDashboardIdentityProfile as buildMemberProfile,
-  isConsoleLocalEmail,
-  resolveDashboardIdentityDisplayName as resolveMemberDisplayName,
-  resolveDashboardIdentityEmail as resolveMemberEmail,
-} from '../../utils/userIdentity';
-import {
-  inviteDashboardTeamMember,
-  listDashboardTeamMembers,
-  removeDashboardTeamMember,
-  updateDashboardTeamMemberRoles,
-  type DashboardConsoleTeamMember,
-  type DashboardConsoleTeamMembershipStatus,
-  type DashboardConsoleTeamPermissionCategory,
-  type DashboardConsoleTeamRole,
-  type DashboardConsoleTeamRoleAssignment,
+  changeDashboardOrganizationMembershipRole,
+  DASHBOARD_ORGANIZATION_ADMIN_PERMISSIONS,
+  inviteDashboardOrganizationMember,
+  listDashboardOrganizationInvitations,
+  listDashboardOrganizationMemberships,
+  reactivateDashboardOrganizationMembership,
+  removeDashboardProjectMemberAccess,
+  removeDashboardOrganizationMembership,
+  resendDashboardOrganizationInvitation,
+  revokeDashboardOrganizationInvitation,
+  setDashboardOrganizationAdminPermissions,
+  setDashboardProjectMemberAccess,
+  suspendDashboardOrganizationMembership,
+  type DashboardOrganizationAdminPermission,
+  type DashboardOrganizationGrant,
+  type DashboardOrganizationInvitation,
+  type DashboardOrganizationMembership,
+  type DashboardOrganizationRole,
+  type DashboardProjectAccessAssignment,
+  type DashboardProjectAccessLevel,
 } from './consoleTeamRbacApi';
 
-type TeamMemberListStatusFilter = DashboardConsoleTeamMembershipStatus | 'ALL';
-type TeamMemberPermissionFilter =
-  | 'ALL'
-  | 'OWNER'
-  | 'ADMIN'
-  | 'MANAGE_ADMINS'
-  | 'MANAGE_MEMBERS'
-  | DashboardConsoleTeamPermissionCategory;
-type TeamPermissionAccessLevel = 'NONE' | 'READ' | 'WRITE';
-type TeamCategoryAccessMap = Record<
-  DashboardConsoleTeamPermissionCategory,
-  TeamPermissionAccessLevel
->;
+const MEMBERSHIP_COLUMNS = dashboardTableColumns(1.4, 0.65, 1.25, 0.8, 1.1);
+const INVITATION_COLUMNS = dashboardTableColumns(1.4, 0.7, 1.2, 0.9, 1.1);
 
-interface TeamPermissionEditorState {
-  isAdmin: boolean;
-  canManageAdmins: boolean;
-  canManageMembers: boolean;
-  categoryAccess: TeamCategoryAccessMap;
-}
-
-interface TeamPermissionCategoryConfig {
-  category: DashboardConsoleTeamPermissionCategory;
-  label: string;
-  readRole: DashboardConsoleTeamRole;
-  writeRole: DashboardConsoleTeamRole;
-}
-
-interface TeamPermissionFilterOption {
-  value: TeamMemberPermissionFilter;
-  label: string;
-}
-
-interface TeamPermissionEditorProps extends TeamPermissionEditorState {
+interface GrantEditorProps {
+  grant: DashboardOrganizationGrant;
+  projects: DashboardConsoleProject[];
+  allowPrivilegedRoles: boolean;
   disabled: boolean;
-  ownerRolePresent: boolean;
-  onIsAdminChange(next: boolean): void;
-  onCanManageAdminsChange(next: boolean): void;
-  onCanManageMembersChange(next: boolean): void;
-  onCategoryAccessChange(
-    category: DashboardConsoleTeamPermissionCategory,
-    level: TeamPermissionAccessLevel,
-  ): void;
+  onChange(grant: DashboardOrganizationGrant): void;
 }
 
-const TEAM_PERMISSION_CATEGORIES: TeamPermissionCategoryConfig[] = [
-  {
-    category: 'overview',
-    label: 'Overview',
-    readRole: 'overview_read',
-    writeRole: 'overview_write',
-  },
-  {
-    category: 'administration',
-    label: 'Administration',
-    readRole: 'administration_read',
-    writeRole: 'administration_write',
-  },
-  {
-    category: 'wallet_operations',
-    label: 'Wallet operations',
-    readRole: 'wallet_operations_read',
-    writeRole: 'wallet_operations_write',
-  },
-  {
-    category: 'billing',
-    label: 'Billing',
-    readRole: 'billing_read',
-    writeRole: 'billing_write',
-  },
-  {
-    category: 'integrations',
-    label: 'Integrations',
-    readRole: 'integrations_read',
-    writeRole: 'integrations_write',
-  },
-];
-
-const DEFAULT_CATEGORY_ACCESS: TeamCategoryAccessMap = {
-  overview: 'READ',
-  administration: 'NONE',
-  wallet_operations: 'READ',
-  integrations: 'NONE',
-  billing: 'NONE',
-};
-const TEAM_PERMISSION_FILTER_OPTIONS: TeamPermissionFilterOption[] = [
-  { value: 'ALL', label: 'Permission: All' },
-  { value: 'OWNER', label: 'Permission: Owner' },
-  { value: 'ADMIN', label: 'Permission: Admin' },
-  { value: 'MANAGE_ADMINS', label: 'Permission: Manage admins' },
-  { value: 'MANAGE_MEMBERS', label: 'Permission: Manage team members' },
-  ...TEAM_PERMISSION_CATEGORIES.map((category) => ({
-    value: category.category,
-    label: `Permission: ${category.label}`,
-  })),
-];
-const TEAM_MEMBERS_TABLE_COLUMNS = dashboardTableColumns(1.35, 0.8, 1.5, 0.85, 1.2);
-
-function makeDefaultCategoryAccess(): TeamCategoryAccessMap {
-  return { ...DEFAULT_CATEGORY_ACCESS };
+function defaultGrant(): DashboardOrganizationGrant {
+  return { role: 'MEMBER', projectAccess: [] };
 }
 
-function makeDefaultPermissionEditorState(): TeamPermissionEditorState {
-  return {
-    isAdmin: false,
-    canManageAdmins: false,
-    canManageMembers: false,
-    categoryAccess: makeDefaultCategoryAccess(),
-  };
-}
-
-function formatTimestamp(value: string): string {
-  return formatDashboardTimestamp(value, '-');
-}
-
-function roleSetFromAssignments(
-  input: DashboardConsoleTeamRoleAssignment[],
-): Set<DashboardConsoleTeamRole> {
-  const out = new Set<DashboardConsoleTeamRole>();
-  for (const entry of input) {
-    out.add(entry.role);
-  }
-  return out;
-}
-
-function resolvePermissionEditorState(
-  input: DashboardConsoleTeamRoleAssignment[],
-): TeamPermissionEditorState {
-  const roles = roleSetFromAssignments(input);
-  const ownerRolePresent = roles.has('owner');
-  const categoryAccess = makeDefaultCategoryAccess();
-  for (const category of TEAM_PERMISSION_CATEGORIES) {
-    if (roles.has(category.writeRole)) {
-      categoryAccess[category.category] = 'WRITE';
-      continue;
-    }
-    if (roles.has(category.readRole)) {
-      categoryAccess[category.category] = 'READ';
-      continue;
-    }
-    categoryAccess[category.category] = 'NONE';
-  }
-  return {
-    isAdmin: ownerRolePresent || roles.has('admin'),
-    canManageAdmins: ownerRolePresent || roles.has('admin_manage_admins'),
-    canManageMembers: ownerRolePresent || roles.has('admin_manage_members'),
-    categoryAccess,
-  };
-}
-
-function buildRoleAssignments(input: {
-  permissions: TeamPermissionEditorState;
-  preserveOwnerRole: boolean;
-}): DashboardConsoleTeamRoleAssignment[] {
-  const out = new Map<string, DashboardConsoleTeamRoleAssignment>();
-  const addRole = (role: DashboardConsoleTeamRole): void => {
-    out.set(role, { role, scope: 'ORG' });
-  };
-
-  const normalizedIsAdmin =
-    input.permissions.isAdmin ||
-    input.permissions.canManageAdmins ||
-    input.permissions.canManageMembers;
-
-  if (input.preserveOwnerRole) addRole('owner');
-  if (normalizedIsAdmin) addRole('admin');
-  if (input.permissions.canManageAdmins) addRole('admin_manage_admins');
-  if (input.permissions.canManageMembers) addRole('admin_manage_members');
-
-  for (const category of TEAM_PERMISSION_CATEGORIES) {
-    const level = input.permissions.categoryAccess[category.category];
-    if (level === 'WRITE') {
-      addRole(category.writeRole);
-      continue;
-    }
-    if (level === 'READ') {
-      addRole(category.readRole);
-    }
-  }
-
-  return Array.from(out.values()).sort((a, b) => a.role.localeCompare(b.role));
-}
-
-function formatPermissionSummary(input: DashboardConsoleTeamRoleAssignment[]): string {
-  const state = resolvePermissionEditorState(input);
-  const roleSet = roleSetFromAssignments(input);
-  const parts: string[] = [];
-  if (roleSet.has('owner')) parts.push('Owner');
-  if (state.isAdmin) parts.push('Admin');
-  if (state.canManageAdmins) parts.push('Manage admins');
-  if (state.canManageMembers) parts.push('Manage team members');
-
-  const categoryEntries = TEAM_PERMISSION_CATEGORIES.map((category) => {
-    const level = state.categoryAccess[category.category];
-    if (level === 'NONE') return '';
-    return `${category.label}:${level.toLowerCase()}`;
-  }).filter(Boolean);
-  if (categoryEntries.length > 0) {
-    parts.push(categoryEntries.join(' | '));
-  }
-
-  if (parts.length === 0) return 'No permissions';
-  return parts.join(' | ');
-}
-
-/* Compact permissions display: highest role as a chip plus a "+N more" count,
-   with the full summary available as a tooltip. */
-function summarizePermissionParts(input: DashboardConsoleTeamRoleAssignment[]): {
-  primary: string;
-  extraCount: number;
-} {
-  const state = resolvePermissionEditorState(input);
-  const roleSet = roleSetFromAssignments(input);
-  const parts: string[] = [];
-  if (roleSet.has('owner')) parts.push('Owner');
-  if (state.isAdmin) parts.push('Admin');
-  if (state.canManageAdmins) parts.push('Manage admins');
-  if (state.canManageMembers) parts.push('Manage team members');
-  for (const category of TEAM_PERMISSION_CATEGORIES) {
-    const level = state.categoryAccess[category.category];
-    if (level !== 'NONE') parts.push(`${category.label}: ${level.toLowerCase()}`);
-  }
-  if (parts.length === 0) return { primary: 'No permissions', extraCount: 0 };
-  return { primary: parts[0], extraCount: parts.length - 1 };
-}
-
-function canMutateTeamFromRoles(rolesRaw: unknown): boolean {
-  if (!Array.isArray(rolesRaw)) return false;
-  return rolesRaw.some((entry) => {
-    const role = String(entry || '')
-      .trim()
-      .toLowerCase();
-    return role === 'owner' || role === 'admin';
-  });
-}
-
-function matchesMemberQuery(
-  member: DashboardConsoleTeamMember,
-  queryRaw: string,
-  sessionClaims?: DashboardConsoleSessionClaims | null,
-): boolean {
-  const query = String(queryRaw || '')
-    .trim()
-    .toLowerCase();
-  if (!query) return true;
-  const primaryIdentity = formatMemberPrimaryIdentity(member, sessionClaims);
-  return [
-    resolveMemberDisplayName(member, sessionClaims),
-    resolveMemberEmail(member, sessionClaims),
-    member.userId,
-    primaryIdentity,
-    member.status,
-    member.invitedByUserId,
-    formatPermissionSummary(member.roles),
-  ].some((value) =>
-    String(value || '')
-      .toLowerCase()
-      .includes(query),
-  );
-}
-
-function matchesMemberPermissionFilter(
-  member: DashboardConsoleTeamMember,
-  filter: TeamMemberPermissionFilter,
-): boolean {
-  if (filter === 'ALL') return true;
-  const state = resolvePermissionEditorState(member.roles);
-  const roles = roleSetFromAssignments(member.roles);
-  switch (filter) {
+function grantFromMembership(
+  membership: DashboardOrganizationMembership,
+): DashboardOrganizationGrant {
+  switch (membership.role) {
     case 'OWNER':
-      return roles.has('owner');
+      return { role: membership.role };
     case 'ADMIN':
-      return state.isAdmin;
-    case 'MANAGE_ADMINS':
-      return state.canManageAdmins;
-    case 'MANAGE_MEMBERS':
-      return state.canManageMembers;
-    default:
-      return state.categoryAccess[filter] !== 'NONE';
+      return {
+        role: membership.role,
+        adminPermissions: [...membership.adminPermissions],
+      };
+    case 'MEMBER':
+      return {
+        role: membership.role,
+        projectAccess: membership.projectAccess.map((assignment) => ({ ...assignment })),
+      };
   }
 }
 
-function formatMemberPrimaryIdentity(
-  member: DashboardConsoleTeamMember,
-  sessionClaims?: DashboardConsoleSessionClaims | null,
-): string {
-  const userId = String(member.userId || '').trim();
-  const email = resolveMemberEmail(member, sessionClaims);
-  if (!email) return userId || '-';
-  if (!userId) return email;
-  const normalizedUserId = userId.toLowerCase();
-  const normalizedEmail = email.toLowerCase();
-  if (
-    normalizedEmail === normalizedUserId ||
-    normalizedEmail === `${normalizedUserId}@console.local` ||
-    normalizedEmail.endsWith('@console.local')
-  ) {
-    return userId;
+function grantForRole(role: DashboardOrganizationRole): DashboardOrganizationGrant {
+  switch (role) {
+    case 'OWNER':
+      return { role };
+    case 'ADMIN':
+      return { role, adminPermissions: [] };
+    case 'MEMBER':
+      return { role, projectAccess: [] };
   }
-  return email;
 }
 
-function generateInviteUserId(emailRaw: string): string {
-  const email = String(emailRaw || '')
-    .trim()
-    .toLowerCase();
-  const localPart = email.includes('@') ? email.slice(0, email.indexOf('@')) : email;
-  const normalized = localPart.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  if (!normalized) return 'user_member';
-  return normalized.startsWith('user_') ? normalized : `user_${normalized}`;
+function toggleAdminPermission(
+  grant: Extract<DashboardOrganizationGrant, { role: 'ADMIN' }>,
+  permission: DashboardOrganizationAdminPermission,
+  checked: boolean,
+): DashboardOrganizationGrant {
+  const permissions = new Set(grant.adminPermissions);
+  if (checked) permissions.add(permission);
+  else permissions.delete(permission);
+  if (permissions.has('billing.manage')) permissions.add('billing.view');
+  if (permission === 'billing.view' && !checked) permissions.delete('billing.manage');
+  return {
+    role: grant.role,
+    adminPermissions: DASHBOARD_ORGANIZATION_ADMIN_PERMISSIONS.filter((entry) =>
+      permissions.has(entry),
+    ),
+  };
 }
 
-function TeamPermissionEditor(props: TeamPermissionEditorProps): React.JSX.Element {
+function updateProjectAccess(
+  grant: Extract<DashboardOrganizationGrant, { role: 'MEMBER' }>,
+  projectId: string,
+  accessLevel: DashboardProjectAccessLevel | 'none',
+): DashboardOrganizationGrant {
+  const assignments = new Map<string, DashboardProjectAccessAssignment>();
+  for (const assignment of grant.projectAccess) {
+    assignments.set(assignment.projectId, assignment);
+  }
+  if (accessLevel === 'none') assignments.delete(projectId);
+  else assignments.set(projectId, { projectId, accessLevel });
+  return {
+    role: grant.role,
+    projectAccess: Array.from(assignments.values()).sort((left, right) =>
+      left.projectId.localeCompare(right.projectId),
+    ),
+  };
+}
+
+function projectAccessLevel(
+  assignments: DashboardProjectAccessAssignment[],
+  projectId: string,
+): DashboardProjectAccessLevel | 'none' {
+  return assignments.find((assignment) => assignment.projectId === projectId)?.accessLevel ?? 'none';
+}
+
+function permissionLabel(permission: DashboardOrganizationAdminPermission): string {
+  switch (permission) {
+    case 'members.manage':
+      return 'Manage members';
+    case 'projects.manage':
+      return 'Manage projects';
+    case 'billing.view':
+      return 'View billing';
+    case 'billing.manage':
+      return 'Manage billing';
+  }
+}
+
+function roleSummary(membership: DashboardOrganizationMembership): string {
+  if (membership.role === 'OWNER') return 'Full organization access';
+  if (membership.role === 'ADMIN') {
+    if (membership.adminPermissions.length === 0) return 'Read-only administrator';
+    return membership.adminPermissions.map(permissionLabel).join(', ');
+  }
+  if (membership.projectAccess.length === 0) return 'No project access';
+  return `${membership.projectAccess.length} project${
+    membership.projectAccess.length === 1 ? '' : 's'
+  }`;
+}
+
+function invitationSummary(invitation: DashboardOrganizationInvitation): string {
+  if (invitation.role === 'OWNER') return 'Full organization access';
+  if (invitation.role === 'ADMIN') {
+    return invitation.adminPermissions.length
+      ? invitation.adminPermissions.map(permissionLabel).join(', ')
+      : 'Read-only administrator';
+  }
+  return `${invitation.projectAccess.length} project${
+    invitation.projectAccess.length === 1 ? '' : 's'
+  }`;
+}
+
+function membershipMatchesQuery(
+  membership: DashboardOrganizationMembership,
+  queryRaw: string,
+): boolean {
+  const query = queryRaw.trim().toLowerCase();
+  if (!query) return true;
+  return [
+    membership.email,
+    membership.displayName,
+    membership.userId,
+    membership.role,
+    membership.kind,
+    roleSummary(membership),
+  ].some((value) => String(value ?? '').toLowerCase().includes(query));
+}
+
+function roleFromSelect(value: string): DashboardOrganizationRole {
+  if (value === 'OWNER' || value === 'ADMIN') return value;
+  return 'MEMBER';
+}
+
+function GrantEditor(props: GrantEditorProps): React.JSX.Element {
+  const adminGrant = props.grant.role === 'ADMIN' ? props.grant : null;
+  const memberGrant = props.grant.role === 'MEMBER' ? props.grant : null;
+  const onRoleChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLSelectElement>) => {
+      props.onChange(grantForRole(roleFromSelect(event.target.value)));
+    },
+    [props],
+  );
+
   return (
     <div className="dashboard-team-members-permission-editor dashboard-form-field--full">
-      <section className="dashboard-team-members-permission-editor__section">
-        <p className="dashboard-team-members-permission-editor__title">Admin controls</p>
-        <div className="dashboard-team-members-permission-flags">
-          <div className="dashboard-team-members-permission-flag dashboard-team-members-permission-flag--with-description">
-            <label className="dashboard-team-members-permission-flag__toggle dashboard-team-members-permission-flag__toggle-card">
-              <input
-                type="checkbox"
-                checked={props.isAdmin}
-                onChange={(event) => props.onIsAdminChange(event.target.checked)}
-                disabled={props.disabled || props.ownerRolePresent}
-              />
-              <span className="dashboard-team-members-permission-flag__label">Admin member</span>
-            </label>
-            <p className="dashboard-team-members-permission-flag__description">
-              Allows inviting members, editing member permissions, and removing members.
-            </p>
-          </div>
-          <div className="dashboard-team-members-permission-flag">
-            <label className="dashboard-team-members-permission-flag__toggle">
-              <input
-                type="checkbox"
-                checked={props.canManageAdmins}
-                onChange={(event) => props.onCanManageAdminsChange(event.target.checked)}
-                disabled={props.disabled || props.ownerRolePresent}
-              />
-              <span className="dashboard-team-members-permission-flag__label">
-                Can add/remove admins
-              </span>
-            </label>
-          </div>
-          <div className="dashboard-team-members-permission-flag">
-            <label className="dashboard-team-members-permission-flag__toggle">
-              <input
-                type="checkbox"
-                checked={props.canManageMembers}
-                onChange={(event) => props.onCanManageMembersChange(event.target.checked)}
-                disabled={props.disabled || props.ownerRolePresent}
-              />
-              <span className="dashboard-team-members-permission-flag__label">
-                Can add/remove team members
-              </span>
-            </label>
-          </div>
-        </div>
-      </section>
+      <label className="dashboard-form-field">
+        <span>Organization role</span>
+        <select
+          className="dashboard-input"
+          value={props.grant.role}
+          onChange={onRoleChange}
+          disabled={props.disabled}
+        >
+          <option value="MEMBER">Member</option>
+          {props.allowPrivilegedRoles ? <option value="ADMIN">Administrator</option> : null}
+          {props.allowPrivilegedRoles ? <option value="OWNER">Owner</option> : null}
+        </select>
+      </label>
 
-      <section className="dashboard-team-members-permission-editor__section">
-        <p className="dashboard-team-members-permission-editor__title">
-          Sidebar Access Permissions
+      {props.grant.role === 'OWNER' ? (
+        <p className="dashboard-pagination-note">
+          Owners have full organization, project, member, and billing access.
         </p>
-        <div className="dashboard-team-members-access-list">
-          {TEAM_PERMISSION_CATEGORIES.map((category) => (
-            <div className="dashboard-team-members-access-item" key={category.category}>
-              <span>{category.label}</span>
-              <div
-                className="dashboard-team-members-access-segmented"
-                role="group"
-                aria-label={`${category.label} access level`}
-              >
-                {(['NONE', 'READ', 'WRITE'] as TeamPermissionAccessLevel[]).map((level) => (
-                  <button
-                    key={level}
-                    type="button"
-                    className={[
-                      'dashboard-team-members-access-segmented__button',
-                      props.categoryAccess[category.category] === level
-                        ? 'dashboard-team-members-access-segmented__button--active'
-                        : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    aria-pressed={props.categoryAccess[category.category] === level}
-                    onClick={() => props.onCategoryAccessChange(category.category, level)}
-                    disabled={props.disabled || props.ownerRolePresent}
-                  >
-                    {level === 'NONE' ? 'None' : level === 'READ' ? 'Read' : 'Write'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-        {props.ownerRolePresent ? (
-          <p className="dashboard-pagination-note">
-            Owner permission is system-managed and preserved automatically.
+      ) : null}
+
+      {adminGrant ? (
+        <section className="dashboard-team-members-permission-editor__section">
+          <p className="dashboard-team-members-permission-editor__title">
+            Administrator permissions
           </p>
-        ) : null}
-      </section>
+          <div className="dashboard-team-members-permission-flags">
+            {DASHBOARD_ORGANIZATION_ADMIN_PERMISSIONS.map((permission) => (
+              <label
+                className="dashboard-team-members-permission-flag__toggle"
+                key={permission}
+              >
+                <input
+                  type="checkbox"
+                  checked={adminGrant.adminPermissions.includes(permission)}
+                  onChange={(event) =>
+                    props.onChange(
+                      toggleAdminPermission(adminGrant, permission, event.target.checked),
+                    )
+                  }
+                  disabled={
+                    props.disabled ||
+                    (permission === 'billing.view' &&
+                      adminGrant.adminPermissions.includes('billing.manage'))
+                  }
+                />
+                <span className="dashboard-team-members-permission-flag__label">
+                  {permissionLabel(permission)}
+                </span>
+              </label>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {memberGrant ? (
+        <section className="dashboard-team-members-permission-editor__section">
+          <p className="dashboard-team-members-permission-editor__title">Project access</p>
+          {props.projects.length === 0 ? (
+            <p className="dashboard-pagination-note">No active projects are available.</p>
+          ) : (
+            <div className="dashboard-team-members-access-list">
+              {props.projects.map((project) => (
+                <label className="dashboard-team-members-access-item" key={project.id}>
+                  <span>{project.name}</span>
+                  <select
+                    className="dashboard-input"
+                    value={projectAccessLevel(memberGrant.projectAccess, project.id)}
+                    onChange={(event) =>
+                      props.onChange(
+                        updateProjectAccess(
+                          memberGrant,
+                          project.id,
+                          event.target.value as DashboardProjectAccessLevel | 'none',
+                        ),
+                      )
+                    }
+                    disabled={props.disabled}
+                  >
+                    <option value="none">No access</option>
+                    <option value="viewer">Viewer</option>
+                    <option value="editor">Editor</option>
+                  </select>
+                </label>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }
 
 export function TeamMembersPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
+  const [memberships, setMemberships] = React.useState<DashboardOrganizationMembership[]>([]);
+  const [invitations, setInvitations] = React.useState<DashboardOrganizationInvitation[]>([]);
+  const [projects, setProjects] = React.useState<DashboardConsoleProject[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [errorMessage, setErrorMessage] = React.useState('');
+  const [mutationError, setMutationError] = React.useState('');
+  const [notice, setNotice] = React.useState('');
+  const [query, setQuery] = React.useState('');
+  const [busyId, setBusyId] = React.useState('');
+  const [modal, setModal] = React.useState<'invite' | 'edit' | null>(null);
+  const [inviteEmail, setInviteEmail] = React.useState('');
+  const [inviteGrant, setInviteGrant] = React.useState<DashboardOrganizationGrant>(defaultGrant);
+  const [editingMembershipId, setEditingMembershipId] = React.useState('');
+  const [editingGrant, setEditingGrant] = React.useState<DashboardOrganizationGrant>(defaultGrant);
 
-  const [members, setMembers] = React.useState<DashboardConsoleTeamMember[]>([]);
-  const [loading, setLoading] = React.useState<boolean>(true);
-  const [errorMessage, setErrorMessage] = React.useState<string>('');
-  const [mutationError, setMutationError] = React.useState<string>('');
-  const [memberQuery, setMemberQuery] = React.useState<string>('');
-  const [statusFilter, setStatusFilter] = React.useState<TeamMemberListStatusFilter>('ALL');
-  const [permissionFilter, setPermissionFilter] =
-    React.useState<TeamMemberPermissionFilter>('ALL');
-  const [busyMemberId, setBusyMemberId] = React.useState<string>('');
-  const [activeModal, setActiveModal] = React.useState<'invite' | 'update' | null>(null);
-  const [inviting, setInviting] = React.useState<boolean>(false);
-  const [updating, setUpdating] = React.useState<boolean>(false);
-  const [detailMemberId, setDetailMemberId] = React.useState<string>('');
+  const role = session.claims?.role;
+  const adminPermissions = session.claims?.adminPermissions ?? [];
+  const isOwner = role === 'OWNER';
+  const canManageMembers = isOwner || (role === 'ADMIN' && adminPermissions.includes('members.manage'));
+  const canManageProjects =
+    isOwner || (role === 'ADMIN' && adminPermissions.includes('projects.manage'));
+  const canOpenTeamPage = canManageMembers || canManageProjects;
 
-  const [inviteEmail, setInviteEmail] = React.useState<string>('');
-  const [inviteDisplayName, setInviteDisplayName] = React.useState<string>('');
-  const [invitePermissions, setInvitePermissions] = React.useState<TeamPermissionEditorState>(
-    makeDefaultPermissionEditorState(),
-  );
-
-  const [editingMemberId, setEditingMemberId] = React.useState<string>('');
-  const [updatePermissions, setUpdatePermissions] = React.useState<TeamPermissionEditorState>(
-    makeDefaultPermissionEditorState(),
-  );
-
-  const canMutateTeam = React.useMemo(
-    () => canMutateTeamFromRoles(session.claims?.roles),
-    [session.claims?.roles],
-  );
-
-  const loadMembers = React.useCallback(() => {
-    if (!session.claims) {
-      setMembers([]);
+  const reload = React.useCallback(() => {
+    if (!session.claims || !canOpenTeamPage) {
+      setMemberships([]);
+      setInvitations([]);
+      setProjects([]);
       setLoading(false);
-      setErrorMessage(session.errorMessage || 'Console session is unavailable');
       return;
     }
-    let cancelled = false;
+    let canceled = false;
     setLoading(true);
     setErrorMessage('');
-    listDashboardTeamMembers(statusFilter === 'ALL' ? {} : { status: statusFilter })
-      .then((rows) => {
-        if (cancelled) return;
-        setMembers(rows);
+    Promise.all([
+      listDashboardOrganizationMemberships('all'),
+      listDashboardOrganizationInvitations('pending'),
+      listDashboardProjects({ status: 'ACTIVE' }),
+    ])
+      .then(([nextMemberships, nextInvitations, nextProjects]) => {
+        if (canceled) return;
+        setMemberships(nextMemberships);
+        setInvitations(nextInvitations);
+        setProjects(nextProjects);
       })
       .catch((error: unknown) => {
-        if (cancelled) return;
-        setMembers([]);
+        if (canceled) return;
         setErrorMessage(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
-        if (cancelled) return;
-        setLoading(false);
+        if (!canceled) setLoading(false);
       });
-
     return () => {
-      cancelled = true;
+      canceled = true;
     };
-  }, [session.claims, session.errorMessage, statusFilter]);
+  }, [canOpenTeamPage, session.claims]);
 
   React.useEffect(() => {
-    if (session.loading) {
-      setLoading(true);
-      return;
-    }
-    const cleanup = loadMembers();
-    return cleanup;
-  }, [loadMembers, session.loading]);
+    if (session.loading) return;
+    return reload();
+  }, [reload, session.loading]);
 
-  const orderedMembers = React.useMemo(
-    () => [...members].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-    [members],
-  );
-
-  const visibleMembers = React.useMemo(
+  const activeMemberships = React.useMemo(
     () =>
-      orderedMembers.filter(
-        (member) =>
-          matchesMemberQuery(member, memberQuery, session.claims) &&
-          matchesMemberPermissionFilter(member, permissionFilter),
-      ),
-    [memberQuery, orderedMembers, permissionFilter, session.claims],
+      memberships
+        .filter((membership) => membershipMatchesQuery(membership, query))
+        .sort((left, right) => {
+          if (left.role === 'OWNER' && right.role !== 'OWNER') return -1;
+          if (right.role === 'OWNER' && left.role !== 'OWNER') return 1;
+          return left.email.localeCompare(right.email);
+        }),
+    [memberships, query],
   );
-  const membersPagination = useDashboardTablePagination(visibleMembers, {
-    disabled: session.loading || loading,
-    itemLabel: 'member',
-    itemLabelPlural: 'members',
+  const pagination = useDashboardTablePagination(activeMemberships, {
+    disabled: loading || session.loading,
+    itemLabel: 'membership',
+    itemLabelPlural: 'memberships',
   });
-  const hasClientSideFilters = memberQuery.trim().length > 0 || permissionFilter !== 'ALL';
+  const ownerCount = memberships.filter(
+    (membership) => membership.kind === 'active' && membership.role === 'OWNER',
+  ).length;
+  const editingMembership =
+    memberships.find((membership) => membership.id === editingMembershipId) ?? null;
 
-  const selectedMember = React.useMemo(
-    () => members.find((entry) => entry.id === editingMemberId) || null,
-    [editingMemberId, members],
-  );
-  const detailMember = React.useMemo(
-    () => members.find((entry) => entry.id === detailMemberId) || null,
-    [detailMemberId, members],
-  );
-
-  const generatedInviteUserId = React.useMemo(
-    () => (inviteEmail.trim() ? generateInviteUserId(inviteEmail) : ''),
-    [inviteEmail],
-  );
-  const detailMemberEmail = detailMember ? resolveMemberEmail(detailMember, session.claims) : '';
-  const detailMemberDisplayName = detailMember
-    ? resolveMemberDisplayName(detailMember, session.claims)
-    : '';
-
-  const resetInviteForm = React.useCallback(() => {
+  const closeModal = React.useCallback(() => {
+    setModal(null);
+    setMutationError('');
     setInviteEmail('');
-    setInviteDisplayName('');
-    setInvitePermissions(makeDefaultPermissionEditorState());
+    setInviteGrant(defaultGrant());
+    setEditingMembershipId('');
+    setEditingGrant(defaultGrant());
   }, []);
 
-  const resetUpdateForm = React.useCallback(() => {
-    setEditingMemberId('');
-    setUpdatePermissions(makeDefaultPermissionEditorState());
-  }, []);
-
-  const resetDetailMember = React.useCallback(() => {
-    setDetailMemberId('');
-  }, []);
-
-  const onOpenInviteModal = React.useCallback(() => {
-    resetInviteForm();
+  const openInviteModal = React.useCallback(() => {
     setMutationError('');
-    setActiveModal('invite');
-  }, [resetInviteForm]);
-
-  const onOpenUpdateModal = React.useCallback((member: DashboardConsoleTeamMember) => {
-    setEditingMemberId(member.id);
-    setUpdatePermissions(resolvePermissionEditorState(member.roles));
-    setMutationError('');
-    setActiveModal('update');
+    setInviteGrant(defaultGrant());
+    setModal('invite');
   }, []);
 
-  const onOpenDetailModal = React.useCallback((member: DashboardConsoleTeamMember) => {
-    setDetailMemberId(member.id);
+  const openEditModal = React.useCallback((membership: DashboardOrganizationMembership) => {
     setMutationError('');
+    setEditingMembershipId(membership.id);
+    setEditingGrant(grantFromMembership(membership));
+    setModal('edit');
   }, []);
 
-  const onCloseModal = React.useCallback(() => {
-    if (inviting || updating) return;
-    setActiveModal(null);
-    setMutationError('');
-    resetInviteForm();
-    resetUpdateForm();
-    resetDetailMember();
-  }, [inviting, resetDetailMember, resetInviteForm, resetUpdateForm, updating]);
-
-  const onInviteMember = React.useCallback(
+  const submitInvitation = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!session.claims) {
-        setMutationError(session.errorMessage || 'Console session is unavailable');
-        return;
-      }
-      if (!canMutateTeam) {
-        setMutationError('Only owner/admin role can invite members.');
-        return;
-      }
-      const email = String(inviteEmail || '').trim();
-      const userId = generatedInviteUserId;
-      if (!email) {
-        setMutationError('Email is required.');
-        return;
-      }
-      setInviting(true);
+      if (!canManageMembers) return;
+      setBusyId('invite');
       setMutationError('');
       try {
-        const roles = buildRoleAssignments({
-          permissions: invitePermissions,
-          preserveOwnerRole: false,
+        await inviteDashboardOrganizationMember({
+          email: inviteEmail,
+          ...inviteGrant,
         });
-        if (roles.length === 0) {
-          throw new Error('At least one permission is required.');
-        }
-        await inviteDashboardTeamMember({
-          userId,
-          ...(inviteDisplayName.trim() ? { displayName: inviteDisplayName.trim() } : {}),
-          email,
-          roles,
-        });
-        resetInviteForm();
-        setActiveModal(null);
-        loadMembers();
+        setNotice(`Invitation sent to ${inviteEmail.trim().toLowerCase()}.`);
+        closeModal();
+        reload();
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
       } finally {
-        setInviting(false);
+        setBusyId('');
       }
     },
-    [
-      canMutateTeam,
-      generatedInviteUserId,
-      inviteDisplayName,
-      inviteEmail,
-      invitePermissions,
-      loadMembers,
-      resetInviteForm,
-      session.claims,
-      session.errorMessage,
-    ],
+    [canManageMembers, closeModal, inviteEmail, inviteGrant, reload],
   );
 
-  const onApplyRoles = React.useCallback(
+  const submitMembership = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!session.claims) {
-        setMutationError(session.errorMessage || 'Console session is unavailable');
-        return;
-      }
-      if (!canMutateTeam) {
-        setMutationError('Only owner/admin role can update member permissions.');
-        return;
-      }
-      if (!selectedMember) {
-        setMutationError('Select a member from the table before updating permissions.');
-        return;
-      }
-      setUpdating(true);
+      if (!editingMembership) return;
+      setBusyId(editingMembership.id);
       setMutationError('');
       try {
-        const roles = buildRoleAssignments({
-          permissions: updatePermissions,
-          preserveOwnerRole: selectedMember.roles.some((entry) => entry.role === 'owner'),
-        });
-        if (roles.length === 0) {
-          throw new Error('At least one permission is required.');
+        if (editingMembership.role !== editingGrant.role) {
+          await changeDashboardOrganizationMembershipRole(editingMembership.id, editingGrant);
+        } else if (editingGrant.role === 'ADMIN') {
+          await setDashboardOrganizationAdminPermissions(
+            editingMembership.id,
+            editingGrant.adminPermissions,
+          );
+        } else if (editingGrant.role === 'MEMBER') {
+          const existing = new Map(
+            editingMembership.projectAccess.map((assignment) => [
+              assignment.projectId,
+              assignment.accessLevel,
+            ]),
+          );
+          for (const assignment of editingGrant.projectAccess) {
+            if (existing.get(assignment.projectId) === assignment.accessLevel) continue;
+            await setDashboardProjectMemberAccess({
+              projectId: assignment.projectId,
+              membershipId: editingMembership.id,
+              accessLevel: assignment.accessLevel,
+            });
+          }
+          const nextProjectIds = new Set(
+            editingGrant.projectAccess.map((assignment) => assignment.projectId),
+          );
+          for (const assignment of editingMembership.projectAccess) {
+            if (nextProjectIds.has(assignment.projectId)) continue;
+            await removeDashboardProjectMemberAccess({
+              projectId: assignment.projectId,
+              membershipId: editingMembership.id,
+            });
+          }
         }
-        await updateDashboardTeamMemberRoles({ memberId: selectedMember.id, roles });
-        setActiveModal(null);
-        resetUpdateForm();
-        loadMembers();
+        setNotice(`Updated ${editingMembership.email}.`);
+        closeModal();
+        reload();
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
       } finally {
-        setUpdating(false);
+        setBusyId('');
       }
     },
-    [
-      canMutateTeam,
-      loadMembers,
-      resetUpdateForm,
-      session.claims,
-      session.errorMessage,
-      selectedMember,
-      updatePermissions,
-    ],
+    [closeModal, editingGrant, editingMembership, reload],
   );
 
-  const onRemoveMember = React.useCallback(
-    async (member: DashboardConsoleTeamMember) => {
-      if (!session.claims) {
-        setMutationError(session.errorMessage || 'Console session is unavailable');
+  const mutateMembershipLifecycle = React.useCallback(
+    async (
+      membership: DashboardOrganizationMembership,
+      action: 'suspend' | 'reactivate' | 'remove',
+    ) => {
+      const pastTense =
+        action === 'suspend'
+          ? 'suspended'
+          : action === 'reactivate'
+            ? 'reactivated'
+            : 'removed';
+      if (
+        action === 'remove' &&
+        !window.confirm(`Remove ${membership.email} from this organization?`)
+      ) {
         return;
       }
-      if (!canMutateTeam) {
-        setMutationError('Only owner/admin role can remove members.');
-        return;
-      }
-      if (!window.confirm(`Remove member ${member.userId}?`)) return;
-      setBusyMemberId(member.id);
+      setBusyId(membership.id);
       setMutationError('');
       try {
-        await removeDashboardTeamMember({ memberId: member.id });
-        if (editingMemberId === member.id) {
-          setActiveModal(null);
-          resetUpdateForm();
+        if (action === 'suspend') {
+          await suspendDashboardOrganizationMembership(membership.id);
+        } else if (action === 'reactivate') {
+          await reactivateDashboardOrganizationMembership(membership.id);
+        } else {
+          await removeDashboardOrganizationMembership(membership.id);
         }
-        loadMembers();
+        setNotice(`${membership.email} was ${pastTense}.`);
+        reload();
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
       } finally {
-        setBusyMemberId('');
+        setBusyId('');
       }
     },
-    [
-      canMutateTeam,
-      editingMemberId,
-      loadMembers,
-      resetUpdateForm,
-      session.claims,
-      session.errorMessage,
-    ],
+    [reload],
+  );
+
+  const mutateInvitation = React.useCallback(
+    async (invitation: DashboardOrganizationInvitation, action: 'resend' | 'revoke') => {
+      setBusyId(invitation.id);
+      setMutationError('');
+      try {
+        if (action === 'resend') {
+          await resendDashboardOrganizationInvitation(invitation.id);
+          setNotice(`Invitation resent to ${invitation.email}.`);
+        } else {
+          await revokeDashboardOrganizationInvitation(invitation.id);
+          setNotice(`Invitation to ${invitation.email} was revoked.`);
+        }
+        reload();
+      } catch (error: unknown) {
+        setMutationError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setBusyId('');
+      }
+    },
+    [reload],
   );
 
   const inviteModal =
-    activeModal === 'invite' ? (
-      <DashboardInlineModal
-        isOpen
-        ariaLabel="Add team member modal"
-        onRequestClose={onCloseModal}
-        className="dashboard-modal--wide"
-      >
+    modal === 'invite' ? (
+      <DashboardInlineModal isOpen ariaLabel="Invite organization member" onRequestClose={closeModal}>
         <h2>Invite member</h2>
-        <form className="dashboard-view-grid" onSubmit={onInviteMember}>
+        <form className="dashboard-view-grid" onSubmit={submitInvitation}>
           <label className="dashboard-form-field">
-            <span>Email</span>
+            <span>Verified email</span>
             <input
               className="dashboard-input"
+              type="email"
+              required
               value={inviteEmail}
               onChange={(event) => setInviteEmail(event.target.value)}
-              placeholder="member@example.com"
-              disabled={inviting || !canMutateTeam}
+              disabled={busyId === 'invite'}
             />
           </label>
-          <label className="dashboard-form-field">
-            <span>Display name (optional)</span>
-            <input
-              className="dashboard-input"
-              value={inviteDisplayName}
-              onChange={(event) => setInviteDisplayName(event.target.value)}
-              placeholder="Jane Doe"
-              disabled={inviting || !canMutateTeam}
-            />
-          </label>
-          <TeamPermissionEditor
-            isAdmin={invitePermissions.isAdmin}
-            canManageAdmins={invitePermissions.canManageAdmins}
-            canManageMembers={invitePermissions.canManageMembers}
-            categoryAccess={invitePermissions.categoryAccess}
-            ownerRolePresent={false}
-            disabled={inviting || !canMutateTeam}
-            onIsAdminChange={(next) =>
-              setInvitePermissions((prev) => ({
-                ...prev,
-                isAdmin: next,
-              }))
-            }
-            onCanManageAdminsChange={(next) =>
-              setInvitePermissions((prev) => ({
-                ...prev,
-                canManageAdmins: next,
-              }))
-            }
-            onCanManageMembersChange={(next) =>
-              setInvitePermissions((prev) => ({
-                ...prev,
-                canManageMembers: next,
-              }))
-            }
-            onCategoryAccessChange={(category, level) =>
-              setInvitePermissions((prev) => ({
-                ...prev,
-                categoryAccess: {
-                  ...prev.categoryAccess,
-                  [category]: level,
-                },
-              }))
-            }
+          <GrantEditor
+            grant={inviteGrant}
+            projects={projects}
+            allowPrivilegedRoles={isOwner}
+            disabled={busyId === 'invite'}
+            onChange={setInviteGrant}
           />
           {mutationError ? (
             <p className="dashboard-form-alert" role="alert">
@@ -808,75 +566,48 @@ export function TeamMembersPage(): React.JSX.Element {
             <button
               type="button"
               className="dashboard-pagination-button dashboard-pagination-button--secondary"
-              onClick={onCloseModal}
-              disabled={inviting}
+              onClick={closeModal}
+              disabled={busyId === 'invite'}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="dashboard-pagination-button"
-              disabled={inviting || !canMutateTeam}
+              className="dashboard-pagination-button dashboard-pagination-button--primary"
+              disabled={busyId === 'invite'}
             >
-              {inviting ? 'Inviting...' : 'Invite member'}
+              {busyId === 'invite' ? 'Sending…' : 'Send invitation'}
             </button>
           </div>
         </form>
       </DashboardInlineModal>
     ) : null;
 
-  const updateModal =
-    activeModal === 'update' && selectedMember ? (
+  const editModal =
+    modal === 'edit' && editingMembership ? (
       <DashboardInlineModal
         isOpen
-        ariaLabel="Update member permissions modal"
-        onRequestClose={onCloseModal}
-        className="dashboard-modal--wide"
+        ariaLabel="Edit organization membership"
+        onRequestClose={closeModal}
       >
-        <h2>Update member permissions</h2>
-        <p className="dashboard-pagination-note">
-          {formatMemberPrimaryIdentity(selectedMember, session.claims)} · {selectedMember.status}
-        </p>
-        <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onApplyRoles}>
-          <label className="dashboard-form-field dashboard-form-field--full">
-            <span>User ID</span>
-            <input className="dashboard-input" value={selectedMember.userId} disabled />
-          </label>
-          <TeamPermissionEditor
-            isAdmin={updatePermissions.isAdmin}
-            canManageAdmins={updatePermissions.canManageAdmins}
-            canManageMembers={updatePermissions.canManageMembers}
-            categoryAccess={updatePermissions.categoryAccess}
-            ownerRolePresent={selectedMember.roles.some((entry) => entry.role === 'owner')}
-            disabled={updating || !canMutateTeam}
-            onIsAdminChange={(next) =>
-              setUpdatePermissions((prev) => ({
-                ...prev,
-                isAdmin: next,
-              }))
+        <h2>Edit membership</h2>
+        <p className="dashboard-pagination-note">{editingMembership.email}</p>
+        <form className="dashboard-view-grid" onSubmit={submitMembership}>
+          <GrantEditor
+            grant={editingGrant}
+            projects={projects}
+            allowPrivilegedRoles={isOwner}
+            disabled={
+              busyId === editingMembership.id ||
+              editingMembership.userId === session.claims?.userId
             }
-            onCanManageAdminsChange={(next) =>
-              setUpdatePermissions((prev) => ({
-                ...prev,
-                canManageAdmins: next,
-              }))
-            }
-            onCanManageMembersChange={(next) =>
-              setUpdatePermissions((prev) => ({
-                ...prev,
-                canManageMembers: next,
-              }))
-            }
-            onCategoryAccessChange={(category, level) =>
-              setUpdatePermissions((prev) => ({
-                ...prev,
-                categoryAccess: {
-                  ...prev.categoryAccess,
-                  [category]: level,
-                },
-              }))
-            }
+            onChange={setEditingGrant}
           />
+          {editingMembership.userId === session.claims?.userId ? (
+            <p className="dashboard-pagination-note">
+              Use “Leave organization” in account settings to change your own membership.
+            </p>
+          ) : null}
           {mutationError ? (
             <p className="dashboard-form-alert" role="alert">
               {mutationError}
@@ -886,265 +617,243 @@ export function TeamMembersPage(): React.JSX.Element {
             <button
               type="button"
               className="dashboard-pagination-button dashboard-pagination-button--secondary"
-              onClick={onCloseModal}
-              disabled={updating}
+              onClick={closeModal}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="dashboard-pagination-button"
-              disabled={updating || !canMutateTeam}
+              className="dashboard-pagination-button dashboard-pagination-button--primary"
+              disabled={
+                busyId === editingMembership.id ||
+                editingMembership.userId === session.claims?.userId
+              }
             >
-              {updating ? 'Applying...' : 'Apply permissions'}
+              {busyId === editingMembership.id ? 'Saving…' : 'Save'}
             </button>
           </div>
         </form>
       </DashboardInlineModal>
     ) : null;
 
-  const detailsModal = detailMember ? (
-    <DashboardInlineModal
-      isOpen
-      ariaLabel="Team member details modal"
-      onRequestClose={onCloseModal}
-    >
-      <h2>Member details</h2>
-      <div className="dashboard-team-member-details">
-        <div className="dashboard-team-member-details__item">
-          <span>Email</span>
-          <strong>{detailMemberEmail || '-'}</strong>
-        </div>
-        <div className="dashboard-team-member-details__item">
-          <span>User ID</span>
-          <strong>{detailMember.userId || '-'}</strong>
-        </div>
-        <div className="dashboard-team-member-details__item">
-          <span>Display name</span>
-          <strong>{detailMemberDisplayName || '-'}</strong>
-        </div>
-        <div className="dashboard-team-member-details__item">
-          <span>Status</span>
-          <strong>{detailMember.status}</strong>
-        </div>
-        <div className="dashboard-team-member-details__item">
-          <span>Invited by</span>
-          <strong>{detailMember.invitedByUserId || '-'}</strong>
-        </div>
-        <div className="dashboard-team-member-details__item">
-          <span>Invited at</span>
-          <strong>{formatTimestamp(detailMember.invitedAt)}</strong>
-        </div>
-        <div className="dashboard-team-member-details__item">
-          <span>Created at</span>
-          <strong>{formatTimestamp(detailMember.createdAt)}</strong>
-        </div>
-        <div className="dashboard-team-member-details__item">
-          <span>Updated at</span>
-          <strong>{formatTimestamp(detailMember.updatedAt || detailMember.createdAt)}</strong>
-        </div>
-        <div className="dashboard-team-member-details__item dashboard-team-member-details__item--full">
-          <span>Permissions</span>
-          <strong>{formatPermissionSummary(detailMember.roles)}</strong>
-        </div>
-      </div>
-      <div className="dashboard-form-actions">
-        <button
-          type="button"
-          className="dashboard-pagination-button dashboard-pagination-button--secondary"
-          onClick={onCloseModal}
-        >
-          Close
-        </button>
-      </div>
-    </DashboardInlineModal>
-  ) : null;
-
   return (
-    <div className="dashboard-view" aria-label="Team members and roles page">
-      <section className="dashboard-view__section" aria-label="Team member controls section">
+    <div className="dashboard-view" aria-label="Organization team management page">
+      <section className="dashboard-view__section">
         <div className="dashboard-section-toolbar dashboard-team-members-toolbar">
           <div className="dashboard-section-toolbar__copy">
-            <h2>Team members</h2>
+            <h2>Team</h2>
             <p className="dashboard-pagination-note">
-              {canMutateTeam
-                ? 'Owner/admin role enabled for invite, permission update, and member removal actions.'
-                : 'Only owner/admin can mutate team membership. You currently have read-only access.'}
+              Owners have full access. Administrators use four organization permissions, and
+              members receive viewer or editor access per project.
             </p>
           </div>
           <button
             type="button"
             className="dashboard-pagination-button dashboard-pagination-button--primary"
-            onClick={onOpenInviteModal}
-            disabled={!canMutateTeam}
+            onClick={openInviteModal}
+            disabled={!canManageMembers}
           >
-            Add Team Member
+            Invite member
           </button>
         </div>
-        {mutationError && !activeModal ? (
+        {ownerCount < 2 ? (
+          <p className="dashboard-form-alert" role="status">
+            Add a second owner to protect organization access if the current owner becomes
+            unavailable.
+          </p>
+        ) : null}
+        {notice ? <p className="dashboard-pagination-note">{notice}</p> : null}
+        {mutationError && !modal ? (
           <p className="dashboard-form-alert" role="alert">
             {mutationError}
           </p>
         ) : null}
       </section>
 
-      {orderedMembers.length > 5 || hasClientSideFilters || statusFilter !== 'ALL' ? (
-      <section className="dashboard-view__section" aria-label="Team member filters section">
-        <div className="dashboard-filters dashboard-team-members-filters">
-          <label className="dashboard-search-control dashboard-search-control--compact dashboard-team-members-search-control">
-            <span className="dashboard-search-icon" aria-hidden="true" />
-            <input
-              type="search"
-              aria-label="Search team members"
-              placeholder="Search by name, email, user ID, or permission"
-              value={memberQuery}
-              onChange={(event) => setMemberQuery(event.target.value)}
-            />
-          </label>
-          <label className="dashboard-form-field dashboard-team-members-status-filter">
-            <select
-              className="dashboard-input"
-              aria-label="Filter team members by status"
-              value={statusFilter}
-              onChange={(event) =>
-                setStatusFilter(event.target.value as TeamMemberListStatusFilter)
-              }
-            >
-              <option value="ALL">Status: All</option>
-              <option value="INVITED">Status: Invited</option>
-              <option value="ACTIVE">Status: Active</option>
-              <option value="SUSPENDED">Status: Suspended</option>
-              <option value="REMOVED">Status: Removed</option>
-            </select>
-          </label>
-          <label className="dashboard-form-field dashboard-team-members-permission-filter">
-            <select
-              className="dashboard-input"
-              aria-label="Filter team members by permission"
-              value={permissionFilter}
-              onChange={(event) =>
-                setPermissionFilter(event.target.value as TeamMemberPermissionFilter)
-              }
-            >
-              {TEAM_PERMISSION_FILTER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </section>
-      ) : null}
+      {!canOpenTeamPage && !session.loading ? (
+        <DashboardTableState>
+          Team administration requires owner access or an administrator permission.
+        </DashboardTableState>
+      ) : (
+        <>
+          <section className="dashboard-view__section">
+            <label className="dashboard-search-control dashboard-search-control--compact">
+              <span className="dashboard-search-icon" aria-hidden="true" />
+              <input
+                type="search"
+                aria-label="Search memberships"
+                placeholder="Search members"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </label>
+          </section>
 
-      <DashboardTable
-        ariaLabel="Team members table"
-        className="dashboard-team-members-table"
-        columns={TEAM_MEMBERS_TABLE_COLUMNS}
-        pagination={membersPagination.pagination}
-      >
-        <DashboardTableHeader className="dashboard-team-members-table__row">
-          <DashboardTableHeaderCell>Member</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Permissions</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Updated</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
-        </DashboardTableHeader>
-        {session.loading || loading ? (
-          <DashboardTableState>Loading team members...</DashboardTableState>
-        ) : !session.claims ? (
-          <DashboardTableState>
-            Team members unavailable: {session.errorMessage || 'unauthorized'}.
-          </DashboardTableState>
-        ) : errorMessage ? (
-          <DashboardTableState>Team members unavailable: {errorMessage}</DashboardTableState>
-        ) : visibleMembers.length === 0 ? (
-          <DashboardTableState>
-            {orderedMembers.length === 0
-              ? 'No members found for the selected filter.'
-              : hasClientSideFilters
-                ? 'No members matched the current filters.'
-                : 'No members matched the selected filter.'}
-          </DashboardTableState>
-        ) : (
-          <>
-            {membersPagination.rows.map((member) => {
-              const memberIdentity = formatMemberPrimaryIdentity(member, session.claims);
-              const memberProfile = buildMemberProfile(member, session.claims);
-              const permissionSummary = formatPermissionSummary(member.roles);
-              const permissionParts = summarizePermissionParts(member.roles);
-              return (
-                <DashboardTableRow className="dashboard-team-members-table__row" key={member.id}>
-                  <DashboardTableCell
-                    className="dashboard-team-members-table__member"
-                    title={memberIdentity}
+          <DashboardTable
+            ariaLabel="Organization memberships"
+            className="dashboard-team-members-table"
+            columns={MEMBERSHIP_COLUMNS}
+            pagination={pagination.pagination}
+          >
+            <DashboardTableHeader className="dashboard-team-members-table__row">
+              <DashboardTableHeaderCell>Member</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Role</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Access</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
+            </DashboardTableHeader>
+            {loading || session.loading ? (
+              <DashboardTableState>Loading memberships…</DashboardTableState>
+            ) : errorMessage ? (
+              <DashboardTableState>{errorMessage}</DashboardTableState>
+            ) : pagination.rows.length === 0 ? (
+              <DashboardTableState>No memberships matched.</DashboardTableState>
+            ) : (
+              pagination.rows.map((membership) => {
+                const self = membership.userId === session.claims?.userId;
+                const owner = membership.role === 'OWNER';
+                const canEditTarget =
+                  !self &&
+                  (isOwner ||
+                    (membership.role === 'MEMBER' &&
+                      (canManageMembers || canManageProjects)));
+                return (
+                  <DashboardTableRow
+                    className="dashboard-team-members-table__row"
+                    key={membership.id}
                   >
-                    <span className="dashboard-team-members-table__member-title">
-                      {memberProfile.title}
-                    </span>
-                    {memberProfile.detail ? (
-                      <span className="dashboard-team-members-table__member-detail">
-                        {memberProfile.detail}
+                    <DashboardTableCell className="dashboard-team-members-table__member">
+                      <span className="dashboard-team-members-table__member-title">
+                        {membership.displayName || membership.email}
                       </span>
-                    ) : null}
-                    {memberProfile.subtitle ? (
                       <span className="dashboard-team-members-table__member-subtitle">
-                        {memberProfile.subtitle}
+                        {membership.email}
                       </span>
-                    ) : null}
+                    </DashboardTableCell>
+                    <DashboardTableCell>
+                      <DashboardTableBadge>{membership.role}</DashboardTableBadge>
+                    </DashboardTableCell>
+                    <DashboardTableCell title={roleSummary(membership)}>
+                      {roleSummary(membership)}
+                    </DashboardTableCell>
+                    <DashboardTableCell>{membership.kind}</DashboardTableCell>
+                    <DashboardTableCell>
+                      <DashboardTableActionGroup>
+                        <DashboardTableActionButton
+                          onClick={() => openEditModal(membership)}
+                          disabled={!canEditTarget || membership.kind === 'removed'}
+                        >
+                          Edit
+                        </DashboardTableActionButton>
+                        <DashboardTableActionMenu
+                          ariaLabel={`More actions for ${membership.email}`}
+                          items={[
+                            membership.kind === 'suspended'
+                              ? {
+                                  label: 'Reactivate',
+                                  onSelect: () =>
+                                    mutateMembershipLifecycle(membership, 'reactivate'),
+                                  disabled: !canManageMembers || busyId === membership.id,
+                                }
+                              : {
+                                  label: 'Suspend',
+                                  onSelect: () =>
+                                    mutateMembershipLifecycle(membership, 'suspend'),
+                                  disabled:
+                                    !canManageMembers ||
+                                    owner ||
+                                    self ||
+                                    membership.kind !== 'active' ||
+                                    busyId === membership.id,
+                                },
+                            {
+                              label: 'Remove',
+                              onSelect: () => mutateMembershipLifecycle(membership, 'remove'),
+                              tone: 'danger',
+                              disabled:
+                                !canManageMembers ||
+                                owner ||
+                                self ||
+                                membership.kind === 'removed' ||
+                                busyId === membership.id,
+                            },
+                          ]}
+                        />
+                      </DashboardTableActionGroup>
+                    </DashboardTableCell>
+                  </DashboardTableRow>
+                );
+              })
+            )}
+          </DashboardTable>
+
+          <section className="dashboard-view__section">
+            <h2>Pending invitations</h2>
+            <p className="dashboard-pagination-note">
+              Invitations expire after seven days and create membership only after acceptance.
+            </p>
+          </section>
+          <DashboardTable
+            ariaLabel="Pending organization invitations"
+            className="dashboard-team-members-table"
+            columns={INVITATION_COLUMNS}
+          >
+            <DashboardTableHeader className="dashboard-team-members-table__row">
+              <DashboardTableHeaderCell>Email</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Role</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Access</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Expires</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
+            </DashboardTableHeader>
+            {loading ? (
+              <DashboardTableState>Loading invitations…</DashboardTableState>
+            ) : invitations.length === 0 ? (
+              <DashboardTableState>No pending invitations.</DashboardTableState>
+            ) : (
+              invitations.map((invitation) => (
+                <DashboardTableRow
+                  className="dashboard-team-members-table__row"
+                  key={invitation.id}
+                >
+                  <DashboardTableCell>{invitation.email}</DashboardTableCell>
+                  <DashboardTableCell>
+                    <DashboardTableBadge>{invitation.role}</DashboardTableBadge>
                   </DashboardTableCell>
-                  <DashboardTableCell>{member.status}</DashboardTableCell>
-                  <DashboardTableCell
-                    className="dashboard-team-members-table__permissions"
-                    title={permissionSummary}
-                  >
-                    <DashboardTableBadge>{permissionParts.primary}</DashboardTableBadge>
-                    {permissionParts.extraCount > 0 ? (
-                      <span className="dashboard-pagination-note">
-                        +{permissionParts.extraCount} more
-                      </span>
-                    ) : null}
+                  <DashboardTableCell title={invitationSummary(invitation)}>
+                    {invitationSummary(invitation)}
                   </DashboardTableCell>
-                  <DashboardTableCell truncate>
-                    {formatTimestamp(member.updatedAt || member.createdAt)}
+                  <DashboardTableCell>
+                    {formatDashboardTimestamp(invitation.expiresAt || '', '-')}
                   </DashboardTableCell>
                   <DashboardTableCell>
                     <DashboardTableActionGroup>
                       <DashboardTableActionButton
-                        onClick={() => onOpenUpdateModal(member)}
-                        disabled={!canMutateTeam || member.status === 'REMOVED'}
+                        onClick={() => mutateInvitation(invitation, 'resend')}
+                        disabled={!canManageMembers || busyId === invitation.id}
                       >
-                        Edit
+                        Resend
                       </DashboardTableActionButton>
                       <DashboardTableActionMenu
-                        ariaLabel={`More actions for ${memberProfile.title}`}
+                        ariaLabel={`More actions for invitation ${invitation.email}`}
                         items={[
                           {
-                            label: 'Details',
-                            onSelect: () => onOpenDetailModal(member),
-                          },
-                          {
-                            label: busyMemberId === member.id ? 'Deleting…' : 'Delete',
-                            onSelect: () => onRemoveMember(member),
+                            label: 'Revoke',
+                            onSelect: () => mutateInvitation(invitation, 'revoke'),
                             tone: 'danger',
-                            disabled:
-                              !canMutateTeam ||
-                              busyMemberId === member.id ||
-                              member.status === 'REMOVED',
+                            disabled: !canManageMembers || busyId === invitation.id,
                           },
                         ]}
                       />
                     </DashboardTableActionGroup>
                   </DashboardTableCell>
                 </DashboardTableRow>
-              );
-            })}
-          </>
-        )}
-      </DashboardTable>
+              ))
+            )}
+          </DashboardTable>
+        </>
+      )}
       {inviteModal}
-      {updateModal}
-      {detailsModal}
+      {editModal}
     </div>
   );
 }

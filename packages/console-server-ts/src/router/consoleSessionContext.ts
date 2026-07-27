@@ -1,5 +1,5 @@
 import type { SwitchConsoleAccountOrganizationContextResult } from '@seams-internal/console-server/account';
-import type { SessionAdapter, SessionClaims } from '@seams/sdk-server/internal/router/routerApi';
+import type { SessionAdapter, SessionClaims } from '@seams/sdk-server/cloud-host';
 
 const RESERVED_SESSION_CLAIMS = new Set([
   'sub',
@@ -12,6 +12,12 @@ const RESERVED_SESSION_CLAIMS = new Set([
   'projectId',
   'environmentId',
   'roles',
+  'membershipId',
+  'authorizationVersion',
+  'role',
+  'adminPermissions',
+  'projectAccess',
+  'platformSupport',
 ]);
 
 export interface ParsedConsoleSessionForContextSwitch {
@@ -48,7 +54,21 @@ export function buildConsoleContextSwitchSessionClaims(
   }
 
   extraClaims.orgId = nextContext.orgId;
-  extraClaims.roles = [...nextContext.actorRoles];
+  extraClaims.membershipId = nextContext.membershipId;
+  extraClaims.authorizationVersion = nextContext.authorizationVersion;
+  extraClaims.role = nextContext.role;
+  extraClaims.adminPermissions = [...nextContext.adminPermissions];
+  extraClaims.projectAccess =
+    nextContext.projectAccess.kind === 'all'
+      ? { kind: 'all' }
+      : {
+          kind: 'assigned',
+          assignments: nextContext.projectAccess.assignments.map((assignment) => ({
+            projectId: assignment.projectId,
+            accessLevel: assignment.accessLevel,
+          })),
+        };
+  extraClaims.platformSupport = nextContext.platformSupport;
   if (nextContext.projectId) {
     extraClaims.projectId = nextContext.projectId;
   }

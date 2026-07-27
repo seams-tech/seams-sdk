@@ -1,90 +1,80 @@
-import type { ConsoleTeamRoleAssignment } from '../teamRbac';
+import type { ActiveOrganizationAuthorization } from '../teamRbac';
 
 export type ConsoleAccountBackupEmailStatus = 'PENDING' | 'VERIFIED';
 
 export interface ConsoleAccountBackupEmail {
-  email: string;
-  status: ConsoleAccountBackupEmailStatus;
-  createdAt: string;
-  updatedAt: string;
+  readonly email: string;
+  readonly status: ConsoleAccountBackupEmailStatus;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 export interface ConsoleAccountProfile {
-  userId: string;
-  displayName: string;
-  primaryEmail: string;
-  canEditPrimaryEmail: boolean;
-  backupEmails: ConsoleAccountBackupEmail[];
-  createdAt: string;
-  updatedAt: string;
+  readonly userId: string;
+  readonly displayName: string;
+  readonly primaryEmail: string;
+  readonly canEditPrimaryEmail: boolean;
+  readonly backupEmails: readonly ConsoleAccountBackupEmail[];
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 export interface PatchConsoleAccountProfileRequest {
-  displayName?: string;
-  primaryEmail?: string;
-  addBackupEmail?: string;
-  removeBackupEmail?: string;
+  readonly displayName?: string;
+  readonly primaryEmail?: string;
+  readonly addBackupEmail?: string;
+  readonly removeBackupEmail?: string;
 }
 
-export interface ConsoleAccountOrganizationAdminCandidate {
-  memberId: string;
-  userId: string;
-  email: string;
-  displayName: string;
-  isOwner: boolean;
-  roles: ConsoleTeamRoleAssignment[];
+type AccountAccessFromAuthorization<T extends ActiveOrganizationAuthorization> =
+  T extends ActiveOrganizationAuthorization
+    ? Omit<T, 'kind' | 'orgId' | 'userId'>
+    : never;
+
+export type ConsoleAccountOrganizationAccess =
+  AccountAccessFromAuthorization<ActiveOrganizationAuthorization>;
+
+interface ConsoleAccountOrganizationIdentity {
+  readonly id: string;
+  readonly name: string;
+  readonly slug: string;
+  readonly status: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly isCurrentOrg: boolean;
+  readonly onboardingComplete: boolean;
+  readonly selectedProjectId: string | null;
+  readonly selectedProjectName: string | null;
+  readonly selectedEnvironmentId: string | null;
+  readonly selectedEnvironmentName: string | null;
 }
 
-export interface ConsoleAccountOrganization {
-  id: string;
-  name: string;
-  slug: string;
-  status: string;
-  createdAt: string;
-  updatedAt: string;
-  isCurrentOrg: boolean;
-  actorRoles: string[];
-  actorIsOwner: boolean;
-  actorIsAdmin: boolean;
-  onboardingComplete: boolean;
-  selectedProjectId: string | null;
-  selectedProjectName: string | null;
-  selectedEnvironmentId: string | null;
-  selectedEnvironmentName: string | null;
-  adminCandidates: ConsoleAccountOrganizationAdminCandidate[];
-}
+export type ConsoleAccountOrganization =
+  ConsoleAccountOrganizationIdentity & ConsoleAccountOrganizationAccess;
 
 export interface CreateConsoleAccountOrganizationRequest {
-  id?: string;
-  name: string;
-  slug?: string;
+  readonly id?: string;
+  readonly name: string;
+  readonly slug?: string;
 }
 
 export interface UpdateConsoleAccountOrganizationRequest {
-  name?: string;
-  slug?: string;
-}
-
-export interface TransferConsoleAccountOrganizationOwnerRequest {
-  targetMemberId?: string;
-  targetUserId?: string;
-}
-
-export interface TransferConsoleAccountOrganizationOwnerResult {
-  organization: ConsoleAccountOrganization;
-  previousOwner: ConsoleAccountOrganizationAdminCandidate;
-  nextOwner: ConsoleAccountOrganizationAdminCandidate;
+  readonly name?: string;
+  readonly slug?: string;
 }
 
 export interface DeleteConsoleAccountOrganizationResult {
-  orgId: string;
-  organizationName: string;
+  readonly orgId: string;
+  readonly organizationName: string;
 }
 
-export interface SwitchConsoleAccountOrganizationContextResult {
-  orgId: string;
-  projectId: string | null;
-  environmentId: string | null;
-  actorRoles: string[];
-  onboardingComplete: boolean;
+interface SwitchedOrganizationScope {
+  readonly orgId: string;
+  readonly projectId: string | null;
+  readonly environmentId: string | null;
+  readonly onboardingComplete: boolean;
+  readonly platformSupport: boolean;
 }
+
+export type SwitchConsoleAccountOrganizationContextResult =
+  SwitchedOrganizationScope & ConsoleAccountOrganizationAccess;

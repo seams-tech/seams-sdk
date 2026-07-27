@@ -64,6 +64,26 @@ impl From<io::Error> for LocalEd25519YaoStreamErrorV1 {
 
 type StreamResult<T> = Result<T, LocalEd25519YaoStreamErrorV1>;
 
+pub(crate) struct LocalEd25519YaoCompletedDeriverBResponseV1 {
+    stream: TcpStream,
+}
+
+impl LocalEd25519YaoCompletedDeriverBResponseV1 {
+    pub(crate) fn send_sealed_completion(mut self, completion: &[u8]) -> StreamResult<()> {
+        if completion.is_empty() || completion.len() > MAXIMUM_HTTP_CHUNK_BYTES {
+            return Err(protocol("sealed completion has an invalid size"));
+        }
+        write_http_chunk(&mut self.stream, completion)?;
+        finish_http_chunks(&mut self.stream)?;
+        Ok(())
+    }
+
+    fn finish_without_completion(mut self) -> StreamResult<()> {
+        finish_http_chunks(&mut self.stream)?;
+        Ok(())
+    }
+}
+
 pub struct LocalEd25519YaoAuthenticatedDeriverBPeerV1 {
     stream: TcpStream,
     reader: BufReader<TcpStream>,
@@ -149,8 +169,9 @@ pub fn run_local_activation_deriver_a_pair_http_v1(
 ) -> StreamResult<(
     ActivationDeriverACompletion,
     Ed25519YaoRoleStartAcceptanceV1,
+    Vec<u8>,
 )> {
-    let (completion, acceptance) = run_local_deriver_a_http_with_pair_v1(
+    let (completion, acceptance, sealed_completion) = run_local_deriver_a_http_with_pair_v1(
         address,
         session,
         internal_service_auth,
@@ -162,7 +183,9 @@ pub fn run_local_activation_deriver_a_pair_http_v1(
         role,
     )?;
     let acceptance = acceptance.ok_or_else(|| protocol("pair start acceptance is missing"))?;
-    Ok((completion, acceptance))
+    let sealed_completion =
+        sealed_completion.ok_or_else(|| protocol("pair sealed completion is missing"))?;
+    Ok((completion, acceptance, sealed_completion))
 }
 
 pub fn run_local_export_deriver_a_http_v1(
@@ -183,8 +206,12 @@ pub fn run_local_export_deriver_a_pair_http_v1(
     peer_receipt: Ed25519YaoRoleReadinessReceiptV1,
     execution_id: Ed25519YaoExecutionIdV1,
     role: ExportDeriverA,
-) -> StreamResult<(ExportDeriverACompletion, Ed25519YaoRoleStartAcceptanceV1)> {
-    let (completion, acceptance) = run_local_deriver_a_http_with_pair_v1(
+) -> StreamResult<(
+    ExportDeriverACompletion,
+    Ed25519YaoRoleStartAcceptanceV1,
+    Vec<u8>,
+)> {
+    let (completion, acceptance, sealed_completion) = run_local_deriver_a_http_with_pair_v1(
         address,
         session,
         internal_service_auth,
@@ -196,7 +223,9 @@ pub fn run_local_export_deriver_a_pair_http_v1(
         role,
     )?;
     let acceptance = acceptance.ok_or_else(|| protocol("pair start acceptance is missing"))?;
-    Ok((completion, acceptance))
+    let sealed_completion =
+        sealed_completion.ok_or_else(|| protocol("pair sealed completion is missing"))?;
+    Ok((completion, acceptance, sealed_completion))
 }
 
 fn run_local_deriver_a_http_v1<R>(
@@ -208,7 +237,7 @@ fn run_local_deriver_a_http_v1<R>(
 where
     R: LocalStreamingRole,
 {
-    let (completion, _) =
+    let (completion, _, _) =
         run_local_deriver_a_http_with_pair_v1(address, session, internal_service_auth, None, role)?;
     Ok(completion)
 }
@@ -219,7 +248,11 @@ fn run_local_deriver_a_http_with_pair_v1<R>(
     internal_service_auth: &str,
     pair: Option<LocalEd25519YaoPairPeerContextV1>,
     mut role: R,
-) -> StreamResult<(R::Completion, Option<Ed25519YaoRoleStartAcceptanceV1>)>
+) -> StreamResult<(
+    R::Completion,
+    Option<Ed25519YaoRoleStartAcceptanceV1>,
+    Option<Vec<u8>>,
+)>
 where
     R: LocalStreamingRole,
 {
@@ -282,12 +315,20 @@ where
     let returned = read_wire_message(&mut reader, &mut b_to_a_decoder)?;
     require_receive_instruction(&role, &returned)?;
     role = expect_continue(role.handle(RelayEvent::Inbound(returned))?)?;
+    let sealed_completion = if pair.is_some() {
+        Some(
+            read_http_chunk(&mut reader)?
+                .ok_or_else(|| protocol("pair response ended before sealed completion"))?,
+        )
+    } else {
+        None
+    };
     require_http_eof(&mut reader)?;
     let peer_eof = b_to_a_decoder
         .finish_at_transport_eof()
         .map_err(|_| protocol("A response EOF evidence"))?;
     let completion = expect_complete(role.handle(RelayEvent::InboundDirectionalEof(peer_eof))?)?;
-    Ok((completion, acceptance))
+    Ok((completion, acceptance, sealed_completion))
 }
 
 pub fn run_local_activation_deriver_b_http_v1(
@@ -356,20 +397,44 @@ pub fn run_local_activation_deriver_b_authenticated_http_v1(
     peer: LocalEd25519YaoAuthenticatedDeriverBPeerV1,
     role: ActivationDeriverB,
 ) -> StreamResult<ActivationDeriverBCompletion> {
-    run_local_deriver_b_authenticated_http_v1(peer, role)
+    let (completion, response) = run_local_deriver_b_authenticated_http_open_v1(peer, role)?;
+    response.finish_without_completion()?;
+    Ok(completion)
 }
 
 pub fn run_local_export_deriver_b_authenticated_http_v1(
     peer: LocalEd25519YaoAuthenticatedDeriverBPeerV1,
     role: ExportDeriverB,
 ) -> StreamResult<ExportDeriverBCompletion> {
-    run_local_deriver_b_authenticated_http_v1(peer, role)
+    let (completion, response) = run_local_deriver_b_authenticated_http_open_v1(peer, role)?;
+    response.finish_without_completion()?;
+    Ok(completion)
 }
 
-fn run_local_deriver_b_authenticated_http_v1<R>(
+pub(crate) fn run_local_activation_deriver_b_authenticated_http_open_v1(
+    peer: LocalEd25519YaoAuthenticatedDeriverBPeerV1,
+    role: ActivationDeriverB,
+) -> StreamResult<(
+    ActivationDeriverBCompletion,
+    LocalEd25519YaoCompletedDeriverBResponseV1,
+)> {
+    run_local_deriver_b_authenticated_http_open_v1(peer, role)
+}
+
+pub(crate) fn run_local_export_deriver_b_authenticated_http_open_v1(
+    peer: LocalEd25519YaoAuthenticatedDeriverBPeerV1,
+    role: ExportDeriverB,
+) -> StreamResult<(
+    ExportDeriverBCompletion,
+    LocalEd25519YaoCompletedDeriverBResponseV1,
+)> {
+    run_local_deriver_b_authenticated_http_open_v1(peer, role)
+}
+
+fn run_local_deriver_b_authenticated_http_open_v1<R>(
     peer: LocalEd25519YaoAuthenticatedDeriverBPeerV1,
     mut role: R,
-) -> StreamResult<R::Completion>
+) -> StreamResult<(R::Completion, LocalEd25519YaoCompletedDeriverBResponseV1)>
 where
     R: LocalStreamingRole,
 {
@@ -432,11 +497,14 @@ where
     let (next, returned) = expect_send(role.handle(RelayEvent::Advance)?)?;
     role = next;
     write_wire_message(&mut stream, &mut b_to_a_encoder, returned)?;
-    finish_http_chunks(&mut stream)?;
     let local_eof = b_to_a_encoder
         .finish_after_transport_close()
         .map_err(|_| protocol("B response EOF evidence"))?;
-    expect_complete(role.handle(RelayEvent::LocalDirectionalEof(local_eof))?)
+    let completion = expect_complete(role.handle(RelayEvent::LocalDirectionalEof(local_eof))?)?;
+    Ok((
+        completion,
+        LocalEd25519YaoCompletedDeriverBResponseV1 { stream },
+    ))
 }
 
 fn configure_stream(stream: &TcpStream) -> io::Result<()> {

@@ -2,122 +2,271 @@ import { expect, test } from '@playwright/test';
 import {
   createConsoleRouter,
   createInMemoryConsoleAccountService,
-  createInMemoryConsoleApiKeyService,
-  createInMemoryConsoleOnboardingService,
+  createInMemoryConsoleOrganizationAccessService,
   createInMemoryConsoleOrgProjectEnvService,
-  createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWalletService,
+  type ActiveOrganizationAuthorization,
+  type ConsoleAccountService,
   type ConsoleAuthAdapter,
+  type ConsoleAuthClaims,
+  type ConsoleOrganizationAccessService,
   type ConsoleOrgProjectEnvService,
-  type ConsoleTeamRbacService,
-  type SessionAdapter,
 } from '@seams-internal/console-server/router/express-adaptor';
 import { createCloudflareConsoleRouter } from '@seams-internal/console-server/router/cloudflare-adaptor';
+import type { SessionAdapter } from '@seams/sdk-server/router/express';
 import { callCf, fetchJson, startExpressRouter } from './helpers';
 
-function makeConsoleAuthAdapter(input: {
-  userId: string;
-  orgId: string;
-  roles: string[];
-  email?: string;
-  name?: string;
-  provider?: string;
-  projectId?: string;
-  environmentId?: string;
-}): ConsoleAuthAdapter {
-  return {
-    authenticate: async () => ({
-      ok: true,
-      claims: {
-        userId: input.userId,
-        orgId: input.orgId,
-        roles: input.roles,
-        ...(input.email ? { email: input.email } : {}),
-        ...(input.name ? { name: input.name } : {}),
-        ...(input.provider ? { provider: input.provider } : {}),
-        ...(input.projectId ? { projectId: input.projectId } : {}),
-        ...(input.environmentId ? { environmentId: input.environmentId } : {}),
-      },
-    }),
-  };
-}
-
-async function seedOrganization(input: {
-  orgProjectEnv: ConsoleOrgProjectEnvService;
-  teamRbac: ConsoleTeamRbacService;
-  orgId: string;
-  actorUserId: string;
-  actorEmail: string;
-  actorDisplayName: string;
-  organizationName: string;
-  projectId?: string;
-  environmentId?: string;
-}): Promise<void> {
-  const ctx = {
-    orgId: input.orgId,
-    actorUserId: input.actorUserId,
-    roles: ['owner', 'admin'],
-    actorEmail: input.actorEmail,
-    actorDisplayName: input.actorDisplayName,
-  };
-  await input.orgProjectEnv.upsertOrganization(ctx, { name: input.organizationName });
-  await input.teamRbac.bootstrapOwner(ctx);
-  if (!input.projectId || !input.environmentId) return;
-  await input.orgProjectEnv.createProject(ctx, {
-    id: input.projectId,
-    name: `${input.organizationName} Project`,
-    liveEnvironmentsEnabled: true,
-  });
-}
-
-function buildWalletSeed(input: {
-  orgId: string;
-  projectId: string;
-  environmentId: string;
-  walletId: string;
-}) {
-  const now = new Date('2026-03-10T00:00:00.000Z').toISOString();
-  return {
-    id: input.walletId,
-    orgId: input.orgId,
-    projectId: input.projectId,
-    environmentId: input.environmentId,
-    userId: 'wallet-user',
-    externalRefId: `${input.walletId}-external`,
-    address: '0x0000000000000000000000000000000000000001',
-    chain: 'Ethereum' as const,
-    walletType: 'EOA' as const,
-    status: 'ACTIVE' as const,
-    policyId: null,
-    balanceMinor: 0,
-    lastActivityAt: now,
-    createdAt: now,
-    updatedAt: now,
-  };
-}
+const CURRENT_USER_ID = 'user_current';
+const CURRENT_EMAIL = 'owner@example.com';
+const CURRENT_NAME = 'Owner User';
 
 type RouterMode = 'express' | 'cloudflare';
+
+interface AccountRouteFixture {
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly organizationAccess: ConsoleOrganizationAccessService;
+  readonly account: ConsoleAccountService;
+}
+
+interface ConsoleRouteResponse {
+  readonly status: number;
+  readonly json: Record<string, unknown> | null;
+  readonly cookie: string;
+}
+
+class ContextSwitchSession implements SessionAdapter {
+  signedSubject: string | null = null;
+  signedClaims: Record<string, unknown> | null = null;
+
+  async parse(): Promise<{
+    readonly ok: true;
+    readonly claims: Record<string, unknown>;
+  }> {
+    return {
+      ok: true,
+      claims: {
+        sub: CURRENT_USER_ID,
+        userId: CURRENT_USER_ID,
+        kind: 'app_session_v1',
+        appSessionVersion: 'v1',
+        email: CURRENT_EMAIL,
+        name: CURRENT_NAME,
+        orgId: 'org_current',
+        roles: ['owner'],
+        projectId: 'proj_current',
+        environmentId: 'proj_current:dev',
+      },
+    };
+  }
+
+  async signJwt(subject: string, extra: Record<string, unknown> = {}): Promise<string> {
+    this.signedSubject = subject;
+    this.signedClaims = extra;
+    return 'switched-session-token';
+  }
+
+  buildSetCookie(token: string): string {
+    return `seams-jwt=${token}; Path=/; HttpOnly`;
+  }
+
+  buildClearCookie(): string {
+    return 'seams-jwt=; Path=/; Max-Age=0';
+  }
+
+  async refresh(): Promise<{ readonly ok: false; readonly code: string; readonly message: string }> {
+    return { ok: false, code: 'not_eligible', message: 'not eligible' };
+  }
+}
+
+function createAccountRouteFixture(): AccountRouteFixture {
+  const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+  const organizationAccess = createInMemoryConsoleOrganizationAccessService();
+  const account = createInMemoryConsoleAccountService({
+    orgProjectEnv,
+    organizationAccess,
+    wallets: createInMemoryConsoleWalletService(),
+  });
+  return { orgProjectEnv, organizationAccess, account };
+}
+
+function makeConsoleAuthAdapter(claims: ConsoleAuthClaims): ConsoleAuthAdapter {
+  return {
+    authenticate: async () => ({ ok: true, claims }),
+  };
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled authorization role: ${JSON.stringify(value)}`);
+}
+
+function toConsoleAuthClaims(
+  authorization: ActiveOrganizationAuthorization,
+): ConsoleAuthClaims {
+  switch (authorization.role) {
+    case 'OWNER':
+      return {
+        userId: authorization.userId,
+        orgId: authorization.orgId,
+        membershipId: authorization.membershipId,
+        authorizationVersion: authorization.authorizationVersion,
+        role: 'OWNER',
+        adminPermissions: authorization.adminPermissions,
+        projectAccess: { kind: 'all' },
+        platformSupport: false,
+        email: CURRENT_EMAIL,
+        name: CURRENT_NAME,
+        provider: 'password',
+      };
+    case 'ADMIN':
+      return {
+        userId: authorization.userId,
+        orgId: authorization.orgId,
+        membershipId: authorization.membershipId,
+        authorizationVersion: authorization.authorizationVersion,
+        role: 'ADMIN',
+        adminPermissions: authorization.adminPermissions,
+        projectAccess: { kind: 'all' },
+        platformSupport: false,
+        email: CURRENT_EMAIL,
+        name: CURRENT_NAME,
+        provider: 'password',
+      };
+    case 'MEMBER':
+      return {
+        userId: authorization.userId,
+        orgId: authorization.orgId,
+        membershipId: authorization.membershipId,
+        authorizationVersion: authorization.authorizationVersion,
+        role: 'MEMBER',
+        adminPermissions: [],
+        projectAccess: {
+          kind: 'assigned',
+          assignments: authorization.projectAccess.assignments,
+        },
+        platformSupport: false,
+        email: CURRENT_EMAIL,
+        name: CURRENT_NAME,
+        provider: 'password',
+      };
+    default:
+      return assertNever(authorization);
+  }
+}
+
+async function loadCurrentClaims(
+  organizationAccess: ConsoleOrganizationAccessService,
+): Promise<ConsoleAuthClaims> {
+  const authorization = await organizationAccess.lookupAuthorization({
+    orgId: 'org_current',
+    userId: CURRENT_USER_ID,
+  });
+  if (!authorization || authorization.kind === 'denied') {
+    throw new Error('Expected current organization authorization');
+  }
+  return toConsoleAuthClaims(authorization);
+}
+
+async function seedOwnerOrganization(input: {
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly organizationAccess: ConsoleOrganizationAccessService;
+  readonly orgId: string;
+  readonly userId: string;
+  readonly email: string;
+  readonly displayName: string;
+  readonly organizationName: string;
+}): Promise<string> {
+  await input.orgProjectEnv.upsertOrganization(
+    { orgId: input.orgId, actorUserId: input.userId },
+    { name: input.organizationName },
+  );
+  const membership = await input.organizationAccess.bootstrapInitialOwner({
+    orgId: input.orgId,
+    userId: input.userId,
+    email: input.email,
+    displayName: input.displayName,
+  });
+  return membership.id;
+}
+
+async function createProject(input: {
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly orgId: string;
+  readonly actorUserId: string;
+  readonly projectId: string;
+}): Promise<void> {
+  await input.orgProjectEnv.createProject(
+    { orgId: input.orgId, actorUserId: input.actorUserId },
+    {
+      id: input.projectId,
+      name: `${input.projectId} Project`,
+      liveEnvironmentsEnabled: true,
+    },
+  );
+}
+
+async function addCurrentUserAsProjectMember(input: {
+  readonly organizationAccess: ConsoleOrganizationAccessService;
+  readonly orgId: string;
+  readonly ownerUserId: string;
+  readonly projectId: string;
+}): Promise<string> {
+  const issued = await input.organizationAccess.invite(
+    { orgId: input.orgId, actorUserId: input.ownerUserId },
+    {
+      email: CURRENT_EMAIL,
+      role: 'MEMBER',
+      projectAccess: [{ projectId: input.projectId, accessLevel: 'viewer' }],
+    },
+  );
+  const membership = await input.organizationAccess.acceptInvitation(
+    { userId: CURRENT_USER_ID, verifiedEmail: CURRENT_EMAIL },
+    issued.invitation.id,
+    { token: issued.token },
+  );
+  return membership.id;
+}
+
+function readObjectArray(value: unknown, field: string): readonly Record<string, unknown>[] {
+  if (
+    !Array.isArray(value) ||
+    !value.every(
+      (entry) => typeof entry === 'object' && entry !== null && !Array.isArray(entry),
+    )
+  ) {
+    throw new Error(`Expected ${field} to be an array of objects`);
+  }
+  return value;
+}
+
+function requireOrganization(
+  organizations: readonly Record<string, unknown>[],
+  orgId: string,
+): Record<string, unknown> {
+  const organization = organizations.find((entry) => entry.id === orgId);
+  if (!organization) throw new Error(`Expected organization ${orgId}`);
+  return organization;
+}
 
 async function callConsoleRoute(
   mode: RouterMode,
   input: {
-    auth: ConsoleAuthAdapter;
-    account: ReturnType<typeof createInMemoryConsoleAccountService>;
-    session?: SessionAdapter | null;
-    method: string;
-    path: string;
-    body?: Record<string, unknown>;
+    readonly auth: ConsoleAuthAdapter;
+    readonly account: ConsoleAccountService;
+    readonly session?: SessionAdapter | null;
+    readonly method: string;
+    readonly path: string;
+    readonly body?: Record<string, unknown>;
   },
-): Promise<{ status: number; json: Record<string, unknown> | null; cookie: string }> {
+): Promise<ConsoleRouteResponse> {
   if (mode === 'express') {
     const router = createConsoleRouter({
       auth: input.auth,
       account: input.account,
-      session: input.session || null,
+      session: input.session ?? null,
     });
-    const srv = await startExpressRouter(router);
+    const server = await startExpressRouter(router);
     try {
-      const response = await fetchJson(`${srv.baseUrl}${input.path}`, {
+      const response = await fetchJson(`${server.baseUrl}${input.path}`, {
         method: input.method,
         headers: input.body ? { 'Content-Type': 'application/json' } : undefined,
         body: input.body ? JSON.stringify(input.body) : undefined,
@@ -128,14 +277,14 @@ async function callConsoleRoute(
         cookie: String(response.headers.get('set-cookie') || ''),
       };
     } finally {
-      await srv.close();
+      await server.close();
     }
   }
 
   const handler = createCloudflareConsoleRouter({
     auth: input.auth,
     account: input.account,
-    session: input.session || null,
+    session: input.session ?? null,
   });
   const response = await callCf(handler, {
     method: input.method,
@@ -151,655 +300,266 @@ async function callConsoleRoute(
 
 for (const mode of ['express', 'cloudflare'] as const) {
   test.describe(`console account routes (${mode})`, () => {
-    test('returns account profile and creates organizations', async () => {
-      const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-      const teamRbac = createInMemoryConsoleTeamRbacService();
-      const onboarding = createInMemoryConsoleOnboardingService({
-        orgProjectEnv,
-        apiKeys: createInMemoryConsoleApiKeyService(),
-        teamRbac,
-      });
-      const account = createInMemoryConsoleAccountService({
-        orgProjectEnv,
-        teamRbac,
-        onboarding,
-      });
-      await seedOrganization({
-        orgProjectEnv,
-        teamRbac,
+    test('returns profile data and lists only organizations with precise access', async () => {
+      const fixture = createAccountRouteFixture();
+      const currentMembershipId = await seedOwnerOrganization({
+        ...fixture,
         orgId: 'org_current',
-        actorUserId: 'user_current',
-        actorEmail: 'owner@example.com',
-        actorDisplayName: 'Owner User',
+        userId: CURRENT_USER_ID,
+        email: CURRENT_EMAIL,
+        displayName: CURRENT_NAME,
         organizationName: 'Current Org',
       });
-
-      const auth = makeConsoleAuthAdapter({
-        userId: 'user_current',
-        orgId: 'org_current',
-        roles: ['owner', 'admin'],
-        email: 'owner@example.com',
-        name: 'Owner User',
+      await seedOwnerOrganization({
+        ...fixture,
+        orgId: 'org_shared',
+        userId: 'user_shared_owner',
+        email: 'shared-owner@example.com',
+        displayName: 'Shared Owner',
+        organizationName: 'Shared Org',
+      });
+      await createProject({
+        orgProjectEnv: fixture.orgProjectEnv,
+        orgId: 'org_shared',
+        actorUserId: 'user_shared_owner',
+        projectId: 'proj_shared',
+      });
+      const memberMembershipId = await addCurrentUserAsProjectMember({
+        organizationAccess: fixture.organizationAccess,
+        orgId: 'org_shared',
+        ownerUserId: 'user_shared_owner',
+        projectId: 'proj_shared',
+      });
+      await seedOwnerOrganization({
+        ...fixture,
+        orgId: 'org_hidden',
+        userId: 'user_hidden_owner',
+        email: 'hidden-owner@example.com',
+        displayName: 'Hidden Owner',
+        organizationName: 'Hidden Org',
       });
 
+      const auth = makeConsoleAuthAdapter(await loadCurrentClaims(fixture.organizationAccess));
       const profileResponse = await callConsoleRoute(mode, {
         auth,
-        account,
+        account: fixture.account,
         method: 'GET',
         path: '/console/account/profile',
       });
       expect(profileResponse.status).toBe(200);
       expect(profileResponse.json?.profile).toMatchObject({
-        userId: 'user_current',
-        displayName: 'Owner User',
-        primaryEmail: 'owner@example.com',
+        userId: CURRENT_USER_ID,
+        displayName: CURRENT_NAME,
+        primaryEmail: CURRENT_EMAIL,
       });
 
-      const createResponse = await callConsoleRoute(mode, {
+      const patchResponse = await callConsoleRoute(mode, {
         auth,
-        account,
-        method: 'POST',
-        path: '/console/account/organizations',
-        body: { name: 'Created From Account' },
-      });
-      expect(createResponse.status).toBe(201);
-      expect(createResponse.json?.organization).toMatchObject({
-        name: 'Created From Account',
-        actorIsOwner: true,
-        onboardingComplete: false,
-      });
-      const createdOrganization = createResponse.json?.organization as any;
-      expect(String(createdOrganization?.id || '')).toMatch(/^org_[a-z0-9]+_[a-z0-9]{5}$/);
-      expect(String(createdOrganization?.id || '')).not.toContain('created_from_account');
-
-      const listResponse = await callConsoleRoute(mode, {
-        auth,
-        account,
-        method: 'GET',
-        path: '/console/account/organizations',
-      });
-      expect(listResponse.status).toBe(200);
-      expect(Array.isArray(listResponse.json?.organizations)).toBe(true);
-      expect(
-        (listResponse.json?.organizations as Array<Record<string, unknown>>).some(
-          (entry) => entry.name === 'Created From Account',
-        ),
-      ).toBe(true);
-    });
-
-    test('updates profile fields and backup emails with validation', async () => {
-      const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-      const teamRbac = createInMemoryConsoleTeamRbacService();
-      const onboarding = createInMemoryConsoleOnboardingService({
-        orgProjectEnv,
-        apiKeys: createInMemoryConsoleApiKeyService(),
-        teamRbac,
-      });
-      const account = createInMemoryConsoleAccountService({
-        orgProjectEnv,
-        teamRbac,
-        onboarding,
-      });
-      await seedOrganization({
-        orgProjectEnv,
-        teamRbac,
-        orgId: 'org_current',
-        actorUserId: 'user_current',
-        actorEmail: 'owner@example.com',
-        actorDisplayName: 'Owner User',
-        organizationName: 'Current Org',
-      });
-
-      const auth = makeConsoleAuthAdapter({
-        userId: 'user_current',
-        orgId: 'org_current',
-        roles: ['owner', 'admin'],
-        email: 'owner@example.com',
-        name: 'Owner User',
-      });
-
-      const invalidResponse = await callConsoleRoute(mode, {
-        auth,
-        account,
-        method: 'PATCH',
-        path: '/console/account/profile',
-        body: { addBackupEmail: 'not-an-email' },
-      });
-      expect(invalidResponse.status).toBe(400);
-      expect(invalidResponse.json).toMatchObject({
-        ok: false,
-        code: 'invalid_body',
-      });
-
-      const updateResponse = await callConsoleRoute(mode, {
-        auth,
-        account,
+        account: fixture.account,
         method: 'PATCH',
         path: '/console/account/profile',
         body: {
-          displayName: 'Updated User',
-          primaryEmail: 'updated@example.com',
-          addBackupEmail: 'Recovery@Example.com',
+          displayName: 'Updated Owner',
+          addBackupEmail: 'backup@example.com',
         },
       });
-      expect(updateResponse.status).toBe(200);
-      expect(updateResponse.json?.profile).toMatchObject({
-        displayName: 'Updated User',
-        primaryEmail: 'updated@example.com',
-      });
-      expect(updateResponse.json?.profile).toMatchObject({
-        backupEmails: [{ email: 'recovery@example.com', status: 'PENDING' }],
-      });
-
-      const duplicateBackupResponse = await callConsoleRoute(mode, {
-        auth,
-        account,
-        method: 'PATCH',
-        path: '/console/account/profile',
-        body: { addBackupEmail: 'recovery@example.com' },
-      });
-      expect(duplicateBackupResponse.status).toBe(200);
-      const duplicateProfile = duplicateBackupResponse.json?.profile as
-        | { backupEmails?: unknown }
-        | undefined;
-      expect(
-        Array.isArray(duplicateProfile?.backupEmails) ? duplicateProfile.backupEmails : [],
-      ).toHaveLength(1);
-
-      const removeResponse = await callConsoleRoute(mode, {
-        auth,
-        account,
-        method: 'PATCH',
-        path: '/console/account/profile',
-        body: { removeBackupEmail: 'RECOVERY@example.com' },
-      });
-      expect(removeResponse.status).toBe(200);
-      expect(removeResponse.json?.profile).toMatchObject({
-        backupEmails: [],
-      });
-    });
-
-    test('treats oidc primary email as read-only', async () => {
-      const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-      const teamRbac = createInMemoryConsoleTeamRbacService();
-      const onboarding = createInMemoryConsoleOnboardingService({
-        orgProjectEnv,
-        apiKeys: createInMemoryConsoleApiKeyService(),
-        teamRbac,
-      });
-      const account = createInMemoryConsoleAccountService({
-        orgProjectEnv,
-        teamRbac,
-        onboarding,
-      });
-      await seedOrganization({
-        orgProjectEnv,
-        teamRbac,
-        orgId: 'org_current',
-        actorUserId: 'user_current',
-        actorEmail: 'owner@example.com',
-        actorDisplayName: 'Owner User',
-        organizationName: 'Current Org',
-      });
-
-      const auth = makeConsoleAuthAdapter({
-        userId: 'user_current',
-        orgId: 'org_current',
-        roles: ['owner', 'admin'],
-        email: 'owner@example.com',
-        name: 'Owner User',
-        provider: 'oidc',
-      });
-
-      const profileResponse = await callConsoleRoute(mode, {
-        auth,
-        account,
-        method: 'GET',
-        path: '/console/account/profile',
-      });
-      expect(profileResponse.status).toBe(200);
-      expect(profileResponse.json?.profile).toMatchObject({
-        primaryEmail: 'owner@example.com',
-        canEditPrimaryEmail: false,
-      });
-
-      const deniedResponse = await callConsoleRoute(mode, {
-        auth,
-        account,
-        method: 'PATCH',
-        path: '/console/account/profile',
-        body: { primaryEmail: 'updated@example.com' },
-      });
-      expect(deniedResponse.status).toBe(403);
-      expect(deniedResponse.json).toMatchObject({
-        ok: false,
-        code: 'primary_email_read_only',
-      });
-
-      const displayNameResponse = await callConsoleRoute(mode, {
-        auth,
-        account,
-        method: 'PATCH',
-        path: '/console/account/profile',
-        body: { displayName: 'Updated User' },
-      });
-      expect(displayNameResponse.status).toBe(200);
-      expect(displayNameResponse.json?.profile).toMatchObject({
-        displayName: 'Updated User',
-        primaryEmail: 'owner@example.com',
-        canEditPrimaryEmail: false,
-      });
-    });
-
-    test('limits org directory visibility and forbids owner transfer by non-owner', async () => {
-      const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-      const teamRbac = createInMemoryConsoleTeamRbacService();
-      const onboarding = createInMemoryConsoleOnboardingService({
-        orgProjectEnv,
-        apiKeys: createInMemoryConsoleApiKeyService(),
-        teamRbac,
-      });
-      const account = createInMemoryConsoleAccountService({
-        orgProjectEnv,
-        teamRbac,
-        onboarding,
-      });
-      await seedOrganization({
-        orgProjectEnv,
-        teamRbac,
-        orgId: 'org_current',
-        actorUserId: 'user_current',
-        actorEmail: 'owner@example.com',
-        actorDisplayName: 'Owner User',
-        organizationName: 'Current Org',
-      });
-      await seedOrganization({
-        orgProjectEnv,
-        teamRbac,
-        orgId: 'org_hidden',
-        actorUserId: 'user_hidden_owner',
-        actorEmail: 'hidden@example.com',
-        actorDisplayName: 'Hidden Owner',
-        organizationName: 'Hidden Org',
-      });
-      await seedOrganization({
-        orgProjectEnv,
-        teamRbac,
-        orgId: 'org_admin_only',
-        actorUserId: 'user_target_owner',
-        actorEmail: 'target-owner@example.com',
-        actorDisplayName: 'Target Owner',
-        organizationName: 'Admin Only Org',
-      });
-      await teamRbac.inviteMember(
-        {
-          orgId: 'org_admin_only',
-          actorUserId: 'user_target_owner',
-          roles: ['owner', 'admin'],
-          actorEmail: 'target-owner@example.com',
-          actorDisplayName: 'Target Owner',
-        },
-        {
-          userId: 'user_current',
-          email: 'owner@example.com',
-          displayName: 'Owner User',
-          roles: [{ role: 'admin', scope: 'ORG' }],
-        },
-      );
-
-      const auth = makeConsoleAuthAdapter({
-        userId: 'user_current',
-        orgId: 'org_current',
-        roles: ['owner', 'admin'],
-        email: 'owner@example.com',
-        name: 'Owner User',
+      expect(patchResponse.status).toBe(200);
+      expect(patchResponse.json?.profile).toMatchObject({
+        displayName: 'Updated Owner',
+        backupEmails: [{ email: 'backup@example.com', status: 'PENDING' }],
       });
 
       const listResponse = await callConsoleRoute(mode, {
         auth,
-        account,
+        account: fixture.account,
         method: 'GET',
         path: '/console/account/organizations',
       });
       expect(listResponse.status).toBe(200);
-      expect(listResponse.json?.organizations).toMatchObject([{ id: 'org_current' }]);
-      expect(
-        Array.isArray(listResponse.json?.organizations)
-          ? listResponse.json?.organizations.some(
-              (entry) => String((entry as Record<string, unknown>).id || '') === 'org_hidden',
-            )
-          : false,
-      ).toBe(false);
-      expect(
-        Array.isArray(listResponse.json?.organizations)
-          ? listResponse.json?.organizations.some(
-              (entry) => String((entry as Record<string, unknown>).id || '') === 'org_admin_only',
-            )
-          : false,
-      ).toBe(false);
-
-      const transferResponse = await callConsoleRoute(mode, {
-        auth,
-        account,
-        method: 'POST',
-        path: '/console/account/organizations/org_admin_only/transfer-owner',
-        body: { targetUserId: 'user_target_owner' },
+      const organizations = readObjectArray(
+        listResponse.json?.organizations,
+        'organizations',
+      );
+      expect(organizations.map((entry) => entry.id).sort()).toEqual([
+        'org_current',
+        'org_shared',
+      ]);
+      expect(requireOrganization(organizations, 'org_current')).toMatchObject({
+        membershipId: currentMembershipId,
+        role: 'OWNER',
+        adminPermissions: [
+          'members.manage',
+          'projects.manage',
+          'billing.view',
+          'billing.manage',
+        ],
+        projectAccess: { kind: 'all' },
+        isCurrentOrg: true,
       });
-      expect(transferResponse.status).toBe(403);
-      expect(transferResponse.json).toMatchObject({
-        ok: false,
-        code: 'forbidden',
+      const sharedOrganization = requireOrganization(organizations, 'org_shared');
+      expect(sharedOrganization).toMatchObject({
+        membershipId: memberMembershipId,
+        role: 'MEMBER',
+        adminPermissions: [],
+        projectAccess: {
+          kind: 'assigned',
+          assignments: [{ projectId: 'proj_shared', accessLevel: 'viewer' }],
+        },
+        isCurrentOrg: false,
       });
+      expect('actorRoles' in sharedOrganization).toBe(false);
     });
 
-    test('transfers owner and re-signs session on org switch', async () => {
-      const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-      const teamRbac = createInMemoryConsoleTeamRbacService();
-      const onboarding = createInMemoryConsoleOnboardingService({
-        orgProjectEnv,
-        apiKeys: createInMemoryConsoleApiKeyService(),
-        teamRbac,
-      });
-      const account = createInMemoryConsoleAccountService({
-        orgProjectEnv,
-        teamRbac,
-        onboarding,
-      });
-      await seedOrganization({
-        orgProjectEnv,
-        teamRbac,
+    test('switches to member access and signs only current authorization claims', async () => {
+      const fixture = createAccountRouteFixture();
+      await seedOwnerOrganization({
+        ...fixture,
         orgId: 'org_current',
-        actorUserId: 'user_current',
-        actorEmail: 'owner@example.com',
-        actorDisplayName: 'Owner User',
+        userId: CURRENT_USER_ID,
+        email: CURRENT_EMAIL,
+        displayName: CURRENT_NAME,
         organizationName: 'Current Org',
-        projectId: 'proj_current',
-        environmentId: 'proj_current:dev',
       });
-      await seedOrganization({
-        orgProjectEnv,
-        teamRbac,
+      await seedOwnerOrganization({
+        ...fixture,
         orgId: 'org_target',
-        actorUserId: 'user_current',
-        actorEmail: 'owner@example.com',
-        actorDisplayName: 'Owner User',
+        userId: 'user_target_owner',
+        email: 'target-owner@example.com',
+        displayName: 'Target Owner',
         organizationName: 'Target Org',
+      });
+      await createProject({
+        orgProjectEnv: fixture.orgProjectEnv,
+        orgId: 'org_target',
+        actorUserId: 'user_target_owner',
         projectId: 'proj_target',
-        environmentId: 'proj_target:dev',
       });
-      await teamRbac.inviteMember(
-        {
-          orgId: 'org_target',
-          actorUserId: 'user_current',
-          roles: ['owner', 'admin'],
-          actorEmail: 'owner@example.com',
-          actorDisplayName: 'Owner User',
-        },
-        {
-          userId: 'user_admin',
-          email: 'admin@example.com',
-          displayName: 'Admin User',
-          roles: [{ role: 'admin', scope: 'ORG' }],
-        },
-      );
-
-      const auth = makeConsoleAuthAdapter({
-        userId: 'user_current',
-        orgId: 'org_current',
-        roles: ['owner', 'admin'],
-        email: 'owner@example.com',
-        name: 'Owner User',
-        projectId: 'proj_current',
-        environmentId: 'proj_current:dev',
+      const targetMembershipId = await addCurrentUserAsProjectMember({
+        organizationAccess: fixture.organizationAccess,
+        orgId: 'org_target',
+        ownerUserId: 'user_target_owner',
+        projectId: 'proj_target',
       });
 
-      const transferResponse = await callConsoleRoute(mode, {
+      const auth = makeConsoleAuthAdapter(await loadCurrentClaims(fixture.organizationAccess));
+      const session = new ContextSwitchSession();
+      const response = await callConsoleRoute(mode, {
         auth,
-        account,
-        method: 'POST',
-        path: '/console/account/organizations/org_target/transfer-owner',
-        body: { targetUserId: 'user_admin' },
-      });
-      expect(transferResponse.status).toBe(200);
-      expect(transferResponse.json?.transfer).toMatchObject({
-        nextOwner: { userId: 'user_admin' },
-      });
-
-      let signedSub = '';
-      let signedClaims: Record<string, unknown> | null = null;
-      const session: SessionAdapter = {
-        parse: async () => ({
-          ok: true,
-          claims: {
-            sub: 'user_current',
-            userId: 'user_current',
-            kind: 'app_session_v1',
-            appSessionVersion: 'v1',
-            email: 'owner@example.com',
-            name: 'Owner User',
-            orgId: 'org_current',
-            projectId: 'proj_current',
-            environmentId: 'proj_current:dev',
-          },
-        }),
-        signJwt: async (sub: string, extra?: Record<string, unknown>) => {
-          signedSub = sub;
-          signedClaims = extra || null;
-          return 'switched-session-token';
-        },
-        buildSetCookie: (token: string) => `seams-jwt=${token}; Path=/; HttpOnly`,
-        buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
-        refresh: async () => ({ ok: false, code: 'not_eligible', message: 'not eligible' }),
-      };
-
-      const switchResponse = await callConsoleRoute(mode, {
-        auth,
-        account,
+        account: fixture.account,
         session,
         method: 'POST',
         path: '/console/account/organizations/org_target/switch-context',
         body: {},
       });
 
-      expect(switchResponse.status).toBe(200);
-      expect(switchResponse.json?.context).toMatchObject({
+      expect(response.status).toBe(200);
+      expect(response.json?.context).toMatchObject({
         orgId: 'org_target',
+        membershipId: targetMembershipId,
+        role: 'MEMBER',
+        adminPermissions: [],
+        projectAccess: {
+          kind: 'assigned',
+          assignments: [{ projectId: 'proj_target', accessLevel: 'viewer' }],
+        },
+        platformSupport: false,
         projectId: 'proj_target',
         environmentId: 'proj_target:prod',
-        actorRoles: ['admin'],
       });
-      expect(signedSub).toBe('user_current');
-      expect(signedClaims).toMatchObject({
+      expect(session.signedSubject).toBe(CURRENT_USER_ID);
+      expect(session.signedClaims).toMatchObject({
+        userId: CURRENT_USER_ID,
         kind: 'app_session_v1',
         appSessionVersion: 'v1',
-        email: 'owner@example.com',
-        name: 'Owner User',
+        email: CURRENT_EMAIL,
+        name: CURRENT_NAME,
         orgId: 'org_target',
+        membershipId: targetMembershipId,
+        role: 'MEMBER',
+        adminPermissions: [],
+        projectAccess: {
+          kind: 'assigned',
+          assignments: [{ projectId: 'proj_target', accessLevel: 'viewer' }],
+        },
+        platformSupport: false,
         projectId: 'proj_target',
         environmentId: 'proj_target:prod',
-        roles: ['admin'],
       });
-      expect(switchResponse.cookie).toContain('switched-session-token');
+      if (!session.signedClaims) throw new Error('Expected signed session claims');
+      expect('roles' in session.signedClaims).toBe(false);
+      expect(response.cookie).toContain('switched-session-token');
     });
 
-    test('deletes an empty non-current organization', async () => {
-      const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-      const teamRbac = createInMemoryConsoleTeamRbacService();
-      const onboarding = createInMemoryConsoleOnboardingService({
-        orgProjectEnv,
-        apiKeys: createInMemoryConsoleApiKeyService(),
-        teamRbac,
-      });
-      const account = createInMemoryConsoleAccountService({
-        orgProjectEnv,
-        teamRbac,
-        onboarding,
-        wallets: createInMemoryConsoleWalletService(),
-      });
-      await seedOrganization({
-        orgProjectEnv,
-        teamRbac,
+    test('allows owner update and delete while transfer-owner remains absent', async () => {
+      const fixture = createAccountRouteFixture();
+      await seedOwnerOrganization({
+        ...fixture,
         orgId: 'org_current',
-        actorUserId: 'user_current',
-        actorEmail: 'owner@example.com',
-        actorDisplayName: 'Owner User',
+        userId: CURRENT_USER_ID,
+        email: CURRENT_EMAIL,
+        displayName: CURRENT_NAME,
         organizationName: 'Current Org',
       });
-      await seedOrganization({
-        orgProjectEnv,
-        teamRbac,
-        orgId: 'org_empty_delete',
-        actorUserId: 'user_current',
-        actorEmail: 'owner@example.com',
-        actorDisplayName: 'Owner User',
-        organizationName: 'Delete Me',
+      await seedOwnerOrganization({
+        ...fixture,
+        orgId: 'org_target',
+        userId: CURRENT_USER_ID,
+        email: CURRENT_EMAIL,
+        displayName: CURRENT_NAME,
+        organizationName: 'Target Org',
       });
 
-      const auth = makeConsoleAuthAdapter({
-        userId: 'user_current',
-        orgId: 'org_current',
-        roles: ['owner', 'admin'],
-        email: 'owner@example.com',
-        name: 'Owner User',
+      const auth = makeConsoleAuthAdapter(await loadCurrentClaims(fixture.organizationAccess));
+      const updateResponse = await callConsoleRoute(mode, {
+        auth,
+        account: fixture.account,
+        method: 'PATCH',
+        path: '/console/account/organizations/org_target',
+        body: { name: 'Renamed Target', slug: 'renamed-target' },
       });
+      expect(updateResponse.status).toBe(200);
+      expect(updateResponse.json?.organization).toMatchObject({
+        id: 'org_target',
+        name: 'Renamed Target',
+        slug: 'renamed-target',
+        role: 'OWNER',
+        projectAccess: { kind: 'all' },
+      });
+
+      const transferResponse = await callConsoleRoute(mode, {
+        auth,
+        account: fixture.account,
+        method: 'POST',
+        path: '/console/account/organizations/org_target/transfer-owner',
+        body: { targetUserId: 'user_other' },
+      });
+      if (mode === 'express') {
+        expect(transferResponse.status).toBe(404);
+      } else {
+        expect(transferResponse.status).toBe(500);
+        expect(transferResponse.json).toMatchObject({
+          code: 'route_auth_not_configured',
+        });
+      }
+      expect(transferResponse.json?.transfer).toBeUndefined();
 
       const deleteResponse = await callConsoleRoute(mode, {
         auth,
-        account,
+        account: fixture.account,
         method: 'DELETE',
-        path: '/console/account/organizations/org_empty_delete',
+        path: '/console/account/organizations/org_target',
       });
       expect(deleteResponse.status).toBe(200);
-      expect(deleteResponse.json?.deleted).toMatchObject({
-        orgId: 'org_empty_delete',
-        organizationName: 'Delete Me',
+      expect(deleteResponse.json?.deleted).toEqual({
+        orgId: 'org_target',
+        organizationName: 'Renamed Target',
       });
-
-      const listResponse = await callConsoleRoute(mode, {
-        auth,
-        account,
-        method: 'GET',
-        path: '/console/account/organizations',
-      });
-      expect(listResponse.status).toBe(200);
-      expect(
-        Array.isArray(listResponse.json?.organizations)
-          ? listResponse.json?.organizations.some(
-              (entry) => String((entry as Record<string, unknown>).id || '') === 'org_empty_delete',
-            )
-          : false,
-      ).toBe(false);
-    });
-
-    test('blocks organization delete for current org, other members, or wallets', async () => {
-      const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-      const teamRbac = createInMemoryConsoleTeamRbacService();
-      const onboarding = createInMemoryConsoleOnboardingService({
-        orgProjectEnv,
-        apiKeys: createInMemoryConsoleApiKeyService(),
-        teamRbac,
-      });
-      const account = createInMemoryConsoleAccountService({
-        orgProjectEnv,
-        teamRbac,
-        onboarding,
-        wallets: createInMemoryConsoleWalletService({
-          seedWallets: [
-            buildWalletSeed({
-              orgId: 'org_with_wallet',
-              projectId: 'proj_wallet',
-              environmentId: 'proj_wallet:dev',
-              walletId: 'wallet_delete_blocker',
-            }),
-          ],
+      await expect(
+        fixture.organizationAccess.lookupAuthorization({
+          orgId: 'org_target',
+          userId: CURRENT_USER_ID,
         }),
-      });
-      await seedOrganization({
-        orgProjectEnv,
-        teamRbac,
-        orgId: 'org_current',
-        actorUserId: 'user_current',
-        actorEmail: 'owner@example.com',
-        actorDisplayName: 'Owner User',
-        organizationName: 'Current Org',
-      });
-      await seedOrganization({
-        orgProjectEnv,
-        teamRbac,
-        orgId: 'org_with_member',
-        actorUserId: 'user_current',
-        actorEmail: 'owner@example.com',
-        actorDisplayName: 'Owner User',
-        organizationName: 'Member Blocked Org',
-      });
-      await seedOrganization({
-        orgProjectEnv,
-        teamRbac,
-        orgId: 'org_with_wallet',
-        actorUserId: 'user_current',
-        actorEmail: 'owner@example.com',
-        actorDisplayName: 'Owner User',
-        organizationName: 'Wallet Blocked Org',
-      });
-      await teamRbac.inviteMember(
-        {
-          orgId: 'org_with_member',
-          actorUserId: 'user_current',
-          roles: ['owner', 'admin'],
-          actorEmail: 'owner@example.com',
-          actorDisplayName: 'Owner User',
-        },
-        {
-          userId: 'user_other',
-          email: 'other@example.com',
-          displayName: 'Other User',
-          roles: [{ role: 'admin', scope: 'ORG' }],
-        },
-      );
-
-      const auth = makeConsoleAuthAdapter({
-        userId: 'user_current',
-        orgId: 'org_current',
-        roles: ['owner', 'admin'],
-        email: 'owner@example.com',
-        name: 'Owner User',
-      });
-
-      const currentDelete = await callConsoleRoute(mode, {
-        auth,
-        account,
-        method: 'DELETE',
-        path: '/console/account/organizations/org_current',
-      });
-      expect(currentDelete.status).toBe(409);
-      expect(currentDelete.json).toMatchObject({
-        ok: false,
-        code: 'organization_current_context_active',
-      });
-
-      const memberDelete = await callConsoleRoute(mode, {
-        auth,
-        account,
-        method: 'DELETE',
-        path: '/console/account/organizations/org_with_member',
-      });
-      expect(memberDelete.status).toBe(409);
-      expect(memberDelete.json).toMatchObject({
-        ok: false,
-        code: 'organization_delete_has_other_members',
-      });
-
-      const walletDelete = await callConsoleRoute(mode, {
-        auth,
-        account,
-        method: 'DELETE',
-        path: '/console/account/organizations/org_with_wallet',
-      });
-      expect(walletDelete.status).toBe(409);
-      expect(walletDelete.json).toMatchObject({
-        ok: false,
-        code: 'organization_delete_has_wallets',
-      });
+      ).resolves.toBeNull();
     });
   });
 }

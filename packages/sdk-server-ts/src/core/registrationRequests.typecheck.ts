@@ -161,6 +161,7 @@ const invalidCreateAddAuthMethodIntentRequest: CreateAddAuthMethodIntentRequest 
 void invalidCreateAddAuthMethodIntentRequest;
 
 declare const ecdsaPrepare: WalletRegistrationEcdsaPreparePayload;
+declare const yaoAdmissionReceipt: import('@shared/utils/routerAbEd25519Yao').RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
 
 const yaoAdmissionRequest = {
   scope: {
@@ -185,7 +186,7 @@ const validEd25519StartResponse = {
   kind: 'near_ed25519',
   registrationCeremonyId: 'registration-ceremony-1',
   intent: registrationIntent,
-  ed25519: { admissionRequest: yaoAdmissionRequest },
+  ed25519: { admissionRequest: yaoAdmissionRequest, admissionReceipt: yaoAdmissionReceipt },
 } satisfies WalletRegistrationStartResponse;
 void validEd25519StartResponse;
 
@@ -194,7 +195,7 @@ const validMixedStartResponse = {
   kind: 'near_ed25519_and_evm_family_ecdsa',
   registrationCeremonyId: 'registration-ceremony-2',
   intent: registrationIntent,
-  ed25519: { admissionRequest: yaoAdmissionRequest },
+  ed25519: { admissionRequest: yaoAdmissionRequest, admissionReceipt: yaoAdmissionReceipt },
   ecdsa: ecdsaPrepare,
 } satisfies WalletRegistrationStartResponse;
 void validMixedStartResponse;
@@ -204,7 +205,7 @@ const invalidEd25519StartWithEcdsa: WalletRegistrationStartResponse = {
   kind: 'near_ed25519',
   registrationCeremonyId: 'registration-ceremony-invalid',
   intent: registrationIntent,
-  ed25519: { admissionRequest: yaoAdmissionRequest },
+  ed25519: { admissionRequest: yaoAdmissionRequest, admissionReceipt: yaoAdmissionReceipt },
   // @ts-expect-error near_ed25519 start cannot carry ECDSA preparation work.
   ecdsa: ecdsaPrepare,
 };

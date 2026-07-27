@@ -46,8 +46,7 @@ const external = [
   'crypto',
   'util',
   /^node:.*/,
-  /^@seams\/sdk-server\/internal\//,
-  '@seams/sdk-server',
+  /^@seams\/sdk-server(?:\/.*)?$/,
   'bs58',
   'express',
   'tslib',
@@ -59,14 +58,9 @@ const aliasConfig = {
     PACKAGE_ROOT_ABS,
     '../console-shared-ts/src/index.ts',
   ),
-  '@seams-internal/console-shared/*': path.resolve(
-    PACKAGE_ROOT_ABS,
-    '../console-shared-ts/src/*',
-  ),
+  '@seams-internal/console-shared/*': path.resolve(PACKAGE_ROOT_ABS, '../console-shared-ts/src/*'),
   '@seams-internal/console-server': path.resolve(PACKAGE_ROOT_ABS, 'src/index.ts'),
   '@seams-internal/console-server/*': path.resolve(PACKAGE_ROOT_ABS, 'src/*'),
-  '@seams-internal/shared-ts': path.resolve(PACKAGE_ROOT_ABS, '../shared-ts/src/index.ts'),
-  '@seams-internal/shared-ts/*': path.resolve(PACKAGE_ROOT_ABS, '../shared-ts/src/*'),
 };
 
 const preservedEntryFileNames = (chunk: { facadeModuleId?: string | null; name: string }) => {

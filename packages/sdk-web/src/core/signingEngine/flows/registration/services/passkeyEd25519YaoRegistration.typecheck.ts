@@ -10,7 +10,10 @@ import {
   type PasskeyRegistrationIntentV1,
   type VerifiedPasskeyEd25519YaoRegistrationInputV1,
 } from './passkeyEd25519YaoRegistration';
-import type { RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '@shared/utils/routerAbEd25519Yao';
+import type {
+  RouterAbEd25519YaoActivationAdmissionReceiptV1,
+  RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+} from '@shared/utils/routerAbEd25519Yao';
 
 declare const passkeyAuthMethod: PasskeyRegistrationAuthMethodInput;
 declare const genericIntent: RegistrationIntentV1;
@@ -18,6 +21,7 @@ declare const passkeyIntent: PasskeyRegistrationIntentV1;
 declare const walletId: WalletId;
 declare const registrationIntentGrant: RegistrationIntentGrant;
 declare const admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+declare const admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
 declare const fetchFn: typeof fetch;
 
 const validInput: VerifiedPasskeyEd25519YaoRegistrationInputV1 = {
@@ -37,6 +41,7 @@ const validInput: VerifiedPasskeyEd25519YaoRegistrationInputV1 = {
     ownedPasskeyPrfFirst: new Uint8Array(32),
   },
   admissionRequest,
+  admissionReceipt,
   httpTransport: {
     kind: 'passkey_ed25519_yao_http_transport_v1',
     routerOrigin: 'http://router.local',

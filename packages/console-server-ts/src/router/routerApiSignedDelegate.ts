@@ -34,19 +34,19 @@ import {
   createSponsoredNearDelegateExecutionAdapter,
   type SponsoredNearDelegateAuthService,
 } from '../sponsorship/nearExecutionAdapter';
-import { applyRouteMetering } from '@seams/sdk-server/internal/router/applyRouteMetering';
+import { applyRouteMetering } from '@seams/sdk-server/cloud-host';
 import {
   enforceRoutePolicy,
   type RoutePolicyResolutionResult,
-} from '@seams/sdk-server/internal/router/enforceRoutePolicy';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/internal/router/logger';
-import { resolvePublishableKeyApiCredentialAuth } from '@seams/sdk-server/internal/router/routerApiCredentialAuth';
-import { extractRouterApiEnvironmentId } from '@seams/sdk-server/internal/router/routerApiKeyAuth';
-import type { HeaderRecord, RouteResponse } from '@seams/sdk-server/internal/router/routeExecutionContext';
-import type { RouteDefinition } from '@seams/sdk-server/internal/router/routeDefinitions';
-import type { RouteErrorBody } from '@seams/sdk-server/internal/router/routeResponses';
-import { routeJson } from '@seams/sdk-server/internal/router/routeResponses';
-import type { RouterApiPublishableKeyAuthAdapter } from '@seams/sdk-server/internal/router/apiCredentialPorts';
+} from '@seams/sdk-server/cloud-host';
+import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
+import { resolvePublishableKeyApiCredentialAuth } from '@seams/sdk-server/cloud-host';
+import { extractRouterApiEnvironmentId } from '@seams/sdk-server/cloud-host';
+import type { HeaderRecord, RouteResponse } from '@seams/sdk-server/cloud-host';
+import type { RouteDefinition } from '@seams/sdk-server/cloud-host';
+import type { RouteErrorBody } from '@seams/sdk-server/cloud-host';
+import { routeJson } from '@seams/sdk-server/cloud-host';
+import type { RouterApiPublishableKeyAuthAdapter } from '@seams/sdk-server/cloud-host';
 import {
   runSponsorshipExecution,
   type SponsorshipExecutionAssessment,
@@ -66,7 +66,7 @@ import {
   emitSponsorshipBlockedObservabilityEvent,
   readSponsorshipBillingBalanceSnapshot,
 } from './sponsorshipBillingEvents';
-import { isPlainObject } from '@seams-internal/shared-ts/utils/validation';
+import { isPlainObject } from '@seams/sdk-server/cloud-host';
 
 interface SignedDelegateRequestBody {
   hash: string;
@@ -97,7 +97,6 @@ interface RouterApiSignedDelegateServices {
   sponsoredCalls?: ConsoleSponsoredCallService | null;
   webhooks?: ConsoleWebhookService | null;
   webhookActorUserId?: string;
-  webhookRoles?: string[];
 }
 
 export interface RouterApiSignedDelegateInput {
@@ -527,7 +526,6 @@ async function meterSignedDelegate(input: {
         const sponsorshipCtx = {
           orgId: context.principal.principal.orgId,
           actorUserId: 'signed-delegate-executor',
-          roles: ['system'],
         };
         const sponsoredCalls = input.services.sponsoredCalls;
         if (!sponsoredCalls) return;
@@ -562,7 +560,6 @@ async function meterSignedDelegate(input: {
               webhooks: input.services.webhooks || null,
               observabilityIngestion: input.services.observabilityIngestion || null,
               webhookActorUserId: input.services.webhookActorUserId,
-              webhookRoles: input.services.webhookRoles,
             },
             ctx: sponsorshipCtx,
             before: beforeBalanceState,
@@ -898,7 +895,6 @@ export async function handleRouterApiSignedDelegate(
             observabilityIngestion: input.services.observabilityIngestion || null,
             webhooks: input.services.webhooks || null,
             webhookActorUserId: input.services.webhookActorUserId,
-            webhookRoles: input.services.webhookRoles,
           },
           ctx: sponsorshipRuntime.sponsorshipCtx,
           balance: beforeBalanceState,

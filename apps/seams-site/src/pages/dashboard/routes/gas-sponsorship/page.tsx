@@ -23,7 +23,10 @@ import {
 } from '../../components/DashboardTable';
 import { DashboardInlineModal } from '../../components/DashboardInlineModal';
 import { listDashboardEnvironments, listDashboardProjects } from '../../consoleContextApi';
-import { useDashboardConsoleSession } from '../../consoleSession';
+import {
+  canDashboardEditProject,
+  useDashboardConsoleSession,
+} from '../../consoleSession';
 import { useSessionDraft } from '../../drafts/useSessionDraft';
 import type { DashboardDraftIdentity } from '../../drafts/sessionDraftStore';
 import { useDashboardSelectedContext } from '../../selectedContext';
@@ -580,16 +583,6 @@ function buildFormStateFromPolicy(
   };
 }
 
-function hasGasPolicyMutationRole(rolesRaw: unknown): boolean {
-  if (!Array.isArray(rolesRaw)) return false;
-  return rolesRaw.some((role) => {
-    const normalized = String(role || '')
-      .trim()
-      .toLowerCase();
-    return normalized === 'owner' || normalized === 'admin' || normalized === 'security_admin';
-  });
-}
-
 function buildScopePayload(form: GasSponsorshipFormState): Record<string, string> {
   const projectId = normalizeString(form.projectId);
   const environmentId = normalizeString(form.environmentId);
@@ -1124,8 +1117,8 @@ export function GasSponsorshipPage(): React.JSX.Element {
   }, [policyModalOpen, selectedEnvironmentNetworkClass, setForm]);
 
   const canMutatePolicy = React.useMemo(
-    () => hasGasPolicyMutationRole(session.claims?.roles),
-    [session.claims?.roles],
+    () => canDashboardEditProject(session.claims, selectedProjectId),
+    [selectedProjectId, session.claims],
   );
 
   const selectedPolicy = React.useMemo(
@@ -1513,7 +1506,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
         return;
       }
       if (!canMutatePolicy) {
-        setMutationError('Only owner/admin/security_admin can mutate gas sponsorship settings.');
+        setMutationError('Owner, administrator, or project editor access is required.');
         return;
       }
       setMutating(true);
@@ -1583,7 +1576,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
         return;
       }
       if (!canMutatePolicy) {
-        setMutationError('Only owner/admin/security_admin can mutate gas sponsorship settings.');
+        setMutationError('Owner, administrator, or project editor access is required.');
         return;
       }
       setMutating(true);
@@ -1611,7 +1604,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
         return;
       }
       if (!canMutatePolicy) {
-        setMutationError('Only owner/admin/security_admin can mutate gas sponsorship settings.');
+        setMutationError('Owner, administrator, or project editor access is required.');
         return;
       }
       if (typeof window !== 'undefined') {

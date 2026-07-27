@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams-internal/shared-ts/utils/secureRandomId';
+import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
 import { ConsoleAuditError } from './errors';
 import type {
   AppendConsoleAuditEvidenceRequest,
@@ -12,7 +12,6 @@ import type {
 export interface ConsoleAuditContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 }
@@ -230,10 +229,14 @@ export function createInMemoryConsoleAuditService(
         actorUserId: 'console-owner',
         actorType: 'USER',
         category: 'TEAM',
-        action: 'member.roles.update',
+        action: 'organization.project_access.update',
         outcome: 'SUCCESS',
-        summary: 'Updated team member role scopes for project operations',
-        metadata: { memberId: 'member_console_devops', roles: ['developer', 'ops'] },
+        summary: 'Granted project editor access to an organization member',
+        metadata: {
+          membershipId: 'membership_console_editor',
+          projectId,
+          accessLevel: 'editor',
+        },
         createdAt: new Date(seedNow - 46 * 60_000).toISOString(),
       },
     ];

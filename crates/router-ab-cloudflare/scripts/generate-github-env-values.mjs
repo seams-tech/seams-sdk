@@ -567,6 +567,7 @@ function buildGeneratedSecrets(targetName, sealMaterial) {
     internalServiceAuth: `router-ab-internal-service-auth-v1:${randomBase64Url(32)}`,
     relaySessionHmac: randomBase64Url(32),
     accountIdDerivation: randomBase64Url(32),
+    consoleEmailInvitationSecret: randomBase64Url(32),
     ceremonyPrivateJwk: generateCeremonyPrivateJwk(),
     publishableKey: `pk_${randomBytes(16).toString('hex')}`,
     signingRootKek: randomBase64Url(32),
@@ -754,6 +755,7 @@ function buildGatewayEnvironment(input) {
       purpose: 'Gateway Worker, D1, tenant state, and public ceremony JWT issuer',
       variables: {
         GATEWAY_DEPLOYMENT_CONFIG_JSON: JSON.stringify(deploymentConfig),
+        CONSOLE_EMAIL_FROM: manual(`${input.target}-console-email-from`),
       },
       optionalVariables: {},
       secrets: {
@@ -765,6 +767,11 @@ function buildGatewayEnvironment(input) {
         ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: input.generatedSecrets.ceremonyPrivateJwk,
         RELAYER_PRIVATE_KEY: manual(`${input.target}-near-relayer-private-key`),
         SPONSORED_EVM_EXECUTORS_JSON: manual(`${input.target}-sponsored-evm-executors-json`),
+        STRIPE_API_SK: manual(`${input.target}-stripe-secret-key`),
+        STRIPE_WEBHOOK_SECRET: manual(`${input.target}-stripe-webhook-signing-secret`),
+        RESEND_API_KEY: manual(`${input.target}-resend-api-key`),
+        CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U:
+          input.generatedSecrets.consoleEmailInvitationSecret,
         SIGNING_ROOT_KEK_VALUE: input.generatedSecrets.signingRootKek,
         SIGNING_SESSION_SEAL_KEY_VERSION: signingSession.keyVersion,
         SIGNING_SESSION_SHAMIR_P_B64U: signingSession.shamirPrimeB64u,

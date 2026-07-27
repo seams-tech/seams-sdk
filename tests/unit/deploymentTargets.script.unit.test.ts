@@ -150,7 +150,17 @@ test('required secrets are derived from enabled capabilities and their owners', 
     'SIGNING_SESSION_SEAL_D_S_B64U',
   ]);
   expect(module.componentSecretNames(targets.staging, 'gateway')).toContain('STRIPE_API_SK');
+  expect(module.componentSecretNames(targets.staging, 'gateway')).not.toContain(
+    'STRIPE_WEBHOOK_SECRET',
+  );
   expect(module.componentSecretNames(targets.production, 'gateway')).toContain('STRIPE_API_SK');
+  expect(module.componentSecretNames(targets.production, 'gateway')).not.toContain(
+    'STRIPE_WEBHOOK_SECRET',
+  );
+  expect(module.componentSecretNames(targets.staging, 'gateway')).not.toContain('RESEND_API_KEY');
+  expect(module.componentSecretNames(targets.production, 'gateway')).not.toContain(
+    'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
+  );
   expect(module.componentSecretNames(targets.staging, 'deriver-a')).toEqual([
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'DERIVER_A_ROOT_SHARE_WIRE_SECRET',

@@ -61,7 +61,7 @@ const preservedModuleOut = (opts: { facadeModuleId: string; rootAbs: string; pre
 
   const rel = toPosixPath(path.relative(opts.rootAbs, facadeAbs));
   const relNoExt = stripExt(stripLeadingDotDots(rel));
-  return `${opts.prefix}/${relNoExt}.js`;
+  return opts.prefix ? `${opts.prefix}/${relNoExt}.js` : `${relNoExt}.js`;
 };
 
 const ensureNearSignerWorkerEnumExports = (code: string): string => {
@@ -480,6 +480,22 @@ const configs = [
       format: 'esm',
       preserveModules: true,
       preserveModulesRoot: CLIENT_SRC_ROOT_ABS,
+      entryFileNames: (chunk) => {
+        if (!chunk.facadeModuleId) return `${chunk.name}.js`;
+        return preservedModuleOut({
+          facadeModuleId: chunk.facadeModuleId,
+          rootAbs: CLIENT_SRC_ROOT_ABS,
+          prefix: '',
+        });
+      },
+      chunkFileNames: (chunk) => {
+        if (!chunk.facadeModuleId) return `${chunk.name}.js`;
+        return preservedModuleOut({
+          facadeModuleId: chunk.facadeModuleId,
+          rootAbs: CLIENT_SRC_ROOT_ABS,
+          prefix: '',
+        });
+      },
       sourcemap: true,
     },
     external,

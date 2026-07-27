@@ -8,6 +8,11 @@ use crate::ed25519_yao_signing_worker::{
     CloudflareEd25519YaoOutputActivationPutV1, CloudflareEd25519YaoOutputActivationReceiptV1,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_OUTPUT_ACTIVATE_DO_PATH,
 };
+#[cfg(feature = "workers-rs")]
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 /// Handles a real `workers-rs` Durable Object fetch event for Router/A/B storage.
 #[cfg(feature = "workers-rs")]
@@ -629,17 +634,168 @@ async fn handle_cloudflare_durable_object_worker_request_with_project_policy_v1(
                 )?,
             )?
         }
-        CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } => {
-            let previous = worker_storage_get::<RouterAbLifecycleStateV1>(
-                storage,
-                &storage_key,
-                call.operation_kind(),
-            )
-            .await?;
-            RouterAbLifecycleStateV1::validate_transition_from(previous.as_ref(), state)?;
-            worker_storage_put(storage, &storage_key, state.clone(), call.operation_kind()).await?;
-            CloudflareDurableObjectResponseV1::router_lifecycle_put_public_state(
-                CloudflareLifecyclePutReceiptV1::new(state.scope().lifecycle_id.clone(), true)?,
+        CloudflareDurableObjectRequestV1::RouterPublicAdmission { replay, state } => {
+            let replay_key = call.public_admission_replay_index_storage_key()?;
+            let completion_key = call.public_registration_completion_storage_key()?;
+            let transaction_replay_key = replay_key.clone();
+            let transaction_lifecycle_key = storage_key.clone();
+            let transaction_completion_key = completion_key;
+            let transaction_replay = replay.clone();
+            let transaction_state = state.clone();
+            let reserved = Rc::new(Cell::new(false));
+            let transaction_reserved = Rc::clone(&reserved);
+            let completion = Rc::new(RefCell::new(None));
+            let transaction_completion = Rc::clone(&completion);
+            storage
+                .transaction(move |transaction| async move {
+                    let existing_replay = match transaction
+                        .get::<CloudflareReplayReserveRequestV1>(&transaction_replay_key)
+                        .await
+                    {
+                        Ok(value) => Some(value),
+                        Err(worker::Error::JsError(message))
+                            if message == "No such value in storage." =>
+                        {
+                            None
+                        }
+                        Err(error) => return Err(error),
+                    };
+                    let should_reserve =
+                        validate_router_replay_reservation_v1(existing_replay, &transaction_replay)
+                            .map_err(|error| {
+                                worker::Error::RustError(format!(
+                                    "{:?}: {}",
+                                    error.code(),
+                                    error.message()
+                                ))
+                            })?;
+                    let existing_lifecycle = match transaction
+                        .get::<RouterAbLifecycleStateV1>(&transaction_lifecycle_key)
+                        .await
+                    {
+                        Ok(value) => Some(value),
+                        Err(worker::Error::JsError(message))
+                            if message == "No such value in storage." =>
+                        {
+                            None
+                        }
+                        Err(error) => return Err(error),
+                    };
+                    if should_reserve && existing_lifecycle.is_some() {
+                        return Err(worker::Error::RustError(
+                            "ReplayedLocalRequest: public Router lifecycle already has an admission"
+                                .to_owned(),
+                        ));
+                    }
+                    if should_reserve {
+                        transaction
+                            .put(&transaction_replay_key, transaction_replay)
+                            .await?;
+                        transaction
+                            .put(&transaction_lifecycle_key, transaction_state)
+                            .await?;
+                    }
+                    let existing_completion =
+                        match transaction.get::<String>(&transaction_completion_key).await {
+                            Ok(value) => Some(value),
+                            Err(worker::Error::JsError(message))
+                                if message == "No such value in storage." =>
+                            {
+                                None
+                            }
+                            Err(error) => return Err(error),
+                        };
+                    transaction_reserved.set(should_reserve);
+                    *transaction_completion.borrow_mut() = existing_completion;
+                    Ok(())
+                })
+                .await
+                .map_err(|error| {
+                    worker_storage_error(
+                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                        call.operation_kind(),
+                        &storage_key,
+                        format!("atomic public admission transaction failed: {error}"),
+                    )
+                })?;
+            let stored_completion = completion.borrow().clone();
+            CloudflareDurableObjectResponseV1::router_public_admission(
+                CloudflareReplayReserveResponseV1::new(replay.request_id.clone(), reserved.get())?,
+                CloudflareLifecyclePutReceiptV1::new(
+                    state.scope().lifecycle_id.clone(),
+                    reserved.get(),
+                )?,
+                match stored_completion {
+                    Some(response_json) => {
+                        CloudflareRouterPublicAdmissionCompletionV1::Completed { response_json }
+                    }
+                    None => CloudflareRouterPublicAdmissionCompletionV1::Pending,
+                },
+            )?
+        }
+        CloudflareDurableObjectRequestV1::RouterPublicRegistrationComplete {
+            replay,
+            response_json,
+            ..
+        } => {
+            let replay_key = call.public_admission_replay_index_storage_key()?;
+            let completion_key = call.public_registration_completion_storage_key()?;
+            let transaction_replay = replay.clone();
+            let transaction_response_json = response_json.clone();
+            let transaction_lifecycle_key = storage_key.clone();
+            let transaction_replay_key = replay_key;
+            let transaction_completion_key = completion_key;
+            storage
+                .transaction(move |transaction| async move {
+                    let stored_replay = transaction
+                        .get::<CloudflareReplayReserveRequestV1>(&transaction_replay_key)
+                        .await?;
+                    if stored_replay != transaction_replay {
+                        return Err(worker::Error::RustError(
+                            "ReplayedLocalRequest: public registration completion replay mismatch"
+                                .to_owned(),
+                        ));
+                    }
+                    transaction
+                        .get::<RouterAbLifecycleStateV1>(&transaction_lifecycle_key)
+                        .await?;
+                    let existing =
+                        match transaction.get::<String>(&transaction_completion_key).await {
+                            Ok(value) => Some(value),
+                            Err(worker::Error::JsError(message))
+                                if message == "No such value in storage." =>
+                            {
+                                None
+                            }
+                            Err(error) => return Err(error),
+                        };
+                    if let Some(existing) = existing {
+                        if existing != transaction_response_json {
+                            return Err(worker::Error::RustError(
+                                "ReplayedLocalRequest: public registration completion conflicts"
+                                    .to_owned(),
+                            ));
+                        }
+                    } else {
+                        transaction
+                            .put(&transaction_completion_key, transaction_response_json)
+                            .await?;
+                    }
+                    Ok(())
+                })
+                .await
+                .map_err(|error| {
+                    worker_storage_error(
+                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                        call.operation_kind(),
+                        &storage_key,
+                        format!("atomic public registration completion failed: {error}"),
+                    )
+                })?;
+            CloudflareDurableObjectResponseV1::router_public_registration_complete(
+                CloudflareRouterPublicAdmissionCompletionV1::Completed {
+                    response_json: response_json.clone(),
+                },
             )?
         }
         CloudflareDurableObjectRequestV1::DerivationCeremonyPutState { ceremony } => {

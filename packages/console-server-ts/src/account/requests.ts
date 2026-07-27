@@ -7,7 +7,6 @@ import { ConsoleAccountError } from './errors';
 import type {
   CreateConsoleAccountOrganizationRequest,
   PatchConsoleAccountProfileRequest,
-  TransferConsoleAccountOrganizationOwnerRequest,
   UpdateConsoleAccountOrganizationRequest,
 } from './types';
 
@@ -86,24 +85,5 @@ export function parseUpdateConsoleAccountOrganizationRequest(
   return {
     ...(name ? { name } : {}),
     ...(slug ? { slug } : {}),
-  };
-}
-
-export function parseTransferConsoleAccountOrganizationOwnerRequest(
-  body: unknown,
-): TransferConsoleAccountOrganizationOwnerRequest {
-  const source = requireBodyObject(body, createParseError);
-  const targetMemberId = readOptionalResourceId(source, 'targetMemberId');
-  const targetUserId = readOptionalString(source, 'targetUserId');
-  if (!targetMemberId && !targetUserId) {
-    throw createParseError(
-      'invalid_body',
-      400,
-      'Either targetMemberId or targetUserId is required',
-    );
-  }
-  return {
-    ...(targetMemberId ? { targetMemberId } : {}),
-    ...(targetUserId ? { targetUserId } : {}),
   };
 }

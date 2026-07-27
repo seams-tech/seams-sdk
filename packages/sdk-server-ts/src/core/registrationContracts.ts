@@ -4,6 +4,7 @@ import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
+  RouterAbEd25519YaoActivationAdmissionReceiptV1,
   RouterAbEd25519YaoBytes32V1,
   RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
@@ -313,6 +314,10 @@ export type WalletAddSignerStartRequest = {
   auth: AddSignerAuth;
 };
 
+export type WalletAddSignerEd25519YaoStart = {
+  admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+};
+
 export type WalletAddSignerStartResponse =
   | ({
       ok: true;
@@ -321,7 +326,7 @@ export type WalletAddSignerStartResponse =
     } & (
       | {
           kind: 'near_ed25519';
-          ed25519: WalletRegistrationEd25519YaoStart;
+          ed25519: WalletAddSignerEd25519YaoStart;
           ecdsa?: never;
         }
       | {
@@ -521,6 +526,7 @@ export type WalletRegistrationEcdsaWalletKey = {
 
 export type WalletRegistrationEd25519YaoStart = {
   admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
 };
 
 export type WalletRegistrationStartSignerWork =

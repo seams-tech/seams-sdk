@@ -242,6 +242,12 @@ class RecordingYaoProductRuntime implements RouterAbEd25519YaoProductRegistratio
     throw new Error('registration intent binding is outside sync-account enrichment');
   }
 
+  bindAndAdmitVerifiedRegistration(): ReturnType<
+    RouterAbEd25519YaoProductRegistrationRuntimeV1['bindAndAdmitVerifiedRegistration']
+  > {
+    throw new Error('registration admission is outside sync-account enrichment');
+  }
+
   consumeActivated(
     _input: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']>[0],
   ): ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']> {

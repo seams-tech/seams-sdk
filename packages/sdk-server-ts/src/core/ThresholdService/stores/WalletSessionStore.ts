@@ -260,6 +260,27 @@ export type Ed25519WalletSessionStore = WalletSessionStore<Ed25519WalletSessionR
 export type EcdsaWalletSessionStore = WalletSessionStore<EcdsaWalletSessionRecord>;
 export type WalletSigningBudgetSessionStore = WalletSessionStore<WalletSigningBudgetSessionRecord>;
 
+export type EcdsaNormalSigningSessionProvisionResult =
+  | {
+      readonly ok: true;
+      readonly expiresAtMs: number;
+      readonly remainingUses: number;
+    }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly message: string;
+    };
+
+export interface EcdsaNormalSigningSessionProvisioner {
+  provisionSessionWithBudget(input: {
+    readonly thresholdSessionId: string;
+    readonly signingGrantId: string;
+    readonly session: EcdsaWalletSessionRecord;
+    readonly remainingUses: number;
+  }): Promise<EcdsaNormalSigningSessionProvisionResult>;
+}
+
 export type WalletSessionRecordParser<TRecord extends WalletSessionRecord> = (
   raw: unknown,
 ) => TRecord | null;
@@ -343,14 +364,17 @@ class InMemoryWalletSessionStore<
       return { ok: false, code: 'wallet_session_expired' };
     }
     const budget = inMemoryBudgetProjection(entry);
-    return { ok: true, status: {
-      record: entry.record,
-      expiresAtMs: entry.expiresAtMs,
-      committedRemainingUses: budget.committedRemainingUses,
-      reservedUses: budget.reservedUses,
-      availableUses: budget.availableUses,
-      remainingUses: budget.availableUses,
-    } };
+    return {
+      ok: true,
+      status: {
+        record: entry.record,
+        expiresAtMs: entry.expiresAtMs,
+        committedRemainingUses: budget.committedRemainingUses,
+        reservedUses: budget.reservedUses,
+        availableUses: budget.availableUses,
+        remainingUses: budget.availableUses,
+      },
+    };
   }
 
   async consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult> {
@@ -1616,14 +1640,17 @@ class UpstashRedisRestWalletSessionStore<
         ),
       );
       if (!budget) return { ok: false, code: 'wallet_session_unavailable' };
-      return { ok: true, status: {
-        record,
-        expiresAtMs: record.expiresAtMs,
-        committedRemainingUses: budget.committedRemainingUses,
-        reservedUses: budget.reservedUses,
-        availableUses: budget.availableUses,
-        remainingUses: budget.availableUses,
-      } };
+      return {
+        ok: true,
+        status: {
+          record,
+          expiresAtMs: record.expiresAtMs,
+          committedRemainingUses: budget.committedRemainingUses,
+          reservedUses: budget.reservedUses,
+          availableUses: budget.availableUses,
+          remainingUses: budget.availableUses,
+        },
+      };
     } catch {
       return { ok: false, code: 'wallet_session_unavailable' };
     }
@@ -1962,14 +1989,17 @@ class RedisTcpWalletSessionStore<
       if (budgetResp.type === 'error') return { ok: false, code: 'wallet_session_unavailable' };
       const budget = parseRedisBudgetProjection(redisRawValue(budgetResp));
       if (!budget) return { ok: false, code: 'wallet_session_unavailable' };
-      return { ok: true, status: {
-        record,
-        expiresAtMs: record.expiresAtMs,
-        committedRemainingUses: budget.committedRemainingUses,
-        reservedUses: budget.reservedUses,
-        availableUses: budget.availableUses,
-        remainingUses: budget.availableUses,
-      } };
+      return {
+        ok: true,
+        status: {
+          record,
+          expiresAtMs: record.expiresAtMs,
+          committedRemainingUses: budget.committedRemainingUses,
+          reservedUses: budget.reservedUses,
+          availableUses: budget.availableUses,
+          remainingUses: budget.availableUses,
+        },
+      };
     } catch {
       return { ok: false, code: 'wallet_session_unavailable' };
     }
@@ -1977,12 +2007,7 @@ class RedisTcpWalletSessionStore<
 
   async consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult> {
     try {
-      const resp = await this.client.send([
-        'EVAL',
-        CONSUME_USE_COUNT_LUA,
-        '1',
-        this.usesKey(id),
-      ]);
+      const resp = await this.client.send(['EVAL', CONSUME_USE_COUNT_LUA, '1', this.usesKey(id)]);
       if (resp.type === 'error')
         return { ok: false, code: 'internal', message: `Redis EVAL error: ${resp.value}` };
       return parseRedisConsumeOnceResult(redisRawValue(resp));

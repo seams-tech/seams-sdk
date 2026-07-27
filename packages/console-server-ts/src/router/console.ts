@@ -1,4 +1,4 @@
-import type { RouterLogger } from '@seams/sdk-server/internal/router/logger';
+import type { RouterLogger } from '@seams/sdk-server/cloud-host';
 import type { ConsoleBillingService } from '@seams-internal/console-server/billing';
 import type { ConsoleBillingPrepaidReservationService } from '@seams-internal/console-server/billingPrepaidReservations';
 import type { ConsoleSponsoredCallService } from '@seams-internal/console-server/sponsoredCalls';
@@ -9,7 +9,7 @@ import type { ConsoleWalletService } from '@seams-internal/console-server/wallet
 import type { ConsoleWebhookService } from '@seams-internal/console-server/webhooks';
 import type { ConsoleKeyExportService } from '@seams-internal/console-server/keyExports';
 import type { ConsoleRuntimeSnapshotService } from '@seams-internal/console-server/runtimeSnapshots';
-import type { ConsoleTeamRbacService } from '@seams-internal/console-server/teamRbac';
+import type { ConsoleOrganizationAccessService } from '@seams-internal/console-server/teamRbac';
 import type { ConsoleApprovalService } from '@seams-internal/console-server/approvals';
 import type { ConsoleAuditService } from '@seams-internal/console-server/audit';
 import type { ConsoleAuditExportsService } from '@seams-internal/console-server/auditExports';
@@ -20,19 +20,18 @@ import type {
   ConsoleObservabilityIngestionService,
   ConsoleObservabilityService,
 } from '@seams-internal/console-server/observability';
-import type { SessionAdapter } from '@seams/sdk-server/internal/router/routerApi';
-import type { TenantStorageRouteResolver } from '@seams/sdk-server/internal/storage/tenantRoute';
-import type { ConsoleAuthAdapter } from '@seams/sdk-server/internal/router/consoleAuth';
+import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
+import type { ConsoleAuthAdapter } from './consoleAuth';
+import type { TenantStorageRouteResolver } from './cloudflare/tenantStorageRoute';
 
 export type {
   ConsoleAuthAdapter,
   ConsoleAuthAdapterResult,
   ConsoleAuthClaims,
   ConsoleAuthResult,
-  ConsoleRole,
   HeaderRecord,
-} from '@seams/sdk-server/internal/router/consoleAuth';
-export { authenticateConsoleRequest, hasConsoleRole } from '@seams/sdk-server/internal/router/consoleAuth';
+} from './consoleAuth';
+export { authenticateConsoleRequest } from './consoleAuth';
 
 export type ConsoleTenantStorageRoutingOptions =
   | {
@@ -78,8 +77,8 @@ export interface ConsoleRouterBaseOptions {
   keyExports?: ConsoleKeyExportService | null;
   // Optional runtime snapshot adapter for versioned per-environment config snapshots.
   runtimeSnapshots?: ConsoleRuntimeSnapshotService | null;
-  // Optional team/membership adapter for org member and role-scope management endpoints.
-  teamRbac?: ConsoleTeamRbacService | null;
+  // Optional organization membership, invitation, permission, and project-access adapter.
+  organizationAccess?: ConsoleOrganizationAccessService | null;
   // Optional unified approval queue adapter for policy/export approvals.
   approvals?: ConsoleApprovalService | null;
   // Optional audit/evidence adapter for investigation timeline and export metadata endpoints.
@@ -98,8 +97,8 @@ export interface ConsoleRouterBaseOptions {
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   // Optional app session adapter used when console routes need to rotate session scope.
   session?: SessionAdapter | null;
-  // Optional shared secret required by Stripe webhook ingestion endpoint.
-  billingStripeWebhookSecret?: string;
+  // Stripe endpoint signing secret used to verify the raw Stripe-Signature payload.
+  billingStripeWebhookSigningSecret?: string;
   // Optional local/dev escape hatch: allows live environment provisioning without billing readiness.
   // Keep disabled in production and only enable intentionally.
   allowLiveEnvironmentBillingBypass?: boolean;

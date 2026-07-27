@@ -14,6 +14,7 @@ import {
   type SigningRootRecordResult,
 } from '../../../core/ThresholdService/signingRootRecords';
 import {
+  parseEcdsaWalletSessionRecord,
   parseRouterAbEcdsaDerivationPoolFillSessionRecord as parseFullRouterAbEcdsaDerivationPoolFillSessionRecord,
   parseWalletSigningBudgetSessionRecord,
 } from '../../../core/ThresholdService/validation';
@@ -97,6 +98,15 @@ type DoReq =
   | { op: 'authReleaseReservedBudgetUseCountForIdentity'; key: string; input: unknown }
   | { op: 'authReserveReplayGuard'; key: string; expiresAtMs: number }
   | {
+      op: 'ecdsaNormalSigningSessionProvision';
+      sessionKey: string;
+      budgetKey: string;
+      thresholdSessionId: string;
+      signingGrantId: string;
+      session: unknown;
+      remainingUses: number;
+    }
+  | {
       op: 'registrationReserveWalletId';
       key: string;
       walletId: string;
@@ -152,6 +162,14 @@ type AuthEntry = {
   consumedIdempotencyKeys?: Record<string, true>;
   budgetReservations?: Record<string, AuthBudgetReservation>;
   committedBudgetReservations?: Record<string, AuthBudgetCommit>;
+};
+
+type EcdsaNormalSigningSessionProvisionInput = {
+  readonly sessionKey: string;
+  readonly budgetKey: string;
+  readonly thresholdSessionId: string;
+  readonly session: NonNullable<ReturnType<typeof parseEcdsaWalletSessionRecord>>;
+  readonly remainingUses: number;
 };
 
 type AuthBudgetReservation = {
@@ -458,6 +476,238 @@ function parseAuthEntry(raw: unknown): AuthEntry | null {
   const isWalletBudgetSession = parseWalletSigningBudgetSessionRecord(rec) !== null;
   if (!isCurveSession && !isWalletBudgetSession) return null;
   return raw as AuthEntry;
+}
+
+function numericIdsMatch(left: readonly number[], right: readonly number[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function ecdsaSessionAuthorityMatches(
+  left: NonNullable<ReturnType<typeof parseEcdsaWalletSessionRecord>>,
+  right: NonNullable<ReturnType<typeof parseEcdsaWalletSessionRecord>>,
+): boolean {
+  return (
+    left.relayerKeyId === right.relayerKeyId &&
+    left.walletId === right.walletId &&
+    left.evmFamilySigningKeySlotId === right.evmFamilySigningKeySlotId &&
+    numericIdsMatch(left.participantIds, right.participantIds)
+  );
+}
+
+function parseEcdsaNormalSigningSessionProvisionInput(
+  raw: Record<string, unknown>,
+): EcdsaNormalSigningSessionProvisionInput | DoErr {
+  const sessionKey = toKey(raw.sessionKey);
+  const budgetKey = toKey(raw.budgetKey);
+  const thresholdSessionId = toKey(raw.thresholdSessionId);
+  const signingGrantId = toKey(raw.signingGrantId);
+  const session = parseEcdsaWalletSessionRecord(raw.session);
+  const remainingUses = Math.floor(Number(raw.remainingUses));
+  if (
+    !sessionKey ||
+    !budgetKey ||
+    !thresholdSessionId ||
+    !signingGrantId ||
+    !session ||
+    !Number.isSafeInteger(remainingUses) ||
+    remainingUses <= 0 ||
+    session.expiresAtMs <= Date.now()
+  ) {
+    return err(
+      'invalid_body',
+      'ECDSA normal-signing provisioning requires session, grant, future expiry, and uses',
+    );
+  }
+  return { sessionKey, budgetKey, thresholdSessionId, session, remainingUses };
+}
+
+function findEcdsaBudgetBinding(
+  budget: NonNullable<ReturnType<typeof parseWalletSigningBudgetSessionRecord>>,
+  sessionKeyId: string,
+): { readonly thresholdSessionId: string } | null {
+  switch (budget.bindings.kind) {
+    case 'ed25519_only':
+      return null;
+    case 'ecdsa_only':
+    case 'ed25519_and_ecdsa':
+      return (
+        budget.bindings.ecdsa.find((binding) => binding.thresholdSessionId === sessionKeyId) || null
+      );
+    default:
+      return null;
+  }
+}
+
+function addEcdsaBudgetBinding(
+  budget: NonNullable<ReturnType<typeof parseWalletSigningBudgetSessionRecord>>,
+  sessionKeyId: string,
+  session: NonNullable<ReturnType<typeof parseEcdsaWalletSessionRecord>>,
+  expiresAtMs: number,
+): NonNullable<ReturnType<typeof parseWalletSigningBudgetSessionRecord>> | null {
+  const binding = {
+    thresholdSessionId: sessionKeyId,
+    evmFamilySigningKeySlotId: session.evmFamilySigningKeySlotId,
+    participantIds: [...session.participantIds],
+  };
+  switch (budget.bindings.kind) {
+    case 'ed25519_only':
+      return {
+        kind: 'wallet_signing_budget_session',
+        expiresAtMs,
+        walletId: budget.walletId,
+        bindings: {
+          kind: 'ed25519_and_ecdsa',
+          ed25519: budget.bindings.ed25519,
+          ecdsa: [binding],
+        },
+      };
+    case 'ecdsa_only':
+    case 'ed25519_and_ecdsa': {
+      const compatible = budget.bindings.ecdsa.every(
+        (existing) =>
+          existing.evmFamilySigningKeySlotId === session.evmFamilySigningKeySlotId &&
+          numericIdsMatch(existing.participantIds, session.participantIds),
+      );
+      if (!compatible) return null;
+      if (budget.bindings.kind === 'ecdsa_only') {
+        return {
+          kind: 'wallet_signing_budget_session',
+          expiresAtMs,
+          walletId: budget.walletId,
+          bindings: {
+            kind: 'ecdsa_only',
+            ecdsa: [budget.bindings.ecdsa[0], ...budget.bindings.ecdsa.slice(1), binding],
+          },
+        };
+      }
+      return {
+        kind: 'wallet_signing_budget_session',
+        expiresAtMs,
+        walletId: budget.walletId,
+        bindings: {
+          kind: 'ed25519_and_ecdsa',
+          ed25519: budget.bindings.ed25519,
+          ecdsa: [budget.bindings.ecdsa[0], ...budget.bindings.ecdsa.slice(1), binding],
+        },
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+async function provisionEcdsaNormalSigningSession(
+  store: DurableObjectStorageLike,
+  input: EcdsaNormalSigningSessionProvisionInput,
+): Promise<DoResp<{ readonly expiresAtMs: number; readonly remainingUses: number }>> {
+  const nowMs = Date.now();
+  const rawSessionEntry = await store.get(input.sessionKey);
+  const rawBudgetEntry = await store.get(input.budgetKey);
+  const sessionEntry = parseAuthEntry(rawSessionEntry);
+  const budgetEntry = parseAuthEntry(rawBudgetEntry);
+  const existingSession =
+    sessionEntry && sessionEntry.expiresAtMs > nowMs
+      ? parseEcdsaWalletSessionRecord(sessionEntry.record)
+      : null;
+  const existingBudget =
+    budgetEntry && budgetEntry.expiresAtMs > nowMs
+      ? parseWalletSigningBudgetSessionRecord(budgetEntry.record)
+      : null;
+
+  if (rawSessionEntry !== null && rawSessionEntry !== undefined && !sessionEntry) {
+    return err('conflict', 'thresholdSessionId has invalid persisted state');
+  }
+  if (rawBudgetEntry !== null && rawBudgetEntry !== undefined && !budgetEntry) {
+    return err('conflict', 'signingGrantId has invalid persisted state');
+  }
+  if (sessionEntry && sessionEntry.expiresAtMs <= nowMs) await store.delete(input.sessionKey);
+  if (budgetEntry && budgetEntry.expiresAtMs <= nowMs) await store.delete(input.budgetKey);
+
+  const thresholdSessionId = input.thresholdSessionId;
+  if (existingSession) {
+    if (!ecdsaSessionAuthorityMatches(existingSession, input.session)) {
+      return err('conflict', 'thresholdSessionId belongs to another ECDSA signing authority');
+    }
+    if (!existingBudget || !findEcdsaBudgetBinding(existingBudget, thresholdSessionId)) {
+      return err('conflict', 'ECDSA normal-signing state is incomplete');
+    }
+    const projection = authBudgetProjection(budgetEntry as AuthEntry, nowMs);
+    return ok({
+      expiresAtMs: existingBudget.expiresAtMs,
+      remainingUses: projection.remainingUses,
+    });
+  }
+
+  let nextBudgetEntry: AuthEntry;
+  if (!existingBudget) {
+    nextBudgetEntry = {
+      record: {
+        kind: 'wallet_signing_budget_session',
+        expiresAtMs: input.session.expiresAtMs,
+        walletId: input.session.walletId,
+        bindings: {
+          kind: 'ecdsa_only',
+          ecdsa: [
+            {
+              thresholdSessionId,
+              evmFamilySigningKeySlotId: input.session.evmFamilySigningKeySlotId,
+              participantIds: [...input.session.participantIds],
+            },
+          ],
+        },
+      },
+      remainingUses: input.remainingUses,
+      expiresAtMs: input.session.expiresAtMs,
+    };
+  } else {
+    if (existingBudget.walletId !== input.session.walletId) {
+      return err('conflict', 'signingGrantId belongs to another signing authority');
+    }
+    if (findEcdsaBudgetBinding(existingBudget, thresholdSessionId)) {
+      return err('conflict', 'ECDSA normal-signing state is incomplete');
+    }
+    const projection = authBudgetProjection(budgetEntry as AuthEntry, nowMs);
+    if (projection.reservedUses > 0) {
+      return err('conflict', 'signingGrantId has in-flight reservations');
+    }
+    const expiresAtMs = Math.min(existingBudget.expiresAtMs, input.session.expiresAtMs);
+    const record = addEcdsaBudgetBinding(
+      existingBudget,
+      thresholdSessionId,
+      input.session,
+      expiresAtMs,
+    );
+    if (!record) {
+      return err('conflict', 'signingGrantId is bound to another ECDSA authority');
+    }
+    nextBudgetEntry = {
+      ...(budgetEntry as AuthEntry),
+      record,
+      expiresAtMs,
+    };
+  }
+
+  const sessionTtl = toTtlSeconds(input.session.expiresAtMs - nowMs);
+  const budgetTtl = toTtlSeconds(nextBudgetEntry.expiresAtMs - nowMs);
+  await store.put(
+    input.sessionKey,
+    {
+      record: input.session,
+      remainingUses: input.remainingUses,
+      expiresAtMs: input.session.expiresAtMs,
+    } satisfies AuthEntry,
+    sessionTtl ? { expirationTtl: sessionTtl } : undefined,
+  );
+  await store.put(
+    input.budgetKey,
+    nextBudgetEntry,
+    budgetTtl ? { expirationTtl: budgetTtl } : undefined,
+  );
+  return ok({
+    expiresAtMs: nextBudgetEntry.expiresAtMs,
+    remainingUses: nextBudgetEntry.remainingUses,
+  });
 }
 
 function normalizeBudgetField(value: unknown): string {
@@ -1424,6 +1674,17 @@ export class ThresholdStoreDurableObject {
       });
 
       return json(res);
+    }
+
+    if (op === 'ecdsaNormalSigningSessionProvision') {
+      const parsed = parseEcdsaNormalSigningSessionProvisionInput(
+        req as unknown as Record<string, unknown>,
+      );
+      if (isDoErr(parsed)) return json(parsed);
+      const result = await withRequiredTxn(this.state, (store) =>
+        provisionEcdsaNormalSigningSession(store, parsed),
+      );
+      return json(result);
     }
 
     if (op === 'authGetBudgetStatus') {

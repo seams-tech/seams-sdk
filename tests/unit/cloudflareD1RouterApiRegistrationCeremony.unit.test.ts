@@ -378,6 +378,18 @@ test('partitioned D1 completes and replays strict ECDSA wallet registration', as
     const strictRequest = buildFixtureRouterAbEcdsaStrictRegistrationRequest(
       started.ecdsa.strictRegistration,
     );
+    await expect(
+      service.walletRegistration.respondWalletRegistrationEcdsaDerivation({
+        registrationCeremonyId: started.registrationCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_v1',
+          strictRegistration: {
+            ...strictRequest,
+            client_id: 'different-wallet.testnet',
+          },
+        },
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'scope_mismatch' });
     const responded = await service.walletRegistration.respondWalletRegistrationEcdsaDerivation({
       registrationCeremonyId: started.registrationCeremonyId,
       ecdsa: {
