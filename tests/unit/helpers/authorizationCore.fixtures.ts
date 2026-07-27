@@ -16,6 +16,8 @@ import {
   parseTenantId,
   type AuthorizationParseResult,
   type EvmEcdsaMpcOperationKind,
+  type GrantEvidenceId,
+  type GrantEvidenceSetId,
 } from '../../../packages/shared-ts/src/authorization/capabilityKinds';
 import { buildCapabilityOperationEnvelope } from '../../../packages/shared-ts/src/authorization/operationFingerprint';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
@@ -34,17 +36,52 @@ import {
   buildActiveCapabilityGrant,
   buildActiveWalletSessionQuota,
   buildCapabilityOperationClaim,
-  buildVerifiedGrantEvidenceSet,
   parseMpcWalletSigningQuotaId,
   parseSessionOrigin,
   parseWalletSessionId,
+  type ActiveAuthorizationSession,
+  type ActiveCapabilityGrant,
+  type ActiveWalletSessionQuota,
+  type CapabilityOperationClaim,
+  type CapabilityOperationResultRef,
 } from '../../../packages/sdk-server-ts/src/authorization/domain';
 import {
   buildVerifiedEmailOtpFactorResult,
   buildVerifiedPasskeyFactorResult,
+  buildVerifiedSessionEvidenceSet,
+  type VerifiedEmailOtpFactorResult,
+  type VerifiedGrantEvidenceSet,
+  type VerifiedPasskeyFactorResult,
+  type VerifiedSessionEvidenceSetInput,
 } from '../../../packages/sdk-server-ts/src/authorization/factorEvidence';
 
 const FIXTURE_NOW_MS = 1_900_000_000_000;
+
+export type ReusableAuthorizationCoreFixture = {
+  readonly session: ActiveAuthorizationSession;
+  readonly sessionEvidenceInput: VerifiedSessionEvidenceSetInput;
+  readonly evidenceSet: VerifiedGrantEvidenceSet;
+  readonly grant: ActiveCapabilityGrant;
+  readonly quota: ActiveWalletSessionQuota;
+  readonly claim: CapabilityOperationClaim;
+  readonly resultRef: CapabilityOperationResultRef;
+};
+
+export type StepUpAuthorizationCoreFixture = Omit<ReusableAuthorizationCoreFixture, 'quota'>;
+
+export type PasskeyVerifiedFactorFixture = {
+  readonly authorization: ReusableAuthorizationCoreFixture;
+  readonly evidenceId: GrantEvidenceId;
+  readonly evidenceSetId: GrantEvidenceSetId;
+  readonly factor: VerifiedPasskeyFactorResult;
+};
+
+export type EmailOtpVerifiedFactorFixture = {
+  readonly authorization: ReusableAuthorizationCoreFixture;
+  readonly evidenceId: GrantEvidenceId;
+  readonly evidenceSetId: GrantEvidenceSetId;
+  readonly factor: VerifiedEmailOtpFactorResult;
+};
 
 export async function buildReusableAuthorizationCoreFixture(
   input: {
@@ -53,7 +90,7 @@ export async function buildReusableAuthorizationCoreFixture(
     readonly grantRemainingUses?: number;
     readonly quotaRemainingUses?: number;
   } = {},
-) {
+): Promise<ReusableAuthorizationCoreFixture> {
   const operation = buildEvmEcdsaMpcOperationRef(input.operationKind ?? 'evm.sign_transaction');
   const tenantId = parsed('tenant-authorization', parseTenantId);
   const principalId = parsed('principal-human', parsePrincipalId);
@@ -67,7 +104,6 @@ export async function buildReusableAuthorizationCoreFixture(
   const laneDigest = fixtureDigest(1);
   const intentDigest = fixtureDigest(2);
   const displayDigest = fixtureDigest(3);
-  const evidenceSetDigest = fixtureDigest(4);
   const envelope = buildCapabilityOperationEnvelope({
     tenantId,
     principalId,
@@ -76,57 +112,47 @@ export async function buildReusableAuthorizationCoreFixture(
     operation,
     digests: { laneDigest, intentDigest, displayDigest },
   });
+  const session = buildActiveAuthorizationSession({
+    tenantId,
+    principalId,
+    sessionId,
+    authSource: {
+      kind: 'oidc_provider',
+      providerId: 'google_oidc',
+      providerSubject: parsed('google-subject-1', parseProviderSubject),
+    },
+    deviceId,
+    audience: {
+      kind: 'first_party_web',
+      origin: parseSessionOrigin('https://app.example.test'),
+    },
+    appSessionVersion: parsed('app-session-version-1', parseAppSessionVersion),
+    assurance: 'session',
+    createdAtMs: FIXTURE_NOW_MS,
+    lifecycle: {
+      kind: 'active',
+      expiresAtMs: FIXTURE_NOW_MS + 100_000,
+    },
+  });
+  const sessionEvidenceInput = {
+    session,
+    operation: envelope,
+    evidenceId: parsed('evidence-session-1', parseGrantEvidenceId),
+    evidenceSetId,
+    expiresAtMs: FIXTURE_NOW_MS + 90_000,
+  };
+  const evidenceSet = await buildVerifiedSessionEvidenceSet(sessionEvidenceInput);
   return {
-    session: buildActiveAuthorizationSession({
-      tenantId,
-      principalId,
-      sessionId,
-      authSource: {
-        kind: 'oidc_provider',
-        providerId: 'google_oidc',
-        providerSubject: parsed('google-subject-1', parseProviderSubject),
-      },
-      deviceId,
-      audience: {
-        kind: 'first_party_web',
-        origin: parseSessionOrigin('https://app.example.test'),
-      },
-      appSessionVersion: parsed('app-session-version-1', parseAppSessionVersion),
-      assurance: 'session',
-      createdAtMs: FIXTURE_NOW_MS,
-      lifecycle: {
-        kind: 'active',
-        expiresAtMs: FIXTURE_NOW_MS + 100_000,
-      },
-    }),
-    evidenceSet: buildVerifiedGrantEvidenceSet({
-      tenantId,
-      principalId,
-      sessionId,
-      deviceId,
-      evidenceSetId,
-      evidence: [
-        {
-          evidenceId: parsed('evidence-passkey-1', parseGrantEvidenceId),
-          evidenceKind: 'passkey_assertion',
-          evidenceDigest: fixtureDigest(5),
-        },
-      ],
-      evidenceSetDigest,
-      operation,
-      laneDigest,
-      intentDigest,
-      displayDigest,
-      assurance: 'session',
-      expiresAtMs: FIXTURE_NOW_MS + 90_000,
-    }),
+    session,
+    sessionEvidenceInput,
+    evidenceSet,
     grant: buildActiveCapabilityGrant({
       tenantId,
       principalId,
       grantId,
       bindingId: parsed('binding-owner-1', parseCapabilityBindingId),
       evidenceSetId,
-      evidenceSetDigest,
+      evidenceSetDigest: evidenceSet.evidenceSetDigest,
       capabilityId,
       operation,
       laneDigest,
@@ -155,7 +181,7 @@ export async function buildReusableAuthorizationCoreFixture(
       auditEventId: parsed('audit-event-1', parseAuthorizationAuditEventId),
       grantId,
       operation: envelope,
-      evidenceSetDigest,
+      evidenceSetDigest: evidenceSet.evidenceSetDigest,
       claimedAtMs: FIXTURE_NOW_MS + 1_000,
       authorization: {
         kind: 'reusable_wallet_session',
@@ -171,9 +197,9 @@ export async function buildReusableAuthorizationCoreFixture(
 }
 
 export async function buildAdditionalAuthorizationClaim(
-  fixture: Awaited<ReturnType<typeof buildReusableAuthorizationCoreFixture>>,
+  fixture: ReusableAuthorizationCoreFixture,
   suffix: string,
-) {
+): Promise<CapabilityOperationClaim> {
   const operation = buildCapabilityOperationEnvelope({
     tenantId: fixture.claim.operation.tenantId,
     principalId: fixture.claim.operation.principalId,
@@ -194,11 +220,12 @@ export async function buildAdditionalAuthorizationClaim(
   });
 }
 
-export async function buildStepUpAuthorizationCoreFixture() {
+export async function buildStepUpAuthorizationCoreFixture(): Promise<StepUpAuthorizationCoreFixture> {
   const reusable = await buildReusableAuthorizationCoreFixture();
   const operation = reusable.evidenceSet.operation;
   return {
     session: reusable.session,
+    sessionEvidenceInput: reusable.sessionEvidenceInput,
     evidenceSet: reusable.evidenceSet,
     grant: buildActiveCapabilityGrant({
       tenantId: reusable.grant.tenantId,
@@ -231,7 +258,7 @@ export async function buildStepUpAuthorizationCoreFixture() {
   };
 }
 
-export async function buildPasskeyVerifiedFactorFixture() {
+export async function buildPasskeyVerifiedFactorFixture(): Promise<PasskeyVerifiedFactorFixture> {
   const authorization = await buildReusableAuthorizationCoreFixture();
   const authorityRef = parseWalletAuthAuthorityRef({
     kind: 'wallet_auth_authority_ref',
@@ -259,7 +286,7 @@ export async function buildPasskeyVerifiedFactorFixture() {
   };
 }
 
-export async function buildEmailOtpVerifiedFactorFixture() {
+export async function buildEmailOtpVerifiedFactorFixture(): Promise<EmailOtpVerifiedFactorFixture> {
   const authorization = await buildReusableAuthorizationCoreFixture();
   const authorityRef = parseWalletAuthAuthorityRef({
     kind: 'wallet_auth_authority_ref',

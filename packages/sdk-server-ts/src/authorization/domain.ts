@@ -127,22 +127,7 @@ export type VerifiedGrantEvidence = {
   readonly evidenceDigest: DigestB64u;
 };
 
-export type VerifiedGrantEvidenceSet = {
-  readonly kind: 'verified_grant_evidence_set';
-  readonly tenantId: TenantId;
-  readonly principalId: PrincipalId;
-  readonly sessionId: SeamsSessionId;
-  readonly deviceId: DeviceId;
-  readonly evidenceSetId: GrantEvidenceSetId;
-  readonly evidence: readonly [VerifiedGrantEvidence, ...VerifiedGrantEvidence[]];
-  readonly evidenceSetDigest: DigestB64u;
-  readonly operation: CapabilityOperationRef;
-  readonly laneDigest: DigestB64u;
-  readonly intentDigest: DigestB64u;
-  readonly displayDigest: DigestB64u;
-  readonly assurance: 'session' | 'step_up';
-  readonly expiresAtMs: number;
-};
+export type { VerifiedGrantEvidenceSet } from './factorEvidence';
 
 type ActiveCapabilityGrantBase = {
   readonly kind: 'active_capability_grant';
@@ -399,35 +384,6 @@ export function buildActiveAuthorizationSession(
     assurance: fields.assurance,
     createdAtMs: fields.createdAtMs,
     lifecycle: fields.lifecycle,
-  };
-}
-
-export function buildVerifiedGrantEvidenceSet(
-  fields: Omit<VerifiedGrantEvidenceSet, 'kind'>,
-): VerifiedGrantEvidenceSet {
-  if (fields.evidence.length === 0) {
-    throw new Error('verified grant evidence set requires evidence');
-  }
-  const evidenceIds = new Set(fields.evidence.map((evidence) => evidence.evidenceId));
-  if (evidenceIds.size !== fields.evidence.length) {
-    throw new Error('verified grant evidence set cannot repeat evidence');
-  }
-  requirePositiveTime(fields.expiresAtMs, 'evidence set expiry');
-  return {
-    kind: 'verified_grant_evidence_set',
-    tenantId: fields.tenantId,
-    principalId: fields.principalId,
-    sessionId: fields.sessionId,
-    deviceId: fields.deviceId,
-    evidenceSetId: fields.evidenceSetId,
-    evidence: fields.evidence,
-    evidenceSetDigest: fields.evidenceSetDigest,
-    operation: fields.operation,
-    laneDigest: fields.laneDigest,
-    intentDigest: fields.intentDigest,
-    displayDigest: fields.displayDigest,
-    assurance: fields.assurance,
-    expiresAtMs: fields.expiresAtMs,
   };
 }
 

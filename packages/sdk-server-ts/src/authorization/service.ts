@@ -35,8 +35,10 @@ import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import {
   buildCapabilityGrantRequest,
   buildVerifiedFactorEvidenceSet,
+  buildVerifiedSessionEvidenceSet,
   type CapabilityGrantRequestInput,
   type VerifiedFactorEvidenceSetInput,
+  type VerifiedSessionEvidenceSetInput,
 } from './factorEvidence';
 
 export interface AuthorizationStore {
@@ -164,14 +166,18 @@ export class AuthorizationService {
     });
   }
 
-  async recordVerifiedEvidenceSet(evidenceSet: VerifiedGrantEvidenceSet): Promise<void> {
-    await this.store.putVerifiedEvidenceSet(evidenceSet);
-  }
-
   async recordVerifiedFactorEvidenceSet(
     input: VerifiedFactorEvidenceSetInput,
   ): Promise<VerifiedGrantEvidenceSet> {
     const evidenceSet = await buildVerifiedFactorEvidenceSet(input);
+    await this.store.putVerifiedEvidenceSet(evidenceSet);
+    return evidenceSet;
+  }
+
+  async recordVerifiedSessionEvidenceSet(
+    input: VerifiedSessionEvidenceSetInput,
+  ): Promise<VerifiedGrantEvidenceSet> {
+    const evidenceSet = await buildVerifiedSessionEvidenceSet(input);
     await this.store.putVerifiedEvidenceSet(evidenceSet);
     return evidenceSet;
   }

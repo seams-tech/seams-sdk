@@ -25,6 +25,7 @@ import {
 } from '../../packages/shared-ts/src/authorization/operationFingerprint';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import { parseVerifiedGrantEvidenceSetFromPersistence } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
 
 const signerMigrations = listD1MigrationFiles('d1-signer');
 
@@ -40,8 +41,21 @@ test.describe('D1 authorization core', () => {
         }),
       );
       const fixture = await buildReusableAuthorizationCoreFixture();
+      expect(fixture.evidenceSet.assurance).toBe('session');
+      expect(
+        parseVerifiedGrantEvidenceSetFromPersistence(
+          JSON.parse(JSON.stringify(fixture.evidenceSet)),
+        ),
+      ).toMatchObject({
+        kind: fixture.evidenceSet.kind,
+        tenantId: fixture.evidenceSet.tenantId,
+        principalId: fixture.evidenceSet.principalId,
+        sessionId: fixture.evidenceSet.sessionId,
+        evidenceSetId: fixture.evidenceSet.evidenceSetId,
+        evidenceSetDigest: fixture.evidenceSet.evidenceSetDigest,
+      });
       await service.recordActiveSession(fixture.session);
-      await service.recordVerifiedEvidenceSet(fixture.evidenceSet);
+      await service.recordVerifiedSessionEvidenceSet(fixture.sessionEvidenceInput);
       await service.recordWalletSessionQuota(fixture.quota);
       await service.issueGrant({
         operation: fixture.claim.operation,
@@ -112,7 +126,7 @@ test.describe('D1 authorization core', () => {
       const stepUpService = createService(stepUpDatabase.database, 'step-up-test');
       const stepUpFixture = await buildStepUpAuthorizationCoreFixture();
       await stepUpService.recordActiveSession(stepUpFixture.session);
-      await stepUpService.recordVerifiedEvidenceSet(stepUpFixture.evidenceSet);
+      await stepUpService.recordVerifiedSessionEvidenceSet(stepUpFixture.sessionEvidenceInput);
       await stepUpService.issueGrant({
         operation: stepUpFixture.claim.operation,
         evidenceSet: stepUpFixture.evidenceSet,
@@ -296,6 +310,8 @@ test.describe('D1 authorization core', () => {
       });
       expect(passkeyEvidence.evidence[0].evidenceKind).toBe('passkey_assertion');
       expect(emailOtpEvidence.evidence[0].evidenceKind).toBe('email_otp');
+      expect(passkeyEvidence.assurance).toBe('step_up');
+      expect(emailOtpEvidence.assurance).toBe('step_up');
       await expect(rowCount(temporary.database, 'verified_grant_evidence_sets')).resolves.toBe(2);
 
       const grant = buildGrantForEvidence(passkey.authorization.grant, passkeyEvidence);
@@ -371,7 +387,7 @@ async function seedReusable(
   fixture: Awaited<ReturnType<typeof buildReusableAuthorizationCoreFixture>>,
 ): Promise<void> {
   await service.recordActiveSession(fixture.session);
-  await service.recordVerifiedEvidenceSet(fixture.evidenceSet);
+  await service.recordVerifiedSessionEvidenceSet(fixture.sessionEvidenceInput);
   await service.recordWalletSessionQuota(fixture.quota);
   await service.issueGrant({
     operation: fixture.claim.operation,
