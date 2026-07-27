@@ -119,8 +119,6 @@ export function createRecoveryPublicDeps(args: {
           args.emailOtpSessions.requestPublicReauthExportChallenge(request),
         exportEcdsaKeyWithAuthorization: (request) =>
           args.emailOtpSessions.exportEcdsaKeyWithAuthorization(request),
-        exportEcdsaKeyWithDurableAuthorization: (request) =>
-          args.emailOtpSessions.exportEcdsaKeyWithDurableAuthorization(request),
         exportEcdsaKeyWithPublicReauthAuthorization: (request) =>
           args.emailOtpSessions.exportEcdsaKeyWithPublicReauthAuthorization(request),
       },

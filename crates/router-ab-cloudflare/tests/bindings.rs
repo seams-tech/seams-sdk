@@ -1529,6 +1529,9 @@ fn router_ab_ecdsa_derivation_export_request_with_aad_bound_envelopes(
         router_id: "router-1".to_owned(),
         client_id: "client-1".to_owned(),
         client_ephemeral_public_key: "x25519:client-ephemeral-public-key".to_owned(),
+        authorization: NormalSigningAuthorizationV1::reusable_wallet_session("wallet-session-1")
+            .expect("ECDSA export authorization"),
+        material_activation_id: router_ab_ecdsa_derivation_material_activation_id(&root_epoch()),
         export_authorization_digest_b64u: b64u(&[0x44; 32]),
         export_nonce: "ecdsa-export-nonce-1".to_owned(),
         expires_at_ms: 2_000,

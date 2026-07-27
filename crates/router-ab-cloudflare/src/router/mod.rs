@@ -793,12 +793,6 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
                 "Wallet Session session_id does not match normal-signing scope",
             ));
         }
-        if self.signing_grant_id != request.scope.authorization.grant_id()? {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session signing_grant_id does not match normal-signing scope",
-            ));
-        }
         if self.signing_worker_id != request.scope.signing_worker_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
@@ -832,12 +826,6 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
                 "Wallet Session session_id does not match normal-signing finalize scope",
-            ));
-        }
-        if self.signing_grant_id != request.scope.authorization.grant_id()? {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session signing_grant_id does not match normal-signing finalize scope",
             ));
         }
         if self.signing_worker_id != request.scope.signing_worker_id {
@@ -2311,14 +2299,12 @@ impl CloudflareRouterNormalSigningAuthorizationV2 {
         let matches = match (self, authorization) {
             (
                 Self::ReusableWalletSession {
-                    wallet_session_id,
-                    grant_id,
+                    wallet_session_id, ..
                 },
                 NormalSigningAuthorizationV1::ReusableWalletSession {
                     wallet_session_id: scope_session_id,
-                    grant_id: scope_grant_id,
                 },
-            ) => wallet_session_id == scope_session_id && grant_id == scope_grant_id,
+            ) => wallet_session_id == scope_session_id,
             (
                 Self::OperationStepUp { grant_id, .. },
                 NormalSigningAuthorizationV1::OperationStepUp {

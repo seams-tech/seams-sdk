@@ -11,7 +11,6 @@ import {
   emitSigningSessionFlowFailure,
   emitSigningSessionFlowTrace,
 } from '../../session/operationState/trace';
-import { SigningSessionIds } from '../../session/operationState/types';
 import {
   thresholdEcdsaChainTargetsEqual,
   toWalletId,
@@ -180,15 +179,11 @@ function exactEcdsaExportSessionFromAvailableLane(args: {
   chainTarget: ThresholdEcdsaChainTarget;
 }): ExactEcdsaExportSession {
   const authMethod = availableEcdsaSigningLaneAuthMethod(args.lane);
-  const signingGrantId = SigningSessionIds.signingGrant(args.lane.signingGrantId);
-  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession(args.lane.thresholdSessionId);
   const material = ecdsaExportMaterialAvailabilityForLane(args.lane);
   if (args.lane.source === 'durable_sealed_record') {
     return {
       chainTarget: args.chainTarget,
       authMethod,
-      signingGrantId,
-      thresholdSessionId,
       material,
       state: args.lane.state,
       source: 'durable_sealed_record',
@@ -207,8 +202,6 @@ function exactEcdsaExportSessionFromAvailableLane(args: {
       return {
         chainTarget: args.chainTarget,
         authMethod,
-        signingGrantId,
-        thresholdSessionId,
         material,
         state: args.lane.state,
         source: args.lane.source,

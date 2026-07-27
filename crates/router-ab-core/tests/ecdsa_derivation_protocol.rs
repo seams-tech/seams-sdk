@@ -168,6 +168,15 @@ fn export_request() -> RouterAbEcdsaDerivationExplicitExportRequestV1 {
         router_id: "router-1".to_owned(),
         client_id: "client-device-1".to_owned(),
         client_ephemeral_public_key: "client-ephemeral-public-key-1".to_owned(),
+        authorization: NormalSigningAuthorizationV1::reusable_wallet_session("wallet-session-1")
+            .expect("export authorization"),
+        material_activation_id: router_ab_ecdsa_derivation_material_activation_id_v1(
+            ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
+            ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
+            ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
+            "root-epoch-1",
+        )
+        .expect("export material activation id"),
         export_authorization_digest_b64u: digest_b64u(b"export authorization"),
         export_nonce: "export-nonce-1".to_owned(),
         expires_at_ms: 1_900_000_000_000,

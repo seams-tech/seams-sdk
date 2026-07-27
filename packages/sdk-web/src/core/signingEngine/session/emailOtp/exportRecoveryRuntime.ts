@@ -10,7 +10,8 @@ import type { EmailOtpEd25519YaoActiveCapabilityDescriptorV1 } from '@/core/sign
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type {
-  EcdsaExportLane,
+  EmailOtpEcdsaExportAuthLane,
+  EmailOtpEcdsaExportSessionRecord,
   EmailOtpEcdsaPublicReauthExportAuthority,
 } from '../../flows/recovery/ecdsaExportMaterial';
 import type { EmailOtpEcdsaSigningSessionAuthority } from './ecdsaSigningSessionAuthority';
@@ -63,10 +64,10 @@ export type ExportEcdsaKeyWithAuthorizationArgs = {
   walletSession: WalletSessionRef;
   challengeId: string;
   otpCode: string;
-  committedLane: EcdsaExportLane<EmailOtpWalletAuthAuthority>;
-  record?: never;
+  record: EmailOtpEcdsaExportSessionRecord;
+  authLane: EmailOtpEcdsaExportAuthLane;
+  materialActivationId: string;
   routeAuth?: never;
-  authLane?: never;
 };
 
 export type ExportEcdsaKeyWithDurableAuthorizationArgs = {
@@ -135,7 +136,9 @@ export class EmailOtpExportRecoveryRuntime {
       walletSession: args.walletSession,
       challengeId: args.challengeId,
       otpCode: args.otpCode,
-      committedLane: args.committedLane,
+      record: args.record,
+      authLane: args.authLane,
+      materialActivationId: args.materialActivationId,
       prepareEcdsaExportCapability: this.ports.prepareEcdsaExportCapability,
     });
   }

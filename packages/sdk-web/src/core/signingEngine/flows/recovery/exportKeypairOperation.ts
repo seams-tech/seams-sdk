@@ -175,8 +175,9 @@ function emitEcdsaExportFailureDiagnostics(args: {
       ...(keyFingerprint ? { evmFamilyKeyFingerprint: keyFingerprint } : {}),
       ...(publicFacts ? { keyHandle: String(publicFacts.keyHandle) } : {}),
       chainTargetKey: thresholdEcdsaChainTargetKey(args.input.chainTarget),
-      signingGrantId: args.exportLane?.session.signingGrantId,
-      thresholdSessionId: args.exportLane?.session.thresholdSessionId,
+      walletSessionId: args.exportLane?.laneIdentity.authorization.projection.walletSessionId,
+      materialActivationId:
+        args.exportLane?.laneIdentity.signer.materialActivation.activationId,
       budgetProjectionVersion: undefined,
       freshAuthRetrySideEffectState: 'not_applicable',
       error:

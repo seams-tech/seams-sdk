@@ -27,6 +27,7 @@ import {
   type RouterAbEcdsaVerifiedClientActivationFactsV1,
   type RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 
 type JsonObject = Record<string, unknown>;
@@ -88,7 +89,9 @@ export type RouterAbEcdsaStrictRegistrationAuthority = {
 
 export type RouterAbEcdsaStrictExportAuthority = RouterAbEcdsaStrictRegistrationAuthority & {
   readonly keyHandle: string;
-  readonly signingGrantId: string;
+  // The Gateway-attested operation authority for this export. The router
+  // cross-checks it against the request's own authorization branch.
+  readonly authorization: RouterAbNormalSigningAuthorizationWire;
   readonly normalSigningScope: RouterAbEcdsaDerivationNormalSigningScopeV1;
 };
 
@@ -586,7 +589,7 @@ function strictPostRegistrationForwardBodyJson(
         request: input.request,
         export_authority: {
           key_handle: input.authority.keyHandle,
-          signing_grant_id: input.authority.signingGrantId,
+          authorization: input.authority.authorization,
           normal_signing_scope: input.authority.normalSigningScope,
         },
       });

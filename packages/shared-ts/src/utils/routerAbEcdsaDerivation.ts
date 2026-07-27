@@ -249,6 +249,14 @@ export type RouterAbEcdsaStrictForwardedRegistrationResponseV1 = {
 export type RouterAbEcdsaStrictForwardedProofResponseV1 =
   RouterAbEcdsaStrictForwardedRegistrationResponseV1;
 
+function requireExportShareAuthorizationKind(
+  value: unknown,
+  label: string,
+): 'reusable_wallet_session' | 'operation_step_up' {
+  if (value === 'reusable_wallet_session' || value === 'operation_step_up') return value;
+  throw new Error(`${label} must be reusable_wallet_session or operation_step_up`);
+}
+
 export type RouterAbEcdsaSigningWorkerExportShareBindingV1 = {
   wallet_id: string;
   key_handle: string;
@@ -262,8 +270,9 @@ export type RouterAbEcdsaSigningWorkerExportShareBindingV1 = {
   export_request_digest_b64u: string;
   export_authorization_digest_b64u: string;
   export_nonce: string;
-  threshold_session_id: ThresholdEcdsaSessionId;
-  signing_grant_id: SigningGrantId;
+  authorization_kind: 'reusable_wallet_session' | 'operation_step_up';
+  authorization_id: string;
+  material_activation_id: string;
   lifecycle_id: string;
   recipient_identity: string;
   recipient_public_key: string;
@@ -400,6 +409,11 @@ export type RouterAbEcdsaDerivationExplicitExportRequestV1 = {
   router_id: string;
   client_id: string;
   client_ephemeral_public_key: string;
+  // The discriminated operation authority and the exact material activation
+  // this export binds. Session and grant identifiers never re-enter this
+  // request outside the authorization branch.
+  authorization: RouterAbNormalSigningAuthorizationWire;
+  material_activation_id: string;
   export_authorization_digest_b64u: string;
   export_nonce: string;
   expires_at_ms: number;
@@ -1387,8 +1401,9 @@ function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
     'export_request_digest_b64u',
     'export_authorization_digest_b64u',
     'export_nonce',
-    'threshold_session_id',
-    'signing_grant_id',
+    'authorization_kind',
+    'authorization_id',
+    'material_activation_id',
     'lifecycle_id',
     'recipient_identity',
     'recipient_public_key',
@@ -1446,13 +1461,17 @@ function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
         binding.export_nonce,
         `${bindingLabel}.export_nonce`,
       ),
-      threshold_session_id: requireThresholdEcdsaSessionId(
-        binding.threshold_session_id,
-        `${bindingLabel}.threshold_session_id`,
+      authorization_kind: requireExportShareAuthorizationKind(
+        binding.authorization_kind,
+        `${bindingLabel}.authorization_kind`,
       ),
-      signing_grant_id: requireSigningGrantId(
-        binding.signing_grant_id,
-        `${bindingLabel}.signing_grant_id`,
+      authorization_id: requireAsciiNonEmptyString(
+        binding.authorization_id,
+        `${bindingLabel}.authorization_id`,
+      ),
+      material_activation_id: requireAsciiNonEmptyString(
+        binding.material_activation_id,
+        `${bindingLabel}.material_activation_id`,
       ),
       lifecycle_id: requireAsciiNonEmptyString(
         binding.lifecycle_id,
@@ -2134,6 +2153,8 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
     'router_id',
     'client_id',
     'client_ephemeral_public_key',
+    'authorization',
+    'material_activation_id',
     'export_authorization_digest_b64u',
     'export_nonce',
     'expires_at_ms',
@@ -2158,6 +2179,11 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
     client_ephemeral_public_key: requireX25519PublicKey(
       record.client_ephemeral_public_key,
       `${label}.client_ephemeral_public_key`,
+    ),
+    authorization: parseRouterAbNormalSigningAuthorization(record.authorization),
+    material_activation_id: requireAsciiNonEmptyString(
+      record.material_activation_id,
+      `${label}.material_activation_id`,
     ),
     export_authorization_digest_b64u: requireBase64UrlFixed(
       record.export_authorization_digest_b64u,

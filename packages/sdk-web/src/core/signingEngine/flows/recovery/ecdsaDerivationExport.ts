@@ -18,10 +18,12 @@ import {
 } from '../../threshold/crypto/ecdsaDerivationClientWasm';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import {
-  buildEcdsaWalletSessionAuthority,
-  type EcdsaWalletSessionAuthority,
-} from '../../session/identity/ecdsaWalletSessionAuthority';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import { SigningSessionIds } from '../../session/operationState/types';
+import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
+import { parseEcdsaRoleLocalPersistedMaterialRef } from '../../session/keyMaterialBrands';
+import type { EcdsaExportOperationAuthorization } from './ecdsaExportMaterial';
 import type { ThresholdEcdsaExplicitKeyExportBootstrapResult } from '../../session/passkey/ecdsaSessionProvision';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
@@ -39,7 +41,6 @@ import type {
   EcdsaRoleLocalPersistedMaterialRef,
   EcdsaRoleLocalWorkerHandle,
 } from '../../session/keyMaterialBrands';
-import type { ReadyEcdsaExportLane } from './ecdsaExportMaterial';
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
 import type { FinalizeRouterAbEcdsaExplicitExportRequestV1 } from '../../workerManager/ecdsaClientWorkerChannels';
 import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
@@ -49,9 +50,9 @@ import {
 } from '../../session/lifecycle/walletSessionFailure';
 
 const ECDSA_DERIVATION_EXPORT_CONFIRMATION_DIGEST_VERSION =
-  'ecdsa-derivation:role-local:product-export-confirmation:v2';
+  'ecdsa-derivation:role-local:product-export-confirmation:v3';
 const ECDSA_DERIVATION_EXPORT_AUTHORIZATION_DIGEST_VERSION =
-  'ecdsa-derivation:role-local:product-export-authorization:v2';
+  'ecdsa-derivation:role-local:product-export-authorization:v3';
 const ECDSA_DERIVATION_EXPORT_AUTH_TTL_MS = 60_000;
 const ECDSA_DERIVATION_SIGNING_ROOT_VERSION_DEFAULT = 'default';
 
@@ -74,7 +75,21 @@ type EcdsaDerivationExportAuthorization =
     };
 
 type ResolvedEcdsaDerivationExportMaterial = {
-  walletSessionAuthority: EcdsaWalletSessionAuthority;
+  walletId: string;
+  keyHandle: string;
+  relayerKeyId: string;
+  participantIds: readonly number[];
+  // Opaque bearer for the relayer route; never decoded.
+  walletSessionJwtBearer: string;
+  // Discriminated operation authority plus the exact material activation this
+  // export binds; these replace every legacy session/grant identifier in the
+  // digest and wire.
+  operationAuthorization: EcdsaExportOperationAuthorization;
+  materialActivationId: string;
+  authorizationExpiresAtMsCeiling: number | null;
+  // Transitional router-ab lifecycle label sourced from the durable record;
+  // renamed at the Phase 20 wire cut.
+  lifecycleSessionId: string;
   relayerUrl: string;
   publicFacts: EcdsaRoleLocalPublicFacts;
   roleLocalMaterial: FinalizeRouterAbEcdsaExplicitExportRequestV1['roleLocalMaterial'];
@@ -84,6 +99,23 @@ type ResolvedEcdsaDerivationExportMaterial = {
   signingRootVersion: string;
   authorization: EcdsaDerivationExportAuthorization;
 };
+
+function exportAuthorizationWire(
+  authorization: EcdsaExportOperationAuthorization,
+): RouterAbNormalSigningAuthorizationWire {
+  return authorization.kind === 'reusable_wallet_session'
+    ? { kind: 'reusable_wallet_session', wallet_session_id: authorization.walletSessionId }
+    : { kind: 'operation_step_up', grant_id: authorization.grantId };
+}
+
+function exportAuthorizationDigestFields(authorization: EcdsaExportOperationAuthorization): {
+  authorizationKind: EcdsaExportOperationAuthorization['kind'];
+  authorizationId: string;
+} {
+  return authorization.kind === 'reusable_wallet_session'
+    ? { authorizationKind: authorization.kind, authorizationId: authorization.walletSessionId }
+    : { authorizationKind: authorization.kind, authorizationId: authorization.grantId };
+}
 
 type EcdsaDerivationExportPublicIdentity = {
   derivationClientSharePublicKey33B64u: string;
@@ -108,12 +140,10 @@ type EcdsaDerivationExportAuthorizationDigestInput = {
   confirmationDigest32B64u: string;
   issuedAtUnixMs: number;
   expiresAtUnixMs: number;
-  clientDeviceId: string;
-  clientSessionId: string;
-  thresholdSessionId: string;
-  signingGrantId: string;
-  thresholdExpiresAtMs: EcdsaWalletSessionAuthority['thresholdExpiresAtMs'];
-  participantIds: EcdsaWalletSessionAuthority['participantIds'];
+  authorizationKind: EcdsaExportOperationAuthorization['kind'];
+  authorizationId: string;
+  materialActivationId: string;
+  participantIds: readonly number[];
 };
 
 function randomB64u32(): string {
@@ -126,11 +156,11 @@ function randomB64u32(): string {
 
 function requireActiveEcdsaExportAuthorizationWindow(args: {
   readonly issuedAtUnixMs: number;
-  readonly thresholdExpiresAtMs: number;
+  readonly authorizationExpiresAtMsCeiling: number | null;
 }): number {
   const expiresAtUnixMs = Math.min(
     args.issuedAtUnixMs + ECDSA_DERIVATION_EXPORT_AUTH_TTL_MS,
-    args.thresholdExpiresAtMs,
+    args.authorizationExpiresAtMsCeiling ?? Number.POSITIVE_INFINITY,
   );
   if (Number.isFinite(expiresAtUnixMs) && expiresAtUnixMs > args.issuedAtUnixMs) {
     return expiresAtUnixMs;
@@ -147,7 +177,6 @@ function participantIdsKey(participantIds: readonly number[]): string {
 
 function assertExplicitKeyExportMaterialBinding(args: {
   material: ExplicitKeyExportMaterial;
-  walletSessionAuthority: EcdsaWalletSessionAuthority;
   walletSessionUserId: string;
 }): void {
   const publicFacts = args.material.publicFacts;
@@ -167,11 +196,6 @@ function assertExplicitKeyExportMaterialBinding(args: {
     [
       'participantIds',
       participantIdsKey(publicFacts.participantIds),
-      participantIdsKey(args.material.participantIds),
-    ],
-    [
-      'Wallet Session participantIds',
-      participantIdsKey(args.walletSessionAuthority.participantIds),
       participantIdsKey(args.material.participantIds),
     ],
     [
@@ -243,16 +267,17 @@ export function buildEcdsaDerivationExportAuthorizationDigestInput(args: {
   confirmationDigest32B64u: string;
   issuedAtUnixMs: number;
   expiresAtUnixMs: number;
-  walletSessionAuthority: EcdsaWalletSessionAuthority;
+  material: ResolvedEcdsaDerivationExportMaterial;
 }): EcdsaDerivationExportAuthorizationDigestInput {
+  const authorization = exportAuthorizationDigestFields(args.material.operationAuthorization);
   return {
     version: ECDSA_DERIVATION_EXPORT_AUTHORIZATION_DIGEST_VERSION,
     operation: 'explicit_key_export',
-    keyHandle: args.walletSessionAuthority.keyHandle,
-    walletId: args.walletSessionAuthority.walletId,
+    keyHandle: args.material.keyHandle,
+    walletId: args.material.walletId,
     evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
-    relayerKeyId: args.walletSessionAuthority.relayerKeyId,
+    relayerKeyId: args.material.relayerKeyId,
     signingRootId: args.signingRootId,
     signingRootVersion: args.signingRootVersion,
     contextBinding32B64u: args.contextBinding32B64u,
@@ -261,12 +286,10 @@ export function buildEcdsaDerivationExportAuthorizationDigestInput(args: {
     confirmationDigest32B64u: args.confirmationDigest32B64u,
     issuedAtUnixMs: args.issuedAtUnixMs,
     expiresAtUnixMs: args.expiresAtUnixMs,
-    clientDeviceId: args.walletSessionAuthority.signingGrantId,
-    clientSessionId: args.walletSessionAuthority.thresholdSessionId,
-    thresholdSessionId: args.walletSessionAuthority.thresholdSessionId,
-    signingGrantId: args.walletSessionAuthority.signingGrantId,
-    thresholdExpiresAtMs: args.walletSessionAuthority.thresholdExpiresAtMs,
-    participantIds: args.walletSessionAuthority.participantIds,
+    authorizationKind: authorization.authorizationKind,
+    authorizationId: authorization.authorizationId,
+    materialActivationId: args.material.materialActivationId,
+    participantIds: args.material.participantIds,
   };
 }
 
@@ -305,7 +328,7 @@ async function executeEcdsaDerivationExport(
   const issuedAtUnixMs = Date.now();
   const expiresAtUnixMs = requireActiveEcdsaExportAuthorizationWindow({
     issuedAtUnixMs,
-    thresholdExpiresAtMs: material.walletSessionAuthority.thresholdExpiresAtMs,
+    authorizationExpiresAtMsCeiling: material.authorizationExpiresAtMsCeiling,
   });
 
   const publicIdentity = {
@@ -315,16 +338,18 @@ async function executeEcdsaDerivationExport(
     ethereumAddress: material.publicFacts.ethereumAddress,
   };
   const exportRequestNonce32B64u = randomB64u32();
+  const digestAuthorization = exportAuthorizationDigestFields(material.operationAuthorization);
   const confirmationDigest32B64u = await digestB64u({
     version: ECDSA_DERIVATION_EXPORT_CONFIRMATION_DIGEST_VERSION,
-    walletId: material.walletSessionAuthority.walletId,
+    walletId: material.walletId,
     evmFamilySigningKeySlotId: material.publicFacts.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: material.ecdsaThresholdKeyId,
-    relayerKeyId: material.walletSessionAuthority.relayerKeyId,
+    relayerKeyId: material.relayerKeyId,
     contextBinding32B64u: material.publicFacts.contextBinding32B64u,
     publicIdentity,
-    clientDeviceId: material.walletSessionAuthority.signingGrantId,
-    clientSessionId: material.walletSessionAuthority.thresholdSessionId,
+    authorizationKind: digestAuthorization.authorizationKind,
+    authorizationId: digestAuthorization.authorizationId,
+    materialActivationId: material.materialActivationId,
     exportRequestNonce32B64u,
     issuedAtUnixMs,
     expiresAtUnixMs,
@@ -341,7 +366,7 @@ async function executeEcdsaDerivationExport(
       confirmationDigest32B64u,
       issuedAtUnixMs,
       expiresAtUnixMs,
-      walletSessionAuthority: material.walletSessionAuthority,
+      material,
     }),
   );
 
@@ -359,8 +384,8 @@ async function executeEcdsaDerivationExport(
           work_kind: 'key_export',
           primitive_request_kind: 'export',
           root_share_epoch: publicCapability.activation_epoch,
-          account_id: String(material.walletSessionAuthority.walletId),
-          session_id: material.walletSessionAuthority.thresholdSessionId,
+          account_id: String(material.walletId),
+          session_id: SigningSessionIds.thresholdEcdsaSession(material.lifecycleSessionId),
           signer_set_id: publicCapability.signer_set.signer_set_id,
           selected_server_id: publicCapability.signer_set.selected_server.server_id,
         },
@@ -368,6 +393,8 @@ async function executeEcdsaDerivationExport(
         signer_set: publicCapability.signer_set,
         router_id: publicCapability.router_id,
         client_id: publicCapability.client_id,
+        authorization: exportAuthorizationWire(material.operationAuthorization),
+        material_activation_id: material.materialActivationId,
         export_authorization_digest_b64u: authorizationDigest32B64u,
         export_nonce: exportRequestNonce32B64u,
         expires_at_ms: expiresAtUnixMs,
@@ -383,7 +410,7 @@ async function executeEcdsaDerivationExport(
       request: created.request,
       auth: {
         kind: 'wallet_session',
-        jwt: material.walletSessionAuthority.walletSessionJwt,
+        jwt: material.walletSessionJwtBearer,
       },
     });
     if (!forwarded.ok) {
@@ -404,7 +431,9 @@ async function executeEcdsaDerivationExport(
           bundles: forwarded.value.response.bundles,
         },
         signingWorkerExport: forwarded.value.signing_worker_export,
-        signingGrantId: material.walletSessionAuthority.signingGrantId,
+        authorizationKind: digestAuthorization.authorizationKind,
+        authorizationId: digestAuthorization.authorizationId,
+        materialActivationId: material.materialActivationId,
         roleLocalMaterial: material.roleLocalMaterial,
         roleLocalMaterialRef: material.roleLocalMaterialRef,
         publicFacts: material.publicFacts,
@@ -440,19 +469,11 @@ export async function exportEcdsaDerivationKeyWithExplicitExportSession(
   ethereumAddress: string;
 }> {
   const material = args.exportProvision.material;
-  const walletSessionAuthority = buildEcdsaWalletSessionAuthority({
-    walletSessionJwt: material.walletSessionJwt,
-    walletId: material.walletId,
-    keyHandle: material.keyHandle,
-    thresholdSessionId: material.thresholdSessionId,
-    signingGrantId: material.signingGrantId,
-  });
   assertExplicitKeyExportMaterialBinding({
     material,
-    walletSessionAuthority,
     walletSessionUserId: args.walletSessionUserId,
   });
-  const walletSessionJwt = String(walletSessionAuthority.walletSessionJwt || '').trim();
+  const walletSessionJwt = String(material.walletSessionJwt || '').trim();
   const relayerUrl = String(material.relayerUrl || '').trim();
   const keyHandle = String(material.keyHandle || '').trim();
   const walletId = toWalletId(args.walletSessionUserId);
@@ -461,21 +482,9 @@ export async function exportEcdsaDerivationKeyWithExplicitExportSession(
       '[SigningEngine][ecdsa-export] ready export signer session is missing canonical transport',
     );
   }
-  if (
-    String(walletSessionAuthority.thresholdSessionId) !== String(material.thresholdSessionId) ||
-    String(walletSessionAuthority.signingGrantId) !== String(material.signingGrantId)
-  ) {
+  if (String(material.walletId) !== String(walletId)) {
     throw new Error(
-      '[SigningEngine][ecdsa-export] committed lane Wallet Session authority does not match signer session',
-    );
-  }
-  if (
-    String(walletSessionAuthority.walletId) !== String(walletId) ||
-    String(walletSessionAuthority.keyHandle) !== keyHandle ||
-    String(walletSessionAuthority.relayerKeyId) !== String(material.relayerKeyId)
-  ) {
-    throw new Error(
-      '[SigningEngine][ecdsa-export] committed lane Wallet Session authority does not match signer transport',
+      '[SigningEngine][ecdsa-export] explicit export session does not match the requested wallet',
     );
   }
 
@@ -495,7 +504,22 @@ export async function exportEcdsaDerivationKeyWithExplicitExportSession(
     publicFacts.signingRootVersion || ECDSA_DERIVATION_SIGNING_ROOT_VERSION_DEFAULT,
   );
   return await executeEcdsaDerivationExport(deps, {
-    walletSessionAuthority,
+    walletId: String(walletId),
+    keyHandle,
+    relayerKeyId: String(material.relayerKeyId),
+    participantIds: material.participantIds.map(Number),
+    walletSessionJwtBearer: walletSessionJwt,
+    // The explicit export session mints exactly one single-operation grant.
+    operationAuthorization: {
+      kind: 'operation_step_up',
+      grantId: String(material.signingGrantId),
+    },
+    materialActivationId: String(
+      parseEcdsaRoleLocalPersistedMaterialRef(material.roleLocalMaterialRef).materialActivation
+        .activationId,
+    ),
+    authorizationExpiresAtMsCeiling: null,
+    lifecycleSessionId: String(material.thresholdSessionId),
     relayerUrl,
     publicFacts,
     roleLocalMaterial: material.roleLocalMaterial,
@@ -516,7 +540,8 @@ export async function exportEcdsaDerivationKeyWithWalletSession(
   args: {
     walletSessionUserId: string;
     signerSession: ReadyEcdsaSignerSession;
-    committedLane: ReadyEcdsaExportLane<PasskeyWalletAuthAuthority>;
+    laneIdentity: ExactEcdsaSigningLaneIdentity;
+    record: ThresholdEcdsaSessionRecord;
     credential: WebAuthnAuthenticationCredential;
   },
 ): Promise<{
@@ -524,16 +549,14 @@ export async function exportEcdsaDerivationKeyWithWalletSession(
   privateKeyHex: string;
   ethereumAddress: string;
 }> {
-  const record = args.committedLane.record;
+  const record = args.record;
   const signerTransport = args.signerSession.transport;
-  const walletSessionAuthority = args.committedLane.walletSessionAuthority;
-  if (walletSessionAuthority.kind !== 'ecdsa_wallet_session_authority') {
-    throw new Error('[SigningEngine][ecdsa-export] export requires Wallet Session JWT authority');
-  }
+  const authorization = args.laneIdentity.authorization;
   const signerWalletSessionJwt = String(
     args.signerSession.routerAbEcdsaDerivationNormalSigning.credential.walletSessionJwt,
   ).trim();
-  const walletSessionJwt = String(walletSessionAuthority.walletSessionJwt).trim();
+  // Opaque bearer comparison only; the JWT is never decoded here.
+  const walletSessionJwt = String(authorization.projection.walletSessionJwt || '').trim();
   const relayerUrl = String(signerTransport.relayerUrl).trim();
   const keyHandle = String(args.signerSession.publicFacts.keyHandle).trim();
   const walletId = toWalletId(args.walletSessionUserId);
@@ -545,23 +568,19 @@ export async function exportEcdsaDerivationKeyWithWalletSession(
   if (walletSessionJwt !== signerWalletSessionJwt) {
     throw new Error('[SigningEngine][ecdsa-export] committed lane Wallet Session JWT mismatch');
   }
-  if (
-    String(walletSessionAuthority.thresholdSessionId) !==
-      String(args.signerSession.session.thresholdSessionId) ||
-    String(walletSessionAuthority.signingGrantId) !==
-      String(args.signerSession.session.signingGrantId)
-  ) {
+  if (String(authorization.projection.walletId) !== String(walletId)) {
     throw new Error(
-      '[SigningEngine][ecdsa-export] committed lane Wallet Session authority does not match signer session',
+      '[SigningEngine][ecdsa-export] Wallet Session authorization does not match the wallet',
     );
   }
   if (
-    String(walletSessionAuthority.walletId) !== String(walletId) ||
-    String(walletSessionAuthority.keyHandle) !== keyHandle ||
-    String(walletSessionAuthority.relayerKeyId) !== String(signerTransport.relayerKeyId)
+    !mpcMaterialActivationRefsEqual(
+      record.materialActivation,
+      args.laneIdentity.signer.materialActivation,
+    )
   ) {
     throw new Error(
-      '[SigningEngine][ecdsa-export] committed lane Wallet Session authority does not match signer transport',
+      '[SigningEngine][ecdsa-export] export record does not carry the exact material activation',
     );
   }
 
@@ -581,7 +600,19 @@ export async function exportEcdsaDerivationKeyWithWalletSession(
     record.signingRootVersion || ECDSA_DERIVATION_SIGNING_ROOT_VERSION_DEFAULT,
   );
   return await executeEcdsaDerivationExport(deps, {
-    walletSessionAuthority,
+    walletId: String(walletId),
+    keyHandle,
+    relayerKeyId: String(signerTransport.relayerKeyId),
+    participantIds: publicFacts.participantIds.map(Number),
+    walletSessionJwtBearer: walletSessionJwt,
+    operationAuthorization: {
+      kind: 'reusable_wallet_session',
+      walletSessionId: String(authorization.projection.walletSessionId),
+    },
+    materialActivationId: String(args.laneIdentity.signer.materialActivation.activationId),
+    authorizationExpiresAtMsCeiling:
+      Math.floor(Number(authorization.status.expiresAtMs) || 0) || null,
+    lifecycleSessionId: String(record.thresholdSessionId),
     relayerUrl,
     publicFacts,
     roleLocalMaterial: exactRoleLocalMaterial.liveHandle,
@@ -629,17 +660,10 @@ export async function exportEcdsaDerivationKeyWithEmailOtpSession(
       '[SigningEngine][ecdsa-export] Email OTP export session transport is incomplete',
     );
   }
-  const walletSessionAuthority = buildEcdsaWalletSessionAuthority({
-    walletSessionJwt,
-    walletId: args.walletSessionUserId,
-    keyHandle,
-    thresholdSessionId: args.bootstrap.session.thresholdSessionId,
-    signingGrantId: args.bootstrap.session.signingGrantId,
-  });
   const publicFacts = backendBinding.publicFacts;
   if (
-    String(publicFacts.walletId) !== String(walletSessionAuthority.walletId) ||
-    String(publicFacts.keyHandle) !== String(walletSessionAuthority.keyHandle)
+    String(publicFacts.walletId) !== String(args.walletSessionUserId) ||
+    String(publicFacts.keyHandle) !== keyHandle
   ) {
     throw new Error('[SigningEngine][ecdsa-export] Email OTP role-local identity mismatch');
   }
@@ -652,7 +676,22 @@ export async function exportEcdsaDerivationKeyWithEmailOtpSession(
     workerCtx: deps.getSignerWorkerContext(),
   });
   return await executeEcdsaDerivationExport(deps, {
-    walletSessionAuthority,
+    walletId: String(args.walletSessionUserId),
+    keyHandle,
+    relayerKeyId: String(backendBinding.relayerKeyId),
+    participantIds: publicFacts.participantIds.map(Number),
+    walletSessionJwtBearer: walletSessionJwt,
+    // The Email OTP export session is minted per operation: a single-use grant.
+    operationAuthorization: {
+      kind: 'operation_step_up',
+      grantId: String(args.bootstrap.session.signingGrantId),
+    },
+    materialActivationId: String(
+      backendBinding.roleLocalMaterialRef.materialActivation.activationId,
+    ),
+    authorizationExpiresAtMsCeiling:
+      Math.floor(Number(args.bootstrap.session.expiresAtMs) || 0) || null,
+    lifecycleSessionId: String(args.bootstrap.session.thresholdSessionId),
     relayerUrl,
     publicFacts,
     roleLocalMaterial: exactRoleLocalMaterial.liveHandle,
