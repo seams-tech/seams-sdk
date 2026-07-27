@@ -1,7 +1,12 @@
 import { expect, test } from '@playwright/test';
 import type { EcdsaCapabilityManifestLookup } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import { resolveEcdsaCapabilityHydration } from '@/core/signingEngine/session/material/ecdsaCapabilityHydration';
-import { parseMpcCapabilityRuntimeRef, type DomainIdParseResult } from '@shared/utils/domainIds';
+import {
+  buildMpcMaterialActivationRef,
+  parseMpcCapabilityRuntimeRef,
+  parseMpcSigningWorkerRef,
+  type DomainIdParseResult,
+} from '@shared/utils/domainIds';
 import { parseCorrelationId } from '@shared/utils/canonicalPrimitives';
 import { ecdsaCapabilityHydrationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 
@@ -77,6 +82,33 @@ test('selects the same ECDSA hydration decision for every entry point', () => {
     'rehydrate_material_activation',
     'rehydrate_material_activation',
   ]);
+});
+
+test('blocks a live ECDSA runtime whose exact activation identity differs', () => {
+  const fixture = ecdsaCapabilityHydrationLookupFixture();
+  const activation = fixture.active.manifest.activation.materialActivation;
+  const resolution = resolveEcdsaCapabilityHydration({
+    entryPoint: 'post_page_refresh',
+    lookup: fixture.active,
+    runtime: {
+      kind: 'live',
+      runtime: unwrap(parseMpcCapabilityRuntimeRef('ecdsa-runtime-fixture')),
+      materialActivation: buildMpcMaterialActivationRef({
+        activationId: activation.activationId,
+        capability: activation.capability,
+        materialOwner: activation.materialOwner,
+        keyBinding: activation.keyBinding,
+        lifecycleBinding: activation.lifecycleBinding,
+        signingWorker: unwrap(parseMpcSigningWorkerRef('different-signing-worker')),
+      }),
+    },
+  });
+
+  expect(resolution.plan).toEqual({
+    kind: 'blocked',
+    capability: activation.capability,
+    reason: 'binding_mismatch',
+  });
 });
 
 test('maps canonical ECDSA lookup failures to exact blocked outcomes', () => {

@@ -1,5 +1,12 @@
-import type { MpcCapabilityRuntimeRef, MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { EcdsaCapabilityManifestLookup } from '../../../indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import {
+  mpcMaterialActivationRefsEqual,
+  type MpcCapabilityRuntimeRef,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
+import type {
+  EcdsaCapabilityManifestLookup,
+  EcdsaCapabilityMaterialRefLookup,
+} from '../../../indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import {
   buildBlockedMpcCapabilityHydrationPlan,
   buildMpcCapabilityHydrationResolution,
@@ -23,22 +30,18 @@ export type EcdsaCapabilityRuntimeObservation =
       readonly materialActivation?: never;
     };
 
-function materialActivationsMatch(
-  left: MpcMaterialActivationRef,
-  right: MpcMaterialActivationRef,
-): boolean {
-  return (
-    left.activationId === right.activationId &&
-    left.capability === right.capability &&
-    left.materialOwner === right.materialOwner &&
-    left.keyBinding === right.keyBinding &&
-    left.lifecycleBinding === right.lifecycleBinding &&
-    left.signingWorker === right.signingWorker
-  );
+type EcdsaCapabilityHydrationLookup =
+  | EcdsaCapabilityManifestLookup
+  | EcdsaCapabilityMaterialRefLookup;
+
+function blockedLookupCapability(
+  lookup: Exclude<EcdsaCapabilityHydrationLookup, { readonly kind: 'active' | 'retired' }>,
+) {
+  return 'selector' in lookup ? lookup.selector.capability : lookup.capability;
 }
 
 function blockedPlanFromLookup(
-  lookup: Exclude<EcdsaCapabilityManifestLookup, { readonly kind: 'active' }>,
+  lookup: Exclude<EcdsaCapabilityHydrationLookup, { readonly kind: 'active' }>,
 ): MpcCapabilityHydrationPlan {
   switch (lookup.kind) {
     case 'retired':
@@ -53,27 +56,27 @@ function blockedPlanFromLookup(
             reason: 'missing_capability',
           })
         : buildBlockedMpcCapabilityHydrationPlan({
-            capability: lookup.selector.capability,
+            capability: blockedLookupCapability(lookup),
             reason: 'missing_material',
           });
     case 'exact_binding_mismatch':
       return buildBlockedMpcCapabilityHydrationPlan({
-        capability: lookup.selector.capability,
+        capability: blockedLookupCapability(lookup),
         reason: 'binding_mismatch',
       });
     case 'exact_record_conflict':
       return buildBlockedMpcCapabilityHydrationPlan({
-        capability: lookup.selector.capability,
+        capability: blockedLookupCapability(lookup),
         reason: 'exact_record_conflict',
       });
     case 'corrupt':
       return buildBlockedMpcCapabilityHydrationPlan({
-        capability: lookup.selector.capability,
+        capability: blockedLookupCapability(lookup),
         reason: 'corrupt',
       });
     case 'persistence_unavailable':
       return buildBlockedMpcCapabilityHydrationPlan({
-        capability: lookup.selector.capability,
+        capability: blockedLookupCapability(lookup),
         reason: 'persistence_unavailable',
       });
   }
@@ -85,7 +88,7 @@ function activePlanFromLookup(input: {
 }): MpcCapabilityHydrationPlan {
   const materialActivation = input.lookup.manifest.activation.materialActivation;
   if (
-    !materialActivationsMatch(
+    !mpcMaterialActivationRefsEqual(
       materialActivation,
       input.lookup.material.binding.materialActivation,
     ) ||
@@ -99,7 +102,9 @@ function activePlanFromLookup(input: {
   }
   switch (input.runtime.kind) {
     case 'live':
-      if (!materialActivationsMatch(materialActivation, input.runtime.materialActivation)) {
+      if (
+        !mpcMaterialActivationRefsEqual(materialActivation, input.runtime.materialActivation)
+      ) {
         return buildBlockedMpcCapabilityHydrationPlan({
           capability: input.lookup.manifest.signer.capability,
           reason: 'binding_mismatch',
@@ -123,7 +128,7 @@ function activePlanFromLookup(input: {
 
 export function resolveEcdsaCapabilityHydration(input: {
   readonly entryPoint: MpcCapabilityHydrationEntryPoint;
-  readonly lookup: EcdsaCapabilityManifestLookup;
+  readonly lookup: EcdsaCapabilityHydrationLookup;
   readonly runtime: EcdsaCapabilityRuntimeObservation;
 }): MpcCapabilityHydrationResolution {
   const plan =
