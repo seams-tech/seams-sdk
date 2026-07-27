@@ -7,10 +7,12 @@ import {
   type CapabilityId,
   type CapabilityOperationId,
   type CapabilityOperationRef,
+  type PrincipalId,
   type TenantId,
   parseCapabilityId,
   parseCapabilityOperationId,
   parseCapabilityOperationRef,
+  parsePrincipalId,
   parseTenantId,
 } from './capabilityKinds';
 
@@ -33,6 +35,7 @@ type CapabilityOperationEnvelopeFields<
   TOperation extends CapabilityOperationRef = CapabilityOperationRef,
 > = {
   readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
   readonly capabilityId: CapabilityId;
   readonly operationId: CapabilityOperationId;
   readonly operation: TOperation;
@@ -43,6 +46,7 @@ class CapabilityOperationEnvelopeProof<
   TOperation extends CapabilityOperationRef = CapabilityOperationRef,
 > {
   readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
   readonly capabilityId: CapabilityId;
   readonly operationId: CapabilityOperationId;
   readonly operation: TOperation;
@@ -55,6 +59,7 @@ class CapabilityOperationEnvelopeProof<
   constructor(fields: CapabilityOperationEnvelopeFields<TOperation>) {
     void this.retainProof();
     this.tenantId = fields.tenantId;
+    this.principalId = fields.principalId;
     this.capabilityId = fields.capabilityId;
     this.operationId = fields.operationId;
     this.operation = fields.operation;
@@ -71,6 +76,7 @@ export function buildCapabilityOperationEnvelope<TOperation extends CapabilityOp
 ): CapabilityOperationEnvelope<TOperation> {
   return new CapabilityOperationEnvelopeProof({
     tenantId: fields.tenantId,
+    principalId: fields.principalId,
     capabilityId: fields.capabilityId,
     operationId: fields.operationId,
     operation: fields.operation,
@@ -85,13 +91,24 @@ export function buildCapabilityOperationEnvelope<TOperation extends CapabilityOp
 export function parseCapabilityOperationEnvelope(
   raw: unknown,
 ): AuthorizationParseResult<CapabilityOperationEnvelope> {
-  if (!isExactRecord(raw, ['tenantId', 'capabilityId', 'operationId', 'operation', 'digests'])) {
+  if (
+    !isExactRecord(raw, [
+      'tenantId',
+      'principalId',
+      'capabilityId',
+      'operationId',
+      'operation',
+      'digests',
+    ])
+  ) {
     return invalidResult(
       'capability operation envelope must contain exact identity, operation, and digest fields',
     );
   }
   const tenantId = parseTenantId(raw.tenantId);
   if (!tenantId.ok) return tenantId;
+  const principalId = parsePrincipalId(raw.principalId);
+  if (!principalId.ok) return principalId;
   const capabilityId = parseCapabilityId(raw.capabilityId);
   if (!capabilityId.ok) return capabilityId;
   const operationId = parseCapabilityOperationId(raw.operationId);
@@ -104,6 +121,7 @@ export function parseCapabilityOperationEnvelope(
     ok: true,
     value: buildCapabilityOperationEnvelope({
       tenantId: tenantId.value,
+      principalId: principalId.value,
       capabilityId: capabilityId.value,
       operationId: operationId.value,
       operation: operation.value,
@@ -141,6 +159,7 @@ export function canonicalCapabilityOperationFingerprintPreimageV1(
 ): string {
   return `${CAPABILITY_OPERATION_FINGERPRINT_DOMAIN_V1}|${alphabetizeStringify({
     tenantId: envelope.tenantId,
+    principalId: envelope.principalId,
     capabilityId: envelope.capabilityId,
     operationId: envelope.operationId,
     operation: envelope.operation,

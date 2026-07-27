@@ -9,10 +9,12 @@ import {
   parseCapabilityOperationEnvelope,
   parseCapabilityOperationId,
   parseOperationDigestSet,
+  parsePrincipalId,
   parseTenantId,
   type AuthorizationParseResult,
   type CapabilityId,
   type CapabilityOperationId,
+  type PrincipalId,
   type TenantId,
 } from '@shared/authorization';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -47,6 +49,7 @@ function operationDigests(
 function validRawEnvelope(): Record<string, unknown> {
   return {
     tenantId: 'tenant-1',
+    principalId: 'principal-1',
     capabilityId: 'capability-1',
     operationId: 'operation-1',
     operation: {
@@ -64,6 +67,7 @@ function validRawEnvelope(): Record<string, unknown> {
 function buildVaultEnvelope(
   input: {
     readonly tenantId?: TenantId;
+    readonly principalId?: PrincipalId;
     readonly capabilityId?: CapabilityId;
     readonly operationId?: CapabilityOperationId;
     readonly digests?: ReturnType<typeof operationDigests>;
@@ -71,6 +75,7 @@ function buildVaultEnvelope(
 ) {
   return buildCapabilityOperationEnvelope({
     tenantId: input.tenantId ?? requireParsed(parseTenantId('tenant-1')),
+    principalId: input.principalId ?? requireParsed(parsePrincipalId('principal-1')),
     capabilityId: input.capabilityId ?? requireParsed(parseCapabilityId('capability-1')),
     operationId: input.operationId ?? requireParsed(parseCapabilityOperationId('operation-1')),
     operation: buildVaultOperationRef(VAULT_OPERATION_KINDS.proxyUse),
@@ -81,10 +86,10 @@ function buildVaultEnvelope(
 test('authorization operation fingerprint pins its versioned canonical preimage and digest', async () => {
   const envelope = buildVaultEnvelope();
   expect(canonicalCapabilityOperationFingerprintPreimageV1(envelope)).toBe(
-    'seams:authorization:capability-operation-fingerprint:v1|{"capabilityId":"capability-1","digests":{"displayDigest":"AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM","intentDigest":"AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI","laneDigest":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},"operation":{"capabilityKind":"vault_access","operationKind":"vault.proxy_use"},"operationId":"operation-1","tenantId":"tenant-1"}',
+    'seams:authorization:capability-operation-fingerprint:v1|{"capabilityId":"capability-1","digests":{"displayDigest":"AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM","intentDigest":"AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI","laneDigest":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},"operation":{"capabilityKind":"vault_access","operationKind":"vault.proxy_use"},"operationId":"operation-1","principalId":"principal-1","tenantId":"tenant-1"}',
   );
   await expect(computeCapabilityOperationFingerprintDigest(envelope)).resolves.toBe(
-    'hKhf6zecZUMhSkBKctQmEb31cb-tI6wCe9r3aRg4rls',
+    'ZqxwnrLiD1RH6R5AHq40vEVA3VnsjGH2A0oRHh4NL2Y',
   );
 });
 
@@ -93,6 +98,11 @@ test('authorization operation fingerprint changes with exact operation semantics
   const changedOperationId = await computeCapabilityOperationFingerprintDigest(
     buildVaultEnvelope({
       operationId: requireParsed(parseCapabilityOperationId('operation-2')),
+    }),
+  );
+  const changedPrincipal = await computeCapabilityOperationFingerprintDigest(
+    buildVaultEnvelope({
+      principalId: requireParsed(parsePrincipalId('principal-2')),
     }),
   );
   const changedIntent = await computeCapabilityOperationFingerprintDigest(
@@ -104,7 +114,9 @@ test('authorization operation fingerprint changes with exact operation semantics
   );
 
   expect(changedOperationId).not.toBe(original);
+  expect(changedPrincipal).not.toBe(original);
   expect(changedIntent).not.toBe(original);
+  expect(changedPrincipal).not.toBe(changedOperationId);
   expect(changedIntent).not.toBe(changedOperationId);
 });
 
@@ -114,6 +126,7 @@ test('authorization operation envelope parser normalizes one exact boundary shap
   if (!parsed.ok) return;
   expect(parsed.value).toMatchObject({
     tenantId: 'tenant-1',
+    principalId: 'principal-1',
     capabilityId: 'capability-1',
     operationId: 'operation-1',
     operation: {
