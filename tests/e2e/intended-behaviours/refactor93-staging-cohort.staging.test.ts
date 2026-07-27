@@ -38,8 +38,8 @@ test('staging cohort configuration is pinned to the checked-in staging origins',
     mode: 'check',
     origins: {
       gateway: 'https://seams-sdk-d1-gateway-staging.n6378056.workers.dev',
-      site: 'https://seams-site-staging.pages.dev',
-      wallet: 'https://seams-wallet-staging.pages.dev',
+      site: 'https://staging.seams.sh',
+      wallet: 'https://sign-staging.seams.sh',
     },
     localSiteOrigin: 'http://127.0.0.1:37994',
   });

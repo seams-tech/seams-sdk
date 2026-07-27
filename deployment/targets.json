@@ -3,8 +3,8 @@
     "branch": "dev",
     "origins": {
       "gateway": "https://seams-sdk-d1-gateway-staging.n6378056.workers.dev",
-      "site": "https://seams-site-staging.pages.dev",
-      "wallet": "https://seams-wallet-staging.pages.dev"
+      "site": "https://staging.seams.sh",
+      "wallet": "https://sign-staging.seams.sh"
     },
     "resources": {
       "gateway": {
