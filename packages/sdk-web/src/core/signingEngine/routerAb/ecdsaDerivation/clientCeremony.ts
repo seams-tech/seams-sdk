@@ -13,6 +13,7 @@ import type {
 import type { EcdsaRoleLocalWorkerHandle } from '@/core/signingEngine/session/keyMaterialBrands';
 import type { InitialEcdsaCapabilityActivationPlanInput } from '@/core/signingEngine/session/material/initialEcdsaCapabilityActivation';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 export type CreateRouterAbEcdsaRegistrationCeremonyRequestV1 = {
   readonly kind: 'create_router_ab_ecdsa_registration_ceremony_v1';
@@ -81,6 +82,7 @@ export type FinalizeRouterAbEcdsaRegistrationActivationResultV1 = {
   readonly kind: 'router_ab_ecdsa_registration_activation_finalized_v1';
   readonly journalId: CorrelationId;
   readonly roleLocalMaterial: EcdsaRoleLocalWorkerHandle;
+  readonly materialActivation: MpcMaterialActivationRef;
   readonly publicFacts: WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapResult['publicFacts'];
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
