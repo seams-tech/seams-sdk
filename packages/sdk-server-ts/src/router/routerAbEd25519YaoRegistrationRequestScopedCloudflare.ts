@@ -78,6 +78,21 @@ type TraceResolution =
   | { readonly ok: true; readonly value: RouterAbTraceContextV1 }
   | { readonly ok: false; readonly message: string };
 
+type RegistrationExecutionTimingV1 = {
+  readonly credentialDigestMs: number;
+  readonly requestDigestMs: number;
+  readonly d1ClaimMs: number;
+  readonly routerExecutionMs: number;
+  readonly routerServerTiming: string | null;
+  readonly resultReconstructionMs: number;
+  readonly d1TerminalCommitMs: number;
+};
+
+type TimedRegistrationExecutionResultV1 = {
+  readonly result: RegistrationServiceResponse;
+  readonly timing: RegistrationExecutionTimingV1;
+};
+
 export async function handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1(
   input: RouterAbEd25519YaoRegistrationRequestScopedCloudflareInputV1,
 ): Promise<Response> {
@@ -100,11 +115,11 @@ export async function handleRouterAbEd25519YaoRegistrationRequestScopedCloudflar
     );
   }
   try {
-    const result =
-      parsed.kind === 'admit'
-        ? await runAdmissionRequest(input, parsed.value, trace.value)
-        : await runExecutionRequest(input, parsed.value, trace.value);
-    return registrationResultResponse(result);
+    if (parsed.kind === 'admit') {
+      return registrationResultResponse(await runAdmissionRequest(input, parsed.value, trace.value));
+    }
+    const execution = await runExecutionRequest(input, parsed.value, trace.value);
+    return registrationResultResponse(execution.result, execution.timing);
   } catch (error: unknown) {
     return json(
       {
@@ -191,12 +206,27 @@ async function runExecutionRequest(
   input: RouterAbEd25519YaoRegistrationRequestScopedCloudflareInputV1,
   request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
   trace: RouterAbTraceContextV1,
-): Promise<RegistrationServiceResponse> {
+): Promise<TimedRegistrationExecutionResultV1> {
   const lifecycleId = request.binding.lifecycle.lifecycle_id;
+  const credentialStartedAt = performance.now();
   const credential = await routerAbEd25519YaoBearerCredentialDigestV1(input.request);
-  if (!credential.ok) return credential.result;
+  const credentialDigestMs = elapsedMs(credentialStartedAt);
+  if (!credential.ok) {
+    return timedExecutionResult(credential.result, {
+      credentialDigestMs,
+      requestDigestMs: 0,
+      d1ClaimMs: 0,
+      routerExecutionMs: 0,
+      routerServerTiming: null,
+      resultReconstructionMs: 0,
+      d1TerminalCommitMs: 0,
+    });
+  }
+  const requestDigestStartedAt = performance.now();
   const requestDigestSha256Hex =
     await routerAbEd25519YaoRegistrationExecutionRequestDigestV1(request);
+  const requestDigestMs = elapsedMs(requestDigestStartedAt);
+  const d1ClaimStartedAt = performance.now();
   const claim = await input.store.claimRegistrationExecution({
     lifecycleId,
     request,
@@ -204,36 +234,61 @@ async function runExecutionRequest(
     credentialDigestSha256Hex: credential.digestSha256Hex,
     nowMs: Date.now(),
   });
+  const d1ClaimMs = elapsedMs(d1ClaimStartedAt);
+  const timingBeforeRouter = {
+    credentialDigestMs,
+    requestDigestMs,
+    d1ClaimMs,
+    routerExecutionMs: 0,
+    routerServerTiming: null,
+    resultReconstructionMs: 0,
+    d1TerminalCommitMs: 0,
+  };
   switch (claim.kind) {
     case 'completed':
-      return { ok: true, status: 200, value: claim.value };
+      return timedExecutionResult({ ok: true, status: 200, value: claim.value }, timingBeforeRouter);
     case 'failed':
-      return claim.value;
+      return timedExecutionResult(claim.value, timingBeforeRouter);
     case 'rejected':
-      return executionClaimFailure(claim);
+      return timedExecutionResult(executionClaimFailure(claim), timingBeforeRouter);
     case 'claimed':
       break;
   }
   let backend: RouterAbEd25519YaoRegistrationBackendResult;
+  const routerExecutionStartedAt = performance.now();
   try {
     backend = await input.backend.execute(request, trace);
   } catch (error: unknown) {
-    return {
-      ok: false,
-      status: 503,
-      code: 'execution_failed',
-      message: error instanceof Error ? error.message : String(error),
-    };
+    return timedExecutionResult(
+      {
+        ok: false,
+        status: 503,
+        code: 'execution_failed',
+        message: error instanceof Error ? error.message : String(error),
+      },
+      {
+        ...timingBeforeRouter,
+        routerExecutionMs: elapsedMs(routerExecutionStartedAt),
+      },
+    );
   }
+  const routerExecutionMs = elapsedMs(routerExecutionStartedAt);
+  const routerServerTiming = input.backend.takeLastRouterServerTiming?.() ?? null;
   if (isRetryableRegistrationBackendFailure(backend)) {
-    return {
-      ok: false,
-      status: 503,
-      code: 'execution_failed',
-      message: backend.message,
-    };
+    return timedExecutionResult(
+      {
+        ok: false,
+        status: 503,
+        code: 'execution_failed',
+        message: backend.message,
+      },
+      { ...timingBeforeRouter, routerExecutionMs, routerServerTiming },
+    );
   }
+  const reconstructionStartedAt = performance.now();
   const terminal = completeClaimedExecution(input.backend, claim.value, request, backend);
+  const resultReconstructionMs = elapsedMs(reconstructionStartedAt);
+  const terminalCommitStartedAt = performance.now();
   const committed = await input.store.commitRegistrationExecution({
     claimed: claim.value,
     claimedVersion: claim.version,
@@ -241,17 +296,42 @@ async function runExecutionRequest(
       ? { kind: 'completed', result: terminal.value }
       : { kind: 'failed', failure: terminal },
   });
+  const d1TerminalCommitMs = elapsedMs(terminalCommitStartedAt);
+  const timing = {
+    ...timingBeforeRouter,
+    routerExecutionMs,
+    routerServerTiming,
+    resultReconstructionMs,
+    d1TerminalCommitMs,
+  };
   if (committed.kind === 'uncertain') {
-    return {
-      ok: false,
-      status: 503,
-      code: 'execution_failed',
-      message: 'registration execution terminal persistence is uncertain',
-    };
+    return timedExecutionResult(
+      {
+        ok: false,
+        status: 503,
+        code: 'execution_failed',
+        message: 'registration execution terminal persistence is uncertain',
+      },
+      timing,
+    );
   }
-  return isRegistrationFailure(committed.value)
-    ? committed.value
-    : { ok: true, status: 200, value: committed.value };
+  return timedExecutionResult(
+    isRegistrationFailure(committed.value)
+      ? committed.value
+      : { ok: true, status: 200, value: committed.value },
+    timing,
+  );
+}
+
+function elapsedMs(startedAt: number): number {
+  return Math.max(0, performance.now() - startedAt);
+}
+
+function timedExecutionResult(
+  result: RegistrationServiceResponse,
+  timing: RegistrationExecutionTimingV1,
+): TimedRegistrationExecutionResultV1 {
+  return { result, timing };
 }
 
 function completeClaimedExecution(
@@ -412,10 +492,35 @@ function registrationFailureResponse(
   return json({ ok: false, code: result.code, message: result.message }, { status: result.status });
 }
 
-function registrationResultResponse(result: RegistrationServiceResponse): Response {
-  return result.ok
+function registrationResultResponse(
+  result: RegistrationServiceResponse,
+  timing?: RegistrationExecutionTimingV1,
+): Response {
+  const response = result.ok
     ? json(result.value, { status: result.status })
     : registrationFailureResponse(result);
+  if (timing) {
+    response.headers.set('Server-Timing', registrationExecutionServerTiming(timing));
+    response.headers.set('Timing-Allow-Origin', '*');
+  }
+  return response;
+}
+
+function registrationExecutionServerTiming(timing: RegistrationExecutionTimingV1): string {
+  const gatewayTiming = [
+    serverTimingMetric('yao_credential_digest', timing.credentialDigestMs),
+    serverTimingMetric('yao_request_digest', timing.requestDigestMs),
+    serverTimingMetric('yao_d1_claim', timing.d1ClaimMs),
+    serverTimingMetric('yao_router_execution', timing.routerExecutionMs),
+    serverTimingMetric('yao_result_reconstruction', timing.resultReconstructionMs),
+    serverTimingMetric('yao_d1_terminal_commit', timing.d1TerminalCommitMs),
+  ];
+  if (timing.routerServerTiming) gatewayTiming.push(timing.routerServerTiming);
+  return gatewayTiming.join(', ');
+}
+
+function serverTimingMetric(name: string, durationMs: number): string {
+  return `${name};dur=${durationMs.toFixed(1)}`;
 }
 
 function mapAdmissionRunResult(
