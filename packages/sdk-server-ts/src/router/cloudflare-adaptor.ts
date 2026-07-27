@@ -69,6 +69,10 @@ export { createRouterApiModule } from './modules';
 export { CloudflareD1WebAuthnStore } from './cloudflare/d1WebAuthnStore';
 export { CloudflareD1WebAuthnAuthService } from './cloudflare/d1WebAuthnAuthService';
 export {
+  CloudflareD1AuthorizationStore,
+  type D1AuthorizationStoreOptions,
+} from './cloudflare/d1AuthorizationStore';
+export {
   InMemoryRouterAbEd25519YaoRegistrationService,
   createRouterAbEd25519YaoRegistrationModule,
 } from './routerAbEd25519YaoRegistration';

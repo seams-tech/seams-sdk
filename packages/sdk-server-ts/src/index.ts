@@ -11,6 +11,8 @@ export {
   type SigningSessionSealShamirPrimeB64u,
 } from './core/keyMaterialBrands';
 export { AuthService } from './core/AuthService';
+export * from './authorization/domain';
+export * from './authorization/service';
 export { SessionService, parseCsvList, buildCorsOrigins } from './core/SessionService';
 export type { SessionConfig } from './core/SessionService';
 export {
