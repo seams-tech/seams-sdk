@@ -331,7 +331,7 @@ function applyRuntimePaths(source, repoRoot, outputConfigPath) {
   );
   const signerMigrationsPath = relativeTomlPath(
     outputDirectory,
-    path.join(repoRoot, 'node_modules/@seams/sdk-server/migrations/d1-signer'),
+    path.join(repoRoot, 'packages/sdk-server-ts/migrations/d1-signer'),
   );
   return replaceExactLine(
     replaceExactLine(
