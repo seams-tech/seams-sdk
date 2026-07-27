@@ -37,6 +37,10 @@ type UseDemoThresholdSignersArgs = {
   frontendConfig?: Pick<FrontendConfig, 'chains' | 'tempoExplorerUrl' | 'tempoRpcUrl'>;
   tempoGreetingInput: string;
   arcGreetingInput: string;
+  /* Which EVM chain the user is looking at. Chain-scoped reads (greetings, fee
+     caps) run only for the visible chain; omitting these keeps both active. */
+  tempoEnabled?: boolean;
+  arcEnabled?: boolean;
 };
 
 export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
@@ -49,8 +53,13 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     tempoGreetingInput,
     arcGreetingInput,
   } = args;
+  const tempoEnabled = args.tempoEnabled ?? true;
+  const arcEnabled = args.arcEnabled ?? true;
 
-  const { tempoEip1559FeeCaps, arcEip1559FeeCaps } = useDemoEip1559FeeCaps();
+  const { tempoEip1559FeeCaps, arcEip1559FeeCaps } = useDemoEip1559FeeCaps({
+    tempoEnabled,
+    arcEnabled,
+  });
   const {
     tempoGreeting,
     arcGreeting,
@@ -60,7 +69,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     arcGreetingError,
     fetchTempoGreeting,
     fetchArcGreeting,
-  } = useDemoEvmGreetings({ isLoggedIn });
+  } = useDemoEvmGreetings({ isLoggedIn, tempoEnabled, arcEnabled });
   const {
     thresholdOwnerAddress,
     refreshThresholdOwnerAddress,
