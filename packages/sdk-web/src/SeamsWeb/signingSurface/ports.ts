@@ -85,6 +85,8 @@ import type {
   CreateRouterAbEcdsaRegistrationCeremonyResultV1,
   FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
   FinalizeRouterAbEcdsaRegistrationActivationResultV1,
+  PersistInitialCanonicalEcdsaActivationRequestV1,
+  PersistInitialCanonicalEcdsaActivationResultV1,
   VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
   VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
 } from '@/core/signingEngine/routerAb/ecdsaDerivation/clientCeremony';
@@ -274,6 +276,9 @@ export interface EcdsaRegistrationSurface {
   verifyRouterAbEcdsaRegistrationClientProofs(
     input: VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
   ): Promise<VerifyRouterAbEcdsaRegistrationClientProofsResultV1>;
+  persistInitialCanonicalEcdsaActivation(
+    input: PersistInitialCanonicalEcdsaActivationRequestV1,
+  ): Promise<PersistInitialCanonicalEcdsaActivationResultV1>;
   finalizeRouterAbEcdsaRegistrationActivation(
     input: FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
   ): Promise<FinalizeRouterAbEcdsaRegistrationActivationResultV1>;

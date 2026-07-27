@@ -40,6 +40,8 @@ import type {
   CreateRouterAbEcdsaRegistrationCeremonyResultV1,
   FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
   FinalizeRouterAbEcdsaRegistrationActivationResultV1,
+  PersistInitialCanonicalEcdsaActivationRequestV1,
+  PersistInitialCanonicalEcdsaActivationResultV1,
   VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
   VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
 } from '../../routerAb/ecdsaDerivation/clientCeremony';
@@ -68,6 +70,12 @@ import {
   type EcdsaRoleLocalWorkerHandle,
 } from '@/core/signingEngine/session/keyMaterialBrands';
 import { IndexedDbEcdsaRoleLocalSessionMaterialStore } from '../../../indexedDB/seamsWalletDB/ecdsaRoleLocalSessionMaterialStore';
+import { IndexedDbEcdsaCapabilityManifestStore } from '../../../indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import { buildInitialEcdsaCapabilityActivationPlan } from '../../session/material/initialEcdsaCapabilityActivation';
+import {
+  buildRouterAbEcdsaRegistrationPendingFinalizationV1,
+  encodeRouterAbEcdsaRegistrationPendingFinalizationV1,
+} from '../../routerAb/ecdsaDerivation/registrationPendingFinalization';
 
 const ecdsaDerivationClientWasmUrl = resolveWasmUrl(
   'router_ab_ecdsa_derivation_client_bg.wasm',
@@ -102,6 +110,7 @@ type StoredEcdsaRoleLocalSigningMaterial = {
 
 const ecdsaRoleLocalSigningMaterialStore = new Map<string, StoredEcdsaRoleLocalSigningMaterial>();
 const durableEcdsaRoleLocalMaterialStore = new IndexedDbEcdsaRoleLocalSessionMaterialStore();
+const ecdsaCapabilityManifestStore = new IndexedDbEcdsaCapabilityManifestStore();
 
 type ActiveRouterAbEcdsaRegistrationCeremony =
   | {
@@ -572,6 +581,113 @@ function verifyRouterAbEcdsaRegistrationClientProofs(
     clientBootstrap: preparedClientBootstrap.clientBootstrap,
     publicFacts: activationFacts,
   };
+}
+
+function initialCanonicalActivationFailure(input: {
+  readonly ceremonyId: string;
+  readonly code: Exclude<
+    PersistInitialCanonicalEcdsaActivationResultV1,
+    { readonly ok: true }
+  >['code'];
+  readonly message: string;
+}): PersistInitialCanonicalEcdsaActivationResultV1 {
+  return {
+    ok: false,
+    kind: 'initial_canonical_ecdsa_activation_persistence_failed_v1',
+    ceremonyId: input.ceremonyId,
+    code: input.code,
+    message: input.message,
+  };
+}
+
+function initialActivationPlanMatchesCeremony(input: {
+  readonly request: PersistInitialCanonicalEcdsaActivationRequestV1;
+  readonly active: Extract<
+    ActiveRouterAbEcdsaRegistrationCeremony,
+    { readonly kind: 'client_proofs_verified' }
+  >;
+}): boolean {
+  return (
+    input.request.planInput.journalId === parseCorrelationId(input.request.ceremonyId) &&
+    input.request.planInput.bindingDigest === input.active.activationFacts.contextBinding32B64u &&
+    input.request.planInput.clientVerifyingPublicKey33B64u ===
+      input.active.activationFacts.derivationClientSharePublicKey33B64u
+  );
+}
+
+async function persistInitialCanonicalEcdsaActivation(
+  request: PersistInitialCanonicalEcdsaActivationRequestV1,
+): Promise<PersistInitialCanonicalEcdsaActivationResultV1> {
+  const ceremonyId = requireCeremonyId(request.ceremonyId);
+  if (request.kind !== 'persist_initial_canonical_ecdsa_activation_v1') {
+    return initialCanonicalActivationFailure({
+      ceremonyId,
+      code: 'invalid_activation_plan',
+      message: 'Initial canonical ECDSA activation command kind is invalid',
+    });
+  }
+  const active = routerAbEcdsaRegistrationCeremonies.get(ceremonyId);
+  if (!active || active.kind !== 'client_proofs_verified') {
+    return initialCanonicalActivationFailure({
+      ceremonyId,
+      code: 'invalid_ceremony_state',
+      message: 'Initial canonical ECDSA activation requires verified client proofs',
+    });
+  }
+  let plan: Awaited<ReturnType<typeof buildInitialEcdsaCapabilityActivationPlan>>;
+  let pendingPayloadB64u: string;
+  try {
+    if (!initialActivationPlanMatchesCeremony({ request, active })) {
+      return initialCanonicalActivationFailure({
+        ceremonyId,
+        code: 'ceremony_plan_mismatch',
+        message: 'Initial canonical ECDSA activation plan does not match the live ceremony',
+      });
+    }
+    plan = await buildInitialEcdsaCapabilityActivationPlan(request.planInput);
+    pendingPayloadB64u = encodeRouterAbEcdsaRegistrationPendingFinalizationV1(
+      buildRouterAbEcdsaRegistrationPendingFinalizationV1({
+        pendingStateBlob: active.preparedClientBootstrap.pendingStateBlob,
+        registrationFacts: active.registration,
+        registrationRequest: active.registrationRequest,
+        clientActivation: active.activationFacts,
+      }),
+    );
+  } catch (error: unknown) {
+    return initialCanonicalActivationFailure({
+      ceremonyId,
+      code: 'invalid_activation_plan',
+      message: safeErrorMessage(error),
+    });
+  }
+  const stored = await ecdsaCapabilityManifestStore.prepareActivation({
+    journalId: plan.journalId,
+    expectedManifest: plan.expectedManifest,
+    expectedGeneration: plan.expectedGeneration,
+    activationBinding: plan.activationBinding,
+    requestDigest: plan.requestDigest,
+    canonicalRequest: plan.canonicalRequest,
+    createdAt: plan.createdAt,
+    pendingPayloadB64u,
+  });
+  switch (stored.kind) {
+    case 'stored':
+      closeRouterAbEcdsaRegistrationCeremonyState(ceremonyId, active);
+      return {
+        ok: true,
+        kind: 'initial_canonical_ecdsa_activation_persisted_v1',
+        ceremonyId,
+        journalId: plan.journalId,
+      };
+    case 'exact_record_conflict':
+    case 'corrupt':
+    case 'persistence_unavailable':
+      return initialCanonicalActivationFailure({
+        ceremonyId,
+        code: stored.kind,
+        message: `Initial canonical ECDSA activation persistence returned ${stored.kind}`,
+      });
+  }
 }
 
 function routerAbEcdsaRegistrationMaterialHandle(ceremonyId: string): string {
@@ -1337,6 +1453,7 @@ async function initializeEcdsaDerivationOperationWasm(
       return;
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaPostRegistrationCeremony:
+    case EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation:
       return;
     case EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap:
@@ -1369,6 +1486,13 @@ async function executeEcdsaDerivationRequest(
         type: EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaRegistrationClientProofsSuccess,
         payload: verifyRouterAbEcdsaRegistrationClientProofs(
           payload as VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
+        ),
+      };
+    case EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation:
+      return {
+        type: EcdsaDerivationClientCustomResponseType.PersistInitialCanonicalEcdsaActivationSuccess,
+        payload: await persistInitialCanonicalEcdsaActivation(
+          payload as PersistInitialCanonicalEcdsaActivationRequestV1,
         ),
       };
     case EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRegistrationActivation:
@@ -1454,6 +1578,7 @@ function parseEcdsaDerivationOperationType(value: unknown): EcdsaDerivationWorke
   switch (value) {
     case EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRegistrationClientProofs:
+    case EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation:
     case EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRegistrationActivation:
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaPostRegistrationCeremony:

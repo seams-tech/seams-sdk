@@ -77,6 +77,8 @@ import type {
   CreateRouterAbEcdsaRegistrationCeremonyResultV1,
   FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
   FinalizeRouterAbEcdsaRegistrationActivationResultV1,
+  PersistInitialCanonicalEcdsaActivationRequestV1,
+  PersistInitialCanonicalEcdsaActivationResultV1,
   VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
   VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
 } from '../../routerAb/ecdsaDerivation/clientCeremony';
@@ -322,6 +324,27 @@ export async function finalizeRouterAbEcdsaRegistrationActivationWasm(input: {
     EcdsaDerivationClientCustomResponseType.FinalizeRouterAbEcdsaRegistrationActivationSuccess
   ) {
     throw new Error('Router A/B ECDSA registration activation finalization failed');
+  }
+  return response.payload;
+}
+
+export async function persistInitialCanonicalEcdsaActivationWasm(input: {
+  command: PersistInitialCanonicalEcdsaActivationRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<PersistInitialCanonicalEcdsaActivationResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.PersistInitialCanonicalEcdsaActivationSuccess
+  ) {
+    throw new Error('Initial canonical ECDSA activation persistence failed');
   }
   return response.payload;
 }
