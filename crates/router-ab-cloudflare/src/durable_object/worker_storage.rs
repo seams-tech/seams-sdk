@@ -718,13 +718,14 @@ async fn handle_cloudflare_durable_object_worker_request_with_project_policy_v1(
                         format!("atomic public admission transaction failed: {error}"),
                     )
                 })?;
+            let stored_completion = completion.borrow().clone();
             CloudflareDurableObjectResponseV1::router_public_admission(
                 CloudflareReplayReserveResponseV1::new(replay.request_id.clone(), reserved.get())?,
                 CloudflareLifecyclePutReceiptV1::new(
                     state.scope().lifecycle_id.clone(),
                     reserved.get(),
                 )?,
-                match completion.borrow().clone() {
+                match stored_completion {
                     Some(response_json) => {
                         CloudflareRouterPublicAdmissionCompletionV1::Completed { response_json }
                     }
