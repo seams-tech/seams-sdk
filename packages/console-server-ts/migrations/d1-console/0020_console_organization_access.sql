@@ -34,28 +34,6 @@ SELECT CASE
   ELSE 1
 END;
 
-INSERT INTO organization_access_migration_guard (valid)
-SELECT CASE
-  WHEN EXISTS (
-    SELECT 1
-    FROM organizations AS organization
-    WHERE NOT EXISTS (
-      SELECT 1
-      FROM team_members AS legacy_owner
-      WHERE legacy_owner.namespace = organization.namespace
-        AND legacy_owner.org_id = organization.id
-        AND legacy_owner.status = 'ACTIVE'
-        AND EXISTS (
-          SELECT 1
-          FROM json_each(legacy_owner.roles_json) AS legacy_owner_role
-          WHERE json_extract(legacy_owner_role.value, '$.role') = 'owner'
-        )
-    )
-  )
-  THEN 0
-  ELSE 1
-END;
-
 CREATE TABLE organization_memberships (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
