@@ -1,10 +1,6 @@
 import type { RouterAbNormalSigningAdmissionInput } from '@seams/sdk-server/cloud-host';
 import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
-import type {
-  ConsoleAuthAdapter,
-  ConsoleAuthClaims,
-  HeaderRecord,
-} from '../consoleAuth';
+import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from '../consoleAuth';
 import {
   createSigningRootSecretShareKekResolver,
   type SigningRootKekProvider,
@@ -21,11 +17,7 @@ import type {
   ThresholdPrfPolicy,
 } from '@seams/sdk-server/cloud-host';
 import { D1SigningRootSecretStore } from '@seams/sdk-server/cloud-host';
-import type {
-  CfEnv,
-  CfExecutionContext,
-  FetchHandler,
-} from '@seams/sdk-server/cloud-host';
+import type { CfEnv, CfExecutionContext, FetchHandler } from '@seams/sdk-server/cloud-host';
 import { ThresholdStoreDurableObject } from '@seams/sdk-server/cloud-host';
 import type {
   CloudflareDurableObjectNamespaceLike,
@@ -90,9 +82,7 @@ import {
   type RouterAbServiceBindingEnv,
 } from './routerAbServiceBindings';
 import { withCors } from '@seams/sdk-server/cloud-host';
-import {
-  createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
-} from '@seams/sdk-server/cloud-host';
+import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '@seams/sdk-server/cloud-host';
 import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/cloud-host';
 import { CloudflareD1WebAuthnAuthService } from '@seams/sdk-server/cloud-host';
 import { CloudflareD1WebAuthnStore } from '@seams/sdk-server/cloud-host';
@@ -893,12 +883,7 @@ function localConsoleAuthClaims(env: LocalD1DevEnv, headers: HeaderRecord): Cons
     membershipId: `local-owner:${orgId}:${userId}`,
     authorizationVersion: 1,
     role: 'OWNER',
-    adminPermissions: [
-      'members.manage',
-      'projects.manage',
-      'billing.view',
-      'billing.manage',
-    ],
+    adminPermissions: ['members.manage', 'projects.manage', 'billing.view', 'billing.manage'],
     projectAccess: { kind: 'all' },
     platformSupport: true,
     projectId: headerOrEnvString({
@@ -1171,8 +1156,7 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
       sponsoredEvmCallConfig,
       sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
       billingProviders: createStripeBillingProviderAdaptersFromEnv(env),
-      billingEmailConsoleBaseUrl:
-        String(env.CONSOLE_BASE_URL || '').trim() || 'https://localhost',
+      billingEmailConsoleBaseUrl: String(env.CONSOLE_BASE_URL || '').trim() || 'https://localhost',
     },
   });
   return createCloudflareConsoleRouter({
@@ -1237,9 +1221,7 @@ async function createLocalRouterApiHandler(
     corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS],
     ...(routerAbPublicKeyset ? { routerAbPublicKeyset } : {}),
     session,
-    ...(ed25519Yao.kind === 'enabled'
-      ? { routerAbEd25519YaoProduct: ed25519Yao.runtime }
-      : {}),
+    ...(ed25519Yao.kind === 'enabled' ? { routerAbEd25519YaoProduct: ed25519Yao.runtime } : {}),
     ...(sessionCookieName ? { sessionCookieName } : {}),
     routerAbEcdsaStrictPostRegistration: ecdsaStrictPorts.postRegistration,
     emailRecovery: {
@@ -1394,9 +1376,7 @@ function localD1RouterApiAuthServiceOptions(
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     thresholdStore: localThresholdStoreConfig(env),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env).registration,
-    ...(ed25519Yao.kind === 'enabled'
-      ? { ed25519YaoProductRegistration: ed25519Yao.runtime }
-      : {}),
+    ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
   };
 }
 
@@ -1409,7 +1389,9 @@ type LocalEd25519YaoProductCompositionState =
     };
 
 type LocalEd25519YaoRequestScopedDependencies = {
-  readonly store: ReturnType<typeof createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1>;
+  readonly store: ReturnType<
+    typeof createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1
+  >;
   readonly backend: ReturnType<typeof createRouterAbEd25519YaoHttpRegistrationBackendFromEnv>;
   readonly recoveryAuthorization: RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter;
   readonly capabilityPersistence: CloudflareD1RouterAbEd25519YaoCapabilityPersistence;
@@ -1461,6 +1443,7 @@ async function createLocalEd25519YaoProductComposition(
     signingWorkerId,
     session,
     store,
+    registrationBackend: backend,
     loadPersistedActiveCapability: async (lookup) => {
       const walletId = parseWalletId(lookup.walletId);
       if (!walletId.ok) return null;
