@@ -452,43 +452,11 @@ export type AuthenticatedThresholdBudgetStatusCheck = {
   targetBackingMaterialSessionIds?: never;
 };
 
-export type EcdsaLaneBudgetStatusCheck = {
-  kind: 'ecdsa_lane_budget_status_check';
-  key: EvmFamilyEcdsaKeyIdentity;
-  keyHandle: EvmFamilyEcdsaKeyHandle;
-  materialActivation: MpcMaterialActivationRef;
-  auth: SigningLaneAuthBinding;
-  chainTarget: ThresholdEcdsaChainTarget;
-  signingGrantId: SigningGrantId | string;
-  thresholdSessionId: ThresholdEcdsaSessionId | string;
-  walletId?: never;
-  targetThresholdSessionIds?: never;
-  targetBackingMaterialSessionIds?: never;
-  trustedStatusAuth?: never;
-};
-
-export type AuthenticatedEcdsaLaneBudgetStatusCheck = {
-  kind: 'authenticated_ecdsa_lane_budget_status_check';
-  key: EvmFamilyEcdsaKeyIdentity;
-  keyHandle: EvmFamilyEcdsaKeyHandle;
-  materialActivation: MpcMaterialActivationRef;
-  auth: SigningLaneAuthBinding;
-  chainTarget: ThresholdEcdsaChainTarget;
-  signingGrantId: SigningGrantId | string;
-  thresholdSessionId: ThresholdEcdsaSessionId | string;
-  trustedStatusAuth: SigningSessionBudgetStatusAuth;
-  walletId?: never;
-  targetThresholdSessionIds?: never;
-  targetBackingMaterialSessionIds?: never;
-};
-
 export type SigningSessionBudgetStatusCheck =
   | WalletBudgetStatusCheck
   | BackingMaterialBudgetStatusCheck
   | ThresholdBudgetStatusCheck
-  | AuthenticatedThresholdBudgetStatusCheck
-  | EcdsaLaneBudgetStatusCheck
-  | AuthenticatedEcdsaLaneBudgetStatusCheck;
+  | AuthenticatedThresholdBudgetStatusCheck;
 
 export type SigningSessionBudgetStatusReader = (
   args: SigningSessionBudgetStatusCheck,
@@ -919,8 +887,13 @@ export function buildWalletSigningSpendPlan(
   operation: SigningOperationContext,
   lane: SelectedSigningSessionPlanningLane,
 ): WalletSigningSpendPlan {
+  if (lane.curve !== 'ed25519') {
+    throw new Error(
+      '[SigningSessionBudget] client wallet signing budget applies to Ed25519 lanes only',
+    );
+  }
   const uses = 1;
-  const base = {
+  return normalizeWalletSigningSpendPlan({
     operationId: operation.operationId,
     ...(operation.operationFingerprint
       ? { operationFingerprint: operation.operationFingerprint }
@@ -929,10 +902,7 @@ export function buildWalletSigningSpendPlan(
     backingMaterialSessionIds: uniqueDefined([lane.backingMaterialSessionId]),
     uses,
     reason: operation.intent,
-  };
-  return lane.curve === 'ecdsa'
-    ? normalizeWalletSigningSpendPlan({ ...base, lane })
-    : normalizeWalletSigningSpendPlan({ ...base, lane });
+  });
 }
 
 export function buildWalletBudgetStatusCheck(args: {
@@ -1015,33 +985,6 @@ export function buildAuthenticatedThresholdBudgetStatusCheck(args: {
   };
 }
 
-export function isEcdsaLaneBudgetStatusCheck(
-  args: SigningSessionBudgetStatusCheck,
-): args is EcdsaLaneBudgetStatusCheck | AuthenticatedEcdsaLaneBudgetStatusCheck {
-  return (
-    args.kind === 'ecdsa_lane_budget_status_check' ||
-    args.kind === 'authenticated_ecdsa_lane_budget_status_check'
-  );
-}
-
-export function assertBudgetStatusCheckHasConcreteLaneIdentity(
-  args: SigningSessionBudgetStatusCheck,
-): void {
-  if (!isEcdsaLaneBudgetStatusCheck(args)) return;
-  normalizeRequired(args.signingGrantId, 'signingGrantId');
-  normalizeRequired(args.thresholdSessionId, 'thresholdSessionId');
-  if (!args.key) {
-    throw new Error('[SigningSessionBudget] ECDSA budget status requires shared key identity');
-  }
-  if (!args.auth) {
-    throw new Error('[SigningSessionBudget] ECDSA budget status requires signing auth identity');
-  }
-  normalizeRequired(args.keyHandle, 'keyHandle');
-  if (!args.chainTarget || (args.chainTarget.kind !== 'evm' && args.chainTarget.kind !== 'tempo')) {
-    throw new Error('[SigningSessionBudget] ECDSA budget status requires concrete chain target');
-  }
-}
-
 export function ed25519WalletBudgetOwner(walletId: WalletId | string): Ed25519WalletBudgetOwner {
   return { curve: 'ed25519', walletId: toWalletId(walletId) };
 }
@@ -1073,17 +1016,12 @@ export function walletBudgetOwnerKey(owner: WalletBudgetOwner): string {
 export function ownerForBudgetStatusCheck(
   args: SigningSessionBudgetStatusCheck,
 ): WalletBudgetOwner {
-  return isEcdsaLaneBudgetStatusCheck(args)
-    ? ecdsaWalletBudgetOwner(args.key.walletId)
-    : args.owner;
+  return args.owner;
 }
 
 export function thresholdSessionIdsForBudgetStatusCheck(
   args: SigningSessionBudgetStatusCheck,
 ): string[] {
-  if (isEcdsaLaneBudgetStatusCheck(args)) {
-    return [normalizeRequired(args.thresholdSessionId, 'thresholdSessionId')];
-  }
   return args.kind === 'threshold_budget_status_check' ||
     args.kind === 'authenticated_threshold_budget_status_check'
     ? [...args.targetThresholdSessionIds].map((value) =>
@@ -1092,148 +1030,11 @@ export function thresholdSessionIdsForBudgetStatusCheck(
     : [];
 }
 
-export function buildEcdsaLaneBudgetStatusCheck(args: {
-  key: EvmFamilyEcdsaKeyIdentity;
-  materialActivation: MpcMaterialActivationRef;
-  keyHandle: EvmFamilyEcdsaKeyHandle | string;
-  auth: SigningLaneAuthBinding;
-  chainTarget: ThresholdEcdsaChainTarget;
-  signingGrantId: SigningGrantId | string;
-  thresholdSessionId: ThresholdEcdsaSessionId | string;
-}): EcdsaLaneBudgetStatusCheck {
-  return buildEcdsaLaneBudgetStatusCheckInternal({
-    kind: 'ecdsa_lane_budget_status_check',
-    key: args.key,
-    materialActivation: args.materialActivation,
-    keyHandle: args.keyHandle,
-    auth: args.auth,
-    chainTarget: args.chainTarget,
-    signingGrantId: args.signingGrantId,
-    thresholdSessionId: args.thresholdSessionId,
-  });
-}
-
-export type EcdsaLaneBudgetStatusIdentityFields = {
-  key: EvmFamilyEcdsaKeyIdentity;
-  materialActivation: MpcMaterialActivationRef;
-  keyHandle: EvmFamilyEcdsaKeyHandle;
-  auth: SigningLaneAuthBinding;
-  chainTarget: ThresholdEcdsaChainTarget;
-  signingGrantId: SigningGrantId;
-  thresholdSessionId: ThresholdEcdsaSessionId;
-};
-
-export function ecdsaLaneBudgetStatusIdentityFieldsForLane(
-  lane: SelectedEcdsaSigningSessionPlanningLane,
-): EcdsaLaneBudgetStatusIdentityFields {
-  const identity = exactEcdsaSigningLaneIdentityFromSelectedLane(lane);
-  const signer = identity.signer;
-  if (signer.kind !== 'evm_family_ecdsa_signer') {
-    throw new Error('[SigningSessionBudget] ECDSA budget status requires an ECDSA signer identity');
-  }
-  return {
-    key: signer.key,
-    materialActivation: signer.materialActivation,
-    keyHandle: signer.keyHandle,
-    auth: identity.auth,
-    chainTarget: signer.chainTarget,
-    signingGrantId: identity.signingGrantId,
-    thresholdSessionId: identity.thresholdSessionId,
-  };
-}
-
-export function buildAuthenticatedEcdsaLaneBudgetStatusCheck(args: {
-  key: EvmFamilyEcdsaKeyIdentity;
-  materialActivation: MpcMaterialActivationRef;
-  keyHandle: EvmFamilyEcdsaKeyHandle | string;
-  auth: SigningLaneAuthBinding;
-  chainTarget: ThresholdEcdsaChainTarget;
-  signingGrantId: SigningGrantId | string;
-  thresholdSessionId: ThresholdEcdsaSessionId | string;
-  trustedStatusAuth: SigningSessionBudgetStatusAuth;
-}): AuthenticatedEcdsaLaneBudgetStatusCheck {
-  return {
-    ...buildEcdsaLaneBudgetStatusCheckInternal({
-      kind: 'authenticated_ecdsa_lane_budget_status_check',
-      key: args.key,
-      materialActivation: args.materialActivation,
-      keyHandle: args.keyHandle,
-      auth: args.auth,
-      chainTarget: args.chainTarget,
-      signingGrantId: args.signingGrantId,
-      thresholdSessionId: args.thresholdSessionId,
-    }),
-    trustedStatusAuth: args.trustedStatusAuth,
-  };
-}
-
-function buildEcdsaLaneBudgetStatusCheckInternal<
-  TKind extends
-    | EcdsaLaneBudgetStatusCheck['kind']
-    | AuthenticatedEcdsaLaneBudgetStatusCheck['kind'],
->(args: {
-  kind: TKind;
-  key: EvmFamilyEcdsaKeyIdentity;
-  materialActivation: MpcMaterialActivationRef;
-  keyHandle: EvmFamilyEcdsaKeyHandle | string;
-  auth: SigningLaneAuthBinding;
-  chainTarget: ThresholdEcdsaChainTarget;
-  signingGrantId: SigningGrantId | string;
-  thresholdSessionId: ThresholdEcdsaSessionId | string;
-}): TKind extends EcdsaLaneBudgetStatusCheck['kind']
-  ? EcdsaLaneBudgetStatusCheck
-  : Omit<AuthenticatedEcdsaLaneBudgetStatusCheck, 'trustedStatusAuth'> {
-  const signingGrantId = normalizeRequired(
-    args.signingGrantId,
-    'signingGrantId',
-  ) as SigningGrantId;
-  const thresholdSessionId = normalizeRequired(
-    args.thresholdSessionId,
-    'thresholdSessionId',
-  ) as ThresholdEcdsaSessionId;
-  if (!args.key) {
-    throw new Error('[SigningSessionBudget] ECDSA budget status requires shared key identity');
-  }
-  if (!args.auth) {
-    throw new Error('[SigningSessionBudget] ECDSA budget status requires signing auth identity');
-  }
-  const keyHandle = normalizeRequired(args.keyHandle, 'keyHandle') as EvmFamilyEcdsaKeyHandle;
-  if (!args.chainTarget || (args.chainTarget.kind !== 'evm' && args.chainTarget.kind !== 'tempo')) {
-    throw new Error('[SigningSessionBudget] ECDSA budget status requires concrete chain target');
-  }
-  return {
-    kind: args.kind,
-    key: args.key,
-    materialActivation: args.materialActivation,
-    keyHandle,
-    auth: args.auth,
-    chainTarget: args.chainTarget,
-    signingGrantId,
-    thresholdSessionId,
-  } as TKind extends EcdsaLaneBudgetStatusCheck['kind']
-    ? EcdsaLaneBudgetStatusCheck
-    : Omit<AuthenticatedEcdsaLaneBudgetStatusCheck, 'trustedStatusAuth'>;
-}
-
 export function buildSigningSessionBudgetStatusCheckForSpend(args: {
   spend: WalletSigningSpendPlan;
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 }): SigningSessionBudgetStatusCheck {
   const signingGrantId = signingGrantIdForSpend(args.spend);
-  if (args.spend.lane.curve === 'ecdsa') {
-    const identityFields = ecdsaLaneBudgetStatusIdentityFieldsForLane(args.spend.lane);
-    if (args.trustedStatusAuth) {
-      return buildAuthenticatedEcdsaLaneBudgetStatusCheck({
-        ...identityFields,
-        signingGrantId,
-        trustedStatusAuth: args.trustedStatusAuth,
-      });
-    }
-    return buildEcdsaLaneBudgetStatusCheck({
-      ...identityFields,
-      signingGrantId,
-    });
-  }
   if (args.trustedStatusAuth) {
     return buildAuthenticatedThresholdBudgetStatusCheck({
       owner: walletBudgetOwnerForLane(args.spend.lane),

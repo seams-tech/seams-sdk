@@ -2,7 +2,6 @@ import type { SigningSessionStatus } from '@/core/types/seams';
 import { normalizeWalletSigningSpendPlan } from '../operationState/types';
 import {
   applySigningSessionBudgetReservationsToStatus,
-  assertBudgetStatusCheckHasConcreteLaneIdentity,
   assertPreparedSigningSessionBudgetReservationAvailable,
   assertSigningSessionBudgetReservationAvailable,
   buildSigningBudgetReservationIdentity,
@@ -193,7 +192,6 @@ export class BudgetCoordinator implements SigningSessionBudget {
   async getAvailableStatus(
     input: Parameters<SigningSessionBudget['getAvailableStatus']>[0],
   ): ReturnType<SigningSessionBudget['getAvailableStatus']> {
-    assertBudgetStatusCheckHasConcreteLaneIdentity(input);
     const signingGrantId = normalizeRequired(
       input.signingGrantId,
       'signingGrantId',
@@ -507,7 +505,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
         : {}),
     });
     if (!status) {
-      return budgetStatusUnavailable('missing_status', spend.lane.signingGrantId);
+      return budgetStatusUnavailable('missing_status', signingGrantId);
     }
     if (status.status === 'not_found') {
       return status;

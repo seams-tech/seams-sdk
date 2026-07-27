@@ -12,7 +12,7 @@ import {
   mergeWalletSigningBudgetStatus,
   type WalletSigningBudgetAvailableStatusDeps,
 } from '../budget/budgetStatusReader';
-import { buildEcdsaLaneBudgetStatusCheck, ed25519WalletBudgetOwner } from '../budget/budget';
+import { ed25519WalletBudgetOwner } from '../budget/budget';
 import { getStoredThresholdEd25519SessionRecordForAccount as getStoredThresholdEd25519SessionRecordForAccountValue } from '../persistence/records';
 import {
   scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill as scheduleRouterAbEcdsaDerivationLoginPresignaturePrefillValue,
@@ -116,24 +116,9 @@ export async function getWarmThresholdEcdsaSessionStatus(
     chainTarget,
     thresholdSessionId,
   });
-  const walletBudgetStatus = isRecordBackedEcdsaStatus(status)
-    ? await getWalletSigningBudgetAvailableStatusValue(
-        {
-          getAvailableStatus: deps.getWalletSigningBudgetStatus,
-        },
-        buildEcdsaLaneBudgetStatusCheck({
-          key: status.key,
-          materialActivation: status.lane.identity.signer.materialActivation,
-          keyHandle: status.lane.identity.signer.keyHandle,
-          auth: status.lane.auth,
-          chainTarget: status.chainTarget,
-          signingGrantId: status.signingGrantId,
-          thresholdSessionId,
-        }),
-      )
-    : null;
-  if (!status) return walletBudgetStatus as WarmEcdsaSigningSessionStatus | null;
-  return mergeWalletSigningBudgetStatus(status, walletBudgetStatus);
+  // EVM-family ECDSA wallet quota is server-owned against the reusable Wallet
+  // Session; there is no client-side budget status to merge in.
+  return status;
 }
 
 export async function listWarmThresholdEcdsaSessionStatuses(
@@ -145,25 +130,7 @@ export async function listWarmThresholdEcdsaSessionStatuses(
     walletId,
     chainTarget,
   });
-  return await Promise.all(
-    statuses.map(async (status) => {
-      const walletBudgetStatus = await getWalletSigningBudgetAvailableStatusValue(
-        {
-          getAvailableStatus: deps.getWalletSigningBudgetStatus,
-        },
-        buildEcdsaLaneBudgetStatusCheck({
-          key: status.key,
-          materialActivation: status.lane.identity.signer.materialActivation,
-          keyHandle: status.lane.identity.signer.keyHandle,
-          auth: status.lane.auth,
-          chainTarget: status.chainTarget,
-          signingGrantId: status.signingGrantId,
-          thresholdSessionId: status.sessionId,
-        }),
-      );
-      return mergeWalletSigningBudgetStatus(status, walletBudgetStatus);
-    }),
-  );
+  return statuses;
 }
 
 function isRecordBackedEcdsaStatus(

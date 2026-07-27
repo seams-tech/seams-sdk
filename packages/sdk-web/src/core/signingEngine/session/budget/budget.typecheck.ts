@@ -17,7 +17,6 @@ import {
   toRpId,
 } from '../identity/evmFamilyEcdsaIdentity';
 import type {
-  EcdsaLaneBudgetStatusCheck,
   AuthenticatedThresholdBudgetStatusCheck,
   ExternallyConsumedWalletBudgetSpend,
   ReservedBudgetFinalizationSpend,
@@ -104,31 +103,6 @@ const invalidWalletBudgetCheckWithoutOwner: WalletBudgetStatusCheck = {
   signingGrantId: 'signing-grant-1',
 };
 void invalidWalletBudgetCheckWithoutOwner;
-
-const validEcdsaLaneCheck: EcdsaLaneBudgetStatusCheck = {
-  kind: 'ecdsa_lane_budget_status_check',
-  key: ecdsaKey,
-  materialActivation,
-  keyHandle: ecdsaKeyHandle,
-  auth: ecdsaAuth,
-  chainTarget: ecdsaChainTarget,
-  signingGrantId: 'signing-grant-1',
-  thresholdSessionId: 'threshold-session-1',
-};
-void validEcdsaLaneCheck;
-
-const invalidEcdsaLaneCheck: EcdsaLaneBudgetStatusCheck = {
-  kind: 'ecdsa_lane_budget_status_check',
-  key: ecdsaKey,
-  materialActivation,
-  keyHandle: ecdsaKeyHandle,
-  chainTarget: ecdsaChainTarget,
-  signingGrantId: 'signing-grant-1',
-  thresholdSessionId: 'threshold-session-1',
-  // @ts-expect-error ECDSA budget checks require concrete lane threshold identity
-  targetThresholdSessionIds: ['threshold-session-1'],
-};
-void invalidEcdsaLaneCheck;
 
 // @ts-expect-error authenticated threshold status checks require trustedStatusAuth
 const missingTrustedStatusAuth: AuthenticatedThresholdBudgetStatusCheck = {
