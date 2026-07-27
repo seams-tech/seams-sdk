@@ -54,10 +54,7 @@ export type SigningSessionExpiredEvent = {
 
 export type SdkLifecycleEvent = SigningSessionExpiredEvent;
 
-export type SigningSessionExpiredEventInput = Omit<
-  SigningSessionExpiredEvent,
-  'version' | 'event'
->;
+export type SigningSessionExpiredEventInput = Omit<SigningSessionExpiredEvent, 'version' | 'event'>;
 
 export type SdkLifecycleEventListener = (event: SdkLifecycleEvent) => void;
 
@@ -337,6 +334,7 @@ export enum KeyExportEventPhase {
   STEP_01_STARTED = 'key_export.started',
   STEP_02_AUTH_PASSKEY_PROMPT_STARTED = 'key_export.auth.passkey.prompt.started',
   STEP_02_AUTH_PASSKEY_PROMPT_SUCCEEDED = 'key_export.auth.passkey.prompt.succeeded',
+  STEP_02_AUTH_EMAIL_OTP_INPUT_REQUIRED = 'key_export.auth.email_otp.input.required',
   STEP_03_MATERIAL_PREPARE_STARTED = 'key_export.material.prepare.started',
   STEP_03_MATERIAL_PREPARE_SUCCEEDED = 'key_export.material.prepare.succeeded',
   STEP_04_VIEWER_OPENED = 'key_export.viewer.opened',
@@ -485,6 +483,7 @@ export const WALLET_FLOW_EVENT_STEPS: Record<WalletFlowEventPhase, number> = {
   [KeyExportEventPhase.STEP_01_STARTED]: 1,
   [KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_STARTED]: 2,
   [KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_SUCCEEDED]: 2,
+  [KeyExportEventPhase.STEP_02_AUTH_EMAIL_OTP_INPUT_REQUIRED]: 2,
   [KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_STARTED]: 3,
   [KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_SUCCEEDED]: 3,
   [KeyExportEventPhase.STEP_04_VIEWER_OPENED]: 4,
@@ -612,6 +611,7 @@ export const WALLET_FLOW_EVENT_MESSAGES: Record<WalletFlowEventPhase, string> = 
   [KeyExportEventPhase.STEP_01_STARTED]: 'Preparing key export',
   [KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_STARTED]: 'Confirm with passkey',
   [KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_SUCCEEDED]: 'Passkey confirmed',
+  [KeyExportEventPhase.STEP_02_AUTH_EMAIL_OTP_INPUT_REQUIRED]: 'Enter the email code',
   [KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_STARTED]: 'Preparing key material',
   [KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_SUCCEEDED]: 'Key material ready',
   [KeyExportEventPhase.STEP_04_VIEWER_OPENED]: 'Review private key',
