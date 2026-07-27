@@ -11,6 +11,7 @@ import type {
   RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { EcdsaRoleLocalWorkerHandle } from '@/core/signingEngine/session/keyMaterialBrands';
+import type { InitialEcdsaCapabilityActivationPlanInput } from '@/core/signingEngine/session/material/initialEcdsaCapabilityActivation';
 
 export type CreateRouterAbEcdsaRegistrationCeremonyRequestV1 = {
   readonly kind: 'create_router_ab_ecdsa_registration_ceremony_v1';
@@ -36,6 +37,38 @@ export type VerifyRouterAbEcdsaRegistrationClientProofsResultV1 = {
   readonly clientBootstrap: WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapResult['clientBootstrap'];
   readonly publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
 };
+
+export type PersistInitialCanonicalEcdsaActivationRequestV1 = {
+  readonly kind: 'persist_initial_canonical_ecdsa_activation_v1';
+  readonly ceremonyId: string;
+  readonly planInput: InitialEcdsaCapabilityActivationPlanInput;
+};
+
+export type PersistInitialCanonicalEcdsaActivationFailureCode =
+  | 'invalid_ceremony_state'
+  | 'ceremony_plan_mismatch'
+  | 'invalid_activation_plan'
+  | 'exact_record_conflict'
+  | 'corrupt'
+  | 'persistence_unavailable';
+
+export type PersistInitialCanonicalEcdsaActivationResultV1 =
+  | {
+      readonly ok: true;
+      readonly kind: 'initial_canonical_ecdsa_activation_persisted_v1';
+      readonly ceremonyId: string;
+      readonly journalId: InitialEcdsaCapabilityActivationPlanInput['journalId'];
+      readonly code?: never;
+      readonly message?: never;
+    }
+  | {
+      readonly ok: false;
+      readonly kind: 'initial_canonical_ecdsa_activation_persistence_failed_v1';
+      readonly ceremonyId: string;
+      readonly code: PersistInitialCanonicalEcdsaActivationFailureCode;
+      readonly message: string;
+      readonly journalId?: never;
+    };
 
 export type FinalizeRouterAbEcdsaRegistrationActivationRequestV1 = {
   readonly kind: 'finalize_router_ab_ecdsa_registration_activation_v1';

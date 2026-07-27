@@ -67,6 +67,8 @@ import type {
   CreateRouterAbEcdsaRegistrationCeremonyResultV1,
   FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
   FinalizeRouterAbEcdsaRegistrationActivationResultV1,
+  PersistInitialCanonicalEcdsaActivationRequestV1,
+  PersistInitialCanonicalEcdsaActivationResultV1,
   VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
   VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
 } from '@/core/signingEngine/routerAb/ecdsaDerivation/clientCeremony';
@@ -483,9 +485,7 @@ export type EmailOtpEcdsaBootstrapStrictPayload = EmailOtpEcdsaBootstrapBasePayl
 
 export type EmailOtpYaoPrewarmFailureStage = 'worker_ready' | 'yao_wasm_init';
 
-export type EmailOtpYaoPrewarmRequest =
-  | { kind: 'not_requested' }
-  | { kind: 'requested' };
+export type EmailOtpYaoPrewarmRequest = { kind: 'not_requested' } | { kind: 'requested' };
 
 export type EmailOtpYaoPrewarmWorkerResult =
   | {
@@ -1187,6 +1187,7 @@ export const EcdsaDerivationClientCustomRequestType = {
   VerifyRouterAbEcdsaRefreshClientProofs: 70_014,
   StoreThresholdEcdsaRoleLocalSigningMaterial: 70_004,
   RehydrateEcdsaRoleLocalSigningMaterial: 70_015,
+  PersistInitialCanonicalEcdsaActivation: 70_016,
 } as const;
 
 export type EcdsaDerivationClientCustomRequestType =
@@ -1206,6 +1207,7 @@ export const EcdsaDerivationClientCustomResponseType = {
   VerifyRouterAbEcdsaRefreshClientProofsSuccess: 70_114,
   StoreThresholdEcdsaRoleLocalSigningMaterialSuccess: 70_104,
   RehydrateEcdsaRoleLocalSigningMaterialSuccess: 70_115,
+  PersistInitialCanonicalEcdsaActivationSuccess: 70_116,
 } as const;
 
 export type EcdsaDerivationClientCustomResponseType =
@@ -1418,6 +1420,14 @@ type EcdsaDerivationClientCustomOperationMap = {
       diagnostics?: WorkerResponseDiagnostics;
     };
   };
+  [EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation]: {
+    payload: PersistInitialCanonicalEcdsaActivationRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.PersistInitialCanonicalEcdsaActivationSuccess;
+      payload: PersistInitialCanonicalEcdsaActivationResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
   [EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRegistrationActivation]: {
     payload: FinalizeRouterAbEcdsaRegistrationActivationRequestV1;
     result: {
@@ -1608,6 +1618,7 @@ export type DerivationSignerWorkerOperationMap = {
 export type EcdsaDerivationRoleLocalMaterialOperationType =
   | typeof EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaRegistrationCeremony
   | typeof EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRegistrationClientProofs
+  | typeof EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation
   | typeof EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRegistrationActivation
   | typeof EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony
   | typeof EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaPostRegistrationCeremony

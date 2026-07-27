@@ -12,6 +12,7 @@ import {
   closeRouterAbEcdsaRegistrationCeremonyWasm,
   createRouterAbEcdsaRegistrationCeremonyWasm,
   finalizeRouterAbEcdsaRegistrationActivationWasm,
+  persistInitialCanonicalEcdsaActivationWasm,
   verifyRouterAbEcdsaRegistrationClientProofsWasm,
   storeEcdsaRoleLocalSigningMaterialWasm,
 } from '../../signingEngine/threshold/crypto/ecdsaDerivationClientWasm';
@@ -624,6 +625,15 @@ function createBrowserSignerCryptoPort(
         throw new Error('ECDSA derivation client worker context is unavailable');
       }
       return verifyRouterAbEcdsaRegistrationClientProofsWasm({
+        command: input,
+        workerCtx,
+      });
+    },
+    async persistInitialCanonicalEcdsaActivation(input) {
+      if (!workerCtx) {
+        throw new Error('ECDSA derivation client worker context is unavailable');
+      }
+      return persistInitialCanonicalEcdsaActivationWasm({
         command: input,
         workerCtx,
       });

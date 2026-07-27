@@ -1153,6 +1153,14 @@ export class BrowserSigningSurface {
     return this.runtimePorts.signerCrypto.verifyRouterAbEcdsaRegistrationClientProofs(input);
   }
 
+  persistInitialCanonicalEcdsaActivation(
+    input: Parameters<
+      typeof this.runtimePorts.signerCrypto.persistInitialCanonicalEcdsaActivation
+    >[0],
+  ): ReturnType<typeof this.runtimePorts.signerCrypto.persistInitialCanonicalEcdsaActivation> {
+    return this.runtimePorts.signerCrypto.persistInitialCanonicalEcdsaActivation(input);
+  }
+
   finalizeRouterAbEcdsaRegistrationActivation(
     input: Parameters<
       typeof this.runtimePorts.signerCrypto.finalizeRouterAbEcdsaRegistrationActivation

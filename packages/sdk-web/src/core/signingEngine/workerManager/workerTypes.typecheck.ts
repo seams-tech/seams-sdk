@@ -25,6 +25,11 @@ import {
 } from './workerTypes';
 import { parseSigningSessionSealKeyVersion } from '../session/keyMaterialBrands';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
+import type {
+  InitialEcdsaCapabilityActivationPlan,
+  InitialEcdsaCapabilityActivationPlanInput,
+} from '../session/material/initialEcdsaCapabilityActivation';
+import type { PersistInitialCanonicalEcdsaActivationRequestV1 } from '../routerAb/ecdsaDerivation/clientCeremony';
 
 declare const rootShareEpoch: RootShareEpoch;
 declare const chainTarget: ThresholdEcdsaChainTarget;
@@ -34,6 +39,37 @@ declare const emailOtpEd25519YaoActiveCapability: EmailOtpEd25519YaoActiveCapabi
 declare const routeAuth: AppOrWalletSessionAuth;
 declare const incomingMessage: ArrayBuffer;
 declare const emailOtpEd25519YaoSession: WalletRegistrationEd25519YaoBootstrapSession;
+declare const initialEcdsaActivationPlanInput: InitialEcdsaCapabilityActivationPlanInput;
+declare const initialEcdsaActivationPlan: InitialEcdsaCapabilityActivationPlan;
+
+const persistInitialCanonicalEcdsaActivationRequest: EcdsaDerivationRoleLocalMaterialOperationRequest<
+  typeof EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation
+> = {
+  type: EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation,
+  payload: {
+    kind: 'persist_initial_canonical_ecdsa_activation_v1',
+    ceremonyId: 'registration-ceremony',
+    planInput: initialEcdsaActivationPlanInput,
+  },
+};
+void persistInitialCanonicalEcdsaActivationRequest;
+
+const persistInitialActivationWithPendingSecret = {
+  kind: 'persist_initial_canonical_ecdsa_activation_v1',
+  ceremonyId: 'registration-ceremony',
+  planInput: initialEcdsaActivationPlanInput,
+  // @ts-expect-error Pending registration secrets stay in live worker ceremony state.
+  pendingStateBlob: 'caller-owned-pending-secret',
+} satisfies PersistInitialCanonicalEcdsaActivationRequestV1;
+void persistInitialActivationWithPendingSecret;
+
+const persistInitialActivationWithConstructedPlan = {
+  kind: 'persist_initial_canonical_ecdsa_activation_v1',
+  ceremonyId: 'registration-ceremony',
+  // @ts-expect-error The worker builds fresh proof objects from the narrow planner input.
+  planInput: initialEcdsaActivationPlan,
+} satisfies PersistInitialCanonicalEcdsaActivationRequestV1;
+void persistInitialActivationWithConstructedPlan;
 
 const clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1',

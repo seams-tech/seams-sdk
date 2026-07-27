@@ -1,4 +1,3 @@
-
 import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
@@ -37,6 +36,8 @@ import type {
   CreateRouterAbEcdsaRegistrationCeremonyResultV1,
   FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
   FinalizeRouterAbEcdsaRegistrationActivationResultV1,
+  PersistInitialCanonicalEcdsaActivationRequestV1,
+  PersistInitialCanonicalEcdsaActivationResultV1,
   VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
   VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
 } from '../signingEngine/routerAb/ecdsaDerivation/clientCeremony';
@@ -114,7 +115,6 @@ export type SecureSecretStore = {
   }): Promise<PlatformResult<{ secretB64u: string }, 'unavailable' | 'not_found'>>;
   delete(input: { handle: string }): Promise<PlatformResult<void, 'unavailable'>>;
 };
-
 
 export type AuthenticatorOptions = {
   userVerification?: 'required' | 'preferred' | 'discouraged';
@@ -406,9 +406,7 @@ export type StoreEcdsaRoleLocalSigningMaterialOutput = {
   handle: EcdsaRoleLocalWorkerHandle;
 };
 
-export type StoreEcdsaRoleLocalSigningMaterialErrorCode =
-  | 'invalid_ready_state'
-  | 'crypto_failure';
+export type StoreEcdsaRoleLocalSigningMaterialErrorCode = 'invalid_ready_state' | 'crypto_failure';
 
 export type BuildEcdsaRoleLocalExportArtifactInput = {
   kind: GeneratedBuildEcdsaRoleLocalExportArtifactCommand['kind'];
@@ -491,6 +489,9 @@ export type SignerCryptoPort = {
   verifyRouterAbEcdsaRegistrationClientProofs(
     input: VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
   ): Promise<VerifyRouterAbEcdsaRegistrationClientProofsResultV1>;
+  persistInitialCanonicalEcdsaActivation(
+    input: PersistInitialCanonicalEcdsaActivationRequestV1,
+  ): Promise<PersistInitialCanonicalEcdsaActivationResultV1>;
   finalizeRouterAbEcdsaRegistrationActivation(
     input: FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
   ): Promise<FinalizeRouterAbEcdsaRegistrationActivationResultV1>;
