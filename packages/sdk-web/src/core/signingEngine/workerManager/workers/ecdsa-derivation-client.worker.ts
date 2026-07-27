@@ -15,6 +15,7 @@ import {
   parseDigestB64u,
   parseIsoTimestamp,
 } from '@shared/utils/canonicalPrimitives';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import { errorLogSummary, safeErrorMessage } from '@shared/utils/errors';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import {
@@ -109,21 +110,49 @@ let presignPort: MessagePort | null = null;
 const DIAGNOSTIC_BREAKDOWN_MAX_DEPTH = 2;
 const DIAGNOSTIC_BREAKDOWN_MAX_FIELDS = 64;
 type StoredEcdsaRoleLocalSigningMaterial = {
-  materialHandle: string;
-  stateBlobB64u: string;
-  bindingDigest: string;
-  activationBinding:
-    | {
+  readonly materialHandle: string;
+  readonly stateBlobB64u: string;
+  readonly bindingDigest: string;
+} & (
+  | {
+      readonly materialActivation: MpcMaterialActivationRef;
+      readonly activationBinding: {
         kind: 'strict_router_ab_activation_v1';
         lifecycleId: string;
         transcriptDigestB64u: string;
         activationDigestB64u: string;
         activatedAtMs: number;
-      }
-    | {
+      };
+    }
+  | {
+      readonly materialActivation?: never;
+      readonly activationBinding: {
         kind: 'runtime_import';
       };
-};
+    }
+);
+
+function buildStoredCanonicalEcdsaRoleLocalSigningMaterial(input: {
+  readonly materialHandle: string;
+  readonly stateBlobB64u: string;
+  readonly bindingDigest: string;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly activationBinding: {
+    readonly kind: 'strict_router_ab_activation_v1';
+    readonly lifecycleId: string;
+    readonly transcriptDigestB64u: string;
+    readonly activationDigestB64u: string;
+    readonly activatedAtMs: number;
+  };
+}): StoredEcdsaRoleLocalSigningMaterial {
+  return {
+    materialHandle: input.materialHandle,
+    stateBlobB64u: input.stateBlobB64u,
+    bindingDigest: input.bindingDigest,
+    materialActivation: input.materialActivation,
+    activationBinding: input.activationBinding,
+  };
+}
 
 const ecdsaRoleLocalSigningMaterialStore = new Map<string, StoredEcdsaRoleLocalSigningMaterial>();
 const ecdsaCapabilityManifestStore = new IndexedDbEcdsaCapabilityManifestStore();
@@ -693,7 +722,10 @@ type FinalizedEcdsaRoleLocalActivation = {
   roleLocalMaterial: FinalizeRouterAbEcdsaRegistrationActivationResultV1['roleLocalMaterial'];
   publicFacts: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicFacts'];
   readyStateBlobB64u: string;
-  liveMaterial: StoredEcdsaRoleLocalSigningMaterial;
+  activationBinding: Extract<
+    StoredEcdsaRoleLocalSigningMaterial,
+    { readonly activationBinding: { readonly kind: 'strict_router_ab_activation_v1' } }
+  >['activationBinding'];
 };
 
 function finalizeEcdsaRoleLocalActivation(input: {
@@ -778,12 +810,6 @@ function finalizeEcdsaRoleLocalActivation(input: {
     activationDigestB64u: activation.activation_digest_b64u,
     activatedAtMs: activation.activated_at_ms,
   } as const;
-  const liveMaterial: StoredEcdsaRoleLocalSigningMaterial = {
-    materialHandle,
-    bindingDigest,
-    stateBlobB64u: readyStateBlobB64u,
-    activationBinding,
-  };
   return {
     roleLocalMaterial: {
       kind: 'ecdsa_role_local_worker_handle_v1',
@@ -803,7 +829,7 @@ function finalizeEcdsaRoleLocalActivation(input: {
       ethereumAddress: requireEthereumAddress(publicFacts.ethereumAddress, 'ethereumAddress'),
     },
     readyStateBlobB64u,
-    liveMaterial,
+    activationBinding,
   };
 }
 
@@ -913,11 +939,21 @@ async function finalizeRouterAbEcdsaRegistrationActivation(
   if (sealed.kind !== 'committed') {
     throw new Error(`Canonical ECDSA activation finalization returned ${sealed.kind}`);
   }
-  ecdsaRoleLocalSigningMaterialStore.set(materialHandle, finalized.liveMaterial);
+  ecdsaRoleLocalSigningMaterialStore.set(
+    materialHandle,
+    buildStoredCanonicalEcdsaRoleLocalSigningMaterial({
+      materialHandle,
+      bindingDigest: finalized.roleLocalMaterial.bindingDigest,
+      stateBlobB64u: finalized.readyStateBlobB64u,
+      materialActivation: sealed.manifest.activation.materialActivation,
+      activationBinding: finalized.activationBinding,
+    }),
+  );
   return {
     kind: 'router_ab_ecdsa_registration_activation_finalized_v1',
     journalId,
     roleLocalMaterial: finalized.roleLocalMaterial,
+    materialActivation: sealed.manifest.activation.materialActivation,
     publicFacts: finalized.publicFacts,
     publicCapability,
   };
@@ -1261,20 +1297,24 @@ async function restoreEcdsaRoleLocalSigningMaterialForRequest(
   const activationReceipt =
     restored.manifest.activation.serverActivation.serverActivationReceipt.protocolReceipt;
   const activation = activationReceipt.ecdsa_activation;
-  ecdsaRoleLocalSigningMaterialStore.set(materialHandle, {
+  ecdsaRoleLocalSigningMaterialStore.set(
     materialHandle,
-    bindingDigest: materialRef.bindingDigest,
-    stateBlobB64u: restored.readyStateBlobB64u,
-    activationBinding: {
-      kind: 'strict_router_ab_activation_v1',
-      lifecycleId: activationReceipt.lifecycle_id,
-      transcriptDigestB64u: base64UrlEncode(
-        Uint8Array.from(activationReceipt.transcript_digest.bytes),
-      ),
-      activationDigestB64u: activation.activation_digest_b64u,
-      activatedAtMs: activation.activated_at_ms,
-    },
-  });
+    buildStoredCanonicalEcdsaRoleLocalSigningMaterial({
+      materialHandle,
+      bindingDigest: materialRef.bindingDigest,
+      stateBlobB64u: restored.readyStateBlobB64u,
+      materialActivation: restored.manifest.activation.materialActivation,
+      activationBinding: {
+        kind: 'strict_router_ab_activation_v1',
+        lifecycleId: activationReceipt.lifecycle_id,
+        transcriptDigestB64u: base64UrlEncode(
+          Uint8Array.from(activationReceipt.transcript_digest.bytes),
+        ),
+        activationDigestB64u: activation.activation_digest_b64u,
+        activatedAtMs: activation.activated_at_ms,
+      },
+    }),
+  );
   return {
     ok: true,
     liveHandle: {

@@ -30,6 +30,7 @@ import type {
   InitialEcdsaCapabilityActivationPlanInput,
 } from '../session/material/initialEcdsaCapabilityActivation';
 import type {
+  FinalizeRouterAbEcdsaRegistrationActivationResultV1,
   FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
   PersistInitialCanonicalEcdsaActivationRequestV1,
 } from '../routerAb/ecdsaDerivation/clientCeremony';
@@ -48,6 +49,10 @@ declare const initialEcdsaActivationPlanInput: InitialEcdsaCapabilityActivationP
 declare const initialEcdsaActivationPlan: InitialEcdsaCapabilityActivationPlan;
 declare const activationJournalId: CorrelationId;
 declare const activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+declare const finalizedRoleLocalMaterial: FinalizeRouterAbEcdsaRegistrationActivationResultV1['roleLocalMaterial'];
+declare const finalizedMaterialActivation: FinalizeRouterAbEcdsaRegistrationActivationResultV1['materialActivation'];
+declare const finalizedPublicFacts: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicFacts'];
+declare const finalizedPublicCapability: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicCapability'];
 
 const persistInitialCanonicalEcdsaActivationRequest: EcdsaDerivationRoleLocalMaterialOperationRequest<
   typeof EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation
@@ -84,6 +89,27 @@ const finalizePersistedCanonicalEcdsaActivation = {
   activationReceipt,
 } satisfies FinalizeRouterAbEcdsaRegistrationActivationRequestV1;
 void finalizePersistedCanonicalEcdsaActivation;
+
+const finalizedCanonicalEcdsaActivation = {
+  kind: 'router_ab_ecdsa_registration_activation_finalized_v1',
+  journalId: activationJournalId,
+  roleLocalMaterial: finalizedRoleLocalMaterial,
+  materialActivation: finalizedMaterialActivation,
+  publicFacts: finalizedPublicFacts,
+  publicCapability: finalizedPublicCapability,
+} satisfies FinalizeRouterAbEcdsaRegistrationActivationResultV1;
+void finalizedCanonicalEcdsaActivation;
+
+// @ts-expect-error Finalization must expose the exact canonical material activation.
+const finalizedCanonicalEcdsaActivationWithoutIdentity: FinalizeRouterAbEcdsaRegistrationActivationResultV1 =
+  {
+    kind: 'router_ab_ecdsa_registration_activation_finalized_v1',
+    journalId: activationJournalId,
+    roleLocalMaterial: finalizedRoleLocalMaterial,
+    publicFacts: finalizedPublicFacts,
+    publicCapability: finalizedPublicCapability,
+  };
+void finalizedCanonicalEcdsaActivationWithoutIdentity;
 
 const finalizeCanonicalEcdsaActivationWithCallerRelayer = {
   kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
