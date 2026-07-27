@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  requestEmailOtpEd25519KeyExportAuthorization,
   requestEmailOtpKeyExportAuthorization,
   requestThresholdEcdsaExportAuthorization,
   showThresholdEcdsaExportViewer,
@@ -10,6 +11,10 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
 import { resolveEmailOtpAuthLane } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
+import {
+  KeyExportEventPhase,
+  type KeyExportFlowEvent,
+} from '../../packages/sdk-web/src/core/types/sdkSentEvents';
 
 const EVM_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
@@ -125,6 +130,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
     let capturedSummaryAccountId = '';
     let capturedPayloadWalletId = '';
     let capturedChallengeKind = '';
+    const exportEvents: KeyExportFlowEvent[] = [];
 
     const authLane = resolveEmailOtpAuthLane({
       routeAuth: { kind: 'wallet_session', jwt: 'wallet-session-jwt' },
@@ -157,7 +163,16 @@ test.describe('threshold ECDSA export viewer payload', () => {
         },
         requestExportChallenge: async (request) => {
           capturedChallengeKind = request.kind;
-          return { challengeId: 'email-otp-export-1' };
+          return {
+            challengeId: 'email-otp-export-1',
+            emailHint: 'a***@example.test',
+            delivery: {
+              kind: 'provider_and_demo_code',
+              status: 'sent',
+              emailHint: 'a***@example.test',
+              otpCode: '654321',
+            },
+          };
         },
         requestPublicReauthExportChallenge: async () => {
           throw new Error('unexpected public-reauth export challenge');
@@ -173,6 +188,8 @@ test.describe('threshold ECDSA export viewer payload', () => {
         publicKey: '0x02abcdef',
         curve: 'ecdsa',
         challengeAuthority: { kind: 'signing_session', authLane },
+        flowId: 'key-export-flow-1',
+        onEvent: (event) => exportEvents.push(event),
       },
     );
 
@@ -182,6 +199,17 @@ test.describe('threshold ECDSA export viewer payload', () => {
     expect(capturedChallengeKind).toBe('wallet_session_challenge');
     expect(capturedSummaryAccountId).toBe('frost-vermillion-k7p9m2');
     expect(capturedPayloadWalletId).toBe('frost-vermillion-k7p9m2');
+    expect(exportEvents).toEqual([
+      expect.objectContaining({
+        phase: KeyExportEventPhase.STEP_02_AUTH_EMAIL_OTP_INPUT_REQUIRED,
+        status: 'waiting_for_user',
+        authMethod: 'email_otp',
+        data: {
+          emailHint: 'a***@example.test',
+          demoOtpCode: '654321',
+        },
+      }),
+    ]);
   });
 
   test('requests fresh Email OTP export authorization from the public reauth authority', async () => {
@@ -203,7 +231,15 @@ test.describe('threshold ECDSA export viewer payload', () => {
         },
         requestPublicReauthExportChallenge: async (request) => {
           publicReauthRequest = request;
-          return { challengeId: 'email-otp-public-reauth-export-1' };
+          return {
+            challengeId: 'email-otp-public-reauth-export-1',
+            emailHint: 'a***@example.test',
+            delivery: {
+              kind: 'provider',
+              status: 'sent',
+              emailHint: 'a***@example.test',
+            },
+          };
         },
       },
       {
@@ -216,6 +252,10 @@ test.describe('threshold ECDSA export viewer payload', () => {
         publicKey: '0x02abcdef',
         curve: 'ecdsa',
         challengeAuthority: { kind: 'public_reauth' },
+        flowId: 'key-export-flow-2',
+        onEvent: (event) => {
+          expect(event.data?.demoOtpCode).toBeNull();
+        },
       },
     );
 
@@ -227,5 +267,133 @@ test.describe('threshold ECDSA export viewer payload', () => {
       chain: 'evm',
     });
     expect(authorization.challengeId).toBe('email-otp-public-reauth-export-1');
+  });
+
+  test('emits the demo Email OTP code on the Ed25519 key-export lane', async () => {
+    const walletId = toWalletId('frost-vermillion-k7p9m2');
+    const exportEvents: KeyExportFlowEvent[] = [];
+    const authLane = resolveEmailOtpAuthLane({
+      routeAuth: { kind: 'wallet_session', jwt: 'durable-wallet-session-jwt' },
+      thresholdSessionId: 'threshold-session-1',
+      authorizingSigningGrantId: 'signing-grant-1',
+      curve: 'ed25519',
+    });
+    if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
+      throw new Error('expected Ed25519 signing-session auth lane');
+    }
+
+    const authorization = await requestEmailOtpEd25519KeyExportAuthorization(
+      {
+        touchConfirm: {
+          requestUserConfirmation: async (request) => ({
+            requestId: request.requestId,
+            confirmed: true,
+            otpCode: '123456',
+            emailOtpChallengeId: 'email-otp-ed25519-export-1',
+          }),
+        },
+        requestExportChallenge: async () => ({
+          challengeId: 'email-otp-ed25519-export-1',
+          emailHint: 'a***@example.test',
+          delivery: {
+            kind: 'demo_code_response',
+            status: 'sent',
+            emailHint: 'a***@example.test',
+            otpCode: '654321',
+          },
+        }),
+      },
+      {
+        kind: 'wallet_session_ed25519_export_auth',
+        walletSession: {
+          walletId,
+          walletSessionUserId: String(walletId),
+        },
+        nearAccountId: 'frost-vermillion-k7p9m2.testnet',
+        nearEd25519SigningKeyId: 'ed25519-signing-key-1',
+        signerSlot: 1,
+        thresholdSessionId: 'threshold-session-1',
+        signingGrantId: 'signing-grant-1',
+        publicKey: 'ed25519:abcdef',
+        curve: 'ed25519',
+        chain: 'near',
+        authLane,
+        flowId: 'key-export-flow-ed25519-1',
+        onEvent: (event) => exportEvents.push(event),
+      },
+    );
+
+    expect(authorization.challengeId).toBe('email-otp-ed25519-export-1');
+    expect(authorization.otpCode).toBe('123456');
+    expect(exportEvents).toEqual([
+      expect.objectContaining({
+        phase: KeyExportEventPhase.STEP_02_AUTH_EMAIL_OTP_INPUT_REQUIRED,
+        status: 'waiting_for_user',
+        authMethod: 'email_otp',
+        flowId: 'key-export-flow-ed25519-1',
+        accountId: String(walletId),
+        data: {
+          emailHint: 'a***@example.test',
+          demoOtpCode: '654321',
+        },
+      }),
+    ]);
+  });
+
+  test('withholds the demo code from the Ed25519 lane on provider-only delivery', async () => {
+    const walletId = toWalletId('frost-vermillion-k7p9m2');
+    const exportEvents: KeyExportFlowEvent[] = [];
+    const authLane = resolveEmailOtpAuthLane({
+      routeAuth: { kind: 'wallet_session', jwt: 'durable-wallet-session-jwt' },
+      thresholdSessionId: 'threshold-session-1',
+      authorizingSigningGrantId: 'signing-grant-1',
+      curve: 'ed25519',
+    });
+    if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
+      throw new Error('expected Ed25519 signing-session auth lane');
+    }
+
+    await requestEmailOtpEd25519KeyExportAuthorization(
+      {
+        touchConfirm: {
+          requestUserConfirmation: async (request) => ({
+            requestId: request.requestId,
+            confirmed: true,
+            otpCode: '123456',
+            emailOtpChallengeId: 'email-otp-ed25519-export-2',
+          }),
+        },
+        requestExportChallenge: async () => ({
+          challengeId: 'email-otp-ed25519-export-2',
+          emailHint: 'a***@example.test',
+          delivery: {
+            kind: 'provider',
+            status: 'sent',
+            emailHint: 'a***@example.test',
+          },
+        }),
+      },
+      {
+        kind: 'wallet_session_ed25519_export_auth',
+        walletSession: {
+          walletId,
+          walletSessionUserId: String(walletId),
+        },
+        nearAccountId: 'frost-vermillion-k7p9m2.testnet',
+        nearEd25519SigningKeyId: 'ed25519-signing-key-1',
+        signerSlot: 1,
+        thresholdSessionId: 'threshold-session-1',
+        signingGrantId: 'signing-grant-1',
+        publicKey: 'ed25519:abcdef',
+        curve: 'ed25519',
+        chain: 'near',
+        authLane,
+        flowId: 'key-export-flow-ed25519-2',
+        onEvent: (event) => exportEvents.push(event),
+      },
+    );
+
+    expect(exportEvents).toHaveLength(1);
+    expect(exportEvents[0]?.data?.demoOtpCode).toBeNull();
   });
 });

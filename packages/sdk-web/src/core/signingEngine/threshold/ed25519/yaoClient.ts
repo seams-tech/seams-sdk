@@ -70,7 +70,16 @@ export type RouterAbEd25519YaoRegistrationTransportFailureV1 = {
 };
 
 export type RouterAbEd25519YaoRegistrationTransportResultV1 =
-  | { ok: true; value: unknown }
+  | {
+      ok: true;
+      value: unknown;
+      /**
+       * Raw `Server-Timing` header from the Router, when present. Diagnostics
+       * only: it is never parsed into lifecycle control flow, and callers must
+       * treat it as absent-by-default.
+       */
+      serverTiming?: string | null;
+    }
   | RouterAbEd25519YaoRegistrationTransportFailureV1;
 
 export type RouterAbEd25519YaoRegistrationTransportRequestV1 =
@@ -264,7 +273,14 @@ export type RouterAbEd25519YaoClientSigningShareV1 = {
 };
 
 export type RouterAbEd25519YaoRegistrationResultV1 =
-  | { ok: true; activeClient: RouterAbEd25519YaoSealableActiveClientV1 }
+  | {
+      ok: true;
+      activeClient: RouterAbEd25519YaoSealableActiveClientV1;
+      /** Raw Router `Server-Timing` for the execute call. Diagnostics only. */
+      routerServerTiming?: string;
+      /** Client-observed Yao sub-steps in ms. Diagnostics only. */
+      clientTimings?: { admissionMs: number; sessionCreateMs: number };
+    }
   | RouterAbEd25519YaoRegistrationFailureV1;
 
 export type RouterAbEd25519YaoRecoveryResultV1 =
@@ -761,7 +777,11 @@ async function parseHttpResponse(
       message: error instanceof Error ? error.message : String(error),
     };
   }
-  if (response.ok) return { ok: true, value };
+  if (response.ok) {
+    // Requires `Access-Control-Expose-Headers: Server-Timing` on the Router
+    // response; null whenever that is absent, which must stay non-fatal.
+    return { ok: true, value, serverTiming: response.headers.get('Server-Timing') };
+  }
   return {
     ok: false,
     code: 'router_rejected',
@@ -1130,6 +1150,7 @@ export class RouterAbEd25519YaoClientV1 {
     const consumedFactor = consumeOwnedFactorSecret(args.factor);
     if (!consumedFactor.ok) return consumedFactor;
     const factorSecret32 = consumedFactor.value;
+    const admissionStartedAt = performance.now();
     const admission = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
       args.admissionReceipt,
     );
@@ -1147,7 +1168,10 @@ export class RouterAbEd25519YaoClientV1 {
       };
     }
 
+    const admissionMs = performance.now() - admissionStartedAt;
+
     const entropy = createActivationEntropy();
+    const sessionCreateStartedAt = performance.now();
     let session: WasmClientRegistrationSessionV1;
     try {
       session = createRegistrationSession({
@@ -1169,6 +1193,7 @@ export class RouterAbEd25519YaoClientV1 {
       factorSecret32.fill(0);
       zeroizeActivationEntropy(entropy);
     }
+    const sessionCreateMs = performance.now() - sessionCreateStartedAt;
 
     try {
       const executeRequest = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
@@ -1202,7 +1227,17 @@ export class RouterAbEd25519YaoClientV1 {
           result: result.value,
           activeCapabilityBinding: result.value.binding.session_id,
         });
-        return { ok: true, activeClient };
+        return {
+          ok: true,
+          activeClient,
+          ...(executeResponse.serverTiming
+            ? { routerServerTiming: executeResponse.serverTiming }
+            : {}),
+          clientTimings: {
+            admissionMs: Math.max(0, admissionMs),
+            sessionCreateMs: Math.max(0, sessionCreateMs),
+          },
+        };
       } catch (error) {
         activated.free();
         throw error;

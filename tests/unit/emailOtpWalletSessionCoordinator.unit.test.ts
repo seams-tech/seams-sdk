@@ -1036,8 +1036,7 @@ function createCoordinator(overrides?: {
     listThresholdEcdsaSessionRecordsForWallet:
       overrides?.listThresholdEcdsaSessionRecordsForWallet ||
       ((walletId) => [{ ...defaultEcdsaRecord, walletId }]),
-    listActiveEcdsaSignersForWallet:
-      overrides?.listActiveEcdsaSignersForWallet || (async () => []),
+    listActiveEcdsaSignersForWallet: overrides?.listActiveEcdsaSignersForWallet || (async () => []),
     // Mirrors production wiring: existing-key session provisioning bootstraps through
     // the dedicated emailOtp worker.
     provisionThresholdEcdsaSession:
@@ -1261,6 +1260,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
   test('Email OTP export resend updates the challenge used for authorization', async () => {
     const challengeRequests: Array<Record<string, unknown>> = [];
+    const observedDemoCodes: string[] = [];
     const walletSessionJwt = 'threshold-session-jwt';
     const { coordinator } = createCoordinator({
       requestWorkerOperation: async (call) => {
@@ -1270,6 +1270,12 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         return {
           challengeId: `export-challenge-${issueNumber}`,
           emailHint: `a***${issueNumber}@example.test`,
+          delivery: {
+            kind: 'provider_and_demo_code',
+            status: 'sent',
+            emailHint: `a***${issueNumber}@example.test`,
+            otpCode: issueNumber === 1 ? '123456' : '654321',
+          },
         };
       },
     });
@@ -1308,6 +1314,12 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
             expect(resent).toEqual({
               challengeId: 'export-challenge-2',
               emailHint: 'a***2@example.test',
+              delivery: {
+                kind: 'provider_and_demo_code',
+                status: 'sent',
+                emailHint: 'a***2@example.test',
+                otpCode: '654321',
+              },
             });
             return {
               requestId: request.requestId,
@@ -1317,11 +1329,17 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
             };
           },
         },
+        onChallenge: (challenge) => {
+          if (challenge.delivery.kind !== 'provider') {
+            observedDemoCodes.push(challenge.delivery.otpCode);
+          }
+        },
       }),
     ).resolves.toEqual({
       challengeId: 'export-challenge-2',
       otpCode: '654321',
     });
+    expect(observedDemoCodes).toEqual(['123456', '654321']);
     expect(challengeRequests).toEqual([
       {
         relayUrl: 'https://relay.example',

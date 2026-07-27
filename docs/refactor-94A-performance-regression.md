@@ -323,13 +323,99 @@ Acceptance:
   - [x] browser proof verification;
   - [x] Gateway derivation activation;
   - [x] client activation finalization.
-- [ ] Split Yao registration timing into:
-  - [ ] admission or start-receipt handling;
-  - [ ] client session creation;
-  - [ ] D1 execution claim;
-  - [ ] Router execution;
-  - [ ] terminal D1 commit;
-  - [ ] client completion.
+- [x] Split Yao registration timing into:
+  - [x] admission or start-receipt handling;
+  - [x] client session creation;
+  - [x] D1 execution claim;
+  - [x] Router execution;
+  - [x] terminal D1 commit;
+  - [x] client completion.
+
+The Router emits its own breakdown as `Server-Timing` on
+`/router-ab/ed25519/yao/registration/execute` (`yao_credential_digest`,
+`yao_request_digest`, `yao_d1_claim`, `yao_router_execution`,
+`yao_result_reconstruction`, `yao_d1_terminal_commit`,
+`yao_router_prepare_pair`, `yao_router_verify_readiness`,
+`yao_router_role_execution`, `yao_router_signing_worker_delivery`), with
+`Access-Control-Expose-Headers: Server-Timing` set in `http.ts`.
+
+The browser now captures that header in the Yao transport, threads it through
+the registration Yao work, and folds it into the registration timing summary as
+`yaoServer*Ms` buckets, alongside a client-observed `yaoClientCompletionMs`.
+Parsing is absent-tolerant: an unexposed header, an unknown metric name, or a
+malformed duration yields no bucket rather than an error, so a Router-side
+rename can never break registration. Covered by
+`tests/unit/registrationYaoServerTiming.unit.test.ts`.
+
+`yaoClientCompletionMs` measures only how long the Yao branch kept registration
+waiting *after* ECDSA finished — the branches run concurrently, so it is not the
+ceremony duration. `yaoBranchTotalMs` is the branch wall time, for the ≤1.5 s
+branch target. Both are recorded only when the branch actually ran, so an
+ECDSA-only registration leaves every Yao bucket at zero.
+
+### Measured local breakdown (2026-07-28, passkey, release profile)
+
+End-to-end verified: the Router's `Server-Timing` is read in the browser and
+folded into the registration timing summary. Total registration 1,682 ms.
+
+| Bucket                                   |  ms |
+| ---------------------------------------- | --: |
+| `yaoServerRouterExecutionMs`             | 334 |
+| `yaoServerRouterRoleExecutionMs`         | 199 |
+| `yaoServerRouterPreparePairMs`           | 108 |
+| `yaoClientCompletionMs`                  | 112 |
+| `yaoServerRouterSigningWorkerDeliveryMs` |  15 |
+| `yaoClientSessionCreateMs`               |   4 |
+| `yaoServerD1ClaimMs`                     |   2 |
+| `yaoServerResultReconstructionMs`        |   1 |
+| `yaoServerD1TerminalCommitMs`            |   1 |
+| `yaoServerRouterVerifyReadinessMs`       |   0 |
+| `yaoAdmissionMs`                         |   0 |
+
+Locally the Yao branch is ~334 ms of Router execution, of which role execution
+is 199 ms and pair preparation 108 ms. D1 claim and terminal commit are 2 ms and
+1 ms — the Phase 5 persistence reduction holds. `yaoAdmissionMs` is 0 because
+registration now carries a verified admission receipt rather than issuing a
+separate admission call (Phase 4).
+
+This is the local lower bound. The same buckets will attribute the 2,348 ms
+production interval once the instrumentation is deployed.
+
+### Gap: Email OTP bypasses the capture point
+
+Two production Email OTP registrations on 2026-07-28 returned **no**
+`yaoServer*Ms` or `yaoBranchTotalMs` values. Two independent causes:
+
+1. Production still served the older frontend, which predates the bucket
+   commit — its `timings` object goes straight from `emailOtpYaoTotalMs` to
+   `walletRegisterStartMs`. Redeploying fixes this one.
+2. More fundamentally, **the capture only covers the passkey path.**
+   `Server-Timing` is read in the main-thread
+   `RouterAbEd25519YaoHttpActivationTransportV1`, but Email OTP runs its Yao
+   ceremony inside the Email OTP worker
+   (`startEmailOtpEd25519YaoWorkerRegistrationV1` →
+   `workerContext.requestWorkerOperation`), which issues the execute call
+   itself. The header never reaches the main thread.
+
+So `emailOtpYaoWorkerRegistrationMs` — 2,171 ms warm, 4,017 ms cold in
+production — is still unattributed, and cause 2 will persist after the
+redeploy. Locating it requires the worker transport to capture the
+header and return it alongside its result, mirroring what the main-thread
+transport already does.
+
+- [ ] Capture `Server-Timing` in the Email OTP worker's Yao transport and
+      surface it through the worker result.
+
+Note also that every `ecdsaRegistrationWarmSession*` bucket is 0 on those
+production Email OTP runs, so the Shamir 3-pass seal path — the suspected cost in the local
+613 ms window — is a **passkey** path. The Shamir prewarm therefore targets
+passkey registration, not Email OTP. The Email OTP Yao prewarm already exists
+and works: `emailOtpYaoPrewarm` reports 107 ms with 105 ms of WASM init.
+
+`yaoAdmissionMs` (admission-receipt parse and scope validation) and
+`yaoClientSessionCreateMs` (WASM registration-session construction) are
+measured inside `yaoClient.ts` and returned on the success result, then
+recorded at the same join point.
 - [ ] Add Gateway spans around each registration D1 claim and terminal CAS.
 - [ ] Add Router spans around the ECDSA replay/lifecycle transaction, parallel
       Deriver work, SigningWorker activation, and session/budget provisioning.

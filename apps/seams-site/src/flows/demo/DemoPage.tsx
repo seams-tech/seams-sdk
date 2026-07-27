@@ -42,18 +42,25 @@ export const DemoPage: React.FC = () => {
       ? 'Sign a transaction with a one-time password (email)'
       : 'Sign a transaction with your passkey';
 
-  const { onchainGreeting, isLoading, fetchGreeting, error } = useSetGreeting();
+  const [selectedChainId, setSelectedChainId] = useState<DemoChainId>('tempo');
 
-  const [selectedChainId, setSelectedChainId] = useState<DemoChainId>('near');
+  const { onchainGreeting, isLoading, fetchGreeting, error } = useSetGreeting({
+    enabled: selectedChainId === 'near',
+  });
+
   const [tempoGreetingInput, setTempoGreetingInput] = useState(() =>
     createChainDefaultGreeting('Tempo'),
   );
   const [arcGreetingInput, setArcGreetingInput] = useState(() => createChainDefaultGreeting('Arc'));
 
+  /* Only the selected chain's panel is rendered, so chain-scoped RPC reads are
+     scoped to the selected tab. Without this the page opens three chains' worth
+     of RPC traffic — plus two polling intervals — on every mount. */
   const nearAccountFunding = useDemoNearAccountFundingStatus({
     isLoggedIn,
     nearAccountId,
     nearPublicKey,
+    enabled: selectedChainId === 'near',
   });
   const canStartNearTransaction = canStartDemoNearTransaction(nearAccountFunding.status);
 
@@ -75,6 +82,8 @@ export const DemoPage: React.FC = () => {
     seams,
     tempoGreetingInput,
     arcGreetingInput,
+    tempoEnabled: selectedChainId === 'tempo',
+    arcEnabled: selectedChainId === 'arc',
   });
 
   /* gates the Fund Tempo Account button: hidden once the AlphaUSD fee token
@@ -91,21 +100,6 @@ export const DemoPage: React.FC = () => {
   /* One interaction, three target chains: each entry normalizes a chain's
      greeting state + signing action for the shared section. */
   const chains: DemoChainView[] = [
-    {
-      id: 'near',
-      label: 'NEAR',
-      greeting: onchainGreeting,
-      greetingLoading: isLoading,
-      onRefreshGreeting: fetchGreeting,
-      greetingInput: nearActions.greetingInput,
-      onGreetingInputChange: nearActions.setGreetingInput,
-      statusText: demoNearFundingStatusText(nearAccountFunding.status),
-      errorText: error != null ? `Error: ${String(error)}` : null,
-      onSign: nearActions.handleSetGreeting,
-      signLoading: nearActions.txLoading,
-      canSign: nearActions.canSetGreeting,
-      signLabel: 'Sign on NEAR',
-    },
     {
       id: 'tempo',
       label: 'Tempo',
@@ -139,6 +133,21 @@ export const DemoPage: React.FC = () => {
       signLoading: thresholdSigners.evmThresholdSignLoading,
       canSign: thresholdSigners.canSignEvm,
       signLabel: 'Sign on Arc',
+    },
+    {
+      id: 'near',
+      label: 'NEAR',
+      greeting: onchainGreeting,
+      greetingLoading: isLoading,
+      onRefreshGreeting: fetchGreeting,
+      greetingInput: nearActions.greetingInput,
+      onGreetingInputChange: nearActions.setGreetingInput,
+      statusText: demoNearFundingStatusText(nearAccountFunding.status),
+      errorText: error != null ? `Error: ${String(error)}` : null,
+      onSign: nearActions.handleSetGreeting,
+      signLoading: nearActions.txLoading,
+      canSign: nearActions.canSetGreeting,
+      signLabel: 'Sign on NEAR',
     },
   ];
 

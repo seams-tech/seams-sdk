@@ -31,7 +31,8 @@ export type WebAuthnCredentialBindingRecord = {
   readonly userId: string;
   readonly nearAccountId?: string;
   readonly nearEd25519SigningKeyId?: string;
-  readonly signerSlot: number;
+  /** Absent until the wallet's Ed25519 Yao ceremony settles. */
+  readonly signerSlot?: number;
   readonly publicKey?: string;
   readonly relayerKeyId?: string;
   readonly keyVersion?: string;
@@ -192,8 +193,10 @@ export function parseWebAuthnBinding(
   const rpId = toOptionalTrimmedString(record.rpId);
   const credentialIdB64u = toOptionalTrimmedString(record.credentialIdB64u);
   const userId = toOptionalTrimmedString(record.userId);
+  // signerSlot is absent until the wallet's Ed25519 Yao ceremony settles, the
+  // same way nearAccountId/publicKey below already are.
   const signerSlot = positiveInteger(record.signerSlot);
-  if (!rpId || !credentialIdB64u || !userId || signerSlot === null) return null;
+  if (!rpId || !credentialIdB64u || !userId) return null;
   const nearAccountId = toOptionalTrimmedString(record.nearAccountId);
   const nearEd25519SigningKeyId = toOptionalTrimmedString(record.nearEd25519SigningKeyId);
   const publicKey = toOptionalTrimmedString(record.publicKey);
@@ -208,7 +211,7 @@ export function parseWebAuthnBinding(
     rpId,
     credentialIdB64u,
     userId,
-    signerSlot,
+    ...(signerSlot !== null ? { signerSlot } : {}),
     ...(nearAccountId ? { nearAccountId } : {}),
     ...(nearEd25519SigningKeyId ? { nearEd25519SigningKeyId } : {}),
     ...(publicKey ? { publicKey } : {}),
@@ -228,14 +231,15 @@ export function parseWebAuthnBinding(
 export function webAuthnSyncWalletBindingFromCredentialBinding(
   binding: WebAuthnCredentialBindingRecord,
 ): WebAuthnSyncWalletBinding | null {
-  if (!binding.nearAccountId || !binding.nearEd25519SigningKeyId) return null;
+  const { nearAccountId, nearEd25519SigningKeyId, signerSlot } = binding;
+  if (!nearAccountId || !nearEd25519SigningKeyId || signerSlot === undefined) return null;
   return {
     walletId: binding.userId,
-    nearAccountId: binding.nearAccountId,
-    nearEd25519SigningKeyId: binding.nearEd25519SigningKeyId,
+    nearAccountId,
+    nearEd25519SigningKeyId,
     rpId: binding.rpId,
     credentialIdB64u: binding.credentialIdB64u,
-    signerSlot: binding.signerSlot,
+    signerSlot,
   };
 }
 
