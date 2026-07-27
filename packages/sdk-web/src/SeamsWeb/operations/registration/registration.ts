@@ -3065,14 +3065,31 @@ class RegistrationYaoWork {
 
   /** Wall-clock start of the Yao branch, for `yaoBranchTotalMs`. */
   private readonly startedAtMs: number = performance.now();
+  /**
+   * Stamped when the ceremony's own promise settles, not when the join is
+   * reached. Measuring at the join would report max(ECDSA, Yao), because the
+   * claim is only awaited after the ECDSA branch completes.
+   */
+  private settledAtMs: number | null = null;
 
   private constructor(state: RegistrationYaoWorkState) {
     this.state = state;
+    if (state.kind === 'running') {
+      void state.completion.then(
+        () => this.stampSettled(),
+        () => this.stampSettled(),
+      );
+    }
   }
 
-  /** Elapsed time since the Yao branch was started. Diagnostics only. */
+  private stampSettled(): void {
+    if (this.settledAtMs === null) this.settledAtMs = performance.now();
+  }
+
+  /** Duration of the Yao branch itself. Diagnostics only. */
   elapsedMs(): number {
-    return Math.max(0, performance.now() - this.startedAtMs);
+    const settledAtMs = this.settledAtMs ?? performance.now();
+    return Math.max(0, settledAtMs - this.startedAtMs);
   }
 
   static disabled(): RegistrationYaoWork {
