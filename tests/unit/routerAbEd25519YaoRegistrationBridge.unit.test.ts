@@ -18,6 +18,7 @@ import {
   OneConflictRegistrationBridgePartitionStore,
   RegistrationSideEffectMemoryStore,
   StaticWalletSessionAdapter,
+  UnavailableRouterAbEd25519YaoRegistrationBackend,
   UnusedSessionAdapter,
 } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
 
@@ -361,6 +362,7 @@ test.describe('registration side-effect persistence bridge', () => {
       signingWorkerId: 'signing-worker-bridge',
       session: new UnusedSessionAdapter(),
       store,
+      registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
     });
     const { walletId, fixture } = registrationCapabilityFixture();
 
@@ -395,6 +397,7 @@ test.describe('registration side-effect persistence bridge', () => {
       signingWorkerId: 'signing-worker-bridge',
       session: new UnusedSessionAdapter(),
       store,
+      registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
       loadPersistedActiveCapability: async () => {
         fallbackReads += 1;
         return fixture.capability;
@@ -421,6 +424,7 @@ test.describe('registration side-effect persistence bridge', () => {
       signingWorkerId: 'signing-worker-bridge',
       session: new UnusedSessionAdapter(),
       store,
+      registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
     });
     const { fixture } = registrationCapabilityFixture();
 

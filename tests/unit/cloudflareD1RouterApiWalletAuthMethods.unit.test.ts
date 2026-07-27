@@ -208,6 +208,12 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
     return { ok: true };
   }
 
+  bindAndAdmitVerifiedRegistration(): ReturnType<
+    RouterAbEd25519YaoProductRegistrationRuntimeV1['bindAndAdmitVerifiedRegistration']
+  > {
+    throw new Error('wallet registration is outside the add-signer runtime fixture');
+  }
+
   consumeActivated(
     request: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']>[0],
   ): ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']> {

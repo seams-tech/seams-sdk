@@ -625,18 +625,15 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     ).toMatchObject({ ok: false, code: 'unknown_registration' });
   });
 
-  test('rejects duplicate lifecycle admission before invoking the backend again', async () => {
+  test('redelivers an exact completed admission without invoking the backend again', async () => {
     const backend = new TestRegistrationBackend(registrationAdmissionReceipt(), {
       kind: 'success',
       body: registrationResult(),
     });
     const service = new InMemoryRouterAbEd25519YaoRegistrationService(backend);
-    expect((await service.admit(parsedAdmissionRequest())).ok).toBe(true);
-    expect(await service.admit(parsedAdmissionRequest())).toMatchObject({
-      ok: false,
-      status: 409,
-      code: 'admission_failed',
-    });
+    const first = await service.admit(parsedAdmissionRequest());
+    expect(first).toMatchObject({ ok: true, status: 200 });
+    expect(await service.admit(parsedAdmissionRequest())).toEqual(first);
     expect(backend.admitCalls).toBe(1);
   });
 
