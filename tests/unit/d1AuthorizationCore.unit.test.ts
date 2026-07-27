@@ -12,6 +12,10 @@ import {
   buildReusableAuthorizationCoreFixture,
   buildStepUpAuthorizationCoreFixture,
 } from './helpers/authorizationCore.fixtures';
+import {
+  parseHostedWalletSeamsSessionExchangeNonce,
+  parseSessionOrigin,
+} from '../../packages/sdk-server-ts/src/authorization/domain';
 
 const signerMigrations = listD1MigrationFiles('d1-signer');
 
@@ -163,6 +167,80 @@ test.describe('D1 authorization core', () => {
       cleanupTemporaryD1Database(temporary.tempDir);
     }
   });
+
+  test('redeems a hashed hosted-wallet exchange code once and creates its target session atomically', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const service = createService(temporary.database, 'hosted-wallet-exchange-test');
+      const fixture = await buildReusableAuthorizationCoreFixture();
+      await service.recordActiveSession(fixture.session);
+      const issuedAtMs = fixture.session.createdAtMs + 1_000;
+      const walletOrigin = parseSessionOrigin('https://wallet.example.test');
+      if (fixture.session.audience.kind !== 'first_party_web') {
+        throw new Error('fixture must use a first-party audience');
+      }
+      const appOrigin = fixture.session.audience.origin;
+      const delivery = await service.mintHostedWalletSeamsSessionExchange({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        sourceSessionId: fixture.session.sessionId,
+        appOrigin,
+        walletOrigin,
+        issuedAtMs,
+        expiresAtMs: issuedAtMs + 60_000,
+      });
+
+      const persisted = await temporary.database
+        .prepare(
+          `SELECT code_hash, nonce_digest
+             FROM hosted_wallet_session_exchange_codes
+            LIMIT 1`,
+        )
+        .first<{ readonly code_hash?: unknown; readonly nonce_digest?: unknown }>();
+      expect(persisted?.code_hash).not.toBe(delivery.exchangeCode);
+      expect(persisted?.nonce_digest).not.toBe(delivery.nonce);
+
+      await expect(
+        service.redeemHostedWalletSeamsSessionExchange({
+          exchangeCode: delivery.exchangeCode,
+          nonce: parseHostedWalletSeamsSessionExchangeNonce('incorrect-nonce'),
+          walletOrigin,
+          redeemedAtMs: issuedAtMs + 1,
+        }),
+      ).resolves.toEqual({ kind: 'nonce_mismatch' });
+      await expect(
+        service.redeemHostedWalletSeamsSessionExchange({
+          exchangeCode: delivery.exchangeCode,
+          nonce: delivery.nonce,
+          walletOrigin,
+          redeemedAtMs: issuedAtMs + 2,
+        }),
+      ).resolves.toMatchObject({
+        kind: 'redeemed',
+        session: {
+          principalId: fixture.session.principalId,
+          authSource: fixture.session.authSource,
+          audience: {
+            kind: 'hosted_wallet_iframe',
+            appOrigin,
+            walletOrigin,
+          },
+        },
+      });
+      await expect(
+        service.redeemHostedWalletSeamsSessionExchange({
+          exchangeCode: delivery.exchangeCode,
+          nonce: delivery.nonce,
+          walletOrigin,
+          redeemedAtMs: issuedAtMs + 3,
+        }),
+      ).resolves.toEqual({ kind: 'already_consumed' });
+      await expect(rowCount(temporary.database, 'authorization_sessions')).resolves.toBe(2);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
 });
 
 function createService(
@@ -196,6 +274,7 @@ async function rowCount(
   database: import('../../packages/sdk-server-ts/src/storage/tenantRoute').D1DatabaseLike,
   table:
     | 'authorization_wallet_session_quotas'
+    | 'authorization_sessions'
     | 'capability_grant_uses'
     | 'authorization_audit_events',
 ): Promise<number> {

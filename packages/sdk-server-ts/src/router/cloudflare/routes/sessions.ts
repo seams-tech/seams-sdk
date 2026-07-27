@@ -46,7 +46,10 @@ import {
   emailOtpAppSessionClaimsForSubject,
   hashEmailOtpAppSessionClaims,
 } from '../../emailOtpSessionRouteHelpers';
-import { parseSessionExchangeRouteCommand } from '../../sessionExchangeRequestValidation';
+import {
+  parseSessionExchangeRouteCommand,
+  type SessionExchangeRouteCommand,
+} from '../../sessionExchangeRequestValidation';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
   parseWalletSigningBudgetStatusExpectations,
@@ -61,6 +64,28 @@ import {
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { isPlainObject } from '@shared/utils/validation';
+import {
+  buildActiveAuthorizationSession,
+  parseSessionOrigin,
+  type ActiveAuthorizationSession,
+  type RedeemHostedWalletSeamsSessionExchangeResult,
+  type SessionOrigin,
+} from '../../../authorization/domain';
+import {
+  parseDeviceId,
+  parsePrincipalId,
+  parseSeamsSessionId,
+  type AuthorizationParseResult,
+} from '@shared/authorization/capabilityKinds';
+import {
+  parseAppSessionVersion,
+  parseProviderSubject,
+  parseWebAuthnCredentialIdB64u,
+  type DomainIdParseResult,
+} from '@shared/utils/domainIds';
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+
+const HOSTED_WALLET_SESSION_EXCHANGE_TTL_MS = 60_000;
 
 type VerifiedSigningBudgetStatus = Extract<
   ParseWalletSigningBudgetStatusResult,
@@ -392,6 +417,157 @@ export async function handleSessionState(
   }
 }
 
+function requiredAuthorizationValue<T>(
+  parsed: AuthorizationParseResult<T> | DomainIdParseResult<T>,
+): T {
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function sourceSessionClaimIds(claims: Record<string, unknown>): {
+  readonly sessionId: ActiveAuthorizationSession['sessionId'];
+  readonly principalId: ActiveAuthorizationSession['principalId'];
+} {
+  return {
+    sessionId: requiredAuthorizationValue(parseSeamsSessionId(claims.seamsSessionId)),
+    principalId: requiredAuthorizationValue(parsePrincipalId(claims.sub)),
+  };
+}
+
+async function handleHostedWalletExchangeCodeIssue(
+  ctx: CloudflareRouterApiContext,
+  command: Extract<SessionExchangeRouteCommand, { kind: 'hosted_wallet_exchange_code' }>,
+): Promise<Response> {
+  const validated = await readAndValidateAppSession(ctx);
+  if (!validated.ok) return validated.response;
+  const claims = validated.claims as Record<string, unknown>;
+  let sourceIds: ReturnType<typeof sourceSessionClaimIds>;
+  let appOrigin: SessionOrigin;
+  let walletOrigin: SessionOrigin;
+  try {
+    sourceIds = sourceSessionClaimIds(claims);
+    appOrigin = parseSessionOrigin(ctx.request.headers.get('origin'));
+    walletOrigin = command.walletOrigin;
+  } catch (error: unknown) {
+    return json(
+      {
+        ok: false,
+        code: 'invalid_session_exchange_context',
+        message: error instanceof Error ? error.message : 'Invalid session exchange context',
+      },
+      { status: 400 },
+    );
+  }
+  try {
+    const issuedAtMs = Date.now();
+    const delivery = await ctx.service.authorizationSessions.mintHostedWalletSeamsSessionExchange({
+      tenantId: ctx.service.authorizationSessions.tenantId,
+      principalId: sourceIds.principalId,
+      sourceSessionId: sourceIds.sessionId,
+      appOrigin,
+      walletOrigin,
+      issuedAtMs,
+      expiresAtMs: issuedAtMs + HOSTED_WALLET_SESSION_EXCHANGE_TTL_MS,
+    });
+    return json({ ok: true, delivery }, { status: 200 });
+  } catch (error: unknown) {
+    return json(
+      {
+        ok: false,
+        code: 'source_session_unavailable',
+        message: error instanceof Error ? error.message : 'Source session is unavailable',
+      },
+      { status: 401 },
+    );
+  }
+}
+
+function hostedWalletRedeemStatus(
+  result: Exclude<RedeemHostedWalletSeamsSessionExchangeResult, { kind: 'redeemed' }>,
+): number {
+  switch (result.kind) {
+    case 'invalid_code':
+    case 'nonce_mismatch':
+      return 401;
+    case 'wallet_origin_mismatch':
+      return 403;
+    case 'already_consumed':
+      return 409;
+    case 'expired':
+    case 'source_session_unavailable':
+      return 410;
+  }
+}
+
+async function handleHostedWalletExchangeCodeRedeem(
+  ctx: CloudflareRouterApiContext,
+  command: Extract<SessionExchangeRouteCommand, { kind: 'hosted_wallet_exchange_code_redeem' }>,
+): Promise<Response> {
+  const session = ctx.opts.session;
+  if (!session) {
+    return json(
+      { ok: false, code: 'sessions_disabled', message: 'Sessions are not configured' },
+      { status: 501 },
+    );
+  }
+  let walletOrigin: SessionOrigin;
+  try {
+    walletOrigin = parseSessionOrigin(ctx.request.headers.get('origin'));
+  } catch (error: unknown) {
+    return json(
+      {
+        ok: false,
+        code: 'invalid_session_exchange_context',
+        message: error instanceof Error ? error.message : 'Invalid wallet origin',
+      },
+      { status: 400 },
+    );
+  }
+  const result = await ctx.service.authorizationSessions.redeemHostedWalletSeamsSessionExchange({
+    exchangeCode: command.exchangeCode,
+    nonce: command.nonce,
+    walletOrigin,
+    redeemedAtMs: Date.now(),
+  });
+  if (result.kind !== 'redeemed') {
+    return json(
+      {
+        ok: false,
+        code: result.kind,
+        message: 'Hosted-wallet Seams session exchange could not be redeemed',
+      },
+      { status: hostedWalletRedeemStatus(result) },
+    );
+  }
+  const target = result.session;
+  const claims = {
+    kind: 'app_session_v1',
+    appSessionVersion: target.appSessionVersion,
+    tenantId: target.tenantId,
+    seamsSessionId: target.sessionId,
+    deviceId: target.deviceId,
+    authSource: target.authSource,
+    sessionAudience: target.audience,
+  };
+  const jwt = await session.signJwt(target.principalId, claims);
+  return json(
+    {
+      ok: true,
+      session: {
+        kind: 'app_session_v1',
+        userId: target.principalId,
+        tenantId: target.tenantId,
+        seamsSessionId: target.sessionId,
+        deviceId: target.deviceId,
+        audience: target.audience,
+        expiresAtMs: target.lifecycle.expiresAtMs,
+      },
+      jwt,
+    },
+    { status: 200 },
+  );
+}
+
 export async function handleSessionExchange(
   ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
@@ -429,6 +605,13 @@ export async function handleSessionExchange(
       );
     }
 
+    if (command.kind === 'hosted_wallet_exchange_code') {
+      return await handleHostedWalletExchangeCodeIssue(ctx, command);
+    }
+    if (command.kind === 'hosted_wallet_exchange_code_redeem') {
+      return await handleHostedWalletExchangeCodeRedeem(ctx, command);
+    }
+
     let userId = '';
     let provider: 'oidc' | 'passkey' = 'oidc';
     let providerSubject: string | undefined;
@@ -443,6 +626,7 @@ export async function handleSessionExchange(
     let oidcAccountMode: 'register' | 'login' | undefined;
     let oidcRestartRegistrationOffer = false;
     let passkeyChallengeId: string | undefined;
+    let passkeyCredentialIdB64u: string | undefined;
     let passkeyAuthorityRef: WalletAuthAuthorityRef | undefined;
     let walletId: string | undefined;
     let googleEmailOtpResolution:
@@ -799,12 +983,13 @@ export async function handleSessionExchange(
       userId = String(verified.userId || '').trim();
       provider = 'passkey';
       passkeyChallengeId = challengeId;
+      passkeyCredentialIdB64u =
+        command.webauthnAuthentication.rawId || command.webauthnAuthentication.id;
       passkeyAuthorityRef = await walletAuthAuthorityRef({
         authority: buildPasskeyWalletAuthAuthority({
           walletId: userId,
           rpId: verified.rpId,
-          credentialIdB64u:
-            command.webauthnAuthentication.rawId || command.webauthnAuthentication.id,
+          credentialIdB64u: passkeyCredentialIdB64u,
         }),
       });
     }
@@ -848,9 +1033,65 @@ export async function handleSessionExchange(
       appSessionVersion = appVersion.appSessionVersion;
     }
 
+    let principalId: ActiveAuthorizationSession['principalId'];
+    let seamsSessionId: ActiveAuthorizationSession['sessionId'];
+    let deviceId: ActiveAuthorizationSession['deviceId'];
+    let normalizedAppSessionVersion: ActiveAuthorizationSession['appSessionVersion'];
+    let sessionOrigin: SessionOrigin;
+    let authSource: ActiveAuthorizationSession['authSource'];
+    try {
+      principalId = requiredAuthorizationValue(parsePrincipalId(userId));
+      seamsSessionId = requiredAuthorizationValue(
+        parseSeamsSessionId(`ses_${secureRandomBase64Url(24, 'Seams Sessions')}`),
+      );
+      deviceId = requiredAuthorizationValue(
+        parseDeviceId(`dev_${secureRandomBase64Url(18, 'session devices')}`),
+      );
+      normalizedAppSessionVersion = requiredAuthorizationValue(
+        parseAppSessionVersion(appSessionVersion),
+      );
+      sessionOrigin = parseSessionOrigin(ctx.request.headers.get('origin'));
+      authSource =
+        provider === 'passkey'
+          ? {
+              kind: 'passkey',
+              credentialIdB64u: requiredAuthorizationValue(
+                parseWebAuthnCredentialIdB64u(passkeyCredentialIdB64u),
+              ),
+            }
+          : {
+              kind: 'oidc_provider',
+              providerId: oidcProvider === 'google' ? 'google_oidc' : 'oidc',
+              providerSubject: requiredAuthorizationValue(parseProviderSubject(providerSubject)),
+            };
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Invalid authorization session context';
+      await emitSessionExchangeFailed(ctx, {
+        status: 400,
+        code: 'invalid_session_exchange_context',
+        message,
+        exchangeType,
+        sessionKind,
+        userId,
+      });
+      return json(
+        { ok: false, code: 'invalid_session_exchange_context', message },
+        { status: 400 },
+      );
+    }
+
     const sessionClaims: Record<string, unknown> = {
       kind: 'app_session_v1',
       appSessionVersion,
+      tenantId: ctx.service.authorizationSessions.tenantId,
+      seamsSessionId,
+      deviceId,
+      authSource,
+      sessionAudience: {
+        kind: 'first_party_web',
+        origin: sessionOrigin,
+      },
       provider,
       ...(walletId ? { walletId } : {}),
       ...(googleEmailOtpResolution?.registrationAttemptId
@@ -875,6 +1116,30 @@ export async function handleSessionExchange(
     }
     const jwt = await session.signJwt(userId, sessionClaims);
     const sessionExpiresAt = deriveJwtExpiresAtIso(jwt);
+    const sessionExpiresAtMs = sessionExpiresAt ? Date.parse(sessionExpiresAt) : Number.NaN;
+    if (!Number.isSafeInteger(sessionExpiresAtMs)) {
+      throw new Error('signed app session did not contain a valid expiry');
+    }
+    await ctx.service.authorizationSessions.recordActiveSession(
+      buildActiveAuthorizationSession({
+        tenantId: ctx.service.authorizationSessions.tenantId,
+        principalId,
+        sessionId: seamsSessionId,
+        authSource,
+        deviceId,
+        audience: {
+          kind: 'first_party_web',
+          origin: sessionOrigin,
+        },
+        appSessionVersion: normalizedAppSessionVersion,
+        assurance: 'session',
+        createdAtMs: Date.now(),
+        lifecycle: {
+          kind: 'active',
+          expiresAtMs: sessionExpiresAtMs,
+        },
+      }),
+    );
     if (
       isGoogleEmailOtpExchange &&
       oidcAccountMode === 'login' &&
@@ -930,6 +1195,14 @@ export async function handleSessionExchange(
       session: {
         kind: 'app_session_v1',
         userId,
+        tenantId: ctx.service.authorizationSessions.tenantId,
+        seamsSessionId,
+        deviceId,
+        authSource,
+        audience: {
+          kind: 'first_party_web',
+          origin: sessionOrigin,
+        },
         ...(walletId ? { walletId } : {}),
         ...(googleEmailOtpResolution
           ? {

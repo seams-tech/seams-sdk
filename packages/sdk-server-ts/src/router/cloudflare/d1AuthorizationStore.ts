@@ -23,10 +23,14 @@ import type {
   ClaimCapabilityOperationResult,
   CompleteCapabilityOperationResult,
   CompletedCapabilityOperationResult,
+  IssuedHostedWalletSeamsSessionExchange,
   MpcWalletSigningQuotaId,
+  RedeemHostedWalletSeamsSessionExchangeInput,
+  RedeemHostedWalletSeamsSessionExchangeResult,
   VerifiedGrantEvidenceSet,
   WalletSessionId,
 } from '../../authorization/domain';
+import { buildActiveAuthorizationSession, parseSessionOrigin } from '../../authorization/domain';
 import {
   parseCapabilityOperationFingerprintDigest,
   type CapabilityOperationFingerprintDigest,
@@ -34,6 +38,11 @@ import {
 import type { AuthorizationStore } from '../../authorization/service';
 import { d1ChangedRows, type D1Row } from '../../storage/d1Sql';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
+import {
+  parseAppSessionVersion,
+  parseProviderSubject,
+  parseWebAuthnCredentialIdB64u,
+} from '@shared/utils/domainIds';
 
 export type D1AuthorizationStoreOptions = {
   readonly database: D1DatabaseLike;
@@ -65,6 +74,17 @@ type QuotaClassificationRow = {
   readonly expires_at_ms?: unknown;
 };
 
+type HostedWalletExchangeRow = {
+  readonly tenant_id?: unknown;
+  readonly source_session_id?: unknown;
+  readonly code_hash?: unknown;
+  readonly nonce_digest?: unknown;
+  readonly app_origin?: unknown;
+  readonly wallet_origin?: unknown;
+  readonly lifecycle_kind?: unknown;
+  readonly expires_at_ms?: unknown;
+};
+
 export class CloudflareD1AuthorizationStore implements AuthorizationStore {
   private readonly database: D1DatabaseLike;
   private readonly namespace: string;
@@ -82,25 +102,165 @@ export class CloudflareD1AuthorizationStore implements AuthorizationStore {
           tenant_id,
           session_id,
           principal_id,
+          auth_source_kind,
+          auth_source_json,
           device_id,
+          audience_kind,
+          audience_json,
+          app_session_version,
           assurance,
           lifecycle_kind,
           created_at_ms,
           expires_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
       )
       .bind(
         this.namespace,
         session.tenantId,
         session.sessionId,
         session.principalId,
+        session.authSource.kind,
+        JSON.stringify(authSourcePayload(session.authSource)),
         session.deviceId,
+        session.audience.kind,
+        JSON.stringify(audiencePayload(session.audience)),
+        session.appSessionVersion,
         session.assurance,
         requirePositiveInteger(session.createdAtMs, 'session.createdAtMs'),
-        requirePositiveInteger(session.expiresAtMs, 'session.expiresAtMs'),
+        requirePositiveInteger(session.lifecycle.expiresAtMs, 'session.lifecycle.expiresAtMs'),
       )
       .run();
     requireOneChangedRow(result, 'active authorization session');
+  }
+
+  async readActiveSession(input: {
+    readonly tenantId: ActiveAuthorizationSession['tenantId'];
+    readonly sessionId: ActiveAuthorizationSession['sessionId'];
+    readonly nowMs: number;
+  }): Promise<ActiveAuthorizationSession | null> {
+    const row = await this.database
+      .prepare(
+        `SELECT *
+           FROM authorization_sessions
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND session_id = ?
+            AND lifecycle_kind = 'active'
+            AND expires_at_ms > ?
+          LIMIT 1`,
+      )
+      .bind(
+        this.namespace,
+        input.tenantId,
+        input.sessionId,
+        requirePositiveInteger(input.nowMs, 'session read time'),
+      )
+      .first<D1Row>();
+    return row ? parseAuthorizationSessionRow(row) : null;
+  }
+
+  async putIssuedHostedWalletSeamsSessionExchange(
+    exchange: IssuedHostedWalletSeamsSessionExchange,
+  ): Promise<void> {
+    const result = await this.database
+      .prepare(
+        `INSERT INTO hosted_wallet_session_exchange_codes (
+          namespace,
+          tenant_id,
+          exchange_code_id,
+          source_session_id,
+          code_hash,
+          nonce_digest,
+          app_origin,
+          wallet_origin,
+          lifecycle_kind,
+          issued_at_ms,
+          expires_at_ms,
+          target_session_id,
+          consumed_at_ms
+        )
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'issued', ?, ?, NULL, NULL
+          FROM authorization_sessions AS source
+         WHERE source.namespace = ?
+           AND source.tenant_id = ?
+           AND source.session_id = ?
+           AND source.audience_kind = 'first_party_web'
+           AND json_extract(source.audience_json, '$.origin') = ?
+           AND source.lifecycle_kind = 'active'
+           AND source.expires_at_ms > ?`,
+      )
+      .bind(
+        this.namespace,
+        exchange.tenantId,
+        exchange.exchangeCodeId,
+        exchange.sourceSessionId,
+        exchange.codeHash,
+        exchange.nonceDigest,
+        exchange.appOrigin,
+        exchange.walletOrigin,
+        requirePositiveInteger(exchange.issuedAtMs, 'exchange.issuedAtMs'),
+        requirePositiveInteger(exchange.expiresAtMs, 'exchange.expiresAtMs'),
+        this.namespace,
+        exchange.tenantId,
+        exchange.sourceSessionId,
+        exchange.appOrigin,
+        exchange.issuedAtMs,
+      )
+      .run();
+    requireOneChangedRow(result, 'hosted-wallet Seams session exchange code');
+  }
+
+  async redeemHostedWalletSeamsSessionExchange(
+    input: RedeemHostedWalletSeamsSessionExchangeInput,
+  ): Promise<RedeemHostedWalletSeamsSessionExchangeResult> {
+    const current = await this.readHostedWalletExchange(input.codeHash);
+    const rejected = classifyHostedWalletExchange(current, input);
+    if (rejected) return rejected;
+    try {
+      const update = await this.database
+        .prepare(
+          `UPDATE hosted_wallet_session_exchange_codes
+              SET lifecycle_kind = 'consumed',
+                  target_session_id = ?,
+                  consumed_at_ms = ?
+            WHERE namespace = ?
+              AND code_hash = ?
+              AND nonce_digest = ?
+              AND wallet_origin = ?
+              AND lifecycle_kind = 'issued'
+              AND expires_at_ms > ?`,
+        )
+        .bind(
+          input.targetSessionId,
+          requirePositiveInteger(input.redeemedAtMs, 'exchange.redeemedAtMs'),
+          this.namespace,
+          input.codeHash,
+          input.nonceDigest,
+          input.walletOrigin,
+          input.redeemedAtMs,
+        )
+        .run();
+      if (d1ChangedRows(update) !== 1) {
+        return (
+          classifyHostedWalletExchange(
+            await this.readHostedWalletExchange(input.codeHash),
+            input,
+          ) ?? { kind: 'source_session_unavailable' }
+        );
+      }
+    } catch {
+      return { kind: 'source_session_unavailable' };
+    }
+    if (!current) throw new Error('hosted-wallet Seams session exchange disappeared');
+    const session = await this.readActiveSession({
+      tenantId: requireParsed(current.tenant_id, parseTenantId, 'exchange.tenantId'),
+      sessionId: input.targetSessionId,
+      nowMs: input.redeemedAtMs,
+    });
+    if (!session) {
+      throw new Error('redeemed hosted-wallet Seams session could not be read back');
+    }
+    return { kind: 'redeemed', session };
   }
 
   async putVerifiedEvidenceSet(evidenceSet: VerifiedGrantEvidenceSet): Promise<void> {
@@ -445,6 +605,21 @@ export class CloudflareD1AuthorizationStore implements AuthorizationStore {
     return row ? parseCapabilityGrantUseRow(row) : null;
   }
 
+  private async readHostedWalletExchange(
+    codeHash: RedeemHostedWalletSeamsSessionExchangeInput['codeHash'],
+  ): Promise<HostedWalletExchangeRow | null> {
+    return await this.database
+      .prepare(
+        `SELECT *
+           FROM hosted_wallet_session_exchange_codes
+          WHERE namespace = ?
+            AND code_hash = ?
+          LIMIT 1`,
+      )
+      .bind(this.namespace, codeHash)
+      .first<HostedWalletExchangeRow>();
+  }
+
   private async classifyRejectedClaim(
     claim: CapabilityOperationClaim,
   ): Promise<ClaimCapabilityOperationResult> {
@@ -500,6 +675,125 @@ export class CloudflareD1AuthorizationStore implements AuthorizationStore {
     }
     throw new Error('authorization claim failed despite eligible grant and Wallet Session quota');
   }
+}
+
+function authSourcePayload(source: ActiveAuthorizationSession['authSource']) {
+  switch (source.kind) {
+    case 'oidc_provider':
+      return { providerId: source.providerId, providerSubject: source.providerSubject };
+    case 'passkey':
+      return { credentialIdB64u: source.credentialIdB64u };
+  }
+}
+
+function audiencePayload(audience: ActiveAuthorizationSession['audience']) {
+  switch (audience.kind) {
+    case 'first_party_web':
+      return { origin: audience.origin };
+    case 'hosted_wallet_iframe':
+      return { appOrigin: audience.appOrigin, walletOrigin: audience.walletOrigin };
+  }
+}
+
+function parseAuthorizationSessionRow(row: D1Row): ActiveAuthorizationSession {
+  const authSourcePayload = parseJsonRecord(row.auth_source_json, 'session.authSource');
+  const audiencePayload = parseJsonRecord(row.audience_json, 'session.audience');
+  const providerId = parseAuthorizationProviderId(authSourcePayload.providerId);
+  const authSource =
+    row.auth_source_kind === 'oidc_provider' && providerId
+      ? {
+          kind: 'oidc_provider' as const,
+          providerId,
+          providerSubject: requireDomainId(
+            authSourcePayload.providerSubject,
+            parseProviderSubject,
+            'session.authSource.providerSubject',
+          ),
+        }
+      : row.auth_source_kind === 'passkey'
+        ? {
+            kind: 'passkey' as const,
+            credentialIdB64u: requireDomainId(
+              authSourcePayload.credentialIdB64u,
+              parseWebAuthnCredentialIdB64u,
+              'session.authSource.credentialIdB64u',
+            ),
+          }
+        : (() => {
+            throw new Error('session auth source kind is invalid');
+          })();
+  const audience =
+    row.audience_kind === 'first_party_web'
+      ? {
+          kind: 'first_party_web' as const,
+          origin: parseSessionOrigin(audiencePayload.origin),
+        }
+      : row.audience_kind === 'hosted_wallet_iframe'
+        ? {
+            kind: 'hosted_wallet_iframe' as const,
+            appOrigin: parseSessionOrigin(audiencePayload.appOrigin),
+            walletOrigin: parseSessionOrigin(audiencePayload.walletOrigin),
+          }
+        : (() => {
+            throw new Error('session audience kind is invalid');
+          })();
+  return buildActiveAuthorizationSession({
+    tenantId: requireParsed(row.tenant_id, parseTenantId, 'session.tenantId'),
+    principalId: requireParsed(row.principal_id, parsePrincipalId, 'session.principalId'),
+    sessionId: requireParsed(row.session_id, parseSeamsSessionId, 'session.sessionId'),
+    authSource,
+    deviceId: requireParsed(row.device_id, parseDeviceId, 'session.deviceId'),
+    audience,
+    appSessionVersion: requireDomainId(
+      row.app_session_version,
+      parseAppSessionVersion,
+      'session.appSessionVersion',
+    ),
+    assurance:
+      row.assurance === 'session' || row.assurance === 'step_up'
+        ? row.assurance
+        : (() => {
+            throw new Error('session assurance is invalid');
+          })(),
+    createdAtMs: integerColumn(row.created_at_ms, 'session.createdAtMs'),
+    lifecycle: {
+      kind: 'active',
+      expiresAtMs: integerColumn(row.expires_at_ms, 'session.expiresAtMs'),
+    },
+  });
+}
+
+function parseAuthorizationProviderId(value: unknown): 'google_oidc' | 'oidc' | null {
+  return value === 'google_oidc' || value === 'oidc' ? value : null;
+}
+
+function classifyHostedWalletExchange(
+  row: HostedWalletExchangeRow | null,
+  input: RedeemHostedWalletSeamsSessionExchangeInput,
+): RedeemHostedWalletSeamsSessionExchangeResult | null {
+  if (!row) return { kind: 'invalid_code' };
+  if (row.lifecycle_kind === 'consumed') return { kind: 'already_consumed' };
+  if (row.lifecycle_kind !== 'issued') return { kind: 'invalid_code' };
+  if (integerColumn(row.expires_at_ms, 'exchange.expiresAtMs') <= input.redeemedAtMs) {
+    return { kind: 'expired' };
+  }
+  if (row.nonce_digest !== input.nonceDigest) return { kind: 'nonce_mismatch' };
+  if (row.wallet_origin !== input.walletOrigin) return { kind: 'wallet_origin_mismatch' };
+  return null;
+}
+
+function parseJsonRecord(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== 'string') throw new Error(`${label} must be JSON`);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(`${label} must be valid JSON`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${label} must be a JSON object`);
+  }
+  return parsed as Record<string, unknown>;
 }
 
 function grantAuthorityColumns(grant: ActiveCapabilityGrant): {
@@ -682,6 +976,20 @@ function parseAuditEventRow(row: D1Row): AuthorizationAuditEvent {
 function requireParsed<T>(
   value: unknown,
   parser: (raw: unknown) => AuthorizationParseResult<T>,
+  label: string,
+): T {
+  const parsed = parser(value);
+  if (!parsed.ok) throw new Error(`${label}: ${parsed.error.message}`);
+  return parsed.value;
+}
+
+function requireDomainId<T>(
+  value: unknown,
+  parser: (
+    raw: unknown,
+  ) =>
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
   label: string,
 ): T {
   const parsed = parser(value);

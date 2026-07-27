@@ -3,16 +3,100 @@ CREATE TABLE IF NOT EXISTS authorization_sessions (
   tenant_id TEXT NOT NULL,
   session_id TEXT NOT NULL,
   principal_id TEXT NOT NULL,
+  auth_source_kind TEXT NOT NULL,
+  auth_source_json TEXT NOT NULL,
   device_id TEXT NOT NULL,
+  audience_kind TEXT NOT NULL,
+  audience_json TEXT NOT NULL,
+  app_session_version TEXT NOT NULL,
   assurance TEXT NOT NULL,
   lifecycle_kind TEXT NOT NULL,
   created_at_ms INTEGER NOT NULL,
   expires_at_ms INTEGER NOT NULL,
   PRIMARY KEY (namespace, tenant_id, session_id),
   CHECK (assurance IN ('session', 'step_up')),
+  CHECK (auth_source_kind IN ('oidc_provider', 'passkey')),
+  CHECK (audience_kind IN ('first_party_web', 'hosted_wallet_iframe')),
+  CHECK (json_valid(auth_source_json)),
+  CHECK (json_valid(audience_json)),
   CHECK (lifecycle_kind = 'active'),
   CHECK (expires_at_ms > created_at_ms)
 );
+
+CREATE TABLE IF NOT EXISTS hosted_wallet_session_exchange_codes (
+  namespace TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  exchange_code_id TEXT NOT NULL,
+  source_session_id TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  nonce_digest TEXT NOT NULL,
+  app_origin TEXT NOT NULL,
+  wallet_origin TEXT NOT NULL,
+  lifecycle_kind TEXT NOT NULL,
+  issued_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  target_session_id TEXT,
+  consumed_at_ms INTEGER,
+  PRIMARY KEY (namespace, tenant_id, exchange_code_id),
+  UNIQUE (namespace, code_hash),
+  FOREIGN KEY (namespace, tenant_id, source_session_id)
+    REFERENCES authorization_sessions(namespace, tenant_id, session_id),
+  CHECK (lifecycle_kind IN ('issued', 'consumed')),
+  CHECK (expires_at_ms > issued_at_ms),
+  CHECK (
+    (lifecycle_kind = 'issued' AND target_session_id IS NULL AND consumed_at_ms IS NULL)
+    OR
+    (lifecycle_kind = 'consumed' AND target_session_id IS NOT NULL AND consumed_at_ms IS NOT NULL)
+  )
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_hosted_wallet_exchange_create_target_session
+AFTER UPDATE OF lifecycle_kind ON hosted_wallet_session_exchange_codes
+WHEN OLD.lifecycle_kind = 'issued' AND NEW.lifecycle_kind = 'consumed'
+BEGIN
+  INSERT INTO authorization_sessions (
+    namespace,
+    tenant_id,
+    session_id,
+    principal_id,
+    auth_source_kind,
+    auth_source_json,
+    device_id,
+    audience_kind,
+    audience_json,
+    app_session_version,
+    assurance,
+    lifecycle_kind,
+    created_at_ms,
+    expires_at_ms
+  )
+  SELECT
+    source.namespace,
+    source.tenant_id,
+    NEW.target_session_id,
+    source.principal_id,
+    source.auth_source_kind,
+    source.auth_source_json,
+    source.device_id,
+    'hosted_wallet_iframe',
+    json_object('appOrigin', NEW.app_origin, 'walletOrigin', NEW.wallet_origin),
+    source.app_session_version,
+    source.assurance,
+    'active',
+    NEW.consumed_at_ms,
+    source.expires_at_ms
+  FROM authorization_sessions AS source
+  WHERE source.namespace = NEW.namespace
+    AND source.tenant_id = NEW.tenant_id
+    AND source.session_id = NEW.source_session_id
+    AND source.lifecycle_kind = 'active'
+    AND source.expires_at_ms > NEW.consumed_at_ms;
+
+  SELECT CASE
+    WHEN changes() != 1
+    THEN RAISE(ABORT, 'hosted_wallet_source_session_unavailable')
+  END;
+END;
 
 CREATE TABLE IF NOT EXISTS verified_grant_evidence_sets (
   namespace TEXT NOT NULL,

@@ -22,6 +22,7 @@
     "unit/loginEcdsaInventoryProfileRepair.unit.test.ts",
     "unit/refactor92.invalidationIdempotency.unit.test.ts",
     "unit/sealedSessionStore.unit.test.ts",
+    "unit/sessionExchangeRequestValidation.unit.test.ts",
     "unit/signingRootRecords.script.unit.test.ts",
     "unit/signingSessionSeal.shared.unit.test.ts",
     "unit/thresholdEcdsa.bootstrapPersistence.unit.test.ts",

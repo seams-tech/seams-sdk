@@ -20,12 +20,17 @@ import { buildCapabilityOperationEnvelope } from '../../../packages/shared-ts/sr
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 import {
+  parseAppSessionVersion,
+  parseProviderSubject,
+} from '../../../packages/shared-ts/src/utils/domainIds';
+import {
   buildActiveAuthorizationSession,
   buildActiveCapabilityGrant,
   buildActiveWalletSessionQuota,
   buildCapabilityOperationClaim,
   buildVerifiedGrantEvidenceSet,
   parseMpcWalletSigningQuotaId,
+  parseSessionOrigin,
   parseWalletSessionId,
 } from '../../../packages/sdk-server-ts/src/authorization/domain';
 
@@ -66,10 +71,23 @@ export async function buildReusableAuthorizationCoreFixture(
       tenantId,
       principalId,
       sessionId,
+      authSource: {
+        kind: 'oidc_provider',
+        providerId: 'google_oidc',
+        providerSubject: parsed('google-subject-1', parseProviderSubject),
+      },
       deviceId,
+      audience: {
+        kind: 'first_party_web',
+        origin: parseSessionOrigin('https://app.example.test'),
+      },
+      appSessionVersion: parsed('app-session-version-1', parseAppSessionVersion),
       assurance: 'session',
       createdAtMs: FIXTURE_NOW_MS,
-      expiresAtMs: FIXTURE_NOW_MS + 100_000,
+      lifecycle: {
+        kind: 'active',
+        expiresAtMs: FIXTURE_NOW_MS + 100_000,
+      },
     }),
     evidenceSet: buildVerifiedGrantEvidenceSet({
       tenantId,
