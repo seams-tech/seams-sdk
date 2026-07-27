@@ -20,6 +20,10 @@ import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/uti
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 import {
+  parseCanonicalEcdsaServerActivationRequest,
+  type CanonicalEcdsaServerActivationRequest,
+} from '@shared/utils/ecdsaCapabilityActivation';
+import {
   parseRootShareEpoch,
   parseSigningGrantId,
   parseWebAuthnRpId,
@@ -2578,6 +2582,41 @@ export async function respondWalletRegistrationEcdsa(args: {
   return parseWalletRegistrationEcdsaRespondResponse(response);
 }
 
+export type WalletRegistrationEcdsaActivationCommitBody = {
+  readonly registrationCeremonyId: string;
+  readonly ecdsa: {
+    readonly kind: 'router_ab_ecdsa_registration_activation_v1';
+    readonly activationCorrelationId: CorrelationId;
+    readonly publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+    readonly expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+  };
+};
+
+export function buildWalletRegistrationEcdsaActivationCommitBody(args: {
+  readonly registrationCeremonyId: string;
+  readonly activationCorrelationId: CorrelationId;
+  readonly publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  readonly expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+}): WalletRegistrationEcdsaActivationCommitBody {
+  return {
+    registrationCeremonyId: args.registrationCeremonyId,
+    ecdsa: {
+      kind: 'router_ab_ecdsa_registration_activation_v1',
+      activationCorrelationId: args.activationCorrelationId,
+      publicFacts: args.publicFacts,
+      expectedActivationRequestDigest: args.expectedActivationRequestDigest,
+    },
+  };
+}
+
+export function canonicalWalletRegistrationEcdsaActivationCommitRequest(
+  args: Parameters<typeof buildWalletRegistrationEcdsaActivationCommitBody>[0],
+): CanonicalEcdsaServerActivationRequest {
+  return parseCanonicalEcdsaServerActivationRequest(
+    alphabetizeStringify(buildWalletRegistrationEcdsaActivationCommitBody(args)),
+  );
+}
+
 export async function activateWalletRegistrationEcdsa(args: {
   relayerUrl: string;
   headers?: Record<string, string>;
@@ -2590,15 +2629,7 @@ export async function activateWalletRegistrationEcdsa(args: {
     relayerUrl: args.relayerUrl,
     path: '/wallets/register/derivation/activate',
     headers: args.headers,
-    body: {
-      registrationCeremonyId: args.registrationCeremonyId,
-      ecdsa: {
-        kind: 'router_ab_ecdsa_registration_activation_v1',
-        activationCorrelationId: args.activationCorrelationId,
-        publicFacts: args.publicFacts,
-        expectedActivationRequestDigest: args.expectedActivationRequestDigest,
-      },
-    },
+    body: buildWalletRegistrationEcdsaActivationCommitBody(args),
   });
   return parseWalletRegistrationEcdsaActivationResponse(response);
 }
@@ -2638,15 +2669,7 @@ export async function queryWalletRegistrationEcdsaActivation(args: {
     relayerUrl: args.relayerUrl,
     path: '/wallets/register/derivation/activate/query',
     headers: args.headers,
-    body: {
-      registrationCeremonyId: args.registrationCeremonyId,
-      ecdsa: {
-        kind: 'router_ab_ecdsa_registration_activation_v1',
-        activationCorrelationId: args.activationCorrelationId,
-        publicFacts: args.publicFacts,
-        expectedActivationRequestDigest: args.expectedActivationRequestDigest,
-      },
-    },
+    body: buildWalletRegistrationEcdsaActivationCommitBody(args),
   });
   return parseWalletRegistrationEcdsaActivationQueryResponse(response);
 }
@@ -3429,6 +3452,41 @@ export async function respondWalletAddSignerEcdsa(args: {
   return parseWalletAddSignerEcdsaRespondResponse(response);
 }
 
+export type WalletAddSignerEcdsaActivationCommitBody = {
+  readonly addSignerCeremonyId: string;
+  readonly ecdsa: {
+    readonly kind: 'router_ab_ecdsa_registration_activation_v1';
+    readonly activationCorrelationId: CorrelationId;
+    readonly publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+    readonly expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+  };
+};
+
+export function buildWalletAddSignerEcdsaActivationCommitBody(args: {
+  readonly addSignerCeremonyId: string;
+  readonly activationCorrelationId: CorrelationId;
+  readonly publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  readonly expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+}): WalletAddSignerEcdsaActivationCommitBody {
+  return {
+    addSignerCeremonyId: args.addSignerCeremonyId,
+    ecdsa: {
+      kind: 'router_ab_ecdsa_registration_activation_v1',
+      activationCorrelationId: args.activationCorrelationId,
+      publicFacts: args.publicFacts,
+      expectedActivationRequestDigest: args.expectedActivationRequestDigest,
+    },
+  };
+}
+
+export function canonicalWalletAddSignerEcdsaActivationCommitRequest(
+  args: Parameters<typeof buildWalletAddSignerEcdsaActivationCommitBody>[0],
+): CanonicalEcdsaServerActivationRequest {
+  return parseCanonicalEcdsaServerActivationRequest(
+    alphabetizeStringify(buildWalletAddSignerEcdsaActivationCommitBody(args)),
+  );
+}
+
 export async function activateWalletAddSignerEcdsa(args: {
   relayerUrl: string;
   walletId: WalletId;
@@ -3442,15 +3500,7 @@ export async function activateWalletAddSignerEcdsa(args: {
   const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/signers/derivation/activate`,
-    body: {
-      addSignerCeremonyId: args.addSignerCeremonyId,
-      ecdsa: {
-        kind: 'router_ab_ecdsa_registration_activation_v1',
-        activationCorrelationId: args.activationCorrelationId,
-        publicFacts: args.publicFacts,
-        expectedActivationRequestDigest: args.expectedActivationRequestDigest,
-      },
-    },
+    body: buildWalletAddSignerEcdsaActivationCommitBody(args),
   });
   return parseWalletAddSignerEcdsaActivationResponse(response);
 }
@@ -3493,15 +3543,7 @@ export async function queryWalletAddSignerEcdsaActivation(args: {
   const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/signers/derivation/activate/query`,
-    body: {
-      addSignerCeremonyId: args.addSignerCeremonyId,
-      ecdsa: {
-        kind: 'router_ab_ecdsa_registration_activation_v1',
-        activationCorrelationId: args.activationCorrelationId,
-        publicFacts: args.publicFacts,
-        expectedActivationRequestDigest: args.expectedActivationRequestDigest,
-      },
-    },
+    body: buildWalletAddSignerEcdsaActivationCommitBody(args),
   });
   return parseWalletAddSignerEcdsaActivationQueryResponse(response);
 }
