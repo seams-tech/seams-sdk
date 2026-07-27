@@ -112,7 +112,6 @@ test.describe('EVM family threshold reconnect events', () => {
         seamsWebConfigs: {
           registration: { mode: 'self' },
         },
-        getPasskeyThresholdEcdsaSessionRecordForSigning: () => staleRecord,
         getThresholdEcdsaSessionRecordByKey: (
           identity: Parameters<typeof getThresholdEcdsaSessionRecordByKey>[1],
         ) => getThresholdEcdsaSessionRecordByKey(ecdsaStore, identity),

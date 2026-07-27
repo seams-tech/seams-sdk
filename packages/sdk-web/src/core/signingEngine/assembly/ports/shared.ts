@@ -166,11 +166,6 @@ export type CreateSigningEnginePortsArgs = {
   getThresholdEcdsaSessionRecordByKey: (
     identity: ThresholdEcdsaSessionRecordLookupKey,
   ) => ThresholdEcdsaSessionRecord | null;
-  getPasskeyThresholdEcdsaSessionRecordForSigning: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
-  }) => ThresholdEcdsaSessionRecord;
   requestEmailOtpTransactionSigningChallenge?: (
     args: RequestEmailOtpTransactionSigningChallengeArgs,
   ) => Promise<EmailOtpTransactionSigningChallenge>;

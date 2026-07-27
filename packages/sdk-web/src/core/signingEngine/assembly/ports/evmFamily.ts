@@ -49,20 +49,8 @@ export function createEvmFamilySigningDeps(args: {
     nonceCoordinator: createArgs.nonceCoordinator,
     ensureSealedRefreshStartupParity: createArgs.ensureSealedRefreshStartupParity,
     getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),
-    getPasskeyThresholdEcdsaSessionRecordForSigning: ({ walletId, chainTarget, source }) =>
-      createArgs.getPasskeyThresholdEcdsaSessionRecordForSigning({
-        walletId,
-        chainTarget,
-        source,
-      }),
     listThresholdEcdsaSessionRecordsForSigning: ({ walletId, chainTarget, source }) =>
       createArgs.listThresholdEcdsaSessionRecordsForWalletTarget({
-        walletId: toWalletId(walletId),
-        chainTarget,
-        ...(source ? { source } : {}),
-      }),
-    listThresholdEcdsaKeyRefsForSigning: ({ walletId, chainTarget, source }) =>
-      createArgs.listThresholdEcdsaKeyRefsForWalletTarget({
         walletId: toWalletId(walletId),
         chainTarget,
         ...(source ? { source } : {}),
