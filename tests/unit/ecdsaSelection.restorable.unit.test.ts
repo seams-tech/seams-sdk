@@ -284,10 +284,7 @@ function selectionDeps(): EvmFamilyEcdsaSigningSelectionDeps {
       getActiveWalletSignerForChainTarget: async () => null,
       listActiveWalletSigners: async () => [],
     } as EvmFamilyEcdsaSigningSelectionDeps['walletSignerStore'],
-    getPasskeyThresholdEcdsaSessionRecordForSigning: missing,
     listThresholdEcdsaSessionRecordsForSigning: () => [],
-    listThresholdEcdsaKeyRefsForSigning: () => [],
-    getThresholdEcdsaSessionRecordByKey: () => null,
     resolveDurableEmailOtpEcdsaSigningSessionAuthority: ({ lane }) => ({
       authLane: {
         kind: 'signing_session',
@@ -564,19 +561,11 @@ test.describe('ECDSA restorable lane selection', () => {
     const sourceRecord = recordForChainTarget(tempoCandidate, chainTarget);
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
-      getPasskeyThresholdEcdsaSessionRecordForSigning: ({
-        chainTarget: requestedChainTarget,
-        source,
-      }) => {
-        if (
-          source === 'registration' &&
-          requestedChainTarget.kind === chainTarget.kind &&
-          requestedChainTarget.chainId === chainTarget.chainId
-        ) {
-          return sourceRecord;
-        }
-        throw new Error('missing source record');
-      },
+      listThresholdEcdsaSessionRecordsForSigning: ({ chainTarget: requestedChainTarget }) =>
+        requestedChainTarget.kind === chainTarget.kind &&
+        requestedChainTarget.chainId === chainTarget.chainId
+          ? [sourceRecord]
+          : [],
     };
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
@@ -660,12 +649,6 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.authMethod).toBe('email_otp');
     expect(selection.source).toBe('email_otp');
     expect(selection.material.record.source).toBe('email_otp');
-    expect(selection.diagnostics.selectedPasskeyMaterial).toEqual({ present: false });
-    expect(selection.diagnostics.visibleEmailOtpMaterial).toMatchObject({
-      present: true,
-      authMethod: 'email_otp',
-      source: 'email_otp',
-    });
   });
 
   test('uses single-use Email OTP exact material while the record still has signing budget', async () => {
@@ -810,7 +793,6 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.lane.chainTarget).toEqual(tempoChainTarget);
     expect(selection.material.chainTarget).toEqual(tempoChainTarget);
     expect(selection.material.kind).not.toBe('ready_to_sign');
-    expect(selection.diagnostics.selectedPasskeyMaterial).toEqual({ present: false });
   });
 
   test('rejects shared EVM Email OTP source material when exact target has public identity only', async () => {

@@ -11,7 +11,6 @@ import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetS
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import {
   getThresholdEcdsaSessionRecordByKey as getThresholdEcdsaSessionRecordByIdentityOperation,
-  getThresholdEcdsaSessionRecordForWalletTarget as getThresholdEcdsaSessionRecordForWalletTargetOperation,
   listThresholdEcdsaKeyRefsForWalletTarget as listThresholdEcdsaKeyRefsForWalletTargetOperation,
   listThresholdEcdsaSessionRecordsForWalletTarget as listThresholdEcdsaSessionRecordsForWalletTargetOperation,
   markThresholdEd25519EmailOtpSessionConsumedForWallet as markThresholdEd25519EmailOtpSessionConsumedForWalletOperation,
@@ -487,12 +486,6 @@ export function createBrowserSigningSurfaceEnginePorts(
       ),
     getThresholdEcdsaSessionRecordByKey: (identity) =>
       getThresholdEcdsaSessionRecordByIdentityOperation(args.warmSigning.ecdsaSessions, identity),
-    getPasskeyThresholdEcdsaSessionRecordForSigning: (recordArgs) =>
-      getThresholdEcdsaSessionRecordForWalletTargetOperation(args.warmSigning.ecdsaSessions, {
-        walletId: recordArgs.walletId,
-        chainTarget: recordArgs.chainTarget,
-        source: recordArgs.source,
-      }),
     requestEmailOtpTransactionSigningChallenge: (challengeArgs) =>
       requestEmailOtpEcdsaStepUpChallenge({
         coordinator: args.emailOtpSessions,

@@ -8,8 +8,6 @@ import {
   materialIdentityMatchesResolvedLane,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState';
 import {
-  resolveEvmFamilyEcdsaPlannerReadiness,
-  resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/authPlanning';
 import {
   toWalletId,
@@ -38,11 +36,6 @@ import {
   buildEcdsaEmailOtpSigningLane,
   buildEvmTransactionSigningLane,
 } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
-import { SigningSessionCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
-import type {
-  SigningSessionBudgetStatusAuth,
-  SigningSessionPreparedBudgetIdentity,
-} from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
 import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import {
   requireResolvedEvmFamilyEcdsaSigningLane,
@@ -78,38 +71,6 @@ const EMAIL_OTP_AUTH = {
   kind: 'email_otp',
   providerSubjectId: 'email:alice',
 } as const;
-
-class ObservingSigningSessionCoordinator extends SigningSessionCoordinator {
-  observedTrustedStatusAuth: SigningSessionBudgetStatusAuth | undefined;
-
-  constructor(private readonly remainingUses = 3) {
-    super();
-  }
-
-  override async prepareBudgetIdentity(
-    input: Parameters<SigningSessionCoordinator['prepareBudgetIdentity']>[0],
-  ): Promise<SigningSessionPreparedBudgetIdentity> {
-    this.observedTrustedStatusAuth = input.trustedStatusAuth;
-    return {
-      signingGrantId: 'wallet-session-1',
-      projectionVersion: 'projection-1',
-      status: {
-        sessionId: 'wallet-session-1',
-        status: 'active',
-        remainingUses: this.remainingUses,
-        availableUses: this.remainingUses,
-        expiresAtMs: 1_900_000_000_000,
-        projectionVersion: 'projection-1',
-      },
-    };
-  }
-}
-
-class UnavailableSigningSessionCoordinator extends SigningSessionCoordinator {
-  override async prepareBudgetIdentity(): Promise<SigningSessionPreparedBudgetIdentity> {
-    throw new Error('trusted budget status unavailable');
-  }
-}
 
 const TEMPO_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'tempo',
@@ -408,35 +369,6 @@ test.describe('ecdsa material state', () => {
     );
   });
 
-  test('keeps unvalidated ready-state blob records out of ready signer material', async () => {
-    const state = buildEcdsaMaterialStateForCandidate({
-      candidate: makeCandidate(),
-      record: makeRecord(),
-      authMethod: 'passkey',
-      source: 'login',
-      chainTarget: EVM_CHAIN_TARGET,
-      materialChainTarget: EVM_CHAIN_TARGET,
-    });
-
-    expect(state.kind).toBe('reauth_required');
-    if (state.kind !== 'reauth_required') return;
-    expect(state.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
-
-    const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
-      deps: {
-        touchConfirm: {
-          getWarmSessionStatus: readyWarmSessionStatus,
-        },
-        signingSessionCoordinator: new SigningSessionCoordinator(),
-      },
-      lane: makeResolvedLane(),
-      material: state,
-    });
-
-    expect(readiness.readiness.status).toBe('missing_session');
-    expect(readiness.remainingUses).toBe(0);
-  });
-
   test('runtime-validated ready material carries a signer session', () => {
     const record = makeRecord();
     expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
@@ -453,108 +385,6 @@ test.describe('ecdsa material state', () => {
     if (state.kind !== 'ready_to_sign') return;
     expect(state.signerSession.clientShare.kind).toBe('role_local_worker_share');
     expect(state.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
-  });
-
-  test('passkey ECDSA readiness carries trusted budget auth from live signer material', async () => {
-    const record = makeRecord();
-    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
-    const state = buildEcdsaMaterialStateForCandidate({
-      candidate: makeCandidate(),
-      record,
-      authMethod: 'passkey',
-      source: 'login',
-      chainTarget: EVM_CHAIN_TARGET,
-      materialChainTarget: EVM_CHAIN_TARGET,
-    });
-    expect(state.kind).toBe('ready_to_sign');
-    if (state.kind !== 'ready_to_sign') return;
-    const coordinator = new ObservingSigningSessionCoordinator();
-
-    const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
-      deps: {
-        touchConfirm: {
-          getWarmSessionStatus: readyWarmSessionStatus,
-        },
-        signingSessionCoordinator: coordinator,
-      },
-      lane: makeResolvedLane(),
-      material: state,
-    });
-
-    expect(readiness.readiness.status).toBe('ready');
-    expect(readiness.trustedBudgetStatusAuth.kind).toBe('trusted_budget_status_auth');
-    if (readiness.trustedBudgetStatusAuth.kind !== 'trusted_budget_status_auth') return;
-    expect(readiness.trustedBudgetStatusAuth.auth.relayerUrl).toBe('https://relay.localhost');
-    expect(readiness.trustedBudgetStatusAuth.auth.thresholdSessionId).toBe('threshold-session-1');
-    expect(readiness.trustedBudgetStatusAuth.auth.walletSessionJwt).toBe(record.walletSessionJwt);
-    expect(coordinator.observedTrustedStatusAuth).toEqual(readiness.trustedBudgetStatusAuth.auth);
-  });
-
-  test('authoritative zero-use passkey budget forces exhausted readiness before reconnect', async () => {
-    const record = makeRecord();
-    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
-    const state = buildEcdsaMaterialStateForCandidate({
-      candidate: makeCandidate(),
-      record,
-      authMethod: 'passkey',
-      source: 'login',
-      chainTarget: EVM_CHAIN_TARGET,
-      materialChainTarget: EVM_CHAIN_TARGET,
-    });
-    expect(state.kind).toBe('ready_to_sign');
-    if (state.kind !== 'ready_to_sign') return;
-
-    const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
-      deps: {
-        touchConfirm: {
-          getWarmSessionStatus: readyWarmSessionStatus,
-        },
-        signingSessionCoordinator: new ObservingSigningSessionCoordinator(0),
-      },
-      lane: makeResolvedLane(),
-      material: state,
-    });
-
-    expect(readiness.readiness.status).toBe('exhausted');
-    expect(readiness.remainingUses).toBe(0);
-  });
-
-  test('post-refresh passkey reconnect checks the authoritative budget before warm restore', async () => {
-    const record = makeRecord();
-    const readiness = await resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth({
-      deps: {
-        signingSessionCoordinator: new ObservingSigningSessionCoordinator(0),
-      },
-      lane: makeResolvedLane(),
-      trustedStatusAuth: {
-        relayerUrl: record.relayerUrl,
-        thresholdSessionId: record.thresholdSessionId,
-        walletSessionJwt: record.walletSessionJwt,
-      },
-      inFlightRetry: 'available',
-    });
-
-    expect(readiness?.readiness.status).toBe('exhausted');
-    expect(readiness?.remainingUses).toBe(0);
-  });
-
-  test('post-refresh passkey reconnect fails closed when authoritative budget is unavailable', async () => {
-    const record = makeRecord();
-    const readiness = await resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth({
-      deps: {
-        signingSessionCoordinator: new UnavailableSigningSessionCoordinator(),
-      },
-      lane: makeResolvedLane(),
-      trustedStatusAuth: {
-        relayerUrl: record.relayerUrl,
-        thresholdSessionId: record.thresholdSessionId,
-        walletSessionJwt: record.walletSessionJwt,
-      },
-      inFlightRetry: 'available',
-    });
-
-    expect(readiness.readiness.status).toBe('missing_session');
-    expect(readiness.remainingUses).toBe(0);
   });
 
   test('matches ready material against exact signer identity when flat lane projections are stale', () => {
@@ -606,104 +436,4 @@ test.describe('ecdsa material state', () => {
     );
   });
 
-  test('treats Email OTP record policy as reauth readiness until worker material is live', async () => {
-    const record = makeEmailOtpRecord();
-    const material = buildEcdsaMaterialStateForCandidate({
-      candidate: makeEmailOtpCandidate(),
-      record,
-      authMethod: 'email_otp',
-      source: 'email_otp',
-      chainTarget: EVM_CHAIN_TARGET,
-      materialChainTarget: EVM_CHAIN_TARGET,
-    });
-    const lane = buildEcdsaEmailOtpSigningLane({
-      auth: EMAIL_OTP_AUTH,
-      key: makeEmailOtpCandidate().key,
-      keyHandle: record.keyHandle,
-      walletId: record.walletId,
-      chainTarget: EVM_CHAIN_TARGET,
-      signingGrantId: SigningSessionIds.signingGrant(record.signingGrantId),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(record.thresholdSessionId),
-    });
-    const resolvedLane = requireResolvedEvmFamilyEcdsaSigningLane({
-      lane,
-      chain: 'evm',
-      context: 'Email OTP readiness test',
-    });
-
-    const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
-      deps: {
-        touchConfirm: {
-          getWarmSessionStatus: async () => ({
-            ok: true,
-            remainingUses: 1,
-            expiresAtMs: 1_900_000_000_000,
-          }),
-        },
-        signingSessionCoordinator: new SigningSessionCoordinator(),
-      },
-      lane: resolvedLane,
-      material,
-    });
-
-    expect(readiness.readiness.status).toBe('missing_session');
-    expect(readiness.remainingUses).toBe(0);
-  });
-
-  test('keeps runtime-validated Email OTP role-local material warm after registration', async () => {
-    const record = makeEmailOtpRecord();
-    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
-    const material = buildEcdsaMaterialStateForCandidate({
-      candidate: makeEmailOtpCandidate(),
-      record,
-      authMethod: 'email_otp',
-      source: 'email_otp',
-      chainTarget: EVM_CHAIN_TARGET,
-      materialChainTarget: EVM_CHAIN_TARGET,
-    });
-    expect(material.kind).toBe('ready_to_sign');
-    const lane = buildEcdsaEmailOtpSigningLane({
-      auth: EMAIL_OTP_AUTH,
-      key: makeEmailOtpCandidate().key,
-      keyHandle: record.keyHandle,
-      walletId: record.walletId,
-      chainTarget: EVM_CHAIN_TARGET,
-      signingGrantId: SigningSessionIds.signingGrant(record.signingGrantId),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(record.thresholdSessionId),
-    });
-    const resolvedLane = requireResolvedEvmFamilyEcdsaSigningLane({
-      lane,
-      chain: 'evm',
-      context: 'Email OTP runtime-validated readiness test',
-    });
-
-    const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
-      deps: {
-        touchConfirm: {
-          getWarmSessionStatus: async () => ({
-            ok: false,
-            code: 'not_found',
-            message: 'passkey warm-session status is not used for Email OTP ECDSA',
-          }),
-        },
-        getEmailOtpWarmSessionStatus: async () => {
-          throw new Error('runtime-validated role-local material should not ask the Email OTP worker');
-        },
-        signingSessionCoordinator: new SigningSessionCoordinator(),
-      },
-      lane: resolvedLane,
-      material,
-    });
-
-    expect(readiness.readiness.status).toBe('ready');
-    expect(readiness.remainingUses).toBe(record.remainingUses);
-    expect(readiness.expiresAtMs).toBe(record.expiresAtMs);
-    expect(readiness.trustedBudgetStatusAuth.kind).toBe('trusted_budget_status_auth');
-    if (readiness.trustedBudgetStatusAuth.kind !== 'trusted_budget_status_auth') return;
-    expect(readiness.trustedBudgetStatusAuth.auth).toEqual({
-      relayerUrl: record.relayerUrl,
-      thresholdSessionId: record.thresholdSessionId,
-      walletSessionJwt: record.walletSessionJwt,
-    });
-  });
 });

@@ -1,9 +1,4 @@
-import type {
-  EcdsaSigningLookupArgs,
-  EvmFamilyChain,
-  EvmFamilyEcdsaSessionReaderDeps,
-  PasskeyEcdsaSessionStoreSource,
-} from '../../interfaces/operationDeps';
+import type { EvmFamilyChain } from '../../interfaces/operationDeps';
 import {
   selectedEcdsaLane,
   selectedLaneAuthMethod,
@@ -13,27 +8,16 @@ import {
   type ThresholdEcdsaSessionStoreSource,
 } from '../../session/identity/laneIdentity';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
-import {
-  buildEvmTransactionSigningLane,
-  buildTempoTransactionSigningLane,
-  type EcdsaTransactionSigningLane,
-} from '../../session/operationState/lanes';
+import { type EcdsaTransactionSigningLane } from '../../session/operationState/lanes';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
-import {
-  thresholdEcdsaLaneCandidateFromSessionRecord,
-  thresholdEcdsaSessionRecordReadModel,
-} from '../../session/persistence/records';
+import { thresholdEcdsaSessionRecordReadModel } from '../../session/persistence/records';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
-  toWalletId,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
-import {
-  type EvmFamilyEcdsaKeyIdentity,
-  type ReadyEvmFamilyEcdsaMaterial,
-} from '../../session/identity/evmFamilyEcdsaIdentity';
+import { type EvmFamilyEcdsaKeyIdentity } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyEcdsaAuthMethod } from '../../session/identity/evmFamilyEcdsaIdentity';
 export type { EvmFamilyEcdsaAuthMethod } from '../../session/identity/evmFamilyEcdsaIdentity';
 import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
@@ -267,158 +251,6 @@ export function requireEvmFamilyEcdsaAuthMethod(
   return authMethod;
 }
 
-export function buildEvmFamilyEcdsaSigningLaneContext(args: {
-  walletId: string;
-  chain: EvmFamilyChain;
-  chainTarget: ThresholdEcdsaChainTarget;
-  authMethod: EvmFamilyEcdsaAuthMethod;
-  source: ThresholdEcdsaSessionStoreSource;
-  material: ReadyEvmFamilyEcdsaMaterial;
-}): ResolvedEvmFamilyEcdsaSigningLane | undefined {
-  const { key, lane: materialLane, record } = args.material;
-  if (String(key.walletId) !== String(args.walletId)) {
-    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched wallet identity', {
-      walletId: args.walletId,
-      materialWalletId: key.walletId,
-      chain: args.chain,
-      chainTarget: args.chainTarget,
-      authMethod: args.authMethod,
-      source: args.source,
-      record: summarizeEvmFamilyEcdsaSessionRecord(record),
-    });
-    return undefined;
-  }
-  if (!thresholdEcdsaChainTargetsEqual(materialLane.chainTarget, args.chainTarget)) {
-    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched chain target', {
-      walletId: args.walletId,
-      chain: args.chain,
-      chainTarget: args.chainTarget,
-      materialChainTarget: materialLane.chainTarget,
-      authMethod: args.authMethod,
-      source: args.source,
-      record: summarizeEvmFamilyEcdsaSessionRecord(record),
-    });
-    return undefined;
-  }
-  if (materialLane.authMethod !== args.authMethod || materialLane.source !== args.source) {
-    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched auth source', {
-      walletId: args.walletId,
-      chain: args.chain,
-      chainTarget: args.chainTarget,
-      authMethod: args.authMethod,
-      source: args.source,
-      materialAuthMethod: materialLane.authMethod,
-      materialSource: materialLane.source,
-      record: summarizeEvmFamilyEcdsaSessionRecord(record),
-    });
-    return undefined;
-  }
-  let recordCandidate: ReturnType<typeof thresholdEcdsaLaneCandidateFromSessionRecord>;
-  try {
-    recordCandidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record });
-  } catch (error) {
-    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from missing exact auth binding', {
-      walletId: args.walletId,
-      chain: args.chain,
-      chainTarget: args.chainTarget,
-      authMethod: args.authMethod,
-      source: args.source,
-      message: error instanceof Error ? error.message : String(error),
-      record: summarizeEvmFamilyEcdsaSessionRecord(record),
-    });
-    return undefined;
-  }
-
-  const base = {
-    key,
-    materialActivation: record.materialActivation,
-    keyHandle: record.keyHandle,
-    walletId: toWalletId(key.walletId),
-    authorization: recordCandidate.authorization,
-  };
-  const buildLane =
-    args.chainTarget.kind === 'tempo'
-      ? buildTempoTransactionSigningLane
-      : buildEvmTransactionSigningLane;
-
-  if (args.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
-    if (recordCandidate.auth.kind !== 'email_otp') {
-      logEvmFamilyEcdsaLaneDiagnostic('Email OTP ECDSA lane is missing Email OTP auth binding', {
-        walletId: args.walletId,
-        chain: args.chain,
-        chainTarget: args.chainTarget,
-        authMethod: args.authMethod,
-        source: args.source,
-        record: summarizeEvmFamilyEcdsaSessionRecord(record),
-      });
-      return undefined;
-    }
-    const emailOtpAuthContext = record?.source === 'email_otp' ? record.emailOtpAuthContext : null;
-    const lane = buildLane({
-      ...base,
-      auth: recordCandidate.auth,
-      chainTarget: args.chainTarget,
-      retention: emailOtpAuthContext
-        ? emailOtpAuthContextRetention(emailOtpAuthContext)
-        : 'session',
-      sessionOrigin:
-        emailOtpAuthContext && emailOtpAuthContextReason(emailOtpAuthContext) === 'login'
-          ? 'login'
-          : 'per_operation',
-    });
-    return requireResolvedEvmFamilyEcdsaSigningLane({
-      lane,
-      chain: args.chain,
-      context: 'build EVM-family ECDSA signing lane',
-    });
-  }
-
-  if (args.source === SIGNER_AUTH_METHODS.emailOtp) return undefined;
-  if (recordCandidate.auth.kind !== 'passkey') {
-    logEvmFamilyEcdsaLaneDiagnostic('passkey ECDSA lane is missing passkey auth binding', {
-      walletId: args.walletId,
-      chain: args.chain,
-      chainTarget: args.chainTarget,
-      authMethod: args.authMethod,
-      source: args.source,
-      record: summarizeEvmFamilyEcdsaSessionRecord(record),
-    });
-    return undefined;
-  }
-  const lane = buildLane({
-    ...base,
-    auth: recordCandidate.auth,
-    chainTarget: args.chainTarget,
-    storageSource: args.source,
-  });
-  return requireResolvedEvmFamilyEcdsaSigningLane({
-    lane,
-    chain: args.chain,
-    context: 'build EVM-family ECDSA signing lane',
-  });
-}
-
-export function tryGetPasskeyThresholdEcdsaSessionRecordForSigning(args: {
-  deps: EvmFamilyEcdsaSessionReaderDeps;
-  walletId: EcdsaSigningLookupArgs['walletId'];
-  chainTarget: ThresholdEcdsaChainTarget;
-  source: PasskeyEcdsaSessionStoreSource;
-}): ThresholdEcdsaSessionRecord | undefined {
-  let candidate: ThresholdEcdsaSessionRecord | undefined;
-  try {
-    candidate = args.deps.getPasskeyThresholdEcdsaSessionRecordForSigning({
-      walletId: args.walletId,
-      chainTarget: args.chainTarget,
-      source: args.source,
-    });
-  } catch {
-    candidate = undefined;
-  }
-  return candidate && !isEmailOtpThresholdEcdsaSigningContext({ record: candidate })
-    ? candidate
-    : undefined;
-}
-
 export function isEmailOtpThresholdEcdsaSigningContext(args: {
   record: ThresholdEcdsaSessionRecord;
   keyRef?: never;
@@ -440,35 +272,6 @@ function ecdsaMaterialSourceMatchesAuth(args: {
   }
   if (args.source === SIGNER_AUTH_METHODS.emailOtp) return false;
   return !isEmailOtpMaterial;
-}
-
-export function findExactEcdsaSessionRecordForSelectedLane(args: {
-  deps: EvmFamilyEcdsaSessionReaderDeps;
-  lane: SelectedEcdsaLane;
-}): ThresholdEcdsaSessionRecord | undefined {
-  return args.deps.getThresholdEcdsaSessionRecordByKey(args.lane) || undefined;
-}
-
-export function readSelectedEcdsaRecordForLane(args: {
-  deps: EvmFamilyEcdsaSessionReaderDeps;
-  lane?: SelectedEcdsaLane;
-}): ThresholdEcdsaSessionRecord | undefined {
-  if (!args.lane) return undefined;
-  const record = findExactEcdsaSessionRecordForSelectedLane({
-    deps: args.deps,
-    lane: args.lane,
-  });
-  if (!record) return undefined;
-  if (
-    ecdsaMaterialSourceMatchesAuth({
-      authMethod: selectedLaneAuthMethod(args.lane),
-      source: record.source,
-      record,
-    })
-  ) {
-    return record;
-  }
-  throw new Error('[SigningEngine][ecdsa] selected ECDSA record auth source mismatch');
 }
 
 export function validateSelectedEcdsaRecordCandidateForLane(args: {

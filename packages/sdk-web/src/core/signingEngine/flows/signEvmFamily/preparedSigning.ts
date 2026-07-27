@@ -643,11 +643,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           material: summarizeEcdsaMaterialState(selection.material),
           diagnostics: selection.diagnostics,
         });
-        if (selection.kind === 'budget_blocked') {
-          throw new Error(
-            '[SigningEngine][ecdsa] canonical selection returned obsolete client budget state',
-          );
-        }
         const committedSelectionAuthMethod = selection.authMethod;
         if (selection.authMethod !== committedSelectionAuthMethod) {
           throw new Error(

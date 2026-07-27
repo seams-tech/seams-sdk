@@ -13,10 +13,7 @@ import {
   type VerifiedEcdsaPublicFacts,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
-import {
-  thresholdEcdsaLaneCandidateFromSessionRecord,
-  type ThresholdEcdsaSessionRecord,
-} from '../../session/persistence/records';
+import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../../session/persistence/ecdsaRoleLocalRecords';
 import {
   thresholdEcdsaChainTargetKey,
@@ -246,54 +243,6 @@ export function buildEcdsaMaterialStateForCandidate(
   };
 }
 
-export function buildEcdsaMaterialStateForResolvedLane(args: {
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-  authMethod: EvmFamilyEcdsaAuthMethod;
-  source: ThresholdEcdsaSessionStoreSource;
-  material: ResolvedEcdsaMaterialInput;
-}): EcdsaMaterialState {
-  const record =
-    args.material.kind === 'resolved_ecdsa_session_record' ? args.material.record : undefined;
-  const signer = requireEvmFamilyEcdsaSigner(
-    args.lane.identity,
-    'ECDSA material state resolved lane',
-  );
-  return buildEcdsaMaterialStateForCandidate({
-    candidate: {
-      kind: 'lane_candidate',
-      walletId: signer.walletId,
-      key: signer.key,
-      materialActivation: signer.materialActivation,
-      keyHandle: signer.keyHandle,
-      auth: args.lane.auth,
-      authorization: args.lane.authorization,
-      curve: 'ecdsa',
-      chain: args.lane.chainFamily,
-      state: 'ready',
-      source: 'runtime_session_record',
-      chainTarget: signer.chainTarget,
-    },
-    record,
-    authMethod: args.authMethod,
-    source: args.source,
-    chainTarget: signer.chainTarget,
-    materialChainTarget: signer.chainTarget,
-  });
-}
-
-export function resolvedEcdsaMaterialInputFromOptionalRecord(args: {
-  record: ThresholdEcdsaSessionRecord | undefined;
-  context: string;
-}): ResolvedEcdsaMaterialInput {
-  if (args.record) {
-    return {
-      kind: 'resolved_ecdsa_session_record',
-      record: args.record,
-    };
-  }
-  return { kind: 'resolved_ecdsa_material_missing' };
-}
-
 export function requireReadyEcdsaMaterial(
   state: EcdsaMaterialState,
   context: string,
@@ -301,27 +250,6 @@ export function requireReadyEcdsaMaterial(
   if (state.kind === 'ready_to_sign') return state;
   throw new Error(
     `[SigningEngine][ecdsa] ${context} requires ready ECDSA material, got ${state.kind}`,
-  );
-}
-
-export function requireReadyEcdsaMaterialForResolvedLane(args: {
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-  authMethod: EvmFamilyEcdsaAuthMethod;
-  source: ThresholdEcdsaSessionStoreSource;
-  record: ThresholdEcdsaSessionRecord;
-  context: string;
-}): ReadyEcdsaMaterial {
-  return requireReadyEcdsaMaterial(
-    buildEcdsaMaterialStateForResolvedLane({
-      lane: args.lane,
-      authMethod: args.authMethod,
-      source: args.source,
-      material: {
-        kind: 'resolved_ecdsa_session_record',
-        record: args.record,
-      },
-    }),
-    args.context,
   );
 }
 
@@ -353,58 +281,6 @@ export function summarizeEcdsaMaterialState(state: EcdsaMaterialState): EcdsaMat
     publicIdentityPresent,
     signerMaterialPresent,
   };
-}
-
-export function summarizeVisibleEcdsaMaterial(args: {
-  authMethod: EvmFamilyEcdsaAuthMethod;
-  source: ThresholdEcdsaSessionStoreSource;
-  chainTarget: ThresholdEcdsaChainTarget;
-  materialChainTarget: ThresholdEcdsaChainTarget;
-  record?: ThresholdEcdsaSessionRecord;
-}): EcdsaMaterialSummary | { present: false } {
-  const record = args.record;
-  if (!record) return { present: false };
-  let recordCandidate: EcdsaLaneCandidate;
-  try {
-    recordCandidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record });
-  } catch {
-    return { present: false };
-  }
-  const readyResolution = resolveReadyEvmFamilyEcdsaMaterial({
-    record,
-    expected: {
-      walletId: record.walletId,
-      materialActivation: recordCandidate.materialActivation,
-      chainTarget: args.materialChainTarget,
-      authMethod: args.authMethod,
-      source: args.source,
-      thresholdSessionId: record.thresholdSessionId,
-      signingGrantId: record.signingGrantId,
-    },
-  });
-  return summarizeEcdsaMaterialState(
-    buildEcdsaMaterialStateForCandidate({
-      candidate: {
-        kind: 'lane_candidate',
-        walletId: record.walletId,
-        key: readyResolution.kind === 'ready' ? readyResolution.material.key : recordCandidate.key,
-        materialActivation: recordCandidate.materialActivation,
-        keyHandle: record.keyHandle,
-        auth: recordCandidate.auth,
-        authorization: recordCandidate.authorization,
-        curve: 'ecdsa',
-        chain: args.chainTarget.kind,
-        state: 'ready',
-        source: 'runtime_session_record',
-        chainTarget: args.chainTarget,
-      },
-      record,
-      authMethod: args.authMethod,
-      source: args.source,
-      chainTarget: args.chainTarget,
-      materialChainTarget: args.materialChainTarget,
-    }),
-  );
 }
 
 function tryBuildVerifiedPublicFactsFromRecord(args: {

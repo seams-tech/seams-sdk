@@ -83,7 +83,6 @@ import {
   requireResolvedEvmFamilyEcdsaSigningLane,
   selectedEvmFamilyEcdsaLaneForMaterialIdentity,
   isEmailOtpThresholdEcdsaSigningContext,
-  readSelectedEcdsaRecordForLane,
   summarizeEvmFamilyEcdsaLane,
   summarizeEvmFamilyEcdsaSessionRecord,
   type EvmFamilyEcdsaAuthMethod,
@@ -445,12 +444,7 @@ async function signEvmFamilyAttempt(
     ecdsaSigningLane = preparedEcdsaSigningSession.signingLane;
     selectedEcdsaAuthMethod = preparedEcdsaSigningSession.authMethod;
     accountAuth = preparedEcdsaSigningSession.accountAuth;
-    thresholdEcdsaRecord =
-      getEcdsaMaterialRecord(preparedEcdsaSigningSession.material) ||
-      readSelectedEcdsaRecordForLane({
-        deps,
-        lane: preparedEcdsaSigningSession.signingLane,
-      });
+    thresholdEcdsaRecord = getEcdsaMaterialRecord(preparedEcdsaSigningSession.material);
     emitSigningSessionFlowTrace('evm-family', {
       stage: 'ecdsa_attempt.prepared',
       walletId,
