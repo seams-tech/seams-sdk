@@ -436,7 +436,7 @@ impl CloudflareEd25519YaoPairExecuteRequestV1 {
         }
         .validate_for_role(Ed25519YaoDeriverRoleV1::DeriverA, expected_kind)?;
         if self.local_receipt.role() != Ed25519YaoDeriverRoleV1::DeriverA
-            || self.local_receipt.input_digest().bytes != input_digest
+            || self.local_receipt.local_input_digest().bytes != input_digest
         {
             return Err(invalid_lifecycle(
                 "Deriver A execute-pair requires its exact readiness receipt",
@@ -1411,7 +1411,7 @@ impl RouterAbDeriverAYaoSessionDurableObject {
             }
             return Response::error("Deriver A pair preparation expired", 409);
         }
-        if stored_receipt != local_receipt
+        if stored_receipt.as_ref() != &local_receipt
             || local_receipt.root_metadata_digest().bytes != root_metadata_digest
             || peer_receipt.root_metadata_digest().bytes
                 != request.acceptance.root_metadata_digest().bytes
@@ -3550,10 +3550,6 @@ fn invalid_lifecycle(message: impl Into<String>) -> RouterAbProtocolError {
         RouterAbProtocolErrorCode::InvalidLifecycleState,
         message.into(),
     )
-}
-
-fn conflicting_pair(message: impl Into<String>) -> RouterAbProtocolError {
-    RouterAbProtocolError::new(RouterAbProtocolErrorCode::ConflictingPair, message.into())
 }
 
 fn cloudflare_yao_now_unix_ms() -> worker::Result<u64> {
