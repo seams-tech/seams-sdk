@@ -11,8 +11,8 @@ import type {
   ConsoleOnboardingTelemetrySnapshot,
 } from '@seams-internal/console-server/onboarding';
 import type { ConsoleWebhookDeadLetter, ConsoleWebhookService } from '@seams-internal/console-server/webhooks';
-import type { ConsoleAuthClaims } from '@seams/sdk-server/internal/router/consoleAuth';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/internal/router/logger';
+import type { ConsoleAuthClaims } from './consoleAuth';
+import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
 
 type ConsoleOpsCockpitSectionState = 'ok' | 'not_configured' | 'forbidden' | 'error';
 
@@ -131,28 +131,42 @@ function isFailedOrOverdueInvoice(invoice: BillingInvoice, nowMs: number): boole
 function toBillingContext(claims: ConsoleAuthClaims): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
   };
 }
 
 function toScopedContext(claims: ConsoleAuthClaims): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+  };
+}
+
+function toOnboardingContext(claims: ConsoleAuthClaims): {
+  orgId: string;
+  actorUserId: string;
+  actorEmail: string;
+  actorDisplayName: string | null;
+  projectId: string | null;
+  environmentId: string | null;
+} {
+  return {
+    orgId: claims.orgId,
+    actorUserId: claims.userId,
+    actorEmail: String(claims.email ?? '').trim().toLowerCase(),
+    actorDisplayName: String(claims.name ?? '').trim() || null,
+    projectId: claims.projectId ?? null,
+    environmentId: claims.environmentId ?? null,
   };
 }
 
@@ -162,6 +176,7 @@ export async function buildConsoleOpsCockpitSummary(
   const now = opts.now || (() => new Date());
   const current = now();
   const nowMs = current.getTime();
+  const onboardingContext = toOnboardingContext(opts.claims);
   const maxWebhookEndpointsScanned = Math.max(
     1,
     Math.floor(opts.maxWebhookEndpointsScanned || DEFAULT_MAX_WEBHOOK_ENDPOINTS_SCANNED),
@@ -364,7 +379,7 @@ export async function buildConsoleOpsCockpitSummary(
       summary.onboardingTelemetry = {
         status: toStatus('forbidden', {
           code: 'forbidden',
-          message: 'Only admin or ops can view onboarding telemetry',
+          message: 'Platform support authorization is required to view onboarding telemetry',
         }),
         windowMinutes: telemetryWindowMinutes,
         alertCount: 0,
@@ -373,7 +388,7 @@ export async function buildConsoleOpsCockpitSummary(
       };
     } else {
       try {
-        const telemetry = await opts.onboarding.getOnboardingTelemetry(scopedContext, {
+        const telemetry = await opts.onboarding.getOnboardingTelemetry(onboardingContext, {
           windowMinutes: telemetryWindowMinutes,
         });
         summary.onboardingTelemetry = {

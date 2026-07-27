@@ -38,7 +38,11 @@ const WALLET_CORE_CLOUDFLARE_ENVIRONMENT_SUFFIXES = Object.freeze([
 const GATEWAY_SECRET_INPUTS = Object.freeze([
   ['SPONSORED_EVM_EXECUTORS_JSON', 'SPONSORED_EVM_EXECUTORS_JSON'],
   ['STRIPE_API_SK', 'STRIPE_API_SK'],
+  ['STRIPE_WEBHOOK_SECRET', 'STRIPE_WEBHOOK_SECRET'],
+  ['RESEND_API_KEY', 'RESEND_API_KEY'],
+  ['CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U', 'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U'],
 ]);
+const GATEWAY_VARIABLE_INPUTS = Object.freeze([['CONSOLE_EMAIL_FROM', 'CONSOLE_EMAIL_FROM']]);
 const NEAR_PUBLIC_CONFIG_BY_NETWORK = Object.freeze({
   testnet: Object.freeze({
     rpcUrl: 'https://test.rpc.fastnear.com',
@@ -163,6 +167,14 @@ function validateExternalValues(values, component) {
   if (stripeSecretKey) {
     requireStripeSecretKey(stripeSecretKey);
   }
+  const resendApiKey = readValue(values, 'RESEND_API_KEY');
+  if (resendApiKey && !resendApiKey.startsWith('re_')) {
+    throw new Error('RESEND_API_KEY must start with re_');
+  }
+  const invitationSecretKey = readValue(values, 'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U');
+  if (invitationSecretKey) {
+    requireConsoleEmailInvitationSecretKey(invitationSecretKey);
+  }
 }
 
 function validatePair(values, leftName, rightName, label) {
@@ -175,7 +187,16 @@ function validatePair(values, leftName, rightName, label) {
 
 function requireStripeSecretKey(value) {
   if (!/^(?:sk|rk)_/.test(value)) {
-    throw new Error('STRIPE_API_SK must be a Stripe secret key (sk_...) or restricted key (rk_...)');
+    throw new Error(
+      'STRIPE_API_SK must be a Stripe secret key (sk_...) or restricted key (rk_...)',
+    );
+  }
+  return value;
+}
+
+function requireConsoleEmailInvitationSecretKey(value) {
+  if (!/^[A-Za-z0-9_-]+$/.test(value) || Buffer.from(value, 'base64url').byteLength !== 32) {
+    throw new Error('CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U must encode exactly 32 bytes');
   }
   return value;
 }
@@ -196,6 +217,12 @@ function buildBasePlan(options, repository, values) {
   } else {
     appendWalletCoreCloudflareDeploymentUpdates(plan, options.target, values);
     addGatewayWalletOriginUpdate(plan, values, repository);
+    appendMappedUpdates(
+      plan.variables,
+      `${options.target}-gateway`,
+      values,
+      GATEWAY_VARIABLE_INPUTS,
+    );
     appendMappedUpdates(plan.secrets, `${options.target}-gateway`, values, GATEWAY_SECRET_INPUTS);
   }
   return plan;
@@ -378,7 +405,11 @@ function requireGatewayConfig(plan, repository) {
     return plan.gatewayConfig;
   }
   const environment = `${plan.target}-gateway`;
-  const source = readGitHubVariable(environment, 'GATEWAY_DEPLOYMENT_CONFIG_JSON', repository);
+  const source = readGitHubVariable(
+    environment,
+    'GATEWAY_DEPLOYMENT_CONFIG_JSON',
+    repository,
+  );
   parseGatewayDeploymentConfig(source, plan.target);
   const raw = parseJsonObject(source, 'GATEWAY_DEPLOYMENT_CONFIG_JSON');
   plan.gatewayConfig = raw;
@@ -387,11 +418,7 @@ function requireGatewayConfig(plan, repository) {
 
 function readCurrentGatewayConfig(target, repository) {
   const environment = `${target}-gateway`;
-  const source = readGitHubVariable(
-    environment,
-    'GATEWAY_DEPLOYMENT_CONFIG_JSON',
-    repository,
-  );
+  const source = readGitHubVariable(environment, 'GATEWAY_DEPLOYMENT_CONFIG_JSON', repository);
   return parseGatewayDeploymentConfig(source, target);
 }
 

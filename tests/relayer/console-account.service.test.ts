@@ -1,14 +1,19 @@
 import { expect, test } from '@playwright/test';
-import { createInMemoryConsoleOrgProjectEnvService } from '../../packages/console-server-ts/src/orgProjectEnv/service';
-import { createInMemoryConsoleTeamRbacService } from '../../packages/console-server-ts/src/teamRbac/service';
 import { isConsoleAccountError } from '../../packages/console-server-ts/src/account/errors';
 import {
   parseCreateConsoleAccountOrganizationRequest,
   parsePatchConsoleAccountProfileRequest,
-  parseTransferConsoleAccountOrganizationOwnerRequest,
   parseUpdateConsoleAccountOrganizationRequest,
 } from '../../packages/console-server-ts/src/account/requests';
-import { createInMemoryConsoleAccountService } from '../../packages/console-server-ts/src/account/service';
+import {
+  createInMemoryConsoleAccountService,
+  type ConsoleAccountContext,
+} from '../../packages/console-server-ts/src/account/service';
+import { createInMemoryConsoleOrgProjectEnvService } from '../../packages/console-server-ts/src/orgProjectEnv/service';
+import {
+  createInMemoryConsoleOrganizationAccessService,
+  type ConsoleOrganizationAccessService,
+} from '../../packages/console-server-ts/src/teamRbac/service';
 
 async function expectAccountError(
   fn: () => unknown | Promise<unknown>,
@@ -23,6 +28,37 @@ async function expectAccountError(
   expect(caught).toBeTruthy();
   expect(isConsoleAccountError(caught)).toBe(true);
   expect(String((caught as { code?: unknown } | null)?.code || '')).toBe(expectedCode);
+}
+
+async function buildOwnerAccountContext(input: {
+  readonly organizationAccess: ConsoleOrganizationAccessService;
+  readonly orgId: string;
+  readonly userId: string;
+  readonly email: string;
+  readonly name: string;
+}): Promise<ConsoleAccountContext> {
+  const authorization = await input.organizationAccess.lookupAuthorization({
+    orgId: input.orgId,
+    userId: input.userId,
+  });
+  if (!authorization || authorization.kind === 'denied' || authorization.role !== 'OWNER') {
+    throw new Error('Expected an active owner authorization');
+  }
+  return {
+    userId: input.userId,
+    orgId: input.orgId,
+    email: input.email,
+    name: input.name,
+    provider: 'oidc',
+    projectId: null,
+    environmentId: null,
+    platformSupport: false,
+    membershipId: authorization.membershipId,
+    authorizationVersion: authorization.authorizationVersion,
+    role: 'OWNER',
+    adminPermissions: [...authorization.adminPermissions],
+    projectAccess: { kind: 'all' },
+  };
 }
 
 test.describe('console account parser and service semantics', () => {
@@ -79,97 +115,84 @@ test.describe('console account parser and service semantics', () => {
     ).toEqual({
       name: 'Northwind Labs Renamed',
     });
-
-    expect(
-      parseTransferConsoleAccountOrganizationOwnerRequest({
-        targetUserId: '  user_owner_target  ',
-      }),
-    ).toEqual({
-      targetUserId: 'user_owner_target',
-    });
-    await expectAccountError(
-      async () => parseTransferConsoleAccountOrganizationOwnerRequest({}),
-      'invalid_body',
-    );
   });
 
-  test('in-memory service enforces OIDC primary-email boundaries and list semantics', async () => {
+  test('loads current authorization and bootstraps each created organization owner', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const teamRbac = createInMemoryConsoleTeamRbacService();
-    const service = createInMemoryConsoleAccountService({
-      orgProjectEnv,
-      teamRbac,
-    });
-
-    const adminCtx = {
-      userId: 'user_account_service_admin',
-      orgId: 'org_account_service_current',
-      roles: ['admin'],
-      email: 'oidc-user@example.com',
-      name: 'OIDC User',
-      provider: 'oidc',
-    };
-
+    const organizationAccess = createInMemoryConsoleOrganizationAccessService();
+    const userId = 'user_account_service_owner';
+    const orgId = 'org_account_service_current';
+    const email = 'oidc-user@example.com';
+    const name = 'OIDC User';
     await orgProjectEnv.upsertOrganization(
-      {
-        orgId: adminCtx.orgId,
-        actorUserId: adminCtx.userId,
-        roles: [],
-      },
+      { orgId, actorUserId: userId },
       { name: 'Current Org', slug: 'current-org' },
     );
-    await teamRbac.bootstrapOwner({
-      orgId: adminCtx.orgId,
-      actorUserId: adminCtx.userId,
-      roles: ['owner'],
-      actorEmail: adminCtx.email,
-      actorDisplayName: adminCtx.name,
+    await organizationAccess.bootstrapInitialOwner({
+      orgId,
+      userId,
+      email,
+      displayName: name,
+    });
+    const ctx = await buildOwnerAccountContext({
+      organizationAccess,
+      orgId,
+      userId,
+      email,
+      name,
+    });
+    const service = createInMemoryConsoleAccountService({
+      orgProjectEnv,
+      organizationAccess,
     });
 
     await expectAccountError(
       async () =>
-        service.updateProfile(adminCtx, {
+        service.updateProfile(ctx, {
           primaryEmail: 'new-primary@example.com',
         }),
       'primary_email_read_only',
     );
-
-    const updated = await service.updateProfile(adminCtx, {
+    const updated = await service.updateProfile(ctx, {
       displayName: 'OIDC User Renamed',
       addBackupEmail: ' recovery@example.com ',
     });
-    expect(updated.displayName).toBe('OIDC User Renamed');
-    expect(updated.primaryEmail).toBe('oidc-user@example.com');
-    expect(updated.canEditPrimaryEmail).toBe(false);
+    expect(updated).toMatchObject({
+      displayName: 'OIDC User Renamed',
+      primaryEmail: email,
+      canEditPrimaryEmail: false,
+    });
     expect(updated.backupEmails).toHaveLength(1);
-    expect(updated.backupEmails[0]?.email).toBe('recovery@example.com');
 
-    const beforeCreate = await service.listOrganizations(adminCtx);
-    expect(beforeCreate.map((entry) => entry.id)).toEqual([adminCtx.orgId]);
-
-    await service.createOrganization(adminCtx, {
+    const created = await service.createOrganization(ctx, {
       id: 'org_account_service_created',
       name: 'Created Org',
       slug: 'created-org',
     });
+    expect(created).toMatchObject({
+      id: 'org_account_service_created',
+      role: 'OWNER',
+      projectAccess: { kind: 'all' },
+    });
+    const createdAuthorization = await organizationAccess.lookupAuthorization({
+      orgId: created.id,
+      userId,
+    });
+    expect(createdAuthorization).toMatchObject({
+      kind: 'authorized',
+      role: 'OWNER',
+    });
 
-    const generatedOrganization = await service.createOrganization(adminCtx, {
+    const generated = await service.createOrganization(ctx, {
       name: 'Generated Org',
       slug: 'generated-org',
     });
-    expect(generatedOrganization.id).toMatch(/^org_[a-z0-9]{12}$/);
+    expect(generated.id).toMatch(/^org_[a-z0-9]{12}$/);
 
-    const afterCreate = await service.listOrganizations(adminCtx);
-    expect(afterCreate.some((entry) => entry.id === adminCtx.orgId)).toBe(true);
-    expect(afterCreate.some((entry) => entry.id === 'org_account_service_created')).toBe(true);
-    expect(afterCreate.some((entry) => entry.id === generatedOrganization.id)).toBe(true);
-
-    const memberClaimsCtx = {
-      ...adminCtx,
-      roles: ['member'],
-    };
-    const asMember = await service.listOrganizations(memberClaimsCtx);
-    expect(asMember.some((entry) => entry.id === adminCtx.orgId)).toBe(false);
-    expect(asMember.some((entry) => entry.id === 'org_account_service_created')).toBe(true);
+    const organizations = await service.listOrganizations(ctx);
+    expect(organizations.map((organization) => organization.id).sort()).toEqual(
+      [orgId, created.id, generated.id].sort(),
+    );
+    expect(organizations.every((organization) => organization.role === 'OWNER')).toBe(true);
   });
 });

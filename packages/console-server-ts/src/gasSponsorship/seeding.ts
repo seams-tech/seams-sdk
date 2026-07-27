@@ -9,7 +9,6 @@ function toSnapshotContext(ctx: ConsoleOrgProjectEnvContext) {
   return {
     orgId: ctx.orgId,
     actorUserId: ctx.actorUserId,
-    roles: [...ctx.roles],
   };
 }
 
@@ -22,7 +21,6 @@ async function publishCurrentEnvironmentSnapshot(input: {
   const payload = await resolveConsoleRuntimeSnapshotPayload({
     orgId: input.ctx.orgId,
     actorUserId: input.ctx.actorUserId,
-    roles: [...input.ctx.roles],
     environmentId: input.environment.id,
     projectId: input.environment.projectId,
     policies: input.policies,
@@ -46,7 +44,6 @@ async function seedEnvironment(input: {
     ctx: {
       orgId: input.ctx.orgId,
       actorUserId: input.ctx.actorUserId,
-      roles: [...input.ctx.roles],
     },
     projectId: input.environment.projectId,
     environmentId: input.environment.id,
@@ -131,7 +128,6 @@ export async function ensureTempoOnboardingSponsorshipForAllOrganizations(input:
   runtimeSnapshots: ConsoleRuntimeSnapshotService;
   faucetContractAddress: `0x${string}`;
   actorUserId?: string;
-  roles?: string[];
 }): Promise<void> {
   const organizations = await input.orgProjectEnv.searchOrganizations({ query: '', limit: 1_000 });
   for (const organization of organizations) {
@@ -142,7 +138,6 @@ export async function ensureTempoOnboardingSponsorshipForAllOrganizations(input:
       ctx: {
         orgId: organization.id,
         actorUserId: String(input.actorUserId || 'tempo-onboarding-seed'),
-        roles: input.roles ? [...input.roles] : ['owner', 'admin'],
       },
       faucetContractAddress: input.faucetContractAddress,
     });

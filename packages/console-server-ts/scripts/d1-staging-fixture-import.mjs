@@ -48,7 +48,9 @@ const fixtureTargets = Object.freeze([
     databaseName: 'seams-signer-staging',
     configField: 'gatewayConfigPath',
     fixtureField: 'signerFixturePath',
-    allowedTableNames: readD1MigrationTableNames('../sdk-server-ts/migrations/d1-signer'),
+    allowedTableNames: readD1MigrationTableNames(
+      'node_modules/@seams/sdk-server/migrations/d1-signer',
+    ),
   }),
 ]);
 

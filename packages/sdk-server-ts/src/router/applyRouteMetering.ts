@@ -1,7 +1,7 @@
 import type { RouteExecutionContext, RouteServices, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 
-export interface RouteMeteringHandlers<TServices extends RouteServices = RouteServices> {
+export interface RouteMeteringHandlers<TServices extends object = RouteServices> {
   event?: (input: {
     action: string;
     context: RouteExecutionContext<TServices>;
@@ -16,7 +16,7 @@ export interface RouteMeteringHandlers<TServices extends RouteServices = RouteSe
   }) => Promise<void> | void;
 }
 
-export async function applyRouteMetering<TServices extends RouteServices = RouteServices>(input: {
+export async function applyRouteMetering<TServices extends object = RouteServices>(input: {
   context: RouteExecutionContext<TServices>;
   handlers?: RouteMeteringHandlers<TServices>;
   response: RouteResponse;

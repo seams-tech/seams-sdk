@@ -1,7 +1,12 @@
-import type { D1DatabaseLike } from '@seams/sdk-server/internal/storage/tenantRoute';
+import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import { createCloudflareD1ConsoleOnlyServiceBundle } from './d1ConsoleServices';
-import type { CfExecutionContext, FetchHandler } from '@seams/sdk-server/internal/router/cloudflare/cloudflare.types';
+import type {
+  CfExecutionContext,
+  CfScheduledEvent,
+  FetchHandler,
+  ScheduledHandler,
+} from '@seams/sdk-server/cloud-host';
 import {
   createConsoleSessionAuthAdapter,
   createHmacSessionAdapterFromEnv,
@@ -10,10 +15,14 @@ import {
   type CloudflareD1StagingSessionEnv,
 } from './d1StagingSession';
 import { requireStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
+import { createCloudflareCron, resolveCloudflareConsoleEmailDispatchCronOptions } from './cron';
+import type { RouterApiCloudflareConsoleWorkerEnv } from './cloudflareConsole.types';
 
-interface CloudflareD1ConsoleStagingEnv extends CloudflareD1StagingSessionEnv {
+interface CloudflareD1ConsoleStagingEnv
+  extends CloudflareD1StagingSessionEnv, RouterApiCloudflareConsoleWorkerEnv {
   readonly CONSOLE_DB: D1DatabaseLike;
   readonly SEAMS_TENANT_STORAGE_NAMESPACE?: string;
+  readonly CONSOLE_BASE_URL?: string;
   readonly CONSOLE_SESSION_HMAC_SECRET?: string;
   readonly CONSOLE_SESSION_COOKIE_NAME?: string;
   readonly CONSOLE_SESSION_ISSUER?: string;
@@ -21,9 +30,9 @@ interface CloudflareD1ConsoleStagingEnv extends CloudflareD1StagingSessionEnv {
   readonly CONSOLE_DEFAULT_ORG_ID?: string;
   readonly CONSOLE_DEFAULT_PROJECT_ID?: string;
   readonly CONSOLE_DEFAULT_ENVIRONMENT_ID?: string;
-  readonly CONSOLE_PLATFORM_ADMIN_EMAILS?: string;
+  readonly CONSOLE_PLATFORM_SUPPORT_EMAILS?: string;
   readonly STRIPE_API_SK?: string;
-  readonly STRIPE_CHECKOUT_PRICE_ID?: string;
+  readonly STRIPE_WEBHOOK_SECRET?: string;
   readonly STRIPE_API_BASE_URL?: string;
   readonly STRIPE_API_TIMEOUT_MS?: string;
 }
@@ -36,16 +45,29 @@ const CONSOLE_STAGING_READY_TABLES = Object.freeze([
   'organizations',
   'projects',
   'environments',
-  'team_members',
+  'organization_memberships',
+  'organization_admin_permissions',
+  'organization_invitations',
+  'project_member_access',
+  'organization_owner_events',
   'billing_accounts',
   'billing_prepaid_reservations',
+  'billing_stripe_post_processing_outbox',
   'sponsorship_pricing_rules',
   'sponsored_call_records',
   'runtime_snapshot_outbox',
+  'console_email_outbox',
+  'console_email_deliveries',
 ]);
 
 async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise<FetchHandler> {
   const namespace = requireEnvString(env, 'SEAMS_TENANT_STORAGE_NAMESPACE');
+  const emailDispatch = resolveCloudflareConsoleEmailDispatchCronOptions({
+    env,
+    database: env.CONSOLE_DB,
+    namespace,
+    ensureSchema: false,
+  });
   const bundle = await createCloudflareD1ConsoleOnlyServiceBundle({
     bindings: {
       consoleDatabase: env.CONSOLE_DB,
@@ -56,6 +78,11 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
     adapters: {
       ensureSchema: false,
       billingProviders: requireStripeBillingProviderAdaptersFromEnv(env),
+      billingEmailConsoleBaseUrl: requireEnvString(env, 'CONSOLE_BASE_URL'),
+      organizationEmail: {
+        invitationSecretCipher: emailDispatch.invitationSecretCipher,
+        consoleBaseUrl: requireEnvString(env, 'CONSOLE_BASE_URL'),
+      },
     },
   });
   const session = createHmacSessionAdapterFromEnv({
@@ -67,11 +94,11 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
   });
   const auth = createConsoleSessionAuthAdapter({
     session,
-    teamRbac: bundle.teamRbac,
+    organizationAccess: bundle.organizationAccess,
     defaultOrgId: readEnvString(env, 'CONSOLE_DEFAULT_ORG_ID'),
     defaultProjectId: readEnvString(env, 'CONSOLE_DEFAULT_PROJECT_ID'),
     defaultEnvironmentId: readEnvString(env, 'CONSOLE_DEFAULT_ENVIRONMENT_ID'),
-    platformAdminEmails: readEnvString(env, 'CONSOLE_PLATFORM_ADMIN_EMAILS'),
+    platformSupportEmails: readEnvString(env, 'CONSOLE_PLATFORM_SUPPORT_EMAILS'),
   });
   return createCloudflareConsoleRouter({
     ...bundle.consoleRouterOptions,
@@ -79,6 +106,7 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
     readyz: true,
     auth,
     readyCheck: createConsoleReadyCheck(env),
+    billingStripeWebhookSigningSecret: requireEnvString(env, 'STRIPE_WEBHOOK_SECRET'),
   });
 }
 
@@ -144,4 +172,25 @@ async function fetch(
   return await handler(request, env, ctx);
 }
 
-export default { fetch };
+function consoleScheduledHandler(env: CloudflareD1ConsoleStagingEnv): ScheduledHandler {
+  const namespace = requireEnvString(env, 'SEAMS_TENANT_STORAGE_NAMESPACE');
+  return createCloudflareCron({
+    consoleEmailDispatch: resolveCloudflareConsoleEmailDispatchCronOptions({
+      env,
+      database: env.CONSOLE_DB,
+      namespace,
+      ensureSchema: false,
+    }),
+  });
+}
+
+async function scheduled(
+  event: CfScheduledEvent,
+  env: CloudflareD1ConsoleStagingEnv,
+  ctx: CfExecutionContext,
+): Promise<void> {
+  const handler = consoleScheduledHandler(env);
+  await handler(event, env, ctx);
+}
+
+export default { fetch, scheduled };

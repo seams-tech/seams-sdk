@@ -6,8 +6,7 @@ export type BillingInvoiceLineItemType =
   | 'MAW_USAGE_DEBIT'
   | 'SPONSORED_EXECUTION_DEBIT'
   | 'MANUAL_ADJUSTMENT';
-export type BillingCreditPackId = 'usd_10' | 'usd_25' | 'usd_50' | 'usd_custom';
-export type BillingCreditPurchaseStatus = 'PENDING' | 'SETTLED' | 'CANCELED';
+export type BillingCreditPackId = 'usd_10' | 'usd_25' | 'usd_50';
 export type BillingLiveEnvironmentState = 'HEALTHY' | 'LOW_BALANCE' | 'BLOCKED';
 export type BillingLedgerEntryType =
   | 'CREDIT_PURCHASE'
@@ -15,42 +14,85 @@ export type BillingLedgerEntryType =
   | 'SPONSORED_EXECUTION_DEBIT'
   | 'MANUAL_ADJUSTMENT'
   | 'REFUND'
-  | 'REVERSAL';
+  | 'DISPUTE_OPENED'
+  | 'DISPUTE_WON';
+export type BillingLedgerPostingDirection = 'DEBIT' | 'CREDIT';
+export type BillingLedgerAccountCode =
+  | 'org_prepaid_liability'
+  | 'stripe_cash_clearing'
+  | 'revenue_usage'
+  | 'revenue_sponsored_execution'
+  | 'manual_adjustment_clearing'
+  | 'stripe_dispute_clearing';
 
 export interface BillingCreditPack {
-  id: Exclude<BillingCreditPackId, 'usd_custom'>;
+  id: BillingCreditPackId;
   label: string;
   description: string;
   amountMinor: number;
 }
 
-export interface BillingOverview {
-  usageMetricVersion: BillingUsageMetricVersion;
-  currentMonthUtc: string;
-  monthlyActiveWallets: number;
-  creditBalanceMinor: number;
-  lowBalanceThresholdMinor: number;
-  liveEnvironmentState: BillingLiveEnvironmentState;
-  recentUsageDebitMinor: number;
-  recentCreditPurchasedMinor: number;
-  documentCount: number;
-}
-
-export interface BillingCreditPurchase {
+interface BillingCreditPurchaseBase {
   id: string;
   orgId: string;
   creditPackId: BillingCreditPackId;
-  status: BillingCreditPurchaseStatus;
   amountMinor: number;
   currency: 'USD';
   provider: 'stripe';
-  providerCheckoutSessionRef: string;
-  providerCustomerRef: string | null;
-  relatedInvoiceId: string | null;
-  settledAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export type BillingCreditPurchase =
+  | (BillingCreditPurchaseBase & {
+      status: 'PENDING';
+      providerCheckoutSessionRef: string | null;
+      providerCustomerRef: string | null;
+      providerPaymentRef: null;
+      relatedInvoiceId: null;
+      settledAt: null;
+    })
+  | (BillingCreditPurchaseBase & {
+      status: 'SETTLED';
+      providerCheckoutSessionRef: string;
+      providerCustomerRef: string;
+      providerPaymentRef: string;
+      relatedInvoiceId: string;
+      settledAt: string;
+    })
+  | (BillingCreditPurchaseBase & {
+      status: 'CANCELED';
+      providerCheckoutSessionRef: string | null;
+      providerCustomerRef: string | null;
+      providerPaymentRef: null;
+      relatedInvoiceId: null;
+      settledAt: null;
+    });
+
+export type BillingCreditPurchaseStatus = BillingCreditPurchase['status'];
+
+export interface BillingLedgerDebitPosting {
+  id: string;
+  ledgerEntryId: string;
+  accountCode: BillingLedgerAccountCode;
+  direction: 'DEBIT';
+  amountMinor: number;
+  createdAt: string;
+}
+
+export interface BillingLedgerCreditPosting {
+  id: string;
+  ledgerEntryId: string;
+  accountCode: BillingLedgerAccountCode;
+  direction: 'CREDIT';
+  amountMinor: number;
+  createdAt: string;
+}
+
+export type BillingBalancedPostings = readonly [
+  BillingLedgerDebitPosting,
+  BillingLedgerCreditPosting,
+];
 
 export interface BillingLedgerEntry {
   id: string;
@@ -68,11 +110,24 @@ export interface BillingLedgerEntry {
   reasonCode: string | null;
   note: string | null;
   idempotencyKey: string | null;
+  postings: BillingBalancedPostings;
   createdAt: string;
 }
 
 export interface BillingSponsoredExecutionDebitEntry extends BillingLedgerEntry {
   type: 'SPONSORED_EXECUTION_DEBIT';
+}
+
+export interface BillingOverview {
+  usageMetricVersion: BillingUsageMetricVersion;
+  currentMonthUtc: string;
+  monthlyActiveWallets: number;
+  creditBalanceMinor: number;
+  lowBalanceThresholdMinor: number;
+  liveEnvironmentState: BillingLiveEnvironmentState;
+  recentUsageDebitMinor: number;
+  recentCreditPurchasedMinor: number;
+  documentCount: number;
 }
 
 export type BillingUsageAction =
@@ -242,15 +297,118 @@ export interface BillingAccountActivityResult {
   entries: BillingLedgerEntry[];
 }
 
+export interface BillingRefundRequest {
+  purchaseId: string;
+  amountMinor: number;
+  reason: string;
+  idempotencyKey: string;
+}
+
+export interface BillingRefundReconcileRequest {
+  refundId: string;
+}
+
+interface BillingRefundBase {
+  id: string;
+  orgId: string;
+  purchaseId: string;
+  amountMinor: number;
+  currency: 'USD';
+  reason: string;
+  origin: 'console' | 'provider';
+  requesterUserId: string;
+  idempotencyKey: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type BillingRefund =
+  | (BillingRefundBase & {
+      status: 'requested';
+      providerRefundId: null;
+      failureCode: null;
+      journalEntryId: null;
+    })
+  | (BillingRefundBase & {
+      status: 'provider_pending';
+      providerRefundId: string;
+      failureCode: null;
+      journalEntryId: null;
+    })
+  | (BillingRefundBase & {
+      status: 'succeeded';
+      providerRefundId: string;
+      failureCode: null;
+      journalEntryId: string;
+    })
+  | (BillingRefundBase & {
+      status: 'failed';
+      providerRefundId: string | null;
+      failureCode: string;
+      journalEntryId: null;
+    })
+  | (BillingRefundBase & {
+      status: 'canceled';
+      providerRefundId: string;
+      failureCode: null;
+      journalEntryId: null;
+    });
+
+export type BillingRefundStatus = BillingRefund['status'];
+
+export interface BillingRefundResult {
+  created: boolean;
+  refund: BillingRefund;
+  creditBalanceMinor: number;
+}
+
+export type BillingDisputeStatus = 'open' | 'won' | 'lost';
+
+export type BillingDispute =
+  | {
+      id: string;
+      orgId: string;
+      purchaseId: string;
+      providerDisputeId: string;
+      amountMinor: number;
+      status: 'open';
+      openedJournalEntryId: string;
+      resolutionJournalEntryId: null;
+      createdAt: string;
+      updatedAt: string;
+    }
+  | {
+      id: string;
+      orgId: string;
+      purchaseId: string;
+      providerDisputeId: string;
+      amountMinor: number;
+      status: 'won';
+      openedJournalEntryId: string;
+      resolutionJournalEntryId: string;
+      createdAt: string;
+      updatedAt: string;
+    }
+  | {
+      id: string;
+      orgId: string;
+      purchaseId: string;
+      providerDisputeId: string;
+      amountMinor: number;
+      status: 'lost';
+      openedJournalEntryId: string;
+      resolutionJournalEntryId: null;
+      createdAt: string;
+      updatedAt: string;
+    };
+
 export interface StripeCheckoutSessionRequest {
-  successUrl: string;
-  cancelUrl: string;
   creditPackId: BillingCreditPackId;
-  customAmountMinor?: number;
 }
 
 export interface StripeCheckoutSession {
   id: string;
+  purchaseId: string;
   url: string;
   customerRef: string;
   creditPackId: BillingCreditPackId;
@@ -262,14 +420,75 @@ export interface StripeCheckoutSessionReconcileRequest {
   checkoutSessionId: string;
 }
 
-export interface StripeWebhookEventRequest {
-  eventId: string;
-  eventType?: 'checkout.session.completed';
-  orgId?: string;
-  providerCustomerRef?: string;
-  checkoutSessionId?: string;
-  providerRef?: string;
+export type StripeProviderRefundStatus = 'pending' | 'succeeded' | 'failed' | 'canceled';
+
+export interface StripeRefundEventItem {
+  providerRefundId: string;
+  refundId: string | null;
+  purchaseId: string | null;
+  orgId: string | null;
+  providerPaymentRef: string;
+  amountMinor: number;
+  status: StripeProviderRefundStatus;
+  reason: string;
+  failureCode: string | null;
 }
+
+export type StripeWebhookEventRequest =
+  | {
+      eventId: string;
+      eventType: 'checkout.session.completed';
+      orgId: string | null;
+      providerCustomerRef: string | null;
+      checkoutSessionId: string;
+      providerPaymentRef: string;
+      providerRef: string;
+      purchaseId: string;
+      creditPackId: BillingCreditPackId;
+      amountMinor: number;
+      currency: 'USD';
+      paymentStatus: 'paid';
+    }
+  | {
+      eventId: string;
+      eventType: 'checkout.session.expired';
+      orgId: string | null;
+      checkoutSessionId: string;
+      providerRef: string;
+      purchaseId: string;
+    }
+  | {
+      eventId: string;
+      eventType: 'refund.created' | 'refund.updated';
+      refund: StripeRefundEventItem;
+    }
+  | {
+      eventId: string;
+      eventType: 'charge.refunded';
+      orgId: string | null;
+      purchaseId: string | null;
+      providerPaymentRef: string;
+      refunds: readonly StripeRefundEventItem[];
+    }
+  | {
+      eventId: string;
+      eventType: 'charge.dispute.created';
+      orgId: string | null;
+      purchaseId: string | null;
+      providerPaymentRef: string;
+      providerDisputeId: string;
+      amountMinor: number;
+    }
+  | {
+      eventId: string;
+      eventType: 'charge.dispute.closed';
+      orgId: string | null;
+      purchaseId: string | null;
+      providerPaymentRef: string;
+      providerDisputeId: string;
+      amountMinor: number;
+      outcome: 'won' | 'lost';
+    };
 
 export interface StripeCheckoutSessionReconcileResult {
   settled: boolean;
@@ -285,5 +504,7 @@ export interface StripeWebhookEventResult {
   accepted: boolean;
   purchase: BillingCreditPurchase | null;
   invoice: BillingInvoice | null;
+  refunds: BillingRefund[];
+  dispute: BillingDispute | null;
   orgId: string | null;
 }

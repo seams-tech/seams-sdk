@@ -5,32 +5,28 @@ import type {
   BillingAccountActivityResult,
   BillingManualAdjustmentRequest,
   BillingOverview,
+  BillingRefund,
+  BillingRefundReconcileRequest,
+  BillingRefundRequest,
 } from '@seams-internal/console-server/billing/types';
 import {
   parseBillingAccountActivityRequest,
   parseBillingManualAdjustmentRequest,
+  parseBillingRefundReconcileRequest,
+  parseBillingRefundRequest,
 } from '@seams-internal/console-server/billing/requests';
-import type {
-  ConsoleOrgProjectEnvService,
-} from '@seams-internal/console-server/orgProjectEnv/service';
+import type { ConsoleOrgProjectEnvService } from '@seams-internal/console-server/orgProjectEnv/service';
 import type {
   ConsoleOrganization,
   ConsoleProject,
 } from '@seams-internal/console-server/orgProjectEnv/types';
-import type {
-  ConsoleTeamRbacService,
-} from '@seams-internal/console-server/teamRbac/service';
-import type {
-  ConsoleTeamMember,
-  ConsoleTeamMembershipStatus,
-} from '@seams-internal/console-server/teamRbac/types';
 import {
   readRequiredStringField,
   readOptionalQueryStringField,
   requireBodyObject,
   requireQueryObject,
 } from '@seams-internal/console-server/shared/requestParse';
-import type { ConsoleAuthClaims } from '@seams/sdk-server/internal/router/consoleAuth';
+import type { ConsoleAuthClaims } from './consoleAuth';
 
 function createParseError(code: string, status: number, message: string): ConsoleBillingError {
   return new ConsoleBillingError(code, status, message);
@@ -42,14 +38,12 @@ function toPlatformLookupReadContext(
 ): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 } {
   return {
     orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
   };
@@ -61,12 +55,10 @@ function toPlatformBillingContext(
 ): {
   orgId: string;
   actorUserId: string;
-  roles: string[];
 } {
   return {
     orgId,
     actorUserId: claims.userId,
-    roles: claims.roles,
   };
 }
 
@@ -87,23 +79,7 @@ export interface PlatformBillingLookupResult {
   project: ConsoleProject | null;
   overview: BillingOverview;
   activity: BillingAccountActivityResult;
-  teamMembers: PlatformBillingOrganizationMember[];
-}
-
-export type PlatformBillingOrganizationMemberAccess = 'OWNER' | 'ADMIN' | 'MEMBER';
-export type PlatformBillingOrganizationMemberStatus = Exclude<
-  ConsoleTeamMembershipStatus,
-  'REMOVED'
->;
-
-export interface PlatformBillingOrganizationMember {
-  id: string;
-  userId: string;
-  email: string;
-  displayName: string;
-  status: PlatformBillingOrganizationMemberStatus;
-  access: PlatformBillingOrganizationMemberAccess;
-  addedAt: string;
+  refunds: BillingRefund[];
 }
 
 const DEFAULT_PLATFORM_BILLING_ORGANIZATION_SEARCH_LIMIT = 10;
@@ -118,6 +94,14 @@ function normalizePlatformBillingSearchLimit(limit: unknown): number {
 }
 
 export interface PlatformBillingManualAdjustmentRequest extends BillingManualAdjustmentRequest {
+  orgId: string;
+}
+
+export interface PlatformBillingRefundRequest extends BillingRefundRequest {
+  orgId: string;
+}
+
+export interface PlatformBillingRefundReconcileRequest extends BillingRefundReconcileRequest {
   orgId: string;
 }
 
@@ -161,11 +145,28 @@ export function parsePlatformBillingManualAdjustmentRequest(
   };
 }
 
+export function parsePlatformBillingRefundRequest(body: unknown): PlatformBillingRefundRequest {
+  const obj = requireBodyObject(body, createParseError);
+  return {
+    orgId: readRequiredStringField(obj, 'orgId', createParseError).trim(),
+    ...parseBillingRefundRequest(body),
+  };
+}
+
+export function parsePlatformBillingRefundReconcileRequest(
+  body: unknown,
+): PlatformBillingRefundReconcileRequest {
+  const obj = requireBodyObject(body, createParseError);
+  return {
+    orgId: readRequiredStringField(obj, 'orgId', createParseError).trim(),
+    ...parseBillingRefundReconcileRequest(body),
+  };
+}
+
 export async function resolvePlatformBillingLookup(input: {
   claims: ConsoleAuthClaims;
   billing: ConsoleBillingService;
   orgProjectEnv: ConsoleOrgProjectEnvService;
-  teamRbac: ConsoleTeamRbacService;
   request: PlatformBillingLookupRequest;
 }): Promise<PlatformBillingLookupResult> {
   const requestedOrgId = String(input.request.orgId || '').trim();
@@ -221,22 +222,10 @@ export async function resolvePlatformBillingLookup(input: {
   }
 
   const billingCtx = toPlatformBillingContext(input.claims, targetOrgId);
-  const listOrganizationMembers = input.teamRbac.listOrganizationMembers;
-  if (typeof listOrganizationMembers !== 'function') {
-    throw new ConsoleBillingError(
-      'team_rbac_platform_lookup_not_supported',
-      501,
-      'Platform billing team member lookup is not configured on this server',
-    );
-  }
-  const [overview, activity, teamMembers] = await Promise.all([
+  const [overview, activity, refunds] = await Promise.all([
     input.billing.getOverview(billingCtx),
     input.billing.listAccountActivity(billingCtx, input.request.activity),
-    listOrganizationMembers(targetOrgId).then((members) =>
-      members
-        .filter((member): member is ConsoleTeamMember & { status: PlatformBillingOrganizationMemberStatus } => member.status !== 'REMOVED')
-        .map(toPlatformBillingOrganizationMember),
-    ),
+    input.billing.listRefunds(billingCtx),
   ]);
 
   return {
@@ -245,31 +234,7 @@ export async function resolvePlatformBillingLookup(input: {
     project,
     overview,
     activity,
-    teamMembers,
-  };
-}
-
-function toPlatformBillingOrganizationMemberAccess(
-  member: ConsoleTeamMember,
-): PlatformBillingOrganizationMemberAccess {
-  if (member.roles.some((entry) => entry.role === 'owner')) return 'OWNER';
-  if (member.roles.some((entry) => entry.role === 'admin' || entry.role === 'admin_manage_admins' || entry.role === 'admin_manage_members')) {
-    return 'ADMIN';
-  }
-  return 'MEMBER';
-}
-
-function toPlatformBillingOrganizationMember(
-  member: ConsoleTeamMember & { status: PlatformBillingOrganizationMemberStatus },
-): PlatformBillingOrganizationMember {
-  return {
-    id: member.id,
-    userId: member.userId,
-    email: member.email,
-    displayName: String(member.displayName || '').trim() || member.email || member.userId,
-    status: member.status,
-    access: toPlatformBillingOrganizationMemberAccess(member),
-    addedAt: member.status === 'INVITED' ? member.invitedAt : member.createdAt,
+    refunds,
   };
 }
 

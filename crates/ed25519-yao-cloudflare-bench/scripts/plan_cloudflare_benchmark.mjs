@@ -27,7 +27,7 @@ import { inspectWorkerArtifacts } from '../../ed25519-yao/scripts/check_constant
 
 const PACKAGE_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const DEFAULT_WRANGLER = fileURLToPath(
-  new URL('../../../packages/console-server-ts/node_modules/.bin/wrangler', import.meta.url),
+  new URL('../../../node_modules/.bin/wrangler', import.meta.url),
 );
 const PROFILE_OVERRIDING_CREDENTIALS = Object.freeze([
   'CLOUDFLARE_API_TOKEN',

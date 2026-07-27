@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams-internal/shared-ts/utils/secureRandomId';
+import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
 import type { WebhookDispatchRequest, WebhookDispatchResult } from './service';
 import {
   normalizeConsoleWebhookEventCategory,

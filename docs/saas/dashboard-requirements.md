@@ -166,9 +166,8 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Financial correctness: invoice balances, credits, and payment settlement states remain consistent and auditable.
 - Runtime snapshot contract for relay/runtime consumers uses full versioned per-environment snapshots.
 - Enterprise isolation is supported via manual enterprise/compliance trigger with target SLO `99.95%`, `RPO 15m`, `RTO 4h`.
-- Role scope model is hybrid:
-  - org-scoped roles: `owner`, `admin`, `security_admin`, `billing_admin`
-  - project-scoped roles: `developer`, `support`, `ops`
+- Organization access uses one or more equal owners, administrators with the four
+  fixed permissions, and members with per-project `viewer` or `editor` access.
 - Data retention defaults:
   - Runtime + webhook data: `180` days hot retention + `2` years archive.
   - Billing + payments + audit data: `7` years retention.

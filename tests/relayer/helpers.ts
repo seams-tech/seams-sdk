@@ -1,5 +1,6 @@
 import type { Server } from 'node:http';
 import http from 'node:http';
+import type { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import expressImport from 'express';
 import type { SessionAdapter } from '@server/router/express-adaptor';
@@ -32,12 +33,21 @@ const express: ExpressLike = (() => {
   return expressImport as unknown as ExpressLike;
 })();
 
+function captureRawJsonBody(
+  req: unknown,
+  _res: unknown,
+  buffer: Buffer,
+): void {
+  if (!req || typeof req !== 'object') return;
+  (req as { rawBody?: Uint8Array }).rawBody = Uint8Array.from(buffer);
+}
+
 export async function startExpressRouter(router: unknown): Promise<{
   baseUrl: string;
   close: () => Promise<void>;
 }> {
   const app = express();
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '1mb', verify: captureRawJsonBody }));
   app.use(router);
 
   const server: Server = http.createServer(app);

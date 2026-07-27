@@ -32,6 +32,7 @@ import {
 } from './routeAuthPolicy';
 import {
   ROUTE_SERVICE_KEYS,
+  type CoreRouteServiceKey,
   type RouteMethod,
   type RouteServiceKey,
 } from './routeExecutionContext';
@@ -39,7 +40,7 @@ import type { RouteMeteringPolicy } from './routeMeteringPolicy';
 
 export interface RouteDefinition {
   id: string;
-  surface: 'console' | 'relay';
+  surface: 'relay';
   method: RouteMethod;
   path: string;
   aliases?: readonly string[];
@@ -59,67 +60,13 @@ export interface RouterApiRouteDefinitionOptions {
   sessionStatePath?: string;
 }
 
-const CONSOLE_CONFIG_MUTATION_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['owner', 'admin', 'security_admin'];
-const CONSOLE_ORG_PROJECT_ENV_MUTATION_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['owner', 'admin'];
-const CONSOLE_BILLING_OPERATOR_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['admin', 'ops'];
-const CONSOLE_TEAM_RBAC_MUTATION_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['owner', 'admin'];
-const CONSOLE_APPROVAL_MUTATION_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['owner', 'admin', 'security_admin'];
-const CONSOLE_POLICY_MUTATION_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['owner', 'admin', 'security_admin'];
-const CONSOLE_KEY_EXPORT_REQUEST_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['owner', 'admin', 'security_admin'];
-const CONSOLE_KEY_EXPORT_APPROVAL_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['admin'];
-const CONSOLE_API_KEY_MUTATION_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['owner', 'admin', 'security_admin'];
-const CONSOLE_ENTERPRISE_ISOLATION_MUTATION_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['owner', 'admin'];
-const CONSOLE_INVOICE_GENERATION_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['admin', 'ops'];
-const CONSOLE_PLATFORM_BILLING_ADJUSTMENT_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['platform_admin'];
-const CONSOLE_ONBOARDING_TELEMETRY_READ_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['admin', 'ops'];
-const CONSOLE_OPS_COCKPIT_READ_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['owner', 'admin', 'security_admin', 'ops'];
-const CONSOLE_AUDIT_READ_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['owner', 'admin', 'security_admin', 'ops'];
-const CONSOLE_WALLET_READ_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['owner', 'admin', 'security_admin', 'ops', 'support'];
-const CONSOLE_BILLING_READ_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['owner', 'admin', 'billing_admin', 'ops'];
-const CONSOLE_OBSERVABILITY_READ_ROLES: NonNullable<
-  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
-> = ['owner', 'admin', 'security_admin', 'ops', 'support'];
 const API_CREDENTIAL_TYPE_SET = new Set<string>(API_CREDENTIAL_TYPES);
 const API_CREDENTIAL_ROUTE_SCOPE_SET = new Set<string>(API_CREDENTIAL_ROUTE_SCOPES);
 const PUBLIC_PROOF_TYPE_SET = new Set<string>(PUBLIC_PROOF_TYPES);
 const ROUTE_SERVICE_KEY_SET = new Set<string>(ROUTE_SERVICE_KEYS);
 
-const ROUTER_API_ROUTER_SERVICE = ['router'] as const satisfies readonly RouteServiceKey[];
-const ROUTER_API_WELL_KNOWN_SERVICES = [] as const satisfies readonly RouteServiceKey[];
+const ROUTER_API_ROUTER_SERVICE = ['router'] as const satisfies readonly CoreRouteServiceKey[];
+const ROUTER_API_WELL_KNOWN_SERVICES = [] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_WALLET_REGISTRATION_SERVICES = [
   'walletRegistration',
   'walletAuthMethods',
@@ -127,81 +74,81 @@ const ROUTER_API_WALLET_REGISTRATION_SERVICES = [
   'sessionVersions',
   'webAuthn',
   'nearFunding',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES = [
   ...ROUTER_API_WALLET_REGISTRATION_SERVICES,
   'session',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_AUTH_PROVIDER_SERVICES = [
   'webAuthn',
   'identity',
-] as const satisfies readonly RouteServiceKey[];
-const ROUTER_API_SYNC_ACCOUNT_SERVICES = ['webAuthn'] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
+const ROUTER_API_SYNC_ACCOUNT_SERVICES = ['webAuthn'] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_ED25519_WALLET_SESSION_SERVICES = [
   'walletRegistration',
   'webAuthn',
   'thresholdRuntime',
   'session',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_THRESHOLD_RUNTIME_SERVICES = [
   'thresholdRuntime',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_THRESHOLD_SESSION_SERVICES = [
   'thresholdRuntime',
   'session',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES = [
   'thresholdRuntime',
   'webAuthn',
   'sessionVersions',
   'emailOtp',
   'session',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_WEBAUTHN_AUTHENTICATOR_SERVICES = [
   'webAuthn',
   'sessionVersions',
   'session',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_NEAR_PUBLIC_KEY_SERVICES = [
   'nearFunding',
   'sessionVersions',
   'session',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_SESSION_EXCHANGE_SERVICES = [
   'identity',
   'emailOtp',
   'webAuthn',
   'sessionVersions',
   'session',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_SESSION_VERSION_SERVICES = [
   'sessionVersions',
   'session',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_WALLET_UNLOCK_SERVICES = [
   'walletUnlock',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_EMAIL_OTP_SESSION_SERVICES = [
   'emailOtp',
   'session',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_EMAIL_OTP_PUBLIC_SERVICES = [
   'emailOtp',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_AUTH_IDENTITY_SERVICES = [
   'identity',
   'sessionVersions',
   'webAuthn',
   'emailOtp',
   'session',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_EMAIL_RECOVERY_AUTH_SERVICES = [
   'emailRecoveryAuth',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_RECOVER_EMAIL_SERVICES = [
   'recovery',
   'emailRecoveryExecution',
-] as const satisfies readonly RouteServiceKey[];
+] as const satisfies readonly CoreRouteServiceKey[];
 function normalizeAliases(
   path: string,
   aliases: readonly string[] | undefined,
@@ -221,6 +168,7 @@ function normalizeAliases(
 function normalizeRequiredServices(
   id: string,
   requiredServices: readonly RouteServiceKey[] | undefined,
+  allowExtensionServices: boolean,
 ): readonly RouteServiceKey[] | undefined {
   if (!requiredServices || requiredServices.length === 0) return undefined;
   const seen = new Set<string>();
@@ -230,7 +178,7 @@ function normalizeRequiredServices(
     if (!value) {
       throw new Error(`route definition requiredServices must contain non-empty values for ${id}`);
     }
-    if (!ROUTE_SERVICE_KEY_SET.has(value)) {
+    if (!allowExtensionServices && !ROUTE_SERVICE_KEY_SET.has(value)) {
       throw new Error(
         `route definition requiredServices contains unknown service ${value} for ${id}`,
       );
@@ -313,6 +261,17 @@ function normalizeAuthPolicy(id: string, auth: RouteAuthPolicy): RouteAuthPolicy
 }
 
 export function defineRoute(definition: RouteDefinition): RouteDefinition {
+  return normalizeRouteDefinition(definition, false);
+}
+
+export function defineRouteExtension(definition: RouteDefinition): RouteDefinition {
+  return normalizeRouteDefinition(definition, true);
+}
+
+function normalizeRouteDefinition(
+  definition: RouteDefinition,
+  allowExtensionServices: boolean,
+): RouteDefinition {
   const id = String(definition.id || '').trim();
   const path = String(definition.path || '').trim();
   const summary = String(definition.summary || '').trim();
@@ -328,7 +287,11 @@ export function defineRoute(definition: RouteDefinition): RouteDefinition {
     path,
     aliases,
     summary,
-    requiredServices: normalizeRequiredServices(id, definition.requiredServices),
+    requiredServices: normalizeRequiredServices(
+      id,
+      definition.requiredServices,
+      allowExtensionServices,
+    ),
   });
 }
 
@@ -474,929 +437,6 @@ function apiCredentialRoute(
     requiredServices,
     summary,
   });
-}
-
-function consoleRoute(
-  id: string,
-  method: RouteMethod,
-  path: string,
-  summary: string,
-  options: {
-    aliases?: readonly string[];
-    forbiddenMessage?: string;
-    requiredServices?: readonly RouteServiceKey[];
-    roles?: Extract<RouteAuthPolicy, { plane: 'console' }>['roles'];
-  } = {},
-): RouteDefinition {
-  return defineRoute({
-    id,
-    surface: 'console',
-    method,
-    path,
-    aliases: options.aliases,
-    auth: {
-      plane: 'console',
-      ...(options.roles && options.roles.length > 0 ? { roles: [...options.roles] } : {}),
-      ...(options.forbiddenMessage ? { forbiddenMessage: options.forbiddenMessage } : {}),
-    },
-    metering: { kind: 'none' },
-    requiredServices: options.requiredServices,
-    summary,
-  });
-}
-
-export function createConsoleRouteDefinitions(): RouteDefinition[] {
-  return [
-    consoleRoute('console_session_get', 'GET', '/console/session', 'Read console session'),
-    consoleRoute(
-      'console_account_profile_get',
-      'GET',
-      '/console/account/profile',
-      'Read account profile',
-      {
-        requiredServices: ['account'],
-      },
-    ),
-    consoleRoute(
-      'console_account_profile_patch',
-      'PATCH',
-      '/console/account/profile',
-      'Update account profile',
-      {
-        requiredServices: ['account'],
-      },
-    ),
-    consoleRoute(
-      'console_account_organizations_list',
-      'GET',
-      '/console/account/organizations',
-      'List account organizations',
-      {
-        requiredServices: ['account'],
-      },
-    ),
-    consoleRoute(
-      'console_account_organizations_create',
-      'POST',
-      '/console/account/organizations',
-      'Create account organization',
-      {
-        requiredServices: ['account'],
-      },
-    ),
-    consoleRoute(
-      'console_account_organizations_update',
-      'PATCH',
-      '/console/account/organizations/:orgId',
-      'Update account organization',
-      {
-        requiredServices: ['account'],
-      },
-    ),
-    consoleRoute(
-      'console_account_organizations_delete',
-      'DELETE',
-      '/console/account/organizations/:orgId',
-      'Delete account organization',
-      {
-        requiredServices: ['account'],
-      },
-    ),
-    consoleRoute(
-      'console_account_organizations_transfer_owner',
-      'POST',
-      '/console/account/organizations/:orgId/transfer-owner',
-      'Transfer account organization owner',
-      {
-        requiredServices: ['account'],
-      },
-    ),
-    consoleRoute(
-      'console_account_organizations_switch_context',
-      'POST',
-      '/console/account/organizations/:orgId/switch-context',
-      'Switch account organization context',
-      {
-        requiredServices: ['account', 'session'],
-      },
-    ),
-    consoleRoute(
-      'console_onboarding_state_get',
-      'GET',
-      '/console/onboarding/state',
-      'Read onboarding state',
-      {
-        requiredServices: ['onboarding'],
-      },
-    ),
-    consoleRoute(
-      'console_onboarding_telemetry_get',
-      'GET',
-      '/console/onboarding/telemetry',
-      'Read onboarding telemetry',
-      {
-        roles: CONSOLE_ONBOARDING_TELEMETRY_READ_ROLES,
-        forbiddenMessage: 'Only admin or ops can view onboarding telemetry',
-        requiredServices: ['onboarding'],
-      },
-    ),
-    consoleRoute(
-      'console_ops_cockpit_summary_get',
-      'GET',
-      '/console/ops-cockpit/summary',
-      'Read ops cockpit summary',
-      {
-        roles: CONSOLE_OPS_COCKPIT_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, security_admin, or ops can view ops cockpit',
-      },
-    ),
-    consoleRoute('console_org_get', 'GET', '/console/org', 'Read organization', {
-      requiredServices: ['orgProjectEnv'],
-    }),
-    consoleRoute('console_projects_list', 'GET', '/console/projects', 'List projects', {
-      requiredServices: ['orgProjectEnv'],
-    }),
-    consoleRoute('console_environments_list', 'GET', '/console/environments', 'List environments', {
-      requiredServices: ['orgProjectEnv'],
-    }),
-    consoleRoute('console_members_list', 'GET', '/console/members', 'List team members', {
-      requiredServices: ['teamRbac'],
-    }),
-    consoleRoute('console_approvals_list', 'GET', '/console/approvals', 'List approval requests', {
-      requiredServices: ['approvals'],
-    }),
-    consoleRoute('console_approvals_get', 'GET', '/console/approvals/:id', 'Get approval request', {
-      requiredServices: ['approvals'],
-    }),
-    consoleRoute('console_audit_events_list', 'GET', '/console/audit/events', 'List audit events', {
-      roles: CONSOLE_AUDIT_READ_ROLES,
-      forbiddenMessage: 'Only owner, admin, security_admin, or ops can view audit events',
-      requiredServices: ['audit'],
-    }),
-    consoleRoute(
-      'console_audit_evidence_list',
-      'GET',
-      '/console/audit/evidence',
-      'List audit evidence',
-      {
-        roles: CONSOLE_AUDIT_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, security_admin, or ops can view audit evidence',
-        requiredServices: ['audit'],
-      },
-    ),
-    consoleRoute(
-      'console_audit_exports_list',
-      'GET',
-      '/console/audit/exports',
-      'List audit exports',
-      {
-        roles: CONSOLE_AUDIT_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, security_admin, or ops can view audit exports',
-        requiredServices: ['auditExports'],
-      },
-    ),
-    consoleRoute(
-      'console_audit_exports_get',
-      'GET',
-      '/console/audit/exports/:id',
-      'Get audit export',
-      {
-        roles: CONSOLE_AUDIT_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, security_admin, or ops can view audit exports',
-        requiredServices: ['auditExports'],
-      },
-    ),
-    consoleRoute(
-      'console_isolation_status_get',
-      'GET',
-      '/console/isolation/status',
-      'Read enterprise isolation status',
-      {
-        requiredServices: ['enterpriseIsolation'],
-      },
-    ),
-    consoleRoute('console_wallets_list', 'GET', '/console/wallets', 'List wallets', {
-      roles: CONSOLE_WALLET_READ_ROLES,
-      forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view wallets',
-      requiredServices: ['wallets'],
-    }),
-    consoleRoute('console_wallets_search', 'GET', '/console/wallets/search', 'Search wallets', {
-      roles: CONSOLE_WALLET_READ_ROLES,
-      forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view wallets',
-      requiredServices: ['wallets'],
-    }),
-    consoleRoute('console_wallets_get', 'GET', '/console/wallets/:id', 'Get wallet', {
-      roles: CONSOLE_WALLET_READ_ROLES,
-      forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view wallets',
-      requiredServices: ['wallets'],
-    }),
-    consoleRoute('console_policies_list', 'GET', '/console/policies', 'List policies', {
-      requiredServices: ['policies'],
-    }),
-    consoleRoute(
-      'console_policy_versions_list',
-      'GET',
-      '/console/policies/:id/versions',
-      'List policy versions',
-      {
-        requiredServices: ['policies'],
-      },
-    ),
-    consoleRoute(
-      'console_policy_assignments_list',
-      'GET',
-      '/console/policies/assignments',
-      'List policy assignments',
-      {
-        requiredServices: ['policies'],
-      },
-    ),
-    consoleRoute(
-      'console_policies_simulate',
-      'POST',
-      '/console/policies/:id/simulate',
-      'Simulate policy',
-      {
-        requiredServices: ['policies'],
-      },
-    ),
-    consoleRoute(
-      'console_observability_summary_get',
-      'GET',
-      '/console/observability/summary',
-      'Read observability summary',
-      {
-        roles: CONSOLE_OBSERVABILITY_READ_ROLES,
-        forbiddenMessage:
-          'Only owner, admin, security_admin, ops, or support can view observability',
-        requiredServices: ['observability'],
-      },
-    ),
-    consoleRoute(
-      'console_observability_events_list',
-      'GET',
-      '/console/observability/events',
-      'List observability events',
-      {
-        roles: CONSOLE_OBSERVABILITY_READ_ROLES,
-        forbiddenMessage:
-          'Only owner, admin, security_admin, ops, or support can view observability',
-        requiredServices: ['observability'],
-      },
-    ),
-    consoleRoute(
-      'console_observability_timeseries_get',
-      'GET',
-      '/console/observability/timeseries',
-      'Read observability timeseries',
-      {
-        roles: CONSOLE_OBSERVABILITY_READ_ROLES,
-        forbiddenMessage:
-          'Only owner, admin, security_admin, ops, or support can view observability',
-        requiredServices: ['observability'],
-      },
-    ),
-    consoleRoute(
-      'console_observability_services_list',
-      'GET',
-      '/console/observability/services',
-      'List observability services',
-      {
-        roles: CONSOLE_OBSERVABILITY_READ_ROLES,
-        forbiddenMessage:
-          'Only owner, admin, security_admin, ops, or support can view observability',
-        requiredServices: ['observability'],
-      },
-    ),
-    consoleRoute(
-      'console_policy_coverage_get',
-      'GET',
-      '/console/policy/coverage',
-      'Read policy coverage',
-    ),
-    consoleRoute(
-      'console_gas_readiness_get',
-      'GET',
-      '/console/gas/readiness',
-      'Read gas readiness',
-    ),
-    consoleRoute(
-      'console_export_governance_get',
-      'GET',
-      '/console/export/governance',
-      'Read export governance',
-      {
-        requiredServices: ['keyExports'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_overview_get',
-      'GET',
-      '/console/billing/overview',
-      'Read billing overview',
-      {
-        roles: CONSOLE_BILLING_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
-        requiredServices: ['billing'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_account_activity_get',
-      'GET',
-      '/console/billing/account/activity',
-      'Read billing account activity',
-      {
-        roles: CONSOLE_BILLING_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
-        requiredServices: ['billing'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_sponsored_executions_get',
-      'GET',
-      '/console/billing/sponsored-executions',
-      'Read sponsored execution history',
-      {
-        roles: CONSOLE_BILLING_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
-        requiredServices: ['sponsoredCalls'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_sponsored_executions_reconciliation_get',
-      'GET',
-      '/console/billing/sponsored-executions/reconciliation',
-      'Read sponsored execution reconciliation',
-      {
-        roles: CONSOLE_BILLING_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
-        requiredServices: ['billing', 'sponsoredCalls'],
-      },
-    ),
-    consoleRoute(
-      'console_platform_billing_search_get',
-      'GET',
-      '/console/platform/billing/search',
-      'Search platform billing targets',
-      {
-        roles: CONSOLE_PLATFORM_BILLING_ADJUSTMENT_ROLES,
-        forbiddenMessage: 'Only platform_admin can access platform billing',
-        requiredServices: ['orgProjectEnv'],
-      },
-    ),
-    consoleRoute(
-      'console_platform_billing_account_get',
-      'GET',
-      '/console/platform/billing/account',
-      'Read platform billing account lookup',
-      {
-        roles: CONSOLE_PLATFORM_BILLING_ADJUSTMENT_ROLES,
-        forbiddenMessage: 'Only platform_admin can access platform billing',
-        requiredServices: ['billing', 'orgProjectEnv'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_invoices_list',
-      'GET',
-      '/console/billing/invoices',
-      'List billing invoices',
-      {
-        roles: CONSOLE_BILLING_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
-        requiredServices: ['billing'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_invoices_get',
-      'GET',
-      '/console/billing/invoices/:id',
-      'Get billing invoice',
-      {
-        roles: CONSOLE_BILLING_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
-        requiredServices: ['billing'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_invoices_pdf_get',
-      'GET',
-      '/console/billing/invoices/:id/pdf',
-      'Get billing invoice PDF',
-      {
-        roles: CONSOLE_BILLING_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
-        requiredServices: ['billing'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_invoices_activity_get',
-      'GET',
-      '/console/billing/invoices/:id/activity',
-      'Get billing invoice activity',
-      {
-        roles: CONSOLE_BILLING_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
-        requiredServices: ['billing'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_invoices_line_items_get',
-      'GET',
-      '/console/billing/invoices/:id/line-items',
-      'Get billing invoice line items',
-      {
-        roles: CONSOLE_BILLING_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
-        requiredServices: ['billing'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_stripe_checkout_session_create',
-      'POST',
-      '/console/billing/stripe/checkout-session',
-      'Create Stripe checkout session',
-      {
-        requiredServices: ['billing'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_stripe_checkout_session_reconcile',
-      'POST',
-      '/console/billing/stripe/checkout-session/reconcile',
-      'Reconcile Stripe checkout session',
-      {
-        requiredServices: ['billing'],
-      },
-    ),
-    consoleRoute(
-      'console_onboarding_organization_create',
-      'POST',
-      '/console/onboarding/organization',
-      'Create onboarding organization',
-      {
-        roles: CONSOLE_ORG_PROJECT_ENV_MUTATION_ROLES,
-        forbiddenMessage: 'Only admin or owner can mutate projects and environments',
-        requiredServices: ['onboarding'],
-      },
-    ),
-    consoleRoute(
-      'console_onboarding_project_create',
-      'POST',
-      '/console/onboarding/project',
-      'Create onboarding project',
-      {
-        roles: CONSOLE_ORG_PROJECT_ENV_MUTATION_ROLES,
-        forbiddenMessage: 'Only admin or owner can mutate projects and environments',
-        requiredServices: ['onboarding'],
-      },
-    ),
-    consoleRoute('console_projects_create', 'POST', '/console/projects', 'Create project', {
-      roles: CONSOLE_ORG_PROJECT_ENV_MUTATION_ROLES,
-      forbiddenMessage: 'Only admin or owner can mutate projects and environments',
-      requiredServices: ['orgProjectEnv'],
-    }),
-    consoleRoute('console_projects_update', 'PATCH', '/console/projects/:id', 'Update project', {
-      roles: CONSOLE_ORG_PROJECT_ENV_MUTATION_ROLES,
-      forbiddenMessage: 'Only admin or owner can mutate projects and environments',
-      requiredServices: ['orgProjectEnv'],
-    }),
-    consoleRoute(
-      'console_projects_archive',
-      'POST',
-      '/console/projects/:id/archive',
-      'Archive project',
-      {
-        roles: CONSOLE_ORG_PROJECT_ENV_MUTATION_ROLES,
-        forbiddenMessage: 'Only admin or owner can mutate projects and environments',
-        requiredServices: ['orgProjectEnv'],
-      },
-    ),
-    consoleRoute(
-      'console_environments_create',
-      'POST',
-      '/console/environments',
-      'Create environment',
-      {
-        roles: CONSOLE_ORG_PROJECT_ENV_MUTATION_ROLES,
-        forbiddenMessage: 'Only admin or owner can mutate projects and environments',
-        requiredServices: ['orgProjectEnv'],
-      },
-    ),
-    consoleRoute(
-      'console_environments_update',
-      'PATCH',
-      '/console/environments/:id',
-      'Update environment',
-      {
-        roles: CONSOLE_ORG_PROJECT_ENV_MUTATION_ROLES,
-        forbiddenMessage: 'Only admin or owner can mutate projects and environments',
-        requiredServices: ['orgProjectEnv'],
-      },
-    ),
-    consoleRoute(
-      'console_environments_archive',
-      'POST',
-      '/console/environments/:id/archive',
-      'Archive environment',
-      {
-        roles: CONSOLE_ORG_PROJECT_ENV_MUTATION_ROLES,
-        forbiddenMessage: 'Only admin or owner can mutate projects and environments',
-        requiredServices: ['orgProjectEnv'],
-      },
-    ),
-    consoleRoute(
-      'console_members_invite',
-      'POST',
-      '/console/members/invite',
-      'Invite team member',
-      {
-        roles: CONSOLE_TEAM_RBAC_MUTATION_ROLES,
-        forbiddenMessage: 'Only admin or owner can mutate org member roles',
-        requiredServices: ['teamRbac'],
-      },
-    ),
-    consoleRoute(
-      'console_members_update_roles',
-      'PATCH',
-      '/console/members/:id/roles',
-      'Update team member roles',
-      {
-        roles: CONSOLE_TEAM_RBAC_MUTATION_ROLES,
-        forbiddenMessage: 'Only admin or owner can mutate org member roles',
-        requiredServices: ['teamRbac'],
-      },
-    ),
-    consoleRoute('console_members_remove', 'DELETE', '/console/members/:id', 'Remove team member', {
-      roles: CONSOLE_TEAM_RBAC_MUTATION_ROLES,
-      forbiddenMessage: 'Only admin or owner can mutate org member roles',
-      requiredServices: ['teamRbac'],
-    }),
-    consoleRoute(
-      'console_approvals_create',
-      'POST',
-      '/console/approvals',
-      'Create approval request',
-      {
-        roles: CONSOLE_APPROVAL_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate approval queue requests',
-        requiredServices: ['approvals'],
-      },
-    ),
-    consoleRoute(
-      'console_approvals_approve',
-      'POST',
-      '/console/approvals/:id/approve',
-      'Approve approval request',
-      {
-        roles: CONSOLE_APPROVAL_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate approval queue requests',
-        requiredServices: ['approvals'],
-      },
-    ),
-    consoleRoute(
-      'console_approvals_reject',
-      'POST',
-      '/console/approvals/:id/reject',
-      'Reject approval request',
-      {
-        roles: CONSOLE_APPROVAL_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate approval queue requests',
-        requiredServices: ['approvals'],
-      },
-    ),
-    consoleRoute(
-      'console_audit_exports_create',
-      'POST',
-      '/console/audit/exports',
-      'Create audit export',
-      {
-        roles: CONSOLE_ENTERPRISE_ISOLATION_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner or admin can create audit exports',
-        requiredServices: ['auditExports'],
-      },
-    ),
-    consoleRoute(
-      'console_enterprise_isolation_trigger',
-      'POST',
-      '/console/isolation/trigger',
-      'Trigger enterprise isolation',
-      {
-        roles: CONSOLE_ENTERPRISE_ISOLATION_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner or admin can trigger enterprise isolation',
-        requiredServices: ['enterpriseIsolation'],
-      },
-    ),
-    consoleRoute('console_policies_create', 'POST', '/console/policies', 'Create policy', {
-      roles: CONSOLE_POLICY_MUTATION_ROLES,
-      forbiddenMessage: 'Only owner, admin, or security_admin can mutate policies',
-      requiredServices: ['policies'],
-    }),
-    consoleRoute(
-      'console_policy_assignments_upsert',
-      'PUT',
-      '/console/policies/assignments',
-      'Upsert policy assignment',
-      {
-        roles: CONSOLE_POLICY_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate policies',
-        requiredServices: ['policies'],
-      },
-    ),
-    consoleRoute(
-      'console_policy_assignments_delete',
-      'DELETE',
-      '/console/policies/assignments/:id',
-      'Delete policy assignment',
-      {
-        roles: CONSOLE_POLICY_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate policies',
-        requiredServices: ['policies'],
-      },
-    ),
-    consoleRoute('console_policies_update', 'PATCH', '/console/policies/:id', 'Update policy', {
-      roles: CONSOLE_POLICY_MUTATION_ROLES,
-      forbiddenMessage: 'Only owner, admin, or security_admin can mutate policies',
-      requiredServices: ['policies'],
-    }),
-    consoleRoute('console_policies_delete', 'DELETE', '/console/policies/:id', 'Delete policy', {
-      roles: CONSOLE_POLICY_MUTATION_ROLES,
-      forbiddenMessage: 'Only owner, admin, or security_admin can mutate policies',
-      requiredServices: ['policies'],
-    }),
-    consoleRoute(
-      'console_policies_publish',
-      'POST',
-      '/console/policies/:id/publish',
-      'Publish policy',
-      {
-        roles: CONSOLE_POLICY_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate policies',
-        requiredServices: ['policies'],
-      },
-    ),
-    consoleRoute('console_webhooks_list', 'GET', '/console/webhooks', 'List webhook endpoints', {
-      requiredServices: ['webhooks'],
-    }),
-    consoleRoute(
-      'console_webhooks_create',
-      'POST',
-      '/console/webhooks',
-      'Create webhook endpoint',
-      {
-        roles: CONSOLE_CONFIG_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate console configuration',
-        requiredServices: ['webhooks'],
-      },
-    ),
-    consoleRoute(
-      'console_webhooks_update',
-      'PATCH',
-      '/console/webhooks/:id',
-      'Update webhook endpoint',
-      {
-        roles: CONSOLE_CONFIG_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate console configuration',
-        requiredServices: ['webhooks'],
-      },
-    ),
-    consoleRoute(
-      'console_webhooks_delete',
-      'DELETE',
-      '/console/webhooks/:id',
-      'Delete webhook endpoint',
-      {
-        roles: CONSOLE_CONFIG_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate console configuration',
-        requiredServices: ['webhooks'],
-      },
-    ),
-    consoleRoute(
-      'console_webhooks_deliveries_list',
-      'GET',
-      '/console/webhooks/:id/deliveries',
-      'List webhook deliveries',
-      {
-        requiredServices: ['webhooks'],
-      },
-    ),
-    consoleRoute(
-      'console_webhooks_attempts_list',
-      'GET',
-      '/console/webhooks/:id/attempts',
-      'List webhook delivery attempts',
-      {
-        requiredServices: ['webhooks'],
-      },
-    ),
-    consoleRoute(
-      'console_webhooks_dead_letters_list',
-      'GET',
-      '/console/webhooks/:id/dead-letters',
-      'List webhook dead letters',
-      {
-        requiredServices: ['webhooks'],
-      },
-    ),
-    consoleRoute(
-      'console_webhooks_replay',
-      'POST',
-      '/console/webhooks/:id/replay',
-      'Replay webhook delivery',
-      {
-        roles: CONSOLE_CONFIG_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate console configuration',
-        requiredServices: ['webhooks'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_usage_monthly_active_wallets',
-      'GET',
-      '/console/billing/usage/monthly-active-wallets',
-      'Read monthly active wallet usage',
-      {
-        roles: CONSOLE_BILLING_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
-        requiredServices: ['billing'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_usage_events_record',
-      'POST',
-      '/console/billing/usage/events',
-      'Record billing usage event',
-      {
-        roles: CONSOLE_BILLING_OPERATOR_ROLES,
-        forbiddenMessage: 'Only admin or ops can record billing usage events',
-        requiredServices: ['billing'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_invoices_generate',
-      'POST',
-      '/console/billing/invoices/generate',
-      'Generate monthly invoice',
-      {
-        roles: CONSOLE_INVOICE_GENERATION_ROLES,
-        forbiddenMessage: 'Only admin or ops can generate monthly invoices',
-        requiredServices: ['billing'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_adjustments_support_credit',
-      'POST',
-      '/console/billing/adjustments/support-credit',
-      'Append support credit adjustment',
-      {
-        roles: CONSOLE_PLATFORM_BILLING_ADJUSTMENT_ROLES,
-        forbiddenMessage: 'Only platform_admin can append manual billing adjustments',
-        requiredServices: ['billing'],
-      },
-    ),
-    consoleRoute(
-      'console_billing_adjustments_admin_debit',
-      'POST',
-      '/console/billing/adjustments/admin-debit',
-      'Append admin debit adjustment',
-      {
-        roles: CONSOLE_PLATFORM_BILLING_ADJUSTMENT_ROLES,
-        forbiddenMessage: 'Only platform_admin can append manual billing adjustments',
-        requiredServices: ['billing'],
-      },
-    ),
-    consoleRoute(
-      'console_platform_billing_adjustments_support_credit',
-      'POST',
-      '/console/platform/billing/adjustments/support-credit',
-      'Append platform support credit adjustment',
-      {
-        roles: CONSOLE_PLATFORM_BILLING_ADJUSTMENT_ROLES,
-        forbiddenMessage: 'Only platform_admin can append manual billing adjustments',
-        requiredServices: ['billing', 'orgProjectEnv'],
-      },
-    ),
-    consoleRoute(
-      'console_platform_billing_adjustments_admin_debit',
-      'POST',
-      '/console/platform/billing/adjustments/admin-debit',
-      'Append platform admin debit adjustment',
-      {
-        roles: CONSOLE_PLATFORM_BILLING_ADJUSTMENT_ROLES,
-        forbiddenMessage: 'Only platform_admin can append manual billing adjustments',
-        requiredServices: ['billing', 'orgProjectEnv'],
-      },
-    ),
-    consoleRoute(
-      'console_key_exports_list',
-      'GET',
-      '/console/key-exports',
-      'List key export requests',
-      {
-        requiredServices: ['keyExports'],
-      },
-    ),
-    consoleRoute(
-      'console_key_exports_create',
-      'POST',
-      '/console/key-exports',
-      'Create key export request',
-      {
-        roles: CONSOLE_KEY_EXPORT_REQUEST_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can request key exports',
-        requiredServices: ['keyExports'],
-      },
-    ),
-    consoleRoute(
-      'console_key_exports_approve',
-      'POST',
-      '/console/key-exports/:id/approve',
-      'Approve key export request',
-      {
-        roles: CONSOLE_KEY_EXPORT_APPROVAL_ROLES,
-        forbiddenMessage: 'Only admin can approve key export requests',
-        requiredServices: ['keyExports'],
-      },
-    ),
-    consoleRoute(
-      'console_runtime_snapshots_list',
-      'GET',
-      '/console/runtime-snapshots',
-      'List runtime snapshots',
-      {
-        requiredServices: ['runtimeSnapshots'],
-      },
-    ),
-    consoleRoute(
-      'console_runtime_snapshots_latest_get',
-      'GET',
-      '/console/runtime-snapshots/latest',
-      'Get latest runtime snapshot',
-      {
-        requiredServices: ['runtimeSnapshots'],
-      },
-    ),
-    consoleRoute(
-      'console_runtime_snapshots_publish',
-      'POST',
-      '/console/runtime-snapshots/publish',
-      'Publish runtime snapshot',
-      {
-        roles: CONSOLE_CONFIG_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate console configuration',
-        requiredServices: ['runtimeSnapshots'],
-      },
-    ),
-    consoleRoute(
-      'console_runtime_snapshots_publish_current',
-      'POST',
-      '/console/runtime-snapshots/publish-current',
-      'Publish current runtime snapshot',
-      {
-        roles: CONSOLE_CONFIG_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate console configuration',
-        requiredServices: ['runtimeSnapshots'],
-      },
-    ),
-    consoleRoute('console_api_keys_list', 'GET', '/console/api-keys', 'List API keys', {
-      requiredServices: ['apiKeys'],
-    }),
-    consoleRoute('console_api_keys_create', 'POST', '/console/api-keys', 'Create API key', {
-      roles: CONSOLE_API_KEY_MUTATION_ROLES,
-      forbiddenMessage: 'Only owner, admin, or security_admin can mutate API keys',
-      requiredServices: ['apiKeys'],
-    }),
-    consoleRoute('console_api_keys_revoke', 'DELETE', '/console/api-keys/:id', 'Revoke API key', {
-      roles: CONSOLE_API_KEY_MUTATION_ROLES,
-      forbiddenMessage: 'Only owner, admin, or security_admin can mutate API keys',
-      requiredServices: ['apiKeys'],
-    }),
-    consoleRoute(
-      'console_api_keys_purge',
-      'DELETE',
-      '/console/api-keys/:id/purge',
-      'Purge API key',
-      {
-        roles: CONSOLE_API_KEY_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate API keys',
-        requiredServices: ['apiKeys'],
-      },
-    ),
-    consoleRoute('console_api_keys_update', 'PATCH', '/console/api-keys/:id', 'Update API key', {
-      roles: CONSOLE_API_KEY_MUTATION_ROLES,
-      forbiddenMessage: 'Only owner, admin, or security_admin can mutate API keys',
-      requiredServices: ['apiKeys'],
-    }),
-    consoleRoute(
-      'console_api_keys_rotate',
-      'POST',
-      '/console/api-keys/:id/rotate',
-      'Rotate API key',
-      {
-        roles: CONSOLE_API_KEY_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate API keys',
-        requiredServices: ['apiKeys'],
-      },
-    ),
-  ];
 }
 
 export function createRouterApiRouteDefinitions(

@@ -1,8 +1,48 @@
 import { test, expect } from '@playwright/test';
-import { createCloudflareCron } from '@seams-internal/console-server/router/cloudflare-adaptor';
+import {
+  createCloudflareCron,
+  resolveCloudflareConsoleEmailDispatchCronOptions,
+} from '@seams-internal/console-server/router/cloudflare/cron';
+import type {
+  ConsoleEmailProvider,
+  ConsoleInvitationSecretCipher,
+} from '@seams-internal/console-server/email';
 
 const fakeD1Database = {} as any;
 const fakeWebhookSecretCipher = {} as any;
+const consoleEmailTestKeyB64u = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const fakeCaptureEmailProvider: ConsoleEmailProvider = {
+  provider: 'capture',
+  async send() {
+    return {
+      kind: 'SENT',
+      providerMessageId: 'capture-message',
+      statusCode: null,
+    };
+  },
+};
+const fakeResendEmailProvider: ConsoleEmailProvider = {
+  provider: 'resend',
+  async send() {
+    return {
+      kind: 'SENT',
+      providerMessageId: 'resend-message',
+      statusCode: 200,
+    };
+  },
+};
+const fakeInvitationSecretCipher: ConsoleInvitationSecretCipher = {
+  async seal() {
+    return {
+      ciphertextB64u: 'sealed',
+      keyId: 'email-key-r1',
+      envelopeVersion: 'console-invitation-secret:aes-gcm:v1',
+    };
+  },
+  async open() {
+    return 'invitation-secret';
+  },
+};
 
 test.describe('cloudflare cron billing finalization', () => {
   test('skips billing finalization when D1 database is missing', async () => {
@@ -239,11 +279,157 @@ test.describe('cloudflare cron webhook retry dispatch', () => {
   });
 });
 
+test.describe('cloudflare cron console email dispatch', () => {
+  test('runs console email dispatch with the configured D1 runner input', async () => {
+    let runnerInput: any = null;
+    const now = () => new Date('2026-07-27T04:05:06.000Z');
+    const cron = createCloudflareCron({
+      consoleEmailDispatch: {
+        runtimeProfile: 'DEVELOPMENT',
+        database: fakeD1Database,
+        provider: fakeCaptureEmailProvider,
+        invitationSecretCipher: fakeInvitationSecretCipher,
+        namespace: 'email-ns',
+        ensureSchema: false,
+        now,
+        runner: async (input) => {
+          runnerInput = input;
+          return {
+            claimedCount: 3,
+            sentCount: 2,
+            retryScheduledCount: 1,
+            finalFailureCount: 0,
+            canceledCount: 0,
+            failures: [],
+          };
+        },
+      },
+    });
+
+    await cron({ scheduledTime: Date.now(), cron: '*/5 * * * *' }, undefined, undefined);
+
+    expect(runnerInput?.database).toBe(fakeD1Database);
+    expect(runnerInput?.provider).toBe(fakeCaptureEmailProvider);
+    expect(runnerInput?.invitationSecretCipher).toBe(fakeInvitationSecretCipher);
+    expect(runnerInput?.namespace).toBe('email-ns');
+    expect(runnerInput?.ensureSchema).toBe(false);
+    expect(runnerInput?.now).toBe(now);
+  });
+
+  test('requires the Resend provider for direct production cron configuration', () => {
+    expect(() =>
+      createCloudflareCron({
+        consoleEmailDispatch: {
+          runtimeProfile: 'PRODUCTION',
+          database: fakeD1Database,
+          provider: fakeCaptureEmailProvider,
+          invitationSecretCipher: fakeInvitationSecretCipher,
+          namespace: 'email-ns',
+        },
+      }),
+    ).toThrow('Production console email cron requires the Resend provider');
+
+    expect(() =>
+      createCloudflareCron({
+        consoleEmailDispatch: {
+          runtimeProfile: 'PRODUCTION',
+          database: fakeD1Database,
+          provider: fakeResendEmailProvider,
+          invitationSecretCipher: fakeInvitationSecretCipher,
+          namespace: 'email-ns',
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  test('resolves explicit development capture configuration', async () => {
+    const resolved = resolveCloudflareConsoleEmailDispatchCronOptions({
+      env: {
+        CONSOLE_EMAIL_RUNTIME_PROFILE: 'DEVELOPMENT',
+        CONSOLE_EMAIL_PROVIDER: 'CAPTURE',
+        CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID: 'email-key-r1',
+        CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U: consoleEmailTestKeyB64u,
+        CONSOLE_EMAIL_CRON_EXPRESSIONS: '*/5 * * * *, */5 * * * *',
+      },
+      database: fakeD1Database,
+      namespace: 'email-dev',
+      ensureSchema: false,
+    });
+
+    expect(resolved.runtimeProfile).toBe('DEVELOPMENT');
+    expect(resolved.provider.provider).toBe('capture');
+    expect(resolved.namespace).toBe('email-dev');
+    expect(resolved.cronExpressions).toEqual(['*/5 * * * *']);
+    const sealed = await resolved.invitationSecretCipher.seal({
+      namespace: 'email-dev',
+      orgId: 'org-email-dev',
+      outboxId: 'outbox-email-dev',
+      invitationId: 'invitation-email-dev',
+      plaintextSecret: 'secret-email-dev',
+    });
+    await expect(
+      resolved.invitationSecretCipher.open({
+        namespace: 'email-dev',
+        orgId: 'org-email-dev',
+        outboxId: 'outbox-email-dev',
+        invitationId: 'invitation-email-dev',
+        sealedSecret: sealed,
+      }),
+    ).resolves.toBe('secret-email-dev');
+  });
+
+  test('requires complete live Resend configuration in production', () => {
+    expect(() =>
+      resolveCloudflareConsoleEmailDispatchCronOptions({
+        env: {
+          CONSOLE_EMAIL_RUNTIME_PROFILE: 'PRODUCTION',
+          CONSOLE_EMAIL_PROVIDER: 'CAPTURE',
+          CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID: 'email-key-r1',
+          CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U: consoleEmailTestKeyB64u,
+        },
+        database: fakeD1Database,
+        namespace: 'email-production',
+      }),
+    ).toThrow('Production console email requires CONSOLE_EMAIL_PROVIDER=RESEND');
+
+    expect(() =>
+      resolveCloudflareConsoleEmailDispatchCronOptions({
+        env: {
+          CONSOLE_EMAIL_RUNTIME_PROFILE: 'PRODUCTION',
+          CONSOLE_EMAIL_PROVIDER: 'RESEND',
+          CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID: 'email-key-r1',
+          CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U: consoleEmailTestKeyB64u,
+          CONSOLE_EMAIL_FROM: 'Seams <console@example.test>',
+        },
+        database: fakeD1Database,
+        namespace: 'email-production',
+      }),
+    ).toThrow('RESEND_API_KEY is required');
+
+    const resolved = resolveCloudflareConsoleEmailDispatchCronOptions({
+      env: {
+        CONSOLE_EMAIL_RUNTIME_PROFILE: 'PRODUCTION',
+        CONSOLE_EMAIL_PROVIDER: 'RESEND',
+        CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID: 'email-key-r1',
+        CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U: consoleEmailTestKeyB64u,
+        CONSOLE_EMAIL_FROM: 'Seams <console@example.test>',
+        CONSOLE_EMAIL_REPLY_TO: 'support@example.test',
+        RESEND_API_KEY: 're_console_email_test',
+      },
+      database: fakeD1Database,
+      namespace: 'email-production',
+    });
+    expect(resolved.runtimeProfile).toBe('PRODUCTION');
+    expect(resolved.provider.provider).toBe('resend');
+  });
+});
+
 test.describe('cloudflare cron per-job expression filters', () => {
   test('runs only jobs whose cron allowlist matches the current tick', async () => {
     let billingCalled = false;
     let runtimeCalled = false;
     let webhookCalled = false;
+    let emailCalled = false;
     const cron = createCloudflareCron({
       billingMonthlyFinalization: {
         database: fakeD1Database,
@@ -298,6 +484,25 @@ test.describe('cloudflare cron per-job expression filters', () => {
           };
         },
       },
+      consoleEmailDispatch: {
+        runtimeProfile: 'DEVELOPMENT',
+        database: fakeD1Database,
+        provider: fakeCaptureEmailProvider,
+        invitationSecretCipher: fakeInvitationSecretCipher,
+        namespace: 'email-ns',
+        cronExpressions: ['0 3 * * *'],
+        runner: async () => {
+          emailCalled = true;
+          return {
+            claimedCount: 1,
+            sentCount: 1,
+            retryScheduledCount: 0,
+            finalFailureCount: 0,
+            canceledCount: 0,
+            failures: [],
+          };
+        },
+      },
     });
 
     await cron({ scheduledTime: Date.now(), cron: '*/5 * * * *' }, undefined, undefined);
@@ -305,6 +510,7 @@ test.describe('cloudflare cron per-job expression filters', () => {
     expect(billingCalled).toBe(false);
     expect(runtimeCalled).toBe(true);
     expect(webhookCalled).toBe(true);
+    expect(emailCalled).toBe(false);
   });
 
   test('skips cron-allowlisted jobs when event cron is absent', async () => {

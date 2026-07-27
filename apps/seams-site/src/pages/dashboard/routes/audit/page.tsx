@@ -37,7 +37,7 @@ import {
   type DashboardConsoleAuditOutcome,
 } from './consoleAuditApi';
 import { listDashboardApprovals, type DashboardConsoleApprovalRequest } from '../approvals/consoleApprovalsApi';
-import { listDashboardTeamMembers } from '../team-members/consoleTeamRbacApi';
+import { listDashboardOrganizationMemberships } from '../team-members/consoleTeamRbacApi';
 import {
   resolveDashboardIdentityPrimaryLabel,
   type DashboardIdentitySource,
@@ -712,7 +712,10 @@ export function AuditLogsPage(): React.JSX.Element {
       return;
     }
     let cancelled = false;
-    Promise.allSettled([listDashboardAccountOrganizations(), listDashboardTeamMembers()])
+    Promise.allSettled([
+      listDashboardAccountOrganizations(),
+      listDashboardOrganizationMemberships('all'),
+    ])
       .then((results) => {
         if (cancelled) return;
         const organizations =

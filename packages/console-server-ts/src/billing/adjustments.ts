@@ -1,48 +1,6 @@
 import { ConsoleBillingError } from './errors';
 import type { BillingManualAdjustmentRequest } from './types';
 
-export const LARGE_MANUAL_ADMIN_DEBIT_THRESHOLD_MINOR = 50_000;
-
-interface BillingAdjustmentActorContext {
-  roles: string[];
-}
-
-function hasConsoleRole(roles: readonly string[], targetRole: string): boolean {
-  return roles.some(
-    (role) =>
-      String(role || '')
-        .trim()
-        .toLowerCase() === targetRole,
-  );
-}
-
-export function requireBillingAdjustmentRole(ctx: BillingAdjustmentActorContext): void {
-  if (hasConsoleRole(ctx.roles || [], 'platform_admin')) return;
-  throw new ConsoleBillingError(
-    'forbidden',
-    403,
-    'Only platform_admin can append manual billing adjustments',
-  );
-}
-
-export function requireLargeManualAdminDebitEscalationRole(
-  ctx: BillingAdjustmentActorContext,
-  amountMinor: number,
-): void {
-  if (Math.trunc(Number(amountMinor || 0)) < LARGE_MANUAL_ADMIN_DEBIT_THRESHOLD_MINOR) return;
-  if (
-    hasConsoleRole(ctx.roles || [], 'owner') ||
-    hasConsoleRole(ctx.roles || [], 'platform_admin')
-  ) {
-    return;
-  }
-  throw new ConsoleBillingError(
-    'forbidden',
-    403,
-    `Manual admin debits of ${formatUsdMinor(LARGE_MANUAL_ADMIN_DEBIT_THRESHOLD_MINOR)} or more require owner or platform_admin role`,
-  );
-}
-
 export function normalizeManualAdjustmentRequest(
   request: BillingManualAdjustmentRequest,
 ): BillingManualAdjustmentRequest {
@@ -102,12 +60,4 @@ export function requireKnownManualAdjustmentRelatedInvoiceId(input: {
     400,
     `Manual adjustment relatedInvoiceId was not found: ${relatedInvoiceId}`,
   );
-}
-
-function formatUsdMinor(amountMinor: number): string {
-  const n = Number(amountMinor || 0);
-  return `$${(n / 100).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 }

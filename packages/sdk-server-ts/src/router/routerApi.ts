@@ -382,8 +382,7 @@ export interface RouterApiOptions {
    */
   publishableKeyAuth?: RouterApiPublishableKeyAuthAdapter | null;
   /**
-   * Optional Router API usage-meter adapter used to emit runtime events for
-   * billing linkage.
+   * Optional Router API usage-meter adapter used to emit host runtime events.
    */
   apiKeyUsageMeter?: RouterApiUsageMeterAdapter | null;
   /**

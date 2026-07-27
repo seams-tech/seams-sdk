@@ -162,7 +162,7 @@ CONSOLE_SESSION_ISSUER = "seams-console-staging"
 CONSOLE_SESSION_AUDIENCE = "seams-console-dashboard"
 
 [secrets]
-required = ["CONSOLE_SESSION_HMAC_SECRET", "STRIPE_API_SK"]
+required = ["CONSOLE_SESSION_HMAC_SECRET", "STRIPE_API_SK", "STRIPE_WEBHOOK_SECRET"]
 `;
 }
 
@@ -183,7 +183,7 @@ migrations_dir = "migrations/d1-console"
 binding = "SIGNER_DB"
 database_name = "seams-signer-staging"
 database_id = "22222222-2222-4222-8222-222222222222"
-migrations_dir = "../sdk-server-ts/migrations/d1-signer"
+migrations_dir = "node_modules/@seams/sdk-server/migrations/d1-signer"
 
 [[durable_objects.bindings]]
 name = "THRESHOLD_STORE"
@@ -229,11 +229,20 @@ RELAYER_PUBLIC_KEY = "ed25519:11111111111111111111111111111111"
 RELAY_SESSION_ISSUER = "seams-gateway-staging"
 RELAY_SESSION_AUDIENCE = "seams-wallet-session"
 SPONSORED_EXECUTION_REAL_PRICING_JSON = '{"provider":"coingecko","near":{"TESTNET":{"assetId":"near","nativeUnitDecimals":24,"estimateFeeAmountYocto":"1000000000000000000000","pricingVersionPrefix":"coingecko-near-testnet"}}}'
+CONSOLE_BASE_URL = "https://console.staging.example"
+CONSOLE_EMAIL_RUNTIME_PROFILE = "PRODUCTION"
+CONSOLE_EMAIL_PROVIDER = "RESEND"
+CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID = "console-email-staging-r1"
+CONSOLE_EMAIL_FROM = "Seams <notifications@seams.sh>"
+CONSOLE_EMAIL_CRON_EXPRESSIONS = "*/5 * * * *"
 SIGNING_ROOT_KEK_PROVIDER = "cloudflare_secrets_store"
 SIGNING_ROOT_KEK_ENCODING = "base64url"
 SIGNING_ROOT_KEK_IDS = "signing-root-kek-staging-r1"
 
+[triggers]
+crons = ["*/5 * * * *"]
+
 [secrets]
-required = ["RELAY_SESSION_HMAC_SECRET", "ACCOUNT_ID_DERIVATION_SECRET", "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET", "SPONSORED_EVM_EXECUTORS_JSON", "STRIPE_API_SK"]
+required = ["RELAY_SESSION_HMAC_SECRET", "ACCOUNT_ID_DERIVATION_SECRET", "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET", "SPONSORED_EVM_EXECUTORS_JSON", "STRIPE_API_SK", "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY", "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U"]
 `;
 }

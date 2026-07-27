@@ -23,11 +23,10 @@ export type RoutePolicyResolutionResult =
   | RoutePolicyResolutionFailure
   | RoutePolicyResolutionSuccess;
 
-export interface RoutePolicyResolvers<TServices extends RouteServices = RouteServices> {
+export interface RoutePolicyResolvers<TServices extends object = RouteServices> {
   apiCredentials?: (
     input: RoutePolicyResolverInput<TServices>,
   ) => Promise<RoutePolicyResolutionResult>;
-  console?: (input: RoutePolicyResolverInput<TServices>) => Promise<RoutePolicyResolutionResult>;
   thresholdSession?: (
     input: RoutePolicyResolverInput<TServices>,
   ) => Promise<RoutePolicyResolutionResult>;
@@ -36,7 +35,7 @@ export interface RoutePolicyResolvers<TServices extends RouteServices = RouteSer
   ) => Promise<RoutePolicyResolutionResult>;
 }
 
-export interface RoutePolicyResolverInput<TServices extends RouteServices = RouteServices> {
+export interface RoutePolicyResolverInput<TServices extends object = RouteServices> {
   headers: HeaderRecord;
   request: RouteRequest;
   route: RouteDefinition;
@@ -44,7 +43,7 @@ export interface RoutePolicyResolverInput<TServices extends RouteServices = Rout
   sourceIp?: string;
 }
 
-export type EnforceRoutePolicyResult<TServices extends RouteServices = RouteServices> =
+export type EnforceRoutePolicyResult<TServices extends object = RouteServices> =
   | {
       ok: true;
       request: RouteRequest;
@@ -65,7 +64,7 @@ function missingService(name: string): RoutePolicyResolutionFailure {
   };
 }
 
-export async function enforceRoutePolicy<TServices extends RouteServices = RouteServices>(input: {
+export async function enforceRoutePolicy<TServices extends object = RouteServices>(input: {
   headers: HeaderRecord;
   logger: RouteExecutionContext<TServices>['logger'];
   request: RouteRequest;
@@ -75,8 +74,9 @@ export async function enforceRoutePolicy<TServices extends RouteServices = Route
   sourceIp?: string;
 }): Promise<EnforceRoutePolicyResult<TServices>> {
   const services = (input.services || {}) as TServices;
+  const servicesByName = services as Record<string, unknown>;
   for (const service of input.route.requiredServices || []) {
-    if (services[service]) continue;
+    if (servicesByName[service]) continue;
     const failure = missingService(service);
     return {
       ok: false,
@@ -102,41 +102,31 @@ export async function enforceRoutePolicy<TServices extends RouteServices = Route
       authResult = input.resolvers?.apiCredentials
         ? await input.resolvers.apiCredentials(resolveInput)
         : {
-          ok: false,
-          status: 500,
-          code: 'route_auth_not_configured',
-          message: 'API credential auth resolver is not configured',
-        };
-      break;
-    case 'console':
-      authResult = input.resolvers?.console
-        ? await input.resolvers.console(resolveInput)
-        : {
-          ok: false,
-          status: 500,
-          code: 'route_auth_not_configured',
-          message: 'Console auth resolver is not configured',
-        };
+            ok: false,
+            status: 500,
+            code: 'route_auth_not_configured',
+            message: 'API credential auth resolver is not configured',
+          };
       break;
     case 'threshold_session':
       authResult = input.resolvers?.thresholdSession
         ? await input.resolvers.thresholdSession(resolveInput)
         : {
-          ok: false,
-          status: 500,
-          code: 'route_auth_not_configured',
-          message: 'Threshold-session auth resolver is not configured',
-        };
+            ok: false,
+            status: 500,
+            code: 'route_auth_not_configured',
+            message: 'Threshold-session auth resolver is not configured',
+          };
       break;
     case 'user_session':
       authResult = input.resolvers?.userSession
         ? await input.resolvers.userSession(resolveInput)
         : {
-          ok: false,
-          status: 500,
-          code: 'route_auth_not_configured',
-          message: 'User-session auth resolver is not configured',
-        };
+            ok: false,
+            status: 500,
+            code: 'route_auth_not_configured',
+            message: 'User-session auth resolver is not configured',
+          };
       break;
     default: {
       const plane = (input.route.auth as { plane?: unknown }).plane;
