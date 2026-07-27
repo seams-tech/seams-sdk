@@ -20,6 +20,8 @@ import {
   type DigestB64u,
   type IsoTimestamp,
 } from '@shared/utils/canonicalPrimitives';
+import { base64UrlEncode } from '@shared/utils/base64';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import {
   parseCanonicalEcdsaServerActivationRequest,
   parseEcdsaCapabilityManifestId,
@@ -33,6 +35,10 @@ import {
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
+import {
+  parseRouterAbEcdsaVerifiedClientActivationFactsV1,
+  type RouterAbEcdsaVerifiedClientActivationFactsV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import { toParticipantId, type ParticipantId } from '../identity/evmFamilyEcdsaIdentity';
 import {
   parseEcdsaClientVerifyingPublicKey33B64u,
@@ -99,6 +105,114 @@ export type InitialEcdsaCapabilityActivationPlan = {
   readonly createdAt: IsoTimestamp;
   readonly pendingPayloadB64u?: never;
 };
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireExactKeys(
+  record: Record<string, unknown>,
+  label: string,
+  keys: readonly string[],
+): void {
+  const actual = Object.keys(record).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    throw new Error(`${label} fields are invalid`);
+  }
+}
+
+function digestFromActivationCommitWire(value: unknown): DigestB64u {
+  const record = requireRecord(value, 'ECDSA activation commit request digest');
+  requireExactKeys(record, 'ECDSA activation commit request digest', ['bytes']);
+  if (
+    !Array.isArray(record.bytes) ||
+    record.bytes.length !== 32 ||
+    record.bytes.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255)
+  ) {
+    throw new Error('ECDSA activation commit request digest bytes are invalid');
+  }
+  return parseDigestB64u(base64UrlEncode(Uint8Array.from(record.bytes)));
+}
+
+function activationCommitCeremonyId(record: Record<string, unknown>): string {
+  const hasRegistrationId = Object.hasOwn(record, 'registrationCeremonyId');
+  const hasAddSignerId = Object.hasOwn(record, 'addSignerCeremonyId');
+  if (hasRegistrationId === hasAddSignerId) {
+    throw new Error('ECDSA activation commit request requires one ceremony identity');
+  }
+  const field = hasRegistrationId ? 'registrationCeremonyId' : 'addSignerCeremonyId';
+  requireExactKeys(record, 'ECDSA activation commit request', [field, 'ecdsa']);
+  const ceremonyId = String(record[field] || '').trim();
+  if (!ceremonyId) throw new Error('ECDSA activation commit ceremony identity is invalid');
+  return ceremonyId;
+}
+
+function assertCanonicalRequestMatchesVerifiedCeremony(input: {
+  readonly ceremonyId: string;
+  readonly planInput: InitialEcdsaCapabilityActivationPlanInput;
+  readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+}): void {
+  const request = requireRecord(
+    JSON.parse(input.planInput.canonicalRequest),
+    'ECDSA activation commit request',
+  );
+  if (activationCommitCeremonyId(request) !== input.ceremonyId) {
+    throw new Error('ECDSA activation commit request changed the ceremony identity');
+  }
+  const ecdsa = requireRecord(request.ecdsa, 'ECDSA activation commit request ecdsa');
+  requireExactKeys(ecdsa, 'ECDSA activation commit request ecdsa', [
+    'kind',
+    'activationCorrelationId',
+    'publicFacts',
+    'expectedActivationRequestDigest',
+  ]);
+  if (ecdsa.kind !== 'router_ab_ecdsa_registration_activation_v1') {
+    throw new Error('ECDSA activation commit request kind is invalid');
+  }
+  if (parseCorrelationId(ecdsa.activationCorrelationId) !== input.planInput.journalId) {
+    throw new Error('ECDSA activation commit request changed the activation correlation');
+  }
+  if (
+    digestFromActivationCommitWire(ecdsa.expectedActivationRequestDigest) !==
+    input.planInput.requestDigest
+  ) {
+    throw new Error('ECDSA activation commit request changed the prepared request digest');
+  }
+  const publicFacts = parseRouterAbEcdsaVerifiedClientActivationFactsV1(ecdsa.publicFacts);
+  if (alphabetizeStringify(publicFacts) !== alphabetizeStringify(input.clientActivation)) {
+    throw new Error('ECDSA activation commit request changed the verified client facts');
+  }
+}
+
+export function assertInitialEcdsaActivationPlanMatchesVerifiedCeremony(input: {
+  readonly ceremonyId: string;
+  readonly planInput: InitialEcdsaCapabilityActivationPlanInput;
+  readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+}): void {
+  const clientActivation = parseRouterAbEcdsaVerifiedClientActivationFactsV1(
+    input.clientActivation,
+  );
+  if (
+    input.planInput.journalId !== parseCorrelationId(input.ceremonyId) ||
+    input.planInput.bindingDigest !== clientActivation.contextBinding32B64u ||
+    input.planInput.clientVerifyingPublicKey33B64u !==
+      clientActivation.derivationClientSharePublicKey33B64u ||
+    input.planInput.participantIds.length !== 2 ||
+    input.planInput.participantIds[0] !== toParticipantId(1) ||
+    input.planInput.participantIds[1] !== toParticipantId(2)
+  ) {
+    throw new Error('Initial canonical ECDSA activation plan does not match the live ceremony');
+  }
+  assertCanonicalRequestMatchesVerifiedCeremony({
+    ceremonyId: input.ceremonyId,
+    planInput: input.planInput,
+    clientActivation,
+  });
+}
 
 function unwrapDomainId<T>(result: DomainIdParseResult<T>): T {
   if (!result.ok) throw new Error(result.error.message);

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
+  assertInitialEcdsaActivationPlanMatchesVerifiedCeremony,
   buildInitialEcdsaCapabilityActivationPlan,
   type InitialEcdsaCapabilityActivationPlan,
 } from '@/core/signingEngine/session/material/initialEcdsaCapabilityActivation';
@@ -48,4 +49,30 @@ test('initial ECDSA activation planner derives the canonical key handle', async 
 
   expect(plan.activationBinding.roleLocalBinding.keyHandle).toBe(expectedKeyHandle);
   expect(plan.activationBinding.bindingDigest).toBe(fixture.input.bindingDigest);
+});
+
+test('initial ECDSA activation command matches the verified worker ceremony', async () => {
+  const fixture = await initialEcdsaCapabilityActivationFixture();
+
+  expect(() =>
+    assertInitialEcdsaActivationPlanMatchesVerifiedCeremony({
+      ceremonyId: fixture.input.journalId,
+      planInput: fixture.input,
+      clientActivation: fixture.clientActivation,
+    }),
+  ).not.toThrow();
+});
+
+test('initial ECDSA activation rejects a substituted canonical ceremony', async () => {
+  const fixture = await initialEcdsaCapabilityActivationFixture({
+    canonicalRequestCeremonyId: 'substituted-registration-ceremony',
+  });
+
+  expect(() =>
+    assertInitialEcdsaActivationPlanMatchesVerifiedCeremony({
+      ceremonyId: fixture.input.journalId,
+      planInput: fixture.input,
+      clientActivation: fixture.clientActivation,
+    }),
+  ).toThrow(/changed the ceremony identity/);
 });
