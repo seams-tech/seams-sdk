@@ -3372,6 +3372,22 @@ async function createEmailOtpRegistrationYaoPending(args: {
       registrationAuthorityId: args.registrationAuthorityId,
       registrationIntentGrant: args.registrationIntentGrant,
       routerOrigin: args.relayerUrl,
+      /* Email OTP runs Yao inside the worker, so the Router breakdown arrives
+         through this sink rather than the main-thread transport. */
+      onYaoDiagnostics: (diagnostics) => {
+        for (const [bucket, durationMs] of parseYaoServerTimingBuckets(
+          diagnostics.routerServerTiming,
+        )) {
+          args.recorder.record(bucket, durationMs);
+        }
+        if (diagnostics.clientTimings) {
+          args.recorder.record('yaoAdmissionMs', diagnostics.clientTimings.admissionMs);
+          args.recorder.record(
+            'yaoClientSessionCreateMs',
+            diagnostics.clientTimings.sessionCreateMs,
+          );
+        }
+      },
     }),
   );
 }

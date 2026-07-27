@@ -176,6 +176,8 @@ class EmailOtpRegistrationRootConsumer implements EmailOtpEd25519YaoRootConsumer
         value: {
           registration: result.registration,
           retainedFactorSecret32,
+          ...(result.routerServerTiming ? { routerServerTiming: result.routerServerTiming } : {}),
+          ...(result.clientTimings ? { clientTimings: result.clientTimings } : {}),
         },
       };
     } catch (error) {
@@ -225,6 +227,14 @@ class EmailOtpRecoveryRootConsumer implements EmailOtpEd25519YaoRootConsumer<Ret
 export type RetainedEmailOtpEd25519YaoRegistrationV1 = {
   registration: ProductEd25519YaoPendingRegistrationPortV1;
   retainedFactorSecret32: Uint8Array;
+  /**
+   * Raw Router `Server-Timing` for the Yao execute call. Email OTP runs its
+   * ceremony inside the worker, so this is the only way the Router breakdown
+   * reaches the main thread. Diagnostics only.
+   */
+  routerServerTiming?: string;
+  /** Client-observed Yao sub-steps in ms. Diagnostics only. */
+  clientTimings?: { admissionMs: number; sessionCreateMs: number };
 };
 
 export type RetainedEmailOtpEd25519YaoRecoveryV1 = {
