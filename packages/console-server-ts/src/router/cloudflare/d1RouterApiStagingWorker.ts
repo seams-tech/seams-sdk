@@ -798,6 +798,7 @@ function createStagingYaoRequestScopedRuntime(
     signingWorkerId: requireEnvString(env, 'SIGNING_WORKER_ID'),
     session,
     store: createStagingYaoPartitionedStateStore(env),
+    registrationBackend: createStagingEd25519YaoBackend(env),
     loadPersistedActiveCapability: loadStagingPersistedActiveCapability.bind(undefined, env),
   });
 }

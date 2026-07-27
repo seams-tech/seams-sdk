@@ -4,6 +4,7 @@ import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
 } from './routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+import { routerAbEd25519YaoPartitionedStateAfterStoredCommitV1 } from './routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 
 export type RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1<T> =
   | { readonly kind: 'response'; readonly value: T }
@@ -32,12 +33,15 @@ export type RouterAbEd25519YaoRegistrationTwoPhaseRunResultV1<TClaim, TResponse,
     }
   | { readonly kind: 'completed'; readonly value: TResponse }
   | { readonly kind: 'rejected'; readonly value: TRejection }
-  | { readonly kind: 'preclaim_version_mismatch'; readonly key: 'shared' | 'ceremony' }
+  | {
+      readonly kind: 'preclaim_version_mismatch';
+      readonly key: 'shared' | 'ceremony' | 'execution';
+    }
   | { readonly kind: 'backend_uncertain'; readonly claim: TClaim; readonly message: string }
   | {
       readonly kind: 'terminal_version_mismatch';
       readonly claim: TClaim;
-      readonly key: 'shared' | 'ceremony';
+      readonly key: 'shared' | 'ceremony' | 'execution';
     };
 
 export type RouterAbEd25519YaoRegistrationTwoPhaseRunInputV1<
@@ -97,7 +101,11 @@ export async function runRouterAbEd25519YaoRegistrationTwoPhaseV1<
         return { kind: 'backend_uncertain', claim: prepared.claim, message: backend.message };
       }
 
-      const terminalSnapshot = await input.store.load(input.lifecycleId);
+      const terminalSnapshot = routerAbEd25519YaoPartitionedStateAfterStoredCommitV1({
+        lifecycleId: input.lifecycleId,
+        state: prepared.state,
+        commit: preclaim,
+      });
       const completion = await input.complete(
         terminalSnapshot.state,
         prepared.claim,
@@ -130,5 +138,7 @@ function buildCommitInput(
     sharedState: loaded.sharedState,
     sharedVersion: loaded.sharedVersion,
     ceremonyVersion: loaded.ceremonyVersion,
+    execution: loaded.execution,
+    executionVersion: loaded.executionVersion,
   };
 }

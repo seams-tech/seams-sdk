@@ -306,25 +306,41 @@ export function storedRegistrationAuthoritiesMatch(
 
 type StoredEcdsaRegistrationBase = Omit<WalletRegistrationEcdsaStartPayload, 'kind'> & {
   derivationKind: WalletRegistrationEcdsaStartPayload['kind'];
+  strictRegistrationBindingJson: string;
 };
 
-export type StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch =
-  StoredEcdsaRegistrationBase & {
+export type StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch = StoredEcdsaRegistrationBase & {
   kind: 'evm_family_ecdsa_prepared';
   branchKey: RegistrationSignerBranchKey;
 };
 
 export type StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch =
   StoredEcdsaRegistrationBase & {
-  kind: 'evm_family_ecdsa_pending_activation';
-  branchKey: RegistrationSignerBranchKey;
-  registrationRequest: RouterAbEcdsaRegistrationRequestV1;
-  pendingActivation: RouterAbEcdsaPendingActivationV1;
-  publicResponse: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
-};
+    kind: 'evm_family_ecdsa_pending_activation';
+    branchKey: RegistrationSignerBranchKey;
+    registrationRequest: RouterAbEcdsaRegistrationRequestV1;
+    pendingActivation: RouterAbEcdsaPendingActivationV1;
+    publicResponse: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
+  };
 
-export type StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch =
+export type StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch =
   StoredEcdsaRegistrationBase & {
+    kind: 'evm_family_ecdsa_response_claimed';
+    branchKey: RegistrationSignerBranchKey;
+    registrationRequest: RouterAbEcdsaRegistrationRequestV1;
+  };
+
+export type StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch =
+  StoredEcdsaRegistrationBase & {
+    kind: 'evm_family_ecdsa_activation_claimed';
+    branchKey: RegistrationSignerBranchKey;
+    registrationRequest: RouterAbEcdsaRegistrationRequestV1;
+    pendingActivation: RouterAbEcdsaPendingActivationV1;
+    publicResponse: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
+    publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  };
+
+export type StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch = StoredEcdsaRegistrationBase & {
   kind: 'evm_family_ecdsa_activated';
   branchKey: RegistrationSignerBranchKey;
   registrationRequest: RouterAbEcdsaRegistrationRequestV1;
@@ -338,12 +354,15 @@ export type StoredWalletRegistrationNearEd25519YaoAuthorizedBranch = {
   kind: 'near_ed25519_yao_authorized';
   branchKey: RegistrationSignerBranchKey;
   admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
 };
 
 export type StoredWalletRegistrationSignerBranch =
   | StoredWalletRegistrationNearEd25519YaoAuthorizedBranch
   | StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch
+  | StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch
   | StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch
+  | StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch
   | StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch;
 
 export type StoredWalletRegistrationSignerSetState = {
@@ -353,7 +372,9 @@ export type StoredWalletRegistrationSignerSetState = {
 
 export type StoredWalletRegistrationEvmFamilyEcdsaBranch =
   | StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch
+  | StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch
   | StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch
+  | StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch
   | StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch;
 
 export function buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch(input: {
@@ -363,6 +384,7 @@ export function buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch(input:
     readonly chainTargets: StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch['chainTargets'];
     readonly prepare: StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch['prepare'];
     readonly strictRegistration: StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch['strictRegistration'];
+    readonly strictRegistrationBindingJson: string;
   };
 }): StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch {
   return {
@@ -372,17 +394,20 @@ export function buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch(input:
     chainTargets: input.ecdsa.chainTargets,
     prepare: input.ecdsa.prepare,
     strictRegistration: input.ecdsa.strictRegistration,
+    strictRegistrationBindingJson: input.ecdsa.strictRegistrationBindingJson,
   };
 }
 
 export function buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch(input: {
   readonly branchKey: RegistrationSignerBranchKey;
   readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
 }): StoredWalletRegistrationNearEd25519YaoAuthorizedBranch {
   return {
     kind: 'near_ed25519_yao_authorized',
     branchKey: input.branchKey,
     admissionRequest: input.admissionRequest,
+    admissionReceipt: input.admissionReceipt,
   };
 }
 
@@ -401,7 +426,9 @@ export function findStoredWalletRegistrationEvmFamilyEcdsaBranch(
   for (const branch of state.branches) {
     if (
       branch.kind === 'evm_family_ecdsa_prepared' ||
+      branch.kind === 'evm_family_ecdsa_response_claimed' ||
       branch.kind === 'evm_family_ecdsa_pending_activation' ||
+      branch.kind === 'evm_family_ecdsa_activation_claimed' ||
       branch.kind === 'evm_family_ecdsa_activated'
     ) {
       return branch;
@@ -478,8 +505,7 @@ export function parseTerminalRegistrationCeremonyCancellationResult(
   if (!isRecord(value)) return null;
   switch (value.kind) {
     case 'cancelled':
-      return value.ceremonyDeleted === true &&
-        typeof value.walletReservationReleased === 'boolean'
+      return value.ceremonyDeleted === true && typeof value.walletReservationReleased === 'boolean'
         ? {
             kind: 'cancelled',
             ceremonyDeleted: true,
@@ -1282,7 +1308,6 @@ function parseStoredRegistrationIntent(value: unknown): StoredRegistrationIntent
   if (!Number.isFinite(Number(value.expiresAtMs))) return null;
   return value as StoredRegistrationIntent;
 }
-
 
 export function parseStoredRegistrationSignerPlan(value: unknown): RegistrationSignerPlan | null {
   const parsed = normalizeRegistrationSignerPlan(value);
