@@ -56,6 +56,10 @@ import {
   type ThresholdEd25519SessionRecord,
 } from '../session/persistence/records';
 import { parseRouterAbEd25519WalletSessionAuthorityFromRecord } from '../session/routerAbSigningWalletSession';
+import {
+  buildPersistedEcdsaRoleLocalMaterial,
+  getLiveEcdsaRoleLocalMaterialBinding,
+} from '../session/material/ecdsaRoleLocalMaterialResolver';
 import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import {
   emailOtpAuthContextEmailHashHex,
@@ -368,22 +372,13 @@ function currentEd25519RestoreMetadataFromSessionRecord(
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
     routerAbNormalSigning,
   };
-  switch (authBranch.kind) {
-    case 'passkey':
-      return {
-        ...commonRestoreMetadata,
-        credentialIdB64u: authBranch.credentialIdB64u,
-      };
-    case 'email_otp':
-      return {
-        ...commonRestoreMetadata,
-        provider: authBranch.provider,
-        providerSubjectId: authBranch.providerSubjectId,
-        emailHashHex: authBranch.emailHashHex,
-      };
-    default:
-      return assertNever(authBranch);
+  if (authBranch.kind === 'email_otp') {
+    return undefined;
   }
+  return {
+    ...commonRestoreMetadata,
+    credentialIdB64u: authBranch.credentialIdB64u,
+  };
 }
 
 type WarmSessionSealAuthMethodInput =
@@ -1308,7 +1303,15 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       ecdsaRecord?.ecdsaRoleLocalAuthMethod.kind === 'passkey'
         ? ecdsaRecord.ecdsaRoleLocalAuthMethod.credentialIdB64u
         : '';
-    const ecdsaRoleLocalMaterialRef = ecdsaRecord?.roleLocalMaterialRef;
+    const ecdsaRoleLocalMaterialRef = ecdsaRecord
+      ? getLiveEcdsaRoleLocalMaterialBinding(
+          buildPersistedEcdsaRoleLocalMaterial({
+            authority: ecdsaRecord.authority,
+            materialActivation: ecdsaRecord.materialActivation,
+            publicFacts: ecdsaRecord.ecdsaRoleLocalPublicFacts,
+          }),
+        )?.materialRef
+      : undefined;
     const walletId = String(
       ed25519Record?.walletId || ecdsaRecord?.walletId || args.walletId || '',
     ).trim();
@@ -1339,6 +1342,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             signingRootVersion: ecdsaSigningRootVersion,
             source: ecdsaPasskeySource,
             evmFamilySigningKeySlotId: ecdsaRecord.evmFamilySigningKeySlotId,
+            authority: ecdsaRecord.authority,
             roleLocalMaterialRef: ecdsaRoleLocalMaterialRef,
             rpId: thresholdEcdsaRecordRpId(ecdsaRecord),
             credentialIdB64u: ecdsaPasskeyCredentialId,

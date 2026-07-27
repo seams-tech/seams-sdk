@@ -5,12 +5,14 @@ import type { EmailOtpWalletSessionCoordinator } from '../../session/emailOtp/Em
 import type { SessionPublicDeps } from '../../session/public';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import type { WarmSigningPorts } from './warmSigning';
+import type { PersistedAvailableSigningLanesDeps } from '../../session/availability/persistedAvailableSigningLanes';
 
 export function createSessionPublicDeps(args: {
   seamsWebConfigs: SeamsConfigsReadonly;
   touchConfirm: UiConfirmRuntimeBridgePort;
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
   warmSigning: WarmSigningPorts;
+  listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
 }): SessionPublicDeps {
   const readCombinedEmailOtpWarmSessionStatus = (sessionId: string) =>
     args.touchConfirm.getWarmSessionStatus({ sessionId });
@@ -24,7 +26,7 @@ export function createSessionPublicDeps(args: {
   }
   return {
     availableLanes: {
-      ecdsaSessions: args.warmSigning.ecdsaSessions,
+      listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
       statusReader: args.touchConfirm,
       getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
       getWalletSigningBudgetStatus: (statusArgs) =>

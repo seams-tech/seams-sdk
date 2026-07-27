@@ -67,10 +67,10 @@ const invalidStepUpInput = {
 // @ts-expect-error operation step-up cannot carry reusable Wallet Session identity
 invalidStepUpInput satisfies CapabilityOperationClaimInput;
 
-// @ts-expect-error step-up grants are structurally limited to one use
 const invalidStepUpGrant: ActiveCapabilityGrant = {
   ...reusableGrant,
   authority: { kind: 'operation_step_up' },
+  // @ts-expect-error capability grants are structurally limited to one use
   remainingUses: 2,
 };
 

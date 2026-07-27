@@ -16,12 +16,14 @@ import type {
   RouterAbEcdsaDerivationNormalSigningStateV1,
   RouterAbEcdsaDerivationPublicCapabilityV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 declare const currentEd25519Record: CurrentEd25519SealedSessionRecord;
 declare const currentEcdsaRecord: CurrentEcdsaSealedSessionRecord;
 declare const routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const roleLocalMaterialRef: SealedSigningSessionEcdsaRoleLocalMaterialRef;
+declare const authority: WalletAuthAuthorityRef;
 declare const ecdsaReauthAnchorPublicRestore: EcdsaReauthAnchorPublicRestore;
 void currentEd25519Record;
 void currentEcdsaRecord;
@@ -200,7 +202,7 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
   ecdsaRestore: {
     chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
     source: 'manual-bootstrap',
-    evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet.testnet:project%3Adev:default',
+    authority,
     roleLocalMaterialRef,
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
@@ -290,7 +292,6 @@ void invalidPolicyUpdateWithoutUpdatedAtMs;
 const invalidEmailOtpEcdsaRestoreWithoutProviderSubject = {
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
   source: 'email_otp',
-  evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet.testnet:project%3Adev:default',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   provider: 'google',
@@ -306,7 +307,6 @@ void invalidEmailOtpEcdsaRestoreWithoutProviderSubject;
 const invalidEmailOtpEcdsaRestoreWithAuthSubjectAlias = {
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
   source: 'email_otp',
-  evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet.testnet:project%3Adev:default',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   provider: 'google',

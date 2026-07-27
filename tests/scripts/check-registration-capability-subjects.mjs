@@ -248,17 +248,7 @@ function checkEmailOtpUnlockCurrentSessionsUseCommitCommands() {
   );
   assertContains(
     ecdsaCurrentCommit,
-    'buildOperationUsableThresholdEcdsaSessionRecord',
-    'ECDSA current session commit',
-  );
-  assertContains(
-    ecdsaCurrentCommit,
     'commitCurrentThresholdEcdsaSession({',
-    'ECDSA current session commit',
-  );
-  assertContains(
-    ecdsaCurrentCommit,
-    "transition: args.source === 'registration' ? 'registration' : 'wallet_unlock'",
     'ECDSA current session commit',
   );
   assertContains(ecdsaPublication, 'commitEvmFamilyThresholdEcdsaSessions({', 'ECDSA publication');

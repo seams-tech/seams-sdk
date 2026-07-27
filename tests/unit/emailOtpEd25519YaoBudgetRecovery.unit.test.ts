@@ -28,7 +28,11 @@ import type {
   RouterAbEd25519YaoClientSigningInputV1,
   RouterAbEd25519YaoClientSigningShareV1,
 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
-import type { Ed25519YaoActiveClientIdentityV1 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
+import type {
+  Ed25519YaoActiveClientIdentityV1,
+  Ed25519YaoActiveClientLookupScopeV1,
+} from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
+import { nearEd25519YaoMaterialActivationFromMetadata } from '../../packages/sdk-web/src/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
 import {
   nearEd25519SigningKeyIdFromString,
   walletIdFromString,
@@ -42,7 +46,10 @@ import {
   recoverEmailOtpEd25519YaoFromSealedSessionV1,
   resolveEmailOtpEd25519YaoExportContextV1,
 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery';
-import { buildEmailOtpWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
   parseSigningGrantId,
   parseThresholdEd25519SessionId,
@@ -439,11 +446,8 @@ class RecoveryActivationHarness {
     this.previous = previous;
   }
 
-  resolve(identity: Ed25519YaoActiveClientIdentityV1): NearEd25519YaoSigningCapability | null {
-    return this.previous &&
-      identity.walletId === WALLET_ID &&
-      identity.nearAccountId === NEAR_ACCOUNT_ID &&
-      identity.thresholdSessionId === THRESHOLD_SESSION_ID
+  resolve(scope: Ed25519YaoActiveClientLookupScopeV1): NearEd25519YaoSigningCapability | null {
+    return this.previous && scope.walletId === WALLET_ID && scope.nearAccountId === NEAR_ACCOUNT_ID
       ? this.previous
       : null;
   }
@@ -456,7 +460,9 @@ class RecoveryActivationHarness {
     return {
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
-      thresholdSessionId: THRESHOLD_SESSION_ID,
+      materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
+        capability.activeClient.metadata(),
+      ),
     };
   }
 }
@@ -505,7 +511,7 @@ function publicCapabilityReference(): Ed25519YaoActiveClientIdentityV1 {
   return {
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
-    thresholdSessionId: THRESHOLD_SESSION_ID,
+    materialActivation: nearEd25519YaoMaterialActivationFromMetadata(activeMetadata()),
   };
 }
 
@@ -548,6 +554,7 @@ function buildEmailOtpSealedRecord(args: {
       provider: 'google',
       providerSubjectId: PROVIDER_SUBJECT,
       emailHashHex: '11'.repeat(32),
+      materialActivation: publicCapabilityReference().materialActivation,
       relayerKeyId: SIGNING_WORKER_ID,
       participantIds: [...PARTICIPANT_IDS],
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
@@ -561,17 +568,23 @@ function buildEmailOtpSealedRecord(args: {
   return record;
 }
 
-function warmRecoveryBootstrapResponse(args: {
+async function warmRecoveryBootstrapResponse(args: {
   expiresAtMs: number;
   thresholdExpiresAtMs: number;
   prior: RouterAbEd25519YaoActiveClientMetadataV1;
-}): Record<string, unknown> {
+}): Promise<Record<string, unknown>> {
   const bootstrap = recoveryBootstrap({
     remainingUses: 3,
     prior: args.prior,
     substitutePublicKey: false,
     substituteParticipantIds: false,
     substituteSignerSetId: false,
+  });
+  const authority = buildEmailOtpWalletAuthAuthority({
+    walletId: WALLET_ID,
+    provider: 'google',
+    providerUserId: PROVIDER_SUBJECT,
+    emailHashHex: '11'.repeat(32),
   });
   return {
     kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
@@ -584,12 +597,8 @@ function warmRecoveryBootstrapResponse(args: {
     signingWorkerId: SIGNING_WORKER_ID,
     thresholdExpiresAtMs: args.thresholdExpiresAtMs,
     participantIds: [...PARTICIPANT_IDS],
-    authority: buildEmailOtpWalletAuthAuthority({
-      walletId: WALLET_ID,
-      provider: 'google',
-      providerUserId: PROVIDER_SUBJECT,
-      emailHashHex: '11'.repeat(32),
-    }),
+    authority,
+    authorityRef: await walletAuthAuthorityRef({ authority }),
     authorityScope: {
       kind: 'email_otp',
       provider: 'google',
@@ -798,9 +807,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         nearAccountId: NEAR_ACCOUNT_ID,
         nearEd25519SigningKeyId: NEAR_ED25519_SIGNING_KEY_ID,
         signerSlot: 1,
-        thresholdSessionId: unwrapDomainId(
-          parseThresholdEd25519SessionId(THRESHOLD_SESSION_ID),
-        ),
+        thresholdSessionId: unwrapDomainId(parseThresholdEd25519SessionId(THRESHOLD_SESSION_ID)),
         signingGrantId: unwrapDomainId(parseSigningGrantId(SIGNING_GRANT_ID)),
         providerSubjectId: PROVIDER_SUBJECT,
       },
@@ -811,7 +818,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
           bootstrapRequests += 1;
           return new Response(
             JSON.stringify(
-              warmRecoveryBootstrapResponse({ expiresAtMs, thresholdExpiresAtMs, prior }),
+              await warmRecoveryBootstrapResponse({ expiresAtMs, thresholdExpiresAtMs, prior }),
             ),
             {
               status: 200,
@@ -876,7 +883,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     ).rejects.toThrow('one exact durable public capability reference');
   });
 
-  test('cold activation mints a fresh grant while retaining the durable public identity', async () => {
+  test('cold activation publishes a fresh activation for the durable signer', async () => {
     const priorMetadata = activeMetadata();
     const worker = new RecoveryWorkerFixture({
       prior: priorMetadata,
@@ -885,6 +892,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     const activation = new RecoveryActivationHarness(null);
     const prepared = prepareColdEmailOtpEd25519YaoRecoveryV1({
       identity: publicCapabilityReference(),
+      authorizationSessionId: THRESHOLD_SESSION_ID,
       signerSlot: 1,
       expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
       providerSubject: PROVIDER_SUBJECT,
@@ -933,6 +941,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     const pendingFactor = pendingFactorHandle();
     const prepared = prepareColdEmailOtpEd25519YaoRecoveryV1({
       identity: publicCapabilityReference(),
+      authorizationSessionId: THRESHOLD_SESSION_ID,
       signerSlot: 1,
       expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
       providerSubject: PROVIDER_SUBJECT,
@@ -975,6 +984,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     const pendingFactor = pendingFactorHandle();
     const prepared = prepareColdEmailOtpEd25519YaoRecoveryV1({
       identity: publicCapabilityReference(),
+      authorizationSessionId: THRESHOLD_SESSION_ID,
       signerSlot: 1,
       expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
       providerSubject: PROVIDER_SUBJECT,

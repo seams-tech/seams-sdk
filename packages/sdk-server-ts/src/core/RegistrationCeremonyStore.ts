@@ -1176,7 +1176,7 @@ function isStoredWalletAddSignerFinalizeSuccess(
       !trimString(value.ed25519.nearAccountId) ||
       !trimString(value.ed25519.nearEd25519SigningKeyId) ||
       !trimString(value.ed25519.publicKey) ||
-      !isRecord(value.ed25519.session)
+      !trimString(value.ed25519.relayerKeyId)
     ) {
       return false;
     }

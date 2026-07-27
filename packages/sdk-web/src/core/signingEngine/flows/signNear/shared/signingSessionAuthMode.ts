@@ -20,10 +20,9 @@ import {
   type NearTransactionSigningLane,
 } from '@/core/signingEngine/session/operationState/lanes';
 import type {
-  ResolveSigningSessionAuthPlanFromReadinessInput,
   ResolveSigningSessionAuthPlanFromReadinessResult,
-  SigningSessionReadiness,
 } from '@/core/signingEngine/session/SigningSessionCoordinator';
+import type { Ed25519SigningSessionReadiness } from '@/core/signingEngine/session/planning/planner';
 import {
   emailOtpAuthContextReason,
   emailOtpAuthContextRetention,
@@ -59,7 +58,12 @@ export type NearSigningSessionAuthContext = {
   walletId: string;
   nearAccountId: string;
   lane: NearTransactionSigningLane;
-  coordinatorInput: ResolveSigningSessionAuthPlanFromReadinessInput & {
+  coordinatorInput: {
+    lane: NearTransactionSigningLane;
+    readiness: Ed25519SigningSessionReadiness;
+    expiresAtMs: number;
+    remainingUses: number;
+    usesNeeded?: number;
     forceFreshAuth: boolean;
   };
 };
@@ -83,7 +87,7 @@ type ResolveEd25519PlannerReadinessArgs = {
   requiredSignatureUses?: number;
 };
 type Ed25519PlannerReadinessResult = {
-  readiness: SigningSessionReadiness;
+  readiness: Ed25519SigningSessionReadiness;
   expiresAtMs: number;
   remainingUses: number;
 };
@@ -423,7 +427,7 @@ function admitCapabilityBackedEd25519PlannerReadiness(args: {
 }
 
 function buildEd25519PlannerReadiness(args: {
-  status: SigningSessionReadiness['status'];
+  status: Ed25519SigningSessionReadiness['status'];
   thresholdSessionId: ReturnType<typeof SigningSessionIds.thresholdEd25519Session>;
   capability: NearEd25519Capability;
   expiresAtMs?: number;
@@ -437,6 +441,7 @@ function buildEd25519PlannerReadiness(args: {
       return {
         readiness: {
           status: args.status,
+          curve: 'ed25519',
           thresholdSessionId: args.thresholdSessionId,
           remainingUses,
           expiresAtMs,
@@ -446,7 +451,12 @@ function buildEd25519PlannerReadiness(args: {
       };
     case 'expired':
       return {
-        readiness: { status: 'expired', thresholdSessionId: args.thresholdSessionId, expiresAtMs },
+        readiness: {
+          status: 'expired',
+          curve: 'ed25519',
+          thresholdSessionId: args.thresholdSessionId,
+          expiresAtMs,
+        },
         expiresAtMs,
         remainingUses,
       };
@@ -455,7 +465,11 @@ function buildEd25519PlannerReadiness(args: {
     case 'status_unavailable':
     case 'budget_unknown':
       return {
-        readiness: { status: args.status, thresholdSessionId: args.thresholdSessionId },
+        readiness: {
+          status: args.status,
+          curve: 'ed25519',
+          thresholdSessionId: args.thresholdSessionId,
+        },
         expiresAtMs,
         remainingUses,
       };

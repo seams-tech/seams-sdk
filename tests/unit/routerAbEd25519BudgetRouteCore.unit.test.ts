@@ -8,13 +8,29 @@ import {
 } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
 import type {
+  RouterApiAuthorizationClaimService,
+  RouterApiAuthorizationSessionService,
+} from '../../packages/sdk-server-ts/src/router/authServicePort';
+import type {
   RouterAbNormalSigningBudgetFinalizeInput,
   RouterAbNormalSigningBudgetReleaseInput,
   RouterAbNormalSigningBudgetReservationInput,
 } from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime';
+import type { OperationStepUpClaimInput } from '../../packages/sdk-server-ts/src/authorization/service';
+import type { ClaimCapabilityOperationResult } from '../../packages/sdk-server-ts/src/authorization/domain';
 import { parseRouterAbEd25519WalletSessionClaims } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
+import {
+  parseCapabilityGrantUseId,
+  parseTenantId,
+} from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
+import {
+  buildClaimedCapabilityOperationResult,
+  buildPasskeyAuthorizationSessionFixture,
+  buildStepUpAuthorizationCoreFixture,
+  type PasskeyAuthorizationSessionFixture,
+} from './helpers/authorizationCore.fixtures';
 
 type Ed25519RouteInput = Parameters<typeof handleRouterAbEd25519NormalSigningRouteCore>[0];
 type Ed25519NormalSigningRuntime = NonNullable<Ed25519RouteInput['runtime']>;
@@ -48,6 +64,12 @@ const budgetDigestPattern = /^[A-Za-z0-9_-]{43}$/;
 type BudgetRouteHarness = {
   runtime: Ed25519NormalSigningRuntime;
   commitCalls: RouterAbNormalSigningBudgetFinalizeInput[];
+  replayCalls: Array<{
+    curve: 'ed25519' | 'ecdsa';
+    thresholdSessionId: string;
+    requestId: string;
+    expiresAtMs: number;
+  }>;
   releaseCalls: Array<
     RouterAbNormalSigningBudgetReleaseInput | RouterAbNormalSigningBudgetFinalizeInput
   >;
@@ -93,6 +115,38 @@ function parsedWalletSessionClaims() {
   return parsed;
 }
 
+function parsedWalletSessionClaimsForVector(scopeValue: unknown) {
+  if (!scopeValue || typeof scopeValue !== 'object' || Array.isArray(scopeValue)) {
+    throw new Error('normal-signing vector scope is invalid');
+  }
+  const scope = scopeValue as Record<string, unknown>;
+  const authorization = scope.authorization as Record<string, unknown>;
+  const vectorWalletId = String(scope.account_id || '');
+  const vectorThresholdSessionId = String(authorization.wallet_session_id || '');
+  const vectorSigningGrantId = String(authorization.grant_id || '');
+  const vectorSigningWorkerId = String(scope.signing_worker_id || '');
+  const parsed = parseRouterAbEd25519WalletSessionClaims({
+    ...walletSessionClaims(),
+    sub: vectorWalletId,
+    walletId: vectorWalletId,
+    nearAccountId: vectorWalletId,
+    thresholdSessionId: vectorThresholdSessionId,
+    signingGrantId: vectorSigningGrantId,
+    authority: {
+      walletId: vectorWalletId,
+      factor: { kind: 'passkey', credentialIdB64u: 'credential-1' },
+      verifier: { kind: 'webauthn', rpId: 'localhost' },
+      bindingId: 'passkey:localhost:credential-1',
+    },
+    routerAbNormalSigning: {
+      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+      signingWorkerId: vectorSigningWorkerId,
+    },
+  });
+  if (!parsed) throw new Error('normal-signing vector Wallet Session claims are invalid');
+  return parsed;
+}
+
 function sessionAdapter(): SessionAdapter {
   return {
     async signJwt() {
@@ -113,6 +167,66 @@ function sessionAdapter(): SessionAdapter {
   };
 }
 
+function operationStepUpSessionAdapter(
+  fixture: PasskeyAuthorizationSessionFixture,
+): SessionAdapter {
+  return {
+    async signJwt() {
+      return 'unused.jwt';
+    },
+    async parse() {
+      return {
+        ok: true,
+        claims: {
+          kind: 'app_session_v1',
+          sub: 'principal-1',
+          appSessionVersion: '1',
+          walletId,
+          tenantId: 'org-1',
+          seamsSessionId: 'seams-session-1',
+          runtimePolicyScope: {
+            orgId: 'org-1',
+            projectId: 'project-1',
+            envId: 'env-1',
+            signingRootVersion: 'root-v1',
+          },
+          walletAuthAuthorityRef: fixture.authorityRef,
+          exp: Math.ceil(expiresAtMs / 1_000) + 60,
+        },
+      };
+    },
+    buildSetCookie() {
+      return 'unused-cookie';
+    },
+    buildClearCookie() {
+      return 'unused-clear-cookie';
+    },
+    async refresh() {
+      return { ok: false };
+    },
+  };
+}
+
+function operationStepUpAuthorizationSessions(
+  fixture: PasskeyAuthorizationSessionFixture,
+): RouterApiAuthorizationSessionService {
+  return {
+    tenantId: fixture.session.tenantId,
+    async recordActiveSession() {
+      throw new Error('operation step-up must reuse the active authorization session');
+    },
+    async readActiveSession() {
+      return fixture.session;
+    },
+    async mintHostedWalletSeamsSessionExchange() {
+      throw new Error('operation step-up must not mint a hosted-wallet session exchange');
+    },
+    async redeemHostedWalletSeamsSessionExchange() {
+      throw new Error('operation step-up must not redeem a hosted-wallet session exchange');
+    },
+  };
+}
+
 function allowAllAdmissionAdapter(): RouterAbNormalSigningAdmissionAdapter {
   return {
     async evaluate() {
@@ -125,8 +239,20 @@ function routerAbScope(requestId: string): Record<string, unknown> {
   return {
     request_id: requestId,
     account_id: walletId,
-    session_id: thresholdSessionId,
-    active_state_session_id: thresholdSessionId,
+    authorization: {
+      kind: 'reusable_wallet_session',
+      wallet_session_id: thresholdSessionId,
+      grant_id: signingGrantId,
+    },
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: thresholdSessionId,
+      capability: 'capability-1',
+      material_owner: walletId,
+      key_binding: 'key-binding-1',
+      lifecycle_binding: 'lifecycle-1',
+      signing_worker: signingWorkerId,
+    },
     signing_worker_id: signingWorkerId,
   };
 }
@@ -135,6 +261,7 @@ function prepareBody(): Record<string, unknown> {
   return {
     scope: routerAbScope('prepare-request-1'),
     expires_at_ms: expiresAtMs,
+    display_digest: { bytes: new Array(32).fill(3) },
     intent: {
       kind: 'near_transaction_v1',
       operation_id: 'operation-1',
@@ -155,6 +282,29 @@ function prepareBody(): Record<string, unknown> {
       expected_signing_digest_b64u: 'A5BYxvLAy0ksUzsKTRTvd8wPeKvMztUofYShogEc-4E',
     },
   };
+}
+
+function operationStepUpPrepareBody(): Record<string, unknown> {
+  const body = prepareBody();
+  body.scope = {
+    request_id: 'step-up-request-1',
+    account_id: walletId,
+    authorization: {
+      kind: 'operation_step_up',
+      grant_id: 'step-up-grant-1',
+    },
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'material-activation-1',
+      capability: 'capability-1',
+      material_owner: walletId,
+      key_binding: 'key-binding-1',
+      lifecycle_binding: 'lifecycle-1',
+      signing_worker: signingWorkerId,
+    },
+    signing_worker_id: signingWorkerId,
+  };
+  return body;
 }
 
 function prepareBodyForExpiry(expiresAtValueMs: number): Record<string, unknown> {
@@ -208,6 +358,7 @@ function createNormalSigningRuntime(args?: {
   validateBudget?: 'ok' | 'exhausted';
 }): BudgetRouteHarness {
   const commitCalls: RouterAbNormalSigningBudgetFinalizeInput[] = [];
+  const replayCalls: BudgetRouteHarness['replayCalls'] = [];
   const releaseCalls: Array<
     RouterAbNormalSigningBudgetReleaseInput | RouterAbNormalSigningBudgetFinalizeInput
   > = [];
@@ -221,7 +372,8 @@ function createNormalSigningRuntime(args?: {
         auth: { kind: 'internal_service_auth_secret', secret: 'internal-token' },
       };
     },
-    async reservePrepareReplay() {
+    async reservePrepareReplay(input) {
+      replayCalls.push(input);
       return { ok: true };
     },
     async reserveBudget(input) {
@@ -266,7 +418,7 @@ function createNormalSigningRuntime(args?: {
       };
     },
   };
-  return { runtime, commitCalls, releaseCalls, reserveCalls, validateCalls };
+  return { runtime, commitCalls, replayCalls, releaseCalls, reserveCalls, validateCalls };
 }
 
 async function callEd25519RouteCore(input: {
@@ -281,6 +433,8 @@ async function callEd25519RouteCore(input: {
     headers: { authorization: 'Bearer wallet-session.jwt' },
     session: sessionAdapter(),
     runtime: input.runtime,
+    authorizationClaims: null,
+    authorizationSessions: null,
     admissionAdapter: allowAllAdmissionAdapter(),
     privatePath: input.privatePath,
     phase: input.phase,
@@ -301,7 +455,11 @@ async function okRouterAbEd25519SigningWorkerFetch(
     expect(privateBody.admission_candidate).toMatchObject({
       account_id: walletId,
       subject_id: walletId,
-      threshold_session_id: thresholdSessionId,
+      authorization: {
+        kind: 'reusable_wallet_session',
+        wallet_session_id: thresholdSessionId,
+        grant_id: signingGrantId,
+      },
       signing_worker_id: signingWorkerId,
       request_id: 'prepare-request-1',
       expires_at_ms: expiresAtMs,
@@ -340,12 +498,161 @@ function digestB64u(value: unknown): string {
 }
 
 test.describe('Router A/B Ed25519 route-core budget gates', () => {
+  test('operation step-up claims once, reuses the in-progress claim, and never touches reusable budget', async () => {
+    const harness = createNormalSigningRuntime();
+    const fixture = await buildStepUpAuthorizationCoreFixture();
+    const passkeySession = await buildPasskeyAuthorizationSessionFixture({
+      tenantId: 'org-1',
+      principalId: 'principal-1',
+      sessionId: 'seams-session-1',
+      deviceId: 'device-1',
+      walletId,
+      credentialIdB64u: 'credential-1',
+      rpId: 'localhost',
+      origin: 'https://localhost',
+      expiresAtMs: expiresAtMs + 60_000,
+    });
+    const authorizationSessions = operationStepUpAuthorizationSessions(passkeySession);
+    const useId = parseCapabilityGrantUseId('normal-signing-use:step-up-request-1');
+    if (!useId.ok) throw new Error(useId.error.message);
+    const claimed = buildClaimedCapabilityOperationResult(fixture, { useId: useId.value });
+    if (claimed.kind !== 'claimed') throw new Error('step-up fixture must be claimed');
+    const claimResults: ClaimCapabilityOperationResult[] = [
+      claimed,
+      { kind: 'operation_in_progress', use: claimed.use },
+    ];
+    const claimCalls: OperationStepUpClaimInput[] = [];
+    const tenantId = parseTenantId('org-1');
+    if (!tenantId.ok) throw new Error(tenantId.error.message);
+    const authorizationClaims: RouterApiAuthorizationClaimService = {
+      tenantId: tenantId.value,
+      async recordVerifiedFactorEvidenceSet() {
+        throw new Error('normal signing must not record new factor evidence');
+      },
+      async issueGrant() {
+        throw new Error('normal signing must not issue a grant');
+      },
+      async claimOperationStepUpFromGrant(input) {
+        claimCalls.push(input);
+        if (claimCalls[0]?.intentDigest !== input.intentDigest) {
+          return { kind: 'grant_mismatch' };
+        }
+        const result = claimResults.shift();
+        if (!result) throw new Error('unexpected operation-step-up claim');
+        return result;
+      },
+    };
+    const privateBodies: Record<string, unknown>[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_url, init) => {
+      privateBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    };
+
+    try {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const body = operationStepUpPrepareBody();
+        const result = await handleRouterAbEd25519NormalSigningRouteCore({
+          body,
+          rawBody: body,
+          headers: {
+            authorization: 'Bearer app-session.jwt',
+            origin: 'https://localhost',
+          },
+          session: operationStepUpSessionAdapter(passkeySession),
+          runtime: harness.runtime,
+          authorizationClaims,
+          authorizationSessions,
+          admissionAdapter: null,
+          privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare,
+          phase: 'prepare',
+        });
+        expect(result.status).toBe(200);
+      }
+      const mutatedBody = operationStepUpPrepareBody();
+      const mutatedIntent = mutatedBody.intent as Record<string, unknown>;
+      mutatedIntent.operation_fingerprint = 'altered-operation-fingerprint';
+      const rejectedMutation = await handleRouterAbEd25519NormalSigningRouteCore({
+        body: mutatedBody,
+        rawBody: mutatedBody,
+        headers: {
+          authorization: 'Bearer app-session.jwt',
+          origin: 'https://localhost',
+        },
+        session: operationStepUpSessionAdapter(passkeySession),
+        runtime: harness.runtime,
+        authorizationClaims,
+        authorizationSessions,
+        admissionAdapter: null,
+        privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare,
+        phase: 'prepare',
+      });
+
+      expect(rejectedMutation).toMatchObject({
+        status: 403,
+        body: { code: 'grant_mismatch' },
+      });
+      expect(claimCalls).toHaveLength(3);
+      expect(claimCalls[0]).toMatchObject({
+        tenantId: 'org-1',
+        grantId: 'step-up-grant-1',
+        authorizationSessionId: 'seams-session-1',
+        principalId: 'principal-1',
+        capabilityId: 'capability-1',
+        operationId: 'operation-1',
+        operation: {
+          capabilityKind: 'near_ed25519_mpc_signing',
+          operationKind: 'near.sign_transaction',
+        },
+        intentDigest: expect.stringMatching(budgetDigestPattern),
+      });
+      expect(claimCalls[2]?.intentDigest).not.toBe(claimCalls[0]?.intentDigest);
+      expect(privateBodies).toHaveLength(2);
+      expect(privateBodies[0]).toMatchObject({
+        admission_candidate: {
+          subject_id: 'principal-1',
+          authorization: {
+            kind: 'operation_step_up',
+            authorization_session_id: 'seams-session-1',
+            grant_id: 'step-up-grant-1',
+          },
+        },
+        trusted_admission: {
+          metadata: {
+            auth: {
+              auth: 'operation_step_up_session',
+              subject_id: 'principal-1',
+              authorization_session_id: 'seams-session-1',
+            },
+          },
+        },
+      });
+      expect(harness.reserveCalls).toEqual([]);
+      expect(harness.replayCalls).toEqual([
+        {
+          curve: 'ed25519',
+          thresholdSessionId: 'material-activation-1',
+          requestId: 'step-up-request-1',
+          expiresAtMs,
+        },
+      ]);
+      expect(harness.validateCalls).toEqual([]);
+      expect(harness.commitCalls).toEqual([]);
+      expect(harness.releaseCalls).toEqual([]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test('private prepare admission matches the committed Rust protocol vectors', async () => {
     for (const vector of normalSigningVectors.cases) {
       const privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
         phase: 'prepare',
         body: vector.prepare_request_json,
-        claims: parsedWalletSessionClaims(),
+        authorization: {
+          kind: 'reusable_wallet_session',
+          claims: parsedWalletSessionClaimsForVector(vector.prepare_request_json.scope),
+        },
         headers: { origin: 'https://localhost' },
       });
       if (!('admission_candidate' in privateBody)) {
@@ -382,6 +689,8 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
         headers: { authorization: 'Bearer wallet-session.jwt' },
         session: sessionAdapter(),
         runtime: harness.runtime,
+        authorizationClaims: null,
+        authorizationSessions: null,
         admissionAdapter: null,
         privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare,
         phase: 'prepare',

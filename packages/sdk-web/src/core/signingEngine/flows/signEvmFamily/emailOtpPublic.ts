@@ -10,7 +10,6 @@ import type {
   WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
-import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
@@ -19,8 +18,6 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
-import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
-import type { WarmSessionEcdsaCapabilityState } from '../../session/warmCapabilities/types';
 import type { EmailOtpWorkerProgressEvent } from '../../workerManager/workerTypes';
 import type { EmailOtpEcdsaBootstrapAuthorization } from '../../session/emailOtp/routePlan';
 import {
@@ -30,11 +27,10 @@ import {
 import type {
   EmailOtpEcdsaProviderIdentity,
   EmailOtpThresholdEcdsaLoginResult,
-  EmailOtpThresholdEcdsaLoginTimings,
   LoginEmailOtpEcdsaCapabilityArgs,
 } from '../../session/emailOtp/ecdsaLogin';
 import type { EnrollAndLoginEmailOtpEcdsaCapabilityArgs } from '../../session/emailOtp/ecdsaEnrollment';
-import type { EmailOtpEcdsaPublicationTimings } from '../../session/emailOtp/ecdsaPublication';
+import type { EmailOtpThresholdEcdsaEnrollmentResult } from '../../session/emailOtp/ecdsaEnrollment';
 import {
   resolveEmailOtpAuthLane,
   type EmailOtpRoutePlan,
@@ -72,17 +68,8 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   >;
 };
 
-export type LoginWithEmailOtpEcdsaCapabilityInternalResult = {
-  recovery: EmailOtpBootstrapRecovery;
-  bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
-  warmCapabilities: readonly [
-    WarmSessionEcdsaCapabilityState,
-    ...WarmSessionEcdsaCapabilityState[],
-  ];
-  timings: EmailOtpThresholdEcdsaLoginTimings;
-  ed25519YaoRecovery: EmailOtpThresholdEcdsaLoginResult['ed25519YaoRecovery'];
-};
+export type LoginWithEmailOtpEcdsaCapabilityInternalResult =
+  EmailOtpThresholdEcdsaLoginResult;
 
 export type EnrollEmailOtpInternalArgs = {
   walletId: WalletId;
@@ -160,12 +147,8 @@ export type PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult = Awaite
   ReturnType<typeof prepareEmailOtpRegistrationEnrollmentMaterial>
 >;
 
-export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult = {
-  enrollment: EnrollEmailOtpInternalResult;
-  bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
-  timings: EmailOtpEcdsaPublicationTimings;
-};
+export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult =
+  EmailOtpThresholdEcdsaEnrollmentResult;
 
 export type EmailOtpPublicDeps = {
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps;

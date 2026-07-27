@@ -31,9 +31,11 @@ export async function ensureEcdsaPrfSealPersisted(args: {
     },
   ) => ThresholdSessionSealTransportAuthMaterial | null;
 }): Promise<void> {
-  const thresholdSessionId = String(args.lane.thresholdSessionId || '').trim();
-  if (!thresholdSessionId) return;
-  const persistKey = `${thresholdSessionId}:${thresholdEcdsaChainTargetKey(args.lane.signer.chainTarget)}`;
+  const materialActivationId = String(
+    args.lane.signer.materialActivation.activationId,
+  ).trim();
+  if (!materialActivationId) return;
+  const persistKey = `${materialActivationId}:${thresholdEcdsaChainTargetKey(args.lane.signer.chainTarget)}`;
   let persistPromise = args.sealPersistInFlightBySessionId.get(persistKey);
   if (!persistPromise) {
     persistPromise = (async (): Promise<void> => {
@@ -49,7 +51,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
         // Use the high-level persist boundary after the ECDSA record exists; it
         // writes both the server seal and the local exact-purpose restore record.
         const persisted = await exactPersistFn({
-          sessionId: thresholdSessionId,
+          sessionId: materialActivationId,
           transport: {
             curve: sealTransport.curve,
             ...(sealTransport.walletId ? { walletId: sealTransport.walletId } : {}),
@@ -79,7 +81,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
       const persistFn = args.touchConfirm?.sealAndPersistWarmSessionMaterial;
       if (typeof persistFn === 'function' && sealTransport) {
         const persisted = await persistFn({
-          sessionId: thresholdSessionId,
+          sessionId: materialActivationId,
           transport: {
             curve: sealTransport.curve,
             ...(sealTransport.walletId ? { walletId: sealTransport.walletId } : {}),

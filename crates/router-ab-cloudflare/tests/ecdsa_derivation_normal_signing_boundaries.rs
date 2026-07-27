@@ -69,7 +69,7 @@ fn router_ab_ecdsa_derivation_normal_signing_materialized_request_uses_active_ma
 }
 
 #[test]
-fn router_ab_ecdsa_derivation_active_state_lookup_uses_full_scope_session_identity() {
+fn router_ab_ecdsa_derivation_active_state_lookup_uses_exact_material_activation_identity() {
     let durable_object_rs = read_src_file("durable_object.rs");
     let lookup_body = extract_function_body(
         &durable_object_rs,
@@ -77,7 +77,7 @@ fn router_ab_ecdsa_derivation_active_state_lookup_uses_full_scope_session_identi
     );
     for required in [
         "scope.wallet_id.clone()",
-        "scope.active_state_session_id()?",
+        "scope.material_activation_id()?",
         "scope.signing_worker.server_id.clone()",
     ] {
         assert!(
@@ -96,8 +96,8 @@ fn router_ab_ecdsa_derivation_active_state_lookup_uses_full_scope_session_identi
         "validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_material_v1",
     );
     assert!(
-        active_material_body.contains("cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1"),
-        "Router A/B ECDSA derivation active material validation must use the full active-state session id"
+        active_material_body.contains("cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1"),
+        "Router A/B ECDSA derivation active material validation must use the exact material activation id"
     );
     assert!(
         !active_material_body.contains("scope.context.ecdsa_threshold_key_id"),

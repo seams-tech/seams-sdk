@@ -4,8 +4,6 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaSessionProvisionPlan } from './ecdsaProvisionPlan';
 import type {
-  ApplyWarmEcdsaPostSignPolicyArgs,
-  AssertWarmEcdsaOperationAllowedArgs,
   EnsureWarmEcdsaProvisionPlanReadyArgs,
   WarmSessionEcdsaCapabilityState,
   WarmSessionEd25519CapabilityState,
@@ -16,7 +14,6 @@ import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '../persistence/records';
-import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 
 type FreshEcdsaSessionProvisionPlan = Extract<
@@ -51,7 +48,6 @@ declare const reconnectPlan: ReconnectEcdsaSessionProvisionPlan;
 declare const selectedRecord: ThresholdEcdsaSessionRecord;
 declare const selectedEd25519Record: ThresholdEd25519SessionRecord;
 declare const keyRef: ThresholdEcdsaSecp256k1KeyRef;
-declare const exactEcdsaLane: ExactEcdsaSigningLaneIdentity;
 declare const ecdsaCapabilityKey: PresentWarmSessionEcdsaCapabilityState['key'];
 declare const ecdsaCapabilityLane: PresentWarmSessionEcdsaCapabilityState['lane'];
 declare const warmPrfClaim: WarmPrfClaim;
@@ -160,36 +156,6 @@ const invalidWarmSessionEcdsaCapabilityRefWithRawWalletId = {
   thresholdSessionId: 'threshold-session-id',
 } satisfies WarmSessionEcdsaCapabilityRef;
 void invalidWarmSessionEcdsaCapabilityRefWithRawWalletId;
-
-const validApplyWarmEcdsaPostSignPolicyArgs = {
-  lane: exactEcdsaLane,
-  selectedRecord,
-} satisfies ApplyWarmEcdsaPostSignPolicyArgs;
-void validApplyWarmEcdsaPostSignPolicyArgs;
-
-const invalidApplyWarmEcdsaPostSignPolicyArgsWithRawWalletId = {
-  lane: exactEcdsaLane,
-  selectedRecord,
-  // @ts-expect-error ECDSA post-sign policy receives exact lane identity only.
-  walletId,
-} satisfies ApplyWarmEcdsaPostSignPolicyArgs;
-void invalidApplyWarmEcdsaPostSignPolicyArgsWithRawWalletId;
-
-const validAssertWarmEcdsaOperationAllowedArgs = {
-  lane: exactEcdsaLane,
-  operationLabel: 'threshold-ecdsa sign',
-  source: 'login',
-} satisfies AssertWarmEcdsaOperationAllowedArgs;
-void validAssertWarmEcdsaOperationAllowedArgs;
-
-const invalidAssertWarmEcdsaOperationAllowedArgsWithRawWalletId = {
-  lane: exactEcdsaLane,
-  operationLabel: 'threshold-ecdsa sign',
-  source: 'login',
-  // @ts-expect-error ECDSA operation checks receive exact lane identity only.
-  walletId,
-} satisfies AssertWarmEcdsaOperationAllowedArgs;
-void invalidAssertWarmEcdsaOperationAllowedArgsWithRawWalletId;
 
 const invalidReadyEd25519CapabilityWithoutJwt = {
   capability: 'ed25519',

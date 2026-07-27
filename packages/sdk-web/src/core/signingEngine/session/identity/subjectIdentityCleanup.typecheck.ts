@@ -30,6 +30,8 @@ import {
   SigningSessionIds,
   type WalletSigningSpendPlan,
 } from '../operationState/types';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 
 const walletId = toWalletId('wallet.testnet');
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
@@ -38,7 +40,6 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ederivation-subject-cleanup',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -48,7 +49,6 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
 
 const validPublicKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({
   walletId,
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ederivation-subject-cleanup',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -61,7 +61,6 @@ const invalidPublicKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({
   walletId,
   // @ts-expect-error ECDSA public key identity builder derives subject identity from walletId.
   subjectId: 'wallet.testnet',
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ederivation-subject-cleanup',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -69,20 +68,22 @@ const invalidPublicKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({
   thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
 });
 void invalidPublicKeyIdentity;
+declare const materialActivation: MpcMaterialActivationRef;
+declare const authorization: ActiveEvmFamilyWalletSessionAuthorization;
 
 const laneIdentity = exactEcdsaSigningLaneIdentity({
   signer: buildEvmFamilyEcdsaSignerBinding({
     walletId,
     chainTarget,
     key,
+    materialActivation,
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
   }),
   auth: {
     kind: 'email_otp',
     providerSubjectId: 'google:subject-1',
   },
-  signingGrantId: SigningSessionIds.signingGrant('wallet-session'),
-  thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('threshold-session'),
+  authorization,
 });
 
 const invalidExactIdentity: ExactEcdsaSigningLaneIdentity = {
@@ -126,8 +127,8 @@ const ecdsaSpendPlan: WalletSigningSpendPlan = {
     curve: 'ecdsa',
     keyKind: 'threshold_ecdsa_secp256k1',
     chainFamily: 'tempo',
-    signingGrantId: laneIdentity.signingGrantId,
-    thresholdSessionId: laneIdentity.thresholdSessionId,
+    materialActivation,
+    authorization,
     runtimeState: 'no_runtime_material',
     sessionOrigin: 'per_operation',
     storageSource: 'email_otp',

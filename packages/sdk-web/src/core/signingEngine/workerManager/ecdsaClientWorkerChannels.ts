@@ -14,6 +14,8 @@ import type {
 } from '@/core/signingEngine/session/keyMaterialBrands';
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
 import type { EcdsaClientPresignPoolIdentity } from './ecdsaPresignPoolIdentity';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export const EcdsaClientWorkerControlKind = {
   AttachDerivationToPresign: 'attach_ecdsa_derivation_to_presign_v1',
@@ -65,15 +67,18 @@ export type EcdsaDerivationAdditiveShareResponse =
     };
 
 export type RehydrateEcdsaRoleLocalSigningMaterialRequestV1 = {
-  readonly kind: 'rehydrate_ecdsa_role_local_signing_material_v1';
-  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
+  readonly kind: 'open_ecdsa_role_local_signing_material_v1';
+  readonly authority: WalletAuthAuthorityRef;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly materialRef?: never;
 };
 
 export type RehydrateEcdsaRoleLocalSigningMaterialResultV1 =
   | {
-      readonly kind: 'ecdsa_role_local_signing_material_rehydrated_v1';
+      readonly kind: 'ecdsa_role_local_signing_material_opened_v1';
       readonly ok: true;
       readonly liveHandle: EcdsaRoleLocalWorkerHandle;
+      readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
       readonly reason?: never;
     }
   | {
@@ -81,6 +86,7 @@ export type RehydrateEcdsaRoleLocalSigningMaterialResultV1 =
       readonly ok: false;
       readonly reason: 'missing' | 'expired' | 'binding_mismatch' | 'corrupt';
       readonly liveHandle?: never;
+      readonly materialRef?: never;
     };
 
 export type EmailOtpEcdsaSigningShareRequest = {

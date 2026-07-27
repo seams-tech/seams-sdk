@@ -28,6 +28,8 @@ import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSes
 import {
   buildPasskeyWalletAuthAuthority,
   parsePasskeyWalletAuthAuthority,
+  parseWalletAuthAuthorityRef,
+  walletAuthAuthorityRef,
   walletAuthAuthoritiesMatch,
 } from '@shared/utils/walletAuthAuthority';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
@@ -153,6 +155,7 @@ function requireParticipantIds(value: unknown): readonly [number, number] {
 function exactResponseKeys(record: Record<string, unknown>): void {
   const expected = [
     'authority',
+    'authorityRef',
     'authorityScope',
     'capability',
     'kind',
@@ -372,10 +375,10 @@ function sameRuntimePolicyScope(
   );
 }
 
-function parseWarmRecoveryDescriptor(args: {
+async function parseWarmRecoveryDescriptor(args: {
   readonly record: CurrentEd25519SealedSessionRecord;
   readonly response: Record<string, unknown>;
-}): ParsedPasskeyEd25519YaoRecoveryDescriptorV1 {
+}): Promise<ParsedPasskeyEd25519YaoRecoveryDescriptorV1> {
   const record = args.record;
   const response = args.response;
   exactResponseKeys(response);
@@ -406,6 +409,7 @@ function parseWarmRecoveryDescriptor(args: {
   );
   const participantIds = requireParticipantIds(response.participantIds);
   const authority = parsePasskeyWalletAuthAuthority(response.authority);
+  const authorityRef = parseWalletAuthAuthorityRef(response.authorityRef);
   const expectedAuthority = buildPasskeyWalletAuthAuthority({
     walletId: record.walletId,
     rpId: restore.rpId,
@@ -421,8 +425,15 @@ function parseWarmRecoveryDescriptor(args: {
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
     response.routerAbNormalSigning,
   );
+  const expectedAuthorityRef = authority
+    ? await walletAuthAuthorityRef({ authority })
+    : null;
   if (
     !authority ||
+    !authorityRef ||
+    !expectedAuthorityRef ||
+    authorityRef.walletId !== expectedAuthorityRef.walletId ||
+    authorityRef.authorityDigest !== expectedAuthorityRef.authorityDigest ||
     !walletAuthAuthoritiesMatch(authority, expectedAuthority) ||
     authorityScope.kind !== 'passkey_rp' ||
     authorityScope.rpId !== restore.rpId ||
@@ -447,6 +458,7 @@ function parseWarmRecoveryDescriptor(args: {
   const signingRoot = signingRootScopeFromRuntimePolicyScope(responseRuntimePolicyScope);
   if (!signingRoot) throw new Error('warm recovery bootstrap signing-root scope is invalid');
   return {
+    authority: authorityRef,
     walletId: walletIdFromString(walletId),
     nearAccountId: toAccountId(nearAccountId),
     nearEd25519SigningKeyId,
@@ -560,7 +572,7 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
       reason: bootstrap.reason,
     };
   }
-  const descriptor = parseWarmRecoveryDescriptor({
+  const descriptor = await parseWarmRecoveryDescriptor({
     record: exactRecord.record,
     response: bootstrap.response,
   });

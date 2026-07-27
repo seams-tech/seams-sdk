@@ -31,10 +31,15 @@ import {
 import {
   bindLiveEcdsaRoleLocalMaterial,
   buildPersistedEcdsaRoleLocalMaterial,
+  getLiveEcdsaRoleLocalMaterialBinding,
 } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import { fixtureRouterAbEcdsaDerivationPublicCapability } from './ecdsaBootstrap.fixtures';
-import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './ecdsaMaterialRef.fixtures';
+import {
+  buildEcdsaRoleLocalPersistedMaterialRefFixture,
+  buildWalletAuthAuthorityRefForAuthorityFixture,
+  buildWalletAuthAuthorityRefFixture,
+} from './ecdsaMaterialRef.fixtures';
 
 export type PasskeyEcdsaSessionRecord = Exclude<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
 export type EmailOtpEcdsaSessionRecord = Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
@@ -115,7 +120,6 @@ export type EmailOtpEcdsaSessionRecordFixtureInput = EcdsaSessionRecordScenarioI
   /** `in`-sensitive: pass `undefined` explicitly to build a record without a verified public key. */
   thresholdEcdsaPublicKeyB64u?: string;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
-  clientAdditiveShareSessionId?: string;
 };
 
 function ethereumAddress20B64u(address: string): string {
@@ -352,10 +356,17 @@ export function makePasskeyEcdsaSessionRecord(
   const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
     durableMaterialRef: roleLocalDurableMaterialRef,
     bindingDigest: roleLocalReadyRecord.publicFacts.contextBinding32B64u,
+    materialOwner: walletId,
+  });
+  const authority = buildWalletAuthAuthorityRefFixture({
+    walletId,
+    label: String(roleLocalDurableMaterialRef),
   });
   const record: PasskeyEcdsaSessionRecord = {
     purpose: 'transaction_signing' as const,
     walletId,
+    authority,
+    materialActivation: roleLocalMaterialRef.materialActivation,
     chainTarget,
     relayerUrl: 'https://relay.localhost',
     ecdsaThresholdKeyId,
@@ -366,7 +377,6 @@ export function makePasskeyEcdsaSessionRecord(
     ...(input.relayerVerifyingShareB64u
       ? { relayerVerifyingShareB64u: input.relayerVerifyingShareB64u }
       : {}),
-    roleLocalMaterialRef,
     ecdsaRoleLocalAuthMethod: roleLocalReadyRecord.authMethod as Extract<
       typeof roleLocalReadyRecord.authMethod,
       { kind: 'passkey' }
@@ -411,11 +421,13 @@ export function makePasskeyEcdsaSessionRecord(
   };
   if (input.bindLiveRoleLocalWorkerMaterial) {
     const persistedMaterial = buildPersistedEcdsaRoleLocalMaterial({
-      materialRef: roleLocalMaterialRef,
+      authority,
+      materialActivation: roleLocalMaterialRef.materialActivation,
       publicFacts: roleLocalReadyRecord.publicFacts,
     });
     bindLiveEcdsaRoleLocalMaterial({
       persistedMaterial,
+      materialRef: roleLocalMaterialRef,
       liveHandle: parseEcdsaRoleLocalWorkerHandle({
         kind: 'ecdsa_role_local_worker_handle_v1',
         materialHandle: parseEcdsaRoleLocalMaterialHandle(
@@ -478,11 +490,11 @@ export function makeEmailOtpEcdsaSessionRecord(
     ...('thresholdEcdsaPublicKeyB64u' in input
       ? { thresholdEcdsaPublicKeyB64u: input.thresholdEcdsaPublicKeyB64u }
       : {}),
+    bindLiveRoleLocalWorkerMaterial: input.runtimeValidated,
   });
   const {
-    roleLocalMaterialRef: _roleLocalMaterialRef,
     ecdsaRoleLocalAuthMethod: _ecdsaRoleLocalAuthMethod,
-    ecdsaRoleLocalPublicFacts: _ecdsaRoleLocalPublicFacts,
+    ecdsaRoleLocalPublicFacts,
     ...emailOtpBase
   } = base;
   // The passkey base always builds a JWT wallet session, but its type widens to
@@ -491,20 +503,6 @@ export function makeEmailOtpEcdsaSessionRecord(
   if (walletSessionJwt === undefined) {
     throw new Error('Email OTP ECDSA fixture requires a wallet-session JWT');
   }
-  const roleLocalReadyRecord = makeEcdsaRoleLocalReadyRecordFixture({
-    walletId: base.walletId,
-    walletKeyId: base.evmFamilySigningKeySlotId,
-    keyHandle: keyHandleForRecord,
-    chainTarget,
-    ecdsaThresholdKeyId: base.ecdsaThresholdKeyId,
-    signingRootId: base.signingRootId,
-    signingRootVersion: base.signingRootVersion,
-    ethereumAddress: base.ethereumAddress,
-    normalSigning: base.routerAbEcdsaDerivationNormalSigning,
-    authMethod: buildEcdsaRoleLocalEmailOtpAuthMethod({
-      authSubjectId: emailOtpAuthContextProviderUserId(emailOtpAuthContext),
-    }),
-  });
   const record: EmailOtpEcdsaSessionRecord = {
     ...emailOtpBase,
     // Re-pin the literals: the passkey base always builds a 'jwt' session, but its
@@ -513,22 +511,34 @@ export function makeEmailOtpEcdsaSessionRecord(
     walletSessionJwt,
     source: 'email_otp',
     emailOtpAuthContext,
-    clientAdditiveShareHandle: {
-      kind: 'email_otp_worker_session',
-      sessionId: input.clientAdditiveShareSessionId ?? 'email-otp-worker-share-1',
-    },
-    ecdsaRoleLocalAuthMethod: roleLocalReadyRecord.authMethod as Extract<
-      typeof roleLocalReadyRecord.authMethod,
-      { kind: 'email_otp' }
-    >,
-    ecdsaRoleLocalPublicFacts: roleLocalReadyRecord.publicFacts,
-    ecdsaRoleLocalReadyRecord: roleLocalReadyRecord as Extract<
-      typeof roleLocalReadyRecord,
-      { kind: 'ecdsa_role_local_ready_email_otp_v1' }
-    >,
+    authority: buildWalletAuthAuthorityRefForAuthorityFixture(emailOtpAuthContext.authority),
+    ecdsaRoleLocalAuthMethod: buildEcdsaRoleLocalEmailOtpAuthMethod({
+      authSubjectId: emailOtpAuthContextProviderUserId(emailOtpAuthContext),
+    }),
+    ecdsaRoleLocalPublicFacts,
   };
-  if (input.runtimeValidated && !markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)) {
-    throw new Error('Email OTP ECDSA fixture record failed Router A/B runtime validation');
+  if (input.runtimeValidated) {
+    const basePersistedMaterial = buildPersistedEcdsaRoleLocalMaterial({
+      authority: base.authority,
+      materialActivation: base.materialActivation,
+      publicFacts: base.ecdsaRoleLocalPublicFacts,
+    });
+    const liveMaterial = getLiveEcdsaRoleLocalMaterialBinding(basePersistedMaterial);
+    if (!liveMaterial) {
+      throw new Error('Email OTP ECDSA fixture requires live base material');
+    }
+    bindLiveEcdsaRoleLocalMaterial({
+      persistedMaterial: buildPersistedEcdsaRoleLocalMaterial({
+        authority: record.authority,
+        materialActivation: record.materialActivation,
+        publicFacts: record.ecdsaRoleLocalPublicFacts,
+      }),
+      materialRef: liveMaterial.materialRef,
+      liveHandle: liveMaterial.liveHandle,
+    });
+    if (!markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)) {
+      throw new Error('Email OTP ECDSA fixture record failed Router A/B runtime validation');
+    }
   }
   return record;
 }

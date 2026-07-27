@@ -41,6 +41,14 @@ export type GrantEvidenceRequirementEvaluation =
       readonly acceptableEvidenceKinds: readonly [GrantEvidenceKind, ...GrantEvidenceKind[]];
     };
 
+export interface CapabilityPolicyPort {
+  parseEvidenceRequirement(value: unknown): ParseGrantEvidenceRequirementResult;
+  evaluateEvidenceRequirement(
+    requirement: GrantEvidenceRequirement,
+    evidenceSet: VerifiedGrantEvidenceSet,
+  ): GrantEvidenceRequirementEvaluation;
+}
+
 export function parseGrantEvidenceRequirement(value: unknown): ParseGrantEvidenceRequirementResult {
   if (!isExactRequirementRecord(value)) {
     return rejectInvalidRequirement(
@@ -98,6 +106,11 @@ export function evaluateGrantEvidenceRequirement(
       return assertNeverRequirementMode(requirement.mode);
   }
 }
+
+export const capabilityPolicyPort: CapabilityPolicyPort = {
+  parseEvidenceRequirement: parseGrantEvidenceRequirement,
+  evaluateEvidenceRequirement: evaluateGrantEvidenceRequirement,
+};
 
 function evaluateAllEvidenceRequirement(
   requiredKinds: readonly [GrantEvidenceKind, ...GrantEvidenceKind[]],

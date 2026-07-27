@@ -6,12 +6,24 @@ import {
 import { isPlainObject } from '@shared/utils/validation';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
-import { parseWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  isPasskeyWalletAuthAuthority,
+  parseWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import type { WebAuthnAuthenticationCredential } from '../core/types';
 import type {
+  RouterAbEd25519YaoOperationStepUpGrantCommandV1,
   RouterAbEd25519YaoSessionPolicyV1,
   RouterAbEd25519YaoSessionRouteCommandV1,
 } from './routerAbEd25519YaoWalletSession';
+
+const OPERATION_STEP_UP_GRANT_KEYS = [
+  'kind',
+  'normalSigningRequest',
+  'displayDigest',
+  'authority',
+  'webauthn_authentication',
+] as const;
 import {
   findUnexpectedRouteKey,
   optionalRouteTrimmedString,
@@ -203,6 +215,45 @@ export function parseThresholdEd25519SessionRouteRequest(
           }
         : { kind: 'signed_session' },
       sessionKind: 'jwt',
+    },
+  };
+}
+
+export function parseThresholdEd25519OperationStepUpGrantRequest(
+  raw: unknown,
+): ThresholdEd25519RouteParseResult<RouterAbEd25519YaoOperationStepUpGrantCommandV1> {
+  if (!isPlainObject(raw)) return invalidThresholdEd25519Body('Expected JSON object body');
+  const unsupported = findUnexpectedRouteKey(raw, OPERATION_STEP_UP_GRANT_KEYS);
+  if (unsupported) {
+    return invalidThresholdEd25519Body(`Unsupported operation step-up grant field: ${unsupported}`);
+  }
+  if (raw.kind !== 'router_ab_ed25519_yao_operation_step_up_grant_v1') {
+    return invalidThresholdEd25519Body(
+      'kind must be router_ab_ed25519_yao_operation_step_up_grant_v1',
+    );
+  }
+  if (!isPlainObject(raw.normalSigningRequest)) {
+    return invalidThresholdEd25519Body('normalSigningRequest is required');
+  }
+  const displayDigest = requiredStringField(raw, 'displayDigest');
+  if (!displayDigest.ok) return displayDigest;
+  const authority = parseWalletAuthAuthority(raw.authority);
+  if (!authority || !isPasskeyWalletAuthAuthority(authority)) {
+    return invalidThresholdEd25519Body('authority must be an exact passkey authority');
+  }
+  const credential = parseOptionalWebAuthnAuthentication(raw);
+  if (!credential.ok) return credential;
+  if (!credential.request) {
+    return invalidThresholdEd25519Body('webauthn_authentication is required');
+  }
+  return {
+    ok: true,
+    request: {
+      kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',
+      normalSigningRequest: raw.normalSigningRequest,
+      displayDigest: displayDigest.request,
+      authority,
+      webauthnAuthentication: credential.request,
     },
   };
 }

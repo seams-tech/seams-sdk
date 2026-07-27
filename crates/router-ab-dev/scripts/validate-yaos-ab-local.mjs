@@ -72,9 +72,6 @@ try {
   runCheck('public Ed25519 export boundary guard', 'node', [
     'tests/scripts/check-key-export-boundaries.mjs',
   ]);
-  runCheck('managed product contract boundary guard', 'node', [
-    'tests/scripts/check-intended-behaviour-contract-boundaries.mjs',
-  ]);
   runCheck('SDK Yao local TypeScript gate', 'node', ['tests/scripts/check-yaos-local-types.mjs']);
   runCheck(
     'SDK Router, WASM Client, wallet lifecycle, and process gates',

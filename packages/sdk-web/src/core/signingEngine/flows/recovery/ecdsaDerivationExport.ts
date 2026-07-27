@@ -2,7 +2,10 @@ import { routerAbEcdsaExplicitExport } from '@/core/rpcClients/relayer/threshold
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type {
+  PasskeyWalletAuthAuthority,
+  WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import {
   toEcdsaDerivationSigningRootId,
   toEcdsaDerivationSigningRootVersion,
@@ -27,9 +30,10 @@ import {
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import {
-  ecdsaRoleLocalPersistedMaterialRefSource,
+  ecdsaRoleLocalPersistedMaterialSource,
   resolveEcdsaRoleLocalMaterial,
   type EcdsaRoleLocalMaterialResolution,
+  type PersistedEcdsaRoleLocalMaterial,
 } from '../../session/material/ecdsaRoleLocalMaterialResolver';
 import type {
   EcdsaRoleLocalPersistedMaterialRef,
@@ -194,11 +198,10 @@ async function digestB64u(input: unknown): Promise<string> {
 
 function requireResolvedEcdsaExportMaterial(
   resolution: EcdsaRoleLocalMaterialResolution,
-): EcdsaRoleLocalWorkerHandle {
+): Extract<EcdsaRoleLocalMaterialResolution, { kind: 'rehydrated' }> {
   switch (resolution.kind) {
-    case 'live':
     case 'rehydrated':
-      return resolution.liveHandle;
+      return resolution;
     case 'device_link_required':
       throw new Error(
         '[SigningEngine][ecdsa-export] device_link_required: local threshold ECDSA material is unavailable',
@@ -215,18 +218,22 @@ function requireResolvedEcdsaExportMaterial(
 }
 
 export async function hydrateEcdsaRoleLocalMaterialForExport(args: {
-  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
+  readonly persistedMaterial: Pick<
+    PersistedEcdsaRoleLocalMaterial,
+    'authority' | 'materialActivation' | 'publicFacts'
+  >;
   readonly workerCtx: WorkerOperationContext;
-}): Promise<EcdsaRoleLocalWorkerHandle> {
+}): Promise<Extract<EcdsaRoleLocalMaterialResolution, { kind: 'rehydrated' }>> {
   const resolution = await resolveEcdsaRoleLocalMaterial({
     purpose: 'explicit_key_export',
-    source: ecdsaRoleLocalPersistedMaterialRefSource(args.materialRef),
+    source: ecdsaRoleLocalPersistedMaterialSource(args.persistedMaterial),
     workerCtx: args.workerCtx,
   });
   return requireResolvedEcdsaExportMaterial(resolution);
 }
 
 export function buildEcdsaDerivationExportAuthorizationDigestInput(args: {
+  evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -243,7 +250,7 @@ export function buildEcdsaDerivationExportAuthorizationDigestInput(args: {
     operation: 'explicit_key_export',
     keyHandle: args.walletSessionAuthority.keyHandle,
     walletId: args.walletSessionAuthority.walletId,
-    evmFamilySigningKeySlotId: args.walletSessionAuthority.evmFamilySigningKeySlotId,
+    evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
     relayerKeyId: args.walletSessionAuthority.relayerKeyId,
     signingRootId: args.signingRootId,
@@ -311,7 +318,7 @@ async function executeEcdsaDerivationExport(
   const confirmationDigest32B64u = await digestB64u({
     version: ECDSA_DERIVATION_EXPORT_CONFIRMATION_DIGEST_VERSION,
     walletId: material.walletSessionAuthority.walletId,
-    evmFamilySigningKeySlotId: material.walletSessionAuthority.evmFamilySigningKeySlotId,
+    evmFamilySigningKeySlotId: material.publicFacts.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: material.ecdsaThresholdKeyId,
     relayerKeyId: material.walletSessionAuthority.relayerKeyId,
     contextBinding32B64u: material.publicFacts.contextBinding32B64u,
@@ -324,6 +331,7 @@ async function executeEcdsaDerivationExport(
   });
   const authorizationDigest32B64u = await digestB64u(
     buildEcdsaDerivationExportAuthorizationDigestInput({
+      evmFamilySigningKeySlotId: material.publicFacts.evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId: material.ecdsaThresholdKeyId,
       signingRootId: material.signingRootId,
       signingRootVersion: material.signingRootVersion,
@@ -435,7 +443,6 @@ export async function exportEcdsaDerivationKeyWithExplicitExportSession(
   const walletSessionAuthority = buildEcdsaWalletSessionAuthority({
     walletSessionJwt: material.walletSessionJwt,
     walletId: material.walletId,
-    evmFamilySigningKeySlotId: material.evmFamilySigningKeySlotId,
     keyHandle: material.keyHandle,
     thresholdSessionId: material.thresholdSessionId,
     signingGrantId: material.signingGrantId,
@@ -477,11 +484,6 @@ export async function exportEcdsaDerivationKeyWithExplicitExportSession(
   if (!evmFamilySigningKeySlotId) {
     throw new Error(
       '[SigningEngine][ecdsa-export] session record is missing evmFamilySigningKeySlotId',
-    );
-  }
-  if (String(walletSessionAuthority.evmFamilySigningKeySlotId) !== evmFamilySigningKeySlotId) {
-    throw new Error(
-      '[SigningEngine][ecdsa-export] committed lane Wallet Session key slot mismatch',
     );
   }
   if (String(publicFacts.evmFamilySigningKeySlotId) !== evmFamilySigningKeySlotId) {
@@ -570,23 +572,9 @@ export async function exportEcdsaDerivationKeyWithWalletSession(
   const publicFacts = record.ecdsaRoleLocalPublicFacts;
   const persistedRoleLocalMaterial = requirePersistedEcdsaRoleLocalMaterial(record);
   const exactRoleLocalMaterial = await hydrateEcdsaRoleLocalMaterialForExport({
-    materialRef: persistedRoleLocalMaterial.materialRef,
+    persistedMaterial: persistedRoleLocalMaterial,
     workerCtx: deps.getSignerWorkerContext(),
   });
-  const evmFamilySigningKeySlotId = String(record.evmFamilySigningKeySlotId).trim();
-  if (!evmFamilySigningKeySlotId) {
-    throw new Error(
-      '[SigningEngine][ecdsa-export] session record is missing evmFamilySigningKeySlotId',
-    );
-  }
-  if (String(walletSessionAuthority.evmFamilySigningKeySlotId) !== evmFamilySigningKeySlotId) {
-    throw new Error(
-      '[SigningEngine][ecdsa-export] committed lane Wallet Session key slot mismatch',
-    );
-  }
-  if (String(publicFacts.evmFamilySigningKeySlotId) !== evmFamilySigningKeySlotId) {
-    throw new Error('[SigningEngine][ecdsa-export] role-local evmFamilySigningKeySlotId mismatch');
-  }
   const ecdsaThresholdKeyId = toEcdsaDerivationThresholdKeyId(record.ecdsaThresholdKeyId);
   const signingRootId = toEcdsaDerivationSigningRootId(record.signingRootId);
   const signingRootVersion = toEcdsaDerivationSigningRootVersion(
@@ -596,8 +584,8 @@ export async function exportEcdsaDerivationKeyWithWalletSession(
     walletSessionAuthority,
     relayerUrl,
     publicFacts,
-    roleLocalMaterial: exactRoleLocalMaterial,
-    roleLocalMaterialRef: persistedRoleLocalMaterial.materialRef,
+    roleLocalMaterial: exactRoleLocalMaterial.liveHandle,
+    roleLocalMaterialRef: exactRoleLocalMaterial.materialRef,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -613,6 +601,7 @@ export async function exportEcdsaDerivationKeyWithEmailOtpSession(
   deps: EcdsaDerivationExportDeps,
   args: {
     walletSessionUserId: string;
+    authority: WalletAuthAuthorityRef;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
   },
 ): Promise<{
@@ -643,7 +632,6 @@ export async function exportEcdsaDerivationKeyWithEmailOtpSession(
   const walletSessionAuthority = buildEcdsaWalletSessionAuthority({
     walletSessionJwt,
     walletId: args.walletSessionUserId,
-    evmFamilySigningKeySlotId: keyRef.evmFamilySigningKeySlotId,
     keyHandle,
     thresholdSessionId: args.bootstrap.session.thresholdSessionId,
     signingGrantId: args.bootstrap.session.signingGrantId,
@@ -651,18 +639,24 @@ export async function exportEcdsaDerivationKeyWithEmailOtpSession(
   const publicFacts = backendBinding.publicFacts;
   if (
     String(publicFacts.walletId) !== String(walletSessionAuthority.walletId) ||
-    String(publicFacts.evmFamilySigningKeySlotId) !==
-      String(walletSessionAuthority.evmFamilySigningKeySlotId) ||
     String(publicFacts.keyHandle) !== String(walletSessionAuthority.keyHandle)
   ) {
     throw new Error('[SigningEngine][ecdsa-export] Email OTP role-local identity mismatch');
   }
+  const exactRoleLocalMaterial = await hydrateEcdsaRoleLocalMaterialForExport({
+    persistedMaterial: {
+      authority: args.authority,
+      materialActivation: backendBinding.roleLocalMaterialRef.materialActivation,
+      publicFacts,
+    },
+    workerCtx: deps.getSignerWorkerContext(),
+  });
   return await executeEcdsaDerivationExport(deps, {
     walletSessionAuthority,
     relayerUrl,
     publicFacts,
-    roleLocalMaterial: backendBinding.roleLocalMaterialHandle,
-    roleLocalMaterialRef: backendBinding.roleLocalMaterialRef,
+    roleLocalMaterial: exactRoleLocalMaterial.liveHandle,
+    roleLocalMaterialRef: exactRoleLocalMaterial.materialRef,
     ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId(keyRef.ecdsaThresholdKeyId),
     signingRootId: toEcdsaDerivationSigningRootId(publicFacts.signingRootId),
     signingRootVersion: toEcdsaDerivationSigningRootVersion(

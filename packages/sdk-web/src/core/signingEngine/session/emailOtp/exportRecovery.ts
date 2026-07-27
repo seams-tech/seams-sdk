@@ -9,7 +9,11 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpEd25519YaoActiveCapabilityDescriptorV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import { throwEmailOtpSigningSessionAuthStateError } from './routePlan';
-import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  walletAuthAuthorityRef,
+  type EmailOtpWalletAuthAuthority,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import type {
   EcdsaExportLane,
   EmailOtpEcdsaPublicReauthExportAuthority,
@@ -334,6 +338,7 @@ export async function exportEcdsaKeyWithAuthorization(
   });
   return await exportEcdsaKeyWithFreshLoginAuthorization({
     walletSession: args.walletSession,
+    authority: record.authority,
     chainTarget: record.chainTarget,
     challengeId: args.challengeId,
     otpCode: args.otpCode,
@@ -371,6 +376,9 @@ export async function exportEcdsaKeyWithDurableAuthorization(
   });
   return await exportEcdsaKeyWithFreshLoginAuthorization({
     walletSession: args.walletSession,
+    authority: await walletAuthAuthorityRef({
+      authority: args.signingSessionAuthority.authority,
+    }),
     chainTarget: args.chainTarget,
     challengeId: args.challengeId,
     otpCode: args.otpCode,
@@ -406,6 +414,7 @@ export async function exportEcdsaKeyWithPublicReauthAuthorization(
   });
   return await exportEcdsaKeyWithFreshLoginAuthorization({
     walletSession: args.walletSession,
+    authority: authority.authority,
     chainTarget: args.chainTarget,
     challengeId: args.challengeId,
     otpCode: args.otpCode,
@@ -423,6 +432,7 @@ export async function exportEcdsaKeyWithPublicReauthAuthorization(
 
 type ExportEcdsaKeyWithFreshLoginAuthorizationArgs = {
   walletSession: WalletSessionRef;
+  authority: WalletAuthAuthorityRef;
   chainTarget: ThresholdEcdsaChainTarget;
   challengeId: string;
   otpCode: string;
@@ -470,6 +480,7 @@ async function exportEcdsaKeyWithFreshLoginAuthorization(
     { getSignerWorkerContext: () => workerCtx },
     {
       walletSessionUserId: args.walletSession.walletSessionUserId,
+      authority: args.authority,
       bootstrap: result.bootstrap,
     },
   );

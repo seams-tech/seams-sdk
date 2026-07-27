@@ -2,10 +2,12 @@ import {
   parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1,
   parseRouterAbEd25519YaoRecoveryActivationRequestV1,
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  parseRouterAbEd25519YaoRecoveryStatusRequestV1,
   parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1,
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoActivationExecuteRequestV1,
@@ -13,6 +15,8 @@ import {
   type RouterAbEd25519YaoRecoveryActivationReceiptV1,
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  type RouterAbEd25519YaoRecoveryStatusRequestV1,
+  type RouterAbEd25519YaoRecoveryStatusV1,
   type RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import {
@@ -38,6 +42,7 @@ import {
   type RouterAbEd25519YaoWarmRecoveryBootstrapV1,
 } from './routerAbEd25519YaoRecovery';
 import { warmBootstrapCapabilityMatchesStableIdentity } from './routerAbEd25519YaoRecovery';
+import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   runRouterAbEd25519YaoRegistrationTwoPhaseV1,
   type RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1,
@@ -76,6 +81,10 @@ type RecoveryRequest =
   | {
       readonly kind: 'activate';
       readonly value: RouterAbEd25519YaoRecoveryActivationRequestV1;
+    }
+  | {
+      readonly kind: 'status';
+      readonly value: RouterAbEd25519YaoRecoveryStatusRequestV1;
     };
 
 type RecoveryResponse =
@@ -356,6 +365,9 @@ export async function handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1(
     if (parsed.kind === 'warm_bootstrap') {
       return await runWarmRecoveryBootstrapRequest(context, parsed.value);
     }
+    if (parsed.kind === 'status') {
+      return await runRecoveryStatusRequest(context, parsed.value);
+    }
     const result = await runRecoveryRequest(context, parsed);
     return recoveryResponse(result);
   } catch (error: unknown) {
@@ -367,6 +379,69 @@ export async function handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1(
       },
       { status: 503 },
     );
+  }
+}
+
+async function runRecoveryStatusRequest(
+  context: RecoveryRequestScopedContext,
+  request: RouterAbEd25519YaoRecoveryStatusRequestV1,
+): Promise<Response> {
+  const authorized = await context.input.authorization.authorize({
+    kind: 'admit',
+    request: context.input.request,
+    body: request.admission,
+  });
+  if (!authorized.ok) {
+    return json(
+      { ok: false, code: authorized.code, message: authorized.message },
+      { status: authorized.status },
+    );
+  }
+  const lifecycleId = request.admission.scope.lifecycle_id;
+  const loaded = await context.input.store.load(lifecycleId);
+  const recovery = loaded.state.recovery.recoveries.get(JSON.stringify(request.admission));
+  const status = recoveryStatus(lifecycleId, recovery);
+  return json(status, { status: 200 });
+}
+
+function recoveryStatus(
+  lifecycleId: string,
+  recovery:
+    | ReturnType<
+        RouterAbEd25519YaoProductRegistrationStateV1['recovery']['recoveries']['get']
+      >
+    | undefined,
+): RouterAbEd25519YaoRecoveryStatusV1 {
+  if (!recovery) return { stage: 'missing', lifecycle_id: lifecycleId };
+  switch (recovery.kind) {
+    case 'admitting':
+    case 'admission_failed':
+      return { stage: 'missing', lifecycle_id: lifecycleId };
+    case 'admitted':
+    case 'executing':
+    case 'execution_failed':
+      return {
+        stage: 'admitted',
+        lifecycle_id: lifecycleId,
+        admission_receipt: recovery.admissionReceipt,
+      };
+    case 'staged':
+    case 'activating':
+    case 'activation_failed':
+      return {
+        stage: 'executed',
+        lifecycle_id: lifecycleId,
+        admission_receipt: recovery.admissionReceipt,
+        execution_result: recovery.result,
+      };
+    case 'promoted':
+      return {
+        stage: 'promoted',
+        lifecycle_id: lifecycleId,
+        admission_receipt: recovery.admissionReceipt,
+        execution_result: recovery.result,
+        activation_receipt: recovery.activationReceipt,
+      };
   }
 }
 
@@ -439,6 +514,7 @@ async function runWarmRecoveryBootstrapRequest(
     thresholdExpiresAtMs: authorized.claims.thresholdExpiresAtMs,
     participantIds: [firstParticipantId, secondParticipantId],
     authority: authorized.claims.authority,
+    authorityRef: await walletAuthAuthorityRef({ authority: authorized.claims.authority }),
     authorityScope: authorized.claims.authorityScope,
     runtimePolicyScope: authorized.claims.runtimePolicyScope,
     routerAbNormalSigning: authorized.claims.routerAbNormalSigning,
@@ -449,7 +525,10 @@ async function runWarmRecoveryBootstrapRequest(
 
 async function runRecoveryRequest(
   context: RecoveryRequestScopedContext,
-  request: Exclude<RecoveryRequest, { readonly kind: 'warm_bootstrap' }>,
+  request: Exclude<
+    RecoveryRequest,
+    { readonly kind: 'warm_bootstrap' } | { readonly kind: 'status' }
+  >,
 ): Promise<RecoveryResponse> {
   switch (request.kind) {
     case 'admit':
@@ -670,6 +749,17 @@ async function parseRecoveryRequest(
     const parsed = parseRouterAbEd25519YaoRecoveryActivationRequestV1(raw);
     return parsed.ok
       ? { kind: 'activate', value: parsed.value }
+      : {
+          response: json(
+            { ok: false, code: parsed.code, message: parsed.message },
+            { status: 400 },
+          ),
+        };
+  }
+  if (pathname === ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1) {
+    const parsed = parseRouterAbEd25519YaoRecoveryStatusRequestV1(raw);
+    return parsed.ok
+      ? { kind: 'status', value: parsed.value }
       : {
           response: json(
             { ok: false, code: parsed.code, message: parsed.message },

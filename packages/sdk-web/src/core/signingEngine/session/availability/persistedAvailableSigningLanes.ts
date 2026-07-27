@@ -1,6 +1,5 @@
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { toAccountId } from '@/core/types/accountIds';
-import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistence/ecdsaRoleLocalRecords';
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -9,7 +8,6 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import {
-  buildAuthenticatedEcdsaLaneBudgetStatusCheck,
   buildAuthenticatedThresholdBudgetStatusCheck,
   ed25519WalletBudgetOwner,
   type SigningSessionBudgetStatusAuth,
@@ -17,14 +15,8 @@ import {
 } from '../budget/budget';
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
-  getThresholdEcdsaSessionRecordByKey,
   listStoredThresholdEd25519SessionLaneRecordsForWallet,
-  listThresholdEcdsaRuntimeLanesForWallet,
   thresholdEd25519LaneCandidateFromSessionRecord,
-  thresholdEcdsaLaneCandidateFromSessionRecord,
-  thresholdEcdsaSessionRecordReadModel,
-  type ThresholdEcdsaSessionStoreDeps,
-  type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '../persistence/records';
 import {
@@ -48,7 +40,6 @@ import type { ExactEd25519SigningLaneIdentity } from '../identity/exactSigningLa
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 import {
-  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
   type RouterAbEd25519PersistedSigningRecordState,
 } from '../routerAbSigningWalletSession';
@@ -66,9 +57,24 @@ import {
   type AvailableSigningLanesRuntimeEcdsaRecord,
   type AvailableSigningLanesRuntimeEd25519Record,
 } from './availableSigningLanes';
+import type { EvmFamilyEcdsaSigningCapability } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import {
+  buildBaseEvmFamilyEcdsaKeyIdentity,
+  buildPasskeyEcdsaAuthBinding,
+  buildResolvedEvmFamilyEcdsaKey,
+  toRpId,
+} from '../identity/evmFamilyEcdsaIdentity';
+import {
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 
 export type PersistedAvailableSigningLanesDeps = {
-  ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
+  listEcdsaSigningCapabilitiesForWallet: (args: {
+    walletId: string;
+    chainTargets: readonly ThresholdEcdsaChainTarget[];
+    authMethod?: SignerAuthMethod;
+  }) => Promise<readonly EvmFamilyEcdsaSigningCapability[]>;
   statusReader: {
     getWarmSessionStatus: (args: { sessionId: string }) => Promise<WarmSessionStatusResult>;
   };
@@ -397,18 +403,6 @@ function applyWalletBudgetStatusToAdvisory(args: {
   return args.localAdvisory;
 }
 
-function runtimeMaterialAdvisory(args: {
-  record: ThresholdEcdsaSessionRecord;
-  thresholdSessionId: string;
-}): AvailableLaneStateAdvisory {
-  return {
-    kind: 'runtime_material',
-    thresholdSessionId: args.thresholdSessionId,
-    remainingUses: Math.max(0, Math.floor(Number(args.record.remainingUses) || 0)),
-    expiresAtMs: Math.max(0, Math.floor(Number(args.record.expiresAtMs) || 0)),
-  };
-}
-
 type PersistedBudgetStatusAuthParseResult =
   | {
       kind: 'authenticated';
@@ -445,31 +439,6 @@ async function readBudgetStatusOrNull(args: {
   } catch {
     return null;
   }
-}
-
-async function readEcdsaWalletBudgetStatusForRecord(args: {
-  reader: NonNullable<PersistedAvailableSigningLanesDeps['getWalletSigningBudgetStatus']>;
-  record: ThresholdEcdsaSessionRecord;
-  signingGrantId: string;
-}): Promise<SigningSessionStatus | null> {
-  const parsedAuth = parsePersistedBudgetStatusAuth({
-    relayerUrl: args.record.relayerUrl,
-    thresholdSessionId: args.record.thresholdSessionId,
-    walletSessionJwt: args.record.walletSessionJwt,
-  });
-  if (parsedAuth.kind === 'unavailable') return null;
-  return await readBudgetStatusOrNull({
-    reader: args.reader,
-    check: buildAuthenticatedEcdsaLaneBudgetStatusCheck({
-      key: thresholdEcdsaSessionRecordReadModel(args.record).key,
-      keyHandle: args.record.keyHandle,
-      auth: thresholdEcdsaLaneCandidateFromSessionRecord({ record: args.record }).auth,
-      chainTarget: args.record.chainTarget,
-      signingGrantId: args.signingGrantId,
-      thresholdSessionId: args.record.thresholdSessionId,
-      trustedStatusAuth: parsedAuth.auth,
-    }),
-  });
 }
 
 async function readEd25519WalletBudgetStatusForRecord(args: {
@@ -742,46 +711,68 @@ export async function readPersistedAvailableSigningLanesForTargets(
       listRuntimeEcdsaLanesForWallet: async ({ walletId: recordWalletId }) => {
         const records: AvailableSigningLanesRuntimeEcdsaRecord[] = [];
         const seen = new Set<string>();
-        for (const runtimeLane of listThresholdEcdsaRuntimeLanesForWallet(
-          deps.ecdsaSessions,
-          recordWalletId,
-        )) {
-          const runtimeLaneAuthMethod = signingLaneAuthMethod(runtimeLane.auth);
-          if (args.authMethod && args.authMethod !== runtimeLaneAuthMethod) continue;
-          if (!runtimeLane.routerAbEcdsaDerivationNormalSigning) continue;
-          const publicFactsFields = runtimeLane.verifiedPublicFacts
-            ? { verifiedPublicFacts: runtimeLane.verifiedPublicFacts }
-            : {};
-          const baseRecord = {
-            key: runtimeLane.key,
-            routerAbEcdsaDerivationNormalSigning: runtimeLane.routerAbEcdsaDerivationNormalSigning,
-            keyHandle: runtimeLane.keyHandle,
-            ...publicFactsFields,
-            thresholdEcdsaPublicKeyB64u: runtimeLane.thresholdEcdsaPublicKeyB64u,
-            curve: 'ecdsa' as const,
-            chainTarget: runtimeLane.chainTarget,
-            thresholdSessionId: runtimeLane.thresholdSessionId,
-            signingGrantId: runtimeLane.signingGrantId,
-            ...(runtimeLane.remainingUses == null
-              ? {}
-              : { remainingUses: runtimeLane.remainingUses }),
-            ...(runtimeLane.expiresAtMs == null ? {} : { expiresAtMs: runtimeLane.expiresAtMs }),
-            ...(runtimeLane.updatedAtMs == null ? {} : { updatedAtMs: runtimeLane.updatedAtMs }),
-          };
-          if (runtimeLane.auth.kind === 'passkey') {
-            const record: AvailableSigningLanesRuntimeEcdsaRecord = {
-              ...baseRecord,
-              auth: runtimeLane.auth,
-              ...(runtimeLane.resolvedKey ? { resolvedKey: runtimeLane.resolvedKey } : {}),
+        const capabilities = await deps.listEcdsaSigningCapabilitiesForWallet({
+          walletId: recordWalletId,
+          chainTargets: args.ecdsaChainTargets,
+          ...(args.authMethod ? { authMethod: args.authMethod } : {}),
+        });
+        for (const capability of capabilities) {
+          const signer = capability.manifest.signer;
+          const facts = signer.registeredPublicFacts;
+          const key = buildBaseEvmFamilyEcdsaKeyIdentity({
+            walletId: signer.walletId,
+            ecdsaThresholdKeyId: capability.manifest.durableMaterial.roleLocalBinding.ecdsaThresholdKeyId,
+            signingRootId: signer.signingRootId,
+            signingRootVersion: signer.signingRootVersion,
+            participantIds: facts.participantIds,
+            thresholdOwnerAddress: facts.thresholdOwnerAddress,
+          });
+          for (const chainTarget of args.ecdsaChainTargets) {
+            if (
+              !signer.scope.targetMemberships.some(
+                (membership) =>
+                  thresholdEcdsaChainTargetKey(membership) ===
+                  thresholdEcdsaChainTargetKey(chainTarget),
+              )
+            ) {
+              continue;
+            }
+            const baseRecord = {
+              key,
+              materialActivation: capability.manifest.activation.materialActivation,
+              verifiedPublicFacts: facts,
+              keyHandle: facts.keyHandle,
+              curve: 'ecdsa' as const,
+              chainTarget,
+              authorization: capability.authorization,
             };
-            await pushRuntimeEcdsaRecord(records, seen, record);
-            continue;
+            if (isPasskeyWalletAuthAuthority(capability.authority)) {
+              const auth = {
+                kind: 'passkey' as const,
+                rpId: toRpId(capability.authority.verifier.rpId),
+                credentialIdB64u: capability.authority.factor.credentialIdB64u,
+              };
+              await pushRuntimeEcdsaRecord(records, seen, {
+                ...baseRecord,
+                auth,
+                resolvedKey: buildResolvedEvmFamilyEcdsaKey({
+                  walletId: signer.walletId,
+                  publicFacts: facts,
+                  authBinding: buildPasskeyEcdsaAuthBinding(auth),
+                }),
+              });
+              continue;
+            }
+            if (isEmailOtpWalletAuthAuthority(capability.authority)) {
+              await pushRuntimeEcdsaRecord(records, seen, {
+                ...baseRecord,
+                auth: {
+                  kind: 'email_otp',
+                  providerSubjectId: capability.authority.factor.providerUserId,
+                },
+              });
+            }
           }
-          const record: AvailableSigningLanesRuntimeEcdsaRecord = {
-            ...baseRecord,
-            auth: runtimeLane.auth,
-          };
-          await pushRuntimeEcdsaRecord(records, seen, record);
         }
         return records;
       },
@@ -868,130 +859,18 @@ export async function readPersistedAvailableSigningLanesForTargets(
       },
       readEcdsaWarmStatusAdvisoriesForRecords: async (runtimeRecords) => {
         const advisories = new Map<string, AvailableLaneStateAdvisory | null>();
-        await Promise.all(
-          runtimeRecords.map(async (runtimeRecord) => {
-            const advisoryKey = runtimeEcdsaRecordAdvisoryKey(runtimeRecord);
-            if (!advisoryKey) return;
-            const keyHandle = String(runtimeRecord.keyHandle || '').trim();
-            if (!keyHandle) {
-              advisories.set(advisoryKey, null);
-              return;
-            }
-            const sessionId = String(runtimeRecord.thresholdSessionId || '').trim();
-            const signingGrantId = String(runtimeRecord.signingGrantId || '').trim();
-            const ecdsaRecord = getThresholdEcdsaSessionRecordByKey(deps.ecdsaSessions, {
-              walletId: toWalletId(runtimeRecord.key.walletId),
-              keyHandle,
-              authMethod: signingLaneAuthMethod(runtimeRecord.auth),
-              curve: 'ecdsa',
-              chainTarget: runtimeRecord.chainTarget,
-              signingGrantId,
-              thresholdSessionId: sessionId,
-            });
-            let localAdvisory: AvailableLaneStateAdvisory | null = null;
-            if (!ecdsaRecord) {
-              localAdvisory = null;
-            } else if (ecdsaRecord.source === SIGNER_AUTH_METHODS.emailOtp) {
-              const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
-                record: ecdsaRecord,
-                nowMs: Date.now(),
-              });
-              if (
-                roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
-                roleLocalState.inlineSigningMaterial.kind === 'email_otp_worker_share'
-              ) {
-                const status = await deps
-                  .getEmailOtpWarmSessionStatus(
-                    roleLocalState.inlineSigningMaterial.workerSessionId,
-                  )
-                  .catch(() => null);
-                localAdvisory = status
-                  ? warmStatusToAvailableLaneStateAdvisory({
-                      thresholdSessionId: sessionId,
-                      status,
-                    })
-                  : null;
-              } else if (
-                roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
-                roleLocalState.inlineSigningMaterial.kind === 'role_local_ready_state_blob'
-              ) {
-                localAdvisory = durableRecordPolicyAdvisory({
-                  thresholdSessionId: sessionId,
-                  remainingUses: ecdsaRecord.remainingUses,
-                  expiresAtMs: ecdsaRecord.expiresAtMs,
-                  state: 'restorable',
-                });
-              } else if (
-                roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
-                roleLocalState.inlineSigningMaterial.kind === 'role_local_durable_material'
-              ) {
-                localAdvisory = durableRecordPolicyAdvisory({
-                  thresholdSessionId: sessionId,
-                  remainingUses: ecdsaRecord.remainingUses,
-                  expiresAtMs: ecdsaRecord.expiresAtMs,
-                  state: 'restorable',
-                });
-              } else {
-                localAdvisory = null;
-              }
-            } else {
-              const materialState =
-                classifyRouterAbEcdsaDerivationPersistedSigningRecord(ecdsaRecord);
-              if (materialState.kind === 'runtime_validated') {
-                localAdvisory = runtimeMaterialAdvisory({
-                  record: ecdsaRecord,
-                  thresholdSessionId: sessionId,
-                });
-              } else if (materialState.kind === 'restore_available') {
-                localAdvisory = durableRecordPolicyAdvisory({
-                  thresholdSessionId: sessionId,
-                  remainingUses: ecdsaRecord.remainingUses,
-                  expiresAtMs: ecdsaRecord.expiresAtMs,
-                  state: 'restorable',
-                });
-              } else if (materialState.kind === 'expired') {
-                localAdvisory = durableRecordPolicyAdvisory({
-                  thresholdSessionId: sessionId,
-                  remainingUses: ecdsaRecord.remainingUses,
-                  expiresAtMs: materialState.expiresAtMs,
-                  state: 'deferred',
-                });
-              } else if (materialState.kind === 'exhausted') {
-                localAdvisory = durableRecordPolicyAdvisory({
-                  thresholdSessionId: sessionId,
-                  remainingUses: materialState.remainingUses,
-                  expiresAtMs: ecdsaRecord.expiresAtMs,
-                  state: 'deferred',
-                });
-              } else if (materialState.kind === 'material_hint_unvalidated') {
-                localAdvisory = durableRecordPolicyAdvisory({
-                  thresholdSessionId: sessionId,
-                  remainingUses: ecdsaRecord.remainingUses,
-                  expiresAtMs: ecdsaRecord.expiresAtMs,
-                  state: 'deferred',
-                });
-              } else {
-                localAdvisory = null;
-              }
-            }
-            const walletBudgetStatus =
-              ecdsaRecord && deps.getWalletSigningBudgetStatus
-                ? await readEcdsaWalletBudgetStatusForRecord({
-                    reader: deps.getWalletSigningBudgetStatus,
-                    record: ecdsaRecord,
-                    signingGrantId,
-                  })
-                : null;
-            advisories.set(
-              advisoryKey,
-              applyWalletBudgetStatusToAdvisory({
-                sessionId,
-                localAdvisory,
-                walletBudgetStatus,
-              }),
-            );
-          }),
-        );
+        for (const runtimeRecord of runtimeRecords) {
+          const advisoryKey = runtimeEcdsaRecordAdvisoryKey(runtimeRecord);
+          if (!advisoryKey) continue;
+          const status = runtimeRecord.authorization.status;
+          advisories.set(advisoryKey, {
+            kind: 'warm_status',
+            status: 'active',
+            thresholdSessionId: String(status.walletSessionId),
+            remainingUses: status.remainingUses,
+            expiresAtMs: status.expiresAtMs,
+          });
+        }
         return advisories;
       },
       readWarmStatusAdvisoriesForSessions: async (sessionIds) => {

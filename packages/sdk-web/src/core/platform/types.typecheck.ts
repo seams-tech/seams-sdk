@@ -2,6 +2,7 @@ import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletId,
 } from '../signingEngine/interfaces/ecdsaChainTarget';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import { toRpId } from '../signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { deriveEvmFamilySigningKeySlotId, parseWalletKeyId } from '@shared/signing-lanes';
 import {
@@ -42,6 +43,8 @@ import type {
   RequiredPrfAuthenticatorSuccess,
   SignerCryptoResult,
 } from './types';
+
+declare const materialActivation: MpcMaterialActivationRef;
 import type {
   DerivationClientSharePublicKey33B64u,
   EcdsaDerivationRelayerPublicKey33B64u,
@@ -388,7 +391,7 @@ const passkeyDurableRoleLocalState = {
     rpId: toRpId('wallet.example'),
   }),
   publicFacts,
-  durableMaterialRef: 'router-ab-ecdsa-registration:ceremony',
+  materialActivation,
 } satisfies EcdsaRoleLocalSessionRecordState;
 void passkeyDurableRoleLocalState;
 

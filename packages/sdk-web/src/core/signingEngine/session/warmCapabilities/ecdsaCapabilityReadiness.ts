@@ -84,17 +84,22 @@ export async function assertWarmThresholdEcdsaCapabilityReady(
     lane: ExactEcdsaSigningLaneIdentity;
   },
 ): Promise<WarmSessionEcdsaCapabilityState> {
-  const thresholdSessionId = bootstrapThresholdSessionId(args.bootstrap);
-  if (!thresholdSessionId) {
+  const authorizationSessionId = String(
+    args.bootstrap.session.authorizationSessionId,
+  ).trim();
+  if (!authorizationSessionId) {
     throw new Error(
-      `[SigningEngine] Email OTP bootstrap did not provide thresholdSessionId for ${String(
+      `[SigningEngine] Email OTP bootstrap did not provide authorizationSessionId for ${String(
         args.walletId,
       )} (${thresholdEcdsaChainTargetKey(args.chainTarget)})`,
     );
   }
-  if (String(args.lane.thresholdSessionId) !== thresholdSessionId) {
+  if (
+    String(args.lane.authorization.projection.authorizationSessionId) !==
+    authorizationSessionId
+  ) {
     throw new Error(
-      `[SigningEngine] Email OTP bootstrap exact lane session mismatch for ${String(
+      `[SigningEngine] Email OTP bootstrap authorization session mismatch for ${String(
         args.walletId,
       )} (${thresholdEcdsaChainTargetKey(args.chainTarget)})`,
     );

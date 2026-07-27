@@ -209,28 +209,11 @@ export function createWarmSessionStatusReader(
       });
       switch (roleLocalState.kind) {
         case 'ready_email_otp_role_local_material_v1':
-          switch (roleLocalState.inlineSigningMaterial.kind) {
-            case 'email_otp_worker_share': {
-              const status = await deps
-                .getEmailOtpWarmSessionStatus(roleLocalState.inlineSigningMaterial.workerSessionId)
-                .catch(() => null);
-              return status
-                ? toWarmSessionClaimFromStatusResult({
-                    sessionId: identity.thresholdSessionId,
-                    status,
-                  })
-                : null;
-            }
-            case 'role_local_ready_state_blob':
-            case 'role_local_durable_material':
-              return warmClaimFromRecordPolicy({
-                sessionId: identity.thresholdSessionId,
-                remainingUses: record.remainingUses,
-                expiresAtMs: record.expiresAtMs,
-              });
-          }
-          roleLocalState.inlineSigningMaterial satisfies never;
-          return null;
+          return warmClaimFromRecordPolicy({
+            sessionId: identity.thresholdSessionId,
+            remainingUses: record.remainingUses,
+            expiresAtMs: record.expiresAtMs,
+          });
         case 'reauth_required_role_local_material_v1':
           if (
             roleLocalState.authMethod.kind === 'email_otp' &&
@@ -553,6 +536,7 @@ export function createWarmSessionStatusReader(
       key,
       lane: selectedEcdsaLane({
         key,
+        materialActivation: args.record.materialActivation,
         keyHandle: args.record.keyHandle,
         walletId: args.record.walletId,
         auth: candidate.auth,

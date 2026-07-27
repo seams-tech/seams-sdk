@@ -13,6 +13,8 @@ import {
 import type { ExactSigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { createThresholdEcdsaBootstrapFixture } from './ecdsaBootstrap.fixtures';
 import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './ecdsaMaterialRef.fixtures';
+import { buildWalletAuthAuthorityRefForAuthorityFixture } from './ecdsaMaterialRef.fixtures';
+import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 export type EmailOtpEcdsaSealedSigningSessionRecord = Extract<
   SealedSigningSessionRecord,
@@ -64,6 +66,12 @@ function emailOtpEcdsaSealedFixtureParts(
 ): EmailOtpEcdsaSealedFixtureParts {
   const walletId = args.walletId ?? 'alice.testnet';
   const providerSubjectId = `google:${walletId.split('.')[0]}`;
+  const emailOtpAuthority = buildEmailOtpWalletAuthAuthority({
+    walletId,
+    provider: 'google',
+    providerUserId: providerSubjectId,
+    emailHashHex: 'email-hash',
+  });
   const signingGrantId = 'wallet-session-1';
   const bootstrap = createThresholdEcdsaBootstrapFixture({
     nearAccountId: walletId,
@@ -103,12 +111,13 @@ function emailOtpEcdsaSealedFixtureParts(
     restore: {
       chainTarget: keyRef.chainTarget,
       source: 'email_otp',
-      evmFamilySigningKeySlotId: keyRef.evmFamilySigningKeySlotId,
       signingRootId: 'root',
       signingRootVersion: 'v1',
       provider: 'google',
       providerSubjectId,
       emailHashHex: 'email-hash',
+      authority: buildWalletAuthAuthorityRefForAuthorityFixture(emailOtpAuthority),
+      emailOtpAuthority,
       sessionKind: 'jwt',
       walletSessionJwt: keyRef.walletSessionJwt,
       keyHandle: keyRef.keyHandle,
@@ -119,6 +128,7 @@ function emailOtpEcdsaSealedFixtureParts(
         durableMaterialRef: 'role-local-material',
         bindingDigest:
           backendBinding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+        materialOwner: walletId,
       }),
       participantIds: [...(keyRef.participantIds || [1, 2])],
       routerAbEcdsaDerivationNormalSigning,

@@ -1,10 +1,19 @@
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
 import { buildRouterAbEcdsaDerivationActiveStateIdV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { EcdsaActiveStateId } from '@shared/utils/domainIds';
+import {
+  mpcMaterialActivationRefsEqual,
+  parseMpcMaterialActivationRef,
+  type EcdsaActiveStateId,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
+import {
+  parseWalletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
-  rehydrateEcdsaRoleLocalSigningMaterialWasm,
-  type RehydrateEcdsaRoleLocalSigningMaterialWasmResult,
+  openEcdsaRoleLocalSigningMaterialWasm,
+  type OpenEcdsaRoleLocalSigningMaterialWasmResult,
 } from '../../threshold/crypto/ecdsaDerivationClientWasm';
 import {
   parseEcdsaRoleLocalPersistedMaterialRef,
@@ -19,7 +28,8 @@ const persistedMaterialBrand: unique symbol = Symbol('persisted-ecdsa-role-local
 export type PersistedEcdsaRoleLocalMaterial = {
   readonly [persistedMaterialBrand]: true;
   readonly kind: 'persisted_ecdsa_role_local_material_v1';
-  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
+  readonly authority: WalletAuthAuthorityRef;
+  readonly materialActivation: MpcMaterialActivationRef;
   readonly publicFacts: EcdsaRoleLocalPublicFacts;
   readonly liveHandle?: never;
 };
@@ -33,7 +43,9 @@ export type EcdsaRoleLocalMaterialResolutionPurpose =
 export type EcdsaRoleLocalMaterialSource =
   | {
       readonly kind: 'persisted';
-      readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
+      readonly authority: WalletAuthAuthorityRef;
+      readonly materialActivation: MpcMaterialActivationRef;
+      readonly publicFacts: EcdsaRoleLocalPublicFacts;
       readonly reason?: never;
     }
   | {
@@ -51,7 +63,7 @@ type EcdsaRoleLocalMaterialResolved = {
 };
 
 export type ResolvedEcdsaRoleLocalSigningMaterial = EcdsaRoleLocalMaterialResolved & {
-  readonly kind: 'live' | 'rehydrated';
+  readonly kind: 'rehydrated';
 };
 
 export type EcdsaRoleLocalMaterialResolution =
@@ -78,10 +90,12 @@ export type EcdsaRoleLocalMaterialResolution =
       readonly materialRef?: never;
     };
 
-const liveHandlesByDurableMaterialRef = new Map<
-  EcdsaRoleLocalDurableMaterialRef,
-  EcdsaRoleLocalWorkerHandle
->();
+export type LiveEcdsaRoleLocalMaterial = {
+  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
+  readonly liveHandle: EcdsaRoleLocalWorkerHandle;
+};
+
+const liveMaterialsByExactIdentity = new Map<string, LiveEcdsaRoleLocalMaterial>();
 const runtimeValidatedMaterialKeys = new Set<string>();
 
 export function ecdsaRoleLocalActiveStateId(
@@ -131,7 +145,7 @@ function corruptResolution(args: {
 
 function resolutionFromRehydrationFailure(args: {
   purpose: EcdsaRoleLocalMaterialResolutionPurpose;
-  failure: Extract<RehydrateEcdsaRoleLocalSigningMaterialWasmResult, { ok: false }>;
+  failure: Extract<OpenEcdsaRoleLocalSigningMaterialWasmResult, { ok: false }>;
 }): Extract<EcdsaRoleLocalMaterialResolution, { kind: 'device_link_required' | 'corrupt' }> {
   switch (args.failure.reason) {
     case 'missing':
@@ -166,27 +180,41 @@ function resolutionFromRehydrationFailure(args: {
 }
 
 export function buildPersistedEcdsaRoleLocalMaterial(input: {
-  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
+  readonly authority: WalletAuthAuthorityRef;
+  readonly materialActivation: MpcMaterialActivationRef;
   readonly publicFacts: EcdsaRoleLocalPublicFacts;
 }): PersistedEcdsaRoleLocalMaterial {
-  const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(input.materialRef);
-  if (!materialRefMatchesPublicFacts(materialRef, input.publicFacts)) {
-    throw new Error('ECDSA role-local persisted material does not match its public facts');
+  const authority = parseWalletAuthAuthorityRef(input.authority);
+  if (!authority) {
+    throw new Error('ECDSA role-local persisted material authority is invalid');
+  }
+  const materialActivationResult = parseMpcMaterialActivationRef(input.materialActivation);
+  if (!materialActivationResult.ok) {
+    throw new Error(materialActivationResult.error.message);
+  }
+  if (authority.walletId !== input.publicFacts.walletId) {
+    throw new Error('ECDSA role-local persisted material authority does not match its wallet');
   }
   return {
     [persistedMaterialBrand]: true,
     kind: 'persisted_ecdsa_role_local_material_v1',
-    materialRef,
+    authority,
+    materialActivation: materialActivationResult.value,
     publicFacts: input.publicFacts,
   };
 }
 
-export function ecdsaRoleLocalPersistedMaterialRefSource(
-  materialRef: EcdsaRoleLocalPersistedMaterialRef,
+export function ecdsaRoleLocalPersistedMaterialSource(
+  persistedMaterial: Pick<
+    PersistedEcdsaRoleLocalMaterial,
+    'authority' | 'materialActivation' | 'publicFacts'
+  >,
 ): EcdsaRoleLocalMaterialSource {
   return {
     kind: 'persisted',
-    materialRef: parseEcdsaRoleLocalPersistedMaterialRef(materialRef),
+    authority: persistedMaterial.authority,
+    materialActivation: persistedMaterial.materialActivation,
+    publicFacts: persistedMaterial.publicFacts,
   };
 }
 
@@ -199,30 +227,46 @@ export function unavailableEcdsaRoleLocalMaterialSource(): EcdsaRoleLocalMateria
 
 export function bindLiveEcdsaRoleLocalMaterial(input: {
   readonly persistedMaterial: PersistedEcdsaRoleLocalMaterial;
+  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
   readonly liveHandle: EcdsaRoleLocalWorkerHandle;
 }): EcdsaRoleLocalWorkerHandle {
   return bindLiveEcdsaRoleLocalMaterialRef({
-    materialRef: input.persistedMaterial.materialRef,
+    persistedMaterial: input.persistedMaterial,
+    materialRef: input.materialRef,
     liveHandle: input.liveHandle,
   });
 }
 
 export function requireMatchingLiveEcdsaRoleLocalMaterial(input: {
   readonly persistedMaterial: PersistedEcdsaRoleLocalMaterial;
+  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
   readonly liveHandle: EcdsaRoleLocalWorkerHandle;
 }): EcdsaRoleLocalWorkerHandle {
   return requireMatchingLiveEcdsaRoleLocalMaterialRef({
-    materialRef: input.persistedMaterial.materialRef,
+    persistedMaterial: input.persistedMaterial,
+    materialRef: input.materialRef,
     liveHandle: input.liveHandle,
   });
 }
 
 function requireMatchingLiveEcdsaRoleLocalMaterialRef(input: {
+  readonly persistedMaterial: PersistedEcdsaRoleLocalMaterial;
   readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
   readonly liveHandle: EcdsaRoleLocalWorkerHandle;
 }): EcdsaRoleLocalWorkerHandle {
   const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(input.materialRef);
   const liveHandle = parseEcdsaRoleLocalWorkerHandle(input.liveHandle);
+  if (
+    !mpcMaterialActivationRefsEqual(
+      materialRef.materialActivation,
+      input.persistedMaterial.materialActivation,
+    ) ||
+    !materialRefMatchesPublicFacts(materialRef, input.persistedMaterial.publicFacts)
+  ) {
+    throw new Error(
+      '[SigningEngine] ECDSA role-local material reference does not match exact activation identity',
+    );
+  }
   if (!liveHandleMatchesMaterialRef(liveHandle, materialRef)) {
     throw new Error(
       '[SigningEngine] ECDSA role-local live worker handle does not match persisted material',
@@ -234,37 +278,69 @@ function requireMatchingLiveEcdsaRoleLocalMaterialRef(input: {
 export function getLiveEcdsaRoleLocalMaterial(
   persistedMaterial: PersistedEcdsaRoleLocalMaterial,
 ): EcdsaRoleLocalWorkerHandle | null {
-  return getLiveEcdsaRoleLocalMaterialByRef(persistedMaterial.materialRef);
+  return getLiveEcdsaRoleLocalMaterialBinding(persistedMaterial)?.liveHandle ?? null;
 }
 
-function getLiveEcdsaRoleLocalMaterialByRef(
-  materialRef: EcdsaRoleLocalPersistedMaterialRef,
-): EcdsaRoleLocalWorkerHandle | null {
-  const parsedMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef(materialRef);
-  const liveHandle = liveHandlesByDurableMaterialRef.get(parsedMaterialRef.durableMaterialRef);
-  if (!liveHandle || !liveHandleMatchesMaterialRef(liveHandle, parsedMaterialRef)) {
+function exactMaterialIdentityKey(
+  persistedMaterial: Pick<PersistedEcdsaRoleLocalMaterial, 'authority' | 'materialActivation'>,
+): string {
+  const activation = persistedMaterial.materialActivation;
+  return JSON.stringify([
+    persistedMaterial.authority.walletId,
+    persistedMaterial.authority.authorityDigest,
+    activation.activationId,
+    activation.capability,
+    activation.materialOwner,
+    activation.keyBinding,
+    activation.lifecycleBinding,
+    activation.signingWorker,
+  ]);
+}
+
+export function getLiveEcdsaRoleLocalMaterialBinding(
+  persistedMaterial: PersistedEcdsaRoleLocalMaterial,
+): LiveEcdsaRoleLocalMaterial | null {
+  const binding = liveMaterialsByExactIdentity.get(exactMaterialIdentityKey(persistedMaterial));
+  if (
+    !binding ||
+    !liveHandleMatchesMaterialRef(binding.liveHandle, binding.materialRef) ||
+    !mpcMaterialActivationRefsEqual(
+      binding.materialRef.materialActivation,
+      persistedMaterial.materialActivation,
+    ) ||
+    !materialRefMatchesPublicFacts(binding.materialRef, persistedMaterial.publicFacts)
+  ) {
     return null;
   }
-  return liveHandle;
+  return binding;
 }
 
 function bindLiveEcdsaRoleLocalMaterialRef(input: {
+  readonly persistedMaterial: PersistedEcdsaRoleLocalMaterial;
   readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
   readonly liveHandle: EcdsaRoleLocalWorkerHandle;
 }): EcdsaRoleLocalWorkerHandle {
   const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(input.materialRef);
   const liveHandle = requireMatchingLiveEcdsaRoleLocalMaterialRef({
+    persistedMaterial: input.persistedMaterial,
     materialRef,
     liveHandle: input.liveHandle,
   });
-  liveHandlesByDurableMaterialRef.set(materialRef.durableMaterialRef, liveHandle);
+  liveMaterialsByExactIdentity.set(exactMaterialIdentityKey(input.persistedMaterial), {
+    materialRef,
+    liveHandle,
+  });
   return liveHandle;
 }
 
 export function forgetLiveEcdsaRoleLocalMaterial(
   durableMaterialRef: EcdsaRoleLocalDurableMaterialRef,
 ): void {
-  liveHandlesByDurableMaterialRef.delete(durableMaterialRef);
+  for (const [key, binding] of liveMaterialsByExactIdentity) {
+    if (binding.materialRef.durableMaterialRef === durableMaterialRef) {
+      liveMaterialsByExactIdentity.delete(key);
+    }
+  }
 }
 
 export function markEcdsaRoleLocalRuntimeValidationKey(key: string): void {
@@ -276,7 +352,7 @@ export function hasEcdsaRoleLocalRuntimeValidationKey(key: string): boolean {
 }
 
 export function clearEcdsaRoleLocalWorkerRuntimeState(): void {
-  liveHandlesByDurableMaterialRef.clear();
+  liveMaterialsByExactIdentity.clear();
   runtimeValidatedMaterialKeys.clear();
 }
 
@@ -293,19 +369,10 @@ export async function resolveEcdsaRoleLocalMaterial(input: {
         reason: input.source.reason,
       };
     case 'persisted': {
-      const materialRef = input.source.materialRef;
-      const liveHandle = getLiveEcdsaRoleLocalMaterialByRef(materialRef);
-      if (liveHandle) {
-        return {
-          kind: 'live',
-          purpose: input.purpose,
-          liveHandle,
-          materialRef,
-        };
-      }
       try {
-        const rehydrated = await rehydrateEcdsaRoleLocalSigningMaterialWasm({
-          materialRef,
+        const rehydrated = await openEcdsaRoleLocalSigningMaterialWasm({
+          authority: input.source.authority,
+          materialActivation: input.source.materialActivation,
           workerCtx: input.workerCtx,
         });
         if (!rehydrated.ok) {
@@ -314,22 +381,40 @@ export async function resolveEcdsaRoleLocalMaterial(input: {
             failure: rehydrated,
           });
         }
-        if (!liveHandleMatchesMaterialRef(rehydrated.liveHandle, materialRef)) {
+        if (
+          !mpcMaterialActivationRefsEqual(
+            rehydrated.materialRef.materialActivation,
+            input.source.materialActivation,
+          ) ||
+          !materialRefMatchesPublicFacts(rehydrated.materialRef, input.source.publicFacts)
+        ) {
           return corruptResolution({
             purpose: input.purpose,
             reason: 'worker_identity_mismatch',
             message: 'ECDSA role-local worker restored a different material identity',
           });
         }
+        if (!liveHandleMatchesMaterialRef(rehydrated.liveHandle, rehydrated.materialRef)) {
+          return corruptResolution({
+            purpose: input.purpose,
+            reason: 'worker_identity_mismatch',
+            message: 'ECDSA role-local worker restored a different durable material',
+          });
+        }
         const boundHandle = bindLiveEcdsaRoleLocalMaterialRef({
-          materialRef,
+          persistedMaterial: buildPersistedEcdsaRoleLocalMaterial({
+            authority: input.source.authority,
+            materialActivation: input.source.materialActivation,
+            publicFacts: input.source.publicFacts,
+          }),
+          materialRef: rehydrated.materialRef,
           liveHandle: rehydrated.liveHandle,
         });
         return {
           kind: 'rehydrated',
           purpose: input.purpose,
           liveHandle: boundHandle,
-          materialRef,
+          materialRef: rehydrated.materialRef,
         };
       } catch (error: unknown) {
         return corruptResolution({

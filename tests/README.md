@@ -115,9 +115,6 @@ on the intended runner.
   - `pnpm ensure:intended-google-token` → accept or refresh the Email OTP Google ID token before intended contracts run
   - `pnpm setup:intended-google-oidc` → create/bind the local Google OIDC service account and mint an Email OTP test ID token
   - `pnpm refresh:intended-google-token` → refresh the one-hour Email OTP Google ID token through service-account impersonation
-  - `pnpm check:intended-mutation-self-check` → validate Refactor 88 mutation self-check metadata
-  - `pnpm check:intended-mutation-self-check:complete` → fail until all Refactor 88 mutation proof rows are `detected`
-  - `pnpm preflight:intended-mutation-self-check` / `pnpm preflight:intended-mutation-self-check:ci` → report local or CI-managed readiness for Phase 3B mutation proof
   - `pnpm test:unit`, `pnpm test:source-guards`, `pnpm test:integration:signing`
   - `pnpm test:wallet-iframe`, `pnpm test:lit-components`
   - `pnpm show-report` to open Playwright HTML report
@@ -261,9 +258,6 @@ To keep iframe tests stable:
 ## Gaps & Next Steps
 
 - Strengthen lifecycle assertions around sticky flows (handoff and final hide)
-- Complete the Refactor 88 mutation self-check rows until
-  `pnpm check:intended-mutation-self-check:complete` passes against fresh
-  CI-managed intended startup or restarted local services
 - Local‑only cancel flow should release nonce and emit structured error
 - Theme regression guardrails for confirm UI (light vs dark tokens)
 - Consider gating `data-w3a-router-id` to debug/test builds only (cosmetic)

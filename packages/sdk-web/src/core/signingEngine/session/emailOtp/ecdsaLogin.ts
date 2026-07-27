@@ -22,7 +22,7 @@ import {
   parseThresholdRuntimePolicyScopeFromJwt,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
-import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   EmailOtpEd25519YaoRecoveryBootstrapV1,
@@ -152,10 +152,10 @@ type EmailOtpEd25519YaoLoginMaterial =
 export type EmailOtpThresholdEcdsaLoginResult = {
   recovery: EmailOtpBootstrapRecovery;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
-  warmCapabilities: readonly [
-    WarmSessionEcdsaCapabilityState,
-    ...WarmSessionEcdsaCapabilityState[],
+  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorizations: readonly [
+    ActiveWalletSessionAuthorizationProjection,
+    ...ActiveWalletSessionAuthorizationProjection[],
   ];
   clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
   ed25519YaoRecovery: EmailOtpEd25519YaoLoginMaterial;
@@ -1135,8 +1135,8 @@ async function runEmailOtpEcdsaCapability(
     addEmailOtpThresholdEcdsaLoginTiming(timings, 'ecdsaMaterialRestoreMs', timingStartedAtMs);
     const {
       bootstrap,
-      warmCapability,
-      warmCapabilities,
+      authorization,
+      authorizations,
       timings: publicationTimings,
     } = await commitEmailOtpEcdsaPublicationBootstraps(
       {
@@ -1157,8 +1157,8 @@ async function runEmailOtpEcdsaCapability(
       value: {
         recovery: workerResult.recovery,
         bootstrap,
-        warmCapability,
-        warmCapabilities,
+        authorization,
+        authorizations,
         clientRootShareHandle: workerResult.clientRootShareHandle,
         ed25519YaoRecovery: emailOtpEd25519YaoLoginMaterialFromWorkerResult(workerResult),
         timings,

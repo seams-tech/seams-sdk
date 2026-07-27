@@ -8,12 +8,14 @@ import { sealedRecoverySessionKind, sealedRecoveryWalletSessionJwt } from './rec
 import type {
   EmailOtpWalletAuthAuthority,
   PasskeyWalletAuthAuthority,
+  WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 
 declare const emailOtpRecord: EmailOtpEcdsaSealedRecoveryRecord;
 declare const passkeyRecord: PasskeyEcdsaSealedRecoveryRecord;
 declare const walletSessionAuth: SealedRecoveryWalletSessionAuth;
 declare const emailOtpAuthority: EmailOtpWalletAuthAuthority;
+declare const authority: WalletAuthAuthorityRef;
 declare const passkeyAuthority: PasskeyWalletAuthAuthority;
 
 const normalizedRecoverySessionKind: 'jwt' = sealedRecoverySessionKind(walletSessionAuth);
@@ -26,14 +28,15 @@ void normalizedRecoveryWalletSessionJwt;
 const validEmailOtpRecord = {
   ...emailOtpRecord,
   walletSessionAuth,
-  authority: emailOtpAuthority,
+  authority,
+  emailOtpAuthority,
 } satisfies EmailOtpEcdsaSealedRecoveryRecord;
 void validEmailOtpRecord;
 
 const invalidEmailOtpAuthority = {
   ...emailOtpRecord,
   // @ts-expect-error Email OTP records require Email OTP wallet authority.
-  authority: passkeyAuthority,
+  emailOtpAuthority: passkeyAuthority,
 } satisfies EmailOtpEcdsaSealedRecoveryRecord;
 void invalidEmailOtpAuthority;
 

@@ -953,10 +953,11 @@ fn pool_key(
         return Err(pool_state_error("SigningWorker presignature id is empty"));
     }
     let scope_digest = scope.scope_digest()?;
+    let material_activation_id = scope.material_activation_id()?;
     Ok(PoolRecordKey::new(
         WalletBinding::new(binding_digest(
             WALLET_BINDING_DOMAIN,
-            &[scope.wallet_key_id.as_bytes()],
+            &[material_activation_id.as_bytes()],
         ))
         .map_err(pool_identity_error)?,
         AccountBinding::new(binding_digest(

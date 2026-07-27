@@ -27,8 +27,8 @@ import type {
 import type {
   ProvisionWarmEd25519CapabilityResult,
   WarmEcdsaSigningSessionStatus,
-  WarmSessionEcdsaCapabilityState,
 } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
   AccessKeyList,
@@ -456,7 +456,11 @@ export type EmailOtpEcdsaCapabilityArgs = {
 export type EmailOtpEcdsaCapabilityResult = {
   recovery: EmailOtpBootstrapRecovery;
   bootstrap: PublicThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
+  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorizations: readonly [
+    ActiveWalletSessionAuthorizationProjection,
+    ...ActiveWalletSessionAuthorizationProjection[],
+  ];
 };
 
 export type EmailOtpEcdsaEnrollmentCapabilityArgs = Omit<EmailOtpEcdsaCapabilityArgs, 'onEvent'> & {
@@ -467,7 +471,7 @@ export type EmailOtpEcdsaEnrollmentCapabilityArgs = Omit<EmailOtpEcdsaCapability
 export type EmailOtpEcdsaEnrollmentCapabilityResult = {
   enrollment: EmailOtpEnrollmentResult | EmailOtpBackedUpEnrollmentResult;
   bootstrap: PublicThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
+  authorization: ActiveWalletSessionAuthorizationProjection;
 };
 
 export type GoogleEmailOtpWalletAuthRequestedMode = 'register' | 'login';

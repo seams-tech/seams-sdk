@@ -107,7 +107,6 @@ export const SeamsContextProvider: React.FC<SeamsContextProviderProps> = ({
 
   const refreshLoginState = useLoginStateRefresher({
     seams,
-    walletIframeConnected,
     setLoginState,
     setInputUsername,
   });

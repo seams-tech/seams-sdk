@@ -1926,6 +1926,13 @@ export function createRouterApiRouteDefinitions(
       'Refresh current app session',
       ROUTER_API_SESSION_VERSION_SERVICES,
     ),
+    userSessionRoute(
+      'wallet_session_status',
+      'POST',
+      '/wallet/session/status',
+      'Read exact reusable Wallet Session status',
+      ['session'],
+    ),
     thresholdSessionRoute(
       'session_signing_budget_status',
       'POST',

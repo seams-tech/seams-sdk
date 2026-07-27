@@ -4,7 +4,15 @@ import {
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
 import { parseImplicitNearAccountId } from '@shared/utils/near';
-import type { ActionResult, LoginResult, RegistrationResult } from './seams';
+import type {
+  ActionResult,
+  AddedEvmFamilyEcdsaSignerCapability,
+  AddedNearEd25519SignerCapability,
+  LoginResult,
+  RegisteredEvmFamilyEcdsaCapability,
+  RegisteredNearEd25519Capability,
+  RegistrationResult,
+} from './seams';
 import type { SignNEP413MessageResult, SyncAccountResult } from './sdkPublicResults';
 
 const walletId = walletIdFromString('frost-vermillion-k7p9m2');
@@ -150,10 +158,8 @@ const invalidSyncAccountFailureWithPublicKey: SyncAccountResult = {
 };
 void invalidSyncAccountFailureWithPublicKey;
 
-const nearRegistrationSuccess: RegistrationResult = {
-  success: true,
-  kind: 'near_wallet_registered',
-  walletId,
+const registeredNearCapability: RegisteredNearEd25519Capability = {
+  kind: 'near_ed25519',
   accountProvisioning: implicitNearAccountProvisioning(),
   resolvedAccount: {
     kind: 'implicit_account',
@@ -164,90 +170,121 @@ const nearRegistrationSuccess: RegistrationResult = {
   operationalPublicKey: 'ed25519:public-key',
   nearAccountId: implicitNearAccountId,
   transactionId: null,
+};
+
+const registeredEcdsaCapability: RegisteredEvmFamilyEcdsaCapability = {
+  kind: 'evm_family_ecdsa',
+  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+  thresholdEcdsaPublicKeyB64u: 'public-key',
+};
+
+const nearRegistrationSuccess: RegistrationResult = {
+  success: true,
+  kind: 'wallet_registered',
+  walletId,
+  capabilities: [registeredNearCapability],
 };
 void nearRegistrationSuccess;
 
 const ecdsaRegistrationSuccess: RegistrationResult = {
   success: true,
-  kind: 'ecdsa_wallet_registered',
+  kind: 'wallet_registered',
   walletId,
-  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
-  thresholdEcdsaPublicKeyB64u: 'public-key',
+  capabilities: [registeredEcdsaCapability],
 };
 void ecdsaRegistrationSuccess;
 
 const mixedRegistrationSuccess: RegistrationResult = {
   success: true,
-  kind: 'near_ed25519_and_ecdsa_wallet_registered',
+  kind: 'wallet_registered',
   walletId,
-  accountProvisioning: implicitNearAccountProvisioning(),
-  resolvedAccount: {
-    kind: 'implicit_account',
-    nearAccountId: implicitNearAccountId,
-    nearEd25519SigningKeyId,
-  },
-  nearEd25519SigningKeyId,
-  operationalPublicKey: 'ed25519:public-key',
-  nearAccountId: implicitNearAccountId,
-  transactionId: null,
-  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
-  thresholdEcdsaPublicKeyB64u: 'public-key',
+  capabilities: [registeredNearCapability, registeredEcdsaCapability],
 };
 void mixedRegistrationSuccess;
 
-// @ts-expect-error NEAR registration success requires resolved provisioning and account data.
 const invalidNearRegistrationSuccess: RegistrationResult = {
   success: true,
-  kind: 'near_wallet_registered',
+  kind: 'wallet_registered',
   walletId,
-  nearAccountId: 'a'.repeat(64),
+  // @ts-expect-error NEAR registration success requires the complete capability result.
+  capabilities: [{ kind: 'near_ed25519', nearAccountId: 'a'.repeat(64) }],
 };
 void invalidNearRegistrationSuccess;
 
-// @ts-expect-error ECDSA-only registration cannot carry NEAR account provisioning.
 const invalidEcdsaRegistrationSuccess: RegistrationResult = {
   success: true,
-  kind: 'ecdsa_wallet_registered',
+  kind: 'wallet_registered',
   walletId,
-  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
-  thresholdEcdsaPublicKeyB64u: 'public-key',
-  accountProvisioning: implicitNearAccountProvisioning(),
+  capabilities: [
+    {
+      kind: 'evm_family_ecdsa',
+      thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+      thresholdEcdsaPublicKeyB64u: 'public-key',
+      // @ts-expect-error ECDSA capability results cannot carry NEAR provisioning.
+      accountProvisioning: implicitNearAccountProvisioning(),
+    },
+  ],
 };
 void invalidEcdsaRegistrationSuccess;
 
-// @ts-expect-error NEAR-only registration cannot carry ECDSA key material.
-const invalidNearRegistrationWithEcdsa: RegistrationResult = {
-  ...nearRegistrationSuccess,
-  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
-  thresholdEcdsaPublicKeyB64u: 'public-key',
-};
-void invalidNearRegistrationWithEcdsa;
-
-// @ts-expect-error Mixed registration requires both ECDSA result fields.
 const invalidMixedRegistrationWithoutPublicKey: RegistrationResult = {
   success: true,
-  kind: 'near_ed25519_and_ecdsa_wallet_registered',
+  kind: 'wallet_registered',
   walletId,
-  accountProvisioning: implicitNearAccountProvisioning(),
-  resolvedAccount: {
-    kind: 'implicit_account',
-    nearAccountId: implicitNearAccountId,
-    nearEd25519SigningKeyId,
-  },
-  nearEd25519SigningKeyId,
-  operationalPublicKey: 'ed25519:public-key',
-  nearAccountId: implicitNearAccountId,
-  transactionId: null,
-  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+  capabilities: [
+    registeredNearCapability,
+    // @ts-expect-error Mixed registration requires a complete ECDSA capability result.
+    {
+      kind: 'evm_family_ecdsa',
+      thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+    },
+  ],
 };
 void invalidMixedRegistrationWithoutPublicKey;
 
-// @ts-expect-error ECDSA-only registration cannot use the mixed result discriminant.
-const invalidMixedRegistrationWithoutNearFields: RegistrationResult = {
+const invalidRegistrationWithDuplicateNearCapabilities: RegistrationResult = {
   success: true,
-  kind: 'near_ed25519_and_ecdsa_wallet_registered',
+  kind: 'wallet_registered',
   walletId,
+  // @ts-expect-error Registration cannot duplicate a capability branch.
+  capabilities: [registeredNearCapability, registeredNearCapability],
+};
+void invalidRegistrationWithDuplicateNearCapabilities;
+
+const addedNearCapability: AddedNearEd25519SignerCapability = {
+  kind: 'near_ed25519',
+  nearEd25519SigningKeyId,
+  operationalPublicKey: 'ed25519:public-key',
+  nearAccountId: implicitNearAccountId,
+};
+
+const addedEcdsaCapability: AddedEvmFamilyEcdsaSignerCapability = {
+  kind: 'evm_family_ecdsa',
   thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
   thresholdEcdsaPublicKeyB64u: 'public-key',
 };
-void invalidMixedRegistrationWithoutNearFields;
+
+const nearSignerAddedSuccess: RegistrationResult = {
+  success: true,
+  kind: 'wallet_signer_added',
+  walletId,
+  capabilities: [addedNearCapability],
+};
+void nearSignerAddedSuccess;
+
+const ecdsaSignerAddedSuccess: RegistrationResult = {
+  success: true,
+  kind: 'wallet_signer_added',
+  walletId,
+  capabilities: [addedEcdsaCapability],
+};
+void ecdsaSignerAddedSuccess;
+
+const invalidCombinedSignerAddedSuccess: RegistrationResult = {
+  success: true,
+  kind: 'wallet_signer_added',
+  walletId,
+  // @ts-expect-error A single add-signer operation returns exactly one capability.
+  capabilities: [addedNearCapability, addedEcdsaCapability],
+};
+void invalidCombinedSignerAddedSuccess;

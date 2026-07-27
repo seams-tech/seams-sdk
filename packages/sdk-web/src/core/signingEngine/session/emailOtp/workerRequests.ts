@@ -35,7 +35,7 @@ export type EmailOtpWarmSessionTransport = {
 export type EmailOtpEcdsaWarmSessionRestore = {
   sessionId: string;
   walletId: string;
-  evmFamilySigningKeySlotId: string;
+  provisioningKeySlotId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   authSubjectId: string;
 };

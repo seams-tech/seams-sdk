@@ -34,7 +34,8 @@ import type {
 } from '@/SeamsWeb/publicApi/types';
 import type {
   AddSignerSelection,
-  RegistrationAuthMethodInput,
+  EmailOtpRegistrationAuthMethodInput,
+  PasskeyRegistrationAuthMethodInput,
   RegisterWalletInput,
   RegistrationSignerSetSelection,
   WalletId,
@@ -59,6 +60,7 @@ export type ParentToChildType =
   | 'PING'
   | 'PM_SET_CONFIG'
   | 'PM_CANCEL'
+  | 'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION'
   // SeamsWeb API surface
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'
@@ -159,8 +161,32 @@ export interface PMCancelPayload {
   requestId?: string; // when omitted, host may attempt best-effort global cancel (close UIs)
 }
 
+export interface PMRedeemHostedWalletSeamsSessionPayload {
+  exchangeCode: string;
+  nonce: string;
+}
+
+type PMEmailOtpChallengeRegistrationAuthMethod = Omit<
+  Extract<EmailOtpRegistrationAuthMethodInput, { proofKind: 'otp_challenge' }>,
+  'appSessionJwt'
+> & {
+  appSessionJwt?: never;
+};
+
+type PMGoogleSsoRegistrationAuthMethod = Omit<
+  Extract<EmailOtpRegistrationAuthMethodInput, { proofKind: 'google_sso_registration' }>,
+  'appSessionJwt'
+> & {
+  appSessionJwt?: never;
+};
+
+export type PMRegistrationAuthMethodInput =
+  | PasskeyRegistrationAuthMethodInput
+  | PMEmailOtpChallengeRegistrationAuthMethod
+  | PMGoogleSsoRegistrationAuthMethod;
+
 export interface PMRegisterWalletPayload {
-  authMethod: RegistrationAuthMethodInput;
+  authMethod: PMRegistrationAuthMethodInput;
   wallet: RegisterWalletInput;
   signerSelection: RegistrationSignerSetSelection;
   confirmationConfig?: Partial<ConfirmationConfig>;
@@ -411,7 +437,6 @@ export type PMLockMissingWalletSessionPayload = WalletIframeMissingSessionIdenti
 export interface PMEmailOtpChallengePayload {
   walletId: string;
   relayUrl?: string;
-  appSessionJwt?: string;
   operation?: WalletEmailOtpLoginOperation;
 }
 
@@ -433,25 +458,21 @@ export interface PMEnrollEmailOtpPayload {
   relayUrl?: string;
   challengeId?: string;
   shamirPrimeB64u?: string;
-  appSessionJwt?: string;
 }
 
 export interface PMGetEmailOtpRecoveryCodeStatusPayload {
   walletId: string;
   relayUrl?: string;
-  appSessionJwt?: string;
 }
 
 export interface PMShowEmailOtpRecoveryCodesPayload {
   walletId: string;
   relayUrl?: string;
-  appSessionJwt?: string;
 }
 
 export interface PMRotateEmailOtpRecoveryCodesPayload {
   walletId: string;
   relayUrl?: string;
-  appSessionJwt?: string;
 }
 
 export interface PMEmailOtpEcdsaCapabilityPayload {
@@ -463,7 +484,6 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   challengeId?: string;
   otpCode: string;
   shamirPrimeB64u?: string;
-  appSessionJwt?: string;
   registrationAttemptId?: string;
   emailOtpAuthorityEmail?: string;
 }
@@ -555,6 +575,10 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PING'>
   | RpcEnvelope<'PM_SET_CONFIG', PMSetConfigPayload>
   | RpcEnvelope<'PM_CANCEL', PMCancelPayload>
+  | RpcEnvelope<
+      'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION',
+      PMRedeemHostedWalletSeamsSessionPayload
+    >
   | RpcEnvelope<'PM_REGISTER_WALLET', PMRegisterWalletPayload>
   | RpcEnvelope<'PM_ADD_WALLET_SIGNER', PMAddWalletSignerPayload>
   | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', PMBootstrapThresholdEcdsaSessionPayload>

@@ -330,7 +330,8 @@ export function buildCapabilityGrantRequest(
     operation.tenantId !== grant.tenantId ||
     operation.principalId !== evidenceSet.principalId ||
     operation.principalId !== grant.principalId ||
-    operation.capabilityId !== grant.capabilityId
+    operation.capabilityId !== grant.capabilityId ||
+    operation.operationId !== grant.operationId
   ) {
     throw new Error('capability grant identity does not match verified evidence');
   }

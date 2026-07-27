@@ -18,6 +18,7 @@ import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { resolvePasskeyEd25519WalletSessionRouteAuthV1 } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import { readClientWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/clientSessionPersistence';
 import type { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
+import type { PersistedAvailableSigningLanesDeps } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
 
 type BrowserWarmSession = Awaited<ReturnType<WarmSessionCapabilityReader['getWarmSession']>>;
 type BrowserWarmSessionAuth =
@@ -70,12 +71,14 @@ export function createBrowserRecoveryPublicDeps(args: {
   resolveEmailOtpEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['emailOtp']['resolveExportContext'];
   getSigningSessionCoordinator: () => SigningSessionCoordinator;
   getTheme: () => ThemeMode;
+  listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
 }): RecoveryPublicDeps {
   return createRecoveryPublicDeps({
     seamsWebConfigs: args.seamsWebConfigs,
     signerWorkerManager: args.signerWorkerManager,
     getTheme: args.getTheme,
     ecdsaSessions: args.warmSigning.ecdsaSessions,
+    listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
     touchConfirm: args.touchConfirm,
     emailOtpSessions: args.emailOtpSessions,
     provisionPasskeyEcdsaExplicitExportSession: (provisionArgs) =>
@@ -97,11 +100,6 @@ export function createBrowserRecoveryPublicDeps(args: {
       null,
       args.warmSigning.capabilityReader,
     ),
-    warmSessionPolicy: {
-      getWarmSession: (walletId) => args.warmSigning.capabilityReader.getWarmSession(walletId),
-      resolveExactEcdsaRecord: (recordArgs) =>
-        args.warmSigning.statusReader.resolveExactEcdsaRecord(recordArgs),
-    },
     getWalletSigningBudgetStatus: (statusArgs) =>
       readTrustedWalletSigningBudgetStatusOperation(
         {
@@ -117,7 +115,6 @@ export function createBrowserRecoveryPublicDeps(args: {
       readAuthorization: (request) =>
         readClientWalletSessionAuthorization({
           identity: request.identity,
-          ecdsaStore: args.warmSigning.ecdsaSessions,
           nowMs: request.nowMs,
         }),
       invalidateExpiredAuthorization: async (request) => {

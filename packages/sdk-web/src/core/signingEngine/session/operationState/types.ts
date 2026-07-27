@@ -47,6 +47,8 @@ export type {
   ThresholdSessionId,
   SigningGrantId,
 } from '@shared/utils/domainIds';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 
 export type Brand<TValue, TBrand extends string> = TValue & { readonly __brand: TBrand };
 
@@ -81,7 +83,6 @@ type BaseSigningSessionPlanningLane = {
   curve: SigningCurve;
   keyKind: SigningKeyKind;
   chainFamily: SigningChainFamily;
-  signingGrantId: SigningGrantId;
   sessionOrigin: SigningSessionOrigin;
   storageSource: SigningSessionStorageSource;
   retention: SigningSessionRetention;
@@ -115,6 +116,7 @@ export type Ed25519SigningSessionPlanningLane = BaseSigningSessionPlanningLane &
     curve: 'ed25519';
     keyKind: 'threshold_ed25519';
     chainFamily: 'near';
+    signingGrantId: SigningGrantId;
     thresholdSessionId: ThresholdEd25519SessionId;
   };
 
@@ -124,31 +126,41 @@ export type EcdsaSigningSessionPlanningLane = BaseSigningSessionPlanningLane &
     curve: 'ecdsa';
     keyKind: 'threshold_ecdsa_secp256k1';
     chainFamily: ThresholdEcdsaChainTarget['kind'];
-    thresholdSessionId: ThresholdEcdsaSessionId;
+    materialActivation: MpcMaterialActivationRef;
+    authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    signingGrantId?: never;
+    thresholdSessionId?: never;
   };
 
 export type SigningSessionPlanningLane =
   | Ed25519SigningSessionPlanningLane
   | EcdsaSigningSessionPlanningLane;
 
-type BaseSelectedSigningLaneIdentity = {
-  identity: ExactSigningLaneIdentity;
+type BaseSelectedSigningLaneIdentity<
+  TIdentity extends ExactSigningLaneIdentity = ExactSigningLaneIdentity,
+> = {
+  identity: TIdentity;
   auth: SigningLaneAuthBinding;
-  signingGrantId: SigningGrantId;
 };
 
-export type SelectedEd25519SigningLaneIdentity = BaseSelectedSigningLaneIdentity & {
+export type SelectedEd25519SigningLaneIdentity =
+  BaseSelectedSigningLaneIdentity<ExactEd25519SigningLaneIdentity> & {
   identity: ExactEd25519SigningLaneIdentity;
   curve: 'ed25519';
   chainFamily: 'near';
+  signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdEd25519SessionId;
 };
 
-export type SelectedEcdsaSigningLaneIdentity = BaseSelectedSigningLaneIdentity & {
+export type SelectedEcdsaSigningLaneIdentity =
+  BaseSelectedSigningLaneIdentity<ExactEcdsaSigningLaneIdentity> & {
   identity: ExactEcdsaSigningLaneIdentity;
   curve: 'ecdsa';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
-  thresholdSessionId: ThresholdEcdsaSessionId;
+  materialActivation: MpcMaterialActivationRef;
+  authorization: ActiveEvmFamilyWalletSessionAuthorization;
+  signingGrantId?: never;
+  thresholdSessionId?: never;
 };
 
 export type SelectedSigningLaneIdentity =
@@ -165,25 +177,32 @@ export type SelectedSigningSessionPlanningLane =
   | SelectedEd25519SigningSessionPlanningLane
   | SelectedEcdsaSigningSessionPlanningLane;
 
-type BaseResolvedSigningSessionIdentity = BaseSelectedSigningLaneIdentity & {
+type BaseResolvedSigningSessionIdentity<
+  TIdentity extends ExactSigningLaneIdentity = ExactSigningLaneIdentity,
+> = BaseSelectedSigningLaneIdentity<TIdentity> & {
   keyKind: SigningKeyKind;
   sessionOrigin: SigningSessionOrigin;
   storageSource: SigningSessionStorageSource;
   retention: SigningSessionRetention;
 } & BranchSigningSessionRuntimeState;
 
-export type ResolvedEd25519SigningSessionIdentity = BaseResolvedSigningSessionIdentity & {
+export type ResolvedEd25519SigningSessionIdentity =
+  BaseResolvedSigningSessionIdentity<ExactEd25519SigningLaneIdentity> & {
   curve: 'ed25519';
   keyKind: 'threshold_ed25519';
   chainFamily: 'near';
+  signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdEd25519SessionId;
 };
 
-export type ResolvedEcdsaSigningSessionIdentity = BaseResolvedSigningSessionIdentity & {
+export type ResolvedEcdsaSigningSessionIdentity =
+  BaseResolvedSigningSessionIdentity<ExactEcdsaSigningLaneIdentity> & {
   curve: 'ecdsa';
   keyKind: 'threshold_ecdsa_secp256k1';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
-  thresholdSessionId: ThresholdEcdsaSessionId;
+  materialActivation: MpcMaterialActivationRef;
+  authorization: ActiveEvmFamilyWalletSessionAuthorization;
+  thresholdSessionId?: never;
 };
 
 export type ResolvedSigningSessionIdentity =
@@ -204,15 +223,41 @@ export const SigningKeyRefIntentKind = {
 export type SigningKeyRefIntentKind =
   (typeof SigningKeyRefIntentKind)[keyof typeof SigningKeyRefIntentKind];
 
-export type SigningKeyRefIntent =
+export type Ed25519SigningKeyRefIntent =
   | {
       kind: typeof SigningKeyRefIntentKind.Cached;
-      thresholdSessionId: ThresholdSessionId;
+      curve: 'ed25519';
+      thresholdSessionId: ThresholdEd25519SessionId;
+      materialActivation?: never;
+      authorization?: never;
     }
   | {
       kind: typeof SigningKeyRefIntentKind.Reauth;
+      curve: 'ed25519';
       authMethod: SigningAuthMethod;
+      thresholdSessionId?: never;
+      materialActivation?: never;
+      authorization?: never;
     };
+
+export type EcdsaSigningKeyRefIntent =
+  | {
+      kind: typeof SigningKeyRefIntentKind.Cached;
+      curve: 'ecdsa';
+      materialActivation: MpcMaterialActivationRef;
+      authorization: ActiveEvmFamilyWalletSessionAuthorization;
+      thresholdSessionId?: never;
+    }
+  | {
+      kind: typeof SigningKeyRefIntentKind.Reauth;
+      curve: 'ecdsa';
+      authMethod: SigningAuthMethod;
+      thresholdSessionId?: never;
+      materialActivation?: never;
+      authorization?: never;
+    };
+
+export type SigningKeyRefIntent = Ed25519SigningKeyRefIntent | EcdsaSigningKeyRefIntent;
 
 export type Ed25519WalletSigningSpendPlan = {
   operationId: SigningOperationId;
@@ -240,10 +285,21 @@ export type EmailOtpChallengePlan = {
   lane: SelectedSigningSessionPlanningLane;
 };
 
-export type PasskeyReconnectPlan = {
-  lane: SelectedSigningSessionPlanningLane;
-  thresholdSessionId: ThresholdSessionId;
-};
+export type PasskeyReconnectPlan =
+  | {
+      lane: SelectedEd25519SigningSessionPlanningLane;
+      curve: 'ed25519';
+      thresholdSessionId: ThresholdEd25519SessionId;
+      materialActivation?: never;
+      authorization?: never;
+    }
+  | {
+      lane: SelectedEcdsaSigningSessionPlanningLane;
+      curve: 'ecdsa';
+      materialActivation: MpcMaterialActivationRef;
+      authorization: ActiveEvmFamilyWalletSessionAuthorization;
+      thresholdSessionId?: never;
+    };
 
 export type SigningSessionNotReadyReason =
   | 'missing_session'
@@ -440,7 +496,6 @@ export function normalizeWalletSigningSpendPlan(
       ? SigningSessionIds.signingOperationFingerprint(input.operationFingerprint)
       : undefined;
   const signer = lane.identity.signer;
-  const signingGrantId = SigningSessionIds.signingGrant(lane.signingGrantId);
   const uses = Math.floor(Number(input.uses) || 0);
   if (!Number.isFinite(uses) || uses <= 0) {
     throw new Error('[SigningSession] wallet signing spend uses must be a positive integer');
@@ -457,7 +512,6 @@ export function normalizeWalletSigningSpendPlan(
       normalizedLane = {
         ...lane,
         chainFamily: signer.chainTarget.kind,
-        signingGrantId,
       };
       break;
     case 'near_ed25519_signer':
@@ -466,7 +520,7 @@ export function normalizeWalletSigningSpendPlan(
       }
       normalizedLane = {
         ...lane,
-        signingGrantId,
+        signingGrantId: SigningSessionIds.signingGrant(lane.signingGrantId),
       };
       break;
   }

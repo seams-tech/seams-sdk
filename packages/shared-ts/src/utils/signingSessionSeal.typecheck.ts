@@ -8,10 +8,13 @@ import type {
   RouterAbEcdsaDerivationNormalSigningStateV1,
   RouterAbEcdsaDerivationPublicCapabilityV1,
 } from './routerAbEcdsaDerivation';
+import type { EmailOtpWalletAuthAuthority, WalletAuthAuthorityRef } from './walletAuthAuthority';
 
 declare const routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const roleLocalMaterialRef: SealedSigningSessionEcdsaRoleLocalMaterialRef;
+declare const authority: WalletAuthAuthorityRef;
+declare const emailOtpAuthority: EmailOtpWalletAuthAuthority;
 
 const validEcdsaSealedSessionRecord = {
   v: 1,
@@ -35,12 +38,13 @@ const validEcdsaSealedSessionRecord = {
       networkSlug: 'tempo-testnet',
     },
     source: 'email_otp',
-    evmFamilySigningKeySlotId: 'wallet-key:evm-family:alice.testnet:root:v1',
     signingRootId: 'root',
     signingRootVersion: 'v1',
     provider: 'google',
     providerSubjectId: 'google:alice',
     emailHashHex: 'email-hash',
+    authority,
+    emailOtpAuthority,
     sessionKind: 'jwt',
     walletSessionJwt: 'wallet-session-jwt',
     keyHandle: 'key-handle',

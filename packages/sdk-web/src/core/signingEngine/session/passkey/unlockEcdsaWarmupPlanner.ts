@@ -23,6 +23,7 @@ import {
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { alphabetizeStringify } from '@shared/utils/digests';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 
 export type WalletUnlockSelection =
   | {
@@ -397,8 +398,10 @@ export function collectConfiguredTargetThresholdEcdsaWarmKeys(args: {
     if (
       key.existingRoleLocalMaterial &&
       existing?.existingRoleLocalMaterial &&
-      key.existingRoleLocalMaterial.materialRef.durableMaterialRef !==
-        existing.existingRoleLocalMaterial.materialRef.durableMaterialRef
+      !mpcMaterialActivationRefsEqual(
+        key.existingRoleLocalMaterial.materialActivation,
+        existing.existingRoleLocalMaterial.materialActivation,
+      )
     ) {
       throw new Error(
         `[login] threshold ECDSA warm-up received ambiguous ${args.source} role-local material for ${targetKey}`,

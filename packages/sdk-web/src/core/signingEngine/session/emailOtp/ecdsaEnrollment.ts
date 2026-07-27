@@ -15,7 +15,7 @@ import {
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
-import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   EmailOtpEcdsaBootstrapStrictPayload,
@@ -57,7 +57,7 @@ import {
 export type EmailOtpThresholdEcdsaEnrollmentResult = {
   enrollment: EmailOtpEnrollmentResult;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
+  authorization: ActiveWalletSessionAuthorizationProjection;
   timings: EmailOtpEcdsaPublicationTimings;
 };
 
@@ -366,7 +366,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     });
     bootstraps = bootstrapResult.bootstraps;
   }
-  const { bootstrap, warmCapability, timings } = await commitEmailOtpEcdsaPublicationBootstraps(
+  const { bootstrap, authorization, timings } = await commitEmailOtpEcdsaPublicationBootstraps(
     {
       walletId: args.walletSession.walletId,
       publicationChainTargets,
@@ -382,7 +382,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   return {
     enrollment,
     bootstrap,
-    warmCapability,
+    authorization,
     timings,
   };
 }

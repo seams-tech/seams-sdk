@@ -9,6 +9,10 @@ import type {
 } from '@shared/utils/routerAbEd25519Yao';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import type {
   RouterAbEcdsaDerivationActivationCommitQueryResultV1,
   RouterAbEcdsaDerivationActivationPrepareResultV1,
   RouterAbEcdsaDerivationPublicCapabilityV1,
@@ -458,7 +462,7 @@ export type WalletAddSignerFinalizeResponse =
           kind: 'near_ed25519';
           rpId: string;
           credentialIdB64u: string;
-          ed25519: WalletRegistrationEd25519YaoPublicResult;
+          ed25519: WalletEd25519YaoSignerPublicResult;
           ecdsa?: never;
         }
       | {
@@ -812,6 +816,8 @@ export type WalletRegistrationEd25519YaoBootstrapSession = {
   authorityScope: ThresholdEd25519AuthorityScope;
   thresholdSessionId: string;
   signingGrantId: string;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
   participantIds: readonly [number, number];
   remainingUses: number;
@@ -821,7 +827,7 @@ export type WalletRegistrationEd25519YaoBootstrapSession = {
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
-export type WalletRegistrationEd25519YaoPublicResult = {
+export type WalletEd25519YaoSignerPublicResult = {
   signerSlot: number;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
@@ -830,6 +836,9 @@ export type WalletRegistrationEd25519YaoPublicResult = {
   keyVersion: string;
   recoveryExportCapable: true;
   participantIds: readonly [number, number];
+};
+
+export type WalletRegistrationEd25519YaoPublicResult = WalletEd25519YaoSignerPublicResult & {
   session: WalletRegistrationEd25519YaoBootstrapSession;
 };
 

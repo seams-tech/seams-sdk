@@ -1,4 +1,3 @@
-import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
   decodeJwtPayloadRecord,
@@ -13,7 +12,6 @@ import {
   toEvmFamilyEcdsaKeyHandle,
   toParticipantId,
   type EvmFamilyEcdsaKeyHandle,
-  type EvmFamilySigningKeySlotId,
   type ParticipantId,
   type VerifiedWalletSessionJwt,
 } from './evmFamilyEcdsaIdentity';
@@ -27,7 +25,6 @@ export type EcdsaWalletSessionAuthority = {
   kind: 'ecdsa_wallet_session_authority';
   walletSessionJwt: VerifiedWalletSessionJwt;
   walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   keyHandle: EvmFamilyEcdsaKeyHandle;
   relayerKeyId: EcdsaRelayerKeyId;
   thresholdSessionId: ThresholdEcdsaSessionId;
@@ -66,7 +63,6 @@ function assertEcdsaWalletSessionClaimMatches(args: {
 export function buildEcdsaWalletSessionAuthority(args: {
   walletSessionJwt: string;
   walletId: unknown;
-  evmFamilySigningKeySlotId: unknown;
   keyHandle: unknown;
   thresholdSessionId: string;
   signingGrantId: string;
@@ -81,9 +77,6 @@ export function buildEcdsaWalletSessionAuthority(args: {
   });
   const payload = requireEcdsaWalletSessionPayload(walletSessionAuth.walletSessionJwt);
   const walletId = toWalletId(payload.walletId);
-  const evmFamilySigningKeySlotId = requireEvmFamilySigningKeySlotId(
-    payload.evmFamilySigningKeySlotId,
-  );
   const keyHandle = toEvmFamilyEcdsaKeyHandle(payload.keyHandle);
   const relayerKeyId = parseEcdsaRelayerKeyId(payload.relayerKeyId);
   const claimsIdentity = buildEcdsaSessionIdentity({
@@ -94,11 +87,6 @@ export function buildEcdsaWalletSessionAuthority(args: {
     field: 'walletId',
     expected: args.walletId,
     actual: walletId,
-  });
-  assertEcdsaWalletSessionClaimMatches({
-    field: 'evmFamilySigningKeySlotId',
-    expected: args.evmFamilySigningKeySlotId,
-    actual: evmFamilySigningKeySlotId,
   });
   assertEcdsaWalletSessionClaimMatches({
     field: 'keyHandle',
@@ -115,7 +103,6 @@ export function buildEcdsaWalletSessionAuthority(args: {
     kind: 'ecdsa_wallet_session_authority',
     walletSessionJwt: walletSessionAuth.walletSessionJwt,
     walletId,
-    evmFamilySigningKeySlotId,
     keyHandle,
     relayerKeyId,
     thresholdSessionId: identity.thresholdSessionId,

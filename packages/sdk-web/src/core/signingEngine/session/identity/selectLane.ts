@@ -360,11 +360,11 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
   }
   return selectedEcdsaLane({
     key: candidate.key,
+    materialActivation: candidate.materialActivation,
     keyHandle: candidate.keyHandle,
     walletId: candidate.walletId,
     auth: candidate.auth,
-    signingGrantId: candidate.signingGrantId,
-    thresholdSessionId: candidate.thresholdSessionId,
+    authorization: candidate.authorization,
     chainTarget: candidate.chainTarget,
   });
 }

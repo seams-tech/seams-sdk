@@ -1,8 +1,9 @@
 import type { WalletIframeExactSessionState } from './exactSessionState';
-import { parseSigningGrantId, parseWalletId } from '@shared/utils/domainIds';
+import { parseWalletId } from '@shared/utils/domainIds';
+import { parseWalletSessionId } from '@shared/authorization/capabilityKinds';
 
 const walletId = parseWalletId('wallet-id');
-const walletSessionId = parseSigningGrantId('wallet-session-id');
+const walletSessionId = parseWalletSessionId('wallet-session-id');
 if (!walletId.ok || !walletSessionId.ok) throw new Error('Type fixture IDs must be valid');
 
 const activeSession = {

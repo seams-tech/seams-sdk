@@ -1,6 +1,10 @@
 import { normalizeInteger, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import {
+  parseMpcMaterialActivationRef,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
+import {
   decodeJwtPayloadRecord,
   ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
 } from '@shared/utils/sessionTokens';
@@ -45,17 +49,17 @@ import {
 import {
   clearStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   clearStoredThresholdEcdsaSessionRecordsForWalletKeyHandle,
-  type ThresholdEcdsaSessionRecord,
 } from './records';
-import {
-  emailOtpAuthContextEmailHashHex,
-  emailOtpAuthContextProvider,
-  emailOtpAuthContextProviderUserId,
-} from '../identity/laneIdentity';
 import {
   parseEcdsaRoleLocalPersistedMaterialRef,
   type EcdsaRoleLocalPersistedMaterialRef,
 } from '../keyMaterialBrands';
+import {
+  parseEmailOtpWalletAuthAuthority,
+  parseWalletAuthAuthorityRef,
+  type EmailOtpWalletAuthAuthority,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 
 export type SigningSessionRestoreLease = {
   v: 1;
@@ -107,6 +111,7 @@ export type CurrentEd25519RestoreMetadata =
       provider: 'google' | 'email';
       providerSubjectId: string;
       emailHashHex: string;
+      materialActivation: MpcMaterialActivationRef;
       credentialIdB64u?: never;
     });
 
@@ -172,7 +177,6 @@ type EcdsaReauthAnchorPublicRestoreBase = {
   relayerUrl: string;
   signingRootId: string;
   signingRootVersion: string;
-  evmFamilySigningKeySlotId: string;
   keyHandle: string;
   ecdsaThresholdKeyId: string;
   ethereumAddress: string;
@@ -190,6 +194,7 @@ type EcdsaReauthAnchorPublicRestoreBase = {
 export type EcdsaReauthAnchorPublicRestore =
   | (EcdsaReauthAnchorPublicRestoreBase & {
       source: Exclude<SealedSigningSessionEcdsaRestoreSource, 'email_otp'>;
+      authority: WalletAuthAuthorityRef;
       rpId: string;
       credentialIdB64u: string;
       roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
@@ -201,6 +206,8 @@ export type EcdsaReauthAnchorPublicRestore =
       provider: 'google' | 'email';
       providerSubjectId: string;
       emailHashHex: string;
+      authority: WalletAuthAuthorityRef;
+      emailOtpAuthority: EmailOtpWalletAuthAuthority;
       roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
       rpId?: never;
       credentialIdB64u?: never;
@@ -607,8 +614,8 @@ function normalizeEcdsaRestoreMetadata(
   }
   const walletSessionAuth = normalizeSealedRestoreWalletSessionAuth(obj);
   const source = normalizeSealedEcdsaRestoreSource(obj.source);
+  const authorityRef = parseWalletAuthAuthorityRef(obj.authority);
   const rpId = normalizeOptionalNonEmptyString(obj.rpId);
-  const evmFamilySigningKeySlotId = normalizeOptionalNonEmptyString(obj.evmFamilySigningKeySlotId);
   const runtimePolicyScope =
     obj.runtimePolicyScope && typeof obj.runtimePolicyScope === 'object'
       ? obj.runtimePolicyScope
@@ -641,6 +648,7 @@ function normalizeEcdsaRestoreMetadata(
   } catch {
     roleLocalMaterialRef = null;
   }
+  const emailOtpAuthority = parseEmailOtpWalletAuthAuthority(obj.emailOtpAuthority);
   const provider = obj.provider === 'google' || obj.provider === 'email' ? obj.provider : null;
   const providerSubjectId = normalizeOptionalNonEmptyString(obj.providerSubjectId);
   const emailHashHex = normalizeOptionalNonEmptyString(obj.emailHashHex);
@@ -681,30 +689,28 @@ function normalizeEcdsaRestoreMetadata(
     return undefined;
   }
   const authBranch =
-    evmFamilySigningKeySlotId &&
-    credentialIdB64u &&
-    rpId &&
-    roleLocalMaterialRef &&
-    source !== 'email_otp'
+    credentialIdB64u && rpId && roleLocalMaterialRef && authorityRef && source !== 'email_otp'
       ? ({
           source,
-          evmFamilySigningKeySlotId,
+          authority: authorityRef,
           roleLocalMaterialRef,
           rpId,
           credentialIdB64u,
         } as const)
-      : evmFamilySigningKeySlotId &&
-          providerSubjectId &&
+      : providerSubjectId &&
           provider &&
           emailHashHex &&
           roleLocalMaterialRef &&
+          authorityRef &&
+          emailOtpAuthority &&
           source === 'email_otp'
         ? ({
             source,
-            evmFamilySigningKeySlotId,
             provider,
             providerSubjectId,
             emailHashHex,
+            authority: authorityRef,
+            emailOtpAuthority,
             roleLocalMaterialRef,
           } as const)
         : null;
@@ -754,11 +760,17 @@ function normalizeCurrentEd25519RestoreMetadata(
     : [];
   const signerSlot = normalizeInteger(obj.signerSlot);
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(obj.routerAbNormalSigning);
+  const materialActivation = parseMpcMaterialActivationRef(obj.materialActivation);
   const authBranch =
     credentialIdB64u && !providerSubjectId
       ? ({ credentialIdB64u } as const)
-      : provider && providerSubjectId && emailHashHex && !credentialIdB64u
-        ? ({ provider, providerSubjectId, emailHashHex } as const)
+      : provider && providerSubjectId && emailHashHex && !credentialIdB64u && materialActivation.ok
+        ? ({
+            provider,
+            providerSubjectId,
+            emailHashHex,
+            materialActivation: materialActivation.value,
+          } as const)
         : null;
   if (
     !nearAccountId ||
@@ -1506,13 +1518,14 @@ function normalizeEcdsaReauthAnchorPublicRestore(
   const signingRootId = normalizeOptionalNonEmptyString(obj.signingRootId);
   const relayerUrl = normalizeOptionalNonEmptyString(obj.relayerUrl);
   const signingRootVersion = normalizeOptionalNonEmptyString(obj.signingRootVersion);
-  const evmFamilySigningKeySlotId = normalizeOptionalNonEmptyString(obj.evmFamilySigningKeySlotId);
   let roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef | null = null;
   try {
     roleLocalMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef(obj.roleLocalMaterialRef);
   } catch {
     roleLocalMaterialRef = null;
   }
+  const authorityRef = parseWalletAuthAuthorityRef(obj.authority);
+  const emailOtpAuthority = parseEmailOtpWalletAuthAuthority(obj.emailOtpAuthority);
   const keyHandle = normalizeOptionalNonEmptyString(obj.keyHandle);
   const ecdsaThresholdKeyId = normalizeOptionalNonEmptyString(obj.ecdsaThresholdKeyId);
   const ethereumAddress = normalizeOptionalNonEmptyString(obj.ethereumAddress);
@@ -1525,7 +1538,6 @@ function normalizeEcdsaReauthAnchorPublicRestore(
     !relayerUrl ||
     !signingRootId ||
     !signingRootVersion ||
-    !evmFamilySigningKeySlotId ||
     !keyHandle ||
     !ecdsaThresholdKeyId ||
     !ethereumAddress ||
@@ -1545,6 +1557,8 @@ function normalizeEcdsaReauthAnchorPublicRestore(
         !providerSubjectId ||
         !emailHashHex ||
         !roleLocalMaterialRef ||
+        !authorityRef ||
+        !emailOtpAuthority ||
         obj.rpId != null ||
         obj.credentialIdB64u != null
       ) {
@@ -1555,7 +1569,6 @@ function normalizeEcdsaReauthAnchorPublicRestore(
         relayerUrl,
         signingRootId,
         signingRootVersion,
-        evmFamilySigningKeySlotId,
         keyHandle,
         ecdsaThresholdKeyId,
         ethereumAddress,
@@ -1569,6 +1582,8 @@ function normalizeEcdsaReauthAnchorPublicRestore(
         provider,
         providerSubjectId,
         emailHashHex,
+        authority: authorityRef,
+        emailOtpAuthority,
         roleLocalMaterialRef,
       };
     }
@@ -1581,6 +1596,7 @@ function normalizeEcdsaReauthAnchorPublicRestore(
         !rpId ||
         !credentialIdB64u ||
         !roleLocalMaterialRef ||
+        !authorityRef ||
         obj.providerSubjectId != null ||
         obj.emailHashHex != null
       ) {
@@ -1591,7 +1607,6 @@ function normalizeEcdsaReauthAnchorPublicRestore(
         relayerUrl,
         signingRootId,
         signingRootVersion,
-        evmFamilySigningKeySlotId,
         keyHandle,
         ecdsaThresholdKeyId,
         ethereumAddress,
@@ -1602,6 +1617,7 @@ function normalizeEcdsaReauthAnchorPublicRestore(
         routerAbEcdsaDerivationNormalSigning,
         publicCapability,
         source: obj.source,
+        authority: authorityRef,
         roleLocalMaterialRef,
         rpId,
         credentialIdB64u,
@@ -2202,7 +2218,6 @@ export function buildEcdsaReauthAnchorPublicRestore(
         relayerUrl,
         signingRootId: restore.signingRootId,
         signingRootVersion: restore.signingRootVersion,
-        evmFamilySigningKeySlotId: restore.evmFamilySigningKeySlotId,
         keyHandle: restore.keyHandle,
         ecdsaThresholdKeyId,
         ethereumAddress: restore.ethereumAddress,
@@ -2216,9 +2231,9 @@ export function buildEcdsaReauthAnchorPublicRestore(
         provider: restore.provider,
         providerSubjectId: restore.providerSubjectId,
         emailHashHex: restore.emailHashHex,
-        roleLocalMaterialRef: parseEcdsaRoleLocalPersistedMaterialRef(
-          restore.roleLocalMaterialRef,
-        ),
+        authority: restore.authority,
+        emailOtpAuthority: restore.emailOtpAuthority,
+        roleLocalMaterialRef: parseEcdsaRoleLocalPersistedMaterialRef(restore.roleLocalMaterialRef),
       };
     case 'login':
     case 'registration':
@@ -2228,7 +2243,6 @@ export function buildEcdsaReauthAnchorPublicRestore(
         relayerUrl,
         signingRootId: restore.signingRootId,
         signingRootVersion: restore.signingRootVersion,
-        evmFamilySigningKeySlotId: restore.evmFamilySigningKeySlotId,
         keyHandle: restore.keyHandle,
         ecdsaThresholdKeyId,
         ethereumAddress: restore.ethereumAddress,
@@ -2239,9 +2253,8 @@ export function buildEcdsaReauthAnchorPublicRestore(
         routerAbEcdsaDerivationNormalSigning: restore.routerAbEcdsaDerivationNormalSigning,
         publicCapability: restore.publicCapability,
         source: restore.source,
-        roleLocalMaterialRef: parseEcdsaRoleLocalPersistedMaterialRef(
-          restore.roleLocalMaterialRef,
-        ),
+        authority: restore.authority,
+        roleLocalMaterialRef: parseEcdsaRoleLocalPersistedMaterialRef(restore.roleLocalMaterialRef),
         rpId: restore.rpId,
         credentialIdB64u: restore.credentialIdB64u,
       };
@@ -2310,76 +2323,6 @@ function requireEcdsaReauthAnchor(args: {
   return anchor;
 }
 
-function registrationEcdsaPublicRestore(
-  record: ThresholdEcdsaSessionRecord,
-): EcdsaReauthAnchorPublicRestore {
-  const thresholdEcdsaPublicKeyB64u = normalizeOptionalNonEmptyString(
-    record.thresholdEcdsaPublicKeyB64u,
-  );
-  const routerAbEcdsaDerivationNormalSigning = record.routerAbEcdsaDerivationNormalSigning
-    ? parseRouterAbEcdsaDerivationNormalSigningStateV1(record.routerAbEcdsaDerivationNormalSigning)
-    : null;
-  const ethereumAddress = normalizeOptionalNonEmptyString(record.ethereumAddress);
-  const roleLocalMaterialRef = record.roleLocalMaterialRef;
-  if (
-    !thresholdEcdsaPublicKeyB64u ||
-    !routerAbEcdsaDerivationNormalSigning ||
-    !ethereumAddress ||
-    !roleLocalMaterialRef ||
-    !/^0x[0-9a-f]{40}$/i.test(ethereumAddress)
-  ) {
-    throw new Error(
-      '[SigningSessionSealedStore] registration ECDSA anchor requires exact public restore facts',
-    );
-  }
-  const common = {
-    chainTarget: record.chainTarget,
-    relayerUrl: record.relayerUrl,
-    signingRootId: record.signingRootId,
-    signingRootVersion: record.signingRootVersion || 'default',
-    evmFamilySigningKeySlotId: record.evmFamilySigningKeySlotId,
-    keyHandle: record.keyHandle,
-    ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
-    ethereumAddress: ethereumAddress.toLowerCase(),
-    relayerKeyId: record.relayerKeyId,
-    thresholdEcdsaPublicKeyB64u,
-    participantIds: [...record.participantIds],
-    runtimePolicyScope: normalizeRuntimePolicyScope(record.runtimePolicyScope),
-    routerAbEcdsaDerivationNormalSigning,
-    publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
-      record.ecdsaRoleLocalPublicFacts.publicCapability,
-    ),
-    roleLocalMaterialRef,
-  };
-  switch (record.ecdsaRoleLocalAuthMethod.kind) {
-    case 'passkey':
-      if (record.source === 'email_otp') {
-        throw new Error(
-          '[SigningSessionSealedStore] passkey ECDSA anchor requires passkey authority',
-        );
-      }
-      return {
-        ...common,
-        source: record.source,
-        rpId: record.ecdsaRoleLocalAuthMethod.rpId,
-        credentialIdB64u: record.ecdsaRoleLocalAuthMethod.credentialIdB64u,
-      };
-    case 'email_otp':
-      if (record.source !== 'email_otp') {
-        throw new Error(
-          '[SigningSessionSealedStore] Email OTP ECDSA anchor requires Email OTP authority',
-        );
-      }
-      return {
-        ...common,
-        source: 'email_otp',
-        provider: emailOtpAuthContextProvider(record.emailOtpAuthContext),
-        providerSubjectId: emailOtpAuthContextProviderUserId(record.emailOtpAuthContext),
-        emailHashHex: emailOtpAuthContextEmailHashHex(record.emailOtpAuthContext),
-      };
-  }
-}
-
 async function writeEcdsaReauthAnchor(record: EcdsaReauthAnchorRecord): Promise<void> {
   await signingSessionSealsRepository.replaceSealedRecord({
     row: durableLaneStorageRow(record),
@@ -2395,92 +2338,6 @@ async function writeEcdsaReauthAnchor(record: EcdsaReauthAnchorRecord): Promise<
     updatedAtMs: record.updatedAtMs,
   });
   await signingSessionSealsRepository.deleteRestoreLease(record.storeKey);
-}
-
-export async function persistActivePasskeyEcdsaReauthAnchor(
-  record: ThresholdEcdsaSessionRecord,
-): Promise<void> {
-  const remainingUses = Math.floor(Number(record.remainingUses));
-  const expiresAtMs = Math.floor(Number(record.expiresAtMs));
-  const updatedAtMs = Math.floor(Number(record.updatedAtMs));
-  if (
-    !Number.isSafeInteger(remainingUses) ||
-    remainingUses <= 0 ||
-    !Number.isSafeInteger(expiresAtMs) ||
-    expiresAtMs <= Date.now() ||
-    !Number.isSafeInteger(updatedAtMs) ||
-    updatedAtMs <= 0
-  ) {
-    throw new Error(
-      '[SigningSessionSealedStore] active passkey ECDSA anchor requires an active session policy',
-    );
-  }
-  const ecdsaRestore = registrationEcdsaPublicRestore(record);
-  await writeEcdsaReauthAnchor({
-    recordKind: ECDSA_REAUTH_ANCHOR_RECORD_KIND,
-    storeKey: makeSealedRecordStoreKey({
-      signingGrantId: record.signingGrantId,
-      authMethod: 'passkey',
-      curve: 'ecdsa',
-      chainTarget: record.chainTarget,
-    }),
-    authMethod: 'passkey',
-    curve: 'ecdsa',
-    signingGrantId: record.signingGrantId,
-    thresholdSessionIds: { ecdsa: record.thresholdSessionId },
-    walletId: record.walletId,
-    relayerUrl: record.relayerUrl,
-    ecdsaRestore,
-    issuedAtMs: updatedAtMs,
-    expiresAtMs,
-    updatedAtMs,
-    state: 'active',
-    remainingUses,
-  });
-}
-
-export async function persistEmailOtpEcdsaRegistrationReauthAnchor(
-  record: ThresholdEcdsaSessionRecord,
-): Promise<void> {
-  if (record.source !== 'email_otp' || record.ecdsaRoleLocalAuthMethod.kind !== 'email_otp') {
-    throw new Error(
-      '[SigningSessionSealedStore] Email OTP registration anchor requires Email OTP authority',
-    );
-  }
-  const expiresAtMs = Math.floor(Number(record.expiresAtMs));
-  const updatedAtMs = Math.floor(Number(record.updatedAtMs));
-  if (
-    !Number.isSafeInteger(expiresAtMs) ||
-    expiresAtMs <= 0 ||
-    !Number.isSafeInteger(updatedAtMs) ||
-    updatedAtMs <= 0
-  ) {
-    throw new Error(
-      '[SigningSessionSealedStore] Email OTP registration anchor requires a valid session policy',
-    );
-  }
-  await writeEcdsaReauthAnchor({
-    recordKind: ECDSA_REAUTH_ANCHOR_RECORD_KIND,
-    storeKey: makeSealedRecordStoreKey({
-      signingGrantId: record.signingGrantId,
-      authMethod: 'email_otp',
-      curve: 'ecdsa',
-      chainTarget: record.chainTarget,
-    }),
-    authMethod: 'email_otp',
-    curve: 'ecdsa',
-    signingGrantId: record.signingGrantId,
-    thresholdSessionIds: { ecdsa: record.thresholdSessionId },
-    walletId: record.walletId,
-    relayerUrl: record.relayerUrl,
-    ecdsaRestore: registrationEcdsaPublicRestore(record),
-    issuedAtMs: updatedAtMs,
-    expiresAtMs,
-    updatedAtMs,
-    state: 'exhausted',
-    retirement: 'exhausted',
-    remainingUses: 0,
-  });
 }
 
 export async function updateExactSealedSessionPolicy(

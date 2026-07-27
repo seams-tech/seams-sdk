@@ -49,7 +49,6 @@ import {
   getPrimaryAndSecondaryEcdsaCapabilities,
   normalizeParticipantIds,
   toOptionalNonEmptyString,
-  tryReuseReadyWarmEcdsaBootstrap,
 } from '@/core/signingEngine/useCases/provisionEcdsaSession';
 import {
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
@@ -164,6 +163,7 @@ export function createReadyPasskeyWarmSessionEcdsaCapability(args: {
   const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({ record });
   const lane = selectedEcdsaLane({
     key,
+    materialActivation: record.materialActivation,
     keyHandle: record.keyHandle,
     walletId: record.walletId,
     auth: {
@@ -571,23 +571,6 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
         warmSession: await getWarmSession(args.nearAccountId),
       }),
     provisionEcdsaCapability,
-    tryReuseReadyEcdsaBootstrap: (args: {
-      nearAccountId: AccountId | string;
-      chain: ThresholdEcdsaActivationChain;
-      source?: ThresholdEcdsaSessionStoreSource;
-    }) =>
-      tryReuseReadyWarmEcdsaBootstrap(
-        {
-          getWarmSession,
-          listThresholdEcdsaRecordsForWalletTarget:
-            deps.listThresholdEcdsaRecordsForWalletTarget || (() => []),
-        },
-        {
-          walletId: toWalletId(args.nearAccountId),
-          ...(args.source ? { source: args.source } : {}),
-          chainTarget: testEcdsaChainTarget(args.chain),
-        },
-      ),
     ensureEcdsaCapabilityReady: (args: {
       nearAccountId: AccountId | string;
       chain: ThresholdEcdsaActivationChain;

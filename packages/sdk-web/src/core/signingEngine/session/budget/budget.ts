@@ -37,6 +37,7 @@ import type {
 } from '../identity/evmFamilyEcdsaIdentity';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import { budgetUnknownSigningSessionStatus } from './budgetProjection';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 export type SigningSessionBudgetZeroSpendReason =
   | 'confirmation_cancelled'
@@ -455,6 +456,7 @@ export type EcdsaLaneBudgetStatusCheck = {
   kind: 'ecdsa_lane_budget_status_check';
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: EvmFamilyEcdsaKeyHandle;
+  materialActivation: MpcMaterialActivationRef;
   auth: SigningLaneAuthBinding;
   chainTarget: ThresholdEcdsaChainTarget;
   signingGrantId: SigningGrantId | string;
@@ -469,6 +471,7 @@ export type AuthenticatedEcdsaLaneBudgetStatusCheck = {
   kind: 'authenticated_ecdsa_lane_budget_status_check';
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: EvmFamilyEcdsaKeyHandle;
+  materialActivation: MpcMaterialActivationRef;
   auth: SigningLaneAuthBinding;
   chainTarget: ThresholdEcdsaChainTarget;
   signingGrantId: SigningGrantId | string;
@@ -1091,6 +1094,7 @@ export function thresholdSessionIdsForBudgetStatusCheck(
 
 export function buildEcdsaLaneBudgetStatusCheck(args: {
   key: EvmFamilyEcdsaKeyIdentity;
+  materialActivation: MpcMaterialActivationRef;
   keyHandle: EvmFamilyEcdsaKeyHandle | string;
   auth: SigningLaneAuthBinding;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -1100,6 +1104,7 @@ export function buildEcdsaLaneBudgetStatusCheck(args: {
   return buildEcdsaLaneBudgetStatusCheckInternal({
     kind: 'ecdsa_lane_budget_status_check',
     key: args.key,
+    materialActivation: args.materialActivation,
     keyHandle: args.keyHandle,
     auth: args.auth,
     chainTarget: args.chainTarget,
@@ -1110,6 +1115,7 @@ export function buildEcdsaLaneBudgetStatusCheck(args: {
 
 export type EcdsaLaneBudgetStatusIdentityFields = {
   key: EvmFamilyEcdsaKeyIdentity;
+  materialActivation: MpcMaterialActivationRef;
   keyHandle: EvmFamilyEcdsaKeyHandle;
   auth: SigningLaneAuthBinding;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -1127,6 +1133,7 @@ export function ecdsaLaneBudgetStatusIdentityFieldsForLane(
   }
   return {
     key: signer.key,
+    materialActivation: signer.materialActivation,
     keyHandle: signer.keyHandle,
     auth: identity.auth,
     chainTarget: signer.chainTarget,
@@ -1137,6 +1144,7 @@ export function ecdsaLaneBudgetStatusIdentityFieldsForLane(
 
 export function buildAuthenticatedEcdsaLaneBudgetStatusCheck(args: {
   key: EvmFamilyEcdsaKeyIdentity;
+  materialActivation: MpcMaterialActivationRef;
   keyHandle: EvmFamilyEcdsaKeyHandle | string;
   auth: SigningLaneAuthBinding;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -1148,6 +1156,7 @@ export function buildAuthenticatedEcdsaLaneBudgetStatusCheck(args: {
     ...buildEcdsaLaneBudgetStatusCheckInternal({
       kind: 'authenticated_ecdsa_lane_budget_status_check',
       key: args.key,
+      materialActivation: args.materialActivation,
       keyHandle: args.keyHandle,
       auth: args.auth,
       chainTarget: args.chainTarget,
@@ -1165,6 +1174,7 @@ function buildEcdsaLaneBudgetStatusCheckInternal<
 >(args: {
   kind: TKind;
   key: EvmFamilyEcdsaKeyIdentity;
+  materialActivation: MpcMaterialActivationRef;
   keyHandle: EvmFamilyEcdsaKeyHandle | string;
   auth: SigningLaneAuthBinding;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -1194,6 +1204,7 @@ function buildEcdsaLaneBudgetStatusCheckInternal<
   return {
     kind: args.kind,
     key: args.key,
+    materialActivation: args.materialActivation,
     keyHandle,
     auth: args.auth,
     chainTarget: args.chainTarget,

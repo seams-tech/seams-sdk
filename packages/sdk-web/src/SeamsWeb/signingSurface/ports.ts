@@ -8,8 +8,8 @@ import type {
 import type {
   ProvisionWarmEd25519CapabilityResult,
   WarmEcdsaSigningSessionStatus,
-  WarmSessionEcdsaCapabilityState,
 } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
   AvailableSigningLanes,
@@ -23,6 +23,7 @@ import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
+import type { ReusableWalletSessionState } from '@/core/types/seams';
 import type {
   NearSignIntentRequest,
   NearSignIntentResult,
@@ -313,7 +314,9 @@ export interface SigningSessionSurface {
     sessionId: string;
     transport?: WarmSessionSealTransportInput;
   }): Promise<WarmSessionSealAndPersistResult>;
-  getReusableWalletSessionStatus(walletId: WalletId | string): Promise<SigningSessionStatus | null>;
+  readReusableWalletSessionState(
+    walletId: WalletId | string,
+  ): Promise<ReusableWalletSessionState>;
   discoverPersistedSessionsForWallet(
     args: DiscoverPersistedSessionsForWalletInput,
   ): Promise<DiscoverPersistedSessionsForWalletResult>;
@@ -338,12 +341,13 @@ export interface WarmSessionStatusSurface {
 }
 
 export type WalletSessionReadSurface = RuntimeStartupSurface &
+  SignerWorkerContextSurface &
   NonceCoordinatorSurface &
   UserAccountLookupSurface &
   WarmSessionStatusSurface &
   Pick<
     SigningSessionSurface,
-    'getReusableWalletSessionStatus' | 'readPersistedAvailableSigningLanes'
+    'readReusableWalletSessionState' | 'readPersistedAvailableSigningLanes'
   > &
   Pick<EcdsaLoginSessionSurface, 'listThresholdEcdsaSessionRecordsForWalletTarget'>;
 
@@ -469,7 +473,11 @@ export interface EmailOtpSigningSessionSurface {
   }): Promise<{
     recovery: EmailOtpBootstrapRecovery;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    warmCapability: WarmSessionEcdsaCapabilityState;
+    authorization: ActiveWalletSessionAuthorizationProjection;
+    authorizations: readonly [
+      ActiveWalletSessionAuthorizationProjection,
+      ...ActiveWalletSessionAuthorizationProjection[],
+    ];
   }>;
   resolveEmailOtpAppSessionJwt(args: {
     walletSession: WalletSessionRef;

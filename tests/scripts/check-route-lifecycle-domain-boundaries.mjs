@@ -270,10 +270,6 @@ check('route/lifecycle boundary public result types use success-specific branche
       '?: never;',
     );
   }
-  expect(registrationRange).toContain("kind: 'near_wallet_registered';");
-  expect(registrationRange).toContain("kind: 'ecdsa_wallet_registered';");
-  expect(registrationRange).toContain("kind: 'near_ed25519_signer_added';");
-  expect(registrationRange).toContain("kind: 'ecdsa_signer_added';");
 });
 
 check('route/lifecycle boundary sync-account routes parse request bodies at the boundary', () => {

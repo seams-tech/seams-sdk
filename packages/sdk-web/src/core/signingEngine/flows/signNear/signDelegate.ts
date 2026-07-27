@@ -114,9 +114,9 @@ export async function runNearDelegateActionSigning({
   signerSlot,
   signingSessionCoordinator,
   forceFreshAuth,
-  passkeyEd25519Reconnect,
-  emailOtpEd25519Reconnect,
-  yaoCapabilitySource,
+  passkeyEd25519OperationStepUp,
+  emailOtpEd25519Reauthorization,
+  committedYaoCapability,
 }: NearDelegateActionPayload): Promise<{
   signedDelegate: WasmSignedDelegate;
   hash: string;
@@ -224,8 +224,8 @@ export async function runNearDelegateActionSigning({
     signingAuthPlan: signingSessionAuthPlan.signingAuthPlan,
     signingLane: signingSessionAuthPlan.lane,
     requiredSignatureUses,
-    passkeyEd25519Reconnect,
-    emailOtpEd25519Reconnect,
+    passkeyEd25519OperationStepUp,
+    emailOtpEd25519Reauthorization,
   });
   const confirmationAuthPayload = preparedStepUp.confirmationAuthPayload;
   if (isWarmSessionSigningAuthPlan(confirmationAuthPayload.signingAuthPlan)) {
@@ -259,10 +259,10 @@ export async function runNearDelegateActionSigning({
         signingAuthPlan: confirmationAuthPayload.signingAuthPlan,
         webauthnChallenge:
           preparedStepUp.kind === 'passkey' &&
-          preparedStepUp.plannedPasskeyReconnect.sessionPolicyDigest32
+          preparedStepUp.plannedPasskeyOperationStepUp.sessionPolicyDigest32
             ? {
                 kind: 'threshold_session_policy' as const,
-                digest32B64u: preparedStepUp.plannedPasskeyReconnect.sessionPolicyDigest32,
+                digest32B64u: preparedStepUp.plannedPasskeyOperationStepUp.sessionPolicyDigest32,
               }
             : undefined,
       }),
@@ -300,9 +300,8 @@ export async function runNearDelegateActionSigning({
 
       const resolvedCapability = await resolveConfirmedNearEd25519YaoCapability({
         authorization: stepUpAuthorization,
-        source: yaoCapabilitySource,
-        passkeyReconnect: passkeyEd25519Reconnect,
-        emailOtpReconnect: emailOtpEd25519Reconnect,
+        committed: committedYaoCapability,
+        emailOtpReauthorization: emailOtpEd25519Reauthorization,
         requiredSignatureUses,
       });
       emitNearSigningEvent(onEvent, nearAccountId, {
@@ -361,6 +360,7 @@ export async function runNearDelegateActionSigning({
       nearAccountId,
       operationId: signingOperation.operationId,
       operationFingerprint: signingOperation.operationFingerprint!,
+      displayDigest: confirmation.intentDigest,
       signingDigestB64u: signingDigest.signingDigestB64u,
       intent: signatureOnlyIntent,
     });

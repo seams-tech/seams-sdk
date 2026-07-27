@@ -5,7 +5,6 @@ import {
   buildEmailOtpRoutePlan,
   type EmailOtpSigningSessionAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
@@ -22,10 +21,7 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
-import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
-import type { WarmSessionEcdsaCapabilityState } from '../../session/warmCapabilities/types';
 import type { RequestEmailOtpChallengeArgs } from '../../session/emailOtp/exportRecoveryRuntime';
-import type { EmailOtpThresholdEcdsaLoginTimings } from '../../session/emailOtp/ecdsaLogin';
 import {
   toVerifiedEcdsaPublicFactsFromRecord,
   type VerifiedEcdsaPublicFacts,
@@ -40,6 +36,7 @@ import {
 import {
   emailOtpEcdsaProviderIdentityFromRecord,
   type EmailOtpEcdsaProviderIdentity,
+  type EmailOtpThresholdEcdsaLoginResult,
 } from '../../session/emailOtp/ecdsaLogin';
 import {
   resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord,
@@ -81,16 +78,7 @@ export type EmailOtpEcdsaSigningSessionDeps = {
       providerIdentity: EmailOtpEcdsaProviderIdentity;
       emailHashHex: string;
       authSubjectId?: never;
-    }) => Promise<{
-      recovery: EmailOtpBootstrapRecovery;
-      bootstrap: ThresholdEcdsaSessionBootstrapResult;
-      warmCapability: WarmSessionEcdsaCapabilityState;
-      warmCapabilities: readonly [
-        WarmSessionEcdsaCapabilityState,
-        ...WarmSessionEcdsaCapabilityState[],
-      ];
-      timings: EmailOtpThresholdEcdsaLoginTimings;
-    }>;
+    }) => Promise<EmailOtpThresholdEcdsaLoginResult>;
   };
 };
 
@@ -99,10 +87,6 @@ export type EvmFamilyEmailOtpTransactionSigningBridge = {
     challengeId: string;
     email: string;
   }>;
-  complete: (input: {
-    challengeId: string;
-    code: string;
-  }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 };
 
 export type EmailOtpEcdsaStepUpAuthority =
@@ -150,25 +134,14 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
   walletId: string;
   walletSession: WalletSessionRef;
   chain: EvmFamilyChain;
-  chainTarget: ThresholdEcdsaChainTarget;
   selectedLane?: ResolvedEvmFamilyEcdsaSigningLane;
   authority: EmailOtpEcdsaStepUpAuthority;
-  remainingUses: number;
   onEvent?: EvmFamilyLifecycleEventCallback;
   requestEmailOtpTransactionSigningChallenge?: (args: {
     walletSession: WalletSessionRef;
     chain: EvmFamilyChain;
     authority: EmailOtpEcdsaChallengeAuthority;
   }) => Promise<EmailOtpTransactionSigningChallenge>;
-  loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
-    walletSession: WalletSessionRef;
-    subjectId?: never;
-    chainTarget: ThresholdEcdsaChainTarget;
-    challengeId: string;
-    otpCode: string;
-    authority: EmailOtpEcdsaStepUpAuthority;
-    remainingUses: number;
-  }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 }): EvmFamilyEmailOtpTransactionSigningBridge {
   return {
     challenge: async () => {
@@ -213,19 +186,6 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
         challengeId,
         email: String(challenge.emailHint || '').trim(),
       };
-    },
-    complete: async ({ challengeId, code }) => {
-      if (typeof args.loginWithEmailOtpEcdsaCapabilityForSigning !== 'function') {
-        throw new Error('[SigningEngine] Email OTP ECDSA signing step-up is not configured');
-      }
-      return await args.loginWithEmailOtpEcdsaCapabilityForSigning({
-        walletSession: args.walletSession,
-        chainTarget: args.chainTarget,
-        challengeId,
-        otpCode: code,
-        authority: args.authority,
-        remainingUses: args.remainingUses,
-      });
     },
   };
 }
@@ -292,16 +252,7 @@ export async function refreshEmailOtpSigningSession(
     ttlMs?: number;
     remainingUses?: number;
   },
-): Promise<{
-  recovery: EmailOtpBootstrapRecovery;
-  bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
-  warmCapabilities: readonly [
-    WarmSessionEcdsaCapabilityState,
-    ...WarmSessionEcdsaCapabilityState[],
-  ];
-  timings: EmailOtpThresholdEcdsaLoginTimings;
-}> {
+): Promise<EmailOtpThresholdEcdsaLoginResult> {
   const { record, authority } = resolveEmailOtpEcdsaSigningSessionAuth(deps, {
     walletId: args.walletSession.walletId,
     chainTarget: args.chainTarget,

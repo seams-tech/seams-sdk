@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { buildReadySecp256k1SigningMaterialFromRecord } from '@/core/signingEngine/flows/signEvmFamily/readySecp256k1Material';
+import { resolveReadySecp256k1SigningMaterialFromRecord } from '@/core/signingEngine/flows/signEvmFamily/readySecp256k1Material';
 import {
   clearAllThresholdEcdsaSessionRecords,
   type ThresholdEcdsaSessionRecord,
@@ -11,6 +11,7 @@ import {
 } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import {
   parseEcdsaRoleLocalWorkerHandle,
+  type EcdsaRoleLocalPersistedMaterialRef,
   type EcdsaRoleLocalWorkerHandle,
 } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
@@ -19,11 +20,18 @@ import {
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { buildPasskeyEcdsaSessionRecordFixture } from './helpers/signingSessionRecord.fixtures';
+import {
+  buildEcdsaRoleLocalPersistedMaterialRefFixture,
+  buildMpcMaterialActivationRefFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
+import { buildEvmFamilyEcdsaKeyIdentityFromRecord } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { buildEvmFamilyEcdsaSignerBinding } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 
 type RehydrationFixture = {
   record: ThresholdEcdsaSessionRecord;
   store: ThresholdEcdsaSessionStoreDeps;
   roleLocalMaterial: EcdsaRoleLocalWorkerHandle;
+  materialRef: EcdsaRoleLocalPersistedMaterialRef;
 };
 
 function createRehydrationFixture(): RehydrationFixture {
@@ -44,12 +52,18 @@ function createRehydrationFixture(): RehydrationFixture {
     recordsByLane: new Map(),
     exportArtifactsByLane: new Map(),
   };
+  const materialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+    durableMaterialRef,
+    bindingDigest: record.ecdsaRoleLocalPublicFacts.contextBinding32B64u,
+    materialOwner: record.walletId,
+  });
   clearAllThresholdEcdsaSessionRecords(store);
-  return { record, store, roleLocalMaterial };
+  return { record, store, roleLocalMaterial, materialRef };
 }
 
 function successfulRehydrationWorkerContext(args: {
   expected: EcdsaRoleLocalWorkerHandle;
+  materialRef: EcdsaRoleLocalPersistedMaterialRef;
   requests: unknown[];
 }): WorkerOperationContext {
   return {
@@ -58,9 +72,10 @@ function successfulRehydrationWorkerContext(args: {
       return {
         type: EcdsaDerivationClientCustomResponseType.RehydrateEcdsaRoleLocalSigningMaterialSuccess,
         payload: {
-          kind: 'ecdsa_role_local_signing_material_rehydrated_v1',
+          kind: 'ecdsa_role_local_signing_material_opened_v1',
           ok: true,
           liveHandle: args.expected,
+          materialRef: args.materialRef,
         },
       } as never;
     },
@@ -70,10 +85,10 @@ function successfulRehydrationWorkerContext(args: {
 function liveMaterialForRecord(
   record: ThresholdEcdsaSessionRecord,
 ): EcdsaRoleLocalWorkerHandle | null {
-  if (!record.roleLocalMaterialRef) return null;
   return getLiveEcdsaRoleLocalMaterial(
     buildPersistedEcdsaRoleLocalMaterial({
-      materialRef: record.roleLocalMaterialRef,
+      authority: record.authority,
+      materialActivation: record.materialActivation,
       publicFacts: record.ecdsaRoleLocalPublicFacts,
     }),
   );
@@ -91,12 +106,13 @@ test.describe('ready secp256k1 durable role-local material rehydration', () => {
     const fixture = createRehydrationFixture();
     const requests: unknown[] = [];
 
-    const material = await buildReadySecp256k1SigningMaterialFromRecord({
+    const resolution = await resolveReadySecp256k1SigningMaterialFromRecord({
       record: fixture.record,
       requestLabel: 'evm',
-      evmFamilySigningKeySlotId: fixture.record.evmFamilySigningKeySlotId,
+      materialActivation: fixture.record.materialActivation,
       workerCtx: successfulRehydrationWorkerContext({
         expected: fixture.roleLocalMaterial,
+        materialRef: fixture.materialRef,
         requests,
       }),
     });
@@ -108,14 +124,17 @@ test.describe('ready secp256k1 durable role-local material rehydration', () => {
           type: EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial,
           timeoutMs: 20_000,
           payload: {
-            kind: 'rehydrate_ecdsa_role_local_signing_material_v1',
-            materialRef: fixture.record.roleLocalMaterialRef,
+            kind: 'open_ecdsa_role_local_signing_material_v1',
+            authority: fixture.record.authority,
+            materialActivation: fixture.record.materialActivation,
           },
         },
       },
     ]);
     expect(liveMaterialForRecord(fixture.record)).toEqual(fixture.roleLocalMaterial);
-    expect(material.signerSession.clientShare).toMatchObject({
+    expect(resolution.kind).toBe('ready');
+    if (resolution.kind !== 'ready') return;
+    expect(resolution.material.signerSession.clientShare).toMatchObject({
       kind: 'role_local_worker_share',
       handle: fixture.roleLocalMaterial,
     });
@@ -129,16 +148,59 @@ test.describe('ready secp256k1 durable role-local material rehydration', () => {
     });
 
     await expect(
-      buildReadySecp256k1SigningMaterialFromRecord({
+      resolveReadySecp256k1SigningMaterialFromRecord({
         record: fixture.record,
         requestLabel: 'evm',
-        evmFamilySigningKeySlotId: fixture.record.evmFamilySigningKeySlotId,
+        materialActivation: fixture.record.materialActivation,
         workerCtx: successfulRehydrationWorkerContext({
           expected: substituted,
+          materialRef: fixture.materialRef,
           requests: [],
         }),
       }),
     ).rejects.toThrow('ECDSA role-local signing material hydration changed its identity');
     expect(liveMaterialForRecord(fixture.record)).toBeNull();
+  });
+
+  test('classifies an exact material activation mismatch without entering authorization flow', async () => {
+    const fixture = createRehydrationFixture();
+    const mismatchedActivation = buildMpcMaterialActivationRefFixture(
+      'rehydration-mismatch',
+      fixture.record.walletId,
+    );
+    const result = await resolveReadySecp256k1SigningMaterialFromRecord({
+      record: fixture.record,
+      requestLabel: 'evm',
+      materialActivation: mismatchedActivation,
+      workerCtx: {
+        requestWorkerOperation: async () => {
+          throw new Error('worker must not open mismatched material');
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      kind: 'unavailable',
+      reason: 'material_activation_mismatch',
+    });
+  });
+
+  test('rejects a signer binding whose material owner is another wallet', () => {
+    const fixture = createRehydrationFixture();
+    const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({ record: fixture.record });
+    const otherWalletActivation = buildMpcMaterialActivationRefFixture(
+      'other-wallet',
+      'other-wallet.testnet',
+    );
+
+    expect(() =>
+      buildEvmFamilyEcdsaSignerBinding({
+        walletId: fixture.record.walletId,
+        chainTarget: fixture.record.chainTarget,
+        keyHandle: fixture.record.keyHandle,
+        key,
+        materialActivation: otherWalletActivation,
+      }),
+    ).toThrow('exact ECDSA lane material owner mismatch');
   });
 });

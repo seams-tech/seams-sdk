@@ -20,10 +20,12 @@ import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceBackend';
 import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
 import { bytesToHex } from '@/core/signingEngine/chains/evm/bytes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { normalizeAuthenticationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
-import type { ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   createSigningFlowEvent,
   SigningEventPhase,
@@ -35,13 +37,6 @@ import {
   PENDING_INTENT_DIGEST,
   registerIntentDigestPreparation,
 } from '@/core/signingEngine/stepUpConfirmation/intentDigestPreparation';
-import {
-  isSigningSessionBudgetReservation,
-  type SigningSessionBudgetReservation,
-  type SigningSessionBudgetReserveResult,
-} from '../../session/budget/budget';
-import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
-import type { BudgetAdmittedOperation } from '../../session/operationState/transactionState';
 import type { SigningOperationContext, SigningSessionPlan } from '../../session/operationState/types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -54,15 +49,7 @@ import {
   type SigningOperationCommandExecutor,
   type SigningOperationTransitionObserver,
 } from '../shared/signingStateMachine';
-import type {
-  EvmFamilyThresholdEcdsaAdmissionConfirmation,
-  EvmFamilyThresholdEcdsaAdmissionMode,
-  EvmFamilyThresholdEcdsaOperation,
-  EvmFamilyThresholdEcdsaReauthResult,
-} from './thresholdAdmission';
-import {
-  completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation,
-} from './thresholdAdmission';
+import type { EvmFamilyThresholdEcdsaOperation } from './thresholdAdmission';
 import {
   type ConfirmIntentDigestSigningOperationRequest,
   type ConfirmIntentDigestSigningOperationResult,
@@ -82,12 +69,10 @@ import {
 } from './requireEvmFamilyStepUpAuth';
 import { buildEvmFamilyEcdsaStepUpAuthorization } from './stepUpAuthorization';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
-import { requiredEvmFamilySignatureUses } from './signatureUses';
 import type {
   ReadySecp256k1Signer,
   ReadySecp256k1SigningMaterial,
 } from './signers/secp256k1';
-import { buildReadySecp256k1SigningMaterial } from './signers/secp256k1';
 
 type EvmFamilySigningWebAuthnMode<TRequest> =
   | {
@@ -120,24 +105,18 @@ export type ReadyEcdsaSigningMaterialSource =
       material: ReadySecp256k1SigningMaterial;
     }
   | {
-      kind: 'material_from_runtime_validated_record';
+      kind: 'material_from_canonical_capability';
       material: ReadySecp256k1SigningMaterial;
     };
 
 export type EcdsaSigningMaterialPlan =
   | ReadyEcdsaSigningMaterialSource
   | {
-      kind: 'reconnect_required';
-      runtime: NonNullable<EvmFamilyThresholdEcdsaStepUpRuntime['thresholdReconnect']>;
-    }
-  | {
       kind: 'unavailable';
       reason:
-        | 'missing_record'
-        | 'not_runtime_validated'
-        | 'rp_id_mismatch'
+        | 'material_activation_mismatch'
         | 'chain_mismatch'
-        | 'single_use_email_otp_consumed';
+        | 'authorization_unavailable';
     };
 
 export type ResolveEcdsaSigningMaterialPlan = (args: {
@@ -146,6 +125,27 @@ export type ResolveEcdsaSigningMaterialPlan = (args: {
 
 function isReadySecp256k1Signer(engine: unknown): engine is ReadySecp256k1Signer {
   return typeof (engine as { signReady?: unknown } | null)?.signReady === 'function';
+}
+
+async function buildEvmFamilyOperationDigests(input: {
+  operationFingerprint: unknown;
+  signingDigest32: Uint8Array;
+  displayModel: TxDisplayModel;
+}): Promise<OperationDigestSet> {
+  const operationFingerprint = String(input.operationFingerprint || '').trim();
+  const laneDigest = operationFingerprint.startsWith('sha256:')
+    ? operationFingerprint.slice('sha256:'.length)
+    : '';
+  if (!laneDigest) {
+    throw new Error('[chains] exact EVM signing operation fingerprint digest is required');
+  }
+  return {
+    laneDigest: parseDigestB64u(laneDigest),
+    intentDigest: parseDigestB64u(base64UrlEncode(input.signingDigest32)),
+    displayDigest: parseDigestB64u(
+      base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(input.displayModel))),
+    ),
+  };
 }
 
 export type EvmFamilyUiConfirmFlowConfig<TRequest, TResult extends object> = {
@@ -196,14 +196,6 @@ export type SignEvmFamilyWithUiConfirmArgs<TRequest> = {
   releaseNonceReservation?: (reservation: ManagedNonceReservation) => void | Promise<void>;
   onConfirmationDisplayed?: () => void;
   thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
-  reserveSigningGrantBudget?: (
-    input: EvmFamilySigningGrantBudgetReservationInput,
-  ) => Promise<SigningSessionBudgetReserveResult>;
-};
-
-export type EvmFamilySigningGrantBudgetReservationInput = {
-  operation: BudgetAdmittedOperation<SelectedEcdsaLane>;
-  signerSession: ReadyEcdsaSignerSession;
 };
 
 export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends object>(args: {
@@ -312,44 +304,13 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   let nonceReservation: ManagedNonceReservation | null = null;
   let reservationReleased = false;
   let thresholdSignatureCreated = false;
-  let walletBudgetReservation: SigningSessionBudgetReservation | null = null;
-  let walletBudgetReservationAttempted = false;
   let activeThresholdEcdsaOperation: EvmFamilyThresholdEcdsaOperation | null =
-    thresholdEcdsaStepUp.kind === 'required_admitted' ? thresholdEcdsaStepUp.operation : null;
-  const getBudgetAdmittedThresholdEcdsaOperation =
+    thresholdEcdsaStepUp.kind === 'required' ? thresholdEcdsaStepUp.operation : null;
+  const getThresholdEcdsaOperation =
     async (): Promise<EvmFamilyThresholdEcdsaOperation> => {
       if (activeThresholdEcdsaOperation) return activeThresholdEcdsaOperation;
-      throw new Error(
-        '[chains] threshold ECDSA transaction signing requires budget-admitted state before signing',
-      );
+      throw new Error('[chains] threshold ECDSA transaction signing requires an operation');
     };
-  const reserveWalletSigningBudgetOnce = async (): Promise<void> => {
-    if (walletBudgetReservationAttempted) return;
-    walletBudgetReservationAttempted = true;
-    const thresholdEcdsaOperation = await getBudgetAdmittedThresholdEcdsaOperation();
-    if (!input.reserveSigningGrantBudget) return;
-    const signerSession = thresholdEcdsaSignerSession;
-    if (!signerSession) {
-      throw new Error(
-        '[SigningSessionBudget] ECDSA budget reservation requires a ready signer session',
-      );
-    }
-    const reservationResult = await input.reserveSigningGrantBudget({
-      operation: thresholdEcdsaOperation,
-      signerSession,
-    });
-    if (reservationResult?.kind === 'reservation_identity_mismatch') {
-      throw new Error('[SigningSessionBudget] signing grant reservation identity mismatch');
-    }
-    walletBudgetReservation = isSigningSessionBudgetReservation(reservationResult)
-      ? reservationResult
-      : null;
-  };
-  const releaseWalletBudgetReservation = (): void => {
-    if (!walletBudgetReservation) return;
-    walletBudgetReservation.release();
-    walletBudgetReservation = null;
-  };
   const releaseNonceReservation = async (): Promise<void> => {
     if (reservationReleased || !nonceReservation || !input.releaseNonceReservation) return;
     reservationReleased = true;
@@ -432,96 +393,42 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   let intentHasSecp256k1Request = false;
   let signedResult: TResult | null = null;
   let recordBackedReadySecp256k1MaterialSource: ReadyEcdsaSigningMaterialSource | null = null;
-  let ensureReadySecp256k1SigningMaterialTask:
-    | Promise<ReadySecp256k1SigningMaterial>
-    | null = null;
-  let thresholdEcdsaSignerSession: ReadyEcdsaSignerSession | null =
-    thresholdEcdsaStepUp.kind === 'required_admitted'
-      ? thresholdEcdsaStepUp.signerSession
-      : null;
-  let thresholdEcdsaSingleUseEmailOtpSession =
-    thresholdEcdsaStepUp.kind === 'required_admitted'
-      ? thresholdEcdsaStepUp.singleUseEmailOtpSession
-      : false;
-
-  const buildCurrentReadySecp256k1SigningMaterialSource = ():
-    | ReadyEcdsaSigningMaterialSource
-    | null => {
-    const signerSession = thresholdEcdsaSignerSession;
-    if (!signerSession) return null;
-    return {
-      kind: 'material_from_step_up',
-      material: buildReadySecp256k1SigningMaterial({
-        walletId: input.walletId,
-        signerSession,
-        singleUseEmailOtpSession: thresholdEcdsaSingleUseEmailOtpSession,
-      }),
-    };
-  };
 
   const ensureReadySecp256k1SigningMaterial = async (
     signReq: SignRequest,
+    operation: EvmFamilyThresholdEcdsaOperation,
+    operationDigests: OperationDigestSet,
   ): Promise<ReadyEcdsaSigningMaterialSource> => {
-    const currentReadyMaterial = buildCurrentReadySecp256k1SigningMaterialSource();
-    if (currentReadyMaterial) return currentReadyMaterial;
-    if (recordBackedReadySecp256k1MaterialSource) {
-      return recordBackedReadySecp256k1MaterialSource;
-    }
-    if (ensureReadySecp256k1SigningMaterialTask) {
-      return {
-        kind: 'material_from_step_up',
-        material: await ensureReadySecp256k1SigningMaterialTask,
-      };
-    }
-    if (thresholdEcdsaStepUpRuntime?.thresholdReconnect) {
-      if (!stepUpAuthorization || stepUpAuthorization.kind !== 'warm_session') {
-        throw new Error(
-          '[chains] threshold ECDSA reconnect requires warm-session step-up authorization',
-        );
-      }
-      notifyAuthSideEffectStarted('threshold_reconnect');
-      ensureReadySecp256k1SigningMaterialTask = (async () => {
-        const thresholdReconnect = thresholdEcdsaStepUpRuntime.thresholdReconnect!;
-        const ensured = await thresholdReconnect.ensureThresholdEcdsaReadyMaterial({
-          authorization: stepUpAuthorization,
-          usesNeeded: intentPrepared
-            ? requiredEvmFamilySignatureUses(intentPrepared.intent)
-            : 1,
-        });
-        thresholdEcdsaSignerSession = ensured.signerSession;
-        thresholdEcdsaSingleUseEmailOtpSession = false;
-        activeThresholdEcdsaOperation = ensured.operation;
-        const readyMaterial = buildCurrentReadySecp256k1SigningMaterialSource();
-        if (!readyMaterial) {
-          throw new Error('[chains] threshold ECDSA reconnect did not return ready material');
-        }
-        return readyMaterial.material;
-      })();
-      try {
-        return {
-          kind: 'material_from_step_up',
-          material: await ensureReadySecp256k1SigningMaterialTask,
-        };
-      } finally {
-        ensureReadySecp256k1SigningMaterialTask = null;
-      }
-    }
-    if (input.resolveEcdsaSigningMaterialPlan) {
+    if (!recordBackedReadySecp256k1MaterialSource && input.resolveEcdsaSigningMaterialPlan) {
       const plan = await input.resolveEcdsaSigningMaterialPlan({
         requestLabel: signReq.label,
       });
       switch (plan.kind) {
         case 'material_from_step_up':
-        case 'material_from_runtime_validated_record':
+        case 'material_from_canonical_capability':
           recordBackedReadySecp256k1MaterialSource = plan;
-          return plan;
-        case 'reconnect_required':
-          throw new Error('[chains] threshold ECDSA reconnect is required before signing');
+          break;
         case 'unavailable':
           throw new Error(`[chains] threshold ECDSA material is unavailable: ${plan.reason}`);
       }
     }
-    throw new Error('[chains] missing ready threshold ECDSA material for secp256k1 signing');
+    const source = recordBackedReadySecp256k1MaterialSource;
+    if (!source) {
+      throw new Error('[chains] missing ready threshold ECDSA material for secp256k1 signing');
+    }
+    if (!stepUpAuthorization || stepUpAuthorization.kind === 'warm_session') return source;
+    if (!thresholdEcdsaStepUpRuntime) {
+      throw new Error('[chains] ECDSA operation step-up runtime is unavailable');
+    }
+    return {
+      kind: 'material_from_step_up',
+      material: await thresholdEcdsaStepUpRuntime.operationStepUp.authorize({
+        authorization: stepUpAuthorization,
+        operation,
+        operationDigests,
+        material: source.material,
+      }),
+    };
   };
 
   const runShowConfirmationCommand = async (): Promise<void> => {
@@ -546,9 +453,6 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     preparedStepUpAuth = stepUp;
     const confirmationAuthPayload = stepUp.confirmationAuthPayload;
     if (isWarmSessionSigningAuthPlan(confirmationAuthPayload.signingAuthPlan)) {
-      if (activeThresholdEcdsaOperation) {
-        await reserveWalletSigningBudgetOnce();
-      }
       emitProgress({
         phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
         status: 'succeeded',
@@ -582,7 +486,10 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         ? {
             ...confirmationRequestBase,
             ...stepUp.confirmationAuthPayload,
-            webauthnChallenge: stepUp.plannedPasskeyReconnect.webauthnChallenge,
+            webauthnChallenge: {
+              kind: 'intent_digest' as const,
+              challengeB64u: PENDING_CHALLENGE_B64U,
+            },
           }
         : stepUp.kind === 'email_otp'
           ? {
@@ -616,7 +523,6 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     intentHasSecp256k1Request = intentPrepared.intent.signRequests.some(
       (signReq) => signReq.algorithm === 'secp256k1',
     );
-    const requiredSignatureUses = requiredEvmFamilySignatureUses(intentPrepared.intent);
     if (!confirmation) {
       throw new Error('[chains] signing confirmation is required before threshold admission');
     }
@@ -626,73 +532,8 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     if (!stepUpAuthorization) {
       throw new Error('[chains] signing step-up authorization is required before threshold admission');
     }
-    const admissionMode: EvmFamilyThresholdEcdsaAdmissionMode = (() => {
-      if (!intentHasSecp256k1Request) return { kind: 'not_required' };
-      if (activeThresholdEcdsaOperation && thresholdEcdsaSignerSession) {
-        return { kind: 'already_admitted' };
-      }
-      if (thresholdEcdsaStepUpRuntime?.emailOtpSigning) {
-        return {
-          kind: 'email_otp',
-          emailOtpSigning: thresholdEcdsaStepUpRuntime.emailOtpSigning,
-        };
-      }
-      if (stepUpAuthorization.kind === 'passkey' && thresholdEcdsaStepUpRuntime?.passkeyReconnect) {
-        return {
-          kind: 'passkey_reconnect',
-          passkeyEcdsaReconnect: thresholdEcdsaStepUpRuntime.passkeyReconnect,
-          onThresholdReconnectStarted: () => notifyAuthSideEffectStarted('threshold_reconnect'),
-        };
-      }
-      if (thresholdEcdsaStepUpRuntime?.thresholdReconnect) {
-        return {
-          kind: 'threshold_reconnect',
-          ensureThresholdEcdsaReadyMaterial:
-            thresholdEcdsaStepUpRuntime.thresholdReconnect.ensureThresholdEcdsaReadyMaterial,
-          onThresholdReconnectStarted: () => notifyAuthSideEffectStarted('threshold_reconnect'),
-        };
-      }
-      return { kind: 'already_admitted' };
-    })();
-    const admissionConfirmation: EvmFamilyThresholdEcdsaAdmissionConfirmation =
-      admissionMode.kind === 'threshold_reconnect'
-        ? stepUpAuthorization.kind === 'warm_session'
-          ? {
-              kind: 'warm_session',
-              authorization: stepUpAuthorization,
-            }
-          : { kind: 'none' }
-        : admissionMode.kind === 'email_otp'
-          ? stepUpAuthorization.kind === 'email_otp'
-            ? {
-                kind: 'email_otp',
-                authorization: stepUpAuthorization,
-              }
-            : { kind: 'none' }
-          : admissionMode.kind === 'passkey_reconnect'
-            ? stepUpAuthorization.kind === 'passkey'
-              ? {
-                  kind: 'passkey',
-                  authorization: stepUpAuthorization,
-                }
-              : { kind: 'none' }
-            : { kind: 'none' };
-    const admissionCompletion = await completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation({
-      mode: admissionMode,
-      confirmation: admissionConfirmation,
-      usesNeeded: requiredSignatureUses,
-    });
-    if (admissionCompletion) {
-      recordBackedReadySecp256k1MaterialSource = null;
-      thresholdEcdsaSignerSession = admissionCompletion.result.signerSession;
-      thresholdEcdsaSingleUseEmailOtpSession = admissionCompletion.source === 'email_otp';
-      activeThresholdEcdsaOperation = admissionCompletion.result.operation;
-    }
-  };
-
-  const runReserveBudgetCommand = async (): Promise<void> => {
-    if (intentHasSecp256k1Request) {
-      await reserveWalletSigningBudgetOnce();
+    if (intentHasSecp256k1Request && !activeThresholdEcdsaOperation) {
+      throw new Error('[chains] threshold ECDSA operation must be prepared before signing');
     }
   };
 
@@ -738,9 +579,25 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         if (!isReadySecp256k1Signer(engine)) {
           throw new Error('[chains] secp256k1 signing engine requires ready material support');
         }
-        await getBudgetAdmittedThresholdEcdsaOperation();
-        const readyMaterialSource = await ensureReadySecp256k1SigningMaterial(signReq);
-        signatures.push(await engine.signReady(signReq, readyMaterialSource.material));
+        const thresholdEcdsaOperation = await getThresholdEcdsaOperation();
+        const operationDigests = await buildEvmFamilyOperationDigests({
+          operationFingerprint: input.signingOperation?.operationFingerprint,
+          signingDigest32: signReq.digest32,
+          displayModel: intentPrepared.displayModel,
+        });
+        const readyMaterialSource = await ensureReadySecp256k1SigningMaterial(
+          signReq,
+          thresholdEcdsaOperation,
+          operationDigests,
+        );
+        signatures.push(
+          await engine.signReady(
+            signReq,
+            readyMaterialSource.material,
+            thresholdEcdsaOperation,
+            operationDigests,
+          ),
+        );
         continue;
       } else {
         throw new Error(
@@ -775,13 +632,11 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       [
         SigningOperationCommandKind.ShowConfirmation,
         SigningOperationCommandKind.PreparePayload,
-        SigningOperationCommandKind.ReserveBudget,
         SigningOperationCommandKind.Sign,
       ],
       {
         [SigningOperationCommandKind.ShowConfirmation]: runShowConfirmationCommand,
         [SigningOperationCommandKind.PreparePayload]: runPreparePayloadCommand,
-        [SigningOperationCommandKind.ReserveBudget]: runReserveBudgetCommand,
         [SigningOperationCommandKind.Sign]: runSignCommand,
       },
     );
@@ -796,7 +651,6 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     };
   } catch (error: unknown) {
     if (!thresholdSignatureCreated) {
-      releaseWalletBudgetReservation();
       if (nonceReservation) {
         await releaseNonceReservation();
       } else if (input.releaseNonceReservation) {

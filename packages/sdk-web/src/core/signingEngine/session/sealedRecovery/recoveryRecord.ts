@@ -14,10 +14,12 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
-  buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
+  parseEmailOtpWalletAuthAuthority,
+  parseWalletAuthAuthorityRef,
   type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
+  type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { RawSealedSessionRecord } from '../persistence/sealedSessionStore';
 import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
@@ -33,13 +35,15 @@ type RawThresholdSessionIds = {
 type RawEcdsaRestoreMetadata = {
   chainTarget?: unknown;
   source?: unknown;
-  evmFamilySigningKeySlotId?: unknown;
   signingRootId?: unknown;
   signingRootVersion?: unknown;
   rpId?: unknown;
   credentialIdB64u?: unknown;
   providerSubjectId?: unknown;
+  provider?: unknown;
   emailHashHex?: unknown;
+  authority?: unknown;
+  emailOtpAuthority?: unknown;
   walletSessionJwt?: unknown;
   sessionKind?: unknown;
   keyHandle?: unknown;
@@ -142,7 +146,6 @@ export type PasskeyEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
     authMethod: 'passkey';
     source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
     authority: PasskeyWalletAuthAuthority;
-    evmFamilySigningKeySlotId: string;
     clientVerifyingShareB64u: string;
     roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
     rpId?: never;
@@ -156,8 +159,8 @@ export type EmailOtpEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
   SealedRecoveryWalletSessionAuthCarrier & {
     authMethod: 'email_otp';
     source: 'email_otp';
-    authority: EmailOtpWalletAuthAuthority;
-    evmFamilySigningKeySlotId: string;
+    authority: WalletAuthAuthorityRef;
+    emailOtpAuthority: EmailOtpWalletAuthAuthority;
     clientVerifyingShareB64u?: string;
     credentialIdB64u?: never;
     providerSubjectId?: never;
@@ -293,23 +296,6 @@ function buildPasskeyAuthorityForSealedRecord(args: {
 }): PasskeyWalletAuthAuthority | null {
   try {
     return buildPasskeyWalletAuthAuthority(args);
-  } catch {
-    return null;
-  }
-}
-
-function buildEmailOtpAuthorityForSealedRecord(args: {
-  walletId: string;
-  providerSubjectId: string;
-  emailHashHex: string;
-}): EmailOtpWalletAuthAuthority | null {
-  try {
-    return buildEmailOtpWalletAuthAuthority({
-      walletId: args.walletId,
-      provider: 'google',
-      providerUserId: args.providerSubjectId,
-      emailHashHex: args.emailHashHex,
-    });
   } catch {
     return null;
   }
@@ -461,7 +447,6 @@ export function normalizeSealedRecoveryRecord(
     raw.authMethod === 'email_otp' && normalizeEcdsaRestoreSource(restore?.source) === 'email_otp'
       ? 'email_otp'
       : null;
-  const evmFamilySigningKeySlotId = normalizeNonEmptyString(restore?.evmFamilySigningKeySlotId);
   const credentialIdB64u = normalizeNonEmptyString(restore?.credentialIdB64u);
   const providerSubjectId = normalizeNonEmptyString(restore?.providerSubjectId);
   const emailHashHex = normalizeNonEmptyString(restore?.emailHashHex);
@@ -509,7 +494,6 @@ export function normalizeSealedRecoveryRecord(
     (raw.authMethod === 'passkey' && !passkeySource) ||
     (raw.authMethod === 'email_otp' && !emailOtpSource) ||
     (raw.authMethod === 'passkey' && !passkeyRpId) ||
-    !evmFamilySigningKeySlotId ||
     (raw.authMethod === 'passkey' && !credentialIdB64u) ||
     (raw.authMethod === 'email_otp' && (!providerSubjectId || !emailHashHex)) ||
     !ecdsaThresholdKeyId ||
@@ -541,13 +525,17 @@ export function normalizeSealedRecoveryRecord(
           credentialIdB64u: credentialIdB64u!,
         })
       : null;
+  const authority = parseWalletAuthAuthorityRef(restore.authority);
+  const parsedAuthority = parseEmailOtpWalletAuthAuthority(restore.emailOtpAuthority);
   const emailOtpAuthority =
-    raw.authMethod === 'email_otp'
-      ? buildEmailOtpAuthorityForSealedRecord({
-          walletId,
-          providerSubjectId: providerSubjectId!,
-          emailHashHex: emailHashHex!,
-        })
+    raw.authMethod === 'email_otp' &&
+    authority &&
+    parsedAuthority &&
+    parsedAuthority.walletId === walletId &&
+    parsedAuthority.factor.provider === restore.provider &&
+    parsedAuthority.factor.providerUserId === providerSubjectId &&
+    parsedAuthority.verifier.emailHashHex === emailHashHex
+      ? parsedAuthority
       : null;
   if (
     (raw.authMethod === 'passkey' && !passkeyAuthority) ||
@@ -578,7 +566,6 @@ export function normalizeSealedRecoveryRecord(
           chainTarget,
           source: passkeySource!,
           authority: passkeyAuthority!,
-          evmFamilySigningKeySlotId: evmFamilySigningKeySlotId!,
           signingRootId: signingRootBinding.signingRootId,
           signingRootVersion: signingRootBinding.signingRootVersion,
           keyHandle,
@@ -615,8 +602,8 @@ export function normalizeSealedRecoveryRecord(
             : {}),
           chainTarget,
           source: 'email_otp',
-          authority: emailOtpAuthority!,
-          evmFamilySigningKeySlotId: evmFamilySigningKeySlotId!,
+          authority: authority!,
+          emailOtpAuthority: emailOtpAuthority!,
           signingRootId: signingRootBinding.signingRootId,
           signingRootVersion: signingRootBinding.signingRootVersion,
           keyHandle,

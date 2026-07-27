@@ -22,6 +22,10 @@ import {
 } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import {
+  buildVerifiedEcdsaPublicFacts,
+  toEvmFamilyEcdsaKeyHandle,
+} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
   buildEmailOtpAuthContextForWalletAuthMethod,
   emailOtpAuthContextProviderUserId,
   type ThresholdEcdsaEmailOtpAuthContext,
@@ -42,8 +46,12 @@ import {
   createThresholdEcdsaBootstrapFixture,
   fixtureRuntimePolicyScopeFromSigningRoot,
 } from './ecdsaBootstrap.fixtures';
-import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './ecdsaMaterialRef.fixtures';
+import {
+  buildEcdsaRoleLocalPersistedMaterialRefFixture,
+  buildWalletAuthAuthorityRefFixture,
+} from './ecdsaMaterialRef.fixtures';
 import { testEcdsaChainTarget } from './ecdsaChainTarget.fixtures';
+import { toWorkerOwnedPasskeyEcdsaBootstrapFixture } from './warmSessionTestServices.fixtures';
 
 const FIXTURE_EMAIL_HASH_HEX = '11'.repeat(32);
 
@@ -200,7 +208,7 @@ export function seedEcdsaWarmSessionRecord(
     source === 'email_otp' && emailOtpAuthContext
       ? emailOtpAuthContextProviderUserId(emailOtpAuthContext)
       : '';
-  const bootstrap =
+  const bootstrapInput =
     args.bootstrap ||
     (source === 'email_otp'
       ? createThresholdEcdsaBootstrapFixture({
@@ -213,8 +221,16 @@ export function seedEcdsaWarmSessionRecord(
           nearAccountId: args.nearAccountId,
           chain: args.chain,
         }));
+  const bootstrap =
+    source === 'email_otp'
+      ? bootstrapInput
+      : toWorkerOwnedPasskeyEcdsaBootstrapFixture(bootstrapInput);
   const baseArgs = {
     walletId: args.nearAccountId,
+    authority: buildWalletAuthAuthorityRefFixture({
+      walletId: args.nearAccountId,
+      label: String(bootstrap.thresholdEcdsaKeyRef.thresholdSessionId),
+    }),
     chainTarget: bootstrap.thresholdEcdsaKeyRef.chainTarget || testEcdsaChainTarget(args.chain),
     bootstrap,
     ...(args.signingSessionSeal
@@ -383,6 +399,17 @@ function ecdsaSessionRecordRawFromBootstrapFixture(args: {
   if (!participantIds) {
     throw new Error('ECDSA session record fixture requires bootstrap participantIds');
   }
+  const thresholdEcdsaPublicKeyB64u = keyRef.thresholdEcdsaPublicKeyB64u;
+  const ethereumAddress = keyRef.ethereumAddress;
+  if (!thresholdEcdsaPublicKeyB64u || !ethereumAddress) {
+    throw new Error('ECDSA session record fixture requires verified public facts');
+  }
+  const verifiedPublicFacts = buildVerifiedEcdsaPublicFacts({
+    keyHandle: toEvmFamilyEcdsaKeyHandle(keyRef.keyHandle),
+    publicKeyB64u: thresholdEcdsaPublicKeyB64u,
+    participantIds,
+    thresholdOwnerAddress: ethereumAddress,
+  });
   const sessionScope = (args.bootstrap.session as { runtimePolicyScope?: unknown })
     .runtimePolicyScope;
   return {
@@ -399,6 +426,7 @@ function ecdsaSessionRecordRawFromBootstrapFixture(args: {
     clientVerifyingShareB64u: binding.clientVerifyingShareB64u,
     ecdsaRoleLocalAuthMethod: readyRecord.authMethod,
     ecdsaRoleLocalPublicFacts: readyRecord.publicFacts,
+    verifiedPublicFacts,
     participantIds: [...participantIds],
     ...(sessionScope ? { runtimePolicyScope: sessionScope } : {}),
     ...(keyRef.routerAbEcdsaDerivationNormalSigning
@@ -455,6 +483,7 @@ export function buildEmailOtpEcdsaSessionRecordFixture(
     const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
       durableMaterialRef,
       bindingDigest: ecdsaFixtureReadyRecord(bootstrap).publicFacts.contextBinding32B64u,
+      materialOwner: args.walletId,
     });
     return parseRawThresholdEcdsaSessionRecord({
       ...raw,
@@ -505,6 +534,11 @@ export function buildPasskeyEcdsaSessionRecordFixture(
   const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
     durableMaterialRef,
     bindingDigest: ecdsaFixtureReadyRecord(bootstrap).publicFacts.contextBinding32B64u,
+    materialOwner: args.walletId,
+  });
+  const authority = buildWalletAuthAuthorityRefFixture({
+    walletId: args.walletId,
+    label: durableMaterialRef,
   });
   const record = parseRawThresholdEcdsaSessionRecord({
     ...ecdsaSessionRecordRawFromBootstrapFixture({
@@ -512,15 +546,18 @@ export function buildPasskeyEcdsaSessionRecordFixture(
       chainTarget,
       ...(args.updatedAtMs !== undefined ? { updatedAtMs: args.updatedAtMs } : {}),
     }),
-    roleLocalMaterialRef,
+    authority,
+    materialActivation: roleLocalMaterialRef.materialActivation,
     source: args.source || 'login',
   });
   const persistedMaterial = buildPersistedEcdsaRoleLocalMaterial({
-    materialRef: roleLocalMaterialRef,
+    authority: record.authority,
+    materialActivation: roleLocalMaterialRef.materialActivation,
     publicFacts: record.ecdsaRoleLocalPublicFacts,
   });
   bindLiveEcdsaRoleLocalMaterial({
     persistedMaterial,
+    materialRef: roleLocalMaterialRef,
     liveHandle: parseEcdsaRoleLocalWorkerHandle({
       kind: 'ecdsa_role_local_worker_handle_v1',
       materialHandle: `${durableMaterialRef}:live`,

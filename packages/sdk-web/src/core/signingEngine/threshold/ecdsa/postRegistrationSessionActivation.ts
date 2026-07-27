@@ -10,10 +10,13 @@ import type {
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { base64UrlDecode } from '@shared/utils/base64';
 import type { SigningGrantId, ThresholdEcdsaSessionId } from '@shared/utils/domainIds';
+import type {
+  EcdsaRoleLocalPersistedMaterialRef,
+  EcdsaRoleLocalWorkerHandle,
+} from '../../session/keyMaterialBrands';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import type { EcdsaRoleLocalWorkerHandle } from '../../session/keyMaterialBrands';
 import {
-  ecdsaRoleLocalPersistedMaterialRefSource,
+  ecdsaRoleLocalPersistedMaterialSource,
   resolveEcdsaRoleLocalMaterial,
   type EcdsaRoleLocalMaterialResolution,
   type PersistedEcdsaRoleLocalMaterial,
@@ -26,7 +29,7 @@ const POST_REGISTRATION_ROUTE_AUTH_KINDS = new Set(['app_session', 'wallet_sessi
 export type ExistingEcdsaRoleLocalActivation = {
   readonly kind: 'existing_ecdsa_role_local_material_activated_v1';
   readonly roleLocalMaterial: EcdsaRoleLocalWorkerHandle;
-  readonly roleLocalMaterialRef: PersistedEcdsaRoleLocalMaterial['materialRef'];
+  readonly roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
   readonly publicFacts: EcdsaRoleLocalPublicFacts;
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
@@ -86,7 +89,6 @@ function normalSigningMatchesRoleLocalFacts(
   const scope = activation.normal_signing.scope;
   return (
     scope.wallet_id === String(publicFacts.walletId) &&
-    scope.wallet_key_id === String(publicFacts.evmFamilySigningKeySlotId) &&
     scope.ecdsa_threshold_key_id === String(publicFacts.ecdsaThresholdKeyId) &&
     scope.signing_root_id === String(publicFacts.signingRootId) &&
     scope.signing_root_version === String(publicFacts.signingRootVersion)
@@ -109,8 +111,6 @@ function validateStrictSessionInput(input: ActivateStrictEcdsaPostRegistrationSe
   }
   if (
     String(publicFacts.walletId) !== input.walletId ||
-    input.persistedRoleLocalMaterial.materialRef.bindingDigest !==
-      publicFacts.contextBinding32B64u ||
     !roleLocalPublicFactsMatchCapability(publicFacts, input.publicCapability)
   ) {
     throw new Error(
@@ -121,11 +121,10 @@ function validateStrictSessionInput(input: ActivateStrictEcdsaPostRegistrationSe
 
 function requireResolvedRegistrationMaterial(
   resolution: EcdsaRoleLocalMaterialResolution,
-): EcdsaRoleLocalWorkerHandle {
+): Extract<EcdsaRoleLocalMaterialResolution, { kind: 'rehydrated' }> {
   switch (resolution.kind) {
-    case 'live':
     case 'rehydrated':
-      return resolution.liveHandle;
+      return resolution;
     case 'device_link_required':
       throw new Error(
         'device_link_required: registered ECDSA role-local material is unavailable on this device',
@@ -147,10 +146,10 @@ export async function activateStrictEcdsaPostRegistrationSession(
   validateStrictSessionInput(input);
   const materialResolution = await resolveEcdsaRoleLocalMaterial({
     purpose: 'registration_activation',
-    source: ecdsaRoleLocalPersistedMaterialRefSource(input.persistedRoleLocalMaterial.materialRef),
+    source: ecdsaRoleLocalPersistedMaterialSource(input.persistedRoleLocalMaterial),
     workerCtx: input.workerCtx,
   });
-  const roleLocalMaterial = requireResolvedRegistrationMaterial(materialResolution);
+  const resolvedRoleLocalMaterial = requireResolvedRegistrationMaterial(materialResolution);
   const roleLocalPublicFacts = input.persistedRoleLocalMaterial.publicFacts;
   const activated = await activateRouterAbEcdsaPostRegistrationSession(input.relayerUrl, {
     auth: input.routeAuth,
@@ -180,8 +179,8 @@ export async function activateStrictEcdsaPostRegistrationSession(
     sessionActivation: activated.value,
     roleLocalActivation: {
       kind: 'existing_ecdsa_role_local_material_activated_v1',
-      roleLocalMaterial,
-      roleLocalMaterialRef: input.persistedRoleLocalMaterial.materialRef,
+      roleLocalMaterial: resolvedRoleLocalMaterial.liveHandle,
+      roleLocalMaterialRef: resolvedRoleLocalMaterial.materialRef,
       publicFacts: roleLocalPublicFacts,
       publicCapability: input.publicCapability,
     },

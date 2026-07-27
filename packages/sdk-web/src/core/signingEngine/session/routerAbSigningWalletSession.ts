@@ -23,7 +23,7 @@ import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from './warmCapabilit
 import {
   buildPersistedEcdsaRoleLocalMaterial,
   clearEcdsaRoleLocalWorkerRuntimeState,
-  getLiveEcdsaRoleLocalMaterial,
+  getLiveEcdsaRoleLocalMaterialBinding,
   hasEcdsaRoleLocalRuntimeValidationKey,
   markEcdsaRoleLocalRuntimeValidationKey,
   type ResolvedEcdsaRoleLocalSigningMaterial,
@@ -363,26 +363,17 @@ type EcdsaRuntimeMaterialIdentity = {
 function resolveEcdsaRuntimeMaterialIdentity(
   record: ThresholdEcdsaSessionRecord,
 ): EcdsaRuntimeMaterialIdentity | null {
-  if (record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session') {
-    const sessionId = nonEmptyString(record.clientAdditiveShareHandle.sessionId);
-    const bindingDigest = nonEmptyString(record.ecdsaRoleLocalPublicFacts.contextBinding32B64u);
-    if (!sessionId || !bindingDigest) return null;
-    return {
-      materialHandle: `email-otp-worker-session:${sessionId}`,
-      materialBindingDigest: bindingDigest,
-    };
-  }
-  if (!record.roleLocalMaterialRef) return null;
   try {
     const persistedMaterial = buildPersistedEcdsaRoleLocalMaterial({
-      materialRef: record.roleLocalMaterialRef,
+      authority: record.authority,
+      materialActivation: record.materialActivation,
       publicFacts: record.ecdsaRoleLocalPublicFacts,
     });
-    const liveHandle = getLiveEcdsaRoleLocalMaterial(persistedMaterial);
-    if (!liveHandle) return null;
+    const liveMaterial = getLiveEcdsaRoleLocalMaterialBinding(persistedMaterial);
+    if (!liveMaterial) return null;
     return {
-      materialHandle: String(liveHandle.materialHandle),
-      materialBindingDigest: String(liveHandle.bindingDigest),
+      materialHandle: String(liveMaterial.liveHandle.materialHandle),
+      materialBindingDigest: String(liveMaterial.liveHandle.bindingDigest),
     };
   } catch {
     return null;
@@ -856,17 +847,10 @@ export function classifyRouterAbEcdsaDerivationPersistedSigningRecord(
         value: parsed.value,
       };
     }
-    if (!record.clientAdditiveShareHandle) {
-      return {
-        kind: 'restore_available',
-        record,
-        reason: 'loaded_material_missing',
-      };
-    }
     return {
-      kind: 'material_hint_unvalidated',
+      kind: 'restore_available',
       record,
-      reason: 'worker_material_unvalidated',
+      reason: 'loaded_material_missing',
     };
   }
   if (parsed.reason === 'expired') {

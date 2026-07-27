@@ -11,6 +11,7 @@ import type {
   SigningAuthPlan,
   UserConfirmDecision,
   UserConfirmProgressEvent,
+  WalletSessionExpiredConfirmationFailure,
   WebAuthnChallenge,
 } from '../types';
 import type { NonceLeaseRef } from '../../interfaces/nonceLease';
@@ -18,12 +19,14 @@ import type {
   NearFundingRequest,
   NearTransactionReadiness,
 } from '../../nonce/nearTransactionReadiness';
+import type { NearOperationStepUpPreparationRef } from '../../interfaces/operationStepUpPreparation';
 
 export type {
   ForbiddenMainThreadSecrets,
   RegistrationConfirmationDiagnostics,
   SerializableCredential,
   UserConfirmDecision,
+  WalletSessionExpiredConfirmationFailure,
   WebAuthnChallenge,
 } from '../types';
 
@@ -88,6 +91,7 @@ type WorkerConfirmationResponseBase = {
 type WorkerConfirmationSuccessBase = WorkerConfirmationResponseBase & {
   confirmed: true;
   credential?: SerializableCredential;
+  operation_step_up_preparation?: NearOperationStepUpPreparationRef;
   otp_code?: string;
   email_otp_challenge_id?: string;
   registration_diagnostics?: RegistrationConfirmationDiagnostics;
@@ -113,7 +117,6 @@ export type WorkerConfirmationResponse =
     })
   | (WorkerConfirmationResponseBase & {
       confirmed: false;
-      error?: string;
       registration_diagnostics?: RegistrationConfirmationDiagnostics;
       credential?: never;
       otp_code?: never;
@@ -121,7 +124,16 @@ export type WorkerConfirmationResponse =
       near_transaction_readiness?: never;
       transaction_context?: never;
       nonce_leases?: never;
-    });
+    } & (
+        | {
+            wallet_session_failure: WalletSessionExpiredConfirmationFailure;
+            error?: never;
+          }
+        | {
+            wallet_session_failure?: never;
+            error?: string;
+          }
+      ));
 
 // ===== V2 MESSAGE TYPES =====
 
@@ -257,7 +269,7 @@ export interface RegisterAccountPayload {
   nearAccountId?: string;
   signerSlot?: number;
   webauthnChallenge?: Extract<WebAuthnChallenge, { kind: 'intent_digest' }>;
-};
+}
 
 export type LocalOnlyExportSubject =
   | {

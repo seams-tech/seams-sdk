@@ -201,7 +201,6 @@ export function createWarmCapabilitiesPublicDeps(args: {
       await clearVolatileWarmSigningMaterial(
         {
           touchConfirm: args.touchConfirm,
-          ecdsaSessions: args.warmSigning.ecdsaSessions,
           clearVolatileThresholdSessionMaterial: async (command) =>
             await args.touchConfirm.clearVolatileWarmSessionMaterial(command),
         },

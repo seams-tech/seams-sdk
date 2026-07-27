@@ -226,14 +226,15 @@ use router_ab_core::{
     EcdsaThresholdPrfProofBatchPayloadV1, EcdsaThresholdPrfRequestV1, EncryptedPayloadV1,
     ExpensiveWorkGateContextV1, ExpensiveWorkGateDecisionV1, ExpensiveWorkKindV1,
     GateDeferReasonV1, GatePrincipalV1, GateRejectReasonV1, MpcPrfSigningRootShareWireV1,
-    MpcPrfThresholdSignerBatchOutputV1, NormalSigningEd25519TwoPartyFrostCommitmentsV1,
-    NormalSigningResponseV1, NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1,
-    NormalSigningSignatureSchemeV1, OpenedShareKind, PeerTransport, PublicDigest32,
-    RecipientOutputCiphertextV1, RecipientOutputEncryptionAlgorithmV1,
-    RecipientOutputEncryptionRequestV1, RecipientOutputEncryptorV1,
-    RecipientProofBundleCiphertextV1, RecipientProofBundleEncryptionRequestV1,
-    RecipientProofBundleEncryptorV1, RecipientProofBundlePayloadV1, Role, RoleEnvelopeAadV1,
-    RootShareEpoch, RouterAbDerivationError, RouterAbEcdsaDerivationActivationReceiptV1,
+    MpcPrfThresholdSignerBatchOutputV1, NormalSigningAuthorizationV1,
+    NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningResponseV1,
+    NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1, NormalSigningSignatureSchemeV1,
+    OpenedShareKind, PeerTransport, PublicDigest32, RecipientOutputCiphertextV1,
+    RecipientOutputEncryptionAlgorithmV1, RecipientOutputEncryptionRequestV1,
+    RecipientOutputEncryptorV1, RecipientProofBundleCiphertextV1,
+    RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
+    RecipientProofBundlePayloadV1, Role, RoleEnvelopeAadV1, RootShareEpoch,
+    RouterAbDerivationError, RouterAbEcdsaDerivationActivationReceiptV1,
     RouterAbEcdsaDerivationActivationRefreshRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
@@ -3730,7 +3731,6 @@ pub fn cloudflare_router_ab_ecdsa_derivation_activation_refresh_receipt_from_mat
 /// Builds a normal-signing scope from a validated Router A/B ECDSA derivation activation receipt.
 pub fn cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activation_receipt_v1(
     receipt: &RouterAbEcdsaDerivationActivationReceiptV1,
-    wallet_key_id: impl Into<String>,
     wallet_id: impl Into<String>,
     ecdsa_threshold_key_id: impl Into<String>,
     signing_root_id: impl Into<String>,
@@ -3738,7 +3738,6 @@ pub fn cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activatio
 ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationNormalSigningScopeV1> {
     receipt.validate()?;
     RouterAbEcdsaDerivationNormalSigningScopeV1::new(
-        wallet_key_id,
         wallet_id,
         ecdsa_threshold_key_id,
         signing_root_id,
@@ -3750,10 +3749,10 @@ pub fn cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activatio
     )
 }
 
-fn cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(
+fn cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1(
     scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
 ) -> RouterAbProtocolResult<String> {
-    scope.active_state_session_id()
+    scope.material_activation_id()
 }
 
 /// Derives the Router A/B ECDSA derivation identity implied by active SigningWorker material.
@@ -3867,7 +3866,7 @@ pub fn validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_mate
     material.validate()?;
     if active_signing_worker.account_id != scope.wallet_id
         || active_signing_worker.session_id
-            != cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(scope)?
+            != cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1(scope)?
         || active_signing_worker.signing_worker != scope.signing_worker
         || material.transcript_digest != active_signing_worker.activation_transcript_digest
         || material.recipient_identity != active_signing_worker.signing_worker.server_id
@@ -6616,7 +6615,6 @@ fn cloudflare_router_ab_ecdsa_derivation_budget_operation_id_v1(
                 wallet_session.threshold_session_id.clone(),
             ),
             ("wallet_id", scope.wallet_id.clone()),
-            ("wallet_key_id", scope.wallet_key_id.clone()),
             (
                 "ecdsa_threshold_key_id",
                 scope.ecdsa_threshold_key_id.clone(),

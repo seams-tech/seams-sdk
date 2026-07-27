@@ -270,7 +270,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       chainTarget,
       relayerUrl,
       keyHandle,
-      evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId,
       participantIds: [...participantIds],
       backendBinding: {

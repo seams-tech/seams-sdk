@@ -2,19 +2,29 @@ import type {
   RouterAbNormalSigningPrepareRequestV2Wire,
   RouterAbNormalSigningPrepareResponseV1Wire,
   RouterAbNormalSigningResponseV1Wire,
-  RouterAbNormalSigningScopeV1Wire,
+  RouterAbNormalSigningScopeV2Wire,
   RouterAbPublicDigest32Wire,
 } from './routerAbNormalSigning';
 
 function sameRouterAbScope(
-  left: RouterAbNormalSigningScopeV1Wire,
-  right: RouterAbNormalSigningScopeV1Wire,
+  left: RouterAbNormalSigningScopeV2Wire,
+  right: RouterAbNormalSigningScopeV2Wire,
 ): boolean {
   return (
     left.request_id === right.request_id &&
     left.account_id === right.account_id &&
-    left.session_id === right.session_id &&
-    left.active_state_session_id === right.active_state_session_id &&
+    left.authorization.kind === right.authorization.kind &&
+    left.authorization.grant_id === right.authorization.grant_id &&
+    (left.authorization.kind !== 'reusable_wallet_session' ||
+      (right.authorization.kind === 'reusable_wallet_session' &&
+        left.authorization.wallet_session_id === right.authorization.wallet_session_id)) &&
+    left.material_activation.kind === right.material_activation.kind &&
+    left.material_activation.activation_id === right.material_activation.activation_id &&
+    left.material_activation.capability === right.material_activation.capability &&
+    left.material_activation.material_owner === right.material_activation.material_owner &&
+    left.material_activation.key_binding === right.material_activation.key_binding &&
+    left.material_activation.lifecycle_binding === right.material_activation.lifecycle_binding &&
+    left.material_activation.signing_worker === right.material_activation.signing_worker &&
     left.signing_worker_id === right.signing_worker_id
   );
 }

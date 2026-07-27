@@ -1,19 +1,15 @@
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
+import {
+  walletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import type { DurableRecordStore } from '@/core/platform';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
 } from '../identity/laneIdentity';
-import { emailOtpAuthContextReason, emailOtpAuthContextRetention } from '../identity/laneIdentity';
-import {
-  upsertThresholdEcdsaSessionFromBootstrap,
-  toExactEcdsaSigningLaneIdentity,
-  type ThresholdEcdsaSessionRecord,
-  type ThresholdEcdsaSessionStoreDeps,
-} from '../persistence/records';
 import { ecdsaRoleLocalReadyRecordStorageKeyFacts } from '../persistence/ecdsaRoleLocalRecords';
 import {
-  thresholdEcdsaChainTargetKey,
   ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -25,19 +21,16 @@ import {
   type ThresholdEcdsaBootstrapStorePort,
 } from '../warmCapabilities/ecdsaBootstrapPersistence';
 import { parseEcdsaThresholdKeyId } from '../keyMaterialBrands';
-import {
-  assertWarmThresholdEcdsaCapabilityReady,
-  type EcdsaWarmCapabilityReader,
-} from '../warmCapabilities/ecdsaCapabilityReadiness';
 import type { ThresholdEcdsaBootstrapParityArgs } from '../warmCapabilities/sealedRefreshParity';
-import type { WarmSessionEcdsaCapabilityState } from '../warmCapabilities/types';
-import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '../routerAbSigningWalletSession';
-import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../warmCapabilities/routerAbEcdsaWalletSessionAuth';
+import {
+  walletSessionAuthorizations,
+  type ActiveWalletSessionAuthorizationProjection,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { persistActiveWalletSessionAuthorizationFromEcdsaBootstrap } from '../persistence/walletSessionAuthorizationProjection';
 
 export type CommitWorkerProvisionedThresholdEcdsaSessionDeps = {
   queueByWallet: Map<string, Promise<void>>;
   bootstrapStore: ThresholdEcdsaBootstrapStorePort;
-  ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
   ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: (
     args: ThresholdEcdsaBootstrapParityArgs,
@@ -45,9 +38,7 @@ export type CommitWorkerProvisionedThresholdEcdsaSessionDeps = {
 };
 
 export type CommitEvmFamilyThresholdEcdsaSessionsDeps =
-  CommitWorkerProvisionedThresholdEcdsaSessionDeps & {
-    warmCapabilityReader: EcdsaWarmCapabilityReader;
-  };
+  CommitWorkerProvisionedThresholdEcdsaSessionDeps;
 
 type CommitThresholdEcdsaSessionBaseArgs = {
   walletId: WalletId;
@@ -62,6 +53,7 @@ type CommitEmailOtpThresholdEcdsaSessionArgs = CommitThresholdEcdsaSessionBaseAr
 
 type CommitPasskeyThresholdEcdsaSessionArgs = CommitThresholdEcdsaSessionBaseArgs & {
   source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+  authority: WalletAuthAuthorityRef;
   emailOtpAuthContext?: never;
 };
 
@@ -84,6 +76,7 @@ type CommitEmailOtpEvmFamilyThresholdEcdsaSessionsArgs =
 type CommitPasskeyEvmFamilyThresholdEcdsaSessionsArgs =
   CommitEvmFamilyThresholdEcdsaSessionsBaseArgs & {
     source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+    authority: WalletAuthAuthorityRef;
     emailOtpAuthContext?: never;
   };
 
@@ -95,24 +88,6 @@ function assertNeverThresholdEcdsaBootstrapBackendBinding(value: never): never {
   throw new Error(
     `[SigningEngine] unsupported threshold ECDSA bootstrap backend binding: ${JSON.stringify(value)}`,
   );
-}
-
-function isRuntimeValidatedWorkerBootstrapBinding(
-  binding: ThresholdEcdsaSessionBootstrapResult['thresholdEcdsaKeyRef']['backendBinding'],
-): boolean {
-  if (!binding) return false;
-  switch (binding.materialKind) {
-    case 'email_otp_worker_handle':
-    case 'role_local_worker_handle':
-      return true;
-    case 'role_local_durable_public_anchor':
-    case 'role_local_durable_sealed_ref':
-    case 'role_local_ready_state_blob':
-    case 'metadata_only':
-      return false;
-    default:
-      return assertNeverThresholdEcdsaBootstrapBackendBinding(binding satisfies never);
-  }
 }
 
 function canonicalizeWorkerProvisionedBootstrap(
@@ -142,71 +117,6 @@ function canonicalizeWorkerProvisionedBootstrap(
       ...(signingGrantId ? { signingGrantId } : {}),
     },
   };
-}
-
-function markWorkerProvisionedEcdsaSessionRuntimeValidated(args: {
-  bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  record: ThresholdEcdsaSessionRecord;
-}): void {
-  // Worker-handle bootstrap outputs are already loaded in the current runtime.
-  // Mark the exact persisted record before capability readers inspect it.
-  if (
-    !isRuntimeValidatedWorkerBootstrapBinding(args.bootstrap.thresholdEcdsaKeyRef.backendBinding)
-  ) {
-    return;
-  }
-  if (markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(args.record)) return;
-  throw new Error(
-    '[SigningEngine] Router A/B ECDSA derivation bootstrap returned worker material that could not be runtime-validated',
-  );
-}
-
-function summarizeThresholdEcdsaCommitBootstrap(
-  bootstrap: ThresholdEcdsaSessionBootstrapResult,
-): Record<string, unknown> {
-  const backendBinding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
-  return {
-    thresholdSessionId: bootstrap.session.thresholdSessionId,
-    signingGrantId:
-      bootstrap.session.signingGrantId || bootstrap.thresholdEcdsaKeyRef.signingGrantId,
-    ecdsaThresholdKeyId: bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
-    keyHandle: bootstrap.thresholdEcdsaKeyRef.keyHandle,
-    chainTarget: thresholdEcdsaChainTargetKey(bootstrap.thresholdEcdsaKeyRef.chainTarget),
-    backendBindingKind: backendBinding?.materialKind || null,
-  };
-}
-
-function summarizeThresholdEcdsaCommitRecord(
-  record: ThresholdEcdsaSessionRecord,
-): Record<string, unknown> {
-  const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
-  return {
-    source: record.source,
-    thresholdSessionId: record.thresholdSessionId,
-    signingGrantId: record.signingGrantId,
-    keyHandle: record.keyHandle,
-    relayerKeyId: record.relayerKeyId,
-    chainTarget: thresholdEcdsaChainTargetKey(record.chainTarget),
-    walletSessionAuthKind: walletSessionAuth.kind,
-    walletSessionAuthSource:
-      walletSessionAuth.kind === 'ready' ? walletSessionAuth.source : walletSessionAuth.reason,
-    hasWalletSessionJwt: Boolean(record.walletSessionJwt),
-    emailOtpReason:
-      record.source === 'email_otp' ? emailOtpAuthContextReason(record.emailOtpAuthContext) : null,
-    emailOtpRetention:
-      record.source === 'email_otp'
-        ? emailOtpAuthContextRetention(record.emailOtpAuthContext)
-        : null,
-  };
-}
-
-function logThresholdEcdsaCommitFailure(
-  message: string,
-  details: Record<string, unknown>,
-): void {
-  try {
-    console.error(`[SigningEngine][ecdsa][commit] ${message}`, details);
-  } catch {}
 }
 
 async function persistWorkerProvisionedRoleLocalReadyRecord(args: {
@@ -252,7 +162,7 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
   args: CommitWorkerProvisionedThresholdEcdsaSessionArgs,
 ): Promise<{
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  record: ThresholdEcdsaSessionRecord;
+  authorization: ActiveWalletSessionAuthorizationProjection;
 }> {
   if (args.source === 'email_otp') {
     await deps.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
@@ -291,30 +201,24 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
       deps,
       bootstrap: canonicalBootstrap,
     });
-    let record: ThresholdEcdsaSessionRecord;
-    if (args.source === 'email_otp') {
-      record = upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
-        purpose: 'transaction_signing',
+    const authorization = await persistActiveWalletSessionAuthorizationFromEcdsaBootstrap(
+      walletSessionAuthorizations,
+      {
         walletId: args.walletId,
-        chainTarget: args.chainTarget,
+        authority:
+          args.source === 'email_otp'
+            ? await walletAuthAuthorityRef({
+                authority: args.emailOtpAuthContext.authority,
+              })
+            : args.authority,
+        authMethod:
+          args.source === 'email_otp'
+            ? SIGNER_AUTH_METHODS.emailOtp
+            : SIGNER_AUTH_METHODS.passkey,
         bootstrap: canonicalBootstrap,
-        source: 'email_otp',
-        emailOtpAuthContext: args.emailOtpAuthContext,
-      });
-    } else {
-      record = upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
-        purpose: 'transaction_signing',
-        walletId: args.walletId,
-        chainTarget: args.chainTarget,
-        bootstrap: canonicalBootstrap,
-        source: args.source,
-      });
-    }
-    markWorkerProvisionedEcdsaSessionRuntimeValidated({
-      bootstrap: canonicalBootstrap,
-      record,
-    });
-    return { bootstrap: canonicalBootstrap, record };
+      },
+    );
+    return { bootstrap: canonicalBootstrap, authorization };
   });
 }
 
@@ -323,7 +227,7 @@ export async function commitEvmFamilyThresholdEcdsaSessions(
   args: CommitEvmFamilyThresholdEcdsaSessionsArgs,
 ): Promise<{
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
+  authorization: ActiveWalletSessionAuthorizationProjection;
 }> {
   const committed =
     args.source === 'email_otp'
@@ -339,31 +243,10 @@ export async function commitEvmFamilyThresholdEcdsaSessions(
           chainTarget: args.chainTarget,
           bootstrap: args.bootstrap,
           source: args.source,
+          authority: args.authority,
         });
-  const bootstrap = committed.bootstrap;
-  // Prove the exact thresholdSessionId from this bootstrap is ready. Wallet-level
-  // lane reads can select older records for the same chain.
-  let warmCapability: WarmSessionEcdsaCapabilityState;
-  try {
-    warmCapability = await assertWarmThresholdEcdsaCapabilityReady(deps.warmCapabilityReader, {
-      walletId: args.walletId,
-      chainTarget: args.chainTarget,
-      bootstrap,
-      lane: toExactEcdsaSigningLaneIdentity(committed.record),
-    });
-  } catch (error) {
-    logThresholdEcdsaCommitFailure('ECDSA warm capability assertion failed after commit', {
-      walletId: args.walletId,
-      source: args.source,
-      chainTarget: thresholdEcdsaChainTargetKey(args.chainTarget),
-      bootstrap: summarizeThresholdEcdsaCommitBootstrap(bootstrap),
-      record: summarizeThresholdEcdsaCommitRecord(committed.record),
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
   return {
-    bootstrap,
-    warmCapability,
+    bootstrap: committed.bootstrap,
+    authorization: committed.authorization,
   };
 }

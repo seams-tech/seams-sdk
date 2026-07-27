@@ -64,16 +64,21 @@ import {
   type DomainIdParseResult,
 } from '@shared/utils/domainIds';
 import type { RouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import { buildRouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import { buildEcdsaRoleLocalPublicFacts } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import { routerAbEcdsaRegistrationPendingFinalizationFixture } from './routerAbEcdsaRegistrationPendingFinalization.fixtures';
 
 const DIGEST_B64U = base64UrlEncode(new Uint8Array(32).fill(12));
-const CLIENT_PUBLIC_KEY_B64U = base64UrlEncode(
-  Uint8Array.from([2, ...new Array<number>(32).fill(1)]),
-);
-const SERVER_PUBLIC_KEY_B64U = base64UrlEncode(
-  Uint8Array.from([3, ...new Array<number>(32).fill(2)]),
-);
+const APPLICATION_BINDING_DIGEST_B64U = 'VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU';
+const CONTEXT_BINDING_B64U = 'ga29uobW2Hvkz8FnDn3rLhxE_AIFuZDDdtIDnelsibc';
+const CLIENT_PUBLIC_KEY_B64U = 'Atwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq';
+const SERVER_PUBLIC_KEY_B64U = 'A6tbOC71wOA6nkWqZtdKpJ-LGiCSJANkUOpy2v8eYxYO';
+const GROUP_PUBLIC_KEY_B64U = 'A40b71OnjHXDpAfjpNrmDton5rtQ-s2b9iiVXT93TtAM';
+const ETHEREUM_ADDRESS_B64U = 'FgKUBDfhuhPgbFpFKDPa3wga0fI';
+const THRESHOLD_OWNER_ADDRESS = '0x1602940437e1ba13e06c5a452833dadf081ad1f2';
 const REPLACEMENT_DIGEST_B64U = base64UrlEncode(new Uint8Array(32).fill(13));
 const REPLACEMENT_CLIENT_PUBLIC_KEY_B64U = base64UrlEncode(
   Uint8Array.from([2, ...new Array<number>(32).fill(9)]),
@@ -131,7 +136,7 @@ export function ecdsaCapabilityActivationFixture(): EcdsaCapabilityActivationFix
     ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('ecdsa-threshold-key-fixture'),
     clientVerifyingPublicKey33B64u:
       parseEcdsaClientVerifyingPublicKey33B64u(CLIENT_PUBLIC_KEY_B64U),
-    participantIds: [toParticipantId(1)],
+    participantIds: [toParticipantId(1), toParticipantId(2)],
     relayerKeyId: parseEcdsaRelayerKeyId('relayer-key-fixture'),
   });
   const activationBinding = buildEcdsaActivationBinding({
@@ -158,8 +163,13 @@ export function ecdsaCapabilityActivationFixture(): EcdsaCapabilityActivationFix
       signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion('v1'),
     }),
     activationId: unwrap(parseMpcMaterialActivationId('ecdsa-activation-fixture')),
+    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+      walletId,
+      signingRootId: 'signing-root-fixture',
+      signingRootVersion: 'v1',
+    }),
     roleLocalBinding,
-    bindingDigest: parseEcdsaRoleLocalBindingDigest(DIGEST_B64U),
+    bindingDigest: parseEcdsaRoleLocalBindingDigest(CONTEXT_BINDING_B64U),
     durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef('ecdsa-material-fixture'),
   });
   const journalId = parseCorrelationId('ecdsa-activation-correlation-fixture');
@@ -170,13 +180,13 @@ export function ecdsaCapabilityActivationFixture(): EcdsaCapabilityActivationFix
     activation_request_digest: { bytes: new Array<number>(32).fill(12) },
     server_generation: serverGeneration,
     ecdsa_activation: {
-      context: { application_binding_digest_b64u: DIGEST_B64U },
+      context: { application_binding_digest_b64u: APPLICATION_BINDING_DIGEST_B64U },
       public_identity: {
-        context_binding_b64u: DIGEST_B64U,
+        context_binding_b64u: CONTEXT_BINDING_B64U,
         derivation_client_share_public_key33_b64u: CLIENT_PUBLIC_KEY_B64U,
         server_public_key33_b64u: SERVER_PUBLIC_KEY_B64U,
-        threshold_public_key33_b64u: CLIENT_PUBLIC_KEY_B64U,
-        ethereum_address20_b64u: base64UrlEncode(new Uint8Array(20).fill(7)),
+        threshold_public_key33_b64u: GROUP_PUBLIC_KEY_B64U,
+        ethereum_address20_b64u: ETHEREUM_ADDRESS_B64U,
         client_share_retry_counter: 0,
         server_share_retry_counter: 0,
       },
@@ -193,6 +203,32 @@ export function ecdsaCapabilityActivationFixture(): EcdsaCapabilityActivationFix
     lifecycle_id: 'ecdsa-lifecycle-fixture',
     transcript_digest: { bytes: new Array<number>(32).fill(8) },
   };
+  const pendingFixture = routerAbEcdsaRegistrationPendingFinalizationFixture();
+  const publicCapability = buildRouterAbEcdsaDerivationPublicCapabilityV1({
+    registrationFacts: pendingFixture.payload.registrationFacts,
+    registrationRequest: pendingFixture.payload.registrationRequest,
+    clientActivation: pendingFixture.payload.clientActivation,
+    activationReceipt: protocolReceipt,
+  });
+  const roleLocalPublicFacts = buildEcdsaRoleLocalPublicFacts({
+    walletId,
+    evmFamilySigningKeySlotId: activationBinding.evmFamilySigningKeySlotId,
+    chainTarget: activationBinding.signer.scope.targetMemberships[0],
+    keyHandle: roleLocalBinding.keyHandle,
+    ecdsaThresholdKeyId: roleLocalBinding.ecdsaThresholdKeyId,
+    signingRootId: activationBinding.signer.signingRootId,
+    signingRootVersion: activationBinding.signer.signingRootVersion,
+    applicationBindingDigestB64u: APPLICATION_BINDING_DIGEST_B64U,
+    clientParticipantId: 1,
+    relayerParticipantId: 2,
+    participantIds: [1, 2],
+    contextBinding32B64u: CONTEXT_BINDING_B64U,
+    derivationClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_B64U,
+    relayerPublicKey33B64u: SERVER_PUBLIC_KEY_B64U,
+    groupPublicKey33B64u: GROUP_PUBLIC_KEY_B64U,
+    ethereumAddress: THRESHOLD_OWNER_ADDRESS,
+    publicCapability,
+  });
   return {
     prepareInput: {
       journalId,
@@ -202,7 +238,7 @@ export function ecdsaCapabilityActivationFixture(): EcdsaCapabilityActivationFix
       requestDigest,
       canonicalRequest: parseCanonicalEcdsaServerActivationRequest('{"kind":"fixture"}'),
       createdAt: parseIsoTimestamp('2026-07-27T00:00:00.000Z'),
-      pendingPayloadB64u: fixtureStateBlob('pending-state-fixture'),
+      pendingPayloadB64u: pendingFixture.encoded,
     },
     serverCommit: {
       correlationId: journalId,
@@ -214,10 +250,11 @@ export function ecdsaCapabilityActivationFixture(): EcdsaCapabilityActivationFix
       readyStateBlobB64u: fixtureStateBlob('ready-state-fixture'),
       registeredPublicFacts: buildVerifiedEcdsaPublicFacts({
         keyHandle: toEvmFamilyEcdsaKeyHandle(roleLocalBinding.keyHandle),
-        publicKeyB64u: CLIENT_PUBLIC_KEY_B64U,
+        publicKeyB64u: GROUP_PUBLIC_KEY_B64U,
         participantIds: roleLocalBinding.participantIds,
-        thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
+        thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
       }),
+      roleLocalPublicFacts,
       committedAt: parseIsoTimestamp('2026-07-27T00:01:00.000Z'),
     },
     serverGeneration,
@@ -243,6 +280,7 @@ function activeLookupFromFixture(
   const durableMaterial = buildDurableEcdsaMaterialBinding({
     activationBinding: fixture.prepareInput.activationBinding,
     serverActivation,
+    roleLocalPublicFacts: fixture.sealInput.roleLocalPublicFacts,
     ciphertextDigest: parseEcdsaCiphertextDigest(DIGEST_B64U),
   });
   return {
@@ -318,7 +356,7 @@ function buildEcdsaCapabilityReplacementFixture(
     clientVerifyingPublicKey33B64u: parseEcdsaClientVerifyingPublicKey33B64u(
       REPLACEMENT_CLIENT_PUBLIC_KEY_B64U,
     ),
-    participantIds: [toParticipantId(1)],
+    participantIds: [toParticipantId(1), toParticipantId(2)],
     relayerKeyId: parseEcdsaRelayerKeyId('relayer-key-replacement-fixture'),
   });
   const activationBinding = buildEcdsaActivationBinding({
@@ -336,6 +374,8 @@ function buildEcdsaCapabilityReplacementFixture(
       signingRootVersion: priorSigner.signingRootVersion,
     }),
     activationId: unwrap(parseMpcMaterialActivationId('ecdsa-activation-replacement-fixture')),
+    evmFamilySigningKeySlotId:
+      prior.prepareInput.activationBinding.evmFamilySigningKeySlotId,
     roleLocalBinding,
     bindingDigest: parseEcdsaRoleLocalBindingDigest(REPLACEMENT_DIGEST_B64U),
     durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef('ecdsa-material-replacement-fixture'),
@@ -407,6 +447,16 @@ function buildEcdsaCapabilityReplacementFixture(
           publicKeyB64u: REPLACEMENT_CLIENT_PUBLIC_KEY_B64U,
           participantIds: roleLocalBinding.participantIds,
           thresholdOwnerAddress: '0x2222222222222222222222222222222222222222',
+        }),
+        roleLocalPublicFacts: buildEcdsaRoleLocalPublicFacts({
+          ...prior.sealInput.roleLocalPublicFacts,
+          keyHandle: roleLocalBinding.keyHandle,
+          ecdsaThresholdKeyId: roleLocalBinding.ecdsaThresholdKeyId,
+          contextBinding32B64u: REPLACEMENT_DIGEST_B64U,
+          derivationClientSharePublicKey33B64u: REPLACEMENT_CLIENT_PUBLIC_KEY_B64U,
+          relayerPublicKey33B64u: REPLACEMENT_SERVER_PUBLIC_KEY_B64U,
+          groupPublicKey33B64u: REPLACEMENT_CLIENT_PUBLIC_KEY_B64U,
+          ethereumAddress: '0x2222222222222222222222222222222222222222',
         }),
         committedAt: parseIsoTimestamp('2026-07-27T01:01:00.000Z'),
       },

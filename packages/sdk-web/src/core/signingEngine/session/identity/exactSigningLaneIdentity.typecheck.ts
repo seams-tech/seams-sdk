@@ -10,6 +10,8 @@ import {
   buildWalletIdentity,
 } from '@shared/utils/walletCapabilityBindings';
 import { SigningSessionIds } from '../operationState/types';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
@@ -52,13 +54,14 @@ const evmTarget = {
 } as const satisfies ThresholdEcdsaChainTarget;
 const ecdsaKey = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ederivation-exact-key',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   participantIds: [1, 2],
   thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
 });
+declare const materialActivation: MpcMaterialActivationRef;
+declare const authorization: ActiveEvmFamilyWalletSessionAuthorization;
 const passkeyAuth = {
   kind: 'passkey',
   rpId: toRpId('localhost'),
@@ -92,14 +95,14 @@ const ecdsaIdentity = exactEcdsaSigningLaneIdentity({
     walletId,
     chainTarget: evmTarget,
     key: ecdsaKey,
+    materialActivation,
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
   }),
   auth: emailOtpAuth,
-  signingGrantId,
-  thresholdSessionId: ecdsaThresholdSessionId,
+  authorization,
 });
 const thresholdSessionIds: NonEmptyThresholdSessionIds =
-  thresholdSessionIdsFromExactSigningLaneIdentity(ecdsaIdentity);
+  thresholdSessionIdsFromExactSigningLaneIdentity(ed25519Identity);
 void thresholdSessionIds;
 
 const invalidEd25519WithEcdsaKey: ExactEd25519SigningLaneIdentity = {
@@ -127,8 +130,7 @@ const invalidMixedBranch: ExactSigningLaneIdentity = {
   kind: 'exact_signing_lane',
   signer: ecdsaIdentity.signer,
   auth: passkeyAuth,
-  signingGrantId,
-  thresholdSessionId: ecdsaThresholdSessionId,
+  authorization,
   // @ts-expect-error exact ECDSA identity cannot carry Ed25519 accountId.
   accountId,
 };
@@ -205,11 +207,11 @@ function requireEd25519ThresholdSessionId(identity: ExactSigningLaneIdentity) {
 }
 void requireEd25519ThresholdSessionId(ed25519Identity);
 
-function requireEcdsaThresholdSessionId(identity: ExactSigningLaneIdentity) {
+function requireEcdsaWalletSessionAuthorization(identity: ExactSigningLaneIdentity) {
   if (!isExactEcdsaSigningLaneIdentity(identity)) return null;
-  return identity.thresholdSessionId;
+  return identity.authorization;
 }
-void requireEcdsaThresholdSessionId(ecdsaIdentity);
+void requireEcdsaWalletSessionAuthorization(ecdsaIdentity);
 
 const keyWithSession: EvmFamilyEcdsaKeyIdentity = {
   ...ecdsaKey,

@@ -22,6 +22,8 @@ import { bytesToHex } from '../../chains/evm/bytes';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
+  mpcMaterialActivationRefsEqual,
+  parseMpcMaterialActivationRef,
   parseSigningGrantId,
   parseThresholdEd25519SessionId,
   parseWalletId,
@@ -39,6 +41,7 @@ import {
   normalizePositiveInteger,
 } from '@shared/utils/normalize';
 import { awaitUserConfirmationV2 } from '../../uiConfirm/awaitUserConfirmation';
+import { parseNearOperationStepUpPreparationRef } from '../../interfaces/operationStepUpPreparation';
 import { getShamir3PassRuntime } from './shamir3pass/runtime';
 import {
   UserConfirmationType,
@@ -66,6 +69,7 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import { normalizeThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import { normalizeAuthenticationCredential } from '../../webauthnAuth/credentials/helpers';
+import { nearEd25519YaoMaterialActivationFromPublicFacts } from '../../session/material/nearEd25519YaoMaterialActivation';
 
 // Expose the confirmation bridge under the JS name expected by wasm-bindgen.
 // awaitUserConfirmationV2 expects a UserConfirmRequest object.
@@ -447,7 +451,7 @@ function parseEd25519YaoExportWorkerPayload(
   const credentialIdB64u = normalizeOptionalNonEmptyString(exactLane.credentialIdB64u);
   const signingGrantId = normalizeOptionalNonEmptyString(exactLane.signingGrantId);
   const thresholdSessionId = normalizeOptionalNonEmptyString(exactLane.thresholdSessionId);
-  const activeStateSessionId = normalizeOptionalNonEmptyString(exactLane.activeStateSessionId);
+  const materialActivationResult = parseMpcMaterialActivationRef(exactLane.materialActivation);
   const signerSlot = normalizePositiveInteger(exactLane.signerSlot);
   const registeredPublicKey = parseWorkerBytes32(capability.registeredPublicKey);
   const activeCapabilityBinding = parseWorkerBytes32(capability.activeCapabilityBinding);
@@ -463,7 +467,7 @@ function parseEd25519YaoExportWorkerPayload(
     !credentialIdB64u ||
     !signingGrantId ||
     !thresholdSessionId ||
-    !activeStateSessionId ||
+    !materialActivationResult.ok ||
     signerSlot == null ||
     !registeredPublicKey ||
     !activeCapabilityBinding ||
@@ -487,7 +491,7 @@ function parseEd25519YaoExportWorkerPayload(
       credentialIdB64u,
       signingGrantId,
       thresholdSessionId,
-      activeStateSessionId,
+      materialActivation: materialActivationResult.value,
     },
     capability: {
       scope: activationIdentity.value.scope,
@@ -874,12 +878,23 @@ function assertExactEd25519ExportWorkerBinding(
   const capability = payload.capability;
   const application = capability.applicationBinding;
   const scope = capability.scope;
+  const expectedMaterialActivation = nearEd25519YaoMaterialActivationFromPublicFacts({
+    activationId: scope.wallet_session_id,
+    activeCapabilityBinding: capability.activeCapabilityBinding,
+    walletId: application.wallet_id,
+    registeredPublicKey: capability.registeredPublicKey,
+    lifecycleId: scope.lifecycle_id,
+    signingWorkerId: scope.signing_worker_id,
+  });
   if (
     application.wallet_id !== payload.walletId ||
     application.near_ed25519_signing_key_id !== payload.exactLane.nearEd25519SigningKeyId ||
     application.key_creation_signer_slot !== payload.exactLane.signerSlot ||
     scope.account_id !== payload.walletId ||
-    scope.wallet_session_id !== payload.exactLane.activeStateSessionId
+    !mpcMaterialActivationRefsEqual(
+      expectedMaterialActivation,
+      payload.exactLane.materialActivation,
+    )
   ) {
     throw new Error('Ed25519 Yao export capability does not match the exact requested lane');
   }
@@ -1031,9 +1046,7 @@ async function runEd25519YaoExportWithUi(
     const result = await client.exportSeed({
       request: request.value,
       authorizationIdentity: {
-        thresholdSessionId: requireExportThresholdSessionId(
-          payload.exactLane.thresholdSessionId,
-        ),
+        thresholdSessionId: requireExportThresholdSessionId(payload.exactLane.thresholdSessionId),
         signingGrantId: requireExportSigningGrantId(payload.exactLane.signingGrantId),
       },
       factor: { kind: 'passkey_prf_first', ownedSecret32: prfFirst },
@@ -1747,19 +1760,30 @@ function toDecisionFromWorkerResponse(
 ): UserConfirmDecision {
   const requestId = String(response.request_id || '').trim();
   if (!response.confirmed) {
-    return {
-      requestId,
-      intentDigest: response.intent_digest,
-      confirmed: false,
-      registrationDiagnostics: response.registration_diagnostics,
-      error: response.error,
-    };
+    return response.wallet_session_failure
+      ? {
+          requestId,
+          intentDigest: response.intent_digest,
+          confirmed: false,
+          registrationDiagnostics: response.registration_diagnostics,
+          walletSessionFailure: response.wallet_session_failure,
+        }
+      : {
+          requestId,
+          intentDigest: response.intent_digest,
+          confirmed: false,
+          registrationDiagnostics: response.registration_diagnostics,
+          error: response.error,
+        };
   }
   const decisionBase = {
     requestId,
     intentDigest: response.intent_digest,
     confirmed: true,
     credential: response.credential,
+    operationStepUpPreparation: response.operation_step_up_preparation
+      ? parseNearOperationStepUpPreparationRef(response.operation_step_up_preparation)
+      : undefined,
     otpCode: response.otp_code,
     emailOtpChallengeId: response.email_otp_challenge_id,
     registrationDiagnostics: response.registration_diagnostics,

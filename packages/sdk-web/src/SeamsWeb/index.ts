@@ -71,6 +71,10 @@ export type {
 export type {
   SeamsConfigsReadonly,
   SeamsConfigsInput,
+  AddedEvmFamilyEcdsaSignerCapability,
+  AddedNearEd25519SignerCapability,
+  RegisteredEvmFamilyEcdsaCapability,
+  RegisteredNearEd25519Capability,
   RegistrationResult,
   LoginAndCreateSessionResult,
   LoginResult,

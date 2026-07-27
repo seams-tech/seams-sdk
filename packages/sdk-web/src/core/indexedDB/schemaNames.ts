@@ -1,5 +1,5 @@
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 11 as const;
+export const SEAMS_WALLET_DB_VERSION = 12 as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'app_state',
@@ -16,6 +16,7 @@ export const SEAMS_WALLET_STORES = {
   signingSessionRestoreLeases: 'signing_session_restore_leases',
   emailOtpDeviceEnrollmentEscrows: 'email_otp_escrows',
   emailOtpRecoveryCodeBackups: 'email_otp_pending_recovery_code_backups',
+  walletSessionAuthorizations: 'wallet_session_authorizations',
   ecdsaCapabilityManifests: 'ecdsa_capability_manifests',
   ecdsaCurrentCapabilityManifests: 'ecdsa_current_capability_manifests',
   ecdsaRoleLocalMaterial: 'ecdsa_role_local_material',
@@ -356,6 +357,15 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
         unique: false,
       },
       { name: SEAMS_WALLET_INDEXES.status, keyPath: 'status', unique: false },
+    ],
+  },
+  {
+    store: SEAMS_WALLET_STORES.walletSessionAuthorizations,
+    keyPath: 'wallet_session_id',
+    indexes: [
+      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
+      { name: SEAMS_WALLET_INDEXES.status, keyPath: 'status', unique: false },
+      { name: SEAMS_WALLET_INDEXES.expiresAtMs, keyPath: 'expires_at_ms', unique: false },
     ],
   },
   {

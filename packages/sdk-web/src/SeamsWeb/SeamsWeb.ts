@@ -1,4 +1,5 @@
 import { BrowserSigningSurface } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   addWalletSigner as addWalletSignerWithUnifiedCeremony,
   isRegistrationBenchmarkDiagnosticsEnabled,
@@ -121,9 +122,8 @@ import {
   type WalletRuntimeInventory,
 } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
 import {
-  buildOperationUsableThresholdEcdsaSessionRecord,
   type EmailOtpEcdsaSessionRecord,
-  type OperationUsableThresholdEcdsaSessionRecord,
+  type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from '@/core/signingEngine/session/emailOtp/persistedSnapshot';
@@ -167,6 +167,9 @@ type EmailOtpEd25519YaoLoginDomainArgs = Omit<
   'emailHashHex'
 >;
 
+type EmailOtpThresholdEcdsaSessionRecord = ThresholdEcdsaSessionRecord &
+  EmailOtpEcdsaSessionRecord;
+
 ///////////////////////////////////////
 // PASSKEY MANAGER
 ///////////////////////////////////////
@@ -183,10 +186,10 @@ type EmailOtpUnlockActiveRuntimeState = {
 type EmailOtpUnlockActivationPlan = {
   kind: 'email_otp_unlock_activation_plan_v1';
   mode: 'evm_family_ecdsa';
-  activeSession: ActiveWalletSession;
-  ecdsa: readonly [
-    OperationUsableThresholdEcdsaSessionRecord,
-    ...OperationUsableThresholdEcdsaSessionRecord[],
+  activeAuthorization: ActiveWalletSessionAuthorizationProjection;
+  authorizations: readonly [
+    ActiveWalletSessionAuthorizationProjection,
+    ...ActiveWalletSessionAuthorizationProjection[],
   ];
   runtimeState: EmailOtpUnlockActiveRuntimeState;
 };
@@ -413,8 +416,8 @@ function emailOtpUnlockActiveRuntimeState(
 }
 
 function assertEmailOtpUnlockEcdsaRecord(
-  record: OperationUsableThresholdEcdsaSessionRecord,
-): asserts record is OperationUsableThresholdEcdsaSessionRecord & EmailOtpEcdsaSessionRecord {
+  record: ThresholdEcdsaSessionRecord,
+): asserts record is EmailOtpThresholdEcdsaSessionRecord {
   if (record.source !== 'email_otp') {
     throw new Error('Email OTP unlock ECDSA current record is missing Email OTP authority');
   }
@@ -426,89 +429,19 @@ function assertEmailOtpUnlockEcdsaRecord(
   }
 }
 
-function requireEmailOtpUnlockBearerJwt(value: string, label: string): string {
-  const jwt = String(value || '').trim();
-  if (!jwt) {
-    throw new Error(`Email OTP unlock ${label} current record is missing bearer JWT`);
-  }
-  return jwt;
-}
-
-function buildEmailOtpUnlockActiveSession(args: {
-  walletSession: WalletSessionRef;
-  ecdsa: readonly [
-    OperationUsableThresholdEcdsaSessionRecord,
-    ...OperationUsableThresholdEcdsaSessionRecord[],
-  ];
-}): ActiveWalletSession {
-  const [firstRecord, ...remainingRecords] = args.ecdsa;
-  assertEmailOtpUnlockEcdsaRecord(firstRecord);
-  const authority = firstRecord.emailOtpAuthContext.authority;
-  if (authority.walletId !== args.walletSession.walletId) {
-    throw new Error('Email OTP unlock active session wallet id does not match wallet session');
-  }
-  const walletSessionJwt = requireEmailOtpUnlockBearerJwt(firstRecord.walletSessionJwt, 'ECDSA');
-  for (const record of remainingRecords) {
-    assertEmailOtpUnlockEcdsaRecord(record);
-    const ecdsaAuthority = record.emailOtpAuthContext.authority;
-    if (!walletAuthAuthoritiesMatch(authority, ecdsaAuthority)) {
-      throw new Error('Email OTP unlock ECDSA current record authority mismatch');
-    }
-    requireEmailOtpUnlockBearerJwt(record.walletSessionJwt, 'ECDSA');
-  }
-  return {
-    kind: 'active_wallet_session',
-    authority,
-    walletSessionJwt,
-  };
-}
-
-function requireEmailOtpUnlockEcdsaCurrentRecord(
-  capability: LoginWithEmailOtpEcdsaCapabilityInternalResult['warmCapabilities'][number],
-): OperationUsableThresholdEcdsaSessionRecord {
-  const record = capability.record;
-  if (!record) {
-    throw new Error('Email OTP ECDSA unlock did not produce a current session record');
-  }
-  const currentRecord = buildOperationUsableThresholdEcdsaSessionRecord(record);
-  if (!currentRecord) {
-    throw new Error(
-      'Email OTP ECDSA unlock did not produce an operation-usable current session record',
-    );
-  }
-  return currentRecord;
-}
-
-function requireEmailOtpUnlockEcdsaCurrentRecords(
-  result: LoginWithEmailOtpEcdsaCapabilityInternalResult,
-): readonly [
-  OperationUsableThresholdEcdsaSessionRecord,
-  ...OperationUsableThresholdEcdsaSessionRecord[],
-] {
-  const currentRecords = result.warmCapabilities.map((capability) =>
-    requireEmailOtpUnlockEcdsaCurrentRecord(capability),
-  );
-  const [firstRecord, ...remainingRecords] = currentRecords;
-  if (!firstRecord) {
-    throw new Error('Email OTP ECDSA unlock did not produce any current session records');
-  }
-  return [firstRecord, ...remainingRecords];
-}
-
 function buildEmailOtpEcdsaUnlockActivationPlan(args: {
   walletSession: WalletSessionRef;
   result: LoginWithEmailOtpEcdsaCapabilityInternalResult;
   runtimeInventory: WalletRuntimeInventory;
 }): EmailOtpUnlockActivationPlan {
-  const ecdsa = requireEmailOtpUnlockEcdsaCurrentRecords(args.result);
+  if (args.result.authorization.walletId !== args.walletSession.walletId) {
+    throw new Error('Email OTP unlock authorization does not match the wallet session');
+  }
   return {
     kind: 'email_otp_unlock_activation_plan_v1',
     mode: 'evm_family_ecdsa',
-    activeSession: buildEmailOtpUnlockActiveSession({
-      walletSession: args.walletSession,
-      ecdsa,
-    }),
-    ecdsa,
+    activeAuthorization: args.result.authorization,
+    authorizations: args.result.authorizations,
     runtimeState: emailOtpUnlockActiveRuntimeState(args.runtimeInventory),
   };
 }
@@ -518,9 +451,9 @@ function logEmailOtpUnlockActivationPlan(plan: EmailOtpUnlockActivationPlan): vo
   console.info('[EmailOtpUnlock] activation plan constructed', {
     kind: plan.kind,
     mode: plan.mode,
-    walletId: plan.activeSession.authority.walletId,
-    authorityBindingId: plan.activeSession.authority.bindingId,
-    ecdsaThresholdSessionIds: plan.ecdsa.map((record) => record.thresholdSessionId),
+    walletId: plan.activeAuthorization.walletId,
+    authorityDigest: plan.activeAuthorization.authority.authorityDigest,
+    walletSessionIds: plan.authorizations.map((authorization) => authorization.walletSessionId),
     runtimeTargetCount: plan.runtimeState.inventory.ecdsaByTarget.size,
   });
 }
@@ -2106,8 +2039,7 @@ export class SeamsWeb {
                 nearAccountId: String(preparedEd25519YaoRecovery.identity.nearAccountId),
                 expectedOperationalPublicKey:
                   preparedEd25519YaoRecovery.expectedOperationalPublicKey,
-                expectedThresholdSessionId:
-                  preparedEd25519YaoRecovery.identity.thresholdSessionId,
+                expectedThresholdSessionId: preparedEd25519YaoRecovery.authorizationSessionId,
               },
             }
           : {}),

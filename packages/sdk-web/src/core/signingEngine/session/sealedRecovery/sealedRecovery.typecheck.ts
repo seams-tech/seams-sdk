@@ -6,12 +6,14 @@ import type { RestorePersistedSessionForSigningInput } from './sealedRecovery.ty
 declare const ecdsaLane: ExactEcdsaSigningLaneIdentity;
 declare const ecdsaThresholdKeyId: EcdsaThresholdKeyId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
+declare const signingGrantId: string;
+declare const thresholdSessionId: string;
 
 const ecdsaRestoreInput: RestorePersistedSessionForSigningInput = {
   walletId: String(ecdsaLane.signer.walletId),
   authMethod: ecdsaLane.auth.kind,
-  signingGrantId: String(ecdsaLane.signingGrantId),
-  thresholdSessionId: String(ecdsaLane.thresholdSessionId),
+  signingGrantId,
+  thresholdSessionId,
   reason: 'export',
   curve: 'ecdsa',
   chainTarget,

@@ -9,13 +9,10 @@ import {
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 import {
   getStoredThresholdEd25519SessionRecordForLane,
-  readExactThresholdEcdsaSessionRecord,
-  type ThresholdEcdsaSessionStoreDeps,
 } from './records';
 
 export type ReadClientWalletSessionAuthorizationRequest = {
   readonly identity: ExactSigningLaneIdentity;
-  readonly ecdsaStore: ThresholdEcdsaSessionStoreDeps;
   readonly nowMs: number;
 };
 
@@ -23,7 +20,7 @@ function readEd25519ClientWalletSessionAuthorization(
   request: ReadClientWalletSessionAuthorizationRequest,
 ): WalletSessionAuthorizationState {
   const identity = request.identity;
-  if (identity.signer.kind !== 'near_ed25519_signer') {
+  if (isExactEcdsaSigningLaneIdentity(identity)) {
     return parseWalletSessionAuthorizationBoundary({
       observation: { kind: 'invalid', identity, reason: 'authority_mismatch' },
       nowMs: request.nowMs,
@@ -65,32 +62,14 @@ function readEcdsaClientWalletSessionAuthorization(
       nowMs: request.nowMs,
     });
   }
-  const result = readExactThresholdEcdsaSessionRecord(request.ecdsaStore, identity);
-  switch (result.kind) {
-    case 'found':
-      return parseWalletSessionAuthorizationBoundary({
-        observation: {
-          kind: 'found',
-          identity,
-          expiresAtMs: result.record.expiresAtMs,
-        },
-        nowMs: request.nowMs,
-      });
-    case 'not_found':
-      return parseWalletSessionAuthorizationBoundary({
-        observation: { kind: 'missing', identity },
-        nowMs: request.nowMs,
-      });
-    case 'duplicate_records':
-      return parseWalletSessionAuthorizationBoundary({
-        observation: { kind: 'invalid', identity, reason: 'malformed' },
-        nowMs: request.nowMs,
-      });
-    default: {
-      const exhaustive: never = result;
-      return exhaustive;
-    }
-  }
+  return parseWalletSessionAuthorizationBoundary({
+    observation: {
+      kind: 'found',
+      identity,
+      expiresAtMs: identity.authorization.status.expiresAtMs,
+    },
+    nowMs: request.nowMs,
+  });
 }
 
 export function readClientWalletSessionAuthorization(

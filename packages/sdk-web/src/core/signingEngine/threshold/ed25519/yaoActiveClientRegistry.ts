@@ -3,6 +3,11 @@ import type { NearEd25519YaoSigningCapability } from '@/core/signingEngine/inter
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { exactSigningLaneIdentityKey } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { THRESHOLD_ED25519_2P_PARTICIPANT_IDS } from '@shared/threshold/participants';
+import {
+  mpcMaterialActivationRefsEqual,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
+import { nearEd25519YaoMaterialActivationFromMetadata } from '../../session/material/nearEd25519YaoMaterialActivation';
 import type { Ed25519YaoPublicCapabilityReferenceStorePort } from './yaoPublicCapabilityReferences';
 
 const MAX_ACTIVE_ED25519_YAO_CLIENTS = 64;
@@ -10,14 +15,20 @@ const MAX_ACTIVE_ED25519_YAO_CLIENTS = 64;
 export type Ed25519YaoActiveClientIdentityV1 = {
   walletId: WalletId;
   nearAccountId: AccountId;
-  thresholdSessionId: string;
+  materialActivation: MpcMaterialActivationRef;
+};
+
+export type Ed25519YaoActiveClientLookupScopeV1 = {
+  walletId: WalletId;
+  nearAccountId: AccountId;
 };
 
 export type Ed25519YaoActiveClientRegistryPort = {
-  activate(
-    capability: NearEd25519YaoSigningCapability,
-  ): Promise<Ed25519YaoActiveClientIdentityV1>;
+  activate(capability: NearEd25519YaoSigningCapability): Promise<Ed25519YaoActiveClientIdentityV1>;
   resolve(identity: Ed25519YaoActiveClientIdentityV1): NearEd25519YaoSigningCapability | null;
+  resolveForWalletAccount(
+    scope: Ed25519YaoActiveClientLookupScopeV1,
+  ): NearEd25519YaoSigningCapability | null;
   refreshWalletSession(
     input: Ed25519YaoSameIdentityWalletSessionRefreshV1,
   ): Ed25519YaoSameIdentityWalletSessionRefreshResultV1;
@@ -50,9 +61,7 @@ type ActiveClientEntryV1 = {
   capability: NearEd25519YaoSigningCapability;
 };
 
-class VolatileOnlyPublicCapabilityReferenceStore
-  implements Ed25519YaoPublicCapabilityReferenceStorePort
-{
+class VolatileOnlyPublicCapabilityReferenceStore implements Ed25519YaoPublicCapabilityReferenceStorePort {
   async upsert(_identity: Ed25519YaoActiveClientIdentityV1): Promise<void> {}
 
   async remove(_identity: Ed25519YaoActiveClientIdentityV1): Promise<void> {}
@@ -69,10 +78,16 @@ function requireNonEmpty(value: unknown, label: string): string {
 }
 
 function identityKey(identity: Ed25519YaoActiveClientIdentityV1): string {
+  const activation = identity.materialActivation;
   return JSON.stringify([
     requireNonEmpty(identity.walletId, 'walletId'),
     requireNonEmpty(identity.nearAccountId, 'nearAccountId'),
-    requireNonEmpty(identity.thresholdSessionId, 'thresholdSessionId'),
+    requireNonEmpty(activation.activationId, 'materialActivation.activationId'),
+    requireNonEmpty(activation.capability, 'materialActivation.capability'),
+    requireNonEmpty(activation.materialOwner, 'materialActivation.materialOwner'),
+    requireNonEmpty(activation.keyBinding, 'materialActivation.keyBinding'),
+    requireNonEmpty(activation.lifecycleBinding, 'materialActivation.lifecycleBinding'),
+    requireNonEmpty(activation.signingWorker, 'materialActivation.signingWorker'),
   ]);
 }
 
@@ -117,14 +132,22 @@ function capabilityIdentity(
   ) {
     throw new Error('Ed25519 Yao active Client registry participant identity mismatch');
   }
-  return { walletId, nearAccountId, thresholdSessionId };
+  return {
+    walletId,
+    nearAccountId,
+    materialActivation: nearEd25519YaoMaterialActivationFromMetadata(metadata),
+  };
 }
 
 function sameIdentity(
   left: Ed25519YaoActiveClientIdentityV1,
   right: Ed25519YaoActiveClientIdentityV1,
 ): boolean {
-  return identityKey(left) === identityKey(right);
+  return (
+    String(left.walletId) === String(right.walletId) &&
+    String(left.nearAccountId) === String(right.nearAccountId) &&
+    mpcMaterialActivationRefsEqual(left.materialActivation, right.materialActivation)
+  );
 }
 
 function sameRuntimePolicyScope(
@@ -165,8 +188,7 @@ export class Ed25519YaoActiveClientRegistry implements Ed25519YaoActiveClientReg
   private lifecycleGeneration = 0;
 
   constructor(
-    private readonly publicReferences: Ed25519YaoPublicCapabilityReferenceStorePort =
-      new VolatileOnlyPublicCapabilityReferenceStore(),
+    private readonly publicReferences: Ed25519YaoPublicCapabilityReferenceStorePort = new VolatileOnlyPublicCapabilityReferenceStore(),
   ) {}
 
   async activate(
@@ -175,6 +197,7 @@ export class Ed25519YaoActiveClientRegistry implements Ed25519YaoActiveClientReg
     const identity = capabilityIdentity(capability);
     const key = identityKey(identity);
     const lifecycleGeneration = this.lifecycleGeneration;
+    const replacedEntries: Array<[string, ActiveClientEntryV1]> = [];
     for (const entry of this.entries.values()) {
       if (
         entry.capability.activeClient === capability.activeClient &&
@@ -183,8 +206,17 @@ export class Ed25519YaoActiveClientRegistry implements Ed25519YaoActiveClientReg
         throw new Error('Ed25519 Yao active Client state is already bound to another identity');
       }
     }
+    for (const [candidateKey, entry] of this.entries) {
+      if (
+        candidateKey !== key &&
+        String(entry.identity.walletId) === String(identity.walletId) &&
+        String(entry.identity.nearAccountId) === String(identity.nearAccountId)
+      ) {
+        replacedEntries.push([candidateKey, entry]);
+      }
+    }
     const current = this.entries.get(key);
-    if (!current && this.entries.size >= MAX_ACTIVE_ED25519_YAO_CLIENTS) {
+    if (!current && this.entries.size - replacedEntries.length >= MAX_ACTIVE_ED25519_YAO_CLIENTS) {
       throw new Error('Ed25519 Yao active Client registry capacity is exhausted');
     }
     await this.publicReferences.upsert(identity);
@@ -195,6 +227,10 @@ export class Ed25519YaoActiveClientRegistry implements Ed25519YaoActiveClientReg
       capability.activeClient.dispose();
       await this.publicReferences.remove(identity);
       throw new Error('Ed25519 Yao active Client activation was interrupted');
+    }
+    for (const [candidateKey, entry] of replacedEntries) {
+      this.entries.delete(candidateKey);
+      entry.capability.activeClient.dispose();
     }
     if (current && current.capability.activeClient !== capability.activeClient) {
       current.capability.activeClient.dispose();
@@ -212,6 +248,26 @@ export class Ed25519YaoActiveClientRegistry implements Ed25519YaoActiveClientReg
       return null;
     }
     return entry.capability;
+  }
+
+  resolveForWalletAccount(
+    scope: Ed25519YaoActiveClientLookupScopeV1,
+  ): NearEd25519YaoSigningCapability | null {
+    let match: NearEd25519YaoSigningCapability | null = null;
+    for (const entry of this.entries.values()) {
+      if (
+        String(entry.identity.walletId) !== String(scope.walletId) ||
+        String(entry.identity.nearAccountId) !== String(scope.nearAccountId)
+      ) {
+        continue;
+      }
+      if (entry.capability.activeClient.status().kind === 'disposed') continue;
+      if (match) {
+        throw new Error('Ed25519 Yao active Client lookup scope is ambiguous');
+      }
+      match = entry.capability;
+    }
+    return match;
   }
 
   refreshWalletSession(
@@ -260,9 +316,7 @@ export class Ed25519YaoActiveClientRegistry implements Ed25519YaoActiveClientReg
         ok: false,
         code: 'stable_binding_mismatch',
         message:
-          error instanceof Error
-            ? error.message
-            : 'Ed25519 Yao Wallet Session refresh is invalid',
+          error instanceof Error ? error.message : 'Ed25519 Yao Wallet Session refresh is invalid',
       };
     }
 

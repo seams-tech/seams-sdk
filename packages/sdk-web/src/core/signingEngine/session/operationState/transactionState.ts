@@ -24,7 +24,10 @@ import {
   type SigningOperationId,
   SigningSessionPlanKind,
 } from './types';
-import type { SigningSessionPreparedBudgetIdentity } from '../budget/budget';
+import type {
+  SigningSessionBudgetStatusAuth,
+  SigningSessionPreparedBudgetIdentity,
+} from '../budget/budget';
 import type {
   ExactSigningLaneIdentity,
   ExactSigningLaneIdentityKey,
@@ -196,6 +199,7 @@ export type ReauthAdmittedLifecycle<
 export type ReauthAnchorSourceState = {
   kind: 'reauth_anchor_source_state';
   availabilitySource:
+    | 'canonical_capability'
     | 'durable_sealed_record'
     | 'runtime_session_record'
     | 'evm_family_shared_key';
@@ -670,12 +674,11 @@ export async function prepareTransactionSigningOperation<
   const budgetIdentity =
     args.prepareBudgetIdentity &&
     thresholdOperation.signingSessionPlan.kind === SigningSessionPlanKind.WarmSession
-      ? await args.coordinator.prepareBudgetIdentity({
+      ? await prepareEd25519BudgetIdentity({
+          coordinator: args.coordinator,
           lane: thresholdOperation.lane,
           operationUsesNeeded: args.intent.operationUsesNeeded,
-          ...(thresholdOperation.trustedStatusAuth
-            ? { trustedStatusAuth: thresholdOperation.trustedStatusAuth }
-            : {}),
+          trustedStatusAuth: thresholdOperation.trustedStatusAuth,
         })
       : undefined;
 
@@ -692,6 +695,22 @@ export async function prepareTransactionSigningOperation<
     transactionOperation,
     budget,
   };
+}
+
+async function prepareEd25519BudgetIdentity(args: {
+  coordinator: ThresholdSigningOperationCoordinator;
+  lane: SelectedSigningSessionPlanningLane;
+  operationUsesNeeded: number;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+}): Promise<SigningSessionPreparedBudgetIdentity> {
+  if (args.lane.curve !== 'ed25519') {
+    throw new Error('[SigningSession] reusable client budget admission requires an Ed25519 lane');
+  }
+  return await args.coordinator.prepareBudgetIdentity({
+    lane: args.lane,
+    operationUsesNeeded: args.operationUsesNeeded,
+    ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
+  });
 }
 
 function thresholdIntentFromTransactionIntent(intent: TransactionSigningIntent): {

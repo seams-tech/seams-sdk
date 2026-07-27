@@ -7,7 +7,10 @@ import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../package
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import {
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
@@ -447,6 +450,13 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
         },
       },
     });
+    const expectedAuthorityRef = await walletAuthAuthorityRef({
+      authority: buildPasskeyWalletAuthAuthority({
+        walletId: WALLET_ID,
+        rpId: RP_ID,
+        credentialIdB64u: CREDENTIAL_ID,
+      }),
+    });
     expect(await response.json()).toMatchObject({
       ok: true,
       verified: true,
@@ -455,6 +465,7 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
       },
       ed25519YaoRecovery: {
         kind: 'router_ab_ed25519_yao_sync_recovery_v1',
+        authorityRef: expectedAuthorityRef,
         capability: activeCapabilityFixture(),
       },
     });

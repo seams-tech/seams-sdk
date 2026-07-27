@@ -27,6 +27,7 @@ import {
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type {
   EcdsaRoleLocalPersistedMaterialRef,
   SigningSessionSealKeyVersion,
@@ -72,6 +73,8 @@ import type {
   FinalizeRouterAbEcdsaRegistrationActivationResultV1,
   PersistInitialCanonicalEcdsaActivationRequestV1,
   PersistInitialCanonicalEcdsaActivationResultV1,
+  ReconcileCanonicalEcdsaActivationRequestV1,
+  ReconcileCanonicalEcdsaActivationWorkerResultV1,
   VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
   VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
 } from '@/core/signingEngine/routerAb/ecdsaDerivation/clientCeremony';
@@ -874,13 +877,22 @@ export interface EmailOtpWorkerOperationMap {
       };
     };
     result:
-      | {
+      | ({
           ok: true;
           sealedSecretB64u: string;
           keyVersion?: string;
           remainingUses: number;
           expiresAtMs: number;
-        }
+        } & (
+          | {
+              materialKind: 'ecdsa';
+              materialActivation?: never;
+            }
+          | {
+              materialKind: 'ed25519_yao';
+              materialActivation: MpcMaterialActivationRef;
+            }
+        ))
       | { ok: false; code: string; message: string };
   };
   rehydrateEmailOtpEcdsaWarmSessionMaterial: {
@@ -897,7 +909,7 @@ export interface EmailOtpWorkerOperationMap {
       restore: {
         sessionId: string;
         walletId: string;
-        evmFamilySigningKeySlotId: string;
+        provisioningKeySlotId: string;
         chainTarget: ThresholdEcdsaChainTarget;
         authSubjectId: string;
       };
@@ -1191,6 +1203,7 @@ export const EcdsaDerivationClientCustomRequestType = {
   StoreThresholdEcdsaRoleLocalSigningMaterial: 70_004,
   RehydrateEcdsaRoleLocalSigningMaterial: 70_015,
   PersistInitialCanonicalEcdsaActivation: 70_016,
+  ReconcileCanonicalEcdsaActivation: 70_017,
 } as const;
 
 export type EcdsaDerivationClientCustomRequestType =
@@ -1211,6 +1224,7 @@ export const EcdsaDerivationClientCustomResponseType = {
   StoreThresholdEcdsaRoleLocalSigningMaterialSuccess: 70_104,
   RehydrateEcdsaRoleLocalSigningMaterialSuccess: 70_115,
   PersistInitialCanonicalEcdsaActivationSuccess: 70_116,
+  ReconcileCanonicalEcdsaActivationSuccess: 70_117,
 } as const;
 
 export type EcdsaDerivationClientCustomResponseType =
@@ -1447,6 +1461,14 @@ type EcdsaDerivationClientCustomOperationMap = {
       diagnostics?: WorkerResponseDiagnostics;
     };
   };
+  [EcdsaDerivationClientCustomRequestType.ReconcileCanonicalEcdsaActivation]: {
+    payload: ReconcileCanonicalEcdsaActivationRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.ReconcileCanonicalEcdsaActivationSuccess;
+      payload: ReconcileCanonicalEcdsaActivationWorkerResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
   [EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony]: {
     payload: CloseRouterAbEcdsaRegistrationCeremonyRequestV1;
     result: {
@@ -1631,6 +1653,7 @@ export type EcdsaDerivationRoleLocalMaterialOperationType =
   | typeof EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRegistrationClientProofs
   | typeof EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation
   | typeof EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRegistrationActivation
+  | typeof EcdsaDerivationClientCustomRequestType.ReconcileCanonicalEcdsaActivation
   | typeof EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony
   | typeof EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaPostRegistrationCeremony
   | typeof EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaExplicitExport

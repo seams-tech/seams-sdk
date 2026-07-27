@@ -1,50 +1,27 @@
 import {
-  toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { RestorePersistedEcdsaSessionPurpose } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import {
-  sealedRecoverySessionKind,
-  sealedRecoveryWalletSessionJwt,
   type PasskeyEcdsaSealedRecoveryRecord,
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { toEvmFamilyEcdsaKeyHandle } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   parseSigningSessionSealKeyVersion,
   type SigningSessionSealKeyVersion,
 } from '../keyMaterialBrands';
 import {
-  getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
-  toExactEcdsaSigningLaneIdentity,
-  upsertRestoredThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
-import {
-  buildEcdsaRoleLocalPasskeyAuthMethod,
-  buildEcdsaRoleLocalPublicFacts,
-} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
-import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 import { claimWarmSessionPrfFirst, type PasskeyWarmSessionRecoveryPorts } from './prfClaim';
-import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import {
-  parseSdkEcdsaDerivationSigningRootId,
-  parseSdkEcdsaDerivationSigningRootVersion,
-  parseSdkEcdsaDerivationThresholdKeyId,
-} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 
 type PasskeySessionRestoreIdentity = {
   touchConfirm: PasskeyWarmSessionRecoveryPorts;
   walletId: string;
   signingGrantId: string;
   thresholdSessionId: string;
-};
-
-type PasskeyEcdsaSealedPolicy = {
-  expiresAtMs: number;
-  remainingUses: number;
 };
 
 function shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(
@@ -71,115 +48,13 @@ export type PasskeyEcdsaPrfClaimArgs = PasskeySessionRestoreIdentity & {
   consume?: boolean;
 };
 
-function passkeyEcdsaRoleLocalParticipantIds(participantIds: readonly number[]): readonly [1, 2] {
-  if (participantIds.length !== 2 || participantIds[0] !== 1 || participantIds[1] !== 2) {
-    throw new Error('passkey ECDSA restore requires participantIds [1, 2]');
-  }
-  return [1, 2] as const;
-}
-
-function passkeyEcdsaRoleLocalAuthMethod(args: {
-  walletId: string;
-  record: PasskeyEcdsaSealedRecoveryRecord;
-}) {
-  if (String(args.record.authority.walletId) !== String(toWalletId(args.walletId))) {
-    throw new Error('passkey ECDSA restore authority wallet does not match record wallet');
-  }
-  return buildEcdsaRoleLocalPasskeyAuthMethod({
-    credentialIdB64u: args.record.authority.factor.credentialIdB64u,
-    rpId: args.record.authority.verifier.rpId,
-  });
-}
-
-function passkeyEcdsaRoleLocalPublicFacts(args: {
-  walletId: string;
-  record: PasskeyEcdsaSealedRecoveryRecord;
-}) {
-  const capability = args.record.publicCapability;
-  const publicIdentity = capability.public_identity;
-  return buildEcdsaRoleLocalPublicFacts({
-    walletId: toWalletId(args.walletId),
-    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
-      args.record.evmFamilySigningKeySlotId,
-      'evmFamilySigningKeySlotId',
-    ),
-    chainTarget: args.record.chainTarget,
-    keyHandle: args.record.keyHandle,
-    ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(args.record.ecdsaThresholdKeyId),
-    signingRootId: parseSdkEcdsaDerivationSigningRootId(args.record.signingRootId),
-    signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(args.record.signingRootVersion),
-    applicationBindingDigestB64u: capability.context.application_binding_digest_b64u,
-    clientParticipantId: 1,
-    relayerParticipantId: 2,
-    participantIds: passkeyEcdsaRoleLocalParticipantIds(args.record.participantIds),
-    contextBinding32B64u: publicIdentity.context_binding_b64u,
-    derivationClientSharePublicKey33B64u: publicIdentity.derivation_client_share_public_key33_b64u,
-    relayerPublicKey33B64u: publicIdentity.server_public_key33_b64u,
-    groupPublicKey33B64u: publicIdentity.threshold_public_key33_b64u,
-    ethereumAddress: args.record.ethereumAddress,
-    publicCapability: capability,
-  });
-}
-
 async function publishPasskeyEcdsaSealedRecordForWallet(args: {
   walletId: string;
-  record: PasskeyEcdsaSealedRecoveryRecord;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
   signingGrantId: string;
-  policy: PasskeyEcdsaSealedPolicy;
 }): Promise<void> {
-  const walletSessionJwt = sealedRecoveryWalletSessionJwt(args.record.walletSessionAuth);
-  const existingRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
-    args.thresholdSessionId,
-  );
-  const ecdsaRoleLocalAuthMethod = passkeyEcdsaRoleLocalAuthMethod({
-    walletId: args.walletId,
-    record: args.record,
-  });
-  const ecdsaRoleLocalPublicFacts = passkeyEcdsaRoleLocalPublicFacts({
-    walletId: args.walletId,
-    record: args.record,
-  });
   const updatedAtMs = Date.now();
-
-  upsertRestoredThresholdEcdsaSessionRecord({
-    purpose: 'transaction_signing',
-    walletId: toWalletId(args.walletId),
-    evmFamilySigningKeySlotId: args.record.evmFamilySigningKeySlotId,
-    chainTarget: args.record.chainTarget,
-    relayerUrl: args.record.relayerUrl,
-    keyHandle: toEvmFamilyEcdsaKeyHandle(args.record.keyHandle),
-    ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,
-    signingRootId: args.record.signingRootId,
-    signingRootVersion: args.record.signingRootVersion,
-    relayerKeyId: args.record.relayerKeyId,
-    clientVerifyingShareB64u: args.record.clientVerifyingShareB64u,
-    roleLocalMaterialRef: args.record.roleLocalMaterialRef,
-    ecdsaRoleLocalAuthMethod,
-    ecdsaRoleLocalPublicFacts,
-    participantIds: [...args.record.participantIds],
-    thresholdEcdsaPublicKeyB64u: args.record.thresholdEcdsaPublicKeyB64u,
-    ethereumAddress: args.record.ethereumAddress,
-    ...(args.record.runtimePolicyScope
-      ? { runtimePolicyScope: args.record.runtimePolicyScope }
-      : existingRecord?.runtimePolicyScope
-        ? { runtimePolicyScope: existingRecord.runtimePolicyScope }
-        : {}),
-    routerAbEcdsaDerivationNormalSigning: args.record.routerAbEcdsaDerivationNormalSigning,
-    thresholdSessionKind: sealedRecoverySessionKind(args.record.walletSessionAuth),
-    thresholdSessionId: args.thresholdSessionId,
-    signingGrantId: args.signingGrantId,
-    ...(walletSessionJwt ? { walletSessionJwt } : {}),
-    ...(args.record.keyVersion ? { signingSessionSealKeyVersion: args.record.keyVersion } : {}),
-    ...(args.record.shamirPrimeB64u
-      ? { signingSessionSealShamirPrimeB64u: args.record.shamirPrimeB64u }
-      : {}),
-    expiresAtMs: args.policy.expiresAtMs,
-    remainingUses: args.policy.remainingUses,
-    updatedAtMs,
-    source: args.record.source,
-  });
   publishResolvedIdentity({
     walletId: args.walletId,
     authMethod: 'passkey',
@@ -188,37 +63,6 @@ async function publishPasskeyEcdsaSealedRecordForWallet(args: {
     signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
     updatedAtMs,
-  });
-}
-
-export async function restorePasskeyEcdsaSessionBeforeClaim(
-  args: PasskeySessionRestoreIdentity & { chainTarget: ThresholdEcdsaChainTarget },
-): Promise<void> {
-  if (typeof args.touchConfirm.restorePersistedSessionForSigning !== 'function') return;
-  const identity = buildEcdsaSessionIdentity({
-    signingGrantId: args.signingGrantId,
-    thresholdSessionId: args.thresholdSessionId,
-  });
-  const record = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
-    identity.thresholdSessionId,
-  );
-  if (!record || !thresholdEcdsaChainTargetsEqual(record.chainTarget, args.chainTarget)) {
-    throw new Error('[SigningEngine][ecdsa] exact restore identity unavailable before PRF claim');
-  }
-  const laneIdentity = toExactEcdsaSigningLaneIdentity(record);
-  await args.touchConfirm.restorePersistedSessionForSigning({
-    walletId: String(args.walletId).trim(),
-    authMethod: 'passkey',
-    curve: 'ecdsa',
-    chainTarget: args.chainTarget,
-    signingGrantId: identity.signingGrantId,
-    thresholdSessionId: identity.thresholdSessionId,
-    reason: 'transaction',
-    materialRestoreIdentity: {
-      kind: 'ecdsa_role_local_restore',
-      lane: laneIdentity,
-      ecdsaThresholdKeyId: laneIdentity.signer.key.ecdsaThresholdKeyId,
-    },
   });
 }
 
@@ -231,14 +75,6 @@ export async function claimPasskeyEcdsaPrfFirst(args: PasskeyEcdsaPrfClaimArgs):
     ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
     curve: 'ecdsa',
     chainTarget: args.chainTarget,
-    restoreBeforeClaim: () =>
-      restorePasskeyEcdsaSessionBeforeClaim({
-        touchConfirm: args.touchConfirm,
-        walletId: args.walletId,
-        signingGrantId: args.signingGrantId,
-        thresholdSessionId: args.thresholdSessionId,
-        chainTarget: args.chainTarget,
-      }),
   });
 }
 
@@ -277,14 +113,9 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   try {
     await publishPasskeyEcdsaSealedRecordForWallet({
       walletId: args.walletId,
-      record: args.record,
       chainTarget: args.purpose.chainTarget,
       thresholdSessionId,
       signingGrantId,
-      policy: {
-        expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
-        remainingUses: Math.max(0, Math.floor(Number(args.record.remainingUses) || 0)),
-      },
     });
   } catch (error) {
     return {
@@ -309,14 +140,9 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     if (rehydrated.code === 'exhausted') {
       await publishPasskeyEcdsaSealedRecordForWallet({
         walletId: args.walletId,
-        record: args.record,
         chainTarget: args.purpose.chainTarget,
         thresholdSessionId,
         signingGrantId,
-        policy: {
-          expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
-          remainingUses: 0,
-        },
       }).catch(() => undefined);
     }
     if (shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(rehydrated)) {
@@ -329,14 +155,9 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   try {
     await publishPasskeyEcdsaSealedRecordForWallet({
       walletId: args.walletId,
-      record: args.record,
       chainTarget: args.purpose.chainTarget,
       thresholdSessionId,
       signingGrantId,
-      policy: {
-        expiresAtMs: rehydrated.expiresAtMs,
-        remainingUses: rehydrated.remainingUses,
-      },
     });
   } catch (error) {
     return {
@@ -357,14 +178,9 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   if (parsed.ok) {
     await publishPasskeyEcdsaSealedRecordForWallet({
       walletId: args.walletId,
-      record: args.record,
       chainTarget: args.purpose.chainTarget,
       thresholdSessionId,
       signingGrantId,
-      policy: {
-        expiresAtMs: parsed.expiresAtMs,
-        remainingUses: parsed.remainingUses,
-      },
     }).catch(() => undefined);
     await args
       .updatePersistedPolicy({
@@ -377,14 +193,9 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     if (parsed.code === 'exhausted') {
       await publishPasskeyEcdsaSealedRecordForWallet({
         walletId: args.walletId,
-        record: args.record,
         chainTarget: args.purpose.chainTarget,
         thresholdSessionId,
         signingGrantId,
-        policy: {
-          expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
-          remainingUses: 0,
-        },
       });
     }
     if (shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(parsed)) {

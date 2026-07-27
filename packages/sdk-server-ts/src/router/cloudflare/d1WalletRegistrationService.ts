@@ -1,4 +1,13 @@
 import {
+  parsePrincipalId,
+  parseReusableWalletSessionMintId,
+  type MpcWalletSigningQuotaId,
+  type PrincipalId,
+  type ReusableWalletSessionMintId,
+  type TenantId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import {
   computeRegistrationIntentDigestB64u,
   findRegistrationSignerPlanEvmFamilyEcdsaBranch,
   findRegistrationSignerPlanNearEd25519Branch,
@@ -69,6 +78,7 @@ import {
   type WalletRegistrationRouteTimingName,
 } from '../../core/registrationContracts';
 import type { RouterAbNormalSigningRuntime } from '../../core/routerAbSigning/RouterAbNormalSigningRuntime';
+import type { AuthorizationService } from '../../authorization/service';
 import { parseEcdsaDerivationPublicIdentity } from '../../core/ThresholdService/validation';
 import {
   routerAbEcdsaStrictRegistrationRequestMatchesFacts,
@@ -140,6 +150,10 @@ import {
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
 } from '../routerAbEd25519YaoProductRegistration';
 import {
+  DEFAULT_WALLET_SESSION_REMAINING_USES,
+  DEFAULT_WALLET_SESSION_TTL_MS,
+} from '@shared/threshold/sessionPolicy';
+import {
   buildRouterAbEd25519YaoRegistrationCapabilityRecordV1,
   type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1,
 } from '../routerAbEd25519YaoRecovery';
@@ -171,6 +185,30 @@ type QueryWalletRegistrationEcdsaActivationInput = WalletRegistrationEcdsaActiva
 type FinalizeWalletRegistrationInput = WalletRegistrationFinalizeRequest;
 
 const WALLET_REGISTRATION_START_RESUME_AFTER_MS = 30_000;
+
+function requireReusableWalletSessionPrincipalId(value: string): PrincipalId {
+  const parsed = parsePrincipalId(value);
+  if (!parsed.ok) {
+    throw new Error(`Reusable Wallet Session principal is invalid: ${parsed.error.message}`);
+  }
+  return parsed.value;
+}
+
+function requireReusableWalletSessionMintId(value: string): ReusableWalletSessionMintId {
+  const parsed = parseReusableWalletSessionMintId(value);
+  if (!parsed.ok) {
+    throw new Error(`Reusable Wallet Session mint identity is invalid: ${parsed.error.message}`);
+  }
+  return parsed.value;
+}
+
+function reusableWalletSessionPrincipalId(authority: WalletAuthAuthority): PrincipalId {
+  return requireReusableWalletSessionPrincipalId(
+    isEmailOtpWalletAuthAuthority(authority)
+      ? String(authority.factor.providerUserId)
+      : String(authority.walletId),
+  );
+}
 
 async function walletRegistrationFinalizeRequestFingerprint(
   request: FinalizeWalletRegistrationInput,
@@ -482,6 +520,8 @@ type D1RegistrationEd25519WalletSessionIdentity = {
   readonly nearEd25519SigningKeyId: string;
   readonly authority: WalletAuthAuthority;
   readonly thresholdSessionId: string;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
   readonly participantIds: readonly [number, number];
   readonly runtimePolicyScope: RuntimePolicyScope;
 };
@@ -492,6 +532,26 @@ function assertNeverD1RegistrationEd25519SigningBudgetPlan(value: never): never 
 
 function assertNeverD1RegistrationEcdsaFinalizeState(value: never): never {
   throw new Error(`Unexpected registration ECDSA finalize state: ${String(value)}`);
+}
+
+function registrationReusableWalletSessionTerms(input: {
+  readonly signingBudget: D1RegistrationEd25519SigningBudgetPlan;
+  readonly issuedAtMs: number;
+}): { readonly expiresAtMs: number; readonly remainingUses: number } {
+  switch (input.signingBudget.kind) {
+    case 'generated_registration_signing_budget':
+      return {
+        expiresAtMs: input.issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS,
+        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+      };
+    case 'shared_registration_signing_budget':
+      return {
+        expiresAtMs: input.signingBudget.budget.expiresAtMs,
+        remainingUses: input.signingBudget.budget.remainingUses,
+      };
+    default:
+      return assertNeverD1RegistrationEd25519SigningBudgetPlan(input.signingBudget);
+  }
 }
 
 async function mintD1RegistrationEd25519WalletSession(input: {
@@ -508,6 +568,8 @@ async function mintD1RegistrationEd25519WalletSession(input: {
         nearEd25519SigningKeyId: input.identity.nearEd25519SigningKeyId,
         authority: input.identity.authority,
         thresholdSessionId: input.identity.thresholdSessionId,
+        walletSessionId: input.identity.walletSessionId,
+        quotaId: input.identity.quotaId,
         participantIds: input.identity.participantIds,
         runtimePolicyScope: input.identity.runtimePolicyScope,
       });
@@ -519,6 +581,8 @@ async function mintD1RegistrationEd25519WalletSession(input: {
         nearEd25519SigningKeyId: input.identity.nearEd25519SigningKeyId,
         authority: input.identity.authority,
         thresholdSessionId: input.identity.thresholdSessionId,
+        walletSessionId: input.identity.walletSessionId,
+        quotaId: input.identity.quotaId,
         participantIds: input.identity.participantIds,
         runtimePolicyScope: input.identity.runtimePolicyScope,
         signingGrantId: input.signingBudget.budget.signingGrantId,
@@ -1092,7 +1156,6 @@ function buildPostRegistrationEcdsaNormalSigningState(input: {
   const state = parseRouterAbEcdsaDerivationNormalSigningStateV1({
     kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
     scope: {
-      wallet_key_id: input.walletKey.evmFamilySigningKeySlotId,
       wallet_id: input.walletKey.walletId,
       ecdsa_threshold_key_id: input.walletKey.ecdsaThresholdKeyId,
       signing_root_id: input.walletKey.signingRootId,
@@ -1110,6 +1173,8 @@ function buildPostRegistrationEcdsaNormalSigningState(input: {
 }
 
 export class CloudflareD1WalletRegistrationService {
+  private readonly authorizationService: AuthorizationService;
+  private readonly authorizationTenantId: TenantId;
   private readonly createSponsoredNamedNearAccount: SponsoredNamedNearAccountCreator;
   private readonly emailOtpRegistrationEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
@@ -1123,6 +1188,8 @@ export class CloudflareD1WalletRegistrationService {
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
 
   constructor(input: {
+    readonly authorizationService: AuthorizationService;
+    readonly authorizationTenantId: TenantId;
     readonly createSponsoredNamedNearAccount: SponsoredNamedNearAccountCreator;
     readonly emailOtpRegistrationEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
@@ -1135,6 +1202,8 @@ export class CloudflareD1WalletRegistrationService {
     readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   }) {
+    this.authorizationService = input.authorizationService;
+    this.authorizationTenantId = input.authorizationTenantId;
     this.createSponsoredNamedNearAccount = input.createSponsoredNamedNearAccount;
     this.emailOtpRegistrationEnrollmentFinalizer = input.emailOtpRegistrationEnrollmentFinalizer;
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
@@ -1393,7 +1462,11 @@ export class CloudflareD1WalletRegistrationService {
               message: 'Ed25519 Yao passkey app-session authorization is out of scope',
             };
           }
-          break;
+          return {
+            ok: false,
+            code: 'explicit_unlock_required',
+            message: 'A signed app session cannot mint a reusable Wallet Session',
+          };
         }
         case 'verified_email_otp_router_ab_ed25519_yao_budget_refresh_v1':
           if (
@@ -1511,6 +1584,17 @@ export class CloudflareD1WalletRegistrationService {
         remainingUses: policy.remainingUses,
       });
       if (!refreshed.ok) return refreshed;
+      const issuedAtMs = refreshed.expiresAtMs - policy.ttlMs;
+      const reusableWalletSession = await this.authorizationService.issueReusableWalletSession({
+        tenantId: this.authorizationTenantId,
+        principalId: reusableWalletSessionPrincipalId(authority),
+        walletId: authority.walletId,
+        authority: await walletAuthAuthorityRef({ authority }),
+        mintId: requireReusableWalletSessionMintId(authorization.verifiedChallengeId),
+        remainingUses: refreshed.remainingUses,
+        issuedAtMs,
+        expiresAtMs: refreshed.expiresAtMs,
+      });
       const minted = await yaoRuntime.mintWalletSession({
         kind: 'same_identity_budget_refresh_v1',
         walletId: authority.walletId,
@@ -1518,6 +1602,8 @@ export class CloudflareD1WalletRegistrationService {
         nearEd25519SigningKeyId: policy.nearEd25519SigningKeyId,
         authority,
         thresholdSessionId: refreshed.thresholdSessionId,
+        walletSessionId: reusableWalletSession.session.walletSessionId,
+        quotaId: reusableWalletSession.quota.quotaId,
         signingGrantId: refreshed.signingGrantId,
         expiresAtMs: refreshed.expiresAtMs,
         remainingUses: refreshed.remainingUses,
@@ -1534,6 +1620,8 @@ export class CloudflareD1WalletRegistrationService {
         authorityScope: session.authorityScope,
         thresholdSessionId: session.thresholdSessionId,
         signingGrantId: session.signingGrantId,
+        walletSessionId: session.walletSessionId,
+        quotaId: session.quotaId,
         expiresAtMs: session.expiresAtMs,
         expiresAt: new Date(session.expiresAtMs).toISOString(),
         participantIds: exactParticipantIds,
@@ -1674,6 +1762,22 @@ export class CloudflareD1WalletRegistrationService {
           message: 'Active Ed25519 Yao capability does not match the registered signer',
         };
       }
+      const issuedAtMs = Date.now();
+      const reusableRemainingUses = Math.min(
+        DEFAULT_WALLET_SESSION_REMAINING_USES,
+        remainingUses,
+      );
+      const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
+      const reusableWalletSession = await this.authorizationService.issueReusableWalletSession({
+        tenantId: this.authorizationTenantId,
+        principalId: reusableWalletSessionPrincipalId(authority),
+        walletId: walletIdFromString(walletId),
+        authority: await walletAuthAuthorityRef({ authority }),
+        mintId: requireReusableWalletSessionMintId(verifiedChallengeId),
+        remainingUses: reusableRemainingUses,
+        issuedAtMs,
+        expiresAtMs,
+      });
       const minted = await yaoRuntime.mintWalletSession({
         kind: 'shared_email_otp_recovery_wallet_session_v1',
         walletId: walletIdFromString(walletId),
@@ -1681,9 +1785,12 @@ export class CloudflareD1WalletRegistrationService {
         nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
         authority,
         thresholdSessionId: descriptor.lifecycle.walletSessionId,
+        walletSessionId: reusableWalletSession.session.walletSessionId,
+        quotaId: reusableWalletSession.quota.quotaId,
         participantIds,
         runtimePolicyScope: signer.runtimePolicyScope,
-        remainingUses,
+        expiresAtMs,
+        remainingUses: reusableRemainingUses,
       });
       if (!minted.ok) return minted;
       const session = minted.session;
@@ -2937,9 +3044,25 @@ export class CloudflareD1WalletRegistrationService {
             };
             break;
           }
-          default:
-            signingBudget = assertNeverD1RegistrationEcdsaFinalizeState(ecdsaFinalizeState);
-        }
+        default:
+          signingBudget = assertNeverD1RegistrationEcdsaFinalizeState(ecdsaFinalizeState);
+      }
+        const issuedAtMs = Date.now();
+        const reusableTerms = registrationReusableWalletSessionTerms({
+          signingBudget,
+          issuedAtMs,
+        });
+        const reusableWalletSession =
+          await this.authorizationService.issueReusableWalletSession({
+            tenantId: this.authorizationTenantId,
+            principalId: reusableWalletSessionPrincipalId(walletAuthAuthority),
+            walletId: ceremony.intent.walletId,
+            authority: await walletAuthAuthorityRef({ authority: walletAuthAuthority }),
+            mintId: requireReusableWalletSessionMintId(ceremony.registrationCeremonyId),
+            remainingUses: reusableTerms.remainingUses,
+            issuedAtMs,
+            expiresAtMs: reusableTerms.expiresAtMs,
+          });
         const session = await mintD1RegistrationEd25519WalletSession({
           runtime: yaoRuntime,
           identity: {
@@ -2949,6 +3072,8 @@ export class CloudflareD1WalletRegistrationService {
               consumed.activation.admissionRequest.application_binding.near_ed25519_signing_key_id,
             authority: walletAuthAuthority,
             thresholdSessionId: consumed.activation.admissionRequest.scope.wallet_session_id,
+            walletSessionId: reusableWalletSession.session.walletSessionId,
+            quotaId: reusableWalletSession.quota.quotaId,
             participantIds,
             runtimePolicyScope,
           },

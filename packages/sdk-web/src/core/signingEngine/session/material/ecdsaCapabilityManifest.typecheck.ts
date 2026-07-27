@@ -25,6 +25,8 @@ import type {
   EvmFamilyEcdsaSignerId,
 } from '@shared/utils/ecdsaCapabilityActivation';
 import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
+import type { EcdsaRoleLocalPublicFacts } from '@/core/platform/ecdsaRoleLocalRecords';
+import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { ParticipantId, VerifiedEcdsaPublicFacts } from '../identity/evmFamilyEcdsaIdentity';
 import type {
   EcdsaClientVerifyingPublicKey33B64u,
@@ -62,6 +64,8 @@ import {
 declare const capability: CapabilityInstanceRef;
 declare const materialOwner: MpcMaterialOwnerRef;
 declare const activationId: MpcMaterialActivationId;
+declare const evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+declare const roleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
 declare const walletId: WalletId;
 declare const authorityDigest: WalletAuthorityBindingDigest;
 declare const signerId: EvmFamilyEcdsaSignerId;
@@ -144,6 +148,7 @@ const activationBinding = buildEcdsaActivationBinding({
   targetManifest,
   signer: preparedSigner,
   activationId,
+  evmFamilySigningKeySlotId,
   roleLocalBinding,
   bindingDigest,
   durableMaterialRef,
@@ -180,6 +185,7 @@ const committedJournal = buildServerCommittedEcdsaActivationJournal({
 const durableMaterial = buildDurableEcdsaMaterialBinding({
   activationBinding,
   serverActivation: committedJournal.serverActivation,
+  roleLocalPublicFacts,
   ciphertextDigest,
 });
 
@@ -218,6 +224,7 @@ const replacementActivationBinding = buildEcdsaActivationBinding({
   targetManifest: replacementTarget,
   signer: preparedSigner,
   activationId,
+  evmFamilySigningKeySlotId,
   roleLocalBinding,
   bindingDigest,
   durableMaterialRef,

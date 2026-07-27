@@ -11,6 +11,10 @@ import type { RouterAbEd25519WalletSessionClaims } from '../core/ThresholdServic
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../core/ThresholdService/validation';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '../core/registrationContracts';
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from './routerAbEd25519YaoRecovery';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 export type RouterAbEd25519YaoSessionPolicyV1 = {
   readonly version: 'threshold_session_v1';
@@ -43,6 +47,14 @@ export type RouterAbEd25519YaoSessionRouteCommandV1 = {
   readonly sessionKind: 'jwt';
 };
 
+export type RouterAbEd25519YaoOperationStepUpGrantCommandV1 = {
+  readonly kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1';
+  readonly normalSigningRequest: Record<string, unknown>;
+  readonly displayDigest: string;
+  readonly authority: PasskeyWalletAuthAuthority;
+  readonly webauthnAuthentication: WebAuthnAuthenticationCredential;
+};
+
 export type RouterAbEd25519YaoBudgetRefreshAuthorizationV1 =
   | {
       readonly kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1';
@@ -51,7 +63,7 @@ export type RouterAbEd25519YaoBudgetRefreshAuthorizationV1 =
       readonly runtimePolicyScope?: never;
       readonly currentSession?: never;
       readonly signerSlot?: never;
-      readonly verifiedChallengeId?: never;
+      readonly verifiedChallengeId: string;
       readonly verifiedProviderUserId?: never;
       readonly verifiedOrgId?: never;
     }
@@ -93,6 +105,8 @@ export type RouterAbEd25519YaoBudgetRefreshResponseV1 =
       >;
       readonly thresholdSessionId: string;
       readonly signingGrantId: string;
+      readonly walletSessionId: WalletSessionId;
+      readonly quotaId: MpcWalletSigningQuotaId;
       readonly expiresAtMs: number;
       readonly expiresAt: string;
       readonly participantIds: readonly [number, number];

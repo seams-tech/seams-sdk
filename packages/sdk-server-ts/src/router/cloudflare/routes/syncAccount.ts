@@ -4,8 +4,10 @@ import {
   parseSyncAccountOptionsRequest,
   parseSyncAccountVerifyRequest,
 } from '../../syncAccountRequestValidation';
-import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import { walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 
 export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST') return null;
@@ -100,66 +102,17 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
           { status: 409 },
         );
       }
-      const walletSession = await yaoRuntime.mintWalletSession({
-        kind: 'registration_wallet_session_v1',
-        walletId: walletIdFromString(capability.capability.applicationBinding.wallet_id),
-        nearAccountId: capability.capability.nearAccountId,
-        nearEd25519SigningKeyId:
-          capability.capability.applicationBinding.near_ed25519_signing_key_id,
-        authority: buildPasskeyWalletAuthAuthority({
-          walletId: walletBinding.walletId,
-          rpId: walletBinding.rpId,
-          credentialIdB64u,
-        }),
-        thresholdSessionId: capability.capability.lifecycle.walletSessionId,
-        participantIds: capability.capability.participantIds,
-        runtimePolicyScope: capability.capability.runtimePolicyScope,
+      const authority = buildPasskeyWalletAuthAuthority({
+        walletId: walletBinding.walletId,
+        rpId: walletBinding.rpId,
+        credentialIdB64u,
       });
-      if (!walletSession.ok) {
-        return json(
-          { ok: false, code: walletSession.code, message: walletSession.message },
-          { status: 500 },
-        );
-      }
-      const normalSigningRuntime = ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime();
-      if (!normalSigningRuntime) {
-        return json(
-          {
-            ok: false,
-            code: 'internal',
-            message: 'Ed25519 Yao normal-signing runtime is not configured',
-          },
-          { status: 500 },
-        );
-      }
-      const provisioned =
-        await normalSigningRuntime.provisionRouterAbEd25519YaoNormalSigningSession({
-          kind: 'router_ab_ed25519_yao_normal_signing_session_v1',
-          walletId,
-          nearAccountId,
-          nearEd25519SigningKeyId,
-          authorityScope: walletSession.session.authorityScope,
-          thresholdSessionId: walletSession.session.thresholdSessionId,
-          signingGrantId: walletSession.session.signingGrantId,
-          signingWorkerId,
-          expiresAtMs: walletSession.session.expiresAtMs,
-          participantIds: [firstParticipantId, secondParticipantId],
-          remainingUses: walletSession.session.remainingUses,
-        });
-      if (!provisioned.ok) {
-        return json(
-          { ok: false, code: provisioned.code, message: provisioned.message },
-          { status: 500 },
-        );
-      }
+      const authorityRef = await walletAuthAuthorityRef({ authority });
       responseBody = {
         ...result,
-        thresholdEd25519: {
-          ...thresholdEd25519,
-          session: walletSession.session,
-        },
         ed25519YaoRecovery: {
           kind: 'router_ab_ed25519_yao_sync_recovery_v1',
+          authorityRef,
           capability: capability.capability,
         },
       };

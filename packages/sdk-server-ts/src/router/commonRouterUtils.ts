@@ -47,6 +47,14 @@ import {
 import { base64UrlEncode } from '@shared/utils/encoders';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
+  parseMpcWalletSigningQuotaId,
+  parseSeamsSessionId,
+  parseWalletSessionId,
+  type MpcWalletSigningQuotaId,
+  type SeamsSessionId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import {
   walletSessionFailure,
   walletSessionFailureMessage,
   walletSessionParseFailure,
@@ -209,6 +217,8 @@ type RouterAbWalletSessionJwtSigningInput = {
     sessionKind: 'jwt';
     thresholdSessionId?: unknown;
     signingGrantId?: unknown;
+    walletSessionId?: unknown;
+    quotaId?: unknown;
     expiresAtMs?: unknown;
     participantIds?: unknown;
     runtimePolicyScope?: unknown;
@@ -238,6 +248,7 @@ export type RouterAbEcdsaDerivationWalletSessionJwtSigningInput = RouterAbWallet
   evmFamilySigningKeySlotId: unknown;
   sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
     sessionKind: 'jwt';
+    authorizationSessionId: unknown;
     keyHandle: unknown;
     stableKeyContext: unknown;
     publicIdentity: unknown;
@@ -315,6 +326,8 @@ type NormalizedRouterAbWalletSessionSigningBase = {
   relayerKeyId: string;
   thresholdSessionId: string;
   signingGrantId: string;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   thresholdExpiresAtMs: number;
   participantIds: number[];
   iat: number;
@@ -333,6 +346,8 @@ function normalizeRouterAbWalletSessionSigningBase(
   const relayerKeyId = String(args.relayerKeyId || '').trim();
   const thresholdSessionId = String(args.sessionInfo?.thresholdSessionId || '').trim();
   const signingGrantId = String(args.sessionInfo?.signingGrantId || '').trim();
+  const walletSessionId = parseWalletSessionId(args.sessionInfo?.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(args.sessionInfo?.quotaId);
   const thresholdExpiresAtMs = Number(args.sessionInfo?.expiresAtMs);
   const participantIds =
     normalizeThresholdEd25519ParticipantIds(args.sessionInfo?.participantIds) ||
@@ -343,6 +358,8 @@ function normalizeRouterAbWalletSessionSigningBase(
     !relayerKeyId ||
     !thresholdSessionId ||
     !signingGrantId ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
     !Number.isFinite(thresholdExpiresAtMs) ||
     thresholdExpiresAtMs <= 0 ||
     !participantIds ||
@@ -363,6 +380,8 @@ function normalizeRouterAbWalletSessionSigningBase(
       relayerKeyId,
       thresholdSessionId,
       signingGrantId,
+      walletSessionId: walletSessionId.value,
+      quotaId: quotaId.value,
       thresholdExpiresAtMs,
       participantIds,
       iat: Math.floor(Date.now() / 1000),
@@ -445,7 +464,6 @@ export function buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap(input
     const state = parseRouterAbEcdsaDerivationNormalSigningStateV1({
       kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
       scope: {
-        wallet_key_id: bootstrap.evmFamilySigningKeySlotId,
         wallet_id: bootstrap.walletId,
         ecdsa_threshold_key_id: bootstrap.ecdsaThresholdKeyId,
         signing_root_id: bootstrap.signingRootId,
@@ -573,7 +591,6 @@ function doesEcdsaDerivationBindingMatchSessionInfo(
     String(args.sessionInfo.activationEpoch || '').trim() ===
       normalSigning.scope.activation_epoch &&
     String(args.sessionInfo.signingWorkerId || '').trim() === signingWorker.server_id &&
-    String(stableKeyContext.evmFamilySigningKeySlotId || '').trim() === normalSigning.scope.wallet_key_id &&
     String(stableKeyContext.walletId || '').trim() === normalSigning.scope.wallet_id &&
     String(stableKeyContext.ecdsaThresholdKeyId || '').trim() ===
       normalSigning.scope.ecdsa_threshold_key_id &&
@@ -610,6 +627,7 @@ type RouterAbEd25519WalletSessionClaimsBuildInput = {
 
 type RouterAbEcdsaDerivationWalletSessionClaimsBuildInput = {
   base: NormalizedRouterAbWalletSessionSigningBase;
+  authorizationSessionId: SeamsSessionId;
   evmFamilySigningKeySlotId: string;
   keyHandle: string;
   runtimePolicyScope?: RuntimePolicyScope;
@@ -629,6 +647,8 @@ function buildRouterAbEd25519WalletSessionClaims(
     nearEd25519SigningKeyId: input.binding.nearEd25519SigningKeyId,
     thresholdSessionId: input.base.thresholdSessionId,
     signingGrantId: input.base.signingGrantId,
+    walletSessionId: input.base.walletSessionId,
+    quotaId: input.base.quotaId,
     relayerKeyId: input.base.relayerKeyId,
     authority: input.authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(input.authority),
@@ -656,6 +676,9 @@ function buildRouterAbEcdsaDerivationWalletSessionClaims(
     walletId: input.base.userId,
     thresholdSessionId: input.base.thresholdSessionId,
     signingGrantId: input.base.signingGrantId,
+    authorizationSessionId: input.authorizationSessionId,
+    walletSessionId: input.base.walletSessionId,
+    quotaId: input.base.quotaId,
     keyScope: 'evm-family',
     keyHandle: input.keyHandle,
     relayerKeyId: input.base.relayerKeyId,
@@ -748,7 +771,7 @@ export async function signRouterAbEcdsaDerivationWalletSessionJwt(
   const binding = rejectInvalidRouterAbEcdsaDerivationBinding(args);
   if (!binding.ok) return binding;
   const evmFamilySigningKeySlotId = String(args.evmFamilySigningKeySlotId || '').trim();
-  if (!evmFamilySigningKeySlotId || evmFamilySigningKeySlotId !== binding.normalSigning.scope.wallet_key_id) {
+  if (!evmFamilySigningKeySlotId) {
     return {
       ok: false,
       status: 500,
@@ -770,8 +793,20 @@ export async function signRouterAbEcdsaDerivationWalletSessionJwt(
       message: args.invalidPayloadErrorMessage,
     };
   }
+  const authorizationSessionId = parseSeamsSessionId(
+    args.sessionInfo.authorizationSessionId,
+  );
+  if (!authorizationSessionId.ok) {
+    return {
+      ok: false,
+      status: 500,
+      code: 'internal',
+      message: args.invalidPayloadErrorMessage,
+    };
+  }
   const claims = buildRouterAbEcdsaDerivationWalletSessionClaims({
     base: base.value,
+    authorizationSessionId: authorizationSessionId.value,
     evmFamilySigningKeySlotId,
     keyHandle,
     runtimePolicyScope: runtimePolicyScope.value,

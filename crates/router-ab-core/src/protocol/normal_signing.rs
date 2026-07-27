@@ -3,7 +3,7 @@ use crate::protocol::error::{
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
 use crate::protocol::identity::ServerIdentityV1;
-use crate::protocol::lifecycle::NormalSigningScopeV1;
+use crate::protocol::lifecycle::{NormalSigningAuthorizationV1, NormalSigningScopeV1};
 use crate::protocol::wire::CanonicalWireBytesV1;
 use base64ct::{Base64UrlUnpadded, Encoding};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -648,9 +648,15 @@ impl RouterAbEd25519NormalSigningAdmissionMaterialV2 {
         &self,
         scope: &NormalSigningScopeV1,
         expires_at_ms: u64,
+        display_digest: PublicDigest32,
     ) -> RouterAbProtocolResult<PublicDigest32> {
         Ok(public_digest(
-            &router_ab_ed25519_normal_signing_round1_binding_bytes_v2(scope, expires_at_ms, self)?,
+            &router_ab_ed25519_normal_signing_round1_binding_bytes_v2(
+                scope,
+                expires_at_ms,
+                display_digest,
+                self,
+            )?,
         ))
     }
 }
@@ -663,6 +669,8 @@ pub struct RouterAbEd25519NormalSigningPrepareRequestV2 {
     pub scope: NormalSigningScopeV1,
     /// Request expiry in Unix milliseconds.
     pub expires_at_ms: u64,
+    /// Canonical digest of the display approved for this operation.
+    pub display_digest: PublicDigest32,
     /// Typed normal-signing intent.
     pub intent: RouterAbEd25519NormalSigningIntentV2,
     /// Typed signing payload.
@@ -674,12 +682,14 @@ impl RouterAbEd25519NormalSigningPrepareRequestV2 {
     pub fn new(
         scope: NormalSigningScopeV1,
         expires_at_ms: u64,
+        display_digest: PublicDigest32,
         intent: RouterAbEd25519NormalSigningIntentV2,
         signing_payload: RouterAbEd25519SigningPayloadV2,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self {
             scope,
             expires_at_ms,
+            display_digest,
             intent,
             signing_payload,
         };
@@ -726,7 +736,7 @@ impl RouterAbEd25519NormalSigningPrepareRequestV2 {
     /// Returns the round-1 binding digest for the typed prepare request.
     pub fn round1_binding_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
         self.admission_material()?
-            .round1_binding_digest(&self.scope, self.expires_at_ms)
+            .round1_binding_digest(&self.scope, self.expires_at_ms, self.display_digest)
     }
 }
 
@@ -1392,6 +1402,8 @@ pub struct RouterAbEd25519PresignPoolHitFinalizeRequestV2 {
     pub scope: NormalSigningScopeV1,
     /// Request expiry in Unix milliseconds.
     pub expires_at_ms: u64,
+    /// Canonical digest of the display approved for this operation.
+    pub display_digest: PublicDigest32,
     /// Selected pool entry and handles.
     pub pool_binding: RouterAbEd25519PresignPoolHitBindingV2,
     /// Typed normal-signing intent for Router admission.
@@ -1407,6 +1419,7 @@ impl RouterAbEd25519PresignPoolHitFinalizeRequestV2 {
     pub fn new(
         scope: NormalSigningScopeV1,
         expires_at_ms: u64,
+        display_digest: PublicDigest32,
         pool_binding: RouterAbEd25519PresignPoolHitBindingV2,
         intent: RouterAbEd25519NormalSigningIntentV2,
         signing_payload: RouterAbEd25519SigningPayloadV2,
@@ -1415,6 +1428,7 @@ impl RouterAbEd25519PresignPoolHitFinalizeRequestV2 {
         let request = Self {
             scope,
             expires_at_ms,
+            display_digest,
             pool_binding,
             intent,
             signing_payload,
@@ -1460,8 +1474,11 @@ impl RouterAbEd25519PresignPoolHitFinalizeRequestV2 {
 
     /// Returns the round-1 binding digest after this pool entry is claimed.
     pub fn round1_binding_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
-        self.admission_material()?
-            .round1_binding_digest(&self.scope, self.expires_at_ms)
+        self.admission_material()?.round1_binding_digest(
+            &self.scope,
+            self.expires_at_ms,
+            self.display_digest,
+        )
     }
 
     /// Returns the selected SigningWorker-local server round-1 handle.
@@ -1866,7 +1883,7 @@ impl ActiveSigningWorkerStateV1 {
         self.validate()?;
         scope.validate()?;
         if self.account_id != scope.account_id
-            || self.session_id != scope.active_state_session_id
+            || self.session_id != scope.material_activation.activation_id
             || self.signing_worker.server_id != scope.signing_worker_id
         {
             return Err(RouterAbProtocolError::new(
@@ -1966,14 +1983,32 @@ fn public_digest(bytes: &[u8]) -> PublicDigest32 {
 fn push_normal_signing_scope(out: &mut Vec<u8>, scope: &NormalSigningScopeV1) {
     push_len32(out, scope.request_id.as_bytes());
     push_len32(out, scope.account_id.as_bytes());
-    push_len32(out, scope.session_id.as_bytes());
-    push_len32(out, scope.active_state_session_id.as_bytes());
+    match &scope.authorization {
+        NormalSigningAuthorizationV1::ReusableWalletSession {
+            wallet_session_id,
+        } => {
+            push_len32(out, b"reusable_wallet_session");
+            push_len32(out, wallet_session_id.as_bytes());
+        }
+        NormalSigningAuthorizationV1::OperationStepUp { grant_id } => {
+            push_len32(out, b"operation_step_up");
+            push_len32(out, grant_id.as_bytes());
+        }
+    }
+    push_len32(out, b"mpc_material_activation_ref");
+    push_len32(out, scope.material_activation.activation_id.as_bytes());
+    push_len32(out, scope.material_activation.capability.as_bytes());
+    push_len32(out, scope.material_activation.material_owner.as_bytes());
+    push_len32(out, scope.material_activation.key_binding.as_bytes());
+    push_len32(out, scope.material_activation.lifecycle_binding.as_bytes());
+    push_len32(out, scope.material_activation.signing_worker.as_bytes());
     push_len32(out, scope.signing_worker_id.as_bytes());
 }
 
 fn router_ab_ed25519_normal_signing_round1_binding_bytes_v2(
     scope: &NormalSigningScopeV1,
     expires_at_ms: u64,
+    display_digest: PublicDigest32,
     material: &RouterAbEd25519NormalSigningAdmissionMaterialV2,
 ) -> RouterAbProtocolResult<Vec<u8>> {
     scope.validate()?;
@@ -1985,6 +2020,7 @@ fn router_ab_ed25519_normal_signing_round1_binding_bytes_v2(
     push_len32(&mut out, ROUTER_AB_ED25519_ROUND1_BINDING_VERSION_V2);
     push_normal_signing_scope(&mut out, scope);
     push_u64(&mut out, expires_at_ms);
+    out.extend_from_slice(display_digest.as_bytes());
     out.extend_from_slice(material.intent_digest.as_bytes());
     out.extend_from_slice(material.signing_payload_digest.as_bytes());
     out.extend_from_slice(material.admitted_signing_digest.as_bytes());

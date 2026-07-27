@@ -8,6 +8,7 @@ import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIde
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
 import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmCapabilities/types';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 function createEnvelope(): WarmSessionEnvelope {
   return {
@@ -60,6 +61,7 @@ function createEnvelope(): WarmSessionEnvelope {
             } as any;
             const lane = selectedEcdsaLane({
               key,
+              materialActivation: buildMpcMaterialActivationRefFixture('transition-summary'),
               keyHandle: 'ek-tempo-handle',
               walletId: 'transition-summary.testnet' as any,
               auth: {

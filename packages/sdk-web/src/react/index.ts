@@ -73,6 +73,10 @@ export type {
   SeamsContextProviderProps,
   LoginState,
   LoginResult,
+  AddedEvmFamilyEcdsaSignerCapability,
+  AddedNearEd25519SignerCapability,
+  RegisteredEvmFamilyEcdsaCapability,
+  RegisteredNearEd25519Capability,
   RegistrationResult,
   PasskeyRegistrationOptions,
   // Re-exported from SeamsWeb types
@@ -128,10 +132,7 @@ export type {
   SeamsAuthMenuSyncAccountRequest,
 } from './components/SeamsAuthMenu/public';
 export { AuthMenuMode, AuthMenuModeMap } from './components/SeamsAuthMenu/authMenuTypes';
-export type {
-  AuthMenuModeLabel,
-  AuthMenuHeadings,
-} from './components/SeamsAuthMenu/authMenuTypes';
+export type { AuthMenuModeLabel, AuthMenuHeadings } from './components/SeamsAuthMenu/authMenuTypes';
 // SSR-safe shell + explicit client entrypoints
 export {
   SeamsAuthMenuClient,

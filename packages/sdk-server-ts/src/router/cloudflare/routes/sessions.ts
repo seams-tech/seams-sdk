@@ -73,9 +73,14 @@ import {
 } from '../../../authorization/domain';
 import {
   parseDeviceId,
+  parseMpcWalletSigningQuotaId,
   parsePrincipalId,
   parseSeamsSessionId,
+  parseTenantId,
+  parseWalletSessionId,
   type AuthorizationParseResult,
+  type MpcWalletSigningQuotaId,
+  type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
   parseAppSessionVersion,
@@ -1511,6 +1516,127 @@ export async function handleSigningBudgetStatus(
       { status: 500 },
     );
   }
+}
+
+function parseReusableWalletSessionStatusBody(body: unknown): {
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+} | null {
+  if (!isPlainObject(body)) return null;
+  const fields = Object.keys(body);
+  if (
+    fields.length !== 2 ||
+    !fields.every((field) => field === 'walletSessionId' || field === 'quotaId')
+  ) {
+    return null;
+  }
+  const walletSessionId = parseWalletSessionId(body.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(body.quotaId);
+  if (!walletSessionId.ok || !quotaId.ok) return null;
+  return {
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
+  };
+}
+
+export async function handleReusableWalletSessionStatus(
+  ctx: CloudflareRouterApiContext,
+): Promise<Response | null> {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/session/status') return null;
+  const body = parseReusableWalletSessionStatusBody(await readJson(ctx.request));
+  if (!body) {
+    return json(
+      {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Wallet Session status requires exact walletSessionId and quotaId',
+      },
+      { status: 400 },
+    );
+  }
+  const validated = await readAndValidateAppSession(ctx);
+  if (!validated.ok) return validated.response;
+  const claims = validated.claims as Record<string, unknown>;
+  const tenantId = parseTenantId(claims.tenantId);
+  const principalId = parsePrincipalId(claims.sub);
+  const authorizationSessionId = parseSeamsSessionId(claims.seamsSessionId);
+  if (
+    !tenantId.ok ||
+    tenantId.value !== ctx.service.authorizationSessions.tenantId ||
+    !principalId.ok ||
+    !authorizationSessionId.ok
+  ) {
+    return json(
+      { ok: false, code: 'unauthorized', message: 'App session identity is invalid' },
+      { status: 401 },
+    );
+  }
+  const nowMs = Date.now();
+  const activeAuthorizationSession =
+    await ctx.service.authorizationSessions.readActiveSession({
+      tenantId: tenantId.value,
+      sessionId: authorizationSessionId.value,
+      nowMs,
+    });
+  if (
+    !activeAuthorizationSession ||
+    activeAuthorizationSession.principalId !== principalId.value
+  ) {
+    return json(
+      { ok: false, code: 'unauthorized', message: 'App session is unavailable' },
+      { status: 401 },
+    );
+  }
+  const result = await ctx.service.authorizationSessions.readReusableWalletSessionStatus({
+    tenantId: tenantId.value,
+    principalId: principalId.value,
+    walletSessionId: body.walletSessionId,
+    quotaId: body.quotaId,
+    nowMs,
+  });
+  switch (result.kind) {
+    case 'active':
+    case 'exhausted':
+      return json(
+        {
+          ok: true,
+          status: result.kind,
+          walletSessionId: result.walletSessionId,
+          quotaId: result.quotaId,
+          remainingUses: result.remainingUses,
+          expiresAtMs: result.expiresAtMs,
+        },
+        { status: 200 },
+      );
+    case 'expired':
+      return json(
+        {
+          ok: true,
+          status: result.kind,
+          walletSessionId: result.walletSessionId,
+          quotaId: result.quotaId,
+          expiresAtMs: result.expiresAtMs,
+        },
+        { status: 200 },
+      );
+    case 'superseded':
+    case 'missing':
+    case 'invalid':
+      return json(
+        {
+          ok: true,
+          status: result.kind,
+          walletSessionId: result.walletSessionId,
+          quotaId: result.quotaId,
+        },
+        { status: 200 },
+      );
+  }
+  result satisfies never;
+  return json(
+    { ok: false, code: 'internal', message: 'Invalid Wallet Session status' },
+    { status: 500 },
+  );
 }
 
 export async function handleWalletUnlockChallenge(

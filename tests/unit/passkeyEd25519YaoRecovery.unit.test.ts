@@ -148,6 +148,11 @@ function syncResponseFixture(
     },
     ed25519YaoRecovery: {
       kind: input.recoveryKind,
+      authorityRef: {
+        kind: 'wallet_auth_authority_ref',
+        walletId: input.responseWalletId,
+        authorityDigest: 'passkey-recovery-authority-digest',
+      },
       capability: {
         kind: 'router_ab_ed25519_yao_active_capability_v1',
         activeCapabilityBinding: bytes(20, input.activeCapabilityBindingLength),
@@ -215,6 +220,11 @@ test.describe('passkey Ed25519 Yao browser recovery boundary', () => {
     const parsed = parsePasskeyEd25519YaoSyncResponseV1(syncResponseFixture());
 
     expect(parsed).toMatchObject({
+      authority: {
+        kind: 'wallet_auth_authority_ref',
+        walletId: WALLET_ID,
+        authorityDigest: 'passkey-recovery-authority-digest',
+      },
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
       nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,

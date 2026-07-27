@@ -1,37 +1,39 @@
 import {
-  assertMatchingEvmFamilySigningKeySlotId,
-  requireEvmFamilySigningKeySlotId,
-} from '@shared/signing-lanes';
+  mpcMaterialActivationRefsEqual,
+  parseSigningGrantId,
+  parseThresholdEcdsaSessionId,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 import {
+  buildEcdsaWalletSessionTransportAuth,
   buildKnownReadyThresholdEcdsaSessionPolicy,
-  buildReadyEcdsaSignerSession,
-  buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord,
-  toVerifiedEcdsaPublicFactsFromRecord,
+  buildReadyThresholdEcdsaSession,
+  type ReadyEcdsaSignerSession,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
-  requirePersistedEcdsaRoleLocalMaterial,
-  type ThresholdEcdsaSessionRecord,
-} from '../../session/persistence/records';
-import {
-  emailOtpAuthContextConsumedAtMs,
-  emailOtpAuthContextRetention,
-} from '../../session/identity/laneIdentity';
-import type { EcdsaRoleLocalPersistedMaterialRef } from '../../session/keyMaterialBrands';
-import {
-  ecdsaRoleLocalPersistedMaterialRefSource,
+  ecdsaRoleLocalPersistedMaterialSource,
   resolveEcdsaRoleLocalMaterial,
   type EcdsaRoleLocalMaterialResolution,
+  type PersistedEcdsaRoleLocalMaterial,
   type ResolvedEcdsaRoleLocalSigningMaterial,
 } from '../../session/material/ecdsaRoleLocalMaterialResolver';
 import {
   markResolvedEcdsaRoleLocalMaterialRuntimeValidated,
-  requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord,
+  type RouterAbEcdsaDerivationSigningWalletSession,
 } from '../../session/routerAbSigningWalletSession';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
+import {
+  parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1,
+  routerAbEcdsaDerivationActiveStateId,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
+import { buildRouterAbEcdsaDerivationSigningMaterialRef } from '../../routerAb/ecdsaDerivation/signingMaterialRef';
+import { parseThresholdRuntimePolicyScopeFromJwt } from '../../threshold/sessionPolicy';
 import {
   buildReadySecp256k1SigningMaterial,
   type ReadySecp256k1SigningMaterial,
 } from './signers/secp256k1';
+import type { EvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
 
 type EcdsaSessionChain = 'tempo' | 'evm';
 
@@ -49,7 +51,6 @@ function requireResolvedRoleLocalWorkerHandle(
   resolution: EcdsaRoleLocalMaterialResolution,
 ): ResolvedEcdsaRoleLocalSigningMaterial {
   switch (resolution.kind) {
-    case 'live':
     case 'rehydrated':
       return resolution;
     case 'device_link_required':
@@ -68,86 +69,151 @@ function requireResolvedRoleLocalWorkerHandle(
 }
 
 export async function hydrateEcdsaRoleLocalMaterialForSigning(args: {
-  materialRef: EcdsaRoleLocalPersistedMaterialRef;
+  persistedMaterial: PersistedEcdsaRoleLocalMaterial;
   workerCtx: WorkerOperationContext;
 }): Promise<ResolvedEcdsaRoleLocalSigningMaterial> {
   const resolution = await resolveEcdsaRoleLocalMaterial({
     purpose: 'transaction_signing',
-    source: ecdsaRoleLocalPersistedMaterialRefSource(args.materialRef),
+    source: ecdsaRoleLocalPersistedMaterialSource(args.persistedMaterial),
     workerCtx: args.workerCtx,
   });
   return requireResolvedRoleLocalWorkerHandle(resolution);
 }
 
-function assertThresholdEcdsaSessionAuthorizationIsActive(
-  record: ThresholdEcdsaSessionRecord,
-): void {
-  if (record.remainingUses <= 0) {
-    throw new Error(
-      '[multichain] threshold-ecdsa role-local session requires exhausted reauthorization',
-    );
+export type ReadySecp256k1SigningMaterialResolution =
+  | {
+      readonly kind: 'ready';
+      readonly material: ReadySecp256k1SigningMaterial;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly reason:
+        | 'material_activation_mismatch'
+        | 'chain_mismatch';
+      readonly material?: never;
+    };
+
+function parseCanonicalEcdsaSessionIdentity(walletSessionJwt: string): {
+  readonly thresholdSessionId: ReturnType<typeof parseThresholdEcdsaSessionId> & {
+    readonly ok: true;
+  };
+  readonly signingGrantId: ReturnType<typeof parseSigningGrantId> & {
+    readonly ok: true;
+  };
+} {
+  const payload = decodeJwtPayloadRecord(walletSessionJwt);
+  const thresholdSessionId = parseThresholdEcdsaSessionId(payload?.thresholdSessionId);
+  const signingGrantId = parseSigningGrantId(payload?.signingGrantId);
+  if (!thresholdSessionId.ok || !signingGrantId.ok) {
+    throw new Error('[multichain] ECDSA Wallet Session identity is invalid');
   }
-  if (record.expiresAtMs <= Date.now()) {
+  return { thresholdSessionId, signingGrantId };
+}
+
+export async function resolveReadySecp256k1SigningMaterial(args: {
+  capability: EvmFamilyEcdsaSigningCapability;
+  relayerUrl: string;
+  requestLabel: unknown;
+  materialActivation: MpcMaterialActivationRef;
+  workerCtx: WorkerOperationContext;
+}): Promise<ReadySecp256k1SigningMaterialResolution> {
+  const capability = args.capability;
+  const manifest = capability.manifest;
+  const persistedMaterial = capability.material;
+  const projection = capability.authorization.projection;
+  const status = capability.authorization.status;
+  if (
+    !mpcMaterialActivationRefsEqual(
+      args.materialActivation,
+      manifest.activation.materialActivation,
+    )
+  ) {
+    return {
+      kind: 'unavailable',
+      reason: 'material_activation_mismatch',
+    };
+  }
+  const requestChain = inferThresholdEcdsaSessionChainFromLabel(args.requestLabel);
+  if (requestChain && persistedMaterial.publicFacts.chainTarget.kind !== requestChain) {
+    return {
+      kind: 'unavailable',
+      reason: 'chain_mismatch',
+    };
+  }
+  if (status.expiresAtMs <= Date.now()) {
     throw new Error(
       '[multichain] threshold-ecdsa role-local session requires expired reauthorization',
     );
   }
-}
 
-export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
-  record: ThresholdEcdsaSessionRecord;
-  requestLabel: unknown;
-  evmFamilySigningKeySlotId: unknown;
-  workerCtx: WorkerOperationContext;
-}): Promise<ReadySecp256k1SigningMaterial> {
-  const evmFamilySigningKeySlotId = requireEvmFamilySigningKeySlotId(
-    args.evmFamilySigningKeySlotId,
-    'threshold-ecdsa signing evmFamilySigningKeySlotId',
-  );
-  assertMatchingEvmFamilySigningKeySlotId({
-    expected: evmFamilySigningKeySlotId,
-    actual: args.record.evmFamilySigningKeySlotId,
-    actualLabel: 'threshold-ecdsa session record evmFamilySigningKeySlotId',
-    message:
-      '[multichain] threshold-ecdsa evmFamilySigningKeySlotId mismatch; reconnect threshold session',
-  });
-  assertMatchingEvmFamilySigningKeySlotId({
-    expected: evmFamilySigningKeySlotId,
-    actual: args.record.ecdsaRoleLocalPublicFacts.evmFamilySigningKeySlotId,
-    actualLabel: 'threshold-ecdsa role-local publicFacts evmFamilySigningKeySlotId',
-    message:
-      '[multichain] threshold-ecdsa evmFamilySigningKeySlotId mismatch; reconnect threshold session',
-  });
-  const requestChain = inferThresholdEcdsaSessionChainFromLabel(args.requestLabel);
-  if (requestChain && args.record.chainTarget.kind !== requestChain) {
-    throw new Error('[multichain] threshold-ecdsa chain mismatch; reconnect threshold session');
-  }
-  if (
-    args.record.source === 'email_otp' &&
-    emailOtpAuthContextRetention(args.record.emailOtpAuthContext) === 'single_use' &&
-    Number(emailOtpAuthContextConsumedAtMs(args.record.emailOtpAuthContext)) > 0
-  ) {
-    throw new Error(
-      `[SigningEngine] ${requestChain || args.record.chainTarget.kind} signing requires fresh Email OTP verification with per_operation policy`,
-    );
-  }
-
-  assertThresholdEcdsaSessionAuthorizationIsActive(args.record);
-  const persistedMaterial = requirePersistedEcdsaRoleLocalMaterial(args.record);
   const resolvedRoleLocalMaterial = await hydrateEcdsaRoleLocalMaterialForSigning({
-    materialRef: persistedMaterial.materialRef,
+    persistedMaterial,
     workerCtx: args.workerCtx,
   });
-  const signingWalletSession = requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord(
-    args.record,
-  );
+  const walletSessionJwt = projection.walletSessionJwt;
+  const identity = parseCanonicalEcdsaSessionIdentity(walletSessionJwt);
+  const roleLocalFacts = persistedMaterial.publicFacts;
+  const normalSigningState =
+    parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1({
+      walletSessionJwt,
+      expected: {
+        walletId: String(manifest.signer.walletId),
+        evmFamilySigningKeySlotId: String(roleLocalFacts.evmFamilySigningKeySlotId),
+        keyHandle: String(roleLocalFacts.keyHandle),
+        relayerKeyId: String(manifest.durableMaterial.roleLocalBinding.relayerKeyId),
+        ecdsaThresholdKeyId: String(roleLocalFacts.ecdsaThresholdKeyId),
+        signingRootId: String(manifest.signer.signingRootId),
+        signingRootVersion: String(manifest.signer.signingRootVersion),
+        thresholdSessionId: identity.thresholdSessionId.value,
+        activationEpoch: roleLocalFacts.publicCapability.activation_epoch,
+        signingGrantId: identity.signingGrantId.value,
+        expiresAtMs: status.expiresAtMs,
+        participantIds: roleLocalFacts.participantIds,
+        applicationBindingDigestB64u: roleLocalFacts.applicationBindingDigestB64u,
+        contextBinding32B64u: roleLocalFacts.contextBinding32B64u,
+        clientPublicKey33B64u: roleLocalFacts.derivationClientSharePublicKey33B64u,
+        serverPublicKey33B64u: roleLocalFacts.relayerPublicKey33B64u,
+        thresholdPublicKey33B64u: roleLocalFacts.groupPublicKey33B64u,
+        ethereumAddress: roleLocalFacts.ethereumAddress,
+        clientShareRetryCounter:
+          roleLocalFacts.publicCapability.public_identity.client_share_retry_counter,
+        serverShareRetryCounter:
+          roleLocalFacts.publicCapability.public_identity.server_share_retry_counter,
+      },
+    });
+  const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(walletSessionJwt);
+  if (!runtimePolicyScope) {
+    throw new Error('[multichain] ECDSA Wallet Session runtime policy scope is invalid');
+  }
+  const signingMaterial = buildRouterAbEcdsaDerivationSigningMaterialRef({
+    routerAbState: normalSigningState,
+  });
+  const signingWalletSession: RouterAbEcdsaDerivationSigningWalletSession = {
+    curve: 'ecdsa',
+    auth: {
+      kind: 'wallet_session_jwt',
+      walletSessionJwt,
+      credential: {
+        kind: 'jwt',
+        walletSessionJwt,
+      },
+    },
+    thresholdSessionId: identity.thresholdSessionId.value,
+    signingGrantId: identity.signingGrantId.value,
+    remainingUses: status.remainingUses,
+    expiresAtMs: status.expiresAtMs,
+    signingMaterial,
+    runtimePolicyScope,
+    routerAbEcdsaDerivationNormalSigning: normalSigningState,
+  };
   if (
     !markResolvedEcdsaRoleLocalMaterialRuntimeValidated({
       material: resolvedRoleLocalMaterial,
       session: signingWalletSession,
-      keyHandle: args.record.keyHandle,
-      chainTarget: args.record.chainTarget,
-      participantIds: args.record.participantIds,
+      keyHandle: roleLocalFacts.keyHandle,
+      chainTarget: roleLocalFacts.chainTarget,
+      participantIds: roleLocalFacts.participantIds,
     })
   ) {
     throw new Error(
@@ -155,36 +221,65 @@ export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
     );
   }
 
-  const walletSessionJwt = signingWalletSession.auth.walletSessionJwt;
-
-  const keyRef = buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord({
-    record: args.record,
-  });
-  if (
-    keyRef.backendBinding?.materialKind !== 'role_local_worker_handle' ||
-    keyRef.backendBinding.roleLocalMaterialHandle.materialHandle !==
-      resolvedRoleLocalMaterial.liveHandle.materialHandle
-  ) {
-    throw new Error(
-      '[multichain] threshold-ecdsa signer material does not reference the hydrated role-local handle',
-    );
-  }
-  const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record: args.record });
-  const signerSession = buildReadyEcdsaSignerSession({
-    keyRef,
-    publicFacts,
-    sessionPolicy: buildKnownReadyThresholdEcdsaSessionPolicy({
-      remainingUses: args.record.remainingUses,
-      expiresAtMs: args.record.expiresAtMs,
-    }),
+  const transportAuth = buildEcdsaWalletSessionTransportAuth({
+    kind: 'wallet_session_jwt',
     walletSessionJwt,
   });
+  const signerSession: ReadyEcdsaSignerSession = {
+    kind: 'ready_ecdsa_signer_session',
+    walletId: manifest.signer.walletId,
+    materialActivation: manifest.activation.materialActivation,
+    publicFacts: manifest.signer.registeredPublicFacts,
+    chainTarget: roleLocalFacts.chainTarget,
+    session: buildReadyThresholdEcdsaSession({
+      thresholdSessionId: identity.thresholdSessionId.value,
+      signingGrantId: identity.signingGrantId.value,
+      policy: buildKnownReadyThresholdEcdsaSessionPolicy({
+        remainingUses: status.remainingUses,
+        expiresAtMs: status.expiresAtMs,
+      }),
+    }),
+    transport: {
+      kind: 'threshold_ecdsa_signer_transport',
+      relayerUrl: args.relayerUrl,
+      relayerKeyId: manifest.durableMaterial.roleLocalBinding.relayerKeyId,
+      signingMaterial,
+      relayerVerifyingShareB64u: roleLocalFacts.relayerPublicKey33B64u,
+    },
+    clientShare: {
+      kind: 'role_local_worker_share',
+      handle: resolvedRoleLocalMaterial.liveHandle,
+      material: {
+        kind: 'worker_loaded',
+        materialRef: resolvedRoleLocalMaterial.materialRef,
+      },
+    },
+    routerAbEcdsaDerivationNormalSigning: {
+      kind: 'router_ab_ecdsa_derivation_normal_signing_ready_v1',
+      state: normalSigningState,
+      credential: {
+        kind: 'jwt',
+        walletSessionJwt: transportAuth.walletSessionJwt,
+      },
+      activeStateId: routerAbEcdsaDerivationActiveStateId(normalSigningState),
+    },
+  };
 
-  return buildReadySecp256k1SigningMaterial({
-    walletId: args.record.walletId,
-    signerSession,
-    singleUseEmailOtpSession:
-      args.record.source === 'email_otp' &&
-      emailOtpAuthContextRetention(args.record.emailOtpAuthContext) === 'single_use',
-  });
+  return {
+    kind: 'ready',
+    material: buildReadySecp256k1SigningMaterial({
+      walletId: manifest.signer.walletId,
+      signerSession,
+      authorization: {
+        kind: 'reusable_wallet_session',
+        wallet_session_id: projection.walletSessionId,
+      },
+      credential: {
+        kind: 'jwt',
+        walletSessionJwt,
+      },
+      expiresAtMs: status.expiresAtMs,
+      singleUseEmailOtpSession: false,
+    }),
+  };
 }

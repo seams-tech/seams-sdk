@@ -108,7 +108,6 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId ?? EXPORT_SCENARIO.ecdsaThresholdKeyId,
     thresholdSessionId: input.thresholdSessionId ?? 'threshold-session-1',
     signingGrantId: input.signingGrantId ?? 'signing-grant-1',
-    clientAdditiveShareSessionId: 'email-otp-worker-session-1',
     emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
       policy: 'per_operation',
       walletId: WALLET_ID,
@@ -153,6 +152,7 @@ async function exactExportLane(record: ThresholdEcdsaSessionRecord): Promise<Exa
     laneIdentity: exactEcdsaSigningLaneIdentity({
       signer: buildEvmFamilyEcdsaSignerBinding({
         walletId: record.walletId,
+        materialActivation: record.materialActivation,
         chainTarget: record.chainTarget,
         keyHandle: publicFacts.keyHandle,
         key,
@@ -203,10 +203,11 @@ function emailOtpPublicReauthAuthority(
     provider: 'google',
     providerSubjectId: emailOtpAuthContextProviderUserId(record.emailOtpAuthContext),
     emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
+    authority: record.authority,
+    emailOtpAuthority: record.emailOtpAuthContext.authority,
     chainTarget: record.chainTarget,
     signingRootId: record.signingRootId,
     signingRootVersion,
-    evmFamilySigningKeySlotId: record.evmFamilySigningKeySlotId,
     keyHandle: record.keyHandle,
     ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
     ethereumAddress: record.ethereumAddress,
@@ -299,6 +300,7 @@ test.describe('ECDSA export material', () => {
       throw new Error('expected Wallet Session JWT authority');
     }
     const digestInput = buildEcdsaDerivationExportAuthorizationDigestInput({
+      evmFamilySigningKeySlotId: String(record.ecdsaRoleLocalPublicFacts.evmFamilySigningKeySlotId),
       ecdsaThresholdKeyId: String(record.ecdsaThresholdKeyId),
       signingRootId: String(record.signingRootId),
       signingRootVersion: String(record.signingRootVersion),

@@ -83,6 +83,7 @@ import {
   ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
@@ -668,6 +669,7 @@ type RouterApiYaoDirectOperationV1 =
   | 'recovery_admission'
   | 'recovery_execute'
   | 'recovery_activate'
+  | 'recovery_status'
   | 'export_admission'
   | 'export_execute';
 
@@ -687,6 +689,8 @@ function yaoDirectOperationForRequest(request: Request): RouterApiYaoDirectOpera
       return 'recovery_execute';
     case ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1:
       return 'recovery_activate';
+    case ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1:
+      return 'recovery_status';
     case ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1:
       return 'export_admission';
     case ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1:
@@ -713,6 +717,7 @@ async function handlePartitionedD1Operation(
     case 'recovery_admission':
     case 'recovery_execute':
     case 'recovery_activate':
+    case 'recovery_status':
       return await handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1({
         request,
         ...createStagingRecoveryRequestScopedDependencies(env),

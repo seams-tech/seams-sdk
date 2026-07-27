@@ -1,31 +1,17 @@
+import type { WalletIframeExactSessionState } from '@seams/sdk';
+
 export const DEMO_SIGNING_SESSION_EXPIRY_MESSAGE =
   'Your signing session expired. Unlock your wallet to continue.';
 export const DEMO_SIGNING_SESSION_MISSING_MESSAGE =
   'Your signing session is no longer available. Unlock your wallet to continue.';
 
 type DemoWalletAuthMethod = 'passkey' | 'email_otp';
-export type DemoExactSessionIdentity = {
-  readonly walletId: string;
-  readonly walletSessionId: string;
-  readonly authMethod: DemoWalletAuthMethod;
-  readonly expiresAtMs: number;
-};
-type DemoActiveExactSessionState = DemoExactSessionIdentity & {
-  readonly kind: 'active_session';
-  readonly status: 'active' | 'active_restorable';
-};
-type DemoExpiredExactSessionState = DemoExactSessionIdentity & {
-  readonly kind: 'expired_session';
-};
-export type DemoExactSessionState =
-  | { readonly kind: 'wallet_locked' }
-  | {
-      readonly kind: 'wallet_unlocked_without_signing_session';
-      readonly walletId: DemoExactSessionIdentity['walletId'];
-      readonly reason: 'exhausted' | 'not_found' | 'unavailable' | 'budget_unknown' | 'invalid';
-    }
-  | DemoActiveExactSessionState
-  | DemoExpiredExactSessionState;
+export type DemoExactSessionState = WalletIframeExactSessionState;
+type DemoExpiredExactSessionState = Extract<
+  DemoExactSessionState,
+  { readonly kind: 'expired_session' }
+>;
+export type DemoExactSessionIdentity = Omit<DemoExpiredExactSessionState, 'kind'>;
 
 export type DemoSigningSessionExpiredEvent = {
   readonly version: 1;
@@ -87,9 +73,7 @@ export class DemoWalletSessionLifecycleController {
     }
   }
 
-  observeExpiredEvent(
-    event: DemoSigningSessionExpiredEvent,
-  ): DemoWalletSessionLifecycleAction {
+  observeExpiredEvent(event: DemoSigningSessionExpiredEvent): DemoWalletSessionLifecycleAction {
     const state = this.exactState;
     if (state.kind !== 'active_session' && state.kind !== 'expired_session') {
       return PRESERVE_UNLOCKED_ACTION;
@@ -181,10 +165,7 @@ function exactSessionKey(identity: DemoExactSessionIdentity): string {
   return demoSigningSessionExpiryKey(identity.walletId, identity.walletSessionId);
 }
 
-export function demoSigningSessionExpiryKey(
-  walletId: string,
-  walletSessionId: string,
-): string {
+export function demoSigningSessionExpiryKey(walletId: string, walletSessionId: string): string {
   return `${encodeURIComponent(walletId)}:${encodeURIComponent(walletSessionId)}`;
 }
 

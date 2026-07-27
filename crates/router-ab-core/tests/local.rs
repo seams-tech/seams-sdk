@@ -15,10 +15,11 @@ use router_ab_core::{
     LocalSignerEnvelopeDecryptorV1, LocalSignerHandlerContextV1, LocalSignerHandlerOutputV1,
     LocalSigningRootMetadataV1, LocalSigningWorkerEndpointV1,
     LocalSigningWorkerRecipientProofBundleActivationV1, LocalTransportEnvelopeV1,
-    LocalTransportRouteV1, NormalSigningScopeV1, RecipientProofBundleCiphertextV1,
-    RoleEncryptedEnvelopeV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
-    RouterAbProtocolResult, RouterTranscriptMetadataV1, ServerIdentityV1, SignerIdentityV1,
-    SignerSetV1, SigningWorkerActivationContextV1, WireMessageKindV1, WireMessageV1,
+    LocalTransportRouteV1, MpcMaterialActivationRefV1, NormalSigningAuthorizationV1,
+    NormalSigningScopeV1, RecipientProofBundleCiphertextV1, RoleEncryptedEnvelopeV1,
+    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
+    RouterTranscriptMetadataV1, ServerIdentityV1, SignerIdentityV1, SignerSetV1,
+    SigningWorkerActivationContextV1, WireMessageKindV1, WireMessageV1,
 };
 use router_ab_core::{
     EcdsaThresholdPrfRequestV1, OpenedShareKind, PublicDigest32, Role, RootShareEpoch,
@@ -273,8 +274,17 @@ fn normal_signing_scope() -> NormalSigningScopeV1 {
     NormalSigningScopeV1::new(
         "sign-request-1",
         "alice.testnet",
-        "session-1",
-        "session-1",
+        NormalSigningAuthorizationV1::reusable_wallet_session("renewed-wallet-session-1")
+        .expect("authorization"),
+        MpcMaterialActivationRefV1::new(
+            "session-1",
+            "capability-1",
+            "alice.testnet",
+            "near-ed25519-key-1",
+            "lifecycle-1",
+            "server-a",
+        )
+        .expect("material activation"),
         "server-a",
     )
     .expect("normal signing scope")

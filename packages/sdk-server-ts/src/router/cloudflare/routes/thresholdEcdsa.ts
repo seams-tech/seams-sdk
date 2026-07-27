@@ -20,10 +20,14 @@ import {
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   parseRouterAbEcdsaDerivationRecoveryRequestV1,
+  parseRouterAbEcdsaOperationStepUpGrantRequestV1,
+  computeRouterAbEcdsaOperationStepUpChallengeB64u,
+  ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
   ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
   ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
@@ -33,9 +37,13 @@ import {
   type RouterAbEcdsaDerivationActivationRefreshRequestV1,
   type RouterAbEcdsaDerivationExplicitExportRequestV1,
   type RouterAbEcdsaDerivationRecoveryRequestV1,
+  type RouterAbEcdsaOperationStepUpGrantRequestV1Wire,
+  type RouterAbEcdsaOperationStepUpPreparationV1Wire,
   type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
+  authenticateRouterAbOperationStepUpAppSessionIdentity,
+  claimRouterAbEcdsaOperationStepUp,
   handleRouterAbEcdsaDerivationNormalSigningRouteCore,
   ROUTER_AB_ECDSA_DERIVATION_PRIVATE_SIGNING_PATHS,
   type RouterAbEcdsaDerivationPrivateSigningPath,
@@ -43,7 +51,14 @@ import {
 import {
   parseRouterAbEcdsaDerivationPoolFillInitRouteRequest,
   parseRouterAbEcdsaDerivationPoolFillStepRouteRequest,
+  type RouterAbEcdsaPoolFillInitRouteRequest,
+  type RouterAbEcdsaPoolFillStepRouteRequest,
 } from '../../thresholdEcdsaRequestValidation';
+import type {
+  RouterAbEcdsaDerivationPoolFillInitRequest,
+  RouterAbEcdsaDerivationPoolFillStepRequest,
+} from '../../../core/types';
+import type { ThresholdEcdsaSessionClaims } from '../../../core/ThresholdService/validation';
 import type {
   RouterAbEcdsaStrictPostRegistrationPort,
   RouterAbEcdsaStrictPostRegistrationResult,
@@ -57,12 +72,64 @@ import {
   walletSessionParseFailure,
   type WalletSessionBoundaryFailure,
 } from '../../walletSessionFailure';
+import {
+  parsePrincipalId,
+  parseReusableWalletSessionMintId,
+  parseSeamsSessionId,
+  type MpcWalletSigningQuotaId,
+  type PrincipalId,
+  type ReusableWalletSessionMintId,
+  type SeamsSessionId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import {
+  walletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  parseAuthFactorId,
+  parseAuthorizationAuditEventId,
+  parseCapabilityBindingId,
+  parseCapabilityGrantId,
+  parseCapabilityId,
+  parseCapabilityOperationId,
+  parseGrantEvidenceId,
+  parseGrantEvidenceSetId,
+} from '@shared/authorization/capabilityKinds';
+import { buildCapabilityOperationEnvelope } from '@shared/authorization/operationFingerprint';
+import { buildEvmEcdsaMpcOperationRef } from '@shared/authorization/capabilityKinds';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { buildActiveCapabilityGrant } from '../../../authorization/domain';
+import {
+  buildVerifiedEmailOtpFactorResult,
+  buildVerifiedPasskeyFactorResult,
+  type VerifiedGrantFactorResult,
+} from '../../../authorization/factorEvidence';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/encoders';
+import { parseEmailOtpChallengeId } from '@shared/utils/domainIds';
+import {
+  EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+} from '@shared/utils/emailOtpDomain';
+import { hashEmailOtpAppSessionClaims } from '../../emailOtpSessionRouteHelpers';
+import { parseEvmFamilySigningKeySlotIdOrNull } from '@shared/signing-lanes';
 
 const NOT_IMPLEMENTED = {
   ok: false,
   code: 'not_implemented',
   message: 'threshold-ecdsa is not implemented',
 } as const;
+
+function requireAuthorizationValue<T>(
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
+): T {
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
 
 async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
   ctx: CloudflareRouterApiContext;
@@ -76,11 +143,471 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
     headers: Object.fromEntries(input.ctx.request.headers.entries()),
     session: input.ctx.opts.session,
     runtime: input.ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime(),
+    authorizationClaims: input.ctx.service.authorizationClaims,
+    authorizationSessions: input.ctx.service.authorizationSessions,
     admissionAdapter: input.ctx.opts.routerAbNormalSigningAdmission,
     privatePath: input.privatePath,
     phase: input.phase,
   });
   return json(result.body, { status: result.status });
+}
+
+async function issueEcdsaOperationStepUpGrant(input: {
+  readonly ctx: CloudflareRouterApiContext;
+  readonly request: RouterAbEcdsaOperationStepUpGrantRequestV1Wire;
+}): Promise<Response> {
+  const operation = input.request.operation;
+  const authenticated = await authenticateRouterAbOperationStepUpAppSessionIdentity({
+    headers: Object.fromEntries(input.ctx.request.headers.entries()),
+    session: input.ctx.opts.session,
+    walletId: operation.wallet_id,
+    materialOwner: operation.material_activation.material_owner,
+    authorizationClaims: input.ctx.service.authorizationClaims,
+    authorizationSessions: input.ctx.service.authorizationSessions,
+  });
+  if (!authenticated.ok) {
+    return json(authenticated.error.body, { status: authenticated.error.status });
+  }
+  if (
+    operation.wallet_id !== authenticated.session.walletId ||
+    operation.normal_signing_scope.wallet_id !== operation.wallet_id ||
+    operation.normal_signing_scope.signing_worker.server_id !==
+      operation.signing_worker_id ||
+    operation.material_activation.material_owner !== authenticated.session.walletId ||
+    operation.material_activation.signing_worker !== operation.signing_worker_id ||
+    operation.expires_at_ms <= Date.now() ||
+    operation.expires_at_ms > authenticated.expiresAtMs
+  ) {
+    return json(
+      { ok: false, code: 'scope_mismatch', message: 'ECDSA operation step-up scope is invalid' },
+      { status: 403 },
+    );
+  }
+  const proof = input.request.proof;
+  const authority = proof.authority;
+  const authorityRef = await walletAuthAuthorityRef({ authority });
+  const activeSession = authenticated.activeSession;
+  if (
+    authorityRef.walletId !== authenticated.authorityRef.walletId ||
+    authorityRef.authorityDigest !== authenticated.authorityRef.authorityDigest ||
+    authority.walletId !== authenticated.session.walletId
+  ) {
+    return json(
+      { ok: false, code: 'scope_mismatch', message: 'Operation step-up authority changed' },
+      { status: 403 },
+    );
+  }
+  let envelope: ReturnType<typeof buildCapabilityOperationEnvelope>;
+  try {
+    envelope = buildCapabilityOperationEnvelope({
+      tenantId: authenticated.session.tenantId,
+      principalId: authenticated.session.principalId,
+      capabilityId: requireAuthorizationValue(
+        parseCapabilityId(operation.material_activation.capability),
+      ),
+      operationId: requireAuthorizationValue(
+        parseCapabilityOperationId(operation.operation_id),
+      ),
+      operation: buildEvmEcdsaMpcOperationRef('evm.sign_transaction'),
+      digests: {
+        laneDigest: parseDigestB64u(operation.operation_digests.lane_digest_b64u),
+        intentDigest: parseDigestB64u(operation.operation_digests.intent_digest_b64u),
+        displayDigest: parseDigestB64u(operation.operation_digests.display_digest_b64u),
+      },
+    });
+  } catch (error: unknown) {
+    return json(
+      {
+        ok: false,
+        code: 'invalid_body',
+        message: error instanceof Error ? error.message : 'Operation fingerprint is invalid',
+      },
+      { status: 400 },
+    );
+  }
+  const expectedChallenge =
+    await computeRouterAbEcdsaOperationStepUpChallengeB64u(operation);
+  const nowMs = Date.now();
+  const requestId = operation.operation_id;
+  const evidenceId = requireAuthorizationValue(
+    parseGrantEvidenceId(`ecdsa-step-up-evidence:${requestId}`),
+  );
+  const evidenceSetId = requireAuthorizationValue(
+    parseGrantEvidenceSetId(`ecdsa-step-up-evidence-set:${requestId}`),
+  );
+  const expiresAtMs = Math.min(operation.expires_at_ms, authenticated.expiresAtMs);
+  let factor: VerifiedGrantFactorResult;
+  switch (proof.kind) {
+    case 'passkey': {
+      if (
+        activeSession.authSource.kind !== 'passkey' ||
+        proof.authority.factor.credentialIdB64u !==
+          activeSession.authSource.credentialIdB64u
+      ) {
+        return json(
+          { ok: false, code: 'scope_mismatch', message: 'Passkey authority changed' },
+          { status: 403 },
+        );
+      }
+      const credential = proof.webauthn_authentication;
+      const credentialId = String(credential.rawId || credential.id).trim();
+      if (credentialId !== activeSession.authSource.credentialIdB64u) {
+        return json(
+          { ok: false, code: 'unauthorized', message: 'Passkey credential changed' },
+          { status: 401 },
+        );
+      }
+      const origin =
+        activeSession.audience.kind === 'first_party_web'
+          ? activeSession.audience.origin
+          : activeSession.audience.walletOrigin;
+      const verified = await input.ctx.service.webAuthn.verifyWebAuthnAuthenticationLite({
+        userId: authenticated.session.walletId,
+        rpId: proof.authority.verifier.rpId,
+        expectedChallenge,
+        expected_origin: origin,
+        webauthn_authentication: credential,
+      });
+      if (!verified.success || !verified.verified) {
+        return json(
+          {
+            ok: false,
+            code: verified.code || 'not_verified',
+            message: verified.message || 'WebAuthn authentication verification failed',
+          },
+          { status: 401 },
+        );
+      }
+      factor = buildVerifiedPasskeyFactorResult({
+        tenantId: authenticated.session.tenantId,
+        principalId: authenticated.session.principalId,
+        sessionId: authenticated.session.sessionId,
+        deviceId: activeSession.deviceId,
+        factorId: requireAuthorizationValue(
+          parseAuthFactorId(`passkey:${activeSession.authSource.credentialIdB64u}`),
+        ),
+        authorityRef: authenticated.authorityRef,
+        operation: envelope,
+        credentialIdB64u: activeSession.authSource.credentialIdB64u,
+        assertionDigest: parseDigestB64u(
+          base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(credential))),
+        ),
+        verifiedAtMs: nowMs,
+        expiresAtMs,
+      });
+      break;
+    }
+    case 'email_otp': {
+      const sessionHash = await hashEmailOtpAppSessionClaims(authenticated.rawClaims);
+      const verified = await input.ctx.service.emailOtp.verifyEmailOtpChallenge({
+        userId: authenticated.session.principalId,
+        walletId: authenticated.session.walletId,
+        orgId: authenticated.session.tenantId,
+        challengeId: proof.challenge_id,
+        otpCode: proof.otp_code,
+        otpChannel: EMAIL_OTP_CHANNEL,
+        sessionHash,
+        appSessionVersion: activeSession.appSessionVersion,
+        operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+      });
+      if (!verified.ok) {
+        return json(verified, { status: verified.code === 'invalid_body' ? 400 : 401 });
+      }
+      const consumed = await input.ctx.service.emailOtp.consumeEmailOtpGrant({
+        loginGrant: verified.loginGrant,
+        userId: authenticated.session.principalId,
+        walletId: authenticated.session.walletId,
+        orgId: authenticated.session.tenantId,
+        otpChannel: EMAIL_OTP_CHANNEL,
+      });
+      if (!consumed.ok) {
+        return json(consumed, { status: consumed.code === 'invalid_body' ? 400 : 401 });
+      }
+      factor = buildVerifiedEmailOtpFactorResult({
+        tenantId: authenticated.session.tenantId,
+        principalId: authenticated.session.principalId,
+        sessionId: authenticated.session.sessionId,
+        deviceId: activeSession.deviceId,
+        factorId: requireAuthorizationValue(
+          parseAuthFactorId(
+            `email_otp:${proof.authority.factor.provider}:${proof.authority.factor.providerUserId}`,
+          ),
+        ),
+        authorityRef: authenticated.authorityRef,
+        operation: envelope,
+        challengeId: requireAuthorizationValue(
+          parseEmailOtpChallengeId(consumed.challengeId),
+        ),
+        verificationReceiptDigest: parseDigestB64u(
+          base64UrlEncode(
+            await sha256BytesUtf8(
+              alphabetizeStringify({
+                challengeId: consumed.challengeId,
+                operationFingerprint: expectedChallenge,
+              }),
+            ),
+          ),
+        ),
+        verifiedAtMs: nowMs,
+        expiresAtMs: Math.min(expiresAtMs, verified.grantExpiresAtMs),
+      });
+      break;
+    }
+  }
+  const evidenceSet = await input.ctx.service.authorizationClaims.recordVerifiedFactorEvidenceSet({
+    session: activeSession,
+    operation: envelope,
+    evidenceId,
+    evidenceSetId,
+    factor,
+  });
+  const grantId = requireAuthorizationValue(
+    parseCapabilityGrantId(`ecdsa-step-up-grant:${operation.operation_id}`),
+  );
+  const grant = buildActiveCapabilityGrant({
+    tenantId: authenticated.session.tenantId,
+    principalId: authenticated.session.principalId,
+    grantId,
+    bindingId: requireAuthorizationValue(
+      parseCapabilityBindingId(`ecdsa-step-up-binding:${requestId}`),
+    ),
+    evidenceSetId,
+    evidenceSetDigest: evidenceSet.evidenceSetDigest,
+    capabilityId: envelope.capabilityId,
+    operationId: envelope.operationId,
+    operation: envelope.operation,
+    laneDigest: envelope.digests.laneDigest,
+    intentDigest: envelope.digests.intentDigest,
+    displayDigest: envelope.digests.displayDigest,
+    authority: { kind: 'operation_step_up' },
+    remainingUses: 1,
+    createdAtMs: nowMs,
+    expiresAtMs,
+  });
+  await input.ctx.service.authorizationClaims.issueGrant({
+    operation: envelope,
+    evidenceSet,
+    grant,
+  });
+  return json(
+    {
+      ok: true,
+      kind: 'operation_step_up',
+      authorization: {
+        kind: 'operation_step_up',
+        grant_id: grantId,
+      },
+      authorization_session_id: authenticated.session.sessionId,
+      expires_at_ms: expiresAtMs,
+    },
+    { status: 200 },
+  );
+}
+
+type RouterAbEcdsaPoolFillClaims = Pick<
+  ThresholdEcdsaSessionClaims,
+  | 'walletId'
+  | 'evmFamilySigningKeySlotId'
+  | 'relayerKeyId'
+  | 'keyHandle'
+  | 'runtimePolicyScope'
+  | 'participantIds'
+  | 'thresholdExpiresAtMs'
+  | 'routerAbEcdsaDerivationNormalSigning'
+>;
+
+type RouterAbEcdsaPoolFillAuthorizationResult =
+  | {
+      readonly ok: true;
+      readonly claims: RouterAbEcdsaPoolFillClaims;
+    }
+  | {
+      readonly ok: false;
+      readonly error: {
+        readonly status: number;
+        readonly body: unknown;
+      };
+    };
+
+function validateEcdsaPoolFillOperationIdentity(
+  operation: RouterAbEcdsaOperationStepUpPreparationV1Wire,
+): boolean {
+  return (
+    operation.wallet_id === operation.normal_signing_scope.wallet_id &&
+    operation.signing_worker_id === operation.normal_signing_scope.signing_worker.server_id &&
+    operation.material_activation.material_owner === operation.wallet_id &&
+    operation.material_activation.signing_worker === operation.signing_worker_id &&
+    operation.expires_at_ms > Date.now()
+  );
+}
+
+async function authorizeEcdsaPoolFillOperationStepUp(input: {
+  readonly ctx: CloudflareRouterApiContext;
+  readonly authorization: Extract<
+    RouterAbEcdsaPoolFillInitRouteRequest['authorization'],
+    { readonly kind: 'operation_step_up' }
+  >;
+  readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+}): Promise<RouterAbEcdsaPoolFillAuthorizationResult> {
+  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
+    input.operation.evm_family_signing_key_slot_id,
+  );
+  if (!evmFamilySigningKeySlotId || !validateEcdsaPoolFillOperationIdentity(input.operation)) {
+    return {
+      ok: false,
+      error: {
+        status: 403,
+        body: {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'ECDSA pool-fill operation scope is invalid',
+        },
+      },
+    };
+  }
+  const authenticated = await authenticateRouterAbOperationStepUpAppSessionIdentity({
+    headers: Object.fromEntries(input.ctx.request.headers.entries()),
+    session: input.ctx.opts.session,
+    walletId: input.operation.wallet_id,
+    materialOwner: input.operation.material_activation.material_owner,
+    authorizationClaims: input.ctx.service.authorizationClaims,
+    authorizationSessions: input.ctx.service.authorizationSessions,
+  });
+  if (!authenticated.ok) return authenticated;
+  if (input.operation.expires_at_ms > authenticated.expiresAtMs) {
+    return {
+      ok: false,
+      error: {
+        status: 403,
+        body: {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'ECDSA pool-fill operation exceeds the app session lifetime',
+        },
+      },
+    };
+  }
+  const claimFailure = await claimRouterAbEcdsaOperationStepUp({
+    operation: input.operation,
+    grantId: input.authorization.grant_id,
+    authenticated,
+  });
+  if (claimFailure) {
+    return {
+      ok: false,
+      error: claimFailure,
+    };
+  }
+  return {
+    ok: true,
+    claims: {
+      walletId: input.operation.wallet_id,
+      evmFamilySigningKeySlotId,
+      relayerKeyId: input.operation.relayer_key_id,
+      keyHandle: input.operation.key_handle,
+      runtimePolicyScope: authenticated.session.runtimePolicyScope,
+      participantIds: [...input.operation.participant_ids],
+      thresholdExpiresAtMs: Math.min(
+        input.operation.expires_at_ms,
+        authenticated.expiresAtMs,
+      ),
+      routerAbEcdsaDerivationNormalSigning: {
+        kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+        scope: input.operation.normal_signing_scope,
+      },
+    },
+  };
+}
+
+async function authorizeEcdsaPoolFill(input: {
+  readonly ctx: CloudflareRouterApiContext;
+  readonly request:
+    | RouterAbEcdsaPoolFillInitRouteRequest
+    | RouterAbEcdsaPoolFillStepRouteRequest;
+}): Promise<RouterAbEcdsaPoolFillAuthorizationResult> {
+  switch (input.request.authorization.kind) {
+    case 'reusable_wallet_session': {
+      const validated = await validateRouterAbEcdsaDerivationWalletSessionInputs({
+        body: input.request,
+        headers: Object.fromEntries(input.ctx.request.headers.entries()),
+        session: input.ctx.opts.session,
+      });
+      if (!validated.ok) {
+        return {
+          ok: false,
+          error: {
+            status: thresholdEcdsaStatusCode(validated),
+            body: validated,
+          },
+        };
+      }
+      if (
+        input.request.authorization.wallet_session_id !==
+        validated.claims.walletSessionId
+      ) {
+        return {
+          ok: false,
+          error: {
+            status: 403,
+            body: {
+              ok: false,
+              code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
+              message: 'Pool-fill authorization does not match the Wallet Session',
+            },
+          },
+        };
+      }
+      return { ok: true, claims: validated.claims };
+    }
+    case 'operation_step_up': {
+      const operation = input.request.operation;
+      if (!operation) {
+        return {
+          ok: false,
+          error: {
+            status: 400,
+            body: {
+              ok: false,
+              code: 'invalid_body',
+              message: 'Operation step-up pool fill requires operation preparation',
+            },
+          },
+        };
+      }
+      return authorizeEcdsaPoolFillOperationStepUp({
+        ctx: input.ctx,
+        authorization: input.request.authorization,
+        operation,
+      });
+    }
+  }
+}
+
+function ecdsaPoolFillInitRuntimeRequest(
+  request: RouterAbEcdsaPoolFillInitRouteRequest,
+): RouterAbEcdsaDerivationPoolFillInitRequest {
+  return {
+    ...(request.keyHandle === undefined ? {} : { keyHandle: request.keyHandle }),
+    ...(request.ecdsaThresholdKeyId === undefined
+      ? {}
+      : { ecdsaThresholdKeyId: request.ecdsaThresholdKeyId }),
+    ...(request.count === undefined ? {} : { count: request.count }),
+    ...(request.requestTag === undefined ? {} : { requestTag: request.requestTag }),
+    poolFill: request.poolFill,
+  };
+}
+
+function ecdsaPoolFillStepRuntimeRequest(
+  request: RouterAbEcdsaPoolFillStepRouteRequest,
+): RouterAbEcdsaDerivationPoolFillStepRequest {
+  return {
+    presignSessionId: request.presignSessionId,
+    stage: request.stage,
+    ...(request.outgoingMessagesB64u === undefined
+      ? {}
+      : { outgoingMessagesB64u: request.outgoingMessagesB64u }),
+    ...(request.requestTag === undefined ? {} : { requestTag: request.requestTag }),
+  };
 }
 
 type PresignTrafficClass = 'foreground' | 'background';
@@ -504,9 +1031,7 @@ function strictEcdsaExportAuthority(input: {
   if (
     !claims ||
     claims.walletId !== input.request.lifecycle.account_id ||
-    claims.thresholdSessionId !== input.request.lifecycle.session_id ||
-    claims.evmFamilySigningKeySlotId !==
-      claims.routerAbEcdsaDerivationNormalSigning.scope.wallet_key_id
+    claims.thresholdSessionId !== input.request.lifecycle.session_id
   ) {
     return null;
   }
@@ -552,7 +1077,21 @@ async function authorizeStrictEcdsaSessionActivation(input: {
   readonly ctx: CloudflareRouterApiContext;
   readonly walletId: string;
 }): Promise<
-  | { readonly ok: true }
+  | {
+      readonly ok: true;
+      readonly kind: 'issue_reusable_wallet_session';
+      readonly principalId: PrincipalId;
+      readonly authorizationSessionId: SeamsSessionId;
+      readonly authority: WalletAuthAuthorityRef;
+    }
+  | {
+      readonly ok: true;
+      readonly kind: 'reuse_reusable_wallet_session';
+      readonly principalId: PrincipalId;
+      readonly authorizationSessionId: SeamsSessionId;
+      readonly walletSessionId: WalletSessionId;
+      readonly quotaId: MpcWalletSigningQuotaId;
+    }
   | {
       readonly ok: false;
       readonly code: 'unauthorized' | 'identity_mismatch';
@@ -568,19 +1107,34 @@ async function authorizeStrictEcdsaSessionActivation(input: {
   });
   if (!resolvedClaims.ok) return resolvedClaims;
   const { appSessionClaims, ecdsaClaims, ed25519Claims } = resolvedClaims.claims;
-  if (ecdsaClaims?.walletId === input.walletId || ed25519Claims?.walletId === input.walletId) {
-    return { ok: true };
+  if (ecdsaClaims?.walletId === input.walletId) {
+    const principalId = parsePrincipalId(ecdsaClaims.sub);
+    if (!principalId.ok) {
+      return {
+        ok: false,
+        code: 'identity_mismatch',
+        message: 'ECDSA Wallet Session principal is invalid',
+      };
+    }
+    return {
+      ok: true,
+      kind: 'reuse_reusable_wallet_session',
+      principalId: principalId.value,
+      authorizationSessionId: ecdsaClaims.authorizationSessionId,
+      walletSessionId: ecdsaClaims.walletSessionId,
+      quotaId: ecdsaClaims.quotaId,
+    };
   }
-  if (
-    resolveAppSessionWalletIdForWalletScope(appSessionClaims, input.walletId) === input.walletId
-  ) {
-    return { ok: true };
+  if (ed25519Claims?.walletId === input.walletId) {
+    return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
   }
+  let appSessionAuthorized =
+    resolveAppSessionWalletIdForWalletScope(appSessionClaims, input.walletId) === input.walletId;
   const providerUserId = resolveAppSessionProviderUserIdForWalletScope(
     appSessionClaims,
     input.walletId,
   );
-  if (providerUserId) {
+  if (!appSessionAuthorized && providerUserId) {
     try {
       const enrollment = await input.ctx.service.emailOtp.readActiveEmailOtpEnrollment({
         walletId: input.walletId,
@@ -588,11 +1142,40 @@ async function authorizeStrictEcdsaSessionActivation(input: {
         providerUserId,
       });
       if (enrollment.ok && enrollment.enrollment.providerUserId === providerUserId) {
-        return { ok: true };
+        appSessionAuthorized = true;
       }
     } catch {
       return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.unavailable);
     }
+  }
+  if (
+    appSessionAuthorized &&
+    appSessionClaims?.seamsSessionId &&
+    appSessionClaims.walletAuthAuthorityRef
+  ) {
+    const principalId = parsePrincipalId(appSessionClaims.sub);
+    if (!principalId.ok) {
+      return {
+        ok: false,
+        code: 'identity_mismatch',
+        message: 'App session principal is invalid',
+      };
+    }
+    const activeSession = await input.ctx.service.authorizationSessions.readActiveSession({
+      tenantId: input.ctx.service.authorizationSessions.tenantId,
+      sessionId: appSessionClaims.seamsSessionId,
+      nowMs: Date.now(),
+    });
+    if (!activeSession || activeSession.principalId !== principalId.value) {
+      return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.expired);
+    }
+    return {
+      ok: true,
+      kind: 'issue_reusable_wallet_session',
+      principalId: principalId.value,
+      authorizationSessionId: appSessionClaims.seamsSessionId,
+      authority: appSessionClaims.walletAuthAuthorityRef,
+    };
   }
   return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
 }
@@ -635,6 +1218,36 @@ async function handleStrictEcdsaSessionActivation(input: {
   }
   const walletKey = activated.walletKey;
   const normalSigning = activated.normalSigning;
+  let walletSessionId: WalletSessionId;
+  let quotaId: MpcWalletSigningQuotaId;
+  if (authorized.kind === 'issue_reusable_wallet_session') {
+    const mintId = parseReusableWalletSessionMintId(request.session_policy.signing_grant_id);
+    if (!mintId.ok) {
+      return json(
+        {
+          ok: false,
+          code: 'invalid_body',
+          message: 'ECDSA Wallet Session mint identity is invalid',
+        },
+        { status: 400 },
+      );
+    }
+    const issued = await input.ctx.service.authorizationSessions.issueReusableWalletSession({
+      tenantId: input.ctx.service.authorizationSessions.tenantId,
+      principalId: authorized.principalId,
+      walletId: walletIdFromString(walletKey.walletId),
+      authority: authorized.authority,
+      mintId: mintId.value,
+      remainingUses: activated.session.remainingUses,
+      issuedAtMs: activated.session.expiresAtMs - request.session_policy.ttl_ms,
+      expiresAtMs: activated.session.expiresAtMs,
+    });
+    walletSessionId = issued.session.walletSessionId;
+    quotaId = issued.quota.quotaId;
+  } else {
+    walletSessionId = authorized.walletSessionId;
+    quotaId = authorized.quotaId;
+  }
   const signed = await signRouterAbEcdsaDerivationWalletSessionJwt({
     session: input.ctx.opts.session,
     userId: walletKey.walletId,
@@ -642,8 +1255,11 @@ async function handleStrictEcdsaSessionActivation(input: {
     relayerKeyId: walletKey.relayerKeyId,
     sessionInfo: {
       sessionKind: 'jwt',
+      authorizationSessionId: authorized.authorizationSessionId,
       thresholdSessionId: activated.session.thresholdSessionId,
       signingGrantId: activated.session.signingGrantId,
+      walletSessionId,
+      quotaId,
       expiresAtMs: activated.session.expiresAtMs,
       participantIds: walletKey.participantIds,
       runtimePolicyScope: request.session_policy.runtime_policy_scope,
@@ -689,8 +1305,11 @@ async function handleStrictEcdsaSessionActivation(input: {
       kind: 'router_ab_ecdsa_post_registration_session_activated_v1',
       public_capability: request.public_capability,
       session: {
+        authorization_session_id: authorized.authorizationSessionId,
         threshold_session_id: activated.session.thresholdSessionId,
         signing_grant_id: activated.session.signingGrantId,
+        wallet_session_id: walletSessionId,
+        quota_id: quotaId,
         expires_at_ms: activated.session.expiresAtMs,
         remaining_uses: activated.session.remainingUses,
         wallet_session_jwt: signed.jwt,
@@ -729,6 +1348,7 @@ export async function handleThresholdEcdsa(
     pathname !== ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH &&
     pathname !== ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH &&
     pathname !== ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH &&
+    pathname !== ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH &&
     pathname !== ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH &&
     pathname !== ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH &&
     pathname !== ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH &&
@@ -738,6 +1358,22 @@ export async function handleThresholdEcdsa(
   }
 
   const bodyUnknown = await readJson(ctx.request);
+  if (pathname === ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH) {
+    let request: RouterAbEcdsaOperationStepUpGrantRequestV1Wire;
+    try {
+      request = parseRouterAbEcdsaOperationStepUpGrantRequestV1(bodyUnknown);
+    } catch (error: unknown) {
+      return json(
+        {
+          ok: false,
+          code: 'invalid_body',
+          message: error instanceof Error ? error.message : 'Operation step-up request is invalid',
+        },
+        { status: 400 },
+      );
+    }
+    return issueEcdsaOperationStepUpGrant({ ctx, request });
+  }
   if (pathname === ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH) {
     return handleStrictEcdsaSessionActivation({
       ctx,
@@ -795,15 +1431,16 @@ export async function handleThresholdEcdsa(
       if (!parsedBody.ok) {
         return json(parsedBody.body, { status: thresholdEcdsaStatusCode(parsedBody.body) });
       }
-      const validated = await validateRouterAbEcdsaDerivationWalletSessionInputs({
-        body: parsedBody.request,
-        headers: Object.fromEntries(ctx.request.headers.entries()),
-        session: ctx.opts.session,
-      });
-      if (!validated.ok) return json(validated, { status: thresholdEcdsaStatusCode(validated) });
-      const result = await runtime.initializePoolFill({
-        claims: validated.claims,
+      const authorized = await authorizeEcdsaPoolFill({
+        ctx,
         request: parsedBody.request,
+      });
+      if (!authorized.ok) {
+        return json(authorized.error.body, { status: authorized.error.status });
+      }
+      const result = await runtime.initializePoolFill({
+        claims: authorized.claims,
+        request: ecdsaPoolFillInitRuntimeRequest(parsedBody.request),
       });
       return json(result, { status: thresholdEcdsaStatusCode(result) });
     } finally {
@@ -827,15 +1464,16 @@ export async function handleThresholdEcdsa(
       if (!parsedBody.ok) {
         return json(parsedBody.body, { status: thresholdEcdsaStatusCode(parsedBody.body) });
       }
-      const validated = await validateRouterAbEcdsaDerivationWalletSessionInputs({
-        body: parsedBody.request,
-        headers: Object.fromEntries(ctx.request.headers.entries()),
-        session: ctx.opts.session,
-      });
-      if (!validated.ok) return json(validated, { status: thresholdEcdsaStatusCode(validated) });
-      const result = await runtime.advancePoolFill({
-        claims: validated.claims,
+      const authorized = await authorizeEcdsaPoolFill({
+        ctx,
         request: parsedBody.request,
+      });
+      if (!authorized.ok) {
+        return json(authorized.error.body, { status: authorized.error.status });
+      }
+      const result = await runtime.advancePoolFill({
+        claims: authorized.claims,
+        request: ecdsaPoolFillStepRuntimeRequest(parsedBody.request),
       });
       return json(result, { status: thresholdEcdsaStatusCode(result) });
     } finally {

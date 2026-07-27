@@ -20,7 +20,10 @@ import type { BootstrapEcdsaSessionResult } from '@/core/signingEngine/threshold
 import type { connectEcdsaSession } from '@/core/signingEngine/threshold/ecdsa/connectSession';
 import type { keygenEcdsa } from '@/core/signingEngine/threshold/ecdsa/keygen';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
+import {
+  normalizeThresholdRuntimePolicyScope,
+  type ThresholdRuntimePolicyScope,
+} from '@/core/signingEngine/threshold/sessionPolicy';
 import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { RouterAbNormalSigningConfig } from '@/core/types/seams';
@@ -67,6 +70,11 @@ import {
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RootShareEpoch } from '@shared/utils/domainIds';
+import type {
+  MpcWalletSigningQuotaId,
+  SeamsSessionId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type { PersistedEcdsaRoleLocalMaterial } from '../../session/persistence/records';
 import type { ExistingEcdsaRoleLocalActivation } from './postRegistrationSessionActivation';
 
@@ -107,6 +115,9 @@ export type ThresholdEcdsaSessionBootstrapResult = {
   session: EcdsaSessionSuccess & {
     thresholdSessionId: string;
     signingGrantId: string;
+    authorizationSessionId: SeamsSessionId;
+    walletSessionId: WalletSessionId;
+    quotaId: MpcWalletSigningQuotaId;
     expiresAtMs: number;
     remainingUses: number;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -208,7 +219,6 @@ async function buildRouterAbEcdsaDerivationNormalSigningState(args: {
       const state = parseRouterAbEcdsaDerivationNormalSigningStateV1({
         kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
         scope: {
-          wallet_key_id: args.evmFamilySigningKeySlotId,
           wallet_id: String(args.walletId),
           ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
           signing_root_id: args.signingRootId,
@@ -486,7 +496,18 @@ function roleLocalAuthMethodForActivation(args: {
 
 function resolveEcdsaActivationWalletKeyId(args: ActivateEcdsaSessionByPurposeRequest): string {
   if (args.kind === 'session_bootstrap') {
-    return String(args.key.evmFamilySigningKeySlotId);
+    const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
+      args.lanePolicy.runtimePolicyScope,
+    );
+    if (!runtimePolicyScope) {
+      throw new Error('Strict ECDSA session activation requires runtimePolicyScope');
+    }
+    return String(
+      deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
+        walletId: args.key.walletId,
+        runtimePolicyScope,
+      }),
+    );
   }
   if (!args.runtimePolicyScope) {
     throw new Error(
@@ -879,6 +900,9 @@ async function activateEcdsaSessionByPurpose(
     ok: true,
     thresholdSessionId: sessionId,
     signingGrantId,
+    authorizationSessionId: bootstrap.authorizationSessionId,
+    walletSessionId: bootstrap.walletSessionId,
+    quotaId: bootstrap.quotaId,
     expiresAtMs,
     remainingUses,
     ...(bootstrap.runtimePolicyScope ? { runtimePolicyScope: bootstrap.runtimePolicyScope } : {}),
@@ -894,7 +918,6 @@ async function activateEcdsaSessionByPurpose(
   const thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef = {
     type: 'threshold-ecdsa-secp256k1',
     userId: walletId,
-    evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
     chainTarget,
     relayerUrl: args.relayerUrl,
     ...(bootstrap.keyHandle ? { keyHandle: bootstrap.keyHandle } : {}),

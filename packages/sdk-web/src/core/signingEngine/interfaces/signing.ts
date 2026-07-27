@@ -136,7 +136,6 @@ export type KeyRef =
        * Canonical product-facing identity for the integrated ecdsa-derivation key.
        */
       keyHandle?: string;
-      evmFamilySigningKeySlotId: string;
       ecdsaThresholdKeyId: EcdsaThresholdKeyId;
       signingRootId?: never;
       signingRootVersion?: never;

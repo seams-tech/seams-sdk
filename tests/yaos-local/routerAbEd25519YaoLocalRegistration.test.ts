@@ -576,17 +576,33 @@ async function signWithActivatedYaoShares(input: {
     await globalThis.crypto.subtle.digest('SHA-256', base64UrlDecode(canonicalMessage)),
   );
   const signingWorkerId = input.admissionRequest.scope.signing_worker_id;
+  const activeMetadata = input.activeClient.metadata();
   const prepare = await buildRouterAbEd25519Nep413PrepareRequestV2({
     scope: {
       request_id: 'sdk-local-signing-1',
       account_id: input.admissionRequest.scope.account_id,
-      session_id: input.admissionRequest.scope.wallet_session_id,
-      active_state_session_id: input.admissionRequest.scope.wallet_session_id,
+      authorization: {
+        kind: 'reusable_wallet_session',
+        wallet_session_id: input.admissionRequest.scope.wallet_session_id,
+        grant_id: 'sdk-local-signing-grant-1',
+      },
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: activeMetadata.scope.wallet_session_id,
+        capability: base64UrlEncode(
+          Uint8Array.from(activeMetadata.activeCapabilityBinding),
+        ),
+        material_owner: activeMetadata.applicationBinding.wallet_id,
+        key_binding: base64UrlEncode(activeMetadata.registeredPublicKey),
+        lifecycle_binding: activeMetadata.scope.lifecycle_id,
+        signing_worker: activeMetadata.scope.signing_worker_id,
+      },
       signing_worker_id: signingWorkerId,
     },
     expiresAtMs: Date.now() + 60_000,
     operationId: 'sdk-local-nep413-1',
     operationFingerprint: 'sdk-local-nep413-fingerprint-1',
+    displayDigestB64u: base64UrlEncode(new Uint8Array(32).fill(0xd2)),
     nearAccountId: 'alice.testnet',
     nearNetworkId: 'testnet',
     message,

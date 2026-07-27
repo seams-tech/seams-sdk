@@ -244,6 +244,7 @@ export function createWarmSessionCapabilityReaderCore(
     const candidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record: args.record });
     const lane = selectedEcdsaLane({
       key,
+      materialActivation: args.record.materialActivation,
       keyHandle: args.record.keyHandle,
       walletId: args.record.walletId,
       auth: candidate.auth,

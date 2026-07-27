@@ -25,7 +25,6 @@ import {
 import { ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap } from '../warmCapabilities/sealedRefreshParity';
 import {
   getPrimaryAndSecondaryEcdsaCapabilities,
-  tryReuseReadyWarmEcdsaBootstrap,
 } from '../../useCases/provisionEcdsaSession';
 import { claimWarmSessionPrfFirst } from './prfClaim';
 import {
@@ -74,15 +73,6 @@ function resolveSharedEd25519WalletSessionGrant(
     remainingUses,
     expiresAtMs,
   };
-}
-
-function ecdsaBootstrapUsesSharedGrant(args: {
-  bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  sharedGrant: SharedEd25519WalletSessionGrant;
-}): boolean {
-  return (
-    String(args.bootstrap.session.signingGrantId || '').trim() === args.sharedGrant.signingGrantId
-  );
 }
 
 function resolveSharedGrantReconnectTtlMs(args: {
@@ -420,34 +410,6 @@ export async function bootstrapReuseWarmEcdsaCapabilityNoPrompt(
       chainTargetKey,
     };
   }
-  const tryReusableBootstrap = async (): Promise<ThresholdEcdsaSessionBootstrapResult | null> =>
-    await tryReuseReadyWarmEcdsaBootstrap(
-      {
-        getWarmSession: (warmSessionWalletId) => deps.getWarmSession(warmSessionWalletId),
-        listThresholdEcdsaRecordsForWalletTarget: ({ walletId, chainTarget, source }) =>
-          listThresholdEcdsaSessionRecordsForWalletTarget(deps.ecdsaSessions, {
-            walletId,
-            chainTarget,
-            ...(source ? { source } : {}),
-          }).map((record) => ({ source: record.source, record })),
-      },
-      {
-        walletId: toWalletId(walletId),
-        chainTarget,
-        source: request.source,
-      },
-    );
-  let reusableBootstrap = await tryReusableBootstrap();
-  if (
-    reusableBootstrap &&
-    ecdsaBootstrapUsesSharedGrant({ bootstrap: reusableBootstrap, sharedGrant })
-  ) {
-    return {
-      ok: true,
-      source: 'volatile_material',
-      bootstrap: reusableBootstrap,
-    };
-  }
   try {
     await deps.discoverPersistedSessionsForWallet({
       kind: 'discover_wallet_ecdsa_signing_sessions',
@@ -463,17 +425,6 @@ export async function bootstrapReuseWarmEcdsaCapabilityNoPrompt(
       error: error instanceof Error ? error.message : String(error || 'unknown error'),
     });
     return sealedRestoreFailureFromError({ chainTargetKey, error });
-  }
-  reusableBootstrap = await tryReusableBootstrap();
-  if (
-    reusableBootstrap &&
-    ecdsaBootstrapUsesSharedGrant({ bootstrap: reusableBootstrap, sharedGrant })
-  ) {
-    return {
-      ok: true,
-      source: 'sealed_restore',
-      bootstrap: reusableBootstrap,
-    };
   }
   try {
     const reconnectedBootstrap = await tryNoPromptWalletSessionReconnect({

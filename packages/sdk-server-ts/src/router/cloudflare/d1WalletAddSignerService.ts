@@ -8,12 +8,6 @@ import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
 import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import {
-  DEFAULT_WALLET_SESSION_REMAINING_USES,
-  DEFAULT_WALLET_SESSION_TTL_MS,
-} from '@shared/threshold/sessionPolicy';
-import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   WalletAddSignerFinalizeRequest,
   WalletAddSignerFinalizeResponse,
@@ -152,9 +146,6 @@ export type D1WalletAddSignerFinalizePreparedV1 =
   | {
       readonly kind: 'd1_wallet_add_signer_finalize_ed25519_prepared_v1';
       readonly finalizingAtMs: number;
-      readonly signingGrantId: string;
-      readonly expiresAtMs: number;
-      readonly remainingUses: number;
     }
   | {
       readonly kind: 'd1_wallet_add_signer_finalize_ecdsa_prepared_v1';
@@ -334,29 +325,16 @@ function parseWalletAddSignerFinalizePrepared(
   if (!record) return null;
   if (record.kind === 'd1_wallet_add_signer_finalize_ed25519_prepared_v1') {
     const finalizingAtMs = record.finalizingAtMs;
-    const signingGrantId = toOptionalTrimmedString(record.signingGrantId);
-    const expiresAtMs = record.expiresAtMs;
-    const remainingUses = record.remainingUses;
     if (
       typeof finalizingAtMs !== 'number' ||
       !Number.isSafeInteger(finalizingAtMs) ||
-      finalizingAtMs <= 0 ||
-      !signingGrantId ||
-      typeof expiresAtMs !== 'number' ||
-      !Number.isSafeInteger(expiresAtMs) ||
-      expiresAtMs <= 0 ||
-      typeof remainingUses !== 'number' ||
-      !Number.isSafeInteger(remainingUses) ||
-      remainingUses <= 0
+      finalizingAtMs <= 0
     ) {
       return null;
     }
     return {
       kind: 'd1_wallet_add_signer_finalize_ed25519_prepared_v1',
       finalizingAtMs,
-      signingGrantId,
-      expiresAtMs,
-      remainingUses,
     };
   }
   if (record.kind !== 'd1_wallet_add_signer_finalize_ecdsa_prepared_v1') return null;
@@ -406,21 +384,14 @@ function buildD1WalletAddSignerFinalizePrepared(input: {
     };
   }
   if (input.ceremony.signerState.kind === 'near_ed25519_yao_add_signer_finalizing') {
-    const session = input.ceremony.signerState.response.ed25519.session;
     return {
       kind: 'd1_wallet_add_signer_finalize_ed25519_prepared_v1',
       finalizingAtMs: input.ceremony.signerState.finalizingAtMs,
-      signingGrantId: session.signingGrantId,
-      expiresAtMs: session.expiresAtMs,
-      remainingUses: session.remainingUses,
     };
   }
   return {
     kind: 'd1_wallet_add_signer_finalize_ed25519_prepared_v1',
     finalizingAtMs: input.nowMs,
-    signingGrantId: `wss_${secureRandomBase64Url(24)}`,
-    expiresAtMs: input.nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
-    remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
   };
 }
 
@@ -833,8 +804,7 @@ export class CloudflareD1WalletAddSignerService {
         );
       }
       yaoRuntime = this.getEd25519YaoProductRegistration();
-      const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
-      if (!yaoRuntime || !normalSigningRuntime) {
+      if (!yaoRuntime) {
         return rejectedWalletAddSignerStartTerminal(
           'not_configured',
           'Ed25519 Yao add-signer is not configured on this server',
@@ -1531,8 +1501,7 @@ export class CloudflareD1WalletAddSignerService {
         };
       }
       const yaoRuntime = this.getEd25519YaoProductRegistration();
-      const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
-      if (!yaoRuntime || !normalSigningRuntime) {
+      if (!yaoRuntime) {
         return {
           ok: false,
           code: 'not_configured',
@@ -1641,27 +1610,6 @@ export class CloudflareD1WalletAddSignerService {
         if (!activeYaoCapability.ok) {
           return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(activeYaoCapability);
         }
-        const authority = buildPasskeyWalletAuthAuthority({
-          walletId: ceremony.intent.walletId,
-          rpId: webAuthnAuth.rpId,
-          credentialIdB64u: webAuthnAuth.credentialIdB64u,
-        });
-        const session = await yaoRuntime.mintWalletSession({
-          kind: 'add_signer_wallet_session_v1',
-          walletId: ceremony.intent.walletId,
-          nearAccountId,
-          nearEd25519SigningKeyId,
-          authority,
-          thresholdSessionId: activation.activation.admissionRequest.scope.wallet_session_id,
-          participantIds,
-          runtimePolicyScope,
-          signingGrantId: prepared.signingGrantId,
-          expiresAtMs: prepared.expiresAtMs,
-          remainingUses: prepared.remainingUses,
-        });
-        if (!session.ok) {
-          return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(session);
-        }
         finalizingAtMs = prepared.finalizingAtMs;
         const ed25519 = {
           signerSlot: selection.signerSlot,
@@ -1672,7 +1620,6 @@ export class CloudflareD1WalletAddSignerService {
           keyVersion: selection.keyVersion,
           recoveryExportCapable: true,
           participantIds,
-          session: session.session,
         } as const;
         response = {
           ok: true,
@@ -1686,7 +1633,7 @@ export class CloudflareD1WalletAddSignerService {
           walletId: ceremony.intent.walletId,
           nearAccountId,
           nearEd25519SigningKeyId,
-          thresholdSessionId: session.session.thresholdSessionId,
+          thresholdSessionId: activation.activation.admissionRequest.scope.wallet_session_id,
           signerSlot: selection.signerSlot,
           publicKey,
           signingWorkerId: yaoRuntime.signingWorkerId,
@@ -1721,13 +1668,12 @@ export class CloudflareD1WalletAddSignerService {
         response.rpId !== webAuthnAuth.rpId ||
         response.credentialIdB64u !== webAuthnAuth.credentialIdB64u ||
         response.ed25519.signerSlot !== selection.signerSlot ||
-        response.ed25519.session.thresholdSessionId !==
-          activation.activation.admissionRequest.scope.wallet_session_id ||
         signer.walletId !== response.walletId ||
         signer.signerSlot !== response.ed25519.signerSlot ||
         signer.nearAccountId !== response.ed25519.nearAccountId ||
         signer.nearEd25519SigningKeyId !== response.ed25519.nearEd25519SigningKeyId ||
-        signer.thresholdSessionId !== response.ed25519.session.thresholdSessionId ||
+        signer.thresholdSessionId !==
+          activation.activation.admissionRequest.scope.wallet_session_id ||
         signer.publicKey !== response.ed25519.publicKey ||
         signer.signingWorkerId !== response.ed25519.relayerKeyId ||
         signer.keyVersion !== response.ed25519.keyVersion ||
@@ -1742,23 +1688,6 @@ export class CloudflareD1WalletAddSignerService {
           code: 'scope_mismatch',
           message: 'stored Ed25519 Yao add-signer finalize plan is invalid',
         };
-      }
-      const provisioned =
-        await normalSigningRuntime.provisionRouterAbEd25519YaoNormalSigningSession({
-          kind: 'router_ab_ed25519_yao_normal_signing_session_v1',
-          walletId: ceremony.intent.walletId,
-          nearAccountId: response.ed25519.nearAccountId,
-          nearEd25519SigningKeyId: response.ed25519.nearEd25519SigningKeyId,
-          authorityScope: response.ed25519.session.authorityScope,
-          thresholdSessionId: response.ed25519.session.thresholdSessionId,
-          signingGrantId: response.ed25519.session.signingGrantId,
-          signingWorkerId: yaoRuntime.signingWorkerId,
-          expiresAtMs: response.ed25519.session.expiresAtMs,
-          participantIds,
-          remainingUses: response.ed25519.session.remainingUses,
-        });
-      if (!provisioned.ok) {
-        return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(provisioned);
       }
       const inserted = await walletStore.putEd25519SignerIfSlotAvailable(signer);
       if (!inserted) {

@@ -15,19 +15,15 @@ function unwrap<T>(result: DomainIdParseResult<T>): T {
   return result.value;
 }
 
-function resolveAbsentEcdsaHydration(
-  lookup: EcdsaCapabilityManifestLookup,
-  entryPoint: 'post_registration' | 'post_wallet_unlock' | 'post_page_refresh',
-) {
+function resolveAbsentEcdsaHydration(lookup: EcdsaCapabilityManifestLookup) {
   return resolveEcdsaCapabilityHydration({
-    entryPoint,
     lookup,
     runtime: { kind: 'absent' },
   });
 }
 
 function resolveBlockedPlan(lookup: EcdsaCapabilityManifestLookup) {
-  return resolveAbsentEcdsaHydration(lookup, 'post_page_refresh').plan;
+  return resolveAbsentEcdsaHydration(lookup);
 }
 
 function planKind(plan: ReturnType<typeof resolveBlockedPlan>): string {
@@ -40,8 +36,8 @@ function blockedReason(plan: ReturnType<typeof resolveBlockedPlan>): string | nu
 
 test('normalizes exact active ECDSA material into live and rehydration plans', () => {
   const fixture = ecdsaCapabilityHydrationLookupFixture();
-  const absent = resolveAbsentEcdsaHydration(fixture.active, 'post_page_refresh');
-  expect(absent.plan).toMatchObject({
+  const absent = resolveAbsentEcdsaHydration(fixture.active);
+  expect(absent).toMatchObject({
     kind: 'rehydrate_material_activation',
     capability: fixture.active.manifest.signer.capability,
     materialOwner: fixture.active.manifest.signer.materialOwner,
@@ -54,7 +50,6 @@ test('normalizes exact active ECDSA material into live and rehydration plans', (
   });
 
   const live = resolveEcdsaCapabilityHydration({
-    entryPoint: 'post_wallet_unlock',
     lookup: fixture.active,
     runtime: {
       kind: 'live',
@@ -62,7 +57,7 @@ test('normalizes exact active ECDSA material into live and rehydration plans', (
       materialActivation: fixture.active.manifest.activation.materialActivation,
     },
   });
-  expect(live.plan).toMatchObject({
+  expect(live).toMatchObject({
     kind: 'use_live_runtime',
     capability: fixture.active.manifest.signer.capability,
     materialOwner: fixture.active.manifest.signer.materialOwner,
@@ -70,25 +65,10 @@ test('normalizes exact active ECDSA material into live and rehydration plans', (
   });
 });
 
-test('selects the same ECDSA hydration decision for every entry point', () => {
-  const fixture = ecdsaCapabilityHydrationLookupFixture();
-  const decisions = [
-    resolveAbsentEcdsaHydration(fixture.active, 'post_registration').plan.kind,
-    resolveAbsentEcdsaHydration(fixture.active, 'post_wallet_unlock').plan.kind,
-    resolveAbsentEcdsaHydration(fixture.active, 'post_page_refresh').plan.kind,
-  ];
-  expect(decisions).toEqual([
-    'rehydrate_material_activation',
-    'rehydrate_material_activation',
-    'rehydrate_material_activation',
-  ]);
-});
-
 test('blocks a live ECDSA runtime whose exact activation identity differs', () => {
   const fixture = ecdsaCapabilityHydrationLookupFixture();
   const activation = fixture.active.manifest.activation.materialActivation;
   const resolution = resolveEcdsaCapabilityHydration({
-    entryPoint: 'post_page_refresh',
     lookup: fixture.active,
     runtime: {
       kind: 'live',
@@ -104,7 +84,7 @@ test('blocks a live ECDSA runtime whose exact activation identity differs', () =
     },
   });
 
-  expect(resolution.plan).toEqual({
+  expect(resolution).toEqual({
     kind: 'blocked',
     capability: activation.capability,
     reason: 'binding_mismatch',

@@ -1,18 +1,14 @@
 import type { SigningSessionPlan } from '../../session/operationState/types';
-import { runSuccessfulEvmFamilyPostSignCommands } from './postSignFinalization';
 import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
 import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
-import type { SigningSessionBudgetReserveResult } from '../../session/budget/budget';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmFamilyThresholdEcdsaStepUp } from './requireEvmFamilyStepUpAuth';
-import type { EvmFamilySigningGrantBudgetReservationInput } from './signingFlow';
 import { type PreparedNonceOperationContext } from '../../nonce/NonceCoordinator';
 import { mapToRetryableNonceStateError } from './errors';
 import {
-  emitEvmFamilySigningOperationTrace,
   type EvmFamilyManagedNonceReservation,
 } from './events';
 import {
@@ -64,14 +60,6 @@ type EvmFamilyTransactionSigningExecutorArgs<TRequest extends EvmFamilyTransacti
     thresholdEcdsaState: EvmFamilyExecutorThresholdEcdsaState;
     onConfirmationDisplayed: () => void;
     thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
-    reserveSigningGrantBudget: (
-      input: EvmFamilySigningGrantBudgetReservationInput,
-    ) => Promise<SigningSessionBudgetReserveResult>;
-    recordSuccessfulSigningGrantSpend: () => Promise<void>;
-    recordFailedSigningGrantSpend: (error: unknown) => void;
-    applySuccessfulEcdsaPostSignPolicy: () => Promise<void>;
-    deferSuccessfulSigningSessionFinalization?: boolean;
-    deferFailedSigningSessionFinalization?: boolean;
     retryWithFreshEmailOtpAuth: (
       error: unknown,
     ) => Promise<TempoSignedResult | EvmSignedResult | null>;
@@ -152,7 +140,6 @@ async function executeConfiguredEvmFamilyTransactionSigning<
       request: args.request,
       onConfirmationDisplayed: args.onConfirmationDisplayed,
       thresholdEcdsaStepUp: args.thresholdEcdsaStepUp,
-      reserveSigningGrantBudget: args.reserveSigningGrantBudget,
       prepareRequestWithManagedNonce: async () => {
         await recoverDurableLeasesTask;
         return await config.prepareRequestWithManagedNonce({
@@ -166,17 +153,6 @@ async function executeConfiguredEvmFamilyTransactionSigning<
         await releaseEvmFamilyNonceReservation(args.deps, reservation);
       },
     } as unknown);
-    if (!args.deferSuccessfulSigningSessionFinalization) {
-      await runSuccessfulEvmFamilyPostSignCommands({
-        signingSessionPlan:
-          args.thresholdEcdsaState.kind === 'prepared'
-            ? args.thresholdEcdsaState.signingSessionPlan
-            : undefined,
-        onTransition: emitEvmFamilySigningOperationTrace,
-        recordSuccessfulSigningGrantSpend: args.recordSuccessfulSigningGrantSpend,
-        applySuccessfulEcdsaPostSignPolicy: args.applySuccessfulEcdsaPostSignPolicy,
-      });
-    }
     return result;
   } catch (error: unknown) {
     const retried = await args.retryWithFreshEmailOtpAuth(error);
@@ -190,9 +166,6 @@ async function executeConfiguredEvmFamilyTransactionSigning<
       }),
       chainId: args.chainTarget.chainId,
     });
-    if (!args.deferFailedSigningSessionFinalization) {
-      args.recordFailedSigningGrantSpend(finalError);
-    }
     throw finalError;
   }
 }
@@ -206,14 +179,6 @@ export async function executeEvmFamilyTransactionSigning(args: {
   thresholdEcdsaState: EvmFamilyExecutorThresholdEcdsaState;
   onConfirmationDisplayed: () => void;
   thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
-  reserveSigningGrantBudget: (
-    input: EvmFamilySigningGrantBudgetReservationInput,
-  ) => Promise<SigningSessionBudgetReserveResult>;
-  recordSuccessfulSigningGrantSpend: () => Promise<void>;
-  recordFailedSigningGrantSpend: (error: unknown) => void;
-  applySuccessfulEcdsaPostSignPolicy: () => Promise<void>;
-  deferSuccessfulSigningSessionFinalization?: boolean;
-  deferFailedSigningSessionFinalization?: boolean;
   retryWithFreshEmailOtpAuth: (
     error: unknown,
   ) => Promise<TempoSignedResult | EvmSignedResult | null>;
