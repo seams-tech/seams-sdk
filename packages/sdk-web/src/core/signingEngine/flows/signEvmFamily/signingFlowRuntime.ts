@@ -31,7 +31,7 @@ function requireEvmFamilyRelayerUrl(deps: EvmFamilySigningDeps): string {
 }
 
 async function resolveEcdsaSigningMaterialHydrationPlan(args: {
-  capability: Awaited<ReturnType<EvmFamilySigningDeps['getEcdsaSigningCapability']>>;
+  capability: Awaited<ReturnType<EvmFamilySigningDeps['resolveCanonicalEcdsaSigningCapability']>>;
   relayerUrl: string;
   requestLabel: unknown;
   materialActivation: ResolvedEvmFamilyEcdsaSigningLane['materialActivation'];
@@ -84,7 +84,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         )
       : undefined;
   const capability = resolvedSigner
-    ? await args.deps.getEcdsaSigningCapability({
+    ? await args.deps.resolveCanonicalEcdsaSigningCapability({
         walletId: resolvedSigner.walletId,
         chainTarget: resolvedSigner.chainTarget,
         materialActivation: resolvedSigner.materialActivation,

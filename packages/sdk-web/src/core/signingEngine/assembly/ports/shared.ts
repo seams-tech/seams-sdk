@@ -134,7 +134,7 @@ export type CreateSigningEnginePortsArgs = {
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
   ensureSealedRefreshStartupParity: () => Promise<void>;
-  getEcdsaSigningCapability: EvmFamilySigningDeps['getEcdsaSigningCapability'];
+  resolveCanonicalEcdsaSigningCapability: EvmFamilySigningDeps['resolveCanonicalEcdsaSigningCapability'];
   touchConfirm: UiConfirmRuntimeBridgePort;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
   consumeEmailOtpWarmSessionUses?: (args: {
