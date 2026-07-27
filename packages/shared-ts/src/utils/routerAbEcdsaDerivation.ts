@@ -1715,7 +1715,7 @@ function sameRegistrationLifecycle(
   );
 }
 
-function requireRegistrationFactsMatchRequest(input: {
+export function assertRouterAbEcdsaRegistrationFactsMatchRequestV1(input: {
   facts: RouterAbEcdsaRegistrationRequestFactsV1;
   request: RouterAbEcdsaRegistrationRequestV1;
 }): void {
@@ -1918,7 +1918,7 @@ export function buildRouterAbEcdsaDerivationPublicCapabilityV1(input: {
     input.clientActivation,
   );
   const receipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(input.activationReceipt);
-  requireRegistrationFactsMatchRequest({ facts, request });
+  assertRouterAbEcdsaRegistrationFactsMatchRequestV1({ facts, request });
   const activated = receipt.ecdsa_activation;
   if (
     receipt.lifecycle_id !== request.lifecycle.lifecycle_id ||
