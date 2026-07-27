@@ -9,12 +9,9 @@ import type {
 } from '../../../indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import {
   buildBlockedMpcCapabilityHydrationPlan,
-  buildMpcCapabilityHydrationResolution,
   buildRehydrateMaterialActivationHydrationPlan,
   buildUseLiveRuntimeHydrationPlan,
-  type MpcCapabilityHydrationEntryPoint,
   type MpcCapabilityHydrationPlan,
-  type MpcCapabilityHydrationResolution,
 } from './mpcCapabilityHydration';
 import { buildRestorableMpcMaterialRefInternal } from './restorableMpcMaterialRef.internal';
 
@@ -102,9 +99,7 @@ function activePlanFromLookup(input: {
   }
   switch (input.runtime.kind) {
     case 'live':
-      if (
-        !mpcMaterialActivationRefsEqual(materialActivation, input.runtime.materialActivation)
-      ) {
+      if (!mpcMaterialActivationRefsEqual(materialActivation, input.runtime.materialActivation)) {
         return buildBlockedMpcCapabilityHydrationPlan({
           capability: input.lookup.manifest.signer.capability,
           reason: 'binding_mismatch',
@@ -126,20 +121,19 @@ function activePlanFromLookup(input: {
   }
 }
 
-export function resolveEcdsaCapabilityHydration(input: {
-  readonly entryPoint: MpcCapabilityHydrationEntryPoint;
+export type EcdsaCapabilityHydrationInput = {
   readonly lookup: EcdsaCapabilityHydrationLookup;
   readonly runtime: EcdsaCapabilityRuntimeObservation;
-}): MpcCapabilityHydrationResolution {
-  const plan =
-    input.lookup.kind === 'active'
-      ? activePlanFromLookup({
-          lookup: input.lookup,
-          runtime: input.runtime,
-        })
-      : blockedPlanFromLookup(input.lookup);
-  return buildMpcCapabilityHydrationResolution({
-    entryPoint: input.entryPoint,
-    plan,
-  });
+  readonly entryPoint?: never;
+};
+
+export function resolveEcdsaCapabilityHydration(
+  input: EcdsaCapabilityHydrationInput,
+): MpcCapabilityHydrationPlan {
+  return input.lookup.kind === 'active'
+    ? activePlanFromLookup({
+        lookup: input.lookup,
+        runtime: input.runtime,
+      })
+    : blockedPlanFromLookup(input.lookup);
 }

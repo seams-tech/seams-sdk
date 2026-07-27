@@ -13,8 +13,11 @@ import {
   parseMpcMaterialActivationId,
   parseMpcMaterialActivationRef,
   parseMpcMaterialOwnerRef,
+  parseWalletId,
   type CapabilityInstanceRef,
   type DomainIdParseResult,
+  type MpcMaterialActivationRef,
+  type WalletId,
 } from '@shared/utils/domainIds';
 import {
   parseCanonicalEcdsaServerActivationRequest,
@@ -39,11 +42,16 @@ import {
   parseSdkEcdsaDerivationSigningRootId,
   parseSdkEcdsaDerivationSigningRootVersion,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   parseWalletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { thresholdEcdsaChainTargetFromRequest } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  buildEcdsaRoleLocalPublicFacts,
+} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import type { EcdsaRoleLocalPublicFacts } from '@/core/platform/ecdsaRoleLocalRecords';
 import {
   buildVerifiedEcdsaPublicFacts,
   toEvmFamilyEcdsaKeyHandle,
@@ -115,6 +123,38 @@ export type EcdsaCapabilitySelector = {
   readonly capability: CapabilityInstanceRef;
   readonly authority: WalletAuthAuthorityRef;
 };
+
+export type ActiveEcdsaWalletCapabilitySubject = EcdsaCapabilitySelector & {
+  readonly ecdsaThresholdKeyId: ReturnType<typeof parseEcdsaThresholdKeyId>;
+};
+
+export type ActiveEcdsaWalletCapabilitySubjectListResult =
+  | {
+      readonly kind: 'resolved';
+      readonly subjects: readonly ActiveEcdsaWalletCapabilitySubject[];
+    }
+  | {
+      readonly kind: 'invalid_current_state';
+      readonly subjects?: never;
+    }
+  | {
+      readonly kind: 'persistence_unavailable';
+      readonly subjects?: never;
+    };
+
+export type EcdsaWalletActivationSelectorListResult =
+  | {
+      readonly kind: 'resolved';
+      readonly selectors: readonly EcdsaCapabilitySelector[];
+    }
+  | {
+      readonly kind: 'invalid_current_state';
+      readonly selectors?: never;
+    }
+  | {
+      readonly kind: 'persistence_unavailable';
+      readonly selectors?: never;
+    };
 
 type LookupFailureExclusions = {
   readonly manifest?: never;
@@ -222,6 +262,7 @@ export type SealEcdsaCapabilityActivationInput = {
   readonly committedJournal: ServerCommittedEcdsaActivationJournal;
   readonly readyStateBlobB64u: string;
   readonly registeredPublicFacts: VerifiedEcdsaPublicFacts;
+  readonly roleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
   readonly committedAt: IsoTimestamp;
 };
 
@@ -274,6 +315,10 @@ type EcdsaCapabilityMaterialRefLookupFailure =
     };
 
 export type EcdsaCapabilityMaterialRefLookup =
+  | Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'active' | 'retired' }>
+  | EcdsaCapabilityMaterialRefLookupFailure;
+
+export type EcdsaCapabilityActivationLookup =
   | Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'active' | 'retired' }>
   | EcdsaCapabilityMaterialRefLookupFailure;
 
@@ -527,6 +572,7 @@ function activationBindingAadProjection(binding: EcdsaActivationBinding) {
       signing_root_version: binding.signer.signingRootVersion,
     },
     activation_id: binding.activationId,
+    evm_family_signing_key_slot_id: binding.evmFamilySigningKeySlotId,
     role_local_binding: binding.roleLocalBinding,
     binding_digest: binding.bindingDigest,
     durable_material_ref: binding.durableMaterialRef,
@@ -547,6 +593,7 @@ function activeManifestBindingAadProjection(manifest: ActiveEcdsaCapabilityManif
       signing_root_version: manifest.signer.signingRootVersion,
     },
     activation_id: manifest.durableMaterial.materialActivation.activationId,
+    evm_family_signing_key_slot_id: manifest.durableMaterial.roleLocalPublicFacts.evmFamilySigningKeySlotId,
     role_local_binding: manifest.durableMaterial.roleLocalBinding,
     binding_digest: manifest.durableMaterial.bindingDigest,
     durable_material_ref: manifest.durableMaterial.durableMaterialRef,
@@ -860,6 +907,7 @@ function parseActivationBinding(value: unknown): EcdsaActivationBinding {
     'targetManifest',
     'signer',
     'activationId',
+    'evmFamilySigningKeySlotId',
     'roleLocalBinding',
     'bindingDigest',
     'durableMaterialRef',
@@ -871,6 +919,10 @@ function parseActivationBinding(value: unknown): EcdsaActivationBinding {
     targetManifest: parseManifestIdentity(record.targetManifest),
     signer: parsePreparedSigner(record.signer),
     activationId: unwrapDomainId(parseMpcMaterialActivationId(record.activationId)),
+    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
+      record.evmFamilySigningKeySlotId,
+      'ECDSA activation binding evmFamilySigningKeySlotId',
+    ),
     roleLocalBinding: parseRoleLocalBinding(record.roleLocalBinding),
     bindingDigest: parseEcdsaRoleLocalBindingDigest(record.bindingDigest),
     durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(record.durableMaterialRef),
@@ -1091,6 +1143,7 @@ function storedActiveProof(input: ParsedActiveManifestProof) {
     activation_binding: input.activationBinding,
     server_activation: input.serverActivation,
     registered_public_facts: input.activeManifest.signer.registeredPublicFacts,
+    role_local_public_facts: input.durableMaterial.roleLocalPublicFacts,
     ciphertext_digest: input.durableMaterial.ciphertextDigest,
     committed_at: input.activeManifest.committedAt,
   };
@@ -1102,6 +1155,7 @@ function parseActiveProof(value: unknown): ParsedActiveManifestProof {
     'activation_binding',
     'server_activation',
     'registered_public_facts',
+    'role_local_public_facts',
     'ciphertext_digest',
     'committed_at',
   ]);
@@ -1149,6 +1203,7 @@ function parseActiveProof(value: unknown): ParsedActiveManifestProof {
   const durableMaterial = buildDurableEcdsaMaterialBinding({
     activationBinding,
     serverActivation,
+    roleLocalPublicFacts: buildEcdsaRoleLocalPublicFacts(record.role_local_public_facts),
     ciphertextDigest: parseEcdsaCiphertextDigest(record.ciphertext_digest),
   });
   const committedAt = parseIsoTimestamp(record.committed_at);
@@ -1588,11 +1643,102 @@ async function cancelPreparedActivationInTransaction(
   return assertNever(persisted.journal);
 }
 
+async function readCurrentPointerRowsForWallet(
+  context: SeamsWalletTransactionContext,
+): Promise<readonly unknown[]> {
+  return await context.store(POINTER_STORE).getAll();
+}
+
+async function readActivationJournalRows(
+  context: SeamsWalletTransactionContext,
+): Promise<readonly unknown[]> {
+  return await context.store(JOURNAL_STORE).getAll();
+}
+
 export class IndexedDbEcdsaCapabilityManifestStore {
   private readonly manager: SeamsWalletDBManager;
 
   constructor(manager: SeamsWalletDBManager = seamsWalletDB) {
     this.manager = manager;
+  }
+
+  async listActiveWalletCapabilitySubjects(
+    walletIdInput: WalletId,
+  ): Promise<ActiveEcdsaWalletCapabilitySubjectListResult> {
+    const parsedWalletId = parseWalletId(walletIdInput);
+    if (!parsedWalletId.ok) return { kind: 'invalid_current_state' };
+    let rows: readonly unknown[];
+    try {
+      rows = await this.manager.runTransaction(
+        [POINTER_STORE],
+        'readonly',
+        readCurrentPointerRowsForWallet,
+      );
+    } catch {
+      return { kind: 'persistence_unavailable' };
+    }
+
+    const selectors: EcdsaCapabilitySelector[] = [];
+    try {
+      for (const row of rows) {
+        const pointer = parsePointerRow(row);
+        if (pointer.selector.authority.walletId === parsedWalletId.value) {
+          selectors.push(pointer.selector);
+        }
+      }
+    } catch {
+      return { kind: 'invalid_current_state' };
+    }
+
+    const subjects: ActiveEcdsaWalletCapabilitySubject[] = [];
+    for (const selector of selectors) {
+      const lookup = await this.lookup(selector);
+      if (lookup.kind === 'persistence_unavailable') {
+        return { kind: 'persistence_unavailable' };
+      }
+      if (lookup.kind !== 'active') {
+        return { kind: 'invalid_current_state' };
+      }
+      subjects.push({
+        capability: lookup.manifest.signer.capability,
+        authority: lookup.manifest.signer.authority,
+        ecdsaThresholdKeyId: lookup.manifest.durableMaterial.roleLocalBinding.ecdsaThresholdKeyId,
+      });
+    }
+    return { kind: 'resolved', subjects };
+  }
+
+  async listWalletActivationJournalSelectors(
+    walletIdInput: WalletId,
+  ): Promise<EcdsaWalletActivationSelectorListResult> {
+    const parsedWalletId = parseWalletId(walletIdInput);
+    if (!parsedWalletId.ok) return { kind: 'invalid_current_state' };
+    let rows: readonly unknown[];
+    try {
+      rows = await this.manager.runTransaction(
+        [JOURNAL_STORE],
+        'readonly',
+        readActivationJournalRows,
+      );
+    } catch {
+      return { kind: 'persistence_unavailable' };
+    }
+
+    const selectors: EcdsaCapabilitySelector[] = [];
+    try {
+      for (const row of rows) {
+        const journal = parseJournalRow(row).journal;
+        const signer = journal.candidate.activationBinding.signer;
+        if (signer.authority.walletId !== parsedWalletId.value) continue;
+        selectors.push({
+          capability: signer.capability,
+          authority: signer.authority,
+        });
+      }
+    } catch {
+      return { kind: 'invalid_current_state' };
+    }
+    return { kind: 'resolved', selectors };
   }
 
   async prepareActivation(
@@ -1839,6 +1985,39 @@ export class IndexedDbEcdsaCapabilityManifestStore {
     }
   }
 
+  async discoverActivationJournal(
+    selectorInput: EcdsaCapabilitySelector,
+  ): Promise<EcdsaActivationJournalReadResult> {
+    let selector: EcdsaCapabilitySelector;
+    try {
+      selector = normalizeSelector(selectorInput);
+    } catch {
+      return { kind: 'corrupt' };
+    }
+    try {
+      const raw = await this.manager.runTransaction(
+        [JOURNAL_STORE],
+        'readonly',
+        async (context) =>
+          await context
+            .store(JOURNAL_STORE)
+            .index(SEAMS_WALLET_INDEXES.capabilityWalletAuthority)
+            .get(selectorKey(selector)),
+      );
+      if (raw === undefined) return { kind: 'missing' };
+      try {
+        const parsed = parseJournalRow(raw);
+        return selectorsMatch(parsed.selector, selector)
+          ? { kind: 'found', journal: parsed.journal }
+          : { kind: 'corrupt' };
+      } catch {
+        return { kind: 'corrupt' };
+      }
+    } catch {
+      return { kind: 'persistence_unavailable' };
+    }
+  }
+
   async cancelPreparedActivation(
     preparedJournal: PreparedEcdsaActivationJournal,
   ): Promise<EcdsaPreparedActivationCancellationResult> {
@@ -1932,6 +2111,82 @@ export class IndexedDbEcdsaCapabilityManifestStore {
     return assertNever(observation);
   }
 
+  async lookupByMaterialActivation(input: {
+    readonly walletId: WalletId;
+    readonly materialActivation: MpcMaterialActivationRef;
+  }): Promise<EcdsaCapabilityActivationLookup> {
+    const walletIdResult = parseWalletId(input.walletId);
+    const materialActivationResult = parseMpcMaterialActivationRef(input.materialActivation);
+    const capability = materialActivationResult.ok
+      ? materialActivationResult.value.capability
+      : input.materialActivation.capability;
+    if (!walletIdResult.ok || !materialActivationResult.ok) {
+      return { kind: 'corrupt', capability };
+    }
+    const walletId = walletIdResult.value;
+    const materialActivation = materialActivationResult.value;
+    let rows: readonly unknown[];
+    try {
+      rows = await this.manager.runTransaction(
+        [POINTER_STORE],
+        'readonly',
+        readCurrentPointerRowsForWallet,
+      );
+    } catch {
+      return { kind: 'persistence_unavailable', capability };
+    }
+
+    const selectors: EcdsaCapabilitySelector[] = [];
+    try {
+      for (const row of rows) {
+        const pointer = parsePointerRow(row);
+        if (
+          pointer.selector.authority.walletId === walletId &&
+          pointer.selector.capability === capability
+        ) {
+          selectors.push(pointer.selector);
+        }
+      }
+    } catch {
+      return { kind: 'corrupt', capability };
+    }
+    if (selectors.length === 0) {
+      return { kind: 'missing', subject: 'capability', capability };
+    }
+    if (selectors.length > 1) {
+      return { kind: 'exact_record_conflict', capability };
+    }
+
+    const lookup = await this.lookup(selectors[0]);
+    switch (lookup.kind) {
+      case 'active':
+        return mpcMaterialActivationRefsEqual(
+          lookup.manifest.activation.materialActivation,
+          materialActivation,
+        ) &&
+          mpcMaterialActivationRefsEqual(
+            lookup.manifest.durableMaterial.materialActivation,
+            materialActivation,
+          ) &&
+          mpcMaterialActivationRefsEqual(
+            lookup.material.binding.materialActivation,
+            materialActivation,
+          )
+          ? lookup
+          : { kind: 'exact_binding_mismatch', capability };
+      case 'retired':
+        return lookup;
+      case 'missing':
+        return { kind: 'missing', subject: lookup.subject, capability };
+      case 'exact_binding_mismatch':
+      case 'exact_record_conflict':
+      case 'corrupt':
+      case 'persistence_unavailable':
+        return { kind: lookup.kind, capability };
+    }
+    return assertNever(lookup);
+  }
+
   async openActiveMaterial(
     selectorInput: EcdsaCapabilitySelector,
   ): Promise<EcdsaActiveMaterialOpenResult> {
@@ -1974,8 +2229,7 @@ export class IndexedDbEcdsaCapabilityManifestStore {
     switch (lookup.kind) {
       case 'active':
         if (
-          lookup.manifest.durableMaterial.durableMaterialRef !==
-            materialRef.durableMaterialRef ||
+          lookup.manifest.durableMaterial.durableMaterialRef !== materialRef.durableMaterialRef ||
           lookup.manifest.durableMaterial.bindingDigest !== materialRef.bindingDigest ||
           !mpcMaterialActivationRefsEqual(
             lookup.manifest.activation.materialActivation,
@@ -2156,6 +2410,7 @@ export class IndexedDbEcdsaCapabilityManifestStore {
       const durableMaterial = buildDurableEcdsaMaterialBinding({
         activationBinding: parsedJournal.candidate.activationBinding,
         serverActivation: parsedJournal.serverActivation,
+        roleLocalPublicFacts: buildEcdsaRoleLocalPublicFacts(input.roleLocalPublicFacts),
         ciphertextDigest: parseEcdsaCiphertextDigest(encrypted.digestB64u),
       });
       const readyMaterial = buildValidatedEncryptedEcdsaReadyMaterial({

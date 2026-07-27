@@ -19,6 +19,11 @@ import type { WalletId } from '@shared/utils/registrationIntent';
 import type { RootShareEpoch, WebAuthnRpId } from '@shared/utils/domainIds';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type {
+  MpcWalletSigningQuotaId,
+  SeamsSessionId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import type {
   CreateHostedSigningRootShareResolverInput,
   SigningRootShareDecryptAdapter,
   SigningRootShareResolver,
@@ -838,6 +843,9 @@ export interface EcdsaDerivationServerBootstrapResponse {
   thresholdSessionId: string;
   activationEpoch: RootShareEpoch;
   signingGrantId: string;
+  authorizationSessionId?: SeamsSessionId;
+  walletSessionId?: WalletSessionId;
+  quotaId?: MpcWalletSigningQuotaId;
   expiresAtMs: number;
   expiresAt: string;
   remainingUses: number;

@@ -99,6 +99,7 @@ export async function handleWalletRegistration(
     route,
     services: {
       walletRegistration: routerApiWalletRegistrationRouteService(ctx.service),
+      authorizationSessions: ctx.service.authorizationSessions,
       apiKeyAuth: ctx.opts.apiKeyAuth,
       bootstrapTokenVerifier: ctx.opts.bootstrapTokenVerifier,
       orgProjectEnv: ctx.opts.orgProjectEnv,

@@ -45,6 +45,10 @@ import type {
 } from './routeExtensions';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../core/WalletStore';
 import type { RouterAbEd25519WalletSessionClaims } from '../core/ThresholdService/validation';
+import {
+  walletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 
 type RecoveryAdmissionReceipt = RouterAbEd25519YaoActivationAdmissionReceiptV1<'recovery'>;
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
@@ -427,6 +431,7 @@ export type RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
   readonly thresholdExpiresAtMs: number;
   readonly participantIds: readonly [number, number];
   readonly authority: RouterAbEd25519WalletSessionClaims['authority'];
+  readonly authorityRef: WalletAuthAuthorityRef;
   readonly authorityScope: RouterAbEd25519WalletSessionClaims['authorityScope'];
   readonly runtimePolicyScope: RouterAbEd25519WalletSessionClaims['runtimePolicyScope'];
   readonly routerAbNormalSigning: RouterAbEd25519WalletSessionClaims['routerAbNormalSigning'];
@@ -2403,6 +2408,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       thresholdExpiresAtMs: authorization.claims.thresholdExpiresAtMs,
       participantIds: [firstParticipantId, secondParticipantId],
       authority: authorization.claims.authority,
+      authorityRef: await walletAuthAuthorityRef({ authority: authorization.claims.authority }),
       authorityScope: authorization.claims.authorityScope,
       runtimePolicyScope: authorization.claims.runtimePolicyScope,
       routerAbNormalSigning: authorization.claims.routerAbNormalSigning,

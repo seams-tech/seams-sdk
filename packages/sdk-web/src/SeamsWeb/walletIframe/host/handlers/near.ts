@@ -10,6 +10,7 @@ import type {
 import {
   type PMExecuteActionPayload,
   type PMFundImplicitNearAccountForTestingPayload,
+  type PMRegistrationAuthMethodInput,
   type PMSendTxPayload,
 } from '../../shared/messages';
 import {
@@ -25,8 +26,10 @@ import {
   type PlainSignedTransactionLike,
 } from '@shared/utils/validation';
 import type { ActionArgs } from '@/core/types';
+import type { RegistrationAuthMethodInput } from '@shared/utils/registrationIntent';
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult, withProgress, withRegistrationProgress } from './shared';
+import { activeHostedWalletAppSessionJwt } from '../hostedWalletSeamsSession';
 
 function walletSessionFromWalletId(walletIdRaw: unknown) {
   const walletId = toWalletId(walletIdRaw);
@@ -59,6 +62,63 @@ function normalizeSignedTransaction(
   return candidate;
 }
 
+function assertNeverRegistrationAuthMethod(value: never): never {
+  throw new Error(`Unsupported registration auth method: ${String(value)}`);
+}
+
+function walletOriginRegistrationAuthMethod(
+  authMethod: PMRegistrationAuthMethodInput,
+): RegistrationAuthMethodInput {
+  if (Object.prototype.hasOwnProperty.call(authMethod, 'appSessionJwt')) {
+    throw new Error('Wallet iframe registration payload must not carry appSessionJwt');
+  }
+  switch (authMethod.kind) {
+    case 'passkey':
+      return {
+        kind: 'passkey',
+        rpId: authMethod.rpId,
+        ...(authMethod.authenticatorOptions === undefined
+          ? {}
+          : { authenticatorOptions: authMethod.authenticatorOptions }),
+      };
+    case 'email_otp': {
+      const appSessionJwt = activeHostedWalletAppSessionJwt();
+      if (!appSessionJwt) {
+        throw new Error('Email OTP registration requires an active hosted-wallet Seams Session');
+      }
+      switch (authMethod.proofKind) {
+        case 'otp_challenge':
+          return {
+            kind: 'email_otp',
+            proofKind: 'otp_challenge',
+            email: authMethod.email,
+            otpCode: authMethod.otpCode,
+            appSessionJwt,
+            ...(authMethod.challengeId === undefined
+              ? {}
+              : { challengeId: authMethod.challengeId }),
+          };
+        case 'google_sso_registration':
+          return {
+            kind: 'email_otp',
+            proofKind: 'google_sso_registration',
+            email: authMethod.email,
+            appSessionJwt,
+            googleEmailOtpRegistrationAttemptId:
+              authMethod.googleEmailOtpRegistrationAttemptId,
+            googleEmailOtpRegistrationOfferId: authMethod.googleEmailOtpRegistrationOfferId,
+            googleEmailOtpRegistrationCandidateId:
+              authMethod.googleEmailOtpRegistrationCandidateId,
+          };
+        default:
+          return assertNeverRegistrationAuthMethod(authMethod);
+      }
+    }
+    default:
+      return assertNeverRegistrationAuthMethod(authMethod);
+  }
+}
+
 export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
     PM_REGISTER_WALLET: async (req: Req<'PM_REGISTER_WALLET'>) => {
@@ -71,7 +131,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         payload.options || {},
       ) as RegistrationHooksOptions;
       const result = await pm.registration.registerWallet({
-        authMethod: payload.authMethod,
+        authMethod: walletOriginRegistrationAuthMethod(payload.authMethod),
         wallet: payload.wallet,
         signerSelection: payload.signerSelection,
         options: {

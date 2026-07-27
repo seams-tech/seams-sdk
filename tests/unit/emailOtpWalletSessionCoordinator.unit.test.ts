@@ -57,7 +57,10 @@ import type { RestorePersistedSessionForSigningInput } from '@/core/signingEngin
 import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { fixtureRouterAbEcdsaDerivationPublicCapability } from './helpers/ecdsaBootstrap.fixtures';
 import { buildEmailOtpEcdsaSessionRecordFixture } from './helpers/signingSessionRecord.fixtures';
-import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  buildEcdsaRoleLocalPersistedMaterialRefFixture,
+  buildMpcMaterialActivationRefFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
 
 const TEST_SUBJECT_ID = toWalletId('alice.testnet');
 const TEST_SIGNING_SESSION_SEAL_KEY_VERSION = parseSigningSessionSealKeyVersion(
@@ -94,11 +97,6 @@ function ecdsaRestoreInput(args: {
   const thresholdSessionId = args.thresholdSessionId || 'ecdsa-session';
   const key = buildEvmFamilyEcdsaKeyIdentity({
     walletId: wallet,
-    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-      walletId: wallet,
-      signingRootId: 'signing-root:dev',
-      signingRootVersion: 'root-v1',
-    }),
     ecdsaThresholdKeyId: 'ecdsa-key',
     signingRootId: 'signing-root:dev',
     signingRootVersion: 'root-v1',
@@ -119,6 +117,9 @@ function ecdsaRestoreInput(args: {
       lane: exactEcdsaSigningLaneIdentity({
         signer: buildEvmFamilyEcdsaSignerBinding({
           walletId: wallet,
+          materialActivation: buildMpcMaterialActivationRefFixture(
+            `restore:${walletId}:${thresholdSessionId}`,
+          ),
           chainTarget: args.chainTarget,
           keyHandle,
           key,
@@ -686,13 +687,11 @@ function buildEcdsaSealedRecordFixture(
     envId: signingRootParts[1] || 'dev',
     signingRootVersion: args.signingRootVersion || 'root-v1',
   };
-  const evmFamilySigningKeySlotId =
-    args.ecdsaRestore?.evmFamilySigningKeySlotId ||
-    deriveEvmFamilySigningKeySlotId({
-      walletId: toWalletId(walletId),
-      signingRootId,
-      signingRootVersion: args.signingRootVersion || 'root-v1',
-    });
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId: toWalletId(walletId),
+    signingRootId,
+    signingRootVersion: args.signingRootVersion || 'root-v1',
+  });
   const routerAbEcdsaDerivationNormalSigning =
     args.ecdsaRestore?.routerAbEcdsaDerivationNormalSigning ||
     routerAbEcdsaDerivationNormalSigningFixture({
@@ -709,7 +708,6 @@ function buildEcdsaSealedRecordFixture(
     chainTarget,
     source: 'email_otp',
     provider: args.ecdsaRestore?.provider || 'google',
-    evmFamilySigningKeySlotId,
     signingRootId,
     signingRootVersion: args.signingRootVersion || 'root-v1',
     providerSubjectId: args.ecdsaRestore?.providerSubjectId || 'google:subject',
@@ -864,7 +862,7 @@ function createCoordinator(overrides?: {
             },
             keygen: {
               ok: true,
-              evmFamilySigningKeySlotId: call.request.payload.restore.evmFamilySigningKeySlotId,
+              evmFamilySigningKeySlotId: call.request.payload.restore.provisioningKeySlotId,
             },
             session: {
               ok: true,
@@ -2110,7 +2108,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
               },
               keygen: {
                 ok: true,
-                evmFamilySigningKeySlotId: call.request.payload.restore.evmFamilySigningKeySlotId,
+                evmFamilySigningKeySlotId: call.request.payload.restore.provisioningKeySlotId,
               },
               session: {
                 ok: true,
@@ -2181,7 +2179,11 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           restore: {
             sessionId: 'ecdsa-session',
             walletId: 'alice.testnet',
-            evmFamilySigningKeySlotId: sealedRecord.ecdsaRestore.evmFamilySigningKeySlotId,
+            provisioningKeySlotId: deriveEvmFamilySigningKeySlotId({
+              walletId: toWalletId('alice.testnet'),
+              signingRootId: sealedRecord.ecdsaRestore.signingRootId,
+              signingRootVersion: sealedRecord.ecdsaRestore.signingRootVersion,
+            }),
             chainTarget: tempoChainTarget,
             signingGrantId: 'wallet-session-1',
             keyHandle: 'key-handle-ecdsa',
@@ -2311,7 +2313,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
               },
               keygen: {
                 ok: true,
-                evmFamilySigningKeySlotId: call.request.payload.restore.evmFamilySigningKeySlotId,
+                evmFamilySigningKeySlotId: call.request.payload.restore.provisioningKeySlotId,
               },
               session: {
                 ok: true,

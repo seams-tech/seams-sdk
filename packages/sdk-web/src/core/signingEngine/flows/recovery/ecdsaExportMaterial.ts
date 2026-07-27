@@ -7,6 +7,7 @@ import type {
 import {
   assertMatchingVerifiedEcdsaPublicFacts,
   buildReadyEcdsaSignerSessionFromReadyMaterial,
+  deriveEvmFamilySigningKeySlotId,
   deriveEvmFamilyKeyFingerprintFromPublicFacts,
   resolveReadyEvmFamilyEcdsaMaterial,
   toVerifiedEcdsaPublicFactsFromDurableRecord,
@@ -30,7 +31,6 @@ import {
   buildPersistedEcdsaRoleLocalMaterial,
   getThresholdEcdsaSessionRecordByKey,
   requirePersistedEcdsaRoleLocalMaterial,
-  thresholdEcdsaLaneCandidateFromSessionRecord,
   type PersistedEcdsaRoleLocalMaterial,
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
@@ -271,12 +271,17 @@ export function ecdsaSigningTargetFromChainTarget(
 
 export function isConcreteEcdsaExportLane(
   lane: AvailableEcdsaSigningLane | null | undefined,
-): lane is ConcreteAvailableEcdsaSigningLane {
+): lane is ConcreteAvailableEcdsaSigningLane & {
+  source: 'canonical_capability';
+  authorization: NonNullable<ConcreteAvailableEcdsaSigningLane['authorization']>;
+} {
   return (
     Boolean(lane) &&
     lane!.curve === 'ecdsa' &&
     Boolean(lane!.chainTarget) &&
     isConcreteAvailableSigningLane(lane!) &&
+    lane!.source === 'canonical_capability' &&
+    Boolean(lane!.authorization) &&
     Boolean(String(lane!.publicFacts.keyHandle || '').trim())
   );
 }
@@ -288,19 +293,18 @@ export function readEcdsaExportRecordForLane(
   return getThresholdEcdsaSessionRecordByKey(deps, ecdsaExportSessionRecordKey(exportLane));
 }
 
+function rejectRecordBackedEcdsaExportLane(): never {
+  throw new Error(
+    '[SigningEngine][ecdsa-export] record-backed ECDSA export lanes were removed; canonical capability material is required',
+  );
+}
+
 function buildEmailOtpEcdsaExportMaterialState(args: {
   record: ThresholdEcdsaSessionRecord;
   chainTarget: ThresholdEcdsaChainTarget;
 }): EcdsaMaterialState {
-  const candidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record: args.record });
-  return buildEcdsaMaterialStateForCandidate({
-    candidate,
-    record: args.record,
-    authMethod: 'email_otp',
-    source: 'email_otp',
-    chainTarget: args.chainTarget,
-    materialChainTarget: args.chainTarget,
-  });
+  void args;
+  return rejectRecordBackedEcdsaExportLane();
 }
 
 function isEmailOtpEcdsaExportSessionRecord(
@@ -320,27 +324,8 @@ function commitRecordBackedEmailOtpEcdsaExportLane(args: {
   record: ThresholdEcdsaSessionRecord;
   material: EcdsaMaterialState;
 }): EcdsaExportLane<EmailOtpWalletAuthAuthority> {
-  const record = requireEmailOtpEcdsaExportSessionRecord(args.record);
-  const candidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record });
-  const lane = resolvedEvmFamilyEcdsaSigningLaneFromCandidate(candidate);
-  const committedLane = commitEmailOtpEcdsaLaneFromRecordForMaterial({
-    lane,
-    record,
-    material: args.material,
-  });
-  if (committedLane.source !== 'record_backed') {
-    throw new Error('[SigningEngine][ecdsa-export] Email OTP export requires record-backed lane');
-  }
-  return {
-    source: 'record_backed',
-    lane: committedLane.lane,
-    authority: committedLane.authority,
-    authLane: committedLane.authLane,
-    walletSessionAuthority: committedLane.walletSessionAuthority,
-    material: committedLane.material,
-    record,
-    durableRestore: 'record_restore_metadata',
-  };
+  void args;
+  return rejectRecordBackedEcdsaExportLane();
 }
 
 function commitRecordBackedReadyEmailOtpEcdsaExportLane(args: {
@@ -388,51 +373,8 @@ function tryCommitRecordBackedEmailOtpEcdsaExportLane(args: {
 function commitReadyRecordBackedEcdsaExportLane(args: {
   readyMaterial: ReadyEvmFamilyEcdsaMaterial;
 }): ReadyEcdsaExportLane | null {
-  if (args.readyMaterial.record.source !== 'email_otp') {
-    const candidate = thresholdEcdsaLaneCandidateFromSessionRecord({
-      record: args.readyMaterial.record,
-    });
-    const materialState = buildEcdsaMaterialStateForCandidate({
-      candidate,
-      record: args.readyMaterial.record,
-      authMethod: 'passkey',
-      source: args.readyMaterial.record.source,
-      chainTarget: args.readyMaterial.record.chainTarget,
-      materialChainTarget: args.readyMaterial.record.chainTarget,
-    });
-    const readySigningMaterial = requireReadyEcdsaMaterial(
-      materialState,
-      'ready passkey ECDSA export committed lane',
-    );
-    return commitReadyPasskeyEcdsaLaneFromRecord({
-      lane: resolvedEvmFamilyEcdsaSigningLaneFromCandidate(candidate),
-      record: args.readyMaterial.record,
-      material: readySigningMaterial,
-      source: args.readyMaterial.record.source,
-    });
-  }
-  const record = requireEmailOtpEcdsaExportSessionRecord(args.readyMaterial.record);
-  const materialState = buildEmailOtpEcdsaExportMaterialState({
-    record,
-    chainTarget: record.chainTarget,
-  });
-  const readySigningMaterial = requireReadyEcdsaMaterial(
-    materialState,
-    'ready Email OTP ECDSA export committed lane',
-  );
-  const candidate = thresholdEcdsaLaneCandidateFromSessionRecord({
-    record,
-  });
-  try {
-    return commitRecordBackedReadyEmailOtpEcdsaExportLane({
-      lane: resolvedEvmFamilyEcdsaSigningLaneFromCandidate(candidate),
-      record,
-      material: readySigningMaterial,
-    });
-  } catch (error) {
-    if (isMissingEmailOtpRouteAuthority(error)) return null;
-    throw error;
-  }
+  void args;
+  return rejectRecordBackedEcdsaExportLane();
 }
 
 export function buildReadyThresholdEcdsaExportMaterial(args: {
@@ -483,7 +425,7 @@ function readReadyEcdsaExportMaterialBoundaryForExportLane(args: {
     cachedExportArtifact,
     expected: {
       walletId: args.exportLane.key.walletId,
-      evmFamilySigningKeySlotId: args.exportLane.key.evmFamilySigningKeySlotId,
+      materialActivation: args.exportLane.laneIdentity.signer.materialActivation,
       chainTarget: args.exportLane.session.chainTarget,
       authMethod: args.exportLane.session.authMethod,
       source: record.source,
@@ -585,10 +527,11 @@ function passkeyEcdsaExportBootstrapFromRuntimeRecord(
       record.ecdsaThresholdKeyId,
       'ecdsaThresholdKeyId',
     ),
-    evmFamilySigningKeySlotId: requirePasskeyEcdsaExportField(
-      record.evmFamilySigningKeySlotId,
-      'evmFamilySigningKeySlotId',
-    ),
+    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+      walletId: exportLane.key.walletId,
+      signingRootId: record.signingRootId,
+      signingRootVersion: record.signingRootVersion,
+    }),
     signingRootId: requirePasskeyEcdsaExportField(record.signingRootId, 'signingRootId'),
     signingRootVersion: requirePasskeyEcdsaExportField(
       record.signingRootVersion || exportLane.key.signingRootVersion,
@@ -614,10 +557,11 @@ function passkeyEcdsaExportBootstrapFromSealedRecord(
       restore.ecdsaThresholdKeyId || exportLane.key.ecdsaThresholdKeyId,
       'ecdsaThresholdKeyId',
     ),
-    evmFamilySigningKeySlotId: requirePasskeyEcdsaExportField(
-      restore.evmFamilySigningKeySlotId,
-      'evmFamilySigningKeySlotId',
-    ),
+    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+      walletId: exportLane.key.walletId,
+      signingRootId: restore.signingRootId,
+      signingRootVersion: restore.signingRootVersion,
+    }),
     signingRootId: requirePasskeyEcdsaExportField(restore.signingRootId, 'signingRootId'),
     signingRootVersion: requirePasskeyEcdsaExportField(
       restore.signingRootVersion,
@@ -845,12 +789,17 @@ export async function resolveEcdsaExportMaterialForLane(
     runtimePolicyScope,
     publicCapability: restore.publicCapability,
     existingRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
-      materialRef: parseEcdsaRoleLocalPersistedMaterialRef(
+      authority: restore.authority,
+      materialActivation: parseEcdsaRoleLocalPersistedMaterialRef(
         restore.roleLocalMaterialRef,
-      ),
+      ).materialActivation,
       publicFacts: buildEcdsaRoleLocalPublicFacts({
         walletId: exportLane.key.walletId,
-        evmFamilySigningKeySlotId: restore.evmFamilySigningKeySlotId,
+        evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+          walletId: exportLane.key.walletId,
+          signingRootId: restore.signingRootId,
+          signingRootVersion: restore.signingRootVersion,
+        }),
         chainTarget: exportLane.session.chainTarget,
         keyHandle: restore.keyHandle,
         ecdsaThresholdKeyId: restore.ecdsaThresholdKeyId,
@@ -882,10 +831,11 @@ export async function resolveEcdsaExportMaterialForLane(
         restore.ecdsaThresholdKeyId || exportLane.key.ecdsaThresholdKeyId,
         'ecdsaThresholdKeyId',
       ),
-      evmFamilySigningKeySlotId: requirePasskeyEcdsaExportField(
-        restore.evmFamilySigningKeySlotId,
-        'evmFamilySigningKeySlotId',
-      ),
+      evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+        walletId: exportLane.key.walletId,
+        signingRootId: restore.signingRootId,
+        signingRootVersion: restore.signingRootVersion,
+      }),
       signingRootId: requirePasskeyEcdsaExportField(restore.signingRootId, 'signingRootId'),
       signingRootVersion: requirePasskeyEcdsaExportField(
         restore.signingRootVersion,

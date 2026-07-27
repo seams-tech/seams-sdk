@@ -22,9 +22,6 @@ const activationQueryWithoutPreparedDigest = {
 const validEd25519FinalizePrepared = {
   kind: 'd1_wallet_add_signer_finalize_ed25519_prepared_v1',
   finalizingAtMs: 1,
-  signingGrantId: 'grant-1',
-  expiresAtMs: 2,
-  remainingUses: 1,
 } satisfies D1WalletAddSignerFinalizePreparedV1;
 
 const validEcdsaFinalizePrepared = {
@@ -39,15 +36,16 @@ const ecdsaFinalizeWithSessionTerms = {
   signingGrantId: 'grant-1',
 } satisfies D1WalletAddSignerFinalizePreparedV1;
 
-const ed25519FinalizeWithoutSessionTerms = {
+const ed25519FinalizeWithSessionTerms = {
   kind: 'd1_wallet_add_signer_finalize_ed25519_prepared_v1',
   finalizingAtMs: 1,
-  // @ts-expect-error Ed25519 finalization requires durable session terms.
+  // @ts-expect-error Add-signer preparation cannot mint or reserve reusable session terms.
+  signingGrantId: 'grant-1',
 } satisfies D1WalletAddSignerFinalizePreparedV1;
 
 void validEd25519FinalizePrepared;
 void validEcdsaFinalizePrepared;
 void ecdsaFinalizeWithSessionTerms;
-void ed25519FinalizeWithoutSessionTerms;
+void ed25519FinalizeWithSessionTerms;
 void activationCommitWithoutPreparedDigest;
 void activationQueryWithoutPreparedDigest;

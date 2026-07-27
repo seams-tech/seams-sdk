@@ -51,7 +51,6 @@ import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   listStoredThresholdEcdsaSessionRecordsForWallet,
   listThresholdEcdsaRuntimeLanesForWallet,
-  buildOperationUsableThresholdEcdsaSessionRecord,
   commitCurrentThresholdEcdsaSession,
   thresholdEcdsaSessionRecordReadModel,
   upsertThresholdEcdsaSessionFact,
@@ -69,7 +68,7 @@ import {
   clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation,
   markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated,
 } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
-import { buildReadySecp256k1SigningMaterialFromRecord } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/readySecp256k1Material';
+import { resolveReadySecp256k1SigningMaterialFromRecord } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/readySecp256k1Material';
 
 const WALLET_ID = toWalletId('alice.testnet');
 const OTHER_WALLET_ID = toWalletId('bob.testnet');
@@ -140,11 +139,14 @@ function makeRuntimePolicyScopeForSigningRoot(input: {
 }
 
 function makeKeyRef(input: KeyRefFixtureInput = {}): ThresholdEcdsaSecp256k1KeyRef {
-  const record = makeRecord();
+  const record = makeRecord({ bindLiveRoleLocalWorkerMaterial: true });
+  const recordKeyRef = buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord({ record });
+  if (recordKeyRef.backendBinding?.materialKind !== 'role_local_worker_handle') {
+    throw new Error('expected live role-local backend binding');
+  }
   return {
     type: 'threshold-ecdsa-secp256k1',
     userId: WALLET_ID,
-    evmFamilySigningKeySlotId: WALLET_KEY_ID,
     chainTarget: EVM_TARGET,
     relayerUrl: 'https://relay.localhost',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-shared'),
@@ -154,27 +156,7 @@ function makeKeyRef(input: KeyRefFixtureInput = {}): ThresholdEcdsaSecp256k1KeyR
     backendBinding:
       'backendBinding' in input
         ? input.backendBinding
-        : {
-            materialKind: 'role_local_worker_handle',
-            relayerKeyId: 'relayer-key',
-            clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
-            // `requirePersistedEcdsaRoleLocalWorkerHandle` was retired from the
-            // production store; build the worker handle from the persisted
-            // durable ref through the production parse brands instead.
-            roleLocalMaterialHandle: parseEcdsaRoleLocalWorkerHandle({
-              kind: 'ecdsa_role_local_worker_handle_v1',
-              materialHandle: parseEcdsaRoleLocalMaterialHandle(
-                String(record.roleLocalMaterialRef.durableMaterialRef),
-              ),
-              bindingDigest: parseEcdsaRoleLocalBindingDigest(
-                record.ecdsaRoleLocalPublicFacts.contextBinding32B64u,
-              ),
-              durableMaterialRef: record.roleLocalMaterialRef.durableMaterialRef,
-            }),
-            roleLocalMaterialRef: record.roleLocalMaterialRef,
-            publicFacts: record.ecdsaRoleLocalPublicFacts,
-            authMethod: record.ecdsaRoleLocalAuthMethod,
-          },
+        : recordKeyRef.backendBinding,
     participantIds: input.participantIds ?? [1, 2],
     thresholdEcdsaPublicKeyB64u:
       'thresholdEcdsaPublicKeyB64u' in input
@@ -195,6 +177,8 @@ function makeKeyRef(input: KeyRefFixtureInput = {}): ThresholdEcdsaSecp256k1KeyR
     walletSessionJwt: 'walletSessionJwt' in input ? input.walletSessionJwt : 'threshold-auth-token',
   };
 }
+
+const DEFAULT_MATERIAL_ACTIVATION = makeRecord().materialActivation;
 
 function resetEcdsaIdentityTestState(): void {
   clearAllThresholdEcdsaSessionRecords(makeThresholdEcdsaSessionStoreDeps());
@@ -232,7 +216,6 @@ test.describe('EVM-family ECDSA identity', () => {
     });
     const keyRefKey = buildEvmFamilyEcdsaKeyIdentityFromKeyRef({
       keyRef: makeKeyRef({ participantIds: [1, 2] }),
-      evmFamilySigningKeySlotId: WALLET_KEY_ID,
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
 
@@ -360,6 +343,7 @@ test.describe('EVM-family ECDSA identity', () => {
     const publicFacts = await toVerifiedEcdsaPublicFactsFromKeyRef({ keyRef });
     const signerSession = buildReadyEcdsaSignerSession({
       keyRef,
+      materialActivation: DEFAULT_MATERIAL_ACTIVATION,
       publicFacts,
       sessionPolicy: buildKnownReadyThresholdEcdsaSessionPolicy({
         remainingUses: 1,
@@ -451,6 +435,7 @@ test.describe('EVM-family ECDSA identity', () => {
     const publicFacts = await toVerifiedEcdsaPublicFactsFromKeyRef({ keyRef });
     const signerSession = buildReadyEcdsaSignerSession({
       keyRef,
+      materialActivation: DEFAULT_MATERIAL_ACTIVATION,
       publicFacts,
       sessionPolicy: buildKnownReadyThresholdEcdsaSessionPolicy({
         remainingUses: 1,
@@ -468,18 +453,15 @@ test.describe('EVM-family ECDSA identity', () => {
     );
   });
 
-  test('rebuilds key refs from durable records without downgrading to metadata-only', () => {
+  test('rebuilds key refs from session facts without claiming durable material ownership', () => {
     const record = makeRecord();
     const keyRef = buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord({ record });
 
-    expect(keyRef.backendBinding?.materialKind).toBe('role_local_durable_sealed_ref');
+    expect(keyRef.backendBinding?.materialKind).toBe('role_local_durable_public_anchor');
     expect(keyRef.walletSessionJwt).toBeUndefined();
-    if (keyRef.backendBinding?.materialKind !== 'role_local_durable_sealed_ref') {
-      throw new Error('expected durable sealed backend binding');
+    if (keyRef.backendBinding?.materialKind !== 'role_local_durable_public_anchor') {
+      throw new Error('expected durable public anchor backend binding');
     }
-    expect(keyRef.backendBinding.roleLocalMaterialRef).toStrictEqual(
-      record.roleLocalMaterialRef,
-    );
     expect(keyRef.backendBinding.publicFacts).toStrictEqual(record.ecdsaRoleLocalPublicFacts);
   });
 
@@ -492,7 +474,7 @@ test.describe('EVM-family ECDSA identity', () => {
       record,
       expected: {
         walletId: WALLET_ID,
-        evmFamilySigningKeySlotId: WALLET_KEY_ID,
+        materialActivation: record.materialActivation,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -520,27 +502,27 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(signerSession.clientShare.kind).toBe('role_local_worker_share');
   });
 
-  test('builds key refs with canonical durable role-local facts', () => {
+  test('builds key refs with canonical role-local public facts', () => {
     const record = makeRecord();
     const keyRef = buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord({ record });
-    expect(keyRef.backendBinding?.materialKind).toBe('role_local_durable_sealed_ref');
-    if (keyRef.backendBinding?.materialKind !== 'role_local_durable_sealed_ref') {
-      throw new Error('expected durable sealed backend binding');
+    expect(keyRef.backendBinding?.materialKind).toBe('role_local_durable_public_anchor');
+    if (keyRef.backendBinding?.materialKind !== 'role_local_durable_public_anchor') {
+      throw new Error('expected durable public anchor backend binding');
     }
     expect(keyRef.backendBinding.publicFacts.derivationClientSharePublicKey33B64u).toBe(
       VALID_PUBLIC_KEY_B64U,
     );
   });
 
-  test('treats Email OTP registration ECDSA records with worker share as ready', async () => {
-    const record = makeEmailOtpRecord();
+  test('treats Email OTP registration ECDSA records with shared role-local material as ready', async () => {
+    const record = makeEmailOtpRecord({ runtimeValidated: true });
     expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
 
     const resolution = resolveReadyEvmFamilyEcdsaMaterial({
       record,
       expected: {
         walletId: WALLET_ID,
-        evmFamilySigningKeySlotId: WALLET_KEY_ID,
+        materialActivation: record.materialActivation,
         chainTarget: EVM_TARGET,
         authMethod: 'email_otp',
         source: 'email_otp',
@@ -556,7 +538,7 @@ test.describe('EVM-family ECDSA identity', () => {
     const signerSession = await toReadyEcdsaSignerSessionFromReadyMaterial({
       material: resolution.material,
     });
-    expect(signerSession.clientShare.kind).toBe('email_otp_worker_share');
+    expect(signerSession.clientShare.kind).toBe('role_local_worker_share');
   });
 
   test('ready-material public facts come from the validated session record', async () => {
@@ -566,7 +548,7 @@ test.describe('EVM-family ECDSA identity', () => {
       record,
       expected: {
         walletId: WALLET_ID,
-        evmFamilySigningKeySlotId: WALLET_KEY_ID,
+        materialActivation: record.materialActivation,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -590,13 +572,13 @@ test.describe('EVM-family ECDSA identity', () => {
     expect('keyRef' in resolution.material).toBe(false);
   });
 
-  test('does not treat a persisted ECDSA worker handle as runtime-validated material', async () => {
+  test('opens exact activation when runtime material is not already bound', async () => {
     const record = makeEmailOtpRecord();
     const resolution = resolveReadyEvmFamilyEcdsaMaterial({
       record,
       expected: {
         walletId: WALLET_ID,
-        evmFamilySigningKeySlotId: WALLET_KEY_ID,
+        materialActivation: record.materialActivation,
         chainTarget: EVM_TARGET,
         authMethod: 'email_otp',
         source: 'email_otp',
@@ -611,25 +593,24 @@ test.describe('EVM-family ECDSA identity', () => {
     }
     expect(resolution.reason.reason).toBe('auth_missing');
     await expect(
-      buildReadySecp256k1SigningMaterialFromRecord({
+      resolveReadySecp256k1SigningMaterialFromRecord({
         record,
         requestLabel: 'evm',
-        evmFamilySigningKeySlotId: WALLET_KEY_ID,
+        materialActivation: record.materialActivation,
         workerCtx: {
           requestWorkerOperation: async () => {
             throw new Error('worker should not be called for blocked material');
           },
         },
       }),
-    ).rejects.toThrow(/requires durable role-local material/);
+    ).rejects.toThrow(/persistence_unavailable/);
   });
 
   test('builds Email OTP worker share handles with exact lane identity', async () => {
     const emailOtpRecord = makeEmailOtpRecord();
-    const emailOtpReadyRecord = emailOtpRecord.ecdsaRoleLocalReadyRecord;
-    if (!emailOtpReadyRecord) {
-      throw new Error('expected an Email OTP role-local ready record on the fixture');
-    }
+    const emailOtpReadyRecord = makeRoleLocalReadyRecord({
+      authMethod: emailOtpRecord.ecdsaRoleLocalAuthMethod,
+    });
     const keyRef = makeKeyRef({
       thresholdSessionKind: 'jwt',
       walletSessionJwt: 'threshold-auth-token',
@@ -647,6 +628,7 @@ test.describe('EVM-family ECDSA identity', () => {
     const publicFacts = await toVerifiedEcdsaPublicFactsFromKeyRef({ keyRef });
     const signerSession = buildReadyEcdsaSignerSession({
       keyRef,
+      materialActivation: emailOtpRecord.materialActivation,
       publicFacts,
       sessionPolicy: buildKnownReadyThresholdEcdsaSessionPolicy({
         remainingUses: 1,
@@ -691,6 +673,7 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(() =>
       buildReadyEcdsaSignerSession({
         keyRef,
+        materialActivation: DEFAULT_MATERIAL_ACTIVATION,
         publicFacts,
         sessionPolicy: buildKnownReadyThresholdEcdsaSessionPolicy({
           remainingUses: 1,
@@ -790,13 +773,14 @@ test.describe('EVM-family ECDSA identity', () => {
 
   test('rejects ready material when the session record belongs to another wallet', () => {
     const otherWallet = toWalletId('mallory.testnet');
+    const otherWalletRecord = makeRecord({
+      walletId: otherWallet,
+    });
     const result = resolveReadyEvmFamilyEcdsaMaterial({
-      record: makeRecord({
-        walletId: otherWallet,
-      }),
+      record: otherWalletRecord,
       expected: {
         walletId: WALLET_ID,
-        evmFamilySigningKeySlotId: WALLET_KEY_ID,
+        materialActivation: otherWalletRecord.materialActivation,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -827,7 +811,6 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(() =>
       buildEvmFamilyEcdsaKeyIdentityFromKeyRef({
         keyRef: makeKeyRef({ ethereumAddress: OTHER_OWNER_ADDRESS }),
-        evmFamilySigningKeySlotId: WALLET_KEY_ID,
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
         trustedOwnerAddress: OWNER_ADDRESS,
       }),
@@ -835,11 +818,12 @@ test.describe('EVM-family ECDSA identity', () => {
   });
 
   test('returns stale before ready material can reach signing', () => {
+    const exhaustedRecord = makeRecord({ remainingUses: 0 });
     const result = resolveReadyEvmFamilyEcdsaMaterial({
-      record: makeRecord({ remainingUses: 0 }),
+      record: exhaustedRecord,
       expected: {
         walletId: WALLET_ID,
-        evmFamilySigningKeySlotId: WALLET_KEY_ID,
+        materialActivation: exhaustedRecord.materialActivation,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -862,7 +846,7 @@ test.describe('EVM-family ECDSA identity', () => {
       record,
       expected: {
         walletId: WALLET_ID,
-        evmFamilySigningKeySlotId: WALLET_KEY_ID,
+        materialActivation: record.materialActivation,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -889,7 +873,8 @@ test.describe('EVM-family ECDSA identity', () => {
       }),
     );
 
-    expect(String(readModel.key.evmFamilySigningKeySlotId)).toBe(WALLET_KEY_ID);
+    expect('evmFamilySigningKeySlotId' in readModel.key).toBe(false);
+    expect(readModel.lane.materialActivation.activationId).toBeDefined();
     expect('rpId' in readModel.key).toBe(false);
     expect(readModel.key.keyScope).toBe('evm-family');
     expect(readModel.key.participantIds.map(Number)).toEqual([1, 2]);
@@ -917,7 +902,8 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(lane?.key.participantIds.map(Number)).toEqual([1, 2]);
     expect(lane?.lane.key).toBe(lane?.key);
     expect(lane?.lane.thresholdSessionId).toBe('threshold-session-1');
-    expect(String(lane?.key.evmFamilySigningKeySlotId)).toBe(WALLET_KEY_ID);
+    expect('evmFamilySigningKeySlotId' in (lane?.key || {})).toBe(false);
+    expect(lane?.lane.materialActivation.activationId).toBeDefined();
     expect('rpId' in (lane?.key || {})).toBe(false);
   });
 
@@ -971,15 +957,9 @@ test.describe('EVM-family ECDSA identity', () => {
       expiresAtMs: 1_900_000_001_000,
       updatedAtMs: 1_800_000_001_000,
     };
-    const currentSession = buildOperationUsableThresholdEcdsaSessionRecord(currentRecord);
-    if (!currentSession) {
-      throw new Error('current ECDSA test record must be operation usable');
-    }
-
     const commit = commitCurrentThresholdEcdsaSession({
       deps,
-      record: currentSession,
-      transition: 'wallet_unlock',
+      record: currentRecord,
     });
     const records = listStoredThresholdEcdsaSessionRecordsForWallet(WALLET_ID);
 
@@ -1014,15 +994,9 @@ test.describe('EVM-family ECDSA identity', () => {
       expiresAtMs: 1_900_000_002_000,
       updatedAtMs: 1_800_000_002_000,
     };
-    const currentSession = buildOperationUsableThresholdEcdsaSessionRecord(currentRecord);
-    if (!currentSession) {
-      throw new Error('current ECDSA test record must be operation usable');
-    }
-
     const currentCommit = commitCurrentThresholdEcdsaSession({
       deps,
-      record: currentSession,
-      transition: 'step_up',
+      record: currentRecord,
     });
     upsertThresholdEcdsaSessionFact(deps, restoredRecord);
 
@@ -1056,21 +1030,13 @@ test.describe('EVM-family ECDSA identity', () => {
       expiresAtMs: 1_900_000_001_000,
       updatedAtMs: 1_800_000_001_000,
     };
-    const currentSession = buildOperationUsableThresholdEcdsaSessionRecord(currentRecord);
-    const staleSession = buildOperationUsableThresholdEcdsaSessionRecord(staleRecord);
-    if (!currentSession || !staleSession) {
-      throw new Error('ECDSA test records must be operation usable');
-    }
-
     commitCurrentThresholdEcdsaSession({
       deps,
-      record: currentSession,
-      transition: 'step_up',
+      record: currentRecord,
     });
     const staleCommit = commitCurrentThresholdEcdsaSession({
       deps,
-      record: staleSession,
-      transition: 'step_up',
+      record: staleRecord,
     });
     const records = listStoredThresholdEcdsaSessionRecordsForWallet(WALLET_ID);
 
@@ -1105,21 +1071,13 @@ test.describe('EVM-family ECDSA identity', () => {
       expiresAtMs: 1_900_000_002_000,
       updatedAtMs: 1_800_000_002_000,
     };
-    const firstSession = buildOperationUsableThresholdEcdsaSessionRecord(firstRecord);
-    const secondSession = buildOperationUsableThresholdEcdsaSessionRecord(secondRecord);
-    if (!firstSession || !secondSession) {
-      throw new Error('ECDSA test records must be operation usable');
-    }
-
     commitCurrentThresholdEcdsaSession({
       deps,
-      record: firstSession,
-      transition: 'step_up',
+      record: firstRecord,
     });
     const secondCommit = commitCurrentThresholdEcdsaSession({
       deps,
-      record: secondSession,
-      transition: 'step_up',
+      record: secondRecord,
     });
     const records = listStoredThresholdEcdsaSessionRecordsForWallet(WALLET_ID);
 
@@ -1133,23 +1091,7 @@ test.describe('EVM-family ECDSA identity', () => {
     ]);
   });
 
-  test('runtime ECDSA lane listing backfills canonical verified public facts on legacy persisted records', () => {
-    clearAllThresholdEcdsaSessionRecords(makeThresholdEcdsaSessionStoreDeps());
-    const deps = makeThresholdEcdsaSessionStoreDeps({ now: () => 1_800_000_000_000 });
-    const legacyRecord = makeRecord();
-    const laneKey = deriveThresholdEcdsaRuntimeLaneKey(legacyRecord);
-    const legacyWithoutFacts = { ...legacyRecord } as Record<string, unknown>;
-    delete legacyWithoutFacts.verifiedPublicFacts;
-    deps.recordsByLane.set(laneKey, legacyWithoutFacts as ThresholdEcdsaSessionRecord);
-
-    const [lane] = listThresholdEcdsaRuntimeLanesForWallet(deps, WALLET_ID);
-    const stored = deps.recordsByLane.get(laneKey);
-
-    expect(lane).toBeDefined();
-    expect(stored?.verifiedPublicFacts?.keyHandle).toBe(legacyRecord.keyHandle);
-  });
-
-  test('runtime ECDSA lane listing prunes non-rehydratable legacy persisted records', () => {
+  test('runtime ECDSA lane listing clears records missing required public facts', () => {
     clearAllThresholdEcdsaSessionRecords(makeThresholdEcdsaSessionStoreDeps());
     const deps = makeThresholdEcdsaSessionStoreDeps({ now: () => 1_800_000_000_000 });
     const legacyRecord = makeRecord();
@@ -1307,7 +1249,7 @@ test.describe('EVM-family ECDSA identity', () => {
     ).not.toThrow();
   });
 
-  test('client store allows distinct signing key slot identities for the same EVM-family signing root', () => {
+  test('client store allows distinct material activations for the same EVM-family signing root', () => {
     const deps = makeThresholdEcdsaSessionStoreDeps({ now: () => 1_800_000_000_000 });
     const runtimePolicyScope = {
       orgId: 'org-test',
@@ -1341,10 +1283,10 @@ test.describe('EVM-family ECDSA identity', () => {
       ),
     ).not.toThrow();
     const keys = listThresholdEcdsaRuntimeLanesForWallet(deps, WALLET_ID).map((lane) =>
-      String(lane.key.evmFamilySigningKeySlotId),
+      String(lane.lane.materialActivation.activationId),
     );
     const otherKeys = listThresholdEcdsaRuntimeLanesForWallet(deps, OTHER_WALLET_ID).map((lane) =>
-      String(lane.key.evmFamilySigningKeySlotId),
+      String(lane.lane.materialActivation.activationId),
     );
     expect(new Set(keys).size).toBe(1);
     expect(new Set(otherKeys).size).toBe(1);
@@ -1356,12 +1298,14 @@ test.describe('EVM-family ECDSA identity', () => {
     const record = makeRecord();
     const readModel = thresholdEcdsaSessionRecordReadModel(record);
     const otherWallet = toWalletId('mallory.testnet');
-    const otherWalletKey = thresholdEcdsaSessionRecordReadModel(
+    const otherWalletReadModel = thresholdEcdsaSessionRecordReadModel(
       makeRecord({ walletId: otherWallet }),
-    ).key;
+    );
+    const otherWalletKey = otherWalletReadModel.key;
     upsertThresholdEcdsaSessionFact(deps, record);
     const matchingLane = selectedEcdsaLane({
       key: readModel.key,
+      materialActivation: readModel.lane.materialActivation,
       keyHandle: record.keyHandle,
       walletId: WALLET_ID,
       auth: { kind: 'passkey', rpId: toRpId(RP_ID), credentialIdB64u: record.keyHandle },
@@ -1371,6 +1315,7 @@ test.describe('EVM-family ECDSA identity', () => {
     });
     const wrongWalletLane = selectedEcdsaLane({
       key: otherWalletKey,
+      materialActivation: otherWalletReadModel.lane.materialActivation,
       keyHandle: record.keyHandle,
       walletId: otherWallet,
       auth: { kind: 'passkey', rpId: toRpId(RP_ID), credentialIdB64u: record.keyHandle },

@@ -5,8 +5,7 @@ import {
   routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1,
   parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseForRequestV1,
   parseRouterAbEcdsaDerivationEvmDigestSigningResponseForCoreRequestV1,
-  routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1,
-  type RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire,
+  type RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningResponseV1Wire,
@@ -18,6 +17,12 @@ import {
 } from './relayerHttp';
 import { routerAbNormalSigningAdmissionErrorFromPayload } from '@/core/signingEngine/session/budget/admission';
 import { walletSessionFailureErrorFromPayload } from '@/core/signingEngine/session/lifecycle/walletSessionFailure';
+import {
+  parseRouterAbMpcMaterialActivationRef,
+  parseRouterAbNormalSigningAuthorization,
+  type RouterAbMpcMaterialActivationRefWire,
+  type RouterAbNormalSigningAuthorizationWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 
 const INTENT_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/intent/v2';
 const PAYLOAD_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/payload/v2';
@@ -33,6 +38,13 @@ export type RouterAbWalletSessionCredential = {
   walletSessionJwt: string;
 };
 
+export type RouterAbEd25519NormalSigningCredential =
+  | RouterAbWalletSessionCredential
+  | {
+      kind: 'app_session_cookie';
+      walletSessionJwt?: never;
+    };
+
 export type RouterAbPublicDigest32Wire = {
   bytes: readonly number[];
 };
@@ -41,11 +53,11 @@ export type RouterAbCanonicalWireBytesV1Wire = {
   bytes: readonly number[];
 };
 
-export type RouterAbNormalSigningScopeV1Wire = {
+export type RouterAbNormalSigningScopeV2Wire = {
   request_id: string;
   account_id: string;
-  session_id: string;
-  active_state_session_id: string;
+  authorization: RouterAbNormalSigningAuthorizationWire;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   signing_worker_id: string;
 };
 
@@ -125,8 +137,9 @@ export type RouterAbEd25519SigningPayloadV2Wire =
     };
 
 export type RouterAbNormalSigningPrepareRequestV2Wire = {
-  scope: RouterAbNormalSigningScopeV1Wire;
+  scope: RouterAbNormalSigningScopeV2Wire;
   expires_at_ms: number;
+  display_digest: RouterAbPublicDigest32Wire;
   intent: RouterAbEd25519NormalSigningIntentV2Wire;
   signing_payload: RouterAbEd25519SigningPayloadV2Wire;
 };
@@ -147,14 +160,34 @@ export type RouterAbEd25519NormalSigningFinalizeProtocolV2Wire = {
   client_signature_share_b64u: string;
 };
 
-export type RouterAbNormalSigningFinalizeRequestV2Wire = {
-  scope: RouterAbNormalSigningScopeV1Wire;
+type RouterAbNormalSigningFinalizeRequestV2BaseWire = {
+  scope: RouterAbNormalSigningScopeV2Wire;
   expires_at_ms: number;
-  budget_reservation_id: string;
-  budget_operation_id: string;
   prepare_binding: RouterAbEd25519NormalSigningPrepareBindingV2Wire;
   protocol: RouterAbEd25519NormalSigningFinalizeProtocolV2Wire;
 };
+
+export type RouterAbNormalSigningFinalizeRequestV2Wire =
+  | (RouterAbNormalSigningFinalizeRequestV2BaseWire & {
+      scope: RouterAbNormalSigningScopeV2Wire & {
+        authorization: Extract<
+          RouterAbNormalSigningAuthorizationWire,
+          { kind: 'reusable_wallet_session' }
+        >;
+      };
+      budget_reservation_id: string;
+      budget_operation_id: string;
+    })
+  | (RouterAbNormalSigningFinalizeRequestV2BaseWire & {
+      scope: RouterAbNormalSigningScopeV2Wire & {
+        authorization: Extract<
+          RouterAbNormalSigningAuthorizationWire,
+          { kind: 'operation_step_up' }
+        >;
+      };
+      budget_reservation_id?: never;
+      budget_operation_id?: never;
+    });
 
 export type RouterAbNormalSigningBudgetStatusV1Wire = {
   committed_remaining_uses: number;
@@ -162,11 +195,8 @@ export type RouterAbNormalSigningBudgetStatusV1Wire = {
   available_uses: number;
 };
 
-export type RouterAbNormalSigningPrepareResponseV1Wire = {
-  scope: RouterAbNormalSigningScopeV1Wire;
-  budget_reservation_id: string;
-  budget_operation_id: string;
-  budget_status: RouterAbNormalSigningBudgetStatusV1Wire;
+type RouterAbNormalSigningPrepareResponseV1BaseWire = {
+  scope: RouterAbNormalSigningScopeV2Wire;
   signing_payload_digest: RouterAbPublicDigest32Wire;
   round1_binding_digest: RouterAbPublicDigest32Wire;
   signing_worker: RouterAbServerIdentityV1Wire;
@@ -178,8 +208,32 @@ export type RouterAbNormalSigningPrepareResponseV1Wire = {
   expires_at_ms: number;
 };
 
+export type RouterAbNormalSigningPrepareResponseV1Wire =
+  | (RouterAbNormalSigningPrepareResponseV1BaseWire & {
+      scope: RouterAbNormalSigningScopeV2Wire & {
+        authorization: Extract<
+          RouterAbNormalSigningAuthorizationWire,
+          { kind: 'reusable_wallet_session' }
+        >;
+      };
+      budget_reservation_id: string;
+      budget_operation_id: string;
+      budget_status: RouterAbNormalSigningBudgetStatusV1Wire;
+    })
+  | (RouterAbNormalSigningPrepareResponseV1BaseWire & {
+      scope: RouterAbNormalSigningScopeV2Wire & {
+        authorization: Extract<
+          RouterAbNormalSigningAuthorizationWire,
+          { kind: 'operation_step_up' }
+        >;
+      };
+      budget_reservation_id?: never;
+      budget_operation_id?: never;
+      budget_status?: never;
+    });
+
 export type RouterAbNormalSigningResponseV1Wire = {
-  scope: RouterAbNormalSigningScopeV1Wire;
+  scope: RouterAbNormalSigningScopeV2Wire;
   signing_payload_digest: RouterAbPublicDigest32Wire;
   signing_worker: RouterAbServerIdentityV1Wire;
   signature_scheme: 'ed25519_v1';
@@ -302,10 +356,11 @@ export function routerAbEd25519Nep413CanonicalMessageB64uV2(args: {
 }
 
 export async function buildRouterAbEd25519NearTransactionPrepareRequestV2(args: {
-  scope: RouterAbNormalSigningScopeV1Wire;
+  scope: RouterAbNormalSigningScopeV2Wire;
   expiresAtMs: number;
   operationId: string;
   operationFingerprint: string;
+  displayDigestB64u: string;
   nearAccountId: string;
   nearNetworkId: RouterAbNearNetworkIdV2Wire;
   transactions: readonly {
@@ -318,6 +373,9 @@ export async function buildRouterAbEd25519NearTransactionPrepareRequestV2(args: 
   const request: RouterAbNormalSigningPrepareRequestV2Wire = {
     scope: parseScope(args.scope, 'scope'),
     expires_at_ms: requirePositiveInteger(args.expiresAtMs, 'expiresAtMs'),
+    display_digest: routerAbDigest32Wire(
+      base64UrlDecode(requireDigestB64u(args.displayDigestB64u, 'displayDigestB64u')),
+    ),
     intent: {
       kind: 'near_transaction_v1',
       operation_id: requireNonEmptyString(args.operationId, 'operationId'),
@@ -361,10 +419,11 @@ export async function buildRouterAbEd25519NearTransactionPrepareRequestV2(args: 
 }
 
 export async function buildRouterAbEd25519Nep413PrepareRequestV2(args: {
-  scope: RouterAbNormalSigningScopeV1Wire;
+  scope: RouterAbNormalSigningScopeV2Wire;
   expiresAtMs: number;
   operationId: string;
   operationFingerprint: string;
+  displayDigestB64u: string;
   nearAccountId: string;
   nearNetworkId: RouterAbNearNetworkIdV2Wire;
   message: string;
@@ -385,6 +444,9 @@ export async function buildRouterAbEd25519Nep413PrepareRequestV2(args: {
   const request: RouterAbNormalSigningPrepareRequestV2Wire = {
     scope: parseScope(args.scope, 'scope'),
     expires_at_ms: requirePositiveInteger(args.expiresAtMs, 'expiresAtMs'),
+    display_digest: routerAbDigest32Wire(
+      base64UrlDecode(requireDigestB64u(args.displayDigestB64u, 'displayDigestB64u')),
+    ),
     intent: {
       kind: 'nep413_v1',
       operation_id: requireNonEmptyString(args.operationId, 'operationId'),
@@ -415,10 +477,11 @@ export async function buildRouterAbEd25519Nep413PrepareRequestV2(args: {
 }
 
 export async function buildRouterAbEd25519DelegateActionPrepareRequestV2(args: {
-  scope: RouterAbNormalSigningScopeV1Wire;
+  scope: RouterAbNormalSigningScopeV2Wire;
   expiresAtMs: number;
   operationId: string;
   operationFingerprint: string;
+  displayDigestB64u: string;
   nearAccountId: string;
   nearNetworkId: RouterAbNearNetworkIdV2Wire;
   delegate: {
@@ -439,6 +502,9 @@ export async function buildRouterAbEd25519DelegateActionPrepareRequestV2(args: {
   const request: RouterAbNormalSigningPrepareRequestV2Wire = {
     scope: parseScope(args.scope, 'scope'),
     expires_at_ms: requirePositiveInteger(args.expiresAtMs, 'expiresAtMs'),
+    display_digest: routerAbDigest32Wire(
+      base64UrlDecode(requireDigestB64u(args.displayDigestB64u, 'displayDigestB64u')),
+    ),
     intent: {
       kind: 'near_delegate_action_v1',
       operation_id: requireNonEmptyString(args.operationId, 'operationId'),
@@ -480,7 +546,7 @@ export async function buildRouterAbEd25519DelegateActionPrepareRequestV2(args: {
 }
 
 export function buildRouterAbEd25519NormalSigningFinalizeRequestV2(args: {
-  scope: RouterAbNormalSigningScopeV1Wire;
+  scope: RouterAbNormalSigningScopeV2Wire;
   expiresAtMs: number;
   prepareResponse: RouterAbNormalSigningPrepareResponseV1Wire;
   admissionMaterial: RouterAbEd25519NormalSigningAdmissionMaterialV2Wire;
@@ -488,17 +554,10 @@ export function buildRouterAbEd25519NormalSigningFinalizeRequestV2(args: {
   clientVerifyingShareB64u: string;
   clientSignatureShareB64u: string;
 }): RouterAbNormalSigningFinalizeRequestV2Wire {
-  return {
-    scope: parseScope(args.scope, 'scope'),
+  const scope = parseScope(args.scope, 'scope');
+  const base: RouterAbNormalSigningFinalizeRequestV2BaseWire = {
+    scope,
     expires_at_ms: requirePositiveInteger(args.expiresAtMs, 'expiresAtMs'),
-    budget_reservation_id: requireNonEmptyString(
-      args.prepareResponse.budget_reservation_id,
-      'budget_reservation_id',
-    ),
-    budget_operation_id: requireNonEmptyString(
-      args.prepareResponse.budget_operation_id,
-      'budget_operation_id',
-    ),
     prepare_binding: {
       server_round1_handle: requireNonEmptyString(
         args.prepareResponse.server_round1_handle,
@@ -535,6 +594,39 @@ export function buildRouterAbEd25519NormalSigningFinalizeRequestV2(args: {
       ),
     },
   };
+  if (
+    scope.authorization.kind === 'reusable_wallet_session' &&
+    args.prepareResponse.scope.authorization.kind === 'reusable_wallet_session'
+  ) {
+    return {
+      ...base,
+      scope: {
+        ...scope,
+        authorization: scope.authorization,
+      },
+      budget_reservation_id: requireNonEmptyString(
+        args.prepareResponse.budget_reservation_id,
+        'budget_reservation_id',
+      ),
+      budget_operation_id: requireNonEmptyString(
+        args.prepareResponse.budget_operation_id,
+        'budget_operation_id',
+      ),
+    };
+  }
+  if (
+    scope.authorization.kind === 'operation_step_up' &&
+    args.prepareResponse.scope.authorization.kind === 'operation_step_up'
+  ) {
+    return {
+      ...base,
+      scope: {
+        ...scope,
+        authorization: scope.authorization,
+      },
+    };
+  }
+  throw new Error('Router A/B normal-signing authorization changed after prepare');
 }
 
 export async function deriveRouterAbNormalSigningAdmissionMaterialV2(
@@ -556,22 +648,43 @@ export async function deriveRouterAbNormalSigningAdmissionMaterialV2(
   return { intentDigest, signingPayloadDigest, admittedSigningDigest };
 }
 
-function parseScope(value: unknown, label: string): RouterAbNormalSigningScopeV1Wire {
+function requireExactFields(
+  record: Record<string, unknown>,
+  expectedFields: readonly string[],
+  label: string,
+): void {
+  const actualFields = Object.keys(record).sort();
+  const expected = [...expectedFields].sort();
+  if (
+    actualFields.length !== expected.length ||
+    actualFields.some((field, index) => field !== expected[index])
+  ) {
+    throw new Error(`${label} has invalid fields`);
+  }
+}
+
+function parseScope(value: unknown, label: string): RouterAbNormalSigningScopeV2Wire {
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
   if (!record) throw new Error(`${label} must be an object`);
-  return {
+  requireExactFields(
+    record,
+    ['request_id', 'account_id', 'authorization', 'material_activation', 'signing_worker_id'],
+    label,
+  );
+  const scope = {
     request_id: requireNonEmptyString(record.request_id, `${label}.request_id`),
     account_id: requireNonEmptyString(record.account_id, `${label}.account_id`),
-    session_id: requireNonEmptyString(record.session_id, `${label}.session_id`),
-    active_state_session_id: requireNonEmptyString(
-      record.active_state_session_id,
-      `${label}.active_state_session_id`,
-    ),
+    authorization: parseRouterAbNormalSigningAuthorization(record.authorization),
+    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
     signing_worker_id: requireNonEmptyString(
       record.signing_worker_id,
       `${label}.signing_worker_id`,
     ),
   };
+  if (scope.material_activation.signing_worker !== scope.signing_worker_id) {
+    throw new Error(`${label} material activation SigningWorker mismatch`);
+  }
+  return scope;
 }
 
 function parseDigest32(value: unknown, label: string): RouterAbPublicDigest32Wire {
@@ -630,14 +743,9 @@ function parsePrepareResponse(value: unknown): RouterAbNormalSigningPrepareRespo
   if (signatureScheme !== 'ed25519_v1') {
     throw new Error(`Unsupported Router A/B normal-signing signature scheme: ${signatureScheme}`);
   }
-  return {
-    scope: parseScope(record.scope, 'scope'),
-    budget_reservation_id: requireNonEmptyString(
-      record.budget_reservation_id,
-      'budget_reservation_id',
-    ),
-    budget_operation_id: requireNonEmptyString(record.budget_operation_id, 'budget_operation_id'),
-    budget_status: parseBudgetStatus(record.budget_status, 'budget_status'),
+  const scope = parseScope(record.scope, 'scope');
+  const base: RouterAbNormalSigningPrepareResponseV1BaseWire = {
+    scope,
     signing_payload_digest: parseDigest32(record.signing_payload_digest, 'signing_payload_digest'),
     round1_binding_digest: parseDigest32(record.round1_binding_digest, 'round1_binding_digest'),
     signing_worker: parseServerIdentity(record.signing_worker, 'signing_worker'),
@@ -654,6 +762,43 @@ function parsePrepareResponse(value: unknown): RouterAbNormalSigningPrepareRespo
     prepared_at_ms: requirePositiveInteger(record.prepared_at_ms, 'prepared_at_ms'),
     expires_at_ms: requirePositiveInteger(record.expires_at_ms, 'expires_at_ms'),
   };
+  switch (scope.authorization.kind) {
+    case 'reusable_wallet_session':
+      return {
+        ...base,
+        scope: { ...scope, authorization: scope.authorization },
+        budget_reservation_id: requireNonEmptyString(
+          record.budget_reservation_id,
+          'budget_reservation_id',
+        ),
+        budget_operation_id: requireNonEmptyString(
+          record.budget_operation_id,
+          'budget_operation_id',
+        ),
+        budget_status: parseBudgetStatus(record.budget_status, 'budget_status'),
+      };
+    case 'operation_step_up':
+      requireExactFields(
+        record,
+        [
+          'scope',
+          'signing_payload_digest',
+          'round1_binding_digest',
+          'signing_worker',
+          'server_round1_handle',
+          'server_commitments',
+          'server_verifying_share_b64u',
+          'signature_scheme',
+          'prepared_at_ms',
+          'expires_at_ms',
+        ],
+        'Router A/B operation step-up prepare response',
+      );
+      return {
+        ...base,
+        scope: { ...scope, authorization: scope.authorization },
+      };
+  }
 }
 
 function parseNormalSigningResponse(value: unknown): RouterAbNormalSigningResponseV1Wire {
@@ -674,16 +819,21 @@ function parseNormalSigningResponse(value: unknown): RouterAbNormalSigningRespon
 }
 
 function buildRouterAbRequestInit(args: {
-  credential: RouterAbWalletSessionCredential;
+  credential: RouterAbEd25519NormalSigningCredential;
   body: unknown;
 }): RequestInit {
-  return buildRelayerJsonPostRequestInit({
-    headers: buildBearerAuthorizationHeader({
-      token: args.credential.walletSessionJwt,
-      missingMessage: 'walletSessionJwt is required',
-    }),
+  const init = buildRelayerJsonPostRequestInit({
+    ...(args.credential.kind === 'jwt'
+      ? {
+          headers: buildBearerAuthorizationHeader({
+            token: args.credential.walletSessionJwt,
+            missingMessage: 'walletSessionJwt is required',
+          }),
+        }
+      : {}),
     body: args.body,
   });
+  return args.credential.kind === 'app_session_cookie' ? { ...init, credentials: 'include' } : init;
 }
 
 function parseRouterAbSigningErrorPayload(bodyText: string): RouterAbSigningErrorPayload | null {
@@ -732,7 +882,7 @@ async function postRouterAbNormalSigningJson<T>(args: {
     | '/router-ab/ed25519/sign'
     | '/router-ab/ecdsa-derivation/sign/prepare'
     | '/router-ab/ecdsa-derivation/sign';
-  credential: RouterAbWalletSessionCredential;
+  credential: RouterAbEd25519NormalSigningCredential;
   body: unknown;
   parse: (value: unknown) => T | Promise<T>;
 }): Promise<T> {
@@ -759,7 +909,7 @@ async function postRouterAbNormalSigningJson<T>(args: {
 
 export async function prepareRouterAbNormalSigningV2(args: {
   relayServerUrl: string;
-  credential: RouterAbWalletSessionCredential;
+  credential: RouterAbEd25519NormalSigningCredential;
   request: RouterAbNormalSigningPrepareRequestV2Wire;
 }): Promise<RouterAbNormalSigningPrepareResponseV1Wire> {
   return postRouterAbNormalSigningJson({
@@ -773,7 +923,7 @@ export async function prepareRouterAbNormalSigningV2(args: {
 
 export async function prepareRouterAbEcdsaDerivationEvmDigestSigningV1(args: {
   relayServerUrl: string;
-  credential: RouterAbWalletSessionCredential;
+  credential: RouterAbEd25519NormalSigningCredential;
   request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire;
 }): Promise<RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1Wire> {
   await routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1(args.request);
@@ -789,7 +939,7 @@ export async function prepareRouterAbEcdsaDerivationEvmDigestSigningV1(args: {
 
 export async function finalizeRouterAbNormalSigningV2(args: {
   relayServerUrl: string;
-  credential: RouterAbWalletSessionCredential;
+  credential: RouterAbEd25519NormalSigningCredential;
   request: RouterAbNormalSigningFinalizeRequestV2Wire;
 }): Promise<RouterAbNormalSigningResponseV1Wire> {
   return postRouterAbNormalSigningJson({
@@ -803,20 +953,17 @@ export async function finalizeRouterAbNormalSigningV2(args: {
 
 export async function finalizeRouterAbEcdsaDerivationEvmDigestSigningV1(args: {
   relayServerUrl: string;
-  credential: RouterAbWalletSessionCredential;
-  request: RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire;
+  credential: RouterAbEd25519NormalSigningCredential;
+  request: RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire;
 }): Promise<RouterAbEcdsaDerivationEvmDigestSigningResponseV1Wire> {
-  const coreRequest = routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(
-    args.request,
-  );
-  await routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1(coreRequest);
+  await routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1(args.request);
   return postRouterAbNormalSigningJson({
     relayServerUrl: args.relayServerUrl,
     path: '/router-ab/ecdsa-derivation/sign',
     credential: args.credential,
     body: args.request,
     parse: (value) =>
-      parseRouterAbEcdsaDerivationEvmDigestSigningResponseForCoreRequestV1(coreRequest, value),
+      parseRouterAbEcdsaDerivationEvmDigestSigningResponseForCoreRequestV1(args.request, value),
   });
 }
 

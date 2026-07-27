@@ -622,9 +622,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
                 ecdsa: true,
               },
               ecdsaKeyFactsInventory: {
-                mode: 'app_session',
-                appSessionJwt: 'app-session-jwt',
-                policyTtlMs: 30_000,
+                mode: 'webauthn',
               },
             },
           });
@@ -685,9 +683,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
         ecdsaKeyFactsInventory: {
           kind: 'value',
           value: {
-            mode: 'app_session',
-            appSessionJwt: 'app-session-jwt',
-            policyTtlMs: 30_000,
+            mode: 'webauthn',
           },
         },
       },

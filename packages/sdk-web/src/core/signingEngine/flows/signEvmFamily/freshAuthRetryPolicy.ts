@@ -5,7 +5,7 @@ import {
 } from '@shared/utils/signerDomain';
 import {
   decideSigningGrantAdmissionError,
-  type SigningGrantAdmissionQueueKey,
+  type OperationAuthorizationQueueKey,
   type SigningGrantAdmissionDecision,
 } from '../../session/budget/admission';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
@@ -87,7 +87,7 @@ export type EvmFamilyFreshAuthRetryDecision =
 
 export async function runEvmFamilyFreshAuthRetry<TValue>(args: {
   decision: Extract<EvmFamilyFreshAuthRetryDecision, { kind: 'retry' }>;
-  queueKey: SigningGrantAdmissionQueueKey;
+  queueKey: OperationAuthorizationQueueKey;
   signingSessionCoordinator: SigningSessionCoordinator;
   rereadAuthoritativeReadiness: () => Promise<TValue>;
   performFreshAuth: () => Promise<TValue>;

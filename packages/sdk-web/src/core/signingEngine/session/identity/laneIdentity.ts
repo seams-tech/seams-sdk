@@ -38,6 +38,8 @@ import {
   type ExactSigningLaneIdentity,
 } from './exactSigningLaneIdentity';
 import type { EcdsaThresholdKeyId } from '../keyMaterialBrands';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 
@@ -328,11 +330,14 @@ export function buildEmailOtpAuthContextForWalletAuthMethod(
   });
 }
 
-export type BaseSelectedLane = {
+type CommonSelectedLane = {
   kind: 'selected_lane';
   identity: ExactSigningLaneIdentity;
   auth: SigningLaneAuthBinding;
   curve: SigningCurve;
+};
+
+export type BaseSelectedLane = CommonSelectedLane & {
   signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdSessionId;
 };
@@ -345,11 +350,12 @@ export type SelectedEd25519Lane = BaseSelectedLane & {
   accountId?: never;
 };
 
-export type SelectedEcdsaLane = BaseSelectedLane & {
+export type SelectedEcdsaLane = CommonSelectedLane & {
   identity: ExactEcdsaSigningLaneIdentity;
   curve: 'ecdsa';
   chain: 'evm' | 'tempo';
-  thresholdSessionId: ThresholdEcdsaSessionId;
+  materialActivation: MpcMaterialActivationRef;
+  authorization: ActiveEvmFamilyWalletSessionAuthorization;
 };
 
 export type SelectedLane = SelectedEd25519Lane | SelectedEcdsaLane;
@@ -366,11 +372,11 @@ export type SelectedEd25519LaneInput = {
 
 export type SelectedEcdsaLaneInput = {
   key: EvmFamilyEcdsaKeyIdentity;
+  materialActivation: MpcMaterialActivationRef;
   keyHandle: unknown;
   walletId: WalletId;
   auth: SigningLaneAuthBinding;
-  signingGrantId: unknown;
-  thresholdSessionId: unknown;
+  authorization: ActiveEvmFamilyWalletSessionAuthorization;
   chainTarget: ThresholdEcdsaChainTarget;
 };
 
@@ -411,18 +417,16 @@ export function selectedEcdsaLane(input: SelectedEcdsaLaneInput): SelectedEcdsaL
   if (String(input.key.walletId) !== String(input.walletId)) {
     throw new Error('[SigningSession] selected ECDSA lane wallet mismatch');
   }
-  const signingGrantId = SigningSessionIds.signingGrant(input.signingGrantId);
-  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId);
   const identity = exactEcdsaSigningLaneIdentity({
     signer: buildEvmFamilyEcdsaSignerBinding({
       walletId: input.walletId,
       chainTarget: input.chainTarget,
       keyHandle,
       key: input.key,
+      materialActivation: input.materialActivation,
     }),
     auth: input.auth,
-    signingGrantId,
-    thresholdSessionId,
+    authorization: input.authorization,
   });
   return {
     kind: 'selected_lane',
@@ -430,30 +434,34 @@ export function selectedEcdsaLane(input: SelectedEcdsaLaneInput): SelectedEcdsaL
     auth: input.auth,
     curve: 'ecdsa',
     chain: input.chainTarget.kind,
-    signingGrantId,
-    thresholdSessionId,
+    materialActivation: input.materialActivation,
+    authorization: input.authorization,
   };
 }
 
 export type LaneCandidateState = 'ready' | 'restorable' | 'deferred' | 'expired' | 'exhausted';
 
 export type LaneCandidateSource =
+  | 'canonical_capability'
   | 'durable_sealed_record'
   | 'runtime_session_record'
   | 'evm_family_shared_key'
   | 'unknown';
 
-export type BaseLaneCandidate = {
+type CommonLaneCandidate = {
   kind: 'lane_candidate';
   auth: SigningLaneAuthBinding;
   curve: SigningCurve;
+  state: LaneCandidateState;
+  source: LaneCandidateSource;
+};
+
+export type BaseLaneCandidate = CommonLaneCandidate & {
   signingGrantId: string;
   thresholdSessionId: string;
-  state: LaneCandidateState;
   remainingUses: number | null;
   expiresAtMs: number | null;
   updatedAtMs: number | null;
-  source: LaneCandidateSource;
 };
 
 export type Ed25519LaneCandidate = BaseLaneCandidate & {
@@ -466,14 +474,16 @@ export type Ed25519LaneCandidate = BaseLaneCandidate & {
   chain: 'near';
 };
 
-type BaseEcdsaLaneCandidate = BaseLaneCandidate & {
+type BaseEcdsaLaneCandidate = CommonLaneCandidate & {
   curve: 'ecdsa';
   chain: 'evm' | 'tempo';
   walletId: WalletId;
   key: EvmFamilyEcdsaKeyIdentity;
+  materialActivation: MpcMaterialActivationRef;
   resolvedKey?: ResolvedEvmFamilyEcdsaKey;
   keyHandle: EvmFamilyEcdsaKeyHandle;
   chainTarget: ThresholdEcdsaChainTarget;
+  authorization: ActiveEvmFamilyWalletSessionAuthorization;
 };
 
 export type EcdsaLaneCandidate =

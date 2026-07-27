@@ -17,6 +17,7 @@ import {
   toEvmFamilyEcdsaKeyHandle,
 } from '../identity/evmFamilyEcdsaIdentity';
 import { thresholdEcdsaRecordRpId, type ThresholdEcdsaSessionRecord } from '../persistence/records';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   buildEcdsaReconnectMaterial,
   buildEcdsaSessionIdentity,
@@ -70,6 +71,7 @@ declare const passkeyRoleLocalReadyRecord: Extract<
   { kind: 'ecdsa_role_local_ready_passkey_v1' }
 >;
 declare const roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
+declare const authority: WalletAuthAuthorityRef;
 const walletSessionAuth = {
   kind: 'wallet_session',
   curve: 'ecdsa',
@@ -111,7 +113,6 @@ const emailOtpProvisionSecretSource = buildEmailOtpEcdsaProvisionSecretSource({
 const reconnectKeyRef = {
   type: 'threshold-ecdsa-secp256k1',
   userId: 'alice.testnet',
-  evmFamilySigningKeySlotId,
   chainTarget,
   relayerUrl: 'https://relayer.test',
   keyHandle,
@@ -127,6 +128,8 @@ const reconnectKeyRef = {
   thresholdSessionId: identity.thresholdSessionId,
   signingGrantId: identity.signingGrantId,
 } satisfies ThresholdEcdsaSecp256k1KeyRef;
+// @ts-expect-error provisioning key slots are excluded from runtime signer key references.
+reconnectKeyRef.evmFamilySigningKeySlotId;
 const invalidReconnectKeyRefThresholdSessionAuth = {
   ...reconnectKeyRef,
   // @ts-expect-error current ECDSA key refs carry Wallet Session JWT auth.
@@ -136,6 +139,8 @@ void invalidReconnectKeyRefThresholdSessionAuth;
 const reconnectRecord = {
   purpose: 'transaction_signing',
   walletId: toWalletId('alice.testnet'),
+  authority,
+  materialActivation: roleLocalMaterialRef.materialActivation,
   evmFamilySigningKeySlotId,
   chainTarget,
   relayerUrl: 'https://relayer.test',
@@ -145,7 +150,6 @@ const reconnectRecord = {
   signingRootVersion: 'v1',
   relayerKeyId: 'relayer-key-1',
   clientVerifyingShareB64u: 'share',
-  roleLocalMaterialRef,
   ecdsaRoleLocalAuthMethod: passkeyRoleLocalReadyRecord.authMethod,
   ecdsaRoleLocalPublicFacts: passkeyRoleLocalReadyRecord.publicFacts,
   participantIds: [1, 2],

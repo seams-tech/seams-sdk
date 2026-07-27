@@ -76,7 +76,7 @@ function ecdsaRestoreRecordLaneIdentityMismatchReasons(
     reasons.push('email_otp_auth_branch');
     return reasons;
   }
-  if (!sameString(record.authority.factor.providerUserId, lane.auth.providerSubjectId)) {
+  if (!sameString(record.emailOtpAuthority.factor.providerUserId, lane.auth.providerSubjectId)) {
     reasons.push('provider_subject_id');
   }
   return reasons;

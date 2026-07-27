@@ -69,7 +69,6 @@ function requireCurrentEd25519(
 function commitCurrent(record: ThresholdEd25519SessionRecord) {
   return commitCurrentThresholdEd25519Session({
     record: requireCurrentEd25519(record),
-    transition: 'step_up',
   });
 }
 

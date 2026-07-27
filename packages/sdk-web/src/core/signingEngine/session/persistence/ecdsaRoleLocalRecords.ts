@@ -435,81 +435,20 @@ export function classifyThresholdEcdsaSessionRecordRoleLocalState(args: {
     };
   }
 
-  const handle = record.clientAdditiveShareHandle;
-  const workerSessionId =
-    handle?.kind === 'email_otp_worker_session' ? String(handle.sessionId || '').trim() : '';
   if (authMethod.kind === 'passkey') {
-    if (workerSessionId) {
-      return {
-        kind: 'reauth_required_role_local_material_v1',
-        authMethod,
-        publicFacts,
-        reason: 'unsupported_material_owner',
-      };
-    }
-    if (!record.roleLocalMaterialRef) {
-      return {
-        kind: 'reauth_required_role_local_material_v1',
-        authMethod,
-        publicFacts,
-        reason: 'missing_durable_material',
-      };
-    }
     return {
       kind: 'ready_passkey_role_local_material_v1',
       authMethod,
       publicFacts,
-      durableMaterialRef: record.roleLocalMaterialRef.durableMaterialRef,
+      materialActivation: record.materialActivation,
     };
   }
 
-  if (record.roleLocalMaterialRef) {
-    return {
-      kind: 'ready_email_otp_role_local_material_v1',
-      authMethod,
-      publicFacts,
-      inlineSigningMaterial: {
-        kind: 'role_local_durable_material',
-        durableMaterialRef: record.roleLocalMaterialRef.durableMaterialRef,
-      },
-    };
-  }
-
-  const readyRecord = record.ecdsaRoleLocalReadyRecord;
-  if (!readyRecord || readyRecord.authMethod.kind !== 'email_otp') {
-    return {
-      kind: 'cleanup_only_raw_role_local_record_v1',
-      reason: 'malformed_record',
-      message: '[platform][ecdsa-role-local] Email OTP session is missing role-local state',
-    };
-  }
-  if (readyRecord.kind === 'ecdsa_role_local_ready_email_otp_v1' && workerSessionId) {
-    return {
-      kind: 'ready_email_otp_role_local_material_v1',
-      authMethod: readyRecord.authMethod,
-      readyRecord,
-      inlineSigningMaterial: {
-        kind: 'email_otp_worker_share',
-        workerSessionId,
-      },
-    };
-  }
-  if (readyRecord.kind === 'ecdsa_role_local_ready_email_otp_v1') {
-    return {
-      kind: 'ready_email_otp_role_local_material_v1',
-      authMethod: readyRecord.authMethod,
-      readyRecord,
-      inlineSigningMaterial: {
-        kind: 'role_local_ready_state_blob',
-        stateBlob: readyRecord.stateBlob,
-      },
-    };
-  }
   return {
-    kind: 'reauth_required_role_local_material_v1',
+    kind: 'ready_email_otp_role_local_material_v1',
     authMethod,
     publicFacts,
-    reason: 'unsupported_material_owner',
+    materialActivation: record.materialActivation,
   };
 }
 

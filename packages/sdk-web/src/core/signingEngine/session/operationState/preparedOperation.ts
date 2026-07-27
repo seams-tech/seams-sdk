@@ -11,6 +11,7 @@ import type {
   SigningAuthMethod,
   SigningChainFamily,
   SigningCurve,
+  SelectedEd25519SigningSessionPlanningLane,
   SelectedSigningSessionPlanningLane,
   SigningOperationContext,
   SigningSessionPlan,
@@ -62,7 +63,7 @@ export type ThresholdSigningOperationCoordinator = {
     remainingUses: number;
   }>;
   prepareBudgetIdentity(input: {
-    lane: SelectedSigningSessionPlanningLane;
+    lane: SelectedEd25519SigningSessionPlanningLane;
     trustedStatusAuth?: SigningSessionBudgetStatusAuth;
     operationUsesNeeded?: number;
   }): Promise<SigningSessionPreparedBudgetIdentity>;
@@ -115,6 +116,9 @@ export async function prepareThresholdSigningOperation<
     intent: args.intent,
     ...(args.operation ? { operation: args.operation } : {}),
   });
+  if (lifecycle.lane.curve !== lifecycle.readiness.readiness.curve) {
+    throw new Error('[SigningSession] prepared lane and readiness curves do not match');
+  }
   const coordinatorInput = {
     lane: lifecycle.lane,
     readiness: lifecycle.readiness.readiness,

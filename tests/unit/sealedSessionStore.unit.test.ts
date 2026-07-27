@@ -11,7 +11,10 @@ import {
   parseEcdsaRoleLocalDurableMaterialRef,
   parseEcdsaRoleLocalMaterialHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
-import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  buildEcdsaRoleLocalPersistedMaterialRefFixture,
+  buildWalletAuthAuthorityRefFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
 
 const IMPORT_PATHS = {
   indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
@@ -42,11 +45,16 @@ const ECDSA_RESTORE_MATERIAL_REF = buildEcdsaRoleLocalPersistedMaterialRefFixtur
   bindingDigest: ECDSA_RESTORE_PUBLIC_FACTS.contextBinding32B64u,
   label: 'sealed-store-fixture',
 });
+const ECDSA_RESTORE_AUTHORITY = buildWalletAuthAuthorityRefFixture({
+  walletId: 'sealed-store.testnet',
+  label: 'sealed-store-fixture',
+});
 
 const ECDSA_RESTORE = {
   chainTarget: ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.chainTarget,
   source: 'manual-bootstrap',
   evmFamilySigningKeySlotId: ECDSA_RESTORE_BOOTSTRAP.keygen.evmFamilySigningKeySlotId,
+  authority: ECDSA_RESTORE_AUTHORITY,
   roleLocalMaterialRef: ECDSA_RESTORE_MATERIAL_REF,
   rpId: 'wallet.example.localhost',
   credentialIdB64u: 'passkey-ecdsa-credential',
@@ -188,6 +196,10 @@ test.describe('signing session sealed store', () => {
     const runtimeRecord = upsertThresholdEcdsaSessionFromBootstrap(store, {
       purpose: 'transaction_signing',
       walletId,
+      authority: buildWalletAuthAuthorityRefFixture({
+        walletId,
+        label: 'expired-anchor',
+      }),
       chainTarget,
       bootstrap,
       source: 'registration',

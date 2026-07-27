@@ -121,7 +121,7 @@ function makeReadyMaterial(args: {
     record: args.record,
     expected: {
       walletId: args.record.walletId,
-      evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
+      materialActivation: args.record.materialActivation,
       chainTarget: CHAIN_TARGET,
       authMethod: args.authMethod,
       source: args.source,
@@ -151,6 +151,7 @@ function makeReadyEcdsaCapability(args: {
     key: args.material.key,
     lane: selectedEcdsaLane({
       key: args.material.key,
+      materialActivation: args.record.materialActivation,
       keyHandle: args.record.keyHandle,
       walletId: args.record.walletId,
       auth: PASSKEY_AUTH,

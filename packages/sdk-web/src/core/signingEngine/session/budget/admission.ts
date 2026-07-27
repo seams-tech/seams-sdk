@@ -66,6 +66,14 @@ export type SigningGrantAdmissionQueueKey = string & {
   readonly __brand: 'SigningGrantAdmissionQueueKey';
 };
 
+export type OperationAuthorizationQueueKey = string & {
+  readonly __brand: 'OperationAuthorizationQueueKey';
+};
+
+export type SigningAdmissionQueueKey =
+  | SigningGrantAdmissionQueueKey
+  | OperationAuthorizationQueueKey;
+
 export class SigningGrantAdmissionError extends Error {
   readonly failure: SigningGrantAdmissionFailure;
 
@@ -202,6 +210,23 @@ export function buildSigningGrantAdmissionQueueKey(args: {
     authorityKey,
     targetKey,
   ].join(':') as SigningGrantAdmissionQueueKey;
+}
+
+export function buildOperationAuthorizationQueueKey(args: {
+  walletId: string;
+  materialActivationId: string;
+  authorizationId: string;
+  authorityKey: string;
+  targetKey: string;
+}): OperationAuthorizationQueueKey {
+  return [
+    'operation-authorization',
+    normalizeQueueKeyPart(args.walletId, 'wallet'),
+    normalizeQueueKeyPart(args.materialActivationId, 'activation'),
+    normalizeQueueKeyPart(args.authorizationId, 'authorization'),
+    normalizeQueueKeyPart(args.authorityKey, 'authority'),
+    normalizeQueueKeyPart(args.targetKey, 'target'),
+  ].join(':') as OperationAuthorizationQueueKey;
 }
 
 export function signingGrantAdmissionAuthorityKeyFromAuth(

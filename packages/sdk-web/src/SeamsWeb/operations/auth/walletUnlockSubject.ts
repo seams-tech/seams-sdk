@@ -274,7 +274,13 @@ function walletUnlockSubjectKey(subject: WalletUnlockSubject): string {
         subject.signerSlot,
       ].join('\0');
     case 'evm_family_ecdsa_wallet':
-      return [subject.kind, subject.walletId, subject.ecdsaThresholdKeyId].join('\0');
+      return [
+        subject.kind,
+        subject.walletId,
+        subject.capability,
+        subject.authority.authorityDigest,
+        subject.ecdsaThresholdKeyId,
+      ].join('\0');
   }
   subject satisfies never;
   return '';

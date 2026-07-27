@@ -22,14 +22,13 @@ import {
   LOGIN_PREFILL_TRIGGER_DEPTH,
 } from '@/core/config/defaultConfigs';
 import { tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
-import {
-  resolveRouterAbEcdsaWalletSessionAuthFromRecord,
-} from './routerAbEcdsaWalletSessionAuth';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import {
   parseEcdsaClientVerifyingShareB64u,
   parseEcdsaThresholdKeyId,
 } from '../keyMaterialBrands';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type RouterAbEcdsaDerivationLoginPresignaturePrefillSkippedReason =
   | 'pool_disabled'
@@ -166,15 +165,16 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
       };
     }
 
-    const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
-    if (walletSessionAuth.kind !== 'ready') {
+    const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(walletId);
+    if (authorizationRead.kind !== 'found') {
       return {
         status: 'skipped',
         reason: 'missing_wallet_session_jwt',
         thresholdSessionId,
       };
     }
-    const walletSessionJwt = walletSessionAuth.walletSessionJwt;
+    const authorization = authorizationRead.projection;
+    const walletSessionJwt = authorization.walletSessionJwt;
 
     const policy = resolveRouterAbEcdsaDerivationPresignaturePoolPolicy(deps.routerAbEcdsaDerivationPresignaturePoolPolicy);
     if (!policy.enabled) {
@@ -196,6 +196,7 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
     const existingDepth = getRouterAbEcdsaDerivationClientPresignaturePoolDepth({
       relayerUrl,
       scope: record.routerAbEcdsaDerivationNormalSigning.scope,
+      materialActivation: routerAbMpcMaterialActivationRefToWire(record.materialActivation),
     });
     if (existingDepth >= LOGIN_PREFILL_TARGET_DEPTH) {
       return {
@@ -279,6 +280,11 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
       thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u,
       relayerVerifyingShareB64u: record.relayerVerifyingShareB64u,
       credential: { kind: 'jwt', walletSessionJwt },
+      authorization: {
+        kind: 'reusable_wallet_session',
+        wallet_session_id: authorization.walletSessionId,
+      },
+      materialActivation: routerAbMpcMaterialActivationRefToWire(record.materialActivation),
       routerAbEcdsaDerivationPoolFill,
       workerCtx: deps.getSignerWorkerContext(),
       poolPolicy: policy,

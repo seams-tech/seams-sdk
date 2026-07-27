@@ -10,11 +10,18 @@ import {
 import { resolveThresholdRuntimePolicyScope } from '../../commonRouterUtils';
 import { normalizeCorsOrigin } from '../../../core/SessionService';
 import {
+  authenticateRouterAbOperationStepUpAppSession,
+  buildRouterAbEd25519PrivateSigningWorkerBody,
   handleRouterAbEd25519NormalSigningRouteCore,
+  parseRouterAbEd25519OperationStepUpScope,
+  parseRouterAbOperationStepUpOperation,
   ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS,
   type RouterAbEd25519PrivateSigningPath,
 } from '../../routerAbPrivateSigningWorker';
-import { parseThresholdEd25519SessionRouteRequest } from '../../thresholdEd25519RequestValidation';
+import {
+  parseThresholdEd25519OperationStepUpGrantRequest,
+  parseThresholdEd25519SessionRouteRequest,
+} from '../../thresholdEd25519RequestValidation';
 import {
   isPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
@@ -23,12 +30,28 @@ import {
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { isPlainObject } from '@shared/utils/validation';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import {
+  parseAuthFactorId,
+  parseCapabilityBindingId,
+  parseCapabilityGrantId,
+  parseCapabilityId,
+  parseGrantEvidenceId,
+  parseGrantEvidenceSetId,
+} from '@shared/authorization/capabilityKinds';
+import {
+  buildCapabilityOperationEnvelope,
+  computeCapabilityOperationFingerprintDigest,
+} from '@shared/authorization/operationFingerprint';
+import { buildActiveCapabilityGrant } from '../../../authorization/domain';
+import { buildVerifiedPasskeyFactorResult } from '../../../authorization/factorEvidence';
 import {
   parseAppSessionClaims,
   resolveAppSessionWalletIdForWalletScope,
 } from '../../../core/ThresholdService/validation';
 import type {
   RouterAbEd25519YaoBudgetRefreshAuthorizationV1,
+  RouterAbEd25519YaoOperationStepUpGrantCommandV1,
   RouterAbEd25519YaoSessionRouteCommandV1,
 } from '../../routerAbEd25519YaoWalletSession';
 
@@ -101,6 +124,7 @@ async function validatePasskeyEd25519SessionAuthorization(input: {
       authorization: {
         kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
         authority: input.authority,
+        verifiedChallengeId: expectedChallenge,
       },
     };
   }
@@ -226,6 +250,214 @@ async function validateSignedEd25519SessionAuthorization(input: {
   };
 }
 
+function requireAuthorizationValue<T>(
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
+): T {
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
+
+async function issuePasskeyEd25519OperationStepUpGrant(input: {
+  ctx: CloudflareRouterApiContext;
+  request: RouterAbEd25519YaoOperationStepUpGrantCommandV1;
+}): Promise<Response> {
+  const scope = parseRouterAbEd25519OperationStepUpScope(input.request.normalSigningRequest.scope);
+  if (scope.authorization.kind !== 'operation_step_up') {
+    return json(
+      { ok: false, code: 'invalid_body', message: 'Operation step-up scope is required' },
+      { status: 400 },
+    );
+  }
+  const authenticated = await authenticateRouterAbOperationStepUpAppSession({
+    headers: Object.fromEntries(input.ctx.request.headers.entries()),
+    session: input.ctx.opts.session,
+    scope,
+    authorizationClaims: input.ctx.service.authorizationClaims,
+    authorizationSessions: input.ctx.service.authorizationSessions,
+  });
+  if (!authenticated.ok) {
+    return json(authenticated.error.body, { status: authenticated.error.status });
+  }
+  let privateBody: Awaited<ReturnType<typeof buildRouterAbEd25519PrivateSigningWorkerBody>>;
+  try {
+    privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
+      phase: 'prepare',
+      body: input.request.normalSigningRequest,
+      authorization: { kind: 'operation_step_up', session: authenticated.session },
+      headers: Object.fromEntries(input.ctx.request.headers.entries()),
+    });
+  } catch (error: unknown) {
+    return json(
+      {
+        ok: false,
+        code: 'invalid_body',
+        message: error instanceof Error ? error.message : 'Operation step-up request is invalid',
+      },
+      { status: 400 },
+    );
+  }
+  if (!('admission_candidate' in privateBody)) {
+    return json(
+      { ok: false, code: 'invalid_body', message: 'Operation step-up prepare is required' },
+      { status: 400 },
+    );
+  }
+  const operation = parseRouterAbOperationStepUpOperation(
+    input.request.normalSigningRequest.intent,
+  );
+  if (!operation.ok) {
+    return json({ ok: false, code: 'invalid_body', message: operation.message }, { status: 400 });
+  }
+  const intent = input.request.normalSigningRequest.intent;
+  if (!isPlainObject(intent)) {
+    return json(
+      { ok: false, code: 'invalid_body', message: 'Operation step-up intent is invalid' },
+      { status: 400 },
+    );
+  }
+  const grantId = requireAuthorizationValue(parseCapabilityGrantId(scope.authorization.grant_id));
+  const capabilityId = requireAuthorizationValue(
+    parseCapabilityId(scope.material_activation.capability),
+  );
+  const envelope = buildCapabilityOperationEnvelope({
+    tenantId: authenticated.session.tenantId,
+    principalId: authenticated.session.principalId,
+    capabilityId,
+    operationId: operation.operationId,
+    operation: operation.operation,
+    digests: {
+      laneDigest: parseDigestB64u(intent.operation_fingerprint),
+      intentDigest: parseDigestB64u(
+        base64UrlEncode(Uint8Array.from(privateBody.admission_candidate.intent_digest.bytes)),
+      ),
+      displayDigest: parseDigestB64u(input.request.displayDigest),
+    },
+  });
+  const challengeB64u = await computeCapabilityOperationFingerprintDigest(envelope);
+  const authorityRef = await walletAuthAuthorityRef({ authority: input.request.authority });
+  const activeAuthSource = authenticated.activeSession.authSource;
+  if (
+    activeAuthSource.kind !== 'passkey' ||
+    authorityRef.walletId !== authenticated.authorityRef.walletId ||
+    authorityRef.authorityDigest !== authenticated.authorityRef.authorityDigest ||
+    input.request.authority.walletId !== authenticated.session.walletId ||
+    input.request.authority.factor.credentialIdB64u !== activeAuthSource.credentialIdB64u
+  ) {
+    return json(
+      { ok: false, code: 'scope_mismatch', message: 'Passkey authority changed' },
+      { status: 403 },
+    );
+  }
+  const activeSession = authenticated.activeSession;
+  if (activeSession.authSource.kind !== 'passkey') {
+    return json(
+      { ok: false, code: 'unauthorized', message: 'Passkey app session is required' },
+      { status: 401 },
+    );
+  }
+  const credentialId = String(
+    input.request.webauthnAuthentication.rawId || input.request.webauthnAuthentication.id || '',
+  ).trim();
+  if (credentialId !== activeSession.authSource.credentialIdB64u) {
+    return json(
+      { ok: false, code: 'unauthorized', message: 'Passkey credential changed' },
+      { status: 401 },
+    );
+  }
+  const origin =
+    activeSession.audience.kind === 'first_party_web'
+      ? activeSession.audience.origin
+      : activeSession.audience.walletOrigin;
+  const verified = await input.ctx.service.webAuthn.verifyWebAuthnAuthenticationLite({
+    userId: authenticated.session.walletId,
+    rpId: input.request.authority.verifier.rpId,
+    expectedChallenge: challengeB64u,
+    expected_origin: origin,
+    webauthn_authentication: input.request.webauthnAuthentication,
+  });
+  if (!verified.success || !verified.verified) {
+    return json(
+      {
+        ok: false,
+        code: verified.code || 'not_verified',
+        message: verified.message || 'WebAuthn authentication verification failed',
+      },
+      { status: 401 },
+    );
+  }
+  const nowMs = Date.now();
+  const expiresAtMs = Math.min(
+    Number(input.request.normalSigningRequest.expires_at_ms),
+    authenticated.expiresAtMs,
+  );
+  const requestId = String(scope.request_id);
+  const evidenceId = requireAuthorizationValue(parseGrantEvidenceId(`evidence:${requestId}`));
+  const evidenceSetId = requireAuthorizationValue(
+    parseGrantEvidenceSetId(`evidence-set:${requestId}`),
+  );
+  const factor = buildVerifiedPasskeyFactorResult({
+    tenantId: authenticated.session.tenantId,
+    principalId: authenticated.session.principalId,
+    sessionId: authenticated.session.sessionId,
+    deviceId: activeSession.deviceId,
+    factorId: requireAuthorizationValue(
+      parseAuthFactorId(`passkey:${activeSession.authSource.credentialIdB64u}`),
+    ),
+    authorityRef: authenticated.authorityRef,
+    operation: envelope,
+    credentialIdB64u: activeSession.authSource.credentialIdB64u,
+    assertionDigest: parseDigestB64u(
+      base64UrlEncode(
+        await sha256BytesUtf8(alphabetizeStringify(input.request.webauthnAuthentication)),
+      ),
+    ),
+    verifiedAtMs: nowMs,
+    expiresAtMs,
+  });
+  const evidenceSet = await input.ctx.service.authorizationClaims.recordVerifiedFactorEvidenceSet({
+    session: activeSession,
+    operation: envelope,
+    evidenceId,
+    evidenceSetId,
+    factor,
+  });
+  const grant = buildActiveCapabilityGrant({
+    tenantId: authenticated.session.tenantId,
+    principalId: authenticated.session.principalId,
+    grantId,
+    bindingId: requireAuthorizationValue(parseCapabilityBindingId(`binding:${requestId}`)),
+    evidenceSetId,
+    evidenceSetDigest: evidenceSet.evidenceSetDigest,
+    capabilityId,
+    operationId: envelope.operationId,
+    operation: envelope.operation,
+    laneDigest: envelope.digests.laneDigest,
+    intentDigest: envelope.digests.intentDigest,
+    displayDigest: envelope.digests.displayDigest,
+    authority: { kind: 'operation_step_up' },
+    remainingUses: 1,
+    createdAtMs: nowMs,
+    expiresAtMs,
+  });
+  await input.ctx.service.authorizationClaims.issueGrant({
+    operation: envelope,
+    evidenceSet,
+    grant,
+  });
+  return json(
+    {
+      ok: true,
+      kind: 'operation_step_up',
+      grantId,
+      authorizationSessionId: authenticated.session.sessionId,
+      expiresAtMs,
+    },
+    { status: 200 },
+  );
+}
+
 async function handleRouterAbEd25519NormalSigningRoute(input: {
   ctx: CloudflareRouterApiContext;
   body: Record<string, unknown>;
@@ -238,6 +470,8 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
     headers: Object.fromEntries(input.ctx.request.headers.entries()),
     session: input.ctx.opts.session,
     runtime: input.ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime(),
+    authorizationClaims: input.ctx.service.authorizationClaims,
+    authorizationSessions: input.ctx.service.authorizationSessions,
     admissionAdapter: input.ctx.opts.routerAbNormalSigningAdmission,
     privatePath: input.privatePath,
     phase: input.phase,
@@ -313,6 +547,19 @@ export async function handleThresholdEd25519(
           },
           { status: 501 },
         );
+      }
+
+      if (body.kind === 'router_ab_ed25519_yao_operation_step_up_grant_v1') {
+        const parsedGrant = parseThresholdEd25519OperationStepUpGrantRequest(body);
+        if (!parsedGrant.ok) {
+          return json(parsedGrant.body, {
+            status: thresholdEd25519StatusCode(parsedGrant.body),
+          });
+        }
+        return await issuePasskeyEd25519OperationStepUpGrant({
+          ctx,
+          request: parsedGrant.request,
+        });
       }
 
       const parsedBody = parseThresholdEd25519SessionRouteRequest(body);

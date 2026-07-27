@@ -36,6 +36,7 @@ export function createEvmFamilySigningDeps(args: {
 }): EvmFamilySigningDeps {
   const { createArgs, signingSessionCoordinator, getEmailOtpWarmSessionStatus } = args;
   return {
+    getEcdsaSigningCapability: createArgs.getEcdsaSigningCapability,
     walletSignerStore: args.walletSignerStore,
     passkeyAuthenticatorStore: args.passkeyAuthenticatorStore,
     seamsWebConfigs: createArgs.seamsWebConfigs,
@@ -60,8 +61,6 @@ export function createEvmFamilySigningDeps(args: {
         chainTarget,
         ...(source ? { source } : {}),
       }),
-    getThresholdEcdsaSessionRecordByKey: (identity) =>
-      createArgs.getThresholdEcdsaSessionRecordByKey(identity),
     requestEmailOtpTransactionSigningChallenge: ({ walletSession, chain, authority }) =>
       createArgs.requestEmailOtpTransactionSigningChallenge?.({
         walletSession,
@@ -70,31 +69,12 @@ export function createEvmFamilySigningDeps(args: {
       }) || Promise.reject(new Error('Email OTP signing challenge is not configured')),
     resolveDurableEmailOtpEcdsaSigningSessionAuthority: async ({ lane }) =>
       await resolveDurableEmailOtpEcdsaAuthority(lane),
-    loginWithEmailOtpEcdsaCapabilityForSigning: ({
-      walletSession,
-      chainTarget,
-      challengeId,
-      otpCode,
-      authority,
-      remainingUses,
-    }) =>
-      createArgs.loginWithEmailOtpEcdsaCapabilityForSigning?.({
-        walletSession,
-        chainTarget,
-        challengeId,
-        otpCode,
-        authority,
-        remainingUses,
-      }) || Promise.reject(new Error('Email OTP signing bootstrap is not configured')),
+    resolveEcdsaOperationStepUpSessionAuth: (input) =>
+      createArgs.resolveEcdsaOperationStepUpSessionAuth(input),
     restorePersistedSessionForSigning: (restoreArgs) =>
       createArgs.restorePersistedSessionForSigning(restoreArgs),
     readAvailableSigningLanesForSigning: (snapshotArgs) =>
       createArgs.readAvailableSigningLanesForSigning(snapshotArgs),
-    consumeSingleUseEmailOtpEcdsaLane: (command) =>
-      createArgs.consumeSingleUseEmailOtpEcdsaLane?.(command) || {
-        kind: 'missing_lane',
-        laneKey: command.lane.laneRef.laneKey,
-      },
     signingSessionCoordinator,
     getEmailOtpWarmSessionStatus,
     provisionThresholdEcdsaSession: (provisionArgs) =>

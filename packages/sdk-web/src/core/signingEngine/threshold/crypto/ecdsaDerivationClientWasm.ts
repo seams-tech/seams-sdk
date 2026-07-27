@@ -43,6 +43,15 @@ import {
   type EcdsaRoleLocalPersistedMaterialRef,
   type EcdsaRoleLocalWorkerHandle,
 } from '../../session/keyMaterialBrands';
+import {
+  mpcMaterialActivationRefsEqual,
+  parseMpcMaterialActivationRef,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
+import {
+  parseWalletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import type {
   BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
   BuildEcdsaRoleLocalExportArtifactOutput as GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
@@ -79,6 +88,9 @@ import type {
   FinalizeRouterAbEcdsaRegistrationActivationResultV1,
   PersistInitialCanonicalEcdsaActivationRequestV1,
   PersistInitialCanonicalEcdsaActivationResultV1,
+  ReconcileCanonicalEcdsaActivationRequestV1,
+  ReconcileCanonicalEcdsaActivationResultV1,
+  ReconcileCanonicalEcdsaActivationWorkerResultV1,
   VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
   VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
 } from '../../routerAb/ecdsaDerivation/clientCeremony';
@@ -349,6 +361,42 @@ export async function persistInitialCanonicalEcdsaActivationWasm(input: {
   return response.payload;
 }
 
+export async function reconcileCanonicalEcdsaActivationWasm(input: {
+  command: ReconcileCanonicalEcdsaActivationRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<ReconcileCanonicalEcdsaActivationResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.ReconcileCanonicalEcdsaActivation,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.ReconcileCanonicalEcdsaActivationSuccess
+  ) {
+    throw new Error('Canonical ECDSA activation reconciliation failed');
+  }
+  const result: ReconcileCanonicalEcdsaActivationWorkerResultV1 = response.payload;
+  if (result.kind !== 'canonical_ecdsa_activation_committed_finalization_required_v1') {
+    return result;
+  }
+  const activation = await finalizeRouterAbEcdsaRegistrationActivationWasm({
+    workerCtx: input.workerCtx,
+    command: {
+      kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
+      journalId: result.journalId,
+      activationReceipt: result.activationReceipt,
+    },
+  });
+  return {
+    kind: 'canonical_ecdsa_activation_reconciliation_finalized_v1',
+    activation,
+  };
+}
+
 export async function closeRouterAbEcdsaRegistrationCeremonyWasm(input: {
   command: CloseRouterAbEcdsaRegistrationCeremonyRequestV1;
   workerCtx: WorkerOperationContext;
@@ -516,31 +564,43 @@ function ecdsaRoleLocalWorkerHandleMatchesPersistedRef(
   );
 }
 
-export type RehydrateEcdsaRoleLocalSigningMaterialWasmResult =
+export type OpenEcdsaRoleLocalSigningMaterialWasmResult =
   | {
       readonly ok: true;
       readonly liveHandle: EcdsaRoleLocalWorkerHandle;
+      readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
       readonly reason?: never;
     }
   | {
       readonly ok: false;
       readonly reason: 'missing' | 'expired' | 'binding_mismatch' | 'corrupt';
       readonly liveHandle?: never;
+      readonly materialRef?: never;
     };
 
-export async function rehydrateEcdsaRoleLocalSigningMaterialWasm(input: {
-  materialRef: EcdsaRoleLocalPersistedMaterialRef;
+export async function openEcdsaRoleLocalSigningMaterialWasm(input: {
+  authority: WalletAuthAuthorityRef;
+  materialActivation: MpcMaterialActivationRef;
   workerCtx: WorkerOperationContext;
-}): Promise<RehydrateEcdsaRoleLocalSigningMaterialWasmResult> {
-  const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(input.materialRef);
+}): Promise<OpenEcdsaRoleLocalSigningMaterialWasmResult> {
+  const authority = parseWalletAuthAuthorityRef(input.authority);
+  if (!authority) {
+    throw new Error('ECDSA role-local signing material authority is invalid');
+  }
+  const materialActivationResult = parseMpcMaterialActivationRef(input.materialActivation);
+  if (!materialActivationResult.ok) {
+    throw new Error(materialActivationResult.error.message);
+  }
+  const materialActivation = materialActivationResult.value;
   const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
     workerCtx: input.workerCtx,
     request: {
       type: EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial,
       timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
       payload: {
-        kind: 'rehydrate_ecdsa_role_local_signing_material_v1',
-        materialRef,
+        kind: 'open_ecdsa_role_local_signing_material_v1',
+        authority,
+        materialActivation,
       },
     },
   });
@@ -548,7 +608,7 @@ export async function rehydrateEcdsaRoleLocalSigningMaterialWasm(input: {
     response.type !==
     EcdsaDerivationClientCustomResponseType.RehydrateEcdsaRoleLocalSigningMaterialSuccess
   ) {
-    throw new Error('RehydrateEcdsaRoleLocalSigningMaterial failed');
+    throw new Error('OpenEcdsaRoleLocalSigningMaterial failed');
   }
   const payload: RehydrateEcdsaRoleLocalSigningMaterialResultV1 = response.payload;
   switch (payload.kind) {
@@ -557,7 +617,16 @@ export async function rehydrateEcdsaRoleLocalSigningMaterialWasm(input: {
         ok: false,
         reason: payload.reason,
       };
-    case 'ecdsa_role_local_signing_material_rehydrated_v1': {
+    case 'ecdsa_role_local_signing_material_opened_v1': {
+      const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(payload.materialRef);
+      if (
+        !mpcMaterialActivationRefsEqual(
+          materialActivation,
+          materialRef.materialActivation,
+        )
+      ) {
+        throw new Error('ECDSA role-local signing material open changed its activation identity');
+      }
       const liveHandle = parseEcdsaRoleLocalWorkerHandle(payload.liveHandle);
       if (!ecdsaRoleLocalWorkerHandleMatchesPersistedRef(materialRef, liveHandle)) {
         throw new Error('ECDSA role-local signing material hydration changed its identity');
@@ -565,6 +634,7 @@ export async function rehydrateEcdsaRoleLocalSigningMaterialWasm(input: {
       return {
         ok: true,
         liveHandle,
+        materialRef,
       };
     }
     default: {

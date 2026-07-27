@@ -5,7 +5,7 @@ import type {
   ThresholdEcdsaSecp256k1KeyRef,
 } from '../../interfaces/signing';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
-import type { EcdsaActiveStateId } from '@shared/utils/domainIds';
+import type { EcdsaActiveStateId, MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaKeyIdentity,
@@ -51,10 +51,10 @@ const evmTarget = {
   chainId: 5042002,
   networkSlug: 'arc-testnet',
 } as const;
+declare const materialActivation: MpcMaterialActivationRef;
 
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ederivation-shared-key',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -64,6 +64,7 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
 
 const lane = buildEvmFamilyEcdsaSessionLane({
   key,
+  materialActivation,
   chainTarget: evmTarget,
   authMethod: 'passkey',
   source: 'login',
@@ -143,17 +144,12 @@ const laneWithoutKey: EvmFamilyEcdsaSessionLane = {
 };
 void laneWithoutKey;
 
-// @ts-expect-error key identity requires evmFamilySigningKeySlotId.
-const keyWithoutWalletKeyId: EvmFamilyEcdsaKeyIdentity = {
-  walletId: key.walletId,
-  keyScope: 'evm-family',
-  ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
-  signingRootId: key.signingRootId,
-  signingRootVersion: key.signingRootVersion,
-  participantIds: key.participantIds,
-  thresholdOwnerAddress: key.thresholdOwnerAddress,
+const keyWithProvisioningSlot: EvmFamilyEcdsaKeyIdentity = {
+  ...key,
+  // @ts-expect-error runtime key identity rejects the provisioning reservation slot.
+  evmFamilySigningKeySlotId: 'wallet-key-localhost',
 };
-void keyWithoutWalletKeyId;
+void keyWithProvisioningSlot;
 
 const keyWithTargetScope: EvmFamilyEcdsaKeyIdentity = {
   ...key,
@@ -180,7 +176,7 @@ void publicFacts;
 
 const walletKey = buildEvmFamilyEcdsaWalletKey({
   walletId: key.walletId,
-  evmFamilySigningKeySlotId: key.evmFamilySigningKeySlotId,
+  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   keyHandle,
   chainTarget: evmTarget,
   ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,

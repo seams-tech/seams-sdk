@@ -15,12 +15,6 @@ import {
   emailOtpAuthContextProviderUserId,
   type ThresholdEcdsaEmailOtpAuthContext,
 } from '@/core/signingEngine/session/identity/laneIdentity';
-import {
-  upsertThresholdEcdsaSessionFromBootstrap,
-  type ThresholdEcdsaSessionRecord,
-  type ThresholdEcdsaSessionStoreDeps,
-} from '@/core/signingEngine/session/persistence/records';
-import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import { buildEcdsaRoleLocalPublicFacts } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
   persistThresholdEcdsaBootstrapForWalletTarget,
@@ -39,6 +33,8 @@ import type {
 } from '@/core/signingEngine/session/passkey/warmSessionMaterialWriter';
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { StoreWalletEcdsaWalletKey } from '../accountLifecycle';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { persistActiveWalletSessionAuthorizationFromEcdsaBootstrap } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 
 type WalletRegistrationEcdsaSessionBootstrap = Awaited<
   ReturnType<typeof buildWalletRegistrationEcdsaSessionBootstrap>
@@ -76,6 +72,7 @@ export type FinalizeWalletRegistrationEcdsaFamilySession = {
     WalletRegistrationEcdsaWalletKey['chainTarget'],
     ...WalletRegistrationEcdsaWalletKey['chainTarget'][],
   ];
+  authority: FinalizeRouterAbEcdsaRegistrationActivationResultV1['authority'];
   clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
   bootstrap: WalletRegistrationEcdsaDerivationRespondBootstrap;
   roleLocalMaterial: FinalizeRouterAbEcdsaRegistrationActivationResultV1['roleLocalMaterial'];
@@ -108,11 +105,6 @@ export type FinalizeWalletRegistrationEcdsaSessionsInput = {
 
 export type FinalizeWalletRegistrationEcdsaSessionsDeps = {
   bootstrapStore: ThresholdEcdsaBootstrapStorePort;
-  sessionStore: ThresholdEcdsaSessionStoreDeps;
-  persistActivePasskeyEcdsaReauthAnchor: (record: ThresholdEcdsaSessionRecord) => Promise<void>;
-  persistEmailOtpEcdsaRegistrationReauthAnchor: (
-    record: ThresholdEcdsaSessionRecord,
-  ) => Promise<void>;
   warmSessions: Pick<WarmSessionHydrationService, 'hydrateSigningSession'>;
   signingSessionSeal: {
     signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
@@ -200,41 +192,6 @@ function storeWalletEcdsaKeyWithRoleLocalMaterial(args: {
     roleLocalMaterialRef: args.materialRef,
     ecdsaRoleLocalPublicFacts: args.publicFacts,
   };
-}
-
-function commitRegistrationRuntimeSession(args: {
-  deps: FinalizeWalletRegistrationEcdsaSessionsDeps;
-  input: FinalizeWalletRegistrationEcdsaSessionsInput;
-  walletId: WalletId;
-  walletKey: WalletRegistrationEcdsaWalletKey;
-  bootstrap: WalletRegistrationEcdsaSessionBootstrap;
-}): ThresholdEcdsaSessionRecord {
-  switch (args.input.auth.kind) {
-    case 'passkey':
-      return upsertThresholdEcdsaSessionFromBootstrap(args.deps.sessionStore, {
-        purpose: 'transaction_signing',
-        walletId: args.walletId,
-        chainTarget: args.walletKey.chainTarget,
-        bootstrap: args.bootstrap,
-        source: 'registration',
-      });
-    case 'email_otp':
-      return upsertThresholdEcdsaSessionFromBootstrap(args.deps.sessionStore, {
-        purpose: 'transaction_signing',
-        walletId: args.walletId,
-        chainTarget: args.walletKey.chainTarget,
-        bootstrap: args.bootstrap,
-        source: 'email_otp',
-        emailOtpAuthContext: args.input.auth.emailOtpAuthContext,
-      });
-  }
-}
-
-function markRegistrationRuntimeSessionValidated(record: ThresholdEcdsaSessionRecord): void {
-  if (markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)) return;
-  throw new Error(
-    '[SigningEngine] strict ECDSA registration worker material could not be runtime-validated',
-  );
 }
 
 class RegistrationEcdsaWarmSessionDiagnostics implements WarmSessionMaterialWriteDiagnostics {
@@ -355,6 +312,11 @@ export async function finalizeWalletRegistrationEcdsaSessions(
     );
   }
   const walletId = toWalletId(input.walletId);
+  if (input.session.authority.walletId !== walletId) {
+    throw new Error(
+      '[SigningEngine] strict ECDSA registration authority does not match the target wallet',
+    );
+  }
   const authMethod = bootstrapAuthMethod(input.auth);
   const signerAuth = bootstrapSignerAuth(input.auth);
   const workerHandle = input.session.roleLocalMaterial;
@@ -420,6 +382,15 @@ export async function finalizeWalletRegistrationEcdsaSessions(
       bootstrap,
       signerAuth,
     });
+    await persistActiveWalletSessionAuthorizationFromEcdsaBootstrap(
+      walletSessionAuthorizations,
+      {
+        walletId,
+        authority: input.session.authority,
+        authMethod: signerAuth.authMethod,
+        bootstrap,
+      },
+    );
     recordDiagnosticDuration({
       diagnostics: input.diagnostics,
       bucket: 'public_anchor_persist',
@@ -427,17 +398,8 @@ export async function finalizeWalletRegistrationEcdsaSessions(
     });
 
     const runtimeCommitStartedAt = performance.now();
-    const record = commitRegistrationRuntimeSession({
-      deps,
-      input,
-      walletId,
-      walletKey,
-      bootstrap,
-    });
-    markRegistrationRuntimeSessionValidated(record);
     switch (input.auth.kind) {
       case 'passkey': {
-        await deps.persistActivePasskeyEcdsaReauthAnchor(record);
         const warmSessionStartedAt = performance.now();
         try {
           await hydratePasskeyRegistrationSession({
@@ -459,7 +421,6 @@ export async function finalizeWalletRegistrationEcdsaSessions(
         break;
       }
       case 'email_otp':
-        await deps.persistEmailOtpEcdsaRegistrationReauthAnchor(record);
         break;
     }
     storedWalletKeys.push(

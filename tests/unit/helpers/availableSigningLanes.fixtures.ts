@@ -30,6 +30,7 @@ import {
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
 
 export const AVAILABLE_LANES_WALLET_ID = 'alice.testnet';
 export const AVAILABLE_LANES_ED25519_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
@@ -79,10 +80,15 @@ export function runtimeEcdsaRouterAbNormalSigningState(args: {
   thresholdEcdsaPublicKeyB64u: string;
   thresholdOwnerAddress: string;
 }): RouterAbEcdsaDerivationNormalSigningStateV1 {
+  const provisioningKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId: args.key.walletId,
+    signingRootId: args.key.signingRootId,
+    signingRootVersion: args.key.signingRootVersion,
+  });
   return {
     kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
     scope: {
-      wallet_key_id: args.key.evmFamilySigningKeySlotId,
+      wallet_key_id: provisioningKeySlotId,
       wallet_id: args.key.walletId,
       ecdsa_threshold_key_id: args.key.ecdsaThresholdKeyId,
       signing_root_id: args.key.signingRootId,
@@ -133,14 +139,8 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
 }): AvailableSigningLanesRuntimeEcdsaRecord {
   const keyId = args.ecdsaThresholdKeyId || 'shared-ecdsa-key';
   const thresholdOwnerAddress = args.thresholdOwnerAddress;
-  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
-    walletId: AVAILABLE_LANES_WALLET_ID,
-    signingRootId: 'sr-test:dev',
-    signingRootVersion: 'default',
-  });
   const key = buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: AVAILABLE_LANES_WALLET_ID,
-    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: keyId,
     signingRootId: 'sr-test:dev',
     signingRootVersion: 'default',
@@ -149,6 +149,9 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
   });
   const base = {
     key,
+    materialActivation: buildMpcMaterialActivationRefFixture(
+      `available-lane:${args.thresholdSessionId}`,
+    ),
     routerAbEcdsaDerivationNormalSigning: runtimeEcdsaRouterAbNormalSigningState({
       key,
       thresholdSessionId: args.thresholdSessionId,

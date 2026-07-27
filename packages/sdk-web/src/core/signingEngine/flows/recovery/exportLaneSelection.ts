@@ -151,16 +151,19 @@ function exactEcdsaIdentityForExportLane(args: {
   lane: ConcreteEcdsaExportAvailableLane;
   chainTarget?: ThresholdEcdsaChainTarget;
 }): ExactEcdsaSigningLaneIdentity {
+  if (args.lane.source !== 'canonical_capability' || !args.lane.authorization) {
+    throw new Error('[SigningEngine][ecdsa-export] canonical authorization is required');
+  }
   return exactEcdsaSigningLaneIdentity({
     signer: buildEvmFamilyEcdsaSignerBinding({
       walletId: args.lane.key.walletId,
       chainTarget: args.chainTarget || args.lane.chainTarget,
       keyHandle: args.lane.publicFacts.keyHandle,
       key: args.lane.key,
+      materialActivation: args.lane.materialActivation,
     }),
     auth: args.lane.auth,
-    signingGrantId: args.lane.signingGrantId,
-    thresholdSessionId: args.lane.thresholdSessionId,
+    authorization: args.lane.authorization,
   });
 }
 

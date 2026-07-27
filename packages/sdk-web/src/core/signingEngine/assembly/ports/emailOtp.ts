@@ -32,8 +32,6 @@ export function createSigningSessionCoordinatorPort(args: {
     getEmailOtpWarmSessionStatus,
     consumeEmailOtpWarmSessionUses: createArgs.consumeEmailOtpWarmSessionUses,
     clearEmailOtpWarmSessionMaterial: createArgs.clearEmailOtpWarmSessionMaterial,
-    clearThresholdEcdsaSessionRecordForExactIdentity:
-      createArgs.clearThresholdEcdsaSessionRecordForExactIdentity,
     markThresholdEd25519EmailOtpSessionConsumedForWallet:
       createArgs.markThresholdEd25519EmailOtpSessionConsumedForWallet,
   });

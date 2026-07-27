@@ -1,8 +1,5 @@
-import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
-import { IndexedDBManager } from '@/core/indexedDB';
-import {
-  parseEcdsaThresholdKeyId,
-} from '@/core/signingEngine/session/keyMaterialBrands';
+import { IndexedDbEcdsaCapabilityManifestStore } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import type { EcdsaWalletActivationSelectorListResult } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import type {
   EvmFamilyEcdsaWalletUnlockSubject,
   EvmFamilyEcdsaWalletUnlockSubjectSet,
@@ -37,56 +34,13 @@ export type EvmFamilyEcdsaWalletUnlockSubjectSetResolution =
       readonly subjectSet?: never;
     };
 
-type EcdsaWalletUnlockSubjectParseResult =
-  | {
-      readonly kind: 'valid';
-      readonly subject: EvmFamilyEcdsaWalletUnlockSubject;
-    }
-  | {
-      readonly kind: 'invalid';
-      readonly subject?: never;
-    };
-
-function requiredWalletUnlockMetadataString(
-  metadata: Record<string, unknown> | undefined,
-  field: string,
-): string {
-  const value = metadata?.[field];
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`wallet unlock signer metadata requires ${field}`);
-  }
-  return value.trim();
-}
-
-function ecdsaWalletUnlockSubjectFromSigner(
-  walletId: WalletId,
-  signer: AccountSignerRecord,
-): EcdsaWalletUnlockSubjectParseResult {
-  try {
-    const metadataWalletId = String(signer.metadata?.walletId || '').trim();
-    if (metadataWalletId && metadataWalletId !== String(walletId)) {
-      return { kind: 'invalid' };
-    }
-    return {
-      kind: 'valid',
-      subject: {
-        kind: 'evm_family_ecdsa_wallet',
-        walletId,
-        ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(
-          requiredWalletUnlockMetadataString(signer.metadata, 'ecdsaThresholdKeyId'),
-        ),
-      },
-    };
-  } catch {
-    return { kind: 'invalid' };
-  }
-}
-
 function requireWalletId(value: unknown): WalletId {
   const parsed = parseWalletId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
 }
+
+const ecdsaCapabilityManifestStore = new IndexedDbEcdsaCapabilityManifestStore();
 
 async function listEvmFamilyEcdsaWalletUnlockSubjects(walletId: WalletId): Promise<
   | {
@@ -99,32 +53,28 @@ async function listEvmFamilyEcdsaWalletUnlockSubjects(walletId: WalletId): Promi
       readonly subjects?: never;
     }
 > {
-  let signers: AccountSignerRecord[];
-  try {
-    signers = await IndexedDBManager.listActiveWalletSigners({
-      walletId,
-      signerFamily: 'ecdsa',
-    });
-  } catch {
+  const resolved = await ecdsaCapabilityManifestStore.listActiveWalletCapabilitySubjects(walletId);
+  if (resolved.kind === 'persistence_unavailable') {
     return {
       kind: 'failed',
       reason: 'capability_subject_lookup_failed',
     };
   }
+  if (resolved.kind === 'invalid_current_state') {
+    return {
+      kind: 'failed',
+      reason: 'invalid_capability_subject',
+    };
+  }
   const subjects: EvmFamilyEcdsaWalletUnlockSubject[] = [];
-  const seenThresholdKeyIds = new Set<string>();
-  for (const signer of signers) {
-    const parsed = ecdsaWalletUnlockSubjectFromSigner(walletId, signer);
-    if (parsed.kind === 'invalid') {
-      return {
-        kind: 'failed',
-        reason: 'invalid_capability_subject',
-      };
-    }
-    const key = String(parsed.subject.ecdsaThresholdKeyId);
-    if (seenThresholdKeyIds.has(key)) continue;
-    seenThresholdKeyIds.add(key);
-    subjects.push(parsed.subject);
+  for (const subject of resolved.subjects) {
+    subjects.push({
+      kind: 'evm_family_ecdsa_wallet',
+      walletId,
+      capability: subject.capability,
+      authority: subject.authority,
+      ecdsaThresholdKeyId: subject.ecdsaThresholdKeyId,
+    });
   }
   return {
     kind: 'resolved',
@@ -173,4 +123,10 @@ export async function resolveEvmFamilyEcdsaWalletUnlockSubjects(walletId: Wallet
     }
 > {
   return await listEvmFamilyEcdsaWalletUnlockSubjects(walletId);
+}
+
+export async function resolveEcdsaActivationJournalSelectors(
+  walletId: WalletId,
+): Promise<EcdsaWalletActivationSelectorListResult> {
+  return await ecdsaCapabilityManifestStore.listWalletActivationJournalSelectors(walletId);
 }

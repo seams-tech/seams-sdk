@@ -38,8 +38,6 @@ export function createStepUpRuntime(args: {
   listActiveEcdsaSignersForWallet: (args: {
     walletId: string;
   }) => Promise<readonly AccountSignerRecord[]>;
-  getEcdsaSessions: () => WarmSigningPorts['ecdsaSessions'];
-  getWarmCapabilityReader: () => WarmSigningPorts['capabilityReader'];
   getThresholdEcdsaSessionRecordByThresholdSessionId: WarmSigningPorts['getThresholdEcdsaSessionRecordByThresholdSessionId'];
   ensureSealedRefreshStartupParity: () => Promise<void>;
 }): StepUpRuntime {
@@ -56,9 +54,7 @@ export function createStepUpRuntime(args: {
         {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           bootstrapStore: args.ecdsaBootstrapStore,
-          ecdsaSessions: args.getEcdsaSessions(),
           persistEcdsaRoleLocalReadyRecord: args.persistEcdsaRoleLocalReadyRecord,
-          warmCapabilityReader: args.getWarmCapabilityReader(),
           ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: (parityArgs) =>
             ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(
               args.ensureSealedRefreshStartupParity,

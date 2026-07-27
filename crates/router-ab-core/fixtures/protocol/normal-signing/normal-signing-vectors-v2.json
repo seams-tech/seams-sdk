@@ -4,6 +4,7 @@
     {
       "case_id": "near_transaction_v1",
       "builder_args_json": {
+        "displayDigestB64u": "0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dE",
         "expectedSigningDigestB64u": "Nre4iYnG098CZQXfaTx4IjuENB9twMeqEV45RB2DD8M",
         "expiresAtMs": 1900000000000,
         "nearAccountId": "alice.testnet",
@@ -12,9 +13,21 @@
         "operationId": "operation-near-transaction-v2",
         "scope": {
           "account_id": "alice.testnet",
-          "active_state_session_id": "threshold-session-v2",
+          "authorization": {
+            "grant_id": "signing-grant-v2",
+            "kind": "reusable_wallet_session",
+            "wallet_session_id": "threshold-session-v2"
+          },
+          "material_activation": {
+            "activation_id": "material-activation-v2",
+            "capability": "near-ed25519-capability-v2",
+            "key_binding": "near-ed25519-key-v2",
+            "kind": "mpc_material_activation_ref",
+            "lifecycle_binding": "yao-lifecycle-v2",
+            "material_owner": "alice.testnet",
+            "signing_worker": "signing-worker-v2"
+          },
           "request_id": "router-ab-normal-signing/request-v2",
-          "session_id": "threshold-session-v2",
           "signing_worker_id": "signing-worker-v2"
         },
         "transactions": [
@@ -26,6 +39,42 @@
         "unsignedTransactionBorshB64u": "DQAAAGFsaWNlLnRlc3RuZXQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAABAAAABjb250cmFjdC50ZXN0bmV0REREREREREREREREREREREREREREREREREREREREREQBAAAAAggAAAB0cmFuc2Zlcg4AAAB7ImFtb3VudCI6IjEifQDgV-tIGwAAAAAAAAAAAAAAAAAAAAAAAA"
       },
       "prepare_request_json": {
+        "display_digest": {
+          "bytes": [
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209,
+            209
+          ]
+        },
         "expires_at_ms": 1900000000000,
         "intent": {
           "kind": "near_transaction_v1",
@@ -43,9 +92,21 @@
         },
         "scope": {
           "account_id": "alice.testnet",
-          "active_state_session_id": "threshold-session-v2",
+          "authorization": {
+            "grant_id": "signing-grant-v2",
+            "kind": "reusable_wallet_session",
+            "wallet_session_id": "threshold-session-v2"
+          },
+          "material_activation": {
+            "activation_id": "material-activation-v2",
+            "capability": "near-ed25519-capability-v2",
+            "key_binding": "near-ed25519-key-v2",
+            "kind": "mpc_material_activation_ref",
+            "lifecycle_binding": "yao-lifecycle-v2",
+            "material_owner": "alice.testnet",
+            "signing_worker": "signing-worker-v2"
+          },
           "request_id": "router-ab-normal-signing/request-v2",
-          "session_id": "threshold-session-v2",
           "signing_worker_id": "signing-worker-v2"
         },
         "signing_payload": {
@@ -57,12 +118,13 @@
       "intent_digest_b64u": "wG1HA83w_kucYdPlO1IxE8_dGrwKCgY5x5K-YsiWLuo",
       "signing_payload_digest_b64u": "UMkwa3cBLeo1egROtMEO2U2FHWp88fVglw47WykXIbc",
       "admitted_signing_digest_b64u": "Nre4iYnG098CZQXfaTx4IjuENB9twMeqEV45RB2DD8M",
-      "round1_binding_digest_b64u": "fApq-c-eyVTHtqQ5MP2dGfPAM67S8OfWZzBV3YXmS3Q"
+      "round1_binding_digest_b64u": "K1Mu5cEiOupxVqTvgChhNvhlhjJvYac3w5HZly3FZcc"
     },
     {
       "case_id": "nep413_v1",
       "builder_args_json": {
         "callbackUrl": "https://wallet.example/callback",
+        "displayDigestB64u": "0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tI",
         "expectedSigningDigestB64u": "JZuedIKlTa9uFN6iEy_oaKKD-QYl7Yh3EeinIINM8FA",
         "expiresAtMs": 1900000000000,
         "message": "Sign in to Seams",
@@ -74,13 +136,61 @@
         "recipient": "wallet.example.near",
         "scope": {
           "account_id": "alice.testnet",
-          "active_state_session_id": "threshold-session-v2",
+          "authorization": {
+            "grant_id": "signing-grant-v2",
+            "kind": "reusable_wallet_session",
+            "wallet_session_id": "threshold-session-v2"
+          },
+          "material_activation": {
+            "activation_id": "material-activation-v2",
+            "capability": "near-ed25519-capability-v2",
+            "key_binding": "near-ed25519-key-v2",
+            "kind": "mpc_material_activation_ref",
+            "lifecycle_binding": "yao-lifecycle-v2",
+            "material_owner": "alice.testnet",
+            "signing_worker": "signing-worker-v2"
+          },
           "request_id": "router-ab-normal-signing/request-v2",
-          "session_id": "threshold-session-v2",
           "signing_worker_id": "signing-worker-v2"
         }
       },
       "prepare_request_json": {
+        "display_digest": {
+          "bytes": [
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210,
+            210
+          ]
+        },
         "expires_at_ms": 1900000000000,
         "intent": {
           "callback_url": "https://wallet.example/callback",
@@ -95,9 +205,21 @@
         },
         "scope": {
           "account_id": "alice.testnet",
-          "active_state_session_id": "threshold-session-v2",
+          "authorization": {
+            "grant_id": "signing-grant-v2",
+            "kind": "reusable_wallet_session",
+            "wallet_session_id": "threshold-session-v2"
+          },
+          "material_activation": {
+            "activation_id": "material-activation-v2",
+            "capability": "near-ed25519-capability-v2",
+            "key_binding": "near-ed25519-key-v2",
+            "kind": "mpc_material_activation_ref",
+            "lifecycle_binding": "yao-lifecycle-v2",
+            "material_owner": "alice.testnet",
+            "signing_worker": "signing-worker-v2"
+          },
           "request_id": "router-ab-normal-signing/request-v2",
-          "session_id": "threshold-session-v2",
           "signing_worker_id": "signing-worker-v2"
         },
         "signing_payload": {
@@ -109,7 +231,7 @@
       "intent_digest_b64u": "DpsbOLTw8ZAe0gHAjA8tBcXIztFiNU20NAgLmuxEUig",
       "signing_payload_digest_b64u": "StWUSR49LhWUFyQGTXMsQy9U2Q2qeuw4F5aMgsdUKzE",
       "admitted_signing_digest_b64u": "JZuedIKlTa9uFN6iEy_oaKKD-QYl7Yh3EeinIINM8FA",
-      "round1_binding_digest_b64u": "Tezq8DWRKbOESv1z7UPLDA-tIuNEgunquJbl5vJ6KhM"
+      "round1_binding_digest_b64u": "N1Jo9wkmyX_jqy-NwkUQQ6Wiz0sowo049Fpgbi5J9lU"
     },
     {
       "case_id": "near_delegate_action_v1",
@@ -123,6 +245,7 @@
           "receiverId": "contract.testnet",
           "senderId": "alice.testnet"
         },
+        "displayDigestB64u": "09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09M",
         "expectedSigningDigestB64u": "aWzqg_Yi38tZZWNvIaj5qh0NywcuejkJMKTU3-ICpqI",
         "expiresAtMs": 1900000000000,
         "nearAccountId": "alice.testnet",
@@ -131,13 +254,61 @@
         "operationId": "operation-delegate-v2",
         "scope": {
           "account_id": "alice.testnet",
-          "active_state_session_id": "threshold-session-v2",
+          "authorization": {
+            "grant_id": "signing-grant-v2",
+            "kind": "reusable_wallet_session",
+            "wallet_session_id": "threshold-session-v2"
+          },
+          "material_activation": {
+            "activation_id": "material-activation-v2",
+            "capability": "near-ed25519-capability-v2",
+            "key_binding": "near-ed25519-key-v2",
+            "kind": "mpc_material_activation_ref",
+            "lifecycle_binding": "yao-lifecycle-v2",
+            "material_owner": "alice.testnet",
+            "signing_worker": "signing-worker-v2"
+          },
           "request_id": "router-ab-normal-signing/request-v2",
-          "session_id": "threshold-session-v2",
           "signing_worker_id": "signing-worker-v2"
         }
       },
       "prepare_request_json": {
+        "display_digest": {
+          "bytes": [
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211,
+            211
+          ]
+        },
         "expires_at_ms": 1900000000000,
         "intent": {
           "delegate": {
@@ -157,9 +328,21 @@
         },
         "scope": {
           "account_id": "alice.testnet",
-          "active_state_session_id": "threshold-session-v2",
+          "authorization": {
+            "grant_id": "signing-grant-v2",
+            "kind": "reusable_wallet_session",
+            "wallet_session_id": "threshold-session-v2"
+          },
+          "material_activation": {
+            "activation_id": "material-activation-v2",
+            "capability": "near-ed25519-capability-v2",
+            "key_binding": "near-ed25519-key-v2",
+            "kind": "mpc_material_activation_ref",
+            "lifecycle_binding": "yao-lifecycle-v2",
+            "material_owner": "alice.testnet",
+            "signing_worker": "signing-worker-v2"
+          },
           "request_id": "router-ab-normal-signing/request-v2",
-          "session_id": "threshold-session-v2",
           "signing_worker_id": "signing-worker-v2"
         },
         "signing_payload": {
@@ -171,7 +354,7 @@
       "intent_digest_b64u": "6bymIEzHEuTJdmmnStPOCyWbvFRa6eubBpJ35RUVOec",
       "signing_payload_digest_b64u": "Ex48kVDiecMR1sKTWb3zYGUSwc2ofuDystl1NPWy4aY",
       "admitted_signing_digest_b64u": "aWzqg_Yi38tZZWNvIaj5qh0NywcuejkJMKTU3-ICpqI",
-      "round1_binding_digest_b64u": "AGOh7z867HyZNA77Mte_H9iQZwn-HUdXPCYXUhkSVoY"
+      "round1_binding_digest_b64u": "fJEtM7i0CXaTMrcN0wAyRNJw62WI87H08XEFEn6E02A"
     }
   ]
 }

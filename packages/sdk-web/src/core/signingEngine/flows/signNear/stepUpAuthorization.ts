@@ -6,18 +6,16 @@ import type {
   NearEd25519PasskeyStepUpAuthorization,
   NearEd25519StepUpAuthorization,
   NearEd25519WarmSessionStepUpAuthorization,
-  NearPasskeyReconnectPlan,
+  NearPasskeyOperationStepUpPlan,
 } from '@/core/signingEngine/interfaces/near';
-import type {
-  SigningAuthPlan,
-} from '@/core/signingEngine/stepUpConfirmation/types';
+import type { SigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
 
 export type {
   NearEd25519EmailOtpStepUpAuthorization,
   NearEd25519PasskeyStepUpAuthorization,
   NearEd25519StepUpAuthorization,
   NearEd25519WarmSessionStepUpAuthorization,
-  NearPasskeyReconnectPlan,
+  NearPasskeyOperationStepUpPlan,
 } from '@/core/signingEngine/interfaces/near';
 
 export function buildNearEd25519WarmSessionStepUpAuthorization(
@@ -64,7 +62,7 @@ export function buildNearEd25519StepUpAuthorization(args: {
     kind: 'passkey',
     signingAuthPlan: args.prepared.confirmationAuthPayload.signingAuthPlan,
     credential: normalizeAuthenticationCredential(args.confirmation.credential),
-    plannedPasskeyReconnect: args.prepared.plannedPasskeyReconnect,
+    plannedPasskeyOperationStepUp: args.prepared.plannedPasskeyOperationStepUp,
   };
 }
 
@@ -79,7 +77,9 @@ function normalizeNearEmailOtpCode(value: unknown): string {
 function normalizeNearEmailOtpChallengeId(value: unknown, fallback: string): string {
   const challengeId = String(value || fallback || '').trim();
   if (!challengeId) {
-    throw new Error('[SigningEngine] missing Email OTP challenge id for NEAR step-up authorization');
+    throw new Error(
+      '[SigningEngine] missing Email OTP challenge id for NEAR step-up authorization',
+    );
   }
   return challengeId;
 }

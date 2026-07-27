@@ -250,6 +250,11 @@ function syncVerifyResponse(walletId: string): Record<string, unknown> {
     },
     ed25519YaoRecovery: {
       kind: 'router_ab_ed25519_yao_sync_recovery_v1',
+      authorityRef: {
+        kind: 'wallet_auth_authority_ref',
+        walletId,
+        authorityDigest: 'sync-account-authority-digest',
+      },
       capability: {
         kind: 'router_ab_ed25519_yao_active_capability_v1',
         activeCapabilityBinding: new Array<number>(32).fill(8),

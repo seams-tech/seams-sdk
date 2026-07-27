@@ -11,6 +11,7 @@ import {
   buildAdditionalAuthorizationClaim,
   buildEmailOtpVerifiedFactorFixture,
   buildPasskeyVerifiedFactorFixture,
+  buildPasskeyAuthorizationSessionFixture,
   buildReusableAuthorizationCoreFixture,
   buildStepUpAuthorizationCoreFixture,
 } from './helpers/authorizationCore.fixtures';
@@ -26,20 +27,292 @@ import {
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { parseVerifiedGrantEvidenceSetFromPersistence } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
+import { capabilityPolicyPort } from '../../packages/sdk-server-ts/src/authorization/capabilityPolicy';
+import {
+  parseReusableWalletSessionMintId,
+} from '../../packages/shared-ts/src/authorization/capabilityKinds';
 
 const signerMigrations = listD1MigrationFiles('d1-signer');
 
 test.describe('D1 authorization core', () => {
+  test('issues one exact reusable Wallet Session and quota atomically', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const service = createService(temporary.database, 'wallet-session-issuance');
+      const fixture = await buildPasskeyAuthorizationSessionFixture({
+        tenantId: 'tenant-wallet-session',
+        principalId: 'principal-wallet-session',
+        sessionId: 'session-wallet-session',
+        deviceId: 'device-wallet-session',
+        walletId: 'wallet-session-wallet',
+        credentialIdB64u: 'credential-wallet-session',
+        rpId: 'example.test',
+        origin: 'https://app.example.test',
+        expiresAtMs: 1_900_000_100_000,
+      });
+      await service.recordActiveSession(fixture.session);
+      const mintId = requiredMintId('registration:wallet-session');
+      const issued = await service.issueReusableWalletSession({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        walletId: fixture.authority.walletId,
+        authority: fixture.authorityRef,
+        mintId,
+        remainingUses: 3,
+        issuedAtMs: fixture.session.createdAtMs + 1,
+        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+      });
+
+      expect(issued.session.walletSessionId).not.toBe(issued.quota.quotaId);
+      const replayed = await service.issueReusableWalletSession({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        walletId: fixture.authority.walletId,
+        authority: fixture.authorityRef,
+        mintId,
+        remainingUses: 3,
+        issuedAtMs: fixture.session.createdAtMs + 1,
+        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+      });
+      expect(replayed).toEqual(issued);
+      expect(issued.session).toMatchObject({
+        walletId: fixture.authority.walletId,
+        authority: fixture.authorityRef,
+        walletSessionId: issued.quota.walletSessionId,
+        quotaId: issued.quota.quotaId,
+      });
+      await expect(rowCount(temporary.database, 'reusable_wallet_sessions')).resolves.toBe(1);
+      await expect(
+        rowCount(temporary.database, 'authorization_wallet_session_quotas'),
+      ).resolves.toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('supersedes the prior wallet-authority generation atomically', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const service = createService(temporary.database, 'wallet-session-rollback');
+      const fixture = await buildPasskeyAuthorizationSessionFixture({
+        tenantId: 'tenant-wallet-session',
+        principalId: 'principal-wallet-session',
+        sessionId: 'missing-session-wallet-session',
+        deviceId: 'device-wallet-session',
+        walletId: 'wallet-session-wallet',
+        credentialIdB64u: 'credential-wallet-session',
+        rpId: 'example.test',
+        origin: 'https://app.example.test',
+        expiresAtMs: 1_900_000_100_000,
+      });
+
+      const issued = await service.issueReusableWalletSession({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        walletId: fixture.authority.walletId,
+        authority: fixture.authorityRef,
+        mintId: requiredMintId('unlock:wallet-session'),
+        remainingUses: 3,
+        issuedAtMs: fixture.session.createdAtMs + 1,
+        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+      });
+      const replacement = await service.issueReusableWalletSession({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        walletId: fixture.authority.walletId,
+        authority: fixture.authorityRef,
+        mintId: requiredMintId('unlock:replacement-wallet-session'),
+        remainingUses: 3,
+        issuedAtMs: fixture.session.createdAtMs + 2,
+        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+      });
+      expect(replacement.session.walletSessionId).not.toBe(issued.session.walletSessionId);
+      await expect(rowCount(temporary.database, 'reusable_wallet_sessions')).resolves.toBe(2);
+      await expect(
+        rowCount(temporary.database, 'authorization_wallet_session_quotas'),
+      ).resolves.toBe(2);
+      await expect(
+        rowCountWhere(
+          temporary.database,
+          'reusable_wallet_sessions',
+          "lifecycle_kind = 'active'",
+        ),
+      ).resolves.toBe(1);
+      await expect(
+        rowCountWhere(
+          temporary.database,
+          'authorization_wallet_session_quotas',
+          "lifecycle_kind = 'active'",
+        ),
+      ).resolves.toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('reads exact reusable Wallet Session lifecycle from the session and quota rows', async () => {
+    const temporary = createTemporaryD1Database();
+    const namespace = 'wallet-session-status';
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const service = createService(temporary.database, namespace);
+      const fixture = await buildPasskeyAuthorizationSessionFixture({
+        tenantId: 'tenant-wallet-session-status',
+        principalId: 'principal-wallet-session-status',
+        sessionId: 'session-wallet-session-status',
+        deviceId: 'device-wallet-session-status',
+        walletId: 'wallet-session-status-wallet',
+        credentialIdB64u: 'credential-wallet-session-status',
+        rpId: 'example.test',
+        origin: 'https://app.example.test',
+        expiresAtMs: 1_900_000_100_000,
+      });
+      const issued = await service.issueReusableWalletSession({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        walletId: fixture.authority.walletId,
+        authority: fixture.authorityRef,
+        mintId: requiredMintId('unlock:wallet-session-status'),
+        remainingUses: 3,
+        issuedAtMs: fixture.session.createdAtMs + 1,
+        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+      });
+      const statusInput = {
+        tenantId: issued.session.tenantId,
+        principalId: issued.session.principalId,
+        walletSessionId: issued.session.walletSessionId,
+        quotaId: issued.quota.quotaId,
+        nowMs: fixture.session.createdAtMs + 2,
+      } as const;
+
+      await expect(service.readReusableWalletSessionStatus(statusInput)).resolves.toEqual({
+        kind: 'active',
+        tenantId: issued.session.tenantId,
+        principalId: issued.session.principalId,
+        walletSessionId: issued.session.walletSessionId,
+        quotaId: issued.quota.quotaId,
+        remainingUses: 3,
+        expiresAtMs: issued.session.expiresAtMs,
+      });
+
+      await temporary.database
+        .prepare(
+          `UPDATE authorization_wallet_session_quotas
+              SET lifecycle_kind = 'exhausted',
+                  remaining_uses = 0
+            WHERE namespace = ?
+              AND tenant_id = ?
+              AND quota_id = ?`,
+        )
+        .bind(namespace, issued.session.tenantId, issued.quota.quotaId)
+        .run();
+      await expect(service.readReusableWalletSessionStatus(statusInput)).resolves.toMatchObject({
+        kind: 'exhausted',
+        remainingUses: 0,
+        walletSessionId: issued.session.walletSessionId,
+        quotaId: issued.quota.quotaId,
+      });
+
+      const replacement = await service.issueReusableWalletSession({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        walletId: fixture.authority.walletId,
+        authority: fixture.authorityRef,
+        mintId: requiredMintId('unlock:wallet-session-status-replacement'),
+        remainingUses: 3,
+        issuedAtMs: fixture.session.createdAtMs + 2,
+        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+      });
+      await expect(service.readReusableWalletSessionStatus(statusInput)).resolves.toMatchObject({
+        kind: 'superseded',
+        walletSessionId: issued.session.walletSessionId,
+        quotaId: issued.quota.quotaId,
+      });
+      await expect(
+        service.readReusableWalletSessionStatus({
+          tenantId: replacement.session.tenantId,
+          principalId: replacement.session.principalId,
+          walletSessionId: replacement.session.walletSessionId,
+          quotaId: replacement.quota.quotaId,
+          nowMs: replacement.session.expiresAtMs,
+        }),
+      ).resolves.toMatchObject({
+        kind: 'expired',
+        walletSessionId: replacement.session.walletSessionId,
+        quotaId: replacement.quota.quotaId,
+        expiresAtMs: replacement.session.expiresAtMs,
+      });
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('rejects a conflicting mint replay without retiring the active generation', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const service = createService(temporary.database, 'wallet-session-conflicting-replay');
+      const fixture = await buildPasskeyAuthorizationSessionFixture({
+        tenantId: 'tenant-wallet-session-conflict',
+        principalId: 'principal-wallet-session-conflict',
+        sessionId: 'session-wallet-session-conflict',
+        deviceId: 'device-wallet-session-conflict',
+        walletId: 'wallet-session-conflict-wallet',
+        credentialIdB64u: 'credential-wallet-session-conflict',
+        rpId: 'example.test',
+        origin: 'https://app.example.test',
+        expiresAtMs: 1_900_000_100_000,
+      });
+      const mintId = requiredMintId('unlock:wallet-session-conflict');
+      await service.issueReusableWalletSession({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        walletId: fixture.authority.walletId,
+        authority: fixture.authorityRef,
+        mintId,
+        remainingUses: 3,
+        issuedAtMs: fixture.session.createdAtMs + 1,
+        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+      });
+
+      await expect(
+        service.issueReusableWalletSession({
+          tenantId: fixture.session.tenantId,
+          principalId: fixture.session.principalId,
+          walletId: fixture.authority.walletId,
+          authority: fixture.authorityRef,
+          mintId,
+          remainingUses: 2,
+          issuedAtMs: fixture.session.createdAtMs + 1,
+          expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+        }),
+      ).rejects.toThrow('issuance replay does not match');
+      await expect(
+        rowCountWhere(
+          temporary.database,
+          'reusable_wallet_sessions',
+          "lifecycle_kind = 'active'",
+        ),
+      ).resolves.toBe(1);
+      await expect(
+        rowCountWhere(
+          temporary.database,
+          'authorization_wallet_session_quotas',
+          "lifecycle_kind = 'active' AND remaining_uses = 3",
+        ),
+      ).resolves.toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
   test('persists session, evidence, grant, claim, completion, replay, and audit', async () => {
     const temporary = createTemporaryD1Database();
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
-      const service = new AuthorizationService(
-        new CloudflareD1AuthorizationStore({
-          database: temporary.database,
-          namespace: 'authorization-test',
-        }),
-      );
+      const service = createService(temporary.database, 'authorization-test');
       const fixture = await buildReusableAuthorizationCoreFixture();
       expect(fixture.evidenceSet.assurance).toBe('session');
       expect(
@@ -54,14 +327,7 @@ test.describe('D1 authorization core', () => {
         evidenceSetId: fixture.evidenceSet.evidenceSetId,
         evidenceSetDigest: fixture.evidenceSet.evidenceSetDigest,
       });
-      await service.recordActiveSession(fixture.session);
-      await service.recordVerifiedSessionEvidenceSet(fixture.sessionEvidenceInput);
-      await service.recordWalletSessionQuota(fixture.quota);
-      await service.issueGrant({
-        operation: fixture.claim.operation,
-        evidenceSet: fixture.evidenceSet,
-        grant: fixture.grant,
-      });
+      await seedReusable(service, fixture);
 
       await expect(service.claimOperation(fixture.claim)).resolves.toMatchObject({
         kind: 'claimed',
@@ -82,7 +348,7 @@ test.describe('D1 authorization core', () => {
         use: { result: 'succeeded' },
       });
 
-      await expect(readRemainingUses(temporary.database, 'capability_grants')).resolves.toBe(1);
+      await expect(readRemainingUses(temporary.database, 'capability_grants')).resolves.toBe(0);
       await expect(
         readRemainingUses(temporary.database, 'authorization_wallet_session_quotas'),
       ).resolves.toBe(1);
@@ -94,6 +360,7 @@ test.describe('D1 authorization core', () => {
       ).resolves.toMatchObject({
         result: 'succeeded',
         useId: fixture.claim.useId,
+        operationId: fixture.claim.operation.operationId,
         createdAtMs: fixture.claim.claimedAtMs,
       });
     } finally {
@@ -132,9 +399,33 @@ test.describe('D1 authorization core', () => {
         evidenceSet: stepUpFixture.evidenceSet,
         grant: stepUpFixture.grant,
       });
-      await expect(stepUpService.claimOperation(stepUpFixture.claim)).resolves.toMatchObject({
-        kind: 'claimed',
-      });
+      const stepUpClaimInput = {
+        tenantId: stepUpFixture.claim.tenantId,
+        grantId: stepUpFixture.claim.grantId,
+        useId: stepUpFixture.claim.useId,
+        auditEventId: stepUpFixture.claim.auditEventId,
+        authorizationSessionId: stepUpFixture.session.sessionId,
+        principalId: stepUpFixture.claim.operation.principalId,
+        capabilityId: stepUpFixture.claim.operation.capabilityId,
+        operationId: stepUpFixture.claim.operation.operationId,
+        operation: stepUpFixture.claim.operation.operation,
+        laneDigest: stepUpFixture.claim.operation.digests.laneDigest,
+        intentDigest: stepUpFixture.claim.operation.digests.intentDigest,
+        displayDigest: stepUpFixture.claim.operation.digests.displayDigest,
+        claimedAtMs: stepUpFixture.claim.claimedAtMs,
+      };
+      await expect(
+        stepUpService.claimOperationStepUpFromGrant({
+          ...stepUpClaimInput,
+          intentDigest: testDigest(99),
+        }),
+      ).resolves.toEqual({ kind: 'grant_mismatch' });
+      await expect(
+        stepUpService.claimOperationStepUpFromGrant(stepUpClaimInput),
+      ).resolves.toMatchObject({ kind: 'claimed' });
+      await expect(
+        stepUpService.claimOperationStepUpFromGrant(stepUpClaimInput),
+      ).resolves.toMatchObject({ kind: 'operation_in_progress' });
       await expect(readRemainingUses(stepUpDatabase.database, 'capability_grants')).resolves.toBe(
         0,
       );
@@ -146,7 +437,7 @@ test.describe('D1 authorization core', () => {
     }
   });
 
-  test('rolls back the grant claim when reusable quota is expired', async () => {
+  test('rejects an expired reusable authorization without consuming its grant', async () => {
     const temporary = createTemporaryD1Database();
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
@@ -158,9 +449,9 @@ test.describe('D1 authorization core', () => {
       await seedReusable(service, fixture);
 
       await expect(service.claimOperation(fixture.claim)).resolves.toEqual({
-        kind: 'wallet_session_expired',
+        kind: 'grant_expired',
       });
-      await expect(readRemainingUses(temporary.database, 'capability_grants')).resolves.toBe(2);
+      await expect(readRemainingUses(temporary.database, 'capability_grants')).resolves.toBe(1);
       await expect(rowCount(temporary.database, 'capability_grant_uses')).resolves.toBe(0);
       await expect(rowCount(temporary.database, 'authorization_audit_events')).resolves.toBe(0);
     } finally {
@@ -174,7 +465,6 @@ test.describe('D1 authorization core', () => {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
       const service = createService(temporary.database, 'concurrent-test');
       const fixture = await buildReusableAuthorizationCoreFixture({
-        grantRemainingUses: 1,
         quotaRemainingUses: 1,
       });
       const competingClaim = await buildAdditionalAuthorizationClaim(fixture, 'competing');
@@ -315,6 +605,10 @@ test.describe('D1 authorization core', () => {
       await expect(rowCount(temporary.database, 'verified_grant_evidence_sets')).resolves.toBe(2);
 
       const grant = buildGrantForEvidence(passkey.authorization.grant, passkeyEvidence);
+      await service.seedStore.putActiveReusableWalletSession({
+        session: passkey.authorization.reusableWalletSession,
+        quota: passkey.authorization.quota,
+      });
       await service.issueGrant({
         operation: passkey.authorization.claim.operation,
         evidenceSet: passkeyEvidence,
@@ -378,17 +672,33 @@ test.describe('D1 authorization core', () => {
 function createService(
   database: Parameters<typeof readRemainingUses>[0],
   namespace: string,
-): AuthorizationService {
-  return new AuthorizationService(new CloudflareD1AuthorizationStore({ database, namespace }));
+): AuthorizationService & {
+  readonly seedStore: CloudflareD1AuthorizationStore;
+} {
+  const store = new CloudflareD1AuthorizationStore({ database, namespace });
+  const service = new AuthorizationService({
+    policy: capabilityPolicyPort,
+    sessions: store,
+    evidence: store,
+    grants: store,
+    claims: store,
+    audit: store,
+  });
+  return Object.assign(service, { seedStore: store });
 }
 
 async function seedReusable(
-  service: AuthorizationService,
+  service: AuthorizationService & {
+    readonly seedStore: CloudflareD1AuthorizationStore;
+  },
   fixture: Awaited<ReturnType<typeof buildReusableAuthorizationCoreFixture>>,
 ): Promise<void> {
   await service.recordActiveSession(fixture.session);
   await service.recordVerifiedSessionEvidenceSet(fixture.sessionEvidenceInput);
-  await service.recordWalletSessionQuota(fixture.quota);
+  await service.seedStore.putActiveReusableWalletSession({
+    session: fixture.reusableWalletSession,
+    quota: fixture.quota,
+  });
   await service.issueGrant({
     operation: fixture.claim.operation,
     evidenceSet: fixture.evidenceSet,
@@ -411,6 +721,7 @@ function buildGrantForEvidence(
         evidenceSetId: evidenceSet.evidenceSetId,
         evidenceSetDigest: evidenceSet.evidenceSetDigest,
         capabilityId: baseline.capabilityId,
+        operationId: baseline.operationId,
         operation: evidenceSet.operation,
         laneDigest: evidenceSet.laneDigest,
         intentDigest,
@@ -429,6 +740,7 @@ function buildGrantForEvidence(
         evidenceSetId: evidenceSet.evidenceSetId,
         evidenceSetDigest: evidenceSet.evidenceSetDigest,
         capabilityId: baseline.capabilityId,
+        operationId: baseline.operationId,
         operation: evidenceSet.operation,
         laneDigest: evidenceSet.laneDigest,
         intentDigest,
@@ -463,6 +775,12 @@ function testDigest(fill: number) {
   return parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(fill)));
 }
 
+function requiredMintId(value: string) {
+  const parsed = parseReusableWalletSessionMintId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
 async function readRemainingUses(
   database: import('../../packages/sdk-server-ts/src/storage/tenantRoute').D1DatabaseLike,
   table: 'capability_grants' | 'authorization_wallet_session_quotas',
@@ -477,6 +795,7 @@ async function rowCount(
   database: import('../../packages/sdk-server-ts/src/storage/tenantRoute').D1DatabaseLike,
   table:
     | 'authorization_wallet_session_quotas'
+    | 'reusable_wallet_sessions'
     | 'authorization_sessions'
     | 'verified_grant_evidence_sets'
     | 'capability_grants'
@@ -485,6 +804,17 @@ async function rowCount(
 ): Promise<number> {
   const row = await database
     .prepare(`SELECT COUNT(*) AS count FROM ${table}`)
+    .first<{ readonly count?: unknown }>();
+  return Number(row?.count);
+}
+
+async function rowCountWhere(
+  database: import('../../packages/sdk-server-ts/src/storage/tenantRoute').D1DatabaseLike,
+  table: 'reusable_wallet_sessions' | 'authorization_wallet_session_quotas',
+  predicate: string,
+): Promise<number> {
+  const row = await database
+    .prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE ${predicate}`)
     .first<{ readonly count?: unknown }>();
   return Number(row?.count);
 }

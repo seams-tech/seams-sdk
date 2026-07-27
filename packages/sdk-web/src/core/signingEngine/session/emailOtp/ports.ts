@@ -12,7 +12,7 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type {
   acquireSigningSessionRestoreLease,
   deleteDurableSealedSessionRecord,
@@ -49,7 +49,7 @@ export type EmailOtpEcdsaSessionPorts = {
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   }) => Promise<{
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    warmCapability: WarmSessionEcdsaCapabilityState;
+    authorization: ActiveWalletSessionAuthorizationProjection;
   }>;
   listThresholdEcdsaSessionRecordsForWallet: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
   listActiveEcdsaSignersForWallet: (args: {

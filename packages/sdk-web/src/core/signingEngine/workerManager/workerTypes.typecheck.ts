@@ -18,7 +18,7 @@ import type {
   NearWorkerOperationRequest,
   EcdsaPresignClientSessionStepRequest,
 } from './workerTypes';
-import type { RootShareEpoch } from '@shared/utils/domainIds';
+import type { CapabilityInstanceRef, RootShareEpoch } from '@shared/utils/domainIds';
 import {
   EcdsaDerivationClientCustomRequestType,
   EcdsaPresignClientRequestType,
@@ -36,9 +36,12 @@ import type {
   FinalizeRouterAbEcdsaRegistrationActivationResultV1,
   FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
   PersistInitialCanonicalEcdsaActivationRequestV1,
+  ReconcileCanonicalEcdsaActivationRequestV1,
+  ReconcileCanonicalEcdsaActivationResultV1,
 } from '../routerAb/ecdsaDerivation/clientCeremony';
 import type { RouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 declare const rootShareEpoch: RootShareEpoch;
 declare const chainTarget: ThresholdEcdsaChainTarget;
@@ -52,8 +55,15 @@ declare const initialEcdsaActivationPlanInput: InitialEcdsaCapabilityActivationP
 declare const initialEcdsaActivationPlan: InitialEcdsaCapabilityActivationPlan;
 declare const activationJournalId: CorrelationId;
 declare const activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+declare const activationCapability: CapabilityInstanceRef;
+declare const activationAuthority: WalletAuthAuthorityRef;
+declare const activationCommand: Extract<
+  ReconcileCanonicalEcdsaActivationResultV1,
+  { kind: 'canonical_ecdsa_activation_reconciliation_pending_v1' }
+>['activationCommand'];
 declare const finalizedRoleLocalMaterial: FinalizeRouterAbEcdsaRegistrationActivationResultV1['roleLocalMaterial'];
 declare const finalizedMaterialActivation: FinalizeRouterAbEcdsaRegistrationActivationResultV1['materialActivation'];
+declare const finalizedAuthority: FinalizeRouterAbEcdsaRegistrationActivationResultV1['authority'];
 declare const finalizedPublicFacts: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicFacts'];
 declare const finalizedPublicCapability: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicCapability'];
 declare const roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
@@ -97,6 +107,7 @@ void finalizePersistedCanonicalEcdsaActivation;
 const finalizedCanonicalEcdsaActivation = {
   kind: 'router_ab_ecdsa_registration_activation_finalized_v1',
   journalId: activationJournalId,
+  authority: finalizedAuthority,
   roleLocalMaterial: finalizedRoleLocalMaterial,
   materialActivation: finalizedMaterialActivation,
   publicFacts: finalizedPublicFacts,
@@ -109,11 +120,24 @@ const finalizedCanonicalEcdsaActivationWithoutIdentity: FinalizeRouterAbEcdsaReg
   {
     kind: 'router_ab_ecdsa_registration_activation_finalized_v1',
     journalId: activationJournalId,
+    authority: finalizedAuthority,
     roleLocalMaterial: finalizedRoleLocalMaterial,
     publicFacts: finalizedPublicFacts,
     publicCapability: finalizedPublicCapability,
   };
 void finalizedCanonicalEcdsaActivationWithoutIdentity;
+
+// @ts-expect-error Finalization must expose the authority bound by the committed manifest.
+const finalizedCanonicalEcdsaActivationWithoutAuthority: FinalizeRouterAbEcdsaRegistrationActivationResultV1 =
+  {
+    kind: 'router_ab_ecdsa_registration_activation_finalized_v1',
+    journalId: activationJournalId,
+    roleLocalMaterial: finalizedRoleLocalMaterial,
+    materialActivation: finalizedMaterialActivation,
+    publicFacts: finalizedPublicFacts,
+    publicCapability: finalizedPublicCapability,
+  };
+void finalizedCanonicalEcdsaActivationWithoutAuthority;
 
 const finalizeCanonicalEcdsaActivationWithCallerRelayer = {
   kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
@@ -132,6 +156,34 @@ const finalizeCanonicalEcdsaActivationWithCeremonyAlias = {
   ceremonyId: 'legacy-ceremony-alias',
 } satisfies FinalizeRouterAbEcdsaRegistrationActivationRequestV1;
 void finalizeCanonicalEcdsaActivationWithCeremonyAlias;
+
+const reconcileCanonicalEcdsaActivation = {
+  kind: 'reconcile_canonical_ecdsa_activation_v1',
+  capability: activationCapability,
+  authority: activationAuthority,
+} satisfies ReconcileCanonicalEcdsaActivationRequestV1;
+void reconcileCanonicalEcdsaActivation;
+
+const reconcileCanonicalEcdsaActivationByJournalId = {
+  kind: 'reconcile_canonical_ecdsa_activation_v1',
+  // @ts-expect-error Reload reconciliation discovers the exact journal from capability authority.
+  journalId: activationJournalId,
+} satisfies ReconcileCanonicalEcdsaActivationRequestV1;
+void reconcileCanonicalEcdsaActivationByJournalId;
+
+const pendingCanonicalEcdsaActivation = {
+  kind: 'canonical_ecdsa_activation_reconciliation_pending_v1',
+  journalId: activationJournalId,
+  reason: 'parent_confirmation_and_server_query_required',
+  activationCommand,
+} satisfies ReconcileCanonicalEcdsaActivationResultV1;
+void pendingCanonicalEcdsaActivation;
+
+const finalizedReconciledCanonicalEcdsaActivation = {
+  kind: 'canonical_ecdsa_activation_reconciliation_finalized_v1',
+  activation: finalizedCanonicalEcdsaActivation,
+} satisfies ReconcileCanonicalEcdsaActivationResultV1;
+void finalizedReconciledCanonicalEcdsaActivation;
 
 const clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1',
@@ -431,7 +483,9 @@ const ecdsaPresignInitRequest: EcdsaPresignClientSessionInitRequest = {
   materialExpiresAtMs: 1_000,
   poolIdentity: {
     poolKey: 'pool-key',
-    walletKeyId: 'wallet-key',
+    materialActivationId: 'activation-1',
+    capability: 'evm-ecdsa-capability-1',
+    keyBinding: 'ecdsa-threshold-key-1',
     walletId: 'wallet-id',
     signingScopeB64u: 'scope',
     pairRole: 'client',

@@ -21,10 +21,6 @@ import {
 } from '../threshold/sessionPolicy';
 import type { SigningOperationIntent } from '../session/operationState/types';
 import {
-  ecdsaPostSignPolicySessionFromRecord,
-  formatEmailOtpSensitiveOperationError,
-} from '../session/operationState/postSignPolicy';
-import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
@@ -46,7 +42,6 @@ import {
   tryBuildEcdsaSessionIdentity,
   type EcdsaSessionProvisionPlan,
 } from '../session/warmCapabilities/ecdsaProvisionPlan';
-import { parseEcdsaThresholdKeyId } from '../session/keyMaterialBrands';
 import { hasSufficientWarmClaim } from '../session/warmCapabilities/readModel';
 import type {
   WarmSessionEcdsaCapabilityState,
@@ -78,7 +73,6 @@ import {
   type EvmFamilyEcdsaWalletKey,
   type EvmFamilyEcdsaSessionLanePolicy,
 } from '../session/identity/evmFamilyEcdsaIdentity';
-import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '../session/identity/thresholdEcdsaSignerAdapter';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 
 export type WarmSessionEcdsaProvisionerDeps = {
@@ -413,7 +407,6 @@ function buildActivationKeyAndLanePolicy(args: {
   }
   const key = buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: args.record.walletId,
-    evmFamilySigningKeySlotId: args.record.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: planKeyId,
     signingRootId: planSigningRootId,
     signingRootVersion: planSigningRootVersion,
@@ -428,7 +421,7 @@ function buildActivationKeyAndLanePolicy(args: {
     existingRoleLocalMaterial: requirePersistedEcdsaRoleLocalMaterial(args.record),
     walletKey: buildEvmFamilyEcdsaWalletKey({
       walletId: key.walletId,
-      evmFamilySigningKeySlotId: key.evmFamilySigningKeySlotId,
+      evmFamilySigningKeySlotId: args.record.evmFamilySigningKeySlotId,
       keyHandle: args.record.keyHandle,
       chainTarget: args.plan.chainTarget,
       ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
@@ -758,43 +751,6 @@ async function provisionEmailOtpEcdsaSession(
   throw new Error('Email OTP ECDSA activation cannot use a consumed single-use context');
 }
 
-export async function tryReuseReadyWarmEcdsaBootstrap(
-  deps: WarmSessionEcdsaProvisionerDeps,
-  args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  },
-): Promise<ThresholdEcdsaSessionBootstrapResult | null> {
-  const exactWalletId = args.walletId;
-  const recordCandidates = readEcdsaRecordCandidates(deps, {
-    walletId: exactWalletId,
-    chainTarget: args.chainTarget,
-    ...(args.source ? { source: args.source } : {}),
-  });
-  if (!recordCandidates.length) return null;
-  const warmSession = await deps.getWarmSession(exactWalletId);
-  for (const candidate of recordCandidates) {
-    if (!hasEcdsaRecordSigningMaterial(candidate.record)) {
-      continue;
-    }
-    const capability = getMatchingReadyEcdsaCapability({
-      warmSession,
-      chainTarget: args.chainTarget,
-      record: candidate.record,
-      usesNeeded: 1,
-    });
-    if (!capability) continue;
-    const reusableBootstrap = buildReusableEcdsaBootstrapResult({
-      record: candidate.record,
-      capability,
-      source: candidate.source,
-    });
-    if (reusableBootstrap) return reusableBootstrap;
-  }
-  return null;
-}
-
 function requireActivationRelayerUrl(args: {
   plan: EcdsaSessionProvisionPlan;
   reconnectRecord: ThresholdEcdsaSessionRecord | null;
@@ -1045,31 +1001,6 @@ export async function ensureWarmEcdsaCapabilityReady(
         chainTarget,
       }).secondary.record;
   const secondaryEmailOtpRecord = secondaryRecord?.source === 'email_otp' ? secondaryRecord : null;
-  const reconnectPolicySession = reconnectRecord
-    ? ecdsaPostSignPolicySessionFromRecord(reconnectRecord)
-    : null;
-  const secondaryEmailOtpPolicySession = secondaryEmailOtpRecord
-    ? ecdsaPostSignPolicySessionFromRecord(secondaryEmailOtpRecord)
-    : null;
-  if (
-    reconnectPolicySession?.source === 'email_otp' &&
-    reconnectPolicySession.emailOtpRetention === 'single_use'
-  ) {
-    throw formatEmailOtpSensitiveOperationError({
-      operationLabel: `${chain} signing`,
-      mode: 'per_operation',
-    });
-  }
-  if (
-    !reconnectRecord &&
-    secondaryEmailOtpPolicySession?.emailOtpRetention === 'single_use' &&
-    Number(secondaryEmailOtpPolicySession.emailOtpConsumedAtMs) > 0
-  ) {
-    throw formatEmailOtpSensitiveOperationError({
-      operationLabel: `${chain} signing`,
-      mode: 'per_operation',
-    });
-  }
   const inheritedEmailOtpRecord =
     reconnectRecord?.source === 'email_otp' ? reconnectRecord : secondaryEmailOtpRecord;
 
@@ -1316,19 +1247,6 @@ export function toOptionalNonEmptyString(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
-export function getEcdsaCapabilityCandidates(args: {
-  warmSession: WarmSessionEnvelope;
-  chainTarget: ThresholdEcdsaChainTarget;
-}): WarmSessionEcdsaCapabilityState[] {
-  const chain = args.chainTarget.kind;
-  const primary = args.warmSession.capabilities.ecdsa[chain];
-  const secondary =
-    chain === 'tempo'
-      ? args.warmSession.capabilities.ecdsa.evm
-      : args.warmSession.capabilities.ecdsa.tempo;
-  return primary === secondary ? [primary] : [primary, secondary];
-}
-
 export function getPrimaryAndSecondaryEcdsaCapabilities(args: {
   warmSession: WarmSessionEnvelope;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -1343,75 +1261,5 @@ export function getPrimaryAndSecondaryEcdsaCapabilities(args: {
       chain === 'tempo'
         ? args.warmSession.capabilities.ecdsa.evm
         : args.warmSession.capabilities.ecdsa.tempo,
-  };
-}
-
-export function buildReusableEcdsaBootstrapResult(args: {
-  record: ThresholdEcdsaSessionRecord;
-  capability: WarmSessionEcdsaCapabilityState;
-  source: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
-}): ThresholdEcdsaSessionBootstrapResult | null {
-  const record = args.capability.record;
-  const auth = args.capability.auth;
-  const prfClaim = args.capability.prfClaim;
-  if (!record || !auth || !prfClaim || prfClaim.state !== 'warm') return null;
-  if (auth.state !== 'ready') return null;
-  const walletSessionJwt = String(auth.walletSessionJwt || '').trim();
-  if (!walletSessionJwt) return null;
-
-  const clientVerifyingShareB64u = String(record.clientVerifyingShareB64u || '').trim();
-  const relayerKeyId = String(record.relayerKeyId || '').trim();
-  const identity = tryBuildEcdsaSessionIdentity(record);
-  // A warm ECDSA capability is only directly reusable when the persisted
-  // session record already carries local signing material. Restored passkey
-  // lanes often have only the PRF/JWT until reconnect recreates the additive
-  // share.
-  if (!clientVerifyingShareB64u || !relayerKeyId || !identity) {
-    return null;
-  }
-  if (!thresholdEcdsaRecordHasRoleLocalSigningMaterial(record)) {
-    return null;
-  }
-  const ecdsaThresholdKeyIdRaw = String(
-    resolveThresholdEcdsaKeyIdFromRecord({ record }) || '',
-  ).trim();
-  if (!ecdsaThresholdKeyIdRaw) {
-    return null;
-  }
-  const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(ecdsaThresholdKeyIdRaw);
-  const keyRef = buildThresholdEcdsaSecp256k1KeyRefFromRecord({ record });
-
-  return {
-    thresholdEcdsaKeyRef: {
-      ...keyRef,
-      relayerUrl: String(record.relayerUrl || keyRef.relayerUrl || '').trim(),
-      ecdsaThresholdKeyId,
-      participantIds: record.participantIds,
-      thresholdSessionKind: record.thresholdSessionKind,
-      thresholdSessionId: identity.thresholdSessionId,
-      signingGrantId: identity.signingGrantId,
-      walletSessionJwt,
-    },
-    keygen: {
-      ok: true,
-      evmFamilySigningKeySlotId: record.evmFamilySigningKeySlotId,
-      ecdsaThresholdKeyId,
-      relayerKeyId,
-      clientVerifyingShareB64u,
-      participantIds: record.participantIds,
-      thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u,
-      ethereumAddress: record.ethereumAddress,
-      relayerVerifyingShareB64u: record.relayerVerifyingShareB64u,
-      chainId: record.chainTarget.chainId,
-    },
-    session: {
-      ok: true,
-      thresholdSessionId: identity.thresholdSessionId,
-      signingGrantId: identity.signingGrantId,
-      jwt: walletSessionJwt,
-      expiresAtMs: Math.max(0, Math.floor(Number(prfClaim.expiresAtMs) || 0)),
-      remainingUses: Math.max(0, Math.floor(Number(prfClaim.remainingUses) || 0)),
-      clientVerifyingShareB64u,
-    },
   };
 }

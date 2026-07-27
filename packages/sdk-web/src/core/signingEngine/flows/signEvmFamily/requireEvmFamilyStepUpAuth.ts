@@ -3,59 +3,45 @@ import type {
   EmailOtpConfirmPrompt,
   SigningAuthPlan,
   StepUpPolicy,
-  WebAuthnChallenge,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import {
   isEmailOtpSigningAuthPlan,
   isPasskeySigningAuthPlan,
   isWarmSessionSigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
-import type {
-  EvmFamilyThresholdEcdsaOperation,
-  EvmFamilyThresholdEcdsaReauthResult,
-} from './thresholdAdmission';
-import type { ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
+import type { EvmFamilyThresholdEcdsaOperation } from './thresholdAdmission';
 import type {
   EvmFamilyEcdsaEmailOtpStepUpAuthorization,
   EvmFamilyEcdsaPasskeyStepUpAuthorization,
-  EvmFamilyEcdsaWarmSessionStepUpAuthorization,
 } from './stepUpAuthorization';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
-
-export type EvmFamilyPasskeyReconnectPlan = {
-  webauthnChallenge: Extract<WebAuthnChallenge, { kind: 'ecdsa_role_local_bootstrap' }>;
-};
-
-export type EvmFamilyPasskeyReconnectPlanner = {
-  prepare: (args: { usesNeeded: number }) => Promise<EvmFamilyPasskeyReconnectPlan>;
-};
+import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
+import type { ReadySecp256k1SigningMaterial } from './signers/secp256k1';
+import type { PreparedEcdsaOperationStepUp } from '../../threshold/ecdsa/operationStepUp';
 
 export type EvmFamilyEmailOtpStepUpRuntime = {
   prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
   resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
-  complete: (
-    authorization: EvmFamilyEcdsaEmailOtpStepUpAuthorization,
-  ) => Promise<EvmFamilyThresholdEcdsaReauthResult>;
 };
 
-export type EvmFamilyPasskeyStepUpRuntime = EvmFamilyPasskeyReconnectPlanner & {
-  reconnect: (args: {
-    authorization: EvmFamilyEcdsaPasskeyStepUpAuthorization;
-    usesNeeded: number;
-  }) => Promise<EvmFamilyThresholdEcdsaReauthResult>;
-};
-
-export type EvmFamilyThresholdReconnectRuntime = {
-  ensureThresholdEcdsaReadyMaterial: (args: {
-    authorization: EvmFamilyEcdsaWarmSessionStepUpAuthorization;
-    usesNeeded: number;
-  }) => Promise<EvmFamilyThresholdEcdsaReauthResult>;
+export type EvmFamilyOperationStepUpRuntime = {
+  prepare: (args: {
+    operation: EvmFamilyThresholdEcdsaOperation;
+    operationDigests: OperationDigestSet;
+    material: ReadySecp256k1SigningMaterial;
+  }) => Promise<PreparedEcdsaOperationStepUp>;
+  authorize: (args: {
+    authorization:
+      | EvmFamilyEcdsaEmailOtpStepUpAuthorization
+      | EvmFamilyEcdsaPasskeyStepUpAuthorization;
+    prepared: PreparedEcdsaOperationStepUp;
+    material: ReadySecp256k1SigningMaterial;
+  }) => Promise<ReadySecp256k1SigningMaterial>;
 };
 
 export type EvmFamilyThresholdEcdsaStepUpRuntime = {
   emailOtpSigning?: EvmFamilyEmailOtpStepUpRuntime;
-  passkeyReconnect?: EvmFamilyPasskeyStepUpRuntime;
-  thresholdReconnect?: EvmFamilyThresholdReconnectRuntime;
+  operationStepUp: EvmFamilyOperationStepUpRuntime;
   onAuthSideEffectStarted?: (sideEffect: EvmFamilySigningAuthSideEffect) => void;
 };
 
@@ -64,22 +50,12 @@ export type EvmFamilyThresholdEcdsaStepUp =
       kind: 'not_required';
     }
   | {
-      kind: 'required_not_admitted';
-      authPlan: {
-        kind: 'planned';
-        signingAuthPlan: SigningAuthPlan;
-      };
-      runtime: EvmFamilyThresholdEcdsaStepUpRuntime;
-    }
-  | {
-      kind: 'required_admitted';
+      kind: 'required';
       authPlan: {
         kind: 'planned';
         signingAuthPlan: SigningAuthPlan;
       };
       operation: EvmFamilyThresholdEcdsaOperation;
-      signerSession: ReadyEcdsaSignerSession;
-      singleUseEmailOtpSession: boolean;
       runtime: EvmFamilyThresholdEcdsaStepUpRuntime;
     };
 
@@ -108,7 +84,6 @@ export type EvmFamilyPasskeyStepUpAuth = EvmFamilyPreparedStepUpAuthBase & {
   confirmationAuthPayload: {
     signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
   };
-  plannedPasskeyReconnect: EvmFamilyPasskeyReconnectPlan;
 };
 
 export type EvmFamilyPreparedStepUpAuth =
@@ -119,8 +94,7 @@ export type EvmFamilyPreparedStepUpAuth =
 export function signingAuthPlanFromThresholdEcdsaStepUp(
   stepUp: EvmFamilyThresholdEcdsaStepUp,
 ): SigningAuthPlan | undefined {
-  if (stepUp.kind === 'not_required') return undefined;
-  return stepUp.authPlan.signingAuthPlan;
+  return stepUp.kind === 'required' ? stepUp.authPlan.signingAuthPlan : undefined;
 }
 
 export async function requireEvmFamilyStepUpAuth(args: {
@@ -130,18 +104,14 @@ export async function requireEvmFamilyStepUpAuth(args: {
   requiredSignatureUses: number;
   explicitAuthErrorLabel: 'EVM' | 'Tempo';
 }): Promise<EvmFamilyPreparedStepUpAuth> {
-  const requiredSignatureUses = Math.max(
-    1,
-    Math.floor(Number(args.requiredSignatureUses) || 1),
-  );
   const signingAuthPlan = signingAuthPlanFromThresholdEcdsaStepUp(args.thresholdEcdsaStepUp);
-  const stepUpRuntime =
-    args.thresholdEcdsaStepUp.kind === 'not_required'
-      ? undefined
-      : args.thresholdEcdsaStepUp.runtime;
+  const runtime =
+    args.thresholdEcdsaStepUp.kind === 'required'
+      ? args.thresholdEcdsaStepUp.runtime
+      : undefined;
   const selectedLane = resolveEvmFamilyStepUpLane({
     signingAuthPlan,
-    hasEmailOtpSigning: Boolean(stepUpRuntime?.emailOtpSigning),
+    hasEmailOtpSigning: Boolean(runtime?.emailOtpSigning),
     hasThresholdEcdsaRequest: args.hasThresholdEcdsaRequest,
     needsWebAuthn: args.needsWebAuthn,
   });
@@ -150,73 +120,30 @@ export async function requireEvmFamilyStepUpAuth(args: {
       `[chains] ${args.explicitAuthErrorLabel} signing requires explicit auth input`,
     );
   }
-  let plannedPasskeyReconnect: EvmFamilyPasskeyReconnectPlan | undefined;
   const prepared = await prepareStepUpAuth({
     operation: {
       kind: 'evm_family_threshold_ecdsa_step_up' as const,
-      usesNeeded: requiredSignatureUses,
+      usesNeeded: Math.max(1, Math.floor(Number(args.requiredSignatureUses) || 1)),
     },
     selectedLane,
     policy: stepUpPolicyFromSigningAuthPlan(signingAuthPlan),
     methods: {
-      ...(stepUpRuntime?.emailOtpSigning
+      ...(runtime?.emailOtpSigning
         ? {
             emailOtp: {
               method: 'email_otp' as const,
-              prepareChallenge: async () => await stepUpRuntime.emailOtpSigning!.prepare(),
-              ...(stepUpRuntime.emailOtpSigning.resend
-                ? {
-                    resendChallenge: async () => await stepUpRuntime.emailOtpSigning!.resend!(),
-                  }
+              prepareChallenge: runtime.emailOtpSigning.prepare,
+              ...(runtime.emailOtpSigning.resend
+                ? { resendChallenge: runtime.emailOtpSigning.resend }
                 : {}),
-              complete: async ({ confirmation, prompt }) =>
-                await stepUpRuntime.emailOtpSigning!.complete({
-                  kind: 'email_otp',
-                  signingAuthPlan: isEmailOtpSigningAuthPlan(signingAuthPlan)
-                    ? signingAuthPlan
-                    : {
-                        kind: 'emailOtpReauth',
-                        method: 'email_otp',
-                        emailOtpPrompt: prompt,
-                      },
-                  challengeId: String(prompt.challengeId || '').trim(),
-                  otpCode: String(confirmation.otpCode || '').trim(),
-                  ...(prompt.emailHint ? { emailHint: prompt.emailHint } : {}),
-                }),
+              complete: async () => undefined,
             },
           }
         : {}),
       passkey: {
         method: 'passkey' as const,
-        prepare: async () => {
-          if (stepUpRuntime?.passkeyReconnect) {
-            plannedPasskeyReconnect = await stepUpRuntime.passkeyReconnect.prepare({
-              usesNeeded: requiredSignatureUses,
-            });
-          }
-          return {};
-        },
-        complete: async ({ confirmation }) => {
-          if (!stepUpRuntime?.passkeyReconnect) {
-            throw new Error('[chains] passkey reconnect runner is unavailable');
-          }
-          return await stepUpRuntime.passkeyReconnect.reconnect({
-            authorization: {
-              kind: 'passkey',
-              signingAuthPlan: isPasskeySigningAuthPlan(signingAuthPlan)
-                ? signingAuthPlan
-                : {
-                    kind: 'passkeyReauth',
-                    method: 'passkey',
-                  },
-              credential: confirmation.credential,
-              ...(plannedPasskeyReconnect
-                ? { plannedPasskeyReconnect }
-                : {}),
-            },
-            usesNeeded: requiredSignatureUses,
-          });
-        },
+        prepare: async () => ({}),
+        complete: async () => undefined,
       },
     },
   });
@@ -226,45 +153,27 @@ export async function requireEvmFamilyStepUpAuth(args: {
     }
     return {
       kind: 'warm_session',
-      confirmationAuthPayload: {
-        signingAuthPlan,
-      },
+      confirmationAuthPayload: { signingAuthPlan },
     };
   }
-
   if (prepared.method === 'email_otp') {
-    const stepUpPlan = signingAuthPlanFromPreparedEvmFamilyStepUp({
-      signingAuthPlan,
-      prepared,
-    });
-    if (!isEmailOtpSigningAuthPlan(stepUpPlan)) {
+    const plan = signingAuthPlanFromPreparedEvmFamilyStepUp({ signingAuthPlan, prepared });
+    if (!isEmailOtpSigningAuthPlan(plan)) {
       throw new Error('[chains] Email OTP step-up requires an Email OTP signing auth plan');
     }
     return {
       kind: 'email_otp',
-      confirmationAuthPayload: {
-        signingAuthPlan: stepUpPlan,
-      },
+      confirmationAuthPayload: { signingAuthPlan: plan },
       emailOtpPrompt: prepared.prompt,
     };
   }
-
-  const stepUpPlan = signingAuthPlanFromPreparedEvmFamilyStepUp({
-    signingAuthPlan,
-    prepared,
-  });
-  if (!isPasskeySigningAuthPlan(stepUpPlan)) {
+  const plan = signingAuthPlanFromPreparedEvmFamilyStepUp({ signingAuthPlan, prepared });
+  if (!isPasskeySigningAuthPlan(plan)) {
     throw new Error('[chains] passkey step-up requires a passkey signing auth plan');
-  }
-  if (!plannedPasskeyReconnect) {
-    throw new Error('[chains] passkey ECDSA step-up requires a prepared reconnect challenge');
   }
   return {
     kind: 'passkey',
-    confirmationAuthPayload: {
-      signingAuthPlan: stepUpPlan,
-    },
-    plannedPasskeyReconnect,
+    confirmationAuthPayload: { signingAuthPlan: plan },
   };
 }
 
@@ -321,10 +230,7 @@ function signingAuthPlanFromPreparedEvmFamilyStepUp(args: {
     };
   }
   if (args.prepared.method === 'passkey') {
-    return {
-      kind: 'passkeyReauth',
-      method: 'passkey',
-    };
+    return { kind: 'passkeyReauth', method: 'passkey' };
   }
   throw new Error('[chains] warm-session step-up requires an existing signing auth plan');
 }

@@ -413,7 +413,7 @@ impl LocalEd25519YaoSigningWorkerStateV1 {
                 continue;
             };
             if active.binding.lifecycle.account_id != scope.account_id
-                || active.binding.lifecycle.session_id != scope.session_id
+                || active.binding.lifecycle.session_id != scope.material_activation.activation_id
                 || active.binding.lifecycle.selected_server_id != scope.signing_worker_id
             {
                 continue;
@@ -801,7 +801,7 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
             invalid_normal_signing("SigningWorker has no active Yao signing share")
         })?;
         if active.binding.lifecycle.account_id != scope.account_id
-            || active.binding.lifecycle.session_id != scope.session_id
+            || active.binding.lifecycle.session_id != scope.material_activation.activation_id
             || active.binding.lifecycle.selected_server_id != scope.signing_worker_id
         {
             return Err(invalid_normal_signing(
@@ -814,7 +814,7 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
         );
         let state = ActiveSigningWorkerStateV1::new(
             scope.account_id.clone(),
-            scope.session_id.clone(),
+            scope.material_activation.activation_id.clone(),
             public_key,
             ServerIdentityV1::new(
                 config.signing_worker_id.clone(),

@@ -402,14 +402,6 @@ const invalidPublicBootstrapWalletSessionJwt =
   publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.walletSessionJwt;
 void invalidPublicBootstrapWalletSessionJwt;
 
-const invalidEcdsaBootstrapLifecycleInput: BootstrapThresholdEcdsaSessionArgs = {
-  // @ts-expect-error Fresh bootstrap is an internal signing-engine lifecycle request.
-  kind: 'passkey_fresh_ecdsa_bootstrap',
-  walletSession,
-  chainTarget: tempoChainTarget,
-};
-void invalidEcdsaBootstrapLifecycleInput;
-
 type PublicKeyExportInput = Parameters<KeyExportCapability['exportKeypairWithUI']>[0];
 
 const validEcdsaExportInput: PublicKeyExportInput = {

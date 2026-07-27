@@ -29,6 +29,7 @@ import type {
 import { EmailRecoveryAuthOperations } from '../../core/authService/emailRecoveryAuthOperations';
 import type { RouterApiServiceBag } from '../authServicePort';
 import { AuthorizationService } from '../../authorization/service';
+import { capabilityPolicyPort } from '../../authorization/capabilityPolicy';
 import { CloudflareD1AuthorizationStore } from './d1AuthorizationStore';
 import { parseTenantId } from '@shared/authorization/capabilityKinds';
 import type { RouterApiEmailRecoveryAuthService } from '../routerApi';
@@ -892,12 +893,18 @@ function createCloudflareD1RouterApiAuthAssembly(
   const linkIdentity = linkD1Identity.bind(undefined, identityStore);
   const sessionStore = new CloudflareD1SessionStore({ prepare });
   const sessionService = new CloudflareD1SessionService({ sessionStore });
-  const authorizationService = new AuthorizationService(
-    new CloudflareD1AuthorizationStore({
-      database: options.database,
-      namespace: options.namespace,
-    }),
-  );
+  const authorizationStore = new CloudflareD1AuthorizationStore({
+    database: options.database,
+    namespace: options.namespace,
+  });
+  const authorizationService = new AuthorizationService({
+    policy: capabilityPolicyPort,
+    sessions: authorizationStore,
+    evidence: authorizationStore,
+    grants: authorizationStore,
+    claims: authorizationStore,
+    audit: authorizationStore,
+  });
   const googleEmailOtpRegistrationAttempts = new CloudflareD1GoogleEmailOtpRegistrationAttemptStore(
     {
       prepare,
@@ -993,7 +1000,15 @@ function createCloudflareD1RouterApiAuthAssembly(
     },
   });
   const signedDelegateExecutor = new CloudflareD1SignedDelegateExecutor(options);
+  const authorizationTenantId = parseTenantId(options.orgId);
+  if (!authorizationTenantId.ok) {
+    throw new Error(
+      `orgId cannot identify an authorization tenant: ${authorizationTenantId.error.message}`,
+    );
+  }
   const walletRegistrations = new CloudflareD1WalletRegistrationService({
+    authorizationService,
+    authorizationTenantId: authorizationTenantId.value,
     createSponsoredNamedNearAccount,
     emailOtpRegistrationEnrollmentFinalizer,
     getRegistrationCeremonyIntentStore,
@@ -1365,9 +1380,16 @@ function createD1AuthorizationSessionRouteService(
     recordActiveSession: assembly.authorizationService.recordActiveSession.bind(
       assembly.authorizationService,
     ),
+    issueReusableWalletSession: assembly.authorizationService.issueReusableWalletSession.bind(
+      assembly.authorizationService,
+    ),
     readActiveSession: assembly.authorizationService.readActiveSession.bind(
       assembly.authorizationService,
     ),
+    readReusableWalletSessionStatus:
+      assembly.authorizationService.readReusableWalletSessionStatus.bind(
+        assembly.authorizationService,
+      ),
     mintHostedWalletSeamsSessionExchange:
       assembly.authorizationService.mintHostedWalletSeamsSessionExchange.bind(
         assembly.authorizationService,
@@ -1376,6 +1398,41 @@ function createD1AuthorizationSessionRouteService(
       assembly.authorizationService.redeemHostedWalletSeamsSessionExchange.bind(
         assembly.authorizationService,
       ),
+  };
+}
+
+function createD1AuthorizationClaimRouteService(
+  assembly: D1AuthorizationSessionRouteServiceAssembly,
+): RouterApiServiceBag['authorizationClaims'] {
+  const tenantId = parseTenantId(assembly.options.orgId);
+  if (!tenantId.ok) {
+    throw new Error(`orgId cannot identify an authorization tenant: ${tenantId.error.message}`);
+  }
+  return {
+    tenantId: tenantId.value,
+    recordVerifiedFactorEvidenceSet:
+      assembly.authorizationService.recordVerifiedFactorEvidenceSet.bind(
+        assembly.authorizationService,
+      ),
+    recordVerifiedSessionEvidenceSet:
+      assembly.authorizationService.recordVerifiedSessionEvidenceSet.bind(
+        assembly.authorizationService,
+      ),
+    issueGrant: assembly.authorizationService.issueGrant.bind(assembly.authorizationService),
+    claimOperationStepUpFromGrant: assembly.authorizationService.claimOperationStepUpFromGrant.bind(
+      assembly.authorizationService,
+    ),
+    claimReusableWalletSessionFromGrant:
+      assembly.authorizationService.claimReusableWalletSessionFromGrant.bind(
+        assembly.authorizationService,
+      ),
+    claimReusableWalletSessionOperation:
+      assembly.authorizationService.claimReusableWalletSessionOperation.bind(
+        assembly.authorizationService,
+      ),
+    completeOperation: assembly.authorizationService.completeOperation.bind(
+      assembly.authorizationService,
+    ),
   };
 }
 
@@ -1449,6 +1506,7 @@ export function createCloudflareD1RouterApiAuthService(
     identity: createD1IdentityRouteService(assembly),
     sessionVersions: createD1SessionVersionRouteService(assembly),
     authorizationSessions: createD1AuthorizationSessionRouteService(assembly),
+    authorizationClaims: createD1AuthorizationClaimRouteService(assembly),
     thresholdRuntime: createD1ThresholdRuntimeRouteService(assembly),
     nearFunding: createD1NearFundingRouteService(assembly),
     recovery: createD1RecoveryRouteService(assembly),

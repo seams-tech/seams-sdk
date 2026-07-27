@@ -1,6 +1,7 @@
 import {
   buildEcdsaRoleLocalExportArtifactCommandWasm,
   finalizeEcdsaClientBootstrapCommandWasm,
+  openEcdsaRoleLocalSigningMaterialWasm,
   parseServerPlannedEcdsaDerivationContext,
   prepareEcdsaClientBootstrapCommandWasm,
   type ServerPlannedEcdsaDerivationContext,
@@ -8,6 +9,9 @@ import {
   type ThresholdEcdsaDerivationStableKeyContext,
 } from './ecdsaDerivationClientWasm';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { EcdsaRoleLocalPersistedMaterialRef } from '../../session/keyMaterialBrands';
 import type {
   BuildEcdsaRoleLocalExportArtifactCommand,
   FinalizeEcdsaClientBootstrapCommand,
@@ -124,6 +128,23 @@ void ({
 } satisfies ThresholdEcdsaDerivationRoleLocalClientContext);
 
 declare const workerCtx: WorkerOperationContext;
+declare const authority: WalletAuthAuthorityRef;
+declare const materialActivation: MpcMaterialActivationRef;
+declare const materialRef: EcdsaRoleLocalPersistedMaterialRef;
+
+void openEcdsaRoleLocalSigningMaterialWasm({
+  authority,
+  materialActivation,
+  workerCtx,
+});
+
+void openEcdsaRoleLocalSigningMaterialWasm({
+  authority,
+  materialActivation,
+  workerCtx,
+  // @ts-expect-error Worker-open requests cannot use caller-selected durable material refs.
+  materialRef,
+});
 
 async function assertRoleLocalBootstrapShape(): Promise<void> {
   const prepared = await prepareEcdsaClientBootstrapCommandWasm({

@@ -5,7 +5,7 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   buildCurrentSealedSessionRecord,
@@ -36,7 +36,7 @@ export class EmailOtpSealedSessionRegistry {
         emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
       }) => Promise<{
         bootstrap: ThresholdEcdsaSessionBootstrapResult;
-        warmCapability: WarmSessionEcdsaCapabilityState;
+        authorization: ActiveWalletSessionAuthorizationProjection;
       }>;
       writeExactSealedSession: typeof writeExactSealedSession;
       readExactSealedSession: typeof readExactSealedSession;

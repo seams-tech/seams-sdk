@@ -17,8 +17,6 @@ export function createWalletSessionActivationDeps(args: {
     defaultRelayerUrl: args.createArgs.seamsWebConfigs.network.relayer?.url || '',
     persistThresholdEcdsaBootstrapForWalletTarget:
       args.createArgs.persistThresholdEcdsaBootstrapForWalletTarget,
-    upsertThresholdEcdsaSessionFromBootstrap:
-      args.createArgs.upsertThresholdEcdsaSessionFromBootstrap,
   };
 }
 

@@ -1,6 +1,10 @@
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { parseEcdsaThresholdKeyId } from '@/core/signingEngine/session/keyMaterialBrands';
 import { toAccountId } from '@/core/types/accountIds';
+import {
+  parseCapabilityInstanceRef,
+  parseWalletAuthorityBindingDigest,
+} from '@shared/utils/domainIds';
 import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import {
@@ -11,12 +15,23 @@ import {
 
 const walletId = toWalletId('wallet-unlock-typecheck');
 const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId('ecdsa-threshold-key-typecheck');
+const capability = parseCapabilityInstanceRef('ecdsa-capability-typecheck');
+const authorityDigest = parseWalletAuthorityBindingDigest('ecdsa-authority-typecheck');
+if (!capability.ok || !authorityDigest.ok) {
+  throw new Error('type fixture requires valid ECDSA capability identity');
+}
 const signerSlot = parseSignerSlot(1);
 if (!signerSlot) throw new Error('type fixture requires a valid signer slot');
 
 const ecdsaSubject: WalletUnlockSubject = {
   kind: 'evm_family_ecdsa_wallet',
   walletId,
+  capability: capability.value,
+  authority: {
+    kind: 'wallet_auth_authority_ref',
+    walletId,
+    authorityDigest: authorityDigest.value,
+  },
   ecdsaThresholdKeyId,
 };
 

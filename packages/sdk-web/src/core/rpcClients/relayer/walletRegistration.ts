@@ -31,6 +31,14 @@ import {
   type SigningGrantId,
 } from '@shared/utils/domainIds';
 import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
+  type AuthorizationParseResult,
+  type MpcWalletSigningQuotaId,
+  type SeamsSessionId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import {
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoBytes32V1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
@@ -309,6 +317,15 @@ function requireResponseString(args: {
     throw new Error(`${args.responseName} response missing ${args.field}`);
   }
   return value;
+}
+
+function requireAuthorizationId<T>(
+  result: AuthorizationParseResult<T>,
+  responseName: string,
+  field: string,
+): T {
+  if (!result.ok) throw new Error(`${responseName} response has invalid ${field}`);
+  return result.value;
 }
 
 function requireResponseRecord(args: {
@@ -901,6 +918,8 @@ export type WalletRegistrationEd25519YaoBootstrapSession = {
   authorityScope: Ed25519AuthorityScope;
   thresholdSessionId: string;
   signingGrantId: string;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
   participantIds: readonly [number, number];
   remainingUses: number;
@@ -910,7 +929,7 @@ export type WalletRegistrationEd25519YaoBootstrapSession = {
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
-export type WalletRegistrationEd25519YaoPublicResult = {
+export type WalletEd25519YaoSignerPublicResult = {
   signerSlot: number;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
@@ -919,6 +938,9 @@ export type WalletRegistrationEd25519YaoPublicResult = {
   keyVersion: string;
   recoveryExportCapable: true;
   participantIds: readonly [number, number];
+};
+
+export type WalletRegistrationEd25519YaoPublicResult = WalletEd25519YaoSignerPublicResult & {
   session: WalletRegistrationEd25519YaoBootstrapSession;
 };
 
@@ -1201,7 +1223,7 @@ export type WalletAddSignerFinalizeResponse = {
       kind: 'near_ed25519';
       rpId: string;
       credentialIdB64u: string;
-      ed25519: WalletRegistrationEd25519YaoPublicResult;
+      ed25519: WalletEd25519YaoSignerPublicResult;
       ecdsa?: never;
     }
   | {
@@ -1300,6 +1322,8 @@ function parseWalletAddSignerEcdsaPrepareContext(
       'requestId',
       'thresholdSessionId',
       'signingGrantId',
+      'walletSessionId',
+      'quotaId',
       'ttlMs',
       'remainingUses',
       'participantIds',
@@ -1618,6 +1642,16 @@ function parseWalletAddSignerEd25519Session(
       field: 'ed25519.session.signingGrantId',
       value: session.signingGrantId,
     }),
+    walletSessionId: requireAuthorizationId(
+      parseWalletSessionId(session.walletSessionId),
+      responseName,
+      'ed25519.session.walletSessionId',
+    ),
+    quotaId: requireAuthorizationId(
+      parseMpcWalletSigningQuotaId(session.quotaId),
+      responseName,
+      'ed25519.session.quotaId',
+    ),
     expiresAtMs: requireResponseSafeInteger({
       responseName,
       field: 'ed25519.session.expiresAtMs',
@@ -1646,10 +1680,10 @@ function parseWalletAddSignerEd25519Session(
   };
 }
 
-function parseWalletAddSignerEd25519Result(
+function parseWalletEd25519YaoSignerPublicResult(
   value: unknown,
   responseName: string,
-): WalletRegistrationEd25519YaoPublicResult {
+): WalletEd25519YaoSignerPublicResult {
   const ed25519 = requireResponseRecord({ responseName, field: 'ed25519', value });
   assertExactResponseKeys(
     ed25519,
@@ -1662,7 +1696,6 @@ function parseWalletAddSignerEd25519Result(
       'keyVersion',
       'recoveryExportCapable',
       'participantIds',
-      'session',
     ],
     responseName,
   );
@@ -1703,6 +1736,44 @@ function parseWalletAddSignerEd25519Result(
     }),
     recoveryExportCapable: true,
     participantIds: requireResponseParticipantPair(ed25519.participantIds, responseName),
+  };
+}
+
+function parseWalletRegistrationEd25519Result(
+  value: unknown,
+  responseName: string,
+): WalletRegistrationEd25519YaoPublicResult {
+  const ed25519 = requireResponseRecord({ responseName, field: 'ed25519', value });
+  assertExactResponseKeys(
+    ed25519,
+    [
+      'signerSlot',
+      'nearAccountId',
+      'nearEd25519SigningKeyId',
+      'publicKey',
+      'relayerKeyId',
+      'keyVersion',
+      'recoveryExportCapable',
+      'participantIds',
+      'session',
+    ],
+    responseName,
+  );
+  const publicResult = parseWalletEd25519YaoSignerPublicResult(
+    {
+      signerSlot: ed25519.signerSlot,
+      nearAccountId: ed25519.nearAccountId,
+      nearEd25519SigningKeyId: ed25519.nearEd25519SigningKeyId,
+      publicKey: ed25519.publicKey,
+      relayerKeyId: ed25519.relayerKeyId,
+      keyVersion: ed25519.keyVersion,
+      recoveryExportCapable: ed25519.recoveryExportCapable,
+      participantIds: ed25519.participantIds,
+    },
+    responseName,
+  );
+  return {
+    ...publicResult,
     session: parseWalletAddSignerEd25519Session(ed25519.session, responseName),
   };
 }
@@ -1855,16 +1926,10 @@ export function parseWalletAddSignerFinalizeResponse(args: {
       if (record.ecdsa !== undefined) {
         throw new Error(`${responseName} response mixed signer branches`);
       }
-      const ed25519 = parseWalletAddSignerEd25519Result(
+      const ed25519 = parseWalletEd25519YaoSignerPublicResult(
         record.ed25519,
         'Wallet add-signer Ed25519 finalize',
       );
-      if (
-        ed25519.session.authorityScope.kind !== 'passkey_rp' ||
-        String(ed25519.session.authorityScope.rpId) !== String(rpId)
-      ) {
-        throw new Error(`${responseName} response has invalid Ed25519 authorityScope`);
-      }
       return {
         ok: true,
         walletId,
@@ -1988,6 +2053,9 @@ export type WalletRegistrationEcdsaDerivationRespondBootstrap = {
   participantIds: number[];
   thresholdSessionId: string;
   signingGrantId: SigningGrantId;
+  authorizationSessionId: SeamsSessionId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
   remainingUses: number;
   walletSessionJwt: string;
@@ -2216,6 +2284,9 @@ export function parseWalletRegistrationEcdsaDerivationRespond(args: {
     participantIds,
     thresholdSessionId,
     signingGrantId,
+    authorizationSessionId: serverBootstrap.authorizationSessionId,
+    walletSessionId: serverBootstrap.walletSessionId,
+    quotaId: serverBootstrap.quotaId,
     expiresAtMs,
     remainingUses,
     walletSessionJwt,
@@ -2359,7 +2430,6 @@ export async function buildWalletRegistrationEcdsaSessionBootstrap(args: {
   const keyRef: ThresholdEcdsaSecp256k1KeyRef = {
     type: 'threshold-ecdsa-secp256k1',
     userId: args.walletId,
-    evmFamilySigningKeySlotId,
     chainTarget: args.chainTarget,
     relayerUrl: args.relayerUrl,
     keyHandle,
@@ -2398,6 +2468,9 @@ export async function buildWalletRegistrationEcdsaSessionBootstrap(args: {
       ok: true,
       thresholdSessionId,
       signingGrantId,
+      authorizationSessionId: serverBootstrap.authorizationSessionId,
+      walletSessionId: serverBootstrap.walletSessionId,
+      quotaId: serverBootstrap.quotaId,
       expiresAtMs,
       remainingUses,
       jwt: walletSessionJwt,
@@ -3081,7 +3154,7 @@ function parseWalletRegistrationFinalizeNearResult(args: {
     args.response.accountProvisioning,
   );
   const resolvedAccount = parseWalletRegistrationResolvedNearAccount(args.response.resolvedAccount);
-  const ed25519 = parseWalletAddSignerEd25519Result(args.response.ed25519, responseName);
+  const ed25519 = parseWalletRegistrationEd25519Result(args.response.ed25519, responseName);
   if (
     accountProvisioning.kind !== resolvedAccount.kind ||
     resolvedAccount.nearAccountId !== ed25519.nearAccountId ||

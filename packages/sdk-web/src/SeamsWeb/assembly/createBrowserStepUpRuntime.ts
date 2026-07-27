@@ -61,8 +61,6 @@ export function createBrowserStepUpRuntime(args: {
         walletId: signerArgs.walletId,
         signerFamily: 'ecdsa',
       }),
-    getEcdsaSessions: () => args.getWarmSigning().ecdsaSessions,
-    getWarmCapabilityReader: () => args.getWarmSigning().capabilityReader,
     getThresholdEcdsaSessionRecordByThresholdSessionId: (thresholdSessionId) =>
       args.getWarmSigning().getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId),
     ensureSealedRefreshStartupParity: args.ensureSealedRefreshStartupParity,

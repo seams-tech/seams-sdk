@@ -1,6 +1,5 @@
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
-import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistence/ecdsaRoleLocalRecords';
 import type {
   VolatileWarmMaterialPort,
   WarmSessionStatusResult,
@@ -8,10 +7,8 @@ import type {
 import {
   clearStoredThresholdEd25519SessionRecordForLaneKey,
   listStoredThresholdEd25519SessionLaneRecordsForWallet,
-  listStoredThresholdEcdsaSessionRecordsForWallet,
   serializeThresholdEd25519SessionLaneKey,
   thresholdEd25519SessionRecordKeyFromRecord,
-  toExactEcdsaSigningLaneIdentity,
   type ThresholdEd25519SessionRecordKey,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
@@ -21,11 +18,7 @@ import type {
   deleteExactSealedSession,
   updateExactSealedSessionPolicy,
 } from '../persistence/sealedSessionStore';
-import {
-  readWarmSessionCapabilityRecordsForWallet,
-  readWarmSessionEd25519RecordByThresholdSessionId,
-} from '../warmCapabilities/store';
-import { classifyRouterAbEcdsaDerivationPersistedSigningRecord } from '../routerAbSigningWalletSession';
+import { readWarmSessionCapabilityRecordsForWallet } from '../warmCapabilities/store';
 import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabilities/volatileWarmMaterialCommands';
 import { parseVolatileWarmSessionId } from '../warmCapabilities/volatileWarmSessionId';
 import type { WarmSessionPrfClaim } from '../warmCapabilities/types';
@@ -51,17 +44,16 @@ import {
   type SigningSessionBudgetStatusCheck,
   type WalletBudgetOwner,
 } from '../budget/budget';
-import type { SigningSessionReadiness } from '../planning/planner';
+import type {
+  Ed25519SigningSessionReadiness,
+} from '../planning/planner';
+import type { ThresholdEd25519SessionId } from '../operationState/types';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  exactSigningLaneIdentityKey,
-  type ExactEcdsaSigningLaneIdentity,
-} from '../identity/exactSigningLaneIdentity';
 
 export type SigningSessionLane = {
   curve: 'ed25519' | 'ecdsa';
@@ -102,9 +94,6 @@ export type SigningGrantReadinessDeps = {
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
   clearEmailOtpWarmSessionMaterial?: (sessionId: string) => Promise<void>;
-  clearThresholdEcdsaSessionRecordForExactIdentity?: (
-    identity: ExactEcdsaSigningLaneIdentity,
-  ) => void;
   updateExactSealedSessionPolicy?: typeof updateExactSealedSessionPolicy;
   deleteExactSealedSession?: typeof deleteExactSealedSession;
   markThresholdEd25519EmailOtpSessionConsumedForWallet?: (args: {
@@ -139,7 +128,7 @@ export type SigningGrantStatusReader = (
 ) => Promise<SigningSessionStatus | null>;
 
 export type SigningSessionReadinessWithBudget = {
-  readiness: SigningSessionReadiness;
+  readiness: Ed25519SigningSessionReadiness;
   expiresAtMs: number;
   remainingUses: number;
 };
@@ -167,8 +156,8 @@ export function warmClaimFromRecordPolicy(args: {
 }
 
 export function applyWalletBudgetStatusToSigningSessionReadiness(args: {
-  status: SigningSessionReadiness['status'];
-  thresholdSessionId: SigningSessionReadiness['thresholdSessionId'];
+  status: Ed25519SigningSessionReadiness['status'];
+  thresholdSessionId: ThresholdEd25519SessionId;
   expiresAtMs: number;
   remainingUses: number;
   walletBudgetStatus?: SigningSessionStatus | null;
@@ -219,12 +208,18 @@ export function applyWalletBudgetStatusToSigningSessionReadiness(args: {
   }
   if (status === 'ready' && expiresAtMs <= (args.nowMs ?? Date.now())) status = 'expired';
   if (status === 'ready' && remainingUses < usesNeeded) status = 'exhausted';
-  const readiness: SigningSessionReadiness =
+  const readiness: Ed25519SigningSessionReadiness =
     status === 'ready' || status === 'exhausted'
-      ? { status, thresholdSessionId: args.thresholdSessionId, remainingUses, expiresAtMs }
+      ? {
+          status,
+          curve: 'ed25519',
+          thresholdSessionId: args.thresholdSessionId,
+          remainingUses,
+          expiresAtMs,
+        }
       : status === 'expired'
-        ? { status, thresholdSessionId: args.thresholdSessionId, expiresAtMs }
-        : { status, thresholdSessionId: args.thresholdSessionId };
+        ? { status, curve: 'ed25519', thresholdSessionId: args.thresholdSessionId, expiresAtMs }
+        : { status, curve: 'ed25519', thresholdSessionId: args.thresholdSessionId };
   return {
     readiness,
     expiresAtMs,
@@ -290,106 +285,6 @@ function resolveRecordWalletOwnerId(
     : ed25519WalletBudgetOwner(record.walletId);
 }
 
-export function resolveEmailOtpEcdsaWorkerSessionId(
-  record: ThresholdEcdsaSessionRecord,
-): string | null {
-  if (record.source !== 'email_otp') return null;
-  const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
-  if (record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session') {
-    const workerSessionId = normalizeNonEmpty(record.clientAdditiveShareHandle.sessionId);
-    const ed25519Companion =
-      workerSessionId && workerSessionId !== thresholdSessionId
-        ? readWarmSessionEd25519RecordByThresholdSessionId(workerSessionId)
-        : null;
-    if (ed25519Companion?.source === 'email_otp') {
-      // A stale cross-curve companion id here causes sealed restore to read the
-      // Ed25519 half of the seal as if it were the ECDSA lane.
-      console.debug(
-        '[SigningSessionCoordinator] ignoring mismatched Email OTP ECDSA worker session id',
-        {
-          thresholdSessionId,
-          workerSessionId,
-        },
-      );
-      return null;
-    } else if (workerSessionId) {
-      return workerSessionId;
-    }
-  }
-  return null;
-}
-
-function buildEmailOtpEcdsaDiscoveredLaneForRecord(args: {
-  record: ThresholdEcdsaSessionRecord;
-  chain: 'tempo' | 'evm';
-  chainTarget: ThresholdEcdsaChainTarget;
-  thresholdSessionId: string;
-  signingGrantId: string;
-}): DiscoveredSigningSessionLane | null {
-  const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
-    record: args.record,
-    nowMs: Date.now(),
-  });
-  switch (roleLocalState.kind) {
-    case 'ready_email_otp_role_local_material_v1':
-      switch (roleLocalState.inlineSigningMaterial.kind) {
-        case 'email_otp_worker_share': {
-          const workerSessionId = resolveEmailOtpEcdsaWorkerSessionId(args.record);
-          if (!workerSessionId) return null;
-          return {
-            curve: 'ecdsa',
-            chain: args.chain,
-            chainTarget: args.chainTarget,
-            source: 'email_otp',
-            thresholdSessionId: args.thresholdSessionId,
-            signingGrantId: args.signingGrantId,
-            backingMaterialSessionId: workerSessionId,
-            backing: 'email_otp_worker',
-            record: args.record,
-          };
-        }
-        case 'role_local_ready_state_blob':
-        case 'role_local_durable_material':
-          return {
-            curve: 'ecdsa',
-            chain: args.chain,
-            chainTarget: args.chainTarget,
-            source: 'email_otp',
-            thresholdSessionId: args.thresholdSessionId,
-            signingGrantId: args.signingGrantId,
-            backingMaterialSessionId: args.thresholdSessionId,
-            backing: 'record_policy',
-            record: args.record,
-          };
-      }
-      roleLocalState.inlineSigningMaterial satisfies never;
-      return null;
-    case 'reauth_required_role_local_material_v1':
-      if (
-        roleLocalState.authMethod.kind === 'email_otp' &&
-        (roleLocalState.reason === 'expired' || roleLocalState.reason === 'exhausted')
-      ) {
-        return {
-          curve: 'ecdsa',
-          chain: args.chain,
-          chainTarget: args.chainTarget,
-          source: 'email_otp',
-          thresholdSessionId: args.thresholdSessionId,
-          signingGrantId: args.signingGrantId,
-          backingMaterialSessionId: args.thresholdSessionId,
-          backing: 'record_policy',
-          record: args.record,
-        };
-      }
-      return null;
-    case 'ready_passkey_role_local_material_v1':
-    case 'cleanup_only_raw_role_local_record_v1':
-      return null;
-  }
-  roleLocalState satisfies never;
-  return null;
-}
-
 function addLane(
   lanes: DiscoveredSigningSessionLane[],
   lane: DiscoveredSigningSessionLane | null,
@@ -404,39 +299,7 @@ function addLane(
 export function buildDiscoveredLaneForRecord(
   record: ThresholdEd25519SessionRecord | ThresholdEcdsaSessionRecord,
 ): DiscoveredSigningSessionLane | null {
-  if ('chainTarget' in record) {
-    const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
-    if (!thresholdSessionId) return null;
-    const source = toLaneSource(record);
-    const chain = record.chainTarget.kind;
-    const chainTarget = record.chainTarget;
-    const signingGrantId = resolveSigningGrantId(record);
-    if (source === 'email_otp') {
-      return buildEmailOtpEcdsaDiscoveredLaneForRecord({
-        record,
-        chain,
-        chainTarget,
-        thresholdSessionId,
-        signingGrantId,
-      });
-    }
-    if (
-      classifyRouterAbEcdsaDerivationPersistedSigningRecord(record).kind !== 'runtime_validated'
-    ) {
-      return null;
-    }
-    return {
-      curve: 'ecdsa',
-      chain,
-      chainTarget,
-      source,
-      thresholdSessionId,
-      signingGrantId,
-      backingMaterialSessionId: thresholdSessionId,
-      backing: 'record_policy',
-      record,
-    };
-  }
+  if ('chainTarget' in record) return null;
 
   const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
   if (!thresholdSessionId) return null;
@@ -486,23 +349,6 @@ export function discoverLanesForWallet(
     record: records.ed25519,
   });
 
-  const candidateRecords = listStoredThresholdEcdsaSessionRecordsForWallet(walletId);
-  const seen = new Set<string>();
-  for (const record of candidateRecords) {
-    const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
-    const chainTarget = record.chainTarget;
-    const key = [
-      String(record.walletId),
-      thresholdEcdsaChainTargetKey(chainTarget),
-      record.source,
-      record.keyHandle,
-      record.signingGrantId,
-      thresholdSessionId,
-    ].join(':');
-    if (!thresholdSessionId || seen.has(key)) continue;
-    seen.add(key);
-    addLane(lanes, buildDiscoveredLaneForRecord(record));
-  }
   return lanes;
 }
 
@@ -670,17 +516,6 @@ function ed25519LaneKeyFromDiscoveredLane(
 ): ThresholdEd25519SessionRecordKey | null {
   if (lane.curve !== 'ed25519') return null;
   return thresholdEd25519SessionRecordKeyFromRecord(lane.record as ThresholdEd25519SessionRecord);
-}
-
-function ecdsaExactIdentityFromDiscoveredLane(
-  lane: DiscoveredSigningSessionLane,
-): ExactEcdsaSigningLaneIdentity | null {
-  if (lane.curve !== 'ecdsa') return null;
-  try {
-    return toExactEcdsaSigningLaneIdentity(lane.record as ThresholdEcdsaSessionRecord);
-  } catch {
-    return null;
-  }
 }
 
 function signingGrantStatusOverrideOwners(args: {
@@ -1435,7 +1270,6 @@ export async function clearSigningGrant(args: {
   const cleared = new Set<string>();
   const failures = new Set<SigningGrantClearFailure>();
   const ed25519LaneKeysToClear = new Map<string, ThresholdEd25519SessionRecordKey>();
-  const ecdsaLanesToClear = new Map<string, ExactEcdsaSigningLaneIdentity>();
   for (const lane of lanes) {
     const ed25519LaneKey = ed25519LaneKeyFromDiscoveredLane(lane);
     if (ed25519LaneKey) {
@@ -1443,10 +1277,6 @@ export async function clearSigningGrant(args: {
         serializeThresholdEd25519SessionLaneKey(ed25519LaneKey),
         ed25519LaneKey,
       );
-    }
-    const ecdsaIdentity = ecdsaExactIdentityFromDiscoveredLane(lane);
-    if (ecdsaIdentity) {
-      ecdsaLanesToClear.set(exactSigningLaneIdentityKey(ecdsaIdentity), ecdsaIdentity);
     }
     if (cleared.has(lane.backingMaterialSessionId)) continue;
     cleared.add(lane.backingMaterialSessionId);
@@ -1471,13 +1301,6 @@ export async function clearSigningGrant(args: {
   }
   for (const laneKey of ed25519LaneKeysToClear.values()) {
     clearStoredThresholdEd25519SessionRecordForLaneKey(laneKey);
-  }
-  for (const identity of ecdsaLanesToClear.values()) {
-    try {
-      args.deps.clearThresholdEcdsaSessionRecordForExactIdentity?.(identity);
-    } catch {
-      failures.add('ecdsa_projection');
-    }
   }
   if (failures.size > 0) {
     return {

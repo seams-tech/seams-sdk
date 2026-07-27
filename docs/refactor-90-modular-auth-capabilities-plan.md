@@ -4,7 +4,8 @@ Created: 2026-06-28
 
 Consolidated: 2026-07-27
 
-Status: **in progress — baseline Phases 1–3 complete; Unit 1 in progress**
+Status: **in progress — Unit 1 implementation and Unit 3b complete; Unit 2
+operating core complete; Units 3a and 4 in progress**
 
 This document is the execution tracker for
 [the normative SPEC](./refactor-90-modular-auth-capabilities-SPEC.md). If this plan
@@ -15,6 +16,28 @@ Operational records:
 - [implementation journal](./refactor-90-journal.md)
 - [deletion ledger](./refactor-90-deletion-ledger.md)
 - [signer-state inventory](./signer-state-inventory.md)
+
+## Verification Budget
+
+This budget is binding across every unit and overrides broader verification
+language elsewhere in the plan or SPEC.
+
+- Make the operating path work and demonstrate it once before adding secondary
+  verification or abstractions.
+- Use one enforcement per failure mode. A compiler-enforced property gets a type
+  fixture, without a duplicate unit test, source guard, or E2E case.
+- Add no new `check-*.mjs` source guards. Extend an existing guard only for a
+  worker-secret, generated-WASM, or workspace-package boundary the type system
+  cannot observe.
+- Prefer type fixtures in `tests/typecheck/` for construction-time constraints.
+- Refactor 90 E2E is capped at the eight scenarios listed below. Refactor 92
+  behavior is checked by running its existing contracts.
+- No unit produces an inventory or justification document. Add a deletion-ledger
+  row only when implementation discovers a concrete replacement target.
+- This plan owns task status. The SPEC checklist owns invariant-conformance
+  evidence. Update only the applicable surface.
+- Removing scope requires no ledger row, replacement check, or separate
+  justification.
 
 ## Grounding
 
@@ -83,7 +106,7 @@ their implementation ownership without restating them.
 
 | Decision                                         | Normative invariants                                                                     | Owning unit        | Load-bearing result                                                                                         |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------- |
-| Exact subject resolution and canonical hydration | `R90-INV-001`, `R90-INV-002`, `R90-INV-003`                                              | Units 1 and 3a      | Unit 1 establishes the shared contract and ECDSA adapter; Unit 3a supplies the canonical Near adapter.       |
+| Exact subject resolution and canonical hydration | `R90-INV-001`, `R90-INV-002`, `R90-INV-003`                                              | Units 1 and 3a     | Unit 1 establishes the shared contract and ECDSA adapter; Unit 3a supplies the canonical Near adapter.      |
 | ECDSA persistence and activation identity        | `R90-INV-001`, `R90-INV-002`, `R90-INV-005`, `R90-INV-006`, `R90-INV-011`, `R90-INV-013` | Unit 1             | Required `active \| retired` records and stable material activation identity replace optional session bags. |
 | Durable recovery journals                        | `R90-INV-004`, `R90-INV-005`, `R90-INV-006`, `R90-INV-007`                               | Units 1 and 3a     | Durable state records server uncertainty and final material promotion only.                                 |
 | Preparation outcomes                             | `R90-INV-010`                                                                            | Units 3a and 4     | Every preparation ends as `ready`, `pending`, `authorization_required`, `superseded`, or `failed`.          |
@@ -118,11 +141,11 @@ work is tracked in five units.
 
 | Unit                                               | Consolidates                                             | Dependency                                    | Result                                                                                                             |
 | -------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **1. Canonical hydration + canonical ECDSA state** | Foundations A/B, Phases 4–5, ECDSA identity work from 18 | Completed baseline                            | Exact subjects, protocol-local resolvers with shared outcomes, required ECDSA state, and slim material references. |
-| **2. Shared authorization core**                   | Phases 7–14, including Phase 8 SDK selection             | Unit 1 interfaces may stabilize incrementally | Closed capability vocabulary plus DB-backed session → evidence → grant → claim → audit flow.                       |
-| **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | Units 1 and 2                                 | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
-| **3b. Vault proving vertical**                     | Phase 16                                                 | Unit 2                                        | [Satyr vault plan Phase 6](./satyr-secrets-vault.md) proves one real vault operation.                              |
-| **4. UI + provisioning**                           | Phases 22–23                                             | Stable Unit 3a interfaces                     | Typed lifecycle events and provisioning use the canonical capability model.                                        |
+| **1. Canonical hydration + canonical ECDSA state** | Foundations A/B, Phases 4–5, ECDSA identity work from 18 | Implementation complete; exit validation open | Exact subjects, protocol-local resolvers with shared outcomes, required ECDSA state, and slim material references. |
+| **2. Shared authorization core**                   | Phases 7–14, including Phase 8 SDK selection             | Operating core complete; cleanup gate open    | Closed capability vocabulary plus DB-backed session → evidence → grant → claim → audit flow.                       |
+| **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | In progress                                   | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
+| **3b. Vault proving vertical**                     | Phase 16                                                 | Complete                                      | [Satyr vault plan Phase 6](./satyr-secrets-vault.md) proves one real vault operation.                              |
+| **4. UI + provisioning**                           | Phases 22–23                                             | Started; typed expiry complete                | Typed lifecycle events and provisioning use the canonical capability model.                                        |
 
 Units 3a and 3b may be implemented in parallel after Unit 2 interfaces
 stabilize. Unit 3b does not block development of the MPC cutover. Supported
@@ -135,7 +158,7 @@ SPEC and Satyr plan are amended together.
 | ----------------------- | ----------------------------------------------------------------------------------------------------------- |
 | 1–3                     | Completed baseline retained below.                                                                          |
 | 4–5 and Foundations A/B | Merged into Unit 1.                                                                                         |
-| 6                       | Replaced by a scoped inventory at the start of every unit.                                                  |
+| 6                       | Removed. The existing deletion ledger seeds implementation directly.                                        |
 | 7–14                    | Merged into Unit 2.                                                                                         |
 | 15 and 25–26            | Follow-on context, outside active execution.                                                                |
 | 16                      | Unit 3b, with detailed execution owned by Satyr Phase 6.                                                    |
@@ -147,8 +170,8 @@ SPEC and Satyr plan are amended together.
 
 ## Working Rules
 
-1. Start each unit with a scoped `rg`, type, export, and persistence inventory
-   seeded from the deletion ledger. Add newly discovered targets before coding.
+1. Make the requested operating path work first. Use the deletion ledger to
+   locate known targets and append concrete targets discovered while coding.
 2. Delete a replaced path in the same change that installs its replacement.
    Close the corresponding deletion-ledger row in that unit.
 3. Validate raw DB, request, worker, UI, and decoded-token shapes once at their
@@ -158,8 +181,7 @@ SPEC and Satyr plan are amended together.
 5. Use one enforcement per failure mode: a type fixture for invalid state, a
    boundary parser for untrusted data, a behavior test for lifecycle behavior,
    and a source guard only for an architectural boundary types cannot express.
-6. Record each checkpoint, validation result, and newly discovered blocker in
-   the journal.
+6. Record stable checkpoints and genuine blockers in the journal.
 
 ## Completed Baseline
 
@@ -194,15 +216,6 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
 `R90-INV-005`, `R90-INV-006`, `R90-INV-011`, `R90-INV-012`,
 `R90-INV-013`, `R90-INV-014`.
 
-### Inventory
-
-- [ ] Seed the scoped inventory from all Foundation A/B, Phase 4–5, and
-      ECDSA-identity rows in the deletion ledger.
-- [ ] Find every parser, builder, direct record literal, object spread, cast,
-      IndexedDB read/write, worker response, and refresh/unlock projection touching
-      ECDSA capability state.
-- [ ] Record any new replacement/deletion targets before implementation.
-
 ### 1A. Exact subjects and secure-origin projections
 
 - [x] ECDSA unlock resolves through an isolated subject resolver.
@@ -212,13 +225,13 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
 - [x] The secure wallet origin returns the exact active or restorable wallet and
       session projection.
 - [x] NEAR session state survives without an inferred signing lane.
-- [ ] Replace combined optional wallet-unlock bags with an exhaustive subject
+- [x] Replace combined optional wallet-unlock bags with an exhaustive subject
       union.
 - [ ] Make registration, unlock, and refresh enter the protocol-local resolver
       for each capability and return the shared outcome union.
 - [ ] Delete JWT-presence, optional-ID, and authentication-method lane
       inference.
-- [ ] Add boundary and lifecycle tests for missing, mixed, stale, and exact
+- [x] Add boundary and lifecycle tests for missing, mixed, stale, and exact
       subjects.
 
 ### 1B. Canonical hydration
@@ -226,14 +239,15 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
 - [x] Define the protocol-neutral four-outcome hydration union.
 - [x] Add branch-specific builders and type fixtures that reject invalid
       combinations.
-- [ ] Normalize ECDSA observations once into the shared hydration input.
-- [ ] Prove live runtime, local rehydration, public-anchor reauthorization, and
-      blocked behavior for registration, unlock, and refresh.
+- [x] Normalize ECDSA observations once into the shared hydration input.
+- [ ] Prove entry-point provenance is absent from resolver input, then cover the
+      seven canonical states for each capability: live, sealed-active, retired,
+      missing, corrupt, conflicting, and unavailable.
 - [ ] Delete protocol-specific derivation and duplicate readiness helpers after
       their callers move.
-- [ ] Verify there is one hydration decision for Passkey and Email OTP.
-- [ ] Prove routine Passkey/OTP local rehydration makes zero Deriver A/B calls.
-- [ ] Fail closed for missing, mismatched, corrupt, conflicting, or unavailable
+- [x] Verify there is one hydration decision for Passkey and Email OTP.
+- [x] Prove routine Passkey/OTP local rehydration makes zero Deriver A/B calls.
+- [x] Fail closed for missing, mismatched, corrupt, conflicting, or unavailable
       canonical observations.
 
 Near normalization begins Unit 3a after its session-shaped persistence and
@@ -255,20 +269,24 @@ removes.
 - [x] Make server activation idempotent and queryable by journal correlation.
 - [x] Prove finalized encrypted material survives worker termination and a
       fresh worker rehydrates the same durable material reference.
-- [ ] Reconcile prepared or server-committed journals after reload without
-      resuming an abandoned parent registration/add-signer operation; preserve
-      the journal until authoritative parent completion is proven.
-- [ ] Route every activation through one commit port.
+- [x] Implement selector-scoped store/worker reconciliation for prepared and
+      server-committed journals; prepared remains pending and committed reuses
+      the canonical atomic finalizer.
+- [x] Invoke reconciliation after refresh/unlock once the exact-subject cut
+      supplies `CapabilityInstanceRef + WalletAuthAuthorityRef`; do not infer
+      either identity from legacy session fields or resume an abandoned parent
+      registration/add-signer operation.
+- [x] Route every activation through one commit port.
 - [x] Finalize replacement, retire the source, and delete the journal in one
       IndexedDB transaction.
-- [ ] Rehydrate the same exact material activation across refresh while
+- [x] Rehydrate the same exact material activation across refresh while
       authorization session identity may change.
-- [ ] Remove canonical material ownership, material readers, and material
+- [x] Remove canonical material ownership, material readers, and material
       writers from the legacy `ThresholdEcdsaSessionRecord*` family; forbid new
       legacy material writes.
-- [ ] Reject and clear pre-cutover development records at the persistence
+- [x] Reject and clear pre-cutover development records at the persistence
       boundary; add no dual-schema core reader, alias, or fallback.
-- [ ] Prove persisted hydration → worker bind → sign through the shared path.
+- [x] Prove persisted hydration → worker bind → sign through the shared path.
 
 ### 1D. Slim material references
 
@@ -278,22 +296,22 @@ removes.
       references.
 - [x] Keep role-local material handles stable across Tempo and ARC for the same
       exact activated material.
-- [ ] Remove raw share bytes and broad state objects from generic callers.
+- [x] Remove raw share bytes and broad state objects from generic callers.
 - [ ] Delete `evmFamilySigningKeySlotId` from runtime paths or prove it is a
       provisioning-only identifier outside material selection.
-- [ ] Verify Tempo, EVM, and export consumers use the same durable material
+- [x] Verify Tempo, EVM, and export consumers use the same durable material
       reference.
-- [ ] Reject cross-chain mismatch before worker open or material use.
-- [ ] Confine any transitional `activeState` shape to its boundary and schedule
+- [x] Reject cross-chain mismatch before worker open or material use.
+- [x] Confine any transitional `activeState` shape to its boundary and schedule
       its same-unit deletion.
 
 ### Unit 1 exit
 
 - [ ] Every deletion-ledger entry assigned to Unit 1 is closed; ownership
       corrections are recorded before implementation.
-- [ ] Registration, unlock, and refresh produce identical canonical outcomes
-      from equivalent observations.
-- [ ] Required-field and invalid-state type fixtures pass.
+- [ ] One type fixture proves registration, unlock, and refresh provenance cannot
+      affect resolver input; fourteen state cases cover both capabilities.
+- [x] Required-field and invalid-state type fixtures pass.
 - [ ] IndexedDB crash tests prove atomic activation finalization.
 - [ ] Focused intended-behavior tests preserve refresh allowance and exact
       material rehydration.
@@ -316,13 +334,6 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 - [x] Existing D1 CAS batches and Wallet Session budget tests provide the
       transaction pattern; they are not the new authorization domain.
 
-### Inventory
-
-- [ ] Seed the scoped inventory from Phase 7–14 rows in the deletion ledger.
-- [ ] Inventory auth/capability strings, route maps, public exports, request
-      bodies, session persistence, evidence, grants, claims, and audit writers.
-- [ ] Record any new replacement/deletion targets before implementation.
-
 ### Closed vocabulary and selection
 
 - [ ] Adopt the existing closed capability vocabulary in production SDK,
@@ -341,7 +352,7 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 
 ### Ports and host-independent assembly
 
-- [ ] Define narrow request-scoped ports for capability policy, session,
+- [x] Define narrow request-scoped ports for capability policy, session,
       evidence, grants, claims, and audit.
 - [ ] Keep Cloudflare, Node, local, and self-hosted adapters behind the same
       static port shapes.
@@ -349,19 +360,19 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
       tenant-mutated route table, or deployment module-selection framework.
 - [x] Preserve Refactor 93 gateway ownership and `MPC_ROUTER` request-scoped
       binding.
-- [ ] Reject tenant-runtime service locators and direct infrastructure roles in
+- [x] Reject tenant-runtime service locators and direct infrastructure roles in
       domain handlers.
 
 ### Authorization data model
 
-- [ ] Persist precise records for session exchange codes, authorization
+- [x] Persist precise records for session exchange codes, authorization
       sessions, factor evidence, capability instances/bindings, operation
       grants, operation claims, and audit events.
 - [x] Implement opaque native session exchange bound to tenant, principal,
       audience/origin, and the minimum required device fact.
 - [x] Keep session transport and management authorization separate from
       capability-operation grants.
-- [ ] Normalize DB and route data once into required-field domain unions.
+- [x] Normalize DB and route data once into required-field domain unions.
 - [x] Define the stable operation fingerprint from operation semantics without
       rotating authorization, quota, session, or runtime identities.
 - [x] Atomically create an absent claim, consume its grant, and consume reusable
@@ -374,11 +385,11 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 
 ### Shared authorization behavior
 
-- [ ] Passkey and Email OTP create the same evidence and grant shapes.
-- [ ] Bind Passkey and existing Email OTP evidence to the exact operation.
-- [ ] Policy evaluates declared capability, operation, factor evidence, and
+- [x] Passkey and Email OTP create the same evidence and grant shapes.
+- [x] Bind Passkey and existing Email OTP evidence to the exact operation.
+- [x] Policy evaluates declared capability, operation, factor evidence, and
       current authorization state.
-- [ ] Fail `mpc_signer_proof` policy evaluation closed until a verified producer
+- [x] Fail `mpc_signer_proof` policy evaluation closed until a verified producer
       exists.
 - [x] Audit records the decision and identifiers without secret material.
 - [ ] Move management and session routes to exact subjects, keep their policy
@@ -386,15 +397,15 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 - [x] One DB-backed integration test proves
       session → evidence → grant → claim → audit before Units 3a/3b depend on the
       core.
-- [ ] Keep the no-factor-literal guard in generic preparation and coordination
+- [x] Keep the no-factor-literal guard in generic preparation and coordination
       modules.
 
 ### Unit 2 exit
 
 - [ ] Every deletion-ledger entry assigned to Unit 2 is closed; ownership
       corrections are recorded before implementation.
-- [ ] Shared/session/server type checks pass.
-- [ ] Concurrent identical and conflicting claim tests prove exactly-once
+- [x] Shared/session/server type checks pass.
+- [x] Concurrent identical and conflicting claim tests prove exactly-once
       grant/quota consumption.
 - [ ] SDK and each host adapter pass the same capability-selection contract.
 
@@ -408,32 +419,24 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
 This is one no-release cutover. Intermediate commits may compile and test, but
 the replacement and legacy MPC paths must not ship together.
 
-### Inventory
-
-- [ ] Seed the scoped inventory from Phase 17–21, 24, and MPC-owned Phase 27
-      rows in the deletion ledger.
-- [ ] Inventory every registration, unlock, refresh, signing, step-up, export,
-      recovery, worker, WASM, route, and host-assembly entry point.
-- [ ] Record any new replacement/deletion targets before implementation.
-
 ### Durable recovery and authority
 
-- [ ] Keep authorization session, material activation, recovery, grant, and
+- [x] Keep authorization session, material activation, recovery, grant, and
       operation identities independent and branded.
-- [ ] Persist one canonical Near public locator, sealed active-client record,
+- [x] Persist one canonical Near public locator, sealed active-client record,
       and sealed recovery source; create no parallel D1/DO material owner.
-- [ ] Parse Near persistence once with no dual-schema core reader or legacy
+- [x] Parse Near persistence once with no dual-schema core reader or legacy
       lifecycle inference.
-- [ ] Normalize the exact Near record, runtime binding, and unlock-source
+- [x] Normalize the exact Near record, runtime binding, and unlock-source
       observation once into the shared hydration input.
-- [ ] Reduce NEAR recovery persistence to `prepared | promotion_committed`.
-- [ ] Persist `prepared` before the first consuming call, query before replay
+- [x] Reduce NEAR recovery persistence to `prepared | promotion_committed`.
+- [x] Persist `prepared` before the first consuming call, query before replay
       after reload, and persist `promotion_committed` from the exact receipt.
-- [ ] Preserve `cancel_requested` on prepared recovery; reload reconciles it
+- [x] Preserve `cancel_requested` on prepared recovery; reload reconciles it
       without executing the abandoned parent operation.
-- [ ] Make every consuming recovery call independently idempotent and queryable
+- [x] Make every consuming recovery call independently idempotent and queryable
       by recovery ID.
-- [ ] Atomically finalize local promotion and delete its journal.
+- [x] Atomically finalize local promotion and delete its journal.
 - [ ] Use one exact idempotent revocation command only when offline local
       cleanup requires eventual server revocation; dispose local secrets
       immediately.
@@ -451,27 +454,27 @@ the replacement and legacy MPC paths must not ship together.
       material owner; keep user interaction outside the queue, check
       generation/fence before use and commit, fail stale fences, and allow
       different owners to progress independently.
-- [ ] Bind live worker material to the exact material activation.
-- [ ] Give a server-side expiry race at most one retry after same-method
+- [x] Bind live worker material to the exact material activation.
+- [x] Give a server-side expiry race at most one retry after same-method
       step-up.
-- [ ] Return a typed expiry result immediately to UI confirmation.
-- [ ] Apply one session classifier to NEAR, Tempo, EVM, delegate signing, and
+- [x] Return a typed expiry result immediately to UI confirmation.
+- [x] Apply one session classifier to NEAR, Tempo, EVM, delegate signing, and
       key export.
-- [ ] Preserve the three-use reusable-session budget across refresh.
-- [ ] Keep expiry, exhaustion, missing, unavailable, and invalid as distinct
+- [x] Preserve the three-use reusable-session budget across refresh.
+- [x] Keep expiry, exhaustion, missing, unavailable, and invalid as distinct
       typed states.
 - [ ] Look up an existing operation claim before fresh authorization or
       recovery; reuse its outcome without another grant/quota use.
 - [ ] For an absent claim, atomically validate lifecycle, consume the exact
       grant and applicable quota, create the claim, and link its audit event.
-- [ ] Require reusable-session authority to carry
+- [x] Require reusable-session authority to carry
       `WalletSessionId + CapabilityGrantId`; require step-up authority to carry
       `CapabilityGrantId` and forbid `WalletSessionId`.
-- [ ] Require both authorization branches to carry the independent exact
+- [x] Require both authorization branches to carry the independent exact
       `MpcMaterialActivationRef`.
-- [ ] Replace generic wire `session_id` and `active_state_session_id` fields
+- [x] Replace generic wire `session_id` and `active_state_session_id` fields
       with the discriminated authorization branch and exact activation reference;
-      advance the protocol version and transcript vectors together.
+      update the unreleased protocol schema and transcript vectors together.
 - [ ] Commit Near grant/quota admission at the request-scoped Gateway before
       the Router effect; bind its digest into Refactor 93 exact replay without
       crypto reevaluation or repeated resource consumption.
@@ -551,16 +554,14 @@ Detailed implementation belongs to
 the proof that the shared authorization core supports `vault.proxy_use` through
 the minimal local broker/gateway adapter.
 
-- [ ] Run a scoped vault inventory and add any discovered replacement/deletion
-      targets to the ledger before implementation.
-- [ ] Use Unit 2 sessions, evidence, grants, claims, and audit without a
+- [x] Use Unit 2 sessions, evidence, grants, claims, and audit without a
       vault-specific authorization framework.
-- [ ] Prove native session exchange → operation-bound Passkey evidence → exact
+- [x] Prove native session exchange → operation-bound Passkey evidence → exact
       one-use grant → atomic claim/use → real persisted/routed
       `vault.proxy_use` → audit readback.
-- [ ] Keep broad vault product UI, recovery, rotation, sharing, and future
+- [x] Keep broad vault product UI, recovery, rotation, sharing, and future
       capability kinds in the Satyr plan.
-- [ ] Close every target discovered by the Unit 3b inventory.
+- [x] Delete each concrete replaced vault target in the change that replaces it.
 
 Unit 3b may run in parallel with Unit 3a after the Unit 2 integration gate and
 does not block the Unit 3a implementation checkpoint. Refactor 90 completion
@@ -572,27 +573,19 @@ normative plans are amended together.
 Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 `R90-INV-014`.
 
-### Inventory
-
-- [ ] Seed the scoped inventory from Phase 22–23 and UI-owned Phase 27 rows in
-      the deletion ledger.
-- [ ] Inventory confirmation, registration, unlock, refresh, readiness,
-      provisioning, and demo-state projections.
-- [ ] Record any new replacement/deletion targets before implementation.
-
 ### Typed UI lifecycle
 
 - [ ] Make React, Lit, iframe, and direct SDK adapters render
       `ready | pending | authorization_required | superseded | failed`
       exhaustively.
 - [ ] Discard and re-resolve stale state on `superseded`.
-- [ ] Terminate confirmation immediately on the typed expiry result.
-- [ ] Wait for secure-origin initialization and consume typed state/events.
-- [ ] Stop inferring unlocked state from optional IDs, JWT presence, or auth
+- [x] Terminate confirmation immediately on the typed expiry result.
+- [x] Wait for secure-origin initialization and consume typed state/events.
+- [x] Stop inferring unlocked state from optional IDs, JWT presence, or auth
       method.
-- [ ] Treat the demo wallet as unlocked only while a reusable Wallet Session is
+- [x] Treat the demo wallet as unlocked only while a reusable Wallet Session is
       active.
-- [ ] Lock on authoritative expiry, request step-up on exhaustion, and preserve
+- [x] Lock on authoritative expiry, request step-up on exhaustion, and preserve
       the broader app identity session.
 - [ ] Ensure only explicit wallet unlock creates a reusable Wallet Session.
 - [ ] Keep step-up single-operation across signing and export surfaces.
@@ -602,7 +595,7 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 - [ ] Create registration/add-factor auth identity first, then provision each
       capability independently through statically composed canonical owners.
 - [ ] Make partial capability results explicit and exhaustively handled.
-- [ ] Return exact per-capability results with no combined cross-curve record.
+- [x] Return exact per-capability results with no combined cross-curve record.
 - [ ] Use exact wallet, authorization-session, and material-activation
       projections.
 - [ ] Delete Patch 2 tactical UI/provisioning bridges after their last caller
@@ -615,8 +608,8 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 - [ ] Every deletion-ledger entry assigned to Unit 4 is closed; ownership
       corrections are recorded before implementation.
 - [ ] UI type fixtures reject incomplete lifecycle states.
-- [ ] Intended tests prove expiry/exhaustion separation, refresh allowance,
-      step-up behavior, and Passkey/OTP parity.
+- [ ] Existing Refactor 92 contracts still prove expiry/exhaustion separation,
+      refresh allowance, step-up behavior, and Passkey/OTP parity.
 - [ ] Registration and provisioning expose no partial legacy capability shape.
 
 ## Final Conformance Gate
@@ -637,19 +630,46 @@ This is a validation gate, not a deferred cleanup phase.
 - [ ] `git diff --check` passes.
 - [ ] The journal records the final implementation and validation state.
 
+## Verification Budgets
+
+### Fault-injection and concurrency
+
+Keep the load-bearing crash cases at irreversible Near boundaries, ECDSA
+activation-correlation replay, atomic local finalization, stale material-owner
+generation/fence rejection, per-owner serialization, existing-claim
+non-consumption, and the single server-expiry retry. Add no broader matrix until
+one of those demonstrations exposes a distinct failure mode.
+
+### Intended-behaviour E2E
+
+Refactor 90 adds at most these eight scenarios:
+
+1. registration immediately followed by signing;
+2. wallet unlock immediately followed by signing;
+3. page refresh followed by concurrent signing;
+4. exact local rehydration without Yao recovery;
+5. missing-material recovery followed by signing;
+6. corrupt or mismatched material failing closed;
+7. stale preparation returning `superseded` and resolving the replacement;
+8. one minimal vault session/evidence/grant/operation/audit vertical.
+
+Run Refactor 92's existing contracts unchanged for expiry, exhaustion, step-up,
+invalidation, demo-lock, and app-identity behavior. Refactor 90 adds no duplicate
+E2E cases for those behaviors.
+
 ## Validation Ownership
 
 The SPEC verification checklist is normative. Unit-local checks provide the
 short execution view.
 
-| Unit  | Primary verification                                                                                   |
-| ----- | ------------------------------------------------------------------------------------------------------ |
-| 1     | Domain type fixtures, IndexedDB store tests, hydration matrix, refresh and activation crash tests      |
-| 2     | Schema/boundary tests, authorization integration, atomic claim concurrency, host-port contracts        |
-| 3a    | MPC intended behaviors, recovery fault injection, vectors/bindings, worker/WASM/bundle and host checks |
-| 3b    | Satyr Phase 6 end-to-end vault operation and authorization/audit assertions                            |
-| 4     | UI type fixtures and intended registration/unlock/refresh/expiry/exhaustion tests                      |
-| Final | Full intended suite, architecture/export guards, deletion ledger, and diff hygiene                     |
+| Unit  | Primary verification                                                                                    |
+| ----- | ------------------------------------------------------------------------------------------------------- |
+| 1     | Domain type fixtures, IndexedDB store tests, fourteen canonical-state cases, and activation crash tests |
+| 2     | Schema/boundary tests, authorization integration, atomic claim concurrency, host-port contracts         |
+| 3a    | MPC intended behaviors, recovery fault injection, vectors/bindings, worker/WASM/bundle and host checks  |
+| 3b    | Satyr Phase 6 end-to-end vault operation and authorization/audit assertions                             |
+| 4     | UI type fixtures and intended registration/unlock/refresh/expiry/exhaustion tests                       |
+| Final | Full intended suite, architecture/export guards, deletion ledger, and diff hygiene                      |
 
 When a lower-authority fixture or source guard fails, classify it against the
 SPEC and intended behavior before changing production code.

@@ -125,16 +125,14 @@ evidence from the progress journal.
   records once and expose only precise internal branches.
 - [ ] `R90-INV-002` — Near and ECDSA each have one durable material owner and one
   volatile runtime owner.
-- [ ] `R90-INV-003` — registration, unlock, and refresh equivalence tests select
-  the same hydration outcome from equivalent canonical observations.
+- [ ] `R90-INV-003` — one type fixture excludes entry-point provenance from
+  resolver input; fourteen canonical-state cases cover both capabilities.
 - [x] `R90-INV-005` — ECDSA activation finalization atomically writes material,
   manifest, replacement retirement, and journal deletion.
 - [x] `R90-INV-006` — ECDSA journal types contain no runtime-publication,
   disposal, zeroization, or other volatile facts.
 - [x] `R90-INV-011` — ECDSA post-commit verification creates no durable
   readback/publication state.
-- [ ] `R90-INV-012` — Unit 1 type fixtures, parser tests, persistence tests,
-  and generic-module guards each cover their assigned failure mode once.
 
 ### Units 2 and 3b — authorization core and vault proving vertical
 
@@ -168,8 +166,6 @@ evidence from the progress journal.
   every SDK/UI adapter discards and re-resolves the stale lane.
 - [ ] `R90-INV-011` — Near post-commit verification creates no durable readback
   stage.
-- [ ] `R90-INV-012` — type, parser, guard, integration, concurrency, and E2E
-  checks follow the one-enforcement-per-failure-mode rule.
 - [ ] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
   and export use an exact material-activation reference independently from the
   discriminated reusable-session or operation-step-up authority; step-up

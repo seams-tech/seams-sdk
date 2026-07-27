@@ -1,13 +1,88 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import { readAvailableLanesFixture } from './helpers/availableSigningLanes.fixtures';
+import {
+  ecdsaCapabilityActivationFixture,
+  type EcdsaCapabilityActivationFixture,
+} from './helpers/ecdsaCapabilityManifest.fixtures';
 
 const IMPORT_PATHS = {
   login: '/_test-sdk/esm/SeamsWeb/operations/auth/login.js',
   walletUnlockSubject: '/_test-sdk/esm/SeamsWeb/operations/auth/walletUnlockSubject.js',
   indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
+  ecdsaManifestStore:
+    '/_test-sdk/esm/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.js',
   thresholdSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
 } as const;
+
+async function exerciseCanonicalEcdsaRefreshReconciliation(input: {
+  readonly paths: typeof IMPORT_PATHS;
+  readonly fixture: EcdsaCapabilityActivationFixture;
+  readonly availableLanes: Awaited<ReturnType<typeof readAvailableLanesFixture>>;
+}) {
+  const loginMod = await import(input.paths.login);
+  const storeMod = await import(input.paths.ecdsaManifestStore);
+  const store = new storeMod.IndexedDbEcdsaCapabilityManifestStore();
+  const prepared = await store.prepareActivation(input.fixture.prepareInput);
+  if (prepared.kind !== 'stored' || prepared.journal.kind !== 'activation_prepared') {
+    throw new Error(`ECDSA refresh fixture preparation failed: ${prepared.kind}`);
+  }
+  const committed = await store.recordServerActivation({
+    preparedJournal: prepared.journal,
+    serverCommit: input.fixture.serverCommit,
+  });
+  if (committed.kind !== 'stored' || committed.journal.kind !== 'server_activation_committed') {
+    throw new Error(`ECDSA refresh fixture commit failed: ${committed.kind}`);
+  }
+  const finalized = await store.sealAndFinalizeActivation({
+    committedJournal: committed.journal,
+    ...input.fixture.sealInput,
+  });
+  if (finalized.kind !== 'committed') {
+    throw new Error(`ECDSA refresh fixture finalization failed: ${finalized.kind}`);
+  }
+
+  const reconciliationRequests: unknown[] = [];
+  const session = await loginMod.getWalletSession(
+    {
+      configs: {
+        network: { chains: [] },
+        signing: { mode: { mode: 'threshold-signer' } },
+      },
+      signingEngine: {
+        getSignerWorkerContext: () => ({
+          requestWorkerOperation: async (args: unknown) => {
+            reconciliationRequests.push(args);
+            return {
+              type: 70_117,
+              payload: { kind: 'canonical_ecdsa_activation_reconciliation_absent_v1' },
+            };
+          },
+        }),
+        assertSealedRefreshStartupParity: async () => undefined,
+        getLastUser: async () => null,
+        getUserBySignerSlot: async () => null,
+        getWarmThresholdEd25519SessionStatus: async () => null,
+        listWarmThresholdEcdsaSessionStatuses: async () => [],
+        listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
+        readPersistedAvailableSigningLanes: async () => input.availableLanes,
+        getReusableWalletSessionStatus: async () => null,
+        getNonceCoordinator: () => ({ getDiagnostics: () => null }),
+      },
+    },
+    input.fixture.prepareInput.activationBinding.signer.authority.walletId,
+  );
+  const projection = session.capabilityProjection;
+  if (projection.kind !== 'resolved') {
+    throw new Error(`ECDSA refresh capability projection failed: ${projection.kind}`);
+  }
+  const subject = projection.subjectSet.subjects[0];
+  return {
+    projectionKind: projection.kind,
+    subject,
+    reconciliationRequestCount: reconciliationRequests.length,
+  };
+}
 
 test.describe('wallet session profile identity restore', () => {
   test.beforeEach(async ({ page }) => {
@@ -363,99 +438,30 @@ test.describe('wallet session profile identity restore', () => {
     });
   });
 
-  test('resolves an ECDSA-only wallet subject without fabricating NEAR identity', async ({
+  test('reconciles the exact canonical ECDSA subject during wallet-session refresh', async ({
     page,
   }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const subjectMod = await import(paths.walletUnlockSubject);
-        const indexedDbMod = await import(paths.indexedDB);
-        const thresholdSessionStore = await import(paths.thresholdSessionStore);
-        const db = indexedDbMod.IndexedDBManager;
-        const walletId = 'refresh-wallet-ecdsa-only';
-        const thresholdOwnerAddress = '0x1111111111111111111111111111111111111111';
-        const chainTarget = {
-          kind: 'evm',
-          namespace: 'eip155',
-          chainId: 5042002,
-          networkSlug: 'arc-testnet',
-        };
-        const evmFamilySigningKeySlotId =
-          'wallet-key:evm-family:refresh-wallet-ecdsa-only:proj-refresh:default';
-
-        thresholdSessionStore.clearAllStoredThresholdEd25519SessionRecords();
-        await db.upsertProfile({
-          profileId: walletId,
-          defaultSignerSlot: 1,
-        });
-        await db.activateAccountSigner({
-          account: {
-            profileId: walletId,
-            chainIdKey: 'evm:eip155:5042002',
-            accountAddress: thresholdOwnerAddress,
-            accountModel: 'threshold-ecdsa',
-          },
-          signer: {
-            signerId: thresholdOwnerAddress,
-            signerType: 'threshold',
-            signerKind: 'threshold-ecdsa',
-            signerAuthMethod: 'passkey',
-            signerSource: 'passkey_registration',
-            metadata: {
-              walletId,
-              keyHandle: 'ederivation-key-refresh-ecdsa-only',
-              ecdsaThresholdKeyId: 'ederivation-refresh-ecdsa-only',
-              thresholdOwnerAddress,
-              chainTarget,
-              thresholdEcdsaPublicKeyB64u: 'A1111111111111111111111111111111111111111111',
-              evmFamilySigningKeySlotId,
-              walletKeyId: evmFamilySigningKeySlotId,
-            },
-          },
-          activationPolicy: { mode: 'fail_if_occupied', signerSlot: 1 },
-          preferredSlot: 1,
-          mutation: { routeThroughOutbox: false },
-        });
-
-        const resolution = await subjectMod.resolveWalletSessionReadResolution(walletId);
-
-        type BrowserWalletSubject = {
-          kind?: unknown;
-          walletId?: unknown;
-          nearAccountId?: unknown;
-          ecdsaThresholdKeyId?: unknown;
-        };
-
-        return {
-          kind: resolution.kind,
-          walletId: String(resolution.walletId || ''),
-          subjects:
-            resolution.kind === 'resolved'
-              ? resolution.subjectSet.subjects.map((subject: BrowserWalletSubject) => ({
-                  kind: subject.kind,
-                  walletId: String(subject.walletId || ''),
-                  nearAccountId: String(subject.nearAccountId || ''),
-                  ecdsaThresholdKeyId: String(subject.ecdsaThresholdKeyId || ''),
-                }))
-              : [],
-          source: resolution.source || null,
-        };
-      },
-      { paths: IMPORT_PATHS },
-    );
+    const fixture = ecdsaCapabilityActivationFixture();
+    const availableLanes = await readAvailableLanesFixture({
+      walletId: fixture.prepareInput.activationBinding.signer.authority.walletId,
+    });
+    const result = await page.evaluate(exerciseCanonicalEcdsaRefreshReconciliation, {
+      paths: IMPORT_PATHS,
+      fixture,
+      availableLanes,
+    });
 
     expect(result).toEqual({
-      kind: 'resolved',
-      walletId: 'refresh-wallet-ecdsa-only',
-      subjects: [
-        {
-          kind: 'evm_family_ecdsa_wallet',
-          walletId: 'refresh-wallet-ecdsa-only',
-          nearAccountId: '',
-          ecdsaThresholdKeyId: 'ederivation-refresh-ecdsa-only',
-        },
-      ],
-      source: 'profile_projection',
+      projectionKind: 'resolved',
+      subject: {
+        kind: 'evm_family_ecdsa_wallet',
+        walletId: fixture.prepareInput.activationBinding.signer.authority.walletId,
+        capability: fixture.prepareInput.activationBinding.signer.capability,
+        authority: fixture.prepareInput.activationBinding.signer.authority,
+        ecdsaThresholdKeyId:
+          fixture.prepareInput.activationBinding.roleLocalBinding.ecdsaThresholdKeyId,
+      },
+      reconciliationRequestCount: 1,
     });
   });
 

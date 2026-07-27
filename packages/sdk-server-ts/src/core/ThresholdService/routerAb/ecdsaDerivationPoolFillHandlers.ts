@@ -376,7 +376,6 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
     }
     if (
       scope.wallet_id !== input.walletId ||
-      scope.wallet_key_id !== input.evmFamilySigningKeySlotId ||
       scope.signing_root_id !== input.signingRoot.signingRootId ||
       scope.signing_root_version !== input.signingRoot.signingRootVersion ||
       input.keySelector.keyHandle !== input.claims.keyHandle

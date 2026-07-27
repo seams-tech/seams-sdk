@@ -38,6 +38,8 @@ import {
   type EvmFamilyEcdsaSignerId,
 } from '@shared/utils/ecdsaCapabilityActivation';
 import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
+import type { EcdsaRoleLocalPublicFacts } from '@/core/platform/ecdsaRoleLocalRecords';
+import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { ParticipantId, VerifiedEcdsaPublicFacts } from '../identity/evmFamilyEcdsaIdentity';
 import type {
   EcdsaClientVerifyingPublicKey33B64u,
@@ -305,6 +307,7 @@ class EcdsaActivationBindingProof extends EcdsaCapabilityManifestProof {
   readonly targetManifest: EcdsaManifestIdentity;
   readonly signer: PreparedEvmFamilySigner;
   readonly activationId: MpcMaterialActivationId;
+  readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
   readonly bindingDigest: EcdsaRoleLocalBindingDigest;
   readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
@@ -313,6 +316,7 @@ class EcdsaActivationBindingProof extends EcdsaCapabilityManifestProof {
     readonly targetManifest: EcdsaManifestIdentity;
     readonly signer: PreparedEvmFamilySigner;
     readonly activationId: MpcMaterialActivationId;
+    readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
     readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
     readonly bindingDigest: EcdsaRoleLocalBindingDigest;
     readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
@@ -321,6 +325,7 @@ class EcdsaActivationBindingProof extends EcdsaCapabilityManifestProof {
     this.targetManifest = fields.targetManifest;
     this.signer = fields.signer;
     this.activationId = fields.activationId;
+    this.evmFamilySigningKeySlotId = fields.evmFamilySigningKeySlotId;
     this.roleLocalBinding = fields.roleLocalBinding;
     this.bindingDigest = fields.bindingDigest;
     this.durableMaterialRef = fields.durableMaterialRef;
@@ -502,6 +507,7 @@ type DurableEcdsaMaterialBindingExclusions = {
 class DurableEcdsaMaterialBindingProof extends EcdsaCapabilityManifestProof {
   readonly kind = 'durable_ecdsa_material';
   readonly materialActivation: MpcMaterialActivationRef;
+  readonly roleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
   readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
   readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
   readonly bindingDigest: EcdsaRoleLocalBindingDigest;
@@ -512,6 +518,7 @@ class DurableEcdsaMaterialBindingProof extends EcdsaCapabilityManifestProof {
 
   constructor(fields: {
     readonly materialActivation: MpcMaterialActivationRef;
+    readonly roleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
     readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
     readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
     readonly bindingDigest: EcdsaRoleLocalBindingDigest;
@@ -522,6 +529,7 @@ class DurableEcdsaMaterialBindingProof extends EcdsaCapabilityManifestProof {
   }) {
     super();
     this.materialActivation = fields.materialActivation;
+    this.roleLocalPublicFacts = fields.roleLocalPublicFacts;
     this.roleLocalBinding = fields.roleLocalBinding;
     this.durableMaterialRef = fields.durableMaterialRef;
     this.bindingDigest = fields.bindingDigest;
@@ -747,6 +755,7 @@ export function buildEcdsaActivationBinding(
     readonly targetManifest: EcdsaManifestIdentity;
     readonly signer: PreparedEvmFamilySigner;
     readonly activationId: MpcMaterialActivationId;
+    readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
     readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
     readonly bindingDigest: EcdsaRoleLocalBindingDigest;
     readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
@@ -869,6 +878,7 @@ export function buildServerCommittedEcdsaActivationJournal(input: {
 export function buildDurableEcdsaMaterialBinding(input: {
   readonly activationBinding: EcdsaActivationBinding;
   readonly serverActivation: EcdsaServerActivationCommit;
+  readonly roleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
   readonly ciphertextDigest: EcdsaCiphertextDigest;
   readonly kind?: never;
   readonly materialActivation?: never;
@@ -878,12 +888,30 @@ export function buildDurableEcdsaMaterialBinding(input: {
   readonly runtime?: never;
 }): DurableEcdsaMaterialBinding {
   assertServerActivationMatchesBinding(input.serverActivation, input.activationBinding);
+  const facts = input.roleLocalPublicFacts;
+  const binding = input.activationBinding;
+  if (
+    facts.walletId !== binding.signer.walletId ||
+    facts.evmFamilySigningKeySlotId !== binding.evmFamilySigningKeySlotId ||
+    facts.keyHandle !== binding.roleLocalBinding.keyHandle ||
+    facts.ecdsaThresholdKeyId !== binding.roleLocalBinding.ecdsaThresholdKeyId ||
+    facts.signingRootId !== binding.signer.signingRootId ||
+    facts.signingRootVersion !== binding.signer.signingRootVersion ||
+    facts.contextBinding32B64u !== binding.bindingDigest ||
+    !participantIdsMatch(facts.participantIds, binding.roleLocalBinding.participantIds) ||
+    !binding.signer.scope.targetMemberships.some(
+      (target) => ecdsaTargetMembershipKey(target) === ecdsaTargetMembershipKey(facts.chainTarget),
+    )
+  ) {
+    throw new Error('ECDSA role-local public facts do not match their activation');
+  }
   const receipt = input.serverActivation.serverActivationReceipt;
   return new DurableEcdsaMaterialBindingProof({
     materialActivation: materialActivationFromCommit(
       input.activationBinding,
       receipt.protocolReceipt,
     ),
+    roleLocalPublicFacts: input.roleLocalPublicFacts,
     roleLocalBinding: input.activationBinding.roleLocalBinding,
     durableMaterialRef: input.activationBinding.durableMaterialRef,
     bindingDigest: input.activationBinding.bindingDigest,
@@ -1178,8 +1206,8 @@ function assertRegisteredPublicFactsMatchBinding(
 }
 
 function participantIdsMatch(
-  left: readonly ParticipantId[],
-  right: readonly ParticipantId[],
+  left: readonly number[],
+  right: readonly number[],
 ): boolean {
   if (left.length !== right.length) return false;
   return left.every((participantId, index) => Number(participantId) === Number(right[index]));

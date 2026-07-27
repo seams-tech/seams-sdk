@@ -35,6 +35,7 @@ import {
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
+import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   parseRouterAbEcdsaVerifiedClientActivationFactsV1,
   type RouterAbEcdsaVerifiedClientActivationFactsV1,
@@ -82,6 +83,7 @@ type PlannerOwnedIdentityExclusions = {
 export type InitialEcdsaCapabilityActivationPlanInput = {
   readonly authority: WalletAuthAuthorityRef;
   readonly targetMemberships: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
+  readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   readonly ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   readonly signingRootId: SigningRootId;
   readonly signingRootVersion: SigningRootVersion;
@@ -239,12 +241,8 @@ function freshSignerId() {
   );
 }
 
-function freshMaterialOwnerRef() {
-  return unwrapDomainId(
-    parseMpcMaterialOwnerRef(
-      secureRandomId('ecdsa-material-owner', 32, 'initial ECDSA material owner identities'),
-    ),
-  );
+function materialOwnerRefForAuthority(authority: WalletAuthAuthorityRef) {
+  return unwrapDomainId(parseMpcMaterialOwnerRef(authority.walletId));
 }
 
 function freshManifestIdentity() {
@@ -308,7 +306,7 @@ export async function buildInitialEcdsaCapabilityActivationPlan(
     scope: buildEcdsaCapabilityScope({
       targetMemberships: input.targetMemberships,
     }),
-    materialOwner: freshMaterialOwnerRef(),
+    materialOwner: materialOwnerRefForAuthority(authority),
     signingRootId,
     signingRootVersion,
   });
@@ -316,6 +314,7 @@ export async function buildInitialEcdsaCapabilityActivationPlan(
     targetManifest: freshManifestIdentity(),
     signer,
     activationId: freshActivationId(),
+    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
     roleLocalBinding,
     bindingDigest: parseEcdsaRoleLocalBindingDigest(input.bindingDigest),
     durableMaterialRef: freshDurableMaterialRef(),

@@ -12,7 +12,7 @@ import {
   nearEd25519SignerBindingFromBoundaryFields,
 } from '../../session/identity/exactSigningLaneIdentity';
 import { toRpId } from '../../session/identity/evmFamilyEcdsaIdentity';
-import type { Ed25519YaoActiveClientIdentityV1 } from '../../threshold/ed25519/yaoActiveClientRegistry';
+import type { Ed25519YaoActiveClientLookupScopeV1 } from '../../threshold/ed25519/yaoActiveClientRegistry';
 import {
   createExportUiRequestId,
   emitKeyExportEvent,
@@ -36,6 +36,7 @@ import type {
   PasskeyEd25519YaoExportContextV1,
 } from '../../session/passkey/ed25519YaoWarmRecovery';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519YaoMaterialActivationFromPublicFacts } from '../../session/material/nearEd25519YaoMaterialActivation';
 
 export type Ed25519YaoExportFlowDeps = {
   touchConfirm: Pick<
@@ -43,7 +44,7 @@ export type Ed25519YaoExportFlowDeps = {
     'exportPrivateKeysWithUi' | 'initialize' | 'requestUserConfirmation'
   >;
   resolveActiveCapability: (
-    identity: Ed25519YaoActiveClientIdentityV1,
+    scope: Ed25519YaoActiveClientLookupScopeV1,
   ) => NearEd25519YaoSigningCapability | null;
   recoverPasskeyCapability: (
     laneIdentity: ExactPasskeyEd25519SigningLaneIdentity,
@@ -156,13 +157,12 @@ function requireEmailOtpExportLaneIdentity(
   return args.laneIdentity;
 }
 
-function activeCapabilityIdentity(
+function activeCapabilityLookupScope(
   laneIdentity: ExactEd25519SigningLaneIdentity,
-): Ed25519YaoActiveClientIdentityV1 {
+): Ed25519YaoActiveClientLookupScopeV1 {
   return {
     walletId: laneIdentity.signer.account.wallet.walletId,
     nearAccountId: laneIdentity.signer.account.nearAccountId,
-    thresholdSessionId: String(laneIdentity.thresholdSessionId),
   };
 }
 
@@ -297,7 +297,7 @@ async function resolveExactPasskeyExportContext(
   args: ExportEd25519YaoKeyArgs,
 ): Promise<ResolvedPasskeyEd25519YaoExportContext> {
   const laneIdentity = requirePasskeyExportLaneIdentity(args);
-  const activeCapability = deps.resolveActiveCapability(activeCapabilityIdentity(laneIdentity));
+  const activeCapability = deps.resolveActiveCapability(activeCapabilityLookupScope(laneIdentity));
   if (activeCapability) {
     return resolvePasskeyExportContextFromActiveCapability({
       capability: activeCapability,
@@ -364,7 +364,14 @@ function buildWorkerPayload(args: {
       credentialIdB64u: args.resolved.laneIdentity.auth.credentialIdB64u,
       signingGrantId: String(args.resolved.laneIdentity.signingGrantId),
       thresholdSessionId: String(args.resolved.laneIdentity.thresholdSessionId),
-      activeStateSessionId: args.resolved.capability.scope.wallet_session_id,
+      materialActivation: nearEd25519YaoMaterialActivationFromPublicFacts({
+        activationId: args.resolved.capability.scope.wallet_session_id,
+        activeCapabilityBinding: args.resolved.capability.activeCapabilityBinding,
+        walletId: args.resolved.capability.applicationBinding.wallet_id,
+        registeredPublicKey: args.resolved.capability.registeredPublicKey,
+        lifecycleId: args.resolved.capability.scope.lifecycle_id,
+        signingWorkerId: args.resolved.capability.scope.signing_worker_id,
+      }),
     },
     capability: args.resolved.capability,
     variant: args.input.options.variant,

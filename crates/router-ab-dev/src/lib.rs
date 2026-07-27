@@ -16,7 +16,7 @@ use router_ab_core::{
     decode_ab_peer_message_payload_v1,
     decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
     execute_local_persistence_sql_seed_plan_v1, local_persistence_seed_sql_plan_v1,
-    router_ab_ecdsa_derivation_active_state_session_id_v1, router_transcript_digest_v1,
+    router_ab_ecdsa_derivation_material_activation_id_v1, router_transcript_digest_v1,
     ActiveSigningWorkerStateV1, EcdsaThresholdPrfRequestV1, EncryptedPayloadV1,
     ExpensiveWorkKindV1, LifecycleScopeV1, LocalDeriverAEndpointV1, LocalDeriverBEndpointV1,
     LocalEnvSnapshotV1, LocalHttpCeremonyResultV1, LocalHttpMethodV1, LocalHttpPathV1,
@@ -1723,7 +1723,7 @@ impl LocalRouterAbEcdsaDerivationTrustedAdmissionV1 {
             ));
         }
         if self.session_id
-            != router_ab_ecdsa_derivation_active_state_session_id_v1(
+            != router_ab_ecdsa_derivation_material_activation_id_v1(
                 &request.scope.ecdsa_threshold_key_id,
                 &request.scope.signing_root_id,
                 &request.scope.signing_root_version,
@@ -1760,7 +1760,7 @@ impl LocalRouterAbEcdsaDerivationTrustedAdmissionV1 {
             ));
         }
         if self.session_id
-            != router_ab_ecdsa_derivation_active_state_session_id_v1(
+            != router_ab_ecdsa_derivation_material_activation_id_v1(
                 &request.scope.ecdsa_threshold_key_id,
                 &request.scope.signing_root_id,
                 &request.scope.signing_root_version,
@@ -2129,7 +2129,7 @@ fn local_active_router_ab_ecdsa_derivation_signing_worker_state_v1(
             "local Router A/B ECDSA derivation scope SigningWorker does not match local worker config",
         ));
     }
-    let session_id = router_ab_ecdsa_derivation_active_state_session_id_v1(
+    let session_id = router_ab_ecdsa_derivation_material_activation_id_v1(
         &scope.ecdsa_threshold_key_id,
         &scope.signing_root_id,
         &scope.signing_root_version,

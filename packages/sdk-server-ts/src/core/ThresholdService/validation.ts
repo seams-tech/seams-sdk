@@ -55,6 +55,14 @@ import type {
 } from '../types';
 import type { WalletRegistrationEcdsaClientBootstrap } from '../registrationContracts';
 import { registrationPreparationIdFromString } from '../registrationContracts';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseSeamsSessionId,
+  parseWalletSessionId,
+  type MpcWalletSigningQuotaId,
+  type SeamsSessionId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 export type ThresholdValidationOk = { ok: true };
 export type ThresholdValidationErr = { ok: false; code: string; message: string };
@@ -1600,6 +1608,8 @@ export type Ed25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionC
   kind: Kind;
   thresholdSessionId: string;
   signingGrantId: string;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   relayerKeyId: string;
   authority: WalletAuthAuthority;
   authorityScope: ThresholdEd25519AuthorityScope;
@@ -1645,6 +1655,10 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
   );
   const signingGrantId = toOptionalString((raw as { signingGrantId?: unknown }).signingGrantId);
+  const walletSessionId = parseWalletSessionId(
+    (raw as { walletSessionId?: unknown }).walletSessionId,
+  );
+  const quotaId = parseMpcWalletSigningQuotaId((raw as { quotaId?: unknown }).quotaId);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const authorityScope = parseThresholdEd25519AuthorityScope(
     (raw as { authorityScope?: unknown }).authorityScope,
@@ -1658,6 +1672,8 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     !nearEd25519SigningKeyId ||
     !thresholdSessionId ||
     !signingGrantId ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
     !relayerKeyId ||
     !authorityScope ||
     !authority ||
@@ -1682,6 +1698,8 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     kind: expectedKind,
     thresholdSessionId,
     signingGrantId,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
     relayerKeyId,
     authority,
     authorityScope,
@@ -1753,6 +1771,7 @@ export type AppSessionClaims = {
   sub: string;
   kind: 'app_session_v1';
   appSessionVersion: string;
+  seamsSessionId?: SeamsSessionId;
   walletId?: string;
   walletAuthAuthorityRef?: WalletAuthAuthorityRef;
   googleEmailOtpRegistrationAttemptId?: string;
@@ -1775,6 +1794,12 @@ export function parseAppSessionClaims(raw: unknown): AppSessionClaims | null {
     kind,
     appSessionVersion,
   };
+  const seamsSessionIdRaw = (raw as { seamsSessionId?: unknown }).seamsSessionId;
+  if (seamsSessionIdRaw !== undefined) {
+    const seamsSessionId = parseSeamsSessionId(seamsSessionIdRaw);
+    if (!seamsSessionId.ok) return null;
+    out.seamsSessionId = seamsSessionId.value;
+  }
   const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
   if (walletId) out.walletId = walletId;
   const walletAuthAuthorityRefRaw = (raw as { walletAuthAuthorityRef?: unknown })
@@ -1870,6 +1895,9 @@ export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaim
   kind: Kind;
   thresholdSessionId: string;
   signingGrantId: string;
+  authorizationSessionId: SeamsSessionId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   keyScope: 'evm-family';
   keyHandle: string;
   relayerKeyId: string;
@@ -1903,6 +1931,13 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
   );
   const signingGrantId = toOptionalString((raw as { signingGrantId?: unknown }).signingGrantId);
+  const authorizationSessionId = parseSeamsSessionId(
+    (raw as { authorizationSessionId?: unknown }).authorizationSessionId,
+  );
+  const walletSessionId = parseWalletSessionId(
+    (raw as { walletSessionId?: unknown }).walletSessionId,
+  );
+  const quotaId = parseMpcWalletSigningQuotaId((raw as { quotaId?: unknown }).quotaId);
   const keyScope = toOptionalString((raw as { keyScope?: unknown }).keyScope);
   const keyHandle = toOptionalString((raw as { keyHandle?: unknown }).keyHandle);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
@@ -1915,6 +1950,9 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     walletId !== sub ||
     !thresholdSessionId ||
     !signingGrantId ||
+    !authorizationSessionId.ok ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
     keyScope !== 'evm-family' ||
     !keyHandle ||
     !relayerKeyId ||
@@ -1933,6 +1971,9 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     kind: expectedKind,
     thresholdSessionId,
     signingGrantId,
+    authorizationSessionId: authorizationSessionId.value,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
     keyScope,
     keyHandle,
     relayerKeyId,

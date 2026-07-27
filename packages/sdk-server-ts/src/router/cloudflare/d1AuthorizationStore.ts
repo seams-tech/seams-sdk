@@ -3,10 +3,12 @@ import {
   parseCapabilityGrantId,
   parseCapabilityGrantUseId,
   parseCapabilityId,
+  parseCapabilityOperationId,
   parseCapabilityOperationRef,
   parseCapabilityOperationResultStorageRef,
   parseDeviceId,
   parsePrincipalId,
+  parseReusableWalletSessionMintId,
   parseSeamsSessionId,
   parseTenantId,
   type AuthorizationParseResult,
@@ -15,6 +17,7 @@ import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
   ActiveAuthorizationSession,
   ActiveCapabilityGrant,
+  ActiveReusableWalletSession,
   ActiveWalletSessionQuota,
   AuthorizationAuditEvent,
   CapabilityGrantUse,
@@ -27,15 +30,30 @@ import type {
   MpcWalletSigningQuotaId,
   RedeemHostedWalletSeamsSessionExchangeInput,
   RedeemHostedWalletSeamsSessionExchangeResult,
+  ReusableWalletSessionStatus,
   VerifiedGrantEvidenceSet,
   WalletSessionId,
 } from '../../authorization/domain';
-import { buildActiveAuthorizationSession, parseSessionOrigin } from '../../authorization/domain';
+import {
+  buildActiveAuthorizationSession,
+  buildActiveReusableWalletSession,
+  buildActiveWalletSessionQuota,
+  parseMpcWalletSigningQuotaId,
+  parseSessionOrigin,
+  parseWalletSessionId,
+} from '../../authorization/domain';
 import {
   parseCapabilityOperationFingerprintDigest,
   type CapabilityOperationFingerprintDigest,
 } from '@shared/authorization/operationFingerprint';
-import type { AuthorizationStore } from '../../authorization/service';
+import type {
+  AuthorizationAuditPort,
+  AuthorizationClaimPort,
+  AuthorizationEvidencePort,
+  CapabilityGrantClaimSource,
+  AuthorizationGrantPort,
+  AuthorizationSessionPort,
+} from '../../authorization/service';
 import { d1ChangedRows, type D1Row } from '../../storage/d1Sql';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import {
@@ -85,7 +103,14 @@ type HostedWalletExchangeRow = {
   readonly expires_at_ms?: unknown;
 };
 
-export class CloudflareD1AuthorizationStore implements AuthorizationStore {
+export class CloudflareD1AuthorizationStore
+  implements
+    AuthorizationSessionPort,
+    AuthorizationEvidencePort,
+    AuthorizationGrantPort,
+    AuthorizationClaimPort,
+    AuthorizationAuditPort
+{
   private readonly database: D1DatabaseLike;
   private readonly namespace: string;
 
@@ -157,6 +182,97 @@ export class CloudflareD1AuthorizationStore implements AuthorizationStore {
       )
       .first<D1Row>();
     return row ? parseAuthorizationSessionRow(row) : null;
+  }
+
+  async readReusableWalletSessionStatus(input: {
+    readonly tenantId: ReusableWalletSessionStatus['tenantId'];
+    readonly principalId: ReusableWalletSessionStatus['principalId'];
+    readonly walletSessionId: ReusableWalletSessionStatus['walletSessionId'];
+    readonly quotaId: ReusableWalletSessionStatus['quotaId'];
+    readonly nowMs: number;
+  }): Promise<ReusableWalletSessionStatus> {
+    const identity = {
+      tenantId: input.tenantId,
+      principalId: input.principalId,
+      walletSessionId: input.walletSessionId,
+      quotaId: input.quotaId,
+    } as const;
+    const row = await this.database
+      .prepare(
+        `SELECT
+           wallet_session.principal_id AS session_principal_id,
+           wallet_session.quota_id AS session_quota_id,
+           wallet_session.lifecycle_kind AS session_lifecycle_kind,
+           wallet_session.expires_at_ms AS session_expires_at_ms,
+           quota.wallet_session_id AS quota_wallet_session_id,
+           quota.principal_id AS quota_principal_id,
+           quota.remaining_uses AS quota_remaining_uses,
+           quota.lifecycle_kind AS quota_lifecycle_kind,
+           quota.expires_at_ms AS quota_expires_at_ms
+         FROM reusable_wallet_sessions AS wallet_session
+         LEFT JOIN authorization_wallet_session_quotas AS quota
+           ON quota.namespace = wallet_session.namespace
+          AND quota.tenant_id = wallet_session.tenant_id
+          AND quota.quota_id = wallet_session.quota_id
+        WHERE wallet_session.namespace = ?
+          AND wallet_session.tenant_id = ?
+          AND wallet_session.wallet_session_id = ?
+        LIMIT 1`,
+      )
+      .bind(this.namespace, input.tenantId, input.walletSessionId)
+      .first<D1Row>();
+    if (!row) return { kind: 'missing', ...identity };
+    if (
+      row.session_principal_id !== input.principalId ||
+      row.session_quota_id !== input.quotaId ||
+      row.quota_wallet_session_id !== input.walletSessionId ||
+      row.quota_principal_id !== input.principalId
+    ) {
+      return { kind: 'invalid', ...identity };
+    }
+    const sessionLifecycle = String(row.session_lifecycle_kind || '');
+    const quotaLifecycle = String(row.quota_lifecycle_kind || '');
+    const sessionExpiresAtMs = Number(row.session_expires_at_ms);
+    const quotaExpiresAtMs = Number(row.quota_expires_at_ms);
+    const remainingUses = Number(row.quota_remaining_uses);
+    if (
+      !Number.isSafeInteger(sessionExpiresAtMs) ||
+      sessionExpiresAtMs <= 0 ||
+      !Number.isSafeInteger(quotaExpiresAtMs) ||
+      quotaExpiresAtMs !== sessionExpiresAtMs ||
+      !Number.isSafeInteger(remainingUses) ||
+      remainingUses < 0 ||
+      (sessionLifecycle !== 'active' && sessionLifecycle !== 'superseded') ||
+      (quotaLifecycle !== 'active' && quotaLifecycle !== 'exhausted')
+    ) {
+      return { kind: 'invalid', ...identity };
+    }
+    if (sessionLifecycle === 'superseded') {
+      if (quotaLifecycle !== 'exhausted' || remainingUses !== 0) {
+        return { kind: 'invalid', ...identity };
+      }
+      return { kind: 'superseded', ...identity };
+    }
+    if (sessionExpiresAtMs <= requirePositiveInteger(input.nowMs, 'Wallet Session status time')) {
+      return { kind: 'expired', ...identity, expiresAtMs: sessionExpiresAtMs };
+    }
+    if (quotaLifecycle === 'exhausted' && remainingUses === 0) {
+      return {
+        kind: 'exhausted',
+        ...identity,
+        remainingUses: 0,
+        expiresAtMs: sessionExpiresAtMs,
+      };
+    }
+    if (quotaLifecycle !== 'active' || remainingUses === 0) {
+      return { kind: 'invalid', ...identity };
+    }
+    return {
+      kind: 'active',
+      ...identity,
+      remainingUses,
+      expiresAtMs: sessionExpiresAtMs,
+    };
   }
 
   async putIssuedHostedWalletSeamsSessionExchange(
@@ -266,7 +382,7 @@ export class CloudflareD1AuthorizationStore implements AuthorizationStore {
   async putVerifiedEvidenceSet(evidenceSet: VerifiedGrantEvidenceSet): Promise<void> {
     const result = await this.database
       .prepare(
-        `INSERT INTO verified_grant_evidence_sets (
+        `INSERT OR IGNORE INTO verified_grant_evidence_sets (
           namespace,
           tenant_id,
           evidence_set_id,
@@ -317,14 +433,16 @@ export class CloudflareD1AuthorizationStore implements AuthorizationStore {
         evidenceSet.expiresAtMs,
       )
       .run();
-    requireOneChangedRow(result, 'verified grant evidence set');
+    if (d1ChangedRows(result) > 1) {
+      throw new Error('verified grant evidence set changed more than one row');
+    }
   }
 
   async putActiveGrant(grant: ActiveCapabilityGrant): Promise<void> {
     const authority = grantAuthorityColumns(grant);
     const result = await this.database
       .prepare(
-        `INSERT INTO capability_grants (
+        `INSERT OR IGNORE INTO capability_grants (
           namespace,
           tenant_id,
           grant_id,
@@ -333,6 +451,7 @@ export class CloudflareD1AuthorizationStore implements AuthorizationStore {
           evidence_set_id,
           evidence_set_digest,
           capability_id,
+          operation_id,
           capability_kind,
           operation_kind,
           lane_digest,
@@ -347,7 +466,7 @@ export class CloudflareD1AuthorizationStore implements AuthorizationStore {
           expires_at_ms,
           consumed_at_ms
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL
           FROM verified_grant_evidence_sets AS evidence
          WHERE evidence.namespace = ?
            AND evidence.tenant_id = ?
@@ -359,7 +478,21 @@ export class CloudflareD1AuthorizationStore implements AuthorizationStore {
            AND evidence.lane_digest = ?
            AND evidence.intent_digest = ?
            AND evidence.display_digest = ?
-           AND evidence.expires_at_ms >= ?`,
+           AND evidence.expires_at_ms >= ?
+           AND (
+             ? = 'operation_step_up'
+             OR EXISTS (
+               SELECT 1
+                 FROM reusable_wallet_sessions AS wallet_session
+                WHERE wallet_session.namespace = ?
+                  AND wallet_session.tenant_id = ?
+                  AND wallet_session.wallet_session_id = ?
+                  AND wallet_session.principal_id = ?
+                  AND wallet_session.quota_id = ?
+                  AND wallet_session.lifecycle_kind = 'active'
+                  AND wallet_session.expires_at_ms >= ?
+             )
+           )`,
       )
       .bind(
         this.namespace,
@@ -370,6 +503,7 @@ export class CloudflareD1AuthorizationStore implements AuthorizationStore {
         grant.evidenceSetId,
         grant.evidenceSetDigest,
         grant.capabilityId,
+        grant.operationId,
         grant.operation.capabilityKind,
         grant.operation.operationKind,
         grant.laneDigest,
@@ -392,9 +526,18 @@ export class CloudflareD1AuthorizationStore implements AuthorizationStore {
         grant.intentDigest,
         grant.displayDigest,
         grant.expiresAtMs,
+        authority.kind,
+        this.namespace,
+        grant.tenantId,
+        authority.walletSessionId,
+        grant.principalId,
+        authority.quotaId,
+        grant.expiresAtMs,
       )
       .run();
-    requireOneChangedRow(result, 'active capability grant');
+    if (d1ChangedRows(result) > 1) {
+      throw new Error('active capability grant changed more than one row');
+    }
   }
 
   async putActiveWalletSessionQuota(quota: ActiveWalletSessionQuota): Promise<void> {
@@ -422,6 +565,202 @@ export class CloudflareD1AuthorizationStore implements AuthorizationStore {
       )
       .run();
     requireOneChangedRow(result, 'active Wallet Session quota');
+  }
+
+  async putActiveReusableWalletSession(input: {
+    readonly session: ActiveReusableWalletSession;
+    readonly quota: ActiveWalletSessionQuota;
+  }): Promise<void> {
+    requireExactReusableWalletSessionQuota(input);
+    const retireQuotaStatement = this.database
+      .prepare(
+        `UPDATE authorization_wallet_session_quotas
+            SET remaining_uses = 0,
+                lifecycle_kind = 'exhausted'
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND NOT EXISTS (
+              SELECT 1
+                FROM reusable_wallet_sessions
+               WHERE namespace = ?
+                 AND tenant_id = ?
+                 AND mint_id = ?
+            )
+            AND quota_id IN (
+              SELECT quota_id
+                FROM reusable_wallet_sessions
+               WHERE namespace = ?
+                 AND tenant_id = ?
+                 AND wallet_id = ?
+                 AND authority_digest = ?
+                 AND mint_id != ?
+                 AND lifecycle_kind = 'active'
+            )`,
+      )
+      .bind(
+        this.namespace,
+        input.session.tenantId,
+        this.namespace,
+        input.session.tenantId,
+        input.session.mintId,
+        this.namespace,
+        input.session.tenantId,
+        input.session.walletId,
+        input.session.authority.authorityDigest,
+        input.session.mintId,
+      );
+    const retireSessionStatement = this.database
+      .prepare(
+        `UPDATE reusable_wallet_sessions
+            SET lifecycle_kind = 'superseded'
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND NOT EXISTS (
+              SELECT 1
+                FROM reusable_wallet_sessions
+               WHERE namespace = ?
+                 AND tenant_id = ?
+                 AND mint_id = ?
+            )
+            AND wallet_id = ?
+            AND authority_digest = ?
+            AND mint_id != ?
+            AND lifecycle_kind = 'active'`,
+      )
+      .bind(
+        this.namespace,
+        input.session.tenantId,
+        this.namespace,
+        input.session.tenantId,
+        input.session.mintId,
+        input.session.walletId,
+        input.session.authority.authorityDigest,
+        input.session.mintId,
+      );
+    const quotaStatement = this.database
+      .prepare(
+        `INSERT OR IGNORE INTO authorization_wallet_session_quotas (
+          namespace,
+          tenant_id,
+          quota_id,
+          wallet_session_id,
+          principal_id,
+          remaining_uses,
+          lifecycle_kind,
+          expires_at_ms
+        )
+        SELECT ?, ?, ?, ?, ?, ?, 'active', ?
+         WHERE NOT EXISTS (
+           SELECT 1
+             FROM reusable_wallet_sessions
+            WHERE namespace = ?
+              AND tenant_id = ?
+              AND mint_id = ?
+         )`,
+      )
+      .bind(
+        this.namespace,
+        input.quota.tenantId,
+        input.quota.quotaId,
+        input.quota.walletSessionId,
+        input.quota.principalId,
+        requirePositiveInteger(input.quota.remainingUses, 'quota.remainingUses'),
+        requirePositiveInteger(input.quota.expiresAtMs, 'quota.expiresAtMs'),
+        this.namespace,
+        input.session.tenantId,
+        input.session.mintId,
+      );
+    const sessionStatement = this.database
+      .prepare(
+        `INSERT OR IGNORE INTO reusable_wallet_sessions (
+          namespace,
+          tenant_id,
+          wallet_session_id,
+          principal_id,
+          wallet_id,
+          authority_digest,
+          mint_id,
+          quota_id,
+          lifecycle_kind,
+          created_at_ms,
+          expires_at_ms
+        )
+        VALUES (
+          ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?
+        )`,
+      )
+      .bind(
+        this.namespace,
+        input.session.tenantId,
+        input.session.walletSessionId,
+        input.session.principalId,
+        input.session.walletId,
+        input.session.authority.authorityDigest,
+        input.session.mintId,
+        input.session.quotaId,
+        requirePositiveInteger(input.session.createdAtMs, 'session.createdAtMs'),
+        requirePositiveInteger(input.session.expiresAtMs, 'session.expiresAtMs'),
+      );
+    const results = await this.database.batch<{
+      readonly meta?: { readonly changes?: number };
+    }>([retireQuotaStatement, retireSessionStatement, quotaStatement, sessionStatement]);
+    if (results.length !== 4) {
+      throw new Error('reusable Wallet Session transaction returned incomplete results');
+    }
+    await this.requireExactReusableWalletSessionReadback(input);
+  }
+
+  private async requireExactReusableWalletSessionReadback(input: {
+    readonly session: ActiveReusableWalletSession;
+    readonly quota: ActiveWalletSessionQuota;
+  }): Promise<void> {
+    const session = await this.database
+      .prepare(
+        `SELECT *
+           FROM reusable_wallet_sessions
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND mint_id = ?
+          LIMIT 1`,
+      )
+      .bind(this.namespace, input.session.tenantId, input.session.mintId)
+      .first<D1Row>();
+    const quota = await this.database
+      .prepare(
+        `SELECT *
+           FROM authorization_wallet_session_quotas
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND quota_id = ?
+          LIMIT 1`,
+      )
+      .bind(this.namespace, input.quota.tenantId, input.quota.quotaId)
+      .first<D1Row>();
+    if (!reusableWalletSessionReadbackMatches(session, quota, input)) {
+      throw new Error('reusable Wallet Session issuance replay does not match');
+    }
+  }
+
+  async readGrantClaimSource(input: {
+    readonly tenantId: CapabilityGrantClaimSource['tenantId'];
+    readonly grantId: CapabilityGrantClaimSource['grantId'];
+  }): Promise<CapabilityGrantClaimSource | null> {
+    const row = await this.database
+      .prepare(
+        `SELECT grant.*, evidence.session_id AS authorization_session_id
+           FROM capability_grants AS grant
+           JOIN verified_grant_evidence_sets AS evidence
+             ON evidence.namespace = grant.namespace
+            AND evidence.tenant_id = grant.tenant_id
+            AND evidence.evidence_set_id = grant.evidence_set_id
+          WHERE grant.namespace = ?
+            AND grant.tenant_id = ?
+            AND grant.grant_id = ?
+          LIMIT 1`,
+      )
+      .bind(this.namespace, input.tenantId, input.grantId)
+      .first<D1Row>();
+    return row ? parseCapabilityGrantClaimSourceRow(row) : null;
   }
 
   async claimOperation(claim: CapabilityOperationClaim): Promise<ClaimCapabilityOperationResult> {
@@ -765,6 +1104,77 @@ function parseAuthorizationProviderId(value: unknown): 'google_oidc' | 'oidc' | 
   return value === 'google_oidc' || value === 'oidc' ? value : null;
 }
 
+function parseCapabilityGrantClaimSourceRow(row: D1Row): CapabilityGrantClaimSource {
+  const tenantId = requireParsed(row.tenant_id, parseTenantId, 'grant.tenantId');
+  const principalId = requireParsed(row.principal_id, parsePrincipalId, 'grant.principalId');
+  const authorizationSessionId = requireParsed(
+    row.authorization_session_id,
+    parseSeamsSessionId,
+    'grant.authorizationSessionId',
+  );
+  const grantId = requireParsed(row.grant_id, parseCapabilityGrantId, 'grant.grantId');
+  const evidenceSetDigest = parseDigestB64u(row.evidence_set_digest);
+  const capabilityId = requireParsed(row.capability_id, parseCapabilityId, 'grant.capabilityId');
+  const operationId = requireParsed(
+    row.operation_id,
+    parseCapabilityOperationId,
+    'grant.operationId',
+  );
+  const operation = requireParsed(
+    {
+      capabilityKind: row.capability_kind,
+      operationKind: row.operation_kind,
+    },
+    parseCapabilityOperationRef,
+    'grant.operation',
+  );
+  const laneDigest = parseDigestB64u(row.lane_digest);
+  const intentDigest = parseDigestB64u(row.intent_digest);
+  const displayDigest = parseDigestB64u(row.display_digest);
+  switch (row.authority_kind) {
+    case 'reusable_wallet_session':
+      return {
+        tenantId,
+        principalId,
+        authorizationSessionId,
+        grantId,
+        evidenceSetDigest,
+        capabilityId,
+        operationId,
+        operation,
+        laneDigest,
+        intentDigest,
+        displayDigest,
+        authority: {
+          kind: 'reusable_wallet_session',
+          walletSessionId: requireParsed(
+            row.wallet_session_id,
+            parseWalletSessionId,
+            'grant.walletSessionId',
+          ),
+          quotaId: requireParsed(row.quota_id, parseMpcWalletSigningQuotaId, 'grant.quotaId'),
+        },
+      };
+    case 'operation_step_up':
+      return {
+        tenantId,
+        principalId,
+        authorizationSessionId,
+        grantId,
+        evidenceSetDigest,
+        capabilityId,
+        operationId,
+        operation,
+        laneDigest,
+        intentDigest,
+        displayDigest,
+        authority: { kind: 'operation_step_up' },
+      };
+    default:
+      throw new Error('grant authority kind is invalid');
+  }
+}
+
 function classifyHostedWalletExchange(
   row: HostedWalletExchangeRow | null,
   input: RedeemHostedWalletSeamsSessionExchangeInput,
@@ -889,6 +1299,11 @@ function parseCapabilityGrantUseRow(row: D1Row): CapabilityGrantUse {
     grantId: requireParsed(row.grant_id, parseCapabilityGrantId, 'use.grantId'),
     principalId: requireParsed(row.principal_id, parsePrincipalId, 'use.principalId'),
     capabilityId: requireParsed(row.capability_id, parseCapabilityId, 'use.capabilityId'),
+    operationId: requireParsed(
+      row.operation_id,
+      parseCapabilityOperationId,
+      'use.operationId',
+    ),
     operation: requireParsed(
       {
         capabilityKind: row.capability_kind,
@@ -909,6 +1324,7 @@ function parseCapabilityGrantUseRow(row: D1Row): CapabilityGrantUse {
       grantId: base.grantId,
       principalId: base.principalId,
       capabilityId: base.capabilityId,
+      operationId: base.operationId,
       operation: base.operation,
       operationFingerprintDigest: base.operationFingerprintDigest,
       evidenceSetDigest: base.evidenceSetDigest,
@@ -925,6 +1341,7 @@ function parseCapabilityGrantUseRow(row: D1Row): CapabilityGrantUse {
     grantId: base.grantId,
     principalId: base.principalId,
     capabilityId: base.capabilityId,
+    operationId: base.operationId,
     operation: base.operation,
     operationFingerprintDigest: base.operationFingerprintDigest,
     evidenceSetDigest: base.evidenceSetDigest,
@@ -956,6 +1373,7 @@ function parseAuditEventRow(row: D1Row): AuthorizationAuditEvent {
     grantId: requireParsed(row.grant_id, parseCapabilityGrantId, 'audit.grantId'),
     useId: requireParsed(row.use_id, parseCapabilityGrantUseId, 'audit.useId'),
     capabilityId: requireParsed(row.capability_id, parseCapabilityId, 'audit.capabilityId'),
+    operationId: requireParsed(row.operation_id, parseCapabilityOperationId, 'audit.operationId'),
     operation: requireParsed(
       {
         capabilityKind: row.capability_kind,
@@ -1047,4 +1465,47 @@ function requireOneChangedRow(
   if (d1ChangedRows({ success: true, meta: result.meta }) !== 1) {
     throw new Error(`${label} was not persisted`);
   }
+}
+
+function requireExactReusableWalletSessionQuota(input: {
+  readonly session: ActiveReusableWalletSession;
+  readonly quota: ActiveWalletSessionQuota;
+}): void {
+  if (
+    input.session.tenantId !== input.quota.tenantId ||
+    input.session.principalId !== input.quota.principalId ||
+    input.session.walletSessionId !== input.quota.walletSessionId ||
+    input.session.quotaId !== input.quota.quotaId ||
+    input.session.expiresAtMs !== input.quota.expiresAtMs
+  ) {
+    throw new Error('reusable Wallet Session and quota must have one exact identity');
+  }
+}
+
+function reusableWalletSessionReadbackMatches(
+  session: D1Row | null,
+  quota: D1Row | null,
+  input: {
+    readonly session: ActiveReusableWalletSession;
+    readonly quota: ActiveWalletSessionQuota;
+  },
+): boolean {
+  return (
+    session !== null &&
+    quota !== null &&
+    session.wallet_session_id === input.session.walletSessionId &&
+    session.principal_id === input.session.principalId &&
+    session.wallet_id === input.session.walletId &&
+    session.authority_digest === input.session.authority.authorityDigest &&
+    session.mint_id === input.session.mintId &&
+    session.quota_id === input.session.quotaId &&
+    session.lifecycle_kind === 'active' &&
+    integerColumn(session.created_at_ms, 'session.createdAtMs') === input.session.createdAtMs &&
+    integerColumn(session.expires_at_ms, 'session.expiresAtMs') === input.session.expiresAtMs &&
+    quota.wallet_session_id === input.quota.walletSessionId &&
+    quota.principal_id === input.quota.principalId &&
+    quota.lifecycle_kind === 'active' &&
+    integerColumn(quota.remaining_uses, 'quota.remainingUses') === input.quota.remainingUses &&
+    integerColumn(quota.expires_at_ms, 'quota.expiresAtMs') === input.quota.expiresAtMs
+  );
 }

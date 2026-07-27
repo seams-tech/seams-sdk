@@ -12,6 +12,8 @@ import {
   type WebAuthnPrfFirstSecretSource,
 } from '@/core/platform/types';
 import { toRpId } from '../../session/identity/evmFamilyEcdsaIdentity';
+import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
+import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 export type ThresholdEd25519WebAuthnPrfSecretSource = {
   kind: 'webauthn_prf_first_credential';
@@ -258,4 +260,53 @@ export async function mintEd25519WalletSession(args: {
     );
     return { ok: false, code: 'network_error', message: msg };
   }
+}
+
+export async function issueEd25519OperationStepUpGrant(args: {
+  relayerUrl: string;
+  normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
+  displayDigest: string;
+  authority: PasskeyWalletAuthAuthority;
+  credential: WebAuthnAuthenticationCredential;
+}): Promise<{
+  kind: 'operation_step_up';
+  grantId: string;
+  authorizationSessionId: string;
+  expiresAtMs: number;
+}> {
+  const relayerUrl = stripTrailingSlashes(toTrimmedString(args.relayerUrl));
+  if (!relayerUrl) throw new Error('[threshold-ed25519] operation step-up relayerUrl is required');
+  const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',
+      normalSigningRequest: args.normalSigningRequest,
+      displayDigest: args.displayDigest,
+      authority: args.authority,
+      webauthn_authentication: redactCredentialExtensionOutputs(args.credential),
+    }),
+  });
+  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok || body.ok !== true || body.kind !== 'operation_step_up') {
+    throw new Error(
+      `[threshold-ed25519] operation step-up failed: ${String(
+        body.message || `HTTP ${response.status}`,
+      )}`,
+    );
+  }
+  const expiresAtMs = Number(body.expiresAtMs);
+  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
+    throw new Error('[threshold-ed25519] operation step-up expiry is invalid');
+  }
+  return {
+    kind: 'operation_step_up',
+    grantId: requireNonEmptyEd25519SecretSourceString(body.grantId, 'grantId'),
+    authorizationSessionId: requireNonEmptyEd25519SecretSourceString(
+      body.authorizationSessionId,
+      'authorizationSessionId',
+    ),
+    expiresAtMs,
+  };
 }

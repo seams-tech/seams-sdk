@@ -10,7 +10,8 @@ use local_dev_process::{
 };
 use router_ab_cloudflare::CloudflareSigningWorkerEcdsaPoolAdmissionReceiptV1;
 use router_ab_core::{
-    router_ab_ecdsa_rerandomization_client_commitment_v1, LocalServiceRoleV1, Role,
+    router_ab_ecdsa_rerandomization_client_commitment_v1, LocalServiceRoleV1,
+    MpcMaterialActivationRefV1, NormalSigningAuthorizationV1, Role,
     RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
@@ -282,6 +283,12 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
     let prepare_request = RouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
         fixture.scope.clone(),
         &format!("local-router-ab-ecdsa-derivation-smoke-sign-{smoke_run_id}"),
+        &format!("local-router-ab-ecdsa-derivation-operation-{smoke_run_id}"),
+        NormalSigningAuthorizationV1::reusable_wallet_session(
+            LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_SESSION_ID,
+            LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_GRANT_ID,
+        )?,
+        local_smoke_router_ab_ecdsa_derivation_material_activation(&fixture.scope)?,
         fixture.server_presignature_id.clone(),
         fixture.expires_at_ms,
         b64u(&fixture.signing_digest32),
@@ -352,6 +359,9 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
     let finalize_request = RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1::new(
         fixture.scope,
         prepare_request.request_id,
+        prepare_request.operation_id,
+        prepare_request.authorization,
+        prepare_request.material_activation,
         prepare_request.expires_at_ms,
         prepare_request.signing_digest_b64u,
         prepare_response.server_presignature_id,
@@ -500,7 +510,6 @@ fn local_router_ab_ecdsa_derivation_fixture(
         0,
     )?;
     let scope = RouterAbEcdsaDerivationNormalSigningScopeV1::new(
-        LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
         LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
         LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
         LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
@@ -524,6 +533,19 @@ fn local_router_ab_ecdsa_derivation_fixture(
         signing_digest32: [0x42; 32],
         expires_at_ms: 4_000_000_000_000,
     })
+}
+
+fn local_smoke_router_ab_ecdsa_derivation_material_activation(
+    scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
+) -> Result<MpcMaterialActivationRefV1, Box<dyn std::error::Error>> {
+    Ok(MpcMaterialActivationRefV1::new(
+        scope.material_activation_id()?,
+        "evm-ecdsa-capability-local",
+        scope.wallet_id.clone(),
+        scope.ecdsa_threshold_key_id.clone(),
+        scope.activation_epoch.clone(),
+        scope.signing_worker.server_id.clone(),
+    )?)
 }
 
 fn local_router_ab_ecdsa_derivation_smoke_server_presignature_id(
@@ -635,7 +657,7 @@ fn seed_local_ecdsa_wallet_session(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let seed = json!({
         "walletId": fixture.scope.wallet_id,
-        "evmFamilySigningKeySlotId": fixture.scope.wallet_key_id,
+        "evmFamilySigningKeySlotId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
         "ecdsaThresholdKeyId": fixture.scope.ecdsa_threshold_key_id,
         "signingRootId": fixture.scope.signing_root_id,
         "signingRootVersion": fixture.scope.signing_root_version,
@@ -704,7 +726,7 @@ fn local_smoke_router_ab_ecdsa_derivation_wallet_session_authorization_v1(
         "keyScope": "evm-family",
         "keyHandle": "local-router-ab-ecdsa-derivation-key-handle",
         "relayerKeyId": fixture.scope.ecdsa_threshold_key_id,
-        "evmFamilySigningKeySlotId": fixture.scope.wallet_key_id,
+        "evmFamilySigningKeySlotId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
         "participantIds": [1, 2],
         "thresholdExpiresAtMs": LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS,
         "runtimePolicyScope": {

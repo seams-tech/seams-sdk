@@ -8,10 +8,13 @@ import {
 import { parseEcdsaThresholdKeyId } from '@/core/signingEngine/session/keyMaterialBrands';
 import type { EvmFamilyEcdsaWalletUnlockSubject } from '@/core/signingEngine/session/identity/walletUnlockSubject';
 import {
-  parseSigningGrantId,
-  parseThresholdSessionId,
-  type SigningGrantId,
+  parseCapabilityInstanceRef,
+  parseWalletAuthorityBindingDigest,
 } from '@shared/utils/domainIds';
+import {
+  parseWalletSessionId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type { WalletAuthMethod } from '@shared/utils/signerDomain';
 import {
   buildPasskeyAuthScope,
@@ -83,7 +86,7 @@ export function activeWalletSessionFixture(
     reusableWalletSession: {
       kind: 'active',
       walletId: appIdentity.walletId,
-      walletSessionId: fixtureSigningGrantId(input.walletSessionId),
+      walletSessionId: fixtureWalletSessionId(input.walletSessionId),
       authMethod: input.authMethod ?? 'passkey',
       remainingUses: input.remainingUses ?? 3,
       expiresAtMs: input.expiresAtMs ?? Date.now() + 60_000,
@@ -114,7 +117,7 @@ export function exhaustedWalletSessionFixture(
     reusableWalletSession: {
       kind: 'exhausted',
       walletId: appIdentity.walletId,
-      walletSessionId: fixtureSigningGrantId(input.walletSessionId),
+      walletSessionId: fixtureWalletSessionId(input.walletSessionId),
       authMethod: input.authMethod ?? 'passkey',
       remainingUses: 0,
       expiresAtMs: input.expiresAtMs ?? Date.now() + 60_000,
@@ -136,7 +139,7 @@ export function expiredWalletSessionFixture(
     reusableWalletSession: {
       kind: 'expired',
       walletId: appIdentity.walletId,
-      walletSessionId: fixtureSigningGrantId(input.walletSessionId),
+      walletSessionId: fixtureWalletSessionId(input.walletSessionId),
       authMethod: input.authMethod ?? 'passkey',
       expiresAtMs: input.expiresAtMs ?? detectedAtMs - 1,
       detectedAtMs,
@@ -202,12 +205,21 @@ export function restorableEcdsaWalletSessionFixture(
   }
   const walletId = active.appIdentity.walletId;
   const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId('ecdsa-wallet-session-fixture');
-  const walletSessionId = fixtureSigningGrantId(input.walletSessionId);
-  const thresholdSessionId = parseThresholdSessionId('threshold-session-fixture');
-  if (!thresholdSessionId.ok) throw new Error('Threshold Session fixture ID must be valid');
+  const capability = parseCapabilityInstanceRef('ecdsa-wallet-session-capability-fixture');
+  const authorityDigest = parseWalletAuthorityBindingDigest(
+    'ecdsa-wallet-session-authority-fixture',
+  );
+  if (!capability.ok) throw new Error('ECDSA capability fixture ID must be valid');
+  if (!authorityDigest.ok) throw new Error('ECDSA authority fixture digest must be valid');
   const subject: EvmFamilyEcdsaWalletUnlockSubject = {
     kind: 'evm_family_ecdsa_wallet',
     walletId,
+    capability: capability.value,
+    authority: {
+      kind: 'wallet_auth_authority_ref',
+      walletId,
+      authorityDigest: authorityDigest.value,
+    },
     ecdsaThresholdKeyId,
   };
   return {
@@ -234,11 +246,6 @@ export function restorableEcdsaWalletSessionFixture(
                 }),
                 readiness: {
                   kind: 'restorable',
-                  walletSessionId,
-                  thresholdSessionId: thresholdSessionId.value,
-                  authMethod: input.authMethod ?? 'passkey',
-                  remainingUses: 3,
-                  expiresAtMs: input.expiresAtMs ?? Date.now() + 60_000,
                 },
               },
             ],
@@ -263,8 +270,8 @@ function fixtureWalletId(value?: string): WalletId {
   return walletIdFromString(value || 'wallet-session-fixture');
 }
 
-function fixtureSigningGrantId(value?: string): SigningGrantId {
-  const parsed = parseSigningGrantId(value || 'wallet-session-grant-fixture');
+function fixtureWalletSessionId(value?: string): WalletSessionId {
+  const parsed = parseWalletSessionId(value || 'wallet-session-fixture');
   if (!parsed.ok) {
     throw new Error(`invalid Wallet Session fixture id: ${value}`);
   }

@@ -235,18 +235,6 @@ export type MpcCapabilityHydrationPlan =
   | MpcReauthorizePublicAnchorHydrationPlan
   | MpcBlockedCapabilityHydrationPlan;
 
-export type MpcCapabilityHydrationEntryPoint =
-  | 'post_registration'
-  | 'post_wallet_unlock'
-  | 'post_page_refresh';
-
-export type MpcCapabilityHydrationResolution = {
-  readonly provenance: {
-    readonly entryPoint: MpcCapabilityHydrationEntryPoint;
-  };
-  readonly plan: MpcCapabilityHydrationPlan;
-};
-
 export function buildMpcCapabilityPublicReauthAnchor(
   fields: MpcCapabilityPublicReauthAnchorFields,
 ): MpcCapabilityPublicReauthAnchor {
@@ -278,16 +266,4 @@ export function buildBlockedMpcCapabilityHydrationPlan(
     return new MpcMissingCapabilityHydrationPlanProof();
   }
   return new MpcKnownCapabilityBlockedHydrationPlanProof(fields);
-}
-
-export function buildMpcCapabilityHydrationResolution(input: {
-  readonly entryPoint: MpcCapabilityHydrationEntryPoint;
-  readonly plan: MpcCapabilityHydrationPlan;
-}): MpcCapabilityHydrationResolution {
-  return {
-    provenance: {
-      entryPoint: input.entryPoint,
-    },
-    plan: input.plan,
-  };
 }

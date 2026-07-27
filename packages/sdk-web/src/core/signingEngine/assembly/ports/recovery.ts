@@ -6,8 +6,6 @@ import type {
   UiConfirmRuntimeBridgePort,
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
-import type { WarmSessionCapabilityReader } from '../../session/warmCapabilities/types';
-import type { WarmSigningStatusReader } from '../../session/warmCapabilities/statusReader';
 import type { WalletSigningBudgetAvailableStatusDeps } from '../../session/budget/budgetStatusReader';
 import type {
   RecoveryPublicDeps,
@@ -24,6 +22,7 @@ import type {
   ExportEcdsaKeyWithDurableAuthorizationArgs,
   ExportEcdsaKeyWithPublicReauthAuthorizationArgs,
 } from '../../session/emailOtp/exportRecoveryRuntime';
+import type { PersistedAvailableSigningLanesDeps } from '../../session/availability/persistedAvailableSigningLanes';
 
 export function createPrivateKeyExportRecoveryDeps(
   args: CreateSigningEnginePortsArgs,
@@ -44,6 +43,7 @@ export function createRecoveryPublicDeps(args: {
   signerWorkerManager: CreateSigningEnginePortsArgs['signerWorkerManager'];
   getTheme: PrivateKeyExportRecoveryDeps['getTheme'];
   ecdsaSessions: RecoveryPublicEcdsaSessionStoreDeps;
+  listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
   touchConfirm: UiConfirmRuntimeBridgePort;
   emailOtpSessions: {
     readWarmSessionStatusOnly: (sessionId: string) => Promise<WarmSessionStatusResult>;
@@ -62,10 +62,6 @@ export function createRecoveryPublicDeps(args: {
   };
   provisionPasskeyEcdsaExplicitExportSession: RecoveryPublicDeps['ecdsa']['provisionPasskeyEcdsaExplicitExportSession'];
   resolvePasskeyEcdsaExportRouteAuth: RecoveryPublicDeps['ecdsa']['resolvePasskeyEcdsaExportRouteAuth'];
-  warmSessionPolicy: {
-    getWarmSession: WarmSessionCapabilityReader['getWarmSession'];
-    resolveExactEcdsaRecord: WarmSigningStatusReader['resolveExactEcdsaRecord'];
-  };
   getWalletSigningBudgetStatus: WalletSigningBudgetAvailableStatusDeps['getAvailableStatus'];
   resolveActiveEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['resolveActiveCapability'];
   recoverPasskeyEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['recoverPasskeyCapability'];
@@ -101,7 +97,8 @@ export function createRecoveryPublicDeps(args: {
       readPersistedAvailableSigningLanesForTargets: (availableLanesArgs) =>
         readPersistedAvailableSigningLanesForTargets(
           {
-            ecdsaSessions: args.ecdsaSessions,
+            listEcdsaSigningCapabilitiesForWallet:
+              args.listEcdsaSigningCapabilitiesForWallet,
             statusReader: args.touchConfirm,
             getEmailOtpWarmSessionStatus,
             getWalletSigningBudgetStatus: args.getWalletSigningBudgetStatus,
@@ -127,7 +124,6 @@ export function createRecoveryPublicDeps(args: {
         exportEcdsaKeyWithPublicReauthAuthorization: (request) =>
           args.emailOtpSessions.exportEcdsaKeyWithPublicReauthAuthorization(request),
       },
-      warmSessionPolicy: args.warmSessionPolicy,
       provisionPasskeyEcdsaExplicitExportSession: (request) =>
         args.provisionPasskeyEcdsaExplicitExportSession(request),
       resolvePasskeyEcdsaExportRouteAuth: args.resolvePasskeyEcdsaExportRouteAuth,

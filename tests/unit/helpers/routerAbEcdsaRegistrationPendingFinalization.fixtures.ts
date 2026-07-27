@@ -1,5 +1,5 @@
-import { base64UrlEncode } from '@shared/utils/base64';
 import {
+  parseRouterAbEcdsaVerifiedClientActivationFactsV1,
   parseRouterAbEcdsaRegistrationRequestFactsV1,
   type RouterAbEcdsaRegistrationRequestFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -9,12 +9,13 @@ import {
   type RouterAbEcdsaRegistrationPendingFinalizationV1,
 } from '@/core/signingEngine/routerAb/ecdsaDerivation/registrationPendingFinalization';
 import type { EcdsaRoleLocalPendingStateBlob } from '@/core/platform/types';
-import {
-  buildFixtureRouterAbEcdsaStrictRegistrationRequest,
-  fixtureRouterAbEcdsaActivationFacts,
-} from '../../helpers/routerAbSigningRuntimeTestUtils';
+import { buildFixtureRouterAbEcdsaStrictRegistrationRequest } from '../../helpers/routerAbSigningRuntimeTestUtils';
 
-const DIGEST32_B64U = base64UrlEncode(new Uint8Array(32).fill(31));
+const APPLICATION_BINDING_DIGEST_B64U = 'VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU';
+const CONTEXT_BINDING_B64U = 'ga29uobW2Hvkz8FnDn3rLhxE_AIFuZDDdtIDnelsibc';
+const CLIENT_PUBLIC_KEY_B64U = 'Atwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq';
+const PROOF_TRANSCRIPT_DIGEST_B64U = 'CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg';
+const REGISTRATION_REQUEST_DIGEST_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 export type RouterAbEcdsaRegistrationPendingFinalizationFixture = {
   readonly payload: RouterAbEcdsaRegistrationPendingFinalizationV1;
@@ -25,13 +26,13 @@ function fixtureRegistrationFacts(): RouterAbEcdsaRegistrationRequestFactsV1 {
   return parseRouterAbEcdsaRegistrationRequestFactsV1({
     registration_purpose: 'wallet_registration',
     context: {
-      application_binding_digest_b64u: DIGEST32_B64U,
+      application_binding_digest_b64u: APPLICATION_BINDING_DIGEST_B64U,
     },
     lifecycle: {
-      lifecycle_id: 'registration-lifecycle-fixture',
+      lifecycle_id: 'ecdsa-lifecycle-fixture',
       work_kind: 'registration_prepare',
       primitive_request_kind: 'registration',
-      root_share_epoch: 'root-share-epoch-fixture',
+      root_share_epoch: 'activation-epoch-fixture',
       account_id: 'wallet-fixture',
       session_id: 'registration-session-fixture',
       signer_set_id: 'signer-set-fixture',
@@ -52,7 +53,7 @@ function fixtureRegistrationFacts(): RouterAbEcdsaRegistrationRequestFactsV1 {
       },
       selected_server: {
         server_id: 'signing-worker-fixture',
-        key_epoch: 'worker-epoch-fixture',
+        key_epoch: 'key-epoch-fixture',
         recipient_encryption_key:
           'x25519:1111111111111111111111111111111111111111111111111111111111111111',
       },
@@ -82,7 +83,8 @@ function fixturePendingStateBlob(): EcdsaRoleLocalPendingStateBlob {
     curve: 'secp256k1',
     encoding: 'base64url',
     producer: 'signer_core',
-    stateBlobB64u: base64UrlEncode(new TextEncoder().encode('worker-owned-pending-state')),
+    stateBlobB64u:
+      'UkFFRFAyAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVYGtvbqG1th75M_BZw596y4cRPwCBbmQw3bSA53pbIm3AAAAAHjBxf0UMHDzHuNEGlo5WPFaLFhqHIwP6JxhmfQT6MYYAtwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq',
   };
 }
 
@@ -92,7 +94,14 @@ export function routerAbEcdsaRegistrationPendingFinalizationFixture(): RouterAbE
     pendingStateBlob: fixturePendingStateBlob(),
     registrationFacts,
     registrationRequest: buildFixtureRouterAbEcdsaStrictRegistrationRequest(registrationFacts),
-    clientActivation: fixtureRouterAbEcdsaActivationFacts(),
+    clientActivation: parseRouterAbEcdsaVerifiedClientActivationFactsV1({
+      registrationRequestDigestB64u: REGISTRATION_REQUEST_DIGEST_B64U,
+      proofTranscriptDigestB64u: PROOF_TRANSCRIPT_DIGEST_B64U,
+      contextBinding32B64u: CONTEXT_BINDING_B64U,
+      derivationClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_B64U,
+      clientShareRetryCounter: 0,
+      participantId: 1,
+    }),
   });
   return {
     payload,

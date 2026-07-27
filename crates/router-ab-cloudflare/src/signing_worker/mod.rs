@@ -279,7 +279,6 @@ impl CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2 {
         self.admission_candidate.validate()?;
         self.trusted_admission.validate()?;
         if self.admission_candidate.account_id != self.scope.account_id
-            || self.admission_candidate.threshold_session_id != self.scope.session_id
             || self.admission_candidate.signing_worker_id != self.scope.signing_worker_id
             || self.admission_candidate.request_id != self.scope.request_id
             || self.admission_candidate.expires_at_ms != self.expires_at_ms
@@ -289,6 +288,9 @@ impl CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2 {
                 "normal-signing v2 prepare admission does not match request scope",
             ));
         }
+        self.admission_candidate
+            .authorization
+            .validate_for_scope(&self.scope.authorization)?;
         if self.admission_candidate.round1_binding_digest.is_none() {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
@@ -522,7 +524,7 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningReque
             ));
         }
         if self.trusted_admission.metadata.auth.session_id()
-            != cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(
+            != cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1(
                 &self.request.scope,
             )?
         {
@@ -581,7 +583,7 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequ
             ));
         }
         if self.trusted_admission.metadata.auth.session_id()
-            != cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(
+            != cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1(
                 &self.request.scope,
             )?
         {

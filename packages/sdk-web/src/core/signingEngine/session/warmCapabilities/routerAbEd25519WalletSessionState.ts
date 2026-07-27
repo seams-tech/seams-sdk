@@ -16,10 +16,9 @@ import {
   type RouterAbEd25519SigningWalletSession,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 
-export type ResolvedRouterAbEd25519WalletSessionState =
-  NearResolvedEd25519SigningSessionState & {
-    signingWalletSession: RouterAbEd25519SigningWalletSession;
-  };
+export type ResolvedRouterAbEd25519WalletSessionState = NearResolvedEd25519SigningSessionState & {
+  signingWalletSession: RouterAbEd25519SigningWalletSession;
+};
 
 function resolveEd25519PasskeyStorageSource(
   source: ThresholdEd25519SessionStoreSource | undefined,
@@ -58,7 +57,12 @@ export function resolveRouterAbEd25519WalletSessionStateFromCurrentRecord(
   record: ThresholdEd25519SessionRecord | undefined,
 ): ResolvedRouterAbEd25519WalletSessionState | null {
   if (!record) return null;
-  const signingWalletSession = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
+  const expiresAtMs = Math.floor(Number(record.expiresAtMs));
+  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= 1) return null;
+  const signingWalletSession = parseRouterAbEd25519SigningWalletSessionFromRecord(
+    record,
+    Math.min(Date.now(), expiresAtMs - 1),
+  );
   if (!signingWalletSession.ok) return null;
   return resolveRouterAbEd25519WalletSessionStateFromParsedSession({
     record,
@@ -78,8 +82,7 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
 
   const recordCandidate = thresholdEd25519LaneCandidateFromSessionRecord({ record });
   if (!recordCandidate) return null;
-  const emailOtpAuthContext =
-    record.source === 'email_otp' ? record.emailOtpAuthContext : null;
+  const emailOtpAuthContext = record.source === 'email_otp' ? record.emailOtpAuthContext : null;
   const signingLane =
     record.source === 'email_otp'
       ? recordCandidate.auth.kind === 'email_otp' && emailOtpAuthContext

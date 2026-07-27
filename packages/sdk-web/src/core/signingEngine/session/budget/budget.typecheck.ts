@@ -28,6 +28,7 @@ import type {
   ZeroBudgetFinalizationSpend,
   ZeroWalletBudgetSpend,
 } from './budget';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 const ecdsaChainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
@@ -37,13 +38,13 @@ const ecdsaChainTarget = thresholdEcdsaChainTargetFromChainFamily({
 
 const ecdsaKey = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'wallet.testnet',
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ecdsa-key-1',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   participantIds: [1, 2],
   thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
 });
+declare const materialActivation: MpcMaterialActivationRef;
 const ecdsaKeyHandle = toEvmFamilyEcdsaKeyHandle('ecdsa-budget-key-handle');
 const ecdsaAuth = {
   kind: 'passkey',
@@ -107,6 +108,7 @@ void invalidWalletBudgetCheckWithoutOwner;
 const validEcdsaLaneCheck: EcdsaLaneBudgetStatusCheck = {
   kind: 'ecdsa_lane_budget_status_check',
   key: ecdsaKey,
+  materialActivation,
   keyHandle: ecdsaKeyHandle,
   auth: ecdsaAuth,
   chainTarget: ecdsaChainTarget,
@@ -118,6 +120,7 @@ void validEcdsaLaneCheck;
 const invalidEcdsaLaneCheck: EcdsaLaneBudgetStatusCheck = {
   kind: 'ecdsa_lane_budget_status_check',
   key: ecdsaKey,
+  materialActivation,
   keyHandle: ecdsaKeyHandle,
   chainTarget: ecdsaChainTarget,
   signingGrantId: 'signing-grant-1',

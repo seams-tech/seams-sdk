@@ -3,9 +3,14 @@ import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget'
 import type { SigningGrantId } from '../operationState/types';
 import {
   exactSigningLaneWalletId,
+  isExactEcdsaSigningLaneIdentity,
   type ExactSigningLaneIdentity,
 } from './exactSigningLaneIdentity';
 import { signingLaneAuthMethod } from './signingLaneAuthBinding';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 export type WalletSessionAuthorizationUnavailableReason =
   | 'network'
@@ -17,12 +22,23 @@ export type WalletSessionAuthorizationInvalidReason =
   | 'scope_mismatch'
   | 'authority_mismatch';
 
-export type WalletSessionAuthorizationIdentity = {
+type CommonWalletSessionAuthorizationIdentity = {
   readonly walletId: WalletId;
-  readonly walletSessionId: SigningGrantId;
   readonly authMethod: SignerAuthMethod;
   readonly laneIdentity: ExactSigningLaneIdentity;
 };
+
+export type WalletSessionAuthorizationIdentity =
+  | (CommonWalletSessionAuthorizationIdentity & {
+      readonly signingGrantId: SigningGrantId;
+      readonly walletSessionId?: never;
+      readonly quotaId?: never;
+    })
+  | (CommonWalletSessionAuthorizationIdentity & {
+      readonly signingGrantId?: never;
+      readonly walletSessionId: WalletSessionId;
+      readonly quotaId: MpcWalletSigningQuotaId;
+    });
 
 export type WalletSessionAuthorizationObservation =
   | {
@@ -82,11 +98,21 @@ export type WalletSessionAuthorizationState =
 function authorizationIdentity(
   laneIdentity: ExactSigningLaneIdentity,
 ): WalletSessionAuthorizationIdentity {
-  return {
+  const common = {
     walletId: exactSigningLaneWalletId(laneIdentity),
-    walletSessionId: laneIdentity.signingGrantId,
     authMethod: signingLaneAuthMethod(laneIdentity.auth),
     laneIdentity,
+  };
+  if (isExactEcdsaSigningLaneIdentity(laneIdentity)) {
+    return {
+      ...common,
+      walletSessionId: laneIdentity.authorization.projection.walletSessionId,
+      quotaId: laneIdentity.authorization.projection.quotaId,
+    };
+  }
+  return {
+    ...common,
+    signingGrantId: laneIdentity.signingGrantId,
   };
 }
 
@@ -97,10 +123,7 @@ function invalidAuthorization(args: {
   const identity = authorizationIdentity(args.identity);
   return {
     kind: 'invalid',
-    walletId: identity.walletId,
-    walletSessionId: identity.walletSessionId,
-    authMethod: identity.authMethod,
-    laneIdentity: identity.laneIdentity,
+    ...identity,
     reason: args.reason,
   };
 }
@@ -130,10 +153,7 @@ export function requireAuthoritativeExpiredWalletSessionAuthorizationBoundary(ar
   const identity = authorizationIdentity(args.identity);
   return {
     kind: 'expired',
-    walletId: identity.walletId,
-    walletSessionId: identity.walletSessionId,
-    authMethod: identity.authMethod,
-    laneIdentity: identity.laneIdentity,
+    ...identity,
     expiresAtMs,
     detectedAtMs,
   };
@@ -154,20 +174,14 @@ function parseFoundAuthorization(args: {
   if (expiresAtMs <= args.nowMs) {
     return {
       kind: 'expired',
-      walletId: identity.walletId,
-      walletSessionId: identity.walletSessionId,
-      authMethod: identity.authMethod,
-      laneIdentity: identity.laneIdentity,
+      ...identity,
       expiresAtMs,
       detectedAtMs: args.nowMs,
     };
   }
   return {
     kind: 'active',
-    walletId: identity.walletId,
-    walletSessionId: identity.walletSessionId,
-    authMethod: identity.authMethod,
-    laneIdentity: identity.laneIdentity,
+    ...identity,
     expiresAtMs,
   };
 }
@@ -190,20 +204,14 @@ export function parseWalletSessionAuthorizationBoundary(args: {
       const missingIdentity = authorizationIdentity(args.observation.identity);
       return {
         kind: 'missing',
-        walletId: missingIdentity.walletId,
-        walletSessionId: missingIdentity.walletSessionId,
-        authMethod: missingIdentity.authMethod,
-        laneIdentity: missingIdentity.laneIdentity,
+        ...missingIdentity,
       };
     }
     case 'unavailable': {
       const unavailableIdentity = authorizationIdentity(args.observation.identity);
       return {
         kind: 'unavailable',
-        walletId: unavailableIdentity.walletId,
-        walletSessionId: unavailableIdentity.walletSessionId,
-        authMethod: unavailableIdentity.authMethod,
-        laneIdentity: unavailableIdentity.laneIdentity,
+        ...unavailableIdentity,
         reason: args.observation.reason,
       };
     }

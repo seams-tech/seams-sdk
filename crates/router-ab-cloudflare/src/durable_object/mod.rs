@@ -3102,7 +3102,7 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
         scope.validate()?;
         Self::new(
             scope.account_id.clone(),
-            scope.active_state_session_id.clone(),
+            scope.material_activation.activation_id.clone(),
             scope.signing_worker_id.clone(),
         )
     }
@@ -3114,7 +3114,7 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
         scope.validate()?;
         Self::new(
             scope.wallet_id.clone(),
-            scope.active_state_session_id()?,
+            scope.material_activation_id()?,
             scope.signing_worker.server_id.clone(),
         )
     }
@@ -5501,8 +5501,8 @@ impl CloudflareDurableObjectCallV1 {
                     self.binding.key_prefix,
                     scope.wallet_id,
                     scope
-                        .active_state_session_id()
-                        .expect("validated ECDSA pool command has active session id"),
+                        .material_activation_id()
+                        .expect("validated ECDSA pool command has material activation id"),
                     scope.signing_worker.server_id,
                     command.server_presignature_id()
                 )

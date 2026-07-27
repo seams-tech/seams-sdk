@@ -4,22 +4,34 @@ import type {
   CapabilityGrantId,
   CapabilityGrantUseId,
   CapabilityId,
+  CapabilityOperationId,
   CapabilityOperationRef,
   DeviceId,
   GrantEvidenceId,
   GrantEvidenceKind,
   GrantEvidenceSetId,
   HostedWalletSessionExchangeCodeId,
+  MpcWalletSigningQuotaId,
   PrincipalId,
+  ReusableWalletSessionMintId,
   SeamsSessionId,
   TenantId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+export {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+export type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type {
   CapabilityOperationEnvelope,
   CapabilityOperationFingerprintDigest,
 } from '@shared/authorization/operationFingerprint';
 import { computeCapabilityOperationFingerprintDigest } from '@shared/authorization/operationFingerprint';
-import type { DomainId } from '@shared/utils/domainIds';
+import type { DomainId, WalletId } from '@shared/utils/domainIds';
 import {
   parseAppSessionVersion,
   parseProviderSubject,
@@ -29,9 +41,8 @@ import {
   type WebAuthnCredentialIdB64u,
 } from '@shared/utils/domainIds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
-export type WalletSessionId = DomainId<'WalletSessionId'>;
-export type MpcWalletSigningQuotaId = DomainId<'MpcWalletSigningQuotaId'>;
 export type HostedWalletSeamsSessionExchangeCode = DomainId<'HostedWalletSeamsSessionExchangeCode'>;
 export type HostedWalletSeamsSessionExchangeNonce =
   DomainId<'HostedWalletSeamsSessionExchangeNonce'>;
@@ -138,6 +149,7 @@ type ActiveCapabilityGrantBase = {
   readonly evidenceSetId: GrantEvidenceSetId;
   readonly evidenceSetDigest: DigestB64u;
   readonly capabilityId: CapabilityId;
+  readonly operationId: CapabilityOperationId;
   readonly operation: CapabilityOperationRef;
   readonly laneDigest: DigestB64u;
   readonly intentDigest: DigestB64u;
@@ -154,6 +166,7 @@ export type ActiveCapabilityGrant =
         readonly walletSessionId: WalletSessionId;
         readonly quotaId: MpcWalletSigningQuotaId;
       };
+      readonly remainingUses: 1;
     })
   | (ActiveCapabilityGrantBase & {
       readonly authority: {
@@ -172,7 +185,7 @@ export type ActiveCapabilityGrantInput = Omit<ActiveCapabilityGrantBase, 'kind'>
           readonly walletSessionId: WalletSessionId;
           readonly quotaId: MpcWalletSigningQuotaId;
         };
-        readonly remainingUses: number;
+        readonly remainingUses: 1;
       }
     | {
         readonly authority: {
@@ -193,6 +206,48 @@ export type ActiveWalletSessionQuota = {
   readonly remainingUses: number;
   readonly expiresAtMs: number;
 };
+
+export type ActiveReusableWalletSession = {
+  readonly kind: 'active_reusable_wallet_session';
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly walletId: WalletId;
+  readonly authority: WalletAuthAuthorityRef;
+  readonly mintId: ReusableWalletSessionMintId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+};
+
+type ReusableWalletSessionStatusIdentity = {
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+};
+
+export type ReusableWalletSessionStatus =
+  | (ReusableWalletSessionStatusIdentity & {
+      readonly kind: 'active';
+      readonly remainingUses: number;
+      readonly expiresAtMs: number;
+    })
+  | (ReusableWalletSessionStatusIdentity & {
+      readonly kind: 'exhausted';
+      readonly remainingUses: 0;
+      readonly expiresAtMs: number;
+    })
+  | (ReusableWalletSessionStatusIdentity & {
+      readonly kind: 'expired';
+      readonly expiresAtMs: number;
+      readonly remainingUses?: never;
+    })
+  | (ReusableWalletSessionStatusIdentity & {
+      readonly kind: 'superseded' | 'missing' | 'invalid';
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+    });
 
 type CapabilityOperationClaimBase = {
   readonly tenantId: TenantId;
@@ -271,6 +326,7 @@ export type ClaimedCapabilityGrantUse = {
   readonly grantId: CapabilityGrantId;
   readonly principalId: PrincipalId;
   readonly capabilityId: CapabilityId;
+  readonly operationId: CapabilityOperationId;
   readonly operation: CapabilityOperationRef;
   readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
   readonly evidenceSetDigest: DigestB64u;
@@ -316,20 +372,13 @@ export type AuthorizationAuditEvent = {
   readonly grantId: CapabilityGrantId;
   readonly useId: CapabilityGrantUseId;
   readonly capabilityId: CapabilityId;
+  readonly operationId: CapabilityOperationId;
   readonly operation: CapabilityOperationRef;
   readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
   readonly evidenceSetDigest: DigestB64u;
   readonly result: 'claimed' | CompletedCapabilityOperationResult;
   readonly createdAtMs: number;
 };
-
-export function parseWalletSessionId(value: unknown): WalletSessionId {
-  return parseAuthorizationDomainId(value, 'walletSessionId');
-}
-
-export function parseMpcWalletSigningQuotaId(value: unknown): MpcWalletSigningQuotaId {
-  return parseAuthorizationDomainId(value, 'mpcWalletSigningQuotaId');
-}
 
 export function parseHostedWalletSeamsSessionExchangeCode(
   value: unknown,
@@ -392,6 +441,9 @@ export function buildActiveCapabilityGrant(
 ): ActiveCapabilityGrant {
   requireOrderedTimes(fields.createdAtMs, fields.expiresAtMs, 'capability grant');
   requirePositiveCount(fields.remainingUses, 'capability grant remaining uses');
+  if (fields.remainingUses !== 1) {
+    throw new Error('capability grants require exactly one use');
+  }
   switch (fields.authority.kind) {
     case 'reusable_wallet_session':
       return {
@@ -403,6 +455,7 @@ export function buildActiveCapabilityGrant(
         evidenceSetId: fields.evidenceSetId,
         evidenceSetDigest: fields.evidenceSetDigest,
         capabilityId: fields.capabilityId,
+        operationId: fields.operationId,
         operation: fields.operation,
         laneDigest: fields.laneDigest,
         intentDigest: fields.intentDigest,
@@ -413,9 +466,6 @@ export function buildActiveCapabilityGrant(
         expiresAtMs: fields.expiresAtMs,
       };
     case 'operation_step_up':
-      if (fields.remainingUses !== 1) {
-        throw new Error('operation step-up grants require exactly one use');
-      }
       return {
         kind: 'active_capability_grant',
         tenantId: fields.tenantId,
@@ -425,6 +475,7 @@ export function buildActiveCapabilityGrant(
         evidenceSetId: fields.evidenceSetId,
         evidenceSetDigest: fields.evidenceSetDigest,
         capabilityId: fields.capabilityId,
+        operationId: fields.operationId,
         operation: fields.operation,
         laneDigest: fields.laneDigest,
         intentDigest: fields.intentDigest,
@@ -449,6 +500,27 @@ export function buildActiveWalletSessionQuota(
     walletSessionId: fields.walletSessionId,
     quotaId: fields.quotaId,
     remainingUses: fields.remainingUses,
+    expiresAtMs: fields.expiresAtMs,
+  };
+}
+
+export function buildActiveReusableWalletSession(
+  fields: Omit<ActiveReusableWalletSession, 'kind'>,
+): ActiveReusableWalletSession {
+  requireOrderedTimes(fields.createdAtMs, fields.expiresAtMs, 'reusable Wallet Session');
+  if (fields.authority.walletId !== fields.walletId) {
+    throw new Error('reusable Wallet Session authority must identify the exact wallet');
+  }
+  return {
+    kind: 'active_reusable_wallet_session',
+    tenantId: fields.tenantId,
+    principalId: fields.principalId,
+    walletId: fields.walletId,
+    authority: fields.authority,
+    mintId: fields.mintId,
+    walletSessionId: fields.walletSessionId,
+    quotaId: fields.quotaId,
+    createdAtMs: fields.createdAtMs,
     expiresAtMs: fields.expiresAtMs,
   };
 }

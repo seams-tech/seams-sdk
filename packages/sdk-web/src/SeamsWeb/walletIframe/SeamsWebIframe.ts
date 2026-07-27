@@ -298,7 +298,7 @@ export class SeamsWebIframe {
       routerAb,
       routerAbEcdsaDerivationPresignaturePool,
       provisioningDefaults,
-      // relayer: configs.network.relayer,
+      relayer: this.configs.network.relayer,
       rpIdOverride: this.configs.wallet.iframe?.rpIdOverride,
       authenticatorOptions: cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
       appearance: this.appearance,

@@ -98,6 +98,9 @@ export type CapabilityBindingId = DomainId<'CapabilityBindingId'>;
 export type CapabilityOperationId = DomainId<'CapabilityOperationId'>;
 export type CapabilityGrantId = DomainId<'CapabilityGrantId'>;
 export type CapabilityGrantUseId = DomainId<'CapabilityGrantUseId'>;
+export type WalletSessionId = DomainId<'WalletSessionId'>;
+export type MpcWalletSigningQuotaId = DomainId<'MpcWalletSigningQuotaId'>;
+export type ReusableWalletSessionMintId = DomainId<'ReusableWalletSessionMintId'>;
 export type GrantEvidenceId = DomainId<'GrantEvidenceId'>;
 export type GrantEvidenceSetId = DomainId<'GrantEvidenceSetId'>;
 export type GrantChallengeId = DomainId<'GrantChallengeId'>;
@@ -261,6 +264,24 @@ export function parseCapabilityGrantUseId(
   value: unknown,
 ): AuthorizationParseResult<CapabilityGrantUseId> {
   return parseAuthorizationId(value, 'capabilityGrantUseId');
+}
+
+export function parseWalletSessionId(
+  value: unknown,
+): AuthorizationParseResult<WalletSessionId> {
+  return parseAuthorizationId(value, 'walletSessionId');
+}
+
+export function parseMpcWalletSigningQuotaId(
+  value: unknown,
+): AuthorizationParseResult<MpcWalletSigningQuotaId> {
+  return parseAuthorizationId(value, 'mpcWalletSigningQuotaId');
+}
+
+export function parseReusableWalletSessionMintId(
+  value: unknown,
+): AuthorizationParseResult<ReusableWalletSessionMintId> {
+  return parseAuthorizationId(value, 'reusableWalletSessionMintId');
 }
 
 export function parseGrantEvidenceId(value: unknown): AuthorizationParseResult<GrantEvidenceId> {

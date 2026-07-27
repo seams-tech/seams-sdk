@@ -4,11 +4,8 @@ import {
   walletSessionRefFromSession,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { SENSITIVE_OPERATION_POLICIES } from '@shared/utils/signerDomain';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { WarmSessionPostSignPolicyAdapterDeps } from '../../session/operationState/warmSessionPolicyAdapter';
-import { assertWarmSessionEcdsaOperationAllowed } from '../../session/operationState/warmSessionPolicyAdapter';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import {
@@ -34,12 +31,11 @@ import {
   type ThresholdEcdsaExplicitKeyExportBootstrapResult,
 } from '../../session/passkey/ecdsaSessionProvision';
 import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
+import { deriveEvmFamilySigningKeySlotId } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import {
   type EmailOtpEcdsaExportAuthorizationDeps,
   type EmailOtpWalletSessionExportAuthorizationDeps,
-  createEmailOtpKeyExportRequiresPasskeyError,
-  isEmailOtpPasskeyStepUpError,
   requestEmailOtpKeyExportAuthorization,
   requestThresholdEcdsaExportAuthorization,
   showThresholdEcdsaExportViewer,
@@ -95,10 +91,6 @@ export type EcdsaExportFlowDeps = {
       >['publicReauthAuthority'];
     }) => Promise<EcdsaExportArtifact>;
   };
-  warmSessionPolicy: Pick<
-    WarmSessionPostSignPolicyAdapterDeps,
-    'getWarmSession' | 'resolveExactEcdsaRecord'
-  >;
   provisionPasskeyEcdsaExplicitExportSession: (
     args: ThresholdEcdsaPasskeyExportActivationRequest,
   ) => Promise<ThresholdEcdsaExplicitKeyExportBootstrapResult>;
@@ -295,7 +287,11 @@ function walletKeyForFreshPasskeyEcdsaExport(args: {
   return {
     kind: 'evm_family_ecdsa_wallet_key' as const,
     walletId: args.exportLane.key.walletId,
-    evmFamilySigningKeySlotId: args.exportLane.key.evmFamilySigningKeySlotId,
+    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+      walletId: args.exportLane.key.walletId,
+      signingRootId: args.exportLane.key.signingRootId,
+      signingRootVersion: args.exportLane.key.signingRootVersion,
+    }),
     keyHandle: args.material.publicFacts.keyHandle,
     chainTarget: args.exportLane.session.chainTarget,
     keyFacts: {
@@ -617,20 +613,6 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
   }
 
   const passkeyCommittedLane = args.material.committedLane;
-  const currentRecord = passkeyCommittedLane.record;
-  try {
-    await assertWarmSessionEcdsaOperationAllowed(deps.warmSessionPolicy, {
-      lane: args.exportLane.laneIdentity,
-      operationLabel: 'threshold-ecdsa key export',
-      source: currentRecord.source,
-      sensitivePolicy: SENSITIVE_OPERATION_POLICIES.requirePasskey,
-    });
-  } catch (error: unknown) {
-    if (isEmailOtpPasskeyStepUpError(error)) {
-      throw createEmailOtpKeyExportRequiresPasskeyError();
-    }
-    throw error;
-  }
   if (cachedArtifact) {
     emitEcdsaMaterialStarted({
       flowId: args.flowId,

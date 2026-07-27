@@ -49,11 +49,24 @@ const request: RouterAbNormalSigningPrepareRequestV2Wire = {
   scope: {
     request_id: 'router-ab-normal-signing/request-1',
     account_id: 'alice.testnet',
-    session_id: 'wallet-session-1',
-    active_state_session_id: 'activation-session-1',
+    authorization: {
+      kind: 'reusable_wallet_session',
+      wallet_session_id: 'wallet-session-1',
+      grant_id: 'grant-1',
+    },
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'activation-session-1',
+      capability: 'capability-1',
+      material_owner: 'alice.testnet',
+      key_binding: 'key-binding-1',
+      lifecycle_binding: 'lifecycle-1',
+      signing_worker: 'signing-worker-a',
+    },
     signing_worker_id: 'signing-worker-a',
   },
   expires_at_ms: 1_900_000_000_000,
+  display_digest: digest32,
   intent: {
     kind: 'near_transaction_v1',
     operation_id: 'operation-1',

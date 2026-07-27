@@ -3,7 +3,6 @@ import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relaye
 import type { SigningSessionStatus } from '@/core/types/seams';
 import {
   SIGNER_AUTH_METHODS,
-  type SensitiveOperationPolicy,
   type SignerAuthMethod,
 } from '@shared/utils/signerDomain';
 import type { EcdsaSessionProvisionPlan } from './ecdsaProvisionPlan';
@@ -432,15 +431,11 @@ function assertCapabilityStateInvariant(args: {
       );
     }
     if (
-      String(capability.lane.thresholdSessionId) !== String(capability.record.thresholdSessionId)
+      String(capability.lane.materialActivation.activationId) !==
+      String(capability.record.materialActivation.activationId)
     ) {
       throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: lane thresholdSessionId does not match record`,
-      );
-    }
-    if (String(capability.lane.signingGrantId) !== String(capability.record.signingGrantId)) {
-      throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: lane signingGrantId does not match record`,
+        `[WarmSessionStore] invalid ${args.label} capability: lane material activation does not match record`,
       );
     }
     const expectedAuthMethod = authMethodForThresholdEcdsaSessionSource(capability.record.source);
@@ -674,24 +669,6 @@ export type EnsureWarmEcdsaCapabilityReadyResult = {
   reconnected: boolean;
 };
 
-export type ApplyWarmEcdsaPostSignPolicyArgs = {
-  lane: ExactEcdsaSigningLaneIdentity;
-  selectedRecord: ThresholdEcdsaSessionRecord;
-  walletId?: never;
-  chainTarget?: never;
-  thresholdSessionId?: never;
-};
-
-export type AssertWarmEcdsaOperationAllowedArgs = {
-  lane: ExactEcdsaSigningLaneIdentity;
-  operationLabel: string;
-  source: ThresholdEcdsaSessionStoreSource;
-  sensitivePolicy?: SensitiveOperationPolicy;
-  walletId?: never;
-  chainTarget?: never;
-  thresholdSessionId?: never;
-};
-
 type ClaimWarmSessionPrfArgsBase = {
   thresholdSessionId: string;
   errorContext: string;
@@ -840,9 +817,4 @@ export type WarmSessionProvisioner = {
     required?: boolean;
     errorContext?: string;
   }) => Promise<void>;
-};
-
-export type WarmSessionPostSignPolicy = {
-  applyEcdsaPostSignPolicy: (args: ApplyWarmEcdsaPostSignPolicyArgs) => Promise<void>;
-  assertEcdsaOperationAllowed: (args: AssertWarmEcdsaOperationAllowedArgs) => Promise<void>;
 };

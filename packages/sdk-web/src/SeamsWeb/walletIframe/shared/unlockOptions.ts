@@ -34,10 +34,22 @@ export function buildPMUnlockPayload(request: LoginUnlockRequest): PMUnlockPaylo
           session: optionFromValue(request.options.session),
           signingSession: optionFromValue(request.options.signingSession),
           unlockSelection: optionFromValue(request.options.unlockSelection),
-          ecdsaKeyFactsInventory: optionFromValue(request.options.ecdsaKeyFactsInventory),
+          ecdsaKeyFactsInventory: optionFromValue(
+            walletIframeEcdsaKeyFactsInventory(request.options.ecdsaKeyFactsInventory),
+          ),
         },
       };
   }
+}
+
+function walletIframeEcdsaKeyFactsInventory(
+  inventory: LoginHooksOptions['ecdsaKeyFactsInventory'],
+): LoginHooksOptions['ecdsaKeyFactsInventory'] {
+  if (!inventory || inventory.mode === 'webauthn') return inventory;
+  return {
+    mode: 'app_session',
+    ...(inventory.policyTtlMs === undefined ? {} : { policyTtlMs: inventory.policyTtlMs }),
+  };
 }
 
 export function requirePMUnlockPayload(payload: PMUnlockPayload | undefined): PMUnlockPayload {

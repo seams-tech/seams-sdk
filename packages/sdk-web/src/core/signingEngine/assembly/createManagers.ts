@@ -13,6 +13,7 @@ import { getWorkerTransport } from '../workerManager/workerTransport';
 import { type UserPreferencesStorePort, UserPreferencesManager } from '../session/userPreferences';
 import type { NonceLaneCoordinationStore } from '../nonce/NonceCoordinator';
 import type { DurableRecordStore } from '@/core/platform';
+import { nearOperationStepUpPreparationPort } from '../flows/signNear/shared/operationStepUpPreparation';
 
 export type ManagerAssembly = {
   touchIdPrompt: TouchIdPrompt;
@@ -76,6 +77,7 @@ export function createManagerAssembly(args: {
       passkeyAuthenticatorStore: args.stores.passkeyAuthenticatorStore,
       userPreferencesManager: userPreferencesManager,
       nonceCoordinator: nonceCoordinator,
+      operationStepUpPreparation: nearOperationStepUpPreparationPort,
       relayerUrl: args.seamsWebConfigs.network.relayer.url,
       chains,
       rpIdOverride: touchIdPrompt.getRpId(),

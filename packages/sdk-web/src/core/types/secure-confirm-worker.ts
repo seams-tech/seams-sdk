@@ -15,6 +15,7 @@ import type {
   RouterAbEd25519YaoLifecycleScopeV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 export type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 
@@ -156,7 +157,7 @@ export type RouterAbEd25519YaoExportWorkerPayloadV1 = ExportPrivateKeysWithUiWor
     credentialIdB64u: string;
     signingGrantId: string;
     thresholdSessionId: string;
-    activeStateSessionId: string;
+    materialActivation: MpcMaterialActivationRef;
   };
   capability: {
     scope: RouterAbEd25519YaoLifecycleScopeV1;

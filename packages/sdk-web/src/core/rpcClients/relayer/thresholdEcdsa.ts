@@ -12,6 +12,14 @@ import {
   type SigningGrantId,
 } from '@shared/utils/domainIds';
 import {
+  parseMpcWalletSigningQuotaId,
+  parseSeamsSessionId,
+  parseWalletSessionId,
+  type MpcWalletSigningQuotaId,
+  type SeamsSessionId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import {
   ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH,
   ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
@@ -221,6 +229,9 @@ export type ThresholdEcdsaDerivationRoleLocalBootstrapValue = {
   thresholdSessionId: string;
   activationEpoch: RootShareEpoch;
   signingGrantId: SigningGrantId;
+  authorizationSessionId: SeamsSessionId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
   expiresAt: string;
   remainingUses: number;
@@ -319,6 +330,9 @@ const NON_EXPORT_BOOTSTRAP_RESPONSE_FIELDS = new Set([
   'thresholdSessionId',
   'activationEpoch',
   'signingGrantId',
+  'authorizationSessionId',
+  'walletSessionId',
+  'quotaId',
   'expiresAtMs',
   'expiresAt',
   'remainingUses',
@@ -402,6 +416,12 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
     record.signingGrantId,
     'signingGrantId',
   );
+  const authorizationSessionId = parseSeamsSessionId(record.authorizationSessionId);
+  const walletSessionId = parseWalletSessionId(record.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(record.quotaId);
+  if (!authorizationSessionId.ok || !walletSessionId.ok || !quotaId.ok) {
+    throw new Error('ECDSA registration bootstrap Wallet Session identity is invalid');
+  }
   const expiresAtMs = requireNumber(record.expiresAtMs, 'expiresAtMs');
   const jwt = String(record.jwt || '').trim();
   const routerAbEcdsaDerivationNormalSigning =
@@ -461,6 +481,9 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
     thresholdSessionId,
     activationEpoch,
     signingGrantId,
+    authorizationSessionId: authorizationSessionId.value,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
     expiresAtMs,
     expiresAt: requireNonEmptyString(record.expiresAt, 'expiresAt'),
     remainingUses: requireNumber(record.remainingUses, 'remainingUses'),

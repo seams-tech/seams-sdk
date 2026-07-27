@@ -118,6 +118,9 @@ export async function persistEmailOtpEd25519YaoSessionForRefresh(
   if (!sealed.ok) {
     throw new Error(`Email OTP Ed25519 sealed refresh failed (${sealed.code}): ${sealed.message}`);
   }
+  if (sealed.materialKind !== 'ed25519_yao') {
+    throw new Error('Email OTP Ed25519 sealed refresh returned another material kind');
+  }
   const nowMs = Date.now();
   const expiresAtMs = requirePositiveInteger(sealed.expiresAtMs, 'expiresAtMs');
   const remainingUses = requirePositiveInteger(sealed.remainingUses, 'remainingUses');
@@ -145,6 +148,7 @@ export async function persistEmailOtpEd25519YaoSessionForRefresh(
     walletId: String(record.walletId),
     relayerUrl,
     ed25519Restore: {
+      materialActivation: sealed.materialActivation,
       nearAccountId: String(record.nearAccountId),
       nearEd25519SigningKeyId: String(record.nearEd25519SigningKeyId),
       rpId: requireTrimmedString(args.rpId, 'rpId'),

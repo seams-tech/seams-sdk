@@ -33,7 +33,10 @@ import {
   parseEcdsaRoleLocalDurableMaterialRef,
   parseEcdsaRoleLocalMaterialHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
-import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  buildEcdsaRoleLocalPersistedMaterialRefFixture,
+  buildWalletAuthAuthorityRefForAuthorityFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
 import {
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
@@ -434,7 +437,7 @@ async function makeExistingEmailOtpFixture(): Promise<ExistingEmailOtpFixture> {
   });
   const ecdsaThresholdKeyId = await computeEcdsaDerivationRoleLocalThresholdKeyId({
     walletId: String(WALLET_ID),
-    evmFamilySigningKeySlotId: initial.thresholdEcdsaKeyRef.evmFamilySigningKeySlotId,
+    evmFamilySigningKeySlotId: initial.keygen.evmFamilySigningKeySlotId,
     signingRootId,
     signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
   });
@@ -484,6 +487,14 @@ async function makeExistingEmailOtpFixture(): Promise<ExistingEmailOtpFixture> {
       },
     },
   };
+  const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+    policy: 'session',
+    walletId: WALLET_ID,
+    emailHashHex: '11'.repeat(32),
+    provider: 'google',
+    providerUserId: 'google:mixed-subject',
+    retention: 'single_use',
+  });
   const record = upsertThresholdEcdsaSessionFromBootstrap(
     { recordsByLane: new Map() },
     {
@@ -492,16 +503,10 @@ async function makeExistingEmailOtpFixture(): Promise<ExistingEmailOtpFixture> {
       chainTarget: CHAIN_TARGET,
       bootstrap,
       source: 'email_otp',
-      emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
-        policy: 'session',
-        walletId: WALLET_ID,
-        emailHashHex: '11'.repeat(32),
-        provider: 'google',
-        providerUserId: 'google:mixed-subject',
-        // 'retention' became required; omitting it built a pending single-use
-        // context at runtime, so pin that same variant explicitly.
-        retention: 'single_use',
-      }),
+      authority: buildWalletAuthAuthorityRefForAuthorityFixture(
+        emailOtpAuthContext.authority,
+      ),
+      emailOtpAuthContext,
     },
   );
   return { record, bootstrap };

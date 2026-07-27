@@ -16,7 +16,7 @@ declare const ecdsaRecord: ThresholdEcdsaSessionRecord & {
 };
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+const provisioningKeySlotId = deriveEvmFamilySigningKeySlotId({
   walletId: toWalletId('wallet_email_otp_restore'),
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -30,7 +30,7 @@ const restoreSourceCommon = {
   relayerUrl: 'https://relay.example',
   chainTarget,
   keyHandle: 'key-handle',
-  evmFamilySigningKeySlotId,
+  provisioningKeySlotId,
   relayerKeyId: 'relayer-key-id',
   participantIds: [1, 2],
   sessionKind: 'jwt',

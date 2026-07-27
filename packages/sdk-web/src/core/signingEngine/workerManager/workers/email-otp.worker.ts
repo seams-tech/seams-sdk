@@ -6,9 +6,14 @@ import { secureRandomId } from '@shared/utils/secureRandomId';
 import {
   parseSigningGrantId,
   parseThresholdEd25519SessionId,
+  type MpcMaterialActivationRef,
   type SigningGrantId,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import {
   assertEvmFamilySigningKeySlotIdMatchesPlan,
   requireEvmFamilySigningKeySlotId,
@@ -132,6 +137,7 @@ import type {
   NearResolvedEd25519SigningSessionState,
 } from '../../interfaces/near';
 import type { Ed25519YaoActiveClientIdentityV1 } from '../../threshold/ed25519/yaoActiveClientRegistry';
+import { nearEd25519YaoMaterialActivationFromMetadata } from '../../session/material/nearEd25519YaoMaterialActivation';
 import {
   EMAIL_OTP_ED25519_YAO_LOCAL_MATERIAL_ALGORITHM,
   EMAIL_OTP_ED25519_YAO_LOCAL_MATERIAL_KEY_KIND,
@@ -362,6 +368,7 @@ type EmailOtpWarmSessionEntry = {
 type EmailOtpEd25519YaoWarmFactorEntry = {
   kind: 'ed25519_yao_factor';
   factorSecret32: Uint8Array;
+  materialActivation: MpcMaterialActivationRef;
   expiresAtMs: number;
   remainingUses: number;
 };
@@ -389,13 +396,22 @@ type EmailOtpWarmSessionConsumeResult =
   | { ok: false; code: string; message: string };
 
 type EmailOtpWarmSessionSealResult =
-  | {
+  | ({
       ok: true;
       sealedSecretB64u: string;
       keyVersion?: string;
       remainingUses: number;
       expiresAtMs: number;
-    }
+    } & (
+      | {
+          materialKind: 'ecdsa';
+          materialActivation?: never;
+        }
+      | {
+          materialKind: 'ed25519_yao';
+          materialActivation: MpcMaterialActivationRef;
+        }
+    ))
   | { ok: false; code: string; message: string };
 
 type EmailOtpEcdsaWarmSessionRehydrateResult =
@@ -413,7 +429,7 @@ type EmailOtpEd25519YaoLocalMaterialRehydrateResult =
 type ExactEmailOtpEcdsaWarmSessionRestore = {
   sessionId: string;
   walletId: string;
-  evmFamilySigningKeySlotId: string;
+  provisioningKeySlotId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   authSubjectId: string;
 };
@@ -507,9 +523,7 @@ function buildEmailOtpEd25519YaoStableCustodyBinding(args: {
     participantIds: args.metadata.participantIds,
     signingWorkerId: args.metadata.scope.signing_worker_id,
     registeredPublicKeyB64u: base64UrlEncode(args.metadata.registeredPublicKey),
-    signingWorkerVerifyingShareB64u: base64UrlEncode(
-      args.metadata.signingWorkerVerifyingShare,
-    ),
+    signingWorkerVerifyingShareB64u: base64UrlEncode(args.metadata.signingWorkerVerifyingShare),
     stateEpoch: args.metadata.stateEpoch.toString(10),
     activationTranscriptB64u: base64UrlEncode(args.metadata.transcript),
     activeCapabilityBindingB64u: base64UrlEncode(
@@ -624,7 +638,9 @@ function emailOtpEd25519YaoCapabilityIdentity(
   return {
     walletId: lane.identity.signer.account.wallet.walletId,
     nearAccountId: lane.identity.signer.account.nearAccountId,
-    thresholdSessionId: capability.walletSessionState.thresholdSessionId,
+    materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
+      capability.activeClient.metadata(),
+    ),
   };
 }
 
@@ -959,7 +975,7 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
   restore: {
     sessionId: string;
     walletId: string;
-    evmFamilySigningKeySlotId: string;
+    provisioningKeySlotId: string;
     chainTarget: ThresholdEcdsaChainTarget;
     authSubjectId: string;
   };
@@ -990,11 +1006,8 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
     };
   }
   const walletId = readString(args.restore.walletId, 'walletId');
-  const evmFamilySigningKeySlotId = String(
-    readEvmFamilySigningKeySlotId(
-      args.restore.evmFamilySigningKeySlotId,
-      'evmFamilySigningKeySlotId',
-    ),
+  const provisioningKeySlotId = String(
+    readEvmFamilySigningKeySlotId(args.restore.provisioningKeySlotId, 'provisioningKeySlotId'),
   );
   return {
     kind: 'parsed',
@@ -1013,7 +1026,7 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
       restore: {
         sessionId,
         walletId,
-        evmFamilySigningKeySlotId,
+        provisioningKeySlotId,
         chainTarget: args.restore.chainTarget,
         authSubjectId: readString(args.restore.authSubjectId, 'authSubjectId'),
       },
@@ -1056,10 +1069,7 @@ function readSigningGrantId(value: unknown, label: string): SigningGrantId {
   return parsed.value;
 }
 
-function readThresholdEd25519SessionId(
-  value: unknown,
-  label: string,
-): ThresholdEd25519SessionId {
+function readThresholdEd25519SessionId(value: unknown, label: string): ThresholdEd25519SessionId {
   const parsed = parseThresholdEd25519SessionId(value);
   if (!parsed.ok) {
     throw new Error(`${label} is invalid`);
@@ -1458,6 +1468,7 @@ function deleteEmailOtpWarmMaterial(sessionId: string): void {
 function putEmailOtpEd25519YaoWarmFactor(args: {
   sessionId: string;
   factorSecret32: Uint8Array;
+  materialActivation: MpcMaterialActivationRef;
   expiresAtMs: number;
   remainingUses: number;
 }): void {
@@ -1477,6 +1488,7 @@ function putEmailOtpEd25519YaoWarmFactor(args: {
   emailOtpEd25519YaoWarmFactors.set(sessionId, {
     kind: 'ed25519_yao_factor',
     factorSecret32: Uint8Array.from(args.factorSecret32),
+    materialActivation: args.materialActivation,
     expiresAtMs,
     remainingUses,
   });
@@ -1485,10 +1497,12 @@ function putEmailOtpEd25519YaoWarmFactor(args: {
 function bindEmailOtpEd25519YaoLocalSessionWarmFactor(args: {
   bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
   factorSecret32: Uint8Array;
+  materialActivation: MpcMaterialActivationRef;
 }): void {
   putEmailOtpEd25519YaoWarmFactor({
     sessionId: args.bootstrap.session.thresholdSessionId,
     factorSecret32: args.factorSecret32,
+    materialActivation: args.materialActivation,
     expiresAtMs: args.bootstrap.session.expiresAtMs,
     remainingUses: args.bootstrap.session.remainingUses,
   });
@@ -1900,6 +1914,7 @@ function updateEmailOtpWarmMaterialPolicy(args: {
       emailOtpEd25519YaoWarmFactors.set(args.sessionId, {
         kind: 'ed25519_yao_factor',
         factorSecret32: args.material.entry.factorSecret32,
+        materialActivation: args.material.entry.materialActivation,
         remainingUses: args.remainingUses,
         expiresAtMs: args.expiresAtMs,
       });
@@ -2193,13 +2208,23 @@ async function sealEmailOtpWarmSessionMaterial(args: {
           expiresAtMs: policy.expiresAtMs,
         });
         const keyVersion = normalizeOptionalNonEmptyString(applied.keyVersion);
-        return {
+        const common = {
           ok: true,
           sealedSecretB64u: readString(sealedSecretB64u, 'sealedSecretB64u'),
           ...(keyVersion ? { keyVersion } : {}),
           remainingUses: policy.remainingUses,
           expiresAtMs: policy.expiresAtMs,
-        };
+        } as const;
+        switch (material.kind) {
+          case 'ecdsa':
+            return { ...common, materialKind: 'ecdsa' };
+          case 'ed25519_yao':
+            return {
+              ...common,
+              materialKind: 'ed25519_yao',
+              materialActivation: material.entry.materialActivation,
+            };
+        }
       } finally {
         await runtime
           .destroyClientKeyHandle({ keyHandle: clientKeyHandle.keyHandle })
@@ -2231,7 +2256,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
   restore: {
     sessionId: string;
     walletId: string;
-    evmFamilySigningKeySlotId: string;
+    provisioningKeySlotId: string;
     chainTarget: ThresholdEcdsaChainTarget;
     authSubjectId: string;
   };
@@ -2313,7 +2338,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
         binding: {
           action: 'threshold_ecdsa_bootstrap',
           operation: 'sign',
-          evmFamilySigningKeySlotId: restore.evmFamilySigningKeySlotId,
+          evmFamilySigningKeySlotId: restore.provisioningKeySlotId,
           authSubjectId: restore.authSubjectId,
           chainTarget: restore.chainTarget,
         },
@@ -2394,6 +2419,8 @@ function buildEmailOtpEd25519YaoExactLocalSessionBootstrap(args: {
       authorityScope: session.authorityScope,
       thresholdSessionId: session.thresholdSessionId,
       signingGrantId: session.signingGrantId,
+      walletSessionId: session.walletSessionId,
+      quotaId: session.quotaId,
       expiresAtMs: args.expiresAtMs,
       participantIds: session.participantIds,
       remainingUses: args.remainingUses,
@@ -2538,6 +2565,7 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
     bindEmailOtpEd25519YaoLocalSessionWarmFactor({
       bootstrap,
       factorSecret32,
+      materialActivation: nearEd25519YaoMaterialActivationFromMetadata(importedClient.metadata),
     });
     const activated = importedClient;
     importedClient = null;
@@ -2552,7 +2580,9 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
       ok: false,
       code: 'internal',
       message:
-        error instanceof Error ? error.message : String(error || 'Yao local material restore failed'),
+        error instanceof Error
+          ? error.message
+          : String(error || 'Yao local material restore failed'),
     };
   } finally {
     if (importedClient) {
@@ -3484,10 +3514,7 @@ function metadataFromEmailOtpEd25519YaoLocalMaterial(args: {
       lifecycle_id: binding.lifecycleId,
       root_share_epoch: binding.rootShareEpoch,
       account_id: binding.walletId,
-      wallet_session_id: readString(
-        args.expectedThresholdSessionId,
-        'expectedThresholdSessionId',
-      ),
+      wallet_session_id: readString(args.expectedThresholdSessionId, 'expectedThresholdSessionId'),
       signer_set_id: binding.signerSetId,
       signing_worker_id: binding.signingWorkerId,
     },
@@ -3702,6 +3729,9 @@ async function completeEmailOtpUnlockFromSecret32(args: {
             bindEmailOtpEd25519YaoLocalSessionWarmFactor({
               bootstrap: ed25519YaoSession,
               factorSecret32: args.clientSecret32,
+              materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
+                importedEd25519Client.metadata,
+              ),
             });
             const imported = importedEd25519Client;
             importedEd25519Client = null;
@@ -3745,6 +3775,9 @@ async function completeEmailOtpUnlockFromSecret32(args: {
           bindEmailOtpEd25519YaoLocalSessionWarmFactor({
             bootstrap: ed25519YaoSession,
             factorSecret32: args.clientSecret32,
+            materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
+              importedEd25519Client.metadata,
+            ),
           });
           const imported = importedEd25519Client;
           importedEd25519Client = null;
@@ -4617,7 +4650,6 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       thresholdEcdsaKeyRef: {
         type: 'threshold-ecdsa-secp256k1',
         userId: walletId,
-        evmFamilySigningKeySlotId,
         chainTarget,
         relayerUrl,
         keyHandle: value.keyHandle,
@@ -4656,6 +4688,9 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
         ok: true,
         thresholdSessionId: value.thresholdSessionId,
         signingGrantId: value.signingGrantId,
+        authorizationSessionId: value.authorizationSessionId,
+        walletSessionId: value.walletSessionId,
+        quotaId: value.quotaId,
         expiresAtMs: value.expiresAtMs,
         remainingUses: value.remainingUses,
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -4978,9 +5013,7 @@ function parseEmailOtpWalletUnlockMaterialRequest(
       );
       return {
         kind: 'ed25519_yao_exact_local_session',
-        ed25519YaoSession: parseEmailOtpEd25519YaoExactLocalSessionRequest(
-          obj.ed25519YaoSession,
-        ),
+        ed25519YaoSession: parseEmailOtpEd25519YaoExactLocalSessionRequest(obj.ed25519YaoSession),
         providerSubject: readString(obj.providerSubject, 'material.providerSubject'),
         nearAccountId: readString(obj.nearAccountId, 'material.nearAccountId'),
         expectedOperationalPublicKey: readString(
@@ -5093,6 +5126,8 @@ function parseEmailOtpEd25519YaoBootstrapSession(
       'authorityScope',
       'thresholdSessionId',
       'signingGrantId',
+      'walletSessionId',
+      'quotaId',
       'expiresAtMs',
       'participantIds',
       'remainingUses',
@@ -5130,6 +5165,11 @@ function parseEmailOtpEd25519YaoBootstrapSession(
   if (!routerAbNormalSigning) {
     throw new Error('Email OTP Ed25519 Yao recovery session signing state is invalid');
   }
+  const walletSessionId = parseWalletSessionId(obj.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(obj.quotaId);
+  if (!walletSessionId.ok || !quotaId.ok) {
+    throw new Error('Email OTP Ed25519 Yao recovery Wallet Session identity is invalid');
+  }
   return {
     sessionKind: 'jwt',
     walletSessionJwt: readString(obj.walletSessionJwt, 'session.walletSessionJwt'),
@@ -5149,6 +5189,8 @@ function parseEmailOtpEd25519YaoBootstrapSession(
     },
     thresholdSessionId: readString(obj.thresholdSessionId, 'session.thresholdSessionId'),
     signingGrantId: readString(obj.signingGrantId, 'session.signingGrantId'),
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
     expiresAtMs,
     participantIds: parseEmailOtpEd25519YaoParticipantIds(
       obj.participantIds,
@@ -6560,10 +6602,10 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           restore: {
             sessionId: readString(restore.sessionId, 'restore.sessionId'),
             walletId: readString(restore.walletId, 'restore.walletId'),
-            evmFamilySigningKeySlotId: String(
+            provisioningKeySlotId: String(
               readEvmFamilySigningKeySlotId(
-                restore.evmFamilySigningKeySlotId,
-                'restore.evmFamilySigningKeySlotId',
+                restore.provisioningKeySlotId,
+                'restore.provisioningKeySlotId',
               ),
             ),
             chainTarget: parseWorkerChainTarget(restore.chainTarget),
@@ -7022,6 +7064,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
           putEmailOtpEd25519YaoWarmFactor({
             sessionId: msg.payload.walletSessionState.thresholdSessionId,
             factorSecret32: entry.factorSecret32,
+            materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
+              activationResult.metadata,
+            ),
             expiresAtMs: msg.payload.walletSessionState.signingWalletSession.expiresAtMs,
             remainingUses: msg.payload.walletSessionState.remainingUses,
           });
@@ -7092,6 +7137,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
           putEmailOtpEd25519YaoWarmFactor({
             sessionId: msg.payload.sessionPolicy.thresholdSessionId,
             factorSecret32: result.value.retainedFactorSecret32,
+            materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
+              activationResult.metadata,
+            ),
             expiresAtMs: msg.payload.sessionPolicy.expiresAtMs,
             remainingUses: msg.payload.sessionPolicy.remainingUses,
           });

@@ -3,8 +3,8 @@ import type {
   VolatileWarmMaterialPort,
 } from '../../uiConfirm/uiConfirm.types';
 import type { ExpiredWalletSessionAuthorizationState } from '../identity/clientSessionPersistenceState';
-import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
-import type { SigningGrantId } from '../operationState/types';
+import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
+import { clearEcdsaRoleLocalWorkerRuntimeState } from '../material/ecdsaRoleLocalMaterialResolver';
 import {
   clearSigningGrant,
   type SigningGrantClearFailure,
@@ -20,9 +20,6 @@ export type ClientWalletSessionInvalidationReadinessDeps = {
     ) => Promise<void>;
   };
   readonly clearEmailOtpWarmSessionMaterial: (sessionId: string) => Promise<void>;
-  readonly clearThresholdEcdsaSessionRecordForExactIdentity: (
-    identity: ExactEcdsaSigningLaneIdentity,
-  ) => void;
 };
 
 export type ClientWalletSessionExpiryInvalidatorDeps = {
@@ -33,7 +30,7 @@ export type ClientWalletSessionExpiryInvalidatorDeps = {
 export type WalletSessionExpiredEvent = {
   readonly kind: 'wallet_session_expired';
   readonly walletId: ExpiredWalletSessionAuthorizationState['walletId'];
-  readonly walletSessionId: SigningGrantId;
+  readonly walletSessionId: WalletSessionId;
   readonly authMethod: ExpiredWalletSessionAuthorizationState['authMethod'];
   readonly expiresAtMs: number;
   readonly detectedAtMs: number;
@@ -57,21 +54,32 @@ export type ClientWalletSessionExpiryInvalidationResult =
 function walletSessionInvalidationKey(
   state: ExpiredWalletSessionAuthorizationState,
 ): string {
-  return `${String(state.walletId)}:${String(state.walletSessionId)}`;
+  return `${String(state.walletId)}:${
+    'walletSessionId' in state
+      ? `wallet-session:${String(state.walletSessionId)}`
+      : `signing-grant:${String(state.signingGrantId)}`
+  }`;
 }
 
-function walletSessionExpiredEvent(
-  state: ExpiredWalletSessionAuthorizationState,
-): WalletSessionExpiredEvent {
+function walletSessionExpiredEvent(args: {
+  readonly state: ExpiredWalletSessionAuthorizationState;
+  readonly walletSessionId: WalletSessionId;
+}): WalletSessionExpiredEvent {
+  const state = args.state;
   return {
     kind: 'wallet_session_expired',
     walletId: state.walletId,
-    walletSessionId: state.walletSessionId,
+    walletSessionId: args.walletSessionId,
     authMethod: state.authMethod,
     expiresAtMs: state.expiresAtMs,
     detectedAtMs: state.detectedAtMs,
   };
 }
+
+export type InvalidateExpiredWalletSessionInput = {
+  readonly state: ExpiredWalletSessionAuthorizationState;
+  readonly walletSessionId: WalletSessionId;
+};
 
 function toSigningGrantReadinessDeps(
   deps: ClientWalletSessionInvalidationReadinessDeps,
@@ -82,9 +90,23 @@ function toSigningGrantReadinessDeps(
   return {
     touchConfirm,
     clearEmailOtpWarmSessionMaterial: deps.clearEmailOtpWarmSessionMaterial,
-    clearThresholdEcdsaSessionRecordForExactIdentity:
-      deps.clearThresholdEcdsaSessionRecordForExactIdentity,
   };
+}
+
+async function clearExpiredAuthorization(args: {
+  readonly deps: ClientWalletSessionExpiryInvalidatorDeps;
+  readonly state: ExpiredWalletSessionAuthorizationState;
+}): Promise<SigningGrantClearResult> {
+  if ('walletSessionId' in args.state) {
+    clearEcdsaRoleLocalWorkerRuntimeState();
+    return { kind: 'cleared' };
+  }
+  return clearSigningGrant({
+    deps: toSigningGrantReadinessDeps(args.deps.readiness),
+    statusOverrides: args.deps.statusOverrides,
+    walletId: args.state.walletId,
+    signingGrantId: args.state.signingGrantId,
+  });
 }
 
 export class ClientWalletSessionExpiryInvalidator {
@@ -97,17 +119,13 @@ export class ClientWalletSessionExpiryInvalidator {
   }
 
   async invalidate(
-    state: ExpiredWalletSessionAuthorizationState,
+    input: InvalidateExpiredWalletSessionInput,
   ): Promise<ClientWalletSessionExpiryInvalidationResult> {
+    const state = input.state;
     const key = walletSessionInvalidationKey(state);
     let cleanup = this.#cleanupBySession.get(key);
     if (!cleanup) {
-      cleanup = clearSigningGrant({
-        deps: toSigningGrantReadinessDeps(this.#deps.readiness),
-        statusOverrides: this.#deps.statusOverrides,
-        walletId: state.walletId,
-        signingGrantId: state.walletSessionId,
-      });
+      cleanup = clearExpiredAuthorization({ deps: this.#deps, state });
       this.#cleanupBySession.set(key, cleanup);
     }
     const cleanupResult = await cleanup;
@@ -125,7 +143,7 @@ export class ClientWalletSessionExpiryInvalidator {
     this.#eventDelivered.add(key);
     return {
       kind: 'invalidated',
-      event: walletSessionExpiredEvent(state),
+      event: walletSessionExpiredEvent(input),
     };
   }
 }

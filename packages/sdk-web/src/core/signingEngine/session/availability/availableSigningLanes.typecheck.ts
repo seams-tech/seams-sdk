@@ -18,6 +18,7 @@ import type {
 import { toAccountId } from '../../../types/accountIds';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 const chainTarget = {
   kind: 'evm',
@@ -30,7 +31,6 @@ const ed25519NearAccountId = toAccountId('alice.testnet');
 const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('scope-frost-vermillion-k7p9m2');
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ederivation-shared-key',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -48,6 +48,7 @@ const emailOtpAuth = {
 } as const;
 
 declare const keyHandle: EvmFamilyEcdsaKeyHandle;
+declare const materialActivation: MpcMaterialActivationRef;
 declare const ed25519RouterAbNormalSigning: AvailableSigningLanesRuntimeEd25519Record['routerAbNormalSigning'];
 
 const publicFacts = buildVerifiedEcdsaPublicFacts({
@@ -77,6 +78,7 @@ const emailOtpResolvedKey = buildResolvedEvmFamilyEcdsaKey({
 
 const passkeyLane: ConcreteAvailableEcdsaSigningLane = {
   key,
+  materialActivation,
   publicFacts,
   auth: passkeyAuth,
   resolvedKey,
@@ -105,6 +107,7 @@ void invalidAvailableSigningLanesInputWithSubjectId;
 
 const passkeyLaneIdentity: EcdsaAvailableLaneIdentityInput = {
   key,
+  materialActivation,
   publicFacts,
   auth: passkeyAuth,
   resolvedKey,

@@ -50,6 +50,10 @@ import {
   deriveEvmFamilySigningKeySlotId,
   parseEvmFamilySigningKeySlotId,
 } from '@shared/signing-lanes';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 function requireEvmFamilySigningKeySlotId(value: unknown) {
   const parsed = parseEvmFamilySigningKeySlotId(value);
@@ -85,6 +89,7 @@ import type {
   WalletRegistrationFinalizeAuthMethod,
   WalletRegistrationFinalizeResponse,
   WalletRegistrationRouteDiagnostics,
+  WalletEd25519YaoSignerPublicResult,
   WalletRegistrationEd25519YaoPublicResult,
   WalletRegistrationEd25519YaoBootstrapSession,
   WalletAddSignerFinalizeResponse,
@@ -482,8 +487,8 @@ function parseD1WalletAddSignerFinalizeSuccessResponse(
   if (record.kind === 'near_ed25519') {
     const rpId = toOptionalTrimmedString(record.rpId);
     const credentialIdB64u = toOptionalTrimmedString(record.credentialIdB64u);
-    const ed25519 = parseD1WalletRegistrationFinalizeEd25519(record.ed25519);
-    if (!rpId || !credentialIdB64u || !ed25519 || ed25519.session.walletId !== walletId) {
+    const ed25519 = parseD1WalletEd25519YaoSignerPublicResult(record.ed25519);
+    if (!rpId || !credentialIdB64u || !ed25519) {
       return null;
     }
     return {
@@ -770,6 +775,28 @@ function parseD1WalletRegistrationFinalizeAuthMethod(
 function parseD1WalletRegistrationFinalizeEd25519(
   raw: unknown,
 ): WalletRegistrationEd25519YaoPublicResult | null {
+  const publicResult = parseD1WalletEd25519YaoSignerPublicResult(raw);
+  const record = toRecordValue(raw);
+  if (!record || !publicResult) return null;
+  const session = parseD1WalletRegistrationEd25519YaoBootstrapSession(record.session);
+  if (
+    !session ||
+    session.nearAccountId !== publicResult.nearAccountId ||
+    session.nearEd25519SigningKeyId !== publicResult.nearEd25519SigningKeyId ||
+    session.participantIds[0] !== publicResult.participantIds[0] ||
+    session.participantIds[1] !== publicResult.participantIds[1]
+  ) {
+    return null;
+  }
+  return {
+    ...publicResult,
+    session,
+  };
+}
+
+function parseD1WalletEd25519YaoSignerPublicResult(
+  raw: unknown,
+): WalletEd25519YaoSignerPublicResult | null {
   const record = toRecordValue(raw);
   if (!record || record.recoveryExportCapable !== true) return null;
   const signerSlot = safeInteger(record.signerSlot);
@@ -779,7 +806,6 @@ function parseD1WalletRegistrationFinalizeEd25519(
   const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
   const keyVersion = toOptionalTrimmedString(record.keyVersion);
   const participantIds = parseD1PositiveIntegerArray(record.participantIds);
-  const session = parseD1WalletRegistrationEd25519YaoBootstrapSession(record.session);
   if (
     signerSlot === null ||
     signerSlot <= 0 ||
@@ -789,12 +815,7 @@ function parseD1WalletRegistrationFinalizeEd25519(
     !relayerKeyId ||
     !keyVersion ||
     !participantIds ||
-    participantIds.length !== 2 ||
-    !session ||
-    session.nearAccountId !== nearAccountId ||
-    session.nearEd25519SigningKeyId !== nearEd25519SigningKeyId ||
-    session.participantIds[0] !== participantIds[0] ||
-    session.participantIds[1] !== participantIds[1]
+    participantIds.length !== 2
   ) {
     return null;
   }
@@ -810,7 +831,6 @@ function parseD1WalletRegistrationFinalizeEd25519(
     keyVersion,
     recoveryExportCapable: true,
     participantIds: [firstParticipantId, secondParticipantId],
-    session,
   };
 }
 
@@ -826,6 +846,8 @@ function parseD1WalletRegistrationEd25519YaoBootstrapSession(
   const authorityScope = parseThresholdEd25519AuthorityScope(record.authorityScope);
   const thresholdSessionId = toOptionalTrimmedString(record.thresholdSessionId);
   const signingGrantId = toOptionalTrimmedString(record.signingGrantId);
+  const walletSessionId = parseWalletSessionId(record.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(record.quotaId);
   const expiresAtMs = safeInteger(record.expiresAtMs);
   const participantIds = parseD1PositiveIntegerArray(record.participantIds);
   const remainingUses = safeInteger(record.remainingUses);
@@ -843,6 +865,8 @@ function parseD1WalletRegistrationEd25519YaoBootstrapSession(
     !authorityScope ||
     !thresholdSessionId ||
     !signingGrantId ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
     expiresAtMs === null ||
     expiresAtMs <= 0 ||
     !participantIds ||
@@ -868,6 +892,8 @@ function parseD1WalletRegistrationEd25519YaoBootstrapSession(
     authorityScope,
     thresholdSessionId,
     signingGrantId,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
     expiresAtMs,
     participantIds: [firstParticipantId, secondParticipantId],
     remainingUses,

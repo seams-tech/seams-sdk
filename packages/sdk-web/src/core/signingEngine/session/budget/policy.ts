@@ -49,7 +49,10 @@ export const DEV_DEFAULT_SIGNING_BUDGET_ALLOWANCE: DevDefaultBudgetAllowance = {
   source: 'sdk_dev_default',
 };
 
-function parsePositiveRemainingUses(value: unknown, fieldName: string): PositiveRemainingUses {
+export function parsePositiveRemainingUses(
+  value: unknown,
+  fieldName: string,
+): PositiveRemainingUses {
   const remainingUses = Math.floor(Number(value) || 0);
   if (!Number.isFinite(remainingUses) || remainingUses <= 0) {
     throw new Error(`[SigningBudgetPolicy] ${fieldName} must be a positive integer`);

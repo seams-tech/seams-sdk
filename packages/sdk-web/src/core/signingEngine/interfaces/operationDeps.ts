@@ -1,8 +1,5 @@
 import type { EvmFamilyWalletSignerStorePort } from '../flows/signEvmFamily/accountAuth';
-import type {
-  EmailOtpEcdsaChallengeAuthority,
-  EmailOtpEcdsaStepUpAuthority,
-} from '../flows/signEvmFamily/emailOtpSigningSession';
+import type { EmailOtpEcdsaChallengeAuthority } from '../flows/signEvmFamily/emailOtpSigningSession';
 import type { EvmFamilyPasskeyAuthenticatorStorePort } from './passkeyAuthenticatorStore';
 import type { RecoveryNearKeyMaterialStorePort } from '../flows/recovery/recoveryStorePorts';
 import type { RegistrationAccountStorePort } from '../flows/registration/registrationStorePorts';
@@ -22,14 +19,9 @@ import type {
   ReadAvailableSigningLanesForSigningInput,
 } from '../session/availability/availableSigningLanes';
 import type { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
-import type {
-  SelectedEcdsaLane,
-  ThresholdEcdsaSessionStoreSource,
-} from '../session/identity/laneIdentity';
+import type { ThresholdEcdsaSessionStoreSource } from '../session/identity/laneIdentity';
 import type { ExactEcdsaSigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
 import type {
-  ConsumeSingleUseEmailOtpEcdsaLaneCommand,
-  ConsumeSingleUseEmailOtpEcdsaLaneResult,
   ThresholdEcdsaKeyRefLookupResult,
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
@@ -41,9 +33,8 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { UserPreferencesManager } from '../session/userPreferences';
-import type { WarmSessionEcdsaCapabilityState } from '../session/warmCapabilities/types';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
-import type { ThresholdEd25519WebAuthnPrfSecretSource } from '../threshold/ed25519/walletSession';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type {
   UiConfirmContextPort,
   UiConfirmRegistrationPort,
@@ -53,10 +44,17 @@ import type {
   WarmSessionStatusResult,
 } from '../uiConfirm/uiConfirm.types';
 import type { SignerWorkerManagerContext } from '../workerManager/SignerWorkerManager';
-import type { NearEd25519YaoSigningCapability } from './near';
+import type {
+  NearEd25519YaoSigningCapability,
+  NearPasskeyEd25519OperationStepUpCapabilityPreparation,
+} from './near';
 import type { Ed25519SigningLane } from '../session/emailOtp/ed25519SigningLane';
 import type { ExactEd25519SigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
 import type { EmailOtpEd25519YaoSilentRecoveryResultV1 } from '../session/emailOtp/ed25519YaoSealedRecovery';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../flows/signEvmFamily/ecdsaSigningCapability';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
+import type { EcdsaOperationStepUpSessionAuth } from '../threshold/ecdsa/operationStepUp';
 
 export type EvmFamilyChain = 'tempo' | 'evm';
 
@@ -69,7 +67,7 @@ export type NearEd25519SigningSessionStatus = {
 
 export type EmailOtpEcdsaSigningBootstrapResult = {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
+  authorization: ActiveWalletSessionAuthorizationProjection;
 };
 
 export type DurableEmailOtpEcdsaSigningSessionAuthorityResolver = {
@@ -82,12 +80,18 @@ export type DurableEmailOtpEcdsaSigningSessionAuthorityResolver = {
     | Promise<EmailOtpEcdsaSigningSessionAuthority | null>;
 };
 
+export type EcdsaOperationStepUpSessionAuthResolver = {
+  resolveEcdsaOperationStepUpSessionAuth: (args: {
+    walletSession: WalletSessionRef;
+    authMethod: SignerAuthMethod;
+  }) => Promise<EcdsaOperationStepUpSessionAuth>;
+};
+
 export type NearSigningApiDeps = {
   nearRpcUrl: string;
   resolveActiveEd25519YaoSigningCapability: (args: {
     walletId: WalletId;
     nearAccountId: AccountId;
-    thresholdSessionId: string;
   }) => NearEd25519YaoSigningCapability | null;
   resolveThresholdEd25519SessionIdForNearAccount: (
     nearAccountId: AccountId | string,
@@ -101,20 +105,17 @@ export type NearSigningApiDeps = {
     nearAccountId: AccountId;
     laneIdentity: ExactEd25519SigningLaneIdentity;
   }) => Promise<NearEd25519YaoSigningCapability>;
+  preparePasskeyEd25519YaoOperationStepUpForSigning: (args: {
+    walletId: WalletId;
+    nearAccountId: AccountId;
+    laneIdentity: ExactEd25519SigningLaneIdentity;
+  }) => Promise<NearPasskeyEd25519OperationStepUpCapabilityPreparation>;
   recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning: (args: {
     walletId: WalletId;
     nearAccountId: AccountId;
     signerSlot: number;
     thresholdSessionId: string;
   }) => Promise<EmailOtpEd25519YaoSilentRecoveryResultV1>;
-  refreshPasskeyEd25519CapabilityForSigning?: (args: {
-    record: ThresholdEd25519SessionRecord;
-    laneIdentity: ExactEd25519SigningLaneIdentity;
-    policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
-    operationUsesNeeded: number;
-  }) => Promise<
-    { sessionId: string; record: ThresholdEd25519SessionRecord } & NearEd25519YaoSigningCapability
-  >;
   requestEmailOtpEd25519SigningChallenge?: (args: {
     walletSession: WalletSessionRef;
     nearAccountId: AccountId;
@@ -184,13 +185,16 @@ export type EvmFamilyEcdsaSessionReaderDeps = {
   listThresholdEcdsaKeyRefsForSigning: (
     args: EcdsaSigningListLookupArgs,
   ) => ThresholdEcdsaKeyRefLookupResult[];
-  getThresholdEcdsaSessionRecordByKey: (
-    identity: SelectedEcdsaLane,
-  ) => ThresholdEcdsaSessionRecord | null;
 };
 
 export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
-  DurableEmailOtpEcdsaSigningSessionAuthorityResolver & {
+  DurableEmailOtpEcdsaSigningSessionAuthorityResolver &
+  EcdsaOperationStepUpSessionAuthResolver & {
+    resolveCanonicalEcdsaSigningCapability: (args: {
+      walletId: WalletId;
+      chainTarget: ThresholdEcdsaChainTarget;
+      materialActivation: MpcMaterialActivationRef;
+    }) => Promise<CanonicalEvmFamilyEcdsaSigningCapability>;
     walletSignerStore: EvmFamilyWalletSignerStorePort;
     passkeyAuthenticatorStore: EvmFamilyPasskeyAuthenticatorStorePort;
     seamsWebConfigs: SeamsConfigsReadonly;
@@ -211,15 +215,6 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
       chain: EvmFamilyChain;
       authority: EmailOtpEcdsaChallengeAuthority;
     }) => Promise<EmailOtpTransactionSigningChallenge>;
-    loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
-      walletSession: WalletSessionRef;
-      subjectId?: never;
-      chainTarget: ThresholdEcdsaChainTarget;
-      challengeId: string;
-      otpCode: string;
-      authority: EmailOtpEcdsaStepUpAuthority;
-      remainingUses: number;
-    }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
     restorePersistedSessionForSigning: (
       args: Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>,
     ) => Promise<unknown>;
@@ -227,9 +222,6 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
       args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ecdsa' }>,
     ) => Promise<AvailableSigningLanes>;
     getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
-    consumeSingleUseEmailOtpEcdsaLane?: (
-      command: ConsumeSingleUseEmailOtpEcdsaLaneCommand,
-    ) => ConsumeSingleUseEmailOtpEcdsaLaneResult;
     signingSessionCoordinator: SigningSessionCoordinator;
     provisionThresholdEcdsaSession: (
       args: import('../session/passkey/ecdsaSessionProvision').ThresholdEcdsaActivationRequest,

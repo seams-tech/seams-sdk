@@ -13,7 +13,7 @@ import {
   toWalletId,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '@/core/signingEngine/session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import {
   sealedRecoverySessionKind,
@@ -28,8 +28,11 @@ import {
 import {
   parseSigningSessionSealKeyVersion,
 } from '../keyMaterialBrands';
-import { requireEvmFamilySigningKeySlotId, type EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import {
+  walletAuthAuthorityRef,
+  type EmailOtpWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import {
   buildEcdsaRoleLocalPublicFacts,
 } from '../persistence/ecdsaRoleLocalRecords';
@@ -38,6 +41,7 @@ import {
 } from '../material/ecdsaRoleLocalMaterialResolver';
 import {
   buildEvmFamilyEcdsaWalletKey,
+  deriveEvmFamilySigningKeySlotId,
   type EvmFamilyEcdsaWalletKey,
 } from '../identity/evmFamilyEcdsaIdentity';
 import {
@@ -54,7 +58,7 @@ import type { ResolvedEmailOtpExistingEcdsaKey } from './ecdsaPublication';
 
 export type EmailOtpThresholdEcdsaRehydrateResult = {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
+  authorization: ActiveWalletSessionAuthorizationProjection;
   remainingUses: number;
   expiresAtMs: number;
 };
@@ -78,7 +82,7 @@ export type EmailOtpEcdsaSealedRecoveryPorts = {
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   }) => Promise<{
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    warmCapability: WarmSessionEcdsaCapabilityState;
+    authorization: ActiveWalletSessionAuthorizationProjection;
   }>;
 };
 
@@ -106,7 +110,7 @@ export type EmailOtpEcdsaRestoreSource =
       relayerUrl: string;
       chainTarget: ThresholdEcdsaChainTarget;
       keyHandle: string;
-      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+      provisioningKeySlotId: EvmFamilySigningKeySlotId;
       relayerKeyId: string;
       participantIds: readonly number[];
       sessionKind: 'jwt';
@@ -125,7 +129,7 @@ export type EmailOtpEcdsaRestoreSource =
       relayerUrl: string;
       chainTarget: ThresholdEcdsaChainTarget;
       keyHandle: string;
-      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+      provisioningKeySlotId: EvmFamilySigningKeySlotId;
       relayerKeyId: string;
       participantIds: readonly number[];
       sessionKind: 'jwt';
@@ -157,17 +161,28 @@ function emailOtpSealedRoleLocalParticipantIds(
   return [1, 2];
 }
 
-function emailOtpSealedExistingKey(
+async function emailOtpSealedExistingKey(
   sealedRecord: EmailOtpEcdsaSealedRecoveryRecord,
-): ResolvedEmailOtpExistingEcdsaKey {
+): Promise<ResolvedEmailOtpExistingEcdsaKey> {
+  const authority = await walletAuthAuthorityRef({
+    authority: sealedRecord.emailOtpAuthority,
+  });
+  if (
+    authority.walletId !== sealedRecord.authority.walletId ||
+    authority.authorityDigest !== sealedRecord.authority.authorityDigest
+  ) {
+    throw new Error('Email OTP sealed refresh authority reference mismatch');
+  }
   const capability = sealedRecord.publicCapability;
   const publicIdentity = capability.public_identity;
+  const provisioningKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId: sealedRecord.walletId,
+    signingRootId: sealedRecord.signingRootId,
+    signingRootVersion: sealedRecord.signingRootVersion,
+  });
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: toWalletId(sealedRecord.walletId),
-    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
-      sealedRecord.evmFamilySigningKeySlotId,
-      'evmFamilySigningKeySlotId',
-    ),
+    evmFamilySigningKeySlotId: provisioningKeySlotId,
     chainTarget: sealedRecord.chainTarget,
     keyHandle: sealedRecord.keyHandle,
     ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(
@@ -206,7 +221,8 @@ function emailOtpSealedExistingKey(
     publicCapability: capability,
     walletKey,
     persistedRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
-      materialRef: sealedRecord.roleLocalMaterialRef,
+      authority: sealedRecord.authority,
+      materialActivation: sealedRecord.roleLocalMaterialRef.materialActivation,
       publicFacts,
     }),
   };
@@ -347,14 +363,18 @@ function buildSealedRecordEmailOtpEcdsaRestoreSource(args: {
   return {
     kind: 'sealed_record_restore',
     sealedRecord,
-    emailOtpAuthContext: sealedRecordEmailOtpSessionAuthContext(sealedRecord.authority),
+    emailOtpAuthContext: sealedRecordEmailOtpSessionAuthContext(sealedRecord.emailOtpAuthority),
     walletSessionJwt,
     thresholdSessionId: sealedRecord.thresholdSessionId,
     signingGrantId: sealedRecord.signingGrantId,
     relayerUrl: sealedRecord.relayerUrl,
     chainTarget: sealedRecord.chainTarget,
     keyHandle: sealedRecord.keyHandle,
-    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(sealedRecord.evmFamilySigningKeySlotId),
+    provisioningKeySlotId: deriveEvmFamilySigningKeySlotId({
+      walletId: sealedRecord.walletId,
+      signingRootId: sealedRecord.signingRootId,
+      signingRootVersion: sealedRecord.signingRootVersion,
+    }),
     relayerKeyId: sealedRecord.relayerKeyId,
     participantIds: [...sealedRecord.participantIds],
     sessionKind,
@@ -392,7 +412,7 @@ function buildCurrentRecordEmailOtpEcdsaRestoreSource(args: {
     relayerUrl: ecdsaRecord.relayerUrl,
     chainTarget: ecdsaRecord.chainTarget,
     keyHandle: ecdsaRecord.keyHandle,
-    evmFamilySigningKeySlotId: ecdsaRecord.evmFamilySigningKeySlotId,
+    provisioningKeySlotId: ecdsaRecord.evmFamilySigningKeySlotId,
     relayerKeyId: ecdsaRecord.relayerKeyId,
     participantIds: [...ecdsaRecord.participantIds],
     sessionKind: 'jwt',
@@ -433,6 +453,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   if (sealedRecord.authMethod !== 'email_otp' || sealedRecord.curve !== 'ecdsa') {
     return null;
   }
+  const existingKey = await emailOtpSealedExistingKey(sealedRecord);
   const restoreSource = buildEmailOtpEcdsaRestoreSource({
     sealedRecord,
     ecdsaRecord: args.ecdsaRecord,
@@ -466,7 +487,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     restore: {
       sessionId: restoreSource.thresholdSessionId,
       walletId: sealedRecord.walletId,
-      evmFamilySigningKeySlotId: String(restoreSource.evmFamilySigningKeySlotId),
+      provisioningKeySlotId: String(restoreSource.provisioningKeySlotId),
       chainTarget: restoreSource.chainTarget,
       authSubjectId: emailOtpAuthContextProviderUserId(restoreSource.emailOtpAuthContext),
     },
@@ -481,7 +502,6 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   const emailOtpWorkerSessionHandle = parseEmailOtpWorkerIssuedSessionHandle(
     restored.clientRootShareHandle,
   );
-  const existingKey = emailOtpSealedExistingKey(sealedRecord);
   const bootstrap = await args.provisionThresholdEcdsaSession(
     buildEmailOtpExistingKeyActivation({
       existingKey,
@@ -519,7 +539,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   });
   return {
     bootstrap: committed.bootstrap,
-    warmCapability: committed.warmCapability,
+    authorization: committed.authorization,
     remainingUses: committed.bootstrap.session.remainingUses,
     expiresAtMs: committed.bootstrap.session.expiresAtMs,
   };

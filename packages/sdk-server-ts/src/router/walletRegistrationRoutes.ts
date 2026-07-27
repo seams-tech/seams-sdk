@@ -1,4 +1,7 @@
-import type { RouterApiWalletRegistrationRouteService } from './authServicePort';
+import type {
+  RouterApiAuthorizationSessionService,
+  RouterApiWalletRegistrationRouteService,
+} from './authServicePort';
 import type {
   EcdsaKeyFactsInventoryPolicy,
   WebAuthnAuthenticationCredential,
@@ -102,6 +105,13 @@ import {
   parseImplicitNearAccountId,
 } from '@shared/utils/near';
 import {
+  parsePrincipalId,
+  parseReusableWalletSessionMintId,
+  type MpcWalletSigningQuotaId,
+  type SeamsSessionId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import {
   addAuthMethodIntentGrantFromString,
   computeAddAuthMethodIntentDigestB64u,
   normalizeAddAuthMethodInput,
@@ -131,6 +141,7 @@ import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
+import { DEFAULT_WALLET_SESSION_TTL_MS } from '@shared/threshold/sessionPolicy';
 import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   parseRouterAbTraceContextV1,
@@ -140,6 +151,7 @@ import type { RouterAbEd25519YaoGatewaySpanV1 } from './routerAbEd25519YaoHttpRe
 
 type RouterApiWalletRegistrationServices = {
   walletRegistration: RouterApiWalletRegistrationRouteService;
+  authorizationSessions: RouterApiAuthorizationSessionService;
   apiKeyAuth?: RouterApiKeyAuthAdapter | null;
   bootstrapTokenVerifier?: RouterApiBootstrapTokenVerifier | null;
   orgProjectEnv?: RouterApiProjectEnvironmentResolver | null;
@@ -582,14 +594,39 @@ async function attachEcdsaWalletSessionJwt(
   bootstrap: EcdsaDerivationServerBootstrapResponse | undefined,
   activationEpoch: RootShareEpoch,
   runtimePolicyScope?: RuntimePolicyScope,
-): Promise<RouteResponse<RouteErrorBody> | null> {
-  if (!bootstrap) return null;
+): Promise<
+  | {
+      readonly ok: true;
+      readonly bootstrap: EcdsaDerivationServerBootstrapResponse & {
+        readonly authorizationSessionId: SeamsSessionId;
+        readonly walletSessionId: WalletSessionId;
+        readonly quotaId: MpcWalletSigningQuotaId;
+        readonly jwt: string;
+      };
+    }
+  | {
+      readonly ok: false;
+      readonly response: RouteResponse<RouteErrorBody>;
+    }
+> {
+  if (!bootstrap) {
+    return {
+      ok: false,
+      response: routeError(500, 'internal', 'ECDSA registration bootstrap is missing'),
+    };
+  }
   if (bootstrap.activationEpoch !== activationEpoch) {
-    return routeError(500, 'internal', 'Router A/B ECDSA activation epoch mismatch');
+    return {
+      ok: false,
+      response: routeError(500, 'internal', 'Router A/B ECDSA activation epoch mismatch'),
+    };
   }
   const normalSigningRuntime = input.services.walletRegistration.getRouterAbNormalSigningRuntime();
   if (!normalSigningRuntime) {
-    return routeError(500, 'internal', 'Router A/B normal signing is not configured');
+    return {
+      ok: false,
+      response: routeError(500, 'internal', 'Router A/B normal signing is not configured'),
+    };
   }
   const signingWorkerId = normalSigningRuntime.getSigningWorkerId();
   const routerAbEcdsaDerivationNormalSigning =
@@ -600,17 +637,79 @@ async function attachEcdsaWalletSessionJwt(
       signingWorkerId,
     });
   if (!routerAbEcdsaDerivationNormalSigning.ok) {
-    return routeError(500, 'internal', routerAbEcdsaDerivationNormalSigning.message);
+    return {
+      ok: false,
+      response: routeError(500, 'internal', routerAbEcdsaDerivationNormalSigning.message),
+    };
   }
+  const session = input.services.session;
+  if (!session) {
+    return {
+      ok: false,
+      response: routeError(401, 'unauthorized', 'ECDSA Wallet Session requires an app session'),
+    };
+  }
+  const parsedSession = await session.parse(input.headers);
+  const appSessionClaims = parsedSession.ok ? parseAppSessionClaims(parsedSession.claims) : null;
+  if (
+    !appSessionClaims?.seamsSessionId ||
+    !appSessionClaims.walletAuthAuthorityRef ||
+    (appSessionClaims.walletId !== bootstrap.walletId && appSessionClaims.sub !== bootstrap.walletId)
+  ) {
+    return {
+      ok: false,
+      response: routeError(
+        401,
+        'unauthorized',
+        'ECDSA Wallet Session requires exact app-session wallet authority',
+      ),
+    };
+  }
+  const principalId = parsePrincipalId(appSessionClaims.sub);
+  const mintId = parseReusableWalletSessionMintId(bootstrap.signingGrantId);
+  if (!principalId.ok || !mintId.ok) {
+    return {
+      ok: false,
+      response: routeError(401, 'unauthorized', 'ECDSA Wallet Session identity is invalid'),
+    };
+  }
+  const activeAuthorizationSession = await input.services.authorizationSessions.readActiveSession({
+    tenantId: input.services.authorizationSessions.tenantId,
+    sessionId: appSessionClaims.seamsSessionId,
+    nowMs: Date.now(),
+  });
+  if (
+    !activeAuthorizationSession ||
+    activeAuthorizationSession.principalId !== principalId.value
+  ) {
+    return {
+      ok: false,
+      response: routeError(401, 'unauthorized', 'ECDSA Wallet Session app authority expired'),
+    };
+  }
+  const reusableWalletSession =
+    await input.services.authorizationSessions.issueReusableWalletSession({
+      tenantId: input.services.authorizationSessions.tenantId,
+      principalId: principalId.value,
+      walletId: walletIdFromString(bootstrap.walletId),
+      authority: appSessionClaims.walletAuthAuthorityRef,
+      mintId: mintId.value,
+      remainingUses: bootstrap.remainingUses,
+      issuedAtMs: bootstrap.expiresAtMs - DEFAULT_WALLET_SESSION_TTL_MS,
+      expiresAtMs: bootstrap.expiresAtMs,
+    });
   const signed = await signRouterAbEcdsaDerivationWalletSessionJwt({
-    session: input.services.session,
+    session,
     userId: bootstrap.walletId,
     evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
     relayerKeyId: bootstrap.relayerKeyId,
     sessionInfo: {
       sessionKind: 'jwt',
+      authorizationSessionId: appSessionClaims.seamsSessionId,
       thresholdSessionId: bootstrap.thresholdSessionId,
       signingGrantId: bootstrap.signingGrantId,
+      walletSessionId: reusableWalletSession.session.walletSessionId,
+      quotaId: reusableWalletSession.quota.quotaId,
       expiresAtMs: bootstrap.expiresAtMs,
       participantIds: bootstrap.participantIds,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -637,10 +736,21 @@ async function attachEcdsaWalletSessionJwt(
   });
   if (!signed.ok) {
     const code = signed.code === 'sessions_disabled' ? 'internal' : signed.code;
-    return routeError(signed.status, code, signed.message);
+    return {
+      ok: false,
+      response: routeError(signed.status, code, signed.message),
+    };
   }
-  bootstrap.jwt = signed.jwt;
-  return null;
+  return {
+    ok: true,
+    bootstrap: {
+      ...bootstrap,
+      authorizationSessionId: appSessionClaims.seamsSessionId,
+      walletSessionId: reusableWalletSession.session.walletSessionId,
+      quotaId: reusableWalletSession.quota.quotaId,
+      jwt: signed.jwt,
+    },
+  };
 }
 
 function parseAddSignerSelection(raw: unknown): ParseResult<AddSignerSelection> {
@@ -2624,14 +2734,20 @@ export async function handleRouterApiWalletRegistrationEcdsaActivation(
     await input.services.walletRegistration.getWalletRegistrationRuntimePolicyScope(
       request.value.registrationCeremonyId,
     );
-  const signingError = await attachEcdsaWalletSessionJwt(
+  const attached = await attachEcdsaWalletSessionJwt(
     input,
     result.ecdsa.bootstrap,
     result.ecdsa.activation.ecdsa_activation.activation_epoch,
     runtimePolicyScope,
   );
-  if (signingError) return signingError;
-  return routeJson(200, result);
+  if (!attached.ok) return attached.response;
+  return routeJson(200, {
+    ...result,
+    ecdsa: {
+      ...result.ecdsa,
+      bootstrap: attached.bootstrap,
+    },
+  });
 }
 
 export async function handleRouterApiWalletRegistrationEcdsaActivationPrepare(
@@ -2825,17 +2941,6 @@ export async function handleRouterApiWalletAddSignerEcdsaActivation(
     request.value,
   );
   if (!result.ok) return routeJson(400, result);
-  const runtimePolicyScope =
-    await input.services.walletRegistration.getWalletAddSignerRuntimePolicyScope(
-      request.value.addSignerCeremonyId,
-    );
-  const signingError = await attachEcdsaWalletSessionJwt(
-    input,
-    result.ecdsa.bootstrap,
-    result.ecdsa.activation.ecdsa_activation.activation_epoch,
-    runtimePolicyScope || undefined,
-  );
-  if (signingError) return signingError;
   return routeJson(200, result);
 }
 

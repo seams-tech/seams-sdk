@@ -19,6 +19,10 @@ import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import {
+  buildEcdsaRoleLocalPersistedMaterialRefFixture,
+  buildWalletAuthAuthorityRefFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
 
 type ActivationFetchState = {
   events: string[];
@@ -86,9 +90,14 @@ async function activationWorkerRequest(
   return {
     type: EcdsaDerivationClientCustomResponseType.RehydrateEcdsaRoleLocalSigningMaterialSuccess,
     payload: {
-      kind: 'ecdsa_role_local_signing_material_rehydrated_v1',
+      kind: 'ecdsa_role_local_signing_material_opened_v1',
       ok: true,
       liveHandle: roleLocalMaterial,
+      materialRef: buildEcdsaRoleLocalPersistedMaterialRefFixture({
+        durableMaterialRef: roleLocalMaterial.durableMaterialRef,
+        bindingDigest: roleLocalMaterial.bindingDigest,
+        label: 'existing-activation',
+      }),
     },
   } as never;
 }
@@ -121,6 +130,15 @@ test('existing-account activation rehydrates registered material without recover
       'router-ab-ecdsa-registration:existing-activation',
     ),
   };
+  const materialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+    durableMaterialRef: roleLocalMaterial.durableMaterialRef,
+    bindingDigest: roleLocalMaterial.bindingDigest,
+    label: 'existing-activation',
+  });
+  const authority = buildWalletAuthAuthorityRefFixture({
+    walletId: String(publicFacts.walletId),
+    label: 'existing-activation',
+  });
   const thresholdSessionId = requireParsedId(
     parseThresholdEcdsaSessionId('threshold-ecdsa-existing-activation'),
   );
@@ -145,7 +163,8 @@ test('existing-account activation rehydrates registered material without recover
       workerCtx,
       publicCapability,
       persistedRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
-        durableMaterialRef: roleLocalMaterial.durableMaterialRef,
+        authority,
+        materialRef,
         publicFacts,
       }),
       walletId: String(publicFacts.walletId),

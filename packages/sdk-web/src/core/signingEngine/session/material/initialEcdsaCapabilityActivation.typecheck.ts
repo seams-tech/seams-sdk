@@ -10,6 +10,7 @@ import type {
 import type { CorrelationId, DigestB64u, IsoTimestamp } from '@shared/utils/canonicalPrimitives';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
+import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { ParticipantId } from '../identity/evmFamilyEcdsaIdentity';
 import type {
   EcdsaClientVerifyingPublicKey33B64u,
@@ -25,6 +26,7 @@ import {
 
 declare const walletId: WalletId;
 declare const authorityDigest: WalletAuthorityBindingDigest;
+declare const evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
 declare const ecdsaThresholdKeyId: EcdsaThresholdKeyId;
 declare const signingRootId: SigningRootId;
 declare const signingRootVersion: SigningRootVersion;
@@ -55,6 +57,7 @@ const chainTarget: ThresholdEcdsaChainTarget = {
 const validInput = {
   authority,
   targetMemberships: [chainTarget],
+  evmFamilySigningKeySlotId,
   ecdsaThresholdKeyId,
   signingRootId,
   signingRootVersion,

@@ -14,9 +14,10 @@ import type {
 } from '@shared/utils/domainIds';
 import { buildMpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { EcdsaCapabilityManifestLookup } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import { resolveEcdsaCapabilityHydration } from './ecdsaCapabilityHydration';
 import {
   buildBlockedMpcCapabilityHydrationPlan,
-  buildMpcCapabilityHydrationResolution,
   buildMpcCapabilityPublicReauthAnchor,
   buildReauthorizePublicAnchorHydrationPlan,
   buildRehydrateMaterialActivationHydrationPlan,
@@ -39,6 +40,7 @@ declare const reauthorizationPolicy: MpcReauthorizationPolicyRef;
 declare const registeredPublicKeyBinding: MpcRegisteredPublicKeyBindingRef;
 declare const walletId: WalletId;
 declare const authorityDigest: WalletAuthorityBindingDigest;
+declare const ecdsaLookup: EcdsaCapabilityManifestLookup;
 
 // @ts-expect-error Restorable material is constructed only by protocol hydration adapters.
 const rawRestorableMaterial: RestorableMpcMaterialRef = 'raw-material-ref';
@@ -96,6 +98,13 @@ const blockedPlan = buildBlockedMpcCapabilityHydrationPlan({
   reason: 'missing_capability',
 });
 
+resolveEcdsaCapabilityHydration({
+  // @ts-expect-error Hydration decisions cannot vary by registration, unlock, or refresh provenance.
+  entryPoint: 'post_page_refresh',
+  lookup: ecdsaLookup,
+  runtime: { kind: 'absent' },
+});
+
 // @ts-expect-error Blocked plans can only be constructed by their branch builder.
 const directBlockedPlan: MpcCapabilityHydrationPlan = {
   kind: 'blocked',
@@ -114,11 +123,6 @@ buildBlockedMpcCapabilityHydrationPlan({
   capability: null,
   reason: 'corrupt',
 });
-
-buildMpcCapabilityHydrationResolution({ entryPoint: 'post_registration', plan: livePlan });
-buildMpcCapabilityHydrationResolution({ entryPoint: 'post_wallet_unlock', plan: sealedPlan });
-buildMpcCapabilityHydrationResolution({ entryPoint: 'post_page_refresh', plan: reauthPlan });
-buildMpcCapabilityHydrationResolution({ entryPoint: 'post_page_refresh', plan: blockedPlan });
 
 // @ts-expect-error Activation references can only be constructed by their proof builder.
 const directActivation: MpcMaterialActivationRef = {

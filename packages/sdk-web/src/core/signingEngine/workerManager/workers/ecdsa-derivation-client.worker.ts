@@ -16,9 +16,12 @@ import {
   parseIsoTimestamp,
 } from '@shared/utils/canonicalPrimitives';
 import {
+  mpcMaterialActivationRefsEqual,
   parseMpcCapabilityRuntimeRef,
+  parseMpcMaterialActivationRef,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
+import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { errorLogSummary, safeErrorMessage } from '@shared/utils/errors';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import {
@@ -51,6 +54,8 @@ import type {
   FinalizeRouterAbEcdsaRegistrationActivationResultV1,
   PersistInitialCanonicalEcdsaActivationRequestV1,
   PersistInitialCanonicalEcdsaActivationResultV1,
+  ReconcileCanonicalEcdsaActivationRequestV1,
+  ReconcileCanonicalEcdsaActivationWorkerResultV1,
   VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
   VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
 } from '../../routerAb/ecdsaDerivation/clientCeremony';
@@ -88,6 +93,7 @@ import {
   buildVerifiedEcdsaPublicFacts,
   toEvmFamilyEcdsaKeyHandle,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
+import { buildEcdsaRoleLocalPublicFacts } from '../../session/persistence/ecdsaRoleLocalRecords';
 import type {
   PreparedEcdsaActivationJournal,
   ServerCommittedEcdsaActivationJournal,
@@ -933,10 +939,32 @@ async function finalizeRouterAbEcdsaRegistrationActivation(
     participantIds: activationBinding.roleLocalBinding.participantIds,
     thresholdOwnerAddress: finalized.publicFacts.ethereumAddress,
   });
+  const [chainTarget] = activationBinding.signer.scope.targetMemberships;
+  const roleLocalPublicFacts = buildEcdsaRoleLocalPublicFacts({
+    walletId: activationBinding.signer.walletId,
+    evmFamilySigningKeySlotId: activationBinding.evmFamilySigningKeySlotId,
+    chainTarget,
+    keyHandle: activationBinding.roleLocalBinding.keyHandle,
+    ecdsaThresholdKeyId: activationBinding.roleLocalBinding.ecdsaThresholdKeyId,
+    signingRootId: activationBinding.signer.signingRootId,
+    signingRootVersion: activationBinding.signer.signingRootVersion,
+    applicationBindingDigestB64u: publicCapability.context.application_binding_digest_b64u,
+    clientParticipantId: 1,
+    relayerParticipantId: 2,
+    participantIds: activationBinding.roleLocalBinding.participantIds,
+    contextBinding32B64u: finalized.publicFacts.contextBinding32B64u,
+    derivationClientSharePublicKey33B64u:
+      finalized.publicFacts.derivationClientSharePublicKey33B64u,
+    relayerPublicKey33B64u: finalized.publicFacts.relayerPublicKey33B64u,
+    groupPublicKey33B64u: finalized.publicFacts.groupPublicKey33B64u,
+    ethereumAddress: finalized.publicFacts.ethereumAddress,
+    publicCapability,
+  });
   const sealed = await ecdsaCapabilityManifestStore.sealAndFinalizeActivation({
     committedJournal,
     readyStateBlobB64u: finalized.readyStateBlobB64u,
     registeredPublicFacts,
+    roleLocalPublicFacts,
     committedAt: parseIsoTimestamp(
       new Date(receipt.ecdsa_activation.activated_at_ms).toISOString(),
     ),
@@ -957,11 +985,53 @@ async function finalizeRouterAbEcdsaRegistrationActivation(
   return {
     kind: 'router_ab_ecdsa_registration_activation_finalized_v1',
     journalId,
+    authority: sealed.manifest.signer.authority,
     roleLocalMaterial: finalized.roleLocalMaterial,
     materialActivation: sealed.manifest.activation.materialActivation,
     publicFacts: finalized.publicFacts,
     publicCapability,
   };
+}
+
+async function reconcileCanonicalEcdsaActivation(
+  request: ReconcileCanonicalEcdsaActivationRequestV1,
+): Promise<ReconcileCanonicalEcdsaActivationWorkerResultV1> {
+  if (request.kind !== 'reconcile_canonical_ecdsa_activation_v1') {
+    throw new Error('Canonical ECDSA activation reconciliation command kind is invalid');
+  }
+  const discovered = await ecdsaCapabilityManifestStore.discoverActivationJournal({
+    capability: request.capability,
+    authority: request.authority,
+  });
+  switch (discovered.kind) {
+    case 'missing':
+      return { kind: 'canonical_ecdsa_activation_reconciliation_absent_v1' };
+    case 'corrupt':
+    case 'persistence_unavailable':
+      return {
+        kind: 'canonical_ecdsa_activation_reconciliation_failed_v1',
+        code: discovered.kind,
+      };
+    case 'found':
+      break;
+  }
+  switch (discovered.journal.kind) {
+    case 'activation_prepared':
+      return {
+        kind: 'canonical_ecdsa_activation_reconciliation_pending_v1',
+        journalId: discovered.journal.journalId,
+        reason: 'parent_confirmation_and_server_query_required',
+        activationCommand: discovered.journal.activationCommand,
+      };
+    case 'server_activation_committed': {
+      return {
+        kind: 'canonical_ecdsa_activation_committed_finalization_required_v1',
+        journalId: discovered.journal.journalId,
+        activationReceipt:
+          discovered.journal.serverActivation.serverActivationReceipt.protocolReceipt,
+      };
+    }
+  }
 }
 
 function closeRouterAbEcdsaRegistrationCeremony(
@@ -1281,11 +1351,10 @@ async function restoreEcdsaRoleLocalSigningMaterialForRequest(
           materialActivation: loaded.materialActivation,
         };
   const resolution = resolveEcdsaCapabilityHydration({
-    entryPoint: 'post_page_refresh',
     lookup,
     runtime,
   });
-  switch (resolution.plan.kind) {
+  switch (resolution.kind) {
     case 'use_live_runtime':
       if (!loaded || loaded.bindingDigest !== materialRef.bindingDigest) {
         return { ok: false, reason: 'binding_mismatch' };
@@ -1295,12 +1364,12 @@ async function restoreEcdsaRoleLocalSigningMaterialForRequest(
         liveHandle: buildEcdsaRoleLocalWorkerHandle(materialRef, materialHandle),
       };
     case 'blocked':
-      if (resolution.plan.reason === 'persistence_unavailable') {
+      if (resolution.reason === 'persistence_unavailable') {
         throw new Error('Canonical ECDSA role-local material persistence is unavailable');
       }
       return {
         ok: false,
-        reason: restoreFailureReasonFromHydrationBlock(resolution.plan.reason),
+        reason: restoreFailureReasonFromHydrationBlock(resolution.reason),
       };
     case 'rehydrate_material_activation':
       break;
@@ -1405,13 +1474,61 @@ function restoreFailureReasonFromManifestObservation(
   }
 }
 
-async function rehydrateEcdsaRoleLocalSigningMaterial(
+async function openEcdsaRoleLocalSigningMaterial(
   request: RehydrateEcdsaRoleLocalSigningMaterialRequestV1,
 ): Promise<RehydrateEcdsaRoleLocalSigningMaterialResultV1> {
-  if (request.kind !== 'rehydrate_ecdsa_role_local_signing_material_v1') {
-    throw new Error('ECDSA role-local signing material hydration kind is invalid');
+  if (request.kind !== 'open_ecdsa_role_local_signing_material_v1') {
+    throw new Error('ECDSA role-local signing material open kind is invalid');
   }
-  const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(request.materialRef);
+  const authority = parseWalletAuthAuthorityRef(request.authority);
+  if (!authority) {
+    throw new Error('ECDSA role-local signing material authority is invalid');
+  }
+  const materialActivationResult = parseMpcMaterialActivationRef(request.materialActivation);
+  if (!materialActivationResult.ok) {
+    throw new Error(materialActivationResult.error.message);
+  }
+  const materialActivation = materialActivationResult.value;
+  const lookup = await ecdsaCapabilityManifestStore.lookup({
+    capability: materialActivation.capability,
+    authority,
+  });
+  if (lookup.kind === 'persistence_unavailable') {
+    throw new Error('Canonical ECDSA role-local material persistence is unavailable');
+  }
+  if (lookup.kind !== 'active') {
+    return {
+      kind: 'ecdsa_role_local_signing_material_unavailable_v1',
+      ok: false,
+      reason: restoreFailureReasonFromManifestObservation(lookup.kind),
+    };
+  }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      materialActivation,
+      lookup.manifest.activation.materialActivation,
+    ) ||
+    !mpcMaterialActivationRefsEqual(
+      materialActivation,
+      lookup.manifest.durableMaterial.materialActivation,
+    ) ||
+    !mpcMaterialActivationRefsEqual(
+      materialActivation,
+      lookup.material.binding.materialActivation,
+    )
+  ) {
+    return {
+      kind: 'ecdsa_role_local_signing_material_unavailable_v1',
+      ok: false,
+      reason: 'binding_mismatch',
+    };
+  }
+  const materialRef = parseEcdsaRoleLocalPersistedMaterialRef({
+    kind: 'ecdsa_role_local_persisted_material_ref_v1',
+    durableMaterialRef: lookup.manifest.durableMaterial.durableMaterialRef,
+    bindingDigest: lookup.manifest.durableMaterial.bindingDigest,
+    materialActivation,
+  });
   const restored = await restoreEcdsaRoleLocalSigningMaterialForRequest(materialRef);
   if (!restored.ok) {
     return {
@@ -1421,9 +1538,10 @@ async function rehydrateEcdsaRoleLocalSigningMaterial(
     };
   }
   return {
-    kind: 'ecdsa_role_local_signing_material_rehydrated_v1',
+    kind: 'ecdsa_role_local_signing_material_opened_v1',
     ok: true,
     liveHandle: restored.liveHandle,
+    materialRef,
   };
 }
 
@@ -1591,6 +1709,7 @@ async function initializeEcdsaDerivationOperationWasm(
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaPostRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation:
+    case EcdsaDerivationClientCustomRequestType.ReconcileCanonicalEcdsaActivation:
       return;
     case EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap:
@@ -1637,6 +1756,13 @@ async function executeEcdsaDerivationRequest(
         type: EcdsaDerivationClientCustomResponseType.FinalizeRouterAbEcdsaRegistrationActivationSuccess,
         payload: await finalizeRouterAbEcdsaRegistrationActivation(
           payload as FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
+        ),
+      };
+    case EcdsaDerivationClientCustomRequestType.ReconcileCanonicalEcdsaActivation:
+      return {
+        type: EcdsaDerivationClientCustomResponseType.ReconcileCanonicalEcdsaActivationSuccess,
+        payload: await reconcileCanonicalEcdsaActivation(
+          payload as ReconcileCanonicalEcdsaActivationRequestV1,
         ),
       };
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony:
@@ -1687,7 +1813,7 @@ async function executeEcdsaDerivationRequest(
     case EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial:
       return {
         type: EcdsaDerivationClientCustomResponseType.RehydrateEcdsaRoleLocalSigningMaterialSuccess,
-        payload: await rehydrateEcdsaRoleLocalSigningMaterial(
+        payload: await openEcdsaRoleLocalSigningMaterial(
           payload as RehydrateEcdsaRoleLocalSigningMaterialRequestV1,
         ),
       };
@@ -1717,6 +1843,7 @@ function parseEcdsaDerivationOperationType(value: unknown): EcdsaDerivationWorke
     case EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRegistrationClientProofs:
     case EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation:
     case EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRegistrationActivation:
+    case EcdsaDerivationClientCustomRequestType.ReconcileCanonicalEcdsaActivation:
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaPostRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaExplicitExport:

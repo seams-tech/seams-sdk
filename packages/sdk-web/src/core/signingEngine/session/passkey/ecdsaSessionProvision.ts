@@ -62,6 +62,7 @@ import type {
 import type { ThresholdEcdsaBackendBinding } from '../../interfaces/signing';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type ProvisionThresholdEcdsaSessionDeps = {
   queueByWallet: Map<string, Promise<void>>;
@@ -639,11 +640,11 @@ function exactEcdsaBootstrapAuthBinding(args: {
   };
 }
 
-function exactEcdsaSealLaneFromBootstrap(args: {
+async function exactEcdsaSealLaneFromBootstrap(args: {
   deps: ProvisionThresholdEcdsaSessionDeps;
   request: EcdsaBootstrapRequest;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-}): ExactEcdsaSigningLaneIdentity | null {
+}): Promise<ExactEcdsaSigningLaneIdentity | null> {
   const exactRequest = exactEcdsaBootstrapRequest(args.request);
   if (!exactRequest) return null;
   const auth = exactEcdsaBootstrapAuthBinding({
@@ -651,27 +652,39 @@ function exactEcdsaSealLaneFromBootstrap(args: {
     request: args.request,
   });
   if (!auth) return null;
-  const thresholdSessionId = String(
-    args.bootstrap.thresholdEcdsaKeyRef.thresholdSessionId ||
-      args.bootstrap.session.thresholdSessionId ||
-      exactRequest.lanePolicy.thresholdSessionId,
-  ).trim();
-  const signingGrantId = String(
-    args.bootstrap.thresholdEcdsaKeyRef.signingGrantId ||
-      args.bootstrap.session.signingGrantId ||
-      exactRequest.lanePolicy.signingGrantId,
-  ).trim();
-  if (!thresholdSessionId || !signingGrantId) return null;
+  const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
+    exactRequest.key.walletId,
+  );
+  if (authorizationRead.kind !== 'found') return null;
+  const projection = authorizationRead.projection;
+  if (
+    projection.walletSessionId !== args.bootstrap.session.walletSessionId ||
+    projection.quotaId !== args.bootstrap.session.quotaId ||
+    projection.authorizationSessionId !== args.bootstrap.session.authorizationSessionId ||
+    args.bootstrap.session.remainingUses <= 0
+  ) {
+    return null;
+  }
   return exactEcdsaSigningLaneIdentity({
     signer: buildEvmFamilyEcdsaSignerBinding({
       walletId: exactRequest.key.walletId,
       chainTarget: exactRequest.lanePolicy.chainTarget,
       keyHandle: toEvmFamilyEcdsaKeyHandle(exactRequest.keyHandle),
       key: exactRequest.key,
+      materialActivation: exactRequest.existingRoleLocalMaterial.materialActivation,
     }),
     auth,
-    signingGrantId,
-    thresholdSessionId,
+    authorization: {
+      kind: 'active_reusable_wallet_session_authorization',
+      projection,
+      status: {
+        status: 'active',
+        walletSessionId: projection.walletSessionId,
+        quotaId: projection.quotaId,
+        remainingUses: args.bootstrap.session.remainingUses,
+        expiresAtMs: projection.expiresAtMs,
+      },
+    },
   });
 }
 
@@ -729,7 +742,7 @@ export async function provisionThresholdEcdsaSessionFromBootstrapArgs(
       bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '',
     ).trim();
     if (thresholdSessionId && shouldEnsurePasskeyEcdsaSealAfterProvision(request)) {
-      const sealLane = exactEcdsaSealLaneFromBootstrap({
+      const sealLane = await exactEcdsaSealLaneFromBootstrap({
         deps,
         request,
         bootstrap,

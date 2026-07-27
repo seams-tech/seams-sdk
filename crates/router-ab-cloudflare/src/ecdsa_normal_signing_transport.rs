@@ -310,7 +310,9 @@ mod tests {
         scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
         intent_digest: PublicDigest32,
     ) -> CloudflareRouterNormalSigningTrustedAdmissionV1 {
-        let session_id = scope.active_state_session_id().expect("active session id");
+        let session_id = scope
+            .material_activation_id()
+            .expect("material activation id");
         let metadata = CloudflareRouterNormalSigningTrustedMetadataV1::new(
             "org-1",
             "project-1",

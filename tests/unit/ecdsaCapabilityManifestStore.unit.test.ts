@@ -29,8 +29,13 @@ const DERIVATION_WORKER_PATH = path.join(
   'packages/sdk-web/dist/workers/ecdsa-derivation-client.worker.js',
 );
 const DERIVATION_WORKER_URL =
-  'https://wallet.example.localhost/sdk/workers/ecdsa-derivation-client.worker.js';
-
+  'https://wallet.example.localhost/sdk/workers/ecdsa-derivation-client.worker.js?refactor90-reconciliation';
+const ECDSA_REGISTRATION_CLIENT_WASM_PATH = path.join(
+  REPOSITORY_ROOT,
+  'packages/sdk-web/dist/workers/ecdsa_registration_client_bg.wasm',
+);
+const ECDSA_REGISTRATION_CLIENT_WASM_URL =
+  'https://wallet.example.localhost/sdk/workers/ecdsa_registration_client_bg.wasm';
 async function prepareStoreModulePage(page: Page): Promise<void> {
   await page.route(`**${STORE_MODULE}`, async (route) => {
     await route.fulfill({
@@ -39,6 +44,21 @@ async function prepareStoreModulePage(page: Page): Promise<void> {
     });
   });
   await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+}
+
+async function routeDerivationWorkerAssets(page: Page): Promise<void> {
+  await page.route(DERIVATION_WORKER_URL, async (route) => {
+    await route.fulfill({
+      path: DERIVATION_WORKER_PATH,
+      contentType: 'application/javascript',
+    });
+  });
+  await page.route(ECDSA_REGISTRATION_CLIENT_WASM_URL, async (route) => {
+    await route.fulfill({
+      path: ECDSA_REGISTRATION_CLIENT_WASM_PATH,
+      contentType: 'application/wasm',
+    });
+  });
 }
 
 async function exerciseReplacementActivation(input: {
@@ -109,8 +129,7 @@ async function exerciseReplacementActivation(input: {
     priorFinalization.kind === 'committed'
       ? await store.lookupByMaterialRef({
           kind: 'ecdsa_role_local_persisted_material_ref_v1',
-          durableMaterialRef:
-            input.fixture.prior.prepareInput.activationBinding.durableMaterialRef,
+          durableMaterialRef: input.fixture.prior.prepareInput.activationBinding.durableMaterialRef,
           bindingDigest: input.fixture.prior.prepareInput.activationBinding.bindingDigest,
           materialActivation: priorFinalization.manifest.activation.materialActivation,
         })
@@ -689,6 +708,9 @@ test.describe('canonical ECDSA capability manifest store', () => {
         ) {
           throw new Error(`preparation failed: ${preparedWrite.kind}`);
         }
+        const preparedJournalSelectors = await store.listWalletActivationJournalSelectors(
+          fixture.prepareInput.activationBinding.signer.authority.walletId,
+        );
         const beforeCommitOpen = await store.openPreparedActivation(
           preparedWrite.journal.journalId,
         );
@@ -729,6 +751,12 @@ test.describe('canonical ECDSA capability manifest store', () => {
           bindingDigest: fixture.prepareInput.activationBinding.bindingDigest,
           materialActivation,
         });
+        const activeWalletSubjects = await store.listActiveWalletCapabilitySubjects(
+          fixture.prepareInput.activationBinding.signer.authority.walletId,
+        );
+        const finalizedJournalSelectors = await store.listWalletActivationJournalSelectors(
+          fixture.prepareInput.activationBinding.signer.authority.walletId,
+        );
         const activationMismatch = await store.lookupByMaterialRef({
           kind: 'ecdsa_role_local_persisted_material_ref_v1',
           durableMaterialRef: fixture.prepareInput.activationBinding.durableMaterialRef,
@@ -756,6 +784,7 @@ test.describe('canonical ECDSA capability manifest store', () => {
         });
         return {
           preparedWriteKind: preparedWrite.kind,
+          preparedJournalSelectors,
           committedWriteKind: committedWrite.kind,
           beforeCommitOpenKind: beforeCommitOpen.kind,
           pendingPayloadB64u:
@@ -770,6 +799,8 @@ test.describe('canonical ECDSA capability manifest store', () => {
           readyStateBlobB64u: opened.kind === 'active' ? opened.readyStateBlobB64u : null,
           openByMaterialRefKind: openedByMaterialRef.kind,
           lookupByMaterialRefKind: lookupByMaterialRef.kind,
+          activeWalletSubjects,
+          finalizedJournalSelectors,
           activationMismatchKind: activationMismatch.kind,
           materialRefStateBlobB64u:
             openedByMaterialRef.kind === 'active' ? openedByMaterialRef.readyStateBlobB64u : null,
@@ -785,6 +816,15 @@ test.describe('canonical ECDSA capability manifest store', () => {
 
     expect(result).toEqual({
       preparedWriteKind: 'stored',
+      preparedJournalSelectors: {
+        kind: 'resolved',
+        selectors: [
+          {
+            capability: fixture.prepareInput.activationBinding.signer.capability,
+            authority: fixture.prepareInput.activationBinding.signer.authority,
+          },
+        ],
+      },
       committedWriteKind: 'stored',
       beforeCommitOpenKind: 'found',
       pendingPayloadB64u: fixture.prepareInput.pendingPayloadB64u,
@@ -797,10 +837,160 @@ test.describe('canonical ECDSA capability manifest store', () => {
       readyStateBlobB64u: fixture.sealInput.readyStateBlobB64u,
       openByMaterialRefKind: 'active',
       lookupByMaterialRefKind: 'active',
+      activeWalletSubjects: {
+        kind: 'resolved',
+        subjects: [
+          {
+            capability: fixture.prepareInput.activationBinding.signer.capability,
+            authority: fixture.prepareInput.activationBinding.signer.authority,
+            ecdsaThresholdKeyId:
+              fixture.prepareInput.activationBinding.roleLocalBinding.ecdsaThresholdKeyId,
+          },
+        ],
+      },
+      finalizedJournalSelectors: {
+        kind: 'resolved',
+        selectors: [],
+      },
       activationMismatchKind: 'exact_binding_mismatch',
       materialRefStateBlobB64u: fixture.sealInput.readyStateBlobB64u,
       mismatchedMaterialRefKind: 'binding_mismatch',
       legacyStorePresent: false,
+    });
+  });
+
+  test('converges prepared and server-committed activation journals after reload', async ({
+    page,
+  }) => {
+    const fixture = ecdsaCapabilityActivationFixture();
+    await prepareStoreModulePage(page);
+    await routeDerivationWorkerAssets(page);
+    const result = await page.evaluate(
+      async ({ storeModule, workerUrl, fixture }) => {
+        const requestWorker = async (
+          worker: Worker,
+          id: string,
+          type: number,
+          payload: Record<string, unknown>,
+        ): Promise<Record<string, unknown>> =>
+          await new Promise<Record<string, unknown>>((resolve, reject) => {
+            const timeout = window.setTimeout(() => reject(new Error(id + ' timed out')), 10_000);
+            worker.addEventListener('message', (event) => {
+              const value = event.data as {
+                id?: unknown;
+                ok?: unknown;
+                error?: unknown;
+                result?: Record<string, unknown>;
+              };
+              if (value.id !== id) return;
+              window.clearTimeout(timeout);
+              if (value.ok !== true || !value.result) {
+                reject(new Error(String(value.error || id + ' failed')));
+                return;
+              }
+              resolve(value.result);
+            });
+            worker.postMessage({ id, type, payload });
+          });
+
+        await new Promise<void>((resolve) => {
+          const request = indexedDB.deleteDatabase('seams_wallet');
+          request.onsuccess = () => resolve();
+          request.onerror = () => resolve();
+          request.onblocked = () => resolve();
+        });
+        const module = await import(storeModule);
+        const store = new module.IndexedDbEcdsaCapabilityManifestStore();
+        const selector = {
+          capability: fixture.prepareInput.activationBinding.signer.capability,
+          authority: fixture.prepareInput.activationBinding.signer.authority,
+        };
+        const preparation = await store.prepareActivation(fixture.prepareInput);
+        if (preparation.kind !== 'stored' || preparation.journal.kind !== 'activation_prepared') {
+          throw new Error('activation preparation failed');
+        }
+
+        const preparedWorker = new Worker(workerUrl, { type: 'module' });
+        const preparedResponse = await requestWorker(
+          preparedWorker,
+          'canonical-activation-reconcile-prepared',
+          70_017,
+          {
+            kind: 'reconcile_canonical_ecdsa_activation_v1',
+            ...selector,
+          },
+        );
+        preparedWorker.terminate();
+        const preparedJournal = await store.discoverActivationJournal(selector);
+
+        const committed = await store.recordServerActivation({
+          preparedJournal: preparation.journal,
+          serverCommit: fixture.serverCommit,
+        });
+        if (
+          committed.kind !== 'stored' ||
+          committed.journal.kind !== 'server_activation_committed'
+        ) {
+          throw new Error('server activation commit failed');
+        }
+
+        const committedWorker = new Worker(workerUrl, { type: 'module' });
+        const committedResponse = await requestWorker(
+          committedWorker,
+          'canonical-activation-reconcile-committed',
+          70_017,
+          {
+            kind: 'reconcile_canonical_ecdsa_activation_v1',
+            ...selector,
+          },
+        );
+        const committedPayload = committedResponse.payload as Record<string, unknown> | undefined;
+        if (
+          committedPayload?.kind !== 'canonical_ecdsa_activation_committed_finalization_required_v1'
+        ) {
+          throw new Error('committed reconciliation did not return finalization input');
+        }
+        const finalizationResponse = await requestWorker(
+          committedWorker,
+          'canonical-activation-reconcile-finalize',
+          70_008,
+          {
+            kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
+            journalId: committedPayload.journalId,
+            activationReceipt: committedPayload.activationReceipt,
+          },
+        );
+        committedWorker.terminate();
+
+        const journal = await store.discoverActivationJournal(selector);
+        const active = await store.lookup(selector);
+        return {
+          preparedType: preparedResponse.type,
+          preparedKind: (preparedResponse.payload as Record<string, unknown> | undefined)?.kind,
+          preparedJournal:
+            preparedJournal.kind === 'found' ? preparedJournal.journal.kind : preparedJournal.kind,
+          committedType: committedResponse.type,
+          committedKind: committedPayload.kind,
+          finalizationType: finalizationResponse.type,
+          activationKind: (finalizationResponse.payload as Record<string, unknown> | undefined)
+            ?.kind,
+          journal: journal.kind,
+          active: active.kind,
+        };
+      },
+      { storeModule: STORE_MODULE, workerUrl: DERIVATION_WORKER_URL, fixture },
+    );
+
+    expect(result).toEqual({
+      preparedType: 70_117,
+      preparedKind: 'canonical_ecdsa_activation_reconciliation_pending_v1',
+      preparedJournal: 'activation_prepared',
+      committedType: 70_117,
+      committedKind: 'canonical_ecdsa_activation_committed_finalization_required_v1',
+      finalizationType: 70_108,
+      activationKind: 'router_ab_ecdsa_registration_activation_finalized_v1',
+      journal: 'missing',
+      active: 'active',
     });
   });
 
@@ -1010,9 +1200,7 @@ test.describe('canonical ECDSA capability manifest store', () => {
 
         await new Promise<void>((resolve, reject) => {
           const transaction = db.transaction('ecdsa_material_sealing_keys', 'readwrite');
-          transaction
-            .objectStore('ecdsa_material_sealing_keys')
-            .put(persistedSealingKey);
+          transaction.objectStore('ecdsa_material_sealing_keys').put(persistedSealingKey);
           transaction.oncomplete = () => resolve();
           transaction.onerror = () => reject(transaction.error);
           transaction.onabort = () => reject(transaction.error);

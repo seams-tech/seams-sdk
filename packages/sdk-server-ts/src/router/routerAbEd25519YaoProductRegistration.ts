@@ -33,6 +33,10 @@ import {
 import type { SessionAdapter } from './routerApi';
 import { createRouterApiModule, type RouterApiModule } from './modules';
 import { signRouterAbEd25519WalletSessionJwt } from './commonRouterUtils';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
@@ -81,6 +85,8 @@ type RouterAbEd25519YaoWalletSessionMintIdentityV1 = {
   readonly nearEd25519SigningKeyId: string;
   readonly authority: WalletAuthAuthority;
   readonly thresholdSessionId: string;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
   readonly participantIds: readonly [number, number];
   readonly runtimePolicyScope: RuntimePolicyScope;
 };
@@ -99,16 +105,10 @@ export type RouterAbEd25519YaoWalletSessionMintInputV1 =
       readonly remainingUses: number;
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
-      readonly kind: 'add_signer_wallet_session_v1';
-      readonly signingGrantId: string;
-      readonly expiresAtMs: number;
-      readonly remainingUses: number;
-    })
-  | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'shared_email_otp_recovery_wallet_session_v1';
       readonly signingGrantId?: never;
       readonly ttlMs?: never;
-      readonly expiresAtMs?: never;
+      readonly expiresAtMs: number;
       readonly remainingUses: number;
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
@@ -436,17 +436,13 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
         expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
         remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
       };
-    case 'add_signer_wallet_session_v1':
-      return requireInheritedWalletSessionTerms({
-        signingGrantId: input.signingGrantId,
-        expiresAtMs: input.expiresAtMs,
-        remainingUses: input.remainingUses,
-        nowMs,
-      });
     case 'shared_email_otp_recovery_wallet_session_v1':
+      if (!Number.isSafeInteger(input.expiresAtMs) || input.expiresAtMs <= nowMs) {
+        throw new Error('Email OTP Wallet Session expiry must follow issuance');
+      }
       return {
         signingGrantId: `wss_${secureRandomBase64Url(24)}`,
-        expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
+        expiresAtMs: input.expiresAtMs,
         remainingUses: Math.min(
           DEFAULT_WALLET_SESSION_REMAINING_USES,
           Math.max(1, Math.floor(input.remainingUses)),
@@ -554,6 +550,8 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
       nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
       thresholdSessionId: sessionInput.thresholdSessionId,
       signingGrantId: terms.signingGrantId,
+      walletSessionId: sessionInput.walletSessionId,
+      quotaId: sessionInput.quotaId,
       expiresAtMs: terms.expiresAtMs,
       participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
       runtimePolicyScope: sessionInput.runtimePolicyScope,
@@ -575,6 +573,8 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
       authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(sessionInput.authority),
       thresholdSessionId: signed.thresholdSessionId,
       signingGrantId: terms.signingGrantId,
+      walletSessionId: sessionInput.walletSessionId,
+      quotaId: sessionInput.quotaId,
       expiresAtMs: signed.thresholdExpiresAtMs,
       participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
       remainingUses: terms.remainingUses,

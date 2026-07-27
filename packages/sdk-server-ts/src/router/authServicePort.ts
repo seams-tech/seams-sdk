@@ -83,12 +83,32 @@ import type {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   ActiveAuthorizationSession,
+  ActiveCapabilityGrant,
   HostedWalletSeamsSessionExchangeCode,
   HostedWalletSeamsSessionExchangeDelivery,
   HostedWalletSeamsSessionExchangeNonce,
+  ClaimCapabilityOperationResult,
+  CompleteCapabilityOperationResult,
+  CapabilityOperationClaim,
+  CapabilityOperationResultRef,
+  CompletedCapabilityOperationResult,
   RedeemHostedWalletSeamsSessionExchangeResult,
+  ReusableWalletSessionStatus,
   SessionOrigin,
+  VerifiedGrantEvidenceSet,
 } from '../authorization/domain';
+import type {
+  CapabilityGrantRequestInput,
+  VerifiedFactorEvidenceSetInput,
+  VerifiedSessionEvidenceSetInput,
+} from '../authorization/factorEvidence';
+import type {
+  IssueReusableWalletSessionInput,
+  IssuedReusableWalletSession,
+  OperationStepUpClaimInput,
+  ReusableWalletSessionClaimInput,
+  ReusableWalletSessionClaimOutcome,
+} from '../authorization/service';
 import type { PrincipalId, SeamsSessionId, TenantId } from '@shared/authorization/capabilityKinds';
 
 export type EmailOtpChallengeDelivery =
@@ -1407,20 +1427,61 @@ export interface RouterApiServiceBag {
   identity: RouterApiIdentityService;
   sessionVersions: RouterApiSessionVersionService;
   authorizationSessions: RouterApiAuthorizationSessionService;
+  authorizationClaims: RouterApiAuthorizationClaimService;
   thresholdRuntime: RouterApiThresholdRuntimeService;
   nearFunding: RouterApiNearFundingService;
   recovery: RouterApiRecoveryRouteService;
   router: RouterApiRouterAccountService;
 }
 
+export interface RouterApiAuthorizationClaimService {
+  readonly tenantId: TenantId;
+  recordVerifiedFactorEvidenceSet(
+    input: VerifiedFactorEvidenceSetInput,
+  ): Promise<VerifiedGrantEvidenceSet>;
+  recordVerifiedSessionEvidenceSet(
+    input: VerifiedSessionEvidenceSetInput,
+  ): Promise<VerifiedGrantEvidenceSet>;
+  issueGrant(input: {
+    readonly operation: CapabilityGrantRequestInput['operation'];
+    readonly evidenceSet: VerifiedGrantEvidenceSet;
+    readonly grant: ActiveCapabilityGrant;
+  }): Promise<void>;
+  claimOperationStepUpFromGrant(
+    input: OperationStepUpClaimInput,
+  ): Promise<ClaimCapabilityOperationResult>;
+  claimReusableWalletSessionFromGrant(
+    input: ReusableWalletSessionClaimInput,
+  ): Promise<ClaimCapabilityOperationResult>;
+  claimReusableWalletSessionOperation(
+    input: ReusableWalletSessionClaimInput,
+  ): Promise<ReusableWalletSessionClaimOutcome>;
+  completeOperation(input: {
+    readonly claim: CapabilityOperationClaim;
+    readonly result: CompletedCapabilityOperationResult;
+    readonly resultRef: CapabilityOperationResultRef;
+    readonly completedAtMs: number;
+  }): Promise<CompleteCapabilityOperationResult>;
+}
+
 export interface RouterApiAuthorizationSessionService {
   readonly tenantId: TenantId;
   recordActiveSession(session: ActiveAuthorizationSession): Promise<void>;
+  issueReusableWalletSession(
+    input: IssueReusableWalletSessionInput,
+  ): Promise<IssuedReusableWalletSession>;
   readActiveSession(input: {
     readonly tenantId: TenantId;
     readonly sessionId: SeamsSessionId;
     readonly nowMs: number;
   }): Promise<ActiveAuthorizationSession | null>;
+  readReusableWalletSessionStatus(input: {
+    readonly tenantId: TenantId;
+    readonly principalId: PrincipalId;
+    readonly walletSessionId: ReusableWalletSessionStatus['walletSessionId'];
+    readonly quotaId: ReusableWalletSessionStatus['quotaId'];
+    readonly nowMs: number;
+  }): Promise<ReusableWalletSessionStatus>;
   mintHostedWalletSeamsSessionExchange(input: {
     readonly tenantId: TenantId;
     readonly principalId: PrincipalId;

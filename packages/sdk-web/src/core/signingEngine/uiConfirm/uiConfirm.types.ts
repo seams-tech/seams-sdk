@@ -48,6 +48,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { DeleteDurableSealedSessionCommand } from '../session/persistence/durableSealedSessionCommands';
 import type { VolatileWarmSessionId } from '../session/warmCapabilities/volatileWarmSessionId';
 import type { DurableRecordStore } from '@/core/platform';
+import type { NearOperationStepUpPreparationPort } from '../interfaces/operationStepUpPreparation';
 
 export type RequestUserConfirmationOptions = {
   onProgress?: (progress: UserConfirmProgressEvent) => void;
@@ -65,6 +66,7 @@ export interface UiConfirmContext {
   passkeyAuthenticatorStore: EvmFamilyPasskeyAuthenticatorStorePort;
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
+  operationStepUpPreparation: NearOperationStepUpPreparationPort;
   relayerUrl: string;
   chains?: readonly SeamsChainConfig[];
   getTheme?: () => ThemeMode;

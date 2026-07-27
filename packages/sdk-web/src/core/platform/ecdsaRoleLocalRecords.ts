@@ -5,7 +5,7 @@ import type {
   SigningRootId,
   SigningRootVersion,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import type { WalletId } from '@shared/utils/domainIds';
+import type { MpcMaterialActivationRef, WalletId } from '@shared/utils/domainIds';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { PlatformResult } from './http';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -132,57 +132,27 @@ export type EcdsaRoleLocalMaterialState =
       reauth?: never;
     };
 
-export type EcdsaRoleLocalEmailOtpWorkerShare = {
-  kind: 'email_otp_worker_share';
-  workerSessionId: string;
-};
-
-export type EcdsaRoleLocalReadyStateBlobSigningMaterial = {
-  kind: 'role_local_ready_state_blob';
-  stateBlob: EcdsaRoleLocalReadyStateBlob;
-  workerSessionId?: never;
-};
-
-export type EcdsaRoleLocalDurableSigningMaterial = {
-  kind: 'role_local_durable_material';
-  durableMaterialRef: string;
-  stateBlob?: never;
-  workerSessionId?: never;
-};
-
 export type EcdsaRoleLocalSessionRecordState =
   | {
       kind: 'ready_passkey_role_local_material_v1';
       authMethod: Extract<EcdsaRoleLocalAuthMethod, { kind: 'passkey' }>;
       publicFacts: EcdsaRoleLocalPublicFacts;
-      durableMaterialRef: string;
+      materialActivation: MpcMaterialActivationRef;
       readyRecord?: never;
       inlineSigningMaterial?: never;
       reauth?: never;
       cleanup?: never;
     }
-  | ({
+  | {
       kind: 'ready_email_otp_role_local_material_v1';
       authMethod: Extract<EcdsaRoleLocalAuthMethod, { kind: 'email_otp' }>;
+      publicFacts: EcdsaRoleLocalPublicFacts;
+      materialActivation: MpcMaterialActivationRef;
+      readyRecord?: never;
+      inlineSigningMaterial?: never;
       reauth?: never;
       cleanup?: never;
-    } & (
-      | {
-          publicFacts: EcdsaRoleLocalPublicFacts;
-          readyRecord?: never;
-          inlineSigningMaterial: EcdsaRoleLocalDurableSigningMaterial;
-        }
-      | {
-          publicFacts?: never;
-          readyRecord: Extract<
-            EcdsaRoleLocalReadyRecord,
-            { authMethod: { kind: 'email_otp' } }
-          >;
-          inlineSigningMaterial:
-            | EcdsaRoleLocalEmailOtpWorkerShare
-            | EcdsaRoleLocalReadyStateBlobSigningMaterial;
-        }
-    ))
+    }
   | {
       kind: 'reauth_required_role_local_material_v1';
       authMethod: EcdsaRoleLocalAuthMethod;

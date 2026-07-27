@@ -75,6 +75,7 @@ import {
   parseSdkEcdsaDerivationSigningRootId,
   parseSdkEcdsaDerivationSigningRootVersion,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
@@ -164,19 +165,23 @@ import type {
 } from '@/core/signingEngine/flows/registration/services/ed25519YaoRegistration';
 import {
   deletePasskeyEd25519YaoLocalMaterialV1,
+  deletePasskeyEd25519YaoSignerMaterialV1,
   persistPasskeyEd25519YaoLocalMaterialV1,
+  persistPasskeyEd25519YaoSignerMaterialV1,
 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
 import { resolveRouterAbEd25519WalletSessionStateFromRecord } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { persistPasskeyEd25519YaoSessionForRefresh } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
 import {
-  clearStoredThresholdEd25519SessionRecordForLaneKey,
-  thresholdEd25519SessionRecordKeyFromRecord,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
+import { createRouterAbNormalSigningPolicy } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
 import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/seamsWalletDB/repositories';
 import { toAccountId } from '@/core/types/accountIds';
-import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
+  deriveSigningRootId,
+  normalizeRuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
 import { deriveImplicitNearAccountIdFromEd25519PublicKey } from '@shared/utils/near';
 import {
   emailOtpAppSessionBindingFromJwt,
@@ -2229,6 +2234,7 @@ type RegistrationPersistenceAuth =
 
 type RegistrationEcdsaSession = {
   chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
+  authority: FinalizeRouterAbEcdsaRegistrationActivationResultV1['authority'];
   clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
   bootstrap: WalletRegistrationEcdsaDerivationRespondBootstrap;
   roleLocalMaterial: FinalizeRouterAbEcdsaRegistrationActivationResultV1['roleLocalMaterial'];
@@ -2786,6 +2792,10 @@ async function runStrictEcdsaFamilyCeremony(args: {
       planInput: {
         authority: args.authority,
         targetMemberships: [firstChainTarget, ...remainingChainTargets],
+        evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
+          args.started.prepare.evmFamilySigningKeySlotId,
+          'registration ECDSA signing key slot',
+        ),
         ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(args.started.prepare.ecdsaThresholdKeyId),
         signingRootId: parseSdkEcdsaDerivationSigningRootId(args.started.prepare.signingRootId),
         signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(
@@ -2855,6 +2865,7 @@ async function finalizeStrictEcdsaFamilyLocalActivation(args: {
   });
   return {
     chainTargets: args.pending.chainTargets,
+    authority: finalized.authority,
     clientBootstrap: args.pending.clientBootstrap,
     bootstrap: args.pending.bootstrap,
     roleLocalMaterial: finalized.roleLocalMaterial,
@@ -3616,21 +3627,29 @@ async function persistAndActivateMixedRegistration(args: {
   const primaryKey = args.persistencePlan.ecdsa.walletKeys[0];
   return {
     success: true,
-    kind: 'near_ed25519_and_ecdsa_wallet_registered',
+    kind: 'wallet_registered',
     walletId: args.finalized.walletId,
-    accountProvisioning: args.finalized.accountProvisioning,
-    resolvedAccount: args.finalized.resolvedAccount,
-    nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
-      args.finalized.ed25519.nearEd25519SigningKeyId,
-    ),
-    operationalPublicKey: args.claimedYao.clientPublicKey,
-    nearAccountId: toAccountId(args.finalized.ed25519.nearAccountId),
-    transactionId:
-      args.finalized.resolvedAccount.kind === 'sponsored_named_account'
-        ? args.finalized.resolvedAccount.transactionHash
-        : null,
-    thresholdEcdsaEthereumAddress: primaryKey.thresholdOwnerAddress,
-    thresholdEcdsaPublicKeyB64u: primaryKey.thresholdEcdsaPublicKeyB64u,
+    capabilities: [
+      {
+        kind: 'near_ed25519',
+        accountProvisioning: args.finalized.accountProvisioning,
+        resolvedAccount: args.finalized.resolvedAccount,
+        nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
+          args.finalized.ed25519.nearEd25519SigningKeyId,
+        ),
+        operationalPublicKey: args.claimedYao.clientPublicKey,
+        nearAccountId: toAccountId(args.finalized.ed25519.nearAccountId),
+        transactionId:
+          args.finalized.resolvedAccount.kind === 'sponsored_named_account'
+            ? args.finalized.resolvedAccount.transactionHash
+            : null,
+      },
+      {
+        kind: 'evm_family_ecdsa',
+        thresholdEcdsaEthereumAddress: primaryKey.thresholdOwnerAddress,
+        thresholdEcdsaPublicKeyB64u: primaryKey.thresholdEcdsaPublicKeyB64u,
+      },
+    ],
   };
 }
 
@@ -3973,10 +3992,15 @@ async function registerEcdsaOrMixedWallet(
         const primaryKey = persistencePlan.ecdsa.walletKeys[0];
         result = {
           success: true,
-          kind: 'ecdsa_wallet_registered',
+          kind: 'wallet_registered',
           walletId: finalized.walletId,
-          thresholdEcdsaEthereumAddress: primaryKey.thresholdOwnerAddress,
-          thresholdEcdsaPublicKeyB64u: primaryKey.thresholdEcdsaPublicKeyB64u,
+          capabilities: [
+            {
+              kind: 'evm_family_ecdsa',
+              thresholdEcdsaEthereumAddress: primaryKey.thresholdOwnerAddress,
+              thresholdEcdsaPublicKeyB64u: primaryKey.thresholdEcdsaPublicKeyB64u,
+            },
+          ],
         };
         break;
       }
@@ -4408,19 +4432,24 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     });
     const result: RegistrationResult = {
       success: true,
-      kind: 'near_wallet_registered',
+      kind: 'wallet_registered',
       walletId: finalized.walletId,
-      accountProvisioning: finalized.accountProvisioning,
-      resolvedAccount: finalized.resolvedAccount,
-      nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
-        finalized.ed25519.nearEd25519SigningKeyId,
-      ),
-      operationalPublicKey: clientPublicKey,
-      nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
-      transactionId:
-        finalized.resolvedAccount.kind === 'sponsored_named_account'
-          ? finalized.resolvedAccount.transactionHash
-          : null,
+      capabilities: [
+        {
+          kind: 'near_ed25519',
+          accountProvisioning: finalized.accountProvisioning,
+          resolvedAccount: finalized.resolvedAccount,
+          nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
+            finalized.ed25519.nearEd25519SigningKeyId,
+          ),
+          operationalPublicKey: clientPublicKey,
+          nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
+          transactionId:
+            finalized.resolvedAccount.kind === 'sponsored_named_account'
+              ? finalized.resolvedAccount.transactionHash
+              : null,
+        },
+      ],
     };
     emitRegistrationTimingSummary(
       createSucceededRegistrationTimingSummary({
@@ -4670,19 +4699,24 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       }
       const result: RegistrationResult = {
         success: true,
-        kind: 'near_wallet_registered',
+        kind: 'wallet_registered',
         walletId: finalized.walletId,
-        accountProvisioning: finalized.accountProvisioning,
-        resolvedAccount: finalized.resolvedAccount,
-        nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
-          finalized.ed25519.nearEd25519SigningKeyId,
-        ),
-        operationalPublicKey: clientPublicKey,
-        nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
-        transactionId:
-          finalized.resolvedAccount.kind === 'sponsored_named_account'
-            ? finalized.resolvedAccount.transactionHash
-            : null,
+        capabilities: [
+          {
+            kind: 'near_ed25519',
+            accountProvisioning: finalized.accountProvisioning,
+            resolvedAccount: finalized.resolvedAccount,
+            nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
+              finalized.ed25519.nearEd25519SigningKeyId,
+            ),
+            operationalPublicKey: clientPublicKey,
+            nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
+            transactionId:
+              finalized.resolvedAccount.kind === 'sponsored_named_account'
+                ? finalized.resolvedAccount.transactionHash
+                : null,
+          },
+        ],
       };
       options.afterCall?.(true, result);
       return result;
@@ -4964,12 +4998,13 @@ function requireVerifiedEd25519AddSignerFinalize(args: {
   const admission = args.started.ed25519.admissionRequest;
   const finalized = args.finalized;
   const signer = finalized.ed25519;
-  const session = signer.session;
   const expectedNearAccountId = deriveImplicitNearAccountIdFromEd25519PublicKey(
     args.clientPublicKey,
   );
   const expectedPolicy = normalizeRuntimePolicyScope(args.started.intent.runtimePolicyScope);
-  const actualPolicy = normalizeRuntimePolicyScope(session.runtimePolicyScope);
+  if (!expectedPolicy) {
+    throw new Error('Wallet add-signer start returned an invalid runtime policy');
+  }
   if (
     finalized.walletId !== args.walletId ||
     finalized.rpId !== args.rpId ||
@@ -4982,28 +5017,15 @@ function requireVerifiedEd25519AddSignerFinalize(args: {
     !sameParticipantIds(signer.participantIds, requested.participantIds) ||
     signer.nearEd25519SigningKeyId !== admission.application_binding.near_ed25519_signing_key_id ||
     signer.relayerKeyId !== admission.scope.signing_worker_id ||
-    session.walletId !== args.walletId ||
-    session.nearAccountId !== signer.nearAccountId ||
-    session.nearEd25519SigningKeyId !== signer.nearEd25519SigningKeyId ||
-    session.thresholdSessionId !== admission.scope.wallet_session_id ||
-    session.signingRootId !== admission.application_binding.signing_root_id ||
-    session.signingRootVersion !== admission.scope.root_share_epoch ||
-    session.authorityScope.kind !== 'passkey_rp' ||
-    session.authorityScope.rpId !== args.rpId ||
-    session.routerAbNormalSigning.signingWorkerId !== admission.scope.signing_worker_id ||
-    !sameParticipantIds(session.participantIds, requested.participantIds) ||
-    !sameRuntimePolicyScope(actualPolicy, expectedPolicy)
+    admission.scope.account_id !== args.walletId ||
+    admission.application_binding.wallet_id !== args.walletId ||
+    admission.application_binding.signing_root_id !== deriveSigningRootId(expectedPolicy) ||
+    admission.scope.root_share_epoch !== expectedPolicy.signingRootVersion ||
+    !sameParticipantIds(admission.participant_ids, requested.participantIds)
   ) {
     throw new Error('Wallet add-signer finalize returned mismatched Ed25519 Yao identity');
   }
   return finalized;
-}
-
-function clearAddSignerSessionRecord(record: ThresholdEd25519SessionRecord): void {
-  const key = thresholdEd25519SessionRecordKeyFromRecord(record);
-  if (!key) throw new Error('Wallet add-signer could not identify its persisted session record');
-  const cleared = clearStoredThresholdEd25519SessionRecordForLaneKey(key);
-  if (!cleared.ok) throw new Error(cleared.message);
 }
 
 function verifiedEd25519AddSignerIntent(
@@ -5037,7 +5059,11 @@ async function addPasskeyEd25519YaoWalletSigner(
   }
   const ownedPasskeyPrfFirst = base64UrlDecode(input.passkeyPrfFirstB64u);
   let pending: ProductEd25519YaoPendingRegistrationPortV1 | null = null;
-  let persistedSession: ThresholdEd25519SessionRecord | null = null;
+  let persistedMaterial = false;
+  let persistedMaterialIdentity: {
+    readonly nearAccountId: string;
+    readonly signerSlot: number;
+  } | null = null;
   let persistedSignerRollbackReceipt: StoreWalletSignerFinalizeRollbackReceipt | null = null;
   try {
     const yao = await registerVerifiedPasskeyEd25519YaoAddSignerV1({
@@ -5108,46 +5134,46 @@ async function addPasskeyEd25519YaoWalletSigner(
       throw new Error('Wallet add-signer persisted a different Ed25519 signer slot');
     }
     persistedSignerRollbackReceipt = stored.rollbackReceipt;
-    const session = finalized.ed25519.session;
-    persistedSession = persistWarmSessionEd25519Capability({
-      kind: 'jwt_passkey',
-      walletId: finalized.walletId,
-      nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
-      nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
-      rpId: input.rpId,
-      relayerUrl: input.relayerUrl,
-      relayerKeyId: finalized.ed25519.relayerKeyId,
-      runtimePolicyScope: session.runtimePolicyScope,
-      participantIds: session.participantIds,
-      signerSlot: finalized.ed25519.signerSlot,
-      routerAbNormalSigning: session.routerAbNormalSigning,
-      sessionId: session.thresholdSessionId,
-      signingGrantId: session.signingGrantId,
-      expiresAtMs: session.expiresAtMs,
-      remainingUses: session.remainingUses,
-      jwt: session.walletSessionJwt,
-      passkeyCredentialIdB64u: input.credentialIdB64u,
-      source: 'add-signer',
-    });
-    const walletSessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(persistedSession);
-    if (!walletSessionState) {
-      throw new Error('Wallet add-signer produced an unusable Ed25519 Wallet Session');
+    const admission = input.started.ed25519.admissionRequest;
+    const stableRuntimePolicyScope = normalizeRuntimePolicyScope(
+      input.started.intent.runtimePolicyScope,
+    );
+    if (!stableRuntimePolicyScope) {
+      throw new Error('Wallet add-signer runtime policy is invalid');
     }
-    await persistPasskeyEd25519YaoSessionForRefresh({
-      persistence: input.context.signingEngine,
-      session: walletSessionState,
-      prfFirstB64u: input.passkeyPrfFirstB64u,
-    });
-    await commitPendingPasskeyEd25519YaoRegistration({
-      pending,
-      activation: input.context.signingEngine,
-      walletSessionState,
-      rpId: input.rpId,
-      credentialIdB64u: input.credentialIdB64u,
+    const localMaterialSource = pending.localMaterialSource();
+    if (localMaterialSource.kind !== 'wasm_activated_client') {
+      throw new Error('Passkey Ed25519 add-signer requires browser WASM Client material');
+    }
+    await persistPasskeyEd25519YaoSignerMaterialV1({
+      store: IndexedDBManager,
+      activeClient: localMaterialSource.activeClient,
+      identity: {
+        walletId: finalized.walletId,
+        nearAccountId: finalized.ed25519.nearAccountId,
+        nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+        signerSlot: finalized.ed25519.signerSlot,
+        rpId: input.rpId,
+        credentialIdB64u: input.credentialIdB64u,
+        signingRootId: admission.application_binding.signing_root_id,
+        signingRootVersion: admission.scope.root_share_epoch,
+        signingWorkerId: admission.scope.signing_worker_id,
+      },
+      stableServerScope: {
+        relayerKeyId: finalized.ed25519.relayerKeyId,
+        participantIds: finalized.ed25519.participantIds,
+        runtimePolicyScope: stableRuntimePolicyScope,
+        routerAbNormalSigning: createRouterAbNormalSigningPolicy(input.context.configs),
+      },
       passkeyPrfFirstB64u: input.passkeyPrfFirstB64u,
     });
+    persistedMaterial = true;
+    persistedMaterialIdentity = {
+      nearAccountId: finalized.ed25519.nearAccountId,
+      signerSlot: finalized.ed25519.signerSlot,
+    };
+    await pending.dispose();
     pending = null;
-    persistedSession = null;
     persistedSignerRollbackReceipt = null;
     emitAddSignerEventSafely(input.onEvent, input.eventAccountId, {
       authMethod: 'passkey',
@@ -5156,20 +5182,29 @@ async function addPasskeyEd25519YaoWalletSigner(
     });
     return {
       success: true,
-      kind: 'near_ed25519_signer_added',
+      kind: 'wallet_signer_added',
       walletId: finalized.walletId,
-      nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
-        finalized.ed25519.nearEd25519SigningKeyId,
-      ),
-      operationalPublicKey: clientPublicKey,
-      nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
+      capabilities: [
+        {
+          kind: 'near_ed25519',
+          nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
+            finalized.ed25519.nearEd25519SigningKeyId,
+          ),
+          operationalPublicKey: clientPublicKey,
+          nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
+        },
+      ],
     };
   } catch (error: unknown) {
     pending?.dispose();
     const cleanupErrors: string[] = [];
-    if (persistedSession) {
+    if (persistedMaterial && persistedMaterialIdentity) {
       try {
-        clearAddSignerSessionRecord(persistedSession);
+        await deletePasskeyEd25519YaoSignerMaterialV1({
+          store: IndexedDBManager,
+          nearAccountId: persistedMaterialIdentity.nearAccountId,
+          signerSlot: persistedMaterialIdentity.signerSlot,
+        });
       } catch (cleanupError: unknown) {
         cleanupErrors.push(
           cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
@@ -5273,10 +5308,15 @@ async function addPasskeyEcdsaWalletSigner(
   });
   return {
     success: true,
-    kind: 'ecdsa_signer_added',
+    kind: 'wallet_signer_added',
     walletId: input.walletId,
-    thresholdEcdsaEthereumAddress: primaryKey.thresholdOwnerAddress,
-    thresholdEcdsaPublicKeyB64u: primaryKey.thresholdEcdsaPublicKeyB64u,
+    capabilities: [
+      {
+        kind: 'evm_family_ecdsa',
+        thresholdEcdsaEthereumAddress: primaryKey.thresholdOwnerAddress,
+        thresholdEcdsaPublicKeyB64u: primaryKey.thresholdEcdsaPublicKeyB64u,
+      },
+    ],
   };
 }
 

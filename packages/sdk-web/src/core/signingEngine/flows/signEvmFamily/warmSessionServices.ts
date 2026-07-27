@@ -1,7 +1,5 @@
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ThresholdEcdsaActivationRequest } from '../../session/passkey/ecdsaSessionProvision';
-import { clearRouterAbEcdsaDerivationClientPresignaturesForLane } from '../../routerAb/ecdsaDerivation/presignaturePool';
-import { thresholdEcdsaRoleLocalRetirePresignaturePoolWasm } from '../../threshold/crypto/ecdsaDerivationClientWasm';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type {
   UiConfirmContextPort,
@@ -13,26 +11,14 @@ import type {
 } from '../../uiConfirm/uiConfirm.types';
 import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
 import { ensureWarmEcdsaCapabilityReady } from '../../useCases/provisionEcdsaSession';
-import {
-  applyWarmSessionEcdsaPostSignPolicy,
-  assertWarmSessionEcdsaOperationAllowed,
-} from '../../session/operationState/warmSessionPolicyAdapter';
 import type {
   ThresholdWarmSessionStatusReader,
   WarmSessionCapabilityReader,
-  WarmSessionPostSignPolicy,
   WarmSessionProvisioner,
 } from '../../session/warmCapabilities/types';
 import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
-import { createClearVolatileWarmSessionMaterialCommand } from '../../session/warmCapabilities/volatileWarmMaterialCommands';
-import { parseVolatileWarmSessionId } from '../../session/warmCapabilities/volatileWarmSessionId';
-import type {
-  ConsumeSingleUseEmailOtpEcdsaLaneCommand,
-  ConsumeSingleUseEmailOtpEcdsaLaneResult,
-  ThresholdEcdsaSessionRecord,
-} from '../../session/persistence/records';
+import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import { type ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
-import { toVerifiedEcdsaPublicFactsFromRecord } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyEcdsaSessionReaderDeps } from '../../interfaces/operationDeps';
 import type { EvmFamilyChain } from './types';
 import {
@@ -48,9 +34,6 @@ export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps &
     Pick<VolatileWarmMaterialPort, 'getWarmSessionStatus'> &
     Partial<Pick<DurableSealedSessionPort, 'restorePersistedSessionForSigning'>> &
     Partial<Pick<VolatileWarmMaterialPort, 'clearVolatileWarmSessionMaterial'>>;
-  consumeSingleUseEmailOtpEcdsaLane?: (
-    command: ConsumeSingleUseEmailOtpEcdsaLaneCommand,
-  ) => ConsumeSingleUseEmailOtpEcdsaLaneResult;
   provisionThresholdEcdsaSession: (
     args: ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
@@ -65,8 +48,7 @@ export type EvmFamilyWarmSessionServices = Pick<
     ThresholdWarmSessionStatusReader,
     'assertEcdsaSigningSessionReady' | 'getEcdsaSigningSessionStatus'
   > &
-  Pick<WarmSessionProvisioner, 'ensureEcdsaCapabilityReady'> &
-  Pick<WarmSessionPostSignPolicy, 'applyEcdsaPostSignPolicy' | 'assertEcdsaOperationAllowed'>;
+  Pick<WarmSessionProvisioner, 'ensureEcdsaCapabilityReady'>;
 
 export function createEvmFamilyWarmSessionServices(
   deps: EvmFamilyWarmSessionServicesDeps,
@@ -79,33 +61,6 @@ export function createEvmFamilyWarmSessionServices(
     deps.getEmailOtpWarmSessionStatus ||
     (async (sessionId: string): Promise<WarmSessionStatusResult> =>
       deps.touchConfirm.getWarmSessionStatus({ sessionId }));
-  const clearEcdsaEphemeralMaterial = async (
-    record: ThresholdEcdsaSessionRecord,
-    thresholdSessionIdOverride: string | undefined,
-  ): Promise<void> => {
-    const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record });
-    if (record.routerAbEcdsaDerivationNormalSigning) {
-      await clearRouterAbEcdsaDerivationClientPresignaturesForLane({
-        relayerUrl: record.relayerUrl,
-        scope: record.routerAbEcdsaDerivationNormalSigning.scope,
-        workerCtx: deps.getSignerWorkerContext(),
-        retireClientPresignaturePool: thresholdEcdsaRoleLocalRetirePresignaturePoolWasm,
-      });
-    }
-    const thresholdSessionId = parseVolatileWarmSessionId(
-      thresholdSessionIdOverride || record.thresholdSessionId || '',
-    );
-    if (
-      thresholdSessionId &&
-      typeof deps.touchConfirm.clearVolatileWarmSessionMaterial === 'function'
-    ) {
-      await deps.touchConfirm
-        .clearVolatileWarmSessionMaterial(
-          createClearVolatileWarmSessionMaterialCommand(thresholdSessionId),
-        )
-        .catch(() => undefined);
-    }
-  };
   const listThresholdEcdsaRecordsForWalletTarget = ({
     walletId,
     chainTarget,
@@ -157,25 +112,6 @@ export function createEvmFamilyWarmSessionServices(
           reconnectInFlightByCapability,
         },
         readyArgs,
-      ),
-    applyEcdsaPostSignPolicy: (policyArgs) =>
-      applyWarmSessionEcdsaPostSignPolicy(
-        {
-          getWarmSession: (walletId) => capabilityReader.getWarmSession(walletId),
-          resolveExactEcdsaRecord: (recordArgs) => statusReader.resolveExactEcdsaRecord(recordArgs),
-          consumeSingleUseEmailOtpEcdsaLane: deps.consumeSingleUseEmailOtpEcdsaLane,
-          clearEcdsaEphemeralMaterial: ({ record, thresholdSessionId }) =>
-            clearEcdsaEphemeralMaterial(record, thresholdSessionId),
-        },
-        policyArgs,
-      ),
-    assertEcdsaOperationAllowed: (operationArgs) =>
-      assertWarmSessionEcdsaOperationAllowed(
-        {
-          getWarmSession: (walletId) => capabilityReader.getWarmSession(walletId),
-          resolveExactEcdsaRecord: (recordArgs) => statusReader.resolveExactEcdsaRecord(recordArgs),
-        },
-        operationArgs,
       ),
   };
 }

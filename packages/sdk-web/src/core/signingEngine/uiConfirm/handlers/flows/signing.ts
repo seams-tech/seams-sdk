@@ -49,6 +49,10 @@ import {
 } from '@/core/signingEngine/stepUpConfirmation/intentDigestPreparation';
 import { consumeConfirmationReadiness } from '@/core/signingEngine/uiConfirm/confirmationReadinessRegistry';
 import { formatNearAccountFundingNotice } from '@/core/signingEngine/uiConfirm/nearFundingNotice';
+import {
+  walletSessionFailureFromError,
+  type WalletSessionFailure,
+} from '@/core/signingEngine/session/lifecycle/walletSessionFailure';
 
 const TOUCH_CONFIRM_PROGRESS_PHASE = {
   CONFIRMATION_COMPLETE: 'confirmation.complete',
@@ -73,6 +77,53 @@ type NearSigningReadinessMode =
   | {
       kind: 'signature_only';
     };
+
+type WalletSessionExpiredConfirmationOutcome = {
+  readonly kind: 'wallet_session_expired';
+  readonly failure: Extract<WalletSessionFailure, { readonly kind: 'expired' }>;
+};
+
+function keepPromisePending(): void {}
+
+function pendingPromise<T>(): Promise<T> {
+  return new Promise<T>(keepPromisePending);
+}
+
+function readinessCompletedWithoutExpiry(): Promise<never> {
+  return pendingPromise();
+}
+
+function readinessFailedWithPossibleExpiry(
+  error: unknown,
+): WalletSessionExpiredConfirmationOutcome | Promise<never> {
+  const failure = walletSessionFailureFromError(error);
+  if (failure?.kind === 'expired') {
+    return {
+      kind: 'wallet_session_expired',
+      failure,
+    };
+  }
+  return pendingPromise();
+}
+
+function waitForWalletSessionExpiry(
+  readiness: Promise<unknown>,
+): Promise<WalletSessionExpiredConfirmationOutcome> {
+  return readiness.then(readinessCompletedWithoutExpiry, readinessFailedWithPossibleExpiry);
+}
+
+function isWalletSessionExpiredConfirmationOutcome(
+  value:
+    | WalletSessionExpiredConfirmationOutcome
+    | {
+        confirmed: boolean;
+        error?: string;
+        otpCode?: string;
+        emailOtpChallengeId?: string;
+      },
+): value is WalletSessionExpiredConfirmationOutcome {
+  return 'kind' in value && value.kind === 'wallet_session_expired';
+}
 
 function resolveNearSigningReadinessMode(args: {
   request: SigningUserConfirmRequest;
@@ -170,6 +221,19 @@ function assertNever(value: never): never {
   throw new Error(`Unsupported WebAuthn challenge branch: ${JSON.stringify(value)}`);
 }
 
+function cancelNearOperationStepUpPreparation(args: {
+  ctx: UiConfirmContext;
+  requestId: string;
+  preparation:
+    | Awaited<ReturnType<UiConfirmContext['operationStepUpPreparation']['prepare']>>
+    | undefined;
+}): void {
+  args.ctx.operationStepUpPreparation.cancel({
+    requestId: args.requestId,
+    ...(args.preparation ? { handle: args.preparation.handle } : {}),
+  });
+}
+
 function resolveTypedWebAuthnChallenge(args: {
   webauthnChallenge?: WebAuthnChallenge;
   defaultChallengeB64u: string;
@@ -216,6 +280,9 @@ export async function handleTransactionSigningFlow(
     surface: { kind: 'mount_new' },
   });
   const nearAccountId = getNearAccountId(request);
+  let operationStepUpPreparation:
+    | Awaited<ReturnType<UiConfirmContext['operationStepUpPreparation']['prepare']>>
+    | undefined;
   let resolvedIntentDigestForResponse = String(getIntentDigest(request) || '').trim() || undefined;
   if (resolvedIntentDigestForResponse === PENDING_INTENT_DIGEST) {
     resolvedIntentDigestForResponse = undefined;
@@ -269,7 +336,6 @@ export async function handleTransactionSigningFlow(
     let intentPreparationPending = !!intentPreparation;
     const confirmationReadiness = consumeConfirmationReadiness(request.requestId);
     let confirmationReadinessPending = !!confirmationReadiness;
-    let confirmationReadinessError: Error | null = null;
     const originalBody = String(transactionSummary.body || '').trim();
     const confirmationReadinessBody = String(confirmationReadiness?.body || '').trim();
     const isConfirmationLoading = () =>
@@ -277,11 +343,10 @@ export async function handleTransactionSigningFlow(
       (!nearContextReady || intentPreparationPending || confirmationReadinessPending);
     const restoreOriginalBody = () => ({ body: originalBody });
     const confirmationReadinessPromise = confirmationReadiness
-      ? Promise.resolve(confirmationReadiness.promise).catch((error: unknown) => {
-          confirmationReadinessError =
-            error instanceof Error ? error : new Error(String(error || 'Unknown error'));
-          throw confirmationReadinessError;
-        })
+      ? Promise.resolve(confirmationReadiness.promise)
+      : undefined;
+    const walletSessionExpiryPromise = confirmationReadinessPromise
+      ? waitForWalletSessionExpiry(confirmationReadinessPromise)
       : undefined;
     const markPromptReady = () => {
       resolvePromptReady?.();
@@ -420,9 +485,30 @@ export async function handleTransactionSigningFlow(
 
     // Ordering matters: resolve user decision first so "Cancel" can close immediately
     // even while context/digest preparation is still running. Confirmed flows wait below.
-    const { confirmed, error: uiError, otpCode, emailOtpChallengeId } = await promptDecisionPromise;
+    const promptDecisionOrExpiry = walletSessionExpiryPromise
+      ? await Promise.race([promptDecisionPromise, walletSessionExpiryPromise])
+      : await promptDecisionPromise;
     decisionResolved = true;
+    if (isWalletSessionExpiredConfirmationOutcome(promptDecisionOrExpiry)) {
+      cancelNearOperationStepUpPreparation({
+        ctx,
+        requestId: request.requestId,
+        preparation: operationStepUpPreparation,
+      });
+      return session.confirmAndCloseModal({
+        requestId: request.requestId,
+        intentDigest: resolvedIntentDigestForResponse,
+        confirmed: false,
+        walletSessionFailure: promptDecisionOrExpiry.failure,
+      });
+    }
+    const { confirmed, error: uiError, otpCode, emailOtpChallengeId } = promptDecisionOrExpiry;
     if (!confirmed) {
+      cancelNearOperationStepUpPreparation({
+        ctx,
+        requestId: request.requestId,
+        preparation: operationStepUpPreparation,
+      });
       return session.confirmAndCloseModal({
         requestId: request.requestId,
         intentDigest: resolvedIntentDigestForResponse,
@@ -441,6 +527,11 @@ export async function handleTransactionSigningFlow(
           details: 'NEAR transaction readiness did not resolve',
         };
         console.error('[SigningFlow] fetchNearContext failed', failure);
+        cancelNearOperationStepUpPreparation({
+          ctx,
+          requestId: request.requestId,
+          preparation: operationStepUpPreparation,
+        });
         return session.confirmAndCloseModal({
           requestId: request.requestId,
           intentDigest: resolvedIntentDigestForResponse,
@@ -466,6 +557,11 @@ export async function handleTransactionSigningFlow(
         const message = String(
           toError(error)?.message || 'NEAR signing session could not be finalized',
         );
+        cancelNearOperationStepUpPreparation({
+          ctx,
+          requestId: request.requestId,
+          preparation: operationStepUpPreparation,
+        });
         return session.confirmAndCloseModal({
           requestId: request.requestId,
           intentDigest: resolvedIntentDigestForResponse,
@@ -504,13 +600,32 @@ export async function handleTransactionSigningFlow(
       requestId: request.requestId,
       signingAuthPlanKind: request.payload.signingAuthPlan.kind,
     });
-    const challengeB64u = resolveTypedWebAuthnChallenge({
-      webauthnChallenge: request.payload.webauthnChallenge,
-      defaultChallengeB64u: String(resolvedChallengeB64u || '').trim(),
-      requireTypedChallenge:
-        request.payload.signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth &&
-        Boolean(request.payload.webauthnChallenge),
-    });
+    if (nearTransactionReadiness?.kind === 'context_ready') {
+      const fundingRequest = buildNearContextFetchInput({
+        request,
+        usesNeeded,
+        readinessMode,
+      });
+      if (!fundingRequest) {
+        throw new Error('Operation step-up requires exact NEAR operation facts');
+      }
+      operationStepUpPreparation = await ctx.operationStepUpPreparation.prepare({
+        requestId: request.requestId,
+        transactionContext: nearTransactionReadiness.transactionContext,
+        operationId: fundingRequest.operation.operationId,
+        operationFingerprint: fundingRequest.operation.operationFingerprint,
+        displayDigest: String(resolvedIntentDigestForResponse || '').trim(),
+      });
+    }
+    const challengeB64u =
+      operationStepUpPreparation?.challengeB64u ||
+      resolveTypedWebAuthnChallenge({
+        webauthnChallenge: request.payload.webauthnChallenge,
+        defaultChallengeB64u: String(resolvedChallengeB64u || '').trim(),
+        requireTypedChallenge:
+          request.payload.signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth &&
+          Boolean(request.payload.webauthnChallenge),
+      });
     if (!challengeB64u) {
       throw new Error('Missing WebAuthn challenge digest for signing flow');
     }
@@ -527,9 +642,15 @@ export async function handleTransactionSigningFlow(
       intentDigest: resolvedIntentDigestForResponse,
       confirmed: true,
       credential: serializedCredential,
+      ...(operationStepUpPreparation ? { operationStepUpPreparation } : {}),
       ...nearReadinessDecisionFields(nearTransactionReadiness),
     });
   } catch (err: unknown) {
+    cancelNearOperationStepUpPreparation({
+      ctx,
+      requestId: request.requestId,
+      preparation: operationStepUpPreparation,
+    });
     // Treat TouchID/FaceID cancellation and related errors as a negative decision
     const cancelled = isUserCancelledUserConfirm(err);
     const msg = String(toError(err)?.message || err || '');

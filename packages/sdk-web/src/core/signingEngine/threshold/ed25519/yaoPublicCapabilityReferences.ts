@@ -1,5 +1,6 @@
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { Ed25519YaoActiveClientIdentityV1 } from './yaoActiveClientRegistry';
 
 export const ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_KIND_V1 =
@@ -57,16 +58,17 @@ function parsePublicCapabilityIdentity(
   label: string,
 ): Ed25519YaoActiveClientIdentityV1 {
   const record = requireRecord(value, label);
-  requireExactKeys(record, ['walletId', 'nearAccountId', 'thresholdSessionId'], label);
+  requireExactKeys(record, ['walletId', 'nearAccountId', 'materialActivation'], label);
+  const materialActivation = parseMpcMaterialActivationRef(record.materialActivation);
+  if (!materialActivation.ok) {
+    throw new Error(`${label}.materialActivation is invalid: ${materialActivation.error.message}`);
+  }
   return {
     walletId: toWalletId(requireNonEmptyString(record.walletId, `${label}.walletId`)),
     nearAccountId: toAccountId(
       requireNonEmptyString(record.nearAccountId, `${label}.nearAccountId`),
     ),
-    thresholdSessionId: requireNonEmptyString(
-      record.thresholdSessionId,
-      `${label}.thresholdSessionId`,
-    ),
+    materialActivation: materialActivation.value,
   };
 }
 
@@ -74,11 +76,7 @@ export function parseEd25519YaoPublicCapabilityReferencesV1(
   value: unknown,
 ): Ed25519YaoPublicCapabilityReferencesV1 {
   const record = requireRecord(value, 'Ed25519 Yao public capability references');
-  requireExactKeys(
-    record,
-    ['kind', 'identities'],
-    'Ed25519 Yao public capability references',
-  );
+  requireExactKeys(record, ['kind', 'identities'], 'Ed25519 Yao public capability references');
   if (record.kind !== ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_KIND_V1) {
     throw new Error('Ed25519 Yao public capability references kind is invalid');
   }
@@ -109,10 +107,16 @@ function emptyPublicCapabilityReferences(): Ed25519YaoPublicCapabilityReferences
 }
 
 function publicCapabilityIdentityKey(identity: Ed25519YaoActiveClientIdentityV1): string {
+  const activation = identity.materialActivation;
   return JSON.stringify([
     String(identity.walletId),
     String(identity.nearAccountId),
-    identity.thresholdSessionId,
+    activation.activationId,
+    activation.capability,
+    activation.materialOwner,
+    activation.keyBinding,
+    activation.lifecycleBinding,
+    activation.signingWorker,
   ]);
 }
 
@@ -122,9 +126,7 @@ function clonePublicCapabilityIdentity(
   return parsePublicCapabilityIdentity(identity, 'Ed25519 Yao public capability identity');
 }
 
-export class IndexedDbEd25519YaoPublicCapabilityReferenceStore
-  implements Ed25519YaoPublicCapabilityReferenceStorePort
-{
+export class IndexedDbEd25519YaoPublicCapabilityReferenceStore implements Ed25519YaoPublicCapabilityReferenceStorePort {
   constructor(private readonly appState: AppStatePort) {}
 
   private async readProjection(): Promise<Ed25519YaoPublicCapabilityReferencesV1> {
@@ -136,9 +138,7 @@ export class IndexedDbEd25519YaoPublicCapabilityReferenceStore
     return parseEd25519YaoPublicCapabilityReferencesV1(raw);
   }
 
-  private async writeProjection(
-    projection: Ed25519YaoPublicCapabilityReferencesV1,
-  ): Promise<void> {
+  private async writeProjection(projection: Ed25519YaoPublicCapabilityReferencesV1): Promise<void> {
     if (this.appState.isDisabled()) return;
     await this.appState.setAppState(
       ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_APP_STATE_KEY,
@@ -149,9 +149,10 @@ export class IndexedDbEd25519YaoPublicCapabilityReferenceStore
   async upsert(identity: Ed25519YaoActiveClientIdentityV1): Promise<void> {
     const normalized = clonePublicCapabilityIdentity(identity);
     const current = await this.readProjection();
-    const key = publicCapabilityIdentityKey(normalized);
     const identities = current.identities.filter(
-      (candidate) => publicCapabilityIdentityKey(candidate) !== key,
+      (candidate) =>
+        String(candidate.walletId) !== String(normalized.walletId) ||
+        String(candidate.nearAccountId) !== String(normalized.nearAccountId),
     );
     if (identities.length >= MAX_PUBLIC_CAPABILITY_REFERENCES) {
       throw new Error('Ed25519 Yao public capability reference capacity is exhausted');

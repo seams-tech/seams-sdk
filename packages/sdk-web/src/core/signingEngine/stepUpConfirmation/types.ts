@@ -11,6 +11,8 @@ import type {
   WebAuthnRegistrationCredential,
 } from '@/core/types/webauthn';
 import type { NonceLeaseRef } from '../interfaces/nonceLease';
+import type { WalletSessionFailure } from '../session/lifecycle/walletSessionFailure';
+import type { NearOperationStepUpPreparationRef } from '../interfaces/operationStepUpPreparation';
 
 export interface UserConfirmProgressEvent {
   requestId: string;
@@ -62,6 +64,7 @@ export type UserConfirmDecisionBase = ForbiddenMainThreadSecrets & {
 type UserConfirmSuccessDecisionBase = UserConfirmDecisionBase & {
   confirmed: true;
   credential?: SerializableCredential;
+  operationStepUpPreparation?: NearOperationStepUpPreparationRef;
   otpCode?: string;
   emailOtpChallengeId?: string;
   registrationDiagnostics?: RegistrationConfirmationDiagnostics;
@@ -87,9 +90,8 @@ export type UserConfirmSuccessDecision = UserConfirmSuccessDecisionBase &
       }
   );
 
-export type UserConfirmFailureDecision = UserConfirmDecisionBase & {
+type UserConfirmFailureDecisionBase = UserConfirmDecisionBase & {
   confirmed: false;
-  error?: string;
   registrationDiagnostics?: RegistrationConfirmationDiagnostics;
   credential?: never;
   otpCode?: never;
@@ -98,6 +100,23 @@ export type UserConfirmFailureDecision = UserConfirmDecisionBase & {
   nonceLeases?: never;
   nearTransactionReadiness?: never;
 };
+
+export type WalletSessionExpiredConfirmationFailure = Extract<
+  WalletSessionFailure,
+  { readonly kind: 'expired' }
+>;
+
+export type UserConfirmFailureDecision = UserConfirmFailureDecisionBase &
+  (
+    | {
+        walletSessionFailure: WalletSessionExpiredConfirmationFailure;
+        error?: never;
+      }
+    | {
+        walletSessionFailure?: never;
+        error?: string;
+      }
+  );
 
 export type UserConfirmDecision = UserConfirmSuccessDecision | UserConfirmFailureDecision;
 

@@ -12,6 +12,7 @@ import {
   UserConfirmResponseEnvelope,
   RegistrationConfirmationDiagnostics,
   SerializableCredential,
+  WalletSessionExpiredConfirmationFailure,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { NonceLeaseRef } from '@/core/signingEngine/interfaces/nonceLease';
 import { isObject, isString, isBoolean } from '@shared/utils/validation';
@@ -20,6 +21,7 @@ import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { TransactionContext } from '@/core/types/rpc';
 import type { NearTransactionReadiness } from '../nonce/nearTransactionReadiness';
+import type { NearOperationStepUpPreparationRef } from '../interfaces/operationStepUpPreparation';
 import { validateUserConfirmRequest } from './handlers/flows/adapters/request';
 
 type ConfirmResponsePayload = {
@@ -27,12 +29,14 @@ type ConfirmResponsePayload = {
   confirmed: boolean;
   intentDigest?: string;
   credential?: SerializableCredential;
+  operationStepUpPreparation?: NearOperationStepUpPreparationRef;
   otpCode?: string;
   emailOtpChallengeId?: string;
   transactionContext?: TransactionContext;
   nonceLeases?: NonceLeaseRef[];
   nearTransactionReadiness?: NearTransactionReadiness;
   registrationDiagnostics?: RegistrationConfirmationDiagnostics;
+  walletSessionFailure?: WalletSessionExpiredConfirmationFailure;
   error?: string;
 };
 
@@ -108,13 +112,21 @@ export function awaitUserConfirmationV2(
               requestId: request.requestId,
               data: env.data,
             })
-          : {
-              request_id: request.requestId,
-              intent_digest: env.data.intentDigest,
-              confirmed: false,
-              registration_diagnostics: env.data.registrationDiagnostics,
-              error: env.data.error,
-            };
+          : env.data.walletSessionFailure
+            ? {
+                request_id: request.requestId,
+                intent_digest: env.data.intentDigest,
+                confirmed: false,
+                registration_diagnostics: env.data.registrationDiagnostics,
+                wallet_session_failure: env.data.walletSessionFailure,
+              }
+            : {
+                request_id: request.requestId,
+                intent_digest: env.data.intentDigest,
+                confirmed: false,
+                registration_diagnostics: env.data.registrationDiagnostics,
+                error: env.data.error,
+              };
       } catch (error: unknown) {
         return reject(toError(error));
       }
@@ -167,6 +179,9 @@ function buildConfirmedWorkerConfirmationResponse(args: {
     confirmed: true as const,
     ...(args.data.intentDigest ? { intent_digest: args.data.intentDigest } : {}),
     ...(args.data.credential ? { credential: args.data.credential } : {}),
+    ...(args.data.operationStepUpPreparation
+      ? { operation_step_up_preparation: args.data.operationStepUpPreparation }
+      : {}),
     ...(args.data.otpCode ? { otp_code: args.data.otpCode } : {}),
     ...(args.data.emailOtpChallengeId
       ? { email_otp_challenge_id: args.data.emailOtpChallengeId }

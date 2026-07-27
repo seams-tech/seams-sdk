@@ -12,14 +12,15 @@ import type {
   SignTransactionResult,
 } from './seams';
 import type { SyncAccountResult, SignNEP413MessageResult } from '@/core/types/sdkPublicResults';
+import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import {
-  parseSigningGrantId,
-  parseWalletId,
-  type SigningGrantId,
-  type WalletId,
-} from '@shared/utils/domainIds';
+  parseWalletSessionId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
+
+export type { WalletSessionId };
 
 /////////////////////////////////////
 // Signing Session Lifecycle Events
@@ -37,9 +38,6 @@ export const SIGNING_SESSION_EXPIRY_DETECTION_SOURCES = {
 
 export type SigningSessionExpiryDetectionSource =
   (typeof SIGNING_SESSION_EXPIRY_DETECTION_SOURCES)[keyof typeof SIGNING_SESSION_EXPIRY_DETECTION_SOURCES];
-
-/** Public wallet-session identity. A Wallet Session is grouped by its signing grant. */
-export type WalletSessionId = SigningGrantId;
 
 export type SigningSessionExpiredEvent = {
   readonly version: typeof SDK_LIFECYCLE_EVENT_VERSION;
@@ -115,7 +113,7 @@ export function parseSdkLifecycleEvent(value: unknown): SdkLifecycleEvent | null
 
   const walletId = parseWalletId(value.walletId);
   if (!walletId.ok) return null;
-  const walletSessionId = parseSigningGrantId(value.walletSessionId);
+  const walletSessionId = parseWalletSessionId(value.walletSessionId);
   if (!walletSessionId.ok) return null;
   if (!isWalletAuthMethod(value.authMethod)) return null;
   if (!isPositiveSafeInteger(value.expiresAtMs)) return null;

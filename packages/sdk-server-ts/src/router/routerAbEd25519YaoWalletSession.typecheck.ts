@@ -22,6 +22,7 @@ function acceptBudgetRefreshAuthorization(
 acceptBudgetRefreshAuthorization({
   kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
   authority: passkeyAuthority,
+  verifiedChallengeId: 'challenge-id',
 });
 
 acceptBudgetRefreshAuthorization({
@@ -45,6 +46,7 @@ acceptBudgetRefreshAuthorization({
 acceptBudgetRefreshAuthorization({
   kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
   authority: passkeyAuthority,
+  verifiedChallengeId: 'challenge-id',
   signerSlot: 1,
 });
 
@@ -52,6 +54,7 @@ acceptBudgetRefreshAuthorization({
 acceptBudgetRefreshAuthorization({
   kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
   authority: passkeyAuthority,
+  verifiedChallengeId: 'challenge-id',
   currentSession,
 });
 

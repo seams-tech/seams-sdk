@@ -12,6 +12,7 @@ import type {
   EvmFamilyEcdsaKeyIdentity,
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
+import { deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform/types';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -23,6 +24,11 @@ import { bytesToHex } from '../../chains/evm/bytes';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import type { PersistedEcdsaRoleLocalMaterial } from '../../session/persistence/records';
 import { computeEcdsaDerivationRoleLocalRelayerKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import type {
+  MpcWalletSigningQuotaId,
+  SeamsSessionId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 type BootstrapEcdsaSessionBaseArgs = {
   credentialStore: ThresholdCredentialStorePort;
@@ -165,6 +171,9 @@ type BootstrapEcdsaSessionSuccessCommon = {
   chainId: number;
   sessionId: string;
   signingGrantId: string;
+  authorizationSessionId: SeamsSessionId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -262,9 +271,13 @@ async function bootstrapStrictExistingEcdsaSession(
   });
   const capability = strict.sessionActivation.public_capability;
   const publicIdentity = capability.public_identity;
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
+    walletId: args.key.walletId,
+    runtimePolicyScope,
+  });
   const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
     walletId: String(args.key.walletId),
-    evmFamilySigningKeySlotId: String(args.key.evmFamilySigningKeySlotId),
+    evmFamilySigningKeySlotId,
   });
   const common: BootstrapEcdsaSessionSuccessCommon = {
     ok: true,
@@ -273,7 +286,7 @@ async function bootstrapStrictExistingEcdsaSession(
       String(args.requestId || '').trim() ||
       secureRandomId('tecdsa-keygen', 32, 'threshold ECDSA session IDs'),
     rpId,
-    evmFamilySigningKeySlotId: String(args.key.evmFamilySigningKeySlotId),
+    evmFamilySigningKeySlotId,
     keyHandle: String(args.keyHandle),
     ecdsaThresholdKeyId: String(args.key.ecdsaThresholdKeyId),
     clientVerifyingShareB64u: publicIdentity.derivation_client_share_public_key33_b64u,
@@ -287,6 +300,9 @@ async function bootstrapStrictExistingEcdsaSession(
     chainId: args.lanePolicy.chainTarget.chainId,
     sessionId: strict.sessionActivation.session.threshold_session_id,
     signingGrantId: strict.sessionActivation.session.signing_grant_id,
+    authorizationSessionId: strict.sessionActivation.session.authorization_session_id,
+    walletSessionId: strict.sessionActivation.session.wallet_session_id,
+    quotaId: strict.sessionActivation.session.quota_id,
     expiresAtMs: strict.sessionActivation.session.expires_at_ms,
     remainingUses: strict.sessionActivation.session.remaining_uses,
     runtimePolicyScope,

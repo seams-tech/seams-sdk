@@ -23,11 +23,11 @@ import type {
 } from '@/core/types/seams';
 import type { WalletSessionId } from '@/core/types/sdkSentEvents';
 import {
-  parseSigningGrantId,
-  parseThresholdSessionId,
+  parseCapabilityInstanceRef,
   parseWalletId,
   type WalletId,
 } from '@shared/utils/domainIds';
+import { parseWalletSessionId } from '@shared/authorization/capabilityKinds';
 import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
@@ -35,6 +35,7 @@ import {
   walletAuthMethodBindingFromRaw,
   type WalletAuthMethodBinding,
 } from '@shared/utils/walletCapabilityBindings';
+import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export type WalletIframeExactSessionIdentity = {
   readonly walletId: WalletId;
@@ -378,7 +379,7 @@ function parseReusableWalletSessionIdentity(
   Extract<ReusableWalletSessionState, { kind: 'active' }>,
   'walletId' | 'walletSessionId' | 'authMethod' | 'expiresAtMs'
 > {
-  const walletSessionId = parseSigningGrantId(record.walletSessionId);
+  const walletSessionId = parseWalletSessionId(record.walletSessionId);
   if (!walletSessionId.ok) throw new Error('Reusable Wallet Session ID is invalid');
   if (!isWalletAuthMethod(record.authMethod)) {
     throw new Error('Reusable Wallet Session auth method is invalid');
@@ -468,12 +469,21 @@ function parseWalletUnlockSubject(
         signerSlot,
       };
     }
-    case 'evm_family_ecdsa_wallet':
+    case 'evm_family_ecdsa_wallet': {
+      const capability = parseCapabilityInstanceRef(record.capability);
+      if (!capability.ok) throw new Error(capability.error.message);
+      const authority = parseWalletAuthAuthorityRef(record.authority);
+      if (!authority || authority.walletId !== walletId) {
+        throw new Error('Wallet unlock ECDSA authority is invalid');
+      }
       return {
         kind: 'evm_family_ecdsa_wallet',
         walletId,
+        capability: capability.value,
+        authority,
         ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(record.ecdsaThresholdKeyId),
       };
+    }
     default:
       throw new Error('Wallet unlock subject kind is invalid');
   }
@@ -562,30 +572,7 @@ function parseWalletSessionCapabilityLaneReadiness(
     case 'ready':
     case 'restorable':
     case 'deferred':
-      return {
-        kind: record.kind,
-        ...parseCapabilityLaneIdentity(record),
-        remainingUses: requirePositiveSafeInteger(record.remainingUses, 'remainingUses'),
-      };
-    case 'exhausted':
-      if (record.remainingUses !== 0) {
-        throw new Error('Exhausted capability lane remainingUses must be zero');
-      }
-      return {
-        kind: 'exhausted',
-        ...parseCapabilityLaneIdentity(record),
-        remainingUses: 0,
-      };
-    case 'expired': {
-      const identity = parseCapabilityLaneIdentity(record);
-      return {
-        kind: 'expired',
-        walletSessionId: identity.walletSessionId,
-        thresholdSessionId: identity.thresholdSessionId,
-        authMethod: identity.authMethod,
-        expiresAtMs: identity.expiresAtMs,
-      };
-    }
+      return { kind: record.kind };
     case 'missing':
       return { kind: 'missing' };
     case 'unavailable':
@@ -598,27 +585,6 @@ function parseWalletSessionCapabilityLaneReadiness(
     default:
       throw new Error('Wallet Session capability lane readiness kind is invalid');
   }
-}
-
-function parseCapabilityLaneIdentity(
-  record: Record<string, unknown>,
-): Pick<
-  Extract<WalletSessionCapabilityLaneReadiness, { kind: 'ready' }>,
-  'walletSessionId' | 'thresholdSessionId' | 'authMethod' | 'expiresAtMs'
-> {
-  const walletSessionId = parseSigningGrantId(record.walletSessionId);
-  if (!walletSessionId.ok) throw new Error('Capability lane Wallet Session ID is invalid');
-  const thresholdSessionId = parseThresholdSessionId(record.thresholdSessionId);
-  if (!thresholdSessionId.ok) throw new Error('Capability lane thresholdSessionId is invalid');
-  if (!isWalletAuthMethod(record.authMethod)) {
-    throw new Error('Capability lane auth method is invalid');
-  }
-  return {
-    walletSessionId: walletSessionId.value,
-    thresholdSessionId: thresholdSessionId.value,
-    authMethod: record.authMethod,
-    expiresAtMs: requirePositiveSafeInteger(record.expiresAtMs, 'expiresAtMs'),
-  };
 }
 
 function parseWalletAuthMethodBinding(value: unknown): WalletAuthMethodBinding {
@@ -1105,6 +1071,8 @@ function unavailableReasonFromIdentityFailure(
 ): WalletIframeSessionUnavailableReason {
   switch (reason) {
     case 'capability_subject_lookup_failed':
+    case 'activation_reconciliation_pending':
+    case 'activation_reconciliation_failed':
       return 'unavailable';
     case 'missing_wallet_profile':
     case 'missing_requested_capability_subject':
@@ -1125,6 +1093,8 @@ function requireIdentityResolveFailure(value: unknown): WalletSessionIdentityRes
     case 'missing_requested_capability_subject':
     case 'capability_subject_lookup_failed':
     case 'invalid_capability_subject':
+    case 'activation_reconciliation_pending':
+    case 'activation_reconciliation_failed':
     case 'invalid_wallet_profile':
       return value;
     default:
@@ -1205,7 +1175,7 @@ function exactIdentity(
   walletId: WalletId,
   session: Extract<WalletSession['reusableWalletSession'], { kind: 'active' | 'expired' }>,
 ): WalletIframeExactSessionIdentity | null {
-  const walletSessionId = parseSigningGrantId(session.walletSessionId);
+  const walletSessionId = parseWalletSessionId(session.walletSessionId);
   if (!walletSessionId.ok || !isWalletAuthMethod(session.authMethod)) return null;
   if (!isPositiveSafeInteger(session.expiresAtMs)) return null;
   return {
@@ -1224,7 +1194,7 @@ export function exactSessionIdentitiesMatch(
 }
 
 function parseIdentity(value: Record<string, unknown>): WalletIframeExactSessionIdentity {
-  const walletSessionId = parseSigningGrantId(value.walletSessionId);
+  const walletSessionId = parseWalletSessionId(value.walletSessionId);
   if (!walletSessionId.ok) throw new Error('Wallet iframe walletSessionId is invalid');
   if (!isWalletAuthMethod(value.authMethod)) throw new Error('Wallet iframe authMethod is invalid');
   if (!isPositiveSafeInteger(value.expiresAtMs))

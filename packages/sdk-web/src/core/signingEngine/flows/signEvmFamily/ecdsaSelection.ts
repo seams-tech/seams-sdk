@@ -14,11 +14,6 @@ import type {
 } from '../../session/identity/laneIdentity';
 import { laneCandidateAuthMethod } from '../../session/identity/laneIdentity';
 import {
-  SigningSessionIds,
-  type SigningGrantId,
-  type ThresholdEcdsaSessionId,
-} from '../../session/operationState/types';
-import {
   buildEvmTransactionSigningLane,
   buildTempoTransactionSigningLane,
 } from '../../session/operationState/lanes';
@@ -97,11 +92,10 @@ type EcdsaSelectionLaneCandidateDiagnosticsBase = {
   chain: EcdsaLaneCandidate['chain'];
   chainTarget: ThresholdEcdsaChainTarget;
   state: EcdsaLaneCandidate['state'];
-  signingGrantId: string;
-  thresholdSessionId: string;
-  remainingUses: number | null;
-  expiresAtMs: number | null;
-  updatedAtMs: number | null;
+  walletSessionId: string;
+  materialActivationId: string;
+  remainingUses: number;
+  expiresAtMs: number;
 };
 
 function ecdsaLaneCandidateAuthMethod(candidate: EcdsaLaneCandidate): EvmFamilyEcdsaAuthMethod {
@@ -545,11 +539,11 @@ export function resolvedEvmFamilyEcdsaSigningLaneFromCandidate(
       : buildEvmTransactionSigningLane;
   const base = {
     key: candidate.key,
+    materialActivation: candidate.materialActivation,
     keyHandle: candidate.keyHandle,
     walletId: candidate.walletId,
     chainTarget: candidate.chainTarget,
-    signingGrantId: SigningSessionIds.signingGrant(candidate.signingGrantId),
-    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(candidate.thresholdSessionId),
+    authorization: candidate.authorization,
   };
   const lane = buildLane(
     candidate.auth.kind === 'email_otp'
@@ -592,11 +586,10 @@ function laneCandidateDiagnosticsBase(
     chain: candidate.chain,
     chainTarget: candidate.chainTarget,
     state: candidate.state,
-    signingGrantId: candidate.signingGrantId,
-    thresholdSessionId: candidate.thresholdSessionId,
-    remainingUses: candidate.remainingUses,
-    expiresAtMs: candidate.expiresAtMs,
-    updatedAtMs: candidate.updatedAtMs,
+    walletSessionId: candidate.authorization.projection.walletSessionId,
+    materialActivationId: candidate.materialActivation.activationId,
+    remainingUses: candidate.authorization.status.remainingUses,
+    expiresAtMs: candidate.authorization.status.expiresAtMs,
   };
 }
 
@@ -613,6 +606,7 @@ function summarizeLaneCandidate(
       };
     case 'durable_sealed_record':
     case 'runtime_session_record':
+    case 'canonical_capability':
     case 'unknown':
       return {
         ...base,
@@ -877,7 +871,6 @@ function buildPasskeyEcdsaWalletSessionAuthorityFromRecord(args: {
     return buildEcdsaWalletSessionAuthority({
       walletSessionJwt: walletSessionAuth.walletSessionJwt,
       walletId: args.record.walletId,
-      evmFamilySigningKeySlotId: args.record.evmFamilySigningKeySlotId,
       keyHandle: args.record.keyHandle,
       thresholdSessionId: walletSessionAuth.identity.thresholdSessionId,
       signingGrantId: walletSessionAuth.identity.signingGrantId,
@@ -1277,7 +1270,6 @@ function buildEmailOtpEcdsaWalletSessionAuthority(args: {
   return buildEcdsaWalletSessionAuthority({
     walletSessionJwt: args.authLane.jwt,
     walletId: args.lane.key.walletId,
-    evmFamilySigningKeySlotId: args.lane.key.evmFamilySigningKeySlotId,
     keyHandle: args.lane.keyHandle,
     thresholdSessionId: args.authLane.thresholdSessionId,
     signingGrantId: String(args.authLane.authorizingSigningGrantId),

@@ -1,8 +1,8 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
+import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   thresholdEcdsaChainTargetKey,
-  thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
   type WalletId,
@@ -27,7 +27,7 @@ import {
   requirePersistedEcdsaRoleLocalMaterial,
   type ThresholdEcdsaSessionRecord,
 } from '../persistence/records';
-import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { EmailOtpEcdsaReadyPersistInput } from '@/core/signingEngine/session/warmCapabilities/persistencePorts';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { SigningSessionIds } from '../operationState/types';
@@ -42,10 +42,8 @@ import {
   type EvmFamilyEcdsaWalletKey,
 } from '../identity/evmFamilyEcdsaIdentity';
 import { computeEcdsaDerivationRoleLocalThresholdKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import { SIGNER_AUTH_METHODS, SIGNER_KINDS } from '@shared/utils/signerDomain';
-import { parseRouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { alphabetizeStringify } from '@shared/utils/digests';
-import { isObject } from '@shared/utils/validation';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { buildEcdsaRoleLocalPublicFacts } from '../persistence/ecdsaRoleLocalRecords';
 import {
   buildPersistedEcdsaRoleLocalMaterial,
@@ -109,7 +107,7 @@ export type EmailOtpEcdsaPublicationPorts = {
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   }) => Promise<{
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    warmCapability: WarmSessionEcdsaCapabilityState;
+    authorization: ActiveWalletSessionAuthorizationProjection;
   }>;
   registerSigningSession: (
     record: Extract<BuildCurrentSealedSessionRecordInput, { curve: 'ecdsa' }>,
@@ -280,7 +278,8 @@ export function projectEmailOtpExistingEcdsaKeyToChainTarget(args: {
       thresholdEcdsaPublicKeyB64u: publicFacts.groupPublicKey33B64u,
     }),
     persistedRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
-      materialRef: args.existingKey.persistedRoleLocalMaterial.materialRef,
+      authority: args.existingKey.persistedRoleLocalMaterial.authority,
+      materialActivation: args.existingKey.persistedRoleLocalMaterial.materialActivation,
       publicFacts,
     }),
   };
@@ -315,103 +314,6 @@ function sessionRecordEmailOtpEcdsaCandidate(
   }
 }
 
-function activeEmailOtpEcdsaSignerCandidates(args: {
-  walletId: WalletId;
-  keyHandle: string;
-  identity: EmailOtpEcdsaPersistedIdentity;
-  signers: readonly AccountSignerRecord[];
-}): ResolvedEmailOtpExistingEcdsaKey[] {
-  const candidates: ResolvedEmailOtpExistingEcdsaKey[] = [];
-  for (const signer of args.signers) {
-    if (
-      signer.status !== 'active' ||
-      signer.signerKind !== SIGNER_KINDS.thresholdEcdsa ||
-      signer.signerAuthMethod !== SIGNER_AUTH_METHODS.emailOtp
-    ) {
-      continue;
-    }
-    const metadata = signer.metadata;
-    if (!metadata || !isObject(metadata.chainTarget)) continue;
-    let chainTarget: ThresholdEcdsaChainTarget;
-    try {
-      chainTarget = thresholdEcdsaChainTargetFromRequest(metadata.chainTarget);
-    } catch {
-      continue;
-    }
-    const keyHandle = String(metadata.keyHandle || '').trim();
-    if (!keyHandle || (args.keyHandle && keyHandle !== args.keyHandle)) continue;
-    if (
-      String(metadata.evmFamilySigningKeySlotId || '').trim() !==
-        args.identity.evmFamilySigningKeySlotId ||
-      String(metadata.ecdsaThresholdKeyId || '').trim() !== args.identity.ecdsaThresholdKeyId ||
-      String(metadata.signingRootId || '').trim() !== args.identity.signingRootId ||
-      String(metadata.signingRootVersion || 'default').trim() !== args.identity.signingRootVersion
-    ) {
-      continue;
-    }
-    const thresholdEcdsaPublicKeyB64u = String(metadata.thresholdEcdsaPublicKeyB64u || '').trim();
-    let candidate: ResolvedEmailOtpExistingEcdsaKey;
-    try {
-      const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
-        metadata.publicCapability,
-      );
-      const publicFacts = buildEcdsaRoleLocalPublicFacts(metadata.ecdsaRoleLocalPublicFacts);
-      const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(
-        metadata.roleLocalMaterialRef,
-      );
-      if (
-        alphabetizeStringify(publicFacts.publicCapability) !==
-        alphabetizeStringify(publicCapability)
-      ) {
-        continue;
-      }
-      if (
-        String(publicFacts.walletId) !== String(args.walletId) ||
-        !thresholdEcdsaChainTargetsEqual(publicFacts.chainTarget, chainTarget) ||
-        String(publicFacts.keyHandle) !== keyHandle ||
-        String(publicFacts.evmFamilySigningKeySlotId) !== args.identity.evmFamilySigningKeySlotId ||
-        String(publicFacts.ecdsaThresholdKeyId) !== args.identity.ecdsaThresholdKeyId ||
-        String(publicFacts.signingRootId) !== args.identity.signingRootId ||
-        String(publicFacts.signingRootVersion) !== args.identity.signingRootVersion ||
-        publicFacts.groupPublicKey33B64u !== thresholdEcdsaPublicKeyB64u
-      ) {
-        continue;
-      }
-      candidate = {
-        keyHandle,
-        publicCapability,
-        walletKey: buildEvmFamilyEcdsaWalletKey({
-          walletId: publicFacts.walletId,
-          evmFamilySigningKeySlotId: publicFacts.evmFamilySigningKeySlotId,
-          keyHandle,
-          chainTarget,
-          ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
-          signingRootId: publicFacts.signingRootId,
-          signingRootVersion: publicFacts.signingRootVersion,
-          participantIds: publicFacts.participantIds,
-          thresholdOwnerAddress: publicFacts.ethereumAddress,
-          thresholdEcdsaPublicKeyB64u: publicFacts.groupPublicKey33B64u,
-        }),
-        persistedRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
-          materialRef,
-          publicFacts,
-        }),
-      };
-    } catch {
-      continue;
-    }
-    if (
-      String(candidate.publicCapability.client_id) !== String(args.walletId) ||
-      candidate.publicCapability.public_identity.threshold_public_key33_b64u !==
-        thresholdEcdsaPublicKeyB64u
-    ) {
-      continue;
-    }
-    candidates.push(candidate);
-  }
-  return candidates;
-}
-
 export async function resolveEmailOtpExistingEcdsaKey(args: {
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -441,13 +343,7 @@ export async function resolveEmailOtpExistingEcdsaKey(args: {
   const sessionCandidates = records
     .map((record) => sessionRecordEmailOtpEcdsaCandidate(record))
     .filter((value): value is ResolvedEmailOtpExistingEcdsaKey => value !== null);
-  const profileCandidates = activeEmailOtpEcdsaSignerCandidates({
-    walletId: args.walletId,
-    keyHandle: requestedKeyHandle,
-    identity,
-    signers: await args.listActiveEcdsaSignersForWallet({ walletId: args.walletId }),
-  });
-  const candidates = [...sessionCandidates, ...profileCandidates].reduce((unique, candidate) => {
+  const candidates = sessionCandidates.reduce((unique, candidate) => {
     const existing = unique.find((value) => value.keyHandle === candidate.keyHandle);
     if (!existing) {
       unique.push(candidate);
@@ -456,8 +352,10 @@ export async function resolveEmailOtpExistingEcdsaKey(args: {
     if (
       alphabetizeStringify(existing.publicCapability) !==
         alphabetizeStringify(candidate.publicCapability) ||
-      existing.persistedRoleLocalMaterial.materialRef.durableMaterialRef !==
-        candidate.persistedRoleLocalMaterial.materialRef.durableMaterialRef
+      !mpcMaterialActivationRefsEqual(
+        existing.persistedRoleLocalMaterial.materialActivation,
+        candidate.persistedRoleLocalMaterial.materialActivation,
+      )
     ) {
       throw new Error(
         `Email OTP ECDSA has conflicting persisted role-local material for ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
@@ -513,10 +411,10 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
   ports: EmailOtpEcdsaPublicationPorts,
 ): Promise<{
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
-  warmCapabilities: readonly [
-    WarmSessionEcdsaCapabilityState,
-    ...WarmSessionEcdsaCapabilityState[],
+  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorizations: readonly [
+    ActiveWalletSessionAuthorizationProjection,
+    ...ActiveWalletSessionAuthorizationProjection[],
   ];
   timings: EmailOtpEcdsaPublicationTimings;
 }> {
@@ -549,10 +447,10 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
   }
   return {
     bootstrap: primaryResult.bootstrap,
-    warmCapability: primaryResult.warmCapability,
-    warmCapabilities: [
-      primaryResult.warmCapability,
-      ...remainingResults.map((result) => result.warmCapability),
+    authorization: primaryResult.authorization,
+    authorizations: [
+      primaryResult.authorization,
+      ...remainingResults.map((result) => result.authorization),
     ],
     timings,
   };
@@ -571,7 +469,7 @@ type CommitEmailOtpEcdsaPublicationLaneContext = {
 type CommittedEmailOtpEcdsaPublicationLane = {
   result: {
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    warmCapability: WarmSessionEcdsaCapabilityState;
+    authorization: ActiveWalletSessionAuthorizationProjection;
   };
   timings: EmailOtpEcdsaPublicationTimings;
 };
@@ -789,17 +687,21 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     throw new Error('Email OTP sealed refresh requires exact ECDSA key handle');
   }
   const persistenceStartedAtMs = nowMs();
+  const authority = await walletAuthAuthorityRef({
+    authority: args.emailOtpAuthContext.authority,
+  });
   await ports.registerSigningSession({
     ...sealedRecordBase,
     ecdsaRestore: {
       chainTarget: actualChainTarget,
       source: 'email_otp',
-      evmFamilySigningKeySlotId,
       signingRootId,
       signingRootVersion,
       provider: emailOtpAuthContextProvider(args.emailOtpAuthContext),
       providerSubjectId,
       emailHashHex,
+      authority,
+      emailOtpAuthority: args.emailOtpAuthContext.authority,
       walletSessionJwt,
       sessionKind: 'jwt',
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),

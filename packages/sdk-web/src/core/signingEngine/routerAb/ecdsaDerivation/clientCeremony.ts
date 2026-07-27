@@ -13,7 +13,9 @@ import type {
 import type { EcdsaRoleLocalWorkerHandle } from '@/core/signingEngine/session/keyMaterialBrands';
 import type { InitialEcdsaCapabilityActivationPlanInput } from '@/core/signingEngine/session/material/initialEcdsaCapabilityActivation';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { CapabilityInstanceRef, MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { EcdsaServerActivationCommand } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 
 export type CreateRouterAbEcdsaRegistrationCeremonyRequestV1 = {
   readonly kind: 'create_router_ab_ecdsa_registration_ceremony_v1';
@@ -81,11 +83,64 @@ export type FinalizeRouterAbEcdsaRegistrationActivationRequestV1 = {
 export type FinalizeRouterAbEcdsaRegistrationActivationResultV1 = {
   readonly kind: 'router_ab_ecdsa_registration_activation_finalized_v1';
   readonly journalId: CorrelationId;
+  readonly authority: WalletAuthAuthorityRef;
   readonly roleLocalMaterial: EcdsaRoleLocalWorkerHandle;
   readonly materialActivation: MpcMaterialActivationRef;
   readonly publicFacts: WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapResult['publicFacts'];
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
+
+export type ReconcileCanonicalEcdsaActivationRequestV1 = {
+  readonly kind: 'reconcile_canonical_ecdsa_activation_v1';
+  readonly capability: CapabilityInstanceRef;
+  readonly authority: WalletAuthAuthorityRef;
+};
+
+export type ReconcileCanonicalEcdsaActivationResultV1 =
+  | {
+      readonly kind: 'canonical_ecdsa_activation_reconciliation_pending_v1';
+      readonly journalId: CorrelationId;
+      readonly reason: 'parent_confirmation_and_server_query_required';
+      readonly activationCommand: EcdsaServerActivationCommand;
+      readonly activation?: never;
+      readonly code?: never;
+    }
+  | {
+      readonly kind: 'canonical_ecdsa_activation_reconciliation_finalized_v1';
+      readonly activation: FinalizeRouterAbEcdsaRegistrationActivationResultV1;
+      readonly journalId?: never;
+      readonly reason?: never;
+      readonly activationCommand?: never;
+      readonly code?: never;
+    }
+  | {
+      readonly kind: 'canonical_ecdsa_activation_reconciliation_absent_v1';
+      readonly journalId?: never;
+      readonly reason?: never;
+      readonly activationCommand?: never;
+      readonly activation?: never;
+      readonly code?: never;
+    }
+  | {
+      readonly kind: 'canonical_ecdsa_activation_reconciliation_failed_v1';
+      readonly code: 'corrupt' | 'persistence_unavailable';
+      readonly journalId?: never;
+      readonly reason?: never;
+      readonly activationCommand?: never;
+      readonly activation?: never;
+    };
+
+export type ReconcileCanonicalEcdsaActivationWorkerResultV1 =
+  | ReconcileCanonicalEcdsaActivationResultV1
+  | {
+      readonly kind: 'canonical_ecdsa_activation_committed_finalization_required_v1';
+      readonly journalId: CorrelationId;
+      readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+      readonly reason?: never;
+      readonly activationCommand?: never;
+      readonly activation?: never;
+      readonly code?: never;
+    };
 
 export type CloseRouterAbEcdsaRegistrationCeremonyRequestV1 = {
   readonly kind: 'close_router_ab_ecdsa_registration_ceremony_v1';

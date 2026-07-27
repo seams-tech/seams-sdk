@@ -6,8 +6,6 @@ import type {
 } from '../../uiConfirm/uiConfirm.types';
 import {
   getStoredThresholdEd25519SessionRecordForWallet,
-  listThresholdEcdsaRuntimeLanesForWallet,
-  type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
 import {
   createClearAllVolatileWarmSessionMaterialCommand,
@@ -20,7 +18,6 @@ import {
 
 export type ClearVolatileWarmSigningMaterialDeps = {
   touchConfirm: VolatileWarmSessionMaterialClearer | VolatileWarmSessionMaterialClearAll;
-  ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   clearVolatileThresholdSessionMaterial: (
     command: ClearVolatileWarmSessionMaterialCommand,
   ) => Promise<void>;
@@ -45,7 +42,6 @@ function hasVolatileWarmSessionMaterialClearer(
 }
 
 function collectWarmSigningSessionIdsForWallet(
-  deps: Pick<ClearVolatileWarmSigningMaterialDeps, 'ecdsaSessions'>,
   walletId: WalletId,
 ): VolatileWarmSessionId[] {
   const sessionIds = new Set<VolatileWarmSessionId>();
@@ -54,15 +50,6 @@ function collectWarmSigningSessionIdsForWallet(
   );
   if (ed25519SessionId) {
     sessionIds.add(ed25519SessionId);
-  }
-  for (const runtimeLane of listThresholdEcdsaRuntimeLanesForWallet(
-    deps.ecdsaSessions,
-    walletId,
-  )) {
-    const ecdsaSessionId = parseVolatileWarmSessionId(runtimeLane.thresholdSessionId);
-    if (ecdsaSessionId) {
-      sessionIds.add(ecdsaSessionId);
-    }
   }
   return [...sessionIds];
 }
@@ -78,7 +65,7 @@ export async function clearVolatileWarmSigningMaterial(
     return;
   }
 
-  const sessionIds = walletId != null ? collectWarmSigningSessionIdsForWallet(deps, walletId) : [];
+  const sessionIds = walletId != null ? collectWarmSigningSessionIdsForWallet(walletId) : [];
   if (!hasVolatileWarmSessionMaterialClearer(deps.touchConfirm)) return;
 
   await Promise.all(

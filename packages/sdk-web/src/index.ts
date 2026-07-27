@@ -5,6 +5,10 @@ export type {
   BrowserCapabilityUnavailableReason,
   BrowserCapabilityUnavailableSelection,
 } from './SeamsWeb/publicApi/capabilitySelection';
+export type {
+  WalletIframeExactSessionIdentity,
+  WalletIframeExactSessionState,
+} from './SeamsWeb/walletIframe/shared/exactSessionState';
 
 export * from './config';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from './core/config/defaultConfigs';
@@ -28,6 +32,10 @@ export type {
   SeamsConfigsReadonly,
   SeamsConfigsInput,
   // Registration
+  AddedEvmFamilyEcdsaSignerCapability,
+  AddedNearEd25519SignerCapability,
+  RegisteredEvmFamilyEcdsaCapability,
+  RegisteredNearEd25519Capability,
   RegistrationResult,
   // Login
   LoginResult,

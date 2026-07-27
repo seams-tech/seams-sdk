@@ -1503,42 +1503,54 @@ function assertPasskeyRegistrationSucceeded(args: {
   if (!result.success) {
     throw new Error(result.error || 'Passkey registration failed');
   }
+  if (result.kind !== 'wallet_registered') {
+    throw new Error(`Passkey registration returned result kind: ${result.kind}`);
+  }
+  const nearCapability = result.capabilities.find(
+    (capability) => capability.kind === 'near_ed25519',
+  );
+  if (!nearCapability) {
+    throw new Error('Passkey registration did not return a NEAR capability');
+  }
   switch (args.ecdsaTargetProfile.kind) {
     case 'none': {
-      if (result.kind !== 'near_wallet_registered') {
-        throw new Error(`NEAR-only passkey registration returned result kind: ${result.kind}`);
-      }
       return {
         ...passkeyRegistrationIdentitySummary({
           result,
+          nearCapability,
           expectedWalletId: args.expectedWalletId,
         }),
         ecdsaTargetProfile: 'none',
       };
     }
     case 'tempo': {
-      if (result.kind !== 'near_ed25519_and_ecdsa_wallet_registered') {
-        throw new Error(`Mixed passkey registration returned result kind: ${result.kind}`);
+      const ecdsaCapability = result.capabilities.find(
+        (capability) => capability.kind === 'evm_family_ecdsa',
+      );
+      if (!ecdsaCapability) {
+        throw new Error('Mixed passkey registration did not return an ECDSA capability');
       }
       const ecdsa = requireThresholdEcdsaSessionFields({
-        source: result,
+        source: ecdsaCapability,
         label: 'Passkey registration',
       });
       return {
         ...passkeyRegistrationIdentitySummary({
           result,
+          nearCapability,
           expectedWalletId: args.expectedWalletId,
         }),
         ...ecdsa,
       };
     }
     case 'tempo_arc': {
-      if (result.kind !== 'near_ed25519_and_ecdsa_wallet_registered') {
-        throw new Error(`Mixed passkey registration returned result kind: ${result.kind}`);
+      if (!result.capabilities.some((capability) => capability.kind === 'evm_family_ecdsa')) {
+        throw new Error('Mixed passkey registration did not return an ECDSA capability');
       }
       return {
         ...passkeyRegistrationIdentitySummary({
           result,
+          nearCapability,
           expectedWalletId: args.expectedWalletId,
         }),
         ecdsaTargetProfile: 'tempo_arc',
@@ -1556,16 +1568,22 @@ function assertEd25519AddSignerSucceeded(
   if (!result.success) {
     throw new Error(result.error || 'Ed25519 add-signer failed');
   }
-  if (result.kind !== 'near_ed25519_signer_added') {
+  if (result.kind !== 'wallet_signer_added') {
     throw new Error(`Ed25519 add-signer returned result kind: ${result.kind}`);
   }
   const walletId = String(result.walletId).trim();
   if (walletId !== expectedWalletId) {
     throw new Error(`Ed25519 add-signer wallet mismatch: ${walletId}`);
   }
-  const nearAccountId = String(result.nearAccountId).trim();
-  const nearEd25519SigningKeyId = String(result.nearEd25519SigningKeyId).trim();
-  const operationalPublicKey = String(result.operationalPublicKey ?? '').trim();
+  const nearCapability = result.capabilities.find(
+    (capability) => capability.kind === 'near_ed25519',
+  );
+  if (!nearCapability) {
+    throw new Error('Ed25519 add-signer did not return a NEAR capability');
+  }
+  const nearAccountId = String(nearCapability.nearAccountId).trim();
+  const nearEd25519SigningKeyId = String(nearCapability.nearEd25519SigningKeyId).trim();
+  const operationalPublicKey = String(nearCapability.operationalPublicKey).trim();
   if (!nearAccountId || !nearEd25519SigningKeyId || !operationalPublicKey) {
     throw new Error('Ed25519 add-signer returned incomplete signer identity');
   }
@@ -1582,8 +1600,13 @@ type PasskeyWalletRegistrationResult = Extract<
   RegistrationResult,
   {
     success: true;
-    kind: 'near_wallet_registered' | 'near_ed25519_and_ecdsa_wallet_registered';
+    kind: 'wallet_registered';
   }
+>;
+
+type RegisteredNearCapability = Extract<
+  PasskeyWalletRegistrationResult['capabilities'][number],
+  { kind: 'near_ed25519' }
 >;
 
 type PasskeyRegistrationIdentitySummary = {
@@ -1596,6 +1619,7 @@ type PasskeyRegistrationIdentitySummary = {
 
 function passkeyRegistrationIdentitySummary(args: {
   result: PasskeyWalletRegistrationResult;
+  nearCapability: RegisteredNearCapability;
   expectedWalletId: string;
 }): PasskeyRegistrationIdentitySummary {
   const result = args.result;
@@ -1603,15 +1627,15 @@ function passkeyRegistrationIdentitySummary(args: {
   if (walletId !== args.expectedWalletId) {
     throw new Error(`Passkey registration wallet mismatch: ${walletId}`);
   }
-  const nearAccountId = String(result.nearAccountId).trim();
+  const nearAccountId = String(args.nearCapability.nearAccountId).trim();
   if (!nearAccountId) {
     throw new Error('Passkey registration did not return a NEAR account id');
   }
-  const nearEd25519SigningKeyId = String(result.nearEd25519SigningKeyId).trim();
+  const nearEd25519SigningKeyId = String(args.nearCapability.nearEd25519SigningKeyId).trim();
   if (!nearEd25519SigningKeyId) {
     throw new Error('Passkey registration did not return an Ed25519 signing key id');
   }
-  const operationalPublicKey = String(result.operationalPublicKey ?? '').trim();
+  const operationalPublicKey = String(args.nearCapability.operationalPublicKey).trim();
   if (!operationalPublicKey) {
     throw new Error('Passkey registration did not return an operational public key');
   }
