@@ -90,7 +90,11 @@ import {
   type ReadyEvmFamilyEcdsaSigningSelection,
   type ReauthRequiredEvmFamilyEcdsaSigningSelection,
 } from './ecdsaSelection';
-import { thresholdEcdsaLaneCandidateFromSessionRecord } from '../../session/persistence/records';
+import {
+  requirePersistedEcdsaRoleLocalMaterial,
+  thresholdEcdsaLaneCandidateFromSessionRecord,
+} from '../../session/persistence/records';
+import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '../../session/routerAbSigningWalletSession';
 import {
   resolveEvmFamilyEcdsaPlannerReadiness,
   resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth,
@@ -616,10 +620,16 @@ async function resolveRestoredPasskeyEcdsaMaterial(args: {
   if (laneCandidate.state === 'expired' || laneCandidate.state === 'exhausted') {
     return { kind: 'fresh_auth_required', laneCandidate };
   }
+  const persistedMaterial = requirePersistedEcdsaRoleLocalMaterial(record);
   await hydrateEcdsaRoleLocalMaterialForSigning({
-    record,
+    materialRef: persistedMaterial.materialRef,
     workerCtx: args.deps.getSignerWorkerContext(),
   });
+  if (!markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)) {
+    throw new Error(
+      '[SigningEngine][ecdsa] hydrated material could not be bound to its Wallet Session',
+    );
+  }
   return { kind: 'material_hydrated' };
 }
 

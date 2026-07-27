@@ -17,7 +17,10 @@ import {
   emailOtpAuthContextRetention,
 } from '../../session/identity/laneIdentity';
 import { requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord } from '../../session/routerAbSigningWalletSession';
-import type { EcdsaRoleLocalWorkerHandle } from '../../session/keyMaterialBrands';
+import type {
+  EcdsaRoleLocalPersistedMaterialRef,
+  EcdsaRoleLocalWorkerHandle,
+} from '../../session/keyMaterialBrands';
 import {
   ecdsaRoleLocalPersistedMaterialRefSource,
   resolveEcdsaRoleLocalMaterial,
@@ -65,22 +68,15 @@ function requireResolvedRoleLocalWorkerHandle(
 }
 
 export async function hydrateEcdsaRoleLocalMaterialForSigning(args: {
-  record: ThresholdEcdsaSessionRecord;
+  materialRef: EcdsaRoleLocalPersistedMaterialRef;
   workerCtx: WorkerOperationContext;
 }): Promise<EcdsaRoleLocalWorkerHandle> {
-  const persistedMaterial = requirePersistedEcdsaRoleLocalMaterial(args.record);
   const resolution = await resolveEcdsaRoleLocalMaterial({
     purpose: 'transaction_signing',
-    source: ecdsaRoleLocalPersistedMaterialRefSource(persistedMaterial.materialRef),
+    source: ecdsaRoleLocalPersistedMaterialRefSource(args.materialRef),
     workerCtx: args.workerCtx,
   });
-  const liveHandle = requireResolvedRoleLocalWorkerHandle(resolution);
-  if (!markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(args.record)) {
-    throw new Error(
-      '[multichain] threshold-ecdsa hydrated material could not be bound to its signing session',
-    );
-  }
-  return liveHandle;
+  return requireResolvedRoleLocalWorkerHandle(resolution);
 }
 
 function assertThresholdEcdsaSessionAuthorizationIsActive(
@@ -137,10 +133,16 @@ export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
   }
 
   assertThresholdEcdsaSessionAuthorizationIsActive(args.record);
+  const persistedMaterial = requirePersistedEcdsaRoleLocalMaterial(args.record);
   const liveRoleLocalWorkerHandle = await hydrateEcdsaRoleLocalMaterialForSigning({
-    record: args.record,
+    materialRef: persistedMaterial.materialRef,
     workerCtx: args.workerCtx,
   });
+  if (!markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(args.record)) {
+    throw new Error(
+      '[multichain] threshold-ecdsa hydrated material could not be bound to its signing session',
+    );
+  }
 
   const signingWalletSession = requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord(
     args.record,
