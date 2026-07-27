@@ -1,5 +1,5 @@
 import type { ConsoleWalletSortBy, ConsoleWalletSortOrder } from './types';
-import { normalizeBoundedPositiveInteger } from '@seams-internal/shared-ts/utils/normalize';
+import { normalizeBoundedPositiveInteger } from '@seams/sdk-server/cloud-host';
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;

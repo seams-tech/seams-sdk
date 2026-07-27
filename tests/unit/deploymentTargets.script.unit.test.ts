@@ -144,13 +144,26 @@ test('required secrets are derived from enabled capabilities and their owners', 
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
     'STRIPE_API_SK',
+    'STRIPE_WEBHOOK_SECRET',
+    'RESEND_API_KEY',
+    'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
     'SIGNING_SESSION_SEAL_KEY_VERSION',
     'SIGNING_SESSION_SHAMIR_P_B64U',
     'SIGNING_SESSION_SEAL_E_S_B64U',
     'SIGNING_SESSION_SEAL_D_S_B64U',
   ]);
   expect(module.componentSecretNames(targets.staging, 'gateway')).toContain('STRIPE_API_SK');
+  expect(module.componentSecretNames(targets.staging, 'gateway')).toContain(
+    'STRIPE_WEBHOOK_SECRET',
+  );
   expect(module.componentSecretNames(targets.production, 'gateway')).toContain('STRIPE_API_SK');
+  expect(module.componentSecretNames(targets.production, 'gateway')).toContain(
+    'STRIPE_WEBHOOK_SECRET',
+  );
+  expect(module.componentSecretNames(targets.staging, 'gateway')).toContain('RESEND_API_KEY');
+  expect(module.componentSecretNames(targets.production, 'gateway')).toContain(
+    'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
+  );
   expect(module.componentSecretNames(targets.staging, 'deriver-a')).toEqual([
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'DERIVER_A_ROOT_SHARE_WIRE_SECRET',

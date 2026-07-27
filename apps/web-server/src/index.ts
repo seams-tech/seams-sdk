@@ -1,4 +1,6 @@
 import express, { Express, type RequestHandler } from 'express';
+import { Buffer } from 'node:buffer';
+import type { IncomingMessage } from 'node:http';
 import {
   AuthService,
   createHostedSigningRootShareResolver,
@@ -36,12 +38,10 @@ import {
   createInMemoryConsoleApprovalService,
   createInMemoryConsolePolicyService,
   createInMemoryConsoleRuntimeSnapshotService,
-  createInMemoryConsoleTeamRbacService,
+  createInMemoryConsoleOrganizationAccessService,
   createInMemoryConsoleWalletService,
   createInMemoryConsoleWebhookService,
   createAppSessionConsoleAuthAdapter,
-  normalizeConsoleOrgScopedRoleList,
-  mergeConsoleOrgScopedRoleLists,
   type ConsoleAccountService,
   type ConsoleApiKeyService,
   type ConsoleBillingService,
@@ -53,15 +53,10 @@ import {
   type ConsolePolicy,
   type ConsolePolicyService,
   type ConsoleRuntimeSnapshotService,
-  type ConsoleTeamRbacService,
+  type ConsoleOrganizationAccessService,
   type ConsoleWallet,
   type ConsoleWalletService,
   type ConsoleWebhookService,
-  type BillingProviderAdapters,
-  type InviteConsoleTeamMemberRequest,
-  createStripeBillingProviderAdapter,
-  normalizeOptionalStripePublishableKey,
-  normalizeStripeSecretKey,
 } from '@seams-internal/console-server/router/express-adaptor';
 
 import dotenv from 'dotenv';
@@ -101,13 +96,6 @@ function hostnameFromOrigin(origin: string): string {
   }
 }
 
-function parseOptionalPositiveInteger(value: unknown): number | undefined {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return undefined;
-  const integer = Math.floor(parsed);
-  return integer > 0 ? integer : undefined;
-}
-
 function parseCsvValues(value: unknown): string[] {
   return String(value || '')
     .split(',')
@@ -120,6 +108,10 @@ function parseBooleanFlag(value: unknown): boolean {
     .trim()
     .toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function captureRawJsonBody(req: IncomingMessage, _res: unknown, buffer: Buffer): void {
+  (req as IncomingMessage & { rawBody?: Uint8Array }).rawBody = Uint8Array.from(buffer);
 }
 
 function isLocalDevelopmentHost(host: string): boolean {
@@ -270,7 +262,7 @@ async function resolveConsoleDemoOrgId(input: {
 
 async function seedDemoConsoleOrgAndMembers(input: {
   orgProjectEnv: ConsoleOrgProjectEnvService;
-  teamRbac: ConsoleTeamRbacService;
+  organizationAccess: ConsoleOrganizationAccessService;
   orgId: string;
   projectId: string;
   environmentId: string;
@@ -279,7 +271,6 @@ async function seedDemoConsoleOrgAndMembers(input: {
   const seedCtx = {
     orgId: input.orgId,
     actorUserId: 'console-seed-owner',
-    roles: ['owner', 'admin'],
     projectId: input.projectId,
     environmentId: input.environmentId,
   };
@@ -318,54 +309,68 @@ async function seedDemoConsoleOrgAndMembers(input: {
     }
   }
 
-  const seedMembers: InviteConsoleTeamMemberRequest[] = [
+  await input.organizationAccess.bootstrapInitialOwner({
+    orgId: input.orgId,
+    userId: 'console-seed-owner',
+    email: 'owner@demo.seams.local',
+    displayName: 'Console Owner',
+  });
+
+  const seedMembers = [
     {
-      userId: 'console-owner',
-      email: 'owner@demo.seams.local',
-      displayName: 'Console Owner',
-      roles: [
-        { role: 'owner', scope: 'ORG' as const },
-        { role: 'admin', scope: 'ORG' as const },
-        { role: 'admin_manage_admins', scope: 'ORG' as const },
-        { role: 'admin_manage_members', scope: 'ORG' as const },
-        { role: 'overview_write', scope: 'ORG' as const },
-        { role: 'administration_write', scope: 'ORG' as const },
-        { role: 'wallet_operations_write', scope: 'ORG' as const },
-        { role: 'integrations_write', scope: 'ORG' as const },
-        { role: 'billing_write', scope: 'ORG' as const },
-      ],
+      account: {
+        userId: 'console-backup-owner',
+        verifiedEmail: 'backup-owner@demo.seams.local',
+      },
+      invitation: {
+        email: 'backup-owner@demo.seams.local',
+        role: 'OWNER' as const,
+      },
     },
     {
-      userId: 'console-admin',
-      email: 'admin@demo.seams.local',
-      displayName: 'Console Admin',
-      roles: [
-        { role: 'admin', scope: 'ORG' as const },
-        { role: 'admin_manage_members', scope: 'ORG' as const },
-        { role: 'overview_write', scope: 'ORG' as const },
-        { role: 'administration_write', scope: 'ORG' as const },
-        { role: 'wallet_operations_write', scope: 'ORG' as const },
-        { role: 'integrations_write', scope: 'ORG' as const },
-        { role: 'billing_read', scope: 'ORG' as const },
-      ],
+      account: {
+        userId: 'console-admin',
+        verifiedEmail: 'admin@demo.seams.local',
+      },
+      invitation: {
+        email: 'admin@demo.seams.local',
+        role: 'ADMIN' as const,
+        adminPermissions: [
+          'members.manage',
+          'projects.manage',
+          'billing.view',
+          'billing.manage',
+        ] as const,
+      },
     },
     {
-      userId: 'console-operator',
-      email: 'operator@demo.seams.local',
-      displayName: 'Console Operator',
-      roles: [
-        { role: 'overview_read', scope: 'ORG' as const },
-        { role: 'wallet_operations_read', scope: 'ORG' as const },
-        { role: 'integrations_read', scope: 'ORG' as const },
-      ],
+      account: {
+        userId: 'console-operator',
+        verifiedEmail: 'operator@demo.seams.local',
+      },
+      invitation: {
+        email: 'operator@demo.seams.local',
+        role: 'MEMBER' as const,
+        projectAccess: [{ projectId: input.projectId, accessLevel: 'editor' as const }],
+      },
     },
   ];
 
   for (const member of seedMembers) {
     try {
-      await input.teamRbac.inviteMember(seedCtx, member);
+      const issued = await input.organizationAccess.invite(seedCtx, member.invitation);
+      await input.organizationAccess.acceptInvitation(
+        member.account,
+        issued.invitation.id,
+        { token: issued.token },
+      );
     } catch (error: unknown) {
-      if (!hasConsoleErrorCode(error, 'member_already_exists')) throw error;
+      if (
+        !hasConsoleErrorCode(error, 'membership_already_exists') &&
+        !hasConsoleErrorCode(error, 'invitation_already_exists')
+      ) {
+        throw error;
+      }
     }
   }
 
@@ -488,7 +493,6 @@ async function seedDemoConsoleWallets(input: {
     const ctx = {
       orgId: wallet.orgId,
       actorUserId: 'console-seed-owner',
-      roles: ['owner', 'admin'],
       projectId: wallet.projectId,
       environmentId: wallet.environmentId,
     };
@@ -532,7 +536,6 @@ async function ensureDemoPolicyExists(input: {
   const ctx = {
     orgId: input.orgId,
     actorUserId: input.actorUserId,
-    roles: ['owner', 'admin'],
   };
 
   const existing =
@@ -564,7 +567,6 @@ async function ensureDemoAssignmentExists(input: {
   const ctx = {
     orgId: input.orgId,
     actorUserId: input.actorUserId,
-    roles: ['owner', 'admin'],
   };
   const existing = await input.policies.listAssignments(ctx, {
     scopeType: input.scopeType,
@@ -592,14 +594,12 @@ async function ensureDemoApprovalRequest(input: {
   const requesterCtx = {
     orgId: input.orgId,
     actorUserId: 'console-admin',
-    roles: ['owner', 'admin'],
     projectId: input.projectId,
     environmentId: input.environmentId,
   };
   const approverCtx = {
     orgId: input.orgId,
     actorUserId: 'console-owner',
-    roles: ['owner', 'admin'],
     projectId: input.projectId,
     environmentId: input.environmentId,
   };
@@ -754,7 +754,7 @@ async function main() {
   const sessionCookieName = String(env.SESSION_COOKIE_NAME || 'seams-jwt').trim() || 'seams-jwt';
   const jwtSession = createJwtSession(sessionCookieName);
   const redisUrl = typeof env.REDIS_URL === 'string' ? env.REDIS_URL.trim() : '';
-  const { consoleBillingStripeWebhookSecret } = resolveWebServerConsoleConfig(
+  const { stripeWebhookSigningSecret } = resolveWebServerConsoleConfig(
     env as Record<string, unknown>,
   );
   const host =
@@ -896,31 +896,12 @@ async function main() {
   const consoleDemoEnvironmentId =
     String(env.CONSOLE_DEMO_ENVIRONMENT_ID || `${consoleDemoProjectId}-prod`).trim() ||
     `${consoleDemoProjectId}-prod`;
-  const defaultConsoleRoles = normalizeConsoleOrgScopedRoleList(
-    env.CONSOLE_SSO_DEFAULT_ROLES || env.CONSOLE_DEMO_ROLES || 'admin',
-  );
-  const consoleSsoBootstrapRoles = mergeConsoleOrgScopedRoleLists(
-    ['owner', 'admin'],
-    defaultConsoleRoles,
-  );
-  const stripeApiSecretKey = normalizeStripeSecretKey(env.STRIPE_API_SK);
-  const stripeApiPublishableKey = normalizeOptionalStripePublishableKey(env.STRIPE_API_PK);
-  const stripeCheckoutPriceId = String(env.STRIPE_CHECKOUT_PRICE_ID || '').trim() || '';
-  const stripeApiBaseUrl = String(env.STRIPE_API_BASE_URL || '').trim() || '';
-  const stripeApiTimeoutMs = parseOptionalPositiveInteger(env.STRIPE_API_TIMEOUT_MS);
-  const stripeProviderOverrides: Partial<BillingProviderAdapters> | undefined = stripeApiSecretKey
-    ? {
-        stripe: createStripeBillingProviderAdapter({
-          secretKey: stripeApiSecretKey,
-          ...(stripeCheckoutPriceId ? { defaultCheckoutPriceId: stripeCheckoutPriceId } : {}),
-          ...(stripeApiBaseUrl ? { apiBaseUrl: stripeApiBaseUrl } : {}),
-          ...(stripeApiTimeoutMs ? { requestTimeoutMs: stripeApiTimeoutMs } : {}),
-        }),
-      }
-    : undefined;
-  const consoleBilling: ConsoleBillingService = createInMemoryConsoleBillingService({
-    ...(stripeProviderOverrides ? { providers: stripeProviderOverrides } : {}),
-  });
+  if (String(env.STRIPE_API_SK || '').trim()) {
+    throw new Error(
+      'STRIPE_API_SK requires the durable D1 console billing service; live Stripe cannot use in-memory billing state',
+    );
+  }
+  const consoleBilling: ConsoleBillingService = createInMemoryConsoleBillingService();
   const consoleAudit: ConsoleAuditService = createInMemoryConsoleAuditService({
     seedDemoData: consoleDemoSeedEnabled,
   });
@@ -931,7 +912,8 @@ async function main() {
   const consoleApprovals: ConsoleApprovalService = createInMemoryConsoleApprovalService();
   const consoleRuntimeSnapshots: ConsoleRuntimeSnapshotService =
     createInMemoryConsoleRuntimeSnapshotService();
-  const consoleTeamRbac: ConsoleTeamRbacService = createInMemoryConsoleTeamRbacService();
+  const consoleOrganizationAccess: ConsoleOrganizationAccessService =
+    createInMemoryConsoleOrganizationAccessService();
   const consoleWallets: ConsoleWalletService = createInMemoryConsoleWalletService();
   const consoleSponsoredCalls: ConsoleSponsoredCallService =
     createInMemoryConsoleSponsoredCallService();
@@ -975,24 +957,22 @@ async function main() {
   const consoleOnboarding = createInMemoryConsoleOnboardingService({
     orgProjectEnv: consoleOrgProjectEnv,
     apiKeys: consoleApiKeys,
-    teamRbac: consoleTeamRbac,
+    organizationAccess: consoleOrganizationAccess,
   });
   const consoleAccount: ConsoleAccountService = createInMemoryConsoleAccountService({
     orgProjectEnv: consoleOrgProjectEnv,
-    teamRbac: consoleTeamRbac,
+    organizationAccess: consoleOrganizationAccess,
     onboarding: consoleOnboarding,
     wallets: consoleWallets,
   });
   const consoleAuth = createAppSessionConsoleAuthAdapter({
     session: jwtSession,
     authService,
+    organizationAccess: consoleOrganizationAccess,
     ...(consoleDemoOrgId ? { defaultOrgId: consoleDemoOrgId } : {}),
-    fallbackRoles: consoleSsoBootstrapRoles,
-    platformAdminEmails: env.CONSOLE_PLATFORM_ADMIN_EMAILS,
+    platformSupportEmails: env.CONSOLE_PLATFORM_SUPPORT_EMAILS,
     provisioning: {
-      bootstrapRoles: consoleSsoBootstrapRoles,
       orgProjectEnv: consoleOrgProjectEnv,
-      teamRbac: consoleTeamRbac,
       audit: consoleAudit,
       logger: console,
     },
@@ -1005,7 +985,7 @@ async function main() {
     } else {
       await seedDemoConsoleOrgAndMembers({
         orgProjectEnv: consoleOrgProjectEnv,
-        teamRbac: consoleTeamRbac,
+        organizationAccess: consoleOrganizationAccess,
         orgId: consoleDemoOrgId,
         projectId: consoleDemoProjectId,
         environmentId: consoleDemoEnvironmentId,
@@ -1040,7 +1020,7 @@ async function main() {
     next();
   });
 
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '1mb', verify: captureRawJsonBody }));
 
   // Mount console/admin router on /console/*
   const consoleRouter = createConsoleRouter({
@@ -1050,7 +1030,7 @@ async function main() {
     auth: consoleAuth,
     session: jwtSession,
     billing: consoleBilling,
-    billingStripeWebhookSecret: toOptionalSecret(consoleBillingStripeWebhookSecret),
+    billingStripeWebhookSigningSecret: toOptionalSecret(stripeWebhookSigningSecret),
     webhooks: consoleWebhooks,
     apiKeys: consoleApiKeys,
     approvals: consoleApprovals,
@@ -1059,7 +1039,7 @@ async function main() {
     onboarding: consoleOnboarding,
     account: consoleAccount,
     orgProjectEnv: consoleOrgProjectEnv,
-    teamRbac: consoleTeamRbac,
+    organizationAccess: consoleOrganizationAccess,
     wallets: consoleWallets,
     audit: consoleAudit,
     observability: consoleObservability,
@@ -1092,23 +1072,14 @@ async function main() {
     );
     console.log('Console backend: memory');
     console.log('Console routes mounted at /console/*');
-    console.log(
-      `Console session auth: app_session_v1 cookie/JWT (bootstrap roles: ${consoleSsoBootstrapRoles.join(', ') || 'none'})`,
-    );
+    console.log('Console session auth: app_session_v1 cookie/JWT with live organization access');
     console.log(
       `Console demo seed: ${consoleDemoSeedEnabled ? 'enabled' : 'disabled'} (org=${consoleDemoOrgId || 'unresolved'})`,
     );
+    console.log('Console Stripe provider mode: mock (in-memory console)');
     console.log(
-      `Console Stripe provider mode: ${stripeApiSecretKey ? 'live_api' : 'mock'}${
-        stripeCheckoutPriceId ? ` (checkout_price=${stripeCheckoutPriceId})` : ''
-      }`,
-    );
-    if (stripeApiPublishableKey) {
-      console.log('Stripe publishable key detected (frontend can use STRIPE_API_PK if needed).');
-    }
-    console.log(
-      `Console billing Stripe webhook secret: ${
-        consoleBillingStripeWebhookSecret ? 'configured' : 'not configured'
+      `Console billing Stripe webhook signing secret: ${
+        stripeWebhookSigningSecret ? 'configured' : 'not configured'
       }`,
     );
     authService

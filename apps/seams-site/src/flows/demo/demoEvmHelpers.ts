@@ -7,12 +7,10 @@ import {
   TEMPO_ALPHA_USD_FEE_TOKEN,
   TEMPO_FEE_MANAGER_CONTRACT,
   TEMPO_FEE_MANAGER_ABI,
-  type EvmClient,
-} from '@seams/sdk/advanced';
-import {
   normalizeLowercaseString,
   normalizeTrimmedString,
-} from '@seams-internal/shared-ts/utils/normalize';
+  type EvmClient,
+} from '@seams/sdk/advanced';
 
 import { FRONTEND_CONFIG } from '@/config';
 import faucetAbi from '@/assets/abis/Faucet.json';

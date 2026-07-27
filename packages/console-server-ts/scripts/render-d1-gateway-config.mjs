@@ -18,6 +18,7 @@ import {
 } from './gateway-deployment-config.mjs';
 
 const VALID_TARGETS = new Set(['staging', 'production']);
+const CONSOLE_EMAIL_CRON_EXPRESSION = '*/5 * * * *';
 
 function main() {
   const options = parseArguments(process.argv.slice(2));
@@ -97,7 +98,10 @@ function buildConfig(deployment, packageRoot) {
         binding: 'SIGNER_DB',
         database_name: resources.signerD1.name,
         database_id: resources.signerD1.id,
-        migrations_dir: path.join(packageRoot, '../sdk-server-ts/migrations/d1-signer'),
+        migrations_dir: path.join(
+          packageRoot,
+          'node_modules/@seams/sdk-server/migrations/d1-signer',
+        ),
       },
     ],
     durable_objects: {
@@ -132,6 +136,9 @@ function buildConfig(deployment, packageRoot) {
         enabled: true,
         head_sampling_rate: 1,
       },
+    },
+    triggers: {
+      crons: [CONSOLE_EMAIL_CRON_EXPRESSION],
     },
     secrets_store_secrets: [
       {
@@ -171,6 +178,12 @@ function buildWorkerVars(deployment) {
     RELAY_SESSION_ISSUER: deployment.session.issuer,
     RELAY_SESSION_AUDIENCE: DEFAULT_RELAY_SESSION_AUDIENCE,
     RELAY_CORS_ORIGINS: deployment.origins.allowedCors.join(','),
+    CONSOLE_BASE_URL: deployment.origins.allowedCors[0],
+    CONSOLE_EMAIL_RUNTIME_PROFILE: 'PRODUCTION',
+    CONSOLE_EMAIL_PROVIDER: 'RESEND',
+    CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID: `console-email-${deployment.target}-r1`,
+    CONSOLE_EMAIL_FROM: requireEnvironmentValue('CONSOLE_EMAIL_FROM'),
+    CONSOLE_EMAIL_CRON_EXPRESSIONS: CONSOLE_EMAIL_CRON_EXPRESSION,
     SESSION_COOKIE_NAME: DEFAULT_SESSION_COOKIE_NAME,
     EMAIL_OTP_RUNTIME_PROFILE: deployment.runtimeProfile.kind,
     EMAIL_OTP_DELIVERY_MODE: deployment.runtimeProfile.emailOtpDelivery.kind,
@@ -230,6 +243,12 @@ function assertNearRelayerSecretConsistency(nearRelayer) {
   if (!nearRelayer && hasPrivateKey) {
     throw new Error('RELAYER_PRIVATE_KEY must be absent when optional.nearRelayer is null');
   }
+}
+
+function requireEnvironmentValue(name) {
+  const value = String(process.env[name] || '').trim();
+  if (!value) throw new Error(`${name} is required`);
+  return value;
 }
 
 function signingRootBindingName(kekId) {

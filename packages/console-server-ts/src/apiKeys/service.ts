@@ -9,7 +9,7 @@ import {
   makeSecretPreview,
   parseApiKeySecret,
 } from './secret';
-import { normalizeCorsOrigin } from '@seams/sdk-server/internal/core/SessionService';
+import { normalizeCorsOrigin } from '@seams/sdk-server/cloud-host';
 import {
   isApiCredentialScope,
   type ApiCredentialScope,
@@ -36,7 +36,6 @@ interface StoredApiKey extends ConsoleApiKey {
 export interface ConsoleApiKeysContext {
   orgId: string;
   actorUserId: string;
-  roles: readonly string[];
 }
 
 export interface InMemoryConsoleApiKeyServiceOptions {

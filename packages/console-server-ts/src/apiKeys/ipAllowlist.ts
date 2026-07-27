@@ -49,4 +49,4 @@ export function isIpAllowlistMatch(input: {
   }
   return false;
 }
-import { normalizeSourceIp } from '@seams/sdk-server/internal/router/routerApiKeyAuth';
+import { normalizeSourceIp } from '@seams/sdk-server/cloud-host';

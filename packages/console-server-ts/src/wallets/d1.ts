@@ -1,5 +1,5 @@
-import { d1Integer as toNumber, formatD1ExecStatement, type D1Row } from '@seams/sdk-server/internal/storage/d1Sql';
-import type { D1DatabaseLike } from '@seams/sdk-server/internal/storage/tenantRoute';
+import { d1Integer as toNumber, formatD1ExecStatement, type D1Row } from '@seams/sdk-server/cloud-host';
+import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
 import { ConsoleWalletError } from './errors';
 import {
   normalizeWalletLimit as normalizeLimit,

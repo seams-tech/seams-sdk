@@ -5,6 +5,7 @@ import {
   createConsoleRouter,
   createInMemoryConsoleSponsoredCallService,
   type ConsoleAuthAdapter,
+  type ConsoleAuthAdapterResult,
   type ConsoleBillingService,
   type ConsoleSponsoredCallService,
 } from '@seams-internal/console-server/router/express-adaptor';
@@ -15,24 +16,38 @@ const baseNow = new Date('2026-03-19T00:00:00.000Z');
 const ctx = {
   orgId: 'org-sponsored-history',
   actorUserId: 'user-sponsored-history',
-  roles: ['admin'],
 };
 
-function makeConsoleAuthAdapter(input: {
-  userId: string;
-  orgId: string;
-  roles: string[];
-}): ConsoleAuthAdapter {
-  return {
-    authenticate: async () => ({
+class BillingReaderAuthAdapter implements ConsoleAuthAdapter {
+  readonly #userId: string;
+  readonly #orgId: string;
+
+  constructor(userId: string, orgId: string) {
+    this.#userId = userId;
+    this.#orgId = orgId;
+  }
+
+  authenticate(): ConsoleAuthAdapterResult {
+    return {
       ok: true,
       claims: {
-        userId: input.userId,
-        orgId: input.orgId,
-        roles: input.roles,
+        userId: this.#userId,
+        orgId: this.#orgId,
+        membershipId: `membership-${this.#userId}`,
+        authorizationVersion: 1,
+        role: 'ADMIN',
+        adminPermissions: ['billing.view', 'billing.manage'],
+        projectAccess: { kind: 'all' },
+        platformSupport: false,
+        email: `${this.#userId}@example.com`,
+        name: this.#userId,
       },
-    }),
-  };
+    };
+  }
+}
+
+function makeConsoleAuthAdapter(input: { userId: string; orgId: string }): ConsoleAuthAdapter {
+  return new BillingReaderAuthAdapter(input.userId, input.orgId);
 }
 
 async function seedSponsoredCallRecord(
@@ -219,7 +234,6 @@ test.describe('console sponsored call history', () => {
       const auth = makeConsoleAuthAdapter({
         userId: ctx.actorUserId,
         orgId: ctx.orgId,
-        roles: ['billing_admin'],
       });
 
       const response = await callHistoryRoute(mode, {
@@ -240,7 +254,6 @@ test.describe('console sponsored call history', () => {
       const auth = makeConsoleAuthAdapter({
         userId: ctx.actorUserId,
         orgId: ctx.orgId,
-        roles: ['billing_admin'],
       });
       const service = createInMemoryConsoleSponsoredCallService({
         now: () => new Date(baseNow),
@@ -304,7 +317,6 @@ test.describe('console sponsored call history', () => {
       const auth = makeConsoleAuthAdapter({
         userId: ctx.actorUserId,
         orgId: ctx.orgId,
-        roles: ['billing_admin'],
       });
       const response = await callHistoryRoute(mode, {
         auth,
@@ -351,7 +363,6 @@ test.describe('console sponsored call history', () => {
         {
           orgId: ctx.orgId,
           actorUserId: 'platform-admin-overview',
-          roles: ['platform_admin'],
         },
         {
           amountMinor: 5000,
@@ -391,7 +402,6 @@ test.describe('console sponsored call history', () => {
       const auth = makeConsoleAuthAdapter({
         userId: ctx.actorUserId,
         orgId: ctx.orgId,
-        roles: ['billing_admin'],
       });
       const response = await (async () => {
         if (mode === 'express') {

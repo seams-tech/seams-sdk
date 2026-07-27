@@ -1,12 +1,12 @@
-import type { RouterApiBootstrapGrantBroker, RouterApiKeyAuthAdapter } from '@seams/sdk-server/internal/router/routerApi';
-import { handleRouterApiBootstrapGrant } from '@seams/sdk-server/internal/router/routerApiBootstrapGrant';
-import { resolveSourceIpFromFetchHeaders } from '@seams/sdk-server/internal/router/routerApiKeyAuth';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/internal/router/logger';
-import type { RouteDefinition } from '@seams/sdk-server/internal/router/routeDefinitions';
-import { routeJson, toFetchRouteResponse } from '@seams/sdk-server/internal/router/routeResponses';
-import type { RouterApiRouteExtension } from '@seams/sdk-server/internal/router/routeExtensions';
-import { readJson } from '@seams/sdk-server/internal/router/cloudflare/http';
-import type { RouterApiPublishableKeyAuthAdapter } from '@seams/sdk-server/internal/router/apiCredentialPorts';
+import type { RouterApiBootstrapGrantBroker, RouterApiKeyAuthAdapter } from '@seams/sdk-server/cloud-host';
+import { handleRouterApiBootstrapGrant } from '@seams/sdk-server/cloud-host';
+import { resolveSourceIpFromFetchHeaders } from '@seams/sdk-server/cloud-host';
+import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
+import type { RouteDefinition } from '@seams/sdk-server/cloud-host';
+import { routeJson, toFetchRouteResponse } from '@seams/sdk-server/cloud-host';
+import type { RouterApiRouteExtension } from '@seams/sdk-server/cloud-host';
+import { readJson } from '@seams/sdk-server/cloud-host';
+import type { RouterApiPublishableKeyAuthAdapter } from '@seams/sdk-server/cloud-host';
 import type { ConsoleBillingService } from '../billing';
 import type { ConsoleBillingPrepaidReservationService } from '../billingPrepaidReservations';
 import type { ConsoleObservabilityIngestionService } from '../observability';
@@ -21,7 +21,7 @@ import type { SponsorshipSpendPricingService } from '../sponsorship/spendCaps';
 import type { ConsoleSponsorshipSpendCapService } from '../sponsorshipSpendCaps';
 import type { ConsoleWebhookService } from '../webhooks';
 import type { ConsoleWalletService } from '../wallets/service';
-import { ensureLeadingSlash } from '@seams-internal/shared-ts/utils/validation';
+import { ensureLeadingSlash } from '@seams/sdk-server/cloud-host';
 import {
   handleRouterApiSignedDelegate,
   type SignedDelegateRouterApiAuthService,
@@ -60,7 +60,6 @@ export interface ConsoleRouterApiSignedDelegateRouteOptions {
   readonly spendCaps: ConsoleSponsorshipSpendCapService | null;
   readonly webhooks: ConsoleWebhookService | null;
   readonly webhookActorUserId?: string;
-  readonly webhookRoles?: string[];
 }
 
 export interface ConsoleRouterApiSponsoredEvmCallRouteOptions {
@@ -77,7 +76,6 @@ export interface ConsoleRouterApiSponsoredEvmCallRouteOptions {
   readonly spendCaps: ConsoleSponsorshipSpendCapService | null;
   readonly webhooks?: ConsoleWebhookService | null;
   readonly webhookActorUserId?: string;
-  readonly webhookRoles?: string[];
 }
 
 export interface ConsoleRouterApiRouteExtensionsOptions {
@@ -311,7 +309,6 @@ async function handleConsoleSignedDelegateRoute(input: {
       sponsoredCalls: options.ledger,
       webhooks: options.webhooks,
       webhookActorUserId: options.webhookActorUserId,
-      webhookRoles: options.webhookRoles,
     },
   });
   return toFetchRouteResponse(response);
@@ -358,7 +355,6 @@ async function handleConsoleSponsoredEvmCallRoute(input: {
         sponsoredCalls: options.ledger,
         webhooks: options.webhooks || null,
         webhookActorUserId: options.webhookActorUserId,
-        webhookRoles: options.webhookRoles,
       },
     },
   });

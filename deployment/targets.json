@@ -54,7 +54,12 @@
       "billing": {
         "enabled": true,
         "owner": "gateway",
-        "secrets": ["STRIPE_API_SK"]
+        "secrets": [
+          "STRIPE_API_SK",
+          "STRIPE_WEBHOOK_SECRET",
+          "RESEND_API_KEY",
+          "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U"
+        ]
       },
       "sponsoredExecution": {
         "enabled": true,
@@ -124,7 +129,12 @@
       "billing": {
         "enabled": true,
         "owner": "gateway",
-        "secrets": ["STRIPE_API_SK"]
+        "secrets": [
+          "STRIPE_API_SK",
+          "STRIPE_WEBHOOK_SECRET",
+          "RESEND_API_KEY",
+          "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U"
+        ]
       },
       "sponsoredExecution": {
         "enabled": true,

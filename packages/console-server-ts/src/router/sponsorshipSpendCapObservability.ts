@@ -1,4 +1,4 @@
-import type { NormalizedRouterLogger } from '@seams/sdk-server/internal/router/logger';
+import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
 import type {
   ConsoleSponsoredCallChainFamily,
   ConsoleSponsoredCallExecutorKind,

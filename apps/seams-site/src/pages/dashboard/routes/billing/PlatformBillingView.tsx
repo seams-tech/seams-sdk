@@ -2,8 +2,10 @@ import React from 'react';
 import {
   createDashboardPlatformBillingManualAdminDebit,
   createDashboardPlatformBillingManualSupportCredit,
+  createDashboardPlatformBillingRefund,
   formatUsdMinor,
   getDashboardPlatformBillingAccount,
+  reconcileDashboardPlatformBillingRefund,
   searchDashboardPlatformBillingOrganizations,
   type DashboardBillingAccountActivityEventType,
   type DashboardBillingManualAdjustmentKind,
@@ -30,7 +32,8 @@ const PLATFORM_BILLING_EVENT_TYPE_OPTIONS: Array<{
   { value: 'SPONSORED_EXECUTION_DEBIT', label: 'Sponsored execution debits' },
   { value: 'MANUAL_ADJUSTMENT', label: 'Manual adjustments' },
   { value: 'REFUND', label: 'Refunds' },
-  { value: 'REVERSAL', label: 'Reversals' },
+  { value: 'DISPUTE_OPENED', label: 'Disputes opened' },
+  { value: 'DISPUTE_WON', label: 'Disputes won' },
 ];
 
 function parseUsdAmountInputToMinor(input: string): number | null {
@@ -226,6 +229,12 @@ export function PlatformBillingView(): React.JSX.Element {
   const [adjustmentReasonCode, setAdjustmentReasonCode] = React.useState<string>('');
   const [adjustmentRelatedInvoiceId, setAdjustmentRelatedInvoiceId] = React.useState<string>('');
   const [adjustmentNote, setAdjustmentNote] = React.useState<string>('');
+  const [refundPurchaseId, setRefundPurchaseId] = React.useState<string>('');
+  const [refundAmountInput, setRefundAmountInput] = React.useState<string>('');
+  const [refundReason, setRefundReason] = React.useState<string>('');
+  const [refundActionId, setRefundActionId] = React.useState<string>('');
+  const [refundActionError, setRefundActionError] = React.useState<string>('');
+  const [refundActionMessage, setRefundActionMessage] = React.useState<string>('');
   const searchRequestIdRef = React.useRef<number>(0);
   const skipRequestedRouteSelectionEffectRef = React.useRef<boolean>(false);
   const suppressSearchValueRef = React.useRef<string>(
@@ -336,6 +345,8 @@ export function PlatformBillingView(): React.JSX.Element {
     setLookupError('');
     setAdjustmentActionError('');
     setAdjustmentActionMessage('');
+    setRefundActionError('');
+    setRefundActionMessage('');
     setPeriodMonthUtcFilter('');
     setEventTypeFilter('all');
     setIsAdjustmentModalOpen(false);
@@ -356,12 +367,7 @@ export function PlatformBillingView(): React.JSX.Element {
         eventType: 'all',
       }),
     );
-  }, [
-    loadLookup,
-    requestedRouteSelection.orgId,
-    requestedSearchValue,
-    resetAdjustmentDraft,
-  ]);
+  }, [loadLookup, requestedRouteSelection.orgId, requestedSearchValue, resetAdjustmentDraft]);
 
   React.useEffect(() => {
     if (!normalizedSearchInput) {
@@ -377,6 +383,8 @@ export function PlatformBillingView(): React.JSX.Element {
       setLookupError('');
       setAdjustmentActionError('');
       setAdjustmentActionMessage('');
+      setRefundActionError('');
+      setRefundActionMessage('');
       setPeriodMonthUtcFilter('');
       setEventTypeFilter('all');
       setIsAdjustmentModalOpen(false);
@@ -432,6 +440,8 @@ export function PlatformBillingView(): React.JSX.Element {
       setLookupError('');
       setAdjustmentActionError('');
       setAdjustmentActionMessage('');
+      setRefundActionError('');
+      setRefundActionMessage('');
       setIsAdjustmentModalOpen(false);
       resetAdjustmentDraft();
       const result = await loadLookup(request);
@@ -669,6 +679,7 @@ export function PlatformBillingView(): React.JSX.Element {
       canSubmitManualAdjustment,
       loadLookup,
       lookupResult?.organization.id,
+      lookupResult?.organization.name,
       normalizedAdjustmentNote,
       normalizedAdjustmentReasonCode,
       normalizedAdjustmentRelatedInvoiceId,
@@ -707,6 +718,85 @@ export function PlatformBillingView(): React.JSX.Element {
       },
     ];
   }, [lookupResult?.overview]);
+
+  const refundAmountMinor = React.useMemo(
+    () => parseUsdAmountInputToMinor(refundAmountInput),
+    [refundAmountInput],
+  );
+  const canSubmitRefund =
+    Boolean(lookupResult?.organization.id) &&
+    Boolean(String(refundPurchaseId || '').trim()) &&
+    Boolean(String(refundReason || '').trim()) &&
+    refundAmountMinor != null &&
+    refundAmountMinor > 0 &&
+    !refundActionId;
+
+  const onRefundSubmit = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!lookupResult?.organization.id || !canSubmitRefund || refundAmountMinor == null) return;
+      setRefundActionId('create');
+      setRefundActionError('');
+      setRefundActionMessage('');
+      try {
+        const result = await createDashboardPlatformBillingRefund({
+          orgId: lookupResult.organization.id,
+          purchaseId: String(refundPurchaseId || '').trim(),
+          amountMinor: refundAmountMinor,
+          reason: String(refundReason || '').trim(),
+          idempotencyKey: [
+            'platform_billing_refund',
+            lookupResult.organization.id,
+            String(Date.now()),
+            Math.random().toString(16).slice(2, 10),
+          ].join(':'),
+        });
+        setRefundActionMessage(
+          `Refund ${result.refund.id} is ${result.refund.status}. Balance is ${formatUsdMinor(result.creditBalanceMinor)}.`,
+        );
+        setRefundPurchaseId('');
+        setRefundAmountInput('');
+        setRefundReason('');
+        if (activeLookupRequest) await loadLookup(activeLookupRequest);
+      } catch (error: unknown) {
+        setRefundActionError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setRefundActionId('');
+      }
+    },
+    [
+      activeLookupRequest,
+      canSubmitRefund,
+      loadLookup,
+      lookupResult?.organization.id,
+      refundAmountInput,
+      refundAmountMinor,
+      refundPurchaseId,
+      refundReason,
+    ],
+  );
+
+  const onRefundReconcile = React.useCallback(
+    async (refundId: string) => {
+      if (!lookupResult?.organization.id || !refundId || refundActionId) return;
+      setRefundActionId(refundId);
+      setRefundActionError('');
+      setRefundActionMessage('');
+      try {
+        const result = await reconcileDashboardPlatformBillingRefund({
+          orgId: lookupResult.organization.id,
+          refundId,
+        });
+        setRefundActionMessage(`Refund ${refundId} is ${result.refund.status}.`);
+        if (activeLookupRequest) await loadLookup(activeLookupRequest);
+      } catch (error: unknown) {
+        setRefundActionError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setRefundActionId('');
+      }
+    },
+    [activeLookupRequest, loadLookup, lookupResult?.organization.id, refundActionId],
+  );
 
   React.useEffect(() => {
     const wasOpen = wasAdjustmentModalOpenRef.current;
@@ -894,7 +984,6 @@ export function PlatformBillingView(): React.JSX.Element {
             title="Customer Organization Account"
             description="Reviewing customer organization's billing account as a platform admin"
             ariaLabel="Customer organization account summary"
-            members={lookupResult.teamMembers}
             metrics={summaryMetrics}
           />
 
@@ -904,6 +993,117 @@ export function PlatformBillingView(): React.JSX.Element {
             controls={accountActivityControls}
             emptyStateText="No ledger events match the current filters."
           />
+
+          <section
+            className="dashboard-table-wrapper dashboard-platform-billing-adjustment-shell"
+            aria-label="Customer refunds"
+          >
+            <div className="dashboard-table-limit dashboard-billing-table__intro">
+              <h3 className="dashboard-billing-table__title">Customer refunds</h3>
+              <p className="dashboard-billing-table__description">
+                Refund settled Stripe purchases for <code>{lookupResult.organization.id}</code>.
+              </p>
+              <form className="dashboard-billing-adjustment-form" onSubmit={onRefundSubmit}>
+                <div className="dashboard-billing-adjustment-grid">
+                  <label className="dashboard-form-field">
+                    <span>Purchase ID</span>
+                    <input
+                      className="dashboard-input"
+                      value={refundPurchaseId}
+                      onChange={(event) => setRefundPurchaseId(event.target.value)}
+                      placeholder="bcp_xxx"
+                    />
+                  </label>
+                  <label className="dashboard-form-field">
+                    <span>Amount (USD)</span>
+                    <input
+                      className="dashboard-input"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={refundAmountInput}
+                      onChange={(event) => setRefundAmountInput(event.target.value)}
+                      placeholder="10.00"
+                    />
+                  </label>
+                </div>
+                <label className="dashboard-form-field">
+                  <span>Reason</span>
+                  <input
+                    className="dashboard-input"
+                    value={refundReason}
+                    onChange={(event) => setRefundReason(event.target.value)}
+                    placeholder="Customer refund request"
+                  />
+                </label>
+                {refundActionError ? (
+                  <p className="dashboard-form-alert" role="alert">
+                    {refundActionError}
+                  </p>
+                ) : null}
+                {refundActionMessage ? (
+                  <p className="dashboard-info-banner">{refundActionMessage}</p>
+                ) : null}
+                <div className="dashboard-form-actions">
+                  <button
+                    type="submit"
+                    className="dashboard-pagination-button"
+                    disabled={!canSubmitRefund}
+                  >
+                    {refundActionId === 'create' ? 'Requesting refund...' : 'Request refund'}
+                  </button>
+                </div>
+              </form>
+            </div>
+            <table className="dashboard-table">
+              <thead>
+                <tr>
+                  <th scope="col">Refund</th>
+                  <th scope="col">Purchase</th>
+                  <th scope="col">Amount</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lookupResult.refunds.length === 0 ? (
+                  <tr>
+                    <td colSpan={5}>No refunds have been requested.</td>
+                  </tr>
+                ) : (
+                  lookupResult.refunds.map((refund) => (
+                    <tr key={refund.id}>
+                      <td>
+                        <code>{refund.id}</code>
+                      </td>
+                      <td>
+                        <code>{refund.purchaseId}</code>
+                      </td>
+                      <td>{formatUsdMinor(refund.amountMinor)}</td>
+                      <td>{refund.status}</td>
+                      <td>
+                        {refund.status === 'requested' || refund.status === 'provider_pending' ? (
+                          <button
+                            type="button"
+                            className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                            disabled={Boolean(refundActionId)}
+                            onClick={() => {
+                              void onRefundReconcile(refund.id);
+                            }}
+                          >
+                            {refundActionId === refund.id ? 'Checking...' : 'Reconcile'}
+                          </button>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </section>
 
           <section
             className="dashboard-table-wrapper dashboard-platform-billing-adjustment-shell"
@@ -941,107 +1141,107 @@ export function PlatformBillingView(): React.JSX.Element {
             onRequestClose={onCloseAdjustmentModal}
             className="dashboard-billing-adjustment-card dashboard-billing-meta-card"
           >
-              <h2 id="platform-billing-adjustment-dialog-title">Create Bill Adjustment</h2>
-              <p
-                className="dashboard-pagination-note"
-                id="platform-billing-adjustment-dialog-description"
-              >
-                Apply manual support credits or admin debits to{' '}
-                <code>{lookupResult.organization.id}</code>.
+            <h2 id="platform-billing-adjustment-dialog-title">Create Bill Adjustment</h2>
+            <p
+              className="dashboard-pagination-note"
+              id="platform-billing-adjustment-dialog-description"
+            >
+              Apply manual support credits or admin debits to{' '}
+              <code>{lookupResult.organization.id}</code>.
+            </p>
+            <form className="dashboard-billing-adjustment-form" onSubmit={onAdjustmentSubmit}>
+              <div className="dashboard-billing-adjustment-grid">
+                <label className="dashboard-form-field">
+                  <span>Adjustment type</span>
+                  <select
+                    className="dashboard-input"
+                    autoFocus
+                    value={adjustmentKind}
+                    onChange={(event) =>
+                      setAdjustmentKind(
+                        String(event.target.value) === 'admin_debit'
+                          ? 'admin_debit'
+                          : 'support_credit',
+                      )
+                    }
+                  >
+                    <option value="support_credit">Manual support credit</option>
+                    <option value="admin_debit">Manual admin debit</option>
+                  </select>
+                </label>
+                <label className="dashboard-form-field">
+                  <span>Amount (USD)</span>
+                  <input
+                    className="dashboard-input"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={adjustmentAmountInput}
+                    onChange={(event) => setAdjustmentAmountInput(event.target.value)}
+                    placeholder="25.00"
+                  />
+                </label>
+              </div>
+              <label className="dashboard-form-field">
+                <span>Reason code</span>
+                <input
+                  className="dashboard-input"
+                  type="text"
+                  value={adjustmentReasonCode}
+                  onChange={(event) => setAdjustmentReasonCode(event.target.value)}
+                  placeholder="incident_credit"
+                />
+              </label>
+              <label className="dashboard-form-field">
+                <span>Related document ID (optional)</span>
+                <input
+                  className="dashboard-input"
+                  type="text"
+                  value={adjustmentRelatedInvoiceId}
+                  onChange={(event) => setAdjustmentRelatedInvoiceId(event.target.value)}
+                  placeholder="receipt_bcp_xxx or inv_202603_001"
+                />
+              </label>
+              <label className="dashboard-form-field">
+                <span>Operator note</span>
+                <textarea
+                  className="dashboard-input dashboard-textarea"
+                  value={adjustmentNote}
+                  onChange={(event) => setAdjustmentNote(event.target.value)}
+                  placeholder="Describe why this adjustment is required."
+                />
+              </label>
+              <p className={adjustmentPreviewClassName}>{adjustmentPreviewLabel}</p>
+              <p className="dashboard-form-hint">
+                Selected action: {describeManualAdjustmentKind(adjustmentKind)}.
               </p>
-              <form className="dashboard-billing-adjustment-form" onSubmit={onAdjustmentSubmit}>
-                <div className="dashboard-billing-adjustment-grid">
-                  <label className="dashboard-form-field">
-                    <span>Adjustment type</span>
-                    <select
-                      className="dashboard-input"
-                      autoFocus
-                      value={adjustmentKind}
-                      onChange={(event) =>
-                        setAdjustmentKind(
-                          String(event.target.value) === 'admin_debit'
-                            ? 'admin_debit'
-                            : 'support_credit',
-                        )
-                      }
-                    >
-                      <option value="support_credit">Manual support credit</option>
-                      <option value="admin_debit">Manual admin debit</option>
-                    </select>
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Amount (USD)</span>
-                    <input
-                      className="dashboard-input"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      inputMode="decimal"
-                      value={adjustmentAmountInput}
-                      onChange={(event) => setAdjustmentAmountInput(event.target.value)}
-                      placeholder="25.00"
-                    />
-                  </label>
-                </div>
-                <label className="dashboard-form-field">
-                  <span>Reason code</span>
-                  <input
-                    className="dashboard-input"
-                    type="text"
-                    value={adjustmentReasonCode}
-                    onChange={(event) => setAdjustmentReasonCode(event.target.value)}
-                    placeholder="incident_credit"
-                  />
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Related document ID (optional)</span>
-                  <input
-                    className="dashboard-input"
-                    type="text"
-                    value={adjustmentRelatedInvoiceId}
-                    onChange={(event) => setAdjustmentRelatedInvoiceId(event.target.value)}
-                    placeholder="receipt_bcp_xxx or inv_202603_001"
-                  />
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Operator note</span>
-                  <textarea
-                    className="dashboard-input dashboard-textarea"
-                    value={adjustmentNote}
-                    onChange={(event) => setAdjustmentNote(event.target.value)}
-                    placeholder="Describe why this adjustment is required."
-                  />
-                </label>
-                <p className={adjustmentPreviewClassName}>{adjustmentPreviewLabel}</p>
-                <p className="dashboard-form-hint">
-                  Selected action: {describeManualAdjustmentKind(adjustmentKind)}.
+              <p className="dashboard-form-hint">
+                Link a document ID to surface this adjustment on that document timeline.
+              </p>
+              {adjustmentActionError ? (
+                <p className="dashboard-form-alert" role="alert">
+                  {adjustmentActionError}
                 </p>
-                <p className="dashboard-form-hint">
-                  Link a document ID to surface this adjustment on that document timeline.
-                </p>
-                {adjustmentActionError ? (
-                  <p className="dashboard-form-alert" role="alert">
-                    {adjustmentActionError}
-                  </p>
-                ) : null}
-                <div className="dashboard-form-actions">
-                  <button
-                    type="button"
-                    className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                    onClick={onCloseAdjustmentModal}
-                    disabled={Boolean(startingAdjustmentKind)}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="dashboard-pagination-button"
-                    disabled={!canSubmitManualAdjustment}
-                  >
-                    {adjustmentButtonLabel}
-                  </button>
-                </div>
-              </form>
+              ) : null}
+              <div className="dashboard-form-actions">
+                <button
+                  type="button"
+                  className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                  onClick={onCloseAdjustmentModal}
+                  disabled={Boolean(startingAdjustmentKind)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="dashboard-pagination-button"
+                  disabled={!canSubmitManualAdjustment}
+                >
+                  {adjustmentButtonLabel}
+                </button>
+              </div>
+            </form>
           </DashboardInlineModal>
         </>
       ) : null}

@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams-internal/shared-ts/utils/secureRandomId';
+import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
 import { ConsoleOrgProjectEnvError } from './errors';
 import { DEFAULT_CONSOLE_SIGNING_ROOT_VERSION } from './types';
 import type {
@@ -18,7 +18,6 @@ import type {
 export interface ConsoleOrgProjectEnvContext {
   orgId: string;
   actorUserId: string;
-  roles: readonly string[];
   projectId?: string;
   environmentId?: string;
 }

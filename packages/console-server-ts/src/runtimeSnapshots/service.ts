@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams-internal/shared-ts/utils/secureRandomId';
+import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
 import type {
   ConsoleRuntimeSnapshot,
   ConsoleRuntimeSnapshotPayload,
@@ -10,7 +10,6 @@ import type {
 export interface ConsoleRuntimeSnapshotContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
 }
 
 export interface InMemoryConsoleRuntimeSnapshotServiceOptions {

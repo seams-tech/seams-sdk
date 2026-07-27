@@ -3,12 +3,10 @@ export type {
   ConsoleAccountBackupEmail,
   ConsoleAccountProfile,
   PatchConsoleAccountProfileRequest,
-  ConsoleAccountOrganizationAdminCandidate,
+  ConsoleAccountOrganizationAccess,
   ConsoleAccountOrganization,
   CreateConsoleAccountOrganizationRequest,
   UpdateConsoleAccountOrganizationRequest,
-  TransferConsoleAccountOrganizationOwnerRequest,
-  TransferConsoleAccountOrganizationOwnerResult,
   DeleteConsoleAccountOrganizationResult,
   SwitchConsoleAccountOrganizationContextResult,
 } from './types';
@@ -38,7 +36,6 @@ export {
   parsePatchConsoleAccountProfileRequest,
   parseCreateConsoleAccountOrganizationRequest,
   parseUpdateConsoleAccountOrganizationRequest,
-  parseTransferConsoleAccountOrganizationOwnerRequest,
 } from './requests';
 
 export { ConsoleAccountError, isConsoleAccountError } from './errors';

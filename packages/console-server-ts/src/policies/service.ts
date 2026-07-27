@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams-internal/shared-ts/utils/secureRandomId';
+import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
 import { ConsolePolicyError } from './errors';
 import {
   normalizePolicyScopeType as normalizeScopeType,
@@ -32,7 +32,6 @@ import type {
 export interface ConsolePoliciesContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
 }
 
 export interface ConsolePolicyService {
