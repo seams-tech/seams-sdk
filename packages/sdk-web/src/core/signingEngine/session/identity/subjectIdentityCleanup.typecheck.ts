@@ -17,8 +17,6 @@ import {
   type FreshStepUpRequired,
 } from '../operationState/stepUpFreshness';
 import {
-  buildSigningBudgetReservationIdentity,
-  type SigningBudgetReservationIdentity,
 } from '../budget/budget';
 import {
   emailOtpRefreshIdentity,
@@ -28,7 +26,6 @@ import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import {
   SigningOperationIntent,
   SigningSessionIds,
-  type WalletSigningSpendPlan,
 } from '../operationState/types';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
@@ -118,47 +115,7 @@ const invalidFreshness: FreshStepUpRequired = {
 };
 void invalidFreshness;
 
-const ecdsaSpendPlan: WalletSigningSpendPlan = {
-  operationId,
-  operationFingerprint,
-  lane: {
-    identity: laneIdentity,
-    auth: laneIdentity.auth,
-    curve: 'ecdsa',
-    keyKind: 'threshold_ecdsa_secp256k1',
-    chainFamily: 'tempo',
-    materialActivation,
-    authorization,
-    runtimeState: 'no_runtime_material',
-    sessionOrigin: 'per_operation',
-    storageSource: 'email_otp',
-    retention: 'single_use',
-  },
-  backingMaterialSessionIds: [],
-  uses: 1,
-  reason: SigningOperationIntent.TransactionSign,
-};
-void ecdsaSpendPlan;
 
-const invalidEcdsaSpendPlanWithKey = {
-  ...ecdsaSpendPlan,
-  // @ts-expect-error ECDSA spend derives key identity from the selected lane.
-  ecdsaKey: key,
-} satisfies WalletSigningSpendPlan;
-void invalidEcdsaSpendPlanWithKey;
-
-const reservationIdentity = buildSigningBudgetReservationIdentity({
-  spend: ecdsaSpendPlan,
-  projectionVersion: 'projection-1',
-});
-void reservationIdentity;
-
-const invalidReservationIdentity: SigningBudgetReservationIdentity = {
-  ...reservationIdentity,
-  // @ts-expect-error budget reservation identity rejects subjectId.
-  subjectId: 'wallet.testnet',
-};
-void invalidReservationIdentity;
 
 const refreshIdentity = emailOtpRefreshIdentity({
   walletId,

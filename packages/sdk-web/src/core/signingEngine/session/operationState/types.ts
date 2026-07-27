@@ -268,16 +268,10 @@ export type Ed25519WalletSigningSpendPlan = {
   reason: SigningOperationIntent;
 };
 
-export type EcdsaWalletSigningSpendPlan = {
-  operationId: SigningOperationId;
-  operationFingerprint?: SigningOperationFingerprint;
-  lane: SelectedEcdsaSigningSessionPlanningLane;
-  backingMaterialSessionIds: readonly BackingMaterialSessionId[];
-  uses: number;
-  reason: SigningOperationIntent;
-};
-
-export type WalletSigningSpendPlan = Ed25519WalletSigningSpendPlan | EcdsaWalletSigningSpendPlan;
+// Client-side wallet signing budget is Ed25519-only. EVM-family ECDSA wallet
+// quota is consumed server-side against the reusable Wallet Session, so there is
+// no ECDSA spend plan to reserve or decrement locally.
+export type WalletSigningSpendPlan = Ed25519WalletSigningSpendPlan;
 
 export type EmailOtpChallengePlan = {
   challengeId?: EmailOtpChallengeId;
@@ -503,27 +497,15 @@ export function normalizeWalletSigningSpendPlan(
   if (input.reason !== SigningOperationIntent.TransactionSign) {
     throw new Error('[SigningSession] wallet signing spend reason is invalid');
   }
-  let normalizedLane: SelectedSigningSessionPlanningLane;
-  switch (signer.kind) {
-    case 'evm_family_ecdsa_signer':
-      if (lane.curve !== 'ecdsa') {
-        throw new Error('[SigningSession] ECDSA signer cannot normalize a non-ECDSA lane');
-      }
-      normalizedLane = {
-        ...lane,
-        chainFamily: signer.chainTarget.kind,
-      };
-      break;
-    case 'near_ed25519_signer':
-      if (lane.curve !== 'ed25519') {
-        throw new Error('[SigningSession] NEAR Ed25519 signer cannot normalize a non-Ed25519 lane');
-      }
-      normalizedLane = {
-        ...lane,
-        signingGrantId: SigningSessionIds.signingGrant(lane.signingGrantId),
-      };
-      break;
+  if (signer.kind !== 'near_ed25519_signer' || lane.curve !== 'ed25519') {
+    throw new Error(
+      '[SigningSession] client wallet signing spend plans are Ed25519-only',
+    );
   }
+  const normalizedLane: SelectedEd25519SigningSessionPlanningLane = {
+    ...lane,
+    signingGrantId: SigningSessionIds.signingGrant(lane.signingGrantId),
+  };
   return {
     operationId,
     ...(operationFingerprint ? { operationFingerprint } : {}),

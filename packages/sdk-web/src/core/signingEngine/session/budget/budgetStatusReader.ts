@@ -1,12 +1,8 @@
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import {
-  assertBudgetStatusCheckHasConcreteLaneIdentity,
   buildWalletBudgetStatusCheck,
-  isEcdsaLaneBudgetStatusCheck,
   walletBudgetOwnerId,
-  type AuthenticatedEcdsaLaneBudgetStatusCheck,
-  type EcdsaLaneBudgetStatusCheck,
   type SigningSessionBudgetStatusAuth,
   type SigningSessionBudgetStatusCheck,
   type WalletBudgetOwner,
@@ -100,7 +96,6 @@ export async function readTrustedWalletSigningBudgetStatus(
   _deps: TrustedWalletSigningBudgetStatusDeps,
   args: SigningSessionBudgetStatusCheck,
 ): Promise<SigningSessionStatus | null> {
-  assertBudgetStatusCheckHasConcreteLaneIdentity(args);
   const signingGrantId = String(args.signingGrantId || '').trim();
   if (!signingGrantId) return null;
   const authResolution = resolveBudgetStatusAuthForRequest(
@@ -120,12 +115,8 @@ function buildBudgetStatusAuthRequest(
   args: SigningSessionBudgetStatusCheck,
   signingGrantId: string,
 ): BudgetStatusAuthRequest {
-  const ecdsaLaneCheck = isEcdsaLaneBudgetStatusCheck(args) ? args : undefined;
-  if (
-    args.kind === 'authenticated_threshold_budget_status_check' ||
-    args.kind === 'authenticated_ecdsa_lane_budget_status_check'
-  ) {
-    const auth = normalizeBudgetStatusAuth(args.trustedStatusAuth, ecdsaLaneCheck);
+  if (args.kind === 'authenticated_threshold_budget_status_check') {
+    const auth = normalizeBudgetStatusAuth(args.trustedStatusAuth);
     return auth
       ? { kind: 'use_provided_auth', auth }
       : { kind: 'no_auth_available', reason: 'missing_auth' };
@@ -162,17 +153,10 @@ function resolveBudgetStatusAuthForRequest(
 
 function normalizeBudgetStatusAuth(
   trustedStatusAuth: SigningSessionBudgetStatusAuth | undefined,
-  ecdsaLaneCheck?: EcdsaLaneBudgetStatusCheck | AuthenticatedEcdsaLaneBudgetStatusCheck,
 ): ThresholdScopedBudgetStatusAuth | null {
   const relayerUrl = String(trustedStatusAuth?.relayerUrl || '').trim();
   const thresholdSessionId = String(trustedStatusAuth?.thresholdSessionId || '').trim();
   if (!relayerUrl || !thresholdSessionId) return null;
-  if (
-    ecdsaLaneCheck &&
-    thresholdSessionId !== String(ecdsaLaneCheck.thresholdSessionId || '').trim()
-  ) {
-    return null;
-  }
   const walletSessionJwt = String(trustedStatusAuth?.walletSessionJwt || '').trim();
   if (!walletSessionJwt) return null;
   return {
@@ -180,13 +164,6 @@ function normalizeBudgetStatusAuth(
     relayerUrl,
     thresholdSessionId,
     walletSessionJwt,
-    ...(ecdsaLaneCheck
-      ? {
-          curve: 'ecdsa' as const,
-          chainTarget: ecdsaLaneCheck.chainTarget,
-          key: ecdsaLaneCheck.key,
-        }
-      : {}),
   };
 }
 

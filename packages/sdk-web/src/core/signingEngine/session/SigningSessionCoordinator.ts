@@ -22,9 +22,6 @@ import {
   buildBackingMaterialBudgetStatusCheck,
   buildThresholdBudgetStatusCheck,
   buildWalletBudgetStatusCheck,
-  isEcdsaLaneBudgetStatusCheck,
-  ownerForBudgetStatusCheck,
-  thresholdSessionIdsForBudgetStatusCheck,
   walletBudgetOwnerForLane,
   walletBudgetOwnerId,
   isSigningSessionBudgetAdmissionBlockedError,
@@ -737,17 +734,6 @@ function buildStatusQueryFromBudgetStatusCheck(args: SigningSessionBudgetStatusC
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
   budgetStatusCheck?: SigningSessionBudgetStatusCheck;
 } {
-  if (isEcdsaLaneBudgetStatusCheck(args)) {
-    return {
-      walletId: walletBudgetOwnerId(ownerForBudgetStatusCheck(args)),
-      signingGrantId: args.signingGrantId,
-      targetThresholdSessionIds: thresholdSessionIdsForBudgetStatusCheck(args),
-      budgetStatusCheck: args,
-      ...(args.kind === 'authenticated_ecdsa_lane_budget_status_check'
-        ? { trustedStatusAuth: args.trustedStatusAuth }
-        : {}),
-    };
-  }
   if (args.kind === 'authenticated_threshold_budget_status_check') {
     return {
       walletId: walletBudgetOwnerId(args.owner),

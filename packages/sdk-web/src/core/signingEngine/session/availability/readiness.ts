@@ -36,7 +36,6 @@ import {
   committedUsesForBudgetAdmission,
   ecdsaWalletBudgetOwner,
   ed25519WalletBudgetOwner,
-  isEcdsaLaneBudgetStatusCheck,
   thresholdSessionIdsForBudgetStatusCheck,
   walletBudgetOwnerId,
   walletBudgetOwnerKey,
@@ -723,8 +722,7 @@ function targetSessionSetsForBudgetStatusCheck(check: SigningSessionBudgetStatus
         : new Set<string>(),
     thresholdSessionIds:
       check.kind === 'threshold_budget_status_check' ||
-      check.kind === 'authenticated_threshold_budget_status_check' ||
-      isEcdsaLaneBudgetStatusCheck(check)
+      check.kind === 'authenticated_threshold_budget_status_check'
         ? new Set(
             thresholdSessionIdsForBudgetStatusCheck(check).map(normalizeNonEmpty).filter(Boolean),
           )
