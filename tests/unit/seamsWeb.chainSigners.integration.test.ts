@@ -12,6 +12,8 @@ import {
   toWalletId,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
+import { BrowserCapabilityUnavailableError } from '@/SeamsWeb/publicApi/capabilitySelection';
 
 const TEST_SUBJECT_ID = toWalletId('alice.testnet');
 const TEST_NEAR_ACCOUNT = nearAccountRefFromAccountId('alice.testnet');
@@ -51,11 +53,20 @@ function createTestSigningEvent(
   });
 }
 
-function createSeamsWebNearWithRouter(router: Record<string, unknown>) {
+function createSeamsWebNearWithRouter(
+  router: Record<string, unknown>,
+  normalSigning: 'enabled' | 'disabled' = 'enabled',
+) {
   const seams = new SeamsWeb({
     chains: [{ network: 'near-testnet', rpcUrl: 'https://rpc.testnet.near.org' }],
     relayer: { url: 'https://relay.example.test' },
     iframeWallet: { walletOrigin: 'https://wallet.example.test' },
+    routerAb: {
+      normalSigning:
+        normalSigning === 'enabled'
+          ? { mode: 'enabled', signingWorkerId: 'near-signing-worker' }
+          : { mode: 'disabled' },
+    },
   });
   (seams as any).walletIframe = {
     shouldUseWalletIframe: () => true,
@@ -78,7 +89,7 @@ function createLocalTempoCapability(deps: { getContext: () => any }) {
   return createTempoSignerCapability({
     signingEngine: context.signingEngine,
     nearClient: context.nearClient ?? {},
-    configs: context.configs,
+    configs: context.configs ?? PASSKEY_MANAGER_DEFAULT_CONFIGS,
     getTheme: () => context.theme ?? 'light',
     getWalletIframe: createLocalWalletIframe,
   } as any);
@@ -89,13 +100,37 @@ function createLocalEvmCapability(deps: { getContext: () => any }) {
   return createEvmSignerCapability({
     signingEngine: context.signingEngine,
     nearClient: context.nearClient ?? {},
-    configs: context.configs,
+    configs: context.configs ?? PASSKEY_MANAGER_DEFAULT_CONFIGS,
     getTheme: () => context.theme ?? 'light',
     getWalletIframe: createLocalWalletIframe,
   } as any);
 }
 
 test.describe('SeamsWeb chain signer modules', () => {
+  test('disabled NEAR capability fails before the iframe router is called', async () => {
+    let routerCalls = 0;
+    const signer = createSeamsWebNearWithRouter(
+      {
+        signAndSendTransaction: async () => {
+          routerCalls += 1;
+          return { success: true, transactionId: 'unexpected' };
+        },
+      },
+      'disabled',
+    );
+
+    await expect(
+      signer.signAndSendTransaction({
+        walletSession: TEST_WALLET_SESSION,
+        nearAccount: TEST_NEAR_ACCOUNT,
+        receiverId: 'contract.testnet',
+        actions: [],
+        options: {},
+      }),
+    ).rejects.toBeInstanceOf(BrowserCapabilityUnavailableError);
+    expect(routerCalls).toBe(0);
+  });
+
   test('NEAR capability.executeAction calls afterCall(true) on success in iframe mode', async () => {
     const afterCalls: Array<{ ok: boolean; result?: unknown }> = [];
     const onErrors: Error[] = [];
@@ -888,7 +923,8 @@ test.describe('SeamsWeb chain signer modules', () => {
     };
     const txHash = `0x${'76'.repeat(32)}`;
     const tempoCallTo = '0xbb442b54c85efba2d7b81ea52990ad638cdba483';
-    const tempoCallInput = '0xa41368620000000000000000000000000000000000000000000000000000000000000020';
+    const tempoCallInput =
+      '0xa41368620000000000000000000000000000000000000000000000000000000000000020';
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async (
       _input: RequestInfo | URL,

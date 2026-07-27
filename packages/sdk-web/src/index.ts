@@ -1,4 +1,10 @@
 export { SeamsWeb } from './SeamsWeb';
+export { BrowserCapabilityUnavailableError } from './SeamsWeb/publicApi/capabilitySelection';
+export type {
+  BrowserCapabilitySelectionResult,
+  BrowserCapabilityUnavailableReason,
+  BrowserCapabilityUnavailableSelection,
+} from './SeamsWeb/publicApi/capabilitySelection';
 
 export * from './config';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from './core/config/defaultConfigs';

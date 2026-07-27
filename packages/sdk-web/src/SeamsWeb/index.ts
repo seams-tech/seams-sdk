@@ -1,4 +1,10 @@
 export { SeamsWeb } from './SeamsWeb';
+export { BrowserCapabilityUnavailableError } from './publicApi/capabilitySelection';
+export type {
+  BrowserCapabilitySelectionResult,
+  BrowserCapabilityUnavailableReason,
+  BrowserCapabilityUnavailableSelection,
+} from './publicApi/capabilitySelection';
 
 export type { DemoEmailOtpCodeResponse } from '@/core/signingEngine/session/emailOtp/publicTypes';
 

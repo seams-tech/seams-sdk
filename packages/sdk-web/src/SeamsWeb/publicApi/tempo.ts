@@ -10,6 +10,11 @@ import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey
 import { executeEvmFamilyTransactionLifecycle } from '@/SeamsWeb/operations/tempo/executeEvmFamilyTransaction';
 import { buildTempoBootstrapArgs, toSerializableTempoError } from '@/SeamsWeb/operations/tempo';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
+import {
+  CAPABILITY_KINDS,
+  EVM_ECDSA_MPC_OPERATION_KINDS,
+} from '@shared/authorization/capabilityKinds';
+import { requireBrowserCapabilityOperation } from '@/SeamsWeb/publicApi/capabilitySelection';
 
 function toLocalTempoBootstrapRequest(
   args: Parameters<TempoSignerCapability['bootstrapEcdsaSession']>[0],
@@ -26,6 +31,17 @@ function toLocalTempoBootstrapRequest(
   };
 }
 
+function requireEvmFamilySigningCapability(
+  configs: SeamsConfigsReadonly,
+  chainTarget: ReturnType<typeof thresholdEcdsaChainTargetFromRequest>,
+): void {
+  requireBrowserCapabilityOperation(configs, {
+    capabilityKind: CAPABILITY_KINDS.evmEcdsaMpcSigning,
+    operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
+    chainTarget,
+  });
+}
+
 export function createTempoSignerCapability(deps: {
   signingEngine: TempoSigningSurface;
   nearClient: NearClient;
@@ -34,8 +50,9 @@ export function createTempoSignerCapability(deps: {
   getWalletIframe: () => WalletIframeCoordinator;
 }): TempoSignerCapability {
   const signTempo: TempoSignerCapability['signTempo'] = async (args) => {
-    const walletIframe = deps.getWalletIframe();
     const chainTarget = thresholdEcdsaChainTargetFromRequest(args.chainTarget);
+    requireEvmFamilySigningCapability(deps.configs, chainTarget);
+    const walletIframe = deps.getWalletIframe();
     const walletId = toWalletId(args.walletSession.walletId);
     if (!walletIframe.shouldUseWalletIframe()) {
       return await deps.signingEngine.signEvmFamily({

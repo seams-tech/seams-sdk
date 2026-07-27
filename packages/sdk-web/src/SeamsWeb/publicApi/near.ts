@@ -30,7 +30,16 @@ import { resolveNearCommandSubject } from '@/SeamsWeb/operations/near/commandSub
 import { fundImplicitNearAccountForTesting } from '@/core/rpcClients/relayer/walletRegistration';
 import { getStoredThresholdEd25519SessionRecordForWallet } from '@/core/signingEngine/session/persistence/records';
 import { parseRouterAbEd25519WalletSessionAuthorityFromRecord } from '@/core/signingEngine/session/routerAbSigningWalletSession';
-import type { NearAccountRef, WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  NearAccountRef,
+  WalletSessionRef,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  CAPABILITY_KINDS,
+  NEAR_ED25519_MPC_OPERATION_KINDS,
+  type NearEd25519MpcOperationKind,
+} from '@shared/authorization/capabilityKinds';
+import { requireBrowserCapabilityOperation } from '@/SeamsWeb/publicApi/capabilitySelection';
 
 function relayerUrlFromConfigs(configs: SeamsConfigsReadonly): string {
   const relayerUrl = String(configs.network.relayer?.url || '').trim();
@@ -42,6 +51,16 @@ function requireNearPublicKey(value: unknown): string {
   const nearPublicKey = String(value || '').trim();
   if (!nearPublicKey) throw new Error('NEAR public key is required');
   return nearPublicKey;
+}
+
+function requireNearSigningCapability(
+  configs: SeamsConfigsReadonly,
+  operationKind: NearEd25519MpcOperationKind,
+): void {
+  requireBrowserCapabilityOperation(configs, {
+    capabilityKind: CAPABILITY_KINDS.nearEd25519MpcSigning,
+    operationKind,
+  });
 }
 
 function requireCurrentEd25519WalletSessionJwt(walletSession: WalletSessionRef): string {
@@ -139,6 +158,7 @@ export function createNearSignerCapability(deps: {
       });
     },
     executeAction: async (args) => {
+      requireNearSigningCapability(deps.configs, NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction);
       const walletIframe = deps.getWalletIframe();
       const nearAccountId = args.nearAccount.accountId;
       const commandSubject = resolveNearCommandSubject({
@@ -174,6 +194,7 @@ export function createNearSignerCapability(deps: {
       }
     },
     signAndSendTransaction: async (args) => {
+      requireNearSigningCapability(deps.configs, NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction);
       const walletIframe = deps.getWalletIframe();
       const nearAccountId = args.nearAccount.accountId;
       const commandSubject = resolveNearCommandSubject({
@@ -217,6 +238,7 @@ export function createNearSignerCapability(deps: {
       }
     },
     signTransactionWithActions: async (args) => {
+      requireNearSigningCapability(deps.configs, NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction);
       const walletIframe = deps.getWalletIframe();
       const nearAccountId = args.nearAccount.accountId;
       const commandSubject = resolveNearCommandSubject({
@@ -303,6 +325,10 @@ export function createNearSignerCapability(deps: {
       }
     },
     signDelegateAction: async (args) => {
+      requireNearSigningCapability(
+        deps.configs,
+        NEAR_ED25519_MPC_OPERATION_KINDS.signDelegateAction,
+      );
       const walletIframe = deps.getWalletIframe();
       const nearAccountId = args.nearAccount.accountId;
       const commandSubject = resolveNearCommandSubject({
@@ -415,6 +441,10 @@ export function createNearSignerCapability(deps: {
       return combined;
     },
     signNEP413Message: async (args) => {
+      requireNearSigningCapability(
+        deps.configs,
+        NEAR_ED25519_MPC_OPERATION_KINDS.signNep413Message,
+      );
       const walletIframe = deps.getWalletIframe();
       const nearAccountId = args.nearAccount.accountId;
       const commandSubject = resolveNearCommandSubject({
