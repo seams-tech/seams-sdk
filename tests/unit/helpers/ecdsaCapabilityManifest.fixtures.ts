@@ -1,11 +1,15 @@
 import type {
   EcdsaCapabilitySelector,
+  EcdsaCapabilityManifestLookup,
   PrepareEcdsaCapabilityActivationInput,
   SealEcdsaCapabilityActivationInput,
 } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import {
+  buildActiveEcdsaCapabilityManifest,
   buildEcdsaActivationBinding,
   buildEcdsaCapabilityScope,
+  buildEcdsaServerActivationCommit,
+  buildDurableEcdsaMaterialBinding,
   buildEcdsaManifestIdentity,
   buildEcdsaRoleLocalMaterialBinding,
   buildExactEcdsaManifestExpectation,
@@ -13,6 +17,8 @@ import {
   buildNoCurrentEcdsaManifestExpectation,
   buildNoCurrentEcdsaServerGenerationExpectation,
   buildPreparedEvmFamilySigner,
+  buildReplacedEcdsaCapabilityManifest,
+  buildValidatedEncryptedEcdsaReadyMaterial,
   type ServerReturnedEcdsaActivationCommit,
 } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import {
@@ -42,6 +48,10 @@ import {
   parseCanonicalEcdsaServerActivationRequest,
   parseEcdsaCapabilityManifestId,
   parseEcdsaCapabilityManifestRevision,
+  parseEcdsaCiphertextB64u,
+  parseEcdsaCiphertextDigest,
+  parseEcdsaIv12B64u,
+  parseEcdsaMaterialSealingKeyId,
   parseEcdsaServerGeneration,
   parseEvmFamilyEcdsaSignerId,
 } from '@shared/utils/ecdsaCapabilityActivation';
@@ -97,6 +107,12 @@ export type EcdsaCapabilityLookupOutcomeFixture = {
     readonly missing: EcdsaCapabilitySelector;
     readonly exactBindingMismatch: EcdsaCapabilitySelector;
   };
+};
+
+export type EcdsaCapabilityHydrationLookupFixture = {
+  readonly active: Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'active' }>;
+  readonly retired: Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'retired' }>;
+  readonly selectors: EcdsaCapabilityLookupOutcomeFixture['selectors'];
 };
 
 function fixtureStateBlob(label: string): string {
@@ -215,6 +231,54 @@ export function ecdsaCapabilityReplacementFixture(): EcdsaCapabilityReplacementF
 
 export function ecdsaCapabilityGenerationMismatchReplacementFixture(): EcdsaCapabilityReplacementFixture {
   return buildEcdsaCapabilityReplacementFixture('mismatched_generation');
+}
+
+function activeLookupFromFixture(
+  fixture: EcdsaCapabilityActivationFixture,
+): Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'active' }> {
+  const serverActivation = buildEcdsaServerActivationCommit({
+    activationBinding: fixture.prepareInput.activationBinding,
+    serverCommit: fixture.serverCommit,
+  });
+  const durableMaterial = buildDurableEcdsaMaterialBinding({
+    activationBinding: fixture.prepareInput.activationBinding,
+    serverActivation,
+    ciphertextDigest: parseEcdsaCiphertextDigest(DIGEST_B64U),
+  });
+  return {
+    kind: 'active',
+    manifest: buildActiveEcdsaCapabilityManifest({
+      activationBinding: fixture.prepareInput.activationBinding,
+      serverActivation,
+      registeredPublicFacts: fixture.sealInput.registeredPublicFacts,
+      durableMaterial,
+      committedAt: fixture.sealInput.committedAt,
+    }),
+    material: buildValidatedEncryptedEcdsaReadyMaterial({
+      binding: durableMaterial,
+      sealingKeyId: parseEcdsaMaterialSealingKeyId('ecdsa-sealing-key-fixture'),
+      iv12B64u: parseEcdsaIv12B64u(base64UrlEncode(new Uint8Array(12).fill(4))),
+      ciphertextB64u: parseEcdsaCiphertextB64u(base64UrlEncode(new Uint8Array(32).fill(5))),
+    }),
+  };
+}
+
+export function ecdsaCapabilityHydrationLookupFixture(): EcdsaCapabilityHydrationLookupFixture {
+  const replacement = ecdsaCapabilityReplacementFixture();
+  const activePrior = activeLookupFromFixture(replacement.prior);
+  const activeReplacement = activeLookupFromFixture(replacement.replacement);
+  const selectors = ecdsaCapabilityLookupOutcomeFixture().selectors;
+  return {
+    active: activeReplacement,
+    retired: {
+      kind: 'retired',
+      manifest: buildReplacedEcdsaCapabilityManifest({
+        activeManifest: activePrior.manifest,
+        replacementManifest: activeReplacement.manifest,
+      }),
+    },
+    selectors,
+  };
 }
 
 export function ecdsaCapabilityLookupOutcomeFixture(): EcdsaCapabilityLookupOutcomeFixture {
