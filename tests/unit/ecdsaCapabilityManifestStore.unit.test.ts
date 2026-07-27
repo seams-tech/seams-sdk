@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
@@ -22,6 +23,13 @@ const STORE_SOURCE = fileURLToPath(
 );
 const STORE_BUNDLE_PATH = `${tmpdir()}/seams-ecdsa-capability-store-${process.pid}.mjs`;
 const STORE_MODULE = '/__ecdsa-capability-manifest-store-test.mjs';
+const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const DERIVATION_WORKER_PATH = path.join(
+  REPOSITORY_ROOT,
+  'packages/sdk-web/dist/workers/ecdsa-derivation-client.worker.js',
+);
+const DERIVATION_WORKER_URL =
+  'https://wallet.example.localhost/sdk/workers/ecdsa-derivation-client.worker.js';
 
 async function prepareStoreModulePage(page: Page): Promise<void> {
   await page.route(`**${STORE_MODULE}`, async (route) => {
@@ -637,14 +645,12 @@ test.describe('canonical ECDSA capability manifest store', () => {
         });
         const openedByMaterialRef = await store.openActiveMaterialByRef({
           kind: 'ecdsa_role_local_persisted_material_ref_v1',
-          durableMaterialRef:
-            fixture.prepareInput.activationBinding.durableMaterialRef,
+          durableMaterialRef: fixture.prepareInput.activationBinding.durableMaterialRef,
           bindingDigest: fixture.prepareInput.activationBinding.bindingDigest,
         });
         const mismatchedMaterialRef = await store.openActiveMaterialByRef({
           kind: 'ecdsa_role_local_persisted_material_ref_v1',
-          durableMaterialRef:
-            fixture.prepareInput.activationBinding.durableMaterialRef,
+          durableMaterialRef: fixture.prepareInput.activationBinding.durableMaterialRef,
           bindingDigest: 'different-binding-digest',
         });
         const legacyStorePresent = await new Promise<boolean>((resolve, reject) => {
@@ -673,9 +679,7 @@ test.describe('canonical ECDSA capability manifest store', () => {
           readyStateBlobB64u: opened.kind === 'active' ? opened.readyStateBlobB64u : null,
           openByMaterialRefKind: openedByMaterialRef.kind,
           materialRefStateBlobB64u:
-            openedByMaterialRef.kind === 'active'
-              ? openedByMaterialRef.readyStateBlobB64u
-              : null,
+            openedByMaterialRef.kind === 'active' ? openedByMaterialRef.readyStateBlobB64u : null,
           mismatchedMaterialRefKind: mismatchedMaterialRef.kind,
           legacyStorePresent,
         };
@@ -702,6 +706,176 @@ test.describe('canonical ECDSA capability manifest store', () => {
       materialRefStateBlobB64u: fixture.sealInput.readyStateBlobB64u,
       mismatchedMaterialRefKind: 'binding_mismatch',
       legacyStorePresent: false,
+    });
+  });
+
+  test('rehydrates canonical material through a fresh worker after termination', async ({
+    page,
+  }) => {
+    const fixture = ecdsaCapabilityActivationFixture();
+    await page.route(DERIVATION_WORKER_URL, async (route) => {
+      await route.fulfill({
+        path: DERIVATION_WORKER_PATH,
+        contentType: 'application/javascript',
+      });
+    });
+    await prepareStoreModulePage(page);
+
+    const result = await page.evaluate(
+      async ({ storeModule, workerUrl, fixture }) => {
+        await new Promise<void>((resolve) => {
+          const request = indexedDB.deleteDatabase('seams_wallet');
+          request.onsuccess = () => resolve();
+          request.onerror = () => resolve();
+          request.onblocked = () => resolve();
+        });
+        const module = await import(storeModule);
+        const store = new module.IndexedDbEcdsaCapabilityManifestStore();
+        const prepared = await store.prepareActivation(fixture.prepareInput);
+        if (prepared.kind !== 'stored' || prepared.journal.kind !== 'activation_prepared') {
+          throw new Error(`preparation failed: ${prepared.kind}`);
+        }
+        const committed = await store.recordServerActivation({
+          preparedJournal: prepared.journal,
+          serverCommit: fixture.serverCommit,
+        });
+        if (
+          committed.kind !== 'stored' ||
+          committed.journal.kind !== 'server_activation_committed'
+        ) {
+          throw new Error(`server commit failed: ${committed.kind}`);
+        }
+        const finalized = await store.sealAndFinalizeActivation({
+          committedJournal: committed.journal,
+          ...fixture.sealInput,
+        });
+        if (finalized.kind !== 'committed') {
+          throw new Error(`finalization failed: ${finalized.kind}`);
+        }
+        const materialRef = {
+          kind: 'ecdsa_role_local_persisted_material_ref_v1',
+          durableMaterialRef: fixture.prepareInput.activationBinding.durableMaterialRef,
+          bindingDigest: fixture.prepareInput.activationBinding.bindingDigest,
+        };
+
+        const firstWorker = new Worker(workerUrl, { type: 'module' });
+        const firstReady = await new Promise<boolean>((resolve, reject) => {
+          const timeout = window.setTimeout(
+            () => reject(new Error('first worker ready timeout')),
+            10_000,
+          );
+          firstWorker.addEventListener('message', (event) => {
+            const value = event.data as { type?: unknown; ready?: unknown };
+            if (value.type !== 'WORKER_READY' && value.ready !== true) return;
+            window.clearTimeout(timeout);
+            resolve(true);
+          });
+          firstWorker.addEventListener('error', (event) => reject(new Error(event.message)), {
+            once: true,
+          });
+        });
+        const first = await new Promise<Record<string, unknown>>((resolve, reject) => {
+          const requestId = 'canonical-rehydrate-first';
+          const timeout = window.setTimeout(
+            () => reject(new Error('first worker RPC timeout')),
+            10_000,
+          );
+          firstWorker.addEventListener('message', (event) => {
+            const value = event.data as {
+              id?: unknown;
+              ok?: unknown;
+              error?: unknown;
+              result?: Record<string, unknown>;
+            };
+            if (value.id !== requestId) return;
+            window.clearTimeout(timeout);
+            if (value.ok !== true || !value.result) {
+              reject(new Error(String(value.error || 'first worker RPC failed')));
+              return;
+            }
+            resolve(value.result);
+          });
+          firstWorker.postMessage({
+            id: requestId,
+            type: 70_015,
+            payload: {
+              kind: 'rehydrate_ecdsa_role_local_signing_material_v1',
+              materialRef,
+            },
+          });
+        });
+        firstWorker.terminate();
+
+        const secondWorker = new Worker(workerUrl, { type: 'module' });
+        const secondReady = await new Promise<boolean>((resolve, reject) => {
+          const timeout = window.setTimeout(
+            () => reject(new Error('second worker ready timeout')),
+            10_000,
+          );
+          secondWorker.addEventListener('message', (event) => {
+            const value = event.data as { type?: unknown; ready?: unknown };
+            if (value.type !== 'WORKER_READY' && value.ready !== true) return;
+            window.clearTimeout(timeout);
+            resolve(true);
+          });
+          secondWorker.addEventListener('error', (event) => reject(new Error(event.message)), {
+            once: true,
+          });
+        });
+        const second = await new Promise<Record<string, unknown>>((resolve, reject) => {
+          const requestId = 'canonical-rehydrate-second';
+          const timeout = window.setTimeout(
+            () => reject(new Error('second worker RPC timeout')),
+            10_000,
+          );
+          secondWorker.addEventListener('message', (event) => {
+            const value = event.data as {
+              id?: unknown;
+              ok?: unknown;
+              error?: unknown;
+              result?: Record<string, unknown>;
+            };
+            if (value.id !== requestId) return;
+            window.clearTimeout(timeout);
+            if (value.ok !== true || !value.result) {
+              reject(new Error(String(value.error || 'second worker RPC failed')));
+              return;
+            }
+            resolve(value.result);
+          });
+          secondWorker.postMessage({
+            id: requestId,
+            type: 70_015,
+            payload: {
+              kind: 'rehydrate_ecdsa_role_local_signing_material_v1',
+              materialRef,
+            },
+          });
+        });
+        secondWorker.terminate();
+
+        return { firstReady, secondReady, first, second };
+      },
+      {
+        storeModule: STORE_MODULE,
+        workerUrl: DERIVATION_WORKER_URL,
+        fixture,
+      },
+    );
+
+    expect(result.firstReady).toBe(true);
+    expect(result.secondReady).toBe(true);
+    expect(result.first.type).toBe(70_115);
+    expect(result.second.type).toBe(70_115);
+    expect(result.second.payload).toEqual(result.first.payload);
+    expect(result.second.payload).toMatchObject({
+      kind: 'ecdsa_role_local_signing_material_rehydrated_v1',
+      liveHandle: {
+        kind: 'ecdsa_role_local_worker_handle_v1',
+        materialHandle: fixture.prepareInput.activationBinding.durableMaterialRef,
+        durableMaterialRef: fixture.prepareInput.activationBinding.durableMaterialRef,
+        bindingDigest: fixture.prepareInput.activationBinding.bindingDigest,
+      },
     });
   });
 

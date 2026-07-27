@@ -22,10 +22,13 @@ here.
   rehydration, registration orchestration, and worker waterfall tests pass 55
   of 55; focused IndexedDB, worker-split, ECDSA identity, and key-material
   boundary guards pass; Prettier and `git diff --check` pass.
+- Added a real worker restart test: canonical encrypted material survives
+  termination and a fresh worker reopens persistence and rehydrates the same
+  exact durable material reference and binding.
 - `R90-INV-005`, `R90-INV-006`, and `R90-INV-011` now have implementation and
-  focused verification evidence. Foundation B remains open for a real
-  destroy/reopen/hydrate/sign test and deletion of the legacy session-record
-  family.
+  focused verification evidence. Foundation B remains open for refresh-path
+  selection, rehydrated signing in one-target and shared EVM-family
+  configurations, and deletion of the legacy session-record family.
 - Connected SDK-server registration and add-signer activation to the
   non-consuming prepare boundary before commit as `112fda830`. Commit now
   carries and verifies the exact prepared request digest.

@@ -686,6 +686,9 @@ Open items:
 - [x] server generation CAS plus idempotent activation commit/query by journal
       correlation; query returns the exact request digest, generation, and
       structured protocol receipt;
+- [x] canonical encrypted material survives worker termination; a fresh worker
+      reopens persistence and rehydrates the same durable material reference
+      and binding;
 - [ ] one activation commit port shared by registration, explicit reactivation,
       and recovery; routine Passkey and Email OTP unlock/refresh do not rewrite
       durable activation state or introduce a second writer;
