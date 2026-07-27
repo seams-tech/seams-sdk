@@ -199,7 +199,7 @@ function buildTransactionSigningChallengeRoutePlan(
 export async function requestExportChallenge(
   ports: EmailOtpWorkerPorts,
   args: RequestEmailOtpChallengeArgs,
-): Promise<{ challengeId: string; emailHint?: string }> {
+): Promise<EmailOtpTransactionSigningChallenge> {
   const routePlan = buildExportChallengeRoutePlan(ports, args);
   const challenge =
     args.kind === 'near_account_challenge'
@@ -214,10 +214,7 @@ export async function requestExportChallenge(
           walletId: args.walletSession.walletId,
           routePlan,
         });
-  return {
-    challengeId: challenge.challengeId,
-    ...(challenge.emailHint ? { emailHint: challenge.emailHint } : {}),
-  };
+  return challenge;
 }
 
 function buildExportChallengeRoutePlan(
