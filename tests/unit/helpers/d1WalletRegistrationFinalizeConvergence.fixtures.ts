@@ -609,6 +609,7 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
   readonly kind = 'router_ab_ed25519_yao_product_registration_runtime_v1' as const;
   readonly signingWorkerId: string;
   private fault: YaoFault | null = null;
+  private lastConsumerBinding: string | null = null;
 
   constructor(private readonly delegate: RouterAbEd25519YaoProductRegistrationRuntimeV1) {
     this.signingWorkerId = delegate.signingWorkerId;
@@ -616,6 +617,10 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
 
   arm(fault: YaoFault): void {
     this.fault = fault;
+  }
+
+  consumerBinding(): string | null {
+    return this.lastConsumerBinding;
   }
 
   async bindVerifiedIntent(
@@ -643,6 +648,7 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
   ): Promise<
     Awaited<ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']>>
   > {
+    this.lastConsumerBinding = input.consumerBinding;
     const result = await this.delegate.consumeActivated(input);
     this.throwAfter('activation_consume_response_loss');
     return result;
@@ -958,6 +964,7 @@ export type FinalizeConvergenceHarness = {
   readonly database: D1DatabaseLike;
   readonly cleanup: () => Promise<void>;
   readonly arm: (fault: FinalizeConvergenceFault) => void;
+  readonly activationConsumerBinding: () => string | null;
   readonly expireFinalizeClaim: () => Promise<void>;
   readonly countRows: (table: string) => Promise<number>;
 };
@@ -1119,6 +1126,7 @@ async function createFinalizeConvergenceHarnessForMode(
           return;
       }
     },
+    activationConsumerBinding: () => yao.runtime.consumerBinding(),
     countRows: async (table) => {
       const row = await database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first<{
         readonly count?: unknown;

@@ -2543,35 +2543,38 @@ export class CloudflareD1WalletRegistrationService {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
       const idempotencyKey = toOptionalTrimmedString(request.idempotencyKey);
-      const requestFingerprint = idempotencyKey
-        ? await walletRegistrationFinalizeRequestFingerprint(request)
-        : null;
-      if (idempotencyKey) {
-        const replayTiming = startD1RegistrationRouteTiming('registrationFinalizeReplayLoadMs');
-        let replay: Awaited<ReturnType<typeof store.getFinalizeReplay>>;
-        try {
-          replay = await store.getFinalizeReplay({
-            registrationCeremonyId: request.registrationCeremonyId,
-            idempotencyKey,
-          });
-        } finally {
-          finishD1RegistrationRouteTiming(finalizeTiming, replayTiming);
+      if (!idempotencyKey) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration finalize idempotencyKey is required',
+        };
+      }
+      const requestFingerprint = await walletRegistrationFinalizeRequestFingerprint(request);
+      const replayTiming = startD1RegistrationRouteTiming('registrationFinalizeReplayLoadMs');
+      let replay: Awaited<ReturnType<typeof store.getFinalizeReplay>>;
+      try {
+        replay = await store.getFinalizeReplay({
+          registrationCeremonyId: request.registrationCeremonyId,
+          idempotencyKey,
+        });
+      } finally {
+        finishD1RegistrationRouteTiming(finalizeTiming, replayTiming);
+      }
+      if (replay) {
+        if (replay.requestFingerprint !== requestFingerprint) {
+          return {
+            ok: false,
+            code: 'idempotency_conflict',
+            message: 'registration finalize idempotency key was reused for a different request',
+          };
         }
-        if (replay) {
-          if (replay.requestFingerprint !== requestFingerprint) {
-            return {
-              ok: false,
-              code: 'idempotency_conflict',
-              message: 'registration finalize idempotency key was reused for a different request',
-            };
-          }
-          await cleanupFinalizedRegistrationCeremony({
-            store,
-            registrationCeremonyId: request.registrationCeremonyId,
-          });
-          finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
-          return withD1RegistrationRouteDiagnostics(replay.response, finalizeTiming);
-        }
+        await cleanupFinalizedRegistrationCeremony({
+          store,
+          registrationCeremonyId: request.registrationCeremonyId,
+        });
+        finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
+        return withD1RegistrationRouteDiagnostics(replay.response, finalizeTiming);
       }
       const ceremonyLoadTiming = startD1RegistrationRouteTiming('registrationCeremonyLoadMs');
       let ceremony: Awaited<ReturnType<typeof store.getCeremony>>;
@@ -2739,7 +2742,7 @@ export class CloudflareD1WalletRegistrationService {
             lifecycleId: activationReference.lifecycle_id,
             sessionId: activationReference.session_id,
           },
-          consumerBinding: alphabetizeStringify(request),
+          consumerBinding: requestFingerprint,
         });
         if (!consumed.ok) {
           return { ok: false, code: consumed.code, message: consumed.message };
