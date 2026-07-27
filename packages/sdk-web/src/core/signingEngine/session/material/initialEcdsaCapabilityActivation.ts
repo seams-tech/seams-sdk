@@ -70,7 +70,7 @@ type PlannerOwnedIdentityExclusions = {
   readonly walletSessionId?: never;
   readonly signingGrantId?: never;
   readonly materialHandle?: never;
-  readonly pendingStateBlobB64u?: never;
+  readonly pendingPayloadB64u?: never;
 };
 
 export type InitialEcdsaCapabilityActivationPlanInput = {
@@ -97,7 +97,7 @@ export type InitialEcdsaCapabilityActivationPlan = {
   readonly requestDigest: DigestB64u;
   readonly canonicalRequest: CanonicalEcdsaServerActivationRequest;
   readonly createdAt: IsoTimestamp;
-  readonly pendingStateBlobB64u?: never;
+  readonly pendingPayloadB64u?: never;
 };
 
 function unwrapDomainId<T>(result: DomainIdParseResult<T>): T {

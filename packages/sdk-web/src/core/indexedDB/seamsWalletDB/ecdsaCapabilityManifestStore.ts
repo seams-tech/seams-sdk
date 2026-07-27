@@ -206,7 +206,7 @@ type PreparedJournalInputWithoutCandidate<T> = T extends unknown ? Omit<T, 'cand
 export type PrepareEcdsaCapabilityActivationInput =
   PreparedJournalInputWithoutCandidate<BuildPreparedEcdsaActivationJournalInput> & {
     readonly activationBinding: EcdsaActivationBinding;
-    readonly pendingStateBlobB64u: string;
+    readonly pendingPayloadB64u: string;
   };
 
 export type RecordEcdsaServerActivationInput = {
@@ -225,12 +225,12 @@ export type EcdsaPreparedActivationOpenResult =
   | {
       readonly kind: 'found';
       readonly journal: EcdsaCapabilityActivationCommitJournal;
-      readonly pendingStateBlobB64u: string;
+      readonly pendingPayloadB64u: string;
     }
   | {
       readonly kind: 'missing' | 'corrupt' | 'persistence_unavailable';
       readonly journal?: never;
-      readonly pendingStateBlobB64u?: never;
+      readonly pendingPayloadB64u?: never;
     };
 
 export type EcdsaActiveMaterialOpenResult =
@@ -1530,7 +1530,7 @@ export class IndexedDbEcdsaCapabilityManifestStore {
       const key = await generateMaterialSealingKey();
       const encrypted = await encryptStateBlob({
         key,
-        stateBlobB64u: input.pendingStateBlobB64u,
+        stateBlobB64u: input.pendingPayloadB64u,
         aadProjection: pendingAadProjection(input),
       });
       const journal = buildPreparedJournalFromEncryptedCandidate({
@@ -1792,7 +1792,7 @@ export class IndexedDbEcdsaCapabilityManifestStore {
       return {
         kind: 'found',
         journal: read.journal,
-        pendingStateBlobB64u: await decryptStateBlob({
+        pendingPayloadB64u: await decryptStateBlob({
           key: sealingKey,
           iv12B64u: encryptedPending.iv12B64u,
           ciphertextB64u: encryptedPending.ciphertextB64u,
