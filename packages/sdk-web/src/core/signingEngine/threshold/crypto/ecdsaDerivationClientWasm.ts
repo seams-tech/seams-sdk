@@ -597,8 +597,17 @@ function asEcdsaDerivationPresignProgress(
 
 export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm(input: {
   materialHandle: string;
-  durableMaterialRef: string;
-  expectedBindingDigest: string;
+  material:
+    | {
+        kind: 'persisted';
+        materialRef: EcdsaRoleLocalPersistedMaterialRef;
+        expectedBindingDigest?: never;
+      }
+    | {
+        kind: 'runtime_loaded';
+        expectedBindingDigest: string;
+        materialRef?: never;
+      };
   sessionId: string;
   groupPublicKey33: Uint8Array;
   materialExpiresAtMs: number;
@@ -615,8 +624,7 @@ export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandl
         authority: {
           kind: 'role_local_derivation_handle',
           materialHandle: input.materialHandle,
-          durableMaterialRef: input.durableMaterialRef,
-          expectedBindingDigest: input.expectedBindingDigest,
+          material: input.material,
         },
         sessionId: input.sessionId,
         groupPublicKey33: groupPublicKey33.buffer,

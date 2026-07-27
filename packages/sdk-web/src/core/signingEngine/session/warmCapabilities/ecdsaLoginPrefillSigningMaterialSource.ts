@@ -1,4 +1,7 @@
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import {
+  requirePersistedEcdsaRoleLocalMaterial,
+  type ThresholdEcdsaSessionRecord,
+} from '../persistence/records';
 import {
   thresholdEcdsaRoleLocalAdmitPresignatureWasm,
   thresholdEcdsaRoleLocalDestroyPresignatureWasm,
@@ -14,13 +17,8 @@ import {
 } from '../../threshold/crypto/ecdsaDerivationClientWasm';
 import type { RouterAbEcdsaDerivationClientSigningMaterialSource } from '../../routerAb/ecdsaDerivation/presignaturePool';
 import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '../routerAbSigningWalletSession';
+import type { EcdsaRoleLocalWorkerHandle } from '../keyMaterialBrands';
 import {
-  parseEcdsaRoleLocalBindingDigest,
-  parseEcdsaRoleLocalDurableMaterialRef,
-  type EcdsaRoleLocalWorkerHandle,
-} from '../keyMaterialBrands';
-import {
-  buildPersistedEcdsaRoleLocalMaterial,
   ecdsaRoleLocalPersistedMaterialRefSource,
   resolveEcdsaRoleLocalMaterial,
   type EcdsaRoleLocalMaterialResolution,
@@ -38,21 +36,6 @@ function requireEmailOtpWorkerSessionId(record: ThresholdEcdsaSessionRecord): st
   const sessionId = String(handle.sessionId || '').trim();
   if (!sessionId) throw new Error('ECDSA login prefill Email OTP worker session id is required');
   return sessionId;
-}
-
-function requireRoleLocalDurableMaterial(record: ThresholdEcdsaSessionRecord): {
-  durableMaterialRef: ReturnType<typeof parseEcdsaRoleLocalDurableMaterialRef>;
-  bindingDigest: ReturnType<typeof parseEcdsaRoleLocalBindingDigest>;
-} {
-  if (!record.roleLocalDurableMaterialRef) {
-    throw new Error('ECDSA login prefill requires durable role-local material');
-  }
-  return {
-    durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(record.roleLocalDurableMaterialRef),
-    bindingDigest: parseEcdsaRoleLocalBindingDigest(
-      record.ecdsaRoleLocalPublicFacts.contextBinding32B64u,
-    ),
-  };
 }
 
 function requireResolvedLoginPrefillMaterial(
@@ -83,11 +66,7 @@ export function createEcdsaLoginPrefillClientSigningMaterialSource(
     kind: 'router_ab_ecdsa_derivation_client_signing_material_source_v1',
     initClientPresignSession: async (input) => {
       if (materialOwner === 'role_local_worker') {
-        const material = requireRoleLocalDurableMaterial(record);
-        const persistedMaterial = buildPersistedEcdsaRoleLocalMaterial({
-          durableMaterialRef: material.durableMaterialRef,
-          publicFacts: record.ecdsaRoleLocalPublicFacts,
-        });
+        const persistedMaterial = requirePersistedEcdsaRoleLocalMaterial(record);
         const resolution = await resolveEcdsaRoleLocalMaterial({
           purpose: 'wallet_unlock',
           source: ecdsaRoleLocalPersistedMaterialRefSource(persistedMaterial.materialRef),
@@ -99,8 +78,10 @@ export function createEcdsaLoginPrefillClientSigningMaterialSource(
         }
         const initialized = await thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm({
           materialHandle: liveHandle.materialHandle,
-          durableMaterialRef: material.durableMaterialRef,
-          expectedBindingDigest: material.bindingDigest,
+          material: {
+            kind: 'persisted',
+            materialRef: persistedMaterial.materialRef,
+          },
           ...input,
         });
         return initialized;

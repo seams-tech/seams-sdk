@@ -3,8 +3,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { EcdsaThresholdKeyId } from '../session/identity/laneIdentity';
 import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
-  EcdsaRoleLocalBindingDigest,
-  EcdsaRoleLocalDurableMaterialRef,
+  EcdsaRoleLocalPersistedMaterialRef,
   EcdsaRoleLocalWorkerHandle,
 } from '../session/keyMaterialBrands';
 import type {
@@ -79,6 +78,7 @@ export type ThresholdEcdsaRoleLocalWorkerHandleBackendBinding =
   ThresholdEcdsaBackendBindingCommon & {
     materialKind: 'role_local_worker_handle';
     roleLocalMaterialHandle: EcdsaRoleLocalWorkerHandle;
+    roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
     publicFacts: EcdsaRoleLocalPublicFacts;
     authMethod: EcdsaRoleLocalAuthMethod;
     ecdsaRoleLocalReadyRecord?: never;
@@ -101,8 +101,7 @@ export type ThresholdEcdsaRoleLocalDurablePublicAnchorBackendBinding =
 export type ThresholdEcdsaRoleLocalDurableSealedBackendBinding =
   ThresholdEcdsaBackendBindingCommon & {
     materialKind: 'role_local_durable_sealed_ref';
-    durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
-    bindingDigest: EcdsaRoleLocalBindingDigest;
+    roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
     publicFacts: EcdsaRoleLocalPublicFacts;
     roleLocalMaterialHandle?: never;
     ecdsaRoleLocalReadyRecord?: never;

@@ -18,8 +18,8 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
-import { parseEcdsaRoleLocalDurableMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const WALLET_ID = toWalletId('alice.testnet');
 const RP_ID = 'wallet.example.test';
@@ -158,9 +158,12 @@ function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaS
     signingRootVersion: active.walletKey.keyFacts.signingRootVersion,
     relayerKeyId: backendBinding.relayerKeyId,
     clientVerifyingShareB64u: backendBinding.clientVerifyingShareB64u,
-    roleLocalDurableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(
-      `role-local:${active.walletKey.keyHandle}`,
-    ),
+    roleLocalMaterialRef: buildEcdsaRoleLocalPersistedMaterialRefFixture({
+      durableMaterialRef: `role-local:${active.walletKey.keyHandle}`,
+      bindingDigest:
+        backendBinding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+      label: `unlock-warmup:${active.walletKey.keyHandle}`,
+    }),
     ecdsaRoleLocalAuthMethod: backendBinding.ecdsaRoleLocalReadyRecord.authMethod,
     ecdsaRoleLocalPublicFacts: backendBinding.ecdsaRoleLocalReadyRecord.publicFacts,
     participantIds: [1, 2],

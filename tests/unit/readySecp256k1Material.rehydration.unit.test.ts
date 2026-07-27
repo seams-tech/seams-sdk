@@ -94,11 +94,7 @@ test.describe('ready secp256k1 durable role-local material rehydration', () => {
           timeoutMs: 20_000,
           payload: {
             kind: 'rehydrate_ecdsa_role_local_signing_material_v1',
-            materialRef: {
-              kind: 'ecdsa_role_local_persisted_material_ref_v1',
-              durableMaterialRef: fixture.roleLocalMaterial.durableMaterialRef,
-              bindingDigest: fixture.roleLocalMaterial.bindingDigest,
-            },
+            materialRef: fixture.record.roleLocalMaterialRef,
           },
         },
       },

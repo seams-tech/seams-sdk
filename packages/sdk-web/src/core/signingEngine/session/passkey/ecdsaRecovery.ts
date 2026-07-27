@@ -15,7 +15,6 @@ import { toEvmFamilyEcdsaKeyHandle } from '@/core/signingEngine/session/identity
 import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   parseSigningSessionSealKeyVersion,
-  parseEcdsaRoleLocalDurableMaterialRef,
   type SigningSessionSealKeyVersion,
 } from '../keyMaterialBrands';
 import {
@@ -156,9 +155,7 @@ async function publishPasskeyEcdsaSealedRecordForWallet(args: {
     signingRootVersion: args.record.signingRootVersion,
     relayerKeyId: args.record.relayerKeyId,
     clientVerifyingShareB64u: args.record.clientVerifyingShareB64u,
-    roleLocalDurableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(
-      args.record.roleLocalDurableMaterialRef,
-    ),
+    roleLocalMaterialRef: args.record.roleLocalMaterialRef,
     ecdsaRoleLocalAuthMethod,
     ecdsaRoleLocalPublicFacts,
     participantIds: [...args.record.participantIds],

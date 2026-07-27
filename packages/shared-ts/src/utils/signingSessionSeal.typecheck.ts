@@ -1,5 +1,6 @@
 import type {
   SealedSigningSessionEcdsaRestoreMetadata,
+  SealedSigningSessionEcdsaRoleLocalMaterialRef,
   SealedSigningSessionEd25519RestoreMetadata,
   SealedSigningSessionRecord,
 } from './signingSessionSeal';
@@ -10,6 +11,7 @@ import type {
 
 declare const routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+declare const roleLocalMaterialRef: SealedSigningSessionEcdsaRoleLocalMaterialRef;
 
 const validEcdsaSealedSessionRecord = {
   v: 1,
@@ -45,7 +47,7 @@ const validEcdsaSealedSessionRecord = {
     ecdsaThresholdKeyId: 'ecdsa-key',
     ethereumAddress: `0x${'11'.repeat(20)}`,
     relayerKeyId: 'relayer-key',
-    roleLocalDurableMaterialRef: 'role-local-material',
+    roleLocalMaterialRef,
     participantIds: [1, 2],
     routerAbEcdsaDerivationNormalSigning,
     publicCapability,

@@ -15,6 +15,7 @@ import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsa
 import type { ActivateAccountSignerInput } from '@/core/indexedDB/accountSignerLifecycle';
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import { resolveThresholdSigningRootBindingFromRecord } from '../identity/evmFamilyEcdsaIdentity';
+import type { EcdsaRoleLocalPersistedMaterialRef } from '../keyMaterialBrands';
 
 export type ThresholdEcdsaBootstrapStorePort = {
   upsertProfile: (input: UpsertProfileInput) => Promise<unknown>;
@@ -87,15 +88,15 @@ function requireParticipantIds(value: unknown): number[] {
   });
 }
 
-function roleLocalDurableMaterialRefFromBootstrap(
+function roleLocalMaterialRefFromBootstrap(
   binding: ThresholdEcdsaSessionBootstrapResult['thresholdEcdsaKeyRef']['backendBinding'],
-): string | null {
+): EcdsaRoleLocalPersistedMaterialRef | null {
   if (!binding) return null;
   switch (binding.materialKind) {
     case 'role_local_worker_handle':
-      return binding.roleLocalMaterialHandle.durableMaterialRef;
+      return binding.roleLocalMaterialRef;
     case 'role_local_durable_sealed_ref':
-      return binding.durableMaterialRef;
+      return binding.roleLocalMaterialRef;
     case 'email_otp_worker_handle':
     case 'role_local_durable_public_anchor':
     case 'role_local_ready_state_blob':
@@ -165,9 +166,7 @@ function ecdsaBootstrapSignerActivation(args: {
     chainTarget: args.chainTarget,
     bootstrap: args.bootstrap,
   });
-  const roleLocalDurableMaterialRef = roleLocalDurableMaterialRefFromBootstrap(
-    keyRef.backendBinding,
-  );
+  const roleLocalMaterialRef = roleLocalMaterialRefFromBootstrap(keyRef.backendBinding);
   const metadata: Record<string, unknown> = {
     accountModel: 'threshold-ecdsa',
     accountAddress: thresholdOwnerAddress,
@@ -205,8 +204,8 @@ function ecdsaBootstrapSignerActivation(args: {
     },
     chainId: args.chainTarget.chainId,
   };
-  if (roleLocalDurableMaterialRef) {
-    metadata.roleLocalDurableMaterialRef = roleLocalDurableMaterialRef;
+  if (roleLocalMaterialRef) {
+    metadata.roleLocalMaterialRef = roleLocalMaterialRef;
   }
 
   return {

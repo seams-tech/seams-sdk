@@ -33,6 +33,7 @@ import {
   parseEcdsaRoleLocalDurableMaterialRef,
   parseEcdsaRoleLocalMaterialHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import {
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
@@ -454,6 +455,13 @@ async function makeExistingEmailOtpFixture(): Promise<ExistingEmailOtpFixture> {
   const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef(
     'role-local:mixed-email-otp-fixture',
   );
+  const bindingDigest = parseEcdsaRoleLocalBindingDigest(
+    fixtureBinding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+  );
+  const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+    durableMaterialRef,
+    bindingDigest,
+  });
   const bootstrap = {
     ...fixtureBootstrap,
     thresholdEcdsaKeyRef: {
@@ -467,11 +475,10 @@ async function makeExistingEmailOtpFixture(): Promise<ExistingEmailOtpFixture> {
           materialHandle: parseEcdsaRoleLocalMaterialHandle(
             'role-local-live:mixed-email-otp-fixture',
           ),
-          bindingDigest: parseEcdsaRoleLocalBindingDigest(
-            fixtureBinding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
-          ),
+          bindingDigest,
           durableMaterialRef,
         },
+        roleLocalMaterialRef,
         publicFacts: fixtureBinding.ecdsaRoleLocalReadyRecord.publicFacts,
         authMethod: fixtureBinding.ecdsaRoleLocalReadyRecord.authMethod,
       },

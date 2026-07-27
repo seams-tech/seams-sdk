@@ -1108,11 +1108,9 @@ async function finalizeRouterAbEcdsaExplicitExport(
     const materialHandle = request.roleLocalMaterial.materialHandle;
     const bindingDigest = request.roleLocalMaterial.bindingDigest;
     if (!ecdsaRoleLocalSigningMaterialStore.has(materialHandle)) {
-      const restored = await restoreEcdsaRoleLocalSigningMaterialForRequest({
-        kind: 'ecdsa_role_local_persisted_material_ref_v1',
-        durableMaterialRef: request.roleLocalMaterial.durableMaterialRef,
-        bindingDigest,
-      });
+      const restored = await restoreEcdsaRoleLocalSigningMaterialForRequest(
+        request.roleLocalMaterialRef,
+      );
       if (!restored.ok) {
         throw new Error(`ECDSA explicit export material hydration failed: ${restored.reason}`);
       }
@@ -1744,19 +1742,26 @@ async function handleAdditiveShareRequest(
   if (request.kind !== 'ecdsa_derivation_additive_share_request_v1') return;
   try {
     await initializeEcdsaRegistrationClientWasm();
-    const restored = await restoreEcdsaRoleLocalSigningMaterialForRequest(
-      parseEcdsaRoleLocalPersistedMaterialRef({
-        kind: 'ecdsa_role_local_persisted_material_ref_v1',
-        bindingDigest: request.expectedBindingDigest,
-        durableMaterialRef: request.durableMaterialRef,
-      }),
-    );
-    if (!restored.ok) {
-      throw new Error(`ECDSA role-local active session hydration failed: ${restored.reason}`);
+    let expectedBindingDigest: string;
+    switch (request.material.kind) {
+      case 'persisted': {
+        const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(
+          request.material.materialRef,
+        );
+        const restored = await restoreEcdsaRoleLocalSigningMaterialForRequest(materialRef);
+        if (!restored.ok) {
+          throw new Error(`ECDSA role-local active session hydration failed: ${restored.reason}`);
+        }
+        expectedBindingDigest = materialRef.bindingDigest;
+        break;
+      }
+      case 'runtime_loaded':
+        expectedBindingDigest = request.material.expectedBindingDigest;
+        break;
     }
     const additiveShare32 = openEcdsaRoleLocalAdditiveShare32FromHandle({
       materialHandle: request.materialHandle,
-      expectedBindingDigest: request.expectedBindingDigest,
+      expectedBindingDigest,
     });
     const shareBuffer = additiveShare32.buffer;
     const response: EcdsaDerivationAdditiveShareResponse = {

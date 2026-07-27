@@ -9,8 +9,8 @@ import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '../identity/laneIdentity';
 import {
-  parseEcdsaRoleLocalDurableMaterialRef,
   parseEcdsaThresholdKeyId,
+  type EcdsaRoleLocalPersistedMaterialRef,
 } from '../keyMaterialBrands';
 import {
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
@@ -69,6 +69,7 @@ declare const passkeyRoleLocalReadyRecord: Extract<
   EcdsaRoleLocalReadyRecord,
   { kind: 'ecdsa_role_local_ready_passkey_v1' }
 >;
+declare const roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
 const walletSessionAuth = {
   kind: 'wallet_session',
   curve: 'ecdsa',
@@ -144,7 +145,7 @@ const reconnectRecord = {
   signingRootVersion: 'v1',
   relayerKeyId: 'relayer-key-1',
   clientVerifyingShareB64u: 'share',
-  roleLocalDurableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef('role-local-material-ref'),
+  roleLocalMaterialRef,
   ecdsaRoleLocalAuthMethod: passkeyRoleLocalReadyRecord.authMethod,
   ecdsaRoleLocalPublicFacts: passkeyRoleLocalReadyRecord.publicFacts,
   participantIds: [1, 2],

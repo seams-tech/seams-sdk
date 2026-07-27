@@ -83,6 +83,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { testEcdsaChainTarget } from './ecdsaChainTarget.fixtures';
 import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmCapabilities/transitions';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './ecdsaMaterialRef.fixtures';
 
 function requirePasskeyCredentialIdForFixture(record: ThresholdEcdsaSessionRecord): string {
   const authMethod = record.ecdsaRoleLocalAuthMethod;
@@ -112,6 +113,14 @@ export function toWorkerOwnedPasskeyEcdsaBootstrapFixture(
   }
   const sessionId =
     String(bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '').trim() || 'fixture-session';
+  const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef(`role-local:${sessionId}`);
+  const bindingDigest = parseEcdsaRoleLocalBindingDigest(
+    binding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+  );
+  const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+    durableMaterialRef,
+    bindingDigest,
+  });
   return {
     ...bootstrap,
     thresholdEcdsaKeyRef: {
@@ -123,11 +132,10 @@ export function toWorkerOwnedPasskeyEcdsaBootstrapFixture(
         roleLocalMaterialHandle: {
           kind: 'ecdsa_role_local_worker_handle_v1' as const,
           materialHandle: parseEcdsaRoleLocalMaterialHandle(`role-local-live:${sessionId}`),
-          bindingDigest: parseEcdsaRoleLocalBindingDigest(
-            binding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
-          ),
-          durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(`role-local:${sessionId}`),
+          bindingDigest,
+          durableMaterialRef,
         },
+        roleLocalMaterialRef,
         publicFacts: binding.ecdsaRoleLocalReadyRecord.publicFacts,
         authMethod: binding.ecdsaRoleLocalReadyRecord.authMethod,
       },

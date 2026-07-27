@@ -46,6 +46,7 @@ import {
   parseEcdsaRoleLocalMaterialHandle,
   type EcdsaRoleLocalWorkerHandle,
 } from '@/core/signingEngine/session/keyMaterialBrands';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const WALLET_ID = 'router-ab-registration.testnet';
 const RP_ID = 'localhost';
@@ -72,6 +73,11 @@ const ROLE_LOCAL_SIGNING_MATERIAL_HANDLE = {
   bindingDigest: parseEcdsaRoleLocalBindingDigest(CONTEXT_BINDING_32_B64U),
   durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(ROLE_LOCAL_MATERIAL_HANDLE),
 } satisfies EcdsaRoleLocalWorkerHandle;
+const ROLE_LOCAL_MATERIAL_REF = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+  durableMaterialRef: ROLE_LOCAL_SIGNING_MATERIAL_HANDLE.durableMaterialRef,
+  bindingDigest: ROLE_LOCAL_SIGNING_MATERIAL_HANDLE.bindingDigest,
+  label: 'wallet-registration-router-ab',
+});
 
 const EVM_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
@@ -365,6 +371,7 @@ async function buildRegistrationBootstrap() {
     material: {
       kind: 'worker_handle',
       handle: ROLE_LOCAL_SIGNING_MATERIAL_HANDLE,
+      materialRef: ROLE_LOCAL_MATERIAL_REF,
       publicFacts,
     },
   });
@@ -479,8 +486,8 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
       ROLE_LOCAL_SIGNING_MATERIAL_HANDLE,
     );
     expect(durableRecord).not.toHaveProperty('roleLocalMaterialHandle');
-    expect(durableRecord?.roleLocalDurableMaterialRef).toBe(
-      ROLE_LOCAL_SIGNING_MATERIAL_HANDLE.durableMaterialRef,
+    expect(durableRecord?.roleLocalMaterialRef).toStrictEqual(
+      ROLE_LOCAL_MATERIAL_REF,
     );
     if (!durableRecord) throw new Error('expected durable threshold ECDSA session record');
     expect(thresholdEcdsaRecordHasRoleLocalSigningMaterial(runtimeRecord)).toBe(true);

@@ -33,6 +33,7 @@ import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationInt
 import type { EcdsaReauthAnchorPublicRestore } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
 import { runtimeEcdsaRouterAbNormalSigningState } from './helpers/availableSigningLanes.fixtures';
 import { makeEcdsaRoleLocalReadyRecordFixture } from './helpers/ecdsaSessionRecordVariants.fixtures';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';
@@ -215,7 +216,11 @@ function durablePublicReauthAuthority(
     relayerUrl: 'https://relay.example',
     thresholdEcdsaPublicKeyB64u: common.publicFacts.publicKeyB64u,
     participantIds: [...common.key.participantIds],
-    roleLocalDurableMaterialRef: `role-local:export-lane:${common.thresholdSessionId}`,
+    roleLocalMaterialRef: buildEcdsaRoleLocalPersistedMaterialRefFixture({
+      durableMaterialRef: `role-local:export-lane:${common.thresholdSessionId}`,
+      bindingDigest: roleLocal.publicFacts.contextBinding32B64u,
+      label: `export-lane:${common.thresholdSessionId}`,
+    }),
     runtimePolicyScope: {
       orgId: 'org-export-lane',
       projectId: 'project-export-lane',

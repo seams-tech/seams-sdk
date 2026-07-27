@@ -9,7 +9,10 @@ import {
   type ThresholdEcdsaSessionStoreDeps,
   type ThresholdEd25519SessionRecord,
 } from './records';
-import type { EcdsaRoleLocalWorkerHandle } from '../keyMaterialBrands';
+import type {
+  EcdsaRoleLocalPersistedMaterialRef,
+  EcdsaRoleLocalWorkerHandle,
+} from '../keyMaterialBrands';
 
 declare const ecdsaDeps: ThresholdEcdsaSessionStoreDeps;
 declare const genericEcdsaRecord: ThresholdEcdsaSessionRecord;
@@ -17,11 +20,12 @@ declare const currentEcdsaRecord: OperationUsableThresholdEcdsaSessionRecord;
 declare const genericEd25519Record: ThresholdEd25519SessionRecord;
 declare const currentEd25519Record: OperationUsableThresholdEd25519SessionRecord;
 declare const roleLocalWorkerHandle: EcdsaRoleLocalWorkerHandle;
+declare const roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
 declare const passkeyRecord: ReadyPasskeyEcdsaSessionRecord;
 declare const emailOtpRecord: EmailOtpEcdsaSessionRecord;
 declare const workerOwnedEmailOtpRecord: Extract<
   EmailOtpEcdsaSessionRecord,
-  { roleLocalDurableMaterialRef: unknown }
+  { roleLocalMaterialRef: unknown }
 >;
 declare const inlineEmailOtpRecord: Extract<
   EmailOtpEcdsaSessionRecord,
@@ -45,16 +49,24 @@ void invalidPasskeyRecordWithEmailOtpAuth;
 const invalidPasskeyRecordWithoutDurableMaterial: ReadyPasskeyEcdsaSessionRecord = {
   ...passkeyRecord,
   // @ts-expect-error Passkey records require durable role-local material.
-  roleLocalDurableMaterialRef: undefined,
+  roleLocalMaterialRef: undefined,
 };
 void invalidPasskeyRecordWithoutDurableMaterial;
 
 const invalidInlineEmailOtpRecordWithDurableMaterial: typeof inlineEmailOtpRecord = {
   ...inlineEmailOtpRecord,
   // @ts-expect-error Inline Email OTP records cannot also reference worker-owned material.
-  roleLocalDurableMaterialRef: workerOwnedEmailOtpRecord.roleLocalDurableMaterialRef,
+  roleLocalMaterialRef: workerOwnedEmailOtpRecord.roleLocalMaterialRef,
 };
 void invalidInlineEmailOtpRecordWithDurableMaterial;
+
+// @ts-expect-error Persisted role-local material requires exact activation identity.
+const invalidRoleLocalMaterialRefWithoutActivation: EcdsaRoleLocalPersistedMaterialRef = {
+  kind: 'ecdsa_role_local_persisted_material_ref_v1',
+  durableMaterialRef: roleLocalMaterialRef.durableMaterialRef,
+  bindingDigest: roleLocalMaterialRef.bindingDigest,
+};
+void invalidRoleLocalMaterialRefWithoutActivation;
 
 const invalidWorkerOwnedEmailOtpRecordWithInlineState: typeof workerOwnedEmailOtpRecord = {
   ...workerOwnedEmailOtpRecord,

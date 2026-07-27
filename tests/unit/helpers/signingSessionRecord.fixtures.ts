@@ -3,7 +3,6 @@ import type {
   ThresholdEcdsaSessionBootstrapResult,
 } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
-  parseEcdsaRoleLocalDurableMaterialRef,
   parseEcdsaRoleLocalWorkerHandle,
   parseSigningSessionSealKeyVersion,
 } from '@/core/signingEngine/session/keyMaterialBrands';
@@ -43,6 +42,7 @@ import {
   createThresholdEcdsaBootstrapFixture,
   fixtureRuntimePolicyScopeFromSigningRoot,
 } from './ecdsaBootstrap.fixtures';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './ecdsaMaterialRef.fixtures';
 import { testEcdsaChainTarget } from './ecdsaChainTarget.fixtures';
 
 const FIXTURE_EMAIL_HASH_HEX = '11'.repeat(32);
@@ -452,9 +452,13 @@ export function buildEmailOtpEcdsaSessionRecordFixture(
     const durableMaterialRef =
       args.roleLocalDurableMaterialRef ||
       `role-local-durable-${String(bootstrap.thresholdEcdsaKeyRef.thresholdSessionId)}`;
+    const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+      durableMaterialRef,
+      bindingDigest: ecdsaFixtureReadyRecord(bootstrap).publicFacts.contextBinding32B64u,
+    });
     return parseRawThresholdEcdsaSessionRecord({
       ...raw,
-      roleLocalDurableMaterialRef: durableMaterialRef,
+      roleLocalMaterialRef,
       emailOtpAuthContext,
       source: 'email_otp',
     });
@@ -498,17 +502,21 @@ export function buildPasskeyEcdsaSessionRecordFixture(
   const durableMaterialRef =
     args.roleLocalDurableMaterialRef ||
     `role-local-durable-${String(bootstrap.thresholdEcdsaKeyRef.thresholdSessionId)}`;
+  const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+    durableMaterialRef,
+    bindingDigest: ecdsaFixtureReadyRecord(bootstrap).publicFacts.contextBinding32B64u,
+  });
   const record = parseRawThresholdEcdsaSessionRecord({
     ...ecdsaSessionRecordRawFromBootstrapFixture({
       bootstrap,
       chainTarget,
       ...(args.updatedAtMs !== undefined ? { updatedAtMs: args.updatedAtMs } : {}),
     }),
-    roleLocalDurableMaterialRef: durableMaterialRef,
+    roleLocalMaterialRef,
     source: args.source || 'login',
   });
   const persistedMaterial = buildPersistedEcdsaRoleLocalMaterial({
-    durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(durableMaterialRef),
+    materialRef: roleLocalMaterialRef,
     publicFacts: record.ecdsaRoleLocalPublicFacts,
   });
   bindLiveEcdsaRoleLocalMaterial({

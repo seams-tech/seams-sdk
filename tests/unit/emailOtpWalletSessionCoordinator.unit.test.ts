@@ -57,6 +57,7 @@ import type { RestorePersistedSessionForSigningInput } from '@/core/signingEngin
 import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { fixtureRouterAbEcdsaDerivationPublicCapability } from './helpers/ecdsaBootstrap.fixtures';
 import { buildEmailOtpEcdsaSessionRecordFixture } from './helpers/signingSessionRecord.fixtures';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const TEST_SUBJECT_ID = toWalletId('alice.testnet');
 const TEST_SIGNING_SESSION_SEAL_KEY_VERSION = parseSigningSessionSealKeyVersion(
@@ -685,22 +686,32 @@ function buildEcdsaSealedRecordFixture(
     envId: signingRootParts[1] || 'dev',
     signingRootVersion: args.signingRootVersion || 'root-v1',
   };
-  // Cast: this WIP-stale sealed-restore fixture predates the shape that added
-  // signingRootId/signingRootVersion/publicCapability/roleLocalDurableMaterialRef.
-  // Backfilling those fields would change the runtime payload the
-  // classified-failing email-OTP session tests exercise, so the stale shape is
-  // preserved as-is.
+  const evmFamilySigningKeySlotId =
+    args.ecdsaRestore?.evmFamilySigningKeySlotId ||
+    deriveEvmFamilySigningKeySlotId({
+      walletId: toWalletId(walletId),
+      signingRootId,
+      signingRootVersion: args.signingRootVersion || 'root-v1',
+    });
+  const routerAbEcdsaDerivationNormalSigning =
+    args.ecdsaRestore?.routerAbEcdsaDerivationNormalSigning ||
+    routerAbEcdsaDerivationNormalSigningFixture({
+      walletId,
+      evmFamilySigningKeySlotId,
+      ecdsaThresholdKeyId: args.ecdsaRestore?.ecdsaThresholdKeyId || 'ecdsa-key',
+      signingRootId,
+      signingRootVersion: args.signingRootVersion || 'root-v1',
+      ethereumAddress: (args.ecdsaRestore?.ethereumAddress ||
+        `0x${'33'.repeat(20)}`) as `0x${string}`,
+      thresholdSessionId,
+    });
   const ecdsaRestore = {
     chainTarget,
     source: 'email_otp',
     provider: args.ecdsaRestore?.provider || 'google',
-    evmFamilySigningKeySlotId:
-      args.ecdsaRestore?.evmFamilySigningKeySlotId ||
-      deriveEvmFamilySigningKeySlotId({
-        walletId: toWalletId(walletId),
-        signingRootId,
-        signingRootVersion: args.signingRootVersion || 'root-v1',
-      }),
+    evmFamilySigningKeySlotId,
+    signingRootId,
+    signingRootVersion: args.signingRootVersion || 'root-v1',
     providerSubjectId: args.ecdsaRestore?.providerSubjectId || 'google:subject',
     emailHashHex: args.ecdsaRestore?.emailHashHex || 'email-hash',
     walletSessionJwt:
@@ -723,23 +734,21 @@ function buildEcdsaSealedRecordFixture(
     thresholdEcdsaPublicKeyB64u:
       args.ecdsaRestore?.thresholdEcdsaPublicKeyB64u || VALID_ECDSA_PUBLIC_KEY_B64U,
     participantIds: args.ecdsaRestore?.participantIds || [1, 3],
-    routerAbEcdsaDerivationNormalSigning:
-      args.ecdsaRestore?.routerAbEcdsaDerivationNormalSigning ||
-      routerAbEcdsaDerivationNormalSigningFixture({
+    routerAbEcdsaDerivationNormalSigning,
+    roleLocalMaterialRef:
+      args.ecdsaRestore?.roleLocalMaterialRef ||
+      buildEcdsaRoleLocalPersistedMaterialRefFixture({
+        durableMaterialRef: `role-local:email-otp-coordinator:${thresholdSessionId}`,
+        bindingDigest:
+          routerAbEcdsaDerivationNormalSigning.scope.public_identity.context_binding_b64u,
+        label: `email-otp-coordinator:${thresholdSessionId}`,
+      }),
+    publicCapability:
+      args.ecdsaRestore?.publicCapability ||
+      fixtureRouterAbEcdsaDerivationPublicCapability({
         walletId,
-        evmFamilySigningKeySlotId:
-          args.ecdsaRestore?.evmFamilySigningKeySlotId ||
-          deriveEvmFamilySigningKeySlotId({
-            walletId: toWalletId(walletId),
-            signingRootId,
-            signingRootVersion: args.signingRootVersion || 'root-v1',
-          }),
-        ecdsaThresholdKeyId: args.ecdsaRestore?.ecdsaThresholdKeyId || 'ecdsa-key',
-        signingRootId,
-        signingRootVersion: args.signingRootVersion || 'root-v1',
-        ethereumAddress: (args.ecdsaRestore?.ethereumAddress ||
-          `0x${'33'.repeat(20)}`) as `0x${string}`,
-        thresholdSessionId,
+        sessionId: routerAbEcdsaDerivationNormalSigning.scope.activation_epoch,
+        normalSigning: routerAbEcdsaDerivationNormalSigning,
       }),
     runtimePolicyScope: args.ecdsaRestore?.runtimePolicyScope || runtimePolicyScope,
   } as EmailOtpJwtEcdsaSealedRestore;

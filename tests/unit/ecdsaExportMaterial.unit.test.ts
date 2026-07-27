@@ -30,6 +30,7 @@ import {
   type EmailOtpEcdsaSessionRecord,
   type PasskeyEcdsaSessionRecord,
 } from './helpers/ecdsaSessionRecordVariants.fixtures';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import {
   resolveEcdsaExportMaterialForLane,
   resolveFreshEmailOtpEcdsaExportMaterialForLane,
@@ -216,7 +217,10 @@ function emailOtpPublicReauthAuthority(
     routerAbEcdsaDerivationNormalSigning,
     relayerUrl: record.relayerUrl,
     publicCapability: record.ecdsaRoleLocalPublicFacts.publicCapability,
-    roleLocalDurableMaterialRef: `role-local:ecdsa-export:${record.thresholdSessionId}`,
+    roleLocalMaterialRef: buildEcdsaRoleLocalPersistedMaterialRefFixture({
+      durableMaterialRef: `role-local:ecdsa-export:${record.thresholdSessionId}`,
+      bindingDigest: record.ecdsaRoleLocalPublicFacts.contextBinding32B64u,
+    }),
   };
 }
 

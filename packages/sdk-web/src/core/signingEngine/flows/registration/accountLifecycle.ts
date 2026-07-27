@@ -57,7 +57,9 @@ import type {
 import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type { RegistrationAccountLifecycleDeps } from '../../interfaces/operationDeps';
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
-import type { EcdsaRoleLocalDurableMaterialRef } from '../../session/keyMaterialBrands';
+import type {
+  EcdsaRoleLocalPersistedMaterialRef,
+} from '../../session/keyMaterialBrands';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
@@ -143,7 +145,7 @@ export type StoreWalletEcdsaWalletKey = {
   relayerVerifyingShareB64u: string;
   participantIds: readonly [number, number];
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
-  roleLocalDurableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+  roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
   ecdsaRoleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
 };
 
@@ -1592,7 +1594,7 @@ function prepareWalletEcdsaSignerActivations(
               'wallet key relayerVerifyingShareB64u',
             ),
             publicCapability: walletKey.publicCapability,
-            roleLocalDurableMaterialRef: walletKey.roleLocalDurableMaterialRef,
+            roleLocalMaterialRef: walletKey.roleLocalMaterialRef,
             ecdsaRoleLocalPublicFacts: walletKey.ecdsaRoleLocalPublicFacts,
             thresholdEcdsaPublicKeyB64u,
             participantIds,

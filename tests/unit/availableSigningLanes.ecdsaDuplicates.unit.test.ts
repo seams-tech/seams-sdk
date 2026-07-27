@@ -41,6 +41,7 @@ import {
   runtimeEcdsaAvailableLaneRecord as runtimeEcdsaRecord,
 } from './helpers/availableSigningLanes.fixtures';
 import { fixtureRouterAbEcdsaDerivationPublicCapability } from './helpers/ecdsaBootstrap.fixtures';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 function unsignedEcdsaWalletSessionJwt(args: {
   walletId: string;
@@ -135,7 +136,12 @@ function sealedEmailOtpEcdsaRecord(args: {
       provider: 'google',
       providerSubjectId: 'google:available-lanes',
       emailHashHex: '11'.repeat(32),
-      roleLocalDurableMaterialRef: 'role-local-material-available-lanes',
+      roleLocalMaterialRef: buildEcdsaRoleLocalPersistedMaterialRefFixture({
+        durableMaterialRef: 'role-local-material-available-lanes',
+        bindingDigest:
+          routerAbEcdsaDerivationNormalSigning.scope.public_identity.context_binding_b64u,
+        label: `available-lanes:${args.thresholdSessionId}`,
+      }),
       walletSessionJwt: unsignedEcdsaWalletSessionJwt({
         walletId: String(runtimeRecord.key.walletId),
         keyHandle: String(runtimeRecord.keyHandle),

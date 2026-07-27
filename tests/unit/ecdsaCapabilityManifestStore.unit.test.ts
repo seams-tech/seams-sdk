@@ -697,6 +697,10 @@ test.describe('canonical ECDSA capability manifest store', () => {
           committedJournal: committedWrite.journal,
           ...fixture.sealInput,
         });
+        if (finalization.kind !== 'committed') {
+          throw new Error(`finalization failed: ${finalization.kind}`);
+        }
+        const materialActivation = finalization.manifest.activation.materialActivation;
         const afterFinalize = await store.readActivationJournal(preparedWrite.journal.journalId);
         const opened = await store.openActiveMaterial({
           capability: fixture.prepareInput.activationBinding.signer.capability,
@@ -706,11 +710,13 @@ test.describe('canonical ECDSA capability manifest store', () => {
           kind: 'ecdsa_role_local_persisted_material_ref_v1',
           durableMaterialRef: fixture.prepareInput.activationBinding.durableMaterialRef,
           bindingDigest: fixture.prepareInput.activationBinding.bindingDigest,
+          materialActivation,
         });
         const mismatchedMaterialRef = await store.openActiveMaterialByRef({
           kind: 'ecdsa_role_local_persisted_material_ref_v1',
           durableMaterialRef: fixture.prepareInput.activationBinding.durableMaterialRef,
           bindingDigest: 'different-binding-digest',
+          materialActivation,
         });
         const legacyStorePresent = await new Promise<boolean>((resolve, reject) => {
           const request = indexedDB.open('seams_wallet');
@@ -815,6 +821,7 @@ test.describe('canonical ECDSA capability manifest store', () => {
           kind: 'ecdsa_role_local_persisted_material_ref_v1',
           durableMaterialRef: fixture.prepareInput.activationBinding.durableMaterialRef,
           bindingDigest: fixture.prepareInput.activationBinding.bindingDigest,
+          materialActivation: finalized.manifest.activation.materialActivation,
         };
 
         const firstWorker = new Worker(workerUrl, { type: 'module' });

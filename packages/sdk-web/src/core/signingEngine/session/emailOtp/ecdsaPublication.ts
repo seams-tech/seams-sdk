@@ -51,7 +51,10 @@ import {
   buildPersistedEcdsaRoleLocalMaterial,
   type PersistedEcdsaRoleLocalMaterial,
 } from '../material/ecdsaRoleLocalMaterialResolver';
-import { parseEcdsaRoleLocalDurableMaterialRef } from '../keyMaterialBrands';
+import {
+  parseEcdsaRoleLocalPersistedMaterialRef,
+  type EcdsaRoleLocalPersistedMaterialRef,
+} from '../keyMaterialBrands';
 
 export type EmailOtpEcdsaPublicationTimingBucket =
   | 'signingSessionSealApplyMs'
@@ -277,8 +280,7 @@ export function projectEmailOtpExistingEcdsaKeyToChainTarget(args: {
       thresholdEcdsaPublicKeyB64u: publicFacts.groupPublicKey33B64u,
     }),
     persistedRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
-      durableMaterialRef:
-        args.existingKey.persistedRoleLocalMaterial.materialRef.durableMaterialRef,
+      materialRef: args.existingKey.persistedRoleLocalMaterial.materialRef,
       publicFacts,
     }),
   };
@@ -354,8 +356,8 @@ function activeEmailOtpEcdsaSignerCandidates(args: {
         metadata.publicCapability,
       );
       const publicFacts = buildEcdsaRoleLocalPublicFacts(metadata.ecdsaRoleLocalPublicFacts);
-      const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef(
-        metadata.roleLocalDurableMaterialRef,
+      const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(
+        metadata.roleLocalMaterialRef,
       );
       if (
         alphabetizeStringify(publicFacts.publicCapability) !==
@@ -391,7 +393,7 @@ function activeEmailOtpEcdsaSignerCandidates(args: {
           thresholdEcdsaPublicKeyB64u: publicFacts.groupPublicKey33B64u,
         }),
         persistedRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
-          durableMaterialRef,
+          materialRef,
           publicFacts,
         }),
       };
@@ -683,15 +685,13 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   const relayerKeyId = String(keyRef.backendBinding?.relayerKeyId || '').trim();
   const routerAbEcdsaDerivationNormalSigning = keyRef.routerAbEcdsaDerivationNormalSigning;
   const backendBinding = keyRef.backendBinding;
-  let roleLocalDurableMaterialRef = '';
+  let roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef | null = null;
   let publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1 | null = null;
   if (backendBinding?.materialKind === 'role_local_worker_handle') {
-    roleLocalDurableMaterialRef = String(
-      backendBinding.roleLocalMaterialHandle.durableMaterialRef,
-    ).trim();
+    roleLocalMaterialRef = backendBinding.roleLocalMaterialRef;
     publicCapability = backendBinding.publicFacts.publicCapability;
   } else if (backendBinding?.materialKind === 'role_local_durable_sealed_ref') {
-    roleLocalDurableMaterialRef = String(backendBinding.durableMaterialRef).trim();
+    roleLocalMaterialRef = backendBinding.roleLocalMaterialRef;
     publicCapability = backendBinding.publicFacts.publicCapability;
   }
   const participantIds = Array.isArray(keyRef.participantIds)
@@ -710,7 +710,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     !relayerKeyId ||
     !routerAbEcdsaDerivationNormalSigning ||
     !publicCapability ||
-    !roleLocalDurableMaterialRef ||
+    !roleLocalMaterialRef ||
     !participantIds.length ||
     !walletSessionJwt ||
     !signingRootId ||
@@ -812,7 +812,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
       participantIds,
       routerAbEcdsaDerivationNormalSigning,
       publicCapability,
-      roleLocalDurableMaterialRef,
+      roleLocalMaterialRef,
     },
     updatedAtMs: persistedAtMs,
   });
@@ -839,7 +839,8 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     persisted.thresholdSessionIds.ecdsa !== thresholdSessionId ||
     persisted.signingGrantId !== signingGrantId ||
     persisted.sealedSecretB64u !== sealedSecretB64u ||
-    persisted.ecdsaRestore?.roleLocalDurableMaterialRef !== roleLocalDurableMaterialRef ||
+    alphabetizeStringify(persisted.ecdsaRestore?.roleLocalMaterialRef) !==
+      alphabetizeStringify(roleLocalMaterialRef) ||
     !persisted.ecdsaRestore?.chainTarget ||
     !thresholdEcdsaChainTargetsEqual(persisted.ecdsaRestore.chainTarget, actualChainTarget)
   ) {

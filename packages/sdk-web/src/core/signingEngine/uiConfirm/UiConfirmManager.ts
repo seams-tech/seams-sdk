@@ -1308,9 +1308,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       ecdsaRecord?.ecdsaRoleLocalAuthMethod.kind === 'passkey'
         ? ecdsaRecord.ecdsaRoleLocalAuthMethod.credentialIdB64u
         : '';
-    const ecdsaRoleLocalDurableMaterialRef = String(
-      ecdsaRecord?.roleLocalDurableMaterialRef || '',
-    ).trim();
+    const ecdsaRoleLocalMaterialRef = ecdsaRecord?.roleLocalMaterialRef;
     const walletId = String(
       ed25519Record?.walletId || ecdsaRecord?.walletId || args.walletId || '',
     ).trim();
@@ -1329,7 +1327,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       ecdsaRecord.chainTarget &&
       ecdsaPasskeySource &&
       ecdsaPasskeyCredentialId &&
-      ecdsaRoleLocalDurableMaterialRef &&
+      ecdsaRoleLocalMaterialRef &&
       ecdsaWalletSessionAuth &&
       ecdsaSigningRootId &&
       ecdsaSigningRootVersion &&
@@ -1341,7 +1339,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             signingRootVersion: ecdsaSigningRootVersion,
             source: ecdsaPasskeySource,
             evmFamilySigningKeySlotId: ecdsaRecord.evmFamilySigningKeySlotId,
-            roleLocalDurableMaterialRef: ecdsaRoleLocalDurableMaterialRef,
+            roleLocalMaterialRef: ecdsaRoleLocalMaterialRef,
             rpId: thresholdEcdsaRecordRpId(ecdsaRecord),
             credentialIdB64u: ecdsaPasskeyCredentialId,
             ...ecdsaWalletSessionAuth,

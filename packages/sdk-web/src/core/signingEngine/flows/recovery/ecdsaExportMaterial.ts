@@ -70,7 +70,7 @@ import {
 } from '../signEvmFamily/ecdsaSelection';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { buildEcdsaRoleLocalPublicFacts } from '@/core/platform';
-import { parseEcdsaRoleLocalDurableMaterialRef } from '../../session/keyMaterialBrands';
+import { parseEcdsaRoleLocalPersistedMaterialRef } from '../../session/keyMaterialBrands';
 
 export type EcdsaExportMaterialAvailability =
   | { kind: 'loaded_worker_material' }
@@ -845,8 +845,8 @@ export async function resolveEcdsaExportMaterialForLane(
     runtimePolicyScope,
     publicCapability: restore.publicCapability,
     existingRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
-      durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(
-        restore.roleLocalDurableMaterialRef,
+      materialRef: parseEcdsaRoleLocalPersistedMaterialRef(
+        restore.roleLocalMaterialRef,
       ),
       publicFacts: buildEcdsaRoleLocalPublicFacts({
         walletId: exportLane.key.walletId,

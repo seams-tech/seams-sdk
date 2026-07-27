@@ -46,8 +46,9 @@ import { alphabetizeStringify } from '@shared/utils/digests';
 import {
   formatSigningSessionSealKeyVersionForWire,
   parseEcdsaRoleLocalBindingDigest,
-  parseEcdsaRoleLocalDurableMaterialRef,
+  parseEcdsaRoleLocalPersistedMaterialRef,
   type EcdsaRoleLocalDurableMaterialRef,
+  type EcdsaRoleLocalPersistedMaterialRef,
   type EcdsaRoleLocalWorkerHandle,
   type SigningSessionSealKeyVersion,
 } from '../keyMaterialBrands';
@@ -164,7 +165,7 @@ type ThresholdEcdsaSessionRecordCore = {
   relayerKeyId: string;
   clientVerifyingShareB64u: string;
   clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
-  roleLocalDurableMaterialRef?: EcdsaRoleLocalDurableMaterialRef;
+  roleLocalMaterialRef?: EcdsaRoleLocalPersistedMaterialRef;
   ecdsaRoleLocalAuthMethod: EcdsaRoleLocalAuthMethod;
   ecdsaRoleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
   ecdsaRoleLocalReadyRecord?: EcdsaRoleLocalReadyRecord;
@@ -193,7 +194,7 @@ export type RawThresholdEcdsaSessionRecord = Record<string, unknown>;
 type NormalizedThresholdEcdsaSessionRecordShared = Omit<
   ThresholdEcdsaSessionRecordCore,
   | 'clientAdditiveShareHandle'
-  | 'roleLocalDurableMaterialRef'
+  | 'roleLocalMaterialRef'
   | 'ecdsaRoleLocalAuthMethod'
   | 'ecdsaRoleLocalReadyRecord'
   | 'emailOtpAuthContext'
@@ -207,7 +208,7 @@ type NormalizedThresholdEcdsaSessionRecordShared = Omit<
 
 export type ReadyPasskeyEcdsaSessionRecord = NormalizedThresholdEcdsaSessionRecordShared & {
   source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
-  roleLocalDurableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+  roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
   ecdsaRoleLocalAuthMethod: Extract<EcdsaRoleLocalAuthMethod, { kind: 'passkey' }>;
   ecdsaRoleLocalReadyRecord?: never;
   clientAdditiveShareHandle?: never;
@@ -226,13 +227,13 @@ type EmailOtpEcdsaSessionRecordShared = Omit<
 };
 
 type WorkerOwnedEmailOtpEcdsaSessionRecord = EmailOtpEcdsaSessionRecordShared & {
-  roleLocalDurableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+  roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
   ecdsaRoleLocalReadyRecord?: never;
   clientAdditiveShareHandle?: never;
 };
 
 type InlineEmailOtpEcdsaSessionRecord = EmailOtpEcdsaSessionRecordShared & {
-  roleLocalDurableMaterialRef?: never;
+  roleLocalMaterialRef?: never;
   ecdsaRoleLocalReadyRecord: Extract<
     EcdsaRoleLocalReadyRecord,
     { kind: 'ecdsa_role_local_ready_email_otp_v1' }
@@ -1582,10 +1583,10 @@ function normalizeThresholdEcdsaSessionRecord(
   const clientAdditiveShareHandle = normalizeThresholdEcdsaClientAdditiveShareHandle(
     obj.clientAdditiveShareHandle,
   );
-  const roleLocalDurableMaterialRef =
-    obj.roleLocalDurableMaterialRef === undefined
+  const roleLocalMaterialRef =
+    obj.roleLocalMaterialRef === undefined
       ? undefined
-      : parseEcdsaRoleLocalDurableMaterialRef(obj.roleLocalDurableMaterialRef);
+      : parseEcdsaRoleLocalPersistedMaterialRef(obj.roleLocalMaterialRef);
   if (obj.roleLocalMaterialHandle !== undefined && obj.roleLocalMaterialHandle !== null) {
     throw new Error(
       'Invalid threshold ECDSA persisted session record: volatile worker handle is not durable state',
@@ -1725,7 +1726,9 @@ function normalizeThresholdEcdsaSessionRecord(
       signingRootId: signingRootBinding.signingRootId,
       signingRootVersion: signingRootBinding.signingRootVersion,
       clientVerifyingShareB64u,
-      ...(roleLocalDurableMaterialRef ? { roleLocalDurableMaterialRef } : {}),
+      ...(roleLocalMaterialRef
+        ? { roleLocalDurableMaterialRef: roleLocalMaterialRef.durableMaterialRef }
+        : {}),
       thresholdEcdsaPublicKeyB64u,
       ethereumAddress,
       relayerVerifyingShareB64u,
@@ -1803,7 +1806,7 @@ function normalizeThresholdEcdsaSessionRecord(
       );
     }
     if (!ecdsaRoleLocalReadyRecord) {
-      if (!roleLocalDurableMaterialRef) {
+      if (!roleLocalMaterialRef) {
         throw new Error(
           'Invalid threshold ECDSA canonical session record: Email OTP requires worker-owned or inline role-local material',
         );
@@ -1818,13 +1821,13 @@ function normalizeThresholdEcdsaSessionRecord(
         purpose: 'transaction_signing',
         thresholdSessionKind: 'jwt',
         walletSessionJwt,
-        roleLocalDurableMaterialRef,
+        roleLocalMaterialRef,
         ecdsaRoleLocalAuthMethod,
         emailOtpAuthContext,
         source,
       };
     }
-    if (roleLocalDurableMaterialRef) {
+    if (roleLocalMaterialRef) {
       throw new Error(
         'Invalid threshold ECDSA canonical session record: Email OTP cannot combine worker-owned and inline role-local material',
       );
@@ -1861,7 +1864,7 @@ function normalizeThresholdEcdsaSessionRecord(
       'Invalid threshold ECDSA canonical session record: passkey source cannot use Email OTP worker material',
     );
   }
-  if (!roleLocalDurableMaterialRef) {
+  if (!roleLocalMaterialRef) {
     throw new Error(
       'Invalid threshold ECDSA canonical session record: passkey source requires durable role-local material',
     );
@@ -1869,7 +1872,7 @@ function normalizeThresholdEcdsaSessionRecord(
   return {
     ...sharedRecord,
     purpose: 'transaction_signing',
-    roleLocalDurableMaterialRef,
+    roleLocalMaterialRef,
     ecdsaRoleLocalAuthMethod,
     source,
   };
@@ -2851,10 +2854,13 @@ function rememberInMemoryThresholdEcdsaRecord(record: ThresholdEcdsaSessionRecor
   inMemoryEcdsaRecordsByLane.set(laneKey, record);
   indexThresholdEcdsaRecord(inMemoryEcdsaRecordIndex, laneKey, record);
   if (
-    previous?.roleLocalDurableMaterialRef &&
-    previous.roleLocalDurableMaterialRef !== record.roleLocalDurableMaterialRef
+    previous?.roleLocalMaterialRef &&
+    previous.roleLocalMaterialRef.durableMaterialRef !==
+      record.roleLocalMaterialRef?.durableMaterialRef
   ) {
-    forgetUnreferencedInMemoryEcdsaRoleLocalHandle(previous.roleLocalDurableMaterialRef);
+    forgetUnreferencedInMemoryEcdsaRoleLocalHandle(
+      previous.roleLocalMaterialRef.durableMaterialRef,
+    );
   }
 }
 
@@ -2862,7 +2868,7 @@ function forgetUnreferencedInMemoryEcdsaRoleLocalHandle(
   durableMaterialRef: EcdsaRoleLocalDurableMaterialRef,
 ): void {
   for (const record of inMemoryEcdsaRecordsByLane.values()) {
-    if (record.roleLocalDurableMaterialRef === durableMaterialRef) {
+    if (record.roleLocalMaterialRef?.durableMaterialRef === durableMaterialRef) {
       return;
     }
   }
@@ -2875,8 +2881,10 @@ function forgetInMemoryThresholdEcdsaRecord(laneKey: string): void {
     deindexThresholdEcdsaRecord(inMemoryEcdsaRecordIndex, laneKey, record);
   }
   inMemoryEcdsaRecordsByLane.delete(laneKey);
-  if (record?.roleLocalDurableMaterialRef) {
-    forgetUnreferencedInMemoryEcdsaRoleLocalHandle(record.roleLocalDurableMaterialRef);
+  if (record?.roleLocalMaterialRef) {
+    forgetUnreferencedInMemoryEcdsaRoleLocalHandle(
+      record.roleLocalMaterialRef.durableMaterialRef,
+    );
   }
 }
 
@@ -2886,11 +2894,11 @@ export type { PersistedEcdsaRoleLocalMaterial };
 export function requirePersistedEcdsaRoleLocalMaterial(
   record: ThresholdEcdsaSessionRecord,
 ): PersistedEcdsaRoleLocalMaterial {
-  if (!record.roleLocalDurableMaterialRef) {
+  if (!record.roleLocalMaterialRef) {
     throw new Error('[SigningEngine] ECDSA session record requires durable role-local material');
   }
   return buildPersistedEcdsaRoleLocalMaterial({
-    durableMaterialRef: record.roleLocalDurableMaterialRef,
+    materialRef: record.roleLocalMaterialRef,
     publicFacts: record.ecdsaRoleLocalPublicFacts,
   });
 }
@@ -2898,7 +2906,7 @@ export function requirePersistedEcdsaRoleLocalMaterial(
 export function getInMemoryEcdsaRoleLocalHandle(
   record: ThresholdEcdsaSessionRecord,
 ): EcdsaRoleLocalWorkerHandle | null {
-  if (!record.roleLocalDurableMaterialRef) return null;
+  if (!record.roleLocalMaterialRef) return null;
   return getLiveEcdsaRoleLocalMaterial(requirePersistedEcdsaRoleLocalMaterial(record));
 }
 
@@ -3285,15 +3293,15 @@ type EcdsaRecordFromBootstrapArgs =
 
 type BuildEcdsaRecordFromBootstrapArgs = EcdsaRecordFromBootstrapArgs & { nowMs: number };
 
-function durableRoleLocalMaterialRefFromBackendBinding(
+function roleLocalMaterialRefFromBackendBinding(
   binding: ThresholdEcdsaSecp256k1KeyRef['backendBinding'],
-): EcdsaRoleLocalDurableMaterialRef | null {
+): EcdsaRoleLocalPersistedMaterialRef | null {
   if (!binding) return null;
   switch (binding.materialKind) {
     case 'role_local_worker_handle':
-      return binding.roleLocalMaterialHandle.durableMaterialRef;
+      return binding.roleLocalMaterialRef;
     case 'role_local_durable_sealed_ref':
-      return binding.durableMaterialRef;
+      return binding.roleLocalMaterialRef;
     case 'email_otp_worker_handle':
     case 'role_local_durable_public_anchor':
     case 'role_local_ready_state_blob':
@@ -3348,9 +3356,7 @@ function buildEcdsaRecordFromBootstrap(
   const clientAdditiveShareHandle = normalizeThresholdEcdsaClientAdditiveShareHandle(
     keyRef.backendBinding?.clientAdditiveShareHandle,
   );
-  const roleLocalDurableMaterialRef = durableRoleLocalMaterialRefFromBackendBinding(
-    keyRef.backendBinding,
-  );
+  const roleLocalMaterialRef = roleLocalMaterialRefFromBackendBinding(keyRef.backendBinding);
   const ecdsaRoleLocalReadyRecord = normalizeEcdsaRoleLocalReadyRecord(
     keyRef.backendBinding?.ecdsaRoleLocalReadyRecord,
   );
@@ -3396,7 +3402,7 @@ function buildEcdsaRecordFromBootstrap(
       : {}),
     relayerKeyId: keyRef.backendBinding?.relayerKeyId,
     clientVerifyingShareB64u: keyRef.backendBinding?.clientVerifyingShareB64u,
-    ...(roleLocalDurableMaterialRef ? { roleLocalDurableMaterialRef } : {}),
+    ...(roleLocalMaterialRef ? { roleLocalMaterialRef } : {}),
     ...(clientAdditiveShareHandle ? { clientAdditiveShareHandle } : {}),
     ecdsaRoleLocalAuthMethod,
     ecdsaRoleLocalPublicFacts,

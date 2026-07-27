@@ -34,9 +34,18 @@ export type EcdsaDerivationAdditiveShareRequest = {
   readonly kind: 'ecdsa_derivation_additive_share_request_v1';
   readonly requestId: string;
   readonly materialHandle: string;
-  readonly durableMaterialRef: string;
   readonly poolIdentity: EcdsaClientPresignPoolIdentity;
-  readonly expectedBindingDigest: string;
+  readonly material:
+    | {
+        readonly kind: 'persisted';
+        readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
+        readonly expectedBindingDigest?: never;
+      }
+    | {
+        readonly kind: 'runtime_loaded';
+        readonly expectedBindingDigest: string;
+        readonly materialRef?: never;
+      };
 };
 
 export type EcdsaDerivationAdditiveShareResponse =
@@ -146,6 +155,7 @@ export type FinalizeRouterAbEcdsaExplicitExportRequestV1 = {
   readonly signingWorkerExport: RouterAbEcdsaSigningWorkerExportShareEnvelopeV1;
   readonly signingGrantId: RouterAbEcdsaSigningWorkerExportShareBindingV1['signing_grant_id'];
   readonly roleLocalMaterial: EcdsaRoleLocalWorkerHandle;
+  readonly roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
   readonly publicFacts: EcdsaRoleLocalPublicFacts;
 };
 

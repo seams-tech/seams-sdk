@@ -11,6 +11,7 @@ import {
   parseEcdsaRoleLocalDurableMaterialRef,
   parseEcdsaRoleLocalMaterialHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const IMPORT_PATHS = {
   indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
@@ -36,12 +37,17 @@ if (ECDSA_RESTORE_BINDING?.materialKind !== 'role_local_ready_state_blob') {
   throw new Error('expected role-local ECDSA sealed-session fixture');
 }
 const ECDSA_RESTORE_PUBLIC_FACTS = ECDSA_RESTORE_BINDING.ecdsaRoleLocalReadyRecord.publicFacts;
+const ECDSA_RESTORE_MATERIAL_REF = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+  durableMaterialRef: 'role-local:sealed-store-fixture',
+  bindingDigest: ECDSA_RESTORE_PUBLIC_FACTS.contextBinding32B64u,
+  label: 'sealed-store-fixture',
+});
 
 const ECDSA_RESTORE = {
   chainTarget: ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.chainTarget,
   source: 'manual-bootstrap',
   evmFamilySigningKeySlotId: ECDSA_RESTORE_BOOTSTRAP.keygen.evmFamilySigningKeySlotId,
-  roleLocalDurableMaterialRef: 'role-local:sealed-store-fixture',
+  roleLocalMaterialRef: ECDSA_RESTORE_MATERIAL_REF,
   rpId: 'wallet.example.localhost',
   credentialIdB64u: 'passkey-ecdsa-credential',
   sessionKind: 'cookie',
@@ -152,6 +158,13 @@ test.describe('signing session sealed store', () => {
       throw new Error('expected role-local fixture');
     }
     const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef('role-local:expired-anchor');
+    const bindingDigest = parseEcdsaRoleLocalBindingDigest(
+      fixtureBinding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+    );
+    const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+      durableMaterialRef,
+      bindingDigest,
+    });
     const bootstrap = {
       ...fixtureBootstrap,
       thresholdEcdsaKeyRef: {
@@ -163,11 +176,10 @@ test.describe('signing session sealed store', () => {
           roleLocalMaterialHandle: {
             kind: 'ecdsa_role_local_worker_handle_v1' as const,
             materialHandle: parseEcdsaRoleLocalMaterialHandle('role-local:expired-anchor'),
-            bindingDigest: parseEcdsaRoleLocalBindingDigest(
-              fixtureBinding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
-            ),
+            bindingDigest,
             durableMaterialRef,
           },
+          roleLocalMaterialRef,
           publicFacts: fixtureBinding.ecdsaRoleLocalReadyRecord.publicFacts,
           authMethod: fixtureBinding.ecdsaRoleLocalReadyRecord.authMethod,
         },
@@ -182,10 +194,14 @@ test.describe('signing session sealed store', () => {
     });
     const persistedRecord = {
       ...runtimeRecord,
-      roleLocalDurableMaterialRef: durableMaterialRef,
+      roleLocalMaterialRef,
       expiresAtMs: Date.now() + 2_000,
       updatedAtMs: Date.now(),
     };
+    expect(persistedRecord.roleLocalMaterialRef).toStrictEqual(roleLocalMaterialRef);
+    expect(persistedRecord.thresholdEcdsaPublicKeyB64u).toBeTruthy();
+    expect(persistedRecord.routerAbEcdsaDerivationNormalSigning).toBeTruthy();
+    expect(persistedRecord.ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/i);
 
     const result = await page.evaluate(
       async ({ paths, record, walletId: rawWalletId, chainTarget: rawChainTarget }) => {

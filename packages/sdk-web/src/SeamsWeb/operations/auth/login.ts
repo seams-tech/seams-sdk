@@ -142,7 +142,6 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 import { buildEcdsaRoleLocalPublicFacts } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
-import { parseEcdsaRoleLocalDurableMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaSessionLanePolicy,
@@ -2517,7 +2516,7 @@ function persistedRoleLocalMaterialFromDurableAvailableLane(args: {
     publicCapability,
   });
   return buildPersistedEcdsaRoleLocalMaterial({
-    durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(restore.roleLocalDurableMaterialRef),
+    materialRef: restore.roleLocalMaterialRef,
     publicFacts,
   });
 }
