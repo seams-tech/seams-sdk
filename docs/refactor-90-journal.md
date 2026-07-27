@@ -3,8 +3,52 @@
 Companion to the [Modular Auth And Capability Refactor Plan](./refactor-90-modular-auth-capabilities-plan.md).
 
 This file holds dated progress entries so the plan stays a readable checklist.
-The plan records only a one-line status per phase; the narrative history lives
-here.
+The plan records active execution-unit status; the narrative and historical
+phase record live here.
+
+## July 27, 2026: Plan Consolidated Into Five Execution Units
+
+- Consolidated Foundations A/B, Phases 4–5, and the ECDSA portion of Phase 18
+  into Unit 1: canonical hydration and canonical ECDSA state.
+- Consolidated Phases 7–14, including the typed SDK capability-selection work
+  from Phase 8, into Unit 2: the shared authorization core.
+- Consolidated Phases 17–21 and 24 into Unit 3a: the no-release MPC cutover.
+  Worker/bundle and host-assembly obligations remain explicit exit checks.
+- Assigned the minimal vault proving vertical to Unit 3b and
+  [Satyr Phase 6](./satyr-secrets-vault.md). Units 3a and 3b may develop in
+  parallel after Unit 2 stabilizes; supported release still requires both
+  proving tracks unless the normative plans are amended together.
+- Consolidated Phases 22–23 into Unit 4: UI and provisioning.
+- Removed standalone Phase 6 inventory work. Every unit now begins with a
+  scoped inventory seeded from the deletion ledger.
+- Removed Phase 27 as an implementation phase. Deletions remain same-change
+  obligations in their owning units, followed by one final conformance gate.
+- Replaced repeated architecture and validation prose with a SPEC invariant
+  ownership index and unit-local validation table.
+
+### Frozen reduction history
+
+The earlier reduction ledger recorded why the first plan slimming was safe. It
+is frozen here as history. Future deletions follow the operational
+[deletion ledger](./refactor-90-deletion-ledger.md) and do not require a second
+row in this table.
+
+| Removed design weight               | Protected property                     | Replacement                                                                  |
+| ----------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------- |
+| ECDSA readback-pending microstate   | Crash-safe local finalization          | One atomic IndexedDB transaction installs, retires, and deletes the journal. |
+| NEAR recovery microstates           | Server-uncertainty recovery            | Two durable states plus idempotent, queryable consuming calls.               |
+| Separate server-uncertain stages    | Exact replay after ambiguous response  | Recovery ID and server readback.                                             |
+| Pre-promotion cleanup stages        | Respect user cancellation              | Reload reconciles `cancel_requested` and never resumes the abandoned parent. |
+| Separate seal/source cleanup states | No partially finalized local state     | Atomic finalization transaction.                                             |
+| Affine runtime leases               | Exact-owner serialization              | One queue per exact material owner, with generation/fence checks.             |
+| Runtime-disposal protocol           | Secret/runtime lifetime safety         | Existing worker ownership and disposal boundaries.                           |
+| Target-revocation subsystem         | Eventual offline revocation             | One exact idempotent revocation command; server claims remain server-owned.   |
+| Synthetic third factor              | Factor-neutral orchestration           | Passkey/OTP conformance plus the generic-module factor-literal guard.        |
+| Recursive evidence grammar          | Precise current authorization evidence | Closed evidence unions for supported factors.                                |
+| Repository-wide inventory phase     | Complete migration scope               | Unit-scoped inventory seeded from the standing deletion ledger.              |
+| Triple enforcement for each rule    | Effective enforcement                  | One cheapest check per failure mode.                                         |
+| Broad vault product slice           | Architectural proof                    | One real Satyr Phase 6 operation.                                            |
+| Speculative capability kinds        | Current closed vocabulary              | Add a kind only with its first real consumer.                                |
 
 ## July 27, 2026: Canonical Sealing And Server Reconciliation Implemented
 

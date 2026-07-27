@@ -112,14 +112,14 @@ invariant.
   locking the wallet, and refresh preserves the remaining warm allowance for a
   still-valid Wallet Session.
 
-## Phased Invariant Verification Checklist
+## Execution-Unit Invariant Verification Checklist
 
 This checklist tracks conformance evidence for the normative invariants. The
 implementation plan owns task status. Check an item here only when the invariant
 is expressed in code and its cheapest effective verification passes; link the
 evidence from the progress journal.
 
-### Foundations A-B
+### Unit 1 — canonical hydration and canonical ECDSA state
 
 - [ ] `R90-INV-001` — hydration and ECDSA persistence boundaries parse raw
   records once and expose only precise internal branches.
@@ -133,10 +133,10 @@ evidence from the progress journal.
   disposal, zeroization, or other volatile facts.
 - [x] `R90-INV-011` — ECDSA post-commit verification creates no durable
   readback/publication state.
-- [ ] `R90-INV-012` — Foundation type fixtures, parser tests, persistence tests,
+- [ ] `R90-INV-012` — Unit 1 type fixtures, parser tests, persistence tests,
   and generic-module guards each cover their assigned failure mode once.
 
-### Slice A — authorization proving vertical
+### Units 2 and 3b — authorization core and vault proving vertical
 
 - [ ] `R90-INV-001` — session, evidence, grant, claim, vault, and audit requests
   and rows normalize at their owning boundaries.
@@ -145,7 +145,7 @@ evidence from the progress journal.
 - [ ] `R90-INV-012` — the real minimal vault vertical proves session → Passkey
   evidence → grant → operation → audit without future-provider scaffolding.
 
-### Slice B — MPC migration
+### Units 1, 3a, and 4 — MPC cutover and consumers
 
 - [ ] `R90-INV-002` — registration, unlock, refresh, recovery, signing, and
   export cannot publish or select a parallel active material record.
