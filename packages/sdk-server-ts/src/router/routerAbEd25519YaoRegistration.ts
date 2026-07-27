@@ -65,6 +65,7 @@ export type RouterAbEd25519YaoRegistrationBackendResult =
   | RouterAbEd25519YaoRegistrationBackendFailure;
 
 export interface RouterAbEd25519YaoRegistrationBackend {
+  takeLastRouterServerTiming?(): string | null;
   admit(
     request: RouterAbEd25519YaoRegistrationAdmissionRequestV1,
     traceContext?: RouterAbTraceContextV1,
