@@ -1,5 +1,5 @@
 {
-  "$schema": "../../packages/console-server-ts/node_modules/wrangler/config-schema.json",
+  "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "ed25519-yao-ab-benchmark-b-fault-response-disconnect",
   "main": "build/fault-response-disconnect-b/index.js",
   "compatibility_date": "2026-07-02",

@@ -7,7 +7,7 @@ import {
 } from '../observability/adapters';
 import type { ConsoleObservabilityIngestionService } from '../observability/ingestionService';
 import type { ConsoleWebhookService } from '../webhooks/service';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/internal/router/logger';
+import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
 
 export interface SponsorshipBillingBalanceSnapshot {
   creditBalanceMinor: number;
@@ -20,7 +20,6 @@ export interface SponsorshipBillingEventServices {
   webhooks?: ConsoleWebhookService | null;
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   webhookActorUserId?: string;
-  webhookRoles?: string[];
 }
 
 export interface SponsorshipBalanceTransitionTrigger {
@@ -35,13 +34,6 @@ export interface SponsorshipBalanceTransitionTrigger {
   adjustmentId?: string | null;
   purchaseId?: string | null;
   sourceEventId?: string | null;
-}
-
-function normalizeRoles(input: string[] | undefined, fallback: string[]): string[] {
-  const roles = Array.isArray(input)
-    ? input.map((entry) => String(entry || '').trim()).filter(Boolean)
-    : [];
-  return roles.length > 0 ? roles : fallback;
 }
 
 function toBalanceSnapshot(raw: {
@@ -81,7 +73,6 @@ async function emitBillingWebhookEvent(
       {
         orgId: ctx.orgId,
         actorUserId: String(services.webhookActorUserId || '').trim() || ctx.actorUserId,
-        roles: normalizeRoles(services.webhookRoles, ctx.roles),
       },
       {
         eventType: input.eventType,
@@ -111,7 +102,6 @@ async function emitBillingBalanceTransitionObservabilityEvent(input: {
       {
         orgId: input.ctx.orgId,
         actorUserId: input.ctx.actorUserId,
-        roles: normalizeRoles(input.ctx.roles, ['system']),
       },
       buildBillingBalanceTransitionObservabilityEvent({
         orgId: input.ctx.orgId,
@@ -219,7 +209,6 @@ export async function emitSponsorshipBlockedObservabilityEvent(input: {
       {
         orgId: input.ctx.orgId,
         actorUserId: input.ctx.actorUserId,
-        roles: normalizeRoles(input.ctx.roles, ['system']),
       },
       buildBillingSponsorshipBlockedObservabilityEvent({
         orgId: input.ctx.orgId,

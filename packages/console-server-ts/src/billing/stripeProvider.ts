@@ -5,18 +5,20 @@ import type {
   StripeCheckoutSessionLookupProviderOutput,
   StripeCheckoutSessionProviderInput,
   StripeCheckoutSessionProviderOutput,
+  StripeRefundLookupProviderInput,
+  StripeRefundProviderInput,
+  StripeRefundProviderOutput,
 } from './providers';
+import type { BillingCreditPackId, StripeProviderRefundStatus } from './types';
 
 export interface StripeBillingProviderOptions {
   readonly secretKey: string;
-  readonly defaultCheckoutPriceId?: string;
   readonly apiBaseUrl?: string;
   readonly requestTimeoutMs?: number;
 }
 
 export interface StripeBillingProviderEnv {
   readonly STRIPE_API_SK?: string;
-  readonly STRIPE_CHECKOUT_PRICE_ID?: string;
   readonly STRIPE_API_BASE_URL?: string;
   readonly STRIPE_API_TIMEOUT_MS?: string;
 }
@@ -109,9 +111,45 @@ function buildCreditPackName(input: StripeCheckoutSessionProviderInput): string 
   return `Seams prepaid credits (${amount})`;
 }
 
+function parseStripeRefundStatus(value: unknown): StripeProviderRefundStatus {
+  const normalized = normalizeString(value).toLowerCase();
+  switch (normalized) {
+    case 'succeeded':
+    case 'failed':
+    case 'canceled':
+      return normalized;
+    case 'pending':
+    case 'requires_action':
+      return 'pending';
+    default:
+      throw new Error(`Stripe refund returned unsupported status: ${normalized || 'empty'}`);
+  }
+}
+
+function parseStripeRefund(payload: UnknownRecord): StripeRefundProviderOutput {
+  const id = normalizeString(payload.id);
+  if (!id) throw new Error('Stripe refund returned missing id');
+  return {
+    id,
+    status: parseStripeRefundStatus(payload.status),
+    failureCode: normalizeString(payload.failure_reason) || null,
+  };
+}
+
+function parseStripeCreditPackId(value: unknown): BillingCreditPackId {
+  const normalized = normalizeString(value);
+  switch (normalized) {
+    case 'usd_10':
+    case 'usd_25':
+    case 'usd_50':
+      return normalized;
+    default:
+      throw new Error(`Stripe checkout session has invalid credit pack metadata: ${normalized}`);
+  }
+}
+
 class StripeBillingProvider implements StripeBillingProviderAdapter {
   private readonly secretKey: string;
-  private readonly defaultCheckoutPriceId: string;
   private readonly apiBaseUrl: string;
   private readonly requestTimeoutMs: number;
   private readonly customerByOrg = new Map<string, string>();
@@ -121,7 +159,6 @@ class StripeBillingProvider implements StripeBillingProviderAdapter {
     if (!this.secretKey) {
       throw new Error('STRIPE_API_SK must be set to enable live Stripe billing provider adapter');
     }
-    this.defaultCheckoutPriceId = normalizeString(options.defaultCheckoutPriceId);
     this.apiBaseUrl =
       normalizeString(options.apiBaseUrl).replace(/\/+$/, '') || DEFAULT_STRIPE_API_BASE_URL;
     this.requestTimeoutMs = toPositiveInteger(
@@ -141,10 +178,11 @@ class StripeBillingProvider implements StripeBillingProviderAdapter {
     setFormField(form, 'cancel_url', input.cancelUrl);
     setFormField(form, 'client_reference_id', input.orgId);
     setFormField(form, 'metadata[org_id]', input.orgId);
+    setFormField(form, 'metadata[purchase_id]', input.purchaseId);
     setFormField(form, 'metadata[credit_pack_id]', input.creditPackId);
     this.setCheckoutLineItem(form, input);
 
-    const payload = await this.postForm('/v1/checkout/sessions', form);
+    const payload = await this.postForm('/v1/checkout/sessions', form, input.purchaseId);
     const id = normalizeString(payload.id);
     const url = normalizeString(payload.url);
     if (!id || !url) {
@@ -178,31 +216,63 @@ class StripeBillingProvider implements StripeBillingProviderAdapter {
       throw new Error('Stripe checkout session lookup returned missing id');
     }
     const metadata = toUnknownRecord(payload.metadata);
+    const amountMinor = Number(payload.amount_total);
+    const currency = normalizeString(payload.currency).toLowerCase();
+    const purchaseId = normalizeString(metadata.purchase_id);
+    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+      throw new Error('Stripe checkout session lookup returned invalid amount_total');
+    }
+    if (currency !== 'usd') {
+      throw new Error('Stripe checkout session lookup returned a non-USD currency');
+    }
+    if (!purchaseId) {
+      throw new Error('Stripe checkout session lookup returned missing purchase metadata');
+    }
     return {
       id,
       orgId:
         normalizeString(payload.client_reference_id) || normalizeString(metadata.org_id) || null,
       customerRef: normalizeString(payload.customer) || null,
+      paymentIntentRef: normalizeString(payload.payment_intent) || null,
       paymentStatus: normalizeString(payload.payment_status).toLowerCase() || 'unknown',
       checkoutStatus: normalizeString(payload.status).toLowerCase() || 'unknown',
+      purchaseId,
+      creditPackId: parseStripeCreditPackId(metadata.credit_pack_id),
+      amountMinor,
+      currency: 'USD',
     };
+  }
+
+  async createRefund(input: StripeRefundProviderInput): Promise<StripeRefundProviderOutput> {
+    const form = new URLSearchParams();
+    setFormField(form, 'payment_intent', input.providerPaymentRef);
+    setFormField(form, 'amount', input.amountMinor);
+    setFormField(form, 'metadata[org_id]', input.orgId);
+    setFormField(form, 'metadata[purchase_id]', input.purchaseId);
+    setFormField(form, 'metadata[refund_id]', input.refundId);
+    setFormField(form, 'metadata[reason]', input.reason);
+    return parseStripeRefund(await this.postForm('/v1/refunds', form, input.refundId));
+  }
+
+  async getRefund(input: StripeRefundLookupProviderInput): Promise<StripeRefundProviderOutput> {
+    const providerRefundId = normalizeString(input.providerRefundId);
+    if (!providerRefundId) throw new Error('Stripe refund id is required');
+    return parseStripeRefund(
+      await this.getJson(`/v1/refunds/${encodeURIComponent(providerRefundId)}`),
+    );
   }
 
   private setCheckoutLineItem(
     form: URLSearchParams,
     input: StripeCheckoutSessionProviderInput,
   ): void {
-    if (this.defaultCheckoutPriceId) {
-      setFormField(form, 'line_items[0][price]', this.defaultCheckoutPriceId);
-    } else {
-      setFormField(form, 'line_items[0][price_data][currency]', 'usd');
-      setFormField(form, 'line_items[0][price_data][unit_amount]', input.amountMinor);
-      setFormField(
-        form,
-        'line_items[0][price_data][product_data][name]',
-        buildCreditPackName(input),
-      );
-    }
+    setFormField(form, 'line_items[0][price_data][currency]', 'usd');
+    setFormField(form, 'line_items[0][price_data][unit_amount]', input.amountMinor);
+    setFormField(
+      form,
+      'line_items[0][price_data][product_data][name]',
+      buildCreditPackName(input),
+    );
     setFormField(form, 'line_items[0][quantity]', 1);
   }
 
@@ -224,13 +294,19 @@ class StripeBillingProvider implements StripeBillingProviderAdapter {
     return customerId;
   }
 
-  private async postForm(pathname: string, form: URLSearchParams): Promise<UnknownRecord> {
+  private async postForm(
+    pathname: string,
+    form: URLSearchParams,
+    idempotencyKey?: string,
+  ): Promise<UnknownRecord> {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.secretKey}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    };
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
     return await this.request(pathname, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.secretKey}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
+      headers,
       body: form.toString(),
     });
   }
@@ -274,7 +350,6 @@ export function createStripeBillingProviderAdaptersFromEnv(
 ): BillingProviderAdapters | undefined {
   const secretKey = normalizeStripeSecretKey(env.STRIPE_API_SK);
   if (!secretKey) return undefined;
-  const defaultCheckoutPriceId = normalizeString(env.STRIPE_CHECKOUT_PRICE_ID);
   const apiBaseUrl = normalizeString(env.STRIPE_API_BASE_URL);
   const requestTimeoutMs = toPositiveInteger(
     env.STRIPE_API_TIMEOUT_MS,
@@ -283,7 +358,6 @@ export function createStripeBillingProviderAdaptersFromEnv(
   return {
     stripe: createStripeBillingProviderAdapter({
       secretKey,
-      ...(defaultCheckoutPriceId ? { defaultCheckoutPriceId } : {}),
       ...(apiBaseUrl ? { apiBaseUrl } : {}),
       requestTimeoutMs,
     }),

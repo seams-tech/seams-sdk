@@ -20,6 +20,7 @@
     "lint:rust": "bash -lc 'for dir in wasm/*_signer; do (cd \"$dir\" && cargo clippy --all-targets); done'",
     "lint:rust:strict": "bash -lc 'for dir in wasm/*_signer; do (cd \"$dir\" && cargo clippy --all-targets -- -D warnings); done'",
     "check:signing-architecture": "node ./packages/sdk-web/scripts/checks/check-stable-experimental-export-boundaries.mjs && node ./packages/sdk-web/scripts/checks/check-signing-root-refactor-boundaries.mjs",
+    "extract:repositories": "node ./scripts/extract-repositories.mjs",
     "check:bundle-size": "pnpm -C packages/sdk-web check:bundle-size",
     "check:wasm-exports": "pnpm -C packages/sdk-web check:wasm-exports",
     "check:signer-parity": "pnpm -C tests test:signer-parity",

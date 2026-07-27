@@ -36,7 +36,7 @@ const consoleD1Database = Object.freeze({
 const signerD1Database = Object.freeze({
   binding: 'SIGNER_DB',
   databaseName: 'seams-signer-staging',
-  migrationsDir: '../sdk-server-ts/migrations/d1-signer',
+  migrationsDir: 'node_modules/@seams/sdk-server/migrations/d1-signer',
 });
 const requiredD1DatabasesByProfile = Object.freeze({
   console: Object.freeze([consoleD1Database]),
@@ -49,13 +49,16 @@ const expectedMainByProfile = Object.freeze({
   gateway: 'src/router/cloudflare/d1RouterApiStagingWorker.ts',
 });
 const requiredSecretVarsByProfile = Object.freeze({
-  console: Object.freeze(['CONSOLE_SESSION_HMAC_SECRET', 'STRIPE_API_SK']),
+  console: Object.freeze(['CONSOLE_SESSION_HMAC_SECRET', 'STRIPE_API_SK', 'STRIPE_WEBHOOK_SECRET']),
   gateway: Object.freeze([
     'RELAY_SESSION_HMAC_SECRET',
     'ACCOUNT_ID_DERIVATION_SECRET',
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'SPONSORED_EVM_EXECUTORS_JSON',
     'STRIPE_API_SK',
+    'STRIPE_WEBHOOK_SECRET',
+    'RESEND_API_KEY',
+    'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
   ]),
 });
 const requiredVarsByProfile = Object.freeze({
@@ -79,6 +82,12 @@ const requiredVarsByProfile = Object.freeze({
     'RELAY_SESSION_ISSUER',
     'RELAY_SESSION_AUDIENCE',
     'SPONSORED_EXECUTION_REAL_PRICING_JSON',
+    'CONSOLE_BASE_URL',
+    'CONSOLE_EMAIL_RUNTIME_PROFILE',
+    'CONSOLE_EMAIL_PROVIDER',
+    'CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID',
+    'CONSOLE_EMAIL_FROM',
+    'CONSOLE_EMAIL_CRON_EXPRESSIONS',
   ]),
 });
 const forbiddenPostgresTokens = Object.freeze([
@@ -97,6 +106,9 @@ const forbiddenPlaintextVars = Object.freeze([
   'SEAMS_LOCAL_RELAYER_PUBLIC_KEY',
   'SPONSORED_EVM_EXECUTORS_JSON',
   'STRIPE_API_SK',
+  'STRIPE_WEBHOOK_SECRET',
+  'RESEND_API_KEY',
+  'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
   'ACCOUNT_ID_DERIVATION_SECRET',
 ]);
 const forbiddenConsoleProfileTokens = Object.freeze([
@@ -133,6 +145,7 @@ export function checkD1StagingReadiness(input = {}) {
     checkDurableObject(source, errors);
     checkRouterAbServiceBindings(source, errors);
     checkSigningRootKekProvider(source, errors);
+    checkConsoleEmailDelivery(source, errors);
   }
 
   return {
@@ -454,9 +467,43 @@ function checkRequiredVars(source, profile, errors) {
       errors.push(`${required} is required under [vars]`);
       continue;
     }
+    if (required === 'CONSOLE_EMAIL_FROM') {
+      if (!isConfiguredConsoleEmailFrom(value)) {
+        errors.push(`${required} still contains a placeholder`);
+      }
+      continue;
+    }
     if (valueLooksPlaceholder(value)) {
       errors.push(`${required} still contains a placeholder`);
     }
+  }
+}
+
+function isConfiguredConsoleEmailFrom(value) {
+  const match = value.match(/^(?:[^<>]+<)?([^<>\s@]+@[^<>\s@]+)>?$/);
+  if (!match) return false;
+  const address = match[1].toLowerCase();
+  return !address.includes('example.') && !address.endsWith('.example');
+}
+
+function checkConsoleEmailDelivery(source, errors) {
+  const vars = tableBody(source, 'vars');
+  checkExactString(
+    readString(vars, 'CONSOLE_EMAIL_RUNTIME_PROFILE'),
+    'PRODUCTION',
+    'CONSOLE_EMAIL_RUNTIME_PROFILE',
+    errors,
+  );
+  checkExactString(
+    readString(vars, 'CONSOLE_EMAIL_PROVIDER'),
+    'RESEND',
+    'CONSOLE_EMAIL_PROVIDER',
+    errors,
+  );
+  const cronExpression = readString(vars, 'CONSOLE_EMAIL_CRON_EXPRESSIONS');
+  const configuredCrons = readArray(tableBody(source, 'triggers'), 'crons');
+  if (!includesString(configuredCrons, cronExpression)) {
+    errors.push('CONSOLE_EMAIL_CRON_EXPRESSIONS must be present under [triggers].crons');
   }
 }
 

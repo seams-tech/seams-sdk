@@ -46,7 +46,8 @@ minimal local Worker from `wrangler.d1-local.toml` with persistent state under
 Set `STRIPE_API_SK` in `packages/console-server-ts/.dev.vars` to make Billing
 create real Stripe Checkout Sessions. Without that server-side key, the local
 billing provider remains an in-process test double and must not be used to
-exercise the hosted Stripe Checkout page.
+exercise the hosted Stripe Checkout page. Set `STRIPE_WEBHOOK_SECRET` to the
+signing secret for the Stripe endpoint forwarded to the local Worker.
 Use `GET /readyz` on the local Worker to verify the D1 table set and the
 Durable Object normal-signing admission path:
 

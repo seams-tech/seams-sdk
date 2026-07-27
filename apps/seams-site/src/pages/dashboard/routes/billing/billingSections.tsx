@@ -14,7 +14,6 @@ import {
 } from '../../components/DashboardTable';
 import type {
   DashboardBillingAccountActivityEntry,
-  DashboardPlatformBillingOrganizationMember,
   DashboardSponsoredExecutionHistoryEntry,
   DashboardSponsoredExecutionReconciliationEntry,
   DashboardSponsoredExecutionReconciliationPage,
@@ -95,7 +94,9 @@ function formatSponsoredChargeAmount(input: DashboardSponsoredExecutionHistoryEn
   return formatUsdMinor(input.settledSpendMinor || 0);
 }
 
-function describeSponsoredChargeHint(input: DashboardSponsoredExecutionHistoryEntry): string | null {
+function describeSponsoredChargeHint(
+  input: DashboardSponsoredExecutionHistoryEntry,
+): string | null {
   if (!input.charged) {
     return input.chargedReason ? `Not charged: ${input.chargedReason}` : 'Not charged';
   }
@@ -149,7 +150,7 @@ function getAccountActivityTone(input: DashboardBillingAccountActivityEntry) {
   ) {
     return 'warning' as const;
   }
-  if (input.type === 'REFUND' || input.type === 'REVERSAL') {
+  if (input.type === 'REFUND' || input.type === 'DISPUTE_OPENED' || input.type === 'DISPUTE_WON') {
     return 'neutral' as const;
   }
   return 'success' as const;
@@ -194,67 +195,6 @@ function getAccountActivitySummary(entry: DashboardBillingAccountActivityEntry):
   };
 }
 
-function getBillingOverviewMemberBadgeTone(
-  member: DashboardPlatformBillingOrganizationMember,
-): 'neutral' | 'success' | 'warning' {
-  if (member.status === 'ACTIVE') {
-    return member.access === 'OWNER' ? 'success' : 'neutral';
-  }
-  return 'warning';
-}
-
-function describeBillingOverviewMemberStatus(
-  member: DashboardPlatformBillingOrganizationMember,
-): string {
-  if (member.status === 'ACTIVE') return member.access;
-  return `${member.access} · ${member.status === 'INVITED' ? 'Invited' : 'Suspended'}`;
-}
-
-function sortBillingOverviewMembers(
-  members: DashboardPlatformBillingOrganizationMember[],
-): DashboardPlatformBillingOrganizationMember[] {
-  const accessRank: Record<DashboardPlatformBillingOrganizationMember['access'], number> = {
-    OWNER: 0,
-    ADMIN: 1,
-    MEMBER: 2,
-  };
-  const statusRank: Record<DashboardPlatformBillingOrganizationMember['status'], number> = {
-    ACTIVE: 0,
-    INVITED: 1,
-    SUSPENDED: 2,
-  };
-  return [...members].sort((left, right) => {
-    const accessDelta = accessRank[left.access] - accessRank[right.access];
-    if (accessDelta !== 0) return accessDelta;
-    const statusDelta = statusRank[left.status] - statusRank[right.status];
-    if (statusDelta !== 0) return statusDelta;
-    const displayDelta = left.displayName.localeCompare(right.displayName);
-    if (displayDelta !== 0) return displayDelta;
-    return left.email.localeCompare(right.email);
-  });
-}
-
-function formatBillingOverviewMemberAddedAt(value: string): string | null {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString().slice(0, 10);
-}
-
-function describeBillingOverviewMemberMeta(
-  member: DashboardPlatformBillingOrganizationMember,
-): string {
-  const addedAt = formatBillingOverviewMemberAddedAt(member.addedAt);
-  const dateLabel =
-    member.status === 'INVITED'
-      ? addedAt
-        ? `Invited ${addedAt}`
-        : 'Invited'
-      : addedAt
-        ? `Added ${addedAt}`
-        : 'Added';
-  return `${dateLabel} • ${member.userId}`;
-}
-
 export function BillingContextSummarySection(props: {
   context: {
     organization: string;
@@ -266,10 +206,8 @@ export function BillingContextSummarySection(props: {
   description: string;
   ariaLabel: string;
   metrics?: BillingMetric[];
-  members?: DashboardPlatformBillingOrganizationMember[];
 }): React.JSX.Element {
-  const { context, title, description, ariaLabel, metrics = [], members = [] } = props;
-  const sortedMembers = React.useMemo(() => sortBillingOverviewMembers(members), [members]);
+  const { context, title, description, ariaLabel, metrics = [] } = props;
   return (
     <section className="dashboard-view__section dashboard-billing-overview" aria-label={ariaLabel}>
       <div className="dashboard-billing-overview__header">
@@ -292,40 +230,6 @@ export function BillingContextSummarySection(props: {
           <dd title={context.thirdValue || '-'}>{context.thirdValue || '-'}</dd>
         </div>
       </dl>
-      {sortedMembers.length > 0 ? (
-        <div className="dashboard-billing-overview__members" aria-label="Organization team members">
-          <div className="dashboard-billing-overview__members-header">
-            <h3>Team members</h3>
-            <p>{sortedMembers.length} associated with this organization</p>
-          </div>
-          <ul className="dashboard-billing-overview__members-list">
-            {sortedMembers.map((member) => (
-              <li className="dashboard-billing-overview__member" key={member.id}>
-                <div className="dashboard-billing-overview__member-copy">
-                  <strong title={member.displayName}>{member.displayName}</strong>
-                  <span
-                    className="dashboard-data-table__subline dashboard-data-table__subline--muted"
-                    title={member.email}
-                  >
-                    {member.email}
-                  </span>
-                  <span
-                    className="dashboard-data-table__subline dashboard-data-table__subline--muted dashboard-billing-overview__member-meta"
-                    title={describeBillingOverviewMemberMeta(member)}
-                  >
-                    {describeBillingOverviewMemberMeta(member)}
-                  </span>
-                </div>
-                <span
-                  className={`dashboard-data-table__badge dashboard-data-table__badge--${getBillingOverviewMemberBadgeTone(member)}`}
-                >
-                  {describeBillingOverviewMemberStatus(member)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
       {metrics.length > 0 ? (
         <div className="dashboard-kpi-grid dashboard-kpi-grid--content dashboard-billing-overview__metrics">
           {metrics.map((metric) => (
@@ -492,7 +396,9 @@ export function SponsoredExecutionHistorySection(props: {
           <p className="dashboard-billing-table__description">
             Last 90 days of sponsored executions with receipt outcomes and billed spend.
           </p>
-          {scopeDescription ? <p className="dashboard-pagination-note">{scopeDescription}</p> : null}
+          {scopeDescription ? (
+            <p className="dashboard-pagination-note">{scopeDescription}</p>
+          ) : null}
         </div>
       </DashboardTableIntro>
       {loading ? (
@@ -575,10 +481,13 @@ export function SponsoredExecutionHistorySection(props: {
                 </DashboardTableCell>
                 <DashboardTableCell title={entry.targetRef}>
                   <div className="dashboard-billing-activity-table__stack">
-                    <code className="dashboard-billing-activity-table__token" title={entry.targetRef}>
+                    <code
+                      className="dashboard-billing-activity-table__token"
+                      title={entry.targetRef}
+                    >
                       {entry.targetRef}
                     </code>
-                    {(entry.txOrExecutionRef || entry.accountRef) ? (
+                    {entry.txOrExecutionRef || entry.accountRef ? (
                       <span className="dashboard-data-table__subline dashboard-data-table__subline--muted dashboard-billing-activity-table__detail">
                         {entry.txOrExecutionRef || entry.accountRef}
                       </span>
@@ -641,7 +550,9 @@ export function SponsoredExecutionReconciliationSection(props: {
           <article className="dashboard-kpi-card">
             <p className="dashboard-kpi-card__label">Not charged</p>
             <p className="dashboard-kpi-card__value">{summary.notChargedCount}</p>
-            <p className="dashboard-kpi-card__hint">Execution records intentionally left unbilled</p>
+            <p className="dashboard-kpi-card__hint">
+              Execution records intentionally left unbilled
+            </p>
           </article>
         </div>
       ) : null}
@@ -656,7 +567,9 @@ export function SponsoredExecutionReconciliationSection(props: {
         ) : error ? (
           <DashboardTableState>{error}</DashboardTableState>
         ) : items.length === 0 ? (
-          <DashboardTableState>No reconciliation records found for this scope yet.</DashboardTableState>
+          <DashboardTableState>
+            No reconciliation records found for this scope yet.
+          </DashboardTableState>
         ) : (
           <>
             <DashboardTableHeader>
@@ -687,7 +600,9 @@ export function SponsoredExecutionReconciliationSection(props: {
                       ) : null}
                     </div>
                   </DashboardTableCell>
-                  <DashboardTableCell title={entry.record.policyNameAtEvent || entry.record.policyId}>
+                  <DashboardTableCell
+                    title={entry.record.policyNameAtEvent || entry.record.policyId}
+                  >
                     <div className="dashboard-billing-activity-table__stack">
                       <strong className="dashboard-data-table__summary">
                         {entry.record.policyNameAtEvent || entry.record.policyId}
@@ -707,7 +622,9 @@ export function SponsoredExecutionReconciliationSection(props: {
                       </span>
                     </div>
                   </DashboardTableCell>
-                  <DashboardTableCell title={entry.billingDebit?.id || entry.record.billingLedgerEntryId || '-'}>
+                  <DashboardTableCell
+                    title={entry.billingDebit?.id || entry.record.billingLedgerEntryId || '-'}
+                  >
                     {entry.billingDebit || entry.record.billingLedgerEntryId ? (
                       <div className="dashboard-billing-activity-table__stack">
                         <code className="dashboard-billing-activity-table__token">

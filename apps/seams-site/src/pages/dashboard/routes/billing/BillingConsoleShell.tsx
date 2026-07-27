@@ -20,6 +20,7 @@ import {
   getDashboardBillingOverview,
   listDashboardBillingInvoiceLineItems,
   listDashboardBillingInvoices,
+  listDashboardBillingRefunds,
   listDashboardSponsoredExecutionHistory,
   listDashboardSponsoredExecutionReconciliation,
   reconcileDashboardStripeCheckoutSession,
@@ -28,6 +29,7 @@ import {
   type DashboardBillingInvoiceLineItem,
   type DashboardBillingInvoiceListSummary,
   type DashboardBillingOverview,
+  type DashboardBillingRefund,
   type DashboardSponsoredExecutionHistoryEntry,
   type DashboardSponsoredExecutionReconciliationPage,
   type DashboardBillingUsage,
@@ -172,6 +174,9 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   const [invoices, setInvoices] = React.useState<DashboardBillingInvoice[]>([]);
   const [invoiceListLoading, setInvoiceListLoading] = React.useState<boolean>(false);
   const [invoiceListError, setInvoiceListError] = React.useState<string>('');
+  const [refunds, setRefunds] = React.useState<DashboardBillingRefund[]>([]);
+  const [refundsLoading, setRefundsLoading] = React.useState<boolean>(false);
+  const [refundsError, setRefundsError] = React.useState<string>('');
 
   const [startingCheckoutPackId, setStartingCheckoutPackId] = React.useState<
     DashboardStripeCheckoutSessionRequest['creditPackId'] | ''
@@ -211,17 +216,22 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       setSponsoredHistoryError('');
       setReconciliationPage(null);
       setReconciliationError('');
+      setRefunds([]);
+      setRefundsLoading(false);
+      setRefundsError('');
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
       return;
     }
     setLoading(true);
     setSponsoredHistoryLoading(true);
     setReconciliationLoading(true);
+    setRefundsLoading(true);
     setErrorMessage('');
     setSponsoredHistoryError('');
     setReconciliationError('');
+    setRefundsError('');
     const environmentId = String(session.claims.environmentId || '').trim();
-    const [overviewResult, usageResult, historyResult, reconciliationResult] =
+    const [overviewResult, usageResult, historyResult, reconciliationResult, refundsResult] =
       await Promise.allSettled([
         getDashboardBillingOverview(),
         getDashboardBillingMonthlyActiveWallets(),
@@ -235,6 +245,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
           limit: 12,
           lookbackDays: 90,
         }),
+        listDashboardBillingRefunds(),
       ]);
     if (overviewResult.status === 'fulfilled' && usageResult.status === 'fulfilled') {
       setOverview(overviewResult.value);
@@ -274,9 +285,20 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
           : String(reconciliationResult.reason),
       );
     }
+    if (refundsResult.status === 'fulfilled') {
+      setRefunds(refundsResult.value);
+    } else {
+      setRefunds([]);
+      setRefundsError(
+        refundsResult.reason instanceof Error
+          ? refundsResult.reason.message
+          : String(refundsResult.reason),
+      );
+    }
     setLoading(false);
     setSponsoredHistoryLoading(false);
     setReconciliationLoading(false);
+    setRefundsLoading(false);
   }, [session.claims, session.errorMessage]);
 
   const loadInvoiceListPage = React.useCallback(async () => {
@@ -600,20 +622,10 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
     );
   }, [activeInvoiceId, invoiceActivity?.invoice, invoiceDetail, invoices]);
 
-  const isPlatformAdmin = React.useMemo(() => {
-    return (session.claims?.roles || []).some(
-      (role) =>
-        String(role || '')
-          .trim()
-          .toLowerCase() === 'platform_admin',
-    );
-  }, [session.claims?.roles]);
+  const isPlatformAdmin = session.claims?.platformSupport === true;
 
   const onStartStripeCheckout = React.useCallback(
-    async ({
-      creditPackId,
-      customAmountMinor,
-    }: Pick<DashboardStripeCheckoutSessionRequest, 'creditPackId' | 'customAmountMinor'>) => {
+    async ({ creditPackId }: Pick<DashboardStripeCheckoutSessionRequest, 'creditPackId'>) => {
       if (!session.claims) {
         setCheckoutActionError(session.errorMessage || 'Console session is unavailable');
         return;
@@ -621,12 +633,8 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       setStartingCheckoutPackId(creditPackId);
       setCheckoutActionError('');
       try {
-        const origin = window.location.origin;
         const checkoutSession = await createDashboardStripeCheckoutSession({
-          successUrl: `${origin}/dashboard/billing/account?checkout=success&checkout_session_id={CHECKOUT_SESSION_ID}`,
-          cancelUrl: `${origin}/dashboard/billing/account?checkout=cancel`,
           creditPackId,
-          ...(customAmountMinor === undefined ? {} : { customAmountMinor }),
         });
         window.location.assign(checkoutSession.url);
       } catch (error: unknown) {
@@ -718,10 +726,12 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
         ) : (
           <>
             <BillingAccountView
-              selectedContext={selectedContextDisplay}
               summaryMetrics={summaryMetrics}
               checkoutActionError={checkoutActionError}
               startingCheckoutPackId={startingCheckoutPackId}
+              refunds={refunds}
+              refundsLoading={refundsLoading}
+              refundsError={refundsError}
               onStartStripeCheckout={(checkoutRequest) => {
                 void onStartStripeCheckout(checkoutRequest);
               }}

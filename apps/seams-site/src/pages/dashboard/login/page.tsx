@@ -172,7 +172,7 @@ export function DashboardLoginPage(): React.JSX.Element {
         titleId="dashboard-login-title"
         titleTag="h1"
         title="Sign In With Google"
-        description="Use Google SSO to enter the console. Wallet passkeys can be added later inside the dashboard when you create wallets for stablecoin billing."
+        description="Use Google SSO to enter the console. Wallet passkeys can be added later inside the dashboard when you create wallets."
         providerLabel="Google SSO"
         providerDescription="One secure sign-in to open the dashboard and start managing billing."
         continueLabel={ctaLabel}

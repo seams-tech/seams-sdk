@@ -1,8 +1,8 @@
 import type {
   RouterApiCloudflareSignerWorkerEnv,
   SeamsD1SignerTenantStorageWorkerEnv,
-} from '@seams/sdk-server/internal/router/cloudflare/cloudflare.types';
-import type { D1DatabaseLike } from '@seams/sdk-server/internal/storage/tenantRoute';
+} from '@seams/sdk-server/cloud-host';
+import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
 
 export interface RouterApiCloudflareConsoleWorkerEnv {
   BILLING_FINALIZATION_ENABLED?: string;
@@ -20,14 +20,22 @@ export interface RouterApiCloudflareConsoleWorkerEnv {
   WEBHOOK_RETRY_MAX_ATTEMPTS?: string;
   WEBHOOK_RETRY_INITIAL_BACKOFF_MS?: string;
   WEBHOOK_RETRY_MAX_BACKOFF_MS?: string;
+  CONSOLE_EMAIL_RUNTIME_PROFILE?: string;
+  CONSOLE_EMAIL_PROVIDER?: string;
+  CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID?: string;
+  CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U?: string;
+  CONSOLE_EMAIL_FROM?: string;
+  CONSOLE_EMAIL_REPLY_TO?: string;
+  CONSOLE_EMAIL_CRON_EXPRESSIONS?: string;
+  RESEND_API_KEY?: string;
 }
 
-export type SeamsCloudflareComposedWorkerEnv =
-  RouterApiCloudflareSignerWorkerEnv & RouterApiCloudflareConsoleWorkerEnv;
+export type SeamsCloudflareComposedWorkerEnv = RouterApiCloudflareSignerWorkerEnv &
+  RouterApiCloudflareConsoleWorkerEnv;
 
 export interface SeamsD1ConsoleTenantStorageWorkerEnv {
   CONSOLE_DB: D1DatabaseLike;
 }
 
-export type SeamsD1ComposedTenantStorageWorkerEnv =
-  SeamsD1SignerTenantStorageWorkerEnv & SeamsD1ConsoleTenantStorageWorkerEnv;
+export type SeamsD1ComposedTenantStorageWorkerEnv = SeamsD1SignerTenantStorageWorkerEnv &
+  SeamsD1ConsoleTenantStorageWorkerEnv;
