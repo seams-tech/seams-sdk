@@ -41,4 +41,9 @@ void validMaterialHydrationInput;
 const invalidMaterialHydrationInput: HydrationInput = { record, workerCtx };
 void invalidMaterialHydrationInput;
 
+type HydrationResult = Awaited<ReturnType<typeof hydrateEcdsaRoleLocalMaterialForSigning>>;
+declare const hydrationResult: HydrationResult;
+hydrationResult.materialRef satisfies EcdsaRoleLocalPersistedMaterialRef;
+void hydrationResult.liveHandle;
+
 export {};

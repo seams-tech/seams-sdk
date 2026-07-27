@@ -16,17 +16,17 @@ import {
   emailOtpAuthContextConsumedAtMs,
   emailOtpAuthContextRetention,
 } from '../../session/identity/laneIdentity';
-import { requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord } from '../../session/routerAbSigningWalletSession';
-import type {
-  EcdsaRoleLocalPersistedMaterialRef,
-  EcdsaRoleLocalWorkerHandle,
-} from '../../session/keyMaterialBrands';
+import type { EcdsaRoleLocalPersistedMaterialRef } from '../../session/keyMaterialBrands';
 import {
   ecdsaRoleLocalPersistedMaterialRefSource,
   resolveEcdsaRoleLocalMaterial,
   type EcdsaRoleLocalMaterialResolution,
+  type ResolvedEcdsaRoleLocalSigningMaterial,
 } from '../../session/material/ecdsaRoleLocalMaterialResolver';
-import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '../../session/routerAbSigningWalletSession';
+import {
+  markResolvedEcdsaRoleLocalMaterialRuntimeValidated,
+  requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord,
+} from '../../session/routerAbSigningWalletSession';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
   buildReadySecp256k1SigningMaterial,
@@ -47,11 +47,11 @@ function inferThresholdEcdsaSessionChainFromLabel(labelRaw: unknown): EcdsaSessi
 
 function requireResolvedRoleLocalWorkerHandle(
   resolution: EcdsaRoleLocalMaterialResolution,
-): EcdsaRoleLocalWorkerHandle {
+): ResolvedEcdsaRoleLocalSigningMaterial {
   switch (resolution.kind) {
     case 'live':
     case 'rehydrated':
-      return resolution.liveHandle;
+      return resolution;
     case 'device_link_required':
       throw new Error(
         '[multichain] device_link_required: local threshold ECDSA material is unavailable',
@@ -70,7 +70,7 @@ function requireResolvedRoleLocalWorkerHandle(
 export async function hydrateEcdsaRoleLocalMaterialForSigning(args: {
   materialRef: EcdsaRoleLocalPersistedMaterialRef;
   workerCtx: WorkerOperationContext;
-}): Promise<EcdsaRoleLocalWorkerHandle> {
+}): Promise<ResolvedEcdsaRoleLocalSigningMaterial> {
   const resolution = await resolveEcdsaRoleLocalMaterial({
     purpose: 'transaction_signing',
     source: ecdsaRoleLocalPersistedMaterialRefSource(args.materialRef),
@@ -134,19 +134,27 @@ export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
 
   assertThresholdEcdsaSessionAuthorizationIsActive(args.record);
   const persistedMaterial = requirePersistedEcdsaRoleLocalMaterial(args.record);
-  const liveRoleLocalWorkerHandle = await hydrateEcdsaRoleLocalMaterialForSigning({
+  const resolvedRoleLocalMaterial = await hydrateEcdsaRoleLocalMaterialForSigning({
     materialRef: persistedMaterial.materialRef,
     workerCtx: args.workerCtx,
   });
-  if (!markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(args.record)) {
+  const signingWalletSession = requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord(
+    args.record,
+  );
+  if (
+    !markResolvedEcdsaRoleLocalMaterialRuntimeValidated({
+      material: resolvedRoleLocalMaterial,
+      session: signingWalletSession,
+      keyHandle: args.record.keyHandle,
+      chainTarget: args.record.chainTarget,
+      participantIds: args.record.participantIds,
+    })
+  ) {
     throw new Error(
       '[multichain] threshold-ecdsa hydrated material could not be bound to its signing session',
     );
   }
 
-  const signingWalletSession = requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord(
-    args.record,
-  );
   const walletSessionJwt = signingWalletSession.auth.walletSessionJwt;
 
   const keyRef = buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord({
@@ -155,7 +163,7 @@ export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
   if (
     keyRef.backendBinding?.materialKind !== 'role_local_worker_handle' ||
     keyRef.backendBinding.roleLocalMaterialHandle.materialHandle !==
-      liveRoleLocalWorkerHandle.materialHandle
+      resolvedRoleLocalMaterial.liveHandle.materialHandle
   ) {
     throw new Error(
       '[multichain] threshold-ecdsa signer material does not reference the hydrated role-local handle',
