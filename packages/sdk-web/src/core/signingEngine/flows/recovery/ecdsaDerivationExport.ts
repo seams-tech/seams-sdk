@@ -27,7 +27,7 @@ import {
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import {
-  persistedEcdsaRoleLocalMaterialSource,
+  ecdsaRoleLocalPersistedMaterialRefSource,
   resolveEcdsaRoleLocalMaterial,
   type EcdsaRoleLocalMaterialResolution,
 } from '../../session/material/ecdsaRoleLocalMaterialResolver';
@@ -216,8 +216,8 @@ async function resolveEcdsaExportMaterial(args: {
 }): Promise<EcdsaRoleLocalWorkerHandle> {
   const resolution = await resolveEcdsaRoleLocalMaterial({
     purpose: 'explicit_key_export',
-    source: persistedEcdsaRoleLocalMaterialSource(
-      requirePersistedEcdsaRoleLocalMaterial(args.record),
+    source: ecdsaRoleLocalPersistedMaterialRefSource(
+      requirePersistedEcdsaRoleLocalMaterial(args.record).materialRef,
     ),
     workerCtx: args.workerCtx,
   });
@@ -272,12 +272,12 @@ async function executeEcdsaDerivationExport(
   switch (material.authorization.kind) {
     case 'passkey': {
       const authorizedCredentialId = String(
-        material.authorization.credential.rawId ||
-          material.authorization.credential.id ||
-          '',
+        material.authorization.credential.rawId || material.authorization.credential.id || '',
       ).trim();
       if (!authorizedCredentialId) {
-        throw new Error('[SigningEngine][ecdsa-export] passkey authorization credential is missing');
+        throw new Error(
+          '[SigningEngine][ecdsa-export] passkey authorization credential is missing',
+        );
       }
       if (authorizedCredentialId !== material.authorization.passkeyCredentialIdB64u) {
         throw new Error(
@@ -624,11 +624,15 @@ export async function exportEcdsaDerivationKeyWithEmailOtpSession(
   if (backendBinding.authMethod.kind !== 'email_otp') {
     throw new Error('[SigningEngine][ecdsa-export] Email OTP export material auth mismatch');
   }
-  const walletSessionJwt = String(keyRef.walletSessionJwt || args.bootstrap.session.jwt || '').trim();
+  const walletSessionJwt = String(
+    keyRef.walletSessionJwt || args.bootstrap.session.jwt || '',
+  ).trim();
   const relayerUrl = String(keyRef.relayerUrl || '').trim();
   const keyHandle = String(keyRef.keyHandle || '').trim();
   if (!walletSessionJwt || !relayerUrl || !keyHandle) {
-    throw new Error('[SigningEngine][ecdsa-export] Email OTP export session transport is incomplete');
+    throw new Error(
+      '[SigningEngine][ecdsa-export] Email OTP export session transport is incomplete',
+    );
   }
   const walletSessionAuthority = buildEcdsaWalletSessionAuthority({
     walletSessionJwt,

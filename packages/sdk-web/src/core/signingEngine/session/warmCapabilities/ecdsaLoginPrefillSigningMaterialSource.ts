@@ -21,7 +21,7 @@ import {
 } from '../keyMaterialBrands';
 import {
   buildPersistedEcdsaRoleLocalMaterial,
-  persistedEcdsaRoleLocalMaterialSource,
+  ecdsaRoleLocalPersistedMaterialRefSource,
   resolveEcdsaRoleLocalMaterial,
   type EcdsaRoleLocalMaterialResolution,
 } from '../material/ecdsaRoleLocalMaterialResolver';
@@ -90,7 +90,7 @@ export function createEcdsaLoginPrefillClientSigningMaterialSource(
         });
         const resolution = await resolveEcdsaRoleLocalMaterial({
           purpose: 'wallet_unlock',
-          source: persistedEcdsaRoleLocalMaterialSource(persistedMaterial),
+          source: ecdsaRoleLocalPersistedMaterialRefSource(persistedMaterial.materialRef),
           workerCtx: input.workerCtx,
         });
         const liveHandle = requireResolvedLoginPrefillMaterial(resolution);

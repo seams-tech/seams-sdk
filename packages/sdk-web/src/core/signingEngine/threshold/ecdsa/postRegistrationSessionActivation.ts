@@ -13,7 +13,7 @@ import type { SigningGrantId, ThresholdEcdsaSessionId } from '@shared/utils/doma
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type { EcdsaRoleLocalWorkerHandle } from '../../session/keyMaterialBrands';
 import {
-  persistedEcdsaRoleLocalMaterialSource,
+  ecdsaRoleLocalPersistedMaterialRefSource,
   resolveEcdsaRoleLocalMaterial,
   type EcdsaRoleLocalMaterialResolution,
   type PersistedEcdsaRoleLocalMaterial,
@@ -146,7 +146,7 @@ export async function activateStrictEcdsaPostRegistrationSession(
   validateStrictSessionInput(input);
   const materialResolution = await resolveEcdsaRoleLocalMaterial({
     purpose: 'registration_activation',
-    source: persistedEcdsaRoleLocalMaterialSource(input.persistedRoleLocalMaterial),
+    source: ecdsaRoleLocalPersistedMaterialRefSource(input.persistedRoleLocalMaterial.materialRef),
     workerCtx: input.workerCtx,
   });
   const roleLocalMaterial = requireResolvedRegistrationMaterial(materialResolution);

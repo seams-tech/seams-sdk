@@ -19,7 +19,7 @@ import {
 import { requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord } from '../../session/routerAbSigningWalletSession';
 import type { EcdsaRoleLocalWorkerHandle } from '../../session/keyMaterialBrands';
 import {
-  persistedEcdsaRoleLocalMaterialSource,
+  ecdsaRoleLocalPersistedMaterialRefSource,
   resolveEcdsaRoleLocalMaterial,
   type EcdsaRoleLocalMaterialResolution,
 } from '../../session/material/ecdsaRoleLocalMaterialResolver';
@@ -71,7 +71,7 @@ export async function hydrateEcdsaRoleLocalMaterialForSigning(args: {
   const persistedMaterial = requirePersistedEcdsaRoleLocalMaterial(args.record);
   const resolution = await resolveEcdsaRoleLocalMaterial({
     purpose: 'transaction_signing',
-    source: persistedEcdsaRoleLocalMaterialSource(persistedMaterial),
+    source: ecdsaRoleLocalPersistedMaterialRefSource(persistedMaterial.materialRef),
     workerCtx: args.workerCtx,
   });
   const liveHandle = requireResolvedRoleLocalWorkerHandle(resolution);
