@@ -76,7 +76,10 @@ import {
   type EcdsaRoleLocalWorkerHandle,
 } from '@/core/signingEngine/session/keyMaterialBrands';
 import { IndexedDbEcdsaCapabilityManifestStore } from '../../../indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
-import { buildInitialEcdsaCapabilityActivationPlan } from '../../session/material/initialEcdsaCapabilityActivation';
+import {
+  assertInitialEcdsaActivationPlanMatchesVerifiedCeremony,
+  buildInitialEcdsaCapabilityActivationPlan,
+} from '../../session/material/initialEcdsaCapabilityActivation';
 import {
   buildVerifiedEcdsaPublicFacts,
   toEvmFamilyEcdsaKeyHandle,
@@ -613,21 +616,6 @@ function initialCanonicalActivationFailure(input: {
   };
 }
 
-function initialActivationPlanMatchesCeremony(input: {
-  readonly request: PersistInitialCanonicalEcdsaActivationRequestV1;
-  readonly active: Extract<
-    ActiveRouterAbEcdsaRegistrationCeremony,
-    { readonly kind: 'client_proofs_verified' }
-  >;
-}): boolean {
-  return (
-    input.request.planInput.journalId === parseCorrelationId(input.request.ceremonyId) &&
-    input.request.planInput.bindingDigest === input.active.activationFacts.contextBinding32B64u &&
-    input.request.planInput.clientVerifyingPublicKey33B64u ===
-      input.active.activationFacts.derivationClientSharePublicKey33B64u
-  );
-}
-
 async function persistInitialCanonicalEcdsaActivation(
   request: PersistInitialCanonicalEcdsaActivationRequestV1,
 ): Promise<PersistInitialCanonicalEcdsaActivationResultV1> {
@@ -650,13 +638,11 @@ async function persistInitialCanonicalEcdsaActivation(
   let plan: Awaited<ReturnType<typeof buildInitialEcdsaCapabilityActivationPlan>>;
   let pendingPayloadB64u: string;
   try {
-    if (!initialActivationPlanMatchesCeremony({ request, active })) {
-      return initialCanonicalActivationFailure({
-        ceremonyId,
-        code: 'ceremony_plan_mismatch',
-        message: 'Initial canonical ECDSA activation plan does not match the live ceremony',
-      });
-    }
+    assertInitialEcdsaActivationPlanMatchesVerifiedCeremony({
+      ceremonyId,
+      planInput: request.planInput,
+      clientActivation: active.activationFacts,
+    });
     plan = await buildInitialEcdsaCapabilityActivationPlan(request.planInput);
     pendingPayloadB64u = encodeRouterAbEcdsaRegistrationPendingFinalizationV1(
       buildRouterAbEcdsaRegistrationPendingFinalizationV1({

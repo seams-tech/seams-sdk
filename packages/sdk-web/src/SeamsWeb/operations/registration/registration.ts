@@ -123,7 +123,10 @@ import {
   type WalletAddSignerFinalizeResponse,
   type WalletAddSignerStartResponse,
 } from '@/core/rpcClients/relayer/walletRegistration';
-import type { FinalizeRouterAbEcdsaRegistrationActivationResultV1 } from '@/core/signingEngine/routerAb/ecdsaDerivation/clientCeremony';
+import type {
+  FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
+  FinalizeRouterAbEcdsaRegistrationActivationResultV1,
+} from '@/core/signingEngine/routerAb/ecdsaDerivation/clientCeremony';
 import {
   collectPasskeyRegistrationAuthority,
   type PasskeyRegistrationAuthorityDiagnostics,
@@ -2233,6 +2236,14 @@ type RegistrationEcdsaSession = {
   publicCapability: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicCapability'];
 };
 
+type PendingRegistrationEcdsaLocalFinalization = {
+  chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
+  clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
+  bootstrap: WalletRegistrationEcdsaDerivationRespondBootstrap;
+  journalId: CorrelationId;
+  activationReceipt: FinalizeRouterAbEcdsaRegistrationActivationRequestV1['activationReceipt'];
+};
+
 type RegistrationPersistenceEcdsa = {
   kind: 'evm_family_ecdsa';
   session: RegistrationEcdsaSession;
@@ -2447,7 +2458,9 @@ function registrationChainTargetListsMatch(
   return true;
 }
 
-function registrationEcdsaExpectedKeyHandles(session: RegistrationEcdsaSession): string[] {
+function registrationEcdsaExpectedKeyHandles(session: {
+  readonly bootstrap: WalletRegistrationEcdsaDerivationRespondBootstrap;
+}): string[] {
   const keyHandle = String(session.bootstrap.keyHandle || '').trim();
   if (!keyHandle) throw new Error('Registration ECDSA session is missing keyHandle');
   return [keyHandle];
@@ -2727,7 +2740,7 @@ async function runStrictEcdsaFamilyCeremony(args: {
   route: StrictEcdsaFamilyCeremonyRoute;
   started: WalletRegistrationEcdsaPreparePayload;
   authority: WalletAuthAuthorityRef;
-}): Promise<RegistrationEcdsaSession> {
+}): Promise<PendingRegistrationEcdsaLocalFinalization> {
   const [firstChainTarget, ...remainingChainTargets] = args.started.chainTargets;
   if (!firstChainTarget) {
     throw new Error('Strict ECDSA ceremony requires at least one EVM-family target');
@@ -2806,11 +2819,6 @@ async function runStrictEcdsaFamilyCeremony(args: {
       publicFacts: verified.publicFacts,
       expectedActivationRequestDigest,
     });
-    const finalized = await args.context.signingEngine.finalizeRouterAbEcdsaRegistrationActivation({
-      kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
-      journalId: persisted.journalId,
-      activationReceipt: activated.ecdsa.activation,
-    });
     const clientBootstrap = buildStrictRegistrationClientBootstrap({
       prepare: args.started.prepare,
       verified: verified.clientBootstrap,
@@ -2821,11 +2829,10 @@ async function runStrictEcdsaFamilyCeremony(args: {
       bootstrap: parseWalletRegistrationEcdsaDerivationRespond({
         clientBootstrap,
         serverBootstrap: activated.ecdsa.bootstrap,
-        activationEpoch: finalized.publicCapability.activation_epoch,
+        activationEpoch: activated.ecdsa.activation.ecdsa_activation.activation_epoch,
       }),
-      roleLocalMaterial: finalized.roleLocalMaterial,
-      clientPublicFacts: finalized.publicFacts,
-      publicCapability: finalized.publicCapability,
+      journalId: persisted.journalId,
+      activationReceipt: activated.ecdsa.activation,
     };
   } catch (error: unknown) {
     await closeStrictEcdsaRegistrationCeremony({
@@ -2834,6 +2841,25 @@ async function runStrictEcdsaFamilyCeremony(args: {
     });
     throw error;
   }
+}
+
+async function finalizeStrictEcdsaFamilyLocalActivation(args: {
+  readonly context: RegistrationWebContext;
+  readonly pending: PendingRegistrationEcdsaLocalFinalization;
+}): Promise<RegistrationEcdsaSession> {
+  const finalized = await args.context.signingEngine.finalizeRouterAbEcdsaRegistrationActivation({
+    kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
+    journalId: args.pending.journalId,
+    activationReceipt: args.pending.activationReceipt,
+  });
+  return {
+    chainTargets: args.pending.chainTargets,
+    clientBootstrap: args.pending.clientBootstrap,
+    bootstrap: args.pending.bootstrap,
+    roleLocalMaterial: finalized.roleLocalMaterial,
+    clientPublicFacts: finalized.publicFacts,
+    publicCapability: finalized.publicCapability,
+  };
 }
 
 function buildRegistrationPersistencePlan(args: {
@@ -3832,7 +3858,7 @@ async function registerEcdsaOrMixedWallet(
         }),
       });
     }
-    const ecdsaSession = await registrationTiming.measure(
+    const pendingEcdsaLocalFinalization = await registrationTiming.measure(
       'walletRegisterDerivationRespondMs',
       runStrictEcdsaFamilyCeremony.bind(undefined, {
         context,
@@ -3866,7 +3892,7 @@ async function registerEcdsaOrMixedWallet(
         registrationCeremonyId: startedCeremony.registrationCeremonyId,
         headers: registrationRouteHeaders(traceContext),
         idempotencyKey: finalizeIdempotencyKey,
-        expectedKeyHandles: registrationEcdsaExpectedKeyHandles(ecdsaSession),
+        expectedKeyHandles: registrationEcdsaExpectedKeyHandles(pendingEcdsaLocalFinalization),
         claimedYao,
         emailOtpEnrollment,
         emailOtpBackupAck,
@@ -3896,6 +3922,10 @@ async function registerEcdsaOrMixedWallet(
     if (walletKeys.length === 0) {
       throw new Error('Wallet registration finalize did not return ECDSA wallet keys');
     }
+    const ecdsaSession = await finalizeStrictEcdsaFamilyLocalActivation({
+      context,
+      pending: pendingEcdsaLocalFinalization,
+    });
     const persistenceAuth = await buildRegistrationPersistenceAuth({
       authMethod: args.authMethod,
       configs: context.configs,
@@ -5177,7 +5207,7 @@ async function addPasskeyEcdsaWalletSigner(
       credential: input.credential,
     }),
   });
-  const session = await runStrictEcdsaFamilyCeremony({
+  const pendingLocalFinalization = await runStrictEcdsaFamilyCeremony({
     context: input.context,
     relayerUrl: input.relayerUrl,
     route: {
@@ -5194,7 +5224,7 @@ async function addPasskeyEcdsaWalletSigner(
     addSignerCeremonyId: input.started.addSignerCeremonyId,
     idempotencyKey: createRegistrationOperationIdempotencyKey('wallet-add-signer-finalize'),
     kind: 'evm_family_ecdsa',
-    ecdsa: { expectedKeyHandles: [session.bootstrap.keyHandle] },
+    ecdsa: { expectedKeyHandles: [pendingLocalFinalization.bootstrap.keyHandle] },
   });
   if (
     finalized.kind !== 'evm_family_ecdsa' ||
@@ -5208,6 +5238,10 @@ async function addPasskeyEcdsaWalletSigner(
   if (!primaryKey) {
     throw new Error('Wallet add-signer finalize did not return ECDSA wallet keys');
   }
+  const session = await finalizeStrictEcdsaFamilyLocalActivation({
+    context: input.context,
+    pending: pendingLocalFinalization,
+  });
   emitAddSignerEventSafely(input.onEvent, input.eventAccountId, {
     authMethod: 'passkey',
     phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED,

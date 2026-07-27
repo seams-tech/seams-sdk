@@ -1304,6 +1304,8 @@ function createContext(captures: Record<string, unknown>): any {
       },
       finalizeRouterAbEcdsaRegistrationActivation: async (args: Record<string, any>) => {
         captures.finalizeCanonicalEcdsaActivation = args;
+        const order = (captures.ecdsaActivationFinalizationOrder ||= []) as string[];
+        order.push('local_activation_finalized');
         const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
         const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
           mockedEcdsaPublicCapability(ecdsaFacts),
@@ -1646,6 +1648,8 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
     }
     if (path === '/wallets/register/finalize') {
       captures.finalizeBody = body;
+      const order = (captures.ecdsaActivationFinalizationOrder ||= []) as string[];
+      order.push('wallet_registration_finalized');
       const responseWalletId = String((captures.intent as any)?.walletId || WALLET_SUBJECT_ID);
       const intentAuthMethod = (captures.intent as any)?.authMethod;
       if (body.ed25519) {
@@ -1848,6 +1852,10 @@ test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
         rpId: RP_ID,
       },
     });
+    expect(captures.ecdsaActivationFinalizationOrder).toEqual([
+      'wallet_registration_finalized',
+      'local_activation_finalized',
+    ]);
   } finally {
     fetchMock.restore();
   }
@@ -2918,6 +2926,8 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
     }
     if (path === `/wallets/${WALLET_SUBJECT_ID}/signers/finalize`) {
       captures.finalizeBody = body;
+      const order = (captures.ecdsaActivationFinalizationOrder ||= []) as string[];
+      order.push('wallet_add_signer_finalized');
       if (body.ecdsa) {
         const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
         return jsonResponse({
@@ -3035,6 +3045,10 @@ test('addWalletSigner orchestrates later ECDSA from an Ed25519 wallet', async ()
         expectedKeyHandles: ['ederivation-key-matrix'],
       },
     });
+    expect(captures.ecdsaActivationFinalizationOrder).toEqual([
+      'wallet_add_signer_finalized',
+      'local_activation_finalized',
+    ]);
     expect(captures.persistedEcdsaSessions).toMatchObject({
       auth: { kind: 'passkey', credentialIdB64u: 'credential-id' },
     });
