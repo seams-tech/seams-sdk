@@ -48,7 +48,7 @@ The checkpoint will:
   `ActiveEcdsaCapabilityManifest`, `DurableEcdsaMaterialBinding`,
   `ActiveEcdsaMaterialSession`, activation journaling, and auth capability
   modularization.
-- [Refactor 90A](./refactor-90A-patches.md) owns the permanent protocol deletion
+- [Refactor 91A](./refactor-91A-patches.md) owns the permanent protocol deletion
   of threshold-PRF client-share rederivation and exact-material possession proof.
   This checkpoint removes the incorrect recovery call from active SDK flows and
   keeps missing-device behavior fail closed.
