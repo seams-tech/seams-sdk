@@ -9,13 +9,22 @@ import {
 } from '../helpers/sqliteD1';
 import {
   buildAdditionalAuthorizationClaim,
+  buildEmailOtpVerifiedFactorFixture,
+  buildPasskeyVerifiedFactorFixture,
   buildReusableAuthorizationCoreFixture,
   buildStepUpAuthorizationCoreFixture,
 } from './helpers/authorizationCore.fixtures';
 import {
+  buildActiveCapabilityGrant,
   parseHostedWalletSeamsSessionExchangeNonce,
   parseSessionOrigin,
 } from '../../packages/sdk-server-ts/src/authorization/domain';
+import {
+  buildCapabilityOperationEnvelope,
+  type CapabilityOperationEnvelope,
+} from '../../packages/shared-ts/src/authorization/operationFingerprint';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
+import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 
 const signerMigrations = listD1MigrationFiles('d1-signer');
 
@@ -34,7 +43,11 @@ test.describe('D1 authorization core', () => {
       await service.recordActiveSession(fixture.session);
       await service.recordVerifiedEvidenceSet(fixture.evidenceSet);
       await service.recordWalletSessionQuota(fixture.quota);
-      await service.issueGrant(fixture.grant);
+      await service.issueGrant({
+        operation: fixture.claim.operation,
+        evidenceSet: fixture.evidenceSet,
+        grant: fixture.grant,
+      });
 
       await expect(service.claimOperation(fixture.claim)).resolves.toMatchObject({
         kind: 'claimed',
@@ -100,7 +113,11 @@ test.describe('D1 authorization core', () => {
       const stepUpFixture = await buildStepUpAuthorizationCoreFixture();
       await stepUpService.recordActiveSession(stepUpFixture.session);
       await stepUpService.recordVerifiedEvidenceSet(stepUpFixture.evidenceSet);
-      await stepUpService.issueGrant(stepUpFixture.grant);
+      await stepUpService.issueGrant({
+        operation: stepUpFixture.claim.operation,
+        evidenceSet: stepUpFixture.evidenceSet,
+        grant: stepUpFixture.grant,
+      });
       await expect(stepUpService.claimOperation(stepUpFixture.claim)).resolves.toMatchObject({
         kind: 'claimed',
       });
@@ -241,6 +258,105 @@ test.describe('D1 authorization core', () => {
       cleanupTemporaryD1Database(temporary.tempDir);
     }
   });
+
+  test('normalizes Passkey and Email OTP verification into one evidence-set shape', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const service = createService(temporary.database, 'factor-evidence-conformance');
+      const passkey = await buildPasskeyVerifiedFactorFixture();
+      const emailOtp = await buildEmailOtpVerifiedFactorFixture();
+      await service.recordActiveSession(passkey.authorization.session);
+
+      const passkeyEvidence = await service.recordVerifiedFactorEvidenceSet({
+        session: passkey.authorization.session,
+        operation: passkey.authorization.claim.operation,
+        evidenceId: passkey.evidenceId,
+        evidenceSetId: passkey.evidenceSetId,
+        factor: passkey.factor,
+      });
+      const emailOtpEvidence = await service.recordVerifiedFactorEvidenceSet({
+        session: emailOtp.authorization.session,
+        operation: emailOtp.authorization.claim.operation,
+        evidenceId: emailOtp.evidenceId,
+        evidenceSetId: emailOtp.evidenceSetId,
+        factor: emailOtp.factor,
+      });
+
+      expect(Object.keys(passkeyEvidence).sort()).toEqual(Object.keys(emailOtpEvidence).sort());
+      expect(passkeyEvidence).toMatchObject({
+        tenantId: emailOtpEvidence.tenantId,
+        principalId: emailOtpEvidence.principalId,
+        sessionId: emailOtpEvidence.sessionId,
+        deviceId: emailOtpEvidence.deviceId,
+        operation: emailOtpEvidence.operation,
+        laneDigest: emailOtpEvidence.laneDigest,
+        intentDigest: emailOtpEvidence.intentDigest,
+        displayDigest: emailOtpEvidence.displayDigest,
+      });
+      expect(passkeyEvidence.evidence[0].evidenceKind).toBe('passkey_assertion');
+      expect(emailOtpEvidence.evidence[0].evidenceKind).toBe('email_otp');
+      await expect(rowCount(temporary.database, 'verified_grant_evidence_sets')).resolves.toBe(2);
+
+      const grant = buildGrantForEvidence(passkey.authorization.grant, passkeyEvidence);
+      await service.issueGrant({
+        operation: passkey.authorization.claim.operation,
+        evidenceSet: passkeyEvidence,
+        grant,
+      });
+      await expect(rowCount(temporary.database, 'capability_grants')).resolves.toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('rejects mismatched verified operations and grant digests before issuance', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const service = createService(temporary.database, 'factor-evidence-mismatch');
+      const fixture = await buildPasskeyVerifiedFactorFixture();
+      await service.recordActiveSession(fixture.authorization.session);
+      const mismatchedOperation = operationWithIntentDigest(
+        fixture.authorization.claim.operation,
+        testDigest(31),
+      );
+
+      await expect(
+        service.recordVerifiedFactorEvidenceSet({
+          session: fixture.authorization.session,
+          operation: mismatchedOperation,
+          evidenceId: fixture.evidenceId,
+          evidenceSetId: fixture.evidenceSetId,
+          factor: fixture.factor,
+        }),
+      ).rejects.toThrow('verified factor does not match the capability operation');
+      await expect(rowCount(temporary.database, 'verified_grant_evidence_sets')).resolves.toBe(0);
+
+      const evidenceSet = await service.recordVerifiedFactorEvidenceSet({
+        session: fixture.authorization.session,
+        operation: fixture.authorization.claim.operation,
+        evidenceId: fixture.evidenceId,
+        evidenceSetId: fixture.evidenceSetId,
+        factor: fixture.factor,
+      });
+      const mismatchedGrant = buildGrantForEvidence(
+        fixture.authorization.grant,
+        evidenceSet,
+        testDigest(32),
+      );
+      await expect(
+        service.issueGrant({
+          operation: fixture.authorization.claim.operation,
+          evidenceSet,
+          grant: mismatchedGrant,
+        }),
+      ).rejects.toThrow('capability grant digests do not match verified evidence');
+      await expect(rowCount(temporary.database, 'capability_grants')).resolves.toBe(0);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
 });
 
 function createService(
@@ -257,7 +373,78 @@ async function seedReusable(
   await service.recordActiveSession(fixture.session);
   await service.recordVerifiedEvidenceSet(fixture.evidenceSet);
   await service.recordWalletSessionQuota(fixture.quota);
-  await service.issueGrant(fixture.grant);
+  await service.issueGrant({
+    operation: fixture.claim.operation,
+    evidenceSet: fixture.evidenceSet,
+    grant: fixture.grant,
+  });
+}
+
+function buildGrantForEvidence(
+  baseline: Awaited<ReturnType<typeof buildReusableAuthorizationCoreFixture>>['grant'],
+  evidenceSet: Awaited<ReturnType<AuthorizationService['recordVerifiedFactorEvidenceSet']>>,
+  intentDigest = evidenceSet.intentDigest,
+) {
+  switch (baseline.authority.kind) {
+    case 'reusable_wallet_session':
+      return buildActiveCapabilityGrant({
+        tenantId: baseline.tenantId,
+        principalId: baseline.principalId,
+        grantId: baseline.grantId,
+        bindingId: baseline.bindingId,
+        evidenceSetId: evidenceSet.evidenceSetId,
+        evidenceSetDigest: evidenceSet.evidenceSetDigest,
+        capabilityId: baseline.capabilityId,
+        operation: evidenceSet.operation,
+        laneDigest: evidenceSet.laneDigest,
+        intentDigest,
+        displayDigest: evidenceSet.displayDigest,
+        authority: baseline.authority,
+        remainingUses: baseline.remainingUses,
+        createdAtMs: baseline.createdAtMs,
+        expiresAtMs: Math.min(baseline.expiresAtMs, evidenceSet.expiresAtMs),
+      });
+    case 'operation_step_up':
+      return buildActiveCapabilityGrant({
+        tenantId: baseline.tenantId,
+        principalId: baseline.principalId,
+        grantId: baseline.grantId,
+        bindingId: baseline.bindingId,
+        evidenceSetId: evidenceSet.evidenceSetId,
+        evidenceSetDigest: evidenceSet.evidenceSetDigest,
+        capabilityId: baseline.capabilityId,
+        operation: evidenceSet.operation,
+        laneDigest: evidenceSet.laneDigest,
+        intentDigest,
+        displayDigest: evidenceSet.displayDigest,
+        authority: baseline.authority,
+        remainingUses: 1,
+        createdAtMs: baseline.createdAtMs,
+        expiresAtMs: Math.min(baseline.expiresAtMs, evidenceSet.expiresAtMs),
+      });
+  }
+}
+
+function operationWithIntentDigest(
+  baseline: CapabilityOperationEnvelope,
+  intentDigest: ReturnType<typeof testDigest>,
+): CapabilityOperationEnvelope {
+  return buildCapabilityOperationEnvelope({
+    tenantId: baseline.tenantId,
+    principalId: baseline.principalId,
+    capabilityId: baseline.capabilityId,
+    operationId: baseline.operationId,
+    operation: baseline.operation,
+    digests: {
+      laneDigest: baseline.digests.laneDigest,
+      intentDigest,
+      displayDigest: baseline.digests.displayDigest,
+    },
+  });
+}
+
+function testDigest(fill: number) {
+  return parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(fill)));
 }
 
 async function readRemainingUses(
@@ -275,6 +462,8 @@ async function rowCount(
   table:
     | 'authorization_wallet_session_quotas'
     | 'authorization_sessions'
+    | 'verified_grant_evidence_sets'
+    | 'capability_grants'
     | 'capability_grant_uses'
     | 'authorization_audit_events',
 ): Promise<number> {
