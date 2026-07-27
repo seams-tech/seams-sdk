@@ -1047,6 +1047,11 @@ export class IntendedBehaviourHarness {
     await this.page.evaluate(navigateWithinSite, '/wallet');
     this.intendedPageReady = false;
     try {
+      // The demo renders only the selected chain's panel, and Tempo is the
+      // default tab, so the NEAR controls must be selected before they exist.
+      await this.page
+        .getByRole('tab', { name: 'NEAR', exact: true })
+        .click({ timeout: 20_000 });
       await this.page.waitForFunction(nearDemoSignButtonIsActionable, undefined, {
         timeout: 20_000,
       });

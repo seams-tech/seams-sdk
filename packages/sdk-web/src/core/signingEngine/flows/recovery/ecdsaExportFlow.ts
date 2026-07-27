@@ -499,6 +499,8 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
       publicKey: String(args.material.publicFacts.publicKeyB64u),
       curve: 'ecdsa' satisfies WalletAuthCurve,
       challengeAuthority,
+      flowId: args.flowId,
+      onEvent: args.onEvent,
     },
   );
   return await prepareAndShowEcdsaExportArtifact(deps, {
@@ -594,6 +596,8 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
         publicKey: exportPublicKey,
         curve: 'ecdsa',
         challengeAuthority: { kind: 'signing_session', authLane: committedLane.authLane },
+        flowId: args.flowId,
+        onEvent: args.onEvent,
       },
     );
     return await prepareAndShowEcdsaExportArtifact(deps, {

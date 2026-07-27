@@ -17,7 +17,13 @@ type CheckNearAccessKeyArgs = {
   nearPublicKey: string;
 };
 
-type UseDemoNearAccountFundingStatusArgs = DemoNearFundingIdentity;
+/* `enabled` is the selected-chain gate: the NEAR access-key probe costs two RPC
+   round trips and re-polls every 5s while an account awaits funding, so it must
+   not run while the user is on the Tempo or Arc tab. The last known status is
+   kept across a disable so re-selecting NEAR does not flash back to 'checking'. */
+type UseDemoNearAccountFundingStatusArgs = DemoNearFundingIdentity & {
+  enabled: boolean;
+};
 
 function normalizeDemoString(value: unknown): string {
   return String(value ?? '').trim();
@@ -100,7 +106,7 @@ async function checkNearAccessKey(
 }
 
 export function useDemoNearAccountFundingStatus(args: UseDemoNearAccountFundingStatusArgs) {
-  const { isLoggedIn, nearAccountId, nearPublicKey } = args;
+  const { isLoggedIn, nearAccountId, nearPublicKey, enabled } = args;
   const [status, setStatus] = useState<DemoNearAccountFundingStatus>(
     initialDemoNearFundingStatus(args),
   );
@@ -146,17 +152,19 @@ export function useDemoNearAccountFundingStatus(args: UseDemoNearAccountFundingS
   }, [isLoggedIn, nearAccountId, nearPublicKey]);
 
   useEffect(() => {
+    if (!enabled) return;
     void refresh();
-  }, [refresh]);
+  }, [enabled, refresh]);
 
   useEffect(() => {
+    if (!enabled) return undefined;
     if (status.kind !== 'needs_funding') return undefined;
     const id = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return;
       void refresh();
     }, 5000);
     return () => window.clearInterval(id);
-  }, [refresh, status.kind]);
+  }, [enabled, refresh, status.kind]);
 
   return {
     status,

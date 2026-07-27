@@ -6987,6 +6987,14 @@ self.addEventListener('message', async (event: MessageEvent) => {
               pendingHandle,
               operationalPublicKey,
               activationReference,
+              // Email OTP runs Yao in this worker, so the Router breakdown
+              // only reaches the main thread by riding this response.
+              ...(result.value.routerServerTiming
+                ? { routerServerTiming: result.value.routerServerTiming }
+                : {}),
+              ...(result.value.clientTimings
+                ? { clientTimings: result.value.clientTimings }
+                : {}),
             },
           });
         } catch (error) {

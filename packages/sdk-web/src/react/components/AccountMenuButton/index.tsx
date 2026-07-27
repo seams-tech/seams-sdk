@@ -68,7 +68,9 @@ function resolveDefaultPortalTarget(
  *         deviceLinkingScannerParams={{
  *           onError: (error) => console.error('Error:', error),
  *           onClose: () => console.log('Scanner closed'),
- *           onEvent: (event) => console.log('Event:', event),
+ *           // Flow events can carry sensitive data (e.g. demo OTP codes).
+ *           // Forward phases, never whole event payloads.
+ *           onEvent: (event) => trackScannerPhase(event.phase),
  *           fundingAmount: '0.05'
  *         }}
  *       />
@@ -84,6 +86,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   hideUsername = false,
   onLock: onLock,
   onExportKeyError,
+  onExportKeyEvent,
   deviceLinkingScannerParams,
   toggleColors,
   style,
@@ -223,7 +226,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             walletSession,
             nearAccount,
             laneIdentity: resolvedLane.laneIdentity,
-            options: { variant: 'drawer' },
+            options: { variant: 'drawer', onEvent: onExportKeyEvent },
           });
           return;
         }
@@ -245,6 +248,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           laneIdentity: resolvedLane.laneIdentity,
           options: {
             variant: 'drawer',
+            onEvent: onExportKeyEvent,
           },
         });
       } catch (error: unknown) {
@@ -255,7 +259,15 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         setExportLoadingChain(null);
       }
     },
-    [exportLoadingChain, loginState.isLoggedIn, nearAccountId, onExportKeyError, seams, walletId],
+    [
+      exportLoadingChain,
+      loginState.isLoggedIn,
+      nearAccountId,
+      onExportKeyError,
+      onExportKeyEvent,
+      seams,
+      walletId,
+    ],
   );
 
   // Chain rows for the Accounts expander: one per configured chain with a
@@ -477,7 +489,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           />,
           portalHost!,
         )}
-
     </div>
   );
 };

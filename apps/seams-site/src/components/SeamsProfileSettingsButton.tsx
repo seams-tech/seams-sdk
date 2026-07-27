@@ -2,12 +2,53 @@ import React from 'react';
 import { toast } from 'sonner';
 import {
   useSeams,
+  KeyExportEventPhase,
   LinkDeviceEventPhase,
   useTheme,
+  type KeyExportFlowEvent,
   type LinkDeviceFlowEvent,
 } from '@seams/sdk/react';
 import { AccountMenuButton } from '@seams/sdk/react/profile';
 import { useProfileMenuControl } from '@/context/ProfileMenuControl';
+import {
+  dismissDemoEmailOtpToast,
+  showCopiedDemoEmailOtpToast,
+} from '@/flows/demo/demoEmailOtpToast';
+
+const KEY_EXPORT_EMAIL_OTP_TOAST_ID = 'key-export:demo-email-otp';
+
+function demoEmailOtpCodeFromKeyExportEvent(event: KeyExportFlowEvent): string | null {
+  if (event.phase !== KeyExportEventPhase.STEP_02_AUTH_EMAIL_OTP_INPUT_REQUIRED) return null;
+  const otpCode = event.data?.demoOtpCode;
+  return typeof otpCode === 'string' && /^\d{6}$/.test(otpCode) ? otpCode : null;
+}
+
+/* Exported for unit coverage of the toast lifecycle: the demo code must appear
+   exactly once per challenge and be dismissed on resend-without-code and on
+   every terminal phase. */
+export function handleKeyExportEvent(event: KeyExportFlowEvent): void {
+  const otpCode = demoEmailOtpCodeFromKeyExportEvent(event);
+  if (otpCode) {
+    void showCopiedDemoEmailOtpToast({
+      otpCode,
+      toastId: KEY_EXPORT_EMAIL_OTP_TOAST_ID,
+      unavailableDescription: 'Use this one-time code to authorize key export.',
+    });
+    return;
+  }
+  if (event.phase === KeyExportEventPhase.STEP_02_AUTH_EMAIL_OTP_INPUT_REQUIRED) {
+    dismissDemoEmailOtpToast(KEY_EXPORT_EMAIL_OTP_TOAST_ID);
+    return;
+  }
+  if (
+    event.phase === KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_STARTED ||
+    event.phase === KeyExportEventPhase.STEP_06_COMPLETED ||
+    event.phase === KeyExportEventPhase.FAILED ||
+    event.phase === KeyExportEventPhase.CANCELLED
+  ) {
+    dismissDemoEmailOtpToast(KEY_EXPORT_EMAIL_OTP_TOAST_ID);
+  }
+}
 
 export interface SeamsProfileSettingsButtonProps {
   className?: string;
@@ -85,12 +126,13 @@ export const SeamsProfileSettingsButton: React.FC<SeamsProfileSettingsButtonProp
     return (
       <div className="seams-profile-button-container" style={style}>
         <AccountMenuButton
-          nearAccountId={loginState.nearAccountId!}
+          nearAccountId={loginState.nearAccountId}
           nearExplorerBaseUrl="https://testnet.nearblocks.io"
           onExportKeyError={(error: Error) => {
             console.error('Key export error:', error);
             toast.error(error.message || 'Key export failed', { id: 'key-export' });
           }}
+          onExportKeyEvent={handleKeyExportEvent}
           hideUsername={isMobile}
           className={className}
           style={
