@@ -18,7 +18,6 @@ import {
 } from './gateway-deployment-config.mjs';
 
 const VALID_TARGETS = new Set(['staging', 'production']);
-const CONSOLE_EMAIL_CRON_EXPRESSION = '*/5 * * * *';
 
 function main() {
   const options = parseArguments(process.argv.slice(2));
@@ -137,9 +136,6 @@ function buildConfig(deployment, packageRoot) {
         head_sampling_rate: 1,
       },
     },
-    triggers: {
-      crons: [CONSOLE_EMAIL_CRON_EXPRESSION],
-    },
     secrets_store_secrets: [
       {
         binding: signingRootBindingName(deployment.signingRoot.id),
@@ -179,11 +175,6 @@ function buildWorkerVars(deployment) {
     RELAY_SESSION_AUDIENCE: DEFAULT_RELAY_SESSION_AUDIENCE,
     RELAY_CORS_ORIGINS: deployment.origins.allowedCors.join(','),
     CONSOLE_BASE_URL: deployment.origins.allowedCors[0],
-    CONSOLE_EMAIL_RUNTIME_PROFILE: 'PRODUCTION',
-    CONSOLE_EMAIL_PROVIDER: 'RESEND',
-    CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID: `console-email-${deployment.target}-r1`,
-    CONSOLE_EMAIL_FROM: requireEnvironmentValue('CONSOLE_EMAIL_FROM'),
-    CONSOLE_EMAIL_CRON_EXPRESSIONS: CONSOLE_EMAIL_CRON_EXPRESSION,
     SESSION_COOKIE_NAME: DEFAULT_SESSION_COOKIE_NAME,
     EMAIL_OTP_RUNTIME_PROFILE: deployment.runtimeProfile.kind,
     EMAIL_OTP_DELIVERY_MODE: deployment.runtimeProfile.emailOtpDelivery.kind,
