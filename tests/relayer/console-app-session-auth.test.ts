@@ -256,4 +256,72 @@ test.describe('console app-session auth adapter', () => {
       role: 'OWNER',
     });
   });
+
+  test('bootstraps an allowlisted OIDC owner for an existing ownerless organization', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const organizationAccess = createInMemoryConsoleOrganizationAccessService();
+    const orgId = 'org_staging';
+    const userId = 'google:owner-subject';
+    await orgProjectEnv.upsertOrganization(
+      { orgId, actorUserId: 'deployment-bootstrap' },
+      { name: 'Staging', slug: 'staging' },
+    );
+    const rejectedAuth = createAppSessionConsoleAuthAdapter({
+      session: makeSessionAdapter({
+        parse: async () => ({
+          ok: true,
+          claims: makeAppSessionClaims({
+            sub: 'google:unapproved-subject',
+            email: 'unapproved@example.com',
+            orgId,
+          }),
+        }),
+      }),
+      authService: validAppSessionVersion(),
+      organizationAccess,
+      defaultOrgId: orgId,
+      initialOwnerEmails: 'owner@example.com,backup-owner@example.com',
+      provisioning: { orgProjectEnv },
+    });
+    await expect(rejectedAuth.authenticate({})).resolves.toEqual({
+      ok: false,
+      code: 'forbidden',
+      message: 'No active organization membership',
+      status: 403,
+    });
+
+    const auth = createAppSessionConsoleAuthAdapter({
+      session: makeSessionAdapter({
+        parse: async () => ({
+          ok: true,
+          claims: makeAppSessionClaims({
+            sub: userId,
+            email: 'owner@example.com',
+            orgId,
+          }),
+        }),
+      }),
+      authService: validAppSessionVersion(),
+      organizationAccess,
+      defaultOrgId: orgId,
+      initialOwnerEmails: 'owner@example.com,backup-owner@example.com',
+      provisioning: { orgProjectEnv },
+    });
+
+    const result = await auth.authenticate({});
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.claims).toMatchObject({
+      orgId,
+      userId,
+      email: 'owner@example.com',
+      role: 'OWNER',
+    });
+    await expect(
+      organizationAccess.lookupAuthorization({ orgId, userId }),
+    ).resolves.toMatchObject({
+      kind: 'authorized',
+      role: 'OWNER',
+    });
+  });
 });

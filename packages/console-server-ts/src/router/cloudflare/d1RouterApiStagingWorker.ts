@@ -159,6 +159,7 @@ interface CloudflareD1RouterApiStagingEnv
   readonly STRIPE_WEBHOOK_SECRET?: string;
   readonly STRIPE_API_BASE_URL?: string;
   readonly STRIPE_API_TIMEOUT_MS?: string;
+  readonly CONSOLE_INITIAL_OWNER_EMAILS?: string;
   readonly CONSOLE_PLATFORM_SUPPORT_EMAILS?: string;
   readonly CONSOLE_BASE_URL?: string;
 }
@@ -383,6 +384,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     defaultOrgId: scope.orgId,
     defaultProjectId: scope.projectId,
     defaultEnvironmentId: scope.envId,
+    initialOwnerEmails: readEnvString(env, 'CONSOLE_INITIAL_OWNER_EMAILS'),
     platformSupportEmails: readEnvString(env, 'CONSOLE_PLATFORM_SUPPORT_EMAILS'),
     provisioning: {
       orgProjectEnv: bundle.orgProjectEnv,

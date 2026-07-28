@@ -4,6 +4,7 @@ import process from 'node:process';
 import { gatewaySecretNames, readDeploymentTarget } from '../../../scripts/deployment-targets.mjs';
 
 const OPTIONAL_SECRET_NAMES = [
+  'CONSOLE_INITIAL_OWNER_EMAILS',
   'STRIPE_WEBHOOK_SECRET',
   'RELAYER_PRIVATE_KEY',
   'SPONSORED_EVM_EXECUTORS_JSON',
