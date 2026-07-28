@@ -2,7 +2,13 @@ import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
 } from '@/core/signingEngine/threshold/ecdsa/activation';
-import { parseEcdsaThresholdKeyId } from '@/core/signingEngine/session/keyMaterialBrands';
+import {
+  parseEcdsaRoleLocalBindingDigest,
+  parseEcdsaRoleLocalDurableMaterialRef,
+  parseEcdsaRoleLocalMaterialHandle,
+  parseEcdsaThresholdKeyId,
+} from '@/core/signingEngine/session/keyMaterialBrands';
+import type { EcdsaRoleLocalReadyRecord } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
@@ -28,6 +34,14 @@ import { testEcdsaChainId, testEcdsaChainTarget } from './ecdsaChainTarget.fixtu
 const VALID_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_ECDSA_SHARE32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+
+const FIXTURE_ROLE_LOCAL_STATE_BLOB = {
+  kind: 'ecdsa_role_local_state_blob_v1',
+  curve: 'secp256k1',
+  encoding: 'base64url',
+  producer: 'signer_core',
+  stateBlobB64u: VALID_ECDSA_SHARE32_B64U,
+} as const;
 
 function hexAddressToBase64Url(address: string): string {
   return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
@@ -128,6 +142,41 @@ export function fixtureRouterAbEcdsaDerivationPublicCapability(args: {
   });
 }
 
+/**
+ * Default `publicCapability` for `buildEcdsaRoleLocalPublicFacts`, which has required
+ * it since role-local registration and signing flows were unified. Nothing cross-checks
+ * the capability against the surrounding facts, but callers pass their own identity so
+ * a fixture record stays internally consistent when it is read back.
+ */
+export function fixtureEcdsaRoleLocalPublicCapability(args: {
+  walletId: string;
+  evmFamilySigningKeySlotId: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  sessionId?: string;
+  clientVerifyingShareB64u?: string;
+  thresholdEcdsaPublicKeyB64u?: string;
+  ethereumAddress?: string;
+}): RouterAbEcdsaDerivationPublicCapabilityV1 {
+  const sessionId = String(args.sessionId || 'activation-role-local-fixture').trim();
+  return fixtureRouterAbEcdsaDerivationPublicCapability({
+    walletId: args.walletId,
+    sessionId,
+    normalSigning: fixtureRouterAbEcdsaDerivationNormalSigning({
+      walletId: args.walletId,
+      walletKeyId: args.evmFamilySigningKeySlotId,
+      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+      signingRootId: args.signingRootId,
+      signingRootVersion: args.signingRootVersion,
+      sessionId,
+      clientVerifyingShareB64u: args.clientVerifyingShareB64u || VALID_ECDSA_PUBLIC_KEY_B64U,
+      thresholdEcdsaPublicKeyB64u: args.thresholdEcdsaPublicKeyB64u || VALID_ECDSA_PUBLIC_KEY_B64U,
+      ethereumAddress: args.ethereumAddress || `0x${'11'.repeat(20)}`,
+    }),
+  });
+}
+
 export function fixtureRuntimePolicyScopeFromSigningRoot(
   signingRootId: string,
   signingRootVersion: string,
@@ -217,13 +266,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     ethereumAddress,
   });
   const ecdsaRoleLocalReadyRecord = buildEcdsaRoleLocalReadyRecord({
-    stateBlob: {
-      kind: 'ecdsa_role_local_state_blob_v1',
-      curve: 'secp256k1',
-      encoding: 'base64url',
-      producer: 'signer_core',
-      stateBlobB64u: VALID_ECDSA_SHARE32_B64U,
-    },
+    stateBlob: FIXTURE_ROLE_LOCAL_STATE_BLOB,
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId(args.nearAccountId),
       evmFamilySigningKeySlotId,
@@ -273,13 +316,35 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId,
       participantIds: [...participantIds],
-      backendBinding: {
-        materialKind: 'role_local_ready_state_blob',
-        relayerKeyId,
-        clientVerifyingShareB64u,
-        stateBlob: ecdsaRoleLocalReadyRecord.stateBlob,
-        ecdsaRoleLocalReadyRecord,
-      },
+      // Canonical passkey ECDSA session records may only reference durable
+      // worker-owned role-local material; only the Email OTP branch still carries
+      // a ready-state blob inline. Mirrors the production activation path.
+      backendBinding:
+        roleLocalAuthMethod.kind === 'email_otp'
+          ? {
+              materialKind: 'role_local_ready_state_blob',
+              relayerKeyId,
+              clientVerifyingShareB64u,
+              stateBlob: ecdsaRoleLocalReadyRecord.stateBlob,
+              ecdsaRoleLocalReadyRecord,
+            }
+          : {
+              materialKind: 'role_local_worker_handle',
+              relayerKeyId,
+              clientVerifyingShareB64u,
+              roleLocalMaterialHandle: {
+                kind: 'ecdsa_role_local_worker_handle_v1',
+                materialHandle: parseEcdsaRoleLocalMaterialHandle(`role-local-live:${sessionId}`),
+                bindingDigest: parseEcdsaRoleLocalBindingDigest(
+                  ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+                ),
+                durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(
+                  `role-local:${sessionId}`,
+                ),
+              },
+              publicFacts: ecdsaRoleLocalReadyRecord.publicFacts,
+              authMethod: ecdsaRoleLocalReadyRecord.authMethod,
+            },
       thresholdSessionKind: sessionKind,
       thresholdSessionId: sessionId,
       signingGrantId,
@@ -313,6 +378,29 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       clientVerifyingShareB64u,
     },
   };
+}
+
+/**
+ * Ready record behind a bootstrap fixture, for tests that need the role-local
+ * material itself rather than the session record. Passkey bootstraps keep that
+ * material worker-owned, so it is rebuilt from the handle's public facts instead
+ * of being read off the backend binding.
+ */
+export function fixtureEcdsaRoleLocalReadyRecordFromBootstrap(
+  bootstrap: ThresholdEcdsaSessionBootstrapResult,
+): EcdsaRoleLocalReadyRecord {
+  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  if (binding?.materialKind === 'role_local_ready_state_blob') {
+    return binding.ecdsaRoleLocalReadyRecord;
+  }
+  if (binding?.materialKind === 'role_local_worker_handle') {
+    return buildEcdsaRoleLocalReadyRecord({
+      stateBlob: FIXTURE_ROLE_LOCAL_STATE_BLOB,
+      publicFacts: binding.publicFacts,
+      authMethod: binding.authMethod,
+    });
+  }
+  throw new Error('ECDSA bootstrap fixture does not carry role-local ready material');
 }
 
 function toFixtureWalletSessionJwt(

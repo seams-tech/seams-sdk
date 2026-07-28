@@ -555,11 +555,10 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
       ecdsa,
     };
   }
-  if (record.kind !== 'near_ed25519' && record.kind !== 'near_ed25519_and_evm_family_ecdsa') {
-    return null;
-  }
-  if (record.kind === 'near_ed25519_and_evm_family_ecdsa' && !ecdsa) return null;
-  if (record.kind === 'near_ed25519' && record.ecdsa !== undefined) return null;
+  /* Refactor 94 Phase 4+5: finalize commits one signer branch per call, so a
+     replayed Ed25519 response never carries ECDSA work. */
+  if (record.kind !== 'near_ed25519') return null;
+  if (record.ecdsa !== undefined) return null;
   const ed25519 = parseD1WalletRegistrationFinalizeEd25519(record.ed25519);
   const authorityScope = parseThresholdEd25519AuthorityScope(record.authorityScope);
   const accountProvisioning = parseD1RegistrationNearAccountProvisioning(

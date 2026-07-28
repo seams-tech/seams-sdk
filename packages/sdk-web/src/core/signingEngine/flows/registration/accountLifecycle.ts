@@ -118,22 +118,12 @@ export type StoreWalletEmailOtpEd25519RegistrationInput = Omit<
  * reach this path from either branch, so the signer's auth method and source
  * must come from the caller rather than defaulting to passkey.
  */
-export type StoreWalletEd25519SignerAuthV1 =
-  | {
-      kind: 'passkey';
-      /* Identifiers only. Both the registration and the assertion credential
-         satisfy this, so a deferred commit reuses what registration already
-         collected instead of prompting for a second Touch ID. */
-      credential: { readonly id: string; readonly rawId: string };
-      email?: never;
-      registrationAuthorityId?: never;
-    }
-  | {
-      kind: 'email_otp';
-      credential?: never;
-      email: string;
-      registrationAuthorityId: string;
-    };
+export type StoreWalletEd25519SignerAuthV1 = {
+  kind: 'passkey';
+  /* Identifiers only, so a caller reuses the credential it already collected
+     rather than prompting for a second Touch ID. */
+  credential: { readonly id: string; readonly rawId: string };
+};
 
 export type StoreWalletEd25519SignerRecordInput = {
   walletId: WalletId;
@@ -1371,11 +1361,8 @@ export async function finalizeWalletEd25519SignerRegistration(
   deps: RegistrationAccountLifecycleDeps,
   args: StoreWalletEd25519SignerRecordInput,
 ): Promise<StoredWalletEd25519SignerRegistration> {
-  const credentialId =
-    args.auth.kind === 'passkey'
-      ? String(args.auth.credential.rawId || args.auth.credential.id || '').trim()
-      : '';
-  if (args.auth.kind === 'passkey' && !credentialId) {
+  const credentialId = String(args.auth.credential.rawId || args.auth.credential.id || '').trim();
+  if (!credentialId) {
     throw new Error('SeamsWalletDB: add-signer credential id is required');
   }
   const signerSlot = Number(args.signerSlot);
@@ -1391,14 +1378,7 @@ export async function finalizeWalletEd25519SignerRegistration(
   if (!nearEd25519SigningKeyId) {
     throw new Error('SeamsWalletDB: nearEd25519SigningKeyId is required');
   }
-  const passkeyCredential =
-    args.auth.kind === 'passkey' ? { id: args.auth.credential.id, rawId: credentialId } : undefined;
-  const signerAuthMethod =
-    args.auth.kind === 'passkey' ? SIGNER_AUTH_METHODS.passkey : SIGNER_AUTH_METHODS.emailOtp;
-  const signerSource =
-    args.auth.kind === 'passkey'
-      ? SIGNER_SOURCES.passkeyRegistration
-      : SIGNER_SOURCES.emailOtpRegistration;
+  const passkeyCredential = { id: args.auth.credential.id, rawId: credentialId };
   const signerMetadata = {
     walletId,
     nearAccountId: String(nearAccountId),
@@ -1406,9 +1386,8 @@ export async function finalizeWalletEd25519SignerRegistration(
     operationalPublicKey: args.operationalPublicKey,
     relayerKeyId: args.relayerKeyId,
     keyVersion: args.keyVersion,
-    ...(args.auth.kind === 'passkey'
-      ? { passkeyCredentialId: args.auth.credential.id, passkeyCredentialRawId: credentialId }
-      : { email: args.auth.email, registrationAuthorityId: args.auth.registrationAuthorityId }),
+    passkeyCredentialId: args.auth.credential.id,
+    passkeyCredentialRawId: credentialId,
     ...(args.participantIds ? { participantIds: args.participantIds } : {}),
     ...(args.clientParticipantId != null ? { clientParticipantId: args.clientParticipantId } : {}),
     ...(args.relayerParticipantId != null
@@ -1431,8 +1410,8 @@ export async function finalizeWalletEd25519SignerRegistration(
       signerId: ed25519SignerId,
       signerType: 'threshold',
       signerKind: SIGNER_KINDS.thresholdEd25519,
-      signerAuthMethod,
-      signerSource,
+      signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
+      signerSource: SIGNER_SOURCES.passkeyRegistration,
       metadata: signerMetadata,
     },
     activationPolicy: { mode: 'fail_if_occupied', signerSlot },
@@ -1450,8 +1429,8 @@ export async function finalizeWalletEd25519SignerRegistration(
       signerId: ed25519SignerId,
       signerType: 'threshold',
       signerKind: SIGNER_KINDS.thresholdEd25519,
-      signerAuthMethod,
-      signerSource,
+      signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
+      signerSource: SIGNER_SOURCES.passkeyRegistration,
       metadata: signerMetadata,
     },
     activationPolicy: { mode: 'fail_if_occupied', signerSlot },

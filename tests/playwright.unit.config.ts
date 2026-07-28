@@ -32,8 +32,21 @@ function hasExplicitUnitGuardTestArg(argv: readonly string[]): boolean {
   return argv.some(isExplicitUnitGuardTestArg);
 }
 
+// A module-load failure in any unit test file aborts Playwright's collection
+// phase: nothing runs, and the only output is a bare `SyntaxError` that is easy
+// to mistake for a warning. `./reporters/failOnCollectionErrors` turns that into
+// an explicit failure naming the broken files, and refuses to report success for
+// a run that collected zero tests. Keep it last so it prints after `line`'s
+// summary.
+//
+// Playwright's CLI `--reporter=...` REPLACES this list rather than extending it,
+// which would silently drop the guard. `line` is declared here precisely so that
+// unit-suite commands no longer need to pass `--reporter=line`.
+const unitReporters: Array<[string]> = [['line'], ['./reporters/failOnCollectionErrors.ts']];
+
 export default {
   ...baseConfig,
+  reporter: unitReporters,
   testMatch: ['**/unit/**/*.test.ts'],
   testIgnore: hasExplicitUnitGuardTestArg(process.argv)
     ? ['**/unit/**/*.integration.test.ts']
