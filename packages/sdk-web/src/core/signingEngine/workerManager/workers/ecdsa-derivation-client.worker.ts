@@ -1334,6 +1334,14 @@ async function initializeEcdsaDerivationOperationWasm(
         initializeEcdsaRegistrationClientWasm(),
       ]);
       return;
+    case EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto:
+      /* Both modules, because registration touches the ceremony WASM on create
+         and the registration WASM on activation. */
+      await Promise.all([
+        initializeEcdsaDerivationClientWasm(),
+        initializeEcdsaRegistrationClientWasm(),
+      ]);
+      return;
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaPostRegistrationCeremony:
       return;
@@ -1444,6 +1452,9 @@ async function executeEcdsaDerivationRequest(
         type: EcdsaDerivationClientCustomResponseType.BuildThresholdEcdsaDerivationRoleLocalExportArtifactSuccess,
         payload: JSON.parse(build_ecdsa_role_local_export_artifact_v1(JSON.stringify(payload))),
       };
+    case EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto:
+      /* Handled before execution; it initializes WASM and performs no operation. */
+      throw new Error('ECDSA registration crypto prewarm does not execute an operation');
   }
   requestType satisfies never;
   throw new Error(`Unsupported DERIVATION client request type: ${requestType}`);
@@ -1469,9 +1480,30 @@ function parseEcdsaDerivationOperationType(value: unknown): EcdsaDerivationWorke
   }
 }
 
+function isEcdsaRegistrationCryptoPrewarmRequest(value: unknown): boolean {
+  return (
+    Number((value as { type?: unknown })?.type) ===
+    EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto
+  );
+}
+
 async function handleEcdsaDerivationClientMessage(
   data: unknown,
 ): Promise<EcdsaDerivationWorkerCommandResult> {
+  if (isEcdsaRegistrationCryptoPrewarmRequest(data)) {
+    /* Warmup only: initialize and report, never touch ceremony state. */
+    const prewarmStartedAt = nowMs();
+    await initializeEcdsaDerivationOperationWasm(
+      EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto,
+    );
+    const wasmInitWaitMs = roundMs(nowMs() - prewarmStartedAt);
+    return {
+      type: EcdsaDerivationClientCustomResponseType.PrewarmEcdsaRegistrationCryptoSuccess,
+      payload: { kind: 'ecdsa_registration_crypto_prewarm_result_v1', wasmInitMs: wasmInitWaitMs },
+      wasmInitWaitMs,
+      wasmCallMs: 0,
+    };
+  }
   const request = data as { type?: unknown; payload?: unknown };
   const requestType = request?.type;
   const payload = request?.payload;

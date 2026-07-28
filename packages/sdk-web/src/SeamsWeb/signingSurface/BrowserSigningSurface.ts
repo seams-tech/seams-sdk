@@ -609,6 +609,13 @@ export class BrowserSigningSurface {
     return await this.signerWorkerManager.prewarmEmailOtpYao(request);
   }
 
+  async prewarmEcdsaRegistrationCrypto(): Promise<{
+    kind: 'succeeded' | 'failed';
+    wasmInitMs: number;
+  }> {
+    return await this.signerWorkerManager.prewarmEcdsaRegistrationCrypto();
+  }
+
   getRpId(): string {
     return this.touchIdPrompt.getRpId();
   }
