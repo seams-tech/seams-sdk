@@ -30,7 +30,7 @@ import {
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
-  buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1,
+  buildRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
   buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
@@ -662,7 +662,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
       clientRerandomizationCommitment32: new Uint8Array(32).fill(0x31),
     });
-    const finalizeRequest = buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1({
+    const finalizeRequest = buildRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1({
       scope,
       requestId: prepareRequest.request_id,
       budgetReservationId: 'router-ab-ecdsa-private-validator-budget-reservation',

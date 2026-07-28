@@ -13,13 +13,12 @@ import {
 } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
 import {
-  buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1,
+  buildRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
   buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
   ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
-  routerAbEcdsaDerivationActiveStateSessionId,
   routerAbEcdsaDerivationContextBindingB64uV1,
-  type RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire,
+  type RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire,
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -183,8 +182,8 @@ function prepareBody(): RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire {
 
 function finalizeBody(args: {
   budgetOperationId: string;
-}): RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire {
-  return buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1({
+}): RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire {
+  return buildRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1({
     scope,
     requestId: 'ecdsa-sign-request-1',
     budgetReservationId: 'budget-reservation-ecdsa-1',
@@ -200,7 +199,7 @@ function finalizeBody(args: {
 async function ecdsaBudgetRequestDigest(
   body:
     | RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire
-    | RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire,
+    | RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire,
 ): Promise<string> {
   return deriveRouterAbEcdsaDerivationBudgetRequestDigest({
     body,
@@ -279,7 +278,7 @@ function createNormalSigningRuntime(args?: {
 async function callEcdsaRouteCore(input: {
   body:
     | RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire
-    | RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire;
+    | RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire;
   privatePath: EcdsaRouteInput['privatePath'];
   phase: EcdsaRouteInput['phase'];
   runtime: EcdsaNormalSigningRuntime;
@@ -299,10 +298,10 @@ async function callEcdsaRouteCore(input: {
 test.describe('Router A/B ECDSA derivation route-core budget gates', () => {
   test.beforeAll(async () => {
     scope = await buildScope();
-    thresholdSessionId = routerAbEcdsaDerivationActiveStateSessionId({
-      kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
-      scope,
-    });
+    // The retired helper derived this id from normal-signing state. These
+    // tests only require it to be the same id on both sides of an operation,
+    // which is exactly what they assert, so a stable constant carries it.
+    thresholdSessionId = 'router-ab-budget-route-core-session';
   });
 
   test('budget request digest is stable across prepare and finalize for the same signature operation', async () => {

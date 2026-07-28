@@ -482,13 +482,23 @@ function buildEcdsaCapabilityReplacementFixture(
  * the manifest rather than derived from it -- only the wallet and authority are
  * shared, which is exactly what the two halves must agree on. */
 export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
-  manifest: ActiveEcdsaCapabilityManifest;
+  /** Either supply the manifest this authorization pairs with, or the wallet
+   * and authority directly for callers that have no manifest. Only those two
+   * facts are shared between the halves. */
+  manifest?: ActiveEcdsaCapabilityManifest;
+  walletId?: ActiveEcdsaCapabilityManifest['signer']['walletId'];
+  authority?: ActiveEcdsaCapabilityManifest['signer']['authority'];
   walletSessionId?: string;
   walletSessionJwt?: string;
   expiresAtMs?: number;
   remainingUses?: number;
 }): ActiveEvmFamilyWalletSessionAuthorization {
-  const signer = args.manifest.signer;
+  const walletId = args.walletId ?? args.manifest?.signer.walletId;
+  const authority = args.authority ?? args.manifest?.signer.authority;
+  if (!walletId || !authority) {
+    throw new Error('[fixture] authorization requires a manifest or walletId + authority');
+  }
+  const signer = { walletId, authority };
   const walletSessionId = requireFixtureId(
     parseWalletSessionId(args.walletSessionId || 'ecdsa-fixture-wallet-session'),
     'walletSessionId',

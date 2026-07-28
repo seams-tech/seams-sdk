@@ -1,4 +1,9 @@
 import { expect, test } from '@playwright/test';
+import {
+  buildMpcMaterialActivationRefFixture,
+  buildWalletAuthAuthorityRefFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
+import { activeEvmFamilyWalletSessionAuthorizationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -82,16 +87,23 @@ const NEAR_EMAIL_OTP_LANE = buildEd25519EmailOtpSigningLane({
     'refactor-92-near-otp-session',
   ),
 });
+const ECDSA_MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
+  'refactor-92-surface',
+  String(WALLET_ID),
+);
+const ECDSA_AUTHORIZATION = activeEvmFamilyWalletSessionAuthorizationFixture({
+  walletId: WALLET_ID,
+  authority: buildWalletAuthAuthorityRefFixture({ walletId: String(WALLET_ID) }),
+});
+
 const TEMPO_PASSKEY_LANE = buildTempoTransactionSigningLane({
   key: ECDSA_KEY,
   keyHandle: ECDSA_KEY_HANDLE,
   walletId: WALLET_ID,
   auth: PASSKEY_AUTH,
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
-  signingGrantId: SigningSessionIds.signingGrant('refactor-92-tempo-passkey-grant'),
-  thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
-    'refactor-92-tempo-passkey-session',
-  ),
+  materialActivation: ECDSA_MATERIAL_ACTIVATION,
+  authorization: ECDSA_AUTHORIZATION,
   storageSource: 'login',
 });
 const TEMPO_EMAIL_OTP_LANE = buildTempoTransactionSigningLane({
@@ -100,10 +112,8 @@ const TEMPO_EMAIL_OTP_LANE = buildTempoTransactionSigningLane({
   walletId: WALLET_ID,
   auth: EMAIL_OTP_AUTH,
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
-  signingGrantId: SigningSessionIds.signingGrant('refactor-92-tempo-otp-grant'),
-  thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
-    'refactor-92-tempo-otp-session',
-  ),
+  materialActivation: ECDSA_MATERIAL_ACTIVATION,
+  authorization: ECDSA_AUTHORIZATION,
 });
 const EVM_PASSKEY_LANE = buildEvmTransactionSigningLane({
   key: ECDSA_KEY,
@@ -116,10 +126,8 @@ const EVM_PASSKEY_LANE = buildEvmTransactionSigningLane({
     chainId: 5042002,
     networkSlug: 'arc-testnet',
   },
-  signingGrantId: SigningSessionIds.signingGrant('refactor-92-evm-passkey-grant'),
-  thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
-    'refactor-92-evm-passkey-session',
-  ),
+  materialActivation: ECDSA_MATERIAL_ACTIVATION,
+  authorization: ECDSA_AUTHORIZATION,
   storageSource: 'login',
 });
 const EVM_EMAIL_OTP_LANE = buildEvmTransactionSigningLane({
@@ -133,10 +141,8 @@ const EVM_EMAIL_OTP_LANE = buildEvmTransactionSigningLane({
     chainId: 5042002,
     networkSlug: 'arc-testnet',
   },
-  signingGrantId: SigningSessionIds.signingGrant('refactor-92-evm-otp-grant'),
-  thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
-    'refactor-92-evm-otp-session',
-  ),
+  materialActivation: ECDSA_MATERIAL_ACTIVATION,
+  authorization: ECDSA_AUTHORIZATION,
 });
 
 const LANES: readonly LaneFixture[] = [
