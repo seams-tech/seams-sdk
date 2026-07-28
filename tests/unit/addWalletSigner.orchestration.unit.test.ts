@@ -225,6 +225,24 @@ function nearEd25519RegistrationSigner(): RegistrationSignerRequest {
   };
 }
 
+/* A sponsored named account is created under the walletId itself, so the NEAR
+   identity must come back as the walletId rather than a derived key. */
+function sponsoredNearEd25519RegistrationSigner(
+  requestedAccountId: string,
+): RegistrationSignerRequest {
+  return {
+    kind: 'near_ed25519' as const,
+    accountProvisioning: {
+      kind: 'sponsored_named_account' as const,
+      requestedAccountId,
+      sponsor: 'relayer' as const,
+    },
+    signerSlot: 1,
+    participantIds: [1, 2],
+    derivationVersion: 1,
+  } as RegistrationSignerRequest;
+}
+
 function registrationSignerSet(
   ...signers: readonly RegistrationSignerRequest[]
 ): RegistrationSignerSetSelection {
@@ -1162,15 +1180,6 @@ function createContext(captures: Record<string, unknown>): any {
             signerSlot,
           }),
           activateAuthenticatedWalletState: async () => undefined,
-      setWalletNearProvisioningState: async () => undefined,
-      setWalletNearProvisioningState: async (write: { walletId: string; status: string }) => {
-        const writes = (captures.nearProvisioningWrites as unknown[] | undefined) ?? [];
-        writes.push(write);
-        captures.nearProvisioningWrites = writes;
-        if (captures.failNearProvisioningWrite) {
-          throw new Error('durable NEAR provisioning write unavailable');
-        }
-      },
           setWalletNearProvisioningState: async () => undefined,
           rollbackUserRegistration: async () => undefined,
         },
@@ -1269,7 +1278,16 @@ function createContext(captures: Record<string, unknown>): any {
         signerSlot,
       }),
       activateAuthenticatedWalletState: async () => undefined,
-      setWalletNearProvisioningState: async () => undefined,
+      setWalletNearProvisioningState: async (write: { walletId: string; status: string }) => {
+        const writes = (captures.nearProvisioningWrites as { status: string }[] | undefined) ?? [];
+        writes.push(write);
+        captures.nearProvisioningWrites = writes;
+        /* Fails only the status the test names, so a test can break the
+           near_ready write while every earlier transition still persists. */
+        if (captures.failNearProvisioningWriteForStatus === write.status) {
+          throw new Error(`durable NEAR provisioning write unavailable: ${write.status}`);
+        }
+      },
       activateVerifiedNearEd25519YaoSigningCapability:
         captureActivatedEmailOtpEd25519YaoCapability.bind(undefined, captures),
       createRouterAbEcdsaRegistrationCeremony: async (args: Record<string, any>) => {
@@ -1638,18 +1656,33 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
           },
           appSessionJwt: String(intentAuthMethod?.appSessionJwt || ''),
           authorityScope,
-          accountProvisioning: {
-            kind: 'implicit_account',
-            accountIdSource: 'ed25519_public_key',
-          },
-          resolvedAccount: {
-            kind: 'implicit_account',
-            nearAccountId: 'ab'.repeat(32),
-            nearEd25519SigningKeyId,
-          },
+          /* Sponsored named provisioning resolves to the requested account,
+             which is the walletId; implicit resolves to the derived key. */
+          accountProvisioning: captures.sponsoredNearAccountId
+            ? {
+                kind: 'sponsored_named_account',
+                requestedAccountId: String(captures.sponsoredNearAccountId),
+                sponsor: 'relayer',
+              }
+            : {
+                kind: 'implicit_account',
+                accountIdSource: 'ed25519_public_key',
+              },
+          resolvedAccount: captures.sponsoredNearAccountId
+            ? {
+                kind: 'sponsored_named_account',
+                nearAccountId: String(captures.sponsoredNearAccountId),
+                nearEd25519SigningKeyId,
+                transactionHash: 'sponsored-named-account-tx',
+              }
+            : {
+                kind: 'implicit_account',
+                nearAccountId: 'ab'.repeat(32),
+                nearEd25519SigningKeyId,
+              },
           ed25519: {
             signerSlot: ed25519Signer.signerSlot,
-            nearAccountId: 'ab'.repeat(32),
+            nearAccountId: String(captures.sponsoredNearAccountId || 'ab'.repeat(32)),
             nearEd25519SigningKeyId,
             publicKey,
             relayerKeyId: 'signing-worker-test',
@@ -1660,13 +1693,13 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
               sessionKind: 'jwt',
               walletSessionJwt: ed25519WalletSessionJwt({
                 walletId: responseWalletId,
-                nearAccountId: 'ab'.repeat(32),
+                nearAccountId: String(captures.sponsoredNearAccountId || 'ab'.repeat(32)),
                 nearEd25519SigningKeyId,
                 thresholdSessionId: 'registration-ceremony',
                 signingGrantId: 'email-otp-ed25519-signing-grant',
               }),
               walletId: responseWalletId,
-              nearAccountId: 'ab'.repeat(32),
+              nearAccountId: String(captures.sponsoredNearAccountId || 'ab'.repeat(32)),
               nearEd25519SigningKeyId,
               authorityScope,
               thresholdSessionId: 'registration-ceremony',
@@ -2092,7 +2125,10 @@ test('registerWallet starts Email OTP Yao and ECDSA registration in parallel', a
 /* Refactor 94 Phase 4+5. Registration returns an ECDSA-ready wallet before the
    Ed25519 branch settles, so a terminal failure in the deferred commit must
    never fault the wallet that already resolved. */
-async function runMixedEmailOtpRegistration(captures: Record<string, unknown>) {
+async function runMixedEmailOtpRegistration(
+  captures: Record<string, unknown>,
+  nearSigner: RegistrationSignerRequest = nearEd25519RegistrationSigner(),
+) {
   resetNearProvisioningRegistryForTests();
   const events = captures.registrationEvents as string[];
   const walletId = walletIdFromString('email-otp-mixed.testnet');
@@ -2118,7 +2154,7 @@ async function runMixedEmailOtpRegistration(captures: Record<string, unknown>) {
       },
       wallet: { kind: 'provided', walletId },
       signerSelection: registrationSignerSet(
-        nearEd25519RegistrationSigner(),
+        nearSigner,
         evmFamilyRegistrationSigner([{ kind: 'evm', namespace: 'eip155', chainId: 1 }]),
       ),
       options: {},
@@ -2204,6 +2240,93 @@ test('registerWallet keeps the ECDSA wallet when the deferred Yao seal fails', a
       predicate: () => readNearProvisioningState(walletIdFromString('email-otp-mixed.testnet'))?.status === 'near_failed_retryable',
     });
     expect(readNearProvisioningState(walletIdFromString('email-otp-mixed.testnet'))?.status).not.toBe('near_ready');
+  } finally {
+    backupCapture.restore();
+    fetchMock.restore();
+  }
+});
+
+test('a failed near_ready write never publishes near_ready', async () => {
+  const events: string[] = [];
+  const captures: Record<string, unknown> = {
+    registrationEvents: events,
+    enableRegistrationPreparationModalClose: true,
+    /* Yao succeeds; only the durable near_ready write breaks. */
+    failNearProvisioningWriteForStatus: 'near_ready',
+  };
+  const fetchMock = installRegisterWalletFetch(captures);
+  const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
+  backupCapture.install();
+  try {
+    const { result } = await runMixedEmailOtpRegistration(captures);
+    const walletId = walletIdFromString('email-otp-mixed.testnet');
+
+    /* The ECDSA wallet is durable and reported as such. */
+    expectRegistrationSuccess(result);
+    expect(result).toMatchObject({ success: true, kind: 'ecdsa_wallet_registered_near_pending' });
+    expect(
+      String(
+        (result as { thresholdEcdsaEthereumAddress?: string }).thresholdEcdsaEthereumAddress ?? '',
+      ),
+    ).not.toBe('');
+
+    /* The Yao ceremony itself succeeded, so this isolates the durable write. */
+    await waitForTestCondition({
+      label: 'the Yao seal to succeed before the durable write is attempted',
+      predicate: () => events.includes('emailOtpYaoCommitCalled'),
+    });
+    await waitForTestCondition({
+      label: 'provisioning to settle as retryable after the near_ready write failed',
+      predicate: () => readNearProvisioningState(walletId)?.status === 'near_failed_retryable',
+    });
+
+    /* near_ready must never reach the page on an unpersisted success. */
+    expect(readNearProvisioningState(walletId)?.status).not.toBe('near_ready');
+
+    const writes = (captures.nearProvisioningWrites as { status: string }[]) ?? [];
+    const attempted = writes.map((entry) => entry.status);
+    expect(attempted).toContain('near_ready');
+    expect(attempted).toContain('near_failed_retryable');
+    /* The failed write is attempted before the retryable one that replaces it. */
+    expect(attempted.indexOf('near_ready')).toBeLessThan(attempted.indexOf('near_failed_retryable'));
+  } finally {
+    backupCapture.restore();
+    fetchMock.restore();
+  }
+});
+
+test('sponsored NEAR provisioning keeps the wallet id as the account identity', async () => {
+  const events: string[] = [];
+  const captures: Record<string, unknown> = {
+    registrationEvents: events,
+    enableRegistrationPreparationModalClose: true,
+  };
+  captures.sponsoredNearAccountId = 'email-otp-mixed.testnet';
+  const fetchMock = installRegisterWalletFetch(captures);
+  const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
+  backupCapture.install();
+  try {
+    await runMixedEmailOtpRegistration(
+      captures,
+      sponsoredNearEd25519RegistrationSigner('email-otp-mixed.testnet'),
+    );
+    const walletId = walletIdFromString('email-otp-mixed.testnet');
+
+    await waitForTestCondition({
+      label: 'deferred NEAR provisioning to reach near_ready',
+      predicate: () => readNearProvisioningState(walletId)?.status === 'near_ready',
+    });
+
+    const state = readNearProvisioningState(walletId);
+    /* A sponsored named account must not rename the wallet: the NEAR account
+       identity stays the walletId registration was issued against. */
+    expect(state).toMatchObject({ status: 'near_ready', nearAccountId: String(walletId) });
+
+    /* The durable write agrees with what the page observed. */
+    const readyWrite = ((captures.nearProvisioningWrites as { status: string; nearAccountId?: string }[]) ?? []).find(
+      (entry) => entry.status === 'near_ready',
+    );
+    expect(readyWrite?.nearAccountId).toBe(String(walletId));
   } finally {
     backupCapture.restore();
     fetchMock.restore();

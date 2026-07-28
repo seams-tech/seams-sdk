@@ -38,6 +38,7 @@ export interface AppSessionConsoleAuthAdapterOptions {
   readonly defaultOrgId?: string;
   readonly defaultProjectId?: string;
   readonly defaultEnvironmentId?: string;
+  readonly initialOwnerEmails?: ReadonlyArray<unknown> | string;
   readonly platformSupportEmails?: ReadonlyArray<unknown> | string;
   readonly provisioning?: ConsoleSsoProvisioningOptions | null;
 }
@@ -69,7 +70,7 @@ function parseCsvValues(value: unknown): string[] {
     .filter(Boolean);
 }
 
-function normalizeConsolePlatformSupportEmailList(input: unknown): readonly string[] {
+function normalizeConsoleEmailList(input: unknown): readonly string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   const values = Array.isArray(input) ? input : parseCsvValues(input);
@@ -362,28 +363,41 @@ async function provisionInitialOidcOwner(input: {
   readonly audit: ConsoleAuditService | null;
   readonly logger: { warn(message?: unknown, ...optionalParams: unknown[]): void };
 }): Promise<void> {
+  const existingAuthorization = await input.organizationAccess.lookupAuthorization({
+    orgId: input.orgId,
+    userId: input.userId,
+  });
+  if (existingAuthorization?.kind === 'authorized') return;
   const exists = await organizationExists({
     orgProjectEnv: input.orgProjectEnv,
     orgId: input.orgId,
     userId: input.userId,
   });
-  if (exists) return;
-  await input.orgProjectEnv.upsertOrganization(
-    createConsoleScopeReadContext({ orgId: input.orgId, userId: input.userId }),
-    {},
-  );
-  const owner = await input.organizationAccess.bootstrapInitialOwner({
-    orgId: input.orgId,
-    userId: input.userId,
-    email: input.profile.email,
-    displayName: input.profile.displayName,
-  });
+  if (!exists) {
+    await input.orgProjectEnv.upsertOrganization(
+      createConsoleScopeReadContext({ orgId: input.orgId, userId: input.userId }),
+      {},
+    );
+  }
+  let ownerId = '';
+  try {
+    const owner = await input.organizationAccess.bootstrapInitialOwner({
+      orgId: input.orgId,
+      userId: input.userId,
+      email: input.profile.email,
+      displayName: input.profile.displayName,
+    });
+    ownerId = owner.id;
+  } catch (error: unknown) {
+    if (hasConsoleErrorCode(error, 'owner_already_exists')) return;
+    throw error;
+  }
   const authorization = await input.organizationAccess.lookupAuthorization({
     orgId: input.orgId,
     userId: input.userId,
   });
   if (!authorization || authorization.kind === 'denied' || authorization.role !== 'OWNER') {
-    throw new Error(`Initial owner ${owner.id} could not be authorized`);
+    throw new Error(`Initial owner ${ownerId} could not be authorized`);
   }
   await appendInitialOwnerAudit({
     audit: input.audit,
@@ -527,6 +541,7 @@ interface AppSessionConsoleAuthRuntime {
   readonly defaultOrgId: string;
   readonly defaultProjectId: string;
   readonly defaultEnvironmentId: string;
+  readonly initialOwnerEmails: readonly string[];
   readonly platformSupportEmails: readonly string[];
   readonly orgProjectEnv: ConsoleOrgProjectEnvService | null;
   readonly audit: ConsoleAuditService | null;
@@ -542,7 +557,8 @@ class AppSessionConsoleAuthAdapter implements ConsoleAuthAdapter {
       defaultOrgId: normalizeString(options.defaultOrgId),
       defaultProjectId: normalizeString(options.defaultProjectId),
       defaultEnvironmentId: normalizeString(options.defaultEnvironmentId),
-      platformSupportEmails: normalizeConsolePlatformSupportEmailList(
+      initialOwnerEmails: normalizeConsoleEmailList(options.initialOwnerEmails ?? []),
+      platformSupportEmails: normalizeConsoleEmailList(
         options.platformSupportEmails ?? [],
       ),
       orgProjectEnv: options.provisioning?.orgProjectEnv ?? null,
@@ -611,9 +627,10 @@ class AppSessionConsoleAuthAdapter implements ConsoleAuthAdapter {
       };
     }
     if (
-      scope.derivedOrganization &&
       profile.provider === 'oidc' &&
-      this.#runtime.orgProjectEnv
+      this.#runtime.orgProjectEnv &&
+      (scope.derivedOrganization ||
+        this.#runtime.initialOwnerEmails.includes(profile.email.toLowerCase()))
     ) {
       await ensureInitialOidcOwner({
         orgId: scope.orgId,

@@ -310,6 +310,20 @@ test('partitioned D1 rejects invalid passkey registration authority before claim
   }
 });
 
+/**
+ * Strips instrumentation before comparing a replay to its original. Timing
+ * metrics are wall-clock and a replay does strictly less work, so they differ
+ * by design; the registration payload must not.
+ */
+function withoutServerTimings<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(withoutServerTimings) as unknown as T;
+  if (!value || typeof value !== 'object') return value;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => key !== 'gatewayServerTiming')
+    .map(([key, entry]) => [key, withoutServerTimings(entry)]);
+  return Object.fromEntries(entries) as T;
+}
+
 test('partitioned D1 completes and replays strict ECDSA wallet registration', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
@@ -399,15 +413,20 @@ test('partitioned D1 completes and replays strict ECDSA wallet registration', as
     });
     if (!responded.ok) throw new Error(responded.message);
     expect(strictRegistration.registrationRequest).toEqual(strictRequest);
-    await expect(
-      service.walletRegistration.respondWalletRegistrationEcdsaDerivation({
+    const respondedReplay = await service.walletRegistration.respondWalletRegistrationEcdsaDerivation(
+      {
         registrationCeremonyId: started.registrationCeremonyId,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_v1',
           strictRegistration: strictRequest,
         },
-      }),
-    ).resolves.toEqual(responded);
+      },
+    );
+    /* The replay must return the same registration payload, but not the same
+       timings: it reconciles instead of doing router and commit work, and the
+       durations are wall-clock. Comparing those for equality made this assert
+       both over-strict and flaky. */
+    expect(withoutServerTimings(respondedReplay)).toEqual(withoutServerTimings(responded));
 
     const activationFacts = fixtureRouterAbEcdsaActivationFacts();
     const activated = await service.walletRegistration.activateWalletRegistrationEcdsa({
@@ -418,15 +437,14 @@ test('partitioned D1 completes and replays strict ECDSA wallet registration', as
       },
     });
     if (!activated.ok) throw new Error(activated.message);
-    await expect(
-      service.walletRegistration.activateWalletRegistrationEcdsa({
-        registrationCeremonyId: started.registrationCeremonyId,
-        ecdsa: {
-          kind: 'router_ab_ecdsa_registration_activation_v1',
-          publicFacts: activationFacts,
-        },
-      }),
-    ).resolves.toEqual(activated);
+    const activatedReplay = await service.walletRegistration.activateWalletRegistrationEcdsa({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_v1',
+        publicFacts: activationFacts,
+      },
+    });
+    expect(withoutServerTimings(activatedReplay)).toEqual(withoutServerTimings(activated));
 
     await expect(
       service.walletRegistration.finalizeWalletRegistration({
@@ -461,9 +479,12 @@ test('partitioned D1 completes and replays strict ECDSA wallet registration', as
         ],
       },
     });
-    await expect(
-      service.walletRegistration.finalizeWalletRegistration(finalizeRequest),
-    ).resolves.toEqual(finalized);
+    /* Exact replay of the ECDSA finalize: same ceremony, same idempotency key,
+       same body. It must converge on the identical result and must not commit
+       a second effect — the replay record count below is what proves that. */
+    const finalizedReplay =
+      await service.walletRegistration.finalizeWalletRegistration(finalizeRequest);
+    expect(withoutServerTimings(finalizedReplay)).toEqual(withoutServerTimings(finalized));
     await expect(
       countPartitionedRegistrationRecords({ database, scope, recordScope: 'ceremony' }),
     ).resolves.toBe(0);

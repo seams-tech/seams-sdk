@@ -1,4 +1,4 @@
-import type { NearProvisioningState } from '@/core/types/seams';
+import type { NearProvisioningState, NearProvisioningWriteV1 } from '@/core/types/seams';
 import type { WalletId } from '@shared/utils/registrationIntent';
 
 /**
@@ -79,21 +79,33 @@ export function subscribeToNearProvisioning(listener: NearProvisioningListener):
  * leaving the wallet looking busy forever. Recovery is a later authenticated
  * retry, which converges because finalize replay is exact.
  */
-export function reconcileNearProvisioningOnLoad(args: {
+export async function reconcileNearProvisioningOnLoad(args: {
   walletId: WalletId;
   persisted: NearProvisioningState | null | undefined;
   nowMs: number;
-}): NearProvisioningState {
+  /* The durable record is authoritative, so a convergence has to be written
+     back before it is published — otherwise the next reload sees the stale
+     in-flight status again. */
+  persist: (write: NearProvisioningWriteV1) => Promise<void>;
+}): Promise<NearProvisioningState> {
   const interrupted =
     args.persisted?.status === 'near_pending' || args.persisted?.status === 'near_provisioning';
-  const converged: NearProvisioningState = interrupted
-    ? {
-        status: 'near_failed_retryable',
-        updatedAtMs: args.nowMs,
-        error: 'NEAR provisioning was interrupted before it completed',
-        errorCode: 'near_provisioning_interrupted',
-      }
-    : (args.persisted ?? { status: 'near_pending', updatedAtMs: args.nowMs });
+  if (!interrupted) {
+    const observed = args.persisted ?? { status: 'near_pending' as const, updatedAtMs: args.nowMs };
+    publishNearProvisioningState(args.walletId, observed);
+    return observed;
+  }
+  const converged: NearProvisioningState = {
+    status: 'near_failed_retryable',
+    updatedAtMs: args.nowMs,
+    error: 'NEAR provisioning was interrupted before it completed',
+    errorCode: 'near_provisioning_interrupted',
+  };
+  await args.persist({
+    walletId: String(args.walletId),
+    status: 'near_failed_retryable',
+    errorCode: 'near_provisioning_interrupted',
+  });
   publishNearProvisioningState(args.walletId, converged);
   return converged;
 }
