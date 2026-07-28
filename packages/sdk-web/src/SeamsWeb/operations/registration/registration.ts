@@ -167,9 +167,9 @@ import {
 export const REGISTRATION_TIMING_LABEL = '[Registration] wallet timing summary';
 
 /**
- * Router `Server-Timing` metric name → timing bucket. The Router emits these on
- * the Ed25519 Yao registration execute response; anything unrecognised is
- * ignored so a Router-side rename can never break registration.
+ * `Server-Timing` metric name → timing bucket, for both the Ed25519 Yao execute
+ * response and the ECDSA respond/activate responses. Anything unrecognised is
+ * ignored, so a server-side rename can never break registration.
  */
 const YAO_SERVER_TIMING_BUCKET_BY_METRIC = new Map<string, RegistrationTimingBucketName>(
   Object.entries({
@@ -183,6 +183,20 @@ const YAO_SERVER_TIMING_BUCKET_BY_METRIC = new Map<string, RegistrationTimingBuc
     yao_router_verify_readiness: 'yaoServerRouterVerifyReadinessMs',
     yao_router_role_execution: 'yaoServerRouterRoleExecutionMs',
     yao_router_signing_worker_delivery: 'yaoServerRouterSigningWorkerDeliveryMs',
+    ecdsa_respond_d1_claim: 'ecdsaRespondD1ClaimMs',
+    ecdsa_respond_reconcile: 'ecdsaRespondReconcileMs',
+    ecdsa_respond_router: 'ecdsaRespondRouterMs',
+    ecdsa_respond_d1_commit: 'ecdsaRespondD1CommitMs',
+    ecdsa_respond_total: 'ecdsaRespondTotalMs',
+    ecdsa_activate_d1_claim: 'ecdsaActivateD1ClaimMs',
+    ecdsa_activate_reconcile: 'ecdsaActivateReconcileMs',
+    ecdsa_activate_router: 'ecdsaActivateRouterMs',
+    ecdsa_activate_bootstrap: 'ecdsaActivateBootstrapMs',
+    ecdsa_activate_session_provision: 'ecdsaActivateSessionProvisionMs',
+    ecdsa_activate_d1_commit: 'ecdsaActivateD1CommitMs',
+    ecdsa_activate_policy_lookup: 'ecdsaActivatePolicyLookupMs',
+    ecdsa_activate_jwt_mint: 'ecdsaActivateJwtMintMs',
+    ecdsa_activate_total: 'ecdsaActivateTotalMs',
   } as const satisfies Record<string, RegistrationTimingBucketName>),
 );
 
@@ -190,6 +204,22 @@ const YAO_SERVER_TIMING_BUCKET_BY_METRIC = new Map<string, RegistrationTimingBuc
  * Parses a `Server-Timing` header into bucket durations. Diagnostics only: a
  * malformed or absent header yields an empty map and never throws.
  */
+/**
+ * Folds a raw `Server-Timing` header into the registration timing recorder.
+ * Shared by the Yao and ECDSA paths; unrecognised metrics are dropped.
+ */
+function recordServerTimingBuckets(
+  recorder: {
+    record: (bucket: RegistrationTimingBucketName, durationMs: number) => void;
+  } | null,
+  header: string | null,
+): void {
+  if (!recorder) return;
+  for (const [bucket, durationMs] of parseYaoServerTimingBuckets(header)) {
+    recorder.record(bucket, durationMs);
+  }
+}
+
 export function parseYaoServerTimingBuckets(
   header: string | null | undefined,
 ): ReadonlyArray<readonly [RegistrationTimingBucketName, number]> {
@@ -318,6 +348,22 @@ type RegistrationTimingBucketValues = {
   yaoServerRouterVerifyReadinessMs: number;
   yaoServerRouterRoleExecutionMs: number;
   yaoServerRouterSigningWorkerDeliveryMs: number;
+  // Gateway-reported ECDSA boundaries, parsed from the respond/activate
+  // Server-Timing headers. Names mirror the server metric names.
+  ecdsaRespondD1ClaimMs: number;
+  ecdsaRespondReconcileMs: number;
+  ecdsaRespondRouterMs: number;
+  ecdsaRespondD1CommitMs: number;
+  ecdsaRespondTotalMs: number;
+  ecdsaActivateD1ClaimMs: number;
+  ecdsaActivateReconcileMs: number;
+  ecdsaActivateRouterMs: number;
+  ecdsaActivateBootstrapMs: number;
+  ecdsaActivateSessionProvisionMs: number;
+  ecdsaActivateD1CommitMs: number;
+  ecdsaActivatePolicyLookupMs: number;
+  ecdsaActivateJwtMintMs: number;
+  ecdsaActivateTotalMs: number;
   walletRegisterStartMs: number;
   ecdsaClientBootstrapMs: number;
   ecdsaRegistrationTotalMs: number;
@@ -831,6 +877,20 @@ function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketVal
     yaoServerRouterVerifyReadinessMs: 0,
     yaoServerRouterRoleExecutionMs: 0,
     yaoServerRouterSigningWorkerDeliveryMs: 0,
+    ecdsaRespondD1ClaimMs: 0,
+    ecdsaRespondReconcileMs: 0,
+    ecdsaRespondRouterMs: 0,
+    ecdsaRespondD1CommitMs: 0,
+    ecdsaRespondTotalMs: 0,
+    ecdsaActivateD1ClaimMs: 0,
+    ecdsaActivateReconcileMs: 0,
+    ecdsaActivateRouterMs: 0,
+    ecdsaActivateBootstrapMs: 0,
+    ecdsaActivateSessionProvisionMs: 0,
+    ecdsaActivateD1CommitMs: 0,
+    ecdsaActivatePolicyLookupMs: 0,
+    ecdsaActivateJwtMintMs: 0,
+    ecdsaActivateTotalMs: 0,
     walletRegisterStartMs: 0,
     ecdsaClientBootstrapMs: 0,
     ecdsaRegistrationTotalMs: 0,
@@ -924,6 +984,20 @@ function copyRegistrationTimingBucketValues(
     yaoServerRouterVerifyReadinessMs: buckets.yaoServerRouterVerifyReadinessMs,
     yaoServerRouterRoleExecutionMs: buckets.yaoServerRouterRoleExecutionMs,
     yaoServerRouterSigningWorkerDeliveryMs: buckets.yaoServerRouterSigningWorkerDeliveryMs,
+    ecdsaRespondD1ClaimMs: buckets.ecdsaRespondD1ClaimMs,
+    ecdsaRespondReconcileMs: buckets.ecdsaRespondReconcileMs,
+    ecdsaRespondRouterMs: buckets.ecdsaRespondRouterMs,
+    ecdsaRespondD1CommitMs: buckets.ecdsaRespondD1CommitMs,
+    ecdsaRespondTotalMs: buckets.ecdsaRespondTotalMs,
+    ecdsaActivateD1ClaimMs: buckets.ecdsaActivateD1ClaimMs,
+    ecdsaActivateReconcileMs: buckets.ecdsaActivateReconcileMs,
+    ecdsaActivateRouterMs: buckets.ecdsaActivateRouterMs,
+    ecdsaActivateBootstrapMs: buckets.ecdsaActivateBootstrapMs,
+    ecdsaActivateSessionProvisionMs: buckets.ecdsaActivateSessionProvisionMs,
+    ecdsaActivateD1CommitMs: buckets.ecdsaActivateD1CommitMs,
+    ecdsaActivatePolicyLookupMs: buckets.ecdsaActivatePolicyLookupMs,
+    ecdsaActivateJwtMintMs: buckets.ecdsaActivateJwtMintMs,
+    ecdsaActivateTotalMs: buckets.ecdsaActivateTotalMs,
     walletRegisterStartMs: buckets.walletRegisterStartMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
     ecdsaRegistrationTotalMs: buckets.ecdsaRegistrationTotalMs,
@@ -1317,6 +1391,20 @@ function buildRegistrationTimingBuckets(input: {
     yaoServerRouterVerifyReadinessMs: buckets.yaoServerRouterVerifyReadinessMs,
     yaoServerRouterRoleExecutionMs: buckets.yaoServerRouterRoleExecutionMs,
     yaoServerRouterSigningWorkerDeliveryMs: buckets.yaoServerRouterSigningWorkerDeliveryMs,
+    ecdsaRespondD1ClaimMs: buckets.ecdsaRespondD1ClaimMs,
+    ecdsaRespondReconcileMs: buckets.ecdsaRespondReconcileMs,
+    ecdsaRespondRouterMs: buckets.ecdsaRespondRouterMs,
+    ecdsaRespondD1CommitMs: buckets.ecdsaRespondD1CommitMs,
+    ecdsaRespondTotalMs: buckets.ecdsaRespondTotalMs,
+    ecdsaActivateD1ClaimMs: buckets.ecdsaActivateD1ClaimMs,
+    ecdsaActivateReconcileMs: buckets.ecdsaActivateReconcileMs,
+    ecdsaActivateRouterMs: buckets.ecdsaActivateRouterMs,
+    ecdsaActivateBootstrapMs: buckets.ecdsaActivateBootstrapMs,
+    ecdsaActivateSessionProvisionMs: buckets.ecdsaActivateSessionProvisionMs,
+    ecdsaActivateD1CommitMs: buckets.ecdsaActivateD1CommitMs,
+    ecdsaActivatePolicyLookupMs: buckets.ecdsaActivatePolicyLookupMs,
+    ecdsaActivateJwtMintMs: buckets.ecdsaActivateJwtMintMs,
+    ecdsaActivateTotalMs: buckets.ecdsaActivateTotalMs,
     walletRegisterStartMs: buckets.walletRegisterStartMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
     ecdsaRegistrationTotalMs: buckets.ecdsaRegistrationTotalMs,
@@ -2663,6 +2751,7 @@ async function forwardStrictEcdsaFamilyRegistration(args: {
   strictRegistration: Awaited<
     ReturnType<RegistrationWebContext['signingEngine']['createRouterAbEcdsaRegistrationCeremony']>
   >['registrationRequest'];
+  onServerTiming?: (header: string | null) => void;
 }) {
   switch (args.route.kind) {
     case 'registration':
@@ -2674,6 +2763,7 @@ async function forwardStrictEcdsaFamilyRegistration(args: {
           kind: 'router_ab_ecdsa_registration_v1',
           strictRegistration: args.strictRegistration,
         },
+        ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
       });
     case 'add_signer':
       return await respondWalletAddSignerEcdsa({
@@ -2694,6 +2784,7 @@ async function activateStrictEcdsaFamilyRegistration(args: {
   relayerUrl: string;
   route: StrictEcdsaFamilyCeremonyRoute;
   publicFacts: Parameters<typeof activateWalletRegistrationEcdsa>[0]['publicFacts'];
+  onServerTiming?: (header: string | null) => void;
 }) {
   switch (args.route.kind) {
     case 'registration':
@@ -2702,6 +2793,7 @@ async function activateStrictEcdsaFamilyRegistration(args: {
         headers: registrationRouteHeaders(),
         registrationCeremonyId: args.route.registrationCeremonyId,
         publicFacts: args.publicFacts,
+        ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
       });
     case 'add_signer':
       return await activateWalletAddSignerEcdsa({
@@ -2763,6 +2855,7 @@ async function runStrictEcdsaFamilyCeremony(args: {
         relayerUrl: args.relayerUrl,
         route: args.route,
         strictRegistration: created.registrationRequest,
+        onServerTiming: (header) => recordServerTimingBuckets(args.registrationTiming, header),
       }),
     });
     const verified = await measureStrictEcdsaCeremonyStep({
@@ -2787,6 +2880,7 @@ async function runStrictEcdsaFamilyCeremony(args: {
         relayerUrl: args.relayerUrl,
         route: args.route,
         publicFacts: verified.publicFacts,
+        onServerTiming: (header) => recordServerTimingBuckets(args.registrationTiming, header),
       }),
     });
     const finalized = await measureStrictEcdsaCeremonyStep({
