@@ -147,13 +147,32 @@ type IntendedActionState =
   | IntendedActionSuccess
   | IntendedActionError;
 
-type PasskeyRegistrationCoreSummary = {
-  kind: 'passkey_registration_success';
-  walletId: string;
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-  operationalPublicKey: string;
-} & IntendedEcdsaSessionSummary;
+/**
+ * Refactor 94 Phase 7. What a passkey registration can assert at return time
+ * depends on whether it had a NEAR branch and whether that branch settled.
+ * A NEAR-only plan resolves with its identity; a mixed plan resolves
+ * ECDSA-ready with NEAR still provisioning, so no NEAR identifier exists yet.
+ * Modelled as a closed union so neither branch can borrow the other's fields.
+ */
+type PasskeyRegistrationCoreSummary = (
+  | {
+      kind: 'passkey_registration_success';
+      walletId: string;
+      nearAccountId: string;
+      nearEd25519SigningKeyId: string;
+      operationalPublicKey: string;
+      nearProvisioning?: never;
+    }
+  | {
+      kind: 'passkey_registration_success';
+      walletId: string;
+      nearProvisioning: 'pending' | 'retryable';
+      nearAccountId?: never;
+      nearEd25519SigningKeyId?: never;
+      operationalPublicKey?: never;
+    }
+) &
+  IntendedEcdsaSessionSummary;
 
 type PasskeyRegistrationResultSummary = PasskeyRegistrationCoreSummary & IntendedEcdsaSummary;
 
@@ -648,14 +667,24 @@ class IntendedPageController {
         session: registration,
         ecdsaTargetKeys,
       });
-      const summary: PasskeyRegistrationResultSummary = {
-        kind: registration.kind,
-        walletId: registration.walletId,
-        nearAccountId: registration.nearAccountId,
-        nearEd25519SigningKeyId: registration.nearEd25519SigningKeyId,
-        operationalPublicKey: registration.operationalPublicKey,
-        ...ecdsa,
-      };
+      /* A mixed plan has no NEAR identity yet; a NEAR-only plan does. The two
+         summary branches cannot be merged without reintroducing optional
+         lifecycle fields. */
+      const summary: PasskeyRegistrationResultSummary = registration.nearProvisioning
+        ? {
+            kind: registration.kind,
+            walletId: registration.walletId,
+            nearProvisioning: registration.nearProvisioning,
+            ...ecdsa,
+          }
+        : {
+            kind: registration.kind,
+            walletId: registration.walletId,
+            nearAccountId: registration.nearAccountId,
+            nearEd25519SigningKeyId: registration.nearEd25519SigningKeyId,
+            operationalPublicKey: registration.operationalPublicKey,
+            ...ecdsa,
+          };
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
       this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
@@ -686,6 +715,9 @@ class IntendedPageController {
         ecdsaTargetProfile: { kind: 'none' },
       });
       await this.refreshLoginState(registration.walletId);
+      if (registration.nearProvisioning) {
+        throw new Error('Ed25519-only passkey registration must resolve its NEAR identity');
+      }
       const summary: PasskeyRegistrationResultSummary = {
         kind: registration.kind,
         walletId: registration.walletId,
@@ -1290,7 +1322,7 @@ function intendedActionResultNearAccountId(result: IntendedActionResult): string
     case 'passkey_unlock_success':
     case 'email_otp_unlock_success':
     case 'ed25519_export_success':
-      return result.nearAccountId;
+      return result.nearAccountId ?? null;
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
     case 'ecdsa_export_success':
@@ -1517,7 +1549,11 @@ function assertPasskeyRegistrationSucceeded(args: {
       };
     }
     case 'tempo': {
-      if (result.kind !== 'near_ed25519_and_ecdsa_wallet_registered') {
+      /* Refactor 94 Phase 7. A mixed plan resolves ECDSA-ready with the NEAR
+         branch still settling, so registration reports no NEAR identity here.
+         Callers that need it await near_ready through the public provisioning
+         API rather than reading it off the registration result. */
+      if (result.kind !== 'ecdsa_wallet_registered_near_pending') {
         throw new Error(`Mixed passkey registration returned result kind: ${result.kind}`);
       }
       const ecdsa = requireThresholdEcdsaSessionFields({
@@ -1525,7 +1561,7 @@ function assertPasskeyRegistrationSucceeded(args: {
         label: 'Passkey registration',
       });
       return {
-        ...passkeyRegistrationIdentitySummary({
+        ...pendingPasskeyRegistrationSummary({
           result,
           expectedWalletId: args.expectedWalletId,
         }),
@@ -1533,11 +1569,11 @@ function assertPasskeyRegistrationSucceeded(args: {
       };
     }
     case 'tempo_arc': {
-      if (result.kind !== 'near_ed25519_and_ecdsa_wallet_registered') {
+      if (result.kind !== 'ecdsa_wallet_registered_near_pending') {
         throw new Error(`Mixed passkey registration returned result kind: ${result.kind}`);
       }
       return {
-        ...passkeyRegistrationIdentitySummary({
+        ...pendingPasskeyRegistrationSummary({
           result,
           expectedWalletId: args.expectedWalletId,
         }),
@@ -1580,11 +1616,19 @@ function assertEd25519AddSignerSucceeded(
 
 type PasskeyWalletRegistrationResult = Extract<
   RegistrationResult,
-  {
-    success: true;
-    kind: 'near_wallet_registered' | 'near_ed25519_and_ecdsa_wallet_registered';
-  }
+  { success: true; kind: 'near_wallet_registered' }
 >;
+
+type PendingPasskeyWalletRegistrationResult = Extract<
+  RegistrationResult,
+  { success: true; kind: 'ecdsa_wallet_registered_near_pending' }
+>;
+
+type PendingPasskeyRegistrationIdentitySummary = {
+  kind: 'passkey_registration_success';
+  walletId: string;
+  nearProvisioning: 'pending' | 'retryable';
+};
 
 type PasskeyRegistrationIdentitySummary = {
   kind: 'passkey_registration_success';
@@ -1593,6 +1637,26 @@ type PasskeyRegistrationIdentitySummary = {
   nearEd25519SigningKeyId: string;
   operationalPublicKey: string;
 };
+
+/**
+ * Identity a mixed passkey registration can actually assert at return time.
+ * NEAR provisioning has not completed, so there is no NEAR account, signing
+ * key id, or operational public key to report yet.
+ */
+function pendingPasskeyRegistrationSummary(args: {
+  result: PendingPasskeyWalletRegistrationResult;
+  expectedWalletId: string;
+}): PendingPasskeyRegistrationIdentitySummary {
+  const walletId = String(args.result.walletId).trim();
+  if (walletId !== args.expectedWalletId) {
+    throw new Error(`Passkey registration wallet mismatch: ${walletId}`);
+  }
+  return {
+    kind: 'passkey_registration_success',
+    walletId,
+    nearProvisioning: args.result.nearProvisioning.status,
+  };
+}
 
 function passkeyRegistrationIdentitySummary(args: {
   result: PasskeyWalletRegistrationResult;
