@@ -125,6 +125,7 @@ import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority
 import {
   parseRouterAbTraceContextV1,
   ROUTER_AB_TRACE_ID_HEADER_V1,
+  type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
 import type { RouterAbEd25519YaoGatewaySpanV1 } from './routerAbEd25519YaoHttpRegistrationBackend';
 
@@ -154,6 +155,20 @@ type RouterApiWalletRegistrationInput = {
 };
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };
+
+type RegistrationTraceContextParseResult =
+  | { readonly ok: true; readonly value: RouterAbTraceContextV1 | null }
+  | { readonly ok: false; readonly message: string };
+
+function parseRegistrationTraceContext(
+  headers: HeaderRecord,
+): RegistrationTraceContextParseResult {
+  const rawTraceId = headers[ROUTER_AB_TRACE_ID_HEADER_V1] ?? headers['X-Seams-Trace-Id'];
+  const parsed = parseRouterAbTraceContextV1(rawTraceId);
+  if (parsed.ok) return { ok: true, value: parsed.value };
+  if (parsed.reason === 'missing') return { ok: true, value: null };
+  return { ok: false, message: parsed.message };
+}
 
 function emitGatewayD1CommitSpan(input: {
   logger: NormalizedRouterLogger;
@@ -2426,6 +2441,8 @@ function takeEcdsaGatewayServerTiming<
 export async function handleRouterApiWalletRegistrationEcdsaDerivationRespond(
   input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletRegistrationEcdsaDerivationRespondResponse | RouteErrorBody>> {
+  const traceContext = parseRegistrationTraceContext(input.headers);
+  if (!traceContext.ok) return routeError(400, 'invalid_trace_id', traceContext.message);
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
@@ -2433,6 +2450,7 @@ export async function handleRouterApiWalletRegistrationEcdsaDerivationRespond(
   if (!request.ok) return routeError(400, request.code, request.message);
   const result = await input.services.walletRegistration.respondWalletRegistrationEcdsaDerivation(
     request.value,
+    traceContext.value ?? undefined,
   );
   const { body: timedResult, headers } = takeEcdsaGatewayServerTiming(result);
   const response = exposesRegistrationRouteDiagnostics(input)
@@ -2444,6 +2462,8 @@ export async function handleRouterApiWalletRegistrationEcdsaDerivationRespond(
 export async function handleRouterApiWalletRegistrationEcdsaActivation(
   input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletRegistrationEcdsaActivationResponse | RouteErrorBody>> {
+  const traceContext = parseRegistrationTraceContext(input.headers);
+  if (!traceContext.ok) return routeError(400, 'invalid_trace_id', traceContext.message);
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
@@ -2451,6 +2471,7 @@ export async function handleRouterApiWalletRegistrationEcdsaActivation(
   if (!request.ok) return routeError(400, request.code, request.message);
   const result = await input.services.walletRegistration.activateWalletRegistrationEcdsa(
     request.value,
+    traceContext.value ?? undefined,
   );
   if (!result.ok) return routeJson(400, result);
   const { body: timedResult, headers } = takeEcdsaGatewayServerTiming(result);

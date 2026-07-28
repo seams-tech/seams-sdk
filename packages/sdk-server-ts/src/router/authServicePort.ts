@@ -2,6 +2,7 @@ import type { WalletEmailOtpAction } from '@shared/utils/emailOtpDomain';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
 import type {
   EmailOtpChannel,
   EmailOtpChallengeOperation,
@@ -1072,9 +1073,11 @@ export interface RouterApiWalletRegistrationService {
   ): Promise<WalletRegistrationStartResponse>;
   respondWalletRegistrationEcdsaDerivation(
     input: WalletRegistrationEcdsaDerivationRespondRequest,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<WalletRegistrationEcdsaDerivationRespondResponse>;
   activateWalletRegistrationEcdsa(
     input: WalletRegistrationEcdsaActivationRequest,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<WalletRegistrationEcdsaActivationResponse>;
   getWalletRegistrationRuntimePolicyScope(
     registrationCeremonyId: string,

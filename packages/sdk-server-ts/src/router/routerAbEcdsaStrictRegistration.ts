@@ -20,6 +20,10 @@ import {
   type RouterAbEcdsaStrictForwardedRegistrationResponseV1,
   type RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  ROUTER_AB_TRACE_ID_HEADER_V1,
+  type RouterAbTraceContextV1,
+} from '@shared/utils/routerAbTraceContext';
 
 type JsonObject = Record<string, unknown>;
 declare const routerAbEcdsaPendingActivationJsonBrand: unique symbol;
@@ -85,18 +89,38 @@ export type RouterAbEcdsaStrictRegistrationTopology = {
  */
 export type RouterAbEcdsaStrictServerTimingSink = (header: string) => void;
 
+/**
+ * Refactor 94B Phase 0. Reports whether a role leg returned the diagnostics
+ * header we expect, and nothing about what it contained.
+ *
+ * `Server-Timing` carries role and span names from inside the MPC topology.
+ * A missing header and an empty one are different failures — the first means
+ * the leg never emitted diagnostics, the second that it emitted nothing
+ * measurable — so presence is worth recording. The value is not: it is
+ * attacker-influencable in principle and identifying in practice, so it is
+ * never passed here.
+ */
+export type RouterAbEcdsaStrictHeaderPresenceSink = (presence: {
+  readonly leg: string;
+  readonly serverTiming: 'present' | 'absent';
+}) => void;
+
 export interface RouterAbEcdsaStrictRegistrationPort {
   topology(): RouterAbEcdsaStrictRegistrationTopology;
   register(input: {
     readonly request: RouterAbEcdsaRegistrationRequestV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly traceContext?: RouterAbTraceContextV1;
     readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
+    readonly onHeaderPresence?: RouterAbEcdsaStrictHeaderPresenceSink;
   }): Promise<RouterAbEcdsaStrictRegistrationResult>;
   activate(input: {
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly traceContext?: RouterAbTraceContextV1;
     readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
+    readonly onHeaderPresence?: RouterAbEcdsaStrictHeaderPresenceSink;
   }): Promise<RouterAbEcdsaStrictActivationResult>;
 }
 
@@ -196,7 +220,9 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
   async register(input: {
     readonly request: RouterAbEcdsaRegistrationRequestV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly traceContext?: RouterAbTraceContextV1;
     readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
+    readonly onHeaderPresence?: RouterAbEcdsaStrictHeaderPresenceSink;
   }): Promise<RouterAbEcdsaStrictRegistrationResult> {
     const authorityFailure = validateRegistrationAuthorityBinding(input);
     if (authorityFailure) return authorityFailure;
@@ -205,6 +231,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       path: STRICT_ECDSA_REGISTRATION_PATH,
       authority: input.authority,
       request: input.request,
+      traceContext: input.traceContext,
       onServerTiming: input.onServerTiming,
     });
     if (!body.ok) return body;
@@ -215,7 +242,9 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly traceContext?: RouterAbTraceContextV1;
     readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
+    readonly onHeaderPresence?: RouterAbEcdsaStrictHeaderPresenceSink;
   }): Promise<RouterAbEcdsaStrictActivationResult> {
     const body = await this.forward({
       kind: 'activation',
@@ -223,6 +252,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       authority: input.authority,
       pendingActivation: input.pendingActivation,
       clientActivation: input.clientActivation,
+      traceContext: input.traceContext,
       onServerTiming: input.onServerTiming,
     });
     if (!body.ok) return body;
@@ -245,7 +275,9 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
     input: {
       readonly path: string;
       readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+      readonly traceContext?: RouterAbTraceContextV1;
       readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
+    readonly onHeaderPresence?: RouterAbEcdsaStrictHeaderPresenceSink;
     } & (
       | {
           readonly kind: 'registration';
@@ -261,25 +293,35 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
     const token = await this.config.tokenIssuer.issue(
       ceremonyTokenClaimsForAuthority(input.authority, this.config.tokenScope),
     );
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${token}`,
+      'content-type': JSON_CONTENT_TYPE,
+    };
+    if (input.traceContext) {
+      headers[ROUTER_AB_TRACE_ID_HEADER_V1] = input.traceContext.value;
+    }
     const response = await this.config.router.fetch(
       new Request(`https://router.router-ab.internal${input.path}`, {
         method: 'POST',
-        headers: {
-          authorization: `Bearer ${token}`,
-          'content-type': JSON_CONTENT_TYPE,
-        },
+        headers,
         body: strictForwardBodyJson(input),
       }),
     );
     /* Read before the outcome branch so a failed leg still reports its spans,
        and never let a diagnostics sink fail the ceremony. */
-    if (input.onServerTiming) {
-      try {
-        const header = response.headers.get('Server-Timing');
-        if (header) input.onServerTiming(header);
-      } catch {
-        /* Diagnostics only. */
-      }
+    try {
+      const header = response.headers.get('Server-Timing');
+      /* Presence is recorded for every leg, including the ones that returned
+         nothing — an absent header is the observation worth having. The value
+         only ever reaches the timing sink, which folds it into fixed metric
+         names; it is never logged. */
+      input.onHeaderPresence?.({
+        leg: input.path,
+        serverTiming: header ? 'present' : 'absent',
+      });
+      if (header) input.onServerTiming?.(header);
+    } catch {
+      /* Diagnostics only; never fail the ceremony. */
     }
     const body = await readJsonResponse(response);
     if (!response.ok) {

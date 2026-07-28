@@ -482,6 +482,21 @@ test('partitioned D1 completes and replays strict ECDSA wallet registration', as
     /* Exact replay of the ECDSA finalize: same ceremony, same idempotency key,
        same body. It must converge on the identical result and must not commit
        a second effect — the replay record count below is what proves that. */
+    /* Refactor 94B Phase 0. Whatever the role legs return, the gateway's own
+       metric list stays fixed identifiers — a forwarded Server-Timing value
+       carries role and span names and must never appear verbatim here. */
+    const respondTimings = (responded as { gatewayServerTiming?: readonly (readonly [string, number])[] })
+      .gatewayServerTiming;
+    expect(respondTimings).toBeDefined();
+    const respondMetricNames = (respondTimings ?? []).map(([name]) => name);
+    expect(respondMetricNames.length).toBeGreaterThan(0);
+    for (const name of respondMetricNames) {
+      /* Fixed identifiers only: no durations, separators, or quoting that a
+         forwarded header value would have carried in with it. */
+      expect(name).toMatch(/^[A-Za-z0-9_-]+$/);
+      expect(name).not.toContain('dur=');
+    }
+
     const finalizedReplay =
       await service.walletRegistration.finalizeWalletRegistration(finalizeRequest);
     expect(withoutServerTimings(finalizedReplay)).toEqual(withoutServerTimings(finalized));
