@@ -187,10 +187,14 @@ One Gateway request:
 - chooses the generated wallet name;
 - inserts the canonical ceremony with its wallet UNIQUE constraint;
 - returns the signed setup payload;
-- starts safe ECDSA and Yao preparation concurrently during the user prompt.
+- starts safe ECDSA preparation during the user prompt.
 
 Preparation creates no custody commitment, consumes no factor, and enters no
 irreversible state.
+
+Yao admission requires the verified authority scope. Setup therefore carries
+no Ed25519/Yao work for either authentication method. This keeps passkey and
+Email OTP on one wire contract and preserves deferred NEAR provisioning.
 
 ### 2. Authenticated Respond
 
@@ -200,6 +204,10 @@ One Gateway request:
 - verifies the setup signature locally and mints request-bound Router policy
   claims after the authenticated respond body is complete;
 - returns the exact A/B proof bundles for browser verification.
+
+When the signer plan includes NEAR, respond also derives the authority-bound
+Yao admission and returns the deferred provisioning work. The client starts
+that work after proof verification without awaiting it for wallet readiness.
 
 Role-private state owns exact retry and partial-role convergence. Remove the
 Gateway claim/terminal pair after one focused test proves that an identical
