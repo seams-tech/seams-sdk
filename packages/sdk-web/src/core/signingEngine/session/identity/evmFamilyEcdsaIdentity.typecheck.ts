@@ -413,23 +413,24 @@ const invalidResolvedKeyWithSubjectId: ResolvedEvmFamilyEcdsaKey = {
 };
 void invalidResolvedKeyWithSubjectId;
 
-const readyMaterialRecordOnly: ReadyEvmFamilyEcdsaMaterial = {
+// Ready material is signer session, exact activation, public facts, and
+// worker-bound material -- no composite record.
+const readyMaterialCanonical: ReadyEvmFamilyEcdsaMaterial = {
   kind: 'ready_evm_family_ecdsa_material',
   key,
   lane,
-  record: {} as ThresholdEcdsaSessionRecord,
   signingKeyContext: {
     ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
     participantIds: key.participantIds,
   },
   cachedExportArtifact: null,
 };
-void readyMaterialRecordOnly;
+void readyMaterialCanonical;
 
 const invalidReadyMaterialSigningKeyContextWithSigningRoot = {
-  ...readyMaterialRecordOnly,
+  ...readyMaterialCanonical,
   signingKeyContext: {
-    ...readyMaterialRecordOnly.signingKeyContext,
+    ...readyMaterialCanonical.signingKeyContext,
     // @ts-expect-error ready signing-key context derives signing root from material key.
     signingRootId: key.signingRootId,
   },
@@ -437,31 +438,17 @@ const invalidReadyMaterialSigningKeyContextWithSigningRoot = {
 void invalidReadyMaterialSigningKeyContextWithSigningRoot;
 
 const invalidReadyMaterialWithKeyRef = {
-  ...readyMaterialRecordOnly,
+  ...readyMaterialCanonical,
   // @ts-expect-error ready material derives key refs at signer/export boundaries.
   keyRef: {} as ThresholdEcdsaSecp256k1KeyRef,
 } satisfies ReadyEvmFamilyEcdsaMaterial;
 void invalidReadyMaterialWithKeyRef;
-
-// @ts-expect-error ready material requires a record.
-const readyMaterialMissingRecord: ReadyEvmFamilyEcdsaMaterial = {
-  kind: 'ready_evm_family_ecdsa_material',
-  key,
-  lane,
-  signingKeyContext: {
-    ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
-    participantIds: key.participantIds,
-  },
-  cachedExportArtifact: null,
-};
-void readyMaterialMissingRecord;
 
 // @ts-expect-error ready material owns cached export artifact provenance.
 const readyMaterialMissingCachedExportArtifact: ReadyEvmFamilyEcdsaMaterial = {
   kind: 'ready_evm_family_ecdsa_material',
   key,
   lane,
-  record: {} as ThresholdEcdsaSessionRecord,
   signingKeyContext: {
     ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
     participantIds: key.participantIds,
@@ -474,7 +461,6 @@ const readyMaterialMissingSigningKeyContext: ReadyEvmFamilyEcdsaMaterial = {
   kind: 'ready_evm_family_ecdsa_material',
   key,
   lane,
-  record: {} as ThresholdEcdsaSessionRecord,
   cachedExportArtifact: null,
 };
 void readyMaterialMissingSigningKeyContext;

@@ -6,17 +6,13 @@ import type {
 } from '@shared/utils/walletAuthAuthority';
 import {
   assertMatchingVerifiedEcdsaPublicFacts,
-  buildReadyEcdsaSignerSessionFromReadyMaterial,
   deriveEvmFamilySigningKeySlotId,
   deriveEvmFamilyKeyFingerprintFromPublicFacts,
-  resolveReadyEvmFamilyEcdsaMaterial,
   toVerifiedEcdsaPublicFactsFromDurableRecord,
   toVerifiedEcdsaPublicFactsFromRecord,
-  toVerifiedEcdsaPublicFactsFromReadyMaterial,
   type EvmFamilyKeyFingerprint,
   type EvmFamilyEcdsaKeyIdentity,
   type ReadyEcdsaSignerSession,
-  type ReadyEvmFamilyEcdsaMaterial,
   type ThresholdEcdsaSessionId,
   type VerifiedEcdsaPublicFacts,
   type SigningGrantId,
@@ -310,75 +306,6 @@ export function ecdsaExportOperationAuthorizationForLane(
   };
 }
 
-function buildReadyThresholdEcdsaExportMaterialForLane(args: {
-  exportLane: ExactEcdsaExportLane;
-  readyMaterial: ReadyEvmFamilyEcdsaMaterial;
-  publicFacts: VerifiedEcdsaPublicFacts;
-  record: ThresholdEcdsaSessionRecord;
-}): ReadyThresholdEcdsaExportMaterial {
-  const signerSession = buildReadyEcdsaSignerSessionFromReadyMaterial({
-    material: args.readyMaterial,
-    publicFacts: args.publicFacts,
-  });
-  const evmFamilyKeyFingerprint = deriveEvmFamilyKeyFingerprintFromPublicFacts({
-    walletId: args.readyMaterial.key.walletId,
-    publicFacts: args.publicFacts,
-  });
-  const base = {
-    kind: 'ready_threshold_ecdsa_export_material' as const,
-    signerSession,
-    publicFacts: args.publicFacts,
-    cachedExportArtifact: args.readyMaterial.cachedExportArtifact,
-    evmFamilyKeyFingerprint,
-    laneIdentity: args.exportLane.laneIdentity,
-    record: args.record,
-  };
-  if (args.exportLane.session.authMethod === 'email_otp') {
-    const authLane = emailOtpEcdsaExportAuthLaneFromRecord(
-      args.record,
-      args.exportLane.session.chainTarget,
-    );
-    if (!authLane) {
-      throw new Error(
-        '[SigningEngine][ecdsa-export] ready Email OTP export requires record route auth',
-      );
-    }
-    return { ...base, authMethod: 'email_otp', authLane };
-  }
-  return { ...base, authMethod: 'passkey' };
-}
-
-function readReadyEcdsaExportMaterialBoundaryForLane(args: {
-  deps: EcdsaExportSessionStoreDeps;
-  exportLane: ExactEcdsaExportLane;
-}): { record: ThresholdEcdsaSessionRecord; readyMaterial: ReadyEvmFamilyEcdsaMaterial } | null {
-  const record = readEcdsaExportRecordForLane(args.deps, args.exportLane);
-  if (!record || !isFreshEcdsaExportSessionRecord(record)) return null;
-  const cachedExportArtifact =
-    args.deps.exportArtifactsByLane.get(deriveThresholdEcdsaRuntimeLaneKey(record)) || null;
-  const materialResolution = resolveReadyEvmFamilyEcdsaMaterial({
-    record,
-    cachedExportArtifact,
-    expected: {
-      walletId: args.exportLane.key.walletId,
-      materialActivation: args.exportLane.laneIdentity.signer.materialActivation,
-      chainTarget: args.exportLane.session.chainTarget,
-      authMethod: args.exportLane.session.authMethod,
-      source: record.source,
-      thresholdSessionId: record.thresholdSessionId,
-      signingGrantId: record.signingGrantId,
-    },
-  });
-  if (materialResolution.kind !== 'ready') {
-    const reason =
-      materialResolution.reason.kind === 'stale_or_unrestorable_material'
-        ? `${materialResolution.reason.kind}:${materialResolution.reason.reason}`
-        : materialResolution.reason.kind;
-    throw new Error(`[SigningEngine][ecdsa-export] ready export material rejected: ${reason}`);
-  }
-  return { record, readyMaterial: materialResolution.material };
-}
-
 export function isFreshEcdsaExportSessionRecord(record: ThresholdEcdsaSessionRecord): boolean {
   const remainingUses = Math.floor(Number(record.remainingUses));
   const expiresAtMs = Math.floor(Number(record.expiresAtMs));
@@ -615,51 +542,8 @@ export async function resolveEcdsaExportMaterialForLane(
   deps: EcdsaExportSessionStoreDeps,
   exportLane: ExactEcdsaExportLane,
 ): Promise<EcdsaExportMaterial> {
-  const readyBoundary = readReadyEcdsaExportMaterialBoundaryForLane({ deps, exportLane });
-  if (readyBoundary) {
-    const publicFacts = await toVerifiedEcdsaPublicFactsFromReadyMaterial({
-      material: readyBoundary.readyMaterial,
-    });
-    assertMatchingVerifiedEcdsaPublicFacts({
-      expected: exportLane.publicFacts,
-      actual: publicFacts,
-      context: 'ready export lane',
-    });
-    return buildReadyThresholdEcdsaExportMaterialForLane({
-      exportLane,
-      readyMaterial: readyBoundary.readyMaterial,
-      publicFacts,
-      record: readyBoundary.record,
-    });
-  }
   if (exportLane.session.authMethod === 'email_otp') {
     return await resolveFreshEmailOtpEcdsaExportMaterialForLane(deps, exportLane);
-  }
-  const runtimeRecord = readEcdsaExportRecordForLane(deps, exportLane);
-  if (runtimeRecord && runtimeRecord.source !== 'email_otp') {
-    const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record: runtimeRecord });
-    assertMatchingVerifiedEcdsaPublicFacts({
-      expected: exportLane.publicFacts,
-      actual: publicFacts,
-      context: 'fresh passkey export lane',
-    });
-    const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
-      runtimeRecord.runtimePolicyScope,
-    );
-    if (!runtimePolicyScope) {
-      throw new Error(
-        '[SigningEngine][ecdsa-export] fresh passkey export requires runtimePolicyScope',
-      );
-    }
-    return {
-      kind: 'fresh_passkey_needs_authorization',
-      chainTarget: exportLane.session.chainTarget,
-      publicFacts,
-      runtimePolicyScope,
-      publicCapability: runtimeRecord.ecdsaRoleLocalPublicFacts.publicCapability,
-      existingRoleLocalMaterial: requirePersistedEcdsaRoleLocalMaterial(runtimeRecord),
-      bootstrap: passkeyEcdsaExportBootstrapFromRuntimeRecord(runtimeRecord, exportLane),
-    };
   }
   const durableAuthority =
     exportLane.session.source === 'durable_sealed_record'
