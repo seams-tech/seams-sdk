@@ -7,6 +7,10 @@ import {
 } from '@shared/utils/signingSessionSeal';
 import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
+  ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+  requireRouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import {
   requireAuthoritativeExpiredWalletSessionAuthorizationBoundary,
   type ExpiredWalletSessionAuthorizationState,
 } from '@/core/signingEngine/session/identity/clientSessionPersistenceState';
@@ -15,6 +19,12 @@ import { createThresholdEcdsaBootstrapFixture } from './ecdsaBootstrap.fixtures'
 import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './ecdsaMaterialRef.fixtures';
 import { buildWalletAuthAuthorityRefForAuthorityFixture } from './ecdsaMaterialRef.fixtures';
 import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
+import {
+  buildCurrentSealedSessionRecord,
+  type CurrentEcdsaSealedSessionRecord,
+} from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import { parseEcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
 
 export type EmailOtpEcdsaSealedSigningSessionRecord = Extract<
   SealedSigningSessionRecord,
@@ -126,8 +136,7 @@ function emailOtpEcdsaSealedFixtureParts(
       relayerKeyId: backendBinding.relayerKeyId,
       roleLocalMaterialRef: buildEcdsaRoleLocalPersistedMaterialRefFixture({
         durableMaterialRef: 'role-local-material',
-        bindingDigest:
-          backendBinding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+        bindingDigest: backendBinding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
         materialOwner: walletId,
       }),
       participantIds: [...(keyRef.participantIds || [1, 2])],
@@ -193,6 +202,180 @@ export function seedEmailOtpEcdsaSealedSigningSessionRecord(
     updatedAtMs: 4,
   };
   return { ...record, ...overrides };
+}
+
+type EmailOtpEcdsaSealedRuntimeFixtureCorruption =
+  | { kind: 'blank_binding_digest' }
+  | { kind: 'blank_relayer_url' }
+  | {
+      kind: 'foreign_material_activation';
+      materialActivation: CurrentEcdsaSealedSessionRecord['ecdsaRestore']['roleLocalMaterialRef']['materialActivation'];
+    }
+  | {
+      kind: 'authority_mismatch';
+      authority: CurrentEcdsaSealedSessionRecord['ecdsaRestore']['authority'];
+    }
+  | { kind: 'participant_ids'; participantIds: number[] }
+  | { kind: 'remaining_uses'; remainingUses: number }
+  | { kind: 'expires_at_ms'; expiresAtMs: number }
+  | { kind: 'normal_signing_wallet_id'; walletId: string }
+  | { kind: 'relayer_key_id'; relayerKeyId: string };
+
+export function buildEmailOtpEcdsaSealedRuntimeRecordFixture(args: {
+  manifest: ActiveEcdsaCapabilityManifest;
+  signingGrantId?: string;
+  thresholdSessionId?: string;
+  expiresAtMs?: number;
+  remainingUses?: number;
+  corruption?: EmailOtpEcdsaSealedRuntimeFixtureCorruption;
+}): CurrentEcdsaSealedSessionRecord {
+  const manifest = args.manifest;
+  const walletId = String(manifest.signer.walletId);
+  const publicFacts = manifest.durableMaterial.roleLocalPublicFacts;
+  const binding = manifest.durableMaterial.roleLocalBinding;
+  const publicCapability = publicFacts.publicCapability;
+  const signingGrantId = args.signingGrantId ?? 'wallet-session-1';
+  const thresholdSessionId = args.thresholdSessionId ?? 'ec-session';
+  const providerSubjectId = `google:${walletId}`;
+  const emailOtpAuthority = buildEmailOtpWalletAuthAuthority({
+    walletId,
+    provider: 'google',
+    providerUserId: providerSubjectId,
+    emailHashHex: 'email-hash',
+  });
+  const roleLocalMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef({
+    kind: 'ecdsa_role_local_persisted_material_ref_v1',
+    durableMaterialRef: manifest.durableMaterial.durableMaterialRef,
+    bindingDigest: manifest.durableMaterial.bindingDigest,
+    materialActivation: manifest.durableMaterial.materialActivation,
+  });
+  const normalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1({
+    kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+    scope: {
+      wallet_id: walletId,
+      ecdsa_threshold_key_id: publicFacts.ecdsaThresholdKeyId,
+      signing_root_id: publicFacts.signingRootId,
+      signing_root_version: publicFacts.signingRootVersion,
+      context: publicCapability.context,
+      public_identity: publicCapability.public_identity,
+      signing_worker: publicCapability.signer_set.selected_server,
+      activation_epoch: publicCapability.activation_epoch,
+    },
+  });
+  const record = buildCurrentSealedSessionRecord({
+    curve: 'ecdsa',
+    thresholdSessionId,
+    thresholdSessionIds: { ecdsa: thresholdSessionId },
+    sealedSecretB64u: 'sealed-k',
+    authMethod: 'email_otp',
+    signingGrantId,
+    keyVersion: 'signing-session-seal-kek-test-r1',
+    shamirPrimeB64u: 'prime',
+    issuedAtMs: 1,
+    expiresAtMs: args.expiresAtMs ?? Date.now() + 5 * 60_000,
+    remainingUses: args.remainingUses ?? 4,
+    updatedAtMs: 4,
+    walletId,
+    relayerUrl: 'https://relayer.example.test',
+    ecdsaRestore: {
+      chainTarget: publicFacts.chainTarget,
+      source: 'email_otp',
+      signingRootId: publicFacts.signingRootId,
+      signingRootVersion: publicFacts.signingRootVersion,
+      provider: 'google',
+      providerSubjectId,
+      emailHashHex: 'email-hash',
+      authority: manifest.signer.authority,
+      emailOtpAuthority,
+      sessionKind: 'jwt',
+      walletSessionJwt: fixtureSealedEcdsaWalletSessionJwt({
+        walletId,
+        keyHandle: String(binding.keyHandle),
+        thresholdSessionId,
+        signingGrantId,
+      }),
+      keyHandle: binding.keyHandle,
+      ecdsaThresholdKeyId: binding.ecdsaThresholdKeyId,
+      ethereumAddress: publicFacts.ethereumAddress,
+      relayerKeyId: binding.relayerKeyId,
+      clientVerifyingShareB64u: binding.clientVerifyingPublicKey33B64u,
+      thresholdEcdsaPublicKeyB64u: publicFacts.groupPublicKey33B64u,
+      roleLocalMaterialRef,
+      participantIds: [...binding.participantIds],
+      routerAbEcdsaDerivationNormalSigning: normalSigning,
+      publicCapability,
+    },
+  });
+  if (!record || record.curve !== 'ecdsa') {
+    throw new Error('Failed to build exact Email OTP ECDSA sealed runtime fixture');
+  }
+  return corruptEmailOtpEcdsaSealedRuntimeRecordFixture(record, args.corruption);
+}
+
+function corruptEmailOtpEcdsaSealedRuntimeRecordFixture(
+  record: CurrentEcdsaSealedSessionRecord,
+  corruption: EmailOtpEcdsaSealedRuntimeFixtureCorruption | undefined,
+): CurrentEcdsaSealedSessionRecord {
+  if (!corruption) return record;
+  switch (corruption.kind) {
+    case 'blank_binding_digest':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          roleLocalMaterialRef: {
+            ...record.ecdsaRestore.roleLocalMaterialRef,
+            bindingDigest: '',
+          },
+        },
+      };
+    case 'blank_relayer_url':
+      return { ...record, relayerUrl: '   ' };
+    case 'foreign_material_activation':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          roleLocalMaterialRef: {
+            ...record.ecdsaRestore.roleLocalMaterialRef,
+            materialActivation: corruption.materialActivation,
+          },
+        },
+      };
+    case 'authority_mismatch':
+      return {
+        ...record,
+        ecdsaRestore: { ...record.ecdsaRestore, authority: corruption.authority },
+      };
+    case 'participant_ids':
+      return {
+        ...record,
+        ecdsaRestore: { ...record.ecdsaRestore, participantIds: corruption.participantIds },
+      };
+    case 'remaining_uses':
+      return { ...record, remainingUses: corruption.remainingUses };
+    case 'expires_at_ms':
+      return { ...record, expiresAtMs: corruption.expiresAtMs };
+    case 'normal_signing_wallet_id':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          routerAbEcdsaDerivationNormalSigning: {
+            ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning,
+            scope: {
+              ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope,
+              wallet_id: corruption.walletId,
+            },
+          },
+        },
+      };
+    case 'relayer_key_id':
+      return {
+        ...record,
+        ecdsaRestore: { ...record.ecdsaRestore, relayerKeyId: corruption.relayerKeyId },
+      };
+  }
 }
 
 /**

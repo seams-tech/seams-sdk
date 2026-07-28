@@ -6,6 +6,35 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records active execution-unit status; the narrative and historical
 phase record live here.
 
+## July 28, 2026: ECDSA Export, Challenge Binding, And Sealed Runtime Checkpoint
+
+- `75489a06c` and `3daff653e` moved ECDSA lane/material selection and
+  provisioning reconnect onto exact material activation. `4a16d6173` then cut
+  export over across TypeScript, Rust, Gateway, Router, SigningWorker, and the
+  sealed-share AAD without a JWT-to-legacy-session adapter.
+- `212fe3b2f` prepares the EVM-family operation before confirmation, binds the
+  Passkey challenge and Email OTP grant to that exact operation, and removes
+  the ECDSA placeholder/post-confirmation preparation path.
+- `bf5e05a98` regenerated the normal-signing vectors. Focused export protocol,
+  client-protocol, WASM ceremony, and challenge-binding checks passed; the
+  broader live Passkey/Email OTP operating-path acceptance remains open.
+- `11a96347f`, `bf9c7c0d4`, and `fc1ccda7c` repaired current shared factories.
+  `e501d0231` deleted obsolete composite-record-store and pre-3C export tests.
+- `8c6d2e47d` through `26cb18c55` deleted the write-dead composite-record
+  readers, record-first probes, no-prompt reconnect path, and record-backed
+  selection/material branches. The complete `ThresholdEcdsaSessionRecord*`
+  family remains until the last lifecycle and read-model consumers move.
+- `43c5bc78b` and `b95aebde9` introduced the manifest-to-sealed-record runtime
+  resolver and exposed the canonical persisted material reference. The focused
+  resolver now correlates authority, role-local bindings and public facts,
+  normal-signing scope, relayer identity, threshold keys, and participant facts
+  before adoption. It rejects malformed two-party facts, allowance, and expiry;
+  its focused suite passes 8 of 8.
+- Complex sealed-record construction moved behind the shared Email OTP fixture
+  and production record builder. Named corruptions cover boundary rejection
+  without asserted domain-record literals. The remaining operating-path work
+  keeps `R90-INV-001`, `R90-INV-002`, `R90-INV-013`, and `R90-INV-014` open.
+
 ## July 27, 2026: Authorization Core Checkpoint
 
 - `18b6d6363` and `182f107df` added the canonical, principal-bound operation

@@ -143,7 +143,7 @@ work is tracked in five units.
 | -------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | **1. Canonical hydration + canonical ECDSA state** | Foundations A/B, Phases 4–5, ECDSA identity work from 18 | Implementation complete; exit validation open | Exact subjects, protocol-local resolvers with shared outcomes, required ECDSA state, and slim material references. |
 | **2. Shared authorization core**                   | Phases 7–14, including Phase 8 SDK selection             | Operating core complete; cleanup gate open    | Closed capability vocabulary plus DB-backed session → evidence → grant → claim → audit flow.                       |
-| **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | ECDSA signing/provisioning green; export cutover open | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
+| **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | ECDSA signing/provisioning/export implemented; sealed-runtime migration open | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
 | **3b. Vault proving vertical**                     | Phase 16                                                 | Complete                                      | [Satyr vault plan Phase 6](./satyr-secrets-vault.md) proves one real vault operation.                              |
 | **4. UI + provisioning**                           | Phases 22–23                                             | Started; typed expiry complete                | Typed lifecycle events and provisioning use the canonical capability model.                                        |
 
@@ -458,6 +458,21 @@ the replacement and legacy MPC paths must not ship together.
       kind, and budget; remove authorization-session/grant identity from the
       reconnect key, delete record/lane fallback paths, and reject rehydration
       that changes the activation.
+- [x] Cut ECDSA export over atomically across the client, Gateway, Router,
+      SigningWorker, sealed-share AAD, and Rust protocol mirrors so requests
+      carry discriminated authorization plus the exact material activation.
+- [x] Prepare EVM-family operation step-up before confirmation, bind Passkey
+      and Email OTP to that one prepared operation, and delete the
+      post-confirmation ECDSA preparation path.
+- [x] Regenerate the normal-signing vectors after the authorization-wire cut;
+      the focused export protocol, client-protocol, WASM ceremony, and
+      challenge-binding checks pass.
+- [x] Add one manifest-to-sealed-record runtime resolver selected by exact
+      material activation, with typed missing, conflict, and corrupt results,
+      and expose its canonical persisted material reference.
+- [x] Before sealed-runtime consumers move, match sealed public, auth, and
+      normal-signing facts against the manifest binding; require the exact
+      two-party participant shape and valid allowance facts.
 - [ ] Move registration, unlock, refresh, signing, step-up, and export to
       capability-owned modules using the shared authorization core.
 - [ ] Use the five preparation outcomes exhaustively:
@@ -529,6 +544,12 @@ the replacement and legacy MPC paths must not ship together.
 
 ### Same-change deletion
 
+- [x] Delete the write-dead composite-record key-ref lookup, record-first
+      probes, no-prompt reconnect path, and record-backed ECDSA
+      selection/material branches.
+- [x] Restore current shared authorization/ECDSA factories, regenerate their
+      current shapes through canonical builders, and delete obsolete
+      record-store and pre-cutover export tests.
 - [ ] Delete the complete `ThresholdEcdsaSessionRecord*` family, public APIs,
       runtime maps, and fixtures after Unit 2 supplies the narrow
       authorization/session/quota projection and this cutover removes the final
