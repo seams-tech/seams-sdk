@@ -197,6 +197,33 @@ const YAO_SERVER_TIMING_BUCKET_BY_METRIC = new Map<string, RegistrationTimingBuc
     ecdsa_activate_policy_lookup: 'ecdsaActivatePolicyLookupMs',
     ecdsa_activate_jwt_mint: 'ecdsaActivateJwtMintMs',
     ecdsa_activate_total: 'ecdsaActivateTotalMs',
+    ecdsa_rt_authorize: 'ecdsaRtAuthorizeMs',
+    ecdsa_rt_admission: 'ecdsaRtAdmissionMs',
+    ecdsa_rt_derivers: 'ecdsaRtDeriversMs',
+    ecdsa_rt_deriver_a: 'ecdsaRtDeriverAMs',
+    ecdsa_rt_deriver_b: 'ecdsaRtDeriverBMs',
+    ecdsa_rt_completion: 'ecdsaRtCompletionMs',
+    ecdsa_rt_total: 'ecdsaRtTotalMs',
+    ecdsa_rt_act_session: 'ecdsaRtActSessionMs',
+    ecdsa_rt_act_worker: 'ecdsaRtActWorkerMs',
+    ecdsa_rt_act_total: 'ecdsaRtActTotalMs',
+    /* Role-local spans. The Router prefixes each role's own bare metric names
+       (`parse`, `preload`, `execute`, `total`) when it folds them in, so
+       `parse` lands as `ecdsa_a_parse` and so on.
+       These nest inside the Router spans above, and the gap is the finding:
+       when `ecdsaRtDeriverAMs` far exceeds `ecdsaDeriverATotalMs`, the time
+       went to Worker cold start and transport, not to the deriver's work. */
+    ecdsa_a_parse: 'ecdsaDeriverAParseMs',
+    ecdsa_a_preload: 'ecdsaDeriverAPreloadMs',
+    ecdsa_a_execute: 'ecdsaDeriverAExecuteMs',
+    ecdsa_a_total: 'ecdsaDeriverATotalMs',
+    ecdsa_b_parse: 'ecdsaDeriverBParseMs',
+    ecdsa_b_preload: 'ecdsaDeriverBPreloadMs',
+    ecdsa_b_execute: 'ecdsaDeriverBExecuteMs',
+    ecdsa_b_total: 'ecdsaDeriverBTotalMs',
+    ecdsa_sw_parse: 'ecdsaSigningWorkerParseMs',
+    ecdsa_sw_activate: 'ecdsaSigningWorkerActivateMs',
+    ecdsa_sw_total: 'ecdsaSigningWorkerTotalMs',
   } as const satisfies Record<string, RegistrationTimingBucketName>),
 );
 
@@ -364,6 +391,31 @@ type RegistrationTimingBucketValues = {
   ecdsaActivatePolicyLookupMs: number;
   ecdsaActivateJwtMintMs: number;
   ecdsaActivateTotalMs: number;
+  // Router-reported spans, folded into the Gateway header at the service
+  // binding. `rtDeriverA`/`rtDeriverB` overlap: the two run concurrently, and
+  // `rtDerivers` is their joined wall time.
+  ecdsaRtAuthorizeMs: number;
+  ecdsaRtAdmissionMs: number;
+  ecdsaRtDeriversMs: number;
+  ecdsaRtDeriverAMs: number;
+  ecdsaRtDeriverBMs: number;
+  ecdsaRtCompletionMs: number;
+  ecdsaRtTotalMs: number;
+  ecdsaRtActSessionMs: number;
+  ecdsaRtActWorkerMs: number;
+  ecdsaRtActTotalMs: number;
+  // Role-local spans, folded in by the Router under a per-role prefix.
+  ecdsaDeriverAParseMs: number;
+  ecdsaDeriverAPreloadMs: number;
+  ecdsaDeriverAExecuteMs: number;
+  ecdsaDeriverATotalMs: number;
+  ecdsaDeriverBParseMs: number;
+  ecdsaDeriverBPreloadMs: number;
+  ecdsaDeriverBExecuteMs: number;
+  ecdsaDeriverBTotalMs: number;
+  ecdsaSigningWorkerParseMs: number;
+  ecdsaSigningWorkerActivateMs: number;
+  ecdsaSigningWorkerTotalMs: number;
   walletRegisterStartMs: number;
   ecdsaClientBootstrapMs: number;
   ecdsaRegistrationTotalMs: number;
@@ -891,6 +943,27 @@ function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketVal
     ecdsaActivatePolicyLookupMs: 0,
     ecdsaActivateJwtMintMs: 0,
     ecdsaActivateTotalMs: 0,
+    ecdsaRtAuthorizeMs: 0,
+    ecdsaRtAdmissionMs: 0,
+    ecdsaRtDeriversMs: 0,
+    ecdsaRtDeriverAMs: 0,
+    ecdsaRtDeriverBMs: 0,
+    ecdsaRtCompletionMs: 0,
+    ecdsaRtTotalMs: 0,
+    ecdsaRtActSessionMs: 0,
+    ecdsaRtActWorkerMs: 0,
+    ecdsaRtActTotalMs: 0,
+    ecdsaDeriverAParseMs: 0,
+    ecdsaDeriverAPreloadMs: 0,
+    ecdsaDeriverAExecuteMs: 0,
+    ecdsaDeriverATotalMs: 0,
+    ecdsaDeriverBParseMs: 0,
+    ecdsaDeriverBPreloadMs: 0,
+    ecdsaDeriverBExecuteMs: 0,
+    ecdsaDeriverBTotalMs: 0,
+    ecdsaSigningWorkerParseMs: 0,
+    ecdsaSigningWorkerActivateMs: 0,
+    ecdsaSigningWorkerTotalMs: 0,
     walletRegisterStartMs: 0,
     ecdsaClientBootstrapMs: 0,
     ecdsaRegistrationTotalMs: 0,
@@ -998,6 +1071,27 @@ function copyRegistrationTimingBucketValues(
     ecdsaActivatePolicyLookupMs: buckets.ecdsaActivatePolicyLookupMs,
     ecdsaActivateJwtMintMs: buckets.ecdsaActivateJwtMintMs,
     ecdsaActivateTotalMs: buckets.ecdsaActivateTotalMs,
+    ecdsaRtAuthorizeMs: buckets.ecdsaRtAuthorizeMs,
+    ecdsaRtAdmissionMs: buckets.ecdsaRtAdmissionMs,
+    ecdsaRtDeriversMs: buckets.ecdsaRtDeriversMs,
+    ecdsaRtDeriverAMs: buckets.ecdsaRtDeriverAMs,
+    ecdsaRtDeriverBMs: buckets.ecdsaRtDeriverBMs,
+    ecdsaRtCompletionMs: buckets.ecdsaRtCompletionMs,
+    ecdsaRtTotalMs: buckets.ecdsaRtTotalMs,
+    ecdsaRtActSessionMs: buckets.ecdsaRtActSessionMs,
+    ecdsaRtActWorkerMs: buckets.ecdsaRtActWorkerMs,
+    ecdsaRtActTotalMs: buckets.ecdsaRtActTotalMs,
+    ecdsaDeriverAParseMs: buckets.ecdsaDeriverAParseMs,
+    ecdsaDeriverAPreloadMs: buckets.ecdsaDeriverAPreloadMs,
+    ecdsaDeriverAExecuteMs: buckets.ecdsaDeriverAExecuteMs,
+    ecdsaDeriverATotalMs: buckets.ecdsaDeriverATotalMs,
+    ecdsaDeriverBParseMs: buckets.ecdsaDeriverBParseMs,
+    ecdsaDeriverBPreloadMs: buckets.ecdsaDeriverBPreloadMs,
+    ecdsaDeriverBExecuteMs: buckets.ecdsaDeriverBExecuteMs,
+    ecdsaDeriverBTotalMs: buckets.ecdsaDeriverBTotalMs,
+    ecdsaSigningWorkerParseMs: buckets.ecdsaSigningWorkerParseMs,
+    ecdsaSigningWorkerActivateMs: buckets.ecdsaSigningWorkerActivateMs,
+    ecdsaSigningWorkerTotalMs: buckets.ecdsaSigningWorkerTotalMs,
     walletRegisterStartMs: buckets.walletRegisterStartMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
     ecdsaRegistrationTotalMs: buckets.ecdsaRegistrationTotalMs,
@@ -1405,6 +1499,27 @@ function buildRegistrationTimingBuckets(input: {
     ecdsaActivatePolicyLookupMs: buckets.ecdsaActivatePolicyLookupMs,
     ecdsaActivateJwtMintMs: buckets.ecdsaActivateJwtMintMs,
     ecdsaActivateTotalMs: buckets.ecdsaActivateTotalMs,
+    ecdsaRtAuthorizeMs: buckets.ecdsaRtAuthorizeMs,
+    ecdsaRtAdmissionMs: buckets.ecdsaRtAdmissionMs,
+    ecdsaRtDeriversMs: buckets.ecdsaRtDeriversMs,
+    ecdsaRtDeriverAMs: buckets.ecdsaRtDeriverAMs,
+    ecdsaRtDeriverBMs: buckets.ecdsaRtDeriverBMs,
+    ecdsaRtCompletionMs: buckets.ecdsaRtCompletionMs,
+    ecdsaRtTotalMs: buckets.ecdsaRtTotalMs,
+    ecdsaRtActSessionMs: buckets.ecdsaRtActSessionMs,
+    ecdsaRtActWorkerMs: buckets.ecdsaRtActWorkerMs,
+    ecdsaRtActTotalMs: buckets.ecdsaRtActTotalMs,
+    ecdsaDeriverAParseMs: buckets.ecdsaDeriverAParseMs,
+    ecdsaDeriverAPreloadMs: buckets.ecdsaDeriverAPreloadMs,
+    ecdsaDeriverAExecuteMs: buckets.ecdsaDeriverAExecuteMs,
+    ecdsaDeriverATotalMs: buckets.ecdsaDeriverATotalMs,
+    ecdsaDeriverBParseMs: buckets.ecdsaDeriverBParseMs,
+    ecdsaDeriverBPreloadMs: buckets.ecdsaDeriverBPreloadMs,
+    ecdsaDeriverBExecuteMs: buckets.ecdsaDeriverBExecuteMs,
+    ecdsaDeriverBTotalMs: buckets.ecdsaDeriverBTotalMs,
+    ecdsaSigningWorkerParseMs: buckets.ecdsaSigningWorkerParseMs,
+    ecdsaSigningWorkerActivateMs: buckets.ecdsaSigningWorkerActivateMs,
+    ecdsaSigningWorkerTotalMs: buckets.ecdsaSigningWorkerTotalMs,
     walletRegisterStartMs: buckets.walletRegisterStartMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
     ecdsaRegistrationTotalMs: buckets.ecdsaRegistrationTotalMs,

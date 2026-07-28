@@ -1098,6 +1098,47 @@ function buildPostRegistrationEcdsaNormalSigningState(input: {
   return state;
 }
 
+/**
+ * Upper bound on Router metrics folded into one Gateway header. The Router is
+ * ours, but a merged header grows at every hop, so the fold is bounded rather
+ * than trusting the peer to stay terse.
+ */
+const ROUTER_SERVER_TIMING_MERGE_LIMIT = 32;
+
+/** Metric names the Gateway is willing to re-emit in its own header. */
+const ROUTER_SERVER_TIMING_NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Folds the Router's own `Server-Timing` header into the Gateway's span list
+ * (Refactor 94B Phase 0), so the Router and role-worker breakdown reaches the
+ * browser on the same header as the Gateway's own boundaries.
+ *
+ * Entries without a finite non-negative `dur` are dropped, which also discards
+ * Cloudflare's descriptive metrics, and names are restricted to a token
+ * charset so a metric name can never forge extra entries downstream.
+ */
+export function mergeRouterServerTiming(
+  target: Array<readonly [string, number]>,
+  header: string,
+): void {
+  let merged = 0;
+  for (const entry of header.split(',')) {
+    if (merged >= ROUTER_SERVER_TIMING_MERGE_LIMIT) return;
+    const parts = entry.split(';');
+    const name = String(parts[0] || '').trim();
+    if (!ROUTER_SERVER_TIMING_NAME_PATTERN.test(name)) continue;
+    for (const part of parts.slice(1)) {
+      const [key, rawValue] = part.split('=');
+      if (String(key || '').trim() !== 'dur') continue;
+      const duration = Number(String(rawValue || '').trim());
+      if (!Number.isFinite(duration) || duration < 0) break;
+      target.push([name, duration]);
+      merged += 1;
+      break;
+    }
+  }
+}
+
 export class CloudflareD1WalletRegistrationService {
   private readonly createSponsoredNamedNearAccount: SponsoredNamedNearAccountCreator;
   private readonly emailOtpRegistrationEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
@@ -2159,6 +2200,7 @@ export class CloudflareD1WalletRegistrationService {
       const strictResult = await this.ecdsaStrictRegistration.register({
         request: ecdsaBranch.registrationRequest,
         authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
+        onServerTiming: (header) => mergeRouterServerTiming(serverTiming, header),
       });
       markServerTiming('ecdsa_respond_router', routerStartedAtMs);
       if (!strictResult.ok) {
@@ -2333,6 +2375,7 @@ export class CloudflareD1WalletRegistrationService {
         pendingActivation: ecdsaBranch.pendingActivation,
         clientActivation: ecdsaBranch.publicFacts,
         authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
+        onServerTiming: (header) => mergeRouterServerTiming(serverTiming, header),
       });
       markServerTiming('ecdsa_activate_router', routerStartedAtMs);
       if (!activated.ok) {

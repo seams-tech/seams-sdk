@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { parseYaoServerTimingBuckets } from '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration';
+import { mergeRouterServerTiming } from '../../packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService';
 
 /*
  * Refactor 94B Phase 0. Gateway ECDSA boundary timings ride a `Server-Timing`
@@ -89,4 +90,51 @@ test('unknown and malformed metrics cannot affect registration', () => {
   expect(
     parseYaoServerTimingBuckets('cfCacheStatus;desc="HIT", yao_d1_claim;dur=7, junk'),
   ).toEqual([['yaoServerD1ClaimMs', 7]]);
+});
+
+/*
+ * The Router's own header is folded into the Gateway's span list at the
+ * service binding, so the Router and role-worker breakdown reaches the browser
+ * on one header. That fold is the only place the Gateway re-emits bytes it did
+ * not author, so these specs pin its bounds.
+ */
+
+test('router spans are folded into the gateway span list', () => {
+  const gateway: Array<readonly [string, number]> = [['ecdsa_respond_d1_claim', 12]];
+  mergeRouterServerTiming(
+    gateway,
+    'ecdsa_rt_admission;dur=31, ecdsa_rt_derivers;dur=1840, ecdsa_a_preload;dur=910',
+  );
+  expect(gateway).toEqual([
+    ['ecdsa_respond_d1_claim', 12],
+    ['ecdsa_rt_admission', 31],
+    ['ecdsa_rt_derivers', 1840],
+    ['ecdsa_a_preload', 910],
+  ]);
+});
+
+test('a metric name cannot forge extra entries downstream', () => {
+  const gateway: Array<readonly [string, number]> = [];
+  // The browser parses `name;dur=x` pairs out of one header, so a name
+  // carrying separators or quotes must never survive the fold.
+  mergeRouterServerTiming(gateway, 'ecdsa_rt total;dur=1, "quoted";dur=2, ok_name;dur=3');
+  expect(gateway).toEqual([['ok_name', 3]]);
+});
+
+test('malformed and descriptive router metrics are dropped', () => {
+  const gateway: Array<readonly [string, number]> = [];
+  mergeRouterServerTiming(
+    gateway,
+    'cfCacheStatus;desc="HIT", ecdsa_rt_total;dur=NaN, ecdsa_rt_admission;dur=-4, bare',
+  );
+  expect(gateway).toEqual([]);
+});
+
+test('the fold is bounded so a chatty peer cannot grow the header without limit', () => {
+  const gateway: Array<readonly [string, number]> = [];
+  const flood = Array.from({ length: 100 }, (_, index) => `m${index};dur=1`).join(', ');
+  mergeRouterServerTiming(gateway, flood);
+  expect(gateway).toHaveLength(32);
+  expect(gateway[0]).toEqual(['m0', 1]);
+  expect(gateway[31]).toEqual(['m31', 1]);
 });

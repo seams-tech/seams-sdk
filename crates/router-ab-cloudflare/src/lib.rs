@@ -5182,7 +5182,109 @@ fn emit_cloudflare_router_ab_ecdsa_derivation_explicit_export_audit_event_v1(
     Ok(())
 }
 
+/// Upper bound on metrics folded in from one role worker's `Server-Timing`.
+/// Role headers are internal, but a merged header still grows with every hop,
+/// so the fold is bounded rather than trusting the peer to stay terse.
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_ROUTER_ECDSA_MERGED_ROLE_METRIC_LIMIT_V1: usize = 12;
+
+/// Refactor 94B Phase 0. Collects Router-side boundary timings for the strict
+/// ECDSA registration legs, so a cold registration stays attributable past the
+/// Gateway instead of collapsing into one opaque `ecdsa_respond_router` span.
+///
+/// Diagnostics only. Every entry is a duration, nothing here feeds a protocol
+/// decision, and a clock read that fails contributes zero rather than failing
+/// the ceremony. Cloudflare freezes `Date.now()` between I/O, so these spans
+/// advance only across an actual service-binding or Durable Object call —
+/// which is exactly what they are measuring.
+#[cfg(feature = "workers-rs")]
+#[derive(Default)]
+pub struct CloudflareEcdsaBoundaryTimingV1 {
+    entries: Vec<(String, u64)>,
+}
+
+#[cfg(feature = "workers-rs")]
+impl CloudflareEcdsaBoundaryTimingV1 {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn now_ms() -> u64 {
+        cloudflare_now_unix_ms_v1().unwrap_or_default()
+    }
+
+    fn mark(&mut self, name: &str, started_at_ms: u64) {
+        let elapsed = Self::now_ms().saturating_sub(started_at_ms);
+        self.entries.push((name.to_owned(), elapsed));
+    }
+
+    fn push(&mut self, name: &str, duration_ms: u64) {
+        self.entries.push((name.to_owned(), duration_ms));
+    }
+
+    /// Folds one role worker's own `Server-Timing` into this header, renaming
+    /// each metric with the role prefix so the role that produced it stays
+    /// visible after the merge. Entries without a finite non-negative `dur`
+    /// are dropped, which also discards Cloudflare's descriptive metrics.
+    fn merge_role(&mut self, role_prefix: &str, header: Option<String>) {
+        let Some(header) = header else {
+            return;
+        };
+        let mut merged = 0usize;
+        for entry in header.split(',') {
+            if merged >= CLOUDFLARE_ROUTER_ECDSA_MERGED_ROLE_METRIC_LIMIT_V1 {
+                return;
+            }
+            let mut parts = entry.split(';');
+            let name = parts.next().map(str::trim).unwrap_or_default();
+            if name.is_empty() {
+                continue;
+            }
+            for part in parts {
+                let Some((key, value)) = part.split_once('=') else {
+                    continue;
+                };
+                if key.trim() != "dur" {
+                    continue;
+                }
+                let Ok(duration) = value.trim().parse::<f64>() else {
+                    break;
+                };
+                if !duration.is_finite() || duration < 0.0 {
+                    break;
+                }
+                self.entries
+                    .push((format!("{role_prefix}_{name}"), duration as u64));
+                merged += 1;
+                break;
+            }
+        }
+    }
+
+    /// Attaches these spans to a response, leaving the header off entirely
+    /// when nothing was measured rather than emitting an empty one.
+    fn apply_to(&self, response: &worker::Response) -> worker::Result<()> {
+        if self.entries.is_empty() {
+            return Ok(());
+        }
+        response
+            .headers()
+            .set("Server-Timing", &self.server_timing())
+    }
+
+    fn server_timing(&self) -> String {
+        self.entries
+            .iter()
+            .map(|(name, duration_ms)| format!("{name};dur={duration_ms}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
 /// Handles an authenticated public Router Router A/B ECDSA derivation registration/bootstrap request.
+// The eighth parameter is the diagnostics-only span collector; folding it into
+// a params struct would churn every caller for something that carries no state.
+#[allow(clippy::too_many_arguments)]
 #[cfg(feature = "workers-rs")]
 pub async fn handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1<
     Verifier,
@@ -5194,10 +5296,12 @@ pub async fn handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap
     authorization: CloudflareRouterBearerAuthorizationV1,
     trusted_source_digest: PublicDigest32,
     verifier: Verifier,
+    timing: &mut CloudflareEcdsaBoundaryTimingV1,
 ) -> RouterAbProtocolResult<CloudflareRouterAbEcdsaDerivationRegistrationAdmissionResponseV1>
 where
     Verifier: CloudflareRouterJwtVerifierV1,
 {
+    let total_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
     request.validate_at(now_unix_ms)?;
     let public_request = request.to_threshold_prf_request()?;
     let trusted_admission = derive_cloudflare_router_trusted_admission_from_worker_jwt_v1(
@@ -5210,10 +5314,13 @@ where
         verifier,
     )
     .await?;
+    timing.mark("ecdsa_rt_authorize", total_started_at_ms);
+    let admission_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
     let plan =
         runtime.public_request_admission_plan_at(now_unix_ms, public_request, trusted_admission)?;
     let (replay, lifecycle, completion) =
         execute_cloudflare_router_public_admission_v1(env, plan.admission_call()).await?;
+    timing.mark("ecdsa_rt_admission", admission_started_at_ms);
     if let CloudflareRouterPublicAdmissionCompletionV1::Completed { response_json } = completion {
         let completed: CloudflareRouterAbEcdsaDerivationRegistrationAdmissionResponseV1 =
             serde_json::from_str(&response_json).map_err(|error| {
@@ -5223,6 +5330,7 @@ where
                 )
             })?;
         completed.validate()?;
+        timing.mark("ecdsa_rt_total", total_started_at_ms);
         return Ok(completed);
     }
     if !replay.reserved {
@@ -5237,22 +5345,64 @@ where
             deriver_b_message,
             ..
         } => {
+            let derivers_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
             let (deriver_a_result, deriver_b_result) = futures::join!(
-                execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1(
-                    env,
-                    runtime.deriver_a_peer(),
-                    &request,
-                    deriver_a_message,
-                ),
-                execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1(
-                    env,
-                    runtime.deriver_b_peer(),
-                    &request,
-                    deriver_b_message,
-                ),
+                async {
+                    let started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
+                    let result =
+                        execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1(
+                            env,
+                            runtime.deriver_a_peer(),
+                            &request,
+                            deriver_a_message,
+                        )
+                        .await;
+                    (
+                        result,
+                        CloudflareEcdsaBoundaryTimingV1::now_ms().saturating_sub(started_at_ms),
+                    )
+                },
+                async {
+                    let started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
+                    let result =
+                        execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1(
+                            env,
+                            runtime.deriver_b_peer(),
+                            &request,
+                            deriver_b_message,
+                        )
+                        .await;
+                    (
+                        result,
+                        CloudflareEcdsaBoundaryTimingV1::now_ms().saturating_sub(started_at_ms),
+                    )
+                },
             );
-            let deriver_a_response = deriver_a_result?;
-            let deriver_b_response = deriver_b_result?;
+            let (deriver_a_result, deriver_a_elapsed_ms) = deriver_a_result;
+            let (deriver_b_result, deriver_b_elapsed_ms) = deriver_b_result;
+            timing.push("ecdsa_rt_deriver_a", deriver_a_elapsed_ms);
+            timing.push("ecdsa_rt_deriver_b", deriver_b_elapsed_ms);
+            timing.mark("ecdsa_rt_derivers", derivers_started_at_ms);
+            /* Both role headers are folded in before the `?`s below, so a
+            failing deriver still reports where its time went. */
+            let deriver_a_response = deriver_a_result;
+            let deriver_b_response = deriver_b_result;
+            timing.merge_role(
+                "ecdsa_a",
+                deriver_a_response
+                    .as_ref()
+                    .ok()
+                    .and_then(|response| response.1.clone()),
+            );
+            timing.merge_role(
+                "ecdsa_b",
+                deriver_b_response
+                    .as_ref()
+                    .ok()
+                    .and_then(|response| response.1.clone()),
+            );
+            let deriver_a_response = deriver_a_response?.0;
+            let deriver_b_response = deriver_b_response?.0;
             let router_payload =
                 decode_router_to_signer_payload_v1(deriver_a_message.payload.as_bytes())?;
             let response = CloudflareRouterRecipientProofBundleResponseV1::new(
@@ -5301,6 +5451,7 @@ where
             ));
         }
     };
+    let completion_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
     let completion_call = runtime.public_registration_completion_call(
         admission_replay,
         lifecycle_id,
@@ -5308,6 +5459,7 @@ where
     )?;
     let completed_json =
         execute_cloudflare_router_public_registration_completion_v1(env, &completion_call).await?;
+    timing.mark("ecdsa_rt_completion", completion_started_at_ms);
     let completed: CloudflareRouterAbEcdsaDerivationRegistrationAdmissionResponseV1 =
         serde_json::from_str(&completed_json).map_err(|error| {
             RouterAbProtocolError::new(
@@ -5316,10 +5468,13 @@ where
             )
         })?;
     completed.validate()?;
+    timing.mark("ecdsa_rt_total", total_started_at_ms);
     Ok(completed)
 }
 
 /// Completes strict Router A/B ECDSA registration after the client verifies both proof bundles.
+// See the registration handler above: the eighth parameter is span collection.
+#[allow(clippy::too_many_arguments)]
 #[cfg(feature = "workers-rs")]
 pub async fn handle_cloudflare_router_ab_ecdsa_derivation_activation_authenticated_public_request_v1<
     Verifier,
@@ -5331,10 +5486,12 @@ pub async fn handle_cloudflare_router_ab_ecdsa_derivation_activation_authenticat
     authorization: CloudflareRouterBearerAuthorizationV1,
     trusted_source_digest: PublicDigest32,
     verifier: Verifier,
+    timing: &mut CloudflareEcdsaBoundaryTimingV1,
 ) -> RouterAbProtocolResult<CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1>
 where
     Verifier: CloudflareRouterJwtVerifierV1,
 {
+    let total_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
     request.validate()?;
     let public_request = request.pending.registration.to_threshold_prf_request()?;
     let mut session = CloudflareRouterJwtSessionProviderV1::new(
@@ -5345,12 +5502,23 @@ where
         verifier,
     )?;
     session.verify_public_request_session(&public_request)?;
-    execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1(
-        env,
-        runtime.signing_worker_peer(),
-        &request,
-    )
-    .await
+    timing.mark("ecdsa_rt_act_session", total_started_at_ms);
+    let worker_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
+    let call =
+        execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1(
+            env,
+            runtime.signing_worker_peer(),
+            &request,
+        )
+        .await;
+    timing.mark("ecdsa_rt_act_worker", worker_started_at_ms);
+    timing.merge_role(
+        "ecdsa_sw",
+        call.as_ref().ok().and_then(|call| call.1.clone()),
+    );
+    let receipt = call?.0;
+    timing.mark("ecdsa_rt_act_total", total_started_at_ms);
+    Ok(receipt)
 }
 
 /// Parses one strict second-phase ECDSA registration activation request.
@@ -9130,6 +9298,9 @@ pub async fn handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activat
             404,
         );
     }
+    /* Refactor 94B Phase 0. Folded into the Router header under `ecdsa_sw_`. */
+    let mut timing = CloudflareEcdsaBoundaryTimingV1::new();
+    let total_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
     let activation = match request
         .json::<CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1>()
         .await
@@ -9144,6 +9315,7 @@ pub async fn handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activat
             );
         }
     };
+    timing.mark("parse", total_started_at_ms);
     let now_unix_ms = match cloudflare_now_unix_ms_v1() {
         Ok(now_unix_ms) => now_unix_ms,
         Err(err) => {
@@ -9153,6 +9325,7 @@ pub async fn handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activat
             );
         }
     };
+    let activate_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
     match activate_cloudflare_router_ab_ecdsa_derivation_signing_worker_output_v1(
         env,
         runtime,
@@ -9161,7 +9334,13 @@ pub async fn handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activat
     )
     .await
     {
-        Ok(response) => worker::Response::from_json(&response),
+        Ok(response) => {
+            timing.mark("activate", activate_started_at_ms);
+            timing.mark("total", total_started_at_ms);
+            let response = worker::Response::from_json(&response)?;
+            timing.apply_to(&response)?;
+            Ok(response)
+        }
         Err(err) => worker::Response::error(
             format!("{:?}: {}", err.code(), err.message()),
             cloudflare_router_error_status(err.code()),
@@ -11276,6 +11455,26 @@ where
     TReq: Serialize,
     TResp: serde::de::DeserializeOwned,
 {
+    let (response, _server_timing) =
+        post_service_json_with_server_timing(env, binding_name, url, label, request).await?;
+    Ok(response)
+}
+
+/// As `post_service_json`, but also returns the peer's own `Server-Timing`
+/// header so the Router can fold role-local spans into its own (Refactor 94B
+/// Phase 0). The header is diagnostics only and never affects the response.
+#[cfg(feature = "workers-rs")]
+async fn post_service_json_with_server_timing<TReq, TResp>(
+    env: &worker::Env,
+    binding_name: &str,
+    url: &str,
+    label: &str,
+    request: &TReq,
+) -> RouterAbProtocolResult<(TResp, Option<String>)>
+where
+    TReq: Serialize,
+    TResp: serde::de::DeserializeOwned,
+{
     let fetcher = env.service(binding_name).map_err(|err| {
         worker_binding_error(
             worker_binding_error_code(&err, binding_name),
@@ -11330,12 +11529,15 @@ where
             ),
         ));
     }
-    response.json::<TResp>().await.map_err(|err| {
+    // Read before the body is consumed; a missing header is the normal case.
+    let server_timing = response.headers().get("Server-Timing").ok().flatten();
+    let parsed = response.json::<TResp>().await.map_err(|err| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
             format!("{label} response JSON parse failed: {err}"),
         )
-    })
+    })?;
+    Ok((parsed, server_timing))
 }
 
 #[cfg(feature = "workers-rs")]
@@ -11344,7 +11546,10 @@ async fn execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_serv
     peer: &CloudflarePeerBindingV1,
     registration_request: &RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     message: &WireMessageV1,
-) -> RouterAbProtocolResult<CloudflareSignerRecipientProofBundleResponseV1> {
+) -> RouterAbProtocolResult<(
+    CloudflareSignerRecipientProofBundleResponseV1,
+    Option<String>,
+)> {
     peer.validate()?;
     validate_cloudflare_signer_private_request_v1(peer.peer_role, message)?;
     let signer_bootstrap =
@@ -11363,20 +11568,21 @@ async fn execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_serv
         "{} Router A/B ECDSA derivation registration service request",
         peer.peer_role.as_str()
     );
-    let response: CloudflareSignerRecipientProofBundleResponseV1 = post_service_json(
-        env,
-        &peer.binding_name,
-        cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_url(peer)?,
-        &label,
-        &private_request,
-    )
-    .await?;
+    let (response, server_timing): (CloudflareSignerRecipientProofBundleResponseV1, _) =
+        post_service_json_with_server_timing(
+            env,
+            &peer.binding_name,
+            cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_url(peer)?,
+            &label,
+            &private_request,
+        )
+        .await?;
     validate_cloudflare_signer_recipient_proof_bundle_private_response_v1(
         peer.peer_role,
         message,
         &response,
     )?;
-    Ok(response)
+    Ok((response, server_timing))
 }
 
 #[cfg(feature = "workers-rs")]
@@ -11505,7 +11711,10 @@ async fn execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation
     env: &worker::Env,
     peer: &CloudflarePeerBindingV1,
     request: &CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1,
-) -> RouterAbProtocolResult<CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1> {
+) -> RouterAbProtocolResult<(
+    CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1,
+    Option<String>,
+)> {
     peer.validate()?;
     if peer.peer_role != CloudflareWorkerRoleV1::SigningWorker {
         return Err(RouterAbProtocolError::new(
@@ -11514,17 +11723,19 @@ async fn execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation
         ));
     }
     request.validate()?;
-    let receipt: CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1 =
-        post_service_json(
-            env,
-            &peer.binding_name,
-            cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_url(peer)?,
-            "Router A/B ECDSA derivation SigningWorker activation request",
-            request,
-        )
-        .await?;
+    let (receipt, server_timing): (
+        CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1,
+        _,
+    ) = post_service_json_with_server_timing(
+        env,
+        &peer.binding_name,
+        cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_url(peer)?,
+        "Router A/B ECDSA derivation SigningWorker activation request",
+        request,
+    )
+    .await?;
     receipt.validate()?;
-    Ok(receipt)
+    Ok((receipt, server_timing))
 }
 
 #[cfg(feature = "workers-rs")]
