@@ -14,7 +14,7 @@ import {
   requireAuthoritativeExpiredWalletSessionAuthorizationBoundary,
   type ExpiredWalletSessionAuthorizationState,
 } from '@/core/signingEngine/session/identity/clientSessionPersistenceState';
-import type { ExactSigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import type { ExactEd25519SigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { createThresholdEcdsaBootstrapFixture } from './ecdsaBootstrap.fixtures';
 import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './ecdsaMaterialRef.fixtures';
 import { buildWalletAuthAuthorityRefForAuthorityFixture } from './ecdsaMaterialRef.fixtures';
@@ -221,6 +221,33 @@ type EmailOtpEcdsaSealedRuntimeFixtureCorruption =
   | { kind: 'normal_signing_wallet_id'; walletId: string }
   | { kind: 'relayer_key_id'; relayerKeyId: string };
 
+/** The scope the relayer issues at bootstrap and the sealed store persists.
+ * Production requires it at the hydration boundary -- a signing session cannot
+ * be built without one -- so a sealed runtime fixture without it can only ever
+ * resolve to `runtime_policy_scope_missing`.
+ *
+ * Derived from the manifest's own signing root rather than hard-coded:
+ * `normalizeSealedEcdsaRestore` drops any record whose explicit root ids
+ * disagree with the ones this scope derives. */
+function fixtureRuntimePolicyScope(publicFacts: {
+  readonly signingRootId: unknown;
+  readonly signingRootVersion: unknown;
+}): { orgId: string; projectId: string; envId: string; signingRootVersion: string } {
+  const signingRootId = String(publicFacts.signingRootId || '');
+  const [projectId, envId] = signingRootId.split(':');
+  if (!projectId || !envId) {
+    throw new Error(
+      `sealed runtime fixture requires a <projectId>:<envId> signing root id, got "${signingRootId}"`,
+    );
+  }
+  return {
+    orgId: 'org-sealed-runtime-fixture',
+    projectId,
+    envId,
+    signingRootVersion: String(publicFacts.signingRootVersion || ''),
+  };
+}
+
 export function buildEmailOtpEcdsaSealedRuntimeRecordFixture(args: {
   manifest: ActiveEcdsaCapabilityManifest;
   signingGrantId?: string;
@@ -282,6 +309,7 @@ export function buildEmailOtpEcdsaSealedRuntimeRecordFixture(args: {
       source: 'email_otp',
       signingRootId: publicFacts.signingRootId,
       signingRootVersion: publicFacts.signingRootVersion,
+      runtimePolicyScope: fixtureRuntimePolicyScope(publicFacts),
       provider: 'google',
       providerSubjectId,
       emailHashHex: 'email-hash',
@@ -310,6 +338,91 @@ export function buildEmailOtpEcdsaSealedRuntimeRecordFixture(args: {
     throw new Error('Failed to build exact Email OTP ECDSA sealed runtime fixture');
   }
   return corruptEmailOtpEcdsaSealedRuntimeRecordFixture(record, args.corruption);
+}
+
+/** Passkey counterpart of the Email OTP sealed runtime fixture. The sealed
+ * record differs only in its auth binding -- rpId and credential rather than a
+ * provider subject -- because the material it names is the same. */
+export function buildPasskeyEcdsaSealedRuntimeRecordFixture(args: {
+  manifest: ActiveEcdsaCapabilityManifest;
+  signingGrantId?: string;
+  thresholdSessionId?: string;
+  expiresAtMs?: number;
+  remainingUses?: number;
+}): CurrentEcdsaSealedSessionRecord {
+  const manifest = args.manifest;
+  const walletId = String(manifest.signer.walletId);
+  const publicFacts = manifest.durableMaterial.roleLocalPublicFacts;
+  const binding = manifest.durableMaterial.roleLocalBinding;
+  const publicCapability = publicFacts.publicCapability;
+  const signingGrantId = args.signingGrantId ?? 'wallet-session-passkey-1';
+  const thresholdSessionId = args.thresholdSessionId ?? 'ec-session-passkey';
+  const roleLocalMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef({
+    kind: 'ecdsa_role_local_persisted_material_ref_v1',
+    durableMaterialRef: manifest.durableMaterial.durableMaterialRef,
+    bindingDigest: manifest.durableMaterial.bindingDigest,
+    materialActivation: manifest.durableMaterial.materialActivation,
+  });
+  const normalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1({
+    kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+    scope: {
+      wallet_id: walletId,
+      ecdsa_threshold_key_id: publicFacts.ecdsaThresholdKeyId,
+      signing_root_id: publicFacts.signingRootId,
+      signing_root_version: publicFacts.signingRootVersion,
+      context: publicCapability.context,
+      public_identity: publicCapability.public_identity,
+      signing_worker: publicCapability.signer_set.selected_server,
+      activation_epoch: publicCapability.activation_epoch,
+    },
+  });
+  const record = buildCurrentSealedSessionRecord({
+    curve: 'ecdsa',
+    thresholdSessionId,
+    thresholdSessionIds: { ecdsa: thresholdSessionId },
+    sealedSecretB64u: 'sealed-k',
+    authMethod: 'passkey',
+    signingGrantId,
+    keyVersion: 'signing-session-seal-kek-test-r1',
+    shamirPrimeB64u: 'prime',
+    issuedAtMs: 1,
+    expiresAtMs: args.expiresAtMs ?? Date.now() + 5 * 60_000,
+    remainingUses: args.remainingUses ?? 4,
+    updatedAtMs: 4,
+    walletId,
+    relayerUrl: 'https://relayer.example.test',
+    ecdsaRestore: {
+      chainTarget: publicFacts.chainTarget,
+      source: 'login',
+      signingRootId: publicFacts.signingRootId,
+      signingRootVersion: publicFacts.signingRootVersion,
+      runtimePolicyScope: fixtureRuntimePolicyScope(publicFacts),
+      rpId: 'example.localhost',
+      credentialIdB64u: 'credential-passkey-fixture',
+      authority: manifest.signer.authority,
+      sessionKind: 'jwt',
+      walletSessionJwt: fixtureSealedEcdsaWalletSessionJwt({
+        walletId,
+        keyHandle: String(binding.keyHandle),
+        thresholdSessionId,
+        signingGrantId,
+      }),
+      keyHandle: binding.keyHandle,
+      ecdsaThresholdKeyId: binding.ecdsaThresholdKeyId,
+      ethereumAddress: publicFacts.ethereumAddress,
+      relayerKeyId: binding.relayerKeyId,
+      clientVerifyingShareB64u: binding.clientVerifyingPublicKey33B64u,
+      thresholdEcdsaPublicKeyB64u: publicFacts.groupPublicKey33B64u,
+      roleLocalMaterialRef,
+      participantIds: [...binding.participantIds],
+      routerAbEcdsaDerivationNormalSigning: normalSigning,
+      publicCapability,
+    },
+  });
+  if (!record || record.curve !== 'ecdsa') {
+    throw new Error('Failed to build exact passkey ECDSA sealed runtime fixture');
+  }
+  return record;
 }
 
 function corruptEmailOtpEcdsaSealedRuntimeRecordFixture(
@@ -384,13 +497,13 @@ function corruptEmailOtpEcdsaSealedRuntimeRecordFixture(
  * always derive from the supplied lane identity.
  */
 export function seedExpiredWalletSessionAuthorizationState(args: {
-  identity: ExactSigningLaneIdentity;
+  identity: ExactEd25519SigningLaneIdentity;
   expiresAtMs?: number;
   detectedAtMs?: number;
 }): ExpiredWalletSessionAuthorizationState {
   const expiresAtMs = args.expiresAtMs ?? 1_000;
   return requireAuthoritativeExpiredWalletSessionAuthorizationBoundary({
-    identity: args.identity,
+    source: { kind: 'ed25519', laneIdentity: args.identity },
     expiresAtMs,
     detectedAtMs: args.detectedAtMs ?? expiresAtMs + 1,
   });
