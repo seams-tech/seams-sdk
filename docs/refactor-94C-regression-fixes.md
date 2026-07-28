@@ -374,17 +374,18 @@ required.
 
 Required evidence:
 
-1. One focused real-D1 test for concurrent activation and exact lost-response
-   replay.
-2. One focused role test for identical retry, partial completion, and
-   conflicting fingerprint.
-3. One custody test showing wrong-role or wrong-KEK ciphertext fails closed.
-4. Existing focused registration, recovery, export, and signing tests affected
-   by the changed adapters.
-5. `pnpm check`, `cargo test -p router-ab-cloudflare`, and `git diff --check`
-   before staging.
-6. One manual Email OTP and one passkey registration in local, staging, and
-   production.
+- [x] One focused real-D1 test for concurrent activation and exact
+      lost-response replay. The real workerd/D1 run exposed and verified the
+      fix for commit-time drift during concurrent activation.
+- [x] One focused role test for identical retry, partial completion, and
+      conflicting fingerprint.
+- [x] One custody test showing wrong-role or wrong-KEK ciphertext fails closed.
+- [ ] Existing focused registration, recovery, export, and signing tests
+      affected by the changed adapters.
+- [ ] `pnpm check`, `cargo test -p router-ab-cloudflare`, and
+      `git diff --check` before staging.
+- [ ] One manual Email OTP and one passkey registration in local, staging, and
+      production.
 
 Classify existing failing tests under `AGENTS.md`. Delete fixtures that encode
 the retired DO topology.
