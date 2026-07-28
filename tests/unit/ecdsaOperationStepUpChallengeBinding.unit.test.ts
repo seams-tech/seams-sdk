@@ -8,6 +8,7 @@ import {
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import { parseRootShareEpoch } from '../../packages/shared-ts/src/utils/domainIds';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 // The Passkey challenge must be the canonical digest of the exact prepared
@@ -26,6 +27,12 @@ function digest(seed: number): ReturnType<typeof parseDigestB64u> {
 }
 
 const materialActivation = buildMpcMaterialActivationRefFixture('step-up-binding', WALLET_ID);
+
+function fixtureActivationEpoch(value: string) {
+  const parsed = parseRootShareEpoch(value);
+  if (!parsed.ok) throw new Error(`invalid fixture activation epoch: ${value}`);
+  return parsed.value;
+}
 
 const normalSigningScope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
   wallet_id: WALLET_ID,
@@ -50,7 +57,7 @@ const normalSigningScope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
     recipient_encryption_key:
       'x25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   },
-  activation_epoch: 'activation-1',
+  activation_epoch: fixtureActivationEpoch('activation-1'),
 };
 
 function preparationArgs() {
