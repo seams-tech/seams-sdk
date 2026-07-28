@@ -180,9 +180,6 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
   // against this manifest's facts during runtime correlation, which is where
   // that check belongs.
   const normalSigningState = runtime.normalSigning;
-  // The reusable Wallet Session is itself the authorizing grant; there is no
-  // separate grant identifier to recover.
-  const signingGrantId = String(projection.walletSessionId);
   const thresholdSessionId = runtime.sealedRecord.thresholdSessionId;
   const signingMaterial = buildRouterAbEcdsaDerivationSigningMaterialRef({
     routerAbState: normalSigningState,
@@ -198,7 +195,6 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
       },
     },
     thresholdSessionId,
-    signingGrantId,
     remainingUses: runtime.remainingUses,
     expiresAtMs: runtime.expiresAtMs,
     signingMaterial,
@@ -233,7 +229,6 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
     chainTarget: roleLocalFacts.chainTarget,
     session: buildReadyThresholdEcdsaSession({
       thresholdSessionId,
-      signingGrantId,
       policy: buildKnownReadyThresholdEcdsaSessionPolicy({
         remainingUses: runtime.remainingUses,
         expiresAtMs: runtime.expiresAtMs,

@@ -265,7 +265,6 @@ export type ReadyThresholdEcdsaSessionPolicy = KnownReadyThresholdEcdsaSessionPo
 
 export type ReadyThresholdEcdsaSession = {
   kind: 'ready_threshold_ecdsa_session';
-  signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdEcdsaSessionId;
   policy: ReadyThresholdEcdsaSessionPolicy;
   walletSessionAuth?: never;
@@ -1226,13 +1225,11 @@ export function buildKnownReadyThresholdEcdsaSessionPolicy(args: {
 }
 
 export function buildReadyThresholdEcdsaSession(args: {
-  signingGrantId: unknown;
   thresholdSessionId: unknown;
   policy: ReadyThresholdEcdsaSessionPolicy;
 }): ReadyThresholdEcdsaSession {
   return {
     kind: 'ready_threshold_ecdsa_session',
-    signingGrantId: SigningSessionIds.signingGrant(args.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId),
     policy: args.policy,
   };
@@ -1265,13 +1262,15 @@ export function buildReadyEcdsaSignerSession(
   }
   const materialActivation = materialActivationResult.value;
   const session = buildReadyThresholdEcdsaSession({
-    signingGrantId: input.keyRef.signingGrantId,
     thresholdSessionId: input.keyRef.thresholdSessionId,
     policy: input.sessionPolicy,
   });
+  // The grant comes from the key ref, which is a bootstrap-issued identity and
+  // a real one. It is read directly rather than through the session, so the
+  // session type never implies a grant on paths that have none.
   const signerIdentity: ThresholdEcdsaSignerSessionIdentity = {
     kind: 'threshold_ecdsa_signer_session_identity',
-    signingGrantId: session.signingGrantId,
+    signingGrantId: SigningSessionIds.signingGrant(input.keyRef.signingGrantId),
     thresholdSessionId: session.thresholdSessionId,
   };
   const chainTarget = input.keyRef.chainTarget;

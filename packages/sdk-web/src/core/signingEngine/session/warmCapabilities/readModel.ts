@@ -374,15 +374,13 @@ export function resolveEcdsaSealTransport(args: {
   const relayerUrl = String(args.runtime.relayerUrl || '').trim();
   if (!relayerUrl) return null;
   const shamirPrimeB64u = String(args.shamirPrimeB64u || '').trim();
-  // The authorizing grant is the reusable Wallet Session itself; the sealed
-  // record carries no grant of its own to fall back to.
-  const signingGrantId = String(args.auth?.projection.walletSessionId || '').trim();
   return {
     curve: 'ecdsa',
     walletId: String(args.runtime.walletId),
     chainTarget: args.runtime.chainTarget,
     relayerUrl,
-    ...(signingGrantId ? { signingGrantId } : {}),
+    // No signingGrantId: a grant is a distinct identity and the authorization
+    // boundary carries none. The Wallet Session is identified by its own JWT.
     ...(walletSessionJwt ? { walletSessionJwt } : {}),
     walletSessionJwtSource: walletSessionJwt ? 'ecdsa' : 'none',
     ...(args.signingSessionSealKeyVersion

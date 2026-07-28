@@ -56,7 +56,6 @@ export type RouterAbEcdsaDerivationSigningWalletSession = {
   curve: 'ecdsa';
   auth: RouterAbSigningWalletSessionAuth;
   thresholdSessionId: string;
-  signingGrantId: string;
   remainingUses: number;
   expiresAtMs: number;
   signingMaterial: RouterAbEcdsaDerivationSigningMaterialRef;
@@ -120,7 +119,10 @@ export type EcdsaDerivationRuntimeMaterialValidationKey = {
   materialHandle: string;
   materialBindingDigest: string;
   thresholdSessionId: string;
-  signingGrantId: string;
+  // No signing-grant component: the Wallet Session credential fingerprint
+  // already binds the exact authorization this material was validated under,
+  // and a grant is a distinct identity that the authorization boundary does
+  // not carry. Deriving one from the Wallet Session id would conflate them.
   walletSessionCredentialFingerprint: RouterAbEcdsaDerivationWalletSessionCredentialFingerprint;
   activeStateId: EcdsaActiveStateId;
   ecdsaThresholdKeyId: string;
@@ -406,7 +408,6 @@ function buildEcdsaDerivationRuntimeMaterialValidationKey(input: {
     materialHandle: input.context.materialIdentity.materialHandle,
     materialBindingDigest: input.context.materialIdentity.materialBindingDigest,
     thresholdSessionId: input.session.thresholdSessionId,
-    signingGrantId: input.session.signingGrantId,
     walletSessionCredentialFingerprint,
     activeStateId: routerAbEcdsaDerivationActiveStateId(state),
     ecdsaThresholdKeyId: signingMaterial.ecdsaThresholdKeyId,
@@ -743,7 +744,6 @@ export function parseRouterAbEcdsaDerivationSigningWalletSessionFromRecord(
       curve: 'ecdsa',
       auth,
       thresholdSessionId,
-      signingGrantId,
       remainingUses,
       expiresAtMs,
       signingMaterial,
