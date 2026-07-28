@@ -4,8 +4,7 @@ import {
   scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill,
   signRouterAbEcdsaDerivationDigestWithPool,
 } from '../../../routerAb/ecdsaDerivation/presignaturePool';
-import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
-import type { ReadyEcdsaSignerSession } from '../../../session/identity/evmFamilyEcdsaIdentity';
+import type { HydratedEcdsaSignerMaterial } from '../../../session/identity/evmFamilyEcdsaIdentity';
 import {
   loadRouterAbEcdsaDerivationSigningMaterialSource,
   type LoadedRouterAbEcdsaDerivationSigningMaterialSource,
@@ -16,7 +15,6 @@ import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNo
 import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RouterAbEcdsaOperationStepUpPreparationV1Wire } from '@shared/utils/routerAbEcdsaDerivation';
-import { parseWalletSessionId } from '@shared/authorization/capabilityKinds';
 import type { RouterAbEd25519NormalSigningCredential } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 
 export type EcdsaSigningAuthorization = RouterAbNormalSigningAuthorizationWire;
@@ -32,7 +30,7 @@ type Secp256k1DigestSignRequest = Extract<SignRequest, { kind: 'digest' }> & {
 type ReadySecp256k1SigningMaterialBase = {
   kind: 'ready_secp256k1_signing_material';
   walletId: string;
-  signerSession: ReadyEcdsaSignerSession;
+  signerSession: HydratedEcdsaSignerMaterial;
   credential: RouterAbEd25519NormalSigningCredential;
   expiresAtMs: number;
   singleUseEmailOtpSession: boolean;
@@ -63,7 +61,7 @@ type BuildReadySecp256k1SigningMaterialInputBase = {
   credential: RouterAbEd25519NormalSigningCredential;
   expiresAtMs: number;
   singleUseEmailOtpSession: boolean;
-  signerSession: ReadyEcdsaSignerSession;
+  signerSession: HydratedEcdsaSignerMaterial;
 };
 
 export type BuildReadySecp256k1SigningMaterialInput =
@@ -86,6 +84,9 @@ export function buildReadySecp256k1SigningMaterial(
     throw new Error('[multichain] Missing wallet id for ready secp256k1 signing material');
   }
   const signerSession = args.signerSession;
+  if (walletId !== String(signerSession.walletId)) {
+    throw new Error('[multichain] ready secp256k1 material wallet identity mismatch');
+  }
   const expiresAtMs = Math.floor(Number(args.expiresAtMs));
   if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
     throw new Error('[multichain] ready secp256k1 authorization expiry is invalid');
