@@ -38,6 +38,17 @@ import {
   parseSdkEcdsaDerivationSigningRootId,
   parseSdkEcdsaDerivationSigningRootVersion,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSigningCapability';
+import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
+import {
+  WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
+  type ActiveWalletSessionAuthorizationProjection,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseSeamsSessionId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import { base64UrlEncode } from '@shared/utils/base64';
 import {
   parseCorrelationId,
@@ -464,4 +475,62 @@ function buildEcdsaCapabilityReplacementFixture(
       differentPublicKeyB64u: CLIENT_PUBLIC_KEY_B64U,
     },
   };
+}
+
+/** An active reusable Wallet Session authorizing the fixture manifest's wallet.
+ * Authorization is the independent second proof, so it is built separately from
+ * the manifest rather than derived from it -- only the wallet and authority are
+ * shared, which is exactly what the two halves must agree on. */
+export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
+  manifest: ActiveEcdsaCapabilityManifest;
+  walletSessionId?: string;
+  walletSessionJwt?: string;
+  expiresAtMs?: number;
+  remainingUses?: number;
+}): ActiveEvmFamilyWalletSessionAuthorization {
+  const signer = args.manifest.signer;
+  const walletSessionId = requireFixtureId(
+    parseWalletSessionId(args.walletSessionId || 'ecdsa-fixture-wallet-session'),
+    'walletSessionId',
+  );
+  const quotaId = requireFixtureId(
+    parseMpcWalletSigningQuotaId('ecdsa-fixture-quota'),
+    'quotaId',
+  );
+  const expiresAtMs = args.expiresAtMs ?? 1_900_000_000_000;
+  const remainingUses = args.remainingUses ?? 5;
+  return {
+    kind: 'active_reusable_wallet_session_authorization',
+    projection: {
+      recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
+      status: 'active',
+      walletId: signer.walletId,
+      authorizationSessionId: requireFixtureId(
+        parseSeamsSessionId('ecdsa-fixture-authorization-session'),
+        'authorizationSessionId',
+      ),
+      walletSessionId,
+      quotaId,
+      authMethod: 'passkey',
+      authority: signer.authority,
+      expiresAtMs,
+      walletSessionJwt: (args.walletSessionJwt ??
+        'fixture-wallet-session-jwt') as ActiveWalletSessionAuthorizationProjection['walletSessionJwt'],
+    },
+    status: {
+      walletSessionId,
+      quotaId,
+      status: 'active',
+      remainingUses,
+      expiresAtMs,
+    },
+  };
+}
+
+function requireFixtureId<T>(
+  result: { ok: true; value: T } | { ok: false },
+  label: string,
+): T {
+  if (!result.ok) throw new Error(`[fixture] invalid ${label}`);
+  return result.value;
 }

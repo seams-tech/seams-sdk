@@ -30,6 +30,7 @@ import {
   emailOtpAuthContextProvider,
   emailOtpAuthContextProviderUserId,
   emailOtpAuthContextRetention,
+  laneCandidateStateFromRuntimePolicy,
 } from '../identity/laneIdentity';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import { THRESHOLD_ECDSA_SESSION_STORE_SOURCES } from '../identity/laneIdentity';
@@ -487,17 +488,6 @@ function assertUniqueEvmFamilyEcdsaIdentityForStore(args: {
       '[SigningEngine] EVM-family ECDSA key identity already exists for wallet/key/signing root',
     );
   }
-}
-
-function laneCandidateStateFromRuntimePolicy(args: {
-  remainingUses: number;
-  expiresAtMs: number;
-  nowMs?: number;
-}): LaneCandidateState {
-  const nowMs = Math.floor(Number(args.nowMs) || Date.now());
-  if (args.expiresAtMs <= nowMs) return 'expired';
-  if (args.remainingUses <= 0) return 'exhausted';
-  return 'ready';
 }
 
 function nullableRecordInteger(value: unknown): number | null {

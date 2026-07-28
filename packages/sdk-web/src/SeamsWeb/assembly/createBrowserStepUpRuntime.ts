@@ -48,7 +48,7 @@ export function createBrowserStepUpRuntime(args: {
           persistEcdsaRoleLocalReadyRecord:
             args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
           resolveSealTransport: ({ lane }) =>
-            args.getWarmSigning().capabilityReader.resolveEcdsaSealTransportByThresholdSessionId({
+            args.getWarmSigning().capabilityReader.resolveEcdsaSealTransportForLane({
               lane,
             }),
         },

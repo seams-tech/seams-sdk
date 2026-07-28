@@ -71,7 +71,7 @@ export type ProvisionThresholdEcdsaSessionDeps = {
   persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
   resolveSealTransport: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
-  }) => ThresholdSessionSealTransportAuthMaterial | null;
+  }) => Promise<ThresholdSessionSealTransportAuthMaterial | null>;
 };
 
 export type ThresholdEcdsaActivationPolicy =

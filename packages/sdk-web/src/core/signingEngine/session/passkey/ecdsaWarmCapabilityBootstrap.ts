@@ -133,7 +133,7 @@ function createProvisionThresholdEcdsaSessionDeps(
     touchConfirm: deps.touchConfirm,
     persistEcdsaRoleLocalReadyRecord: deps.persistEcdsaRoleLocalReadyRecord,
     resolveSealTransport: ({ lane }) =>
-      deps.capabilityReader.resolveEcdsaSealTransportByThresholdSessionId({
+      deps.capabilityReader.resolveEcdsaSealTransportForLane({
         lane,
       }),
   };
