@@ -134,16 +134,16 @@ export type WalletRegistrationRespondSignerPlanV2 =
       kind: 'near_ed25519_and_evm_family_ecdsa';
       ecdsa: RespondEcdsaProofBundles;
       /** Authority-bound admission, derived here because the proof now exists. */
-      ed25519: RespondEd25519DeferredWork;
+      ed25519: RespondEd25519DeferredWorkV2;
     };
 
 /** Exact A/B role bundles, unchanged from the derivation respond leg. */
-type RespondEcdsaProofBundles = {
+export type RespondEcdsaProofBundles = {
   kind: 'router_ab_ecdsa_registration_forwarded_v1';
   strictResult: unknown; // RouterAbEcdsaStrictForwardedRegistrationResponseV1; bound at the parser
 };
 
-type RespondEd25519DeferredWork = {
+export type RespondEd25519DeferredWorkV2 = {
   status: 'deferred';
   admissionRequest: SetupEd25519Work extends { admissionRequest: infer T } ? T : never;
   admissionReceipt: SetupEd25519Work extends { admissionReceipt: infer T } ? T : never;

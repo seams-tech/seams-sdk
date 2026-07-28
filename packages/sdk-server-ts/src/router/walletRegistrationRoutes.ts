@@ -1,4 +1,9 @@
-import type { WalletRegistrationSetupResponseV2 } from '../core/threeRouteRegistrationContracts';
+import type {
+  WalletRegistrationRespondResponseV2,
+  WalletRegistrationSetupResponseV2,
+} from '../core/threeRouteRegistrationContracts';
+import type { RouterAbEcdsaRegistrationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { WalletRegistrationAuthorityInput } from '../core/registrationContracts';
 import { resolvePublishableKeyApiCredentialAuth } from './routerApiCredentialAuth';
 import { extractRouterApiEnvironmentId } from './routerApiKeyAuth';
 import type { RouterApiPublishableKeyAuthAdapter } from './routerApi';
@@ -2499,6 +2504,118 @@ export async function handleRouterApiWalletRegistrationSetup(
       : {}),
   });
   return routeJson(result.ok ? 200 : 400, result);
+}
+
+/**
+ * Refactor 94C. `POST /wallets/register/respond` — the authenticated leg.
+ *
+ * Bearing the proof, so it is a public-plane route authorized by the signed
+ * setup payload plus the WebAuthn or Email OTP proof, exactly as the
+ * derivation respond leg it replaces was.
+ */
+export async function handleRouterApiWalletRegistrationRespond(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationRespondResponseV2 | RouteErrorBody>> {
+  const traceContext = parseRegistrationTraceContext(input.headers);
+  if (!traceContext.ok) return routeError(400, 'invalid_trace_id', traceContext.message);
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const session = input.services.session;
+  if (!session) {
+    return routeError(500, 'internal', 'wallet registration respond requires session signing');
+  }
+  const parsed = parseWalletRegistrationRespondRequest(input.body);
+  if (!parsed.ok) return routeError(400, parsed.code, parsed.message);
+  const result = await input.services.walletRegistration.respondWalletRegistration(
+    {
+      ...parsed.value,
+      verifier: session,
+      minter: session,
+      ...(registrationUserAgentFromHeaders(input.headers)
+        ? { userAgent: registrationUserAgentFromHeaders(input.headers) }
+        : {}),
+    },
+    traceContext.value ?? undefined,
+  );
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+/**
+ * Parses respond's public body. `signedSetup` stays an opaque string here —
+ * the service verifies it; parsing its contents at the boundary would invite
+ * trusting them before verification.
+ */
+function parseWalletRegistrationRespondRequest(
+  body: unknown,
+): ParseResult<{
+  registrationCeremonyId: string;
+  signedSetup: string;
+  authority: WalletRegistrationAuthorityInput;
+  ecdsa: {
+    kind: 'router_ab_ecdsa_registration_v1';
+    strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+  };
+}> {
+  if (!isPlainObject(body)) {
+    return { ok: false, code: 'invalid_body', message: 'JSON body required' };
+  }
+  const registrationCeremonyId = String(body.registrationCeremonyId || '').trim();
+  if (!registrationCeremonyId) {
+    return { ok: false, code: 'invalid_body', message: 'registrationCeremonyId is required' };
+  }
+  const signedSetup = String(body.signedSetup || '').trim();
+  if (!signedSetup) {
+    return { ok: false, code: 'invalid_body', message: 'signedSetup is required' };
+  }
+  /* Exactly one proof branch; the auth method the ceremony recorded decides
+     which one is admissible, and the service rejects a mismatch. */
+  const hasWebAuthn = Object.prototype.hasOwnProperty.call(body, 'webauthn_registration');
+  const hasEmailOtp = Object.prototype.hasOwnProperty.call(body, 'emailOtpRegistrationProof');
+  if (hasWebAuthn === hasEmailOtp) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'exactly one registration authority proof is required',
+    };
+  }
+  let authority: WalletRegistrationAuthorityInput;
+  if (hasWebAuthn) {
+    authority = { kind: 'passkey', webauthnRegistration: body.webauthn_registration };
+  } else {
+    const proof = normalizeEmailOtpRegistrationProof(body.emailOtpRegistrationProof);
+    if (!proof) {
+      return { ok: false, code: 'invalid_body', message: 'emailOtpRegistrationProof is invalid' };
+    }
+    authority = { kind: 'email_otp', emailOtpRegistrationProof: proof };
+  }
+  const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
+  if (!ecdsa || ecdsa.kind !== 'router_ab_ecdsa_registration_v1') {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA registration request is required',
+    };
+  }
+  let strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+  try {
+    strictRegistration = parseRouterAbEcdsaRegistrationRequestV1(ecdsa.strictRegistration);
+  } catch {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA registration request is invalid',
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      registrationCeremonyId,
+      signedSetup,
+      authority,
+      ecdsa: { kind: 'router_ab_ecdsa_registration_v1', strictRegistration },
+    },
+  };
 }
 
 export async function handleRouterApiWalletRegistrationStart(

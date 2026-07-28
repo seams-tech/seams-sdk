@@ -32,9 +32,11 @@ export type WalletRegistrationSetupMinter = {
   signJwt(sub: string, extra?: Record<string, unknown>): Promise<string>;
 };
 
+/* Matches `SessionService.verifyJwt` exactly rather than introducing a second
+   verification shape for the same key material. */
 export type WalletRegistrationSetupVerifier = {
   verifyJwt(token: string): Promise<
-    { ok: true; claims: Record<string, unknown> } | { ok: false; code: string; message: string }
+    { readonly valid: true; readonly payload: Record<string, unknown> } | { readonly valid: false }
   >;
 };
 
@@ -85,6 +87,62 @@ export async function computeWalletRegistrationSetupDigestB64u(input: {
   );
 }
 
+/**
+ * Respond's own canonical request digest.
+ *
+ * Separate from setup's by construction — different version tag, different
+ * bytes — so a `signedSetup` minted for setup cannot satisfy respond and an
+ * idempotency row from one route can never collide with the other's.
+ */
+export async function computeWalletRegistrationRespondDigestB64u(input: {
+  readonly registrationCeremonyId: string;
+  readonly setupDigestB64u: string;
+  readonly strictRegistrationBindingJson: string;
+  readonly authorityDigestB64u: string;
+}): Promise<string> {
+  return base64UrlEncode(
+    await sha256BytesUtf8(
+      alphabetizeStringify({
+        version: 'wallet_registration_respond_digest_v1',
+        registrationCeremonyId: input.registrationCeremonyId,
+        setupDigestB64u: input.setupDigestB64u,
+        strictRegistrationBindingJson: input.strictRegistrationBindingJson,
+        authorityDigestB64u: input.authorityDigestB64u,
+      }),
+    ),
+  );
+}
+
+/**
+ * Mints the internal Gateway→Router policy JWT for one concrete Router call.
+ *
+ * Policy never crosses the public wire: this token is minted per call, bound
+ * to that call's canonical digest, and never returned to the client — so a
+ * client cannot replay a policy token across operations, and the Router
+ * performs no policy or JWKS lookup of its own.
+ */
+export async function mintInternalRouterPolicyJwt(
+  signer: WalletRegistrationSetupMinter,
+  input: {
+    readonly registrationCeremonyId: string;
+    readonly operation: 'wallet_registration_respond' | 'wallet_registration_activate';
+    readonly requestDigestB64u: string;
+    readonly signingRootId: string;
+    readonly signingRootVersion: string;
+    readonly expiresAtMs: number;
+  },
+): Promise<string> {
+  return await signer.signJwt(input.registrationCeremonyId, {
+    kind: 'router_policy_v1',
+    operation: input.operation,
+    registrationCeremonyId: input.registrationCeremonyId,
+    requestDigestB64u: input.requestDigestB64u,
+    signingRootId: input.signingRootId,
+    signingRootVersion: input.signingRootVersion,
+    expiresAtMs: input.expiresAtMs,
+  });
+}
+
 export async function mintSignedWalletRegistrationSetup(
   signer: WalletRegistrationSetupMinter,
   claims: WalletRegistrationSetupClaimsV1,
@@ -117,10 +175,10 @@ export async function verifySignedWalletRegistrationSetup(
     return { ok: false, code: 'invalid_body', message: 'signedSetup is required' };
   }
   const verified = await signer.verifyJwt(value);
-  if (!verified.ok) {
+  if (!verified.valid) {
     return { ok: false, code: 'invalid_grant', message: 'signedSetup is not valid' };
   }
-  const claims = parseWalletRegistrationSetupClaims(verified.claims);
+  const claims = parseWalletRegistrationSetupClaims(verified.payload);
   if (!claims) {
     return { ok: false, code: 'invalid_grant', message: 'signedSetup claims are not valid' };
   }
