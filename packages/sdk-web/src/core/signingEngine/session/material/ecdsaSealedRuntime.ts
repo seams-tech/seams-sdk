@@ -3,6 +3,10 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import { alphabetizeStringify } from '@shared/utils/digests';
+import {
+  normalizeRuntimePolicyScope,
+  type RuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
 import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   thresholdEcdsaChainTargetsEqual,
@@ -62,6 +66,11 @@ export type ExactEcdsaSealedRuntime = {
   readonly ecdsaThresholdKeyId: string;
   readonly thresholdEcdsaPublicKeyB64u: string;
   readonly keyHandle: string;
+  /** Read from the sealed record rather than parsed out of the Wallet Session
+   * JWT: the sealed store owns session-scoped runtime state. Optional because
+   * the store itself persists it conditionally; consumers that need it to
+   * build a signing session require it at the point of use. */
+  readonly runtimePolicyScope: RuntimePolicyScope | null;
   /** The durable material this runtime unlocks, in the canonical persisted form
    * the role-local material resolver consumes. */
   readonly roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
@@ -292,6 +301,12 @@ function runtimeFromSealedRecord(args: {
   } catch {
     return null;
   }
+  let runtimePolicyScope: RuntimePolicyScope | null = null;
+  try {
+    runtimePolicyScope = normalizeRuntimePolicyScope(restore.runtimePolicyScope);
+  } catch {
+    runtimePolicyScope = null;
+  }
   if (
     !authBinding ||
     !relayerUrl ||
@@ -323,6 +338,7 @@ function runtimeFromSealedRecord(args: {
     ecdsaThresholdKeyId,
     thresholdEcdsaPublicKeyB64u,
     keyHandle,
+    runtimePolicyScope,
     roleLocalMaterialRef,
     authBinding,
     expiresAtMs,
