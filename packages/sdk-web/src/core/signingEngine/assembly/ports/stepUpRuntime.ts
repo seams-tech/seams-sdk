@@ -67,8 +67,6 @@ export function createStepUpRuntime(args: {
       listStoredThresholdEcdsaSessionRecordsForWallet(walletId),
     listActiveEcdsaSignersForWallet: ({ walletId }) =>
       args.listActiveEcdsaSignersForWallet({ walletId: String(walletId) }),
-    getThresholdEcdsaSessionRecordByThresholdSessionId: (thresholdSessionId) =>
-      args.getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId),
     writeExactSealedSession: args.sealedSessionStore.writeExactSealedSession,
     readExactSealedSession: args.sealedSessionStore.readExactSealedSession,
     listExactSealedSessionsForWallet: args.sealedSessionStore.listExactSealedSessionsForWallet,

@@ -49,6 +49,8 @@ import {
 import { EmailOtpRuntimeConfig } from './runtimeConfig';
 import { EmailOtpSealedSessionRegistry } from './sealedSessionRegistry';
 import { EmailOtpSealedRefreshPolicy } from './sealedRefreshPolicy';
+import { resolveEcdsaSealedRuntimeByThresholdSessionId } from '../material/activeEcdsaCapabilityRuntime';
+import { configuredThresholdEcdsaChainTargets } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { EmailOtpSealedRestoreOrchestrator } from './sealedRestoreOrchestrator';
 import {
   createEmailOtpWarmSessionWorkerClient,
@@ -125,11 +127,25 @@ export class EmailOtpWalletSessionRuntime {
     const warmSessionWorkerClient = createEmailOtpWarmSessionWorkerClient({
       worker: deps.signerWorkerManager,
     });
+    const resolveSealedRuntimeForSession = async (thresholdSessionId: string) => {
+      for (const chainTargetHint of configuredThresholdEcdsaChainTargets(
+        deps.configs.network.chains,
+      )) {
+        const resolution = await resolveEcdsaSealedRuntimeByThresholdSessionId({
+          thresholdSessionId,
+          authMethod: 'email_otp',
+          readExactSealedSession: deps.readExactSealedSession,
+          chainTargetHint,
+        });
+        if (resolution.kind === 'resolved') return resolution.runtime;
+      }
+      return null;
+    };
     this.sealedRefreshPolicy = new EmailOtpSealedRefreshPolicy({
-      getThresholdEcdsaSessionRecordByThresholdSessionId:
-        deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
+      resolveSealedRuntimeForSession,
       deleteDurableSealedSessionRecord: deps.deleteDurableSealedSessionRecord,
       updateExactSealedSessionPolicy: deps.updateExactSealedSessionPolicy,
+      readExactSealedSession: deps.readExactSealedSession,
       clearEcdsaRestoreCaches: () => this.clearEcdsaRestoreCaches(),
     });
     this.sealedRestoreOrchestrator = new EmailOtpSealedRestoreOrchestrator({
@@ -138,8 +154,8 @@ export class EmailOtpWalletSessionRuntime {
       readExactSealedSession: deps.readExactSealedSession,
       acquireSigningSessionRestoreLease: deps.acquireSigningSessionRestoreLease,
       releaseSigningSessionRestoreLease: deps.releaseSigningSessionRestoreLease,
-      getThresholdEcdsaSessionRecordByThresholdSessionId:
-        deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
+      configuredEcdsaChainTargets: () =>
+        configuredThresholdEcdsaChainTargets(deps.configs.network.chains),
       readWarmSessionStatusFromWorker: (sessionId) => warmSessionWorkerClient.readStatus(sessionId),
       restoreEcdsaSigningSessionMaterialFromSealedRecord: (restoreArgs) =>
         restoreEcdsaSigningSessionMaterialFromSealedRecord(restoreArgs),

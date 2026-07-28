@@ -1,9 +1,9 @@
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import {
   publishResolvedIdentity,
   type acquireSigningSessionRestoreLease,
@@ -35,12 +35,10 @@ import {
   type SealedRecoveryRecord,
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
-import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type {
   EmailOtpEcdsaSealedRecoveryRecordInput,
   EmailOtpThresholdEcdsaRehydrateResult,
 } from './ecdsaRecovery';
-import { emailOtpAuthContextRetention } from '../identity/laneIdentity';
 
 export type EmailOtpSealedRestoreOrchestratorPorts = {
   sessionPersistenceMode: string;
@@ -48,9 +46,10 @@ export type EmailOtpSealedRestoreOrchestratorPorts = {
   readExactSealedSession: typeof readExactSealedSession;
   acquireSigningSessionRestoreLease: typeof acquireSigningSessionRestoreLease;
   releaseSigningSessionRestoreLease: typeof releaseSigningSessionRestoreLease;
-  getThresholdEcdsaSessionRecordByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => ThresholdEcdsaSessionRecord | null;
+  /** Chain targets the sealed store may hold ECDSA records for. The sealed
+   * record is addressed by its own session id; material identity is proven
+   * separately when the record is correlated against the active manifest. */
+  configuredEcdsaChainTargets: () => readonly ThresholdEcdsaChainTarget[];
   readWarmSessionStatusFromWorker: (sessionId: string) => Promise<WarmSessionStatusResult>;
   restoreEcdsaSigningSessionMaterialFromSealedRecord: (
     args: EmailOtpEcdsaSealedRecoveryRecordInput,
@@ -75,13 +74,6 @@ const EMPTY_SIGNING_RESTORE_RESULT = {
   deferred: 0,
 } as const;
 
-function markExistingEmailOtpEcdsaWorkerMaterialRuntimeValidated(
-  record: ThresholdEcdsaSessionRecord | null,
-): boolean {
-  if (!record || record.source !== 'email_otp') return false;
-  return markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record);
-}
-
 export class EmailOtpSealedRestoreOrchestrator {
   private readonly restoreCache: SigningSessionRestoreCache = createSigningSessionRestoreCache();
   private readonly restoreAttempts: SigningSessionRestoreAttemptRegistry =
@@ -97,8 +89,6 @@ export class EmailOtpSealedRestoreOrchestrator {
   shouldAttemptEcdsaSealedRestoreForSessionId(sessionIdRaw: string): boolean {
     const sessionId = String(sessionIdRaw || '').trim();
     if (!sessionId) return false;
-    const ecdsaRecord = this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId(sessionId);
-    if (ecdsaRecord?.source === 'email_otp') return true;
     return true;
   }
 
@@ -132,28 +122,6 @@ export class EmailOtpSealedRestoreOrchestrator {
       return null;
     }
 
-    const ecdsaRecord =
-      this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
-    const ecdsaEmailOtpAuthContext =
-      ecdsaRecord?.source === 'email_otp' ? ecdsaRecord.emailOtpAuthContext : null;
-    const ecdsaEmailOtpRetention = ecdsaEmailOtpAuthContext
-      ? emailOtpAuthContextRetention(ecdsaEmailOtpAuthContext)
-      : null;
-    if (
-      (ecdsaRecord && ecdsaRecord.source !== 'email_otp') ||
-      (ecdsaRecord && ecdsaEmailOtpRetention !== 'session')
-    ) {
-      const diagnosticKey = `missing-ecdsa-record:${thresholdSessionId}`;
-      if (this.ports.shouldLogDiagnostic(diagnosticKey)) {
-        console.debug('[EmailOtpSession] sealed refresh restore waiting for ECDSA record', {
-          thresholdSessionId,
-          source: ecdsaRecord?.source,
-          retention: ecdsaEmailOtpRetention,
-        });
-      }
-      return null;
-    }
-
     const lease = await this.ports
       .acquireSigningSessionRestoreLease({
         thresholdSessionId,
@@ -180,7 +148,7 @@ export class EmailOtpSealedRestoreOrchestrator {
       const restored = await this.ports
         .restoreEcdsaSigningSessionMaterialFromSealedRecord({
           sealedRecord,
-          ecdsaRecord,
+          ecdsaRecord: null,
         })
         .catch((error) => {
           console.warn('[EmailOtpSession] sealed refresh restore failed', {
@@ -306,11 +274,17 @@ export class EmailOtpSealedRestoreOrchestrator {
   private async readEcdsaSealedRecord(
     thresholdSessionId: string,
   ): Promise<EmailOtpEcdsaSealedRecoveryRecord | null> {
-    const ecdsaRecord =
-      this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
-    if (!ecdsaRecord || ecdsaRecord.source !== 'email_otp') return null;
-    const chainTarget = ecdsaRecord.chainTarget;
-    if (!chainTarget) return null;
+    for (const chainTarget of this.ports.configuredEcdsaChainTargets()) {
+      const found = await this.readEcdsaSealedRecordForTarget(thresholdSessionId, chainTarget);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  private async readEcdsaSealedRecordForTarget(
+    thresholdSessionId: string,
+    chainTarget: ThresholdEcdsaChainTarget,
+  ): Promise<EmailOtpEcdsaSealedRecoveryRecord | null> {
     const rawRecord = await this.ports
       .readExactSealedSession(thresholdSessionId, {
         authMethod: 'email_otp',
@@ -376,18 +350,6 @@ export class EmailOtpSealedRestoreOrchestrator {
     ].join(':');
     if (this.restoreAttempts.hasCompleted(restoreKey)) return 'ready';
 
-    const existing =
-      this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
-    if (existing?.source === 'email_otp') {
-      const workerStatus = await this.ports
-        .readWarmSessionStatusFromWorker(thresholdSessionId)
-        .catch(() => null);
-      if (workerStatus?.ok && markExistingEmailOtpEcdsaWorkerMaterialRuntimeValidated(existing)) {
-        this.restoreAttempts.rememberCompleted(restoreKey);
-        return 'ready';
-      }
-    }
-
     const inFlight = this.restoreAttempts.getInFlight(restoreKey);
     if (inFlight) {
       await inFlight;
@@ -398,7 +360,7 @@ export class EmailOtpSealedRestoreOrchestrator {
     const task = (async () => {
       const restored = await this.ports.restoreEcdsaSigningSessionMaterialFromSealedRecord({
         sealedRecord: args.record,
-        ecdsaRecord: existing,
+        ecdsaRecord: null,
       });
       if (restored) {
         await this.ports.recordSessionMaterialRestored(thresholdSessionId, {

@@ -4,10 +4,12 @@ import {
 } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import {
   listExactSealedSessionsForWallet,
+  type readExactSealedSession,
   type CurrentEcdsaSealedSessionRecord,
 } from '../persistence/sealedSessionStore';
 import {
   thresholdEcdsaChainTargetsEqual,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -111,4 +113,33 @@ export async function resolveActiveEcdsaCapabilityRuntime(args: {
   return resolution.kind === 'resolved'
     ? { kind: 'resolved', manifest, runtime: resolution.runtime }
     : { kind: 'blocked', reason: resolution.reason };
+}
+
+/** Resolve the runtime for one exact sealed record addressed by its
+ * threshold-session id. The session id addresses the sealed record only --
+ * session-scoped runtime state is what it legitimately names. Material identity
+ * still comes from correlating that record against the active manifest by
+ * material activation, so nothing here identifies material by session id. */
+export async function resolveEcdsaSealedRuntimeByThresholdSessionId(args: {
+  readonly thresholdSessionId: string;
+  readonly authMethod: 'passkey' | 'email_otp';
+  readonly readExactSealedSession: typeof readExactSealedSession;
+  readonly chainTargetHint: ThresholdEcdsaChainTarget;
+}): Promise<ActiveEcdsaCapabilityRuntimeResolution> {
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+  if (!thresholdSessionId) return { kind: 'blocked', reason: 'missing_material' };
+  const record = await args
+    .readExactSealedSession(thresholdSessionId, {
+      authMethod: args.authMethod,
+      curve: 'ecdsa',
+      chainTarget: args.chainTargetHint,
+    })
+    .catch(() => null);
+  if (!record || record.curve !== 'ecdsa') return { kind: 'blocked', reason: 'missing_material' };
+  // The record names its own wallet and chain target, so correlation needs no
+  // extra context threaded down from the caller.
+  return await resolveActiveEcdsaCapabilityRuntime({
+    walletId: toWalletId(String(record.walletId)),
+    chainTarget: record.ecdsaRestore.chainTarget,
+  });
 }
