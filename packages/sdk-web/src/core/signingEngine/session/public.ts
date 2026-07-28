@@ -19,7 +19,6 @@ import type {
 } from './sealedRecovery/sealedRecovery.types';
 import {
   clearAllThresholdEcdsaSessionRecords as clearAllThresholdEcdsaSessionRecordsValue,
-  clearThresholdEcdsaSessionRecordForWallet as clearThresholdEcdsaSessionRecordForWalletValue,
   getThresholdEcdsaSessionRecordForWalletTarget as getThresholdEcdsaSessionRecordForWalletTargetValue,
   listThresholdEcdsaSessionRecordsForWalletTarget as listThresholdEcdsaSessionRecordsForWalletTargetValue,
   clearThresholdEcdsaSessionRecordForWalletTarget as clearThresholdEcdsaSessionRecordForWalletTargetValue,
@@ -145,13 +144,6 @@ export function clearThresholdEcdsaSessionRecordForWalletTarget(
   },
 ): void {
   clearThresholdEcdsaSessionRecordForWalletTargetValue(deps.ecdsaSessions, args);
-}
-
-export function clearThresholdEcdsaSessionRecordForWallet(
-  deps: SessionPublicDeps,
-  walletId: WalletId,
-): void {
-  clearThresholdEcdsaSessionRecordForWalletValue(deps.ecdsaSessions, walletId);
 }
 
 export function clearAllThresholdEcdsaSessionRecords(deps: SessionPublicDeps): void {
