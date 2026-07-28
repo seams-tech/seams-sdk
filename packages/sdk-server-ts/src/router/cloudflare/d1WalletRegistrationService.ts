@@ -93,6 +93,8 @@ import {
   type StoredRegistrationAuthority,
   type StoredRegistrationIntent,
   type StoredWalletRegistrationCeremony,
+  type StoredWalletRegistrationCeremonyAuthorityState,
+  verifiedRegistrationCeremonyAuthority,
 } from '../../core/RegistrationCeremonyStore';
 import {
   buildD1EcdsaWalletKeysFromBootstrap,
@@ -808,13 +810,20 @@ function registrationPreparationWalletsMatch(input: {
   );
 }
 
+/**
+ * A verified authority must name the same wallet the intent does. A ceremony
+ * still awaiting its proof has no authority to disagree with, so it matches
+ * vacuously — respond performs this check again once the proof binds.
+ */
 function registrationCeremonyWalletsMatch(input: {
   readonly ceremony: {
     readonly intent: RegistrationIntentV1;
-    readonly authority: { readonly walletId: string };
+    readonly authorityState: StoredWalletRegistrationCeremonyAuthorityState;
   };
 }): boolean {
-  return input.ceremony.authority.walletId === input.ceremony.intent.walletId;
+  const authority = verifiedRegistrationCeremonyAuthority(input.ceremony);
+  if (!authority) return true;
+  return authority.walletId === input.ceremony.intent.walletId;
 }
 
 function resolvedRegistrationNearAccount(input: {
@@ -2118,7 +2127,10 @@ export class CloudflareD1WalletRegistrationService {
       signingRootVersion,
       ...(expectedOrigin ? { expectedOrigin } : {}),
       expiresAtMs: prepared.expiresAtMs,
-      authority: prepared.authority,
+      /* Start verifies the authority before inserting, so this ceremony is
+         born verified. Setup, which precedes the proof, inserts the awaiting
+         arm instead. */
+      authorityState: { kind: 'verified', authority: prepared.authority },
       signerState: {
         kind: 'signer_set_registration',
         branches: storedBranches,
@@ -2769,6 +2781,16 @@ export class CloudflareD1WalletRegistrationService {
           message: 'registration ceremony walletId mismatch',
         };
       }
+      /* Finalization persists wallet identity, so it requires the proof that
+         respond binds. A ceremony still awaiting one cannot be finalized. */
+      const ceremonyAuthority = verifiedRegistrationCeremonyAuthority(ceremony);
+      if (!ceremonyAuthority) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'registration ceremony has not verified its authority proof',
+        };
+      }
       const signerBranches = registrationSignerBranchesFromPlan(ceremony.signerPlan);
       const requestedNearEd25519 = signerBranches.nearEd25519;
       const requestedEvmFamilyEcdsa = signerBranches.evmFamilyEcdsa;
@@ -2874,7 +2896,7 @@ export class CloudflareD1WalletRegistrationService {
       try {
         emailOtpEnrollment =
           await this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationFinalize({
-            authority: ceremony.authority,
+            authority: ceremonyAuthority,
             request,
             walletId: ceremony.intent.walletId,
             orgId: ceremony.orgId,
@@ -2885,7 +2907,7 @@ export class CloudflareD1WalletRegistrationService {
       }
       if (!emailOtpEnrollment.ok) return emailOtpEnrollment;
 
-      const walletAuthAuthority = walletAuthAuthorityFromRegistrationAuthority(ceremony.authority);
+      const walletAuthAuthority = walletAuthAuthorityFromRegistrationAuthority(ceremonyAuthority);
       let ed25519PublicResult: WalletRegistrationEd25519YaoPublicResult | null = null;
       let resolvedNearAccount: ResolvedRegistrationNearAccount | null = null;
       let ed25519SignerRecord: WalletEd25519SignerRecord | null = null;
@@ -3121,7 +3143,7 @@ export class CloudflareD1WalletRegistrationService {
       if (ed25519SignerRecord) walletSigners.push(ed25519SignerRecord);
       const persistenceTiming = startD1RegistrationRouteTiming('relayPersistenceMs');
       try {
-        switch (ceremony.authority.kind) {
+        switch (ceremonyAuthority.kind) {
           case 'passkey':
             if (emailOtpEnrollment.persistence) {
               return {
@@ -3134,7 +3156,7 @@ export class CloudflareD1WalletRegistrationService {
               kind: 'passkey_wallet_registration_commit_v1',
               wallet,
               walletSigners,
-              authority: ceremony.authority,
+              authority: ceremonyAuthority,
               now,
             });
             break;
@@ -3150,7 +3172,7 @@ export class CloudflareD1WalletRegistrationService {
               kind: 'email_otp_wallet_registration_commit_v1',
               wallet,
               walletSigners,
-              authority: ceremony.authority,
+              authority: ceremonyAuthority,
               emailOtp: this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationCommitPlan(
                 emailOtpEnrollment.persistence,
               ),
@@ -3181,7 +3203,7 @@ export class CloudflareD1WalletRegistrationService {
           };
         }
       }
-      const authMethod = walletRegistrationFinalizeAuthMethodFromAuthority(ceremony.authority);
+      const authMethod = walletRegistrationFinalizeAuthMethodFromAuthority(ceremonyAuthority);
       let response: WalletRegistrationFinalizeSuccess;
       if (ed25519PublicResult && finalizeNearEd25519 && resolvedNearAccount) {
         const authorityScope =
@@ -3193,7 +3215,7 @@ export class CloudflareD1WalletRegistrationService {
                 kind: 'near_ed25519',
                 walletId: ceremony.intent.walletId,
                 authority: walletAuthAuthority,
-                rpId: finalizePasskeyRpId(ceremony.authority),
+                rpId: finalizePasskeyRpId(ceremonyAuthority),
                 authMethod,
                 authorityScope,
                 accountProvisioning: finalizeNearEd25519.accountProvisioning,
@@ -3219,7 +3241,7 @@ export class CloudflareD1WalletRegistrationService {
                 kind: 'evm_family_ecdsa',
                 walletId: ceremony.intent.walletId,
                 authority: walletAuthAuthority,
-                rpId: finalizePasskeyRpId(ceremony.authority),
+                rpId: finalizePasskeyRpId(ceremonyAuthority),
                 authMethod,
                 ecdsa: { walletKeys: ecdsaWalletKeys },
               }
