@@ -1,4 +1,5 @@
 import type {
+  WalletRegistrationActivateResponseV2,
   WalletRegistrationRespondResponseV2,
   WalletRegistrationSetupResponseV2,
 } from '../core/threeRouteRegistrationContracts';
@@ -2616,6 +2617,52 @@ function parseWalletRegistrationRespondRequest(
       ecdsa: { kind: 'router_ab_ecdsa_registration_v1', strictRegistration },
     },
   };
+}
+
+/**
+ * Refactor 94C. `POST /wallets/register/activate` — activation and
+ * finalization behind one Gateway operation row.
+ */
+export async function handleRouterApiWalletRegistrationActivate(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationActivateResponseV2 | RouteErrorBody>> {
+  const traceContext = parseRegistrationTraceContext(input.headers);
+  if (!traceContext.ok) return routeError(400, 'invalid_trace_id', traceContext.message);
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const session = input.services.session;
+  if (!session) {
+    return routeError(500, 'internal', 'wallet registration activate requires session signing');
+  }
+  const body = input.body as Record<string, unknown>;
+  const registrationCeremonyId = String(body.registrationCeremonyId || '').trim();
+  if (!registrationCeremonyId) {
+    return routeError(400, 'invalid_body', 'registrationCeremonyId is required');
+  }
+  const signedSetup = String(body.signedSetup || '').trim();
+  if (!signedSetup) return routeError(400, 'invalid_body', 'signedSetup is required');
+  const idempotencyKey = String(body.idempotencyKey || '').trim();
+  if (!idempotencyKey) return routeError(400, 'invalid_body', 'idempotencyKey is required');
+  const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
+  if (!ecdsa) return routeError(400, 'invalid_body', 'ecdsa is required');
+  if (!isPlainObject(ecdsa.clientActivation)) {
+    return routeError(400, 'invalid_body', 'browser-verified clientActivation is required');
+  }
+  const result = await input.services.walletRegistration.activateWalletRegistration(
+    {
+      registrationCeremonyId,
+      signedSetup,
+      idempotencyKey,
+      ecdsa: { clientActivation: ecdsa.clientActivation },
+      ...(body.emailOtpEnrollment ? { emailOtpEnrollment: body.emailOtpEnrollment } : {}),
+      ...(body.emailOtpBackupAck ? { emailOtpBackupAck: body.emailOtpBackupAck } : {}),
+      verifier: session,
+      minter: session,
+    },
+    traceContext.value ?? undefined,
+  );
+  return routeJson(result.ok ? 200 : 400, result);
 }
 
 export async function handleRouterApiWalletRegistrationStart(

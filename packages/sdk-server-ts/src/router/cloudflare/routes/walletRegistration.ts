@@ -14,6 +14,7 @@ import {
   handleRouterApiWalletRegistrationEcdsaDerivationRespond,
   handleRouterApiWalletRegistrationIntent,
   handleRouterApiWalletRegistrationIntentCancel,
+  handleRouterApiWalletRegistrationActivate,
   handleRouterApiWalletRegistrationRespond,
   handleRouterApiWalletRegistrationSetup,
   handleRouterApiWalletRegistrationStart,
@@ -34,6 +35,7 @@ import { readJson } from '../http';
 const ROUTE_IDS = [
   'wallet_registration_setup',
   'wallet_registration_respond',
+  'wallet_registration_activate',
   'wallet_registration_intent',
   'wallet_registration_intent_cancel',
   'wallet_registration_start',
@@ -109,6 +111,8 @@ export async function handleWalletRegistration(
       ? await handleRouterApiWalletRegistrationSetup(common)
       : route.id === 'wallet_registration_respond'
         ? await handleRouterApiWalletRegistrationRespond(common)
+        : route.id === 'wallet_registration_activate'
+          ? await handleRouterApiWalletRegistrationActivate(common)
         : route.id === 'wallet_registration_intent'
       ? await handleRouterApiWalletRegistrationIntent(common)
       : route.id === 'wallet_registration_intent_cancel'

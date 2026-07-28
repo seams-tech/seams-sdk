@@ -100,6 +100,7 @@ import {
 } from '../../core/RegistrationCeremonyStore';
 import type {
   RespondEd25519DeferredWorkV2,
+  WalletRegistrationActivateResponseV2,
   WalletRegistrationRespondResponseV2,
   WalletRegistrationSetupResponseV2,
 } from '../../core/threeRouteRegistrationContracts';
@@ -115,12 +116,14 @@ import {
   storedRespondEd25519DeferredWork,
   type WalletRegistrationSetupInput,
   type WalletRegistrationRespondInput,
+  type WalletRegistrationActivateInput,
 } from './d1WalletRegistrationSetup';
 import {
   computeWalletRegistrationRespondDigestB64u,
   computeWalletRegistrationSetupDigestB64u,
   mintInternalRouterPolicyJwt,
   verifySignedWalletRegistrationSetup,
+  verifyWalletRegistrationSetupClaims,
 } from '../walletRegistrationSetupPayload';
 import {
   buildD1EcdsaWalletKeysFromBootstrap,
@@ -205,6 +208,22 @@ async function walletRegistrationFinalizeRequestFingerprint(
 ): Promise<string> {
   return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(request)));
 }
+
+/**
+ * Refactor 94C. Who owns idempotency for one terminal registration commit.
+ *
+ * `/wallets/register/activate` claims through a single Gateway operation row,
+ * whose completion record already holds the exact terminal response bytes — so
+ * the commit must not also maintain finalize's separate replay cache, or the
+ * same guarantee would be written twice per registration.
+ *
+ * The `legacy_finalize_cache` arm is the standalone finalize route's own
+ * read/write pair. It is deleted wholesale with that route, taking this union
+ * with it; it exists only while both callers do.
+ */
+export type RegistrationTerminalReplayOwner =
+  | { readonly kind: 'operation_row' }
+  | { readonly kind: 'legacy_finalize_cache' };
 
 export type D1WalletRegistrationFinalizePreparedV1 = {
   readonly kind: 'd1_wallet_registration_finalize_prepared_v1';
@@ -1224,6 +1243,8 @@ export class CloudflareD1WalletRegistrationService {
   private readonly getWalletStore: WalletStoreProvider;
   private readonly startSideEffects: D1WalletRegistrationStartSideEffectStore;
   private readonly finalizeSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
+  /** The single Gateway operation row for activate-with-finalize (94C). */
+  private readonly activateSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
   private readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
 
@@ -1237,6 +1258,7 @@ export class CloudflareD1WalletRegistrationService {
     readonly getWalletStore: WalletStoreProvider;
     readonly startSideEffects: D1WalletRegistrationStartSideEffectStore;
     readonly finalizeSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
+    readonly activateSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
     readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   }) {
@@ -1249,6 +1271,7 @@ export class CloudflareD1WalletRegistrationService {
     this.getWalletStore = input.getWalletStore;
     this.startSideEffects = input.startSideEffects;
     this.finalizeSideEffects = input.finalizeSideEffects;
+    this.activateSideEffects = input.activateSideEffects;
     this.walletRegistrationCommitStore = input.walletRegistrationCommitStore;
     this.walletAuthMethods = input.walletAuthMethods;
   }
@@ -2655,6 +2678,204 @@ export class CloudflareD1WalletRegistrationService {
     };
   }
 
+  /**
+   * Refactor 94C. `/wallets/register/activate` — activation and finalization
+   * as one irreversible step behind one Gateway operation row.
+   *
+   * Previously activation and finalization were separate requests with
+   * separate idempotency: activation claimed and CAS'd the ceremony branch,
+   * then finalize opened its own side-effect journal *and* maintained a second
+   * replay cache. Three records guarding one irreversible commit, each with
+   * its own failure window.
+   *
+   * Here the operation row is the only one. Its claim is the activation claim,
+   * its completion record holds the exact terminal response bytes, and an
+   * identical retry returns those bytes without repeating any custody effect.
+   * A conflicting fingerprint is refused before execution; an ambiguous
+   * outcome after the custody call stays `uncertain` rather than being
+   * guessed either way.
+   */
+  async activateWalletRegistration(
+    input: WalletRegistrationActivateInput,
+    traceContext?: RouterAbTraceContextV1,
+  ): Promise<WalletRegistrationActivateResponseV2> {
+    try {
+      /* No ceremony read here, deliberately. A successful activation deletes
+         the ceremony, so an exact replay has to be answerable from the
+         operation row alone; reading the ceremony first would turn every
+         retry-after-success into a spurious `not_found`. The Gateway-signed
+         claims carry everything needed to reach the row. */
+      const verifiedSetup = await verifyWalletRegistrationSetupClaims(
+        input.verifier,
+        input.signedSetup,
+        { registrationCeremonyId: input.registrationCeremonyId, nowMs: Date.now() },
+      );
+      if (!verifiedSetup.ok) {
+        return { ok: false, code: verifiedSetup.code, message: verifiedSetup.message };
+      }
+      const claims = verifiedSetup.claims;
+      const idempotencyKey = toOptionalTrimmedString(input.idempotencyKey);
+      if (!idempotencyKey) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration activate idempotencyKey is required',
+        };
+      }
+
+      /* Activate's own canonical digest, over activate's own bytes. */
+      const activateDigestB64u = base64UrlEncode(
+        await sha256BytesUtf8(
+          alphabetizeStringify({
+            version: 'wallet_registration_activate_digest_v1',
+            registrationCeremonyId: claims.registrationCeremonyId,
+            setupDigestB64u: claims.setupDigestB64u,
+            idempotencyKey,
+            ecdsa: input.ecdsa,
+            ...(input.emailOtpEnrollment ? { emailOtpEnrollment: input.emailOtpEnrollment } : {}),
+            ...(input.emailOtpBackupAck ? { emailOtpBackupAck: input.emailOtpBackupAck } : {}),
+          }),
+        ),
+      );
+      await mintInternalRouterPolicyJwt(input.minter, {
+        registrationCeremonyId: claims.registrationCeremonyId,
+        operation: 'wallet_registration_activate',
+        requestDigestB64u: activateDigestB64u,
+        signingRootId: claims.signingRootId,
+        signingRootVersion: claims.signingRootVersion,
+        expiresAtMs: claims.expiresAtMs,
+      });
+
+      const run = await runRouterAbEd25519YaoRegistrationSideEffectV1(this.activateSideEffects, {
+        kind: 'prepared_resumable',
+        operation: 'registration_activate',
+        key: `registration-activate:${claims.registrationCeremonyId}:${idempotencyKey}`,
+        requestFingerprint: activateDigestB64u,
+        resumeAfterMs: D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS,
+        nowMs: Date.now,
+        prepare: async () => ({ kind: 'd1_wallet_registration_finalize_prepared_v1' }) as const,
+        derivePreparedArtifactFingerprint: async (prepared) =>
+          base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared))),
+        execute: this.executeWalletRegistrationActivation.bind(this, {
+          registrationCeremonyId: claims.registrationCeremonyId,
+          idempotencyKey,
+          input,
+          traceContext,
+        }),
+      });
+      switch (run.kind) {
+        case 'executed':
+        case 'exact_replay':
+          /* Exact terminal bytes, byte-identical across retries. */
+          return run.value as WalletRegistrationActivateResponseV2;
+        case 'request_conflict':
+          return {
+            ok: false,
+            code: 'idempotency_conflict',
+            message: 'registration activate idempotency key was reused for a different request',
+          };
+        case 'in_progress':
+          return {
+            ok: false,
+            code: 'conflict',
+            message: 'registration activation is already in progress; retry later',
+          };
+        case 'uncertain':
+          /* Ambiguous after the custody call: never guessed either way. */
+          return {
+            ok: false,
+            code: 'internal',
+            message: run.message || 'Failed to reconcile wallet registration activation',
+          };
+        default:
+          return {
+            ok: false,
+            code: 'internal',
+            message: 'registration activation returned an unsupported outcome',
+          };
+      }
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to activate wallet registration',
+      };
+    }
+  }
+
+  /**
+   * Router/SigningWorker activation followed by the blocking finalize
+   * persistence, as one unit inside the operation row. The commit is told the
+   * operation row owns idempotency, so it maintains no replay cache of its own.
+   */
+  private async executeWalletRegistrationActivation(
+    context: {
+      readonly registrationCeremonyId: string;
+      readonly idempotencyKey: string;
+      readonly input: WalletRegistrationActivateInput;
+      readonly traceContext?: RouterAbTraceContextV1;
+    },
+  ): Promise<WalletRegistrationFinalizeResponse> {
+    /* Fresh execution only — the ceremony still exists here. Activation
+       persists wallet identity, so the proof must already be bound. */
+    const ceremony = await this.getRegistrationCeremonyIntentStore().getCeremony(
+      context.registrationCeremonyId,
+    );
+    if (!ceremony) {
+      return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
+    }
+    if (!verifiedRegistrationCeremonyAuthority(ceremony)) {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: 'registration ceremony has not verified its authority proof',
+      };
+    }
+    const activated = await this.activateWalletRegistrationEcdsa(
+      {
+        registrationCeremonyId: context.registrationCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_activation_v1',
+          publicFacts: context.input.ecdsa.clientActivation,
+        },
+      } as ActivateWalletRegistrationEcdsaInput,
+      context.traceContext,
+    );
+    if (!activated.ok) {
+      /* Pre-effect failures stay retryable; the boundary re-raises them so the
+         claim is released rather than recorded as a terminal outcome. */
+      return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(activated);
+    }
+    /* The handle the activation just produced. The old two-request flow had
+       the client echo this back so a mismatched pair could be caught; in one
+       request there is no pair, so the commit is bound to the handle it was
+       produced with. */
+    const keyHandle = activated.ecdsa.bootstrap?.keyHandle;
+    if (!keyHandle) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'ECDSA activation completed without a key handle to commit',
+      };
+    }
+    const commit = await this.executeWalletRegistrationFinalize(
+      {
+        kind: 'evm_family_ecdsa',
+        registrationCeremonyId: context.registrationCeremonyId,
+        idempotencyKey: context.idempotencyKey,
+        ecdsa: { expectedKeyHandles: [keyHandle] as const },
+        ...(context.input.emailOtpEnrollment
+          ? { emailOtpEnrollment: context.input.emailOtpEnrollment }
+          : {}),
+        ...(context.input.emailOtpBackupAck
+          ? { emailOtpBackupAck: context.input.emailOtpBackupAck }
+          : {}),
+      } as FinalizeWalletRegistrationInput,
+      { kind: 'operation_row' },
+    );
+    return commit.ok ? commit : throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(commit);
+  }
+
   async respondWalletRegistrationEcdsaDerivation(
     request: RespondWalletRegistrationDerivationInput,
     traceContext?: RouterAbTraceContextV1,
@@ -3188,12 +3409,15 @@ export class CloudflareD1WalletRegistrationService {
   private async executeWalletRegistrationFinalizeSideEffect(
     request: FinalizeWalletRegistrationInput,
   ): Promise<WalletRegistrationFinalizeResponse> {
-    const response = await this.executeWalletRegistrationFinalize(request);
+    const response = await this.executeWalletRegistrationFinalize(request, {
+      kind: 'legacy_finalize_cache',
+    });
     return response.ok ? response : throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(response);
   }
 
   private async executeWalletRegistrationFinalize(
     request: FinalizeWalletRegistrationInput,
+    replayOwner: RegistrationTerminalReplayOwner,
   ): Promise<WalletRegistrationFinalizeResponse> {
     const finalizeTiming = createD1RegistrationRouteTimingRecorder('wallets_register_finalize');
     const totalTiming = startD1RegistrationRouteTiming('registerFinalizeTotalMs');
@@ -3211,10 +3435,15 @@ export class CloudflareD1WalletRegistrationService {
       const replayTiming = startD1RegistrationRouteTiming('registrationFinalizeReplayLoadMs');
       let replay: Awaited<ReturnType<typeof store.getFinalizeReplay>>;
       try {
-        replay = await store.getFinalizeReplay({
-          registrationCeremonyId: request.registrationCeremonyId,
-          idempotencyKey,
-        });
+        /* Under an operation row the completion record is the replay record;
+           reading a second one would be a redundant success-path read. */
+        replay =
+          replayOwner.kind === 'legacy_finalize_cache'
+            ? await store.getFinalizeReplay({
+                registrationCeremonyId: request.registrationCeremonyId,
+                idempotencyKey,
+              })
+            : null;
       } finally {
         finishD1RegistrationRouteTiming(finalizeTiming, replayTiming);
       }
@@ -3765,7 +3994,7 @@ export class CloudflareD1WalletRegistrationService {
                 ecdsa: { walletKeys: ecdsaWalletKeys },
               };
       }
-      if (idempotencyKey && requestFingerprint) {
+      if (replayOwner.kind === 'legacy_finalize_cache' && idempotencyKey && requestFingerprint) {
         const replayCacheTiming = startD1RegistrationRouteTiming(
           'registrationFinalizeReplayCacheMs',
         );

@@ -1,8 +1,10 @@
 import type {
+  WalletRegistrationActivateResponseV2,
   WalletRegistrationRespondResponseV2,
   WalletRegistrationSetupResponseV2,
 } from '../core/threeRouteRegistrationContracts';
 import type {
+  WalletRegistrationActivateInput,
   WalletRegistrationRespondInput,
   WalletRegistrationSetupInput,
 } from './cloudflare/d1WalletRegistrationSetup';
@@ -1082,6 +1084,10 @@ export interface RouterApiWalletRegistrationService {
     input: WalletRegistrationRespondInput,
     traceContext?: RouterAbTraceContextV1,
   ): Promise<WalletRegistrationRespondResponseV2>;
+  activateWalletRegistration(
+    input: WalletRegistrationActivateInput,
+    traceContext?: RouterAbTraceContextV1,
+  ): Promise<WalletRegistrationActivateResponseV2>;
   startWalletRegistration(
     input: WalletRegistrationStartRequest,
     context?: { readonly userAgent?: string },
