@@ -3,7 +3,7 @@
 use router_ab_core::LocalServiceRoleV1;
 use router_ab_dev::{
     local_env_materialization_plan_v1, local_worker_bind_addr_v1, parse_local_env_file_contents_v1,
-    parse_local_worker_role_config_for_role_v1, LocalRouterWorkerConfigV1, LocalWorkerRoleConfigV1,
+    parse_local_worker_role_config_for_role_v1, LocalWorkerRoleConfigV1,
     LOCAL_DERIVER_A_ENV_FILE_V1, LOCAL_DERIVER_B_ENV_FILE_V1, LOCAL_ROUTER_ENV_FILE_V1,
     LOCAL_SIGNING_WORKER_ENV_FILE_V1, LOCAL_WORKER_HEALTH_PATH,
 };
@@ -183,22 +183,6 @@ pub fn read_worker_config(
         spec.role,
         parse_local_env_file_contents_v1(&env_contents)?,
     )?;
-    Ok(config)
-}
-
-pub fn read_router_config(
-    root: &Path,
-) -> Result<LocalRouterWorkerConfigV1, Box<dyn std::error::Error>> {
-    let env_path = root.join(LOCAL_ROUTER_ENV_FILE_V1);
-    let env_contents = fs::read_to_string(&env_path)
-        .map_err(|error| format!("failed to read {}: {error}", env_path.display()))?;
-    let config = parse_local_worker_role_config_for_role_v1(
-        LocalServiceRoleV1::Router,
-        parse_local_env_file_contents_v1(&env_contents)?,
-    )?;
-    let LocalWorkerRoleConfigV1::Router(config) = config else {
-        return Err("Router env parsed into a non-Router branch".into());
-    };
     Ok(config)
 }
 
