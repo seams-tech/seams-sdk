@@ -36,7 +36,6 @@ import {
   type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
-import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import type {
   DurableEmailOtpEcdsaSigningSessionAuthorityResolver,
   EvmFamilyEcdsaSessionReaderDeps,
@@ -55,7 +54,6 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type { ReauthAnchorIdentity } from '../../session/operationState/transactionState';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EcdsaReauthAnchorPublicRestore } from '../../session/persistence/sealedSessionStore';
@@ -123,12 +121,6 @@ export type ReadyEcdsaCommittedLane<A extends WalletAuthAuthority = WalletAuthAu
 export type ReadyEmailOtpEcdsaCommittedLane = ReadyEcdsaCommittedLane<EmailOtpWalletAuthAuthority>;
 
 export type ReadyPasskeyEcdsaCommittedLane = ReadyEcdsaCommittedLane<PasskeyWalletAuthAuthority>;
-
-export type ReadyRecordBackedEcdsaCommittedLane<
-  A extends WalletAuthAuthority = WalletAuthAuthority,
-> = RecordBackedEcdsaCommittedLane<A> & {
-  material: ReadyEcdsaMaterial;
-};
 
 export type ReadyEvmFamilyEcdsaSigningSelection =
   | (ReadyEvmFamilyEcdsaSigningSelectionBase & {
@@ -582,11 +574,6 @@ function summarizeLaneCandidate(
   }
 }
 
-type PasskeyVisibleMaterial = {
-  source: PasskeyEcdsaSessionStoreSource;
-  record: ThresholdEcdsaSessionRecord;
-};
-
 // Canonical candidate facts for an already-resolved lane. The lane identity
 // carries the exact signer binding and active authorization, so no record is
 // consulted; this replaces every record-derived candidate construction.
@@ -622,16 +609,10 @@ function requireEvmFamilyEcdsaSignerForSelection(
   return signer;
 }
 
-type PasskeyMaterialSelectionResult =
-  | {
-      kind: 'selected';
-      material: EcdsaMaterialState;
-      selected: PasskeyVisibleMaterial;
-    }
-  | {
-      kind: 'missing';
-      material: EcdsaMaterialState;
-    };
+type PasskeyMaterialSelectionResult = {
+  kind: 'missing';
+  material: EcdsaMaterialState;
+};
 
 type PasskeyMaterialDiagnosticsSelection =
   | PasskeyMaterialSelectionResult
@@ -642,18 +623,12 @@ type PasskeyMaterialDiagnosticsSelection =
       selected?: never;
     };
 
+// Sealed-record authority is the only form built: the durable resolver either
+// finds the exact authority or the selection has none.
 type EmailOtpSelectionAuthority = {
+  kind: 'durable_authority_backed';
   laneAuthority: EmailOtpEcdsaSigningSessionAuthority;
-} & (
-  | {
-      kind: 'record_backed';
-      record: ThresholdEcdsaSessionRecord;
-    }
-  | {
-      kind: 'durable_authority_backed';
-      record?: never;
-    }
-);
+};
 
 export type PasskeyEcdsaCommittedLaneAuthority =
   | EcdsaWalletSessionAuthority
@@ -684,22 +659,14 @@ type EcdsaCommittedLaneAuthFacts<A extends WalletAuthAuthority> =
 
 type EcdsaCommittedLaneDurableRestoreFacts<A extends WalletAuthAuthority> =
   A extends EmailOtpWalletAuthAuthority
-    ?
-        | {
-            source: 'record_backed';
-            record: ThresholdEcdsaSessionRecord;
-            durableRestore: 'record_restore_metadata';
-          }
-        | {
-            source: 'durable_authority_backed';
-            record?: never;
-            durableRestore: 'sealed_record_authority';
-          }
+    ? {
+        source: 'durable_authority_backed';
+        durableRestore: 'sealed_record_authority';
+      }
     : A extends PasskeyWalletAuthAuthority
       ? {
           source: PasskeyEcdsaSessionStoreSource;
-          record: ThresholdEcdsaSessionRecord;
-          durableRestore: 'record_restore_metadata';
+          durableRestore: 'sealed_record_authority';
         }
       : never;
 
@@ -733,23 +700,6 @@ export type EcdsaPublicReauthLane<A extends WalletAuthAuthority = WalletAuthAuth
 export type EmailOtpEcdsaPublicReauthLane = EcdsaPublicReauthLane<EmailOtpWalletAuthAuthority>;
 export type PasskeyEcdsaPublicReauthLane = EcdsaPublicReauthLane<PasskeyWalletAuthAuthority>;
 
-export type RecordBackedEcdsaCommittedLane<A extends WalletAuthAuthority = WalletAuthAuthority> =
-  Extract<
-    EcdsaCommittedLane<A>,
-    {
-      record: ThresholdEcdsaSessionRecord;
-      durableRestore: 'record_restore_metadata';
-    }
-  >;
-
-export type RecordBacked<
-  Lane,
-  Record extends ThresholdEcdsaSessionRecord = ThresholdEcdsaSessionRecord,
-> = Lane & {
-  record: Record;
-  durableRestore: 'record_restore_metadata';
-};
-
 type PasskeyEcdsaLaneCandidate = EcdsaLaneCandidate & {
   auth: Extract<EcdsaLaneCandidate['auth'], { kind: 'passkey' }>;
 };
@@ -766,21 +716,11 @@ function readyEmailOtpEcdsaCommittedLane(args: {
     material: args.material,
     authority: args.committedLane.authority,
   };
-  switch (args.committedLane.source) {
-    case 'record_backed':
-      return {
-        ...common,
-        source: 'record_backed',
-        record: args.committedLane.record,
-        durableRestore: 'record_restore_metadata',
-      };
-    case 'durable_authority_backed':
-      return {
-        ...common,
-        source: 'durable_authority_backed',
-        durableRestore: 'sealed_record_authority',
-      };
-  }
+  return {
+    ...common,
+    source: 'durable_authority_backed',
+    durableRestore: 'sealed_record_authority',
+  };
 }
 
 function readyPasskeyEcdsaCommittedLane(args: {
@@ -791,10 +731,9 @@ function readyPasskeyEcdsaCommittedLane(args: {
     source: args.committedLane.source,
     lane: args.committedLane.lane,
     authority: args.committedLane.authority,
-    record: args.committedLane.record,
     walletSessionAuthority: args.committedLane.walletSessionAuthority,
     material: args.material,
-    durableRestore: 'record_restore_metadata',
+    durableRestore: 'sealed_record_authority',
   };
 }
 
@@ -831,22 +770,6 @@ function requirePasskeyEcdsaLaneCandidate(
   throw new Error('[SigningEngine][ecdsa] passkey committed lane requires passkey candidate');
 }
 
-function passkeyAuthorityFromRecord(
-  record: ThresholdEcdsaSessionRecord,
-): PasskeyWalletAuthAuthority {
-  if (record.source === SIGNER_AUTH_METHODS.emailOtp) {
-    throw new Error('[SigningEngine][ecdsa] passkey committed lane requires passkey record source');
-  }
-  if (record.ecdsaRoleLocalAuthMethod.kind !== 'passkey') {
-    throw new Error('[SigningEngine][ecdsa] passkey committed lane requires passkey record auth');
-  }
-  return buildPasskeyWalletAuthAuthority({
-    walletId: record.walletId,
-    rpId: record.ecdsaRoleLocalAuthMethod.rpId,
-    credentialIdB64u: record.ecdsaRoleLocalAuthMethod.credentialIdB64u,
-  });
-}
-
 function assertEcdsaCommittedLaneAuthorityMatchesWallet(args: {
   authority: WalletAuthAuthority;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
@@ -863,90 +786,6 @@ function assertEcdsaCommittedLaneAuthorityMatchesWallet(args: {
   throw new Error(
     `[SigningEngine][ecdsa] ${args.context} committed lane authority wallet mismatch`,
   );
-}
-
-function buildPasskeyEcdsaWalletSessionAuthorityFromRecord(args: {
-  record: ThresholdEcdsaSessionRecord;
-}): PasskeyEcdsaCommittedLaneAuthority {
-  const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(args.record);
-  if (walletSessionAuth.kind === 'ready') {
-    return buildEcdsaWalletSessionAuthority({
-      walletSessionJwt: walletSessionAuth.walletSessionJwt,
-      walletId: args.record.walletId,
-      keyHandle: args.record.keyHandle,
-      thresholdSessionId: walletSessionAuth.identity.thresholdSessionId,
-      signingGrantId: walletSessionAuth.identity.signingGrantId,
-    });
-  }
-  if (walletSessionAuth.reason === 'cookie_session') {
-    return {
-      kind: 'passkey_cookie_session_authority',
-      thresholdSessionId: args.record.thresholdSessionId,
-      signingGrantId: args.record.signingGrantId,
-    };
-  }
-  throw new Error(
-    `[SigningEngine][ecdsa] passkey committed lane wallet-session authority unavailable: ${walletSessionAuth.reason}`,
-  );
-}
-
-function commitPasskeyEcdsaLaneForSelection(args: {
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-  candidate: EcdsaLaneCandidate;
-  selected: PasskeyVisibleMaterial;
-  material: EcdsaMaterialState;
-}): PasskeyEcdsaCommittedLane {
-  const candidate = requirePasskeyEcdsaLaneCandidate(args.candidate);
-  const authority = passkeyAuthorityFromRecord(args.selected.record);
-  assertEcdsaCommittedLaneAuthorityMatchesWallet({
-    authority,
-    lane: args.lane,
-    candidate,
-    context: 'passkey selection',
-  });
-  return {
-    source: args.selected.source,
-    lane: args.lane,
-    authority,
-    record: args.selected.record,
-    walletSessionAuthority: buildPasskeyEcdsaWalletSessionAuthorityFromRecord({
-      record: args.selected.record,
-    }),
-    material: args.material,
-    durableRestore: 'record_restore_metadata',
-  };
-}
-
-export function commitReadyPasskeyEcdsaLaneFromRecord(args: {
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-  record: ThresholdEcdsaSessionRecord;
-  material: ReadyEcdsaMaterial;
-  source?: ThresholdEcdsaSessionStoreSource;
-}): ReadyPasskeyEcdsaCommittedLane {
-  const candidate = requirePasskeyEcdsaLaneCandidate(
-    ecdsaLaneCandidateFromResolvedLane(args.lane),
-  );
-  const authority = passkeyAuthorityFromRecord(args.record);
-  assertEcdsaCommittedLaneAuthorityMatchesWallet({
-    authority,
-    lane: args.lane,
-    candidate,
-    context: 'passkey record material',
-  });
-  return readyPasskeyEcdsaCommittedLane({
-    committedLane: {
-      source: passkeySessionStoreSourceFromExactSource(args.source || args.record.source),
-      lane: args.lane,
-      authority,
-      record: args.record,
-      walletSessionAuthority: buildPasskeyEcdsaWalletSessionAuthorityFromRecord({
-        record: args.record,
-      }),
-      material: args.material,
-      durableRestore: 'record_restore_metadata',
-    },
-    material: args.material,
-  });
 }
 
 function buildEcdsaSelectionDiagnostics(args: {
@@ -982,19 +821,14 @@ function selectAuthMethodForWalletAuth(args: {
   emailOtpCommittedLane?: EmailOtpEcdsaCommittedLane;
   passkeySelection: PasskeyMaterialDiagnosticsSelection;
 }): { authMethod?: SignerAuthMethod; isEmailOtpThresholdContext?: boolean } {
-  const hasEmailOtpVisible = Boolean(args.emailOtpCommittedLane);
-  const hasPasskeyVisible = args.passkeySelection.kind === 'selected';
-  if (hasEmailOtpVisible === hasPasskeyVisible) return {};
-  if (hasEmailOtpVisible) {
-    return {
-      authMethod: SIGNER_AUTH_METHODS.emailOtp,
-      isEmailOtpThresholdContext: true,
-    };
-  }
-  if (args.passkeySelection.kind !== 'selected') return {};
+  // Passkey material selection has no canonical constructor yet, so Email OTP
+  // is the only method that can be visible. The ambiguity check the two-sided
+  // comparison used to perform returns with the passkey path.
+  void args.passkeySelection;
+  if (!args.emailOtpCommittedLane) return {};
   return {
-    authMethod: SIGNER_AUTH_METHODS.passkey,
-    isEmailOtpThresholdContext: false,
+    authMethod: SIGNER_AUTH_METHODS.emailOtp,
+    isEmailOtpThresholdContext: true,
   };
 }
 
@@ -1145,21 +979,11 @@ function commitEmailOtpEcdsaLaneForSelection(args: {
     }),
     material: args.material,
   };
-  switch (args.authority.kind) {
-    case 'record_backed':
-      return {
-        ...common,
-        source: 'record_backed',
-        record: args.authority.record,
-        durableRestore: 'record_restore_metadata',
-      };
-    case 'durable_authority_backed':
-      return {
-        ...common,
-        source: 'durable_authority_backed',
-        durableRestore: 'sealed_record_authority',
-      };
-  }
+  return {
+    ...common,
+    source: 'durable_authority_backed',
+    durableRestore: 'sealed_record_authority',
+  };
 }
 
 type EcdsaSelectionReauthInput =
@@ -1254,16 +1078,10 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
           material: exactCandidateMaterial,
         })
       : null;
-  const committedPasskeyLane =
-    candidateAuthMethod === SIGNER_AUTH_METHODS.passkey &&
-    selectedPasskeyMaterial.kind === 'selected'
-      ? commitPasskeyEcdsaLaneForSelection({
-          lane,
-          candidate: args.laneCandidate,
-          selected: selectedPasskeyMaterial.selected,
-          material: exactCandidateMaterial,
-        })
-      : null;
+  // A passkey ECDSA committed lane has no canonical constructor yet: material
+  // selection reports `missing` until the passkey path is rebuilt on sealed
+  // record authority the way Email OTP already is.
+  const committedPasskeyLane = null;
   const walletAuthInputs = selectAuthMethodForWalletAuth({
     ...(committedEmailOtpLane ? { emailOtpCommittedLane: committedEmailOtpLane } : {}),
     passkeySelection: selectedPasskeyMaterial,

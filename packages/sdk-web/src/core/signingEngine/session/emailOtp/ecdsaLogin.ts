@@ -1,7 +1,6 @@
 import type { EmailOtpAuthPolicy, SeamsConfigsReadonly } from '@/core/types/seams';
 import {
   buildEmailOtpAuthContextForWalletAuthMethod,
-  emailOtpAuthContextEmailHashHex,
   emailOtpAuthContextProviderUserId,
   isEmailOtpPendingSingleUseAuthContext,
   isEmailOtpSessionAuthContext,
@@ -94,7 +93,6 @@ import {
   type EmailOtpEcdsaBootstrapAuthorization,
 } from './routePlan';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
-import { thresholdEcdsaEmailOtpAuthContext } from '../persistence/records';
 import {
   DEV_DEFAULT_UNLOCK_REMAINING_USES,
   normalizeStepUpOperationId,
@@ -777,29 +775,6 @@ function requireEmailOtpEcdsaSigningRefreshRuntimePolicyScope(args: {
   return runtimePolicyScope;
 }
 
-function buildRecordBackedEmailOtpEcdsaSigningRefreshFacts(
-  committedLane: Extract<EmailOtpEcdsaCommittedLane, { source: 'record_backed' }>,
-): EmailOtpEcdsaSigningRefreshFacts {
-  const record = committedLane.record;
-  if (record.source !== 'email_otp') {
-    throw new Error('Email OTP ECDSA signing refresh requires an Email OTP session record');
-  }
-  const emailOtpAuthContext = thresholdEcdsaEmailOtpAuthContext(record);
-  if (!emailOtpAuthContext) {
-    throw new Error('Email OTP ECDSA signing refresh requires Email OTP auth context');
-  }
-  return {
-    keyHandle: String(toEvmFamilyEcdsaKeyHandle(record.keyHandle)),
-    participantIds: [...record.participantIds],
-    emailHashHex: emailOtpAuthContextEmailHashHex(emailOtpAuthContext),
-    providerIdentity: emailOtpEcdsaProviderIdentityFromRecord(record),
-    runtimePolicyScope: requireEmailOtpEcdsaSigningRefreshRuntimePolicyScope({
-      committedLane,
-      recordRuntimePolicyScope: record.runtimePolicyScope,
-    }),
-  };
-}
-
 function buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(
   committedLane: Extract<EmailOtpEcdsaCommittedLane, { source: 'durable_authority_backed' }>,
 ): EmailOtpEcdsaSigningRefreshFacts {
@@ -818,15 +793,12 @@ function buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(
   };
 }
 
+// Sealed-record authority is the only committed-lane form; the record-backed
+// refresh facts had no constructible input.
 function buildEmailOtpEcdsaSigningRefreshFacts(
   committedLane: EmailOtpEcdsaCommittedLane,
 ): EmailOtpEcdsaSigningRefreshFacts {
-  switch (committedLane.source) {
-    case 'record_backed':
-      return buildRecordBackedEmailOtpEcdsaSigningRefreshFacts(committedLane);
-    case 'durable_authority_backed':
-      return buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(committedLane);
-  }
+  return buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(committedLane);
 }
 
 export async function loginWithEmailOtpEcdsaCapabilityForSigning(
