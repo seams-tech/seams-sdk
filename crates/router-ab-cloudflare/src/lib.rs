@@ -165,20 +165,9 @@ mod strict_worker;
 #[cfg(feature = "workers-rs")]
 pub use durable_object::RouterAbSigningWorkerPresignSessionDurableObject;
 pub use durable_object::{
-    handle_cloudflare_durable_object_call_v1, CloudflareActiveSigningWorkerStateLookupV1,
-    CloudflareDerivationCeremonyPutReceiptV1, CloudflareDerivationCeremonyStateLabelV1,
-    CloudflareDerivationCeremonyV1, CloudflareDurableObjectCallV1,
-    CloudflareDurableObjectMemoryStorageV1, CloudflareDurableObjectOperationKindV1,
-    CloudflareDurableObjectRequestV1, CloudflareDurableObjectResponseV1,
-    CloudflareDurableObjectStorageV1, CloudflareEd25519Round1StateV1,
+    CloudflareActiveSigningWorkerStateLookupV1, CloudflareEd25519Round1StateV1,
     CloudflareExpiredStateCleanupReportV1, CloudflareExpiredStateCleanupRequestV1,
-    CloudflareLifecyclePutReceiptV1, CloudflareReplayReserveRequestV1,
-    CloudflareReplayReserveResponseV1, CloudflareRootShareLookupRequestV1,
-    CloudflareRootShareRewrapReceiptV1, CloudflareRootShareRewrapRequestV1,
-    CloudflareRootShareStartupMetadataV1, CloudflareRouterAbuseRecordV1,
-    CloudflareRouterAdmissionStoreRequestV1, CloudflareRouterNormalSigningAdmissionStoreRequestV1,
-    CloudflareRouterProjectPolicyRecordV1, CloudflareRouterPublicAdmissionCompletionV1,
-    CloudflareRouterQuotaReservationV1, CloudflareRouterWalletBudgetCurveV1,
+    CloudflareRootShareStartupMetadataV1, CloudflareRouterWalletBudgetCurveV1,
     CloudflareRouterWalletBudgetPutGrantRequestV1, CloudflareRouterWalletBudgetReleaseRequestV1,
     CloudflareRouterWalletBudgetReservationIdentityV1,
     CloudflareRouterWalletBudgetReserveRequestV1, CloudflareRouterWalletBudgetSignerBindingV1,
@@ -188,8 +177,9 @@ pub use durable_object::{
     CloudflareSigningWorkerEcdsaPresignatureRecordV1,
     CloudflareSigningWorkerOutputActivationReceiptV1,
     CloudflareSigningWorkerOutputActivationRecordV1, CloudflareSigningWorkerOutputMaterialLookupV1,
+    CloudflareSigningWorkerPrivateD1RequestV1, CloudflareSigningWorkerPrivateD1ResponseV1,
     CloudflareSigningWorkerRound1LookupV1, CloudflareSigningWorkerRound1PutReceiptV1,
-    CloudflareSigningWorkerRound1RecordV1, CLOUDFLARE_DURABLE_OBJECT_API_VERSION,
+    CloudflareSigningWorkerRound1RecordV1,
 };
 #[cfg(feature = "workers-rs")]
 use router_ab_core::sign_ab_peer_message_ed25519_authentication_v1;
@@ -233,10 +223,10 @@ use router_ab_core::{
     RouterAbEcdsaDerivationStableKeyContextV1, RouterAbEd25519NormalSigningAdmissionMaterialV2,
     RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
     RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbLifecycleStateV1,
-    RouterToSignerPayloadV1, SecretMaterial32, ServerIdentityV1, SignerEnvelopeHpkePayloadV1,
-    SignerIdentityV1, SignerInputPlaintextV1, SignerKeyStore, SignerSetV1, SigningRootShareStore,
-    SigningWorkerActivationContextV1, WireMessageKindV1, WireMessageV1,
-    MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
+    RouterRequestPolicyClaimsV1, RouterToSignerPayloadV1, SecretMaterial32, ServerIdentityV1,
+    SignerEnvelopeHpkePayloadV1, SignerIdentityV1, SignerInputPlaintextV1, SignerKeyStore,
+    SignerSetV1, SigningRootShareStore, SigningWorkerActivationContextV1, WireMessageKindV1,
+    WireMessageV1, MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
 };
 #[cfg(feature = "workers-rs")]
 use router_ab_core::{
@@ -349,108 +339,9 @@ impl CloudflareWorkerRoleV1 {
     }
 }
 
-/// Durable Object storage scope for Router/A/B Cloudflare adapters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "scope", rename_all = "snake_case")]
-pub enum CloudflareDurableObjectScopeV1 {
-    /// Router replay and idempotency state.
-    RouterReplay,
-    /// Router public lifecycle state.
-    RouterLifecycle,
-    /// Router project-policy state.
-    RouterProjectPolicy,
-    /// Router quota and request-budget state.
-    RouterQuota,
-    /// Router abuse-control state.
-    RouterAbuse,
-    /// Router Wallet Session signing budget state.
-    RouterWalletBudget,
-    /// Role-local sealed root-share state.
-    SignerRootShare {
-        /// Signer role that owns this storage scope.
-        role: Role,
-    },
-    /// Server-output activation state hosted by the SigningWorker.
-    ServerOutput {
-        /// Worker role that owns server activation state.
-        owner_role: CloudflareWorkerRoleV1,
-    },
-}
-
-impl CloudflareDurableObjectScopeV1 {
-    /// Creates a signer root-share scope for Deriver A or Deriver B.
-    pub fn signer_root_share(role: Role) -> RouterAbProtocolResult<Self> {
-        require_signer_role(role)?;
-        Ok(Self::SignerRootShare { role })
-    }
-
-    /// Creates the SigningWorker server-output scope.
-    pub fn signing_worker_server_output() -> Self {
-        Self::ServerOutput {
-            owner_role: CloudflareWorkerRoleV1::SigningWorker,
-        }
-    }
-
-    /// Validates the scope itself.
-    pub fn validate(self) -> RouterAbProtocolResult<()> {
-        match self {
-            Self::RouterReplay
-            | Self::RouterLifecycle
-            | Self::RouterProjectPolicy
-            | Self::RouterQuota
-            | Self::RouterAbuse
-            | Self::RouterWalletBudget => Ok(()),
-            Self::SignerRootShare { role } => require_signer_role(role),
-            Self::ServerOutput { owner_role } => {
-                if owner_role == CloudflareWorkerRoleV1::SigningWorker {
-                    Ok(())
-                } else {
-                    Err(RouterAbProtocolError::new(
-                        RouterAbProtocolErrorCode::InvalidRole,
-                        "v1 server-output Durable Object scope must be owned by SigningWorker",
-                    ))
-                }
-            }
-        }
-    }
-
-    /// Returns whether this scope is visible to a Worker role.
-    pub fn is_visible_to(self, worker_role: CloudflareWorkerRoleV1) -> bool {
-        matches!(
-            (worker_role, self),
-            (
-                CloudflareWorkerRoleV1::Router,
-                Self::RouterReplay
-                    | Self::RouterLifecycle
-                    | Self::RouterProjectPolicy
-                    | Self::RouterQuota
-                    | Self::RouterAbuse
-                    | Self::RouterWalletBudget,
-            ) | (
-                CloudflareWorkerRoleV1::DeriverA,
-                Self::SignerRootShare {
-                    role: Role::SignerA,
-                },
-            ) | (
-                CloudflareWorkerRoleV1::DeriverB,
-                Self::SignerRootShare {
-                    role: Role::SignerB,
-                },
-            ) | (
-                CloudflareWorkerRoleV1::SigningWorker,
-                Self::ServerOutput {
-                    owner_role: CloudflareWorkerRoleV1::SigningWorker,
-                },
-            )
-        )
-    }
-}
-
-/// Durable Object binding descriptor after Cloudflare env parsing.
+/// Binding for the one allowed ephemeral presign rendezvous Durable Object.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareDurableObjectBindingV1 {
-    /// Durable Object storage scope.
-    pub scope: CloudflareDurableObjectScopeV1,
+pub struct CloudflareSigningWorkerPresignSessionBindingV1 {
     /// Cloudflare Env binding name.
     pub binding_name: String,
     /// Durable Object object name.
@@ -459,16 +350,14 @@ pub struct CloudflareDurableObjectBindingV1 {
     pub key_prefix: String,
 }
 
-impl CloudflareDurableObjectBindingV1 {
-    /// Creates a validated Durable Object binding descriptor.
+impl CloudflareSigningWorkerPresignSessionBindingV1 {
+    /// Creates a validated presign-session binding descriptor.
     pub fn new(
-        scope: CloudflareDurableObjectScopeV1,
         binding_name: impl Into<String>,
         object_name: impl Into<String>,
         key_prefix: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let binding = Self {
-            scope,
             binding_name: binding_name.into(),
             object_name: object_name.into(),
             key_prefix: key_prefix.into(),
@@ -477,31 +366,11 @@ impl CloudflareDurableObjectBindingV1 {
         Ok(binding)
     }
 
-    /// Validates binding fields and storage scope.
+    /// Validates binding fields.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.scope.validate()?;
         require_non_empty("binding_name", &self.binding_name)?;
         require_non_empty("object_name", &self.object_name)?;
         require_non_empty("key_prefix", &self.key_prefix)
-    }
-
-    /// Validates this binding is visible to the given Worker role.
-    pub fn validate_visible_to(
-        &self,
-        worker_role: CloudflareWorkerRoleV1,
-    ) -> RouterAbProtocolResult<()> {
-        self.validate()?;
-        if self.scope.is_visible_to(worker_role) {
-            return Ok(());
-        }
-        Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
-            format!(
-                "{} Worker cannot access {:?} Durable Object scope",
-                worker_role.as_str(),
-                self.scope
-            ),
-        ))
     }
 }
 
@@ -1594,7 +1463,7 @@ impl CloudflareDeriverABindingsV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareSigningWorkerBindingsV1 {
     /// Ephemeral ordered rendezvous for background ECDSA presign generation.
-    pub presign_session: CloudflareDurableObjectBindingV1,
+    pub presign_session: CloudflareSigningWorkerPresignSessionBindingV1,
     /// SigningWorker server-output HPKE decrypt key.
     pub server_output_decrypt_key: CloudflareServerOutputHpkeDecryptKeyBindingV1,
 }
@@ -1602,7 +1471,7 @@ pub struct CloudflareSigningWorkerBindingsV1 {
 impl CloudflareSigningWorkerBindingsV1 {
     /// Creates validated SigningWorker bindings.
     pub fn new(
-        presign_session: CloudflareDurableObjectBindingV1,
+        presign_session: CloudflareSigningWorkerPresignSessionBindingV1,
         server_output_decrypt_key: CloudflareServerOutputHpkeDecryptKeyBindingV1,
     ) -> RouterAbProtocolResult<Self> {
         let bindings = Self {
@@ -1615,11 +1484,7 @@ impl CloudflareSigningWorkerBindingsV1 {
 
     /// Validates SigningWorker bindings.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_scope(
-            &self.presign_session,
-            CloudflareDurableObjectScopeV1::signing_worker_server_output(),
-            CloudflareWorkerRoleV1::SigningWorker,
-        )?;
+        self.presign_session.validate()?;
         self.server_output_decrypt_key
             .validate_visible_to(CloudflareWorkerRoleV1::SigningWorker)
     }
@@ -3886,97 +3751,75 @@ impl CloudflareSigningWorkerRuntimeV1 {
     }
 
     /// Builds a server-output activation call.
-    pub fn signing_worker_output_activate_call(
+    pub fn signing_worker_output_activate_request(
         &self,
         activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
         material: CloudflareServerOutputMaterialRecordV1,
         activated_at_ms: u64,
-    ) -> RouterAbProtocolResult<CloudflareDurableObjectCallV1> {
-        CloudflareDurableObjectCallV1::new(
-            CloudflareWorkerRoleV1::SigningWorker,
-            signing_worker_private_state_binding_v1()?,
-            CloudflareDurableObjectRequestV1::signing_worker_output_activate(
-                activation,
-                material,
-                activated_at_ms,
-            )?,
-        )
+    ) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1RequestV1> {
+        let request = CloudflareSigningWorkerPrivateD1RequestV1::OutputActivate {
+            activation,
+            material,
+            activated_at_ms,
+        };
+        request.validate()?;
+        Ok(request)
     }
 
     /// Builds an active SigningWorker-state lookup call.
-    pub fn active_signing_worker_state_get_call(
+    pub fn active_signing_worker_state_get_request(
         &self,
         lookup: CloudflareActiveSigningWorkerStateLookupV1,
-    ) -> RouterAbProtocolResult<CloudflareDurableObjectCallV1> {
-        CloudflareDurableObjectCallV1::new(
-            CloudflareWorkerRoleV1::SigningWorker,
-            signing_worker_private_state_binding_v1()?,
-            CloudflareDurableObjectRequestV1::signing_worker_output_active_state_get(lookup)?,
-        )
+    ) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1RequestV1> {
+        let request = CloudflareSigningWorkerPrivateD1RequestV1::ActiveStateGet { lookup };
+        request.validate()?;
+        Ok(request)
     }
 
     /// Builds an active SigningWorker material lookup call.
-    pub fn signing_worker_output_material_get_call(
+    pub fn signing_worker_output_material_get_request(
         &self,
         lookup: CloudflareSigningWorkerOutputMaterialLookupV1,
-    ) -> RouterAbProtocolResult<CloudflareDurableObjectCallV1> {
-        CloudflareDurableObjectCallV1::new(
-            CloudflareWorkerRoleV1::SigningWorker,
-            signing_worker_private_state_binding_v1()?,
-            CloudflareDurableObjectRequestV1::signing_worker_output_material_get(lookup)?,
-        )
+    ) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1RequestV1> {
+        let request = CloudflareSigningWorkerPrivateD1RequestV1::OutputMaterialGet { lookup };
+        request.validate()?;
+        Ok(request)
     }
 
     /// Builds a SigningWorker round-1 nonce persistence call.
-    pub fn signing_worker_round1_put_call(
+    pub fn signing_worker_round1_put_request(
         &self,
         record: CloudflareSigningWorkerRound1RecordV1,
-    ) -> RouterAbProtocolResult<CloudflareDurableObjectCallV1> {
-        CloudflareDurableObjectCallV1::new(
-            CloudflareWorkerRoleV1::SigningWorker,
-            signing_worker_private_state_binding_v1()?,
-            CloudflareDurableObjectRequestV1::signing_worker_round1_put(record)?,
-        )
+    ) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1RequestV1> {
+        let request = CloudflareSigningWorkerPrivateD1RequestV1::Round1Put { record };
+        request.validate()?;
+        Ok(request)
     }
 
     /// Builds a SigningWorker round-1 nonce take call.
-    pub fn signing_worker_round1_take_call(
+    pub fn signing_worker_round1_take_request(
         &self,
         lookup: CloudflareSigningWorkerRound1LookupV1,
-    ) -> RouterAbProtocolResult<CloudflareDurableObjectCallV1> {
-        CloudflareDurableObjectCallV1::new(
-            CloudflareWorkerRoleV1::SigningWorker,
-            signing_worker_private_state_binding_v1()?,
-            CloudflareDurableObjectRequestV1::signing_worker_round1_take(lookup)?,
-        )
+    ) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1RequestV1> {
+        let request = CloudflareSigningWorkerPrivateD1RequestV1::Round1Take { lookup };
+        request.validate()?;
+        Ok(request)
     }
 
     /// Builds one atomic SigningWorker ECDSA pool lifecycle mutation call.
-    pub fn signing_worker_ecdsa_pool_mutate_call(
+    pub fn signing_worker_ecdsa_pool_mutate_request(
         &self,
         command: CloudflareSigningWorkerEcdsaPoolCommandV1,
-    ) -> RouterAbProtocolResult<CloudflareDurableObjectCallV1> {
-        CloudflareDurableObjectCallV1::new(
-            CloudflareWorkerRoleV1::SigningWorker,
-            signing_worker_private_state_binding_v1()?,
-            CloudflareDurableObjectRequestV1::signing_worker_ecdsa_pool_mutate(command)?,
-        )
+    ) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1RequestV1> {
+        let request = CloudflareSigningWorkerPrivateD1RequestV1::EcdsaPoolMutate { command };
+        request.validate()?;
+        Ok(request)
     }
 
     /// Returns SigningWorker's server-output HPKE decrypt-key descriptor.
     pub fn server_output_decrypt_key(&self) -> &CloudflareServerOutputHpkeDecryptKeyBindingV1 {
         &self.bindings.server_output_decrypt_key
     }
-}
-
-fn signing_worker_private_state_binding_v1(
-) -> RouterAbProtocolResult<CloudflareDurableObjectBindingV1> {
-    CloudflareDurableObjectBindingV1::new(
-        CloudflareDurableObjectScopeV1::signing_worker_server_output(),
-        "SIGNING_WORKER_PRIVATE_DB",
-        "signing-worker-private",
-        "signing-worker-private/",
-    )
 }
 
 impl CloudflareDeriverBWorkerRuntimeV1 {
@@ -4982,7 +4825,7 @@ pub struct CloudflareRouterWalletBudgetStatusWireV1 {
     pub reserved_uses: u32,
     /// Uses available for a new reservation now.
     pub available_uses: u32,
-    /// Monotonic Durable Object projection version.
+    /// Monotonic private-D1 projection version.
     pub projection_version: u64,
     /// Grant expiry in Unix milliseconds.
     pub expires_at_ms: u64,
@@ -6319,7 +6162,7 @@ where
     CloudflareRouterWalletBudgetedFinalizeResponseV1::new(response, budget_status)
 }
 
-/// Activates server-output material through SigningWorker's Durable Object binding.
+/// Activates server-output material through SigningWorker-private D1.
 #[cfg(feature = "workers-rs")]
 pub async fn activate_cloudflare_signing_worker_server_output_v1(
     env: &worker::Env,
@@ -6345,12 +6188,12 @@ pub async fn activate_cloudflare_signing_worker_server_output_v1(
     );
     private_key_bytes.zeroize();
     let call =
-        runtime.signing_worker_output_activate_call(activation, material?, activated_at_ms)?;
-    let response = execute_cloudflare_signing_worker_private_d1_call_v1(env, &call).await?;
+        runtime.signing_worker_output_activate_request(activation, material?, activated_at_ms)?;
+    let response = execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await?;
     require_signing_worker_output_activate_response_v1(&call, response)
 }
 
-/// Activates Router A/B ECDSA derivation SigningWorker material through SigningWorker's Durable Object binding.
+/// Activates Router A/B ECDSA derivation SigningWorker material through SigningWorker-private D1.
 #[cfg(feature = "workers-rs")]
 pub async fn activate_cloudflare_router_ab_ecdsa_derivation_signing_worker_output_v1(
     env: &worker::Env,
@@ -6384,12 +6227,12 @@ pub async fn activate_cloudflare_router_ab_ecdsa_derivation_signing_worker_outpu
         &material,
         activated_at_ms,
     )?;
-    let call = runtime.signing_worker_output_activate_call(
+    let call = runtime.signing_worker_output_activate_request(
         generic_activation,
         material,
         activated_at_ms,
     )?;
-    let response = execute_cloudflare_signing_worker_private_d1_call_v1(env, &call).await?;
+    let response = execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await?;
     let signing_worker_output =
         require_signing_worker_output_activate_response_v1(&call, response)?;
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1::new(
@@ -6398,7 +6241,7 @@ pub async fn activate_cloudflare_router_ab_ecdsa_derivation_signing_worker_outpu
     )
 }
 
-/// Refreshes Router A/B ECDSA derivation SigningWorker material through SigningWorker's Durable Object binding.
+/// Refreshes Router A/B ECDSA derivation SigningWorker material through SigningWorker-private D1.
 #[cfg(feature = "workers-rs")]
 pub async fn refresh_cloudflare_router_ab_ecdsa_derivation_signing_worker_output_v1(
     env: &worker::Env,
@@ -6432,12 +6275,12 @@ pub async fn refresh_cloudflare_router_ab_ecdsa_derivation_signing_worker_output
             &material,
             activated_at_ms,
         )?;
-    let call = runtime.signing_worker_output_activate_call(
+    let call = runtime.signing_worker_output_activate_request(
         generic_activation,
         material,
         activated_at_ms,
     )?;
-    let response = execute_cloudflare_signing_worker_private_d1_call_v1(env, &call).await?;
+    let response = execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await?;
     let signing_worker_output =
         require_signing_worker_output_activate_response_v1(&call, response)?;
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1::new(
@@ -8600,7 +8443,7 @@ where
             );
         }
     };
-    let call = match runtime.active_signing_worker_state_get_call(lookup) {
+    let call = match runtime.active_signing_worker_state_get_request(lookup) {
         Ok(call) => call,
         Err(err) => {
             return worker::Response::error(
@@ -8610,7 +8453,7 @@ where
         }
     };
     let active_response =
-        match execute_cloudflare_signing_worker_private_d1_call_v1(env, &call).await {
+        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await {
             Ok(response) => response,
             Err(err) => {
                 return worker::Response::error(
@@ -8639,7 +8482,7 @@ where
                 );
             }
         };
-    let material_call = match runtime.signing_worker_output_material_get_call(material_lookup) {
+    let material_call = match runtime.signing_worker_output_material_get_request(material_lookup) {
         Ok(call) => call,
         Err(err) => {
             return worker::Response::error(
@@ -8649,7 +8492,7 @@ where
         }
     };
     let material_response =
-        match execute_cloudflare_signing_worker_private_d1_call_v1(env, &material_call).await {
+        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &material_call).await {
             Ok(response) => response,
             Err(err) => {
                 return worker::Response::error(
@@ -8685,7 +8528,7 @@ where
             );
         }
     };
-    let put_call = match runtime.signing_worker_round1_put_call(prepared.record.clone()) {
+    let put_call = match runtime.signing_worker_round1_put_request(prepared.record.clone()) {
         Ok(call) => call,
         Err(err) => {
             return worker::Response::error(
@@ -8695,7 +8538,7 @@ where
         }
     };
     let put_response =
-        match execute_cloudflare_signing_worker_private_d1_call_v1(env, &put_call).await {
+        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &put_call).await {
             Ok(response) => response,
             Err(err) => {
                 return worker::Response::error(
@@ -8735,16 +8578,16 @@ async fn load_cloudflare_signing_worker_active_ecdsa_derivation_material_v1(
         CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope(
             scope,
         )?;
-    let active_call = runtime.active_signing_worker_state_get_call(lookup)?;
+    let active_call = runtime.active_signing_worker_state_get_request(lookup)?;
     let active_response =
-        execute_cloudflare_signing_worker_private_d1_call_v1(env, &active_call).await?;
+        execute_cloudflare_signing_worker_private_d1_request_v1(env, &active_call).await?;
     let active_signing_worker =
         require_signing_worker_output_active_state_get_response_v1(&active_call, active_response)?;
     let material_lookup =
         CloudflareSigningWorkerOutputMaterialLookupV1::new(active_signing_worker.clone())?;
-    let material_call = runtime.signing_worker_output_material_get_call(material_lookup)?;
+    let material_call = runtime.signing_worker_output_material_get_request(material_lookup)?;
     let material_response =
-        execute_cloudflare_signing_worker_private_d1_call_v1(env, &material_call).await?;
+        execute_cloudflare_signing_worker_private_d1_request_v1(env, &material_call).await?;
     let material =
         require_signing_worker_output_material_get_response_v1(&material_call, material_response)?;
     validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_material_v1(
@@ -9094,7 +8937,7 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presign
                 );
             }
         };
-    let active_call = match runtime.active_signing_worker_state_get_call(lookup) {
+    let active_call = match runtime.active_signing_worker_state_get_request(lookup) {
         Ok(call) => call,
         Err(err) => {
             return worker::Response::error(
@@ -9104,7 +8947,7 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presign
         }
     };
     let active_response =
-        match execute_cloudflare_signing_worker_private_d1_call_v1(env, &active_call).await {
+        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &active_call).await {
             Ok(response) => response,
             Err(err) => {
                 return worker::Response::error(
@@ -9135,7 +8978,7 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presign
                 );
             }
         };
-    let material_call = match runtime.signing_worker_output_material_get_call(material_lookup) {
+    let material_call = match runtime.signing_worker_output_material_get_request(material_lookup) {
         Ok(call) => call,
         Err(err) => {
             return worker::Response::error(
@@ -9145,7 +8988,7 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presign
         }
     };
     let material_response =
-        match execute_cloudflare_signing_worker_private_d1_call_v1(env, &material_call).await {
+        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &material_call).await {
             Ok(response) => response,
             Err(err) => {
                 return worker::Response::error(
@@ -9175,7 +9018,7 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presign
             );
         }
     };
-    let mutate_call = match runtime.signing_worker_ecdsa_pool_mutate_call(
+    let mutate_call = match runtime.signing_worker_ecdsa_pool_mutate_request(
         CloudflareSigningWorkerEcdsaPoolCommandV1::PutAvailable {
             material: record.clone(),
         },
@@ -9189,7 +9032,7 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presign
         }
     };
     let mutate_response =
-        match execute_cloudflare_signing_worker_private_d1_call_v1(env, &mutate_call).await {
+        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &mutate_call).await {
             Ok(response) => response,
             Err(err) => {
                 return worker::Response::error(
@@ -9282,7 +9125,7 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_dig
                 );
             }
         };
-    let call = match runtime.active_signing_worker_state_get_call(lookup) {
+    let call = match runtime.active_signing_worker_state_get_request(lookup) {
         Ok(call) => call,
         Err(err) => {
             return worker::Response::error(
@@ -9292,7 +9135,7 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_dig
         }
     };
     let active_response =
-        match execute_cloudflare_signing_worker_private_d1_call_v1(env, &call).await {
+        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await {
             Ok(response) => response,
             Err(err) => {
                 return worker::Response::error(
@@ -9321,7 +9164,7 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_dig
                 );
             }
         };
-    let material_call = match runtime.signing_worker_output_material_get_call(material_lookup) {
+    let material_call = match runtime.signing_worker_output_material_get_request(material_lookup) {
         Ok(call) => call,
         Err(err) => {
             return worker::Response::error(
@@ -9331,7 +9174,7 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_dig
         }
     };
     let material_response =
-        match execute_cloudflare_signing_worker_private_d1_call_v1(env, &material_call).await {
+        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &material_call).await {
             Ok(response) => response,
             Err(err) => {
                 return worker::Response::error(
@@ -9404,7 +9247,7 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_dig
         reserved_at_ms: now_unix_ms,
         request_expires_at_ms: materialized.request.request.expires_at_ms,
     };
-    let reserve_call = match runtime.signing_worker_ecdsa_pool_mutate_call(reserve_command) {
+    let reserve_call = match runtime.signing_worker_ecdsa_pool_mutate_request(reserve_command) {
         Ok(call) => call,
         Err(err) => {
             return worker::Response::error(
@@ -9414,7 +9257,7 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_dig
         }
     };
     let reserve_response =
-        match execute_cloudflare_signing_worker_private_d1_call_v1(env, &reserve_call).await {
+        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &reserve_call).await {
             Ok(response) => response,
             Err(err) => {
                 return worker::Response::error(
@@ -9627,7 +9470,7 @@ where
                 );
             }
         };
-    let call = match runtime.active_signing_worker_state_get_call(lookup) {
+    let call = match runtime.active_signing_worker_state_get_request(lookup) {
         Ok(call) => call,
         Err(err) => {
             return worker::Response::error(
@@ -9637,7 +9480,7 @@ where
         }
     };
     let active_response =
-        match execute_cloudflare_signing_worker_private_d1_call_v1(env, &call).await {
+        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await {
             Ok(response) => response,
             Err(err) => {
                 return worker::Response::error(
@@ -9666,7 +9509,7 @@ where
                 );
             }
         };
-    let material_call = match runtime.signing_worker_output_material_get_call(material_lookup) {
+    let material_call = match runtime.signing_worker_output_material_get_request(material_lookup) {
         Ok(call) => call,
         Err(err) => {
             return worker::Response::error(
@@ -9676,7 +9519,7 @@ where
         }
     };
     let material_response =
-        match execute_cloudflare_signing_worker_private_d1_call_v1(env, &material_call).await {
+        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &material_call).await {
             Ok(response) => response,
             Err(err) => {
                 return worker::Response::error(
@@ -9768,7 +9611,7 @@ where
             );
         }
     };
-    let call = match runtime.active_signing_worker_state_get_call(lookup) {
+    let call = match runtime.active_signing_worker_state_get_request(lookup) {
         Ok(call) => call,
         Err(err) => {
             return worker::Response::error(
@@ -9777,7 +9620,7 @@ where
             );
         }
     };
-    let response = match execute_cloudflare_signing_worker_private_d1_call_v1(env, &call).await {
+    let response = match execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await {
         Ok(response) => response,
         Err(err) => {
             return worker::Response::error(
@@ -9806,7 +9649,7 @@ where
                 );
             }
         };
-    let material_call = match runtime.signing_worker_output_material_get_call(material_lookup) {
+    let material_call = match runtime.signing_worker_output_material_get_request(material_lookup) {
         Ok(call) => call,
         Err(err) => {
             return worker::Response::error(
@@ -9816,7 +9659,7 @@ where
         }
     };
     let material_response =
-        match execute_cloudflare_signing_worker_private_d1_call_v1(env, &material_call).await {
+        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &material_call).await {
             Ok(response) => response,
             Err(err) => {
                 return worker::Response::error(
@@ -9851,7 +9694,7 @@ where
             );
         }
     };
-    let round1_call = match runtime.signing_worker_round1_take_call(round1_lookup) {
+    let round1_call = match runtime.signing_worker_round1_take_request(round1_lookup) {
         Ok(call) => call,
         Err(err) => {
             return worker::Response::error(
@@ -9861,7 +9704,7 @@ where
         }
     };
     let round1_response =
-        match execute_cloudflare_signing_worker_private_d1_call_v1(env, &round1_call).await {
+        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &round1_call).await {
             Ok(response) => response,
             Err(err) => {
                 return worker::Response::error(
@@ -10031,16 +9874,14 @@ pub fn handle_cloudflare_deriver_peer_request_v1(
 
 #[cfg(feature = "workers-rs")]
 fn require_signing_worker_output_activate_response_v1(
-    call: &CloudflareDurableObjectCallV1,
-    response: CloudflareDurableObjectResponseV1,
+    request: &CloudflareSigningWorkerPrivateD1RequestV1,
+    response: CloudflareSigningWorkerPrivateD1ResponseV1,
 ) -> RouterAbProtocolResult<CloudflareSigningWorkerOutputActivationReceiptV1> {
-    call.validate()?;
-    response.validate_for_request(&call.request)?;
-    let CloudflareDurableObjectResponseV1::SigningWorkerOutputActivate { receipt } = response
-    else {
+    response.validate_for_request(request)?;
+    let CloudflareSigningWorkerPrivateD1ResponseV1::OutputActivated { receipt } = response else {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "SigningWorker-output Durable Object returned wrong response branch",
+            "SigningWorker private D1 returned wrong response branch",
         ));
     };
     Ok(receipt)
@@ -10048,35 +9889,29 @@ fn require_signing_worker_output_activate_response_v1(
 
 #[cfg(feature = "workers-rs")]
 fn require_signing_worker_output_active_state_get_response_v1(
-    call: &CloudflareDurableObjectCallV1,
-    response: CloudflareDurableObjectResponseV1,
+    request: &CloudflareSigningWorkerPrivateD1RequestV1,
+    response: CloudflareSigningWorkerPrivateD1ResponseV1,
 ) -> RouterAbProtocolResult<ActiveSigningWorkerStateV1> {
-    call.validate()?;
-    response.validate_for_request(&call.request)?;
-    let CloudflareDurableObjectResponseV1::SigningWorkerOutputActiveStateGet {
-        active_signing_worker_state,
-    } = response
-    else {
+    response.validate_for_request(request)?;
+    let CloudflareSigningWorkerPrivateD1ResponseV1::ActiveState { active_state } = response else {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "SigningWorker-output Durable Object returned wrong active-state response branch",
+            "SigningWorker private D1 returned wrong active-state response branch",
         ));
     };
-    Ok(active_signing_worker_state)
+    Ok(active_state)
 }
 
 #[cfg(feature = "workers-rs")]
 fn require_signing_worker_output_material_get_response_v1(
-    call: &CloudflareDurableObjectCallV1,
-    response: CloudflareDurableObjectResponseV1,
+    request: &CloudflareSigningWorkerPrivateD1RequestV1,
+    response: CloudflareSigningWorkerPrivateD1ResponseV1,
 ) -> RouterAbProtocolResult<CloudflareServerOutputMaterialRecordV1> {
-    call.validate()?;
-    response.validate_for_request(&call.request)?;
-    let CloudflareDurableObjectResponseV1::SigningWorkerOutputMaterialGet { material } = response
-    else {
+    response.validate_for_request(request)?;
+    let CloudflareSigningWorkerPrivateD1ResponseV1::OutputMaterial { material } = response else {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "SigningWorker-output Durable Object returned wrong material response branch",
+            "SigningWorker private D1 returned wrong material response branch",
         ));
     };
     Ok(material)
@@ -10084,15 +9919,14 @@ fn require_signing_worker_output_material_get_response_v1(
 
 #[cfg(feature = "workers-rs")]
 fn require_signing_worker_round1_put_response_v1(
-    call: &CloudflareDurableObjectCallV1,
-    response: CloudflareDurableObjectResponseV1,
+    request: &CloudflareSigningWorkerPrivateD1RequestV1,
+    response: CloudflareSigningWorkerPrivateD1ResponseV1,
 ) -> RouterAbProtocolResult<CloudflareSigningWorkerRound1PutReceiptV1> {
-    call.validate()?;
-    response.validate_for_request(&call.request)?;
-    let CloudflareDurableObjectResponseV1::SigningWorkerRound1Put { receipt } = response else {
+    response.validate_for_request(request)?;
+    let CloudflareSigningWorkerPrivateD1ResponseV1::Round1Stored { receipt } = response else {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "SigningWorker-output Durable Object returned wrong round-1 put response branch",
+            "SigningWorker private D1 returned wrong round-1 put response branch",
         ));
     };
     Ok(receipt)
@@ -10100,15 +9934,14 @@ fn require_signing_worker_round1_put_response_v1(
 
 #[cfg(feature = "workers-rs")]
 fn require_signing_worker_round1_take_response_v1(
-    call: &CloudflareDurableObjectCallV1,
-    response: CloudflareDurableObjectResponseV1,
+    request: &CloudflareSigningWorkerPrivateD1RequestV1,
+    response: CloudflareSigningWorkerPrivateD1ResponseV1,
 ) -> RouterAbProtocolResult<CloudflareSigningWorkerRound1RecordV1> {
-    call.validate()?;
-    response.validate_for_request(&call.request)?;
-    let CloudflareDurableObjectResponseV1::SigningWorkerRound1Take { record } = response else {
+    response.validate_for_request(request)?;
+    let CloudflareSigningWorkerPrivateD1ResponseV1::Round1Taken { record } = response else {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "SigningWorker-output Durable Object returned wrong round-1 response branch",
+            "SigningWorker private D1 returned wrong round-1 response branch",
         ));
     };
     Ok(record)
@@ -10116,16 +9949,14 @@ fn require_signing_worker_round1_take_response_v1(
 
 #[cfg(feature = "workers-rs")]
 fn require_signing_worker_ecdsa_pool_mutate_response_v1(
-    call: &CloudflareDurableObjectCallV1,
-    response: CloudflareDurableObjectResponseV1,
+    request: &CloudflareSigningWorkerPrivateD1RequestV1,
+    response: CloudflareSigningWorkerPrivateD1ResponseV1,
 ) -> RouterAbProtocolResult<CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1> {
-    call.validate()?;
-    response.validate_for_request(&call.request)?;
-    let CloudflareDurableObjectResponseV1::SigningWorkerEcdsaPoolMutate { outcome } = response
-    else {
+    response.validate_for_request(request)?;
+    let CloudflareSigningWorkerPrivateD1ResponseV1::EcdsaPoolMutated { outcome } = response else {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "SigningWorker-output Durable Object returned wrong ECDSA pool mutation response branch",
+            "SigningWorker private D1 returned wrong ECDSA pool mutation response branch",
         ));
     };
     Ok(outcome)
@@ -10137,8 +9968,8 @@ async fn execute_cloudflare_signing_worker_ecdsa_pool_mutation_v1(
     runtime: &CloudflareSigningWorkerRuntimeV1,
     command: CloudflareSigningWorkerEcdsaPoolCommandV1,
 ) -> RouterAbProtocolResult<CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1> {
-    let call = runtime.signing_worker_ecdsa_pool_mutate_call(command)?;
-    let response = execute_cloudflare_signing_worker_private_d1_call_v1(env, &call).await?;
+    let call = runtime.signing_worker_ecdsa_pool_mutate_request(command)?;
+    let response = execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await?;
     require_signing_worker_ecdsa_pool_mutate_response_v1(&call, response)
 }
 
@@ -10956,9 +10787,8 @@ pub fn parse_cloudflare_signing_worker_bindings_v1(
         SIGNING_WORKER_FORBIDDEN_ENV_KEYS,
     )?;
     CloudflareSigningWorkerBindingsV1::new(
-        read_durable_object_binding(
+        read_signing_worker_presign_session_binding(
             env,
-            CloudflareDurableObjectScopeV1::signing_worker_server_output(),
             SIGNING_WORKER_PRESIGN_SESSION_DO_BINDING_ENV,
             SIGNING_WORKER_PRESIGN_SESSION_DO_OBJECT_ENV,
             SIGNING_WORKER_PRESIGN_SESSION_DO_KEY_PREFIX_ENV,
@@ -11049,7 +10879,7 @@ pub fn parse_cloudflare_worker_bindings_from_worker_env_v1(
     Ok(bindings)
 }
 
-/// Checks the real Worker Env has every Durable Object and service binding required by descriptors.
+/// Checks the real Worker Env has every runtime binding required by descriptors.
 #[cfg(feature = "workers-rs")]
 pub fn validate_cloudflare_worker_env_bindings_v1(
     env: &worker::Env,
@@ -11078,105 +10908,6 @@ pub fn validate_cloudflare_worker_env_bindings_v1(
             require_worker_server_output_hpke_secret(env, &bindings.server_output_decrypt_key)
         }
     }
-}
-
-/// Expected signer root-share startup check.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareSignerStartupCheckV1 {
-    /// Worker role being checked.
-    pub worker_role: CloudflareWorkerRoleV1,
-    /// Signer role expected in storage.
-    pub signer_role: Role,
-    /// Signer set expected in storage.
-    pub signer_set_id: String,
-    /// Root-share epoch expected in storage.
-    pub root_share_epoch: RootShareEpoch,
-    /// Root-share Durable Object binding.
-    pub root_share_binding: CloudflareDurableObjectBindingV1,
-}
-
-impl CloudflareSignerStartupCheckV1 {
-    /// Creates a fail-closed Deriver A startup check descriptor.
-    pub fn deriver_a(
-        signer_set_id: impl Into<String>,
-        root_share_epoch: RootShareEpoch,
-        root_share_binding: CloudflareDurableObjectBindingV1,
-    ) -> RouterAbProtocolResult<Self> {
-        Self::new(
-            CloudflareWorkerRoleV1::DeriverA,
-            Role::SignerA,
-            signer_set_id,
-            root_share_epoch,
-            root_share_binding,
-        )
-    }
-
-    /// Creates a fail-closed Deriver B startup check descriptor.
-    pub fn deriver_b(
-        signer_set_id: impl Into<String>,
-        root_share_epoch: RootShareEpoch,
-        root_share_binding: CloudflareDurableObjectBindingV1,
-    ) -> RouterAbProtocolResult<Self> {
-        Self::new(
-            CloudflareWorkerRoleV1::DeriverB,
-            Role::SignerB,
-            signer_set_id,
-            root_share_epoch,
-            root_share_binding,
-        )
-    }
-
-    fn new(
-        worker_role: CloudflareWorkerRoleV1,
-        signer_role: Role,
-        signer_set_id: impl Into<String>,
-        root_share_epoch: RootShareEpoch,
-        root_share_binding: CloudflareDurableObjectBindingV1,
-    ) -> RouterAbProtocolResult<Self> {
-        let check = Self {
-            worker_role,
-            signer_role,
-            signer_set_id: signer_set_id.into(),
-            root_share_epoch,
-            root_share_binding,
-        };
-        check.validate()?;
-        Ok(check)
-    }
-
-    /// Validates the startup check descriptor.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("signer_set_id", &self.signer_set_id)?;
-        require_non_empty("root_share_epoch", self.root_share_epoch.as_str())?;
-        require_signer_role(self.signer_role)?;
-        require_scope(
-            &self.root_share_binding,
-            CloudflareDurableObjectScopeV1::SignerRootShare {
-                role: self.signer_role,
-            },
-            self.worker_role,
-        )
-    }
-}
-
-fn require_scope(
-    binding: &CloudflareDurableObjectBindingV1,
-    expected_scope: CloudflareDurableObjectScopeV1,
-    worker_role: CloudflareWorkerRoleV1,
-) -> RouterAbProtocolResult<()> {
-    binding.validate_visible_to(worker_role)?;
-    if binding.scope == expected_scope {
-        return Ok(());
-    }
-    Err(RouterAbProtocolError::new(
-        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-        format!(
-            "{} Worker expected {:?} Durable Object scope, received {:?}",
-            worker_role.as_str(),
-            expected_scope,
-            binding.scope
-        ),
-    ))
 }
 
 fn map_router_ab_ecdsa_derivation_error_v1(
@@ -11527,15 +11258,13 @@ fn expected_signer_peer_response_kind_v1(
     }
 }
 
-fn read_durable_object_binding(
+fn read_signing_worker_presign_session_binding(
     env: &impl CloudflareEnvReaderV1,
-    scope: CloudflareDurableObjectScopeV1,
     binding_name_key: &str,
     object_name_key: &str,
     key_prefix_key: &str,
-) -> RouterAbProtocolResult<CloudflareDurableObjectBindingV1> {
-    CloudflareDurableObjectBindingV1::new(
-        scope,
+) -> RouterAbProtocolResult<CloudflareSigningWorkerPresignSessionBindingV1> {
+    CloudflareSigningWorkerPresignSessionBindingV1::new(
         read_required_env_text(env, binding_name_key)?,
         read_required_env_text(env, object_name_key)?,
         read_required_env_text(env, key_prefix_key)?,
@@ -11748,7 +11477,7 @@ fn reject_forbidden_env_keys(
 #[cfg(feature = "workers-rs")]
 fn require_worker_durable_object(
     env: &worker::Env,
-    binding: &CloudflareDurableObjectBindingV1,
+    binding: &CloudflareSigningWorkerPresignSessionBindingV1,
 ) -> RouterAbProtocolResult<()> {
     match env.durable_object(&binding.binding_name) {
         Ok(_) => Ok(()),

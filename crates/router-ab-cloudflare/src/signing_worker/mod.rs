@@ -960,7 +960,7 @@ where
 pub struct CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1 {
     /// Public response returned to the client through Router.
     pub response: RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
-    /// Private presignature record persisted by the SigningWorker Durable Object.
+    /// Private presignature record persisted by SigningWorker-private D1.
     pub record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
 }
 
@@ -1017,7 +1017,7 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1 {
 pub struct CloudflareSigningWorkerNormalSigningRound1PreparedV1 {
     /// Public response returned to the client through Router.
     pub response: NormalSigningRound1PrepareResponseV1,
-    /// Private nonce record persisted by the SigningWorker Durable Object.
+    /// Private nonce record persisted by SigningWorker-private D1.
     pub record: CloudflareSigningWorkerRound1RecordV1,
 }
 
