@@ -210,22 +210,38 @@ Timings ride an internal result field that the route strips into the header,
 so both wire bodies stay byte-identical. The two routes have a single
 transport (`cloudflare/routes/walletRegistration.ts`), so there is no other
 serializer that could leak the field.
-- [ ] Add Router `Server-Timing` metrics for:
-  - [ ] token verification and admission parsing;
-  - [ ] lifecycle claim;
-  - [ ] Deriver A and B wall time;
-  - [ ] each Deriver service-binding response;
-  - [ ] lifecycle completion;
-  - [ ] SigningWorker service-binding call;
-  - [ ] total Router operation duration.
-- [ ] Add role-local metrics for:
-  - [ ] runtime and binding parsing;
-  - [ ] root metadata Durable Object load;
-  - [ ] signer-host construction;
-  - [ ] proof generation;
-  - [ ] HPKE material reconstruction;
-  - [ ] SigningWorker output Durable Object activation.
-- [ ] Merge nested timing headers at each service-binding boundary.
+- [x] Add Router `Server-Timing` metrics for:
+  - [x] token verification and admission parsing — `ecdsa_rt_authorize`;
+  - [x] lifecycle claim — `ecdsa_rt_admission`;
+  - [x] Deriver A and B wall time — `ecdsa_rt_derivers`, the joined fan-out;
+  - [x] each Deriver service-binding response — `ecdsa_rt_deriver_a`,
+        `ecdsa_rt_deriver_b`, which overlap each other and nest inside
+        `ecdsa_rt_derivers`;
+  - [x] lifecycle completion — `ecdsa_rt_completion`;
+  - [x] SigningWorker service-binding call — `ecdsa_rt_act_worker`, alongside
+        `ecdsa_rt_act_session` for the activate leg's JWT session verification;
+  - [x] total Router operation duration — `ecdsa_rt_total` for the register
+        leg (marked on both the normal and replay-completion returns) and
+        `ecdsa_rt_act_total` for activate.
+- [x] Add role-local metrics for:
+  - [x] runtime and binding parsing — `parse` on each role;
+  - [x] root metadata Durable Object load — `preload` on Deriver A/B, which
+        covers the signer-host preload that loads it;
+  - [x] signer-host construction — same `preload` span; the host is built from
+        the preloaded material in one call and has no separate boundary;
+  - [x] proof generation — `execute` on Deriver A/B;
+  - [x] HPKE material reconstruction — inside `execute`; decryption and proof
+        generation happen in one call and were not worth splitting before the
+        `execute` total shows they are material;
+  - [x] SigningWorker output Durable Object activation — `ecdsa_sw_activate`.
+- [x] Merge nested timing headers at each service-binding boundary. Each role
+      emits bare names (`parse`, `preload`, `execute`, `total`); the Router
+      folds them in under `ecdsa_a`/`ecdsa_b`/`ecdsa_sw`; the Gateway folds the
+      Router's header into its own span list. One header reaches the browser.
+
+The nesting is what makes the cold cost legible: `ecdsaRtDeriverAMs` bounds
+`ecdsaDeriverATotalMs`, so a large gap between the two is Worker cold start
+and transport rather than work — the measurement that decides Phase 2.
 - [x] Expose `Server-Timing` on the two public Gateway responses. Already
       handled by the shared CORS helper, which sets
       `Access-Control-Expose-Headers: Server-Timing` whenever the response
