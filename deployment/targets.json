@@ -9,8 +9,8 @@
     "resources": {
       "gateway": {
         "workerName": "seams-sdk-d1-gateway-staging",
-        "consoleD1Name": "seams-console-staging",
-        "signerD1Name": "seams-signer-staging"
+        "consoleD1Name": "seams-console-staging-nrt",
+        "signerD1Name": "seams-signer-staging-nrt"
       },
       "router": {
         "workerName": "router-ab-mpc-router-staging",
