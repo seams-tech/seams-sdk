@@ -169,7 +169,6 @@ export function createPasskeyPublicDeps(args: {
           activationDeps: args.walletSessionActivationDeps,
           touchConfirm: args.touchConfirm,
           persistEcdsaRoleLocalReadyRecord: args.persistEcdsaRoleLocalReadyRecord,
-          ecdsaSessions: args.warmSigning.ecdsaSessions,
           capabilityReader: args.warmSigning.capabilityReader,
         },
         bootstrapArgs,

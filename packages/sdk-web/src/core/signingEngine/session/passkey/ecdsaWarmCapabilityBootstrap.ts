@@ -10,13 +10,6 @@ import type {
 import { SigningOperationIntent } from '../operationState/types';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import {
-  thresholdEcdsaSessionRecordReadModel,
-  listThresholdEcdsaSessionRecordsForWalletTarget,
-  requirePersistedEcdsaRoleLocalMaterial,
-  type ThresholdEcdsaSessionRecord,
-  type ThresholdEcdsaSessionStoreDeps,
-} from '../persistence/records';
-import {
   ecdsaBootstrapChainTarget,
   ecdsaBootstrapWalletId,
   type EcdsaBootstrapRequest,
@@ -24,15 +17,10 @@ import {
 } from './ecdsaBootstrap';
 import { ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap } from '../warmCapabilities/sealedRefreshParity';
 import {
-  getPrimaryAndSecondaryEcdsaCapabilities,
-} from '../../useCases/provisionEcdsaSession';
-import { claimWarmSessionPrfFirst } from './prfClaim';
-import {
   provisionThresholdEcdsaSessionFromBootstrapArgs,
   type ProvisionThresholdEcdsaSessionDeps,
 } from './ecdsaSessionProvision';
 import type { WarmSessionCapabilityReader, WarmSessionEnvelope } from '../warmCapabilities/types';
-import { buildEvmFamilyEcdsaSessionLanePolicy } from '../identity/evmFamilyEcdsaIdentity';
 import { walletSessionFailureFromError } from '../lifecycle/walletSessionFailure';
 
 type SharedEd25519WalletSessionGrant = {
@@ -41,12 +29,6 @@ type SharedEd25519WalletSessionGrant = {
   walletSessionJwt: string;
   remainingUses: number;
   expiresAtMs: number;
-};
-
-type PasskeyRoleLocalEcdsaRecord = {
-  kind: 'passkey_role_local_ecdsa_record_v1';
-  record: ThresholdEcdsaSessionRecord;
-  passkeyCredentialIdB64u: string;
 };
 
 function resolveSharedEd25519WalletSessionGrant(
@@ -75,61 +57,12 @@ function resolveSharedEd25519WalletSessionGrant(
   };
 }
 
-function resolveSharedGrantReconnectTtlMs(args: {
-  sharedGrant: SharedEd25519WalletSessionGrant;
-  recordExpiresAtMs: number;
-}): number {
-  const sharedTtlMs = Math.max(0, args.sharedGrant.expiresAtMs - Date.now());
-  const recordTtlMs = Math.max(0, Math.floor(Number(args.recordExpiresAtMs)) - Date.now());
-  const candidates = [sharedTtlMs, recordTtlMs];
-  return Math.max(1, Math.min(...candidates.filter((value) => value > 0)));
-}
-
-function selectPasskeyRoleLocalEcdsaRecord(args: {
-  deps: Pick<NoPromptWarmSessionDeps, 'ecdsaSessions'>;
-  walletId: ReturnType<typeof toWalletId>;
-  request: Extract<EcdsaBootstrapRequest, { kind: 'reuse_warm_ecdsa_bootstrap' }>;
-}): PasskeyRoleLocalEcdsaRecord | null {
-  const records = listThresholdEcdsaSessionRecordsForWalletTarget(args.deps.ecdsaSessions, {
-    walletId: toWalletId(args.walletId),
-    chainTarget: args.request.chainTarget,
-    ...(args.request.source ? { source: args.request.source } : {}),
-  });
-  for (const record of records) {
-    if (record.source === 'email_otp') continue;
-    if (record.ecdsaRoleLocalAuthMethod.kind !== 'passkey') continue;
-    const passkeyCredentialIdB64u = String(
-      record.ecdsaRoleLocalAuthMethod.credentialIdB64u || '',
-    ).trim();
-    if (!passkeyCredentialIdB64u) continue;
-    return {
-      kind: 'passkey_role_local_ecdsa_record_v1',
-      record,
-      passkeyCredentialIdB64u,
-    };
-  }
-  return null;
-}
-
-type NoPromptEcdsaPasskeyPrfFirstClaim = {
-  kind: 'claim_no_prompt_ecdsa_prf_first';
-  walletId: ReturnType<typeof toWalletId>;
-  signingGrantId: string;
-  thresholdSessionId: string;
-  chainTarget: Extract<
-    EcdsaBootstrapRequest,
-    { kind: 'reuse_warm_ecdsa_bootstrap' }
-  >['chainTarget'];
-  uses: 1;
-};
-
 export type BootstrapWarmEcdsaCapabilityDeps = {
   ensureSealedRefreshStartupParity: () => Promise<void>;
   queueByWallet: Map<string, Promise<void>>;
   activationDeps: WalletSessionActivationDeps;
   touchConfirm: UiConfirmRuntimeBridgePort;
   persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
-  ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   capabilityReader: WarmSessionCapabilityReader;
 };
 
@@ -138,11 +71,6 @@ export type NoPromptWarmSessionDeps = {
   discoverPersistedSessionsForWallet: NonNullable<
     DurableSealedSessionPort['discoverPersistedSessionsForWallet']
   >;
-  claimEcdsaPasskeyPrfFirst: (args: NoPromptEcdsaPasskeyPrfFirstClaim) => Promise<string>;
-  reconnectWithWalletSessionAuth: (
-    request: Extract<EcdsaBootstrapRequest, { kind: 'wallet_session_reconnect_ecdsa_bootstrap' }>,
-  ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
-  ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   prompt?: never;
   webauthnPrompt?: never;
   touchIdPrompt?: never;
@@ -221,27 +149,6 @@ function createNoPromptWarmSessionDeps(
   return {
     getWarmSession: (walletId) => deps.capabilityReader.getWarmSession(walletId),
     discoverPersistedSessionsForWallet: discoverPersistedSessionsForWallet.bind(deps.touchConfirm),
-    claimEcdsaPasskeyPrfFirst: (args) =>
-      claimWarmSessionPrfFirst({
-        touchConfirm: deps.touchConfirm,
-        thresholdSessionId: args.thresholdSessionId,
-        errorContext: 'threshold-ecdsa authorization bootstrap',
-        uses: args.uses,
-        curve: 'ecdsa',
-        chainTarget: args.chainTarget,
-      }),
-    reconnectWithWalletSessionAuth: (request) =>
-      provisionThresholdEcdsaSessionFromBootstrapArgs(
-        createProvisionThresholdEcdsaSessionDeps({
-          queueByWallet: deps.queueByWallet,
-          activationDeps: deps.activationDeps,
-          touchConfirm: deps.touchConfirm,
-          persistEcdsaRoleLocalReadyRecord: deps.persistEcdsaRoleLocalReadyRecord,
-          capabilityReader: deps.capabilityReader,
-        }),
-        request,
-      ),
-    ecdsaSessions: deps.ecdsaSessions,
   };
 }
 
@@ -333,67 +240,6 @@ function sealedRestoreFailureCodeFromError(
   }
 }
 
-async function tryNoPromptWalletSessionReconnect(args: {
-  deps: NoPromptWarmSessionDeps;
-  walletId: ReturnType<typeof toWalletId>;
-  request: Extract<EcdsaBootstrapRequest, { kind: 'reuse_warm_ecdsa_bootstrap' }>;
-  sharedGrant: SharedEd25519WalletSessionGrant;
-}): Promise<ThresholdEcdsaSessionBootstrapResult | null> {
-  const selected = selectPasskeyRoleLocalEcdsaRecord({
-    deps: args.deps,
-    walletId: args.walletId,
-    request: args.request,
-  });
-  if (!selected) return null;
-  const record = selected.record;
-
-  const readModel = thresholdEcdsaSessionRecordReadModel(record);
-  const passkeyPrfFirstB64u = await args.deps.claimEcdsaPasskeyPrfFirst({
-    kind: 'claim_no_prompt_ecdsa_prf_first',
-    walletId: args.walletId,
-    signingGrantId: record.signingGrantId,
-    thresholdSessionId: record.thresholdSessionId,
-    chainTarget: args.request.chainTarget,
-    uses: 1,
-  });
-  const relayerUrl = String(args.request.relayerUrl || record.relayerUrl || '').trim();
-  if (!relayerUrl) {
-    throw new Error('[SigningEngine][ecdsa] no-prompt reconnect requires relayerUrl');
-  }
-
-  return await args.deps.reconnectWithWalletSessionAuth({
-    kind: 'wallet_session_reconnect_ecdsa_bootstrap',
-    source: args.request.source || record.source,
-    relayerUrl,
-    keyHandle: record.keyHandle,
-    key: readModel.key,
-    publicCapability: record.ecdsaRoleLocalPublicFacts.publicCapability,
-    existingRoleLocalMaterial: requirePersistedEcdsaRoleLocalMaterial(record),
-    lanePolicy: buildEvmFamilyEcdsaSessionLanePolicy({
-      chainTarget: args.request.chainTarget,
-      thresholdSessionId: record.thresholdSessionId,
-      signingGrantId: args.sharedGrant.signingGrantId,
-      thresholdSessionKind: 'jwt',
-      ttlMs: resolveSharedGrantReconnectTtlMs({
-        sharedGrant: args.sharedGrant,
-        recordExpiresAtMs: readModel.lane.expiresAtMs,
-      }),
-      remainingUses: args.sharedGrant.remainingUses,
-      ...(args.request.runtimePolicyScope
-        ? { runtimePolicyScope: args.request.runtimePolicyScope }
-        : {}),
-    }),
-    operationIntent: args.request.operationIntent,
-    runtimeScopeBootstrap: args.request.runtimeScopeBootstrap,
-    routeAuth: {
-      kind: 'wallet_session',
-      jwt: args.sharedGrant.walletSessionJwt,
-    },
-    passkeyPrfFirstB64u,
-    passkeyCredentialIdB64u: selected.passkeyCredentialIdB64u,
-  });
-}
-
 export async function bootstrapReuseWarmEcdsaCapabilityNoPrompt(
   deps: NoPromptWarmSessionDeps,
   walletId: ReturnType<typeof toWalletId>,
@@ -426,29 +272,6 @@ export async function bootstrapReuseWarmEcdsaCapabilityNoPrompt(
     });
     return sealedRestoreFailureFromError({ chainTargetKey, error });
   }
-  try {
-    const reconnectedBootstrap = await tryNoPromptWalletSessionReconnect({
-      deps,
-      walletId,
-      request,
-      sharedGrant,
-    });
-    if (reconnectedBootstrap) {
-      return {
-        ok: true,
-        source: 'sealed_restore',
-        bootstrap: reconnectedBootstrap,
-      };
-    }
-  } catch (error: unknown) {
-    console.warn('[SigningEngine][ecdsa] reuse warm threshold-session reconnect failed', {
-      walletId,
-      chainTarget,
-      error: error instanceof Error ? error.message : String(error || 'unknown error'),
-    });
-    return sealedRestoreFailureFromError({ chainTargetKey, error });
-  }
-
   return {
     ok: false,
     code: 'missing_exact_material',
