@@ -507,7 +507,9 @@ export function createRouterApiRouteDefinitions(
       'Set up a wallet registration ceremony',
       {
         plane: 'api_credentials',
-        credentials: ['secret_key', 'bootstrap_token'],
+        /* Publishable key only — no bootstrap token to mint and store, and no
+           secret-key fallback on a route the browser calls directly. */
+        credentials: ['publishable_key'],
         scopes: ['accounts.create'],
         environmentBinding: 'required',
         originBinding: 'required',

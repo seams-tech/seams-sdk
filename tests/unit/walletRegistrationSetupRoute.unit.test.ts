@@ -340,3 +340,21 @@ test('setup prepares ECDSA only for a mixed plan, for either auth method', async
     cleanupTemporaryD1Database(tempDir);
   }
 });
+
+test('the setup route definition accepts a publishable key and nothing else', async () => {
+  const { createRouterApiRouteDefinitions } = await import(
+    '../../packages/sdk-server-ts/src/router/routeDefinitions'
+  );
+  const routes = createRouterApiRouteDefinitions({});
+  const setup = routes.find((route) => route.id === 'wallet_registration_setup');
+  if (!setup) throw new Error('Expected the setup route definition');
+  expect(setup.path).toBe('/wallets/register/setup');
+  if (setup.auth.plane !== 'api_credentials') {
+    throw new Error('Expected the setup route on the api_credentials plane');
+  }
+  /* A secret-key or bootstrap-token fallback here would reintroduce exactly
+     the credential the stored grant existed to carry. */
+  expect(setup.auth.credentials).toEqual(['publishable_key']);
+  expect(setup.auth.environmentBinding).toBe('required');
+  expect(setup.auth.originBinding).toBe('required');
+});

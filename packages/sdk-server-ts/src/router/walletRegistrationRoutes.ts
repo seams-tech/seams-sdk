@@ -1,4 +1,7 @@
 import type { WalletRegistrationSetupResponseV2 } from '../core/threeRouteRegistrationContracts';
+import { resolvePublishableKeyApiCredentialAuth } from './routerApiCredentialAuth';
+import { extractRouterApiEnvironmentId } from './routerApiKeyAuth';
+import type { RouterApiPublishableKeyAuthAdapter } from './routerApi';
 import type { RouterApiWalletRegistrationRouteService } from './authServicePort';
 import type {
   EcdsaKeyFactsInventoryPolicy,
@@ -137,6 +140,7 @@ type RouterApiWalletRegistrationServices = {
   orgProjectEnv?: RouterApiProjectEnvironmentResolver | null;
   routerAbPublicKeyset?: RouterAbPublicKeysetV2 | null;
   session?: SessionAdapter | null;
+  publishableKeyAuth?: RouterApiPublishableKeyAuthAdapter | null;
 };
 
 type ParsedRegistrationSignerSet = {
@@ -2424,6 +2428,18 @@ export async function handleRouterApiWalletRegistrationSetup(
       'Origin header is required and must be a valid exact origin',
     );
   }
+  const publishableKeyAuth = input.services.publishableKeyAuth;
+  if (!publishableKeyAuth) {
+    return routeError(
+      500,
+      'route_auth_not_configured',
+      'wallet registration setup requires publishable key auth on this server',
+    );
+  }
+  /* Publishable key only. The client authenticates directly, so there is no
+     bootstrap token to mint, store, and read back — and deliberately no
+     secret-key or bootstrap-token fallback, which would reintroduce the
+     credential the grant existed to carry. */
   const resolved = await enforceRoutePolicy({
     headers: input.headers,
     logger: input.logger,
@@ -2433,14 +2449,18 @@ export async function handleRouterApiWalletRegistrationSetup(
     sourceIp: input.sourceIp,
     resolvers: {
       apiCredentials: async () =>
-        await resolveRegistrationBootstrapApiCredentialAuth({
-          apiKeyAuth: input.services.apiKeyAuth,
-          body: input.body as Record<string, unknown>,
-          bootstrapTokenVerifier: input.services.bootstrapTokenVerifier,
+        await resolvePublishableKeyApiCredentialAuth({
+          environmentId: extractRouterApiEnvironmentId(input.headers) || undefined,
           headers: input.headers,
+          missingEnvironmentMessage:
+            'Environment header is required for wallet registration setup',
+          missingOriginMessage: 'Origin header is required and must be a valid exact origin',
+          missingPublishableKeyMessage: 'Missing publishable key',
           origin,
+          publishableKeyAuth,
           route: input.route,
-          sourceIp: input.sourceIp,
+          routeAuthNotConfiguredMessage:
+            'Wallet registration setup requires API credential auth policy',
         }),
     },
   });

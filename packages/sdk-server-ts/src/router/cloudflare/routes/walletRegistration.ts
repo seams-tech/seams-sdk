@@ -98,6 +98,7 @@ export async function handleWalletRegistration(
       orgProjectEnv: ctx.opts.orgProjectEnv,
       routerAbPublicKeyset: ctx.opts.routerAbPublicKeyset,
       session: ctx.opts.session,
+      publishableKeyAuth: ctx.opts.publishableKeyAuth,
     },
     sourceIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
   };
