@@ -777,8 +777,9 @@ function buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(
   committedLane: Extract<EmailOtpEcdsaCommittedLane, { source: 'durable_authority_backed' }>,
 ): EmailOtpEcdsaSigningRefreshFacts {
   return {
-    keyHandle: String(toEvmFamilyEcdsaKeyHandle(committedLane.walletSessionAuthority.keyHandle)),
-    participantIds: committedLane.walletSessionAuthority.participantIds.map(Number),
+    // Exact lane signer binding, not a JWT-decoded authority structure.
+    keyHandle: String(toEvmFamilyEcdsaKeyHandle(committedLane.lane.identity.signer.keyHandle)),
+    participantIds: committedLane.lane.identity.signer.key.participantIds.map(Number),
     emailHashHex: committedLane.authority.verifier.emailHashHex,
     providerIdentity: {
       kind: 'explicit_provider_user',
