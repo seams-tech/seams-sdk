@@ -1,3 +1,4 @@
+import type { ActiveEvmFamilyWalletSessionAuthorization } from './ecdsaSigningCapability';
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
@@ -57,10 +58,6 @@ import {
 import type { ReauthAnchorIdentity } from '../../session/operationState/transactionState';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EcdsaReauthAnchorPublicRestore } from '../../session/persistence/sealedSessionStore';
-import {
-  buildEcdsaWalletSessionAuthority,
-  type EcdsaWalletSessionAuthority,
-} from '../../session/identity/ecdsaWalletSessionAuthority';
 
 export type EvmFamilyEcdsaSigningSelectionDeps = EvmFamilyAccountMetadataDeps &
   EvmFamilyEcdsaSessionReaderDeps &
@@ -630,22 +627,6 @@ type EmailOtpSelectionAuthority = {
   laneAuthority: EmailOtpEcdsaSigningSessionAuthority;
 };
 
-export type PasskeyEcdsaCommittedLaneAuthority =
-  | EcdsaWalletSessionAuthority
-  | {
-      kind: 'passkey_cookie_session_authority';
-      thresholdSessionId: string;
-      signingGrantId: string;
-      walletSessionJwt?: never;
-    };
-
-type EcdsaWalletSessionAuthorityFor<A extends WalletAuthAuthority> =
-  A extends PasskeyWalletAuthAuthority
-    ? PasskeyEcdsaCommittedLaneAuthority
-    : A extends EmailOtpWalletAuthAuthority
-      ? EcdsaWalletSessionAuthority
-      : never;
-
 type EcdsaCommittedLaneAuthFacts<A extends WalletAuthAuthority> =
   A extends EmailOtpWalletAuthAuthority
     ? {
@@ -675,7 +656,7 @@ export type EcdsaCommittedLane<A extends WalletAuthAuthority = WalletAuthAuthori
     ? {
         lane: ResolvedEvmFamilyEcdsaSigningLane;
         authority: A;
-        walletSessionAuthority: EcdsaWalletSessionAuthorityFor<A>;
+        authorization: ActiveEvmFamilyWalletSessionAuthorization;
         material: EcdsaMaterialState;
       } & EcdsaCommittedLaneAuthFacts<A> &
         EcdsaCommittedLaneDurableRestoreFacts<A>
@@ -692,7 +673,7 @@ export type EcdsaPublicReauthLane<A extends WalletAuthAuthority = WalletAuthAuth
   publicRestore: EcdsaReauthAnchorPublicRestore;
   reauthAnchor: ReauthAnchorIdentity;
   material: EcdsaMaterialState;
-  walletSessionAuthority?: never;
+  authorization?: never;
   authLane?: never;
   record?: never;
 };
@@ -712,7 +693,7 @@ function readyEmailOtpEcdsaCommittedLane(args: {
   const common = {
     lane: args.lane,
     authLane: args.committedLane.authLane,
-    walletSessionAuthority: args.committedLane.walletSessionAuthority,
+    authorization: args.committedLane.authorization,
     material: args.material,
     authority: args.committedLane.authority,
   };
@@ -731,7 +712,7 @@ function readyPasskeyEcdsaCommittedLane(args: {
     source: args.committedLane.source,
     lane: args.committedLane.lane,
     authority: args.committedLane.authority,
-    walletSessionAuthority: args.committedLane.walletSessionAuthority,
+    authorization: args.committedLane.authorization,
     material: args.material,
     durableRestore: 'sealed_record_authority',
   };
@@ -938,19 +919,6 @@ function requireEmailOtpCommittedLaneForReady(args: {
   throwEmailOtpEcdsaCommittedLaneStateError({ kind: 'committed_lane_missing_for_ready' });
 }
 
-function buildEmailOtpEcdsaWalletSessionAuthority(args: {
-  authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-}): EmailOtpEcdsaCommittedLane['walletSessionAuthority'] {
-  return buildEcdsaWalletSessionAuthority({
-    walletSessionJwt: args.authLane.jwt,
-    walletId: args.lane.key.walletId,
-    keyHandle: args.lane.keyHandle,
-    thresholdSessionId: args.authLane.thresholdSessionId,
-    signingGrantId: String(args.authLane.authorizingSigningGrantId),
-  });
-}
-
 function commitEmailOtpEcdsaLaneForSelection(args: {
   authority: EmailOtpSelectionAuthority;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
@@ -973,10 +941,7 @@ function commitEmailOtpEcdsaLaneForSelection(args: {
     lane: args.lane,
     authority,
     authLane,
-    walletSessionAuthority: buildEmailOtpEcdsaWalletSessionAuthority({
-      authLane,
-      lane: args.lane,
-    }),
+    authorization: args.lane.authorization,
     material: args.material,
   };
   return {
