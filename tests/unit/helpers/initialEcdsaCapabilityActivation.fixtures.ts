@@ -3,6 +3,7 @@ import {
   parseSdkEcdsaDerivationSigningRootVersion,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { deriveEvmFamilySigningKeySlotId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   parseCorrelationId,
   parseDigestB64u,
@@ -71,6 +72,11 @@ export async function initialEcdsaCapabilityActivationFixture(options: {
       ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('initial-ecdsa-threshold-key'),
       signingRootId: parseSdkEcdsaDerivationSigningRootId('initial-ecdsa-signing-root'),
       signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion('v1'),
+      evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+        walletId,
+        signingRootId: 'initial-ecdsa-signing-root',
+        signingRootVersion: 'v1',
+      }),
       clientVerifyingPublicKey33B64u:
         parseEcdsaClientVerifyingPublicKey33B64u(CLIENT_PUBLIC_KEY_B64U),
       participantIds: [toParticipantId(1), toParticipantId(2)],
