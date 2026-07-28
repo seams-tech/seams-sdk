@@ -4,6 +4,18 @@ import type {
 } from '@/core/signingEngine/threshold/ecdsa/activation';
 import { parseEcdsaThresholdKeyId } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
+  parseMpcWalletSigningQuotaId,
+  parseSeamsSessionId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+
+function requireBootstrapAuthorizationId<T>(
+  result: { ok: true; value: T } | { ok: false },
+): T {
+  if (!result.ok) throw new Error('ecdsa bootstrap fixture authorization id is invalid');
+  return result.value;
+}
+import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -304,6 +316,15 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       ok: true,
       thresholdSessionId: sessionId,
       signingGrantId,
+      authorizationSessionId: requireBootstrapAuthorizationId(
+        parseSeamsSessionId(`ecdsa-bootstrap-authorization-session:${sessionId}`),
+      ),
+      walletSessionId: requireBootstrapAuthorizationId(
+        parseWalletSessionId(`ecdsa-bootstrap-wallet-session:${sessionId}`),
+      ),
+      quotaId: requireBootstrapAuthorizationId(
+        parseMpcWalletSigningQuotaId(`ecdsa-bootstrap-quota:${sessionId}`),
+      ),
       expiresAtMs: args.expiresAtMs ?? Date.now() + 120_000,
       remainingUses: args.remainingUses ?? 5,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),

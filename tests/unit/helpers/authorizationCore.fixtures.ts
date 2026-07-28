@@ -78,7 +78,10 @@ export type ReusableAuthorizationCoreFixture = {
   readonly resultRef: CapabilityOperationResultRef;
 };
 
-export type StepUpAuthorizationCoreFixture = Omit<ReusableAuthorizationCoreFixture, 'quota'>;
+export type StepUpAuthorizationCoreFixture = Omit<
+  ReusableAuthorizationCoreFixture,
+  'quota' | 'reusableWalletSession'
+>;
 
 export type PasskeyVerifiedFactorFixture = {
   readonly authorization: ReusableAuthorizationCoreFixture;
@@ -310,6 +313,7 @@ export function buildClaimedCapabilityOperationResult(
       grantId: fixture.claim.grantId,
       principalId: fixture.claim.operation.principalId,
       capabilityId: fixture.claim.operation.capabilityId,
+      operationId: fixture.claim.operation.operationId,
       operation: fixture.claim.operation.operation,
       operationFingerprintDigest: fixture.claim.operationFingerprintDigest,
       evidenceSetDigest: fixture.claim.evidenceSetDigest,
