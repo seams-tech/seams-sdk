@@ -129,10 +129,6 @@ impl SigningWorkerYaoCommandV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
 enum SigningWorkerYaoDurableStateV1 {
-    #[serde(rename = "registration_pending")]
-    LegacyRegistrationPending {
-        deriver_a: Ed25519YaoSigningWorkerPackageDeliveryV1,
-    },
     RegistrationStaged {
         deriver_a: Ed25519YaoSigningWorkerPackageDeliveryV1,
         deriver_b: Ed25519YaoSigningWorkerPackageDeliveryV1,
@@ -144,12 +140,6 @@ enum SigningWorkerYaoDurableStateV1 {
         deriver_b: Ed25519YaoSigningWorkerPackageDeliveryV1,
         material: Ed25519YaoActiveSigningMaterialV1,
         receipt: Ed25519YaoSigningWorkerActivationReceiptV1,
-    },
-    #[serde(rename = "recovery_pending")]
-    LegacyRecoveryPending {
-        active_material: Ed25519YaoActiveSigningMaterialV1,
-        active_receipt: Ed25519YaoSigningWorkerActivationReceiptV1,
-        deriver_a: Ed25519YaoSigningWorkerPackageDeliveryV1,
     },
     RecoveryStaged {
         active_material: Ed25519YaoActiveSigningMaterialV1,
@@ -164,10 +154,7 @@ enum SigningWorkerYaoDurableStateV1 {
 impl SigningWorkerYaoDurableStateV1 {
     fn stable_context_binding(&self) -> [u8; 32] {
         match self {
-            Self::LegacyRegistrationPending { deriver_a }
-            | Self::RegistrationStaged { deriver_a, .. }
-            | Self::LegacyRecoveryPending { deriver_a, .. }
-            | Self::RecoveryStaged { deriver_a, .. } => {
+            Self::RegistrationStaged { deriver_a, .. } | Self::RecoveryStaged { deriver_a, .. } => {
                 deriver_a.binding.stable_key_context_binding.into_bytes()
             }
             Self::Active { material, .. } => {
@@ -178,10 +165,6 @@ impl SigningWorkerYaoDurableStateV1 {
 
     fn validate(&self) -> RouterAbProtocolResult<()> {
         match self {
-            Self::LegacyRegistrationPending { deriver_a } => {
-                deriver_a.validate_for_deriver(Ed25519YaoDeriverRoleV1::DeriverA)?;
-                require_operation(&deriver_a.binding, Ed25519YaoOperationV1::Registration)
-            }
             Self::RegistrationStaged {
                 deriver_a,
                 deriver_b,
@@ -206,16 +189,6 @@ impl SigningWorkerYaoDurableStateV1 {
                 receipt,
                 material.binding().operation,
             ),
-            Self::LegacyRecoveryPending {
-                active_material,
-                active_receipt,
-                deriver_a,
-            } => {
-                validate_material_receipt(active_material, active_receipt)?;
-                deriver_a.validate_for_deriver(Ed25519YaoDeriverRoleV1::DeriverA)?;
-                require_operation(&deriver_a.binding, Ed25519YaoOperationV1::Recovery)?;
-                require_same_stable_identity(active_material.binding(), &deriver_a.binding)
-            }
             Self::RecoveryStaged {
                 active_material,
                 active_receipt,
