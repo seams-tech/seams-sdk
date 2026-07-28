@@ -30,24 +30,19 @@ import {
   type ReadyEcdsaMaterial,
 } from './ecdsaMaterialState';
 import {
-  summarizeEvmFamilyEcdsaSessionRecord,
   logEvmFamilyEcdsaLaneDiagnostic,
   requireResolvedEvmFamilyEcdsaSigningLane,
   summarizeEvmFamilyEcdsaLane,
   type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
-import { ecdsaRecordMatchesExactLaneIdentity } from '../../session/warmCapabilities/ecdsaRecordLane';
 import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import type {
   DurableEmailOtpEcdsaSigningSessionAuthorityResolver,
   EvmFamilyEcdsaSessionReaderDeps,
   PasskeyEcdsaSessionStoreSource,
 } from '../../interfaces/operationDeps';
-import {
-  resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord,
-  type EmailOtpEcdsaSigningSessionAuthority,
-} from '../../session/emailOtp/ecdsaSigningSessionAuthority';
+import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 import {
   exactEcdsaSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
@@ -615,39 +610,6 @@ function ecdsaLaneCandidateFromResolvedLane(
   };
 }
 
-// Exact persistence-boundary read: list the wallet/chain records through the
-// reader port and match on stable material identity. Ambiguity fails closed --
-// there is deliberately no timestamp or source-priority tiebreak.
-function findExactThresholdEcdsaRecordForLane(args: {
-  deps: EvmFamilyEcdsaSigningSelectionDeps;
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-}): ThresholdEcdsaSessionRecord | undefined {
-  const signer = requireEvmFamilyEcdsaSignerForSelection(args.lane, 'exact ECDSA record read');
-  const identity = exactEcdsaSigningLaneIdentityFromSelectedLane(args.lane);
-  let records: ThresholdEcdsaSessionRecord[];
-  try {
-    records = args.deps.listThresholdEcdsaSessionRecordsForSigning({
-      walletId: signer.walletId,
-      chainTarget: signer.chainTarget,
-    });
-  } catch {
-    return undefined;
-  }
-  const matches = records.filter((record) =>
-    ecdsaRecordMatchesExactLaneIdentity({ record, lane: identity }),
-  );
-  if (matches.length !== 1) {
-    if (matches.length > 1) {
-      logEvmFamilyEcdsaLaneDiagnostic('exact ECDSA record read is ambiguous; failing closed', {
-        lane: summarizeEvmFamilyEcdsaLane(args.lane),
-        matchCount: matches.length,
-      });
-    }
-    return undefined;
-  }
-  return matches[0];
-}
-
 function requireEvmFamilyEcdsaSignerForSelection(
   lane: ResolvedEvmFamilyEcdsaSigningLane,
   context: string,
@@ -1001,37 +963,13 @@ function buildEcdsaSelectionDiagnostics(args: {
 // there is no visible-material scan and no source-priority fallback.
 function selectPasskeyMaterialForCandidate(args: {
   candidate: EcdsaLaneCandidate;
-  exactRecord?: ThresholdEcdsaSessionRecord;
-  exactSource?: ThresholdEcdsaSessionStoreSource;
   chainTarget: ThresholdEcdsaChainTarget;
   materialChainTarget: ThresholdEcdsaChainTarget;
 }): PasskeyMaterialSelectionResult {
-  if (args.exactRecord) {
-    const exactSource = passkeySessionStoreSourceFromExactSource(args.exactSource);
-    const exactMaterial = buildEcdsaMaterialStateForCandidate({
-      candidate: args.candidate,
-      record: args.exactRecord,
-      authMethod: SIGNER_AUTH_METHODS.passkey,
-      source: exactSource,
-      chainTarget: args.chainTarget,
-      materialChainTarget: args.materialChainTarget,
-    });
-    if (exactMaterial.kind === 'ready_to_sign' || exactMaterial.kind === 'reauth_required') {
-      return {
-        kind: 'selected',
-        material: exactMaterial,
-        selected: {
-          source: exactSource,
-          record: exactMaterial.record,
-        },
-      };
-    }
-  }
   return {
     kind: 'missing',
     material: buildEcdsaMaterialStateForCandidate({
       candidate: args.candidate,
-      record: undefined,
       authMethod: SIGNER_AUTH_METHODS.passkey,
       source: 'manual-bootstrap',
       chainTarget: args.chainTarget,
@@ -1064,32 +1002,8 @@ async function resolveEmailOtpAuthorityForSelection(args: {
   deps: EvmFamilyEcdsaSigningSelectionDeps;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   candidate: EcdsaLaneCandidate;
-  record: ThresholdEcdsaSessionRecord | null;
 }): Promise<EmailOtpSelectionAuthority | null> {
   const exactLane = exactEcdsaSigningLaneIdentityFromSelectedLane(args.lane);
-  if (args.record) {
-    if (args.record.source !== SIGNER_AUTH_METHODS.emailOtp) {
-      logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA record rejected for source', {
-        lane: summarizeEvmFamilyEcdsaLane(args.lane),
-        record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
-      });
-      return null;
-    }
-    const recordAuthority = resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord(args.record);
-    if (recordAuthority.kind !== 'ready') {
-      logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA record rejected for authority', {
-        rejection: recordAuthority,
-        lane: summarizeEvmFamilyEcdsaLane(args.lane),
-        record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
-      });
-      return null;
-    }
-    return {
-      kind: 'record_backed',
-      record: args.record,
-      laneAuthority: recordAuthority.authority,
-    };
-  }
   const laneAuthority = await args.deps.resolveDurableEmailOtpEcdsaSigningSessionAuthority({
     lane: exactLane,
     chain: args.lane.chainTarget.kind,
@@ -1105,31 +1019,6 @@ async function resolveEmailOtpAuthorityForSelection(args: {
     candidate: summarizeLaneCandidate(args.candidate),
   });
   return null;
-}
-
-function exactEmailOtpEcdsaRecordForLane(args: {
-  deps: EvmFamilyEcdsaSigningSelectionDeps;
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-}): ThresholdEcdsaSessionRecord | null {
-  const record = findExactThresholdEcdsaRecordForLane(args);
-  return matchingEmailOtpRecordForLane({ record, lane: args.lane });
-}
-
-function matchingEmailOtpRecordForLane(args: {
-  record: ThresholdEcdsaSessionRecord | null | undefined;
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-}): ThresholdEcdsaSessionRecord | null {
-  const record = args.record || null;
-  if (!record || record.source !== SIGNER_AUTH_METHODS.emailOtp) return null;
-  if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, args.lane.chainTarget)) {
-    return null;
-  }
-  return ecdsaRecordMatchesExactLaneIdentity({
-    record,
-    lane: exactEcdsaSigningLaneIdentityFromSelectedLane(args.lane),
-  })
-    ? record
-    : null;
 }
 
 function requireEmailOtpSelectionAuthority(args: {
@@ -1273,71 +1162,6 @@ function commitEmailOtpEcdsaLaneForSelection(args: {
   }
 }
 
-function requireEmailOtpSelectionAuthorityFromRecord(args: {
-  record: ThresholdEcdsaSessionRecord;
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-  candidate: EcdsaLaneCandidate;
-}): EmailOtpSelectionAuthority {
-  if (args.record.source !== SIGNER_AUTH_METHODS.emailOtp) {
-    logEvmFamilyEcdsaLaneDiagnostic('Email OTP record-backed committed lane rejected for source', {
-      lane: summarizeEvmFamilyEcdsaLane(args.lane),
-      candidate: summarizeLaneCandidate(args.candidate),
-      record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
-    });
-    throwEmailOtpEcdsaCommittedLaneStateError({ kind: 'authority_missing' });
-  }
-  const resolved = resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord(args.record);
-  if (resolved.kind === 'ready') {
-    return {
-      kind: 'record_backed',
-      record: args.record,
-      laneAuthority: resolved.authority,
-    };
-  }
-  logEvmFamilyEcdsaLaneDiagnostic('Email OTP record-backed committed lane rejected', {
-    rejection: resolved,
-    lane: summarizeEvmFamilyEcdsaLane(args.lane),
-    candidate: summarizeLaneCandidate(args.candidate),
-    record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
-  });
-  throwEmailOtpEcdsaCommittedLaneStateError({ kind: 'authority_missing' });
-}
-
-export function commitEmailOtpEcdsaLaneFromRecordForMaterial(args: {
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-  record: ThresholdEcdsaSessionRecord;
-  material: EcdsaMaterialState;
-}): EmailOtpEcdsaCommittedLane {
-  const candidate = ecdsaLaneCandidateFromResolvedLane(args.lane);
-  const authority = requireEmailOtpSelectionAuthority({
-    authority: requireEmailOtpSelectionAuthorityFromRecord({
-      record: args.record,
-      lane: args.lane,
-      candidate,
-    }),
-    lane: args.lane,
-    candidate,
-  });
-  return commitEmailOtpEcdsaLaneForSelection({
-    authority,
-    lane: args.lane,
-    candidate,
-    material: args.material,
-  });
-}
-
-export function commitReadyEmailOtpEcdsaLaneFromRecord(args: {
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-  record: ThresholdEcdsaSessionRecord;
-  material: ReadyEcdsaMaterial;
-}): ReadyEmailOtpEcdsaCommittedLane {
-  return readyEmailOtpEcdsaCommittedLane({
-    lane: args.lane,
-    committedLane: commitEmailOtpEcdsaLaneFromRecordForMaterial(args),
-    material: args.material,
-  });
-}
-
 type EcdsaSelectionReauthInput =
   | { kind: 'not_required'; reauthAnchor?: never; publicRestore?: never }
   | {
@@ -1375,33 +1199,14 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     args.laneCandidate.source === 'evm_family_shared_key'
       ? args.laneCandidate.sourceChainTarget
       : args.chainTarget;
-  const exactRecordForCandidate = findExactThresholdEcdsaRecordForLane({
-    deps: args.deps,
-    lane:
-      args.laneCandidate.source === 'evm_family_shared_key'
-        ? resolvedEvmFamilyEcdsaSigningLaneFromCandidate({
-            ...args.laneCandidate,
-            chain: args.laneCandidate.sourceChainTarget.kind,
-            chainTarget: args.laneCandidate.sourceChainTarget,
-          })
-        : lane,
-  });
   const candidateAuthMethod = ecdsaLaneCandidateAuthMethod(args.laneCandidate);
   const isPublicReauth = args.reauth.kind === 'public_anchor';
-  const visibleEmailOtpRecord =
-    candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp && !isPublicReauth
-      ? exactEmailOtpEcdsaRecordForLane({
-          deps: args.deps,
-          lane: emailOtpAuthorityLane,
-        })
-      : null;
   const emailOtpAuthority =
     candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp && !isPublicReauth
       ? await resolveEmailOtpAuthorityForSelection({
           deps: args.deps,
           lane: emailOtpAuthorityLane,
           candidate: args.laneCandidate,
-          record: visibleEmailOtpRecord,
         })
       : null;
   const requiredEmailOtpAuthority =
@@ -1412,15 +1217,11 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
           candidate: args.laneCandidate,
         })
       : null;
-  const emailOtpMaterialRecord =
-    requiredEmailOtpAuthority?.kind === 'record_backed' ? requiredEmailOtpAuthority.record : null;
   const selectedPasskeyMaterial: PasskeyMaterialDiagnosticsSelection =
     candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp
       ? { kind: 'not_applicable', reason: 'email_otp_candidate' }
       : selectPasskeyMaterialForCandidate({
           candidate: args.laneCandidate,
-          exactRecord: exactRecordForCandidate,
-          exactSource: exactRecordForCandidate?.source || undefined,
           chainTarget: args.chainTarget,
           materialChainTarget,
         });
@@ -1428,7 +1229,6 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp
       ? buildEcdsaMaterialStateForCandidate({
           candidate: args.laneCandidate,
-          record: emailOtpMaterialRecord || undefined,
           authMethod: SIGNER_AUTH_METHODS.emailOtp,
           source: SIGNER_AUTH_METHODS.emailOtp,
           chainTarget: args.chainTarget,
@@ -1439,7 +1239,6 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
           : selectedPasskeyMaterial.material) ??
         buildEcdsaMaterialStateForCandidate({
           candidate: args.laneCandidate,
-          record: undefined,
           authMethod: SIGNER_AUTH_METHODS.passkey,
           source: 'manual-bootstrap',
           chainTarget: args.chainTarget,
