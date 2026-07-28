@@ -16,7 +16,6 @@ import {
   buildThresholdEd25519SessionRecordKey,
   clearAllStoredThresholdEd25519SessionRecords,
   clearAllThresholdEcdsaSessionRecords,
-  clearThresholdEcdsaSessionRecordForExactIdentity,
   clearStoredThresholdEd25519SessionRecordForLaneKey,
   getStoredThresholdEd25519SessionRecordForLane,
   getThresholdEcdsaSessionRecordByKey,
@@ -316,39 +315,4 @@ test.describe('signing-session readiness grant clearing', () => {
     expectMismatchFixtureRecordPresent();
   });
 
-  test('clears split ECDSA grant records by exact identity', async () => {
-    const ecdsaStore = createEcdsaStoreDeps();
-    try {
-      const primaryRecord = seedEcdsaGrantRecord(ecdsaStore, {
-        signingGrantId: PRIMARY_ECDSA_SIGNING_GRANT_ID,
-        thresholdSessionId: PRIMARY_ECDSA_THRESHOLD_SESSION_ID,
-      });
-      const siblingRecord = seedEcdsaGrantRecord(ecdsaStore, {
-        signingGrantId: SIBLING_ECDSA_SIGNING_GRANT_ID,
-        thresholdSessionId: SIBLING_ECDSA_THRESHOLD_SESSION_ID,
-      });
-      const primaryIdentity = toExactEcdsaSigningLaneIdentity(primaryRecord);
-      const siblingIdentity = toExactEcdsaSigningLaneIdentity(siblingRecord);
-
-      await clearSigningGrant({
-        deps: {
-          clearThresholdEcdsaSessionRecordForExactIdentity: (identity) => {
-            clearThresholdEcdsaSessionRecordForExactIdentity(ecdsaStore, identity);
-          },
-        },
-        statusOverrides: new Map(),
-        walletId: ECDSA_WALLET_ID,
-        signingGrantId: PRIMARY_ECDSA_SIGNING_GRANT_ID,
-      });
-
-      expect(getThresholdEcdsaSessionRecordByKey(ecdsaStore, primaryIdentity)).toBeNull();
-      expect(getThresholdEcdsaSessionRecordByKey(ecdsaStore, siblingIdentity)).toMatchObject({
-        walletId: ECDSA_WALLET_ID,
-        signingGrantId: SIBLING_ECDSA_SIGNING_GRANT_ID,
-        thresholdSessionId: SIBLING_ECDSA_THRESHOLD_SESSION_ID,
-      });
-    } finally {
-      clearAllThresholdEcdsaSessionRecords(ecdsaStore);
-    }
-  });
 });

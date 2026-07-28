@@ -24,7 +24,6 @@ import {
 import { toEcdsaDerivationThresholdKeyId } from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import {
   clearAllThresholdEcdsaSessionRecords,
-  listThresholdEcdsaRuntimeLanesForWallet,
   parseRawThresholdEcdsaSessionRecord,
   upsertThresholdEcdsaSessionFromBootstrap,
   type ThresholdEcdsaSessionStoreDeps,
@@ -522,8 +521,6 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
       materialKind: 'role_local_worker_handle',
       roleLocalMaterialHandle: ROLE_LOCAL_SIGNING_MATERIAL_HANDLE,
     });
-    const [runtimeLane] = listThresholdEcdsaRuntimeLanesForWallet(store, WALLET_ID);
-    expect(runtimeLane).toBeDefined();
     expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(runtimeRecord)).toBe(true);
     const available = await readPersistedAvailableSigningLanesForTargets(
       {

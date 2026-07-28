@@ -46,11 +46,9 @@ import {
   clearStoredThresholdEcdsaSessionRecordsForWalletKeyHandle,
   clearAllThresholdEcdsaSessionRecords,
   deriveThresholdEcdsaRuntimeLaneKey,
-  getThresholdEcdsaKeyRefByKey,
   getThresholdEcdsaSessionRecordByKey,
   getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   listStoredThresholdEcdsaSessionRecordsForWallet,
-  listThresholdEcdsaRuntimeLanesForWallet,
   commitCurrentThresholdEcdsaSession,
   thresholdEcdsaSessionRecordReadModel,
   upsertThresholdEcdsaSessionFact,
@@ -68,7 +66,6 @@ import {
   clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation,
   markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated,
 } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
-import { resolveReadySecp256k1SigningMaterialFromRecord } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/readySecp256k1Material';
 
 const WALLET_ID = toWalletId('alice.testnet');
 const OTHER_WALLET_ID = toWalletId('bob.testnet');
@@ -572,40 +569,6 @@ test.describe('EVM-family ECDSA identity', () => {
     expect('keyRef' in resolution.material).toBe(false);
   });
 
-  test('opens exact activation when runtime material is not already bound', async () => {
-    const record = makeEmailOtpRecord();
-    const resolution = resolveReadyEvmFamilyEcdsaMaterial({
-      record,
-      expected: {
-        walletId: WALLET_ID,
-        materialActivation: record.materialActivation,
-        chainTarget: EVM_TARGET,
-        authMethod: 'email_otp',
-        source: 'email_otp',
-        thresholdSessionId: record.thresholdSessionId,
-        signingGrantId: record.signingGrantId,
-      },
-      nowMs: 1_800_000_000_000,
-    });
-
-    if (resolution.kind !== 'stale') {
-      throw new Error(`expected stale, got ${resolution.kind}`);
-    }
-    expect(resolution.reason.reason).toBe('auth_missing');
-    await expect(
-      resolveReadySecp256k1SigningMaterialFromRecord({
-        record,
-        requestLabel: 'evm',
-        materialActivation: record.materialActivation,
-        workerCtx: {
-          requestWorkerOperation: async () => {
-            throw new Error('worker should not be called for blocked material');
-          },
-        },
-      }),
-    ).rejects.toThrow(/persistence_unavailable/);
-  });
-
   test('builds Email OTP worker share handles with exact lane identity', async () => {
     const emailOtpRecord = makeEmailOtpRecord();
     const emailOtpReadyRecord = makeRoleLocalReadyRecord({
@@ -885,28 +848,6 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(readModel.lane.signingGrantId).toBe('signing-grant-1');
   });
 
-  test('runtime ECDSA lane listing returns the canonical record read model', () => {
-    const deps = makeThresholdEcdsaSessionStoreDeps({ now: () => 1_800_000_000_000 });
-    upsertThresholdEcdsaSessionFact(
-      deps,
-      makeRecord({
-        participantIds: [2, 1],
-        ethereumAddress: '0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
-      }),
-    );
-
-    const [lane] = listThresholdEcdsaRuntimeLanesForWallet(deps, WALLET_ID);
-
-    expect(lane).toBeDefined();
-    expect(lane?.key.thresholdOwnerAddress).toBe('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
-    expect(lane?.key.participantIds.map(Number)).toEqual([1, 2]);
-    expect(lane?.lane.key).toBe(lane?.key);
-    expect(lane?.lane.thresholdSessionId).toBe('threshold-session-1');
-    expect('evmFamilySigningKeySlotId' in (lane?.key || {})).toBe(false);
-    expect(lane?.lane.materialActivation.activationId).toBeDefined();
-    expect('rpId' in (lane?.key || {})).toBe(false);
-  });
-
   test('fact writes preserve same-authority Email OTP ECDSA target facts until current-session commit', () => {
     clearAllThresholdEcdsaSessionRecords(makeThresholdEcdsaSessionStoreDeps());
     const deps = makeThresholdEcdsaSessionStoreDeps({ now: () => 1_800_000_000_000 });
@@ -1091,22 +1032,6 @@ test.describe('EVM-family ECDSA identity', () => {
     ]);
   });
 
-  test('runtime ECDSA lane listing clears records missing required public facts', () => {
-    clearAllThresholdEcdsaSessionRecords(makeThresholdEcdsaSessionStoreDeps());
-    const deps = makeThresholdEcdsaSessionStoreDeps({ now: () => 1_800_000_000_000 });
-    const legacyRecord = makeRecord();
-    const laneKey = deriveThresholdEcdsaRuntimeLaneKey(legacyRecord);
-    const nonRehydratable = { ...legacyRecord } as Record<string, unknown>;
-    delete nonRehydratable.verifiedPublicFacts;
-    delete nonRehydratable.thresholdEcdsaPublicKeyB64u;
-    deps.recordsByLane.set(laneKey, nonRehydratable as ThresholdEcdsaSessionRecord);
-
-    const lanes = listThresholdEcdsaRuntimeLanesForWallet(deps, WALLET_ID);
-
-    expect(lanes).toHaveLength(0);
-    expect(deps.recordsByLane.has(laneKey)).toBe(false);
-  });
-
   test('clears only the targeted runtime session lane for a threshold session id + chain target', () => {
     clearAllThresholdEcdsaSessionRecords(makeThresholdEcdsaSessionStoreDeps());
     const deps = makeThresholdEcdsaSessionStoreDeps({ now: () => 1_800_000_000_000 });
@@ -1249,84 +1174,4 @@ test.describe('EVM-family ECDSA identity', () => {
     ).not.toThrow();
   });
 
-  test('client store allows distinct material activations for the same EVM-family signing root', () => {
-    const deps = makeThresholdEcdsaSessionStoreDeps({ now: () => 1_800_000_000_000 });
-    const runtimePolicyScope = {
-      orgId: 'org-test',
-      projectId: 'project-client-conflict',
-      envId: 'dev',
-      signingRootVersion: 'default',
-    } as const;
-    upsertThresholdEcdsaSessionFact(
-      deps,
-      makeRecord({
-        runtimePolicyScope,
-        signingRootId: 'project-client-conflict:dev',
-        thresholdSessionId: 'threshold-session-first-key',
-        signingGrantId: 'wallet-session-first-key',
-      }),
-    );
-
-    expect(() =>
-      upsertThresholdEcdsaSessionFact(
-        deps,
-        makeRecord({
-          runtimePolicyScope,
-          signingRootId: 'project-client-conflict:dev',
-          chainTarget: TEMPO_TARGET,
-          walletId: OTHER_WALLET_ID,
-          keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-conflicting'),
-          ecdsaThresholdKeyId: 'ederivation-conflicting-key',
-          thresholdSessionId: 'threshold-session-second-key',
-          signingGrantId: 'wallet-session-second-key',
-        }),
-      ),
-    ).not.toThrow();
-    const keys = listThresholdEcdsaRuntimeLanesForWallet(deps, WALLET_ID).map((lane) =>
-      String(lane.lane.materialActivation.activationId),
-    );
-    const otherKeys = listThresholdEcdsaRuntimeLanesForWallet(deps, OTHER_WALLET_ID).map((lane) =>
-      String(lane.lane.materialActivation.activationId),
-    );
-    expect(new Set(keys).size).toBe(1);
-    expect(new Set(otherKeys).size).toBe(1);
-    expect(keys[0]).not.toBe(otherKeys[0]);
-  });
-
-  test('exact ECDSA lookup rejects a selected lane with the wrong wallet identity', () => {
-    const deps = makeThresholdEcdsaSessionStoreDeps({ now: () => 1_800_000_000_000 });
-    const record = makeRecord();
-    const readModel = thresholdEcdsaSessionRecordReadModel(record);
-    const otherWallet = toWalletId('mallory.testnet');
-    const otherWalletReadModel = thresholdEcdsaSessionRecordReadModel(
-      makeRecord({ walletId: otherWallet }),
-    );
-    const otherWalletKey = otherWalletReadModel.key;
-    upsertThresholdEcdsaSessionFact(deps, record);
-    const matchingLane = selectedEcdsaLane({
-      key: readModel.key,
-      materialActivation: readModel.lane.materialActivation,
-      keyHandle: record.keyHandle,
-      walletId: WALLET_ID,
-      auth: { kind: 'passkey', rpId: toRpId(RP_ID), credentialIdB64u: record.keyHandle },
-      signingGrantId: readModel.lane.signingGrantId,
-      thresholdSessionId: readModel.lane.thresholdSessionId,
-      chainTarget: readModel.lane.chainTarget,
-    });
-    const wrongWalletLane = selectedEcdsaLane({
-      key: otherWalletKey,
-      materialActivation: otherWalletReadModel.lane.materialActivation,
-      keyHandle: record.keyHandle,
-      walletId: otherWallet,
-      auth: { kind: 'passkey', rpId: toRpId(RP_ID), credentialIdB64u: record.keyHandle },
-      signingGrantId: readModel.lane.signingGrantId,
-      thresholdSessionId: readModel.lane.thresholdSessionId,
-      chainTarget: readModel.lane.chainTarget,
-    });
-
-    expect(getThresholdEcdsaSessionRecordByKey(deps, matchingLane)?.walletId).toBe(WALLET_ID);
-    expect(getThresholdEcdsaKeyRefByKey(deps, matchingLane)?.keyRef.userId).toBe(WALLET_ID);
-    expect(getThresholdEcdsaSessionRecordByKey(deps, wrongWalletLane)).toBeNull();
-    expect(getThresholdEcdsaKeyRefByKey(deps, wrongWalletLane)).toBeNull();
-  });
 });

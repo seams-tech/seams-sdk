@@ -2,7 +2,6 @@ import { expect, test } from '@playwright/test';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toEvmFamilyEcdsaKeyHandle } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
-  listThresholdEcdsaRuntimeLanesForWallet,
   upsertThresholdEcdsaSessionFact,
   type ThresholdEcdsaSessionStoreDeps,
 } from '@/core/signingEngine/session/persistence/records';
@@ -99,7 +98,8 @@ test('ephemeral ECDSA export results cannot enter transaction persistence or ava
 
   const error = persistenceError({ store, value: exportResult });
 
+  // The lane-listing assertion is dropped with its retired store API; an empty
+  // `recordsByLane` is the same fact at the boundary that still exists.
   expect(errorMessage(error)).toContain('expected transaction_signing purpose');
   expect(store.recordsByLane.size).toBe(0);
-  expect(listThresholdEcdsaRuntimeLanesForWallet(store, WALLET_ID)).toEqual([]);
 });

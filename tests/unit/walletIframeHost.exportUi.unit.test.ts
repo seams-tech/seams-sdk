@@ -1,4 +1,9 @@
 import { expect, test } from '@playwright/test';
+import {
+  buildMpcMaterialActivationRefFixture,
+  buildWalletAuthAuthorityRefFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
+import { activeEvmFamilyWalletSessionAuthorizationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { createWalletIframeHandlers } from '@/SeamsWeb/walletIframe/host/wallet-iframe-handlers';
 import type { ChildToParentEnvelope } from '@/SeamsWeb/walletIframe/shared/messages';
 import {
@@ -46,20 +51,29 @@ const EXPORT_KEY = buildEvmFamilyEcdsaKeyIdentity({
   participantIds: [1, 2],
   thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
 });
+// An exact ECDSA lane is named by its material activation and authorized by an
+// independent Wallet Session; rotating grant and session ids name neither.
+const EXPORT_MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
+  'export-host',
+  String(EXPORT_WALLET_ID),
+);
 const EXPORT_LANE = exactEcdsaSigningLaneIdentity({
   signer: buildEvmFamilyEcdsaSignerBinding({
     walletId: EXPORT_WALLET_ID,
     chainTarget: EXPORT_CHAIN_TARGET,
     keyHandle: toEvmFamilyEcdsaKeyHandle('ecdsa-key-handle-export-host'),
     key: EXPORT_KEY,
+    materialActivation: EXPORT_MATERIAL_ACTIVATION,
   }),
   auth: {
     kind: 'passkey',
     rpId: toRpId('example.test'),
     credentialIdB64u: 'cred-export-host',
   },
-  signingGrantId: 'grant-export-host',
-  thresholdSessionId: 'threshold-export-host',
+  authorization: activeEvmFamilyWalletSessionAuthorizationFixture({
+    walletId: EXPORT_WALLET_ID,
+    authority: buildWalletAuthAuthorityRefFixture({ walletId: String(EXPORT_WALLET_ID) }),
+  }),
 });
 const EXPORT_WALLET_SESSION = walletSessionRefFromSession({
   walletId: EXPORT_WALLET_ID,
