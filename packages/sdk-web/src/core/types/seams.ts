@@ -479,21 +479,6 @@ export type RegistrationResult =
     }
   | {
       success: true;
-      kind: 'near_ed25519_and_ecdsa_wallet_registered';
-      walletId: WalletId;
-      accountProvisioning: RegistrationNearAccountProvisioning;
-      resolvedAccount: ResolvedRegistrationNearAccount;
-      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-      operationalPublicKey: string | null;
-      nearAccountId: AccountId;
-      transactionId: string | null;
-      thresholdEcdsaEthereumAddress: string;
-      thresholdEcdsaPublicKeyB64u: string;
-      error?: never;
-      errorCode?: never;
-    }
-  | {
-      success: true;
       kind: 'ecdsa_wallet_registered';
       walletId: WalletId;
       thresholdEcdsaEthereumAddress: string;
