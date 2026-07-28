@@ -9,14 +9,8 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { buildEvmFamilyEcdsaKeyIdentity } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
-import {
-  resetWarmSessionFixtureState,
-  seedEcdsaWarmSessionRecord,
-  createThresholdEcdsaStoreFixture,
-} from './helpers/signingSessionRecord.fixtures';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
-import { thresholdEcdsaSessionRecordReadModel } from '@/core/signingEngine/session/persistence/records';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 test.describe('EVM-family request boundaries', () => {
@@ -79,7 +73,11 @@ test.describe('EVM-family request boundaries', () => {
     expect(transactionExecutor).toContain(
       "args.chainTarget.kind === 'evm' || args.request.kind === 'eip1559'",
     );
-    expect(transactionExecutor).toContain(
+    // The loader choice is a formatted ternary, so match it on its parts.
+    // Asserting the one-line form made this guard fail on reflow rather than on
+    // the routing it exists to protect.
+    const loaderChoice = transactionExecutor.replace(/\s+/g, ' ');
+    expect(loaderChoice).toContain(
       "targetKind === 'tempo' ? loadSignEvmFamilyWithUiConfirmForTempo : loadSignEvmWithUiConfirm",
     );
     expect(transactionExecutor).toContain('requireRawEip1559ThresholdOwnerNonceSenderIdentity');
@@ -102,30 +100,14 @@ test.describe('EVM-family request boundaries', () => {
     expect(signEvmFamilyWithUiConfirmForTempo).toContain("targetKind: 'tempo'");
   });
 
-  test('refreshes step-up ECDSA lanes with the normalized signing target chain', () => {
-    const signEvmFamily = fs.readFileSync(
-      path.join(
-        repoRoot,
-        'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
-      ),
-      'utf8',
-    );
-
-    const emailOtpRefreshCall = signEvmFamily.slice(
-      signEvmFamily.indexOf('completeEvmFamilyEmailOtpSigningRefresh({'),
-      signEvmFamily.indexOf('completeEvmFamilyEmailOtpSigningRefresh({') + 400,
-    );
-    expect(emailOtpRefreshCall).toContain('chain: requestChain');
-    expect(emailOtpRefreshCall).not.toContain('chain: args.request.chain');
-
-    const keyRefRefreshStart = signEvmFamily.lastIndexOf(
-      'updateResolvedEvmFamilyEcdsaSigningLaneIdentity({',
-      signEvmFamily.indexOf("context: 'EVM-family signing record refresh'"),
-    );
-    const keyRefRefreshCall = signEvmFamily.slice(keyRefRefreshStart, keyRefRefreshStart + 400);
-    expect(keyRefRefreshCall).toContain('chain: requestChain');
-    expect(keyRefRefreshCall).not.toContain('chain: args.request.chain');
-  });
+  // The "refreshes step-up ECDSA lanes with the normalized signing target
+  // chain" case is gone with its subject. It sliced `signEvmFamily.ts` around
+  // `completeEvmFamilyEmailOtpSigningRefresh` and a record-refresh call to
+  // `updateResolvedEvmFamilyEcdsaSigningLaneIdentity`; neither exists in
+  // production any more, so both `indexOf` lookups returned -1 and the
+  // assertions ran against a garbage slice. Signing no longer refreshes a
+  // record in place -- material is selected by manifest and sealed runtime, and
+  // the chain it serves is checked at the hydration boundary.
 
   test('committed Email OTP ECDSA selection does not probe session records by wallet and chain', () => {
     const ecdsaSelection = fs.readFileSync(
@@ -140,4 +122,3 @@ test.describe('EVM-family request boundaries', () => {
     expect(ecdsaSelection).not.toContain('tryGetEmailOtpThresholdEcdsaSessionRecordForAuthority');
   });
 });
-
