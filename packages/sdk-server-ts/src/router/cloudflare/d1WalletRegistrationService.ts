@@ -2703,10 +2703,52 @@ export class CloudflareD1WalletRegistrationService {
             message: 'registration finalize idempotency key was reused for a different request',
           };
         }
-        await cleanupFinalizedRegistrationCeremony({
-          store,
-          registrationCeremonyId: request.registrationCeremonyId,
-        });
+        const replayedCeremony = await store.getCeremony(request.registrationCeremonyId);
+        const preservesDeferredEd25519Finalize =
+          replay.response.ok &&
+          replay.response.kind === 'evm_family_ecdsa' &&
+          replayedCeremony !== null &&
+          registrationSignerBranchesFromPlan(replayedCeremony.signerPlan).nearEd25519 !== null;
+        if (preservesDeferredEd25519Finalize) {
+          if (replayedCeremony.signerState.kind !== 'signer_set_registration') {
+            throw new Error('Replayed mixed registration has an invalid signer state');
+          }
+          const replayedEcdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(
+            replayedCeremony.signerState,
+          );
+          if (replayedEcdsaBranch?.kind === 'evm_family_ecdsa_activated') {
+            try {
+              await store.updateCeremony({
+                expected: replayedCeremony,
+                next: {
+                  ...replayedCeremony,
+                  signerState: replaceStoredWalletRegistrationSignerBranch({
+                    state: replayedCeremony.signerState,
+                    replacement: buildStoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch({
+                      activated: replayedEcdsaBranch,
+                      finalizedAtMs: replay.createdAtMs,
+                    }),
+                  }),
+                },
+              });
+            } catch (error: unknown) {
+              const reconciled = await store.getCeremony(request.registrationCeremonyId);
+              const reconciledEcdsaBranch =
+                reconciled?.signerState.kind === 'signer_set_registration'
+                  ? findStoredWalletRegistrationEvmFamilyEcdsaBranch(reconciled.signerState)
+                  : null;
+              if (reconciledEcdsaBranch?.kind !== 'evm_family_ecdsa_finalized') throw error;
+            }
+          } else if (replayedEcdsaBranch?.kind !== 'evm_family_ecdsa_finalized') {
+            throw new Error('Replayed mixed registration has not completed ECDSA activation');
+          }
+        }
+        if (!preservesDeferredEd25519Finalize) {
+          await cleanupFinalizedRegistrationCeremony({
+            store,
+            registrationCeremonyId: request.registrationCeremonyId,
+          });
+        }
         finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
         return withD1RegistrationRouteDiagnostics(replay.response, finalizeTiming);
       }
