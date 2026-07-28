@@ -90,7 +90,7 @@ export function createBrowserRecoveryPublicDeps(args: {
           persistEcdsaRoleLocalReadyRecord:
             args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
           resolveSealTransport: ({ lane }) =>
-            args.warmSigning.capabilityReader.resolveEcdsaSealTransportByThresholdSessionId({
+            args.warmSigning.capabilityReader.resolveEcdsaSealTransportForLane({
               lane,
             }),
         },

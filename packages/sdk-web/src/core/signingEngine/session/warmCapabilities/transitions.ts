@@ -50,9 +50,13 @@ export type WarmSessionTransitionEvent =
 function summarizeWarmSessionCapabilityTransition(
   capability: WarmSessionEd25519CapabilityState | WarmSessionEcdsaCapabilityState,
 ): WarmSessionTransitionCapabilitySnapshot {
-  const thresholdSessionId = capability.record?.thresholdSessionId
-    ? String(capability.record.thresholdSessionId).trim()
-    : null;
+  // Ed25519 still carries its record; ECDSA reports the sealed record its
+  // runtime resolved to.
+  const rawSessionId =
+    capability.capability === 'ecdsa'
+      ? capability.runtime?.sealedRecord.thresholdSessionId
+      : capability.record?.thresholdSessionId;
+  const thresholdSessionId = rawSessionId ? String(rawSessionId).trim() : null;
   return {
     state: capability.state,
     thresholdSessionId: thresholdSessionId || null,

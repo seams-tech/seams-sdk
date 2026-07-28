@@ -25,11 +25,9 @@ export async function ensureEcdsaPrfSealPersisted(args: {
   required?: boolean;
   errorContext?: string;
   sealPersistInFlightBySessionId: Map<string, Promise<void>>;
-  resolveSealTransport: (
-    args: {
-      lane: ExactEcdsaSigningLaneIdentity;
-    },
-  ) => ThresholdSessionSealTransportAuthMaterial | null;
+  resolveSealTransport: (args: {
+    lane: ExactEcdsaSigningLaneIdentity;
+  }) => Promise<ThresholdSessionSealTransportAuthMaterial | null>;
 }): Promise<void> {
   const materialActivationId = String(
     args.lane.signer.materialActivation.activationId,
@@ -40,7 +38,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
   if (!persistPromise) {
     persistPromise = (async (): Promise<void> => {
       const errorContext = String(args.errorContext || 'threshold session seal persistence').trim();
-      const sealTransport = args.resolveSealTransport({
+      const sealTransport = await args.resolveSealTransport({
         lane: args.lane,
       });
       if (sealTransport && sealTransport.curve !== 'ecdsa') {

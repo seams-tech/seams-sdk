@@ -5,14 +5,7 @@ import {
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
-import {
-  resolveThresholdEcdsaKeyIdFromKeyRef,
-  resolveThresholdEcdsaKeyIdFromRecord,
-} from '../identity/evmFamilyEcdsaIdentity';
-import {
-  buildEcdsaSessionIdentity,
-  ecdsaSessionIdentitiesEqual,
-} from './ecdsaProvisionPlan';
+import { resolveThresholdEcdsaKeyIdFromKeyRef } from '../identity/evmFamilyEcdsaIdentity';
 import type { WarmSessionEcdsaCapabilityState } from './types';
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 
@@ -22,6 +15,11 @@ export type EcdsaWarmCapabilityReader = {
   ) => Promise<WarmSessionEcdsaCapabilityState | null>;
 };
 
+/** Asserts the warm capability that came back describes the material the
+ * bootstrap just created. Only material identity is compared here: the
+ * authorization half is checked separately against the bootstrap's
+ * authorizationSessionId, and the signing grant is authorization-owned, so it
+ * takes no part in proving which material this is. */
 function requireExactBootstrapCapability(args: {
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -29,7 +27,7 @@ function requireExactBootstrapCapability(args: {
   capability: WarmSessionEcdsaCapabilityState;
 }): WarmSessionEcdsaCapabilityState {
   const { bootstrap, capability } = args;
-  if (capability.state !== 'ready' || !capability.record) {
+  if (capability.state !== 'ready' || !capability.runtime) {
     throw new Error(
       `[SigningEngine] Email OTP bootstrap did not reach warm-session ready state for ${String(
         args.walletId,
@@ -37,25 +35,18 @@ function requireExactBootstrapCapability(args: {
     );
   }
 
-  const record = capability.record;
+  const runtime = capability.runtime;
   const keyRef = bootstrap.thresholdEcdsaKeyRef;
-  const recordIdentity = buildEcdsaSessionIdentity(record);
-  const bootstrapIdentity = buildEcdsaSessionIdentity({
-    thresholdSessionId: keyRef.thresholdSessionId || bootstrap.session.thresholdSessionId,
-    signingGrantId:
-      keyRef.signingGrantId || bootstrap.session.signingGrantId,
-  });
   const participantIdsMatch =
-    !record.participantIds?.length ||
     !keyRef.participantIds?.length ||
-    record.participantIds.map((value) => Number(value)).join(',') ===
+    runtime.participantIds.map((value) => Number(value)).join(',') ===
       keyRef.participantIds.map((value) => Number(value)).join(',');
 
   if (
-    !thresholdEcdsaChainTargetsEqual(record.chainTarget, args.chainTarget) ||
+    !thresholdEcdsaChainTargetsEqual(runtime.chainTarget, args.chainTarget) ||
     !thresholdEcdsaChainTargetsEqual(keyRef.chainTarget, args.chainTarget) ||
-    !ecdsaSessionIdentitiesEqual(recordIdentity, bootstrapIdentity) ||
-    String(resolveThresholdEcdsaKeyIdFromRecord({ record })) !==
+    String(runtime.sealedRecord.thresholdSessionId) !== bootstrapThresholdSessionId(bootstrap) ||
+    String(runtime.ecdsaThresholdKeyId) !==
       String(resolveThresholdEcdsaKeyIdFromKeyRef({ keyRef })) ||
     !participantIdsMatch
   ) {
@@ -109,15 +100,15 @@ export async function assertWarmThresholdEcdsaCapabilityReady(
     walletId: args.walletId,
     chainTarget: args.chainTarget,
     bootstrap: args.bootstrap,
-    capability:
-      capability || {
-        capability: 'ecdsa',
-        state: 'missing',
-        record: null,
-        key: null,
-        lane: null,
-        auth: null,
-        prfClaim: null,
-      },
+    capability: capability || {
+      capability: 'ecdsa',
+      state: 'missing',
+      manifest: null,
+      runtime: null,
+      key: null,
+      lane: null,
+      auth: null,
+      prfClaim: null,
+    },
   });
 }

@@ -138,3 +138,51 @@ export async function resolveActiveEcdsaCapabilityRuntimeForSealedRecord(args: {
     ? { kind: 'resolved', manifest, runtime: resolution.runtime }
     : { kind: 'blocked', reason: resolution.reason };
 }
+
+/** Resolve by chain kind, taking the exact chain target from the manifest's own
+ * target memberships. The warm-session envelope is keyed by kind (evm/tempo)
+ * while correlation needs a full target, and the manifest is the authority on
+ * which targets its capability covers. */
+export async function resolveActiveEcdsaCapabilityRuntimeForChain(args: {
+  readonly walletId: WalletId;
+  readonly chain: ThresholdEcdsaChainTarget['kind'];
+}): Promise<ActiveEcdsaCapabilityRuntimeResolution> {
+  const subjects = await ecdsaCapabilityManifestStore.listActiveWalletCapabilitySubjects(
+    args.walletId,
+  );
+  if (subjects.kind !== 'resolved') return { kind: 'blocked', reason: 'missing_capability' };
+  const matches: Array<{
+    manifest: ActiveEcdsaCapabilityManifest;
+    chainTarget: ThresholdEcdsaChainTarget;
+  }> = [];
+  for (const subject of subjects.subjects) {
+    const lookup = await ecdsaCapabilityManifestStore.lookup({
+      capability: subject.capability,
+      authority: subject.authority,
+    });
+    if (lookup.kind !== 'active') continue;
+    // Every concrete target of this kind counts. A manifest covering two
+    // concrete targets of the same kind is ambiguous, not a reason to take the
+    // first one.
+    for (const membership of lookup.manifest.signer.scope.targetMemberships) {
+      if (membership.kind !== args.chain) continue;
+      matches.push({ manifest: lookup.manifest, chainTarget: membership });
+    }
+  }
+  if (matches.length === 0) return { kind: 'blocked', reason: 'missing_capability' };
+  if (matches.length > 1) return { kind: 'blocked', reason: 'exact_record_conflict' };
+  const match = matches[0]!;
+  const sealedRecords = await listSealedEcdsaRecordsForWallet({
+    walletId: args.walletId,
+    chainTarget: match.chainTarget,
+  });
+  const resolution = resolveExactEcdsaSealedRuntime({
+    manifest: match.manifest,
+    walletId: args.walletId,
+    chainTarget: match.chainTarget,
+    sealedRecords,
+  });
+  return resolution.kind === 'resolved'
+    ? { kind: 'resolved', manifest: match.manifest, runtime: resolution.runtime }
+    : { kind: 'blocked', reason: resolution.reason };
+}

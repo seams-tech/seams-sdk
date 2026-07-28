@@ -1,3 +1,4 @@
+import { laneCandidateStateFromRuntimePolicy } from '../identity/laneIdentity';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import type {
   SigningSessionRetention,
@@ -10,13 +11,9 @@ import type {
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
 import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
-import {
-  parseSigningSessionSealKeyVersion,
-  type SigningSessionSealKeyVersion,
-} from '../keyMaterialBrands';
+import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import type {
   WarmSessionEd25519AuthMaterial,
-  WarmSessionEcdsaAuthMaterial,
   WarmSessionEcdsaCapabilityState,
   WarmSessionEd25519CapabilityState,
   WarmSessionPrfClaim,
@@ -26,6 +23,7 @@ import {
   emailOtpAuthContextConsumedAtMs,
   emailOtpAuthContextRetention,
 } from '../identity/laneIdentity';
+import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import {
   classifyRouterAbEcdsaDerivationPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
@@ -218,29 +216,6 @@ export function resolveEd25519AuthMaterial(
   };
 }
 
-export function resolveEcdsaAuthMaterial(
-  record: WarmSessionEcdsaCapabilityState['record'],
-): WarmSessionEcdsaAuthMaterial | null {
-  if (!record) return null;
-  const authority = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
-  if (authority.kind === 'ready') {
-    return {
-      capability: 'ecdsa',
-      state: 'ready',
-      record,
-      walletSessionJwt: authority.walletSessionJwt,
-      walletSessionJwtSource: 'ecdsa_record',
-    };
-  }
-  return {
-    capability: 'ecdsa',
-    state: 'unavailable',
-    record,
-    walletSessionJwtSource: 'none',
-    unavailableReason: authority.reason,
-  };
-}
-
 export function deriveEd25519CapabilityState(args: {
   record: WarmSessionEd25519CapabilityState['record'];
   auth: WarmSessionEd25519AuthMaterial | null;
@@ -281,21 +256,26 @@ export function deriveEd25519CapabilityState(args: {
 }
 
 export function deriveEcdsaCapabilityState(args: {
-  record: WarmSessionEcdsaCapabilityState['record'];
-  auth: WarmSessionEcdsaAuthMaterial | null;
+  runtime: NonNullable<WarmSessionEcdsaCapabilityState['runtime']>;
+  auth: ActiveEvmFamilyWalletSessionAuthorization | null;
   prfClaim: WarmSessionPrfClaim | null;
-  authorization: ActiveEvmFamilyWalletSessionAuthorization | null;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext | null;
 }): WarmSessionEcdsaCapabilityState['state'] {
-  if (!args.record) return 'missing';
   // The reusable Wallet Session authorization is the independent second proof:
-  // without it the capability is not signable regardless of transport auth,
-  // and no SelectedEcdsaLane can exist.
-  if (!args.authorization) return 'authorization_required';
-  if (!args.auth || args.auth.state === 'unavailable') {
-    return 'auth_missing';
+  // without it the capability is not signable regardless of material, and no
+  // SelectedEcdsaLane can exist.
+  if (!args.auth) return 'authorization_required';
+  // Allowance and expiry are classified by the shared Refactor 92 rule before
+  // PRF state. An expired or exhausted session is an authorization state, not a
+  // material one: the sealed material and its activation are untouched.
+  const runtimeState = laneCandidateStateFromRuntimePolicy({
+    remainingUses: args.runtime.remainingUses,
+    expiresAtMs: args.runtime.expiresAtMs,
+  });
+  if (runtimeState === 'expired' || runtimeState === 'exhausted') {
+    return 'authorization_required';
   }
-  const ecdsaEmailOtpAuthContext =
-    args.record.source === 'email_otp' ? args.record.emailOtpAuthContext : null;
+  const ecdsaEmailOtpAuthContext = args.emailOtpAuthContext ?? null;
   if (
     ecdsaEmailOtpAuthContext &&
     emailOtpAuthContextRetention(ecdsaEmailOtpAuthContext) === 'single_use' &&
@@ -306,16 +286,7 @@ export function deriveEcdsaCapabilityState(args: {
   if (!args.prfClaim) return 'prf_missing';
   if (args.prfClaim.state === 'unavailable') return 'prf_unavailable';
   if (args.prfClaim.state !== 'warm') return 'prf_missing';
-  const persistedState = classifyRouterAbEcdsaDerivationPersistedSigningRecord(args.record);
-  if (persistedState.kind === 'runtime_validated') return 'ready';
-  if (
-    persistedState.kind === 'non_signing' ||
-    persistedState.reason === 'missing_wallet_session_jwt'
-  ) {
-    return 'auth_missing';
-  }
-  if (persistedState.kind === 'restore_available') return 'material_pending';
-  return 'material_pending';
+  return 'ready';
 }
 
 export function hasSufficientWarmClaim(
@@ -388,47 +359,35 @@ export function toSigningSessionStatus(args: {
   };
 }
 
-function hasRecordOwnedEcdsaWalletSessionAuth(
-  auth: WarmSessionEcdsaAuthMaterial | null,
-): auth is Extract<WarmSessionEcdsaAuthMaterial, { state: 'ready' }> {
-  if (!auth || auth.state !== 'ready') return false;
-  return (
-    auth.walletSessionJwtSource === 'ecdsa_record' &&
-    Boolean(String(auth.walletSessionJwt || '').trim())
-  );
-}
-
+/** Transport identity comes from the sealed runtime; the bearer proof comes from
+ * the reusable Wallet Session. An Email-OTP-bound runtime has no standing
+ * authorization of its own, so without a live Wallet Session there is nothing to
+ * seal against and the transport is withheld rather than emitted unauthorized. */
 export function resolveEcdsaSealTransport(args: {
-  record: WarmSessionEcdsaCapabilityState['record'];
-  auth: WarmSessionEcdsaAuthMaterial | null;
+  runtime: NonNullable<WarmSessionEcdsaCapabilityState['runtime']>;
+  auth: ActiveEvmFamilyWalletSessionAuthorization | null;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   shamirPrimeB64u?: string;
 }): ThresholdSessionSealTransportAuthMaterial | null {
-  if (!args.record) return null;
-  if (args.record.source === 'email_otp' && !hasRecordOwnedEcdsaWalletSessionAuth(args.auth)) {
-    return null;
-  }
-  const relayerUrl = String(args.record.relayerUrl || '').trim();
+  const walletSessionJwt = String(args.auth?.projection.walletSessionJwt || '').trim();
+  if (args.runtime.authBinding.kind === 'email_otp' && !walletSessionJwt) return null;
+  const relayerUrl = String(args.runtime.relayerUrl || '').trim();
   if (!relayerUrl) return null;
-  const signingSessionSealKeyVersion =
-    args.signingSessionSealKeyVersion ||
-    (args.record.signingSessionSealKeyVersion
-      ? parseSigningSessionSealKeyVersion(args.record.signingSessionSealKeyVersion)
-      : undefined);
   const shamirPrimeB64u = String(args.shamirPrimeB64u || '').trim();
-  const signingGrantId = args.record.signingGrantId;
-  const walletSessionJwt = String(args.auth?.walletSessionJwt || '').trim();
-  const walletSessionJwtSource =
-    args.auth?.walletSessionJwtSource === 'ecdsa_record' ? 'ecdsa' : 'none';
+  // The authorizing grant is the reusable Wallet Session itself; the sealed
+  // record carries no grant of its own to fall back to.
+  const signingGrantId = String(args.auth?.projection.walletSessionId || '').trim();
   return {
     curve: 'ecdsa',
-    walletId: String(args.record.walletId),
-    chainTarget: args.record.chainTarget,
+    walletId: String(args.runtime.walletId),
+    chainTarget: args.runtime.chainTarget,
     relayerUrl,
     ...(signingGrantId ? { signingGrantId } : {}),
-    ...(walletSessionJwt ? { walletSessionJwt: walletSessionJwt } : {}),
-    walletSessionJwtSource,
-    ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
+    ...(walletSessionJwt ? { walletSessionJwt } : {}),
+    walletSessionJwtSource: walletSessionJwt ? 'ecdsa' : 'none',
+    ...(args.signingSessionSealKeyVersion
+      ? { signingSessionSealKeyVersion: args.signingSessionSealKeyVersion }
+      : {}),
     ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
   };
 }

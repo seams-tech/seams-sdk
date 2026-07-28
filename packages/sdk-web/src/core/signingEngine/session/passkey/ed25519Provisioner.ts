@@ -4,7 +4,6 @@ import {
   summarizeWarmSessionTransition,
   type WarmSessionTransitionEvent,
 } from '../warmCapabilities/transitions';
-import { toOptionalNonEmptyString } from '../../useCases/provisionEcdsaSession';
 import type { WarmSessionEnvelope } from '../warmCapabilities/types';
 import type {
   ProvisionWarmEd25519CapabilityArgs,
@@ -12,6 +11,11 @@ import type {
 } from '../warmCapabilities/types';
 import { nearProtocolProjectionFromExactLane } from '../identity/exactSigningLaneIdentity';
 import { toWalletId, type WalletId } from '../../interfaces/ecdsaChainTarget';
+
+function toOptionalNonEmptyString(value: unknown): string | undefined {
+  const normalized = String(value || '').trim();
+  return normalized || undefined;
+}
 
 export type WarmSessionEd25519ProvisionerDeps = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
