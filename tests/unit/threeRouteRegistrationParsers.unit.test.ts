@@ -137,3 +137,17 @@ test('activate rejects a nearProvisioning status other than pending', async () =
     ),
   ).rejects.toThrow(/nearProvisioning status is invalid/);
 });
+
+test('activate rejects a response missing the activation payload', async () => {
+  /* Activate absorbed derivation/activate as well as finalize, so its response
+     must carry both halves. Without `activation` and `bootstrap` the client
+     cannot build its ECDSA session, and the wallet would register server-side
+     while being unable to sign — so this fails at the boundary rather than
+     producing an unusable wallet. */
+  await expect(
+    withStubbedFetch(
+      { ok: true, kind: 'evm_family_ecdsa', walletId: 'w.testnet' },
+      () => activateWalletRegistration(ACTIVATE_ARGS),
+    ),
+  ).rejects.toThrow(/missing the activation payload/);
+});
