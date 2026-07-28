@@ -4,8 +4,11 @@ import type { CurrentEcdsaSealedSessionRecord } from '@/core/signingEngine/sessi
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { ecdsaCapabilityHydrationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
-import { seedEmailOtpEcdsaSealedSigningSessionRecord } from './helpers/sealedSigningSession.fixtures';
-import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { buildEmailOtpEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';
+import {
+  buildMpcMaterialActivationRefFixture,
+  buildWalletAuthAuthorityRefFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
 
 // The manifest owns the exact capability, public facts and material activation;
 // the sealed record owns session-scoped runtime state. This correlation is what
@@ -16,39 +19,13 @@ function activeManifest(): ActiveEcdsaCapabilityManifest {
   return ecdsaCapabilityHydrationLookupFixture().active.manifest;
 }
 
-/** A sealed record whose role-local material ref names the manifest's exact
- * durable material, which is the only thing that makes it the right record. */
-function sealedRecordForManifest(
-  manifest: ActiveEcdsaCapabilityManifest,
-  overrides: { storeKey?: string } = {},
-): CurrentEcdsaSealedSessionRecord {
-  const base = seedEmailOtpEcdsaSealedSigningSessionRecord();
-  const durable = manifest.durableMaterial;
-  return {
-    ...base,
-    ...(overrides.storeKey ? { storeKey: overrides.storeKey } : {}),
-    walletId: String(durable.materialActivation.materialOwner),
-    expiresAtMs: Date.now() + 5 * 60_000,
-    remainingUses: 4,
-    ecdsaRestore: {
-      ...base.ecdsaRestore,
-      keyHandle: String(durable.roleLocalPublicFacts.keyHandle),
-      roleLocalMaterialRef: {
-        ...base.ecdsaRestore.roleLocalMaterialRef,
-        durableMaterialRef: String(durable.durableMaterialRef),
-        materialActivation: durable.materialActivation,
-      },
-    },
-  } as CurrentEcdsaSealedSessionRecord;
-}
-
 function resolve(
   manifest: ActiveEcdsaCapabilityManifest,
   sealedRecords: readonly CurrentEcdsaSealedSessionRecord[],
 ) {
   return resolveExactEcdsaSealedRuntime({
     manifest,
-    walletId: toWalletId(String(manifest.durableMaterial.materialActivation.materialOwner)),
+    walletId: toWalletId(String(manifest.signer.walletId)),
     chainTarget: sealedRecords[0]?.ecdsaRestore.chainTarget ?? {
       kind: 'tempo',
       chainId: 42431,
@@ -61,7 +38,7 @@ function resolve(
 test.describe('exact ECDSA sealed runtime resolution', () => {
   test('resolves runtime facts from the sealed record bound to the manifest material', () => {
     const manifest = activeManifest();
-    const record = sealedRecordForManifest(manifest);
+    const record = buildEmailOtpEcdsaSealedRuntimeRecordFixture({ manifest });
     const resolution = resolve(manifest, [record]);
 
     expect(resolution.kind).toBe('resolved');
@@ -91,36 +68,25 @@ test.describe('exact ECDSA sealed runtime resolution', () => {
 
   test('blocks when the sealed material ref is not canonical persisted material', () => {
     const manifest = activeManifest();
-    const bound = sealedRecordForManifest(manifest);
-    const malformed = {
-      ...bound,
-      ecdsaRestore: {
-        ...bound.ecdsaRestore,
-        roleLocalMaterialRef: {
-          ...bound.ecdsaRestore.roleLocalMaterialRef,
-          bindingDigest: '',
-        },
-      },
-    } as CurrentEcdsaSealedSessionRecord;
+    const malformed = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+      manifest,
+      corruption: { kind: 'blank_binding_digest' },
+    });
     expect(resolve(manifest, [malformed])).toEqual({ kind: 'blocked', reason: 'corrupt' });
   });
 
   test('blocks when no sealed record names the manifest material activation', () => {
     const manifest = activeManifest();
-    const bound = sealedRecordForManifest(manifest);
-    const foreign = {
-      ...bound,
-      ecdsaRestore: {
-        ...bound.ecdsaRestore,
-        roleLocalMaterialRef: {
-          ...bound.ecdsaRestore.roleLocalMaterialRef,
-          materialActivation: buildMpcMaterialActivationRefFixture(
-            'other-material',
-            String(manifest.durableMaterial.materialActivation.materialOwner),
-          ),
-        },
+    const foreign = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+      manifest,
+      corruption: {
+        kind: 'foreign_material_activation',
+        materialActivation: buildMpcMaterialActivationRefFixture(
+          'other-material',
+          String(manifest.durableMaterial.materialActivation.materialOwner),
+        ),
       },
-    } as CurrentEcdsaSealedSessionRecord;
+    });
     expect(resolve(manifest, [foreign])).toEqual({
       kind: 'blocked',
       reason: 'missing_material',
@@ -130,8 +96,16 @@ test.describe('exact ECDSA sealed runtime resolution', () => {
 
   test('blocks on conflict rather than choosing between two records for one material', () => {
     const manifest = activeManifest();
-    const first = sealedRecordForManifest(manifest, { storeKey: 'sealed:a' });
-    const second = sealedRecordForManifest(manifest, { storeKey: 'sealed:b' });
+    const first = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+      manifest,
+      signingGrantId: 'wallet-session-a',
+      thresholdSessionId: 'ec-session-a',
+    });
+    const second = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+      manifest,
+      signingGrantId: 'wallet-session-b',
+      thresholdSessionId: 'ec-session-b',
+    });
     expect(resolve(manifest, [first, second])).toEqual({
       kind: 'blocked',
       reason: 'exact_record_conflict',
@@ -140,21 +114,86 @@ test.describe('exact ECDSA sealed runtime resolution', () => {
 
   test('blocks when the bound record cannot supply complete runtime facts', () => {
     const manifest = activeManifest();
-    const record = sealedRecordForManifest(manifest);
-    const corrupt = {
-      ...record,
-      relayerUrl: '   ',
-    } as CurrentEcdsaSealedSessionRecord;
+    const corrupt = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+      manifest,
+      corruption: { kind: 'blank_relayer_url' },
+    });
     expect(resolve(manifest, [corrupt])).toEqual({ kind: 'blocked', reason: 'corrupt' });
+  });
+
+  test('blocks sealed facts that disagree with the selected manifest', () => {
+    const manifest = activeManifest();
+    const mismatchedAuthority = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+      manifest,
+      corruption: {
+        kind: 'authority_mismatch',
+        authority: buildWalletAuthAuthorityRefFixture({
+          walletId: String(manifest.signer.walletId),
+          label: 'other-authority',
+        }),
+      },
+    });
+    const mismatchedNormalSigning = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+      manifest,
+      corruption: { kind: 'normal_signing_wallet_id', walletId: 'other-wallet' },
+    });
+    const mismatchedRelayer = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+      manifest,
+      corruption: { kind: 'relayer_key_id', relayerKeyId: 'other-relayer' },
+    });
+
+    expect(resolve(manifest, [mismatchedAuthority])).toEqual({
+      kind: 'blocked',
+      reason: 'binding_mismatch',
+    });
+    expect(resolve(manifest, [mismatchedNormalSigning])).toEqual({
+      kind: 'blocked',
+      reason: 'binding_mismatch',
+    });
+    expect(resolve(manifest, [mismatchedRelayer])).toEqual({
+      kind: 'blocked',
+      reason: 'binding_mismatch',
+    });
+  });
+
+  test('rejects malformed two-party runtime facts', () => {
+    const manifest = activeManifest();
+    const invalidParticipantSets: readonly number[][] = [[1], [-1, 2], [1, 1], [1, 2, 3]];
+    const negativeAllowance = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+      manifest,
+      corruption: { kind: 'remaining_uses', remainingUses: -1 },
+    });
+    const invalidExpiry = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+      manifest,
+      corruption: { kind: 'expires_at_ms', expiresAtMs: 0 },
+    });
+
+    for (const participantIds of invalidParticipantSets) {
+      const malformedParticipants = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+        manifest,
+        corruption: { kind: 'participant_ids', participantIds },
+      });
+      expect(resolve(manifest, [malformedParticipants])).toEqual({
+        kind: 'blocked',
+        reason: 'corrupt',
+      });
+    }
+    expect(resolve(manifest, [negativeAllowance])).toEqual({
+      kind: 'blocked',
+      reason: 'corrupt',
+    });
+    expect(resolve(manifest, [invalidExpiry])).toEqual({
+      kind: 'blocked',
+      reason: 'corrupt',
+    });
   });
 
   test('a rotating threshold-session id never selects the record', () => {
     const manifest = activeManifest();
-    const record = sealedRecordForManifest(manifest);
-    const rotated = {
-      ...record,
-      thresholdSessionIds: { ecdsa: 'ec-session-rotated' },
-    } as CurrentEcdsaSealedSessionRecord;
+    const rotated = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+      manifest,
+      thresholdSessionId: 'ec-session-rotated',
+    });
     const resolution = resolve(manifest, [rotated]);
 
     // Same material, different session id: still the right record.

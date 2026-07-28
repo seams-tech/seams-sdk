@@ -1,4 +1,8 @@
-import { mpcMaterialActivationRefsEqual, type MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import {
+  mpcMaterialActivationRefsEqual,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   thresholdEcdsaChainTargetsEqual,
@@ -54,7 +58,7 @@ export type ExactEcdsaSealedRuntime = {
   readonly relayerUrl: string;
   readonly relayerKeyId: string;
   readonly clientVerifyingShareB64u: string;
-  readonly participantIds: readonly number[];
+  readonly participantIds: readonly [number, number];
   readonly ecdsaThresholdKeyId: string;
   readonly thresholdEcdsaPublicKeyB64u: string;
   readonly keyHandle: string;
@@ -68,7 +72,11 @@ export type ExactEcdsaSealedRuntime = {
 };
 
 export type ExactEcdsaSealedRuntimeResolution =
-  | { readonly kind: 'resolved'; readonly runtime: ExactEcdsaSealedRuntime; readonly reason?: never }
+  | {
+      readonly kind: 'resolved';
+      readonly runtime: ExactEcdsaSealedRuntime;
+      readonly reason?: never;
+    }
   | {
       readonly kind: 'blocked';
       readonly reason: Extract<
@@ -91,7 +99,7 @@ function normalizedNonEmpty(value: unknown): string {
 /** Exact match on stable material identity. Rotating session and grant
  * identifiers deliberately take no part: they change under a reusable Wallet
  * Session without changing which material this record describes. */
-function sealedRecordBindsManifestMaterial(args: {
+function sealedRecordNamesManifestMaterial(args: {
   readonly manifest: ActiveEcdsaCapabilityManifest;
   readonly walletId: WalletId;
   readonly chainTarget: ThresholdEcdsaChainTarget;
@@ -117,12 +125,102 @@ function sealedRecordBindsManifestMaterial(args: {
   ) {
     return false;
   }
-  if (normalizedNonEmpty(restore.keyHandle) !== normalizedNonEmpty(durable.roleLocalPublicFacts.keyHandle)) {
-    return false;
-  }
   return (
     normalizedNonEmpty(restore.roleLocalMaterialRef.durableMaterialRef) ===
     normalizedNonEmpty(durable.durableMaterialRef)
+  );
+}
+
+function canonicalValuesEqual(left: unknown, right: unknown): boolean {
+  return alphabetizeStringify(left) === alphabetizeStringify(right);
+}
+
+function participantIdsEqual(left: readonly number[], right: readonly number[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function authorityRefsEqual(
+  left: CurrentEcdsaSealedSessionRecord['ecdsaRestore']['authority'],
+  right: ActiveEcdsaCapabilityManifest['signer']['authority'],
+): boolean {
+  return (
+    left.kind === right.kind &&
+    String(left.walletId) === String(right.walletId) &&
+    String(left.authorityDigest) === String(right.authorityDigest)
+  );
+}
+
+function manifestIncludesTarget(args: {
+  readonly manifest: ActiveEcdsaCapabilityManifest;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+}): boolean {
+  return args.manifest.signer.scope.targetMemberships.some((target) =>
+    thresholdEcdsaChainTargetsEqual(target, args.chainTarget),
+  );
+}
+
+function sealedRecordBindsManifestFacts(args: {
+  readonly manifest: ActiveEcdsaCapabilityManifest;
+  readonly walletId: WalletId;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly record: CurrentEcdsaSealedSessionRecord;
+}): boolean {
+  const restore = args.record.ecdsaRestore;
+  const durable = args.manifest.durableMaterial;
+  const binding = durable.roleLocalBinding;
+  const publicFacts = durable.roleLocalPublicFacts;
+  const normalScope = restore.routerAbEcdsaDerivationNormalSigning.scope;
+  const expectedAuthMethod = restore.source === 'email_otp' ? 'email_otp' : 'passkey';
+  const resolvedThresholdKeyId =
+    normalizedNonEmpty(restore.ecdsaThresholdKeyId) ||
+    normalizedNonEmpty(normalScope.ecdsa_threshold_key_id);
+  const resolvedClientVerifyingShare =
+    normalizedNonEmpty(restore.clientVerifyingShareB64u) ||
+    normalizedNonEmpty(normalScope.public_identity.derivation_client_share_public_key33_b64u);
+  const resolvedThresholdPublicKey =
+    normalizedNonEmpty(restore.thresholdEcdsaPublicKeyB64u) ||
+    normalizedNonEmpty(normalScope.public_identity.threshold_public_key33_b64u);
+
+  return (
+    String(args.manifest.signer.walletId) === String(args.walletId) &&
+    String(publicFacts.walletId) === String(args.walletId) &&
+    manifestIncludesTarget(args) &&
+    thresholdEcdsaChainTargetsEqual(publicFacts.chainTarget, args.chainTarget) &&
+    args.record.authMethod === expectedAuthMethod &&
+    authorityRefsEqual(restore.authority, args.manifest.signer.authority) &&
+    normalizedNonEmpty(restore.roleLocalMaterialRef.bindingDigest) ===
+      normalizedNonEmpty(durable.bindingDigest) &&
+    normalizedNonEmpty(restore.keyHandle) === normalizedNonEmpty(binding.keyHandle) &&
+    normalizedNonEmpty(restore.keyHandle) === normalizedNonEmpty(publicFacts.keyHandle) &&
+    resolvedThresholdKeyId === normalizedNonEmpty(binding.ecdsaThresholdKeyId) &&
+    resolvedThresholdKeyId === normalizedNonEmpty(publicFacts.ecdsaThresholdKeyId) &&
+    resolvedClientVerifyingShare === normalizedNonEmpty(binding.clientVerifyingPublicKey33B64u) &&
+    resolvedClientVerifyingShare ===
+      normalizedNonEmpty(publicFacts.derivationClientSharePublicKey33B64u) &&
+    resolvedThresholdPublicKey === normalizedNonEmpty(publicFacts.groupPublicKey33B64u) &&
+    normalizedNonEmpty(restore.relayerKeyId) === normalizedNonEmpty(binding.relayerKeyId) &&
+    participantIdsEqual(restore.participantIds, binding.participantIds) &&
+    participantIdsEqual(restore.participantIds, publicFacts.participantIds) &&
+    normalizedNonEmpty(restore.signingRootId) ===
+      normalizedNonEmpty(args.manifest.signer.signingRootId) &&
+    normalizedNonEmpty(restore.signingRootId) === normalizedNonEmpty(publicFacts.signingRootId) &&
+    normalizedNonEmpty(restore.signingRootVersion) ===
+      normalizedNonEmpty(args.manifest.signer.signingRootVersion) &&
+    normalizedNonEmpty(restore.signingRootVersion) ===
+      normalizedNonEmpty(publicFacts.signingRootVersion) &&
+    normalizedNonEmpty(restore.ethereumAddress).toLowerCase() ===
+      normalizedNonEmpty(publicFacts.ethereumAddress).toLowerCase() &&
+    canonicalValuesEqual(restore.publicCapability, publicFacts.publicCapability) &&
+    canonicalValuesEqual(normalScope, {
+      wallet_id: String(args.walletId),
+      ecdsa_threshold_key_id: String(publicFacts.ecdsaThresholdKeyId),
+      signing_root_id: String(publicFacts.signingRootId),
+      signing_root_version: String(publicFacts.signingRootVersion),
+      context: publicFacts.publicCapability.context,
+      public_identity: publicFacts.publicCapability.public_identity,
+      signing_worker: publicFacts.publicCapability.signer_set.selected_server,
+      activation_epoch: publicFacts.publicCapability.activation_epoch,
+    })
   );
 }
 
@@ -136,6 +234,22 @@ function authBindingFromRestore(
   const rpId = normalizedNonEmpty(restore.rpId);
   const credentialIdB64u = normalizedNonEmpty(restore.credentialIdB64u);
   return rpId && credentialIdB64u ? { kind: 'passkey', rpId, credentialIdB64u } : null;
+}
+
+function exactTwoPartyParticipantIds(value: readonly number[]): readonly [number, number] | null {
+  if (value.length !== 2) return null;
+  const first = value[0];
+  const second = value[1];
+  if (
+    !Number.isSafeInteger(first) ||
+    !Number.isSafeInteger(second) ||
+    first <= 0 ||
+    second <= 0 ||
+    first === second
+  ) {
+    return null;
+  }
+  return [first, second];
 }
 
 function runtimeFromSealedRecord(args: {
@@ -164,10 +278,10 @@ function runtimeFromSealedRecord(args: {
     );
   const keyHandle = normalizedNonEmpty(restore.keyHandle);
   const participantIds = Array.isArray(restore.participantIds)
-    ? restore.participantIds.filter((value) => Number.isSafeInteger(value))
-    : [];
-  const expiresAtMs = Math.floor(Number(args.record.expiresAtMs));
-  const remainingUses = Math.floor(Number(args.record.remainingUses));
+    ? exactTwoPartyParticipantIds(restore.participantIds)
+    : null;
+  const expiresAtMs = Number(args.record.expiresAtMs);
+  const remainingUses = Number(args.record.remainingUses);
   const thresholdSessionId = normalizedNonEmpty(args.record.thresholdSessionIds?.ecdsa);
   const storeKey = normalizedNonEmpty(args.record.storeKey);
   // Parsed through the production boundary parser: a sealed ref that cannot
@@ -188,9 +302,11 @@ function runtimeFromSealedRecord(args: {
     !keyHandle ||
     !storeKey ||
     !thresholdSessionId ||
-    participantIds.length === 0 ||
+    !participantIds ||
     !Number.isSafeInteger(expiresAtMs) ||
-    !Number.isSafeInteger(remainingUses)
+    expiresAtMs <= 0 ||
+    !Number.isSafeInteger(remainingUses) ||
+    remainingUses < 0
   ) {
     return null;
   }
@@ -226,7 +342,7 @@ export function resolveExactEcdsaSealedRuntime(input: {
   readonly sealedRecords: readonly CurrentEcdsaSealedSessionRecord[];
 }): ExactEcdsaSealedRuntimeResolution {
   const matches = input.sealedRecords.filter((record) =>
-    sealedRecordBindsManifestMaterial({
+    sealedRecordNamesManifestMaterial({
       manifest: input.manifest,
       walletId: input.walletId,
       chainTarget: input.chainTarget,
@@ -242,5 +358,16 @@ export function resolveExactEcdsaSealedRuntime(input: {
     chainTarget: input.chainTarget,
     record: matches[0]!,
   });
-  return runtime ? { kind: 'resolved', runtime } : blocked('corrupt');
+  if (!runtime) return blocked('corrupt');
+  if (
+    !sealedRecordBindsManifestFacts({
+      manifest: input.manifest,
+      walletId: input.walletId,
+      chainTarget: input.chainTarget,
+      record: matches[0]!,
+    })
+  ) {
+    return blocked('binding_mismatch');
+  }
+  return { kind: 'resolved', runtime };
 }
