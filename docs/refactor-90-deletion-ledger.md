@@ -432,3 +432,41 @@ Deleting the type ahead of those cutovers breaks all 54 files at once with no
 intermediate green state. The entry-point cutover must land first; the
 reference count then collapses and the deletion becomes mechanical with zero
 production references reachable.
+
+### Prerequisite discovered while opening 4a: the unit suite collects nothing
+
+`playwright test -c playwright.unit.config.ts --list` reports **0 tests in 0
+files**. Ten stale imports of exports deleted by earlier Refactor-90 slices
+abort collection suite-wide, and one bad import takes the whole suite with it:
+
+| Missing export | Owning test files |
+| --- | --- |
+| `resolveEvmFamilyEcdsaRestoreMaterialLane` | `evmFamilyPreparedSigningAuthSelection` |
+| `resolveReadySecp256k1SigningMaterialFromRecord` | `evmFamilyEcdsaIdentity`, `readySecp256k1Material.rehydration` |
+| `listThresholdEcdsaRuntimeLanesForWallet` | `evmFamilyEcdsaIdentity`, `ecdsaExportEphemeralIsolation`, `walletRegistrationEcdsaRouterAbBootstrap` |
+| `getThresholdEcdsaKeyRefByKey` | `evmFamilyEcdsaIdentity` |
+| `consumeSingleUseEmailOtpEcdsaLane` | `signingPostSignPolicy`, `thresholdEcdsaEmailOtpConsumption` |
+| `clearThresholdEcdsaSessionRecordForExactIdentity` | `refactor92.invalidationIdempotency`, `signingSessionReadiness.clearGrant` |
+| `commitEmailOtpEcdsaLaneFromRecordForMaterial` | `emailOtpWalletSessionCoordinator` |
+| `isSigningSessionAuthUnavailableError` | `thresholdSigningSessionReadiness` |
+| `ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH` | `router.routeDefinitions` |
+| `buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1` | `thresholdSessionClaims`, `routerAbEcdsaDerivationBudgetRouteCore`, `routerAbEcdsaDerivationNormalSigning` |
+
+This predates the read-model cutover: none of these exports were removed by
+`3b904b63a`, whose only `records.ts` change was moving a private classifier to
+a shared import. Named-file runs still work, which is why the earlier focused
+runs were green and this stayed hidden.
+
+Consequence for the 4a–4e sequence: the per-vertical acceptance bar ("run one
+focused operating-path test") cannot be met for the signing core until the
+suite collects again. Both candidate tests for 4a
+(`ecdsaSelection.restorable`, `evmFamilyPreparedSigningAuthSelection`) are
+themselves among the stale files. Restoring collection is therefore a
+prerequisite slice, not a cleanup that can trail the cutover.
+
+Also note for 4a scope: `buildEcdsaMaterialStateForCandidate` already returns
+`public_identity_unavailable` unconditionally, and nothing constructs
+`ready_to_sign`, `public_identity_available`, or `reauth_required` for
+`EcdsaMaterialState`. The EVM-family ECDSA signing path is currently
+fail-closed, so 4a is a rebuild of that path on manifest + sealed runtime, not
+a signature-only move.
