@@ -1,7 +1,5 @@
 import {
   mpcMaterialActivationRefsEqual,
-  parseSigningGrantId,
-  parseThresholdEcdsaSessionId,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import {
@@ -22,13 +20,11 @@ import {
   type RouterAbEcdsaDerivationSigningWalletSession,
 } from '../../session/routerAbSigningWalletSession';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import {
-  parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1,
-  routerAbEcdsaDerivationActiveStateId,
-} from '@shared/utils/routerAbEcdsaDerivation';
-import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
+import { routerAbEcdsaDerivationActiveStateId } from '@shared/utils/routerAbEcdsaDerivation';
 import { buildRouterAbEcdsaDerivationSigningMaterialRef } from '../../routerAb/ecdsaDerivation/signingMaterialRef';
-import { parseThresholdRuntimePolicyScopeFromJwt } from '../../threshold/sessionPolicy';
+import { laneCandidateStateFromRuntimePolicy } from '../../session/identity/laneIdentity';
+import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ExactEcdsaSealedRuntime } from '../../session/material/ecdsaSealedRuntime';
 import {
   buildReadySecp256k1SigningMaterial,
   type ReadySecp256k1SigningMaterial,
@@ -90,30 +86,28 @@ export type ReadySecp256k1SigningMaterialResolution =
       readonly kind: 'unavailable';
       readonly reason:
         | 'material_activation_mismatch'
-        | 'chain_mismatch';
+        | 'chain_mismatch'
+        | 'runtime_correlation_mismatch'
+        | 'runtime_policy_scope_missing'
+        | 'authorization_expired'
+        | 'authorization_exhausted'
+        | 'worker_binding_failed';
       readonly material?: never;
     };
 
-function parseCanonicalEcdsaSessionIdentity(walletSessionJwt: string): {
-  readonly thresholdSessionId: ReturnType<typeof parseThresholdEcdsaSessionId> & {
-    readonly ok: true;
-  };
-  readonly signingGrantId: ReturnType<typeof parseSigningGrantId> & {
-    readonly ok: true;
-  };
-} {
-  const payload = decodeJwtPayloadRecord(walletSessionJwt);
-  const thresholdSessionId = parseThresholdEcdsaSessionId(payload?.thresholdSessionId);
-  const signingGrantId = parseSigningGrantId(payload?.signingGrantId);
-  if (!thresholdSessionId.ok || !signingGrantId.ok) {
-    throw new Error('[multichain] ECDSA Wallet Session identity is invalid');
-  }
-  return { thresholdSessionId, signingGrantId };
-}
-
+/** Ready ECDSA signing material, assembled from each fact's canonical owner:
+ * the manifest names the material and its public facts, the exact sealed
+ * runtime supplies session-scoped state (threshold session, normal-signing
+ * state, policy scope, allowance, expiry, transport), and the reusable Wallet
+ * Session supplies authorization identity and the bearer credential.
+ *
+ * Nothing is decoded out of the Wallet Session JWT. The JWT is a bearer
+ * credential here and nothing more: the facts it used to carry are owned by
+ * the manifest and the sealed record, and correlating those two is what
+ * `resolveExactEcdsaSealedRuntime` already did to produce this runtime. */
 export async function resolveReadySecp256k1SigningMaterial(args: {
   authorized: AuthorizedEvmFamilyEcdsaSigningCapability;
-  relayerUrl: string;
+  runtime: ExactEcdsaSealedRuntime;
   requestLabel: unknown;
   materialActivation: MpcMaterialActivationRef;
   workerCtx: WorkerOperationContext;
@@ -122,70 +116,74 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
   const manifest = capability.manifest;
   const persistedMaterial = capability.material;
   const projection = args.authorized.authorization.projection;
-  const status = args.authorized.authorization.status;
+  const runtime = args.runtime;
+  const roleLocalFacts = persistedMaterial.publicFacts;
+
+  // 1. Exact activation agreement across all three owners. The runtime is
+  //    included because a sealed record for sibling material would otherwise
+  //    hydrate a worker handle the manifest never named.
   if (
     !mpcMaterialActivationRefsEqual(
       args.materialActivation,
       manifest.activation.materialActivation,
     )
   ) {
-    return {
-      kind: 'unavailable',
-      reason: 'material_activation_mismatch',
-    };
+    return { kind: 'unavailable', reason: 'material_activation_mismatch' };
   }
-  const requestChain = inferThresholdEcdsaSessionChainFromLabel(args.requestLabel);
-  if (requestChain && persistedMaterial.publicFacts.chainTarget.kind !== requestChain) {
-    return {
-      kind: 'unavailable',
-      reason: 'chain_mismatch',
-    };
-  }
-  if (status.expiresAtMs <= Date.now()) {
-    throw new Error(
-      '[multichain] threshold-ecdsa role-local session requires expired reauthorization',
-    );
+  if (
+    !mpcMaterialActivationRefsEqual(
+      runtime.materialActivation,
+      manifest.activation.materialActivation,
+    )
+  ) {
+    return { kind: 'unavailable', reason: 'runtime_correlation_mismatch' };
   }
 
+  // 2. Chain-target agreement between the request, the persisted facts, and
+  //    the runtime this session belongs to.
+  const requestChain = inferThresholdEcdsaSessionChainFromLabel(args.requestLabel);
+  if (requestChain && roleLocalFacts.chainTarget.kind !== requestChain) {
+    return { kind: 'unavailable', reason: 'chain_mismatch' };
+  }
+  if (!thresholdEcdsaChainTargetsEqual(runtime.chainTarget, roleLocalFacts.chainTarget)) {
+    return { kind: 'unavailable', reason: 'chain_mismatch' };
+  }
+
+  // 3. Authorization classification over the runtime's own allowance, by the
+  //    shared Refactor 92 rule: expiry before exhaustion, and neither disturbs
+  //    the sealed material or its activation.
+  const runtimeState = laneCandidateStateFromRuntimePolicy({
+    remainingUses: runtime.remainingUses,
+    expiresAtMs: runtime.expiresAtMs,
+  });
+  if (runtimeState === 'expired') {
+    return { kind: 'unavailable', reason: 'authorization_expired' };
+  }
+  if (runtimeState === 'exhausted') {
+    return { kind: 'unavailable', reason: 'authorization_exhausted' };
+  }
+
+  // The scope is persisted conditionally by the sealed store, but a signing
+  // session cannot be built without it.
+  const runtimePolicyScope = runtime.runtimePolicyScope;
+  if (!runtimePolicyScope) {
+    return { kind: 'unavailable', reason: 'runtime_policy_scope_missing' };
+  }
+
+  // 4. Persisted material hydration into an exact worker handle.
   const resolvedRoleLocalMaterial = await hydrateEcdsaRoleLocalMaterialForSigning({
     persistedMaterial,
     workerCtx: args.workerCtx,
   });
   const walletSessionJwt = projection.walletSessionJwt;
-  const identity = parseCanonicalEcdsaSessionIdentity(walletSessionJwt);
-  const roleLocalFacts = persistedMaterial.publicFacts;
-  const normalSigningState =
-    parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1({
-      walletSessionJwt,
-      expected: {
-        walletId: String(manifest.signer.walletId),
-        evmFamilySigningKeySlotId: String(roleLocalFacts.evmFamilySigningKeySlotId),
-        keyHandle: String(roleLocalFacts.keyHandle),
-        relayerKeyId: String(manifest.durableMaterial.roleLocalBinding.relayerKeyId),
-        ecdsaThresholdKeyId: String(roleLocalFacts.ecdsaThresholdKeyId),
-        signingRootId: String(manifest.signer.signingRootId),
-        signingRootVersion: String(manifest.signer.signingRootVersion),
-        thresholdSessionId: identity.thresholdSessionId.value,
-        activationEpoch: roleLocalFacts.publicCapability.activation_epoch,
-        signingGrantId: identity.signingGrantId.value,
-        expiresAtMs: status.expiresAtMs,
-        participantIds: roleLocalFacts.participantIds,
-        applicationBindingDigestB64u: roleLocalFacts.applicationBindingDigestB64u,
-        contextBinding32B64u: roleLocalFacts.contextBinding32B64u,
-        clientPublicKey33B64u: roleLocalFacts.derivationClientSharePublicKey33B64u,
-        serverPublicKey33B64u: roleLocalFacts.relayerPublicKey33B64u,
-        thresholdPublicKey33B64u: roleLocalFacts.groupPublicKey33B64u,
-        ethereumAddress: roleLocalFacts.ethereumAddress,
-        clientShareRetryCounter:
-          roleLocalFacts.publicCapability.public_identity.client_share_retry_counter,
-        serverShareRetryCounter:
-          roleLocalFacts.publicCapability.public_identity.server_share_retry_counter,
-      },
-    });
-  const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(walletSessionJwt);
-  if (!runtimePolicyScope) {
-    throw new Error('[multichain] ECDSA Wallet Session runtime policy scope is invalid');
-  }
+  // The sealed record owns the normal-signing state. It was cross-checked
+  // against this manifest's facts during runtime correlation, which is where
+  // that check belongs.
+  const normalSigningState = runtime.normalSigning;
+  // The reusable Wallet Session is itself the authorizing grant; there is no
+  // separate grant identifier to recover.
+  const signingGrantId = String(projection.walletSessionId);
+  const thresholdSessionId = runtime.sealedRecord.thresholdSessionId;
   const signingMaterial = buildRouterAbEcdsaDerivationSigningMaterialRef({
     routerAbState: normalSigningState,
   });
@@ -199,14 +197,18 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
         walletSessionJwt,
       },
     },
-    thresholdSessionId: identity.thresholdSessionId.value,
-    signingGrantId: identity.signingGrantId.value,
-    remainingUses: status.remainingUses,
-    expiresAtMs: status.expiresAtMs,
+    thresholdSessionId,
+    signingGrantId,
+    remainingUses: runtime.remainingUses,
+    expiresAtMs: runtime.expiresAtMs,
     signingMaterial,
     runtimePolicyScope,
     routerAbEcdsaDerivationNormalSigning: normalSigningState,
   };
+  // 5. Worker and material-owner binding. This is the last gate before
+  //    ready_to_sign: hydrated material that cannot be bound to this exact
+  //    session is not signable, and is reported rather than thrown so callers
+  //    can plan step-up.
   if (
     !markResolvedEcdsaRoleLocalMaterialRuntimeValidated({
       material: resolvedRoleLocalMaterial,
@@ -216,9 +218,7 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
       participantIds: roleLocalFacts.participantIds,
     })
   ) {
-    throw new Error(
-      '[multichain] threshold-ecdsa hydrated material could not be bound to its signing session',
-    );
+    return { kind: 'unavailable', reason: 'worker_binding_failed' };
   }
 
   const transportAuth = buildEcdsaWalletSessionTransportAuth({
@@ -232,16 +232,16 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
     publicFacts: manifest.signer.registeredPublicFacts,
     chainTarget: roleLocalFacts.chainTarget,
     session: buildReadyThresholdEcdsaSession({
-      thresholdSessionId: identity.thresholdSessionId.value,
-      signingGrantId: identity.signingGrantId.value,
+      thresholdSessionId,
+      signingGrantId,
       policy: buildKnownReadyThresholdEcdsaSessionPolicy({
-        remainingUses: status.remainingUses,
-        expiresAtMs: status.expiresAtMs,
+        remainingUses: runtime.remainingUses,
+        expiresAtMs: runtime.expiresAtMs,
       }),
     }),
     transport: {
       kind: 'threshold_ecdsa_signer_transport',
-      relayerUrl: args.relayerUrl,
+      relayerUrl: runtime.relayerUrl,
       relayerKeyId: manifest.durableMaterial.roleLocalBinding.relayerKeyId,
       signingMaterial,
       relayerVerifyingShareB64u: roleLocalFacts.relayerPublicKey33B64u,
@@ -278,7 +278,7 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
         kind: 'jwt',
         walletSessionJwt,
       },
-      expiresAtMs: status.expiresAtMs,
+      expiresAtMs: runtime.expiresAtMs,
       singleUseEmailOtpSession: false,
     }),
   };
