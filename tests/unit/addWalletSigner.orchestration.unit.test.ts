@@ -2026,17 +2026,33 @@ test('registerWallet starts Email OTP Yao and ECDSA registration in parallel', a
         events.includes('emailOtpYaoStartCalled') && events.includes('ecdsaCeremonyStarted'),
     });
     expect(captures.emailOtpYaoPrewarmCalls).toBe(1);
-    expect(captures.finalizeBody).toBeUndefined();
+    /* Refactor 94 Phase 4+5: the ECDSA branch finalizes without waiting for the
+       Yao ceremony, so by this point commit #1 has already gone out — and it
+       carries the ECDSA kind alone, never the removed combined kind. */
+    await waitForTestCondition({
+      label: 'ECDSA finalize to be issued before the Yao ceremony settles',
+      predicate: () => captures.finalizeBody !== undefined,
+    });
+    expect(captures.finalizeBody).toMatchObject({ kind: 'evm_family_ecdsa' });
 
     deferredEmailOtpYaoStart.resolve(undefined);
     const result = await registration;
 
     expectRegistrationSuccess(result);
+    /* Registration success now means ECDSA-ready. The NEAR branch is still
+       settling, and the caller learns that from `nearProvisioning` rather than
+       from registration having blocked on it. */
     expect(result).toMatchObject({
       success: true,
-      kind: 'near_ed25519_and_ecdsa_wallet_registered',
+      kind: 'ecdsa_wallet_registered_near_pending',
+      nearProvisioning: { status: 'pending' },
     });
-    expect(events).toContain('emailOtpYaoCommitCalled');
+    /* Commit #2 is deliberately not awaited by registration, so it lands after
+       the ECDSA-ready result resolves rather than before it. */
+    await waitForTestCondition({
+      label: 'the deferred Ed25519 Yao commit to land after registration returned',
+      predicate: () => events.includes('emailOtpYaoCommitCalled'),
+    });
     expect(registrationEventCount(events, 'emailOtpYaoCommitCalled')).toBe(1);
     expect(events).not.toContain('emailOtpYaoDisposed');
     expect(captures.finalizeBody).toBeDefined();

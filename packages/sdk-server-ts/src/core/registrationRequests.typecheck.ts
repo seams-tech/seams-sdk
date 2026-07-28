@@ -283,9 +283,9 @@ const invalidEd25519SessionWithoutJwt = {
 } satisfies typeof validEd25519FinalizeSuccess.ed25519.session;
 void invalidEd25519SessionWithoutJwt;
 
-// @ts-expect-error ECDSA-only success cannot carry a NEAR account provisioning identity.
 const invalidEcdsaFinalizeSuccessWithNearIdentity: WalletRegistrationFinalizeResponse = {
   ...validEcdsaFinalizeSuccess,
+  // @ts-expect-error ECDSA-only success cannot carry a NEAR account provisioning identity.
   accountProvisioning: validEd25519FinalizeSuccess.accountProvisioning,
 };
 void invalidEcdsaFinalizeSuccessWithNearIdentity;

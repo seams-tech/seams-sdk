@@ -583,36 +583,9 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
   ) {
     return null;
   }
-  if (record.kind === 'near_ed25519_and_evm_family_ecdsa' && ecdsa) {
-    if (authMethod.kind === 'passkey') {
-      if (!rpId) return null;
-      return {
-        ok: true,
-        kind: 'near_ed25519_and_evm_family_ecdsa',
-        walletId,
-        rpId,
-        authority,
-        authMethod,
-        authorityScope,
-        accountProvisioning,
-        resolvedAccount,
-        ed25519,
-        ecdsa,
-      };
-    }
-    return {
-      ok: true,
-      kind: 'near_ed25519_and_evm_family_ecdsa',
-      walletId,
-      authority,
-      authMethod,
-      authorityScope,
-      accountProvisioning,
-      resolvedAccount,
-      ed25519,
-      ecdsa,
-    };
-  }
+  /* An Ed25519 finalize commits only its own branch, so a replayed record that
+     also carries ECDSA payload is from a shape that no longer exists. */
+  if (ecdsa) return null;
   if (authMethod.kind === 'passkey') {
     if (!rpId) return null;
     return {

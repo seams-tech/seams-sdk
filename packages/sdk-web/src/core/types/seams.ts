@@ -396,6 +396,15 @@ export interface AppearanceConfig {
   palette: ThemePaletteName;
 }
 
+/**
+ * Where the deferred Ed25519/NEAR commit got to. `retryable` means the Yao
+ * ceremony or its finalize failed without touching the ECDSA wallet, so the
+ * commit can be reissued against the same registration ceremony.
+ */
+export type RegistrationNearProvisioningState =
+  | { status: 'pending'; error?: never; errorCode?: never }
+  | { status: 'retryable'; error: string; errorCode: string };
+
 export type RegistrationResult =
   | {
       success: true;
@@ -433,6 +442,29 @@ export type RegistrationResult =
       walletId: WalletId;
       thresholdEcdsaEthereumAddress: string;
       thresholdEcdsaPublicKeyB64u: string;
+      accountProvisioning?: never;
+      resolvedAccount?: never;
+      nearEd25519SigningKeyId?: never;
+      operationalPublicKey?: never;
+      nearAccountId?: never;
+      transactionId?: never;
+      nearProvisioning?: never;
+      error?: never;
+      errorCode?: never;
+    }
+  /**
+   * The ECDSA wallet is durable and usable, and the Ed25519/NEAR branch is
+   * still settling in the background. Registration returns this without
+   * awaiting the Yao ceremony; `nearProvisioning` is what the lifecycle and UI
+   * layers must resolve before this wallet can be treated as NEAR-capable.
+   */
+  | {
+      success: true;
+      kind: 'ecdsa_wallet_registered_near_pending';
+      walletId: WalletId;
+      thresholdEcdsaEthereumAddress: string;
+      thresholdEcdsaPublicKeyB64u: string;
+      nearProvisioning: RegistrationNearProvisioningState;
       accountProvisioning?: never;
       resolvedAccount?: never;
       nearEd25519SigningKeyId?: never;

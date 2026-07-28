@@ -560,6 +560,13 @@ export type WalletRegistrationEcdsaFinalize = {
   expectedKeyHandles: readonly [string];
 };
 
+/**
+ * One finalize call commits one signer branch. A wallet planned with both
+ * signers finalizes twice — `evm_family_ecdsa` first, which returns the wallet
+ * ECDSA-ready, then `near_ed25519` once the Yao ceremony settles (Refactor 94
+ * Phase 4+5). There is deliberately no combined member: registration success
+ * no longer waits on Ed25519, so nothing can commit both at once.
+ */
 export type WalletRegistrationFinalizeSignerWork =
   | {
       kind: 'near_ed25519';
@@ -570,11 +577,6 @@ export type WalletRegistrationFinalizeSignerWork =
       kind: 'evm_family_ecdsa';
       ecdsa: WalletRegistrationEcdsaFinalize;
       ed25519?: never;
-    }
-  | {
-      kind: 'near_ed25519_and_evm_family_ecdsa';
-      ed25519: WalletRegistrationEd25519YaoFinalize;
-      ecdsa: WalletRegistrationEcdsaFinalize;
     };
 
 export type WalletRegistrationRouteTimingName =
@@ -789,16 +791,6 @@ type WalletRegistrationFinalizeSignerSuccess =
       accountProvisioning?: never;
       resolvedAccount?: never;
       ed25519?: never;
-    }
-  | {
-      kind: 'near_ed25519_and_evm_family_ecdsa';
-      authorityScope: ThresholdEd25519AuthorityScope;
-      accountProvisioning: RegistrationNearAccountProvisioning;
-      resolvedAccount: ResolvedRegistrationNearAccount;
-      ed25519: WalletRegistrationEd25519YaoPublicResult;
-      ecdsa: {
-        walletKeys: WalletRegistrationEcdsaWalletKey[];
-      };
     };
 
 type WalletRegistrationFinalizeSuccessForAuth<

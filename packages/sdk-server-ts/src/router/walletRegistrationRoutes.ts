@@ -240,21 +240,6 @@ function buildPasskeyWalletRegistrationFinalizeRouteSuccess(
         kind: result.kind,
         ecdsa: result.ecdsa,
       };
-    case 'near_ed25519_and_evm_family_ecdsa':
-      return {
-        ok: true,
-        walletId: result.walletId,
-        authority: result.authority,
-        registrationDiagnostics: result.registrationDiagnostics,
-        rpId: result.rpId,
-        authMethod: result.authMethod,
-        kind: result.kind,
-        authorityScope: result.authorityScope,
-        accountProvisioning: result.accountProvisioning,
-        resolvedAccount: result.resolvedAccount,
-        ed25519: result.ed25519,
-        ecdsa: result.ecdsa,
-      };
     default:
       return assertNeverWalletRegistrationFinalizeKind(result);
   }
@@ -287,21 +272,6 @@ function buildEmailOtpWalletRegistrationFinalizeRouteSuccess(
         registrationDiagnostics: result.registrationDiagnostics,
         authMethod: result.authMethod,
         kind: result.kind,
-        ecdsa: result.ecdsa,
-        appSessionJwt,
-      };
-    case 'near_ed25519_and_evm_family_ecdsa':
-      return {
-        ok: true,
-        walletId: result.walletId,
-        authority: result.authority,
-        registrationDiagnostics: result.registrationDiagnostics,
-        authMethod: result.authMethod,
-        kind: result.kind,
-        authorityScope: result.authorityScope,
-        accountProvisioning: result.accountProvisioning,
-        resolvedAccount: result.resolvedAccount,
-        ed25519: result.ed25519,
         ecdsa: result.ecdsa,
         appSessionJwt,
       };
@@ -1838,21 +1808,9 @@ function parseWalletRegistrationFinalizeSignerWork(
       if (!ecdsa.ok) return ecdsa;
       return { ok: true, value: { kind: 'evm_family_ecdsa', ecdsa: ecdsa.value } };
     }
-    case 'near_ed25519_and_evm_family_ecdsa': {
-      const ed25519 = parseWalletRegistrationEd25519Finalize(signerWork.ed25519);
-      if (!ed25519.ok) return ed25519;
-      const ecdsa = parseWalletRegistrationEcdsaFinalize(signerWork.ecdsa);
-      if (!ecdsa.ok) return ecdsa;
-      return {
-        ok: true,
-        value: {
-          kind: 'near_ed25519_and_evm_family_ecdsa',
-          ed25519: ed25519.value,
-          ecdsa: ecdsa.value,
-        },
-      };
-    }
     default:
+      /* A wallet planned with both signers finalizes twice, one branch per
+         call, so a combined finalize kind is no longer accepted here. */
       return {
         ok: false,
         code: 'invalid_body',
