@@ -312,6 +312,23 @@ function activeLookupFromFixture(
   };
 }
 
+/** The active lookup for a first activation, whose public capability is built
+ * from its own activation receipt.
+ *
+ * Prefer this for anything that exercises the signing path.
+ * `ecdsaCapabilityHydrationLookupFixture().active` is the *replacement*
+ * manifest, which inherits the prior registration's public capability and so
+ * names a different signing worker than its own material activation. That is
+ * harmless for lookup and selection tests, but production refuses to prepare an
+ * operation step-up against a manifest whose scope and activation disagree on
+ * the signing worker. */
+export function ecdsaCapabilityActivationLookupFixture(): Extract<
+  EcdsaCapabilityManifestLookup,
+  { readonly kind: 'active' }
+> {
+  return activeLookupFromFixture(ecdsaCapabilityActivationFixture());
+}
+
 export function ecdsaCapabilityHydrationLookupFixture(): EcdsaCapabilityHydrationLookupFixture {
   const replacement = ecdsaCapabilityReplacementFixture();
   const activePrior = activeLookupFromFixture(replacement.prior);
