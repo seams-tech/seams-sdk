@@ -48,6 +48,8 @@ import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/temp
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import { type ThresholdEcdsaBootstrapStorePort } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
+import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
+import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import {
   getStoredThresholdEd25519SessionRecordForAccount,
   type ThresholdEcdsaSessionRecord,
@@ -1974,7 +1976,8 @@ export class BrowserSigningSurface {
   async scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
-    thresholdEcdsaSessionRecord: ThresholdEcdsaSessionRecord;
+    manifest: ActiveEcdsaCapabilityManifest;
+    runtime: ExactEcdsaSealedRuntime;
     minRemainingUsesBeforePrefill?: number;
   }): Promise<RouterAbEcdsaDerivationLoginPresignaturePrefillResult> {
     return await warmCapabilitiesPublic.scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(

@@ -49,12 +49,6 @@ export function createEvmFamilySigningDeps(args: {
     nonceCoordinator: createArgs.nonceCoordinator,
     ensureSealedRefreshStartupParity: createArgs.ensureSealedRefreshStartupParity,
     getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),
-    listThresholdEcdsaSessionRecordsForSigning: ({ walletId, chainTarget, source }) =>
-      createArgs.listThresholdEcdsaSessionRecordsForWalletTarget({
-        walletId: toWalletId(walletId),
-        chainTarget,
-        ...(source ? { source } : {}),
-      }),
     requestEmailOtpTransactionSigningChallenge: ({ walletSession, chain, authority }) =>
       createArgs.requestEmailOtpTransactionSigningChallenge?.({
         walletSession,

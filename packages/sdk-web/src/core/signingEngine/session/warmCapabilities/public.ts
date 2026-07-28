@@ -20,7 +20,8 @@ import {
 } from './ecdsaLoginPrefill';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ThresholdEcdsaBootstrapSignerAuth } from './ecdsaBootstrapPersistence';
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
+import type { ActiveEcdsaCapabilityManifest } from '../material/ecdsaCapabilityManifest';
 import type {
   WarmEcdsaRecordBackedSigningSessionStatus,
   WarmEcdsaSigningSessionStatus,
@@ -140,7 +141,8 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
   args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
-    thresholdEcdsaSessionRecord: ThresholdEcdsaSessionRecord;
+    manifest: ActiveEcdsaCapabilityManifest;
+    runtime: ExactEcdsaSealedRuntime;
     minRemainingUsesBeforePrefill?: number;
   },
 ): Promise<RouterAbEcdsaDerivationLoginPresignaturePrefillResult> {

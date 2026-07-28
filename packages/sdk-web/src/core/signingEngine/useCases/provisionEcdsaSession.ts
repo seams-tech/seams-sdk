@@ -70,20 +70,10 @@ import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/ro
 
 export type WarmSessionEcdsaProvisionerDeps = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
-  listThresholdEcdsaRecordsForWalletTarget: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  }) => EcdsaRecordCandidate[];
 };
 
 export type WarmSessionEcdsaReconnectDeps = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
-  listThresholdEcdsaRecordsForWalletTarget: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  }) => EcdsaRecordCandidate[];
   canProvisionEcdsaCapability: boolean;
   provisionThresholdEcdsaSession: (
     args: ThresholdEcdsaActivationRequest,
@@ -184,44 +174,6 @@ type EcdsaReconnectProvisionPlan = Extract<
 
 function hasEcdsaRecordSigningMaterial(record: ThresholdEcdsaSessionRecord): boolean {
   return thresholdEcdsaRecordHasRoleLocalSigningMaterial(record);
-}
-
-function readEcdsaRecordCandidates(
-  deps: Pick<WarmSessionEcdsaProvisionerDeps, 'listThresholdEcdsaRecordsForWalletTarget'>,
-  args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  },
-): EcdsaRecordCandidate[] {
-  const candidates: EcdsaRecordCandidate[] = [];
-  const seen = new Set<string>();
-  let listed: EcdsaRecordCandidate[] = [];
-  try {
-    listed = deps.listThresholdEcdsaRecordsForWalletTarget({
-      walletId: args.walletId,
-      chainTarget: args.chainTarget,
-      ...(args.source ? { source: args.source } : {}),
-    });
-  } catch {
-    return [];
-  }
-  for (const candidate of listed) {
-    const source = candidate.source;
-    const record = candidate.record;
-    if (args.source && source !== args.source) continue;
-    try {
-      const key = [
-        source,
-        String(record.materialActivation.activationId),
-        resolveThresholdEcdsaKeyIdFromRecord({ record }),
-      ].join(':');
-      if (seen.has(key)) continue;
-      seen.add(key);
-      candidates.push({ source, record });
-    } catch {}
-  }
-  return candidates;
 }
 
 function ecdsaReconnectProvisionPlan(
@@ -780,14 +732,7 @@ export async function ensureWarmEcdsaCapabilityReady(
   }
   const recordCandidates: EcdsaRecordCandidate[] = [];
   const seenRecordCandidates = new Set<string>();
-  for (const candidate of [
-    ...(plannedRecord ? [{ source: args.source, record: plannedRecord }] : []),
-    ...readEcdsaRecordCandidates(deps, {
-      walletId: exactWalletId,
-      chainTarget,
-      source: args.source,
-    }),
-  ]) {
+  for (const candidate of plannedRecord ? [{ source: args.source, record: plannedRecord }] : []) {
     const candidateKey = [
       candidate.source,
       String(candidate.record.materialActivation.activationId),

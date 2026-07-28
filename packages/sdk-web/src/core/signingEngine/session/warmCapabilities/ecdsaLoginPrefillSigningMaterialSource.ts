@@ -1,8 +1,4 @@
 import {
-  requirePersistedEcdsaRoleLocalMaterial,
-  type ThresholdEcdsaSessionRecord,
-} from '../persistence/records';
-import {
   thresholdEcdsaRoleLocalAdmitPresignatureWasm,
   thresholdEcdsaRoleLocalDestroyPresignatureWasm,
   thresholdEcdsaRoleLocalReservePresignatureWasm,
@@ -15,7 +11,14 @@ import {
   thresholdEcdsaRoleLocalPresignSessionStepWasm,
 } from '../../threshold/crypto/ecdsaDerivationClientWasm';
 import type { RouterAbEcdsaDerivationClientSigningMaterialSource } from '../../routerAb/ecdsaDerivation/presignaturePool';
-import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '../routerAbSigningWalletSession';
+import {
+  markResolvedEcdsaRoleLocalMaterialRuntimeValidated,
+  type RouterAbEcdsaDerivationSigningWalletSession,
+} from '../routerAbSigningWalletSession';
+import { buildRouterAbEcdsaDerivationSigningMaterialRef } from '../../routerAb/ecdsaDerivation/signingMaterialRef';
+import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
+import type { ActiveEcdsaCapabilityManifest } from '../material/ecdsaCapabilityManifest';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   ecdsaRoleLocalPersistedMaterialSource,
   resolveEcdsaRoleLocalMaterial,
@@ -41,20 +44,67 @@ function requireResolvedLoginPrefillMaterial(
   }
 }
 
-export function createEcdsaLoginPrefillClientSigningMaterialSource(
-  record: ThresholdEcdsaSessionRecord,
-): RouterAbEcdsaDerivationClientSigningMaterialSource {
+/** The signing session the runtime-validation fence is keyed by, built from the
+ * exact sealed runtime and the active authorization rather than parsed out of a
+ * composite record. Mirrors how the signing path composes the same session from
+ * already-resolved facts. */
+function loginPrefillSigningWalletSession(args: {
+  runtime: ExactEcdsaSealedRuntime;
+  authorization: ActiveWalletSessionAuthorizationProjection;
+}): RouterAbEcdsaDerivationSigningWalletSession {
+  const runtimePolicyScope = args.runtime.runtimePolicyScope;
+  if (!runtimePolicyScope) {
+    throw new Error('ECDSA login prefill requires a sealed runtime policy scope');
+  }
+  const walletSessionJwt = args.authorization.walletSessionJwt;
+  return {
+    curve: 'ecdsa',
+    auth: {
+      kind: 'wallet_session_jwt',
+      walletSessionJwt,
+      credential: { kind: 'jwt', walletSessionJwt },
+    },
+    thresholdSessionId: args.runtime.sealedRecord.thresholdSessionId,
+    signingGrantId: String(args.authorization.walletSessionId),
+    remainingUses: args.runtime.remainingUses,
+    expiresAtMs: args.runtime.expiresAtMs,
+    signingMaterial: buildRouterAbEcdsaDerivationSigningMaterialRef({
+      routerAbState: args.runtime.normalSigning,
+    }),
+    runtimePolicyScope,
+    routerAbEcdsaDerivationNormalSigning: args.runtime.normalSigning,
+  };
+}
+
+export function createEcdsaLoginPrefillClientSigningMaterialSource(args: {
+  manifest: ActiveEcdsaCapabilityManifest;
+  runtime: ExactEcdsaSealedRuntime;
+  authorization: ActiveWalletSessionAuthorizationProjection;
+}): RouterAbEcdsaDerivationClientSigningMaterialSource {
   return {
     kind: 'router_ab_ecdsa_derivation_client_signing_material_source_v1',
     initClientPresignSession: async (input) => {
-      const persistedMaterial = requirePersistedEcdsaRoleLocalMaterial(record);
       const resolution = await resolveEcdsaRoleLocalMaterial({
         purpose: 'wallet_unlock',
-        source: ecdsaRoleLocalPersistedMaterialSource(persistedMaterial),
+        // Material identity is the manifest's half of the split: authority,
+        // activation and public facts all come from the selected capability.
+        source: ecdsaRoleLocalPersistedMaterialSource({
+          authority: args.manifest.signer.authority,
+          materialActivation: args.manifest.durableMaterial.materialActivation,
+          publicFacts: args.manifest.durableMaterial.roleLocalPublicFacts,
+        }),
         workerCtx: input.workerCtx,
       });
       const resolvedMaterial = requireResolvedLoginPrefillMaterial(resolution);
-      if (!markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)) {
+      if (
+        !markResolvedEcdsaRoleLocalMaterialRuntimeValidated({
+          material: resolvedMaterial,
+          session: loginPrefillSigningWalletSession(args),
+          keyHandle: args.runtime.keyHandle,
+          chainTarget: args.runtime.chainTarget,
+          participantIds: args.runtime.participantIds,
+        })
+      ) {
         throw new Error('ECDSA login prefill could not validate runtime role-local material');
       }
       return await thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm({

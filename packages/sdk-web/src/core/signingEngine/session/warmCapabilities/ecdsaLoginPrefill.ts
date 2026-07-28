@@ -21,8 +21,9 @@ import {
   LOGIN_PREFILL_TARGET_DEPTH,
   LOGIN_PREFILL_TRIGGER_DEPTH,
 } from '@/core/config/defaultConfigs';
-import { tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
+import type { ActiveEcdsaCapabilityManifest } from '../material/ecdsaCapabilityManifest';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseEcdsaClientVerifyingShareB64u,
   parseEcdsaThresholdKeyId,
@@ -105,9 +106,11 @@ export type RouterAbEcdsaDerivationLoginPresignaturePrefillDeps = {
     chainTarget: ThresholdEcdsaChainTarget,
   ) => Promise<SigningSessionStatus | null>;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
-  resolveClientSigningMaterialSource: (
-    record: ThresholdEcdsaSessionRecord,
-  ) => RouterAbEcdsaDerivationClientSigningMaterialSource;
+  resolveClientSigningMaterialSource: (args: {
+    manifest: ActiveEcdsaCapabilityManifest;
+    runtime: ExactEcdsaSealedRuntime;
+    authorization: ActiveWalletSessionAuthorizationProjection;
+  }) => RouterAbEcdsaDerivationClientSigningMaterialSource;
   routerAbEcdsaDerivationPresignaturePoolPolicy?:
     | RouterAbEcdsaDerivationPresignaturePoolPolicyInput
     | RouterAbEcdsaDerivationPresignaturePoolPolicy;
@@ -130,7 +133,8 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
   deps: RouterAbEcdsaDerivationLoginPresignaturePrefillDeps,
   args: {
     walletId: WalletId;
-    thresholdEcdsaSessionRecord: ThresholdEcdsaSessionRecord;
+    manifest: ActiveEcdsaCapabilityManifest;
+    runtime: ExactEcdsaSealedRuntime;
     chainTarget: ThresholdEcdsaChainTarget;
     minRemainingUsesBeforePrefill?: number;
   },
@@ -138,14 +142,14 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
   let thresholdSessionId: string | undefined;
   try {
     const walletId = args.walletId;
-    const record = args.thresholdEcdsaSessionRecord;
-
-    const relayerUrl = String(record.relayerUrl || '')
-      .trim()
-      .replace(/\/+$/g, '');
-    const clientVerifyingShareB64u = String(record.clientVerifyingShareB64u || '').trim();
-    const participantIds = parseThresholdSecp256k1Ecdsa2pParticipantIdsV1(record.participantIds);
-    if (!relayerUrl || !clientVerifyingShareB64u || !participantIds.ok) {
+    // The runtime was already correlated against the active manifest, so its
+    // transport and two-party facts are exact. The remaining guard is that the
+    // participant ids still parse as a Router A/B 2-of-2 set.
+    const runtime = args.runtime;
+    const relayerUrl = runtime.relayerUrl;
+    const clientVerifyingShareB64u = runtime.clientVerifyingShareB64u;
+    const participantIds = parseThresholdSecp256k1Ecdsa2pParticipantIdsV1(runtime.participantIds);
+    if (!participantIds.ok) {
       return {
         status: 'skipped',
         reason: 'invalid_session_record',
@@ -154,16 +158,7 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
       };
     }
 
-    const identity = tryBuildEcdsaSessionIdentity(record);
-    thresholdSessionId = identity?.thresholdSessionId;
-    if (!thresholdSessionId || !identity) {
-      return {
-        status: 'skipped',
-        reason: 'missing_threshold_session_id',
-        thresholdSessionId: null,
-        details: null,
-      };
-    }
+    thresholdSessionId = runtime.sealedRecord.thresholdSessionId;
 
     const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(walletId);
     if (authorizationRead.kind !== 'found') {
@@ -185,7 +180,7 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
       };
     }
 
-    if (!record.routerAbEcdsaDerivationNormalSigning || Math.floor(Number(record.expiresAtMs)) <= Date.now()) {
+    if (runtime.expiresAtMs <= Date.now()) {
       return {
         status: 'skipped',
         reason: 'missing_router_ab_ecdsa_derivation_state',
@@ -195,8 +190,8 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
 
     const existingDepth = getRouterAbEcdsaDerivationClientPresignaturePoolDepth({
       relayerUrl,
-      scope: record.routerAbEcdsaDerivationNormalSigning.scope,
-      materialActivation: routerAbMpcMaterialActivationRefToWire(record.materialActivation),
+      scope: runtime.normalSigning.scope,
+      materialActivation: routerAbMpcMaterialActivationRefToWire(runtime.materialActivation),
     });
     if (existingDepth >= LOGIN_PREFILL_TARGET_DEPTH) {
       return {
@@ -218,7 +213,7 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
         thresholdSessionId,
       };
     }
-    if (String(warmStatus.sessionId || '').trim() !== identity.thresholdSessionId) {
+    if (String(warmStatus.sessionId || '').trim() !== thresholdSessionId) {
       return {
         status: 'skipped',
         reason: 'threshold_session_mismatch',
@@ -237,7 +232,7 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
     }
 
     const routerAbPoolFillExpiresAtMs = Math.min(
-      Math.floor(Number(record.expiresAtMs)),
+      runtime.expiresAtMs,
       warmSessionExpiresAtMs,
       Date.now() + 60_000,
     );
@@ -265,26 +260,31 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
 
     const routerAbEcdsaDerivationPoolFill = {
       kind: 'router_ab_ecdsa_derivation_signing_worker_pool' as const,
-      scope: record.routerAbEcdsaDerivationNormalSigning.scope,
+      scope: runtime.normalSigning.scope,
       expiresAtMs: routerAbPoolFillExpiresAtMs,
     };
 
     const remainingUsesAfterDispense = remainingUsesBefore;
-    const clientSigningMaterial = deps.resolveClientSigningMaterialSource(record);
+    const clientSigningMaterial = deps.resolveClientSigningMaterialSource({
+      manifest: args.manifest,
+      runtime,
+      authorization,
+    });
 
     const schedule = scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill({
       relayerUrl,
-      ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(record.ecdsaThresholdKeyId),
+      ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(runtime.ecdsaThresholdKeyId),
       clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(clientVerifyingShareB64u),
       clientSigningMaterial,
-      thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u,
-      relayerVerifyingShareB64u: record.relayerVerifyingShareB64u,
+      thresholdEcdsaPublicKeyB64u: runtime.thresholdEcdsaPublicKeyB64u,
+      relayerVerifyingShareB64u:
+        runtime.normalSigning.scope.public_identity.server_public_key33_b64u,
       credential: { kind: 'jwt', walletSessionJwt },
       authorization: {
         kind: 'reusable_wallet_session',
         wallet_session_id: authorization.walletSessionId,
       },
-      materialActivation: routerAbMpcMaterialActivationRefToWire(record.materialActivation),
+      materialActivation: routerAbMpcMaterialActivationRefToWire(runtime.materialActivation),
       routerAbEcdsaDerivationPoolFill,
       workerCtx: deps.getSignerWorkerContext(),
       poolPolicy: policy,
