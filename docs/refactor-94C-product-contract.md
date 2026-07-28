@@ -46,7 +46,6 @@ type WalletRegistrationSetupResponse =
       registrationCeremonyId: string;
       walletId: WalletId;                             // generated name, UNIQUE-arbitrated at insert
       signedSetup: SignedSetupPayloadB64u;            // opaque; client-carried, echoed on routes 2-3
-      signedPolicy: SignedPolicyPayloadB64u;          // opaque; Router-bound policy snapshot
       ecdsa: WalletRegistrationEcdsaPreparePayload;   // unchanged
       ed25519?: { admissionRequest; admissionReceipt } // unchanged Yao types; mixed plans only
     }
@@ -56,7 +55,10 @@ type WalletRegistrationSetupResponse =
 Signed payload claims (server-internal shape, Codex owns encoding): operation
 id, environment, request fingerprint, `iat`/`exp`, policy+key version, wallet
 candidate, auth challenge binding, signer plan digest. The client never parses
-them — width of the union is exactly "two opaque strings".
+it — the public width is exactly one opaque string. **Policy never crosses the
+public wire**: the Gateway mints an internal Router-policy JWT per concrete
+Router call, so the client cannot replay a policy token across operations and
+the Router still performs zero policy/JWKS lookups.
 
 ### Route 2 — `POST /wallets/register/respond`
 
@@ -113,8 +115,11 @@ material only — no RPC, no chain state, per the effect ledger.
 **Checkpoint decisions (approved 2026-07-28; contract frozen):**
 1. **Fingerprint**: the existing typed domain encoder with a `PublicDigest32`
    request digest over canonical encoded request bytes — never raw JSON or
-   property-order-dependent serialization. The same canonical digest binds
-   setup, respond, activate, idempotency, and policy claims.
+   property-order-dependent serialization. **Each route computes its own
+   canonical `PublicDigest32`** (setup, respond, and activate digests are
+   separate values over that route's canonical bytes); the signed payloads and
+   idempotency rows bind the digest of the route they protect, so a payload
+   for one route can never satisfy another.
 2. **Signed payloads**: compact Ed25519 JWS/JWT strings, opaque to the client.
    Claims: issuer, audience, subject, environment, expiry, work kind, policy
    version, canonical request digest. Unknown algorithms rejected; verification
@@ -127,10 +132,13 @@ material only — no RPC, no chain state, per the effect ledger.
 
 Boundary decisions folded in: `respond` stays deterministic-or-refused at the
 role layer with a stable public wire shape while the Gateway bookkeeping
-deletion is validated; policy travels only inside the signed request-carried
-token (Router does no policy/quota/abuse/JWKS lookup); registration creates an
-implicit-account keypair only; no compatibility route, legacy field, or
-dual-write path.
+deletion is validated; policy travels only in the Gateway-minted internal
+Router-policy JWT attached per concrete Router call (Router does no
+policy/quota/abuse/JWKS lookup, and no policy token is client-visible);
+registration creates an implicit-account keypair only; no compatibility route,
+legacy field, or dual-write path. Existing wallets require no migration:
+destructive testnet cutover is authorized, so retired records are dropped, not
+converted.
 
 ## 3. Deletion inventory (TypeScript, product lane)
 
