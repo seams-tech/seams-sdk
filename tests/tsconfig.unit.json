@@ -16,6 +16,7 @@
     "unit/d1WalletRegistrationCommitStore.unit.test.ts",
     "unit/ecdsaExportOperationAuthorization.unit.test.ts",
     "unit/ecdsaOperationStepUpChallengeBinding.unit.test.ts",
+    "unit/ecdsaSealedRuntime.unit.test.ts",
     "unit/emailOtpMixedWalletUnlock.unit.test.ts",
     "unit/emailOtpRecoveryWrappedEnrollmentEscrowStore.unit.test.ts",
     "unit/emailOtpWalletSessionCoordinator.unit.test.ts",
