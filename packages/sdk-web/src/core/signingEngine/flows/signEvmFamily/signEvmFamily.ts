@@ -77,7 +77,6 @@ import {
 import { throwIfEvmFamilySigningCancelled } from './errors';
 import {
   requireResolvedEvmFamilyEcdsaSigningLane,
-  selectedEvmFamilyEcdsaLaneForMaterialIdentity,
   summarizeEvmFamilyEcdsaLane,
   type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
