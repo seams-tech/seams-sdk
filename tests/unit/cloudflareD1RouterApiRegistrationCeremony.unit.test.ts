@@ -4,7 +4,14 @@ import type {
   CreateRegistrationIntentResponse,
   WalletRegistrationStartRequest,
 } from '../../packages/sdk-server-ts/src/core/registrationContracts';
+import {
+  buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch,
+  findStoredWalletRegistrationEvmFamilyEcdsaBranch,
+  type StoredWalletRegistrationCeremony,
+} from '../../packages/sdk-server-ts/src/core/RegistrationCeremonyStore';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
+import { buildRegistrationIntent } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
+import { CloudflareD1RegistrationCeremonyIntentStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyStore';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
@@ -14,7 +21,10 @@ import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds'
 import {
   implicitNearAccountProvisioning,
   parseServerAllocatedWalletId,
+  registrationNearEd25519BranchKey,
+  registrationSignerPlanFromSelection,
   walletIdFromString,
+  type RegistrationSignerSetSelection,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
@@ -35,6 +45,7 @@ import {
   readWalletAuthMethodRecord,
   readWalletSignerRecord,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
+import { createActivatedFinalizeYaoRuntimeFixture } from './helpers/d1WalletRegistrationFinalizeConvergence.fixtures';
 
 class StartClaimFaultD1PreparedStatement implements D1PreparedStatementLike {
   constructor(
@@ -319,7 +330,7 @@ function withoutServerTimings<T>(value: T): T {
   if (Array.isArray(value)) return value.map(withoutServerTimings) as unknown as T;
   if (!value || typeof value !== 'object') return value;
   const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([key]) => key !== 'gatewayServerTiming')
+    .filter(([key]) => key !== 'gatewayServerTiming' && key !== 'registrationDiagnostics')
     .map(([key, entry]) => [key, withoutServerTimings(entry)]);
   return Object.fromEntries(entries) as T;
 }
@@ -413,15 +424,14 @@ test('partitioned D1 completes and replays strict ECDSA wallet registration', as
     });
     if (!responded.ok) throw new Error(responded.message);
     expect(strictRegistration.registrationRequest).toEqual(strictRequest);
-    const respondedReplay = await service.walletRegistration.respondWalletRegistrationEcdsaDerivation(
-      {
+    const respondedReplay =
+      await service.walletRegistration.respondWalletRegistrationEcdsaDerivation({
         registrationCeremonyId: started.registrationCeremonyId,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_v1',
           strictRegistration: strictRequest,
         },
-      },
-    );
+      });
     /* The replay must return the same registration payload, but not the same
        timings: it reconciles instead of doing router and commit work, and the
        durations are wall-clock. Comparing those for equality made this assert
@@ -485,8 +495,9 @@ test('partitioned D1 completes and replays strict ECDSA wallet registration', as
     /* Refactor 94B Phase 0. Whatever the role legs return, the gateway's own
        metric list stays fixed identifiers — a forwarded Server-Timing value
        carries role and span names and must never appear verbatim here. */
-    const respondTimings = (responded as { gatewayServerTiming?: readonly (readonly [string, number])[] })
-      .gatewayServerTiming;
+    const respondTimings = (
+      responded as { gatewayServerTiming?: readonly (readonly [string, number])[] }
+    ).gatewayServerTiming;
     expect(respondTimings).toBeDefined();
     const respondMetricNames = (respondTimings ?? []).map(([name]) => name);
     expect(respondMetricNames.length).toBeGreaterThan(0);
@@ -543,6 +554,218 @@ test('partitioned D1 completes and replays strict ECDSA wallet registration', as
         idempotencyKey: 'strict-registration-after-cleanup',
       }),
     ).resolves.toMatchObject({ ok: false, code: 'not_found' });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('mixed registration preserves deferred Ed25519 finalize across exact ECDSA replay', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'registration-finalize-convergence',
+      orgId: 'org-finalize',
+      projectId: 'project-finalize',
+      envId: 'env-finalize',
+    };
+    const yao = await createActivatedFinalizeYaoRuntimeFixture();
+    const walletId = walletIdFromString(yao.admissionRequest.application_binding.wallet_id);
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.com'));
+    const strictRegistration = new SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort();
+    const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
+      config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-finalize' },
+    });
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      ...scope,
+      routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
+      ed25519YaoProductRegistration: yao.runtime,
+      ecdsaStrictRegistration: strictRegistration,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: new RecordingDurableObjectNamespace(),
+        THRESHOLD_PREFIX: 'mixed-finalize-replay-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-finalize',
+      },
+    });
+    const ecdsaSigner = {
+      kind: 'evm_family_ecdsa' as const,
+      participantIds: [1, 2] as const,
+      chainTargets: [{ kind: 'evm' as const, namespace: 'eip155' as const, chainId: 8453 }],
+    };
+    const registration = await service.walletRegistration.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-finalize-v1',
+      expectedOrigin: 'https://app.example.com',
+      request: {
+        wallet: { kind: 'provided', walletId },
+        authMethod: { kind: 'passkey', rpId },
+        signerSelection: { kind: 'signer_set', signers: [ecdsaSigner] },
+      },
+    });
+    if (!registration.ok) throw new Error(registration.message);
+    const started = await service.walletRegistration.startWalletRegistration(
+      passkeyRegistrationStartRequest({
+        registration,
+        webauthnRegistration: await createWebAuthnRegistrationCredential({
+          rpId,
+          challengeB64u: registration.registrationIntentDigestB64u,
+          origin: 'https://app.example.com',
+        }),
+      }),
+    );
+    if (!started.ok || !started.ecdsa) throw new Error('Expected mixed fixture ECDSA start');
+    const strictRequest = buildFixtureRouterAbEcdsaStrictRegistrationRequest(
+      started.ecdsa.strictRegistration,
+    );
+    const responded = await service.walletRegistration.respondWalletRegistrationEcdsaDerivation({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: { kind: 'router_ab_ecdsa_registration_v1', strictRegistration: strictRequest },
+    });
+    if (!responded.ok) throw new Error(responded.message);
+    const activated = await service.walletRegistration.activateWalletRegistrationEcdsa({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_v1',
+        publicFacts: fixtureRouterAbEcdsaActivationFacts(),
+      },
+    });
+    if (!activated.ok) throw new Error(activated.message);
+
+    const mixedSelection: RegistrationSignerSetSelection = {
+      kind: 'signer_set',
+      signers: [
+        {
+          kind: 'near_ed25519',
+          accountProvisioning: implicitNearAccountProvisioning(),
+          signerSlot: 1,
+          participantIds: [1, 2],
+          derivationVersion: 1,
+        },
+        ecdsaSigner,
+      ],
+    };
+    const mixedPlan = registrationSignerPlanFromSelection(mixedSelection);
+    if (!mixedPlan.ok) throw new Error(mixedPlan.message);
+    const ceremonyStore = new CloudflareD1RegistrationCeremonyIntentStore({
+      kind: 'partitioned_d1',
+      database,
+      scope,
+      keyPrefix: 'gateway-registration:',
+    });
+    const ceremony = await ceremonyStore.getCeremony(started.registrationCeremonyId);
+    if (!ceremony || ceremony.signerState.kind !== 'signer_set_registration') {
+      throw new Error('Expected activated ECDSA ceremony');
+    }
+    if (!ceremony.intent.runtimePolicyScope || !ceremony.expectedOrigin) {
+      throw new Error('Expected mixed fixture ceremony scope');
+    }
+    const mixedCeremony: StoredWalletRegistrationCeremony = {
+      registrationCeremonyId: ceremony.registrationCeremonyId,
+      intent: buildRegistrationIntent({
+        walletId,
+        authMethod: { kind: 'passkey', rpId },
+        signerSelection: mixedSelection,
+        runtimePolicyScope: ceremony.intent.runtimePolicyScope,
+      }),
+      digestB64u: ceremony.digestB64u,
+      signerPlan: mixedPlan.value,
+      preparedContext: ceremony.preparedContext,
+      orgId: ceremony.orgId,
+      signingRootId: ceremony.signingRootId,
+      signingRootVersion: ceremony.signingRootVersion,
+      expectedOrigin: ceremony.expectedOrigin,
+      expiresAtMs: ceremony.expiresAtMs,
+      authority: ceremony.authority,
+      signerState: {
+        kind: 'signer_set_registration',
+        branches: [
+          buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch({
+            branchKey: registrationNearEd25519BranchKey(1),
+            admissionRequest: yao.admissionRequest,
+            admissionReceipt: yao.admissionReceipt,
+          }),
+          ...ceremony.signerState.branches,
+        ],
+      },
+    };
+    await ceremonyStore.updateCeremony({ expected: ceremony, next: mixedCeremony });
+
+    const ecdsaFinalizeRequest = {
+      kind: 'evm_family_ecdsa' as const,
+      registrationCeremonyId: started.registrationCeremonyId,
+      idempotencyKey: 'mixed-registration-ecdsa-finalize',
+      ecdsa: { expectedKeyHandles: [activated.ecdsa.bootstrap.keyHandle] },
+    };
+    const ecdsaFinalized =
+      await service.walletRegistration.finalizeWalletRegistration(ecdsaFinalizeRequest);
+    if (!ecdsaFinalized.ok) throw new Error(JSON.stringify(ecdsaFinalized));
+    expect(ecdsaFinalized).toMatchObject({ kind: 'evm_family_ecdsa' });
+    await database
+      .prepare(
+        `UPDATE registration_ceremony_records
+            SET record_json = json_remove(
+              json_set(
+                record_json,
+                '$.signerState.branches[1].kind',
+                'evm_family_ecdsa_activated'
+              ),
+              '$.signerState.branches[1].finalizedAtMs'
+            )
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND record_scope = 'ceremony'`,
+      )
+      .bind(scope.namespace, scope.orgId, scope.projectId, scope.envId)
+      .run();
+    const interruptedCeremony = await ceremonyStore.getCeremony(started.registrationCeremonyId);
+    if (!interruptedCeremony || interruptedCeremony.signerState.kind !== 'signer_set_registration') {
+      throw new Error('Expected interrupted mixed registration ceremony');
+    }
+    expect(
+      findStoredWalletRegistrationEvmFamilyEcdsaBranch(interruptedCeremony.signerState)?.kind,
+    ).toBe('evm_family_ecdsa_activated');
+    await database
+      .prepare(
+        `DELETE FROM router_ab_yao_versioned_json_records
+          WHERE record_key LIKE 'wallet-registration-finalize:%'`,
+      )
+      .run();
+    const ecdsaReplay =
+      await service.walletRegistration.finalizeWalletRegistration(ecdsaFinalizeRequest);
+    expect(withoutServerTimings(ecdsaReplay)).toEqual(withoutServerTimings(ecdsaFinalized));
+    const reconciledCeremony = await ceremonyStore.getCeremony(started.registrationCeremonyId);
+    if (!reconciledCeremony || reconciledCeremony.signerState.kind !== 'signer_set_registration') {
+      throw new Error('Expected reconciled mixed registration ceremony');
+    }
+    expect(
+      findStoredWalletRegistrationEvmFamilyEcdsaBranch(reconciledCeremony.signerState)?.kind,
+    ).toBe('evm_family_ecdsa_finalized');
+    await expect(
+      countPartitionedRegistrationRecords({ database, scope, recordScope: 'ceremony' }),
+    ).resolves.toBe(1);
+
+    const ed25519Finalized = await service.walletRegistration.finalizeWalletRegistration({
+      kind: 'near_ed25519',
+      registrationCeremonyId: started.registrationCeremonyId,
+      idempotencyKey: 'mixed-registration-ed25519-finalize',
+      ed25519: {
+        activationReference: {
+          kind: 'router_ab_ed25519_yao_activation_reference_v1',
+          lifecycle_id: yao.admissionRequest.scope.lifecycle_id,
+          session_id: yao.activationResult.binding.session_id,
+        },
+      },
+    });
+    if (!ed25519Finalized.ok) throw new Error(JSON.stringify(ed25519Finalized));
+    expect(ed25519Finalized).toMatchObject({ kind: 'near_ed25519' });
+    await expect(
+      countPartitionedRegistrationRecords({ database, scope, recordScope: 'ceremony' }),
+    ).resolves.toBe(0);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

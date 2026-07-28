@@ -864,9 +864,10 @@ function buildCeremony(input: {
   };
 }
 
-async function activatedRuntimeFixture(): Promise<{
+export async function createActivatedFinalizeYaoRuntimeFixture(): Promise<{
   readonly runtime: FailureInjectingYaoRuntime;
   readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
   readonly activationResult: RouterAbEd25519YaoActivationResultV1<'registration'>;
 }> {
   const walletId = walletIdFromString('finalize-convergence-wallet');
@@ -932,6 +933,7 @@ async function activatedRuntimeFixture(): Promise<{
   return {
     runtime: new FailureInjectingYaoRuntime(composition.runtime),
     admissionRequest,
+    admissionReceipt,
     activationResult,
   };
 }
@@ -1030,7 +1032,7 @@ async function createFinalizeConvergenceHarnessForMode(
   await applySignerMigrations(temporary.database);
   const database = new ResponseLossD1Database(temporary.database);
   const durableObjects = new FinalizeCeremonyDurableObjectNamespace();
-  const yao = await activatedRuntimeFixture();
+  const yao = await createActivatedFinalizeYaoRuntimeFixture();
   const normalSigning = new FailureInjectingNormalSigningRuntime();
   const thresholdStore = {
     kind: 'cloudflare-do' as const,

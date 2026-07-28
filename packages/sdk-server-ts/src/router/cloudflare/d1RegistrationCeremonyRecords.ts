@@ -104,6 +104,7 @@ import {
   type StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch,
   type StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch,
   type StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch,
+  type StoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch,
   type StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch,
   type StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch,
   type StoredWalletRegistrationNearEd25519YaoAuthorizedBranch,
@@ -1050,6 +1051,8 @@ function parseD1StoredSignerSetRegistrationBranch(
       return parseD1StoredEvmFamilyEcdsaActivationClaimedBranch(record);
     case 'evm_family_ecdsa_activated':
       return parseD1StoredEvmFamilyEcdsaActivatedBranch(record);
+    case 'evm_family_ecdsa_finalized':
+      return parseD1StoredEvmFamilyEcdsaFinalizedBranch(record);
     default:
       return null;
   }
@@ -1187,6 +1190,35 @@ function parseD1StoredEvmFamilyEcdsaActivatedBranch(
       activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation),
       publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(record.publicCapability),
       bootstrap,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseD1StoredEvmFamilyEcdsaFinalizedBranch(
+  record: Record<string, unknown>,
+): StoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch | null {
+  const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
+  const finalizedAtMs = safeInteger(record.finalizedAtMs);
+  if (!branchKey || !prepared || !bootstrap || bootstrap.jwt || finalizedAtMs === null) return null;
+  try {
+    return {
+      kind: 'evm_family_ecdsa_finalized',
+      branchKey,
+      derivationKind: prepared.derivationKind,
+      chainTargets: prepared.chainTargets,
+      prepare: prepared.prepare,
+      strictRegistration: prepared.strictRegistration,
+      strictRegistrationBindingJson: prepared.strictRegistrationBindingJson,
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
+      publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
+      activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation),
+      publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(record.publicCapability),
+      bootstrap,
+      finalizedAtMs,
     };
   } catch {
     return null;
