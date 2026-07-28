@@ -28,7 +28,6 @@ export function createBrowserWarmSessionPublicDeps(args: {
   enginePorts: Pick<
     SigningEnginePorts,
     | 'walletSessionActivationDeps'
-    | 'resolveCanonicalThresholdEcdsaSessionIdForWalletTarget'
     | 'signingSessionCoordinator'
   >;
 }): {
@@ -54,8 +53,6 @@ export function createBrowserWarmSessionPublicDeps(args: {
       touchConfirm: args.touchConfirm,
       warmSigning: args.warmSigning,
       walletSessionActivationDeps: args.enginePorts.walletSessionActivationDeps,
-      resolveCanonicalThresholdEcdsaSessionIdForWalletTarget:
-        args.enginePorts.resolveCanonicalThresholdEcdsaSessionIdForWalletTarget,
       signingSessionCoordinator: args.enginePorts.signingSessionCoordinator,
     }),
   };
