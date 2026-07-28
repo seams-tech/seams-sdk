@@ -389,3 +389,46 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - public exports implying wallet-only auth/sessions/grants
 - source guards and fixtures whose invariant became structural during the
   slices
+
+## 6e gate — composite ECDSA record family (measured 2026-07-28, at `3b904b63a`)
+
+Production scope is `packages/**` + `apps/**`, excluding `node_modules` and
+`dist`. Match term is `ThresholdEcdsaSessionRecord`.
+
+| Measurement | Before read-model cutover | At `3b904b63a` |
+| --- | --- | --- |
+| Production files | 57 | **54** |
+| Total references | 415 | **398** |
+
+Gate verdict: **deletion does not open.** The 6e condition is that every
+remaining consumer is obsolete or replaceable within the deletion slice. It is
+not met.
+
+The store itself is inert. `storeThresholdEcdsaSessionFact` is reached only
+from `commitCurrentThresholdEcdsaSession` and the two `upsert*` entry points,
+and outside `records.ts` those have no production callers — only
+`records.typecheck.ts` and unit tests. Both backing maps (`recordsByLane` from
+`createSigningRuntime`, and the module-level `inMemoryEcdsaRecordsByLane`) are
+therefore never populated in production. Every remaining reader observes an
+empty store.
+
+That makes the remaining work a signature exercise rather than a
+behaviour-preservation one — there is no live data flowing through these
+readers to regress — but it does not make the consumers deletable, because the
+type is still threaded through surfaces that must keep compiling:
+
+- SDK public API: `SeamsWeb/publicApi/types.ts`, `SeamsWeb/signingSurface/ports.ts`
+  (including `getThresholdEcdsaSessionRecordByThresholdSessionId`, the bare
+  `thresholdSessionId → record` API this refactor forbids)
+- assembly/runtime ports: `assembly/ports/{warmSigning,stepUpRuntime,shared}.ts`,
+  `core/runtime/runtime.types.ts`, `core/platform/index.ts`
+- operating paths that are themselves the subject of the canonical-entry-point
+  work: `flows/signEvmFamily/{signEvmFamily,ecdsaSelection,ecdsaLanes,ecdsaMaterialState}.ts`,
+  `flows/recovery/{ecdsaExportMaterial,ecdsaDerivationExport}.ts`,
+  `session/emailOtp/{ecdsaLogin,ecdsaEnrollment,ecdsaPublication,ecdsaRecovery}.ts`,
+  `uiConfirm/UiConfirmManager.ts`
+
+Deleting the type ahead of those cutovers breaks all 54 files at once with no
+intermediate green state. The entry-point cutover must land first; the
+reference count then collapses and the deletion becomes mechanical with zero
+production references reachable.
