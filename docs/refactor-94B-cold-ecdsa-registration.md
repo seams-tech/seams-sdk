@@ -226,9 +226,16 @@ serializer that could leak the field.
   - [ ] HPKE material reconstruction;
   - [ ] SigningWorker output Durable Object activation.
 - [ ] Merge nested timing headers at each service-binding boundary.
-- [ ] Expose `Server-Timing` on the two public Gateway responses.
-- [ ] Parse the raw headers in the browser and fold the metrics into the
-      existing registration timing summary.
+- [x] Expose `Server-Timing` on the two public Gateway responses. Already
+      handled by the shared CORS helper, which sets
+      `Access-Control-Expose-Headers: Server-Timing` whenever the response
+      carries the header (`cloudflare/http.ts:69-71`) — so it appears on these
+      two routes now that they emit it, and stays absent on error responses.
+- [x] Parse the raw headers in the browser and fold the metrics into the
+      existing registration timing summary. `postJson` gained an optional
+      `Server-Timing` sink, threaded to the two strict-ceremony call sites; the
+      existing Yao metric map absorbed the fourteen `ecdsa_*` names, so one
+      parser covers both families.
 - [ ] Log whether each expected raw header was present without logging its raw
       contents.
 - [x] Add one behavioral test proving unknown or malformed metrics cannot
