@@ -28,6 +28,7 @@ import {
 import {
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoBytes32V1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
@@ -2498,8 +2499,11 @@ export async function activateWalletRegistrationEcdsa(args: {
  */
 export type WalletRegistrationRespondEd25519DeferredWork = {
   status: 'deferred';
-  admissionRequest: unknown;
-  admissionReceipt: unknown;
+} & WalletRegistrationEd25519YaoStart;
+
+type WalletRegistrationRespondEcdsaBundles = {
+  kind: 'router_ab_ecdsa_registration_forwarded_v1';
+  strictResult: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
 };
 
 export type WalletRegistrationRespondResponseV2 =
@@ -2507,23 +2511,121 @@ export type WalletRegistrationRespondResponseV2 =
       ok: true;
       registrationCeremonyId: string;
       kind: 'evm_family_ecdsa';
-      ecdsa: {
-        kind: 'router_ab_ecdsa_registration_forwarded_v1';
-        strictResult: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
-      };
+      ecdsa: WalletRegistrationRespondEcdsaBundles;
       ed25519?: never;
     }
   | {
       ok: true;
       registrationCeremonyId: string;
       kind: 'near_ed25519_and_evm_family_ecdsa';
-      ecdsa: {
-        kind: 'router_ab_ecdsa_registration_forwarded_v1';
-        strictResult: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
-      };
+      ecdsa: WalletRegistrationRespondEcdsaBundles;
       ed25519: WalletRegistrationRespondEd25519DeferredWork;
-    }
-  | { ok: false; code: string; message: string; retryAfterMs?: number };
+    };
+
+/**
+ * Strict boundary parser for route 2.
+ *
+ * `kind` selects which fields are legal, so the allowed-key set is computed
+ * from it: a mixed response missing its Ed25519 arm, or an ECDSA-only response
+ * carrying one, is rejected rather than silently narrowed. That is the point
+ * of the discriminated union — a wallet whose NEAR branch was requested but
+ * whose deferred work never arrived must fail loudly here, not register as
+ * ECDSA-only.
+ */
+function parseWalletRegistrationRespondResponseV2(
+  value: unknown,
+): WalletRegistrationRespondResponseV2 {
+  const responseName = 'Wallet registration respond';
+  const response = requireResponseRecord({ responseName, field: 'body', value });
+  if (response.ok !== true) {
+    throw new Error(`${responseName} response is not successful`);
+  }
+  const registrationCeremonyId = requireResponseString({
+    responseName,
+    field: 'registrationCeremonyId',
+    value: response.registrationCeremonyId,
+  });
+  /* Discriminate and check shape before parsing any nested payload. A wrong
+     plan shape should say so, not surface as a confusing failure from deep
+     inside the ECDSA bundle parser. */
+  if (
+    response.kind !== 'evm_family_ecdsa' &&
+    response.kind !== 'near_ed25519_and_evm_family_ecdsa'
+  ) {
+    throw new Error(`${responseName} response kind is invalid`);
+  }
+  const mixed = response.kind === 'near_ed25519_and_evm_family_ecdsa';
+  requireExactResponseKeys(
+    response,
+    mixed
+      ? ['ok', 'registrationCeremonyId', 'kind', 'ecdsa', 'ed25519']
+      : ['ok', 'registrationCeremonyId', 'kind', 'ecdsa'],
+    responseName,
+  );
+  if (mixed && response.ed25519 === undefined) {
+    throw new Error(`${responseName} mixed signer plan is missing its ed25519 deferred work`);
+  }
+  const ecdsaRecord = requireResponseRecord({
+    responseName,
+    field: 'ecdsa',
+    value: response.ecdsa,
+  });
+  requireExactResponseKeys(ecdsaRecord, ['kind', 'strictResult'], `${responseName} ecdsa`);
+  if (ecdsaRecord.kind !== 'router_ab_ecdsa_registration_forwarded_v1') {
+    throw new Error(`${responseName} ecdsa kind is invalid`);
+  }
+  const ed25519 = mixed
+    ? parseWalletRegistrationRespondEd25519DeferredWork(response.ed25519)
+    : null;
+  const ecdsa: WalletRegistrationRespondEcdsaBundles = {
+    kind: 'router_ab_ecdsa_registration_forwarded_v1',
+    strictResult: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(ecdsaRecord.strictResult),
+  };
+  return ed25519
+    ? {
+        ok: true,
+        registrationCeremonyId,
+        kind: 'near_ed25519_and_evm_family_ecdsa',
+        ecdsa,
+        ed25519,
+      }
+    : { ok: true, registrationCeremonyId, kind: 'evm_family_ecdsa', ecdsa };
+}
+
+function parseWalletRegistrationRespondEd25519DeferredWork(
+  value: unknown,
+): WalletRegistrationRespondEd25519DeferredWork {
+  const responseName = 'Wallet registration respond ed25519';
+  const record = requireResponseRecord({ responseName, field: 'ed25519', value });
+  requireExactResponseKeys(
+    record,
+    ['status', 'admissionRequest', 'admissionReceipt'],
+    responseName,
+  );
+  /* `deferred` is the only legal status. Anything else would mean the server
+     believes this work is already running or complete, which no client is
+     entitled to assume about NEAR provisioning. */
+  if (record.status !== 'deferred') {
+    throw new Error(`${responseName} status is invalid`);
+  }
+  const admissionRequest = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(
+    record.admissionRequest,
+  );
+  if (!admissionRequest.ok) {
+    throw new Error(`${responseName} admissionRequest is invalid`);
+  }
+  const admissionReceipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+    record.admissionReceipt,
+  );
+  if (!admissionReceipt.ok) {
+    throw new Error(`${responseName} admissionReceipt is invalid`);
+  }
+  return {
+    status: 'deferred',
+    admissionRequest: admissionRequest.value,
+    admissionReceipt: admissionReceipt.value,
+  };
+}
 
 export async function respondWalletRegistration(
   args: {
@@ -2539,7 +2641,7 @@ export async function respondWalletRegistration(
     onServerTiming?: (header: string | null) => void;
   } & WalletRegistrationStartAuthority,
 ): Promise<WalletRegistrationRespondResponseV2> {
-  return await postJson<WalletRegistrationRespondResponseV2>({
+  const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: WALLET_REGISTRATION_RESPOND_PATH,
     headers: args.headers,
@@ -2551,6 +2653,7 @@ export async function respondWalletRegistration(
     },
     ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
   });
+  return parseWalletRegistrationRespondResponseV2(response);
 }
 
 /**
@@ -2562,11 +2665,55 @@ export async function respondWalletRegistration(
  * before readiness — those appear once deferred provisioning reaches
  * `near_ready`, never from this response.
  */
-export type WalletRegistrationActivateResponseV2 =
-  | (Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'evm_family_ecdsa' }> & {
-      nearProvisioning?: { status: 'pending' };
-    })
-  | { ok: false; code: string; message: string; retryAfterMs?: number };
+export type WalletRegistrationActivateResponseV2 = Extract<
+  WalletRegistrationFinalizeResponse,
+  { ok: true; kind: 'evm_family_ecdsa' }
+> & {
+  nearProvisioning?: { status: 'pending' };
+};
+
+/**
+ * Strict boundary parser for route 3.
+ *
+ * The terminal wallet body is exactly the finalize success this route
+ * absorbed, so it is parsed by the existing finalize parser rather than a
+ * second copy that could drift from it. Only `nearProvisioning` is new.
+ *
+ * That field is a status and nothing else: NEAR identifiers before readiness
+ * are precisely what the deferred lifecycle exists to prevent, so a payload
+ * carrying them here is rejected instead of passed through.
+ */
+function parseWalletRegistrationActivateResponseV2(
+  value: unknown,
+): WalletRegistrationActivateResponseV2 {
+  const responseName = 'Wallet registration activate';
+  const record = requireResponseRecord({ responseName, field: 'body', value });
+  const { nearProvisioning, ...terminal } = record;
+  /* Validate the snapshot before the terminal body, so a leaked NEAR
+     identifier is reported as such rather than buried behind whatever the
+     finalize parser objects to first. */
+  if (nearProvisioning !== undefined) {
+    const provisioning = requireResponseRecord({
+      responseName,
+      field: 'nearProvisioning',
+      value: nearProvisioning,
+    });
+    requireExactResponseKeys(provisioning, ['status'], `${responseName} nearProvisioning`);
+    if (provisioning.status !== 'pending') {
+      throw new Error(`${responseName} nearProvisioning status is invalid`);
+    }
+  }
+  const finalized = parseWalletRegistrationFinalizeResponse({
+    value: terminal,
+    expectedKind: 'evm_family_ecdsa',
+  });
+  if (!finalized.ok || finalized.kind !== 'evm_family_ecdsa') {
+    throw new Error(`${responseName} did not return an activated ECDSA wallet`);
+  }
+  return nearProvisioning === undefined
+    ? finalized
+    : { ...finalized, nearProvisioning: { status: 'pending' } };
+}
 
 export async function activateWalletRegistration(args: {
   relayerUrl: string;
@@ -2582,7 +2729,7 @@ export async function activateWalletRegistration(args: {
   emailOtpBackupAck?: WalletRegistrationEmailOtpBackupAck;
   onServerTiming?: (header: string | null) => void;
 }): Promise<WalletRegistrationActivateResponseV2> {
-  return await postJson<WalletRegistrationActivateResponseV2>({
+  const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: WALLET_REGISTRATION_ACTIVATE_PATH,
     headers: args.headers,
@@ -2596,6 +2743,7 @@ export async function activateWalletRegistration(args: {
     },
     ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
   });
+  return parseWalletRegistrationActivateResponseV2(response);
 }
 
 type FinalizeWalletRegistrationBaseArgs = {
