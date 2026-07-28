@@ -358,7 +358,11 @@ The same run exposed an unowned interval: finalize measured 1,091 ms on the
 server but 3,105 ms from the browser on a healthy connection — a ~2 s
 edge-to-handler gap invisible to the current server-side spans. Start shows a
 smaller version. Not selected work; candidate instrumentation for the
-Phase 3/4 lane.
+Phase 3/4 lane. A production sample sharpened it: the pre-refactor combined
+finalize — strictly more work, both signer branches, four activations —
+measured 450 ms browser-observed, while the post-refactor ECDSA-only finalize
+measures 1.4-3.1 s on staging. The finalize slowdown is a refactor-94-lineage
+regression, not ambient platform behavior.
 
 Already visible for later: even fully warm, respond (669 ms vs ≤500 target)
 and activate (646 ms vs ≤350) miss their warm targets, dominated by D1
