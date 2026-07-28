@@ -282,17 +282,18 @@ test('signedSetup authorizes only the ceremony and parameters it was minted for'
   }
 });
 
-test('setup defers Ed25519 admission when the authority scope needs the proof', async () => {
+test('setup prepares ECDSA only for a mixed plan, for either auth method', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
     const service = setupService(database);
     const signer = fakeSetupSigner();
 
-    /* Email OTP's Ed25519 scope carries a providerUserId that only the
-       verified proof establishes. Admitting here would bind key material to
-       an unauthenticated claim, so setup must defer instead. */
-    const result = await service.walletRegistration.setupWalletRegistration({
+    /* Yao admission binds the Ed25519 authority scope, which is only sound
+       once the proof is verified — so setup never prepares it, for either
+       auth method. Email OTP is the case that could not have been special
+       cased safely; making both defer keeps one setup protocol. */
+    const mixedPlan = (authMethod: unknown) => ({
       request: {
         signerSelection: {
           kind: 'signer_set',
@@ -307,25 +308,34 @@ test('setup defers Ed25519 admission when the authority scope needs the proof', 
             ECDSA_SIGNER,
           ],
         },
-        authMethod: {
-          kind: 'email_otp',
-          proofKind: 'otp_challenge',
-          email: 'setup@example.test',
-          otpCode: '000000',
-          appSessionJwt: 'app-session',
-        },
+        authMethod,
       },
       orgId: SCOPE.orgId,
       expectedOrigin: 'https://app.example.com',
       signer,
       signingRootId: `${SCOPE.projectId}:${SCOPE.envId}`,
       signingRootVersion: 'root-setup-v1',
-    } as never);
-    if (!result.ok) throw new Error(`${result.code}: ${result.message}`);
-    expect(result.ed25519).toEqual({
-      status: 'deferred_to_respond',
-      reason: 'authority_scope_requires_proof',
     });
+
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.com'));
+    for (const authMethod of [
+      { kind: 'passkey', rpId },
+      {
+        kind: 'email_otp',
+        proofKind: 'otp_challenge',
+        email: 'setup@example.test',
+        otpCode: '000000',
+        appSessionJwt: 'app-session',
+      },
+    ]) {
+      const result = await service.walletRegistration.setupWalletRegistration(
+        mixedPlan(authMethod) as never,
+      );
+      if (!result.ok) throw new Error(`${result.code}: ${result.message}`);
+      /* No Ed25519 arm on the setup response at all — not an empty one. */
+      expect('ed25519' in result).toBe(false);
+      expect(result.ecdsa.kind).toBe('evm_family_ecdsa_keygen');
+    }
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

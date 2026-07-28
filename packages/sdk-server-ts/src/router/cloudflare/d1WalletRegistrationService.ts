@@ -14,7 +14,6 @@ import {
   type RegistrationSignerPlan,
   type ResolvedRegistrationNearAccount,
   type WalletId,
-  registrationEd25519AuthorityScopeFromAuthMethod,
   registrationEd25519AuthorityScopeFromAuthority,
   type RegistrationAuthMethodInput,
 } from '@shared/utils/registrationIntent';
@@ -99,15 +98,11 @@ import {
   type StoredWalletRegistrationCeremonyAuthorityState,
   verifiedRegistrationCeremonyAuthority,
 } from '../../core/RegistrationCeremonyStore';
-import type {
-  SetupEd25519PreparationV2,
-  WalletRegistrationSetupResponseV2,
-} from '../../core/threeRouteRegistrationContracts';
+import type { WalletRegistrationSetupResponseV2 } from '../../core/threeRouteRegistrationContracts';
 import {
   buildWalletRegistrationSetupSignature,
   normalizeWalletRegistrationSetupRequest,
   resolveWalletRegistrationSetupWalletId,
-  walletRegistrationSetupEd25519Deferral,
   walletRegistrationSetupError,
   walletRegistrationSetupExpiresAtMs,
   walletRegistrationSetupIds,
@@ -1866,7 +1861,6 @@ export class CloudflareD1WalletRegistrationService {
       const digestB64u = await walletRegistrationSetupIntentDigest(intent);
       const branches = registrationIntentSignerBranches(intent);
       if (!branches.ok) return walletRegistrationSetupError(branches.code, branches.message);
-      const nearEd25519Branch = branches.value.nearEd25519;
       const ecdsaBranch = branches.value.evmFamilyEcdsa;
       if (!ecdsaBranch) {
         return walletRegistrationSetupError(
@@ -1874,6 +1868,9 @@ export class CloudflareD1WalletRegistrationService {
           'registration setup requires an ECDSA signer branch',
         );
       }
+      /* A mixed plan is stored whole — the plan is what the ceremony agreed
+         to — but only its ECDSA branch is prepared here. Respond adds the
+         Ed25519 branch once the verified authority determines its scope. */
       const preparedContext = resolveRegistrationPreparedContextFromPlan({
         signerPlan: branches.value.plan,
         runtimePolicyScope,
@@ -1900,8 +1897,9 @@ export class CloudflareD1WalletRegistrationService {
       const expiresAtMs = walletRegistrationSetupExpiresAtMs(nowMs);
       const { registrationCeremonyId, registrationPreparationId } = walletRegistrationSetupIds();
 
-      /* Both Router calls are in flight before either is awaited. */
-      const ecdsaPreparePromise = buildD1EvmFamilyEcdsaRegistrationPrepare({
+      /* ECDSA only. The plan's Ed25519 branch, if any, is admitted by respond
+         once the proof binds its authority scope. */
+      const ecdsaPrepared = await buildD1EvmFamilyEcdsaRegistrationPrepare({
         registrationPurpose: 'wallet_registration',
         registrationCeremonyId,
         registrationPreparationId: registrationPreparationIdFromString(registrationPreparationId),
@@ -1913,30 +1911,11 @@ export class CloudflareD1WalletRegistrationService {
         strictRegistration: this.ecdsaStrictRegistration,
         runtimePolicyScope,
       });
-      const ed25519AdmissionPromise = this.admitSetupEd25519Branch({
-        branch: nearEd25519Branch,
-        authMethod: normalized.authMethod,
-        registrationCeremonyId,
-        walletId: wallet.walletId,
-        signingRootId,
-        signingRootVersion,
-        expiresAtMs,
-        intent,
-      });
-
-      const [ecdsaPrepared, ed25519Admission] = await Promise.all([
-        ecdsaPreparePromise,
-        ed25519AdmissionPromise,
-      ]);
       if (!ecdsaPrepared.ok) {
         return walletRegistrationSetupError(ecdsaPrepared.code, ecdsaPrepared.message);
       }
-      if (!ed25519Admission.ok) {
-        return walletRegistrationSetupError(ed25519Admission.code, ed25519Admission.message);
-      }
 
       const storedBranches: StoredWalletRegistrationSignerBranch[] = [];
-      if (ed25519Admission.branch) storedBranches.push(ed25519Admission.branch);
       storedBranches.push(
         buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch({
           branchKey: ecdsaBranch.branchKey,
@@ -1994,7 +1973,6 @@ export class CloudflareD1WalletRegistrationService {
           prepare: ecdsaPrepared.ecdsa.prepare,
           strictRegistration: ecdsaPrepared.ecdsa.strictRegistration,
         },
-        ...(ed25519Admission.payload ? { ed25519: ed25519Admission.payload } : {}),
       };
     } catch (error: unknown) {
       return walletRegistrationSetupError(
@@ -2002,76 +1980,6 @@ export class CloudflareD1WalletRegistrationService {
         errorMessage(error) || 'Failed to set up wallet registration',
       );
     }
-  }
-
-  /**
-   * Admits the Ed25519 branch when the authority scope is fully determined by
-   * the requested auth method, and defers it otherwise. Deferral is a typed
-   * outcome, not a silent omission: binding key material to a `providerUserId`
-   * that no proof has established would be the bug this guards against.
-   */
-  private async admitSetupEd25519Branch(input: {
-    readonly branch: RegistrationNearEd25519SignerPlan | null;
-    readonly authMethod: RegistrationAuthMethodInput;
-    readonly registrationCeremonyId: string;
-    readonly walletId: WalletId;
-    readonly signingRootId: string;
-    readonly signingRootVersion: string;
-    readonly expiresAtMs: number;
-    readonly intent: RegistrationIntentV1;
-  }): Promise<
-    | {
-        readonly ok: true;
-        readonly branch: StoredWalletRegistrationSignerBranch | null;
-        readonly payload: SetupEd25519PreparationV2 | null;
-      }
-    | { readonly ok: false; readonly code: string; readonly message: string }
-  > {
-    if (!input.branch) return { ok: true, branch: null, payload: null };
-    const deferral = walletRegistrationSetupEd25519Deferral(input.authMethod);
-    if (deferral) return { ok: true, branch: null, payload: deferral };
-    const authorityScope = registrationEd25519AuthorityScopeFromAuthMethod(input.authMethod);
-    if (!authorityScope) {
-      return { ok: false, code: 'internal', message: 'Ed25519 authority scope is unavailable' };
-    }
-    const yaoRuntime = this.getEd25519YaoProductRegistration();
-    if (!yaoRuntime) {
-      return {
-        ok: false,
-        code: 'not_configured',
-        message: 'Ed25519 Yao product registration is not configured',
-      };
-    }
-    const admissionRequest = await buildRouterAbEd25519YaoProductAdmissionRequestV1({
-      registrationCeremonyId: input.registrationCeremonyId,
-      walletId: input.walletId,
-      signingRootId: input.signingRootId,
-      signingRootVersion: input.signingRootVersion,
-      authorityScope,
-      branch: input.branch,
-      signingWorkerId: yaoRuntime.signingWorkerId,
-    });
-    const admitted = await yaoRuntime.bindAndAdmitVerifiedRegistration({
-      kind: 'verified_registration_intent',
-      registrationIntentGrant: registrationIntentGrantFromString(input.registrationCeremonyId),
-      intent: input.intent,
-      admissionRequest,
-      expiresAtMs: input.expiresAtMs,
-    });
-    if (!admitted.ok) return { ok: false, code: admitted.code, message: admitted.message };
-    return {
-      ok: true,
-      branch: buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch({
-        branchKey: input.branch.branchKey,
-        admissionRequest,
-        admissionReceipt: admitted.value,
-      }),
-      payload: {
-        status: 'admitted',
-        admissionRequest,
-        admissionReceipt: admitted.value,
-      },
-    };
   }
 
   async startWalletRegistration(
