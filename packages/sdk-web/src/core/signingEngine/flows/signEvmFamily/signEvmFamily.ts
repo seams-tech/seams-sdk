@@ -19,6 +19,7 @@ import {
   exactEcdsaSigningLaneIdentityFromSelectedLane,
   type ExactEcdsaSigningLaneIdentity,
 } from '../../session/identity/exactSigningLaneIdentity';
+import { isEvmFamilyEcdsaMaterialSupersededError } from './signingFlow';
 import type {
   UiConfirmContextPort,
   UiConfirmSigningPort,
@@ -217,6 +218,10 @@ type SignEvmFamilyAttemptOptions = {
   operationIds?: EvmFamilySigningOperationIds;
   retryingFreshAuth?: boolean;
   signingSessionCoordinator?: SigningSessionCoordinator;
+  // Set once a supersession has already been re-resolved. Material activation
+  // is advance-only, so one re-resolution reaches current state; a second
+  // would mean the store is changing under every attempt.
+  reResolvedAfterSupersession?: boolean;
 };
 
 async function executeEvmFamilyFreshAuthRetry(args: {
@@ -577,6 +582,34 @@ async function signEvmFamilyAttempt(
   const retryWithFreshAuth = async (
     error: unknown,
   ): Promise<TempoSignedResult | EvmSignedResult | null> => {
+    // R90-INV-010: a superseded preparation is discarded whole and current
+    // canonical state resolved again. Nothing about it is an auth problem, so
+    // it is handled before the fresh-auth ladder and prompts the user for
+    // nothing.
+    if (isEvmFamilyEcdsaMaterialSupersededError(error)) {
+      if (attempt.reResolvedAfterSupersession) return null;
+      emitSigningSessionFlowTrace('evm-family', {
+        stage: 'ecdsa_attempt.material_superseded',
+        walletId,
+        chain: requestChain,
+        chainTarget: requestChainTarget,
+        preparedMaterialActivationId: String(
+          error.superseded.preparedMaterialActivation.activationId,
+        ),
+        currentMaterialActivationId: String(
+          error.superseded.currentMaterialActivation.activationId,
+        ),
+      });
+      const result = await signEvmFamilyAttempt(deps, args, {
+        admissionRetryState: { kind: 'initial_admission' },
+        operationIds,
+        signingSessionCoordinator,
+        reResolvedAfterSupersession: true,
+        ...(attempt.retryingFreshAuth ? { retryingFreshAuth: true } : {}),
+      });
+      freshAuthRetryHandledFinalization = true;
+      return result;
+    }
     const walletSessionRetry = await retryWithFreshWalletSessionAuth(error);
     if (walletSessionRetry) return walletSessionRetry;
     const decision = classifyEvmFamilyFreshAuthRetry({

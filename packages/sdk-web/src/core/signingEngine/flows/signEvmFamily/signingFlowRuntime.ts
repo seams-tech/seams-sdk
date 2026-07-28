@@ -3,7 +3,7 @@ import type { SigningOperationTransitionObserver } from '../shared/signingStateM
 import type { EvmFamilySigningDeps } from '../../interfaces/operationDeps';
 import type { EvmFamilyLifecycleEventCallback, EvmFamilySenderSignatureAlgorithm } from './types';
 import { loadSecp256k1EngineCtor, loadWebAuthnP256EngineCtor } from './signerLoader';
-import type { EcdsaSigningMaterialPlan } from './signingFlow';
+import type { EcdsaSigningMaterialPlan, SupersededEcdsaSigningMaterial } from './signingFlow';
 import type { EvmFamilyThresholdEcdsaStepUpRuntime } from './requireEvmFamilyStepUpAuth';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
 import {
@@ -11,6 +11,7 @@ import {
   resolveHydratedSecp256k1SigningMaterial,
 } from './readySecp256k1Material';
 import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   ThresholdEcdsaChainTarget,
@@ -68,6 +69,30 @@ function requireEvmFamilyRelayerUrl(deps: EvmFamilySigningDeps): string {
   return relayerUrl;
 }
 
+/** R90-INV-010. The wallet's active manifest names the material that may be
+ * used right now. When it has moved on from the one this operation was prepared
+ * against, the preparation is superseded -- material activation is advance-only,
+ * so the prepared side is always the stale one. That is a re-resolution, not a
+ * failure and not a request for the wrong material. */
+export function ecdsaSigningMaterialSupersession(args: {
+  preparedMaterialActivation: EvmFamilyEcdsaMaterialActivation;
+  currentMaterialActivation: EvmFamilyEcdsaMaterialActivation;
+}): SupersededEcdsaSigningMaterial | null {
+  if (
+    mpcMaterialActivationRefsEqual(
+      args.currentMaterialActivation,
+      args.preparedMaterialActivation,
+    )
+  ) {
+    return null;
+  }
+  return {
+    kind: 'superseded',
+    preparedMaterialActivation: args.preparedMaterialActivation,
+    currentMaterialActivation: args.currentMaterialActivation,
+  };
+}
+
 async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   capability: CanonicalEvmFamilyEcdsaSigningCapability;
   authorization: ActiveEvmFamilyWalletSessionAuthorization | null;
@@ -86,6 +111,11 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   if (runtimeResolution.kind !== 'resolved') {
     return { kind: 'unavailable', reason: 'runtime_correlation_mismatch' };
   }
+  const superseded = ecdsaSigningMaterialSupersession({
+    preparedMaterialActivation: args.materialActivation,
+    currentMaterialActivation: runtimeResolution.runtime.materialActivation,
+  });
+  if (superseded) return superseded;
   const resolution = await resolveHydratedSecp256k1SigningMaterial({
     capability: args.capability,
     runtime: runtimeResolution.runtime,

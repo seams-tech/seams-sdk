@@ -21,6 +21,7 @@ import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceBackend
 import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
 import { bytesToHex } from '@/core/signingEngine/chains/evm/bytes';
@@ -117,10 +118,47 @@ export type EcdsaSigningMaterialSource =
       material: HydratedEcdsaSignerMaterial;
     };
 
+/** The material this operation was prepared against is no longer the one the
+ * wallet's active manifest names. R90-INV-010: supersession invalidates the
+ * preparation -- the caller discards the prepared lane and resolves current
+ * canonical state again. It is a retry condition, not a failure, and it is
+ * distinct from an activation mismatch caused by asking for the wrong material. */
+export type SupersededEcdsaSigningMaterial = {
+  kind: 'superseded';
+  preparedMaterialActivation: MpcMaterialActivationRef;
+  currentMaterialActivation: MpcMaterialActivationRef;
+  material?: never;
+  reason?: never;
+};
+
+/** Thrown so a superseded preparation unwinds to the retry boundary rather than
+ * surfacing as a signing failure. `signEvmFamily` catches it and re-prepares
+ * once against current canonical state. */
+export class EvmFamilyEcdsaMaterialSupersededError extends Error {
+  readonly superseded: SupersededEcdsaSigningMaterial;
+
+  constructor(superseded: SupersededEcdsaSigningMaterial) {
+    super(
+      `[chains] threshold ECDSA material was superseded: prepared ${String(
+        superseded.preparedMaterialActivation.activationId,
+      )}, current ${String(superseded.currentMaterialActivation.activationId)}`,
+    );
+    this.name = 'EvmFamilyEcdsaMaterialSupersededError';
+    this.superseded = superseded;
+  }
+}
+
+export function isEvmFamilyEcdsaMaterialSupersededError(
+  error: unknown,
+): error is EvmFamilyEcdsaMaterialSupersededError {
+  return error instanceof EvmFamilyEcdsaMaterialSupersededError;
+}
+
 // The unavailable arm is the resolver's own, so the typed outcomes cannot
 // drift apart from the gates that produce them.
 export type EcdsaSigningMaterialPlan =
   | EcdsaSigningMaterialSource
+  | SupersededEcdsaSigningMaterial
   | Extract<ReadySecp256k1SigningMaterialResolution, { kind: 'unavailable' }>
   | Extract<HydratedSecp256k1SigningMaterialResolution, { kind: 'unavailable' }>;
 
@@ -370,7 +408,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   let nonceReservation: ManagedNonceReservation | null = null;
   let reservationReleased = false;
   let thresholdSignatureCreated = false;
-  let activeThresholdEcdsaOperation: EvmFamilyThresholdEcdsaOperation | null =
+  const activeThresholdEcdsaOperation: EvmFamilyThresholdEcdsaOperation | null =
     thresholdEcdsaStepUp.kind === 'required' ? thresholdEcdsaStepUp.operation : null;
   const getThresholdEcdsaOperation =
     async (): Promise<EvmFamilyThresholdEcdsaOperation> => {
@@ -447,6 +485,9 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       const plan = await input.resolveEcdsaSigningMaterialPlan({
         requestLabel: firstSignRequest.label,
       });
+      if (plan.kind === 'superseded') {
+        throw new EvmFamilyEcdsaMaterialSupersededError(plan);
+      }
       if (plan.kind === 'unavailable') {
         throw new Error(`[chains] threshold ECDSA material is unavailable: ${plan.reason}`);
       }
@@ -507,6 +548,8 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         case 'material_for_step_up':
           recordBackedReadySecp256k1MaterialSource = plan;
           break;
+        case 'superseded':
+          throw new EvmFamilyEcdsaMaterialSupersededError(plan);
         case 'unavailable':
           throw new Error(`[chains] threshold ECDSA material is unavailable: ${plan.reason}`);
       }
