@@ -3166,65 +3166,6 @@ export function listThresholdEcdsaKeyRefsForWalletTarget(
   }));
 }
 
-export function getThresholdEcdsaKeyRefByKey(
-  deps: ThresholdEcdsaSessionStoreDeps,
-  identity: ThresholdEcdsaSessionRecordLookupKey,
-): ThresholdEcdsaKeyRefLookupResult | null {
-  const record = getThresholdEcdsaSessionRecordByKey(deps, identity);
-  return record
-    ? {
-        source: record.source,
-        keyRef: thresholdEcdsaKeyRefFromRecord(deps, record),
-      }
-    : null;
-}
-
-export function getPasskeyThresholdEcdsaSessionRecordForSigning(
-  deps: ThresholdEcdsaSessionStoreDeps,
-  args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
-  },
-): ThresholdEcdsaSessionRecord {
-  return getThresholdEcdsaSessionRecordForWalletTarget(deps, {
-    walletId: args.walletId,
-    chainTarget: args.chainTarget,
-    source: args.source,
-  });
-}
-
-export function getPasskeyThresholdEcdsaKeyRefForSigning(
-  deps: ThresholdEcdsaSessionStoreDeps,
-  args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
-  },
-): ThresholdEcdsaSecp256k1KeyRef {
-  const record = getPasskeyThresholdEcdsaSessionRecordForSigning(deps, args);
-  return thresholdEcdsaKeyRefFromRecord(deps, record);
-}
-
-export function clearThresholdEcdsaSessionRecordForWallet(
-  deps: ThresholdEcdsaSessionStoreDeps,
-  walletId: WalletId | string,
-): void {
-  const normalizedWalletId = toWalletId(walletId);
-  const walletKey = String(normalizedWalletId);
-  const indexKey = ecdsaIndexKey([walletKey]);
-  const depsIndex = getThresholdEcdsaRuntimeRecordIndex(deps);
-  for (const laneKey of [...(depsIndex.laneKeysByWallet.get(indexKey) || [])]) {
-    const record = deps.recordsByLane.get(laneKey);
-    if (record) deindexThresholdEcdsaRecord(depsIndex, laneKey, record);
-    deps.recordsByLane.delete(laneKey);
-    deps.exportArtifactsByLane?.delete(laneKey);
-  }
-  for (const laneKey of [...(inMemoryEcdsaRecordIndex.laneKeysByWallet.get(indexKey) || [])]) {
-    forgetInMemoryThresholdEcdsaRecord(laneKey);
-  }
-}
-
 export function clearThresholdEcdsaSessionRecordForWalletTarget(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
