@@ -272,10 +272,64 @@ and transport rather than work — the measurement that decides Phase 2.
       It caught a real defect: the Yao metric lookup used property access on an
       object literal, so a metric named `__proto__` or `constructor` resolved
       against `Object.prototype` and was recorded as a bucket. Now a `Map`.
-- [ ] Record one cold and one warm Email OTP registration.
-- [ ] Record one cold and one warm passkey registration.
-- [ ] Capture deployed role `startup_time_ms` and upload size from the exact
-      tested artifacts.
+- [x] Record one cold and one warm Email OTP registration. Staging
+      (`8b5fe1014`, 2026-07-28, immediately after deploy; warm run within
+      minutes of the cold one):
+
+      | Interval | Cold | Warm |
+      | --- | ---: | ---: |
+      | Registration total | 12,228 ms | 7,059 ms |
+      | ECDSA branch total | 7,244 ms | 1,764 ms |
+      | Gateway respond total | 2,769 ms | 669 ms |
+      | Gateway activate total | 3,069 ms | 646 ms |
+      | Router authorize + admission | ~2,360 ms | ~60 ms |
+      | SigningWorker output DO activation | 1,406 ms | 38 ms |
+      | Gateway session/budget DO provisioning | 1,336 ms | 22 ms |
+      | Deriver A/B (parse+preload+execute) | 22-49 ms | 15-42 ms |
+      | D1 claim/commit per operation | ~140-160 ms | ~145-270 ms |
+
+      Span coverage 99.9% on both runs; header-presence diagnostics reported
+      `present` on both legs. The cold ECDSA penalty is ~5.5 s and decomposes
+      almost entirely into Durable Object wakeup and authorization I/O:
+      Router authorize/admission, the SigningWorker output DO, and the
+      Gateway's session/budget DO. Deriver work is 22-49 ms cold — the two
+      largest wasm artifacts contribute effectively nothing.
+- [ ] Record one cold and one warm passkey registration. Blocked in this
+      session: the embedded-browser authenticator lacks the PRF extension, so
+      the pair must be captured in a real browser. The regression is confirmed
+      shared across auth methods (Diagnosis item 1) and the strict path is
+      identical, so phase selection does not wait on it.
+- [x] Capture deployed role `startup_time_ms` and upload size from the exact
+      tested artifacts (staging deploy run 30342714806, re-confirmed by the
+      `8b5fe1014` redeploy):
+
+      | Worker | Upload | gzip | Startup |
+      | --- | ---: | ---: | ---: |
+      | Deriver A | 6,973.54 KiB | 2,462.35 KiB | 4 ms |
+      | Deriver B | 6,890.25 KiB | 2,432.45 KiB | 4 ms |
+      | SigningWorker | 4,041.07 KiB | 1,233.96 KiB | 3 ms |
+      | Router | 4,832.04 KiB | 1,456.16 KiB | 3 ms |
+      | Gateway | 5,596.97 KiB | 1,152.98 KiB | 11 ms |
+
+## Phase selection (2026-07-28)
+
+**Phase 1 is selected.** The largest measured cold interval is topology
+wakeup: ~5.5 s of the 7.2 s cold ECDSA branch disappears when the Durable
+Objects and authorization path are resident, and none of it is artifact
+startup (3-11 ms validated) or deriver computation (22-49 ms). Phase 2's
+hypothesis is rejected by both the deploy metrics and the trace.
+
+Phase 1's warmup must therefore target what the trace proved material, not
+worker isolates: the Router authorization/admission path (~2.3 s cold), the
+SigningWorker output Durable Object (~1.4 s), and the Gateway session/budget
+Durable Objects (~1.3 s).
+
+Already visible for later: even fully warm, respond (669 ms vs ≤500 target)
+and activate (646 ms vs ≤350) miss their warm targets, dominated by D1
+claim/commit at ~145-270 ms per operation, and the non-ECDSA route costs
+(start 1,670 ms, finalize 1,654 ms warm) now exceed the entire warm ECDSA
+branch. That is Phase 3/4 territory and is not selected yet — one phase per
+measurement, and the cold interval is the largest by a wide margin.
 
 The three measurement items above are blocked on an authorized staging deploy
 of the completed instrumentation. No phase from 1-5 may be selected until they
