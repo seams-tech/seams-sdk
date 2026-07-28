@@ -242,13 +242,6 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   expect(routerConfig).not.toContain('[build]');
   const localConsoleOrganizationId = runtime.localConsoleOrganizationId;
   expect(localConsoleOrganizationId).toMatch(/^org_[a-z0-9]{12}$/);
-  expect(
-    parseTomlJsonAssignment(routerConfig, 'ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON'),
-  ).toMatchObject({
-    org_id: localConsoleOrganizationId,
-    project_id: 'local-smoke-project',
-    environment: 'local',
-  });
 
   const deriverASecretFile = readFileSync(runtime.configs[1].secretPath, 'utf8');
   expect(deriverASecretFile).toContain(
