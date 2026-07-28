@@ -257,3 +257,86 @@ test('respond mints an internal Router policy JWT bound to the respond digest', 
     cleanupTemporaryD1Database(tempDir);
   }
 });
+
+test('a conflicting strict-registration fingerprint is refused before Router execution', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const strictRegistration = new CountingStrictRegistrationPort();
+    const signer = fakeGatewaySigner();
+    const first = await setupCeremony(database, strictRegistration, signer);
+    const other = await setupCeremony(database, strictRegistration, signer);
+
+    /* A structurally valid strict request that belongs to a different
+       ceremony: it parses, so the refusal is the binding check rather than a
+       malformed body. */
+    const conflicting = await first.service.walletRegistration.respondWalletRegistration({
+      ...first.respondRequest,
+      ecdsa: other.respondRequest.ecdsa,
+    } as never);
+
+    expect(conflicting).toMatchObject({ ok: false, code: 'scope_mismatch' });
+    /* The refusal must precede the Router: a conflicting request must never
+       reach custody, only then be rejected. */
+    expect(strictRegistration.registerCalls).toBe(0);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('an ECDSA-only respond result carries no Ed25519 arm at all', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const strictRegistration = new CountingStrictRegistrationPort();
+    const { service, respondRequest } = await setupCeremony(database, strictRegistration);
+
+    const responded = await service.walletRegistration.respondWalletRegistration(
+      respondRequest as never,
+    );
+    if (!responded.ok) throw new Error(`${responded.code}: ${responded.message}`);
+
+    /* The union types this arm's `ed25519` as `never`; assert the runtime
+       shape agrees, so the field is absent rather than present-and-empty. */
+    expect(responded.kind).toBe('evm_family_ecdsa');
+    expect('ed25519' in responded).toBe(false);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('a lost role response converges on the stored terminal state without re-running custody', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const strictRegistration = new CountingStrictRegistrationPort();
+    const { service, respondRequest, setup } = await setupCeremony(database, strictRegistration);
+
+    /* First respond succeeds server-side; model the response never reaching
+       the client, so the client retries the identical request. */
+    const landed = await service.walletRegistration.respondWalletRegistration(
+      respondRequest as never,
+    );
+    if (!landed.ok) throw new Error(`${landed.code}: ${landed.message}`);
+    expect(strictRegistration.registerCalls).toBe(1);
+
+    const retried = await service.walletRegistration.respondWalletRegistration(
+      respondRequest as never,
+    );
+    if (!retried.ok) throw new Error(`${retried.code}: ${retried.message}`);
+
+    expect(strictRegistration.registerCalls).toBe(1);
+    expect(retried.ecdsa).toEqual(landed.ecdsa);
+
+    const store = new CloudflareD1RegistrationCeremonyIntentStore({
+      kind: 'partitioned_d1',
+      database: database as never,
+      scope: SCOPE,
+      keyPrefix: 'gateway-registration:',
+    });
+    const ceremony = await store.getCeremony(setup.registrationCeremonyId);
+    expect(ceremony?.authorityState.kind).toBe('verified');
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
