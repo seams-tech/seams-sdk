@@ -250,11 +250,27 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   expect(deriverASecretFile).not.toContain('DERIVER_B_ROOT_SHARE_WIRE_SECRET');
   expect(deriverASecretFile).not.toContain('SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY');
   expect(deriverASecretFile).not.toContain('dev-only-generated');
+  expect(deriverASecretFile).toContain(
+    'DERIVER_A_ROLE_PRIVATE_D1_KEK=hpke-x25519-role-private-d1-private-v1:',
+  );
+  const deriverAConfig = readFileSync(runtime.configs[1].configPath, 'utf8');
+  expect(deriverAConfig).toContain('DERIVER_ROLE_PRIVATE_D1_KEK_VERSION = "local-epoch-1"');
+  expect(deriverAConfig).toContain('DERIVER_ROLE_PRIVATE_D1_ENVIRONMENT = "local"');
+  expect(deriverAConfig).toMatch(/DERIVER_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY = "x25519:[0-9a-f]{64}"/u);
   const signingWorkerSecretFile = readFileSync(runtime.configs[3].secretPath, 'utf8');
   expect(signingWorkerSecretFile).toContain(
     'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY=hpke-x25519-server-output-private-v1:',
   );
   expect(signingWorkerSecretFile).not.toContain('DERIVER_A_ROOT_SHARE_WIRE_SECRET');
+  expect(signingWorkerSecretFile).toContain(
+    'SIGNING_WORKER_PRIVATE_D1_KEK=hpke-x25519-server-output-private-v1:',
+  );
+  const signingWorkerConfig = readFileSync(runtime.configs[3].configPath, 'utf8');
+  expect(signingWorkerConfig).toContain('SIGNING_WORKER_PRIVATE_D1_KEK_VERSION = "local-epoch-1"');
+  expect(signingWorkerConfig).toContain('SIGNING_WORKER_PRIVATE_D1_ENVIRONMENT = "local"');
+  expect(signingWorkerConfig).toMatch(
+    /SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY = "x25519:[0-9a-f]{64}"/u,
+  );
   for (const config of runtime.configs) {
     expect(statSync(config.secretPath).mode & 0o777).toBe(0o600);
   }
