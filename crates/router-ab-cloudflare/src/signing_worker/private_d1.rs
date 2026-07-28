@@ -975,13 +975,13 @@ async fn activation_row_by_active_key_v1(
 async fn activate_output_v1(
     db: &D1DatabaseSession,
     cipher: &SigningWorkerPrivateD1CipherV1,
-    call: &CloudflareDurableObjectCallV1,
+    request: &CloudflareSigningWorkerPrivateD1RequestV1,
     activation: &CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
     material: &CloudflareServerOutputMaterialRecordV1,
     activated_at_ms: u64,
-) -> RouterAbProtocolResult<CloudflareDurableObjectResponseV1> {
-    let material_key = call.storage_key();
-    let active_key = call.active_signing_worker_state_index_storage_key()?;
+) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1ResponseV1> {
+    let material_key = request.storage_key();
+    let active_key = request.active_state_index_key()?;
     let active_state = cloudflare_active_signing_worker_state_from_activation_request_v1(
         activation,
         material_key.clone(),
@@ -1027,24 +1027,26 @@ async fn activate_output_v1(
     }
     let activation_context = &activation.activation_context;
     let selected_server = &activation_context.signer_set().selected_server;
-    CloudflareDurableObjectResponseV1::signing_worker_output_activate(
-        CloudflareSigningWorkerOutputActivationReceiptV1::new(
-            activation_context.lifecycle().lifecycle_id.clone(),
-            selected_server.server_id.clone(),
-            activation_context.transcript_digest(),
-            active_state,
-            activated,
-        )?,
+    Ok(
+        CloudflareSigningWorkerPrivateD1ResponseV1::OutputActivated {
+            receipt: CloudflareSigningWorkerOutputActivationReceiptV1::new(
+                activation_context.lifecycle().lifecycle_id.clone(),
+                selected_server.server_id.clone(),
+                activation_context.transcript_digest(),
+                active_state,
+                activated,
+            )?,
+        },
     )
 }
 
 async fn active_state_get_v1(
     db: &D1DatabaseSession,
-    call: &CloudflareDurableObjectCallV1,
+    request: &CloudflareSigningWorkerPrivateD1RequestV1,
     lookup: &CloudflareActiveSigningWorkerStateLookupV1,
-) -> RouterAbProtocolResult<CloudflareDurableObjectResponseV1> {
+) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1ResponseV1> {
     lookup.validate()?;
-    let active_key = call.active_signing_worker_state_index_storage_key()?;
+    let active_key = request.active_state_index_key()?;
     let row = activation_row_by_active_key_v1(db, &active_key)
         .await?
         .ok_or_else(|| {
@@ -1058,17 +1060,17 @@ async fn active_state_get_v1(
         &row.active_state_json,
     )?;
     lookup.validate_active_state(&active_state)?;
-    CloudflareDurableObjectResponseV1::signing_worker_output_active_state_get(active_state)
+    Ok(CloudflareSigningWorkerPrivateD1ResponseV1::ActiveState { active_state })
 }
 
 async fn output_material_get_v1(
     db: &D1DatabaseSession,
     cipher: &SigningWorkerPrivateD1CipherV1,
-    call: &CloudflareDurableObjectCallV1,
+    request: &CloudflareSigningWorkerPrivateD1RequestV1,
     lookup: &CloudflareSigningWorkerOutputMaterialLookupV1,
-) -> RouterAbProtocolResult<CloudflareDurableObjectResponseV1> {
+) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1ResponseV1> {
     lookup.validate()?;
-    let row = activation_row_by_material_key_v1(db, &call.storage_key())
+    let row = activation_row_by_material_key_v1(db, &request.storage_key())
         .await?
         .ok_or_else(|| {
             RouterAbProtocolError::new(
@@ -1078,7 +1080,7 @@ async fn output_material_get_v1(
         })?;
     let record = cipher.open::<CloudflareSigningWorkerOutputActivationRecordV1>(
         "activation",
-        &call.storage_key(),
+        &request.storage_key(),
         &row.record_json,
     )?;
     record.validate()?;
@@ -1088,17 +1090,19 @@ async fn output_material_get_v1(
         ));
     }
     lookup.validate_material(record.material())?;
-    CloudflareDurableObjectResponseV1::signing_worker_output_material_get(record.into_material())
+    Ok(CloudflareSigningWorkerPrivateD1ResponseV1::OutputMaterial {
+        material: record.into_material(),
+    })
 }
 
 async fn round1_put_v1(
     db: &D1DatabaseSession,
     cipher: &SigningWorkerPrivateD1CipherV1,
-    call: &CloudflareDurableObjectCallV1,
+    request: &CloudflareSigningWorkerPrivateD1RequestV1,
     record: &CloudflareSigningWorkerRound1RecordV1,
-) -> RouterAbProtocolResult<CloudflareDurableObjectResponseV1> {
+) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1ResponseV1> {
     record.validate()?;
-    let key = call.storage_key();
+    let key = request.storage_key();
     let record_json = cipher.seal("round1", &key, record)?;
     let inserted = db
         .prepare(
@@ -1133,17 +1137,17 @@ async fn round1_put_v1(
             "SigningWorker round-1 handle is already stored for different material",
         ));
     }
-    CloudflareDurableObjectResponseV1::signing_worker_round1_put(
-        CloudflareSigningWorkerRound1PutReceiptV1::from_record(record, stored)?,
-    )
+    Ok(CloudflareSigningWorkerPrivateD1ResponseV1::Round1Stored {
+        receipt: CloudflareSigningWorkerRound1PutReceiptV1::from_record(record, stored)?,
+    })
 }
 
 async fn round1_take_v1(
     db: &D1DatabaseSession,
     cipher: &SigningWorkerPrivateD1CipherV1,
-    call: &CloudflareDurableObjectCallV1,
+    request: &CloudflareSigningWorkerPrivateD1RequestV1,
     lookup: &CloudflareSigningWorkerRound1LookupV1,
-) -> RouterAbProtocolResult<CloudflareDurableObjectResponseV1> {
+) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1ResponseV1> {
     lookup.validate()?;
     let row = db
         .prepare(
@@ -1151,7 +1155,7 @@ async fn round1_take_v1(
              WHERE record_key = ?1
              RETURNING record_json",
         )
-        .bind(&[js_string(&call.storage_key())])
+        .bind(&[js_string(&request.storage_key())])
         .map_err(|error| map_d1_error("SigningWorker round-1 take bind failed", error))?
         .first::<JsonRowV1>(None)
         .await
@@ -1164,17 +1168,17 @@ async fn round1_take_v1(
         })?;
     let record = cipher.open::<CloudflareSigningWorkerRound1RecordV1>(
         "round1",
-        &call.storage_key(),
+        &request.storage_key(),
         &row.record_json,
     )?;
     record.validate_for_lookup(lookup)?;
-    CloudflareDurableObjectResponseV1::signing_worker_round1_take(record)
+    Ok(CloudflareSigningWorkerPrivateD1ResponseV1::Round1Taken { record })
 }
 
 async fn round1_cleanup_v1(
     db: &D1DatabaseSession,
     cleanup: &CloudflareExpiredStateCleanupRequestV1,
-) -> RouterAbProtocolResult<CloudflareDurableObjectResponseV1> {
+) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1ResponseV1> {
     cleanup.validate()?;
     let result = db
         .prepare("DELETE FROM signing_worker_round1 WHERE expires_at_ms <= ?1")
@@ -1186,23 +1190,25 @@ async fn round1_cleanup_v1(
         .run()
         .await
         .map_err(|error| map_d1_error("SigningWorker round-1 cleanup failed", error))?;
-    CloudflareDurableObjectResponseV1::signing_worker_round1_cleanup_expired(
-        CloudflareExpiredStateCleanupReportV1::new(
-            cleanup.now_unix_ms,
-            d1_changes(&result)? as u64,
-            0,
-        )?,
+    Ok(
+        CloudflareSigningWorkerPrivateD1ResponseV1::Round1ExpiredCleaned {
+            report: CloudflareExpiredStateCleanupReportV1::new(
+                cleanup.now_unix_ms,
+                d1_changes(&result)? as u64,
+                0,
+            )?,
+        },
     )
 }
 
 async fn ecdsa_pool_mutate_v1(
     db: &D1DatabaseSession,
     cipher: &SigningWorkerPrivateD1CipherV1,
-    call: &CloudflareDurableObjectCallV1,
+    request: &CloudflareSigningWorkerPrivateD1RequestV1,
     command: &CloudflareSigningWorkerEcdsaPoolCommandV1,
-) -> RouterAbProtocolResult<CloudflareDurableObjectResponseV1> {
+) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1ResponseV1> {
     command.validate()?;
-    let key = call.storage_key();
+    let key = request.storage_key();
     for _ in 0..3 {
         let current = db
             .prepare(
@@ -1260,7 +1266,7 @@ async fn ecdsa_pool_mutate_v1(
         .await
         .map_err(|error| map_d1_error("SigningWorker ECDSA pool write failed", error))?;
         if d1_changes(&write)? == 1 {
-            return CloudflareDurableObjectResponseV1::signing_worker_ecdsa_pool_mutate(outcome);
+            return Ok(CloudflareSigningWorkerPrivateD1ResponseV1::EcdsaPoolMutated { outcome });
         }
     }
     Err(RouterAbProtocolError::new(
@@ -1384,52 +1390,52 @@ pub async fn handle_cloudflare_signing_worker_wallet_budget_private_fetch_v1(
     })
 }
 
-pub async fn execute_cloudflare_signing_worker_private_d1_call_v1(
+pub async fn execute_cloudflare_signing_worker_private_d1_request_v1(
     env: &Env,
-    call: &CloudflareDurableObjectCallV1,
-) -> RouterAbProtocolResult<CloudflareDurableObjectResponseV1> {
-    call.validate()?;
-    if call.worker_role != CloudflareWorkerRoleV1::SigningWorker {
-        return Err(d1_error(
-            "SigningWorker private D1 rejected a non-SigningWorker caller",
-        ));
-    }
+    request: &CloudflareSigningWorkerPrivateD1RequestV1,
+) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1ResponseV1> {
+    request.validate()?;
     let db = signing_worker_private_d1_from_env_v1(env)?;
     let db = db
         .with_session_constraint(D1SessionConstraint::FirstPrimary)
         .map_err(|error| map_d1_error("SigningWorker private D1 primary session failed", error))?;
     let cipher = SigningWorkerPrivateD1CipherV1::from_env(env)?;
-    let response = match &call.request {
-        CloudflareDurableObjectRequestV1::SigningWorkerOutputActivate {
+    let response = match request {
+        CloudflareSigningWorkerPrivateD1RequestV1::OutputActivate {
             activation,
             material,
             activated_at_ms,
-        } => activate_output_v1(&db, &cipher, call, activation, material, *activated_at_ms).await?,
-        CloudflareDurableObjectRequestV1::SigningWorkerOutputActiveStateGet { lookup } => {
-            active_state_get_v1(&db, call, lookup).await?
+        } => {
+            activate_output_v1(
+                &db,
+                &cipher,
+                request,
+                activation,
+                material,
+                *activated_at_ms,
+            )
+            .await
         }
-        CloudflareDurableObjectRequestV1::SigningWorkerOutputMaterialGet { lookup } => {
-            output_material_get_v1(&db, &cipher, call, lookup).await?
+        CloudflareSigningWorkerPrivateD1RequestV1::ActiveStateGet { lookup } => {
+            active_state_get_v1(&db, request, lookup).await
         }
-        CloudflareDurableObjectRequestV1::SigningWorkerRound1Put { record } => {
-            round1_put_v1(&db, &cipher, call, record).await?
+        CloudflareSigningWorkerPrivateD1RequestV1::OutputMaterialGet { lookup } => {
+            output_material_get_v1(&db, &cipher, request, lookup).await
         }
-        CloudflareDurableObjectRequestV1::SigningWorkerRound1Take { lookup } => {
-            round1_take_v1(&db, &cipher, call, lookup).await?
+        CloudflareSigningWorkerPrivateD1RequestV1::Round1Put { record } => {
+            round1_put_v1(&db, &cipher, request, record).await
         }
-        CloudflareDurableObjectRequestV1::SigningWorkerRound1CleanupExpired { cleanup } => {
-            round1_cleanup_v1(&db, cleanup).await?
+        CloudflareSigningWorkerPrivateD1RequestV1::Round1Take { lookup } => {
+            round1_take_v1(&db, &cipher, request, lookup).await
         }
-        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPoolMutate { command } => {
-            ecdsa_pool_mutate_v1(&db, &cipher, call, command).await?
+        CloudflareSigningWorkerPrivateD1RequestV1::Round1CleanupExpired { cleanup } => {
+            round1_cleanup_v1(&db, cleanup).await
         }
-        _ => {
-            return Err(d1_error(
-                "SigningWorker private D1 received an unsupported operation",
-            ))
+        CloudflareSigningWorkerPrivateD1RequestV1::EcdsaPoolMutate { command } => {
+            ecdsa_pool_mutate_v1(&db, &cipher, request, command).await
         }
-    };
-    response.validate_for_request(&call.request)?;
+    }?;
+    response.validate_for_request(request)?;
     Ok(response)
 }
 

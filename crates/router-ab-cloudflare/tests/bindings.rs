@@ -63,8 +63,7 @@ use router_ab_cloudflare::{
     verify_cloudflare_deriver_peer_message_authentication_v1,
     CloudflareActiveSigningWorkerStateLookupV1, CloudflareDeriverABindingsV1,
     CloudflareDeriverAWorkerRuntimeV1, CloudflareDeriverBBindingsV1,
-    CloudflareDeriverBWorkerRuntimeV1, CloudflareDurableObjectBindingV1,
-    CloudflareDurableObjectScopeV1, CloudflareEd25519Round1StateV1,
+    CloudflareDeriverBWorkerRuntimeV1, CloudflareEd25519Round1StateV1,
     CloudflareEd25519YaoNormalSigningHandlerV1, CloudflareEnvMapV1, CloudflarePeerBindingV1,
     CloudflarePreloadedSignerHostV1,
     CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1,
@@ -122,6 +121,7 @@ use router_ab_cloudflare::{
     CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1,
     CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     CloudflareSigningWorkerOutputActivationReceiptV1,
+    CloudflareSigningWorkerPresignSessionBindingV1,
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
     CloudflareSigningWorkerRecipientProofBundleActivationV1, CloudflareSigningWorkerRound1RecordV1,
     CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1,
@@ -611,12 +611,8 @@ fn cloudflare_peer_verifying_key_set() -> CloudflareSignerPeerVerifyingKeySetV1 
     .expect("cloudflare peer verifying key set")
 }
 
-fn do_binding(
-    scope: CloudflareDurableObjectScopeV1,
-    binding_name: &str,
-) -> CloudflareDurableObjectBindingV1 {
-    CloudflareDurableObjectBindingV1::new(
-        scope,
+fn presign_session_binding(binding_name: &str) -> CloudflareSigningWorkerPresignSessionBindingV1 {
+    CloudflareSigningWorkerPresignSessionBindingV1::new(
         binding_name,
         format!("{binding_name}-object"),
         format!("{binding_name}:"),
@@ -655,11 +651,8 @@ fn root_share_metadata(role: Role) -> CloudflareRootShareStartupMetadataV1 {
     .expect("root-share startup metadata")
 }
 
-fn signing_worker_presign_session_binding() -> CloudflareDurableObjectBindingV1 {
-    do_binding(
-        CloudflareDurableObjectScopeV1::signing_worker_server_output(),
-        "SIGNING_WORKER_PRESIGN_SESSION_DO",
-    )
+fn signing_worker_presign_session_binding() -> CloudflareSigningWorkerPresignSessionBindingV1 {
+    presign_session_binding("SIGNING_WORKER_PRESIGN_SESSION_DO")
 }
 
 fn deriver_a_envelope_hpke_decrypt_key() -> CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1 {
@@ -7104,10 +7097,6 @@ fn signing_worker_runtime_retains_only_ephemeral_presign_session_do() {
     )
     .expect("signing worker runtime");
     assert_eq!(
-        runtime.bindings().presign_session.scope,
-        CloudflareDurableObjectScopeV1::signing_worker_server_output()
-    );
-    assert_eq!(
         runtime.bindings().presign_session.binding_name,
         "SIGNING_WORKER_PRESIGN_SESSION_DO"
     );
@@ -7710,29 +7699,6 @@ fn preloaded_signer_host_rejects_missing_peer_response() {
 }
 
 #[test]
-fn durable_object_scope_rejects_non_signer_root_share_role() {
-    let err = CloudflareDurableObjectScopeV1::signer_root_share(Role::Router)
-        .expect_err("router role cannot own signer root-share scope");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidRole);
-}
-
-#[test]
-fn presign_session_binding_rejects_non_signing_worker_owner() {
-    let err = CloudflareDurableObjectBindingV1::new(
-        CloudflareDurableObjectScopeV1::ServerOutput {
-            owner_role: CloudflareWorkerRoleV1::DeriverB,
-        },
-        "BAD_PRESIGN_SESSION_DO",
-        "bad-presign-session",
-        "bad-presign-session:",
-    )
-    .expect_err("v1 server output must be owned by signing worker");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidRole);
-}
-
-#[test]
 fn env_parser_builds_router_bindings_from_required_keys() {
     let parsed = parse_cloudflare_worker_bindings_v1(CloudflareWorkerRoleV1::Router, &router_env())
         .expect("router env");
@@ -7793,8 +7759,8 @@ fn env_parser_builds_signing_worker_bindings_from_required_keys() {
         .expect("signing worker env");
 
     assert_eq!(
-        bindings.presign_session.scope,
-        CloudflareDurableObjectScopeV1::signing_worker_server_output()
+        bindings.presign_session.binding_name,
+        "SIGNING_WORKER_PRESIGN_SESSION_DO"
     );
     assert_eq!(
         bindings.server_output_decrypt_key.binding_name,

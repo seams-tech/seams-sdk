@@ -86,10 +86,10 @@ fn signing_worker_normal_signing_loads_active_material_before_handler() {
         "handle_cloudflare_signing_worker_normal_signing_private_fetch_v1",
     );
     let state_lookup = body
-        .find("active_signing_worker_state_get_call")
+        .find("active_signing_worker_state_get_request")
         .expect("normal signing must load active SigningWorker state");
     let material_lookup = body
-        .find("signing_worker_output_material_get_call")
+        .find("signing_worker_output_material_get_request")
         .expect("normal signing must load active SigningWorker material");
     let handler_call = body
         .find("handle_cloudflare_signing_worker_normal_signing_finalize_private_request_v2")

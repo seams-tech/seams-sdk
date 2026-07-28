@@ -1348,39 +1348,9 @@ struct CloudflareRouterJwtClaimsPayloadV1 {
     environment: String,
     account_id: String,
     #[serde(rename = "routerAbRequestPolicy", default)]
-    router_ab_request_policy: Option<CloudflareRouterJwtRequestPolicyClaimsV1>,
+    router_ab_request_policy: Option<RouterRequestPolicyClaimsV1>,
     #[serde(rename = "routerAbNormalSigning", default)]
     router_ab_normal_signing: Option<CloudflareRouterJwtNormalSigningWalletSessionClaimsV1>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CloudflareRouterJwtRequestPolicyClaimsV1 {
-    policy_version: String,
-    work_kind: ExpensiveWorkKindV1,
-    request_digest: PublicDigest32,
-}
-
-impl CloudflareRouterJwtRequestPolicyClaimsV1 {
-    fn validate_for_request(
-        &self,
-        request: &EcdsaThresholdPrfRequestV1,
-    ) -> RouterAbProtocolResult<()> {
-        require_non_empty("routerAbRequestPolicy.policyVersion", &self.policy_version)?;
-        if self.work_kind != request.lifecycle.work_kind {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "Router JWT request policy work kind does not match request",
-            ));
-        }
-        if self.request_digest != request.router_replay_digest() {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "Router JWT request policy digest does not match request",
-            ));
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1414,15 +1384,25 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
     ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1> {
         verifier.validate()?;
         request.validate_at(now_unix_ms)?;
-        self.router_ab_request_policy
-            .as_ref()
-            .ok_or_else(|| {
-                RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::MalformedWirePayload,
-                    "Router JWT requires routerAbRequestPolicy",
-                )
-            })?
-            .validate_for_request(request)?;
+        let request_policy = self.router_ab_request_policy.as_ref().ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router JWT requires routerAbRequestPolicy",
+            )
+        })?;
+        request_policy.validate()?;
+        if request_policy.work_kind != request.lifecycle.work_kind {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router JWT request policy work kind does not match request",
+            ));
+        }
+        if request_policy.request_digest != request.router_replay_digest() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router JWT request policy digest does not match request",
+            ));
+        }
         let claims = self.validate_common_for_request_expiry(
             verifier,
             request.expires_at_ms,
@@ -2237,7 +2217,7 @@ impl CloudflareRouterNormalSigningPrepareAdmissionCandidateV2 {
         Ok(())
     }
 
-    /// Converts the candidate to the current v1 admission-store metadata shape.
+    /// Converts the candidate to trusted Router metadata.
     pub fn to_v1_trusted_metadata(
         &self,
     ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningTrustedMetadataV1> {
@@ -2254,27 +2234,6 @@ impl CloudflareRouterNormalSigningPrepareAdmissionCandidateV2 {
             self.trusted_source_digest,
             self.intent_digest,
         )
-    }
-
-    /// Converts the candidate to the current admission-store request shape.
-    pub fn to_v1_prepare_admission_store_request(
-        &self,
-        request: &RouterAbEd25519NormalSigningPrepareRequestV2,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningAdmissionStoreRequestV1> {
-        self.validate_for_prepare_request(request)?;
-        request.validate_at(now_unix_ms)?;
-        require_positive_ms("normal-signing v2 admission-store now_unix_ms", now_unix_ms)?;
-        let store_request = CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
-            metadata: self.to_v1_trusted_metadata()?,
-            request_id: self.request_id.clone(),
-            expires_at_ms: self.expires_at_ms,
-            now_unix_ms,
-            intent_digest: self.intent_digest,
-            request_digest: request.round1_binding_digest()?,
-        };
-        store_request.validate()?;
-        Ok(store_request)
     }
 }
 
@@ -2452,7 +2411,7 @@ impl CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2 {
         Ok(())
     }
 
-    /// Converts the finalize candidate to the current v1 admission-store metadata shape.
+    /// Converts the finalize candidate to trusted Router metadata.
     pub fn to_v1_trusted_metadata(
         &self,
     ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningTrustedMetadataV1> {
@@ -2469,30 +2428,6 @@ impl CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2 {
             self.trusted_source_digest,
             self.intent_digest,
         )
-    }
-
-    /// Converts the finalize candidate to the current admission-store request shape.
-    pub fn to_v1_finalize_admission_store_request(
-        &self,
-        request: &RouterAbEd25519NormalSigningFinalizeRequestV2,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningAdmissionStoreRequestV1> {
-        self.validate_for_finalize_request(request)?;
-        request.validate_at(now_unix_ms)?;
-        require_positive_ms(
-            "normal-signing v2 finalize admission-store now_unix_ms",
-            now_unix_ms,
-        )?;
-        let store_request = CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
-            metadata: self.to_v1_trusted_metadata()?,
-            request_id: self.request_id.clone(),
-            expires_at_ms: self.expires_at_ms,
-            now_unix_ms,
-            intent_digest: self.intent_digest,
-            request_digest: self.round1_binding_digest,
-        };
-        store_request.validate()?;
-        Ok(store_request)
     }
 }
 
@@ -2724,30 +2659,6 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1 {
             self.trusted_source_digest,
             self.request_digest,
         )
-    }
-
-    /// Converts the candidate to the shared normal-signing admission-store shape.
-    pub fn to_normal_signing_admission_store_request(
-        &self,
-        request: &RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningAdmissionStoreRequestV1> {
-        self.validate_for_prepare_request(request)?;
-        request.validate_at(now_unix_ms)?;
-        require_positive_ms(
-            "Router A/B ECDSA derivation prepare admission-store now_unix_ms",
-            now_unix_ms,
-        )?;
-        let store_request = CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
-            metadata: self.to_normal_signing_trusted_metadata()?,
-            request_id: self.request_id.clone(),
-            expires_at_ms: self.expires_at_ms,
-            now_unix_ms,
-            intent_digest: self.request_digest,
-            request_digest: self.request_digest,
-        };
-        store_request.validate()?;
-        Ok(store_request)
     }
 }
 
@@ -2990,30 +2901,6 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1 {
             self.trusted_source_digest,
             self.finalize_request_digest,
         )
-    }
-
-    /// Converts the candidate to the shared normal-signing admission-store shape.
-    pub fn to_normal_signing_admission_store_request(
-        &self,
-        request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningAdmissionStoreRequestV1> {
-        self.validate_for_finalize_request(request)?;
-        request.validate_at(now_unix_ms)?;
-        require_positive_ms(
-            "Router A/B ECDSA derivation finalize admission-store now_unix_ms",
-            now_unix_ms,
-        )?;
-        let store_request = CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
-            metadata: self.to_normal_signing_trusted_metadata()?,
-            request_id: self.request_id.clone(),
-            expires_at_ms: self.expires_at_ms,
-            now_unix_ms,
-            intent_digest: self.prepare_request_digest,
-            request_digest: self.finalize_request_digest,
-        };
-        store_request.validate()?;
-        Ok(store_request)
     }
 }
 

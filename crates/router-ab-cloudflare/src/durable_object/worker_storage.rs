@@ -1,13 +1,13 @@
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
-    require_non_empty, CloudflareDurableObjectBindingV1, CloudflareWorkerRoleV1,
-    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
+    require_non_empty, CloudflareSigningWorkerPresignSessionBindingV1, RouterAbProtocolError,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
 
 pub(crate) async fn execute_cloudflare_durable_object_custom_json_call_v1<TRequest, TResponse>(
     env: &worker::Env,
-    binding: &CloudflareDurableObjectBindingV1,
+    binding: &CloudflareSigningWorkerPresignSessionBindingV1,
     path: &str,
     request: &TRequest,
 ) -> RouterAbProtocolResult<TResponse>
@@ -15,7 +15,7 @@ where
     TRequest: Serialize,
     TResponse: DeserializeOwned,
 {
-    binding.validate_visible_to(CloudflareWorkerRoleV1::SigningWorker)?;
+    binding.validate()?;
     require_non_empty("Durable Object custom path", path)?;
     let namespace = env.durable_object(&binding.binding_name).map_err(|error| {
         RouterAbProtocolError::new(
