@@ -177,10 +177,7 @@ export interface SigningSessionSealConfig {
  *     };
  *   };
  *   registration?: {
- *     mode?: 'backend_proxy';
- *     registrationBootstrapUrl?: string;
- *   } | {
- *     mode: 'managed';
+ *     mode?: 'managed';
  *     projectEnvironmentId: string;
  *     publishableKey: string;
  *     paymentMode?: 'disabled' | 'quota_then_x402' | 'always_x402';
@@ -305,17 +302,12 @@ export interface SeamsConfigsInput {
  *         emailDkimVerifierContract: string;
  *       };
  *     };
- *     registration:
- *       | {
- *           mode: 'backend_proxy';
- *           bootstrapUrl: string;
- *         }
- *       | {
- *           mode: 'managed';
- *           projectEnvironmentId: string;
- *           publishableKey: string;
- *           paymentMode: 'disabled' | 'quota_then_x402' | 'always_x402';
- *         };
+ *     registration: {
+ *       mode: 'managed';
+ *       projectEnvironmentId: string;
+ *       publishableKey: string;
+ *       paymentMode: 'disabled' | 'quota_then_x402' | 'always_x402';
+ *     };
  *   };
  *   signing: {
  *     sessionDefaults: { ttlMs: number; remainingUses: number };
@@ -847,19 +839,18 @@ export interface SeamsIframeWalletConfigInput {
   rpIdOverride?: string;
 }
 
-export type SeamsRegistrationConfigInput =
-  | {
-      mode?: 'backend_proxy';
-      registrationBootstrapUrl?: string;
-      nearAccountProvisioning?: SeamsRegistrationNearAccountProvisioning;
-    }
-  | {
-      mode: 'managed';
-      projectEnvironmentId: string;
-      publishableKey: string;
-      paymentMode?: SeamsRegistrationPaymentMode;
-      nearAccountProvisioning?: SeamsRegistrationNearAccountProvisioning;
-    };
+/**
+ * Registration is managed-only (Refactor 94C). `/wallets/register/setup`
+ * authenticates with a publishable key and nothing else, so the credential has
+ * to reach the browser; a backend-proxied mode has no way to supply one.
+ */
+export type SeamsRegistrationConfigInput = {
+  mode?: 'managed';
+  projectEnvironmentId: string;
+  publishableKey: string;
+  paymentMode?: SeamsRegistrationPaymentMode;
+  nearAccountProvisioning?: SeamsRegistrationNearAccountProvisioning;
+};
 
 export interface SeamsRelayerConfigInput {
   url?: string;
@@ -900,19 +891,13 @@ export interface SeamsRelayerConfig {
   emailRecovery: SeamsRelayerEmailRecoveryConfig;
 }
 
-export type SeamsRegistrationConfig =
-  | {
-      mode: 'backend_proxy';
-      bootstrapUrl: string;
-      nearAccountProvisioning: SeamsRegistrationNearAccountProvisioning;
-    }
-  | {
-      mode: 'managed';
-      projectEnvironmentId: string;
-      publishableKey: string;
-      paymentMode: SeamsRegistrationPaymentMode;
-      nearAccountProvisioning: SeamsRegistrationNearAccountProvisioning;
-    };
+export type SeamsRegistrationConfig = {
+  mode: 'managed';
+  projectEnvironmentId: string;
+  publishableKey: string;
+  paymentMode: SeamsRegistrationPaymentMode;
+  nearAccountProvisioning: SeamsRegistrationNearAccountProvisioning;
+};
 
 export interface SeamsNetworkConfig {
   chains: SeamsChainConfig[];
