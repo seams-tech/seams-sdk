@@ -292,7 +292,7 @@ hashes for Codex to mark.
 
 #### Contract Checkpoint
 
-- [ ] Agree on field names, fingerprints, idempotency keys, signed-policy
+- [x] Agree on field names, fingerprints, idempotency keys, signed-policy
       claims, and terminal response bytes. Codex commits the canonical internal
       bindings; Claude rebases before implementation.
 
