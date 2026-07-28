@@ -1,6 +1,4 @@
-import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { ThresholdOwnerAddress } from '../../session/identity/evmFamilyEcdsaIdentity';
-import type { SigningSessionPlan } from '../../session/operationState/types';
 import type { EvmFamilyExecutorThresholdEcdsaState } from './transactionExecutor';
 
 export type PreparedEvmFamilyPublicIdentityContinuity =
@@ -37,16 +35,11 @@ export function resolvePreparedEvmFamilyThresholdOwnerAddress(args: {
 }
 
 export function buildPreparedEvmFamilyExecutorThresholdEcdsaState(args: {
-  transactionLane: SelectedEcdsaLane;
-  signingSessionPlan: SigningSessionPlan;
   laneThresholdOwnerAddress: ThresholdOwnerAddress;
   publicIdentityContinuity: PreparedEvmFamilyPublicIdentityContinuity;
 }): Extract<EvmFamilyExecutorThresholdEcdsaState, { kind: 'prepared' }> {
-  const thresholdOwnerAddress = resolvePreparedEvmFamilyThresholdOwnerAddress(args);
   return {
     kind: 'prepared',
-    lane: args.transactionLane,
-    signingSessionPlan: args.signingSessionPlan,
-    thresholdOwnerAddress,
+    thresholdOwnerAddress: resolvePreparedEvmFamilyThresholdOwnerAddress(args),
   };
 }

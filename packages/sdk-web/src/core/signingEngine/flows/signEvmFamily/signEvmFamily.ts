@@ -17,6 +17,7 @@ import {
 } from '../../session/identity/laneIdentity';
 import {
   exactEcdsaSigningLaneIdentityFromSelectedLane,
+  type ExactEcdsaSigningLaneIdentity,
 } from '../../session/identity/exactSigningLaneIdentity';
 import type {
   UiConfirmContextPort,
@@ -89,6 +90,7 @@ import {
 } from './authPlanning';
 import {
   prepareEvmFamilyEcdsaSigningSession,
+  type AuthorizedEvmFamilyEcdsaSigningSession,
   type PreparedEvmFamilyEcdsaSigningSession,
 } from './preparedSigning';
 import {
@@ -149,7 +151,6 @@ import {
   reportEvmFamilyDroppedOrReplaced,
   reportEvmFamilyFinalized,
 } from './nonceLifecycleAdapter';
-import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
 
 // Wallet Session expiry is the authorization's own fact. It used to be read
 // off the composite record, which is a different clock from the one that
@@ -157,10 +158,14 @@ import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/sign
 function evmFamilyWalletSessionExpiryCandidate(args: {
   readonly prepared: PreparedEvmFamilyEcdsaSigningSession | undefined;
 }): EvmFamilyWalletSessionExpiryCandidate {
-  if (!args.prepared) return { kind: 'unavailable' };
+  // Only a reusable Wallet Session can expire. Auth-neutral material is
+  // authorized per operation, so there is no session clock to attribute a
+  // failure to.
+  if (!args.prepared || args.prepared.kind !== 'authorized') return { kind: 'unavailable' };
   return {
     kind: 'exact_ecdsa_lane',
     identity: exactEcdsaSigningLaneIdentityFromSelectedLane(args.prepared.signingLane),
+    authorization: args.prepared.signingLane.authorization,
     expiresAtMs: args.prepared.signingLane.authorization.status.expiresAtMs,
   };
 }
@@ -176,7 +181,7 @@ export type {
 
 function ecdsaOperationAuthorizationQueueKey(args: {
   walletId: string;
-  prepared: PreparedEvmFamilyEcdsaSigningSession;
+  prepared: AuthorizedEvmFamilyEcdsaSigningSession;
 }): OperationAuthorizationQueueKey {
   const authorization = args.prepared.signingLane.authorization;
   return buildOperationAuthorizationQueueKey({
@@ -278,16 +283,7 @@ export async function signEvmFamily(
   if (args.request.senderSignatureAlgorithm !== 'secp256k1') {
     return await signEvmFamilyAttempt(deps, args, attempt);
   }
-  const walletId = toWalletId(args.walletSession.walletId);
-  const queueKey = resolveThresholdEcdsaSigningQueueKey({ walletId });
-  const task = signEvmFamilyAttempt.bind(null, deps, args, attempt);
-  return await deps.withThresholdEcdsaSigningQueue({
-    queueKey,
-    walletId,
-    enabled: true,
-    shouldAbort: args.shouldAbort,
-    task,
-  });
+  return await signEvmFamilyAttempt(deps, args, attempt);
 }
 
 async function signEvmFamilyAttempt(
@@ -413,8 +409,13 @@ async function signEvmFamilyAttempt(
       signingSessionCoordinator,
       forceFreshAuth: attempt.forceFreshAuth === true,
     });
-    ecdsaSigningLane = preparedEcdsaSigningSession.signingLane;
+    ecdsaSigningLane =
+      preparedEcdsaSigningSession.kind === 'authorized'
+        ? preparedEcdsaSigningSession.signingLane
+        : undefined;
     selectedEcdsaAuthMethod = preparedEcdsaSigningSession.authMethod;
+    // Auth-neutral material carries no account auth of its own; it is resolved
+    // from the wallet below, the same way non-ECDSA requests resolve it.
     accountAuth = preparedEcdsaSigningSession.accountAuth;
     emitSigningSessionFlowTrace('evm-family', {
       stage: 'ecdsa_attempt.prepared',
@@ -428,6 +429,7 @@ async function signEvmFamilyAttempt(
             ),
           }
         : {}),
+      authorizationState: preparedEcdsaSigningSession.kind,
       authMethod: selectedEcdsaAuthMethod,
       lane: summarizeEvmFamilyEcdsaLane(ecdsaSigningLane),
     });
@@ -474,18 +476,12 @@ async function signEvmFamilyAttempt(
     if (preparedEcdsaSigningSession) return preparedEcdsaSigningSession;
     throw new Error('[SigningEngine][ecdsa] prepared signing session is required');
   };
-  const assertPreparedEcdsaOperationLane = (
-    prepared: PreparedEvmFamilyEcdsaSigningSession,
-    context: string,
-  ): void => {
-    assertSameSigningLaneIdentity({
-      expected: prepared.preparedOperation.lane,
-      actual: prepared.signingLane,
-      context,
-    });
+  // The signing runtime needs the exact material identity, not a selected
+  // lane: an auth-neutral candidate has the former and never the latter.
+  const getEcdsaSigningLaneIdentity = (): ExactEcdsaSigningLaneIdentity => {
+    const prepared = getPreparedEcdsaSigningSession();
+    return prepared.kind === 'authorized' ? prepared.signingLane.identity : prepared.identity;
   };
-  const getResolvedEcdsaSigningLane = (): ResolvedEvmFamilyEcdsaSigningLane =>
-    getPreparedEcdsaSigningSession().signingLane;
   const getPreparedEcdsaSigningSessionIfEcdsa = ():
     | PreparedEvmFamilyEcdsaSigningSession
     | undefined =>
@@ -496,12 +492,22 @@ async function signEvmFamilyAttempt(
     args.request.senderSignatureAlgorithm === 'secp256k1'
       ? await (async () => {
           const prepared = getPreparedEcdsaSigningSession();
-          return await resolveEvmFamilyTransactionStepUp({
-            ...authPlanningArgsBase,
-            chainTarget: signingTarget,
-            senderSignatureAlgorithm: 'secp256k1',
-            preparedOperation: prepared.preparedOperation,
-          });
+          // Auth-neutral material has no threshold operation to plan a warm
+          // session from; its plan comes from the wallet's own factor.
+          return prepared.kind === 'authorized'
+            ? await resolveEvmFamilyTransactionStepUp({
+                ...authPlanningArgsBase,
+                chainTarget: signingTarget,
+                senderSignatureAlgorithm: 'secp256k1',
+                ecdsaAuthorization: 'reusable_wallet_session',
+                preparedOperation: prepared.preparedOperation,
+              })
+            : await resolveEvmFamilyTransactionStepUp({
+                ...authPlanningArgsBase,
+                chainTarget: signingTarget,
+                senderSignatureAlgorithm: 'secp256k1',
+                ecdsaAuthorization: 'operation_step_up',
+              });
         })()
       : await resolveEvmFamilyTransactionStepUp({
           ...authPlanningArgsBase,
@@ -529,7 +535,7 @@ async function signEvmFamilyAttempt(
     shouldAbort: args.shouldAbort,
     onEvent: args.onEvent,
     onAuthSideEffectStarted: markFreshAuthRetrySideEffect,
-    getResolvedEcdsaSigningLane,
+    getEcdsaSigningLaneIdentity,
   });
 
   let freshAuthRetryHandledFinalization = false;
@@ -587,6 +593,13 @@ async function signEvmFamilyAttempt(
     });
     recordFreshAuthRetryDecision(decision, error);
     if (decision.kind !== 'retry') return null;
+    const preparedForRetry = getPreparedEcdsaSigningSession();
+    if (preparedForRetry.kind !== 'authorized') {
+      // The budget being refreshed is a reusable Wallet Session's. An
+      // operation authorized by its own step-up has none, and nothing to
+      // serialize the refresh against.
+      return null;
+    }
     if (decision.retryMode !== 'await_admission_owner_completion') {
       emitEvmFamilyFreshAuthRetryEvent({
         walletId,
@@ -597,7 +610,7 @@ async function signEvmFamilyAttempt(
     }
     const queueKey = ecdsaOperationAuthorizationQueueKey({
       walletId,
-      prepared: getPreparedEcdsaSigningSession(),
+      prepared: preparedForRetry,
     });
     const result = await executeEvmFamilyFreshAuthRetry({
       deps,
@@ -624,10 +637,16 @@ async function signEvmFamilyAttempt(
       chain: requestChain,
       chainTarget: requestChainTarget,
       ...(nonceFingerprint ? { evmFamilyKeyFingerprint: nonceFingerprint } : {}),
-      walletSessionId:
-        preparedNonceSession.signingLane.authorization.projection.walletSessionId,
+      ...(preparedNonceSession.kind === 'authorized'
+        ? {
+            walletSessionId:
+              preparedNonceSession.signingLane.authorization.projection.walletSessionId,
+          }
+        : {}),
       materialActivationId:
-        preparedNonceSession.signingLane.materialActivation.activationId,
+        preparedNonceSession.kind === 'authorized'
+          ? preparedNonceSession.signingLane.materialActivation.activationId
+          : preparedNonceSession.candidate.materialActivation.activationId,
     });
   }
   const preparedExecutorSession = getPreparedEcdsaSigningSessionIfEcdsa();
@@ -651,7 +670,10 @@ async function signEvmFamilyAttempt(
           signingAuthPlan,
         },
         operation: {
-          ...preparedExecutorSession.transactionOperation,
+          intent:
+            preparedExecutorSession.kind === 'authorized'
+              ? preparedExecutorSession.transactionOperation.intent
+              : preparedExecutorSession.intent,
           authPlan: signingAuthPlan,
         },
         runtime: requireThresholdEcdsaStepUpRuntime(),
@@ -663,9 +685,6 @@ async function signEvmFamilyAttempt(
   if (!preparedExecutorSession) {
     thresholdEcdsaState = { kind: 'not_required' };
   } else {
-    if (!signingSessionPlan) {
-      throw new Error('[SigningEngine][ecdsa] prepared executor requires a signing session plan');
-    }
     // Public identity continuity is established from hydrated material, which
     // the canonical resolver produces after this point.
     // Lane identity only at prepare time: material public facts are verified by
@@ -674,9 +693,10 @@ async function signEvmFamilyAttempt(
       kind: 'lane_identity_only',
     };
     thresholdEcdsaState = buildPreparedEvmFamilyExecutorThresholdEcdsaState({
-      transactionLane: preparedExecutorSession.transactionOperation.lane,
-      signingSessionPlan,
-      laneThresholdOwnerAddress: preparedExecutorSession.signingLane.key.thresholdOwnerAddress,
+      laneThresholdOwnerAddress:
+        preparedExecutorSession.kind === 'authorized'
+          ? preparedExecutorSession.signingLane.key.thresholdOwnerAddress
+          : preparedExecutorSession.candidate.key.thresholdOwnerAddress,
       publicIdentityContinuity,
     });
   }

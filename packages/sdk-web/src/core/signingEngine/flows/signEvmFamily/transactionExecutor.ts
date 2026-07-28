@@ -1,9 +1,7 @@
-import type { SigningSessionPlan } from '../../session/operationState/types';
 import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
 import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
-import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmFamilyThresholdEcdsaStepUp } from './requireEvmFamilyStepUpAuth';
 import { type PreparedNonceOperationContext } from '../../nonce/NonceCoordinator';
@@ -39,14 +37,15 @@ type EvmFamilyTransactionSigningRequest = EvmSigningRequest | TempoSigningReques
 type EvmFamilyTransactionSigningResult = EvmSignedResult | TempoSignedResult;
 type EvmFamilyUiConfirmSigner = (args: unknown) => Promise<EvmFamilyTransactionSigningResult>;
 
+/** What the executor needs from prepared threshold state: the owner address the
+ * managed nonce is reserved against. The lane and signing-session plan it used
+ * to carry were never read here, and neither exists for auth-neutral material. */
 export type EvmFamilyExecutorThresholdEcdsaState =
   | {
       kind: 'not_required';
     }
   | {
       kind: 'prepared';
-      lane: SelectedEcdsaLane;
-      signingSessionPlan: SigningSessionPlan;
       thresholdOwnerAddress: `0x${string}`;
     };
 

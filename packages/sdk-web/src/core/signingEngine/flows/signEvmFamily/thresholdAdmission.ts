@@ -1,6 +1,5 @@
 import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
-import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
-import type { PreparedTransactionOperation } from '../../session/operationState/transactionState';
+import type { TransactionSigningIntent } from '../../session/operationState/transactionState';
 import type { SigningAuthPlan } from '../../stepUpConfirmation/types';
 import type {
   EvmFamilyEcdsaEmailOtpStepUpAuthorization,
@@ -17,16 +16,22 @@ import {
   type EcdsaOperationStepUpSessionAuth,
   type PreparedEcdsaOperationStepUp,
 } from '../../threshold/ecdsa/operationStepUp';
-import type { EvmFamilySigningKeySlotId } from '../../session/identity/evmFamilyEcdsaIdentity';
+import type {
+  EvmFamilySigningKeySlotId,
+  HydratedEcdsaSignerMaterial,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   buildReadySecp256k1SigningMaterial,
   type ReadySecp256k1SigningMaterial,
 } from './signers/secp256k1';
 
-export type EvmFamilyThresholdEcdsaOperation =
-  PreparedTransactionOperation<SelectedEcdsaLane> & {
-    readonly authPlan: SigningAuthPlan;
-  };
+/** The operation a step-up authorizes: the intent it was prepared for, and the
+ * plan that will authorize it. It carries no `SelectedEcdsaLane` — an
+ * auth-neutral candidate has none, and nothing here ever read one. */
+export type EvmFamilyThresholdEcdsaOperation = {
+  readonly intent: TransactionSigningIntent;
+  readonly authPlan: SigningAuthPlan;
+};
 
 export type EvmFamilyEcdsaOperationStepUpAuthorization =
   | EvmFamilyEcdsaEmailOtpStepUpAuthorization
@@ -35,10 +40,10 @@ export type EvmFamilyEcdsaOperationStepUpAuthorization =
 export async function prepareEvmFamilyEcdsaOperationStepUp(args: {
   readonly operation: EvmFamilyThresholdEcdsaOperation;
   readonly operationDigests: OperationDigestSet;
-  readonly material: ReadySecp256k1SigningMaterial;
+  readonly material: HydratedEcdsaSignerMaterial;
   readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
 }): Promise<PreparedEcdsaOperationStepUp> {
-  const signerSession = args.material.signerSession;
+  const signerSession = args.material;
   const participantIds = signerSession.publicFacts.participantIds;
   if (participantIds.length !== 2) {
     throw new Error('[chains] ECDSA operation step-up requires exactly two participants');
@@ -46,7 +51,7 @@ export async function prepareEvmFamilyEcdsaOperationStepUp(args: {
   const operationId = String(args.operation.intent.operationId || '').trim();
   const expiresAtMs = Date.now() + 5 * 60_000;
   return await prepareEcdsaOperationStepUp({
-    walletId: args.material.walletId,
+    walletId: signerSession.walletId,
     operationId,
     operationDigests: args.operationDigests,
     materialActivation: signerSession.materialActivation,
@@ -65,7 +70,7 @@ export async function authorizeEvmFamilyEcdsaOperationStepUp(args: {
   readonly authority: WalletAuthAuthority;
   readonly authorization: EvmFamilyEcdsaOperationStepUpAuthorization;
   readonly prepared: PreparedEcdsaOperationStepUp;
-  readonly material: ReadySecp256k1SigningMaterial;
+  readonly material: HydratedEcdsaSignerMaterial;
 }): Promise<ReadySecp256k1SigningMaterial> {
   const proof = operationStepUpProof({
     authority: args.authority,
@@ -89,7 +94,7 @@ export async function authorizeEvmFamilyEcdsaOperationStepUp(args: {
       : { kind: 'app_session_cookie' as const };
   return buildReadySecp256k1SigningMaterial({
     walletId: args.material.walletId,
-    signerSession: args.material.signerSession,
+    signerSession: args.material,
     authorization: grant.authorization,
     credential,
     expiresAtMs: grant.expires_at_ms,
