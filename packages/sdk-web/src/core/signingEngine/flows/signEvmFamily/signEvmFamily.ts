@@ -12,9 +12,6 @@ import type {
   AvailableSigningLanes,
 } from '../../session/availability/availableSigningLanes';
 import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
-import type {
-  ThresholdEcdsaSessionRecord,
-} from '../../session/persistence/records';
 import {
   type ThresholdEcdsaSessionStoreSource,
 } from '../../session/identity/laneIdentity';
@@ -81,13 +78,10 @@ import { throwIfEvmFamilySigningCancelled } from './errors';
 import {
   requireResolvedEvmFamilyEcdsaSigningLane,
   selectedEvmFamilyEcdsaLaneForMaterialIdentity,
-  isEmailOtpThresholdEcdsaSigningContext,
   summarizeEvmFamilyEcdsaLane,
-  summarizeEvmFamilyEcdsaSessionRecord,
   type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
-import { getEcdsaMaterialRecord } from './ecdsaMaterialState';
 import type { EmailOtpEcdsaCommittedLane } from './ecdsaSelection';
 import { resolveEvmFamilyTransactionWalletAuth } from './accountAuth';
 import {
@@ -141,8 +135,7 @@ import {
   type EvmFamilySigningOperationIds,
 } from './operationIds';
 import {
-  deriveEvmFamilyKeyFingerprintFromRecordPublicFacts,
-  toVerifiedEcdsaPublicFactsFromRecord,
+  deriveEvmFamilyKeyFingerprintFromPublicFacts,
   type ReadyEcdsaSignerSession,
   type VerifiedEcdsaPublicFacts,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
@@ -159,15 +152,17 @@ import {
 } from './nonceLifecycleAdapter';
 import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
 
+// Wallet Session expiry is the authorization's own fact. It used to be read
+// off the composite record, which is a different clock from the one that
+// actually expires.
 function evmFamilyWalletSessionExpiryCandidate(args: {
   readonly prepared: PreparedEvmFamilyEcdsaSigningSession | undefined;
-  readonly record: ThresholdEcdsaSessionRecord | undefined;
 }): EvmFamilyWalletSessionExpiryCandidate {
-  if (!args.prepared || !args.record) return { kind: 'unavailable' };
+  if (!args.prepared) return { kind: 'unavailable' };
   return {
     kind: 'exact_ecdsa_lane',
     identity: exactEcdsaSigningLaneIdentityFromSelectedLane(args.prepared.signingLane),
-    expiresAtMs: args.record.expiresAtMs,
+    expiresAtMs: args.prepared.signingLane.authorization.status.expiresAtMs,
   };
 }
 
@@ -273,22 +268,6 @@ function emitEvmFamilyFreshAuthRetryEvent(args: {
   });
 }
 
-function signerAuthMethodForThresholdEcdsaSource(
-  source: ThresholdEcdsaSessionStoreSource,
-): SignerAuthMethod {
-  switch (source) {
-    case SIGNER_AUTH_METHODS.emailOtp:
-      return SIGNER_AUTH_METHODS.emailOtp;
-    case 'login':
-    case 'registration':
-    case 'manual-bootstrap':
-      return SIGNER_AUTH_METHODS.passkey;
-    default:
-      source satisfies never;
-      throw new Error(`[SigningEngine][ecdsa] unsupported session source: ${String(source)}`);
-  }
-}
-
 export async function signEvmFamily(
   deps: EvmFamilySigningDeps,
   args: SignEvmFamilyArgs,
@@ -335,7 +314,6 @@ async function signEvmFamilyAttempt(
   const requestChain = signingTarget.kind;
   const requestChainTarget = signingTarget;
 
-  let thresholdEcdsaRecord: ThresholdEcdsaSessionRecord | undefined;
   let accountAuth: AccountAuthMetadata | undefined;
   let ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane | undefined;
   let selectedEcdsaAuthMethod: EvmFamilyEcdsaAuthMethod | undefined;
@@ -378,19 +356,19 @@ async function signEvmFamilyAttempt(
     prepared: PreparedEvmFamilyEcdsaSigningSession | undefined,
   ): string | undefined =>
     prepared && prepared.material.kind === 'ready_to_sign'
-      ? safeDerivePreparedRecordFingerprint({
-          walletId: prepared.material.readyMaterial.key.walletId,
-          record: prepared.material.readyMaterial.record,
+      ? safePreparedPublicFactsFingerprint({
+          walletId: prepared.material.signerSession.walletId,
+          publicFacts: prepared.material.signerSession.publicFacts,
         })
       : undefined;
-  const safeDerivePreparedRecordFingerprint = (args: {
+  const safePreparedPublicFactsFingerprint = (args: {
     walletId: string;
-    record: ThresholdEcdsaSessionRecord;
+    publicFacts: VerifiedEcdsaPublicFacts;
   }): string | undefined => {
     try {
-      return deriveEvmFamilyKeyFingerprintFromRecordPublicFacts({
+      return deriveEvmFamilyKeyFingerprintFromPublicFacts({
         walletId: args.walletId,
-        record: args.record,
+        publicFacts: args.publicFacts,
       });
     } catch {
       return undefined;
@@ -443,7 +421,6 @@ async function signEvmFamilyAttempt(
     ecdsaSigningLane = preparedEcdsaSigningSession.signingLane;
     selectedEcdsaAuthMethod = preparedEcdsaSigningSession.authMethod;
     accountAuth = preparedEcdsaSigningSession.accountAuth;
-    thresholdEcdsaRecord = getEcdsaMaterialRecord(preparedEcdsaSigningSession.material);
     emitSigningSessionFlowTrace('evm-family', {
       stage: 'ecdsa_attempt.prepared',
       walletId,
@@ -458,7 +435,6 @@ async function signEvmFamilyAttempt(
         : {}),
       authMethod: selectedEcdsaAuthMethod,
       lane: summarizeEvmFamilyEcdsaLane(ecdsaSigningLane),
-      warmRecord: summarizeEvmFamilyEcdsaSessionRecord(thresholdEcdsaRecord),
     });
   } else {
     accountAuth = await resolveEvmFamilyTransactionWalletAuth({
@@ -468,9 +444,7 @@ async function signEvmFamilyAttempt(
       chainTarget: requestChainTarget,
     });
   }
-  const isEmailOtpThresholdContext = thresholdEcdsaRecord
-    ? isEmailOtpThresholdEcdsaSigningContext({ record: thresholdEcdsaRecord })
-    : false;
+  const isEmailOtpThresholdContext = false;
   accountAuth =
     accountAuth ||
     (await resolveEvmFamilyTransactionWalletAuth({
@@ -478,13 +452,6 @@ async function signEvmFamilyAttempt(
       walletId,
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
       chainTarget: requestChainTarget,
-      ...(thresholdEcdsaRecord
-        ? {
-            sessionAuthMethod: signerAuthMethodForThresholdEcdsaSource(
-              thresholdEcdsaRecord.source,
-            ),
-          }
-        : {}),
       isEmailOtpThresholdContext,
     }));
   const resolvedAccountAuth = accountAuth;
@@ -588,7 +555,6 @@ async function signEvmFamilyAttempt(
         error,
         candidate: evmFamilyWalletSessionExpiryCandidate({
           prepared: preparedEcdsaSigningSession,
-          record: thresholdEcdsaRecord,
         }),
         detectedAtMs: Date.now(),
       }),
@@ -709,10 +675,6 @@ async function signEvmFamilyAttempt(
     let verifiedMaterialPublicFacts: VerifiedEcdsaPublicFacts | null = null;
     if (preparedExecutorReadyMaterial) {
       verifiedMaterialPublicFacts = preparedExecutorReadyMaterial.publicFacts;
-    } else if (thresholdEcdsaRecord) {
-      verifiedMaterialPublicFacts = await toVerifiedEcdsaPublicFactsFromRecord({
-        record: thresholdEcdsaRecord,
-      });
     }
     const publicIdentityContinuity: PreparedEvmFamilyPublicIdentityContinuity =
       verifiedMaterialPublicFacts
