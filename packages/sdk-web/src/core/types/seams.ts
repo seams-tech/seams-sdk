@@ -397,10 +397,43 @@ export interface AppearanceConfig {
 }
 
 /**
- * Where the deferred Ed25519/NEAR commit got to. `retryable` means the Yao
- * ceremony or its finalize failed without touching the ECDSA wallet, so the
- * commit can be reissued against the same registration ceremony.
+ * Lifecycle of the deferred Ed25519/NEAR branch for one wallet.
+ *
+ * `near_pending` is the state registration returns in: the ECDSA wallet is
+ * durable and nothing has started provisioning NEAR yet. `near_provisioning`
+ * means an attempt is in flight. `near_failed_retryable` means the Yao ceremony
+ * or its finalize failed without touching the ECDSA wallet, so the commit can
+ * be reissued against the same registration ceremony.
+ *
+ * These are published to page-owned state and persisted to the local wallet
+ * record. `RegistrationResult` carries only a snapshot: it has crossed the
+ * postMessage boundary by the time provisioning settles and must not be
+ * mutated.
  */
+export type NearProvisioningStatus =
+  | 'near_pending'
+  | 'near_provisioning'
+  | 'near_ready'
+  | 'near_failed_retryable';
+
+export type NearProvisioningState =
+  | { status: 'near_pending'; updatedAtMs: number; error?: never; errorCode?: never }
+  | { status: 'near_provisioning'; updatedAtMs: number; error?: never; errorCode?: never }
+  | {
+      status: 'near_ready';
+      updatedAtMs: number;
+      nearAccountId: string;
+      error?: never;
+      errorCode?: never;
+    }
+  | {
+      status: 'near_failed_retryable';
+      updatedAtMs: number;
+      error: string;
+      errorCode: string;
+    };
+
+/** Snapshot carried on the registration result. */
 export type RegistrationNearProvisioningState =
   | { status: 'pending'; error?: never; errorCode?: never }
   | { status: 'retryable'; error: string; errorCode: string };

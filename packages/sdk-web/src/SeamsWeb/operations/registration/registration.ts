@@ -8,10 +8,14 @@ import type {
   WalletFlowAuthMethod,
 } from '@/core/types/sdkSentEvents';
 import type {
-  RegistrationNearProvisioningState,
+  NearProvisioningState,
   RegistrationResult,
   SeamsConfigsReadonly,
 } from '@/core/types/seams';
+import {
+  publishNearProvisioningState,
+  runSingleFlightNearProvisioning,
+} from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { createRegistrationFlowEvent, RegistrationEventPhase } from '@/core/types/sdkSentEvents';
 import { createManagedRegistrationFlowGrant } from '@/SeamsWeb/operations/registration/createAccountRouterApiServer';
@@ -3685,7 +3689,7 @@ async function commitDeferredEd25519Registration(args: {
   plan: RegistrationPersistencePlan;
   passkeyAuthority: RegistrationPasskeyAuthority | null;
   walletId: WalletId;
-}): Promise<RegistrationNearProvisioningState> {
+}): Promise<NearProvisioningState> {
   const auth = args.plan.auth;
   try {
     /* The page-owned RegistrationYaoWork is the single-flight: `requirePending`
@@ -3776,15 +3780,24 @@ async function commitDeferredEd25519Registration(args: {
     } else {
       await args.yaoWork.commit({ activation: args.context.signingEngine, walletSessionState });
     }
-    return { status: 'pending' };
-  } catch (error: unknown) {
     return {
-      status: 'retryable',
+      status: 'near_ready',
+      updatedAtMs: Date.now(),
+      nearAccountId: String(nearAccountId),
+    };
+  } catch (error: unknown) {
+    /* The ECDSA wallet is already durable, so this is reported as a retryable
+       provisioning state rather than raised. */
+    return {
+      status: 'near_failed_retryable',
+      updatedAtMs: Date.now(),
       error: getUserFriendlyErrorMessage(error, 'registration', String(args.walletId)),
       errorCode: registrationErrorCodeFromUnknown(error),
     };
   }
 }
+
+
 
 async function registerEcdsaOrMixedWallet(
   args: RegisterEcdsaOrMixedWalletArgs,
@@ -4099,9 +4112,19 @@ async function registerEcdsaOrMixedWallet(
        the ECDSA wallet is durable, which is what takes the Yao wait off the
        critical path. It reports failure as a retryable provisioning state
        instead of rejecting, so it can never fault this returned wallet. */
-    const deferredEd25519Commit: Promise<RegistrationNearProvisioningState> | null =
-      args.kind === 'near_ed25519_and_evm_family_ecdsa'
-        ? commitDeferredEd25519Registration({
+    const deferredWalletId = toWalletId(finalized.walletId);
+    if (args.kind === 'near_ed25519_and_evm_family_ecdsa') {
+      publishNearProvisioningState(deferredWalletId, {
+        status: 'near_pending',
+        updatedAtMs: Date.now(),
+      });
+      /* Joined rather than raced: concurrent first-NEAR requests for this
+         wallet attach to this one attempt. */
+      void runSingleFlightNearProvisioning({
+        walletId: deferredWalletId,
+        nowMs: () => Date.now(),
+        attempt: () =>
+          commitDeferredEd25519Registration({
             context,
             relayerUrl,
             registrationCeremonyId: startedCeremony.registrationCeremonyId,
@@ -4109,10 +4132,10 @@ async function registerEcdsaOrMixedWallet(
             yaoWork,
             plan: persistencePlan,
             passkeyAuthority,
-            walletId: toWalletId(finalized.walletId),
-          })
-        : null;
-    void deferredEd25519Commit;
+            walletId: deferredWalletId,
+          }),
+      });
+    }
     const result: RegistrationResult =
       args.kind === 'near_ed25519_and_evm_family_ecdsa'
         ? {
