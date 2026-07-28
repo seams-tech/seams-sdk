@@ -14,7 +14,6 @@
         "scope": {
           "account_id": "alice.testnet",
           "authorization": {
-            "grant_id": "signing-grant-v2",
             "kind": "reusable_wallet_session",
             "wallet_session_id": "threshold-session-v2"
           },
@@ -93,7 +92,6 @@
         "scope": {
           "account_id": "alice.testnet",
           "authorization": {
-            "grant_id": "signing-grant-v2",
             "kind": "reusable_wallet_session",
             "wallet_session_id": "threshold-session-v2"
           },
@@ -118,7 +116,7 @@
       "intent_digest_b64u": "wG1HA83w_kucYdPlO1IxE8_dGrwKCgY5x5K-YsiWLuo",
       "signing_payload_digest_b64u": "UMkwa3cBLeo1egROtMEO2U2FHWp88fVglw47WykXIbc",
       "admitted_signing_digest_b64u": "Nre4iYnG098CZQXfaTx4IjuENB9twMeqEV45RB2DD8M",
-      "round1_binding_digest_b64u": "K1Mu5cEiOupxVqTvgChhNvhlhjJvYac3w5HZly3FZcc"
+      "round1_binding_digest_b64u": "U3m4CeLxFzP3VvpcN_XbaPvmWgz9oscdsrFIqR7Y4Xw"
     },
     {
       "case_id": "nep413_v1",
@@ -137,7 +135,6 @@
         "scope": {
           "account_id": "alice.testnet",
           "authorization": {
-            "grant_id": "signing-grant-v2",
             "kind": "reusable_wallet_session",
             "wallet_session_id": "threshold-session-v2"
           },
@@ -206,7 +203,6 @@
         "scope": {
           "account_id": "alice.testnet",
           "authorization": {
-            "grant_id": "signing-grant-v2",
             "kind": "reusable_wallet_session",
             "wallet_session_id": "threshold-session-v2"
           },
@@ -231,7 +227,7 @@
       "intent_digest_b64u": "DpsbOLTw8ZAe0gHAjA8tBcXIztFiNU20NAgLmuxEUig",
       "signing_payload_digest_b64u": "StWUSR49LhWUFyQGTXMsQy9U2Q2qeuw4F5aMgsdUKzE",
       "admitted_signing_digest_b64u": "JZuedIKlTa9uFN6iEy_oaKKD-QYl7Yh3EeinIINM8FA",
-      "round1_binding_digest_b64u": "N1Jo9wkmyX_jqy-NwkUQQ6Wiz0sowo049Fpgbi5J9lU"
+      "round1_binding_digest_b64u": "-l21eKjeBmDBDQkShmUy0Cs-fpnPe5RCWdJdRxX1_M0"
     },
     {
       "case_id": "near_delegate_action_v1",
@@ -255,7 +251,6 @@
         "scope": {
           "account_id": "alice.testnet",
           "authorization": {
-            "grant_id": "signing-grant-v2",
             "kind": "reusable_wallet_session",
             "wallet_session_id": "threshold-session-v2"
           },
@@ -329,7 +324,6 @@
         "scope": {
           "account_id": "alice.testnet",
           "authorization": {
-            "grant_id": "signing-grant-v2",
             "kind": "reusable_wallet_session",
             "wallet_session_id": "threshold-session-v2"
           },
@@ -354,7 +348,7 @@
       "intent_digest_b64u": "6bymIEzHEuTJdmmnStPOCyWbvFRa6eubBpJ35RUVOec",
       "signing_payload_digest_b64u": "Ex48kVDiecMR1sKTWb3zYGUSwc2ofuDystl1NPWy4aY",
       "admitted_signing_digest_b64u": "aWzqg_Yi38tZZWNvIaj5qh0NywcuejkJMKTU3-ICpqI",
-      "round1_binding_digest_b64u": "fJEtM7i0CXaTMrcN0wAyRNJw62WI87H08XEFEn6E02A"
+      "round1_binding_digest_b64u": "_yzw-Lr-xsyZ_nHer55UMAtvwWQ2qxd6EXs835tj_r0"
     }
   ]
 }
