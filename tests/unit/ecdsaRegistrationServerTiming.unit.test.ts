@@ -77,7 +77,11 @@ test('unknown and malformed metrics cannot affect registration', () => {
   // The browser parser ignores everything it does not recognise, so a Router
   // rename, an injected metric, or a garbage duration yields no buckets at all
   // rather than a bad value flowing into timing state.
-  expect(parseYaoServerTimingBuckets('ecdsa_respond_router;dur=2102')).toEqual([]);
+  // A genuinely unknown metric is dropped; a recognised one is not.
+  expect(parseYaoServerTimingBuckets('ecdsa_respond_unmeasured;dur=2102')).toEqual([]);
+  expect(parseYaoServerTimingBuckets('ecdsa_respond_router;dur=2102')).toEqual([
+    ['ecdsaRespondRouterMs', 2102],
+  ]);
   expect(parseYaoServerTimingBuckets('yao_d1_claim;dur=not-a-number')).toEqual([]);
   expect(parseYaoServerTimingBuckets('yao_d1_claim;dur=-1')).toEqual([]);
   expect(parseYaoServerTimingBuckets('__proto__;dur=1, constructor;dur=2')).toEqual([]);

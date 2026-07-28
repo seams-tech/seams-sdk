@@ -217,6 +217,12 @@ async function postJson<TResponse>(args: {
   path: string;
   body: unknown;
   headers?: Record<string, string>;
+  /**
+   * Receives the raw `Server-Timing` response header when the Gateway sends
+   * one. Diagnostics only: never awaited, never allowed to throw into the
+   * request, and null whenever the header is absent or unexposed by CORS.
+   */
+  onServerTiming?: (header: string | null) => void;
 }): Promise<TResponse> {
   const startedAt = Date.now();
   const requestBody = JSON.stringify(args.body);
@@ -241,6 +247,13 @@ async function postJson<TResponse>(args: {
         ok: response.ok,
         durationMs: Date.now() - startedAt,
       });
+    }
+    if (args.onServerTiming) {
+      try {
+        args.onServerTiming(response.headers.get('Server-Timing'));
+      } catch {
+        // Diagnostics must never change registration behavior.
+      }
     }
     const responseText = await readResponseText(response);
     if (args.path === WALLET_REGISTRATION_FINALIZE_PATH) {
@@ -2361,6 +2374,7 @@ export async function respondWalletRegistrationEcdsa(args: {
     kind: 'router_ab_ecdsa_registration_v1';
     strictRegistration: RouterAbEcdsaRegistrationRequestV1;
   };
+  onServerTiming?: (header: string | null) => void;
 }): Promise<WalletRegistrationEcdsaRespondResponse> {
   const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
@@ -2370,6 +2384,7 @@ export async function respondWalletRegistrationEcdsa(args: {
       registrationCeremonyId: args.registrationCeremonyId,
       ecdsa: args.ecdsa,
     },
+    ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
   });
   return parseWalletRegistrationEcdsaRespondResponse(response);
 }
@@ -2379,6 +2394,7 @@ export async function activateWalletRegistrationEcdsa(args: {
   headers?: Record<string, string>;
   registrationCeremonyId: string;
   publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  onServerTiming?: (header: string | null) => void;
 }): Promise<WalletRegistrationEcdsaActivationResponse> {
   const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
@@ -2391,6 +2407,7 @@ export async function activateWalletRegistrationEcdsa(args: {
         publicFacts: args.publicFacts,
       },
     },
+    ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
   });
   return parseWalletRegistrationEcdsaActivationResponse(response);
 }
