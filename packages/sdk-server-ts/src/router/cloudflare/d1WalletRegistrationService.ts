@@ -2058,17 +2058,33 @@ export class CloudflareD1WalletRegistrationService {
   async respondWalletRegistrationEcdsaDerivation(
     request: RespondWalletRegistrationDerivationInput,
   ): Promise<WalletRegistrationEcdsaDerivationRespondResponse> {
+    /* Gateway boundary timings; the route strips these into a Server-Timing
+       header, so nothing here reaches the wire body. Fixed names + numeric
+       durations only. */
+    const serverTiming: Array<readonly [string, number]> = [];
+    const totalStartedAtMs = Date.now();
+    const markServerTiming = (name: string, startedAtMs: number): void => {
+      serverTiming.push([name, Math.max(0, Date.now() - startedAtMs)]);
+    };
+    const withServerTiming = <T extends { ok: true }>(response: T): T => {
+      markServerTiming('ecdsa_respond_total', totalStartedAtMs);
+      return { ...response, gatewayServerTiming: serverTiming };
+    };
     try {
       const store = this.getRegistrationCeremonyIntentStore();
       const strictRegistrationBindingJson =
         routerAbEcdsaStrictRegistrationRequestBindingJson(request.ecdsa.strictRegistration);
+      const claimStartedAtMs = Date.now();
       let claimed = await store.claimEcdsaRespond({
         registrationCeremonyId: request.registrationCeremonyId,
         strictRegistrationBindingJson,
         registrationRequest: request.ecdsa.strictRegistration,
       });
+      markServerTiming('ecdsa_respond_d1_claim', claimStartedAtMs);
       if (!claimed) {
+        const reconcileStartedAtMs = Date.now();
         const existing = await store.getCeremonySnapshot(request.registrationCeremonyId);
+        markServerTiming('ecdsa_respond_reconcile', reconcileStartedAtMs);
         if (!existing) {
           return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
         }
@@ -2097,14 +2113,14 @@ export class CloudflareD1WalletRegistrationService {
               message: 'ECDSA registration replay changed the exact request',
             };
           }
-          return {
+          return withServerTiming({
             ok: true,
             registrationCeremonyId: ceremony.registrationCeremonyId,
             ecdsa: {
               kind: 'router_ab_ecdsa_registration_forwarded_v1',
               strictResult: ecdsaBranch.publicResponse,
             },
-          };
+          } as const);
         }
         if (ecdsaBranch?.kind !== 'evm_family_ecdsa_response_claimed') {
           const bindingMatches =
@@ -2139,10 +2155,12 @@ export class CloudflareD1WalletRegistrationService {
       if (!ecdsaBranch || ecdsaBranch.kind !== 'evm_family_ecdsa_response_claimed') {
         throw new Error('Claimed ECDSA registration branch is invalid');
       }
+      const routerStartedAtMs = Date.now();
       const strictResult = await this.ecdsaStrictRegistration.register({
         request: ecdsaBranch.registrationRequest,
         authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
       });
+      markServerTiming('ecdsa_respond_router', routerStartedAtMs);
       if (!strictResult.ok) {
         if (!strictResult.retryable) {
           await store.cancelTerminalCeremony({
@@ -2171,6 +2189,7 @@ export class CloudflareD1WalletRegistrationService {
           publicResponse: strictResult.value.publicResponse,
         },
       });
+      const commitStartedAtMs = Date.now();
       try {
         await store.commitEcdsaClaim({
           expected: claimed,
@@ -2196,15 +2215,17 @@ export class CloudflareD1WalletRegistrationService {
         ) {
           throw error;
         }
+      } finally {
+        markServerTiming('ecdsa_respond_d1_commit', commitStartedAtMs);
       }
-      return {
+      return withServerTiming({
         ok: true,
         registrationCeremonyId: ceremony.registrationCeremonyId,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_forwarded_v1',
           strictResult: strictResult.value.publicResponse,
         },
-      };
+      } as const);
     } catch (error: unknown) {
       return {
         ok: false,
@@ -2217,14 +2238,29 @@ export class CloudflareD1WalletRegistrationService {
   async activateWalletRegistrationEcdsa(
     request: ActivateWalletRegistrationEcdsaInput,
   ): Promise<WalletRegistrationEcdsaActivationResponse> {
+    /* Same contract as respondWalletRegistrationEcdsaDerivation: stripped into
+       a Server-Timing header at the route, never serialized to the wire. */
+    const serverTiming: Array<readonly [string, number]> = [];
+    const totalStartedAtMs = Date.now();
+    const markServerTiming = (name: string, startedAtMs: number): void => {
+      serverTiming.push([name, Math.max(0, Date.now() - startedAtMs)]);
+    };
+    const withServerTiming = <T extends { ok: true }>(response: T): T => {
+      markServerTiming('ecdsa_activate_total', totalStartedAtMs);
+      return { ...response, gatewayServerTiming: serverTiming };
+    };
     try {
       const store = this.getRegistrationCeremonyIntentStore();
+      const claimStartedAtMs = Date.now();
       let claimed = await store.claimEcdsaActivation({
         registrationCeremonyId: request.registrationCeremonyId,
         publicFacts: request.ecdsa.publicFacts,
       });
+      markServerTiming('ecdsa_activate_d1_claim', claimStartedAtMs);
       if (!claimed) {
+        const reconcileStartedAtMs = Date.now();
         const existing = await store.getCeremonySnapshot(request.registrationCeremonyId);
+        markServerTiming('ecdsa_activate_reconcile', reconcileStartedAtMs);
         if (!existing) {
           return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
         }
@@ -2253,7 +2289,7 @@ export class CloudflareD1WalletRegistrationService {
               message: 'ECDSA activation replay changed the verified client facts',
             };
           }
-          return {
+          return withServerTiming({
             ok: true,
             registrationCeremonyId: ceremony.registrationCeremonyId,
             ecdsa: {
@@ -2261,7 +2297,7 @@ export class CloudflareD1WalletRegistrationService {
               activation: ecdsaBranch.activation,
               bootstrap: ecdsaBranch.bootstrap,
             },
-          };
+          } as const);
         }
         if (ecdsaBranch?.kind !== 'evm_family_ecdsa_activation_claimed') {
           return {
@@ -2292,11 +2328,13 @@ export class CloudflareD1WalletRegistrationService {
       if (!ecdsaBranch || ecdsaBranch.kind !== 'evm_family_ecdsa_activation_claimed') {
         throw new Error('Claimed ECDSA activation branch is invalid');
       }
+      const routerStartedAtMs = Date.now();
       const activated = await this.ecdsaStrictRegistration.activate({
         pendingActivation: ecdsaBranch.pendingActivation,
         clientActivation: ecdsaBranch.publicFacts,
         authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
       });
+      markServerTiming('ecdsa_activate_router', routerStartedAtMs);
       if (!activated.ok) {
         if (!activated.retryable) {
           await store.commitEcdsaClaim({
@@ -2321,15 +2359,18 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
       try {
+        const bootstrapStartedAtMs = Date.now();
         const bootstrap = await buildActivatedEcdsaFamilyBootstrap({
           branch: ecdsaBranch,
           publicFacts: ecdsaBranch.publicFacts,
           activation: activated.value,
         });
+        markServerTiming('ecdsa_activate_bootstrap', bootstrapStartedAtMs);
         const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
         if (!normalSigningRuntime) {
           throw new Error('Router A/B normal signing is not configured');
         }
+        const sessionProvisionStartedAtMs = Date.now();
         const provisioned = await normalSigningRuntime.provisionRouterAbEcdsaNormalSigningSession({
           kind: 'router_ab_ecdsa_normal_signing_session_v1',
           walletId: bootstrap.walletId,
@@ -2343,6 +2384,7 @@ export class CloudflareD1WalletRegistrationService {
           expiresAtMs: bootstrap.expiresAtMs,
           remainingUses: bootstrap.remainingUses,
         });
+        markServerTiming('ecdsa_activate_session_provision', sessionProvisionStartedAtMs);
         if (!provisioned.ok) {
           throw new Error(provisioned.message);
         }
@@ -2390,6 +2432,7 @@ export class CloudflareD1WalletRegistrationService {
             participantIds: [...provisioned.participantIds],
           },
         };
+        const commitStartedAtMs = Date.now();
         try {
           await store.commitEcdsaClaim({
             expected: claimed,
@@ -2418,8 +2461,10 @@ export class CloudflareD1WalletRegistrationService {
           ) {
             throw error;
           }
+        } finally {
+          markServerTiming('ecdsa_activate_d1_commit', commitStartedAtMs);
         }
-        return {
+        return withServerTiming({
           ok: true,
           registrationCeremonyId: ceremony.registrationCeremonyId,
           ecdsa: {
@@ -2427,7 +2472,7 @@ export class CloudflareD1WalletRegistrationService {
             activation: activated.value,
             bootstrap: activatedBranch.bootstrap,
           },
-        };
+        } as const);
       } catch (error: unknown) {
         const message =
           errorMessage(error) || 'ECDSA activation could not establish normal signing';

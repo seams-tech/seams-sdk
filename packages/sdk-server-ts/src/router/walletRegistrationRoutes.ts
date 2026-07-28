@@ -2445,6 +2445,26 @@ export async function handleRouterApiWalletRegistrationStart(
   return routeJson(result.ok ? 200 : 400, response);
 }
 
+/**
+ * Formats Gateway boundary timings as a `Server-Timing` header value and
+ * removes them from the response body. The wire body must stay byte-identical
+ * to the uninstrumented response; only the header carries timing. Fixed metric
+ * names and numeric durations only.
+ */
+function takeEcdsaGatewayServerTiming<
+  T extends { ok: boolean; gatewayServerTiming?: readonly (readonly [string, number])[] },
+>(result: T): { body: T; headers?: Record<string, string> } {
+  if (!result.ok || !result.gatewayServerTiming?.length) {
+    const { gatewayServerTiming: _dropped, ...body } = result;
+    return { body: body as T };
+  }
+  const header = result.gatewayServerTiming
+    .map(([name, durationMs]) => `${name};dur=${Math.max(0, durationMs).toFixed(1)}`)
+    .join(', ');
+  const { gatewayServerTiming: _stripped, ...body } = result;
+  return { body: body as T, headers: { 'Server-Timing': header } };
+}
+
 export async function handleRouterApiWalletRegistrationEcdsaDerivationRespond(
   input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletRegistrationEcdsaDerivationRespondResponse | RouteErrorBody>> {
@@ -2456,10 +2476,11 @@ export async function handleRouterApiWalletRegistrationEcdsaDerivationRespond(
   const result = await input.services.walletRegistration.respondWalletRegistrationEcdsaDerivation(
     request.value,
   );
+  const { body: timedResult, headers } = takeEcdsaGatewayServerTiming(result);
   const response = exposesRegistrationRouteDiagnostics(input)
-    ? result
-    : stripRegistrationRouteDiagnostics(result);
-  return routeJson(result.ok ? 200 : 400, response);
+    ? timedResult
+    : stripRegistrationRouteDiagnostics(timedResult);
+  return routeJson(result.ok ? 200 : 400, response, headers ? { headers } : undefined);
 }
 
 export async function handleRouterApiWalletRegistrationEcdsaActivation(
@@ -2474,18 +2495,32 @@ export async function handleRouterApiWalletRegistrationEcdsaActivation(
     request.value,
   );
   if (!result.ok) return routeJson(400, result);
+  const { body: timedResult, headers } = takeEcdsaGatewayServerTiming(result);
+  const routeTimings: Array<readonly [string, number]> = [];
+  const policyStartedAtMs = Date.now();
   const runtimePolicyScope =
     await input.services.walletRegistration.getWalletRegistrationRuntimePolicyScope(
       request.value.registrationCeremonyId,
     );
+  routeTimings.push(['ecdsa_activate_policy_lookup', Math.max(0, Date.now() - policyStartedAtMs)]);
+  const jwtStartedAtMs = Date.now();
   const signingError = await attachEcdsaWalletSessionJwt(
     input,
-    result.ecdsa.bootstrap,
-    result.ecdsa.activation.ecdsa_activation.activation_epoch,
+    timedResult.ecdsa.bootstrap,
+    timedResult.ecdsa.activation.ecdsa_activation.activation_epoch,
     runtimePolicyScope,
   );
+  routeTimings.push(['ecdsa_activate_jwt_mint', Math.max(0, Date.now() - jwtStartedAtMs)]);
   if (signingError) return signingError;
-  return routeJson(200, result);
+  /* The route-level marks ride the same header as the service marks so one
+     response carries the whole Gateway-side breakdown. */
+  const routeHeader = routeTimings
+    .map(([name, durationMs]) => `${name};dur=${durationMs.toFixed(1)}`)
+    .join(', ');
+  const serverTiming = headers?.['Server-Timing']
+    ? `${headers['Server-Timing']}, ${routeHeader}`
+    : routeHeader;
+  return routeJson(200, timedResult, { headers: { 'Server-Timing': serverTiming } });
 }
 
 export async function handleRouterApiWalletRegistrationFinalize(

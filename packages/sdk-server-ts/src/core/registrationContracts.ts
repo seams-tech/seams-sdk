@@ -642,6 +642,12 @@ export type WalletRegistrationEcdsaDerivationRespondResponse =
       ok: true;
       registrationCeremonyId: string;
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+      /**
+       * Gateway boundary timings for this call, as fixed metric names with
+       * millisecond durations. Stripped into a `Server-Timing` response header
+       * at the route layer and never serialized into the wire body.
+       */
+      gatewayServerTiming?: readonly (readonly [string, number])[];
       ecdsa: {
         kind: 'router_ab_ecdsa_registration_forwarded_v1';
         strictResult: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
@@ -659,6 +665,8 @@ export type WalletRegistrationEcdsaActivationResponse =
   | {
       ok: true;
       registrationCeremonyId: string;
+      /** See WalletRegistrationEcdsaDerivationRespondResponse.gatewayServerTiming. */
+      gatewayServerTiming?: readonly (readonly [string, number])[];
       ecdsa: {
         kind: 'router_ab_ecdsa_registration_activated_v1';
         activation: RouterAbEcdsaRegistrationActivationReceiptV1;
