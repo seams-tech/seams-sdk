@@ -501,6 +501,21 @@ export function createRouterApiRouteDefinitions(
       ],
     ),
     apiCredentialRoute(
+      'wallet_registration_setup',
+      'POST',
+      '/wallets/register/setup',
+      'Set up a wallet registration ceremony',
+      {
+        plane: 'api_credentials',
+        credentials: ['secret_key', 'bootstrap_token'],
+        scopes: ['accounts.create'],
+        environmentBinding: 'required',
+        originBinding: 'required',
+      },
+      { kind: 'none' },
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
+    ),
+    apiCredentialRoute(
       'wallet_registration_intent',
       'POST',
       '/wallets/register/intent',

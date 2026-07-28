@@ -733,6 +733,37 @@ function emailOtpProviderUserIdFromRegistrationAuthority(
   return parsed.value;
 }
 
+/**
+ * Refactor 94C. The Ed25519 authority scope derived from the *requested* auth
+ * method, before any proof exists.
+ *
+ * `/wallets/register/setup` issues the challenge the WebAuthn create must
+ * sign, so it necessarily runs before the proof. Yao admission binds this
+ * scope, so admission can only be prepared at setup when the scope is fully
+ * determined by the intent. For a passkey it is: the scope is the rpId, which
+ * the caller declared. For Email OTP it is not: the scope carries a
+ * `providerUserId` that only the verified proof establishes, and guessing it
+ * from the requested email would bind key material to an unauthenticated
+ * claim.
+ *
+ * `null` therefore means "this scope requires the proof" — the caller defers
+ * admission to respond, where the authority is verified.
+ */
+export function registrationEd25519AuthorityScopeFromAuthMethod(
+  authMethod: RegistrationAuthMethodInput,
+): RegistrationEd25519AuthorityScope | null {
+  switch (authMethod.kind) {
+    case 'passkey':
+      return { kind: 'passkey', rpId: authMethod.rpId };
+    case 'email_otp':
+      return null;
+    default: {
+      const exhaustive: never = authMethod;
+      return exhaustive;
+    }
+  }
+}
+
 export function registrationEd25519AuthorityScopeFromAuthority(
   authority: RegistrationAuthority,
 ): RegistrationEd25519AuthorityScope {
