@@ -5,6 +5,8 @@ import type {
 
 export type RouterAbEd25519YaoRegistrationSideEffectOperationV1 =
   | 'finalize'
+  /* 94C: the single Gateway operation row for activate-with-finalize. */
+  | 'registration_activate'
   | 'registration_start'
   | 'add_signer_start'
   | 'add_signer_finalize';

@@ -98,6 +98,27 @@ export type WalletRegistrationRespondInput = {
   readonly userAgent?: string;
 };
 
+export type WalletRegistrationActivateInput = {
+  readonly registrationCeremonyId: string;
+  readonly signedSetup: unknown;
+  readonly idempotencyKey: string;
+  /**
+   * No `expectedKeyHandles`. That field was the client's cross-check between
+   * two separate requests: activate returned the key handle, and the client
+   * echoed it to finalize so a mismatched pair could be caught. With both
+   * legs in one call the handle is produced and consumed inside the same
+   * request, so the client has nothing to cross-check against and asking it
+   * to supply one would be theatre.
+   */
+  readonly ecdsa: {
+    readonly clientActivation: unknown;
+  };
+  readonly emailOtpEnrollment?: unknown;
+  readonly emailOtpBackupAck?: unknown;
+  readonly verifier: WalletRegistrationSetupVerifier;
+  readonly minter: WalletRegistrationSetupMinter;
+};
+
 export function walletRegistrationSetupIds(): {
   readonly registrationCeremonyId: string;
   readonly registrationPreparationId: string;

@@ -161,14 +161,19 @@ export type WalletRegistrationSetupVerification =
  * wallet, or setup digest is rejected — signature validity alone is not
  * authorization for this request.
  */
-export async function verifySignedWalletRegistrationSetup(
+/**
+ * Verifies the payload's signature, ceremony binding, and expiry, and returns
+ * its claims — without needing the ceremony row.
+ *
+ * Activate depends on this: a successful activation deletes the ceremony, so
+ * an exact replay must be answerable from the operation row alone. The claims
+ * are Gateway-signed, so the `setupDigestB64u` they carry is trustworthy
+ * without recomputing it from storage.
+ */
+export async function verifyWalletRegistrationSetupClaims(
   signer: WalletRegistrationSetupVerifier,
   token: unknown,
-  expected: {
-    readonly registrationCeremonyId: string;
-    readonly setupDigestB64u: string;
-    readonly nowMs: number;
-  },
+  expected: { readonly registrationCeremonyId: string; readonly nowMs: number },
 ): Promise<WalletRegistrationSetupVerification> {
   const value = toOptionalTrimmedString(token);
   if (!value) {
@@ -189,17 +194,33 @@ export async function verifySignedWalletRegistrationSetup(
       message: 'signedSetup belongs to a different registration ceremony',
     };
   }
-  if (claims.setupDigestB64u !== expected.setupDigestB64u) {
+  if (claims.expiresAtMs <= expected.nowMs) {
+    return { ok: false, code: 'invalid_grant', message: 'signedSetup has expired' };
+  }
+  return { ok: true, claims };
+}
+
+export async function verifySignedWalletRegistrationSetup(
+  signer: WalletRegistrationSetupVerifier,
+  token: unknown,
+  expected: {
+    readonly registrationCeremonyId: string;
+    readonly setupDigestB64u: string;
+    readonly nowMs: number;
+  },
+): Promise<WalletRegistrationSetupVerification> {
+  const verified = await verifyWalletRegistrationSetupClaims(signer, token, expected);
+  if (!verified.ok) return verified;
+  /* Respond holds the ceremony, so it can additionally require that the
+     payload matches the parameters actually stored. */
+  if (verified.claims.setupDigestB64u !== expected.setupDigestB64u) {
     return {
       ok: false,
       code: 'invalid_grant',
       message: 'signedSetup does not match this registration setup',
     };
   }
-  if (claims.expiresAtMs <= expected.nowMs) {
-    return { ok: false, code: 'invalid_grant', message: 'signedSetup has expired' };
-  }
-  return { ok: true, claims };
+  return verified;
 }
 
 export function parseWalletRegistrationSetupClaims(

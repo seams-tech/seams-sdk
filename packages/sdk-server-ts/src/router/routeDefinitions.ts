@@ -583,6 +583,20 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
+      'wallet_registration_activate',
+      'POST',
+      '/wallets/register/activate',
+      'Activate and finalize one wallet ECDSA registration',
+      {
+        plane: 'public',
+        proof: 'threshold_protocol_state',
+        rationale:
+          'Registration activation is bound to one unexpired server-retained Router ceremony.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
+      { kind: 'event', action: 'wallet_created' },
+    ),
+    publicRoute(
       'wallet_registration_ecdsa_activation',
       'POST',
       '/wallets/register/derivation/activate',
