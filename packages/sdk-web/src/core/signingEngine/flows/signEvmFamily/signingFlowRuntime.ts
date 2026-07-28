@@ -6,8 +6,12 @@ import { loadSecp256k1EngineCtor, loadWebAuthnP256EngineCtor } from './signerLoa
 import type { EcdsaSigningMaterialPlan } from './signingFlow';
 import type { EvmFamilyThresholdEcdsaStepUpRuntime } from './requireEvmFamilyStepUpAuth';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
-import { resolveReadySecp256k1SigningMaterial } from './readySecp256k1Material';
+import {
+  attachReusableEcdsaWalletSessionAuthorization,
+  resolveHydratedSecp256k1SigningMaterial,
+} from './readySecp256k1Material';
 import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
+import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -23,6 +27,31 @@ import {
   prepareEvmFamilyEcdsaOperationStepUp,
 } from './thresholdAdmission';
 import { emitEvmFamilySigningOperationTrace } from './events';
+import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
+import type {
+  ActiveEvmFamilyWalletSessionAuthorization,
+  CanonicalEvmFamilyEcdsaSigningCapability,
+} from './ecdsaSigningCapability';
+
+async function runSerializedEcdsaMaterialUse<T>(
+  args: {
+    deps: EvmFamilySigningDeps;
+    walletId: WalletId;
+    materialActivation: ResolvedEvmFamilyEcdsaSigningLane['materialActivation'];
+    shouldAbort?: () => boolean;
+  },
+  task: () => Promise<T>,
+): Promise<T> {
+  return await args.deps.withThresholdEcdsaSigningQueue({
+    queueKey: resolveThresholdEcdsaSigningQueueKey({
+      materialActivation: args.materialActivation,
+    }),
+    walletId: args.walletId,
+    enabled: true,
+    ...(args.shouldAbort ? { shouldAbort: args.shouldAbort } : {}),
+    task,
+  });
+}
 
 function requireEvmFamilyRelayerUrl(deps: EvmFamilySigningDeps): string {
   const relayerUrl = String(deps.seamsWebConfigs.network.relayer?.url || '').trim();
@@ -33,7 +62,8 @@ function requireEvmFamilyRelayerUrl(deps: EvmFamilySigningDeps): string {
 }
 
 async function resolveEcdsaSigningMaterialHydrationPlan(args: {
-  authorized: Awaited<ReturnType<EvmFamilySigningDeps['resolveAuthorizedEcdsaSigningCapability']>>;
+  capability: CanonicalEvmFamilyEcdsaSigningCapability;
+  authorization: ActiveEvmFamilyWalletSessionAuthorization | null;
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   requestLabel: unknown;
@@ -49,17 +79,26 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   if (runtimeResolution.kind !== 'resolved') {
     return { kind: 'unavailable', reason: 'runtime_correlation_mismatch' };
   }
-  const resolution = await resolveReadySecp256k1SigningMaterial({
-    authorized: args.authorized,
+  const resolution = await resolveHydratedSecp256k1SigningMaterial({
+    capability: args.capability,
     runtime: runtimeResolution.runtime,
     requestLabel: args.requestLabel,
     materialActivation: args.materialActivation,
     workerCtx: args.workerCtx,
   });
   if (resolution.kind === 'unavailable') return resolution;
+  if (!args.authorization) {
+    return {
+      kind: 'material_for_step_up',
+      material: resolution.material,
+    };
+  }
   return {
     kind: 'material_from_canonical_capability',
-    material: resolution.material,
+    material: attachReusableEcdsaWalletSessionAuthorization({
+      material: resolution.material,
+      authorization: args.authorization,
+    }),
   };
 }
 
@@ -95,20 +134,35 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           'ECDSA signing material hydration',
         )
       : undefined;
-  const authorized = resolvedSigner
-    ? await args.deps.resolveAuthorizedEcdsaSigningCapability({
+  const capability = resolvedSigner
+    ? await args.deps.resolveCanonicalEcdsaSigningCapability({
         walletId: resolvedSigner.walletId,
         chainTarget: resolvedSigner.chainTarget,
         materialActivation: resolvedSigner.materialActivation,
       })
     : undefined;
+  const authorization = resolvedSigner
+    ? (await args.deps.resolveActiveEcdsaWalletSessionAuthorization?.(resolvedSigner.walletId)) ??
+      null
+    : null;
 
   const thresholdEcdsaStepUpRuntime: EvmFamilyThresholdEcdsaStepUpRuntime | undefined =
-    authorized
+    capability
       ? {
           ...(args.emailOtpSigningForFlow
             ? { emailOtpSigning: args.emailOtpSigningForFlow }
             : {}),
+          // Without an active reusable Wallet Session the candidate is
+          // auth-neutral, so the operation must be authorized by a step-up on
+          // the capability's own factor rather than a warm session.
+          reusableAuthorization: authorization
+            ? { kind: 'active' }
+            : {
+                kind: 'absent',
+                requiredFactor: isEmailOtpWalletAuthAuthority(capability.authority)
+                  ? 'email_otp'
+                  : 'passkey',
+              },
           operationStepUp: {
             prepare: async ({ operation, operationDigests, material }) =>
               await prepareEvmFamilyEcdsaOperationStepUp({
@@ -116,7 +170,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
                 operationDigests,
                 material,
                 evmFamilySigningKeySlotId:
-                  authorized.capability.material.publicFacts.evmFamilySigningKeySlotId,
+                  capability.material.publicFacts.evmFamilySigningKeySlotId,
               }),
             authorize: async ({ authorization, prepared, material }) => {
               args.onAuthSideEffectStarted?.(
@@ -129,7 +183,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               return await authorizeEvmFamilyEcdsaOperationStepUp({
                 relayerUrl,
                 sessionAuth,
-                authority: authorized.capability.authority,
+                authority: capability.authority,
                 authorization,
                 prepared,
                 material,
@@ -156,11 +210,18 @@ export async function createEvmFamilySigningFlowRuntime(args: {
       }),
       webauthnP256: new WebAuthnP256Engine(workerCtx),
     },
-    ...(resolvedSigner && authorized
+    ...(resolvedSigner && capability
       ? {
+          runEcdsaMaterialUse: runSerializedEcdsaMaterialUse.bind(null, {
+            deps: args.deps,
+            walletId: resolvedSigner.walletId,
+            materialActivation: resolvedSigner.materialActivation,
+            ...(args.shouldAbort ? { shouldAbort: args.shouldAbort } : {}),
+          }),
           resolveEcdsaSigningMaterialPlan: async ({ requestLabel }: { requestLabel: unknown }) =>
             await resolveEcdsaSigningMaterialHydrationPlan({
-              authorized,
+              capability,
+              authorization,
               walletId: resolvedSigner.walletId,
               chainTarget: resolvedSigner.chainTarget,
               requestLabel,

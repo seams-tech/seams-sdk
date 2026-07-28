@@ -18,6 +18,7 @@ import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
 import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
 import type { ReadySecp256k1SigningMaterial } from './signers/secp256k1';
 import type { PreparedEcdsaOperationStepUp } from '../../threshold/ecdsa/operationStepUp';
+import type { HydratedEcdsaSignerMaterial } from '../../session/identity/evmFamilyEcdsaIdentity';
 
 export type EvmFamilyEmailOtpStepUpRuntime = {
   prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
@@ -28,20 +29,30 @@ export type EvmFamilyOperationStepUpRuntime = {
   prepare: (args: {
     operation: EvmFamilyThresholdEcdsaOperation;
     operationDigests: OperationDigestSet;
-    material: ReadySecp256k1SigningMaterial;
+    material: HydratedEcdsaSignerMaterial;
   }) => Promise<PreparedEcdsaOperationStepUp>;
   authorize: (args: {
     authorization:
       | EvmFamilyEcdsaEmailOtpStepUpAuthorization
       | EvmFamilyEcdsaPasskeyStepUpAuthorization;
     prepared: PreparedEcdsaOperationStepUp;
-    material: ReadySecp256k1SigningMaterial;
+    material: HydratedEcdsaSignerMaterial;
   }) => Promise<ReadySecp256k1SigningMaterial>;
 };
+
+/** Whether a reusable Wallet Session authorizes this capability right now.
+ * When it does not, the material candidate is auth-neutral: a warm-session plan
+ * cannot be satisfied, and the operation must be authorized by a step-up on the
+ * capability's own factor. The factor is carried here so the escalation is
+ * same-method by construction rather than by the confirmation's preference. */
+export type EvmFamilyReusableAuthorizationState =
+  | { kind: 'active' }
+  | { kind: 'absent'; requiredFactor: 'passkey' | 'email_otp' };
 
 export type EvmFamilyThresholdEcdsaStepUpRuntime = {
   emailOtpSigning?: EvmFamilyEmailOtpStepUpRuntime;
   operationStepUp: EvmFamilyOperationStepUpRuntime;
+  reusableAuthorization: EvmFamilyReusableAuthorizationState;
   onAuthSideEffectStarted?: (sideEffect: EvmFamilySigningAuthSideEffect) => void;
 };
 
@@ -109,11 +120,14 @@ export async function requireEvmFamilyStepUpAuth(args: {
     args.thresholdEcdsaStepUp.kind === 'required'
       ? args.thresholdEcdsaStepUp.runtime
       : undefined;
+  const reusableAuthorization: EvmFamilyReusableAuthorizationState =
+    runtime?.reusableAuthorization ?? { kind: 'active' };
   const selectedLane = resolveEvmFamilyStepUpLane({
     signingAuthPlan,
     hasEmailOtpSigning: Boolean(runtime?.emailOtpSigning),
     hasThresholdEcdsaRequest: args.hasThresholdEcdsaRequest,
     needsWebAuthn: args.needsWebAuthn,
+    reusableAuthorization,
   });
   if (!selectedLane) {
     throw new Error(
@@ -126,7 +140,7 @@ export async function requireEvmFamilyStepUpAuth(args: {
       usesNeeded: Math.max(1, Math.floor(Number(args.requiredSignatureUses) || 1)),
     },
     selectedLane,
-    policy: stepUpPolicyFromSigningAuthPlan(signingAuthPlan),
+    policy: stepUpPolicyFromSigningAuthPlan(signingAuthPlan, reusableAuthorization),
     methods: {
       ...(runtime?.emailOtpSigning
         ? {
@@ -182,7 +196,13 @@ function resolveEvmFamilyStepUpLane(args: {
   hasEmailOtpSigning: boolean;
   hasThresholdEcdsaRequest: boolean;
   needsWebAuthn: boolean;
+  reusableAuthorization: EvmFamilyReusableAuthorizationState;
 }): { authMethod: 'passkey' | 'email_otp' } | null {
+  // An auth-neutral candidate is authorized by its own factor. The plan's
+  // preference cannot select a different one, and cannot select warm session.
+  if (args.reusableAuthorization.kind === 'absent') {
+    return { authMethod: args.reusableAuthorization.requiredFactor };
+  }
   if (args.signingAuthPlan) {
     if (isEmailOtpSigningAuthPlan(args.signingAuthPlan)) return { authMethod: 'email_otp' };
     if (isPasskeySigningAuthPlan(args.signingAuthPlan)) return { authMethod: 'passkey' };
@@ -193,7 +213,13 @@ function resolveEvmFamilyStepUpLane(args: {
   return null;
 }
 
-function stepUpPolicyFromSigningAuthPlan(signingAuthPlan?: SigningAuthPlan): StepUpPolicy {
+function stepUpPolicyFromSigningAuthPlan(
+  signingAuthPlan: SigningAuthPlan | undefined,
+  reusableAuthorization: EvmFamilyReusableAuthorizationState,
+): StepUpPolicy {
+  // Reusing a warm session requires one to exist; without it the operation
+  // takes the selected same-method lane.
+  if (reusableAuthorization.kind === 'absent') return { kind: 'use_selected_lane' };
   if (signingAuthPlan && isWarmSessionSigningAuthPlan(signingAuthPlan)) {
     return {
       kind: 'reuse_warm_session',
