@@ -49,8 +49,7 @@ import {
 import { EmailOtpRuntimeConfig } from './runtimeConfig';
 import { EmailOtpSealedSessionRegistry } from './sealedSessionRegistry';
 import { EmailOtpSealedRefreshPolicy } from './sealedRefreshPolicy';
-import { resolveEcdsaSealedRuntimeByThresholdSessionId } from '../material/activeEcdsaCapabilityRuntime';
-import { configuredThresholdEcdsaChainTargets } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WarmSessionLanePurpose } from './sealedRuntimePurpose';
 import { EmailOtpSealedRestoreOrchestrator } from './sealedRestoreOrchestrator';
 import {
   createEmailOtpWarmSessionWorkerClient,
@@ -127,25 +126,9 @@ export class EmailOtpWalletSessionRuntime {
     const warmSessionWorkerClient = createEmailOtpWarmSessionWorkerClient({
       worker: deps.signerWorkerManager,
     });
-    const resolveSealedRuntimeForSession = async (thresholdSessionId: string) => {
-      for (const chainTargetHint of configuredThresholdEcdsaChainTargets(
-        deps.configs.network.chains,
-      )) {
-        const resolution = await resolveEcdsaSealedRuntimeByThresholdSessionId({
-          thresholdSessionId,
-          authMethod: 'email_otp',
-          readExactSealedSession: deps.readExactSealedSession,
-          chainTargetHint,
-        });
-        if (resolution.kind === 'resolved') return resolution.runtime;
-      }
-      return null;
-    };
     this.sealedRefreshPolicy = new EmailOtpSealedRefreshPolicy({
-      resolveSealedRuntimeForSession,
       deleteDurableSealedSessionRecord: deps.deleteDurableSealedSessionRecord,
       updateExactSealedSessionPolicy: deps.updateExactSealedSessionPolicy,
-      readExactSealedSession: deps.readExactSealedSession,
       clearEcdsaRestoreCaches: () => this.clearEcdsaRestoreCaches(),
     });
     this.sealedRestoreOrchestrator = new EmailOtpSealedRestoreOrchestrator({
@@ -154,13 +137,11 @@ export class EmailOtpWalletSessionRuntime {
       readExactSealedSession: deps.readExactSealedSession,
       acquireSigningSessionRestoreLease: deps.acquireSigningSessionRestoreLease,
       releaseSigningSessionRestoreLease: deps.releaseSigningSessionRestoreLease,
-      configuredEcdsaChainTargets: () =>
-        configuredThresholdEcdsaChainTargets(deps.configs.network.chains),
       readWarmSessionStatusFromWorker: (sessionId) => warmSessionWorkerClient.readStatus(sessionId),
       restoreEcdsaSigningSessionMaterialFromSealedRecord: (restoreArgs) =>
         restoreEcdsaSigningSessionMaterialFromSealedRecord(restoreArgs),
-      recordSessionMaterialRestored: (sessionId, status) =>
-        this.sealedRefreshPolicy.recordSessionMaterialRestored(sessionId, status),
+      recordSessionMaterialRestored: (purpose, status) =>
+        this.sealedRefreshPolicy.recordSessionMaterialRestored(purpose, status),
       shouldLogDiagnostic: (key) => this.shouldLogSealedRefreshDiagnostic(key),
     });
     this.warmSessionRuntime = new EmailOtpWarmSessionRuntime({
@@ -222,22 +203,16 @@ export class EmailOtpWalletSessionRuntime {
   }
 
   async claimWarmSessionMaterial(args: {
-    sessionId: string;
+    purpose: WarmSessionLanePurpose;
     uses?: number;
     consume?: boolean;
-    curve?: 'ed25519' | 'ecdsa';
-    chain?: 'near';
-    chainTarget?: ThresholdEcdsaChainTarget;
   }): Promise<WarmSessionClaimResult> {
     return await this.warmSessionRuntime.claimWarmSessionMaterial(args);
   }
 
   async consumeWarmSessionUses(args: {
-    sessionId: string;
+    purpose: WarmSessionLanePurpose;
     uses?: number;
-    curve?: 'ed25519' | 'ecdsa';
-    chain?: 'near';
-    chainTarget?: ThresholdEcdsaChainTarget;
   }): Promise<WarmSessionStatusResult> {
     return await this.warmSessionRuntime.consumeWarmSessionUses(args);
   }

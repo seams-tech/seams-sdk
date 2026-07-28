@@ -1,3 +1,4 @@
+import type { WarmSessionLanePurpose } from '../emailOtp/sealedRuntimePurpose';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 import type {
@@ -89,7 +90,7 @@ export type SigningGrantReadinessDeps = {
   >;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
   consumeEmailOtpWarmSessionUses?: (args: {
-    sessionId: string;
+    purpose: WarmSessionLanePurpose;
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
   clearEmailOtpWarmSessionMaterial?: (sessionId: string) => Promise<void>;
@@ -1127,7 +1128,14 @@ export async function consumeSigningGrantUse(args: {
     switch (lane.backing) {
       case 'email_otp_worker': {
         const result = await args.deps.consumeEmailOtpWarmSessionUses?.({
-          sessionId: lane.backingMaterialSessionId,
+          purpose:
+            lane.curve === 'ecdsa' && lane.chainTarget
+              ? {
+                  curve: 'ecdsa',
+                  thresholdSessionId: lane.backingMaterialSessionId,
+                  chainTarget: lane.chainTarget,
+                }
+              : { curve: 'ed25519', thresholdSessionId: lane.backingMaterialSessionId },
           uses,
         });
         if (result) consumeResults.push({ lane, result, laneIsExplicitTarget });
@@ -1140,14 +1148,15 @@ export async function consumeSigningGrantUse(args: {
       }
       case 'touch_confirm': {
         const result = await args.deps.touchConfirm?.consumeWarmSessionUses?.({
-          sessionId: lane.backingMaterialSessionId,
+          purpose:
+            lane.curve === 'ecdsa' && lane.chainTarget
+              ? {
+                  curve: 'ecdsa',
+                  thresholdSessionId: lane.backingMaterialSessionId,
+                  chainTarget: lane.chainTarget,
+                }
+              : { curve: 'ed25519', thresholdSessionId: lane.backingMaterialSessionId },
           uses,
-          curve: lane.curve,
-          ...(lane.curve === 'ecdsa' && lane.chainTarget
-            ? { chainTarget: lane.chainTarget }
-            : lane.curve === 'ed25519' && lane.chain === 'near'
-              ? { chain: lane.chain }
-              : {}),
         });
         if (result) consumeResults.push({ lane, result, laneIsExplicitTarget });
         assertConsumeResult({

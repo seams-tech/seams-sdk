@@ -51,13 +51,16 @@ export async function claimWarmSessionPrfFirst(args: {
 
   await args.restoreBeforeClaim?.();
 
+  // ECDSA claims require their lane; without one the caller cannot address a
+  // sealed ECDSA record and the Ed25519 lane is the only expressible purpose.
+  const claimPurpose =
+    args.curve === 'ecdsa' && args.chainTarget
+      ? ({ curve: 'ecdsa', thresholdSessionId, chainTarget: args.chainTarget } as const)
+      : ({ curve: 'ed25519', thresholdSessionId } as const);
   const claimedMaterial = await args.touchConfirm.claimWarmSessionMaterial({
-    sessionId: thresholdSessionId,
+    purpose: claimPurpose,
     uses: args.uses,
     ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
-    ...(args.curve ? { curve: args.curve } : {}),
-    ...(args.chain ? { chain: args.chain } : {}),
-    ...(args.chainTarget ? { chainTarget: args.chainTarget } : {}),
   });
   if (!claimedMaterial.ok) {
     if (

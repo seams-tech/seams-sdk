@@ -1,3 +1,4 @@
+import type { EmailOtpEcdsaSealedRuntimePurpose } from './sealedRuntimePurpose';
 import type {
   WarmSessionClaimResult,
   WarmSessionStatusResult,
@@ -27,16 +28,16 @@ export async function claimEmailOtpWarmSessionMaterial(args: {
     uses?: number;
     consume?: boolean;
   }) => Promise<WarmSessionClaimResult>;
-  shouldAttemptEcdsaSealedRestoreForSessionId: (sessionId: string) => boolean;
+  ecdsaPurpose: EmailOtpEcdsaSealedRuntimePurpose | null;
   tryRestoreEcdsaWarmSessionStatusFromSealedRecord: (
-    sessionId: string,
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
   ) => Promise<WarmSessionStatusResult | null>;
   recordSessionMaterialClaimed: (
-    sessionId: string,
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
     result: WarmSessionClaimResult,
   ) => Promise<void>;
   recordSessionMaterialRestored: (
-    sessionId: string,
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
     result: WarmSessionStatusResult,
   ) => Promise<void>;
 }): Promise<WarmSessionClaimResult> {
@@ -53,25 +54,26 @@ export async function claimEmailOtpWarmSessionMaterial(args: {
     if (
       !result.ok &&
       result.code === 'not_found' &&
-      args.shouldAttemptEcdsaSealedRestoreForSessionId(normalizedSessionId)
+      args.ecdsaPurpose
     ) {
-      const restored =
-        await args.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(normalizedSessionId);
+      const restored = await args.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
+        args.ecdsaPurpose,
+      );
       if (restored?.ok) {
         const retry = await args.claimWarmSessionMaterialFromWorker({
           sessionId: normalizedSessionId,
           ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
           ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
         });
-        await args.recordSessionMaterialClaimed(normalizedSessionId, retry);
+        if (args.ecdsaPurpose) await args.recordSessionMaterialClaimed(args.ecdsaPurpose, retry);
         return retry;
       }
       if (restored) {
-        await args.recordSessionMaterialRestored(normalizedSessionId, restored);
+        if (args.ecdsaPurpose) await args.recordSessionMaterialRestored(args.ecdsaPurpose, restored);
       }
       return result;
     }
-    await args.recordSessionMaterialClaimed(normalizedSessionId, result);
+    if (args.ecdsaPurpose) await args.recordSessionMaterialClaimed(args.ecdsaPurpose, result);
     return result;
   } catch (error) {
     return {
@@ -89,16 +91,16 @@ export async function consumeEmailOtpWarmSessionUses(args: {
     sessionId: string;
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
-  shouldAttemptEcdsaSealedRestoreForSessionId: (sessionId: string) => boolean;
+  ecdsaPurpose: EmailOtpEcdsaSealedRuntimePurpose | null;
   tryRestoreEcdsaWarmSessionStatusFromSealedRecord: (
-    sessionId: string,
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
   ) => Promise<WarmSessionStatusResult | null>;
   recordSessionUseConsumed: (
-    sessionId: string,
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
     result: WarmSessionStatusResult,
   ) => Promise<void>;
   recordSessionMaterialRestored: (
-    sessionId: string,
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
     result: WarmSessionStatusResult,
   ) => Promise<void>;
 }): Promise<WarmSessionStatusResult> {
@@ -114,24 +116,25 @@ export async function consumeEmailOtpWarmSessionUses(args: {
     if (
       !result.ok &&
       result.code === 'not_found' &&
-      args.shouldAttemptEcdsaSealedRestoreForSessionId(normalizedSessionId)
+      args.ecdsaPurpose
     ) {
-      const restored =
-        await args.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(normalizedSessionId);
+      const restored = await args.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
+        args.ecdsaPurpose,
+      );
       if (restored?.ok) {
         const retry = await args.consumeWarmSessionUsesFromWorker({
           sessionId: normalizedSessionId,
           ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
         });
-        await args.recordSessionUseConsumed(normalizedSessionId, retry);
+        if (args.ecdsaPurpose) await args.recordSessionUseConsumed(args.ecdsaPurpose, retry);
         return retry;
       }
       if (restored) {
-        await args.recordSessionMaterialRestored(normalizedSessionId, restored);
+        if (args.ecdsaPurpose) await args.recordSessionMaterialRestored(args.ecdsaPurpose, restored);
       }
       return result;
     }
-    await args.recordSessionUseConsumed(normalizedSessionId, result);
+    if (args.ecdsaPurpose) await args.recordSessionUseConsumed(args.ecdsaPurpose, result);
     return result;
   } catch (error) {
     return {

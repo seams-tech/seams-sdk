@@ -1,3 +1,4 @@
+import type { WarmSessionLanePurpose } from '../session/emailOtp/sealedRuntimePurpose';
 /**
  * UiConfirm Manager
  * Owns the worker/main-thread handshake for uiConfirm UI orchestration
@@ -1017,12 +1018,16 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     return true;
   }
 
-  private async recordSessionPolicyResult(args: {
-    sessionId: string;
-    curve?: 'ed25519' | 'ecdsa';
-    chainTarget?: ThresholdEcdsaChainTarget;
+  private async recordSessionPolicyResult(input: {
+    purpose: WarmSessionLanePurpose;
     result: WarmSessionStatusResult | WarmSessionClaimResult;
   }): Promise<void> {
+    const args = {
+      sessionId: input.purpose.thresholdSessionId,
+      curve: input.purpose.curve,
+      chainTarget: input.purpose.curve === 'ecdsa' ? input.purpose.chainTarget : undefined,
+      result: input.result,
+    };
     const result = args.result;
     if (result.ok) {
       if (result.remainingUses <= 0 || Date.now() >= result.expiresAtMs) {
@@ -1091,30 +1096,24 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   }
 
   private async recordSessionMaterialRestored(
-    sessionId: string,
+    purpose: WarmSessionLanePurpose,
     result: WarmSessionStatusResult,
-    curve?: 'ed25519' | 'ecdsa',
-    chainTarget?: ThresholdEcdsaChainTarget,
   ): Promise<void> {
-    await this.recordSessionPolicyResult({ sessionId, result, curve, chainTarget });
+    await this.recordSessionPolicyResult({ purpose, result });
   }
 
   private async recordSessionMaterialClaimed(
-    sessionId: string,
+    purpose: WarmSessionLanePurpose,
     result: WarmSessionClaimResult,
-    curve?: 'ed25519' | 'ecdsa',
-    chainTarget?: ThresholdEcdsaChainTarget,
   ): Promise<void> {
-    await this.recordSessionPolicyResult({ sessionId, result, curve, chainTarget });
+    await this.recordSessionPolicyResult({ purpose, result });
   }
 
   private async recordSessionUseConsumed(
-    sessionId: string,
+    purpose: WarmSessionLanePurpose,
     result: WarmSessionStatusResult,
-    curve?: 'ed25519' | 'ecdsa',
-    chainTarget?: ThresholdEcdsaChainTarget,
   ): Promise<void> {
-    await this.recordSessionPolicyResult({ sessionId, result, curve, chainTarget });
+    await this.recordSessionPolicyResult({ purpose, result });
   }
 
   private async registerSigningSession(
@@ -1513,10 +1512,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           deletePersistedRecord: deleteInvalidPersistedRecord,
           recordSessionMaterialRestored: async (status) =>
             await this.recordSessionMaterialRestored(
-              thresholdSessionId,
+              curve === 'ecdsa' && chainTarget
+                ? { curve: 'ecdsa', thresholdSessionId, chainTarget }
+                : { curve: 'ed25519', thresholdSessionId },
               status,
-              curve,
-              chainTarget,
             ),
           readWarmSessionStatusFromWorker: async (sessionId) => {
             const rehydratedPeek = await this.sendMessage({
@@ -2219,19 +2218,20 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   };
 
   claimWarmSessionMaterial = async (args: {
-    sessionId: string;
+    purpose: WarmSessionLanePurpose;
     uses?: number;
     consume?: boolean;
-    curve?: 'ed25519' | 'ecdsa';
-    chain?: 'near';
-    chainTarget?: ThresholdEcdsaChainTarget;
   }): Promise<WarmSessionClaimResult> => {
     await this.ensureWorkerReady(false);
-    const { chainTarget, ...workerPayload } = args;
     const res = await this.sendMessage({
       type: 'WARM_SESSION_MATERIAL_CLAIM',
       id: this.generateMessageId(),
-      payload: workerPayload,
+      payload: {
+        sessionId: args.purpose.thresholdSessionId,
+        ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
+        ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
+        curve: args.purpose.curve,
+      },
     });
     const parsed = parseWarmSessionClaimResult(res?.data);
     if (res?.success !== true || !parsed) {
@@ -2241,23 +2241,23 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         message: String(res?.error || 'Warm-session claim failed'),
       };
     }
-    await this.recordSessionMaterialClaimed(args.sessionId, parsed, args.curve, chainTarget);
+    await this.recordSessionMaterialClaimed(args.purpose, parsed);
     return parsed;
   };
 
   consumeWarmSessionUses = async (args: {
-    sessionId: string;
+    purpose: WarmSessionLanePurpose;
     uses?: number;
-    curve?: 'ed25519' | 'ecdsa';
-    chain?: 'near';
-    chainTarget?: ThresholdEcdsaChainTarget;
   }): Promise<WarmSessionStatusResult> => {
     await this.ensureWorkerReady(false);
-    const { chainTarget, ...workerPayload } = args;
     const res = await this.sendMessage({
       type: 'WARM_SESSION_MATERIAL_CONSUME',
       id: this.generateMessageId(),
-      payload: workerPayload,
+      payload: {
+        sessionId: args.purpose.thresholdSessionId,
+        ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
+        curve: args.purpose.curve,
+      },
     });
     const parsed = parseWarmSessionStatusResult(res?.data);
     if (res?.success !== true || !parsed) {
@@ -2267,7 +2267,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         message: String(res?.error || 'Warm-session consume failed'),
       };
     }
-    await this.recordSessionUseConsumed(args.sessionId, parsed, args.curve, chainTarget);
+    await this.recordSessionUseConsumed(args.purpose, parsed);
     return parsed;
   };
 

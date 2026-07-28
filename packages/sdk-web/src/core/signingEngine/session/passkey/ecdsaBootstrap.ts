@@ -542,7 +542,11 @@ async function normalizeRuntimeEcdsaBootstrapRequest(
   const claimedMaterial =
     typeof deps.touchConfirm.claimWarmSessionMaterial === 'function'
       ? await deps.touchConfirm.claimWarmSessionMaterial({
-          sessionId: sessionIdentity.thresholdSessionId,
+          purpose: {
+            curve: 'ecdsa',
+            thresholdSessionId: sessionIdentity.thresholdSessionId,
+            chainTarget: request.lanePolicy.chainTarget,
+          },
           uses: 1,
         })
       : null;

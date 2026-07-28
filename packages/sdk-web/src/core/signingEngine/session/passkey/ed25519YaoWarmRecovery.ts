@@ -285,11 +285,9 @@ async function restoreAndClaimWarmRecoveryPrf(args: {
     );
   }
   const claimed = await args.ports.claimWarmSessionMaterial({
-    sessionId: thresholdSessionId,
+    purpose: { curve: 'ed25519', thresholdSessionId },
     uses: 1,
     consume: false,
-    curve: 'ed25519',
-    chain: 'near',
   });
   if (!claimed.ok) {
     const unavailable = unavailableReasonForWarmMaterialCode(claimed.code);

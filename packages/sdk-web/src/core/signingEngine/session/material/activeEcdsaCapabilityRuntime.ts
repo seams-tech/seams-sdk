@@ -115,31 +115,26 @@ export async function resolveActiveEcdsaCapabilityRuntime(args: {
     : { kind: 'blocked', reason: resolution.reason };
 }
 
-/** Resolve the runtime for one exact sealed record addressed by its
- * threshold-session id. The session id addresses the sealed record only --
- * session-scoped runtime state is what it legitimately names. Material identity
- * still comes from correlating that record against the active manifest by
- * material activation, so nothing here identifies material by session id. */
-export async function resolveEcdsaSealedRuntimeByThresholdSessionId(args: {
-  readonly thresholdSessionId: string;
-  readonly authMethod: 'passkey' | 'email_otp';
-  readonly readExactSealedSession: typeof readExactSealedSession;
-  readonly chainTargetHint: ThresholdEcdsaChainTarget;
+/** Compose the runtime from a sealed record the caller already holds exactly.
+ * The wallet is read from that record, its active manifest is resolved, and the
+ * single known record is correlated -- no second listing, and no selection of
+ * material by session id. */
+export async function resolveActiveEcdsaCapabilityRuntimeForSealedRecord(args: {
+  readonly record: CurrentEcdsaSealedSessionRecord;
 }): Promise<ActiveEcdsaCapabilityRuntimeResolution> {
-  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  if (!thresholdSessionId) return { kind: 'blocked', reason: 'missing_material' };
-  const record = await args
-    .readExactSealedSession(thresholdSessionId, {
-      authMethod: args.authMethod,
-      curve: 'ecdsa',
-      chainTarget: args.chainTargetHint,
-    })
-    .catch(() => null);
-  if (!record || record.curve !== 'ecdsa') return { kind: 'blocked', reason: 'missing_material' };
-  // The record names its own wallet and chain target, so correlation needs no
-  // extra context threaded down from the caller.
-  return await resolveActiveEcdsaCapabilityRuntime({
-    walletId: toWalletId(String(record.walletId)),
-    chainTarget: record.ecdsaRestore.chainTarget,
+  const walletId = toWalletId(String(args.record.walletId));
+  const chainTarget = args.record.ecdsaRestore.chainTarget;
+  const manifests = await listActiveManifestsForTarget({ walletId, chainTarget });
+  if (manifests.length === 0) return { kind: 'blocked', reason: 'missing_capability' };
+  if (manifests.length > 1) return { kind: 'blocked', reason: 'exact_record_conflict' };
+  const manifest = manifests[0]!;
+  const resolution = resolveExactEcdsaSealedRuntime({
+    manifest,
+    walletId,
+    chainTarget,
+    sealedRecords: [args.record],
   });
+  return resolution.kind === 'resolved'
+    ? { kind: 'resolved', manifest, runtime: resolution.runtime }
+    : { kind: 'blocked', reason: resolution.reason };
 }
