@@ -10,7 +10,6 @@ import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableS
 import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetStatusOperation } from '@/core/signingEngine/session/budget/budgetStatusReader';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import {
-  listThresholdEcdsaSessionRecordsForWalletTarget as listThresholdEcdsaSessionRecordsForWalletTargetOperation,
   markThresholdEd25519EmailOtpSessionConsumedForWallet as markThresholdEd25519EmailOtpSessionConsumedForWalletOperation,
   type ThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
@@ -475,11 +474,6 @@ export function createBrowserSigningSurfaceEnginePorts(
         bootstrap: persistArgs.bootstrap,
         signerAuth: persistArgs.signerAuth,
       }),
-    listThresholdEcdsaSessionRecordsForWalletTarget: (listArgs) =>
-      listThresholdEcdsaSessionRecordsForWalletTargetOperation(
-        args.warmSigning.ecdsaSessions,
-        listArgs,
-      ),
     requestEmailOtpTransactionSigningChallenge: (challengeArgs) =>
       requestEmailOtpEcdsaStepUpChallenge({
         coordinator: args.emailOtpSessions,

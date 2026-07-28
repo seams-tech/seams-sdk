@@ -214,9 +214,6 @@ export type UserAccountLookupSurface = Pick<
 >;
 
 export interface EcdsaLoginSessionSurface {
-  listThresholdEcdsaSessionRecordsForWalletTarget(
-    args: ListThresholdEcdsaSessionRecordsForWalletTargetInput,
-  ): SessionPublicThresholdEcdsaSessionRecord[];
   scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(args: {
     walletId: EcdsaWalletId;
     chainTarget: ThresholdEcdsaChainTarget;
@@ -351,8 +348,7 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
   Pick<
     SigningSessionSurface,
     'readReusableWalletSessionState' | 'readPersistedAvailableSigningLanes'
-  > &
-  Pick<EcdsaLoginSessionSurface, 'listThresholdEcdsaSessionRecordsForWalletTarget'>;
+  >;
 
 export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   UserAccountLookupSurface &

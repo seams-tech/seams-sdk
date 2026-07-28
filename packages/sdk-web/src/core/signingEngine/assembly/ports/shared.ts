@@ -148,11 +148,6 @@ export type CreateSigningEnginePortsArgs = {
   signTempo: SigningEngineConveniencePorts['signTempo'];
   activateAuthenticatedWalletState: WorkerResourceWarmupDeps['activateAuthenticatedWalletState'];
   persistThresholdEcdsaBootstrapForWalletTarget: WalletSessionActivationDeps['persistThresholdEcdsaBootstrapForWalletTarget'];
-  listThresholdEcdsaSessionRecordsForWalletTarget: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  }) => ThresholdEcdsaSessionRecord[];
   requestEmailOtpTransactionSigningChallenge?: (
     args: RequestEmailOtpTransactionSigningChallengeArgs,
   ) => Promise<EmailOtpTransactionSigningChallenge>;
