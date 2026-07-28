@@ -56,6 +56,7 @@ import {
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import { IndexedDBManager } from '@/core/indexedDB';
+import { resolveActiveEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
 import {
   getNearAccountProjection,
   resolveNearAccountProfileContinuity,
@@ -91,10 +92,7 @@ import {
   getStoredThresholdEd25519SessionRecordForAccount,
   getStoredThresholdEd25519SessionRecordForWallet,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
-  requirePersistedEcdsaRoleLocalMaterial,
-  thresholdEcdsaSessionRecordReadModel,
   type PersistedEcdsaRoleLocalMaterial,
-  type ThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import { parseWarmEd25519SigningSessionAuthorizationFromRecord } from '@/core/signingEngine/session/warmCapabilities/ed25519Authorization';
 import type {
@@ -1799,7 +1797,6 @@ async function unlockInternal(
       // Resolve local ECDSA key facts before planning; authenticated inventory can repair gaps.
       const storedCanonicalEcdsaContext = await resolveCanonicalThresholdEcdsaWarmSessionContext(
         context,
-        signingEngine,
         walletIdentity.walletId,
         {
           keyFactsInventoryAuthority: warmupInput.keyFactsInventoryAuthority,
@@ -2540,12 +2537,6 @@ type ThresholdEcdsaAuthorizedEd25519Mint = {
   signingGrantId: string;
 };
 
-function passkeyCredentialIdB64uFromEcdsaRecord(record: ThresholdEcdsaSessionRecord): string {
-  return record.ecdsaRoleLocalAuthMethod.kind === 'passkey'
-    ? String(record.ecdsaRoleLocalAuthMethod.credentialIdB64u || '').trim()
-    : '';
-}
-
 function publicCapabilityFromThresholdEcdsaBootstrap(
   bootstrap: ThresholdEcdsaSessionBootstrapResult,
 ): RouterAbEcdsaDerivationPublicCapabilityV1 | undefined {
@@ -2683,12 +2674,16 @@ function runtimePolicyScopeFromDurableAvailableLane(args: {
   return runtimePolicyScope;
 }
 
-function resolvePersistedEcdsaPublicCapabilityForLogin(args: {
-  signingEngine: Pick<EcdsaLoginSessionSurface, 'listThresholdEcdsaSessionRecordsForWalletTarget'>;
+/** Public capability and authority are the manifest's half of the capability
+ * split; the sealed record is only correlated runtime evidence. A persisted
+ * capability on the configured target is used directly; otherwise the exact
+ * manifest is resolved. There is deliberately no composite-record fallback --
+ * absent canonical state is device-link-required, not a silent miss. */
+async function resolvePersistedEcdsaPublicCapabilityForLogin(args: {
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   targetEcdsaKey: ConfiguredTargetThresholdEcdsaWarmKey;
-}): RouterAbEcdsaDerivationPublicCapabilityV1 {
+}): Promise<RouterAbEcdsaDerivationPublicCapabilityV1> {
   if (args.targetEcdsaKey.publicCapability.kind === 'persisted_public_capability') {
     const publicCapability = args.targetEcdsaKey.publicCapability.value;
     if (String(publicCapability.client_id) !== String(args.walletId)) {
@@ -2698,29 +2693,29 @@ function resolvePersistedEcdsaPublicCapabilityForLogin(args: {
     }
     return publicCapability;
   }
-  const candidates = args.signingEngine
-    .listThresholdEcdsaSessionRecordsForWalletTarget({
-      walletId: args.walletId,
-      chainTarget: args.chainTarget,
-    })
-    .flatMap((record) => {
-      return record.ecdsaRoleLocalPublicFacts.keyHandle === args.targetEcdsaKey.keyHandle
-        ? [
-            {
-              publicCapability: record.ecdsaRoleLocalPublicFacts.publicCapability,
-              updatedAtMs: record.updatedAtMs,
-            },
-          ]
-        : [];
-    });
-  candidates.sort((left, right) => right.updatedAtMs - left.updatedAtMs);
-  const selected = candidates[0];
-  if (!selected) {
-    throw new Error(
-      `[login] threshold ECDSA warm-up requires one exact persisted public capability for ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
+  const resolved = await resolveActiveEcdsaCapabilityRuntime({
+    walletId: args.walletId,
+    chainTarget: args.chainTarget,
+  });
+  if (resolved.kind !== 'resolved') {
+    throw createThresholdEcdsaDeviceLinkRequiredError(
+      thresholdEcdsaChainTargetKey(args.chainTarget),
     );
   }
-  return selected.publicCapability;
+  // Validated against what the manifest itself binds: wallet and key handle.
+  // client_id is only checked on the persisted branch above, where it was
+  // already the contract; manifest-sourced capabilities are not assumed to
+  // carry the wallet id in that field.
+  const publicFacts = resolved.manifest.durableMaterial.roleLocalPublicFacts;
+  if (
+    String(publicFacts.keyHandle) !== String(args.targetEcdsaKey.keyHandle) ||
+    String(publicFacts.walletId) !== String(args.walletId)
+  ) {
+    throw createThresholdEcdsaDeviceLinkRequiredError(
+      thresholdEcdsaChainTargetKey(args.chainTarget),
+    );
+  }
+  return publicFacts.publicCapability;
 }
 
 function buildThresholdLoginWarmSignerSelection(
@@ -2904,9 +2899,7 @@ function buildLoginEd25519WalletSessionMintAuthorization(args: {
 
 async function primeThresholdLoginWarmSigners(args: {
   context: LoginWebContext;
-  signingEngine: LoginWarmSigningSurface &
-    Ed25519YaoRegistrationActivationSurface &
-    Pick<EcdsaLoginSessionSurface, 'listThresholdEcdsaSessionRecordsForWalletTarget'>;
+  signingEngine: LoginWarmSigningSurface & Ed25519YaoRegistrationActivationSurface;
   walletIdentity: ResolvedLoginWalletIdentity;
   signerSlot: number;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial | null;
@@ -3255,8 +3248,7 @@ async function primeThresholdLoginWarmSigners(args: {
               '[login] threshold ECDSA warm-up requires configured target key identity',
             );
           }
-          const publicCapability = resolvePersistedEcdsaPublicCapabilityForLogin({
-            signingEngine: args.signingEngine,
+          const publicCapability = await resolvePersistedEcdsaPublicCapabilityForLogin({
             walletId: args.walletIdentity.walletId,
             chainTarget: target.chainTarget,
             targetEcdsaKey,
@@ -4316,7 +4308,6 @@ async function resolveProfileContinuityEcdsaWarmKeys(
 
 async function resolveCanonicalThresholdEcdsaWarmSessionContext(
   context: LoginWebContext,
-  signingEngine: Pick<EcdsaLoginSessionSurface, 'listThresholdEcdsaSessionRecordsForWalletTarget'>,
   walletId: WalletId,
   keyFactsInventoryInput?: LoginEcdsaKeyFactsInventoryInput,
 ): Promise<CanonicalThresholdEcdsaWarmSessionContext> {
@@ -4328,45 +4319,6 @@ async function resolveCanonicalThresholdEcdsaWarmSessionContext(
   );
   const storedKeys: ConfiguredTargetThresholdEcdsaWarmKey[] = [];
   let runtimePolicyScope: ThresholdRuntimePolicyScope | undefined;
-  for (const target of configuredTargets) {
-    for (const record of signingEngine.listThresholdEcdsaSessionRecordsForWalletTarget({
-      walletId,
-      chainTarget: target.chainTarget,
-    })) {
-      if (!allowedSources.has(record.source)) continue;
-      const keyHandle = String(record.keyHandle || '').trim();
-      if (keyHandle) {
-        let key: EvmFamilyEcdsaKeyIdentity;
-        try {
-          key = thresholdEcdsaSessionRecordReadModel(record).key;
-        } catch {
-          continue;
-        }
-        storedKeys.push(
-          configuredTargetThresholdEcdsaWarmKey({
-            chainTarget: target.chainTarget,
-            keyHandle,
-            key,
-            passkeyCredentialIdB64u: passkeyCredentialIdB64uFromEcdsaRecord(record),
-            publicCapability: record.ecdsaRoleLocalPublicFacts.publicCapability,
-            existingRoleLocalMaterial: requirePersistedEcdsaRoleLocalMaterial(record),
-          }),
-        );
-      }
-      if (
-        runtimePolicyScope &&
-        record.runtimePolicyScope &&
-        !sameThresholdRuntimePolicyScope(runtimePolicyScope, record.runtimePolicyScope)
-      ) {
-        throw new Error(
-          '[login] threshold ECDSA stored records have conflicting runtime policy scopes',
-        );
-      }
-      if (record.runtimePolicyScope) {
-        runtimePolicyScope = record.runtimePolicyScope;
-      }
-    }
-  }
   const exactStoredKeys = collectConfiguredTargetThresholdEcdsaWarmKeys({
     source: 'stored',
     keys: storedKeys,

@@ -1927,14 +1927,7 @@ export class BrowserSigningSurface {
     );
   }
 
-  listThresholdEcdsaSessionRecordsForWalletTarget(
-    args: ListThresholdEcdsaSessionRecordsForWalletTargetInput,
-  ): SessionPublicThresholdEcdsaSessionRecord[] {
-    return sessionPublic.listThresholdEcdsaSessionRecordsForWalletTarget(
-      this.sessionPublicDeps,
-      args,
-    );
-  }
+
 
   clearAllThresholdEcdsaSessionRecords(): void {
     sessionPublic.clearAllThresholdEcdsaSessionRecords(this.sessionPublicDeps);
