@@ -310,8 +310,8 @@ No implementation on either lane may redefine the other lane's contract.
       deterministic retry, and exact completed-output replay.
 - [x] Implement SigningWorker private-D1 activation, delivery, session, budget,
       and presign transactions.
-- [ ] Migrate long-lived custody records, invalidate ephemeral ceremonies, and
-      delete the SigningWorker and Deriver DO implementations.
+- [x] Apply the authorized testnet custody reset, invalidate former namespaces,
+      and delete the SigningWorker and Deriver DO implementations.
 
 #### Claude: Three-Route Product Flow
 
@@ -331,29 +331,15 @@ No implementation on either lane may redefine the other lane's contract.
 The lanes may use temporary compile-time interface stubs that exactly match the
 checkpoint. Delete those stubs during integration.
 
-### Custody Cutover Gate
+### Testnet Custody Reset
 
-The final deployment must not delete the former SigningWorker custody Durable
-Objects until their active records have been copied into SigningWorker-private
-D1. The old output object contains indispensable ECDSA and Ed25519 server
-shares, and each active Ed25519 Yao object preserves recovery lineage.
+There are no users or production-value wallets on the pre-94C topology. The
+product owner explicitly authorized invalidating those testnet wallets rather
+than shipping a legacy custody reader or one-shot migration path.
 
-Use one authenticated migration deployment that keeps the retired classes
-reachable only to the migration command:
-
-1. enumerate active output records from the known singleton output object;
-2. write each activation and encrypted server share to SigningWorker-private
-   D1 using its canonical operation identity;
-3. derive each active Ed25519 Yao object name from the stored stable-context
-   binding and copy its `Active` state into the encrypted lifecycle table;
-4. compare source and destination counts plus canonical digests;
-5. invalidate ephemeral staged ceremonies and presign records;
-6. deploy the final revision that removes the migration command, retired
-   classes, and bindings.
-
-The migration revision does not route product requests through both stores.
-Production invalidation requires an explicit product decision; a normal 94C
-cutover preserves existing wallet custody.
+The final `deleted_classes` migrations invalidate the former SigningWorker and
+Deriver namespaces. New wallets are created only in private D1. No migration
+command, dual read, legacy binding, or compatibility route ships.
 
 ### Wave 2: Integration
 
