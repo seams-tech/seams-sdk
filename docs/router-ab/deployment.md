@@ -2,11 +2,11 @@
 
 Date consolidated: June 20, 2026
 
-Last architecture decision: July 10, 2026
+Last architecture decision: July 28, 2026
 
 Status: canonical deployment reference for the approved strict Router A/B
 topology. The selected P0 production profile uses distinct Deriver Workers,
-role-local storage and secrets, and a same-account Service Binding WebSocket.
+role-private D1 databases and Secrets, and a same-account Service Binding WebSocket.
 Independent-account WebSocket remains a deferred stronger-operator profile.
 
 Related active documents:
@@ -25,8 +25,9 @@ Related active documents:
   over a same-account Service Binding WebSocket.
 - ECDSA uses strict Router A/B threshold-PRF derivation and additive secp256k1
   scalar shares. It has no dependency on the Ed25519 Yao crate or stream.
-- Router performs public admission and opaque routing. It never opens Deriver
-  inputs, output shares, Yao frames, or ECDSA role material.
+- Router verifies signed request-carried policy locally and performs opaque
+  routing. It owns no mutable storage and never opens Deriver inputs, output
+  shares, Yao frames, or ECDSA role material.
 - SigningWorker owns activated server signing state and remains outside both
   derivation protocols after activation.
 - Normal Ed25519 and ECDSA signing uses Client, Router, and SigningWorker. It
@@ -59,11 +60,14 @@ flowchart LR
   A -->|"recipient ciphertext + receipt"| R
   B -->|"recipient ciphertext + receipt"| R
   R <-->|"private binding or signed HTTPS"| SW["SigningWorker — product account"]
+  A --> AD["A private D1"]
+  B --> BD["B private D1"]
+  SW --> SD["SigningWorker private D1"]
 ```
 
 The product account owns Gateway, MPCRouter, SigningWorker, Deriver A, and Deriver B.
 Deriver A and Deriver B use distinct Worker entrypoints, deployment credentials,
-secret bindings, Durable Object namespaces, backup boundaries, log streams, and
+Secret bindings, private D1 databases and KEKs, backup boundaries, log streams, and
 audit labels.
 
 Production release requires:
@@ -71,6 +75,7 @@ Production release requires:
 ```text
 A.deploy_principal_id    != B.deploy_principal_id
 A.storage_namespace      != B.storage_namespace
+A.d1_kek                 != B.d1_kek
 A.peer_signing_key       != B.peer_signing_key
 A.envelope_hpke_key      != B.envelope_hpke_key
 ```
@@ -121,6 +126,9 @@ Rules:
   artifact, protocol digest, circuit digest, and deployment manifest;
 - Router and SigningWorker may share the product account and deployment
   authority; neither receives a Deriver root or envelope private key;
+- D1 migration and database-access credentials contain no role D1 KEK;
+- no Worker or release job receives both A and B root Secrets, D1 bindings, or
+  D1 KEKs;
 - emergency rollback disables admission or deploys a previously reviewed
   artifact independently to each role. It never re-enables an old backend.
 
@@ -138,16 +146,36 @@ role's protected GitHub Environment.
 
 ## Role Secret Matrix
 
-| Owner         | Private material                                                                      | Forbidden material                                                                          |
-| ------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Router        | admission-signing key, replay and lifecycle stores                                    | A/B roots, A/B envelope private keys, A/B peer-signing keys, Yao state, ECDSA scalar shares |
-| Deriver A     | A root/provisioning state, A envelope private key, A peer-signing key, A ticket store | every B private value, SigningWorker private key, joined inputs or outputs                  |
-| Deriver B     | B root/provisioning state, B envelope private key, B peer-signing key, B ticket store | every A private value, SigningWorker private key, joined inputs or outputs                  |
-| SigningWorker | server-output private key, activated signing state, nonce/presign state               | A/B roots, A/B peer keys, client-output private key                                         |
+| Owner         | Private material                                                                  | Forbidden material                                                                                 |
+| ------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Router        | pinned request-policy verification material                                       | all mutable persistence, A/B roots, A/B D1 KEKs, A/B envelope private keys, A/B peer-signing keys |
+| Deriver A     | A root-share Secret, A D1 KEK, A envelope private key, A peer-signing key          | every B private value, B D1, SigningWorker private key, joined inputs or outputs                   |
+| Deriver B     | B root-share Secret, B D1 KEK, B envelope private key, B peer-signing key          | every A private value, A D1, SigningWorker private key, joined inputs or outputs                   |
+| SigningWorker | D1 KEK, server-output private key, activated signing state, nonce/presign state   | A/B roots, A/B role D1 KEKs, A/B peer keys, client-output private key                              |
 
 Public verifying and encryption keys may be distributed through a signed
 deployment manifest. Private keys use role-local secret stores and rotation
 epochs.
+
+## Private D1 Threat Boundary
+
+A Cloudflare account-scoped API token can query D1 through the API or
+`wrangler d1 execute`. D1 contents are therefore treated as visible to a
+database operator. Mutable Deriver lifecycle records and SigningWorker custody
+records are application-encrypted before persistence. Root shares remain
+role-only Worker Secrets and never enter D1.
+
+Deriver A, Deriver B, and SigningWorker each use a separate versioned D1 KEK.
+The KEK exists only as a Secret binding on the owning Worker. Migration,
+observability, general CI, backup, and database-export credentials receive no
+KEK.
+
+AEAD associated data binds the role, deployment environment, record purpose,
+schema version, and record identity. Deriver records also bind the deriver set
+and root epoch; SigningWorker records bind the SigningWorker identity and
+relevant activation or session epoch. Wrong-role, wrong-environment,
+wrong-purpose, wrong-identity, wrong-schema, and wrong-epoch ciphertexts fail
+closed.
 
 ## Fail-Closed Startup Validation
 
@@ -155,7 +183,8 @@ Every Worker validates its precise deployment identity before serving traffic.
 
 Router rejects startup when it has:
 
-- a Deriver root/store binding;
+- any D1 or Durable Object binding;
+- a Deriver root Secret or D1 KEK;
 - a Deriver envelope private key or peer-signing key;
 - any profile other than `router_ab_cloudflare_same_account_p0_v1`;
 - a caller-selectable A/B transport;
@@ -163,16 +192,16 @@ Router rejects startup when it has:
 
 Deriver A and B reject startup when they have:
 
-- an opposite-role root, private key, storage binding, or deploy identity;
-- the same CI principal, storage namespace, envelope key, or peer-signing key as
+- an opposite-role root Secret, private key, D1 binding, D1 KEK, or deploy identity;
+- the same CI principal, storage namespace, D1 KEK, envelope key, or peer-signing key as
   the other Deriver;
 - a shared bearer credential for an A/B production edge;
 - a circuit or protocol digest outside the signed allowlist;
 - generator, clear-evaluator, passive-Yao, or old HSS code in the production
   bundle.
 
-SigningWorker rejects startup when it has a Deriver root, Deriver envelope
-private key, Yao ticket, or peer-signing key.
+SigningWorker rejects startup when it has a Deriver root Secret, role-private
+D1 binding, role D1 KEK, Deriver envelope private key, or peer-signing key.
 
 ## Development And Benchmark Profile
 
@@ -226,6 +255,8 @@ Compatibility logic and dual production profiles are not retained.
 
 | Date       | Decision                                                                                         | Reason                                                                                                     |
 | ---------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| 2026-07-28 | Root shares remain role-only Secrets; encrypted mutable state moves to role-private D1           | Removes Durable Object wakeups while preserving split custody against D1-only credential compromise       |
+| 2026-07-28 | Router has no mutable storage and verifies signed request-carried policy locally                  | Removes admission persistence and network verification from the blocking path                              |
 | 2026-07-17 | P0 Half-Gates with the existing OT suite is the production Yao profile                           | It is the implemented, reviewed construction that satisfies the product latency target                     |
 | 2026-07-17 | Same-account Service Binding WebSocket is the canonical Cloudflare transport                     | It has the simplest Worker data path and the best measured latency profile                                 |
 | 2026-07-17 | Distinct Workers, credentials, secrets, storage, and audit boundaries provide P0 role separation | The security claim explicitly excludes account-admin, shared-CI, malicious-role, and joint-role compromise |
