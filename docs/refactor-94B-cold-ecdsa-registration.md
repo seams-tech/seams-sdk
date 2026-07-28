@@ -294,11 +294,35 @@ and transport rather than work — the measurement that decides Phase 2.
       Router authorize/admission, the SigningWorker output DO, and the
       Gateway's session/budget DO. Deriver work is 22-49 ms cold — the two
       largest wasm artifacts contribute effectively nothing.
-- [ ] Record one cold and one warm passkey registration. Blocked in this
-      session: the embedded-browser authenticator lacks the PRF extension, so
-      the pair must be captured in a real browser. The regression is confirmed
-      shared across auth methods (Diagnosis item 1) and the strict path is
-      identical, so phase selection does not wait on it.
+- [x] Record one cold and one warm passkey registration. Captured as one
+      semi-warm sample (real browser, same day, after idle decay from the
+      Email OTP pair; the embedded-browser authenticator lacks PRF, so the
+      pane could not produce it):
+
+      | Interval | Passkey semi-warm |
+      | --- | ---: |
+      | Registration total | 16,437 ms |
+      | WebAuthn ceremony (`authProofMs`) | 6,375 ms (credential create 5,384) |
+      | Post-WebAuthn product time | ~8,300 ms |
+      | ECDSA branch total | 4,617 ms |
+      | Router authorize + admission | ~1,490 ms |
+      | SigningWorker output DO activation | 796 ms |
+      | Gateway session/budget DO provisioning | 703 ms |
+      | Deriver A/B | 11 ms each |
+      | Passkey-only seal tail (`ecdsaRegistrationPersistenceMs`) | 693 ms |
+
+      The ECDSA branch sits between the recorded cold (7,244) and warm (1,764)
+      samples with the same three intervals dominating at partial decay, so
+      the passkey branch confirms the shared diagnosis rather than adding a
+      new one. Two passkey-specific facts are now measured: the WebAuthn
+      ceremony itself cost 6.4 s (user- and OS-controlled, excluded from
+      targets, but the largest single interval a passkey user perceives), and
+      the passkey-only warm-session seal tail is ~0.7 s
+      (`ecdsaRegistrationRoleLocalRecordPersistenceMs` 679, dominated by
+      `ecdsaRegistrationWarmSessionSealApplyServerSealMs` 287 and the seal
+      route round trips) — Phase 5's target, now quantified. The deferred
+      NEAR commit #2 was observed firing after the ECDSA-ready return, on the
+      passkey branch, on deployed staging.
 - [x] Capture deployed role `startup_time_ms` and upload size from the exact
       tested artifacts (staging deploy run 30342714806, re-confirmed by the
       `8b5fe1014` redeploy):
