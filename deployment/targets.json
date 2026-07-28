@@ -4,7 +4,7 @@
     "origins": {
       "gateway": "https://seams-sdk-d1-gateway-staging.n6378056.workers.dev",
       "site": "https://staging.seams.sh",
-      "wallet": "https://sign-staging.seams.sh"
+      "wallet": "https://staging.sign.seams.sh"
     },
     "resources": {
       "gateway": {
