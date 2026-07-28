@@ -32,6 +32,8 @@ import type {
   LoginHooksOptions,
   RegistrationHooksOptions,
   RegistrationFlowEvent,
+  NearProvisioningStateChangedEvent,
+  SdkLifecycleEvent,
   SdkLifecycleEventListener,
   UnlockFlowEvent,
 } from '@/core/types/sdkSentEvents';
@@ -41,6 +43,7 @@ import {
   RegistrationEventPhase,
   UnlockEventPhase,
 } from '@/core/types/sdkSentEvents';
+import { readNearProvisioningState } from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { toAccountId } from '@/core/types/accountIds';
 import { IndexedDBManager } from '@/core/indexedDB';
@@ -670,6 +673,13 @@ function subscribeToSeamsWebLifecycleEvents(
   }
 }
 
+function deliverNearProvisioningStateChanged(
+  listener: (event: NearProvisioningStateChangedEvent) => void,
+  event: SdkLifecycleEvent,
+): void {
+  if (event.event === 'registration.near_provisioning_changed') listener(event);
+}
+
 /**
  * Main SeamsWeb class that provides framework-agnostic passkey operations
  * with flexible event-based callbacks for custom UX implementation
@@ -760,6 +770,12 @@ export class SeamsWeb {
           await this.beginGoogleEmailOtpWalletAuthDomain(args),
       },
       registration: {
+        getNearProvisioningState: async (args) => await this.getNearProvisioningStateDomain(args),
+        onNearProvisioningStateChanged: (listener) =>
+          subscribeToSeamsWebLifecycleEvents(
+            this.lifecycleEventSource,
+            deliverNearProvisioningStateChanged.bind(null, listener),
+          ),
         addWalletSigner: async (args) => await this.registerWalletSignerDomain(args),
         registerWallet: async (args) => await this.registerWalletDomain(args),
         registerPasskey: async (options) => await this.registerPasskeyDomain(options),
@@ -1044,6 +1060,19 @@ export class SeamsWeb {
       options: args.options || {},
       authenticatorOptions: cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
     });
+  }
+
+  private async getNearProvisioningStateDomain(
+    args: Parameters<RegistrationCapability['getNearProvisioningState']>[0],
+  ): ReturnType<RegistrationCapability['getNearProvisioningState']> {
+    const walletId = toWalletId(args.walletId);
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(String(walletId));
+      return await router.getNearProvisioningState({ walletId });
+    }
+    const live = readNearProvisioningState(walletId);
+    if (live) return live;
+    return await this.getContext().signingEngine.getWalletNearProvisioningState(walletId);
   }
 
   private async registerWalletSignerDomain(

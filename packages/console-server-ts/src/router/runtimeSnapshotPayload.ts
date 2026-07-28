@@ -9,7 +9,6 @@ import type { ConsoleRuntimeSnapshotPayload } from '@seams-internal/console-serv
 export interface ResolveConsoleRuntimeSnapshotPayloadInput {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   environmentId: string;
   projectId?: string;
   policies?: ConsolePolicyService | null;
@@ -36,7 +35,7 @@ function hasPublishedRuntimePolicy(policy: ConsolePolicy | null | undefined): bo
 
 async function resolveLiveRuntimePolicy(input: {
   policies: ConsolePolicyService;
-  ctx: { orgId: string; actorUserId: string; roles: string[] };
+  ctx: { orgId: string; actorUserId: string };
   policy: ConsolePolicy;
 }): Promise<ConsolePolicy | null> {
   if (!hasPublishedRuntimePolicy(input.policy)) return null;
@@ -77,7 +76,6 @@ export async function resolveConsoleRuntimeSnapshotPayload(
   const ctx = {
     orgId: input.orgId,
     actorUserId: input.actorUserId,
-    roles: input.roles,
   };
 
   const policyPromise = (async () => {

@@ -141,6 +141,16 @@ pnpm -C tests exec playwright test **/e2e/**/*.test.ts
 pnpm -C tests exec playwright test -c playwright.unit.config.ts
 ```
 
+`playwright.unit.config.ts` declares its own reporters (`line`, plus
+`reporters/failOnCollectionErrors.ts`), so unit commands should **not** pass
+`--reporter=...`: a CLI reporter replaces the configured list and drops the
+guard. The guard exists because a test file that fails to load — a missing
+export, a top-level throw in a fixture — aborts Playwright's collection phase,
+so the whole suite is skipped rather than run. It fails the run explicitly,
+names each load error, and refuses to report success when zero tests were
+collected. `unit/collectionGuard.unit.test.ts` pins that behaviour against the
+fixture suite in `reporters/fixtures/collection-guard/`.
+
 Intended-behaviour contracts:
 
 ```bash

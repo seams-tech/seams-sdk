@@ -77,6 +77,7 @@ type IntendedHarnessAction =
   | 'registerPasskeyEd25519YaoWallet'
   | 'addPasskeyEd25519YaoWalletSigner'
   | 'registerEmailOtpWallet'
+  | 'awaitNearReady'
   | 'unlockPasskeyWallet'
   | 'unlockEmailOtpWallet'
   | 'signNearTransaction'
@@ -262,13 +263,28 @@ type EcdsaEnabledSnapshot =
       ecdsaTargetKeys: Extract<EcdsaTargetKeysSnapshot, { kind: 'tempo_arc' }>;
     };
 
+type RegisteredNearStateSnapshot =
+  | {
+      nearReadiness: 'pending';
+      nearProvisioning:
+        | { status: 'pending'; error?: never; errorCode?: never }
+        | { status: 'provisioning'; error?: never; errorCode?: never }
+        | { status: 'retryable'; error: string; errorCode: string };
+      nearAccountId?: never;
+      operationalPublicKey?: never;
+    }
+  | {
+      nearReadiness: 'ready';
+      nearProvisioning?: never;
+      nearAccountId: string;
+      operationalPublicKey: string;
+    };
+
 type PasskeyRegistrationResultSnapshot = {
   kind: 'passkey_registration_success';
   walletId: string;
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-  operationalPublicKey: string;
-} & EcdsaEnabledSnapshot;
+} & RegisteredNearStateSnapshot &
+  EcdsaEnabledSnapshot;
 
 type Ed25519AddSignerResultSnapshot = {
   kind: 'near_ed25519_signer_added';
@@ -282,17 +298,18 @@ type EmailOtpRegistrationCoreSnapshot = {
   kind: 'email_otp_registration_success';
   initialWalletId: string;
   walletId: string;
-  nearAccountId: string;
-  operationalPublicKey: string;
   signingSessionStatus: string;
   remainingUses: number | null;
-};
+} & RegisteredNearStateSnapshot;
 
 type EmailOtpRegistrationResultSnapshot = EmailOtpRegistrationCoreSnapshot & EcdsaEnabledSnapshot;
 
 type RegisteredWalletSnapshot =
   | PasskeyRegistrationResultSnapshot
   | EmailOtpRegistrationResultSnapshot;
+
+type NearReadyRegisteredWalletSnapshot = RegisteredWalletSnapshot &
+  Extract<RegisteredNearStateSnapshot, { nearReadiness: 'ready' }>;
 
 type NearSigningResultSnapshot = {
   kind: 'near_sign_success';
@@ -350,10 +367,18 @@ type Ed25519ExportResultSnapshot = {
   nearAccountId: string;
 };
 
+type NearProvisioningReadySnapshot = {
+  kind: 'near_provisioning_ready';
+  walletId: string;
+  nearAccountId: string;
+  operationalPublicKey: string;
+};
+
 type IntendedActionResultSnapshot =
   | PasskeyRegistrationResultSnapshot
   | Ed25519AddSignerResultSnapshot
   | EmailOtpRegistrationResultSnapshot
+  | NearProvisioningReadySnapshot
   | NearSigningResultSnapshot
   | PasskeyUnlockResultSnapshot
   | EmailOtpUnlockResultSnapshot
@@ -789,6 +814,9 @@ export class IntendedBehaviourHarness {
       'intended-register-passkey',
     );
     const result = requirePasskeyRegistrationResult(snapshot, this.walletId);
+    if (this.config.passkeyEcdsaTargetProfile !== 'none' && result.nearReadiness !== 'pending') {
+      throw new Error('Mixed passkey registration did not return ECDSA-ready with NEAR pending');
+    }
     if (snapshot.events.length === 0) {
       throw new Error('Passkey registration did not emit structured lifecycle events');
     }
@@ -797,7 +825,9 @@ export class IntendedBehaviourHarness {
     this.currentWarmSigningStage = 'post_registration';
     this.passkeyPromptCount += 1;
     this.recordService(
-      `passkey registration succeeded wallet=${result.walletId} near=${result.nearAccountId}`,
+      result.nearReadiness === 'ready'
+        ? `passkey registration succeeded wallet=${result.walletId} near=${result.nearAccountId}`
+        : `passkey registration succeeded ECDSA-ready wallet=${result.walletId} near=${result.nearProvisioning.status}`,
     );
   }
 
@@ -808,6 +838,7 @@ export class IntendedBehaviourHarness {
       'intended-register-passkey-ed25519-yao',
     );
     const result = requirePasskeyRegistrationResult(snapshot, this.walletId);
+    const ready = requireNearReadyRegisteredWallet(result, 'Ed25519 Yao registration');
     if (result.ecdsaTargetProfile !== 'none' || result.ecdsaTargetKeys.kind !== 'none') {
       throw new Error('Ed25519 Yao registration unexpectedly provisioned an ECDSA signer');
     }
@@ -819,7 +850,7 @@ export class IntendedBehaviourHarness {
     this.currentWarmSigningStage = 'post_registration';
     this.passkeyPromptCount += 1;
     this.recordService(
-      `Ed25519 Yao passkey registration succeeded wallet=${result.walletId} near=${result.nearAccountId}`,
+      `Ed25519 Yao passkey registration succeeded wallet=${ready.walletId} near=${ready.nearAccountId}`,
     );
   }
 
@@ -863,8 +894,9 @@ export class IntendedBehaviourHarness {
 
   async addPasskeyEd25519YaoWalletSigner(): Promise<void> {
     this.recordStage('add_passkey_ed25519_yao_wallet_signer');
-    const previous = requirePasskeyRegisteredWalletSnapshot(
-      this.requireRegisteredWalletForSigning(),
+    const previous = requireNearReadyRegisteredWallet(
+      requirePasskeyRegisteredWalletSnapshot(this.requireRegisteredWalletForSigning()),
+      'Ed25519 signer addition',
     );
     const snapshot = await this.runIntendedPageAction(
       'addPasskeyEd25519YaoWalletSigner',
@@ -873,7 +905,6 @@ export class IntendedBehaviourHarness {
     const result = requireEd25519AddSignerResult(snapshot, this.walletId);
     if (
       result.nearAccountId === previous.nearAccountId ||
-      result.nearEd25519SigningKeyId === previous.nearEd25519SigningKeyId ||
       result.operationalPublicKey === previous.operationalPublicKey
     ) {
       throw new Error('Ed25519 add-signer did not create a distinct signer identity');
@@ -884,8 +915,8 @@ export class IntendedBehaviourHarness {
     this.registeredWallet = {
       kind: 'passkey_registration_success',
       walletId: result.walletId,
+      nearReadiness: 'ready',
       nearAccountId: result.nearAccountId,
-      nearEd25519SigningKeyId: result.nearEd25519SigningKeyId,
       operationalPublicKey: result.operationalPublicKey,
       ecdsaTargetProfile: 'none',
       ecdsaTargetKeys: { kind: 'none' },
@@ -914,13 +945,36 @@ export class IntendedBehaviourHarness {
     this.currentWarmSigningStage = 'post_registration';
     this.emailOtpVerificationCount += 1;
     this.recordService(
-      `email otp registration succeeded initial=${result.initialWalletId} wallet=${result.walletId} near=${result.nearAccountId}`,
+      result.nearReadiness === 'ready'
+        ? `email otp registration succeeded initial=${result.initialWalletId} wallet=${result.walletId} near=${result.nearAccountId}`
+        : `email otp registration succeeded ECDSA-ready initial=${result.initialWalletId} wallet=${result.walletId} near=${result.nearProvisioning.status}`,
+    );
+  }
+
+  async awaitNearReady(): Promise<void> {
+    this.recordStage('near.await_ready');
+    const registration = this.requireRegisteredWalletForSigning();
+    if (registration.nearReadiness === 'ready') {
+      this.recordService(`NEAR already ready wallet=${registration.walletId}`);
+      return;
+    }
+    const snapshot = await this.runIntendedPageAction(
+      'awaitNearReady',
+      'intended-await-near-ready',
+    );
+    const ready = requireNearProvisioningReadyResult(snapshot, this.walletId);
+    this.registeredWallet = registeredWalletWithNearReady(registration, ready);
+    this.recordService(
+      `NEAR provisioning ready wallet=${ready.walletId} near=${ready.nearAccountId}`,
     );
   }
 
   async unlockPasskeyWallet(): Promise<void> {
     this.recordStage('unlock_passkey_wallet');
-    const registration = this.requireRegisteredWalletForSigning();
+    const registration = requireNearReadyRegisteredWallet(
+      this.requireRegisteredWalletForSigning(),
+      'Passkey unlock',
+    );
     await this.resetRuntimeOnlyState();
     const traceStartIndex = this.trace.length;
     const snapshot = await this.runIntendedPageAction(
@@ -947,8 +1001,10 @@ export class IntendedBehaviourHarness {
 
   async unlockEmailOtpWallet(): Promise<void> {
     this.recordStage('unlock_email_otp_wallet');
-    const registration = this.requireRegisteredWalletForSigning();
-    const emailOtpRegistration = requireEmailOtpRegisteredWalletSnapshot(registration);
+    const emailOtpRegistration = requireNearReadyRegisteredWallet(
+      requireEmailOtpRegisteredWalletSnapshot(this.requireRegisteredWalletForSigning()),
+      'Email OTP unlock',
+    );
     await this.resetRuntimeOnlyState();
     const traceStartIndex = this.trace.length;
     const snapshot = await this.runIntendedPageAction(
@@ -985,7 +1041,10 @@ export class IntendedBehaviourHarness {
   ): Promise<SigningAuthEventSummary> {
     const { stage } = scenario;
     this.recordStage(`${stage}:near.sign`);
-    const registration = this.requireRegisteredWalletForSigning();
+    const registration = requireNearReadyRegisteredWallet(
+      this.requireRegisteredWalletForSigning(),
+      'NEAR signing',
+    );
     const traceStartIndex = this.trace.length;
     const snapshot = await this.runIntendedPageAction('signNearTransaction', 'intended-sign-near', {
       nearAccountId: registration.nearAccountId,
@@ -1047,6 +1106,9 @@ export class IntendedBehaviourHarness {
     await this.page.evaluate(navigateWithinSite, '/wallet');
     this.intendedPageReady = false;
     try {
+      // The demo renders only the selected chain's panel, and Tempo is the
+      // default tab, so the NEAR controls must be selected before they exist.
+      await this.page.getByRole('tab', { name: 'NEAR', exact: true }).click({ timeout: 20_000 });
       await this.page.waitForFunction(nearDemoSignButtonIsActionable, undefined, {
         timeout: 20_000,
       });
@@ -1229,7 +1291,10 @@ export class IntendedBehaviourHarness {
       'exportEd25519Key',
       'intended-export-ed25519',
     );
-    const registration = this.requireRegisteredWalletForSigning();
+    const registration = requireNearReadyRegisteredWallet(
+      this.requireRegisteredWalletForSigning(),
+      'Ed25519 export',
+    );
     const result = requireEd25519ExportResult(snapshot, {
       walletId: this.walletId,
       nearAccountId: registration.nearAccountId,
@@ -1351,7 +1416,7 @@ export class IntendedBehaviourHarness {
     const url = new URL('/__intended-e2e', this.config.appUrl);
     url.searchParams.set('flow', this.flow);
     url.searchParams.set('walletId', this.walletId);
-    if (this.registeredWallet) {
+    if (this.registeredWallet?.nearReadiness === 'ready') {
       url.searchParams.set('nearAccountId', this.registeredWallet.nearAccountId);
       url.searchParams.set('nearSignerSlot', String(this.nearSignerSlot));
     }
@@ -1854,6 +1919,99 @@ function requirePasskeyRegisteredWalletSnapshot(
       return registration;
     case 'email_otp_registration_success':
       throw new Error('Passkey signer addition requires a passkey-registered wallet');
+    default:
+      return assertNever(registration);
+  }
+}
+
+function requireNearReadyRegisteredWallet(
+  registration: RegisteredWalletSnapshot,
+  operation: string,
+): NearReadyRegisteredWalletSnapshot {
+  if (registration.nearReadiness === 'ready') return registration;
+  throw new Error(
+    `${operation} requires NEAR readiness; current state is ${registration.nearProvisioning.status}`,
+  );
+}
+
+function registeredWalletWithNearReady(
+  registration: RegisteredWalletSnapshot,
+  ready: NearProvisioningReadySnapshot,
+): NearReadyRegisteredWalletSnapshot {
+  switch (registration.kind) {
+    case 'passkey_registration_success':
+      return passkeyWalletWithNearReady(registration, ready);
+    case 'email_otp_registration_success':
+      return emailOtpWalletWithNearReady(registration, ready);
+    default:
+      return assertNever(registration);
+  }
+}
+
+function passkeyWalletWithNearReady(
+  registration: PasskeyRegistrationResultSnapshot,
+  ready: NearProvisioningReadySnapshot,
+): NearReadyRegisteredWalletSnapshot {
+  const near = {
+    kind: registration.kind,
+    walletId: registration.walletId,
+    nearReadiness: 'ready' as const,
+    nearAccountId: ready.nearAccountId,
+    operationalPublicKey: ready.operationalPublicKey,
+  };
+  switch (registration.ecdsaTargetProfile) {
+    case 'none':
+      return { ...near, ecdsaTargetProfile: 'none', ecdsaTargetKeys: registration.ecdsaTargetKeys };
+    case 'tempo':
+      return {
+        ...near,
+        ecdsaTargetProfile: 'tempo',
+        thresholdEcdsaEthereumAddress: registration.thresholdEcdsaEthereumAddress,
+        thresholdEcdsaPublicKeyB64u: registration.thresholdEcdsaPublicKeyB64u,
+        ecdsaTargetKeys: registration.ecdsaTargetKeys,
+      };
+    case 'tempo_arc':
+      return {
+        ...near,
+        ecdsaTargetProfile: 'tempo_arc',
+        ecdsaTargetKeys: registration.ecdsaTargetKeys,
+      };
+    default:
+      return assertNever(registration);
+  }
+}
+
+function emailOtpWalletWithNearReady(
+  registration: EmailOtpRegistrationResultSnapshot,
+  ready: NearProvisioningReadySnapshot,
+): NearReadyRegisteredWalletSnapshot {
+  const core = {
+    kind: registration.kind,
+    initialWalletId: registration.initialWalletId,
+    walletId: registration.walletId,
+    nearReadiness: 'ready' as const,
+    nearAccountId: ready.nearAccountId,
+    operationalPublicKey: ready.operationalPublicKey,
+    signingSessionStatus: registration.signingSessionStatus,
+    remainingUses: registration.remainingUses,
+  };
+  switch (registration.ecdsaTargetProfile) {
+    case 'none':
+      return { ...core, ecdsaTargetProfile: 'none', ecdsaTargetKeys: registration.ecdsaTargetKeys };
+    case 'tempo':
+      return {
+        ...core,
+        ecdsaTargetProfile: 'tempo',
+        thresholdEcdsaEthereumAddress: registration.thresholdEcdsaEthereumAddress,
+        thresholdEcdsaPublicKeyB64u: registration.thresholdEcdsaPublicKeyB64u,
+        ecdsaTargetKeys: registration.ecdsaTargetKeys,
+      };
+    case 'tempo_arc':
+      return {
+        ...core,
+        ecdsaTargetProfile: 'tempo_arc',
+        ecdsaTargetKeys: registration.ecdsaTargetKeys,
+      };
     default:
       return assertNever(registration);
   }
@@ -2503,15 +2661,6 @@ function requirePasskeyRegistrationResult(
   if (result.walletId !== expectedWalletId) {
     throw new Error(`Passkey registration wallet mismatch: ${result.walletId}`);
   }
-  if (!result.nearAccountId) {
-    throw new Error('Passkey registration result is missing nearAccountId');
-  }
-  if (!result.nearEd25519SigningKeyId) {
-    throw new Error('Passkey registration result is missing nearEd25519SigningKeyId');
-  }
-  if (!result.operationalPublicKey) {
-    throw new Error('Passkey registration result is missing operationalPublicKey');
-  }
   return result;
 }
 
@@ -2554,16 +2703,27 @@ function requireEmailOtpRegistrationResult(
   if (result.walletId === result.initialWalletId) {
     throw new Error('Email OTP registration did not reroll the initial wallet id');
   }
-  if (!result.nearAccountId) {
-    throw new Error('Email OTP registration result is missing nearAccountId');
-  }
-  if (!result.operationalPublicKey) {
-    throw new Error('Email OTP registration result is missing operationalPublicKey');
-  }
   if (result.signingSessionStatus !== 'active') {
     throw new Error(
       `Email OTP registration signing session is not active: ${result.signingSessionStatus}`,
     );
+  }
+  return result;
+}
+
+function requireNearProvisioningReadyResult(
+  snapshot: IntendedPageSnapshot,
+  expectedWalletId: string,
+): NearProvisioningReadySnapshot {
+  if (snapshot.action.status !== 'success') {
+    throw new Error(`NEAR provisioning did not succeed: ${snapshot.action.status}`);
+  }
+  const result = snapshot.action.result;
+  if (result.kind !== 'near_provisioning_ready') {
+    throw new Error(`NEAR provisioning returned unexpected result kind: ${result.kind}`);
+  }
+  if (result.walletId !== expectedWalletId) {
+    throw new Error(`NEAR provisioning wallet mismatch: ${result.walletId}`);
   }
   return result;
 }
@@ -2863,7 +3023,7 @@ function requireEd25519ExportResult(
 }
 
 async function verifyNearEd25519Signature(args: {
-  registration: RegisteredWalletSnapshot;
+  registration: NearReadyRegisteredWalletSnapshot;
   result: NearSigningResultSnapshot;
 }): Promise<void> {
   const registeredPublicKey = parseNearEd25519PublicKey(args.registration.operationalPublicKey);
@@ -3311,15 +3471,7 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
       return {
         kind,
         walletId: requireString(record.walletId, 'passkey registration walletId'),
-        nearAccountId: requireString(record.nearAccountId, 'passkey registration nearAccountId'),
-        nearEd25519SigningKeyId: requireString(
-          record.nearEd25519SigningKeyId,
-          'passkey registration nearEd25519SigningKeyId',
-        ),
-        operationalPublicKey: requireString(
-          record.operationalPublicKey,
-          'passkey registration operationalPublicKey',
-        ),
+        ...parseRegisteredNearState(record, 'passkey registration'),
         ...parseEcdsaEnabledSnapshot(record, 'passkey registration'),
       };
     case 'near_ed25519_signer_added':
@@ -3358,17 +3510,23 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
           'Email OTP registration initialWalletId',
         ),
         walletId: requireString(record.walletId, 'Email OTP registration walletId'),
-        nearAccountId: requireString(record.nearAccountId, 'Email OTP registration nearAccountId'),
-        operationalPublicKey: requireString(
-          record.operationalPublicKey,
-          'Email OTP registration operationalPublicKey',
-        ),
+        ...parseRegisteredNearState(record, 'Email OTP registration'),
         signingSessionStatus: requireString(
           record.signingSessionStatus,
           'Email OTP registration signingSessionStatus',
         ),
         remainingUses: nullableNumber(record.remainingUses, 'Email OTP registration remainingUses'),
         ...parseEcdsaEnabledSnapshot(record, 'Email OTP registration'),
+      };
+    case 'near_provisioning_ready':
+      return {
+        kind,
+        walletId: requireString(record.walletId, 'NEAR provisioning walletId'),
+        nearAccountId: requireString(record.nearAccountId, 'NEAR provisioning nearAccountId'),
+        operationalPublicKey: requireString(
+          record.operationalPublicKey,
+          'NEAR provisioning operationalPublicKey',
+        ),
       };
     case 'passkey_unlock_success':
       return {
@@ -3432,6 +3590,42 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
     default:
       throw new Error(`Unknown intended action result kind: ${kind}`);
   }
+}
+
+function parseRegisteredNearState(
+  record: Record<string, unknown>,
+  label: string,
+): RegisteredNearStateSnapshot {
+  const rawProvisioning = record.nearProvisioning;
+  if (rawProvisioning !== undefined) {
+    const provisioning = requireRecord(rawProvisioning, `${label} nearProvisioning`);
+    const status = requireString(provisioning.status, `${label} nearProvisioning status`);
+    switch (status) {
+      case 'pending':
+        return { nearReadiness: 'pending', nearProvisioning: { status } };
+      case 'provisioning':
+        return { nearReadiness: 'pending', nearProvisioning: { status } };
+      case 'retryable':
+        return {
+          nearReadiness: 'pending',
+          nearProvisioning: {
+            status,
+            error: requireString(provisioning.error, `${label} nearProvisioning error`),
+            errorCode: requireString(provisioning.errorCode, `${label} nearProvisioning errorCode`),
+          },
+        };
+      default:
+        throw new Error(`${label} returned unknown NEAR provisioning state: ${status}`);
+    }
+  }
+  return {
+    nearReadiness: 'ready',
+    nearAccountId: requireString(record.nearAccountId, `${label} nearAccountId`),
+    operationalPublicKey: requireString(
+      record.operationalPublicKey,
+      `${label} operationalPublicKey`,
+    ),
+  };
 }
 
 function parseEcdsaEnabledSnapshot(
@@ -3542,6 +3736,7 @@ function parseIntendedHarnessAction(raw: unknown): IntendedHarnessAction {
     case 'registerPasskeyEd25519YaoWallet':
     case 'addPasskeyEd25519YaoWalletSigner':
     case 'registerEmailOtpWallet':
+    case 'awaitNearReady':
     case 'unlockPasskeyWallet':
     case 'unlockEmailOtpWallet':
     case 'signNearTransaction':
@@ -3704,9 +3899,7 @@ function parseAuthoritativeWalletBudgetStatus(args: {
     'authoritative wallet budget status thresholdSessionId',
   );
   if (signingGrantId !== args.expectedSigningGrantId) {
-    throw new Error(
-      'Authoritative wallet budget status signingGrantId does not match the request',
-    );
+    throw new Error('Authoritative wallet budget status signingGrantId does not match the request');
   }
   if (thresholdSessionId !== args.expectedThresholdSessionId) {
     throw new Error(

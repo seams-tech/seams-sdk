@@ -68,6 +68,7 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import {
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaDerivationActivationPrepareResultV1,
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
   parseRouterAbEcdsaRegistrationRequestV1,
   parseRouterAbEcdsaRegistrationRequestFactsV1,
@@ -107,7 +108,10 @@ import {
   parseStoredRegistrationSignerPlan,
   storedRegistrationSignerPlansMatch,
   type StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch,
+  type StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch,
   type StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch,
+  type StoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch,
+  type StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch,
   type StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch,
   type StoredWalletRegistrationNearEd25519YaoAuthorizedBranch,
   type StoredWalletRegistrationSignerBranch,
@@ -558,11 +562,10 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
       ecdsa,
     };
   }
-  if (record.kind !== 'near_ed25519' && record.kind !== 'near_ed25519_and_evm_family_ecdsa') {
-    return null;
-  }
-  if (record.kind === 'near_ed25519_and_evm_family_ecdsa' && !ecdsa) return null;
-  if (record.kind === 'near_ed25519' && record.ecdsa !== undefined) return null;
+  /* Refactor 94 Phase 4+5: finalize commits one signer branch per call, so a
+     replayed Ed25519 response never carries ECDSA work. */
+  if (record.kind !== 'near_ed25519') return null;
+  if (record.ecdsa !== undefined) return null;
   const ed25519 = parseD1WalletRegistrationFinalizeEd25519(record.ed25519);
   const authorityScope = parseThresholdEd25519AuthorityScope(record.authorityScope);
   const accountProvisioning = parseD1RegistrationNearAccountProvisioning(
@@ -586,36 +589,9 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
   ) {
     return null;
   }
-  if (record.kind === 'near_ed25519_and_evm_family_ecdsa' && ecdsa) {
-    if (authMethod.kind === 'passkey') {
-      if (!rpId) return null;
-      return {
-        ok: true,
-        kind: 'near_ed25519_and_evm_family_ecdsa',
-        walletId,
-        rpId,
-        authority,
-        authMethod,
-        authorityScope,
-        accountProvisioning,
-        resolvedAccount,
-        ed25519,
-        ecdsa,
-      };
-    }
-    return {
-      ok: true,
-      kind: 'near_ed25519_and_evm_family_ecdsa',
-      walletId,
-      authority,
-      authMethod,
-      authorityScope,
-      accountProvisioning,
-      resolvedAccount,
-      ed25519,
-      ecdsa,
-    };
-  }
+  /* An Ed25519 finalize commits only its own branch, so a replayed record that
+     also carries ECDSA payload is from a shape that no longer exists. */
+  if (ecdsa) return null;
   if (authMethod.kind === 'passkey') {
     if (!rpId) return null;
     return {
@@ -1094,10 +1070,16 @@ function parseD1StoredSignerSetRegistrationBranch(
       return parseD1StoredNearEd25519YaoAuthorizedBranch(record);
     case 'evm_family_ecdsa_prepared':
       return parseD1StoredEvmFamilyEcdsaPreparedBranch(record);
+    case 'evm_family_ecdsa_response_claimed':
+      return parseD1StoredEvmFamilyEcdsaResponseClaimedBranch(record);
     case 'evm_family_ecdsa_pending_activation':
       return parseD1StoredEvmFamilyEcdsaPendingActivationBranch(record);
+    case 'evm_family_ecdsa_activation_claimed':
+      return parseD1StoredEvmFamilyEcdsaActivationClaimedBranch(record);
     case 'evm_family_ecdsa_activated':
       return parseD1StoredEvmFamilyEcdsaActivatedBranch(record);
+    case 'evm_family_ecdsa_finalized':
+      return parseD1StoredEvmFamilyEcdsaFinalizedBranch(record);
     default:
       return null;
   }
@@ -1110,11 +1092,15 @@ function parseD1StoredNearEd25519YaoAuthorizedBranch(
   const admissionRequest = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(
     record.admissionRequest,
   );
-  if (!branchKey || !admissionRequest.ok) return null;
+  const admissionReceipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+    record.admissionReceipt,
+  );
+  if (!branchKey || !admissionRequest.ok || !admissionReceipt.ok) return null;
   return {
     kind: 'near_ed25519_yao_authorized',
     branchKey,
     admissionRequest: admissionRequest.value,
+    admissionReceipt: admissionReceipt.value,
   };
 }
 
@@ -1131,7 +1117,30 @@ function parseD1StoredEvmFamilyEcdsaPreparedBranch(
     chainTargets: prepared.chainTargets,
     prepare: prepared.prepare,
     strictRegistration: prepared.strictRegistration,
+    strictRegistrationBindingJson: prepared.strictRegistrationBindingJson,
   };
+}
+
+function parseD1StoredEvmFamilyEcdsaResponseClaimedBranch(
+  record: Record<string, unknown>,
+): StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch | null {
+  const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  if (!branchKey || !prepared) return null;
+  try {
+    return {
+      kind: 'evm_family_ecdsa_response_claimed',
+      branchKey,
+      derivationKind: prepared.derivationKind,
+      chainTargets: prepared.chainTargets,
+      prepare: prepared.prepare,
+      strictRegistration: prepared.strictRegistration,
+      strictRegistrationBindingJson: prepared.strictRegistrationBindingJson,
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseD1StoredEvmFamilyEcdsaPendingActivationBranch(
@@ -1148,11 +1157,40 @@ function parseD1StoredEvmFamilyEcdsaPendingActivationBranch(
       chainTargets: prepared.chainTargets,
       prepare: prepared.prepare,
       strictRegistration: prepared.strictRegistration,
+      strictRegistrationBindingJson: prepared.strictRegistrationBindingJson,
       registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
       pendingActivation: parseStoredRouterAbEcdsaPendingActivationV1(record.pendingActivation),
       publicResponse: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(
         record.publicResponse,
       ),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseD1StoredEvmFamilyEcdsaActivationClaimedBranch(
+  record: Record<string, unknown>,
+): StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch | null {
+  const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  if (!branchKey || !prepared) return null;
+  try {
+    return {
+      kind: 'evm_family_ecdsa_activation_claimed',
+      branchKey,
+      derivationKind: prepared.derivationKind,
+      chainTargets: prepared.chainTargets,
+      prepare: prepared.prepare,
+      strictRegistration: prepared.strictRegistration,
+      strictRegistrationBindingJson: prepared.strictRegistrationBindingJson,
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
+      pendingActivation: parseStoredRouterAbEcdsaPendingActivationV1(record.pendingActivation),
+      publicResponse: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(
+        record.publicResponse,
+      ),
+      publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
+      activation: parseRouterAbEcdsaDerivationActivationPrepareResultV1(record.activation),
     };
   } catch {
     return null;
@@ -1174,11 +1212,41 @@ function parseD1StoredEvmFamilyEcdsaActivatedBranch(
       chainTargets: prepared.chainTargets,
       prepare: prepared.prepare,
       strictRegistration: prepared.strictRegistration,
+      strictRegistrationBindingJson: prepared.strictRegistrationBindingJson,
       registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
       publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
       activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation),
       publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(record.publicCapability),
       bootstrap,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseD1StoredEvmFamilyEcdsaFinalizedBranch(
+  record: Record<string, unknown>,
+): StoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch | null {
+  const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
+  const finalizedAtMs = safeInteger(record.finalizedAtMs);
+  if (!branchKey || !prepared || !bootstrap || bootstrap.jwt || finalizedAtMs === null) return null;
+  try {
+    return {
+      kind: 'evm_family_ecdsa_finalized',
+      branchKey,
+      derivationKind: prepared.derivationKind,
+      chainTargets: prepared.chainTargets,
+      prepare: prepared.prepare,
+      strictRegistration: prepared.strictRegistration,
+      strictRegistrationBindingJson: prepared.strictRegistrationBindingJson,
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
+      publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
+      activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation),
+      publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(record.publicCapability),
+      bootstrap,
+      finalizedAtMs,
     };
   } catch {
     return null;
@@ -1200,17 +1268,29 @@ function parseD1StoredEcdsaRegistrationBase(record: Record<string, unknown>): {
   readonly chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
   readonly prepare: WalletRegistrationEcdsaPrepareContext;
   readonly strictRegistration: WalletRegistrationEcdsaPreparePayload['strictRegistration'];
+  readonly strictRegistrationBindingJson: string;
 } | null {
   const derivationKind = toOptionalTrimmedString(record.derivationKind);
   const chainTargets = parseD1ThresholdEcdsaChainTargets(record.chainTargets);
   const prepare = parseD1WalletRegistrationEcdsaPrepare(record.prepare);
-  if (derivationKind !== 'evm_family_ecdsa_keygen' || !chainTargets || !prepare) return null;
+  const strictRegistrationBindingJson = toOptionalTrimmedString(
+    record.strictRegistrationBindingJson,
+  );
+  if (
+    derivationKind !== 'evm_family_ecdsa_keygen' ||
+    !chainTargets ||
+    !prepare ||
+    !strictRegistrationBindingJson
+  ) {
+    return null;
+  }
   try {
     return {
       derivationKind,
       chainTargets,
       prepare,
       strictRegistration: parseRouterAbEcdsaRegistrationRequestFactsV1(record.strictRegistration),
+      strictRegistrationBindingJson,
     };
   } catch {
     return null;

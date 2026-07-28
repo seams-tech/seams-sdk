@@ -384,8 +384,10 @@ pub enum CloudflareDurableObjectOperationKindV1 {
     RouterReplayReserve,
     /// Remove expired Router replay reservations.
     RouterReplayCleanupExpired,
-    /// Persist public Router lifecycle state.
-    RouterLifecyclePutPublicState,
+    /// Atomically reserve replay identity and persist public Router admission state.
+    RouterPublicAdmission,
+    /// Persist or replay the exact completed strict-registration response.
+    RouterPublicRegistrationComplete,
     /// Persist Cloudflare derivation ceremony state.
     DerivationCeremonyPutState,
     /// Evaluate Router project policy.
@@ -443,7 +445,10 @@ impl CloudflareDurableObjectOperationKindV1 {
             Self::RootShareRewrapStartupMetadata => "root_share.rewrap_startup_metadata",
             Self::RouterReplayReserve => "router_replay.reserve",
             Self::RouterReplayCleanupExpired => "router_replay.cleanup_expired",
-            Self::RouterLifecyclePutPublicState => "router_lifecycle.put_public_state",
+            Self::RouterPublicAdmission => "router_lifecycle.admit_public_request",
+            Self::RouterPublicRegistrationComplete => {
+                "router_lifecycle.complete_public_registration"
+            }
             Self::DerivationCeremonyPutState => "cloudflare_derivation_ceremony.put_state",
             Self::RouterProjectPolicyEvaluate => "router_project_policy.evaluate",
             Self::RouterQuotaEvaluate => "router_quota.evaluate",
@@ -484,7 +489,10 @@ impl CloudflareDurableObjectOperationKindV1 {
             }
             Self::RouterReplayReserve => "/router-ab/do/router-replay/reserve",
             Self::RouterReplayCleanupExpired => "/router-ab/do/router-replay/cleanup-expired",
-            Self::RouterLifecyclePutPublicState => "/router-ab/do/router-lifecycle/put",
+            Self::RouterPublicAdmission => "/router-ab/do/router-lifecycle/admit",
+            Self::RouterPublicRegistrationComplete => {
+                "/router-ab/do/router-lifecycle/complete-registration"
+            }
             Self::DerivationCeremonyPutState => "/router-ab/do/derivation-ceremony/put",
             Self::RouterProjectPolicyEvaluate => "/router-ab/do/router-project-policy/evaluate",
             Self::RouterQuotaEvaluate => "/router-ab/do/router-quota/evaluate",
@@ -1841,6 +1849,38 @@ impl CloudflareReplayReserveResponseV1 {
     /// Validates replay reservation response fields.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty("request_id", &self.request_id)
+    }
+}
+
+/// Exact completion state attached to one public Router admission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum CloudflareRouterPublicAdmissionCompletionV1 {
+    /// The admitted request has no durable terminal response yet.
+    Pending,
+    /// The exact terminal Router response is durable and replayable.
+    Completed {
+        /// Canonical serialized Router response.
+        response_json: String,
+    },
+}
+
+impl CloudflareRouterPublicAdmissionCompletionV1 {
+    /// Validates the completion envelope.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        match self {
+            Self::Pending => Ok(()),
+            Self::Completed { response_json } => {
+                require_non_empty("public admission response_json", response_json)?;
+                if response_json.len() > 1_048_576 {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        "public admission response_json exceeds the one MiB limit",
+                    ));
+                }
+                Ok(())
+            }
+        }
     }
 }
 
@@ -3814,10 +3854,21 @@ pub enum CloudflareDurableObjectRequestV1 {
         /// Cleanup request.
         cleanup: CloudflareExpiredStateCleanupRequestV1,
     },
-    /// Store public lifecycle state.
-    RouterLifecyclePutPublicState {
-        /// Public lifecycle state.
+    /// Atomically reserve replay identity and store the admitted public lifecycle state.
+    RouterPublicAdmission {
+        /// Exact replay identity for the public request.
+        replay: CloudflareReplayReserveRequestV1,
+        /// Gate-applied public lifecycle state.
         state: RouterAbLifecycleStateV1,
+    },
+    /// Persist the exact completed response for one admitted strict registration.
+    RouterPublicRegistrationComplete {
+        /// Exact replay identity used by the original admission.
+        replay: CloudflareReplayReserveRequestV1,
+        /// Admitted public lifecycle identity.
+        lifecycle_id: String,
+        /// Canonical serialized strict-registration response.
+        response_json: String,
     },
     /// Store Cloudflare derivation ceremony state.
     DerivationCeremonyPutState {
@@ -3986,11 +4037,27 @@ impl CloudflareDurableObjectRequestV1 {
         Ok(request)
     }
 
-    /// Creates a public lifecycle persistence request.
-    pub fn router_lifecycle_put_public_state(
+    /// Creates an atomic public request admission.
+    pub fn router_public_admission(
+        replay: CloudflareReplayReserveRequestV1,
         state: RouterAbLifecycleStateV1,
     ) -> RouterAbProtocolResult<Self> {
-        let request = Self::RouterLifecyclePutPublicState { state };
+        let request = Self::RouterPublicAdmission { replay, state };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates an exact public registration completion request.
+    pub fn router_public_registration_complete(
+        replay: CloudflareReplayReserveRequestV1,
+        lifecycle_id: impl Into<String>,
+        response_json: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::RouterPublicRegistrationComplete {
+            replay,
+            lifecycle_id: lifecycle_id.into(),
+            response_json: response_json.into(),
+        };
         request.validate()?;
         Ok(request)
     }
@@ -4224,8 +4291,11 @@ impl CloudflareDurableObjectRequestV1 {
             Self::RouterReplayCleanupExpired { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterReplayCleanupExpired
             }
-            Self::RouterLifecyclePutPublicState { .. } => {
-                CloudflareDurableObjectOperationKindV1::RouterLifecyclePutPublicState
+            Self::RouterPublicAdmission { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterPublicAdmission
+            }
+            Self::RouterPublicRegistrationComplete { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterPublicRegistrationComplete
             }
             Self::DerivationCeremonyPutState { .. } => {
                 CloudflareDurableObjectOperationKindV1::DerivationCeremonyPutState
@@ -4311,7 +4381,8 @@ impl CloudflareDurableObjectRequestV1 {
             Self::RootShareRewrapStartupMetadata { request } => request.lookup.expected_scope(),
             Self::RouterReplayReserve { .. } => CloudflareDurableObjectScopeV1::RouterReplay,
             Self::RouterReplayCleanupExpired { .. } => CloudflareDurableObjectScopeV1::RouterReplay,
-            Self::RouterLifecyclePutPublicState { .. } => {
+            Self::RouterPublicAdmission { .. } => CloudflareDurableObjectScopeV1::RouterLifecycle,
+            Self::RouterPublicRegistrationComplete { .. } => {
                 CloudflareDurableObjectScopeV1::RouterLifecycle
             }
             Self::DerivationCeremonyPutState { .. } => {
@@ -4362,7 +4433,23 @@ impl CloudflareDurableObjectRequestV1 {
             Self::RootShareRewrapStartupMetadata { request } => request.validate(),
             Self::RouterReplayReserve { request } => request.validate(),
             Self::RouterReplayCleanupExpired { cleanup } => cleanup.validate(),
-            Self::RouterLifecyclePutPublicState { state } => validate_lifecycle_state(state),
+            Self::RouterPublicAdmission { replay, state } => {
+                replay.validate()?;
+                let requested = RouterAbLifecycleStateV1::requested(state.scope().clone())?;
+                RouterAbLifecycleStateV1::validate_transition_from(Some(&requested), state)
+            }
+            Self::RouterPublicRegistrationComplete {
+                replay,
+                lifecycle_id,
+                response_json,
+            } => {
+                replay.validate()?;
+                require_non_empty("public registration lifecycle_id", lifecycle_id)?;
+                CloudflareRouterPublicAdmissionCompletionV1::Completed {
+                    response_json: response_json.clone(),
+                }
+                .validate()
+            }
             Self::DerivationCeremonyPutState { ceremony } => ceremony.validate(),
             Self::RouterProjectPolicyEvaluate { request }
             | Self::RouterQuotaEvaluate { request }
@@ -4427,10 +4514,19 @@ pub enum CloudflareDurableObjectResponseV1 {
         /// Cleanup report.
         report: CloudflareExpiredStateCleanupReportV1,
     },
-    /// Lifecycle persistence response.
-    RouterLifecyclePutPublicState {
-        /// Lifecycle receipt.
-        receipt: CloudflareLifecyclePutReceiptV1,
+    /// Atomic public admission response.
+    RouterPublicAdmission {
+        /// Replay reservation outcome.
+        replay: CloudflareReplayReserveResponseV1,
+        /// Lifecycle persistence receipt.
+        lifecycle: CloudflareLifecyclePutReceiptV1,
+        /// Exact completion state for replay.
+        completion: CloudflareRouterPublicAdmissionCompletionV1,
+    },
+    /// Exact completed strict-registration response.
+    RouterPublicRegistrationComplete {
+        /// Durable exact response.
+        completion: CloudflareRouterPublicAdmissionCompletionV1,
     },
     /// Derivation ceremony persistence response.
     DerivationCeremonyPutState {
@@ -4599,11 +4695,26 @@ impl CloudflareDurableObjectResponseV1 {
         Ok(response)
     }
 
-    /// Creates a lifecycle persistence response.
-    pub fn router_lifecycle_put_public_state(
-        receipt: CloudflareLifecyclePutReceiptV1,
+    /// Creates an atomic public admission response.
+    pub fn router_public_admission(
+        replay: CloudflareReplayReserveResponseV1,
+        lifecycle: CloudflareLifecyclePutReceiptV1,
+        completion: CloudflareRouterPublicAdmissionCompletionV1,
     ) -> RouterAbProtocolResult<Self> {
-        let response = Self::RouterLifecyclePutPublicState { receipt };
+        let response = Self::RouterPublicAdmission {
+            replay,
+            lifecycle,
+            completion,
+        };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates an exact public registration completion response.
+    pub fn router_public_registration_complete(
+        completion: CloudflareRouterPublicAdmissionCompletionV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::RouterPublicRegistrationComplete { completion };
         response.validate()?;
         Ok(response)
     }
@@ -4848,8 +4959,11 @@ impl CloudflareDurableObjectResponseV1 {
             Self::RouterReplayCleanupExpired { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterReplayCleanupExpired
             }
-            Self::RouterLifecyclePutPublicState { .. } => {
-                CloudflareDurableObjectOperationKindV1::RouterLifecyclePutPublicState
+            Self::RouterPublicAdmission { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterPublicAdmission
+            }
+            Self::RouterPublicRegistrationComplete { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterPublicRegistrationComplete
             }
             Self::DerivationCeremonyPutState { .. } => {
                 CloudflareDurableObjectOperationKindV1::DerivationCeremonyPutState
@@ -4931,7 +5045,28 @@ impl CloudflareDurableObjectResponseV1 {
             Self::RootShareRewrapStartupMetadata { receipt } => receipt.validate(),
             Self::RouterReplayReserve { response } => response.validate(),
             Self::RouterReplayCleanupExpired { report } => report.validate(),
-            Self::RouterLifecyclePutPublicState { receipt } => receipt.validate(),
+            Self::RouterPublicAdmission {
+                replay,
+                lifecycle,
+                completion,
+            } => {
+                replay.validate()?;
+                lifecycle.validate()?;
+                completion.validate()?;
+                if replay.reserved
+                    && !matches!(
+                        completion,
+                        CloudflareRouterPublicAdmissionCompletionV1::Pending
+                    )
+                {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                        "new public admission cannot already carry a completed response",
+                    ));
+                }
+                Ok(())
+            }
+            Self::RouterPublicRegistrationComplete { completion } => completion.validate(),
             Self::DerivationCeremonyPutState { receipt } => receipt.validate(),
             Self::RouterProjectPolicyEvaluate { policy } => policy.validate(),
             Self::RouterQuotaEvaluate { quota } => quota.validate(),
@@ -5019,18 +5154,40 @@ impl CloudflareDurableObjectResponseV1 {
                 }
             }
             (
-                Self::RouterLifecyclePutPublicState { receipt },
-                CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state },
+                Self::RouterPublicAdmission {
+                    replay, lifecycle, ..
+                },
+                CloudflareDurableObjectRequestV1::RouterPublicAdmission {
+                    replay: expected_replay,
+                    state,
+                },
             ) => {
-                if receipt.lifecycle_id == state.scope().lifecycle_id {
+                if replay.request_id == expected_replay.request_id
+                    && lifecycle.lifecycle_id == state.scope().lifecycle_id
+                {
                     Ok(())
                 } else {
                     Err(RouterAbProtocolError::new(
                         RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                        "lifecycle receipt id does not match request state",
+                        "public admission response does not match request identity",
                     ))
                 }
             }
+            (
+                Self::RouterPublicRegistrationComplete { completion },
+                CloudflareDurableObjectRequestV1::RouterPublicRegistrationComplete {
+                    response_json,
+                    ..
+                },
+            ) => match completion {
+                CloudflareRouterPublicAdmissionCompletionV1::Completed {
+                    response_json: stored,
+                } if stored == response_json => Ok(()),
+                _ => Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    "public registration completion response does not match request",
+                )),
+            },
             (
                 Self::DerivationCeremonyPutState { receipt },
                 CloudflareDurableObjectRequestV1::DerivationCeremonyPutState { ceremony },
@@ -5345,12 +5502,18 @@ impl CloudflareDurableObjectCallV1 {
             CloudflareDurableObjectRequestV1::RouterReplayCleanupExpired { .. } => {
                 self.replay_storage_prefix()
             }
-            CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } => {
+            CloudflareDurableObjectRequestV1::RouterPublicAdmission { state, .. } => {
                 format!(
                     "{}lifecycle/{}",
                     self.binding.key_prefix,
                     state.scope().lifecycle_id
                 )
+            }
+            CloudflareDurableObjectRequestV1::RouterPublicRegistrationComplete {
+                lifecycle_id,
+                ..
+            } => {
+                format!("{}lifecycle/{}", self.binding.key_prefix, lifecycle_id)
             }
             CloudflareDurableObjectRequestV1::DerivationCeremonyPutState { ceremony } => {
                 format!(
@@ -5556,6 +5719,48 @@ impl CloudflareDurableObjectCallV1 {
         ))
     }
 
+    /// Returns the request-id replay index stored atomically with public lifecycle admission.
+    pub fn public_admission_replay_index_storage_key(&self) -> RouterAbProtocolResult<String> {
+        self.validate()?;
+        let replay = match &self.request {
+            CloudflareDurableObjectRequestV1::RouterPublicAdmission { replay, .. }
+            | CloudflareDurableObjectRequestV1::RouterPublicRegistrationComplete {
+                replay, ..
+            } => replay,
+            _ => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    "public admission replay index key requires a public admission request",
+                ));
+            }
+        };
+        Ok(format!(
+            "{}public-admission-replay/{}",
+            self.binding.key_prefix, replay.request_id
+        ))
+    }
+
+    /// Returns the exact completed-response key for one public registration.
+    pub fn public_registration_completion_storage_key(&self) -> RouterAbProtocolResult<String> {
+        self.validate()?;
+        let replay = match &self.request {
+            CloudflareDurableObjectRequestV1::RouterPublicAdmission { replay, .. }
+            | CloudflareDurableObjectRequestV1::RouterPublicRegistrationComplete {
+                replay, ..
+            } => replay,
+            _ => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    "public registration completion key requires a public admission request",
+                ));
+            }
+        };
+        Ok(format!(
+            "{}public-registration-completion/{}",
+            self.binding.key_prefix, replay.request_id
+        ))
+    }
+
     /// Returns the account/session/SigningWorker active-state index key.
     pub fn active_signing_worker_state_index_storage_key(&self) -> RouterAbProtocolResult<String> {
         self.validate()?;
@@ -5698,6 +5903,19 @@ pub trait CloudflareDurableObjectStorageV1 {
         &self,
         storage_key: &str,
     ) -> RouterAbProtocolResult<Option<RouterAbLifecycleStateV1>>;
+
+    /// Reads an exact completed public registration response.
+    fn public_registration_completion(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<String>>;
+
+    /// Stores an exact completed public registration response.
+    fn put_public_registration_completion(
+        &mut self,
+        storage_key: &str,
+        response_json: String,
+    ) -> RouterAbProtocolResult<()>;
 
     /// Stores Cloudflare derivation ceremony state.
     fn put_derivation_ceremony(

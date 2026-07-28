@@ -37,6 +37,49 @@ const signerPackageConfigFiles = [
   'packages/sdk-server-ts/rolldown.config.ts',
 ];
 
+const publicSdkSourceRoots = [
+  'packages/sdk-web/src',
+  'packages/sdk-server-ts/src',
+  'packages/shared-ts/src',
+];
+
+const publicSdkArtifactRoots = [
+  'packages/sdk-web/dist',
+  'packages/sdk-server-ts/dist',
+];
+
+const forbiddenPublicConceptPatterns = [
+  {
+    label: 'private console package',
+    pattern: /@seams-internal\/console-|packages\/console-(?:server|shared)-ts/,
+  },
+  {
+    label: 'console route or server contract',
+    pattern: /\/console(?:\/|['"`])|\bConsole(?:Auth|Principal|Route|Router|Tenant|Organization|Billing|TeamRbac)\b/,
+  },
+  {
+    label: 'dashboard implementation',
+    pattern: /\bdashboard\b/i,
+  },
+  {
+    label: 'billing implementation',
+    pattern: /\bbilling(?:_[a-z]|[A-Z]|\b)/,
+  },
+  {
+    label: 'refund implementation',
+    pattern: /\brefund(?:_[a-z]|[A-Z]|\b)/,
+  },
+  {
+    label: 'organization membership implementation',
+    pattern:
+      /\b(?:organization_memberships?|OrganizationMembership|admin_permissions?|AdminPermission|owner_set_version|OwnerSetVersion|team_members?|TeamMember)\b/,
+  },
+  {
+    label: 'local checkout path',
+    pattern: /(?:\/Users\/|[A-Za-z]:\\Users\\|\.claude\/worktrees\/)/,
+  },
+];
+
 const allowedSignerRouterImports = buildAllowedImportSet([]);
 
 const importSpecifierPatterns = [
@@ -82,6 +125,30 @@ function listTypeScriptFiles(relativePath) {
       continue;
     }
     if (entry.isFile() && isProductionTypeScriptFile(childPath)) files.push(childPath);
+  }
+  return files;
+}
+
+function isBoundaryTextFile(relativePath) {
+  return /\.(?:cjs|d\.ts|js|json|map|md|mjs|ts|tsx)$/.test(relativePath);
+}
+
+function listBoundaryTextFiles(relativePath) {
+  const absolute = absolutePath(relativePath);
+  if (!fs.existsSync(absolute)) return [];
+  const stat = fs.statSync(absolute);
+  if (stat.isFile()) return isBoundaryTextFile(relativePath) ? [relativePath] : [];
+
+  const files = [];
+  const entries = fs.readdirSync(absolute, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.name === 'node_modules') continue;
+    const childPath = path.join(relativePath, entry.name).split(path.sep).join('/');
+    if (entry.isDirectory()) {
+      files.push(...listBoundaryTextFiles(childPath));
+      continue;
+    }
+    if (entry.isFile() && isBoundaryTextFile(childPath)) files.push(childPath);
   }
   return files;
 }
@@ -176,8 +243,42 @@ function checkSignerPackageConfigHasNoConsoleSharedCoupling() {
   );
 }
 
+function collectForbiddenPublicConcepts(roots) {
+  const offenders = [];
+  for (const root of roots) {
+    for (const file of listBoundaryTextFiles(root)) {
+      if (file.endsWith('.typecheck.ts')) continue;
+      const source = readRepoFile(file);
+      for (const forbidden of forbiddenPublicConceptPatterns) {
+        forbidden.pattern.lastIndex = 0;
+        if (forbidden.pattern.test(source)) {
+          offenders.push(`${file}: ${forbidden.label}`);
+        }
+      }
+    }
+  }
+  return offenders;
+}
+
+function checkPublicSdkContainsNoPrivateProductImplementation() {
+  const sourceOffenders = collectForbiddenPublicConcepts(publicSdkSourceRoots);
+  assert.deepEqual(
+    sourceOffenders,
+    [],
+    `public SDK source contains private product concepts:\n${sourceOffenders.join('\n')}`,
+  );
+
+  const artifactOffenders = collectForbiddenPublicConcepts(publicSdkArtifactRoots);
+  assert.deepEqual(
+    artifactOffenders,
+    [],
+    `public SDK package artifacts contain private product concepts:\n${artifactOffenders.join('\n')}`,
+  );
+}
+
 checkSignerCoreHasNoConsoleOrSponsorshipImports();
 checkSignerRouterImportsStayOnAllowlist();
 checkSignerPackageConfigHasNoConsoleSharedCoupling();
+checkPublicSdkContainsNoPrivateProductImplementation();
 
 console.log('[check-signer-console-module-boundaries] passed');

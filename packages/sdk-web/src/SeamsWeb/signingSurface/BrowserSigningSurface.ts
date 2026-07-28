@@ -7,6 +7,11 @@ import type {
   SdkLifecycleEventListener,
   SigningFlowEvent,
 } from '@/core/types/sdkSentEvents';
+import { createNearProvisioningStateChangedEvent } from '@/core/types/sdkSentEvents';
+import {
+  subscribeToNearProvisioning,
+  type NearProvisioningListener,
+} from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import type {
   AppearanceConfig,
   ReusableWalletSessionState,
@@ -355,6 +360,8 @@ function sdkLifecycleEventDeliveryKey(event: SdkLifecycleEvent): string {
   switch (eventName) {
     case 'signing_session.expired':
       return `${String(event.walletId)}:${String(event.walletSessionId)}`;
+    case 'registration.near_provisioning_changed':
+      return `${String(event.walletId)}:${event.state.status}:${event.state.updatedAtMs}`;
     default:
       return assertNeverSdkLifecycleEventName(eventName);
   }
@@ -409,6 +416,7 @@ export class BrowserSigningSurface {
   private readonly sdkLifecycleEventListeners = new Set<SdkLifecycleEventListener>();
   private readonly deliveredSdkLifecycleEventKeys = new Set<string>();
   private readonly signingSessionLifecycleSubscription: SigningSessionLifecycleSubscription;
+  private readonly nearProvisioningUnsubscribe: () => void;
 
   readonly seamsWebConfigs: SeamsConfigsReadonly;
 
@@ -579,6 +587,9 @@ export class BrowserSigningSurface {
       this.enginePorts.signingSessionCoordinator.subscribeLifecycle(
         this.publishSdkLifecycleEvent.bind(this),
       );
+    const nearProvisioningListener: NearProvisioningListener =
+      this.publishNearProvisioningLifecycleEvent.bind(this);
+    this.nearProvisioningUnsubscribe = subscribeToNearProvisioning(nearProvisioningListener);
     this.ed25519YaoPageLifecycleOwner = new Ed25519YaoPageLifecycleOwner(
       typeof window === 'undefined' ? null : window,
       this.enginePorts.ed25519YaoActiveClients,
@@ -1429,6 +1440,21 @@ export class BrowserSigningSurface {
     return registrationPublic.activateAuthenticatedWalletState(this.registrationPublicDeps, args);
   }
 
+  setWalletNearProvisioningState(
+    write: Parameters<typeof registrationPublic.setWalletNearProvisioningState>[1],
+  ): ReturnType<typeof registrationPublic.setWalletNearProvisioningState> {
+    return registrationPublic.setWalletNearProvisioningState(this.registrationPublicDeps, write);
+  }
+
+  getWalletNearProvisioningState(
+    walletId: Parameters<typeof registrationPublic.getWalletNearProvisioningState>[1],
+  ): ReturnType<typeof registrationPublic.getWalletNearProvisioningState> {
+    return registrationPublic.getWalletNearProvisioningState(
+      this.registrationPublicDeps,
+      walletId,
+    );
+  }
+
   storeAuthenticator(
     authenticatorData: Parameters<typeof registrationPublic.storeAuthenticator>[1],
   ): ReturnType<typeof registrationPublic.storeAuthenticator> {
@@ -1975,12 +2001,20 @@ export class BrowserSigningSurface {
     }
   }
 
+  private publishNearProvisioningLifecycleEvent(
+    walletId: Parameters<NearProvisioningListener>[0],
+    state: Parameters<NearProvisioningListener>[1],
+  ): void {
+    this.publishSdkLifecycleEvent(createNearProvisioningStateChangedEvent({ walletId, state }));
+  }
+
   private removeSdkLifecycleEventListener(listener: SdkLifecycleEventListener): void {
     this.sdkLifecycleEventListeners.delete(listener);
   }
 
   dispose(): void {
     this.signingSessionLifecycleSubscription.unsubscribe();
+    this.nearProvisioningUnsubscribe();
     this.sdkLifecycleEventListeners.clear();
     this.deliveredSdkLifecycleEventKeys.clear();
     this.ed25519YaoPageLifecycleOwner.dispose();

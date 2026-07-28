@@ -76,6 +76,7 @@ export type {
   RegisteredEvmFamilyEcdsaCapability,
   RegisteredNearEd25519Capability,
   RegistrationResult,
+  NearProvisioningState,
   LoginAndCreateSessionResult,
   LoginResult,
   WalletSession,
@@ -90,6 +91,7 @@ export type {
   RegistrationHooksOptions,
   SignNEP413HooksOptions,
   SyncAccountHooksOptions,
+  NearProvisioningStateChangedEvent,
 } from '@/core/types/sdkSentEvents';
 
 export type {

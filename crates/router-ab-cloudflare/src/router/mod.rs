@@ -3324,12 +3324,8 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1 {
 pub enum CloudflareRouterPublicAdmissionPlanV1 {
     /// Gate accepted or selected an existing lifecycle, so signer forwarding is allowed.
     Forward {
-        /// Replay reservation call for the public request nonce.
-        replay_reserve_call: CloudflareDurableObjectCallV1,
-        /// Public lifecycle persistence call for the requested state.
-        lifecycle_requested_put_call: CloudflareDurableObjectCallV1,
-        /// Public lifecycle persistence call after gate application.
-        lifecycle_put_call: CloudflareDurableObjectCallV1,
+        /// Atomic replay reservation and gate-applied lifecycle persistence call.
+        admission_call: CloudflareDurableObjectCallV1,
         /// Trusted Router-owned gate data.
         trusted_admission: CloudflareRouterTrustedAdmissionV1,
         /// Canonical Router-to-Signer A wire message.
@@ -3339,12 +3335,8 @@ pub enum CloudflareRouterPublicAdmissionPlanV1 {
     },
     /// Gate deferred or rejected the request before signer forwarding.
     Stop {
-        /// Replay reservation call for the public request nonce.
-        replay_reserve_call: CloudflareDurableObjectCallV1,
-        /// Public lifecycle persistence call for the requested state.
-        lifecycle_requested_put_call: CloudflareDurableObjectCallV1,
-        /// Public lifecycle persistence call after gate application.
-        lifecycle_put_call: CloudflareDurableObjectCallV1,
+        /// Atomic replay reservation and gate-applied lifecycle persistence call.
+        admission_call: CloudflareDurableObjectCallV1,
         /// Trusted Router-owned gate data.
         trusted_admission: CloudflareRouterTrustedAdmissionV1,
     },
@@ -3353,35 +3345,15 @@ pub enum CloudflareRouterPublicAdmissionPlanV1 {
 impl CloudflareRouterPublicAdmissionPlanV1 {
     /// Validates Router-only storage calls and admission branch consistency.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.replay_reserve_call().validate()?;
-        self.lifecycle_requested_put_call().validate()?;
-        self.lifecycle_put_call().validate()?;
+        self.admission_call().validate()?;
         self.trusted_admission().validate()?;
-        if self.replay_reserve_call().worker_role != CloudflareWorkerRoleV1::Router
-            || self.replay_reserve_call().binding.scope
-                != CloudflareDurableObjectScopeV1::RouterReplay
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
-                "public Router admission plan replay call must use Router replay scope",
-            ));
-        }
-        if self.lifecycle_put_call().worker_role != CloudflareWorkerRoleV1::Router
-            || self.lifecycle_put_call().binding.scope
+        if self.admission_call().worker_role != CloudflareWorkerRoleV1::Router
+            || self.admission_call().binding.scope
                 != CloudflareDurableObjectScopeV1::RouterLifecycle
         {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::ForbiddenLocalBinding,
-                "public Router admission plan lifecycle call must use Router lifecycle scope",
-            ));
-        }
-        if self.lifecycle_requested_put_call().worker_role != CloudflareWorkerRoleV1::Router
-            || self.lifecycle_requested_put_call().binding.scope
-                != CloudflareDurableObjectScopeV1::RouterLifecycle
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
-                "public Router admission plan requested lifecycle call must use Router lifecycle scope",
+                "public Router admission plan must use Router lifecycle scope",
             ));
         }
         match self {
@@ -3431,43 +3403,12 @@ impl CloudflareRouterPublicAdmissionPlanV1 {
         }
     }
 
-    /// Returns the replay reservation call.
-    pub fn replay_reserve_call(&self) -> &CloudflareDurableObjectCallV1 {
+    /// Returns the atomic replay and lifecycle admission call.
+    pub fn admission_call(&self) -> &CloudflareDurableObjectCallV1 {
         match self {
-            Self::Forward {
-                replay_reserve_call,
-                ..
+            Self::Forward { admission_call, .. } | Self::Stop { admission_call, .. } => {
+                admission_call
             }
-            | Self::Stop {
-                replay_reserve_call,
-                ..
-            } => replay_reserve_call,
-        }
-    }
-
-    /// Returns the requested lifecycle persistence call.
-    pub fn lifecycle_requested_put_call(&self) -> &CloudflareDurableObjectCallV1 {
-        match self {
-            Self::Forward {
-                lifecycle_requested_put_call,
-                ..
-            }
-            | Self::Stop {
-                lifecycle_requested_put_call,
-                ..
-            } => lifecycle_requested_put_call,
-        }
-    }
-
-    /// Returns the lifecycle persistence call.
-    pub fn lifecycle_put_call(&self) -> &CloudflareDurableObjectCallV1 {
-        match self {
-            Self::Forward {
-                lifecycle_put_call, ..
-            }
-            | Self::Stop {
-                lifecycle_put_call, ..
-            } => lifecycle_put_call,
         }
     }
 

@@ -62,6 +62,8 @@ export interface WalletIframeControlCapability {
 }
 
 export type RegistrationCapabilityDomainMethods = {
+  getNearProvisioningState: RegistrationCapability['getNearProvisioningState'];
+  onNearProvisioningStateChanged: RegistrationCapability['onNearProvisioningStateChanged'];
   addWalletSigner: RegistrationCapability['addWalletSigner'];
   registerWallet: RegistrationCapability['registerWallet'];
   registerPasskey: RegistrationCapability['registerPasskey'];
@@ -178,6 +180,8 @@ export function createPublicApi(deps: {
       domain: deps.auth,
     }),
     registration: {
+      getNearProvisioningState: deps.registration.getNearProvisioningState,
+      onNearProvisioningStateChanged: deps.registration.onNearProvisioningStateChanged,
       addWalletSigner: deps.registration.addWalletSigner,
       registerWallet: deps.registration.registerWallet,
       registerWithEmailOtp: deps.registration.registerWallet,

@@ -14,6 +14,7 @@ import type {
   RouterAbEcdsaStrictRegistrationPort,
   RouterAbEcdsaStrictRegistrationTopology,
 } from '../../packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration';
+import { routerAbEcdsaStrictRegistrationRequestBindingJson } from '../../packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration';
 import {
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaRegistrationRequestFactsV1,
@@ -162,6 +163,7 @@ async function buildSharedSigningBudgetFixture(): Promise<{
   const serverBootstrap = testEcdsaServerBootstrapResponse(
     toD1EcdsaDerivationClientBootstrapRequest(clientBootstrap),
   );
+  const registrationRequest = testRegistrationRequestFromFacts(facts);
   const state: StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch = {
     kind: 'evm_family_ecdsa_activated',
     branchKey: registrationEvmFamilyEcdsaBranchKey([tempoTarget, arcTarget]),
@@ -169,7 +171,9 @@ async function buildSharedSigningBudgetFixture(): Promise<{
     chainTargets: prepared.ecdsa.chainTargets,
     prepare,
     strictRegistration: facts,
-    registrationRequest: testRegistrationRequestFromFacts(facts),
+    strictRegistrationBindingJson:
+      routerAbEcdsaStrictRegistrationRequestBindingJson(registrationRequest),
+    registrationRequest,
     publicFacts: {
       registrationRequestDigestB64u: VALID_ECDSA_DIGEST32_B64U,
       proofTranscriptDigestB64u: VALID_ECDSA_DIGEST32_B64U,

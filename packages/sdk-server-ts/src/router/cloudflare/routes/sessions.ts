@@ -624,6 +624,8 @@ export async function handleSessionExchange(
     let oidcSub: string | undefined;
     let oidcAud: string[] | undefined;
     let oidcEmail: string | undefined;
+    let oidcEmailVerified: boolean | undefined;
+    let oidcHostedDomain: string | undefined;
     let oidcName: string | undefined;
     let oidcGivenName: string | undefined;
     let oidcFamilyName: string | undefined;
@@ -770,6 +772,15 @@ export async function handleSessionExchange(
         typeof verified.email === 'string' && verified.email.trim()
           ? verified.email.trim().toLowerCase()
           : undefined;
+      if (oidcProvider === 'google') {
+        oidcEmailVerified = 'emailVerified' in verified && verified.emailVerified === true;
+        oidcHostedDomain =
+          'hostedDomain' in verified &&
+          typeof verified.hostedDomain === 'string' &&
+          verified.hostedDomain.trim()
+            ? verified.hostedDomain.trim().toLowerCase()
+            : undefined;
+      }
       oidcName =
         typeof (verified as any).name === 'string' && (verified as any).name.trim()
           ? (verified as any).name.trim()
@@ -785,7 +796,7 @@ export async function handleSessionExchange(
       if (
         isGoogleEmailOtpExchange &&
         oidcAccountMode === 'register' &&
-        (!oidcEmail || (verified as { emailVerified?: boolean }).emailVerified !== true)
+        (!oidcEmail || oidcEmailVerified !== true)
       ) {
         await emitSessionExchangeFailed(ctx, {
           status: 400,
@@ -1112,6 +1123,8 @@ export async function handleSessionExchange(
       ...(oidcSub ? { oidcSub } : {}),
       ...(oidcAud?.length ? { oidcAud } : {}),
       ...(oidcEmail ? { email: oidcEmail } : {}),
+      ...(typeof oidcEmailVerified === 'boolean' ? { oidcEmailVerified } : {}),
+      ...(oidcHostedDomain ? { oidcHostedDomain } : {}),
       ...(oidcName ? { name: oidcName } : {}),
       ...(oidcGivenName ? { given_name: oidcGivenName } : {}),
       ...(oidcFamilyName ? { family_name: oidcFamilyName } : {}),

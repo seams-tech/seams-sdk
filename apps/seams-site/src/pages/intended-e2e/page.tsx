@@ -6,6 +6,7 @@ import {
   type RegistrationResult,
   type RegistrationSignerSetSelection,
 } from '@seams/sdk/react';
+import type { NearProvisioningState, NearProvisioningStateChangedEvent } from '@seams/sdk';
 import {
   encodeSignedTransactionBase64,
   nearAccountRefFromAccountId,
@@ -21,6 +22,7 @@ type IntendedActionName =
   | 'registerPasskeyEd25519YaoWallet'
   | 'addPasskeyEd25519YaoWalletSigner'
   | 'registerEmailOtpWallet'
+  | 'awaitNearReady'
   | 'unlockPasskeyWallet'
   | 'unlockEmailOtpWallet'
   | 'signNearTransaction'
@@ -147,13 +149,32 @@ type IntendedActionState =
   | IntendedActionSuccess
   | IntendedActionError;
 
-type PasskeyRegistrationCoreSummary = {
-  kind: 'passkey_registration_success';
-  walletId: string;
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-  operationalPublicKey: string;
-} & IntendedEcdsaSessionSummary;
+/**
+ * Refactor 94 Phase 7. What a passkey registration can assert at return time
+ * depends on whether it had a NEAR branch and whether that branch settled.
+ * A NEAR-only plan resolves with its identity; a mixed plan resolves
+ * ECDSA-ready with NEAR still provisioning, so no NEAR identifier exists yet.
+ * Modelled as a closed union so neither branch can borrow the other's fields.
+ */
+type PasskeyRegistrationCoreSummary = (
+  | {
+      kind: 'passkey_registration_success';
+      walletId: string;
+      nearAccountId: string;
+      nearEd25519SigningKeyId: string;
+      operationalPublicKey: string;
+      nearProvisioning?: never;
+    }
+  | {
+      kind: 'passkey_registration_success';
+      walletId: string;
+      nearProvisioning: IntendedNearProvisioningSummary;
+      nearAccountId?: never;
+      nearEd25519SigningKeyId?: never;
+      operationalPublicKey?: never;
+    }
+) &
+  IntendedEcdsaSessionSummary;
 
 type PasskeyRegistrationResultSummary = PasskeyRegistrationCoreSummary & IntendedEcdsaSummary;
 
@@ -165,15 +186,29 @@ type Ed25519AddSignerResultSummary = {
   operationalPublicKey: string;
 };
 
-type EmailOtpRegistrationCoreSummary = {
-  kind: 'email_otp_registration_success';
-  initialWalletId: string;
-  walletId: string;
-  nearAccountId: string;
-  operationalPublicKey: string;
-  signingSessionStatus: string;
-  remainingUses: number | null;
-} & IntendedEcdsaSessionSummary;
+type EmailOtpRegistrationCoreSummary = (
+  | {
+      kind: 'email_otp_registration_success';
+      initialWalletId: string;
+      walletId: string;
+      nearAccountId: string;
+      operationalPublicKey: string;
+      nearProvisioning?: never;
+      signingSessionStatus: string;
+      remainingUses: number | null;
+    }
+  | {
+      kind: 'email_otp_registration_success';
+      initialWalletId: string;
+      walletId: string;
+      nearProvisioning: IntendedNearProvisioningSummary;
+      nearAccountId?: never;
+      operationalPublicKey?: never;
+      signingSessionStatus: string;
+      remainingUses: number | null;
+    }
+) &
+  IntendedEcdsaSessionSummary;
 
 type EmailOtpRegistrationResultSummary = EmailOtpRegistrationCoreSummary & IntendedEcdsaSummary;
 
@@ -233,10 +268,18 @@ type Ed25519ExportResultSummary = {
   nearAccountId: string;
 };
 
+type NearProvisioningReadySummary = {
+  kind: 'near_provisioning_ready';
+  walletId: string;
+  nearAccountId: string;
+  operationalPublicKey: string;
+};
+
 type IntendedActionResult =
   | PasskeyRegistrationResultSummary
   | Ed25519AddSignerResultSummary
   | EmailOtpRegistrationResultSummary
+  | NearProvisioningReadySummary
   | NearSigningResultSummary
   | PasskeyUnlockResultSummary
   | EmailOtpUnlockResultSummary
@@ -307,6 +350,18 @@ type IntendedEmailOtpCodeRequest =
       walletId: string;
       challengeId?: never;
     };
+
+type IntendedNearProvisioningState = NearProvisioningState;
+
+type IntendedNearProvisioningReadyState = Extract<
+  IntendedNearProvisioningState,
+  { status: 'near_ready' }
+>;
+
+type IntendedNearProvisioningSummary =
+  | { status: 'pending'; error?: never; errorCode?: never }
+  | { status: 'provisioning'; error?: never; errorCode?: never }
+  | { status: 'retryable'; error: string; errorCode: string };
 
 type IntendedEmailOtpOutboxSuccess = {
   ok: true;
@@ -466,6 +521,15 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
           </button>
           <button
             type="button"
+            data-testid="intended-await-near-ready"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runAwaitNearReady}
+            style={buttonStyle}
+          >
+            Await NEAR Ready
+          </button>
+          <button
+            type="button"
             data-testid="intended-sign-near"
             disabled={state.action.status === 'running'}
             onClick={controller.runSignNearTransaction}
@@ -594,6 +658,10 @@ class IntendedPageController {
     void this.registerEmailOtpWallet();
   };
 
+  runAwaitNearReady = (): void => {
+    void this.awaitNearReady();
+  };
+
   runSignNearTransaction = (): void => {
     void this.signNearTransaction();
   };
@@ -648,14 +716,24 @@ class IntendedPageController {
         session: registration,
         ecdsaTargetKeys,
       });
-      const summary: PasskeyRegistrationResultSummary = {
-        kind: registration.kind,
-        walletId: registration.walletId,
-        nearAccountId: registration.nearAccountId,
-        nearEd25519SigningKeyId: registration.nearEd25519SigningKeyId,
-        operationalPublicKey: registration.operationalPublicKey,
-        ...ecdsa,
-      };
+      /* A mixed plan has no NEAR identity yet; a NEAR-only plan does. The two
+         summary branches cannot be merged without reintroducing optional
+         lifecycle fields. */
+      const summary: PasskeyRegistrationResultSummary = registration.nearProvisioning
+        ? {
+            kind: registration.kind,
+            walletId: registration.walletId,
+            nearProvisioning: registration.nearProvisioning,
+            ...ecdsa,
+          }
+        : {
+            kind: registration.kind,
+            walletId: registration.walletId,
+            nearAccountId: registration.nearAccountId,
+            nearEd25519SigningKeyId: registration.nearEd25519SigningKeyId,
+            operationalPublicKey: registration.operationalPublicKey,
+            ...ecdsa,
+          };
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
       this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
@@ -686,6 +764,9 @@ class IntendedPageController {
         ecdsaTargetProfile: { kind: 'none' },
       });
       await this.refreshLoginState(registration.walletId);
+      if (registration.nearProvisioning) {
+        throw new Error('Ed25519-only passkey registration must resolve its NEAR identity');
+      }
       const summary: PasskeyRegistrationResultSummary = {
         kind: registration.kind,
         walletId: registration.walletId,
@@ -738,24 +819,65 @@ class IntendedPageController {
     try {
       const registration = await this.registerEmailOtpWalletWithPublicSdk();
       this.walletId = registration.walletId;
-      this.nearAccountId = registration.nearAccountId;
+      this.nearAccountId = registration.nearAccountId ?? null;
       await this.refreshLoginState(this.walletId);
       const ecdsaTargetKeys = await this.readEcdsaTargetKeys(this.emailOtpEcdsaTargetProfile.kind);
       const ecdsa = assertEcdsaTargetKeysForSession({
         session: registration,
         ecdsaTargetKeys,
       });
-      const summary: EmailOtpRegistrationResultSummary = {
-        kind: registration.kind,
-        initialWalletId: registration.initialWalletId,
-        walletId: registration.walletId,
-        nearAccountId: registration.nearAccountId,
-        operationalPublicKey: registration.operationalPublicKey,
-        signingSessionStatus: registration.signingSessionStatus,
-        remainingUses: registration.remainingUses,
-        ...ecdsa,
-      };
+      const summary: EmailOtpRegistrationResultSummary = registration.nearProvisioning
+        ? {
+            kind: registration.kind,
+            initialWalletId: registration.initialWalletId,
+            walletId: registration.walletId,
+            nearProvisioning: registration.nearProvisioning,
+            signingSessionStatus: registration.signingSessionStatus,
+            remainingUses: registration.remainingUses,
+            ...ecdsa,
+          }
+        : {
+            kind: registration.kind,
+            initialWalletId: registration.initialWalletId,
+            walletId: registration.walletId,
+            nearAccountId: registration.nearAccountId,
+            operationalPublicKey: registration.operationalPublicKey,
+            signingSessionStatus: registration.signingSessionStatus,
+            remainingUses: registration.remainingUses,
+            ...ecdsa,
+          };
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  private async awaitNearReady(): Promise<void> {
+    const action: IntendedActionName = 'awaitNearReady';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const state = await awaitWalletNearReady({
+        registration: this.seams.registration,
+        walletId: this.walletId,
+      });
+      const session = await this.seams.auth.getWalletSession(this.walletId);
+      const nearAccountId = String(session.login.nearAccountId ?? '').trim();
+      const operationalPublicKey = String(session.login.publicKey ?? '').trim();
+      if (nearAccountId !== state.nearAccountId || !operationalPublicKey) {
+        throw new Error('NEAR provisioning completed without a matching wallet session identity');
+      }
+      this.nearAccountId = nearAccountId;
+      await this.refreshLoginState(this.walletId);
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'near_provisioning_ready',
+          walletId: this.walletId,
+          nearAccountId,
+          operationalPublicKey,
+        },
+      });
     } catch (error) {
       this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
     }
@@ -982,10 +1104,21 @@ class IntendedPageController {
     if (!completed.ok) {
       throw new Error(completed.error.message);
     }
+    const nearProvisioning = await this.seams.registration.getNearProvisioningState({
+      walletId: completed.value.walletId,
+    });
+    const session =
+      nearProvisioning?.status === 'near_ready'
+        ? await this.seams.auth.getWalletSession(completed.value.walletId)
+        : completed.value.session;
     return assertEmailOtpRegistrationCompleted({
-      completed: completed.value,
+      completed: {
+        ...completed.value,
+        session,
+      },
       initialWalletId,
       ecdsaTargetProfile: this.emailOtpEcdsaTargetProfile,
+      nearProvisioning,
     });
   }
 
@@ -1268,6 +1401,7 @@ function intendedActionResultWalletId(result: IntendedActionResult): string | nu
     case 'passkey_registration_success':
     case 'near_ed25519_signer_added':
     case 'email_otp_registration_success':
+    case 'near_provisioning_ready':
     case 'near_sign_success':
     case 'passkey_unlock_success':
     case 'email_otp_unlock_success':
@@ -1286,11 +1420,12 @@ function intendedActionResultNearAccountId(result: IntendedActionResult): string
     case 'passkey_registration_success':
     case 'near_ed25519_signer_added':
     case 'email_otp_registration_success':
+    case 'near_provisioning_ready':
     case 'near_sign_success':
     case 'passkey_unlock_success':
     case 'email_otp_unlock_success':
     case 'ed25519_export_success':
-      return result.nearAccountId;
+      return result.nearAccountId ?? null;
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
     case 'ecdsa_export_success':
@@ -1310,6 +1445,8 @@ function intendedActionResultNearSignerSlot(
       return 1;
     case 'near_ed25519_signer_added':
       return 2;
+    case 'near_provisioning_ready':
+      return 1;
     case 'near_sign_success':
     case 'passkey_unlock_success':
     case 'email_otp_unlock_success':
@@ -1503,17 +1640,17 @@ function assertPasskeyRegistrationSucceeded(args: {
   if (!result.success) {
     throw new Error(result.error || 'Passkey registration failed');
   }
-  if (result.kind !== 'wallet_registered') {
-    throw new Error(`Passkey registration returned result kind: ${result.kind}`);
-  }
-  const nearCapability = result.capabilities.find(
-    (capability) => capability.kind === 'near_ed25519',
-  );
-  if (!nearCapability) {
-    throw new Error('Passkey registration did not return a NEAR capability');
-  }
   switch (args.ecdsaTargetProfile.kind) {
     case 'none': {
+      if (result.kind !== 'wallet_registered') {
+        throw new Error(`Passkey registration returned result kind: ${result.kind}`);
+      }
+      const nearCapability = result.capabilities.find(
+        (capability) => capability.kind === 'near_ed25519',
+      );
+      if (!nearCapability || nearCapability.kind !== 'near_ed25519') {
+        throw new Error('Passkey registration did not return a NEAR capability');
+      }
       return {
         ...passkeyRegistrationIdentitySummary({
           result,
@@ -1524,33 +1661,33 @@ function assertPasskeyRegistrationSucceeded(args: {
       };
     }
     case 'tempo': {
-      const ecdsaCapability = result.capabilities.find(
-        (capability) => capability.kind === 'evm_family_ecdsa',
-      );
-      if (!ecdsaCapability) {
-        throw new Error('Mixed passkey registration did not return an ECDSA capability');
+      /* Refactor 94 Phase 7. A mixed plan resolves ECDSA-ready with the NEAR
+         branch still settling, so registration reports no NEAR identity here.
+         Callers that need it await near_ready through the public provisioning
+         API rather than reading it off the registration result. */
+      if (result.kind !== 'ecdsa_wallet_registered_near_pending') {
+        throw new Error(`Mixed passkey registration returned result kind: ${result.kind}`);
       }
+      const ecdsaCapability = result.capabilities[0];
       const ecdsa = requireThresholdEcdsaSessionFields({
         source: ecdsaCapability,
         label: 'Passkey registration',
       });
       return {
-        ...passkeyRegistrationIdentitySummary({
+        ...pendingPasskeyRegistrationSummary({
           result,
-          nearCapability,
           expectedWalletId: args.expectedWalletId,
         }),
         ...ecdsa,
       };
     }
     case 'tempo_arc': {
-      if (!result.capabilities.some((capability) => capability.kind === 'evm_family_ecdsa')) {
-        throw new Error('Mixed passkey registration did not return an ECDSA capability');
+      if (result.kind !== 'ecdsa_wallet_registered_near_pending') {
+        throw new Error(`Mixed passkey registration returned result kind: ${result.kind}`);
       }
       return {
-        ...passkeyRegistrationIdentitySummary({
+        ...pendingPasskeyRegistrationSummary({
           result,
-          nearCapability,
           expectedWalletId: args.expectedWalletId,
         }),
         ecdsaTargetProfile: 'tempo_arc',
@@ -1609,6 +1746,17 @@ type RegisteredNearCapability = Extract<
   { kind: 'near_ed25519' }
 >;
 
+type PendingPasskeyWalletRegistrationResult = Extract<
+  RegistrationResult,
+  { success: true; kind: 'ecdsa_wallet_registered_near_pending' }
+>;
+
+type PendingPasskeyRegistrationIdentitySummary = {
+  kind: 'passkey_registration_success';
+  walletId: string;
+  nearProvisioning: IntendedNearProvisioningSummary;
+};
+
 type PasskeyRegistrationIdentitySummary = {
   kind: 'passkey_registration_success';
   walletId: string;
@@ -1616,6 +1764,39 @@ type PasskeyRegistrationIdentitySummary = {
   nearEd25519SigningKeyId: string;
   operationalPublicKey: string;
 };
+
+/**
+ * Identity a mixed passkey registration can actually assert at return time.
+ * NEAR provisioning has not completed, so there is no NEAR account, signing
+ * key id, or operational public key to report yet.
+ */
+function pendingPasskeyRegistrationSummary(args: {
+  result: PendingPasskeyWalletRegistrationResult;
+  expectedWalletId: string;
+}): PendingPasskeyRegistrationIdentitySummary {
+  const walletId = String(args.result.walletId).trim();
+  if (walletId !== args.expectedWalletId) {
+    throw new Error(`Passkey registration wallet mismatch: ${walletId}`);
+  }
+  return {
+    kind: 'passkey_registration_success',
+    walletId,
+    nearProvisioning: registrationNearProvisioningSummary(args.result.nearProvisioning),
+  };
+}
+
+function registrationNearProvisioningSummary(
+  state: PendingPasskeyWalletRegistrationResult['nearProvisioning'],
+): IntendedNearProvisioningSummary {
+  switch (state.status) {
+    case 'pending':
+      return { status: 'pending' };
+    case 'retryable':
+      return { status: 'retryable', error: state.error, errorCode: state.errorCode };
+    default:
+      return assertNever(state);
+  }
+}
 
 function passkeyRegistrationIdentitySummary(args: {
   result: PasskeyWalletRegistrationResult;
@@ -1758,6 +1939,7 @@ function assertEmailOtpRegistrationCompleted(args: {
   };
   initialWalletId: string;
   ecdsaTargetProfile: IntendedEmailOtpEcdsaTargetProfile;
+  nearProvisioning: IntendedNearProvisioningState | null;
 }): EmailOtpRegistrationCoreSummary {
   const completed = args.completed;
   const walletId = String(completed.walletId || '').trim();
@@ -1772,13 +1954,7 @@ function assertEmailOtpRegistrationCompleted(args: {
     throw new Error(`Email OTP registration session wallet mismatch: ${sessionWalletId}`);
   }
   const nearAccountId = String(completed.session.login.nearAccountId || '').trim();
-  if (!nearAccountId) {
-    throw new Error('Email OTP registration did not return a NEAR account id');
-  }
   const operationalPublicKey = String(completed.session.login.publicKey || '').trim();
-  if (!operationalPublicKey) {
-    throw new Error('Email OTP registration did not return an operational public key');
-  }
   const ecdsa = assertEcdsaSessionSummary({
     ecdsaTargetProfile: args.ecdsaTargetProfile,
     source: completed.session.login,
@@ -1790,16 +1966,102 @@ function assertEmailOtpRegistrationCompleted(args: {
       `Email OTP registration did not return an active signing session: ${signingSessionStatus}`,
     );
   }
-  return {
-    kind: 'email_otp_registration_success',
+  const common = {
+    kind: 'email_otp_registration_success' as const,
     initialWalletId: args.initialWalletId,
     walletId,
-    nearAccountId,
-    operationalPublicKey,
     signingSessionStatus,
     remainingUses: normalizeOptionalNumber(completed.session.signingSession?.remainingUses),
+  };
+  if (nearAccountId && operationalPublicKey) {
+    return {
+      ...common,
+      nearAccountId,
+      operationalPublicKey,
+      ...ecdsa,
+    };
+  }
+  if (!args.nearProvisioning) {
+    throw new Error('Email OTP registration returned neither NEAR identity nor provisioning state');
+  }
+  return {
+    ...common,
+    nearProvisioning: nearProvisioningSummaryStatus(args.nearProvisioning),
     ...ecdsa,
   };
+}
+
+function nearProvisioningSummaryStatus(
+  state: IntendedNearProvisioningState,
+): IntendedNearProvisioningSummary {
+  switch (state.status) {
+    case 'near_pending':
+      return { status: 'pending' };
+    case 'near_provisioning':
+      return { status: 'provisioning' };
+    case 'near_failed_retryable':
+      return { status: 'retryable', error: state.error, errorCode: state.errorCode };
+    case 'near_ready':
+      throw new Error('NEAR readiness is missing its wallet session identity');
+    default:
+      return assertNever(state);
+  }
+}
+
+async function awaitWalletNearReady(args: {
+  registration: ReturnType<typeof useSeams>['seams']['registration'];
+  walletId: string;
+}): Promise<IntendedNearProvisioningReadyState> {
+  const current = await args.registration.getNearProvisioningState({ walletId: args.walletId });
+  const settled = settleNearProvisioningState(current);
+  if (settled) return settled;
+
+  return await new Promise<IntendedNearProvisioningReadyState>((resolve, reject) => {
+    let unsubscribe = (): void => undefined;
+    const timeout = window.setTimeout(() => {
+      unsubscribe();
+      reject(new Error('Timed out waiting for NEAR provisioning'));
+    }, 120_000);
+    const settle = (state: IntendedNearProvisioningState | null): void => {
+      try {
+        const ready = settleNearProvisioningState(state);
+        if (!ready) return;
+        window.clearTimeout(timeout);
+        unsubscribe();
+        resolve(ready);
+      } catch (error) {
+        window.clearTimeout(timeout);
+        unsubscribe();
+        reject(error);
+      }
+    };
+    unsubscribe = args.registration.onNearProvisioningStateChanged(
+      (event: NearProvisioningStateChangedEvent) => {
+      if (String(event.walletId) === args.walletId) settle(event.state);
+      },
+    );
+    void args.registration
+      .getNearProvisioningState({ walletId: args.walletId })
+      .then(settle)
+      .catch(reject);
+  });
+}
+
+function settleNearProvisioningState(
+  state: IntendedNearProvisioningState | null,
+): IntendedNearProvisioningReadyState | null {
+  if (!state) return null;
+  switch (state.status) {
+    case 'near_pending':
+    case 'near_provisioning':
+      return null;
+    case 'near_ready':
+      return state;
+    case 'near_failed_retryable':
+      throw new Error(`NEAR provisioning is retryable (${state.errorCode}): ${state.error}`);
+    default:
+      return assertNever(state);
+  }
 }
 
 function assertEmailOtpUnlockSucceeded(args: {

@@ -146,6 +146,7 @@ import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority
 import {
   parseRouterAbTraceContextV1,
   ROUTER_AB_TRACE_ID_HEADER_V1,
+  type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
 import type { RouterAbEd25519YaoGatewaySpanV1 } from './routerAbEd25519YaoHttpRegistrationBackend';
 
@@ -176,6 +177,20 @@ type RouterApiWalletRegistrationInput = {
 };
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };
+
+type RegistrationTraceContextParseResult =
+  | { readonly ok: true; readonly value: RouterAbTraceContextV1 | null }
+  | { readonly ok: false; readonly message: string };
+
+function parseRegistrationTraceContext(
+  headers: HeaderRecord,
+): RegistrationTraceContextParseResult {
+  const rawTraceId = headers[ROUTER_AB_TRACE_ID_HEADER_V1] ?? headers['X-Seams-Trace-Id'];
+  const parsed = parseRouterAbTraceContextV1(rawTraceId);
+  if (parsed.ok) return { ok: true, value: parsed.value };
+  if (parsed.reason === 'missing') return { ok: true, value: null };
+  return { ok: false, message: parsed.message };
+}
 
 function emitGatewayD1CommitSpan(input: {
   logger: NormalizedRouterLogger;
@@ -262,21 +277,6 @@ function buildPasskeyWalletRegistrationFinalizeRouteSuccess(
         kind: result.kind,
         ecdsa: result.ecdsa,
       };
-    case 'near_ed25519_and_evm_family_ecdsa':
-      return {
-        ok: true,
-        walletId: result.walletId,
-        authority: result.authority,
-        registrationDiagnostics: result.registrationDiagnostics,
-        rpId: result.rpId,
-        authMethod: result.authMethod,
-        kind: result.kind,
-        authorityScope: result.authorityScope,
-        accountProvisioning: result.accountProvisioning,
-        resolvedAccount: result.resolvedAccount,
-        ed25519: result.ed25519,
-        ecdsa: result.ecdsa,
-      };
     default:
       return assertNeverWalletRegistrationFinalizeKind(result);
   }
@@ -309,21 +309,6 @@ function buildEmailOtpWalletRegistrationFinalizeRouteSuccess(
         registrationDiagnostics: result.registrationDiagnostics,
         authMethod: result.authMethod,
         kind: result.kind,
-        ecdsa: result.ecdsa,
-        appSessionJwt,
-      };
-    case 'near_ed25519_and_evm_family_ecdsa':
-      return {
-        ok: true,
-        walletId: result.walletId,
-        authority: result.authority,
-        registrationDiagnostics: result.registrationDiagnostics,
-        authMethod: result.authMethod,
-        kind: result.kind,
-        authorityScope: result.authorityScope,
-        accountProvisioning: result.accountProvisioning,
-        resolvedAccount: result.resolvedAccount,
-        ed25519: result.ed25519,
         ecdsa: result.ecdsa,
         appSessionJwt,
       };
@@ -2016,21 +2001,9 @@ function parseWalletRegistrationFinalizeSignerWork(
       if (!ecdsa.ok) return ecdsa;
       return { ok: true, value: { kind: 'evm_family_ecdsa', ecdsa: ecdsa.value } };
     }
-    case 'near_ed25519_and_evm_family_ecdsa': {
-      const ed25519 = parseWalletRegistrationEd25519Finalize(signerWork.ed25519);
-      if (!ed25519.ok) return ed25519;
-      const ecdsa = parseWalletRegistrationEcdsaFinalize(signerWork.ecdsa);
-      if (!ecdsa.ok) return ecdsa;
-      return {
-        ok: true,
-        value: {
-          kind: 'near_ed25519_and_evm_family_ecdsa',
-          ed25519: ed25519.value,
-          ecdsa: ecdsa.value,
-        },
-      };
-    }
     default:
+      /* A wallet planned with both signers finalizes twice, one branch per
+         call, so a combined finalize kind is no longer accepted here. */
       return {
         ok: false,
         code: 'invalid_body',
@@ -2701,9 +2674,31 @@ export async function handleRouterApiWalletRegistrationStart(
   return routeJson(result.ok ? 200 : 400, response);
 }
 
+/**
+ * Formats Gateway boundary timings as a `Server-Timing` header value and
+ * removes them from the response body. The wire body must stay byte-identical
+ * to the uninstrumented response; only the header carries timing. Fixed metric
+ * names and numeric durations only.
+ */
+function takeEcdsaGatewayServerTiming<
+  T extends { ok: boolean; gatewayServerTiming?: readonly (readonly [string, number])[] },
+>(result: T): { body: T; headers?: Record<string, string> } {
+  if (!result.ok || !result.gatewayServerTiming?.length) {
+    const { gatewayServerTiming: _dropped, ...body } = result;
+    return { body: body as T };
+  }
+  const header = result.gatewayServerTiming
+    .map(([name, durationMs]) => `${name};dur=${Math.max(0, durationMs).toFixed(1)}`)
+    .join(', ');
+  const { gatewayServerTiming: _stripped, ...body } = result;
+  return { body: body as T, headers: { 'Server-Timing': header } };
+}
+
 export async function handleRouterApiWalletRegistrationEcdsaDerivationRespond(
   input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletRegistrationEcdsaDerivationRespondResponse | RouteErrorBody>> {
+  const traceContext = parseRegistrationTraceContext(input.headers);
+  if (!traceContext.ok) return routeError(400, 'invalid_trace_id', traceContext.message);
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
@@ -2711,16 +2706,20 @@ export async function handleRouterApiWalletRegistrationEcdsaDerivationRespond(
   if (!request.ok) return routeError(400, request.code, request.message);
   const result = await input.services.walletRegistration.respondWalletRegistrationEcdsaDerivation(
     request.value,
+    traceContext.value ?? undefined,
   );
+  const { body: timedResult, headers } = takeEcdsaGatewayServerTiming(result);
   const response = exposesRegistrationRouteDiagnostics(input)
-    ? result
-    : stripRegistrationRouteDiagnostics(result);
-  return routeJson(result.ok ? 200 : 400, response);
+    ? timedResult
+    : stripRegistrationRouteDiagnostics(timedResult);
+  return routeJson(result.ok ? 200 : 400, response, headers ? { headers } : undefined);
 }
 
 export async function handleRouterApiWalletRegistrationEcdsaActivation(
   input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletRegistrationEcdsaActivationResponse | RouteErrorBody>> {
+  const traceContext = parseRegistrationTraceContext(input.headers);
+  if (!traceContext.ok) return routeError(400, 'invalid_trace_id', traceContext.message);
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
@@ -2728,26 +2727,40 @@ export async function handleRouterApiWalletRegistrationEcdsaActivation(
   if (!request.ok) return routeError(400, request.code, request.message);
   const result = await input.services.walletRegistration.activateWalletRegistrationEcdsa(
     request.value,
+    traceContext.value ?? undefined,
   );
   if (!result.ok) return routeJson(400, result);
+  const { body: timedResult, headers } = takeEcdsaGatewayServerTiming(result);
+  const routeTimings: Array<readonly [string, number]> = [];
+  const policyStartedAtMs = Date.now();
   const runtimePolicyScope =
     await input.services.walletRegistration.getWalletRegistrationRuntimePolicyScope(
       request.value.registrationCeremonyId,
     );
+  routeTimings.push(['ecdsa_activate_policy_lookup', Math.max(0, Date.now() - policyStartedAtMs)]);
+  const jwtStartedAtMs = Date.now();
   const attached = await attachEcdsaWalletSessionJwt(
     input,
-    result.ecdsa.bootstrap,
-    result.ecdsa.activation.ecdsa_activation.activation_epoch,
+    timedResult.ecdsa.bootstrap,
+    timedResult.ecdsa.activation.ecdsa_activation.activation_epoch,
     runtimePolicyScope,
   );
   if (!attached.ok) return attached.response;
-  return routeJson(200, {
-    ...result,
+  routeTimings.push(['ecdsa_activate_jwt_mint', Math.max(0, Date.now() - jwtStartedAtMs)]);
+  const response = {
+    ...timedResult,
     ecdsa: {
-      ...result.ecdsa,
+      ...timedResult.ecdsa,
       bootstrap: attached.bootstrap,
     },
-  });
+  };
+  const routeHeader = routeTimings
+    .map(([name, durationMs]) => `${name};dur=${durationMs.toFixed(1)}`)
+    .join(', ');
+  const serverTiming = headers?.['Server-Timing']
+    ? `${headers['Server-Timing']}, ${routeHeader}`
+    : routeHeader;
+  return routeJson(200, response, { headers: { 'Server-Timing': serverTiming } });
 }
 
 export async function handleRouterApiWalletRegistrationEcdsaActivationPrepare(

@@ -276,14 +276,21 @@ ON CONFLICT(namespace, org_id, id) DO UPDATE SET
 
 function buildBillingAccountStatement(config) {
   return `INSERT INTO billing_accounts
-  (namespace, org_id, credit_balance_minor, low_balance_threshold_minor, created_at_ms, updated_at_ms)
+  (namespace, org_id, low_balance_threshold_minor, created_at_ms, updated_at_ms)
 VALUES
-  (${sqlString(config.namespace)}, ${sqlString(config.orgId)}, ${config.prepaidCreditMinor}, 2000,
-   ${config.nowMs}, ${config.nowMs})
+  (${sqlString(config.namespace)}, ${sqlString(config.orgId)}, 2000, ${config.nowMs}, ${config.nowMs})
 ON CONFLICT(namespace, org_id) DO UPDATE SET
-  credit_balance_minor = max(billing_accounts.credit_balance_minor, excluded.credit_balance_minor),
   low_balance_threshold_minor = excluded.low_balance_threshold_minor,
-  updated_at_ms = excluded.updated_at_ms;`;
+  updated_at_ms = excluded.updated_at_ms;
+
+INSERT INTO billing_ledger_entries
+  (namespace, org_id, id, entry_type, amount_minor, currency, description,
+   actor_type, reason_code, idempotency_key, created_at_ms)
+VALUES
+  (${sqlString(config.namespace)}, ${sqlString(config.orgId)}, 'le_intended_local_credit',
+   'MANUAL_ADJUSTMENT', ${config.prepaidCreditMinor}, 'USD', 'Intended local prepaid credit',
+   'SYSTEM', 'intended_local_seed', 'intended-local-prepaid-credit', ${config.nowMs})
+ON CONFLICT(namespace, org_id, id) DO NOTHING;`;
 }
 
 function buildRetireTempoPricingStatement(config) {

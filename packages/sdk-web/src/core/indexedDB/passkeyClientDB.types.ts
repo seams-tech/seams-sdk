@@ -1,4 +1,5 @@
 import type { AccountId } from '../types/accountIds';
+import type { NearProvisioningState } from '../types/seams';
 import type { ConfirmationConfig } from '../types/signer-worker';
 import type {
   ThresholdEcdsaChainTarget,
@@ -124,6 +125,9 @@ export interface ProfileRecord {
   defaultSignerSlot: number;
   passkeyCredential?: PasskeyCredentialRecord;
   preferences?: UserPreferences;
+  /* Refactor 94 Phase 6. Survives reloads so a wallet that registered
+     ECDSA-ready does not come back looking NEAR-capable. */
+  nearProvisioning?: NearProvisioningState;
   createdAt: number;
   updatedAt: number;
 }
@@ -188,6 +192,7 @@ export type UpsertProfileInput = {
   defaultSignerSlot?: number;
   passkeyCredential?: PasskeyCredentialRecord;
   preferences?: UserPreferences;
+  nearProvisioning?: NearProvisioningState;
 };
 
 export type UpsertChainAccountInput = {

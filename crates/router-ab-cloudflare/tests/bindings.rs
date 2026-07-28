@@ -108,8 +108,8 @@ use router_ab_cloudflare::{
     CloudflareRouterNormalSigningTrustedAdmissionV1,
     CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareRouterProjectPolicyRecordV1,
     CloudflareRouterProjectPolicyStoreV1, CloudflareRouterProjectPolicyV1,
-    CloudflareRouterPublicAdmissionPlanV1, CloudflareRouterQuotaCheckV1,
-    CloudflareRouterQuotaReservationV1, CloudflareRouterQuotaStoreV1,
+    CloudflareRouterPublicAdmissionCompletionV1, CloudflareRouterPublicAdmissionPlanV1,
+    CloudflareRouterQuotaCheckV1, CloudflareRouterQuotaReservationV1, CloudflareRouterQuotaStoreV1,
     CloudflareRouterRecipientProofBundleResponseV1, CloudflareRouterStoredAbuseProviderV1,
     CloudflareRouterStoredProjectPolicyProviderV1, CloudflareRouterStoredQuotaProviderV1,
     CloudflareRouterTrustedAdmissionV1, CloudflareRouterTrustedRequestMetadataV1,
@@ -891,6 +891,11 @@ fn accepted_lifecycle_state() -> RouterAbLifecycleStateV1 {
         ExpensiveWorkGateDecisionV1::accepted("gate-request-1").expect("accepted"),
     )
     .expect("accepted lifecycle state")
+}
+
+fn public_admission_replay(request_id: &str) -> CloudflareReplayReserveRequestV1 {
+    CloudflareReplayReserveRequestV1::new(request_id, digest(0x11), 1000)
+        .expect("public admission replay")
 }
 
 fn created_derivation_ceremony() -> CloudflareDerivationCeremonyV1 {
@@ -3188,9 +3193,12 @@ fn router_worker_runtime_builds_only_router_scoped_durable_object_calls() {
                 .expect("replay request"),
         )
         .expect("replay call");
-    let lifecycle_call = runtime
-        .lifecycle_put_public_state_call(lifecycle_state())
-        .expect("lifecycle call");
+    let admission_call = runtime
+        .public_admission_call(
+            public_admission_replay("request-2"),
+            accepted_lifecycle_state(),
+        )
+        .expect("public admission call");
     let ceremony_call = runtime
         .derivation_ceremony_put_state_call(created_derivation_ceremony())
         .expect("ceremony call");
@@ -3201,7 +3209,7 @@ fn router_worker_runtime_builds_only_router_scoped_durable_object_calls() {
         CloudflareDurableObjectScopeV1::RouterReplay
     );
     assert_eq!(
-        lifecycle_call.binding.scope,
+        admission_call.binding.scope,
         CloudflareDurableObjectScopeV1::RouterLifecycle
     );
     assert_eq!(
@@ -3252,7 +3260,6 @@ fn router_worker_runtime_normalizes_public_request_into_admission_plan() {
     )
     .expect("router runtime");
     let request = ecdsa_threshold_prf_request(2_000);
-    let router_replay_digest = request.router_replay_digest();
     let plan = runtime
         .public_request_admission_plan_at(
             1_000,
@@ -3265,15 +3272,7 @@ fn router_worker_runtime_normalizes_public_request_into_admission_plan() {
 
     plan.validate().expect("plan validation");
     assert_eq!(
-        plan.replay_reserve_call().binding.scope,
-        CloudflareDurableObjectScopeV1::RouterReplay
-    );
-    assert_eq!(
-        plan.lifecycle_put_call().binding.scope,
-        CloudflareDurableObjectScopeV1::RouterLifecycle
-    );
-    assert_eq!(
-        plan.lifecycle_requested_put_call().binding.scope,
+        plan.admission_call().binding.scope,
         CloudflareDurableObjectScopeV1::RouterLifecycle
     );
     let CloudflareRouterPublicAdmissionPlanV1::Forward {
@@ -3287,11 +3286,8 @@ fn router_worker_runtime_normalizes_public_request_into_admission_plan() {
     assert_eq!(deriver_a_message.kind, WireMessageKindV1::RouterToSignerA);
     assert_eq!(deriver_b_message.kind, WireMessageKindV1::RouterToSignerB);
     assert_eq!(
-        plan.replay_reserve_call().storage_key(),
-        format!(
-            "ROUTER_REPLAY_DO:replay/request-nonce-1/{}",
-            digest_hex(router_replay_digest)
-        )
+        plan.admission_call().storage_key(),
+        "ROUTER_LIFECYCLE_DO:lifecycle/lifecycle-1"
     );
 }
 
@@ -3328,8 +3324,7 @@ fn router_worker_runtime_builds_forward_plan_for_accepted_admission() {
 
     plan.validate().expect("plan validation");
     let CloudflareRouterPublicAdmissionPlanV1::Forward {
-        lifecycle_requested_put_call,
-        lifecycle_put_call,
+        admission_call,
         deriver_a_message,
         deriver_b_message,
         ..
@@ -3339,17 +3334,12 @@ fn router_worker_runtime_builds_forward_plan_for_accepted_admission() {
     };
     assert_eq!(deriver_a_message.kind, WireMessageKindV1::RouterToSignerA);
     assert_eq!(deriver_b_message.kind, WireMessageKindV1::RouterToSignerB);
-    let CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } =
-        lifecycle_requested_put_call.request
+    let CloudflareDurableObjectRequestV1::RouterPublicAdmission { replay, state } =
+        admission_call.request
     else {
-        panic!("expected requested lifecycle put request");
+        panic!("expected atomic public admission request");
     };
-    assert!(matches!(state, RouterAbLifecycleStateV1::Requested { .. }));
-    let CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } =
-        lifecycle_put_call.request
-    else {
-        panic!("expected lifecycle put request");
-    };
+    assert_eq!(replay.request_id, "request-nonce-1");
     assert!(matches!(
         state,
         RouterAbLifecycleStateV1::GateAccepted { .. }
@@ -3389,24 +3379,13 @@ fn router_worker_runtime_builds_stop_plan_for_rejected_admission() {
         .expect("admission plan");
 
     plan.validate().expect("plan validation");
-    let CloudflareRouterPublicAdmissionPlanV1::Stop {
-        lifecycle_requested_put_call,
-        lifecycle_put_call,
-        ..
-    } = plan
-    else {
+    let CloudflareRouterPublicAdmissionPlanV1::Stop { admission_call, .. } = plan else {
         panic!("rejected admission must stop");
     };
-    let CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } =
-        lifecycle_requested_put_call.request
+    let CloudflareDurableObjectRequestV1::RouterPublicAdmission { state, .. } =
+        admission_call.request
     else {
-        panic!("expected requested lifecycle put request");
-    };
-    assert!(matches!(state, RouterAbLifecycleStateV1::Requested { .. }));
-    let CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } =
-        lifecycle_put_call.request
-    else {
-        panic!("expected lifecycle put request");
+        panic!("expected atomic public admission request");
     };
     assert!(matches!(
         state,
@@ -9772,23 +9751,26 @@ fn durable_object_call_routes_router_replay_and_lifecycle_state() {
         "ROUTER_REPLAY_DO:replay/request-1/1111111111111111111111111111111111111111111111111111111111111111"
     );
 
-    let lifecycle_call = CloudflareDurableObjectCallV1::new(
+    let admission_call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::Router,
         do_binding(
             CloudflareDurableObjectScopeV1::RouterLifecycle,
             "ROUTER_LIFECYCLE_DO",
         ),
-        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(lifecycle_state())
-            .expect("lifecycle op"),
+        CloudflareDurableObjectRequestV1::router_public_admission(
+            public_admission_replay("request-2"),
+            accepted_lifecycle_state(),
+        )
+        .expect("public admission op"),
     )
-    .expect("lifecycle call");
+    .expect("public admission call");
 
     assert_eq!(
-        lifecycle_call.operation_kind(),
-        CloudflareDurableObjectOperationKindV1::RouterLifecyclePutPublicState
+        admission_call.operation_kind(),
+        CloudflareDurableObjectOperationKindV1::RouterPublicAdmission
     );
     assert_eq!(
-        lifecycle_call.storage_key(),
+        admission_call.storage_key(),
         "ROUTER_LIFECYCLE_DO:lifecycle/lifecycle-1"
     );
 
@@ -9981,9 +9963,11 @@ fn durable_object_response_rejects_mismatched_replay_request_id() {
 
 #[test]
 fn durable_object_response_rejects_mismatched_response_branch() {
-    let request =
-        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(lifecycle_state())
-            .expect("request");
+    let request = CloudflareDurableObjectRequestV1::router_public_admission(
+        public_admission_replay("request-1"),
+        accepted_lifecycle_state(),
+    )
+    .expect("request");
     let response = CloudflareDurableObjectResponseV1::router_replay_reserve(
         CloudflareReplayReserveResponseV1::new("request-1", true).expect("replay response"),
     )
@@ -10031,11 +10015,15 @@ fn durable_object_response_validates_server_activation_receipt() {
 
 #[test]
 fn durable_object_response_validates_lifecycle_receipt() {
-    let request =
-        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(lifecycle_state())
-            .expect("request");
-    let response = CloudflareDurableObjectResponseV1::router_lifecycle_put_public_state(
-        CloudflareLifecyclePutReceiptV1::new("lifecycle-1", true).expect("receipt"),
+    let request = CloudflareDurableObjectRequestV1::router_public_admission(
+        public_admission_replay("request-1"),
+        accepted_lifecycle_state(),
+    )
+    .expect("request");
+    let response = CloudflareDurableObjectResponseV1::router_public_admission(
+        CloudflareReplayReserveResponseV1::new("request-1", true).expect("replay"),
+        CloudflareLifecyclePutReceiptV1::new("lifecycle-1", true).expect("lifecycle"),
+        CloudflareRouterPublicAdmissionCompletionV1::Pending,
     )
     .expect("response");
 
@@ -10467,27 +10455,70 @@ fn durable_object_handler_reserves_replay_request_id_once() {
 }
 
 #[test]
-fn durable_object_handler_stores_router_lifecycle_state() {
-    let state = lifecycle_state();
+fn durable_object_handler_atomically_stores_public_replay_and_lifecycle() {
+    let state = accepted_lifecycle_state();
+    let replay = public_admission_replay("request-1");
     let call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::Router,
         do_binding(
             CloudflareDurableObjectScopeV1::RouterLifecycle,
             "ROUTER_LIFECYCLE_DO",
         ),
-        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(state.clone())
-            .expect("lifecycle op"),
+        CloudflareDurableObjectRequestV1::router_public_admission(replay.clone(), state.clone())
+            .expect("public admission op"),
     )
-    .expect("lifecycle call");
+    .expect("public admission call");
     let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
 
     let response =
-        handle_cloudflare_durable_object_call_v1(&call, &mut storage).expect("lifecycle put");
+        handle_cloudflare_durable_object_call_v1(&call, &mut storage).expect("public admission");
 
     assert_eq!(
         response,
-        CloudflareDurableObjectResponseV1::router_lifecycle_put_public_state(
-            CloudflareLifecyclePutReceiptV1::new("lifecycle-1", true).expect("receipt")
+        CloudflareDurableObjectResponseV1::router_public_admission(
+            CloudflareReplayReserveResponseV1::new("request-1", true).expect("replay"),
+            CloudflareLifecyclePutReceiptV1::new("lifecycle-1", true).expect("lifecycle"),
+            CloudflareRouterPublicAdmissionCompletionV1::Pending,
+        )
+        .expect("response")
+    );
+    assert_eq!(storage.lifecycle_state(&call.storage_key()), Some(&state));
+    assert_eq!(
+        storage.replay_reservation(
+            &call
+                .public_admission_replay_index_storage_key()
+                .expect("replay key")
+        ),
+        Some(&replay)
+    );
+}
+
+#[test]
+fn durable_object_handler_returns_a_non_reserved_exact_public_admission_retry() {
+    let state = accepted_lifecycle_state();
+    let replay = public_admission_replay("request-1");
+    let call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        do_binding(
+            CloudflareDurableObjectScopeV1::RouterLifecycle,
+            "ROUTER_LIFECYCLE_DO",
+        ),
+        CloudflareDurableObjectRequestV1::router_public_admission(replay, state.clone())
+            .expect("public admission op"),
+    )
+    .expect("public admission call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    handle_cloudflare_durable_object_call_v1(&call, &mut storage).expect("initial admission");
+    let replayed =
+        handle_cloudflare_durable_object_call_v1(&call, &mut storage).expect("exact retry");
+
+    assert_eq!(
+        replayed,
+        CloudflareDurableObjectResponseV1::router_public_admission(
+            CloudflareReplayReserveResponseV1::new("request-1", false).expect("replay"),
+            CloudflareLifecyclePutReceiptV1::new("lifecycle-1", false).expect("lifecycle"),
+            CloudflareRouterPublicAdmissionCompletionV1::Pending,
         )
         .expect("response")
     );
@@ -10495,110 +10526,102 @@ fn durable_object_handler_stores_router_lifecycle_state() {
 }
 
 #[test]
-fn durable_object_handler_rejects_lifecycle_gate_state_without_requested_state() {
+fn durable_object_handler_replays_the_exact_completed_public_registration() {
     let state = accepted_lifecycle_state();
-    let call = CloudflareDurableObjectCallV1::new(
+    let replay = public_admission_replay("request-1");
+    let binding = do_binding(
+        CloudflareDurableObjectScopeV1::RouterLifecycle,
+        "ROUTER_LIFECYCLE_DO",
+    );
+    let admission = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::Router,
-        do_binding(
-            CloudflareDurableObjectScopeV1::RouterLifecycle,
-            "ROUTER_LIFECYCLE_DO",
-        ),
-        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(state)
-            .expect("accepted lifecycle op"),
+        binding.clone(),
+        CloudflareDurableObjectRequestV1::router_public_admission(replay.clone(), state.clone())
+            .expect("public admission op"),
     )
-    .expect("accepted lifecycle call");
+    .expect("public admission call");
+    let completion = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        binding,
+        CloudflareDurableObjectRequestV1::router_public_registration_complete(
+            replay,
+            state.scope().lifecycle_id.clone(),
+            r#"{"result":"forwarded"}"#,
+        )
+        .expect("public completion op"),
+    )
+    .expect("public completion call");
     let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
 
-    let err = handle_cloudflare_durable_object_call_v1(&call, &mut storage)
-        .expect_err("gate outcome cannot create lifecycle storage");
+    handle_cloudflare_durable_object_call_v1(&admission, &mut storage).expect("initial admission");
+    let completed = handle_cloudflare_durable_object_call_v1(&completion, &mut storage)
+        .expect("initial completion");
+    let repeated_completion = handle_cloudflare_durable_object_call_v1(&completion, &mut storage)
+        .expect("exact completion replay");
+    let repeated_admission = handle_cloudflare_durable_object_call_v1(&admission, &mut storage)
+        .expect("completed admission replay");
 
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
-    assert_eq!(storage.lifecycle_state(&call.storage_key()), None);
+    let exact_completion = CloudflareRouterPublicAdmissionCompletionV1::Completed {
+        response_json: r#"{"result":"forwarded"}"#.to_owned(),
+    };
+    assert_eq!(completed, repeated_completion);
+    assert_eq!(
+        completed,
+        CloudflareDurableObjectResponseV1::router_public_registration_complete(
+            exact_completion.clone(),
+        )
+        .expect("completion response"),
+    );
+    assert_eq!(
+        repeated_admission,
+        CloudflareDurableObjectResponseV1::router_public_admission(
+            CloudflareReplayReserveResponseV1::new("request-1", false).expect("replay"),
+            CloudflareLifecyclePutReceiptV1::new("lifecycle-1", false).expect("lifecycle"),
+            exact_completion,
+        )
+        .expect("admission replay response"),
+    );
 }
 
 #[test]
-fn durable_object_handler_enforces_router_lifecycle_transition() {
-    let requested = lifecycle_state();
+fn durable_object_handler_rejects_a_second_replay_identity_for_one_lifecycle() {
     let accepted = accepted_lifecycle_state();
     let binding = do_binding(
         CloudflareDurableObjectScopeV1::RouterLifecycle,
         "ROUTER_LIFECYCLE_DO",
     );
-    let requested_call = CloudflareDurableObjectCallV1::new(
+    let first = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::Router,
         binding.clone(),
-        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(requested)
-            .expect("requested lifecycle op"),
+        CloudflareDurableObjectRequestV1::router_public_admission(
+            public_admission_replay("request-1"),
+            accepted.clone(),
+        )
+        .expect("first admission"),
     )
-    .expect("requested lifecycle call");
-    let accepted_call = CloudflareDurableObjectCallV1::new(
+    .expect("first call");
+    let conflicting = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::Router,
         binding,
-        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(accepted.clone())
-            .expect("accepted lifecycle op"),
+        CloudflareDurableObjectRequestV1::router_public_admission(
+            public_admission_replay("request-2"),
+            accepted.clone(),
+        )
+        .expect("conflicting admission"),
     )
-    .expect("accepted lifecycle call");
+    .expect("conflicting call");
     let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
 
-    handle_cloudflare_durable_object_call_v1(&requested_call, &mut storage)
-        .expect("requested lifecycle put");
-    handle_cloudflare_durable_object_call_v1(&accepted_call, &mut storage)
-        .expect("accepted lifecycle put");
-    handle_cloudflare_durable_object_call_v1(&accepted_call, &mut storage)
-        .expect("idempotent accepted lifecycle retry");
+    handle_cloudflare_durable_object_call_v1(&first, &mut storage).expect("first admission");
+    let error = handle_cloudflare_durable_object_call_v1(&conflicting, &mut storage)
+        .expect_err("second replay identity must fail");
 
     assert_eq!(
-        storage.lifecycle_state(&accepted_call.storage_key()),
-        Some(&accepted)
+        error.code(),
+        RouterAbProtocolErrorCode::ReplayedLocalRequest
     );
-}
-
-#[test]
-fn durable_object_handler_rejects_terminal_lifecycle_rewrite() {
-    let requested = lifecycle_state();
-    let accepted = accepted_lifecycle_state();
-    let deferred = RouterAbLifecycleStateV1::apply_gate_decision(
-        lifecycle_scope(),
-        ExpensiveWorkGateDecisionV1::defer(GateDeferReasonV1::ShortWindowSaturated),
-    )
-    .expect("deferred lifecycle");
-    let binding = do_binding(
-        CloudflareDurableObjectScopeV1::RouterLifecycle,
-        "ROUTER_LIFECYCLE_DO",
-    );
-    let requested_call = CloudflareDurableObjectCallV1::new(
-        CloudflareWorkerRoleV1::Router,
-        binding.clone(),
-        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(requested)
-            .expect("requested lifecycle op"),
-    )
-    .expect("requested lifecycle call");
-    let accepted_call = CloudflareDurableObjectCallV1::new(
-        CloudflareWorkerRoleV1::Router,
-        binding.clone(),
-        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(accepted.clone())
-            .expect("accepted lifecycle op"),
-    )
-    .expect("accepted lifecycle call");
-    let deferred_call = CloudflareDurableObjectCallV1::new(
-        CloudflareWorkerRoleV1::Router,
-        binding,
-        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(deferred)
-            .expect("deferred lifecycle op"),
-    )
-    .expect("deferred lifecycle call");
-    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
-
-    handle_cloudflare_durable_object_call_v1(&requested_call, &mut storage)
-        .expect("requested lifecycle put");
-    handle_cloudflare_durable_object_call_v1(&accepted_call, &mut storage)
-        .expect("accepted lifecycle put");
-    let err = handle_cloudflare_durable_object_call_v1(&deferred_call, &mut storage)
-        .expect_err("terminal lifecycle rewrite must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
     assert_eq!(
-        storage.lifecycle_state(&accepted_call.storage_key()),
+        storage.lifecycle_state(&first.storage_key()),
         Some(&accepted)
     );
 }
@@ -11356,50 +11379,34 @@ fn durable_object_wallet_budget_reserve_rejects_unauthorized_signer_binding() {
 #[test]
 fn durable_object_router_storage_surface_is_public_state_and_hashes() {
     let public_request = ecdsa_threshold_prf_request(2_000);
-    let lifecycle_call = CloudflareDurableObjectCallV1::new(
+    let admission_call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::Router,
         do_binding(
             CloudflareDurableObjectScopeV1::RouterLifecycle,
             "ROUTER_LIFECYCLE_DO",
         ),
-        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(lifecycle_state())
-            .expect("lifecycle op"),
-    )
-    .expect("lifecycle call");
-    let replay_call = CloudflareDurableObjectCallV1::new(
-        CloudflareWorkerRoleV1::Router,
-        do_binding(
-            CloudflareDurableObjectScopeV1::RouterReplay,
-            "ROUTER_REPLAY_DO",
-        ),
-        CloudflareDurableObjectRequestV1::router_replay_reserve(
+        CloudflareDurableObjectRequestV1::router_public_admission(
             CloudflareReplayReserveRequestV1::new(
                 "request-1",
                 public_request.router_replay_digest(),
                 1000,
             )
             .expect("replay request"),
+            accepted_lifecycle_state(),
         )
-        .expect("replay op"),
+        .expect("public admission"),
     )
-    .expect("replay call");
+    .expect("public admission call");
 
-    let lifecycle_json = serde_json::to_string(&lifecycle_call.request).expect("lifecycle json");
-    let replay_json = serde_json::to_string(&replay_call.request).expect("replay json");
+    let admission_json =
+        serde_json::to_string(&admission_call.request).expect("public admission json");
 
-    assert!(lifecycle_json.contains("\"state\":\"requested\""));
-    assert!(replay_json.contains("replay_material_digest"));
-    assert!(replay_call
-        .storage_key()
-        .contains(&digest_hex(public_request.router_replay_digest())));
+    assert!(admission_json.contains("\"state\":\"gate_accepted\""));
+    assert!(admission_json.contains("replay_material_digest"));
     for forbidden in ["ciphertext", "encrypted_payload", "[16,17]", "[32,33]"] {
         assert!(
-            !lifecycle_json.contains(forbidden),
-            "lifecycle persistence leaked request payload marker `{forbidden}`"
-        );
-        assert!(
-            !replay_json.contains(forbidden),
-            "replay persistence leaked request payload marker `{forbidden}`"
+            !admission_json.contains(forbidden),
+            "public admission persistence leaked request payload marker `{forbidden}`"
         );
     }
 }

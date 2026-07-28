@@ -45,6 +45,7 @@ import type {
   LoginAndCreateSessionResult,
   WalletSession,
   RegistrationResult,
+  NearProvisioningState,
   SignAndSendDelegateActionResult,
   SignDelegateActionResult,
   SignTransactionResult,
@@ -66,6 +67,8 @@ import type {
   SignNEP413HooksOptions,
   SignTransactionHooksOptions,
   SdkLifecycleEventListener,
+  NearProvisioningStateChangedEvent,
+  SdkLifecycleEvent,
 } from '@/core/types/sdkSentEvents';
 
 import type { ActionArgs, TransactionInput, TxExecutionStatus } from '@/core/types';
@@ -184,6 +187,13 @@ function requireIframeKeyExportCapability(
       });
       return;
   }
+}
+
+function deliverNearProvisioningStateChanged(
+  listener: (event: NearProvisioningStateChangedEvent) => void,
+  event: SdkLifecycleEvent,
+): void {
+  if (event.event === 'registration.near_provisioning_changed') listener(event);
 }
 
 export class SeamsWebIframe {
@@ -327,6 +337,9 @@ export class SeamsWebIframe {
         await this.router.beginGoogleEmailOtpWalletAuth(args),
     };
     this.registration = {
+      getNearProvisioningState: async (args) => await this.getNearProvisioningStateDomain(args),
+      onNearProvisioningStateChanged: (listener) =>
+        this.router.onSdkLifecycleEvent(deliverNearProvisioningStateChanged.bind(null, listener)),
       addWalletSigner: async (args) => await this.addWalletSignerDomain(args),
       registerWallet: async (args) => await this.registerWalletDomain(args),
       registerWithEmailOtp: async (args) => await this.registerWalletDomain(args),
@@ -677,6 +690,13 @@ export class SeamsWebIframe {
       authMethod: { kind: 'passkey', rpId },
       options: registrationOptions,
     });
+  }
+
+  private async getNearProvisioningStateDomain(
+    args: Parameters<RegistrationCapability['getNearProvisioningState']>[0],
+  ): Promise<NearProvisioningState | null> {
+    await this.requireRouterReady();
+    return await this.router.getNearProvisioningState({ walletId: toWalletId(args.walletId) });
   }
 
   private async registerWalletDomain(

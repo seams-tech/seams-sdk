@@ -36,10 +36,12 @@ const ECDSA_RESTORE_BOOTSTRAP = createThresholdEcdsaBootstrapFixture({
   participantIds: [1, 2],
 });
 const ECDSA_RESTORE_BINDING = ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.backendBinding;
-if (ECDSA_RESTORE_BINDING?.materialKind !== 'role_local_ready_state_blob') {
-  throw new Error('expected role-local ECDSA sealed-session fixture');
+// Passkey role-local material stays worker-owned, so the bootstrap carries a
+// worker handle rather than an inline ready-state blob.
+if (ECDSA_RESTORE_BINDING?.materialKind !== 'role_local_worker_handle') {
+  throw new Error('expected worker-owned role-local ECDSA sealed-session fixture');
 }
-const ECDSA_RESTORE_PUBLIC_FACTS = ECDSA_RESTORE_BINDING.ecdsaRoleLocalReadyRecord.publicFacts;
+const ECDSA_RESTORE_PUBLIC_FACTS = ECDSA_RESTORE_BINDING.publicFacts;
 const ECDSA_RESTORE_MATERIAL_REF = buildEcdsaRoleLocalPersistedMaterialRefFixture({
   durableMaterialRef: 'role-local:sealed-store-fixture',
   bindingDigest: ECDSA_RESTORE_PUBLIC_FACTS.contextBinding32B64u,

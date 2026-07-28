@@ -1,4 +1,4 @@
-import { base64UrlDecode, base64UrlEncode } from '@seams-internal/shared-ts/utils/encoders';
+import { base64UrlDecode, base64UrlEncode } from '@seams/sdk-server/cloud-host';
 
 const BOOTSTRAP_TOKEN_PREFIX = 'tbt_v1_';
 const LOOKUP_PREFIX_LENGTH = 48;

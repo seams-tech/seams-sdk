@@ -179,10 +179,17 @@ function buildBackend() {
     });
   }
   runCommand('bash', ['packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh']);
-  runCommand('pnpm', ['-C', 'packages/console-server-ts', 'run', 'd1:local:ensure-wasm'], {
-    env: buildEnvironment({ WASM_SDK_BUILD_TARGET: 'gateway' }),
+  const gatewayWasmEnvironment = buildEnvironment({
+    WASM_SDK_BUILD_MODE: 'prod',
+    WASM_SDK_BUILD_TARGET: 'gateway',
+  });
+  runCommand('pnpm', ['-C', 'packages/sdk-web', 'run', 'build:wasm'], {
+    env: gatewayWasmEnvironment,
   });
   runCommand('pnpm', ['-C', 'packages/sdk-server-ts', 'build']);
+  runCommand('pnpm', ['-C', 'packages/console-server-ts', 'run', 'd1:local:ensure-wasm'], {
+    env: gatewayWasmEnvironment,
+  });
   writeGatewayBuildConfig();
   fs.mkdirSync(path.dirname(GATEWAY_BUNDLE), { recursive: true });
   runCommand(
@@ -229,7 +236,19 @@ function preflightBackend(targetName, target, component, environment = process.e
     if (config.optional.nearRelayer) requiredNames.push('RELAYER_PRIVATE_KEY');
   }
   requireEnvironmentValues(unique(requiredNames), environment);
+  if (component === 'gateway') warnDisabledGatewayIntegrations(environment);
   process.stdout.write(`Preflight passed: ${targetName}/${component}\n`);
+}
+
+function warnDisabledGatewayIntegrations(environment) {
+  if (!String(environment.STRIPE_WEBHOOK_SECRET || '').trim()) {
+    process.stderr.write(
+      'Warning: Stripe webhook processing is disabled because STRIPE_WEBHOOK_SECRET is not configured.\n',
+    );
+  }
+  process.stderr.write(
+    'Warning: Console email delivery is disabled because no email provider is configured.\n',
+  );
 }
 
 function readPreflightEnvironment() {
@@ -488,12 +507,32 @@ async function smokeBackend(target) {
       url: new URL(requestPath, target.origins.gateway).toString(),
     });
   }
+  checks.push({
+    name: '/console/session CORS preflight',
+    url: new URL('/console/session', target.origins.gateway).toString(),
+    request: {
+      method: 'OPTIONS',
+      headers: {
+        Origin: target.origins.site,
+        'Access-Control-Request-Method': 'GET',
+      },
+    },
+    isReady: isDashboardConsoleCorsPreflight.bind(null, target.origins.site),
+  });
   const results = await runReadinessChecks(checks);
   const failed = results.filter(isFailedCheck);
   process.stdout.write(`${JSON.stringify({ results })}\n`);
   if (failed.length > 0) {
     throw new Error(`backend smoke failed: ${failed.map(formatFailedCheck).join(', ')}`);
   }
+}
+
+function isDashboardConsoleCorsPreflight(dashboardOrigin, response) {
+  return (
+    response.status === 204 &&
+    response.headers.get('Access-Control-Allow-Origin') === dashboardOrigin &&
+    response.headers.get('Access-Control-Allow-Credentials') === 'true'
+  );
 }
 
 function renderGatewayConfig(targetName, target) {

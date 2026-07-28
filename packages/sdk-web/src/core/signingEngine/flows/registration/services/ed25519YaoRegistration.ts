@@ -1,6 +1,7 @@
 import { base58Encode } from '@shared/utils/base58';
 import {
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoApplicationBindingFactsV1,
   type RouterAbEd25519YaoLifecycleScopeV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
@@ -35,7 +36,17 @@ export type ProductEd25519YaoCapabilityActivationPortV1 = {
 };
 
 export type ProductEd25519YaoRegistrationResultV1 =
-  | { ok: true; registration: ProductEd25519YaoPendingRegistrationPortV1 }
+  | {
+      ok: true;
+      registration: ProductEd25519YaoPendingRegistrationPortV1;
+      /**
+       * Raw Router `Server-Timing` for the Yao execute call, when the Router
+       * exposed it. Diagnostics only — never read for lifecycle decisions.
+       */
+      routerServerTiming?: string;
+      /** Client-observed Yao sub-steps in ms. Diagnostics only. */
+      clientTimings?: { admissionMs: number; sessionCreateMs: number };
+    }
   | ProductEd25519YaoRegistrationFailureV1;
 
 export type ProductEd25519YaoActivationReferenceV1 = {
@@ -119,9 +130,7 @@ export function buildProductEd25519YaoRegistrationRequestV1(
   return parsed.value;
 }
 
-export class PendingProductEd25519YaoRegistrationV1
-  implements ProductEd25519YaoPendingRegistrationPortV1
-{
+export class PendingProductEd25519YaoRegistrationV1 implements ProductEd25519YaoPendingRegistrationPortV1 {
   private lifecycle: PendingRegistrationLifecycleV1;
 
   private constructor(activeClient: RouterAbEd25519YaoSealableActiveClientV1) {
@@ -179,9 +188,8 @@ export class PendingProductEd25519YaoRegistrationV1
       activeClient: current.activeClient,
       walletSessionState: args.walletSessionState,
     };
-    const identity = await args.activation.activateVerifiedNearEd25519YaoSigningCapability(
-      capability,
-    );
+    const identity =
+      await args.activation.activateVerifiedNearEd25519YaoSigningCapability(capability);
     this.lifecycle = {
       kind: 'committed',
       identity,
@@ -205,22 +213,44 @@ export class PendingProductEd25519YaoRegistrationV1
   }
 }
 
-export async function registerProductEd25519YaoV1(args: {
-  request: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
-  factor: RouterAbEd25519YaoClientRootFactorV1;
-  transport: RouterAbEd25519YaoRegistrationTransportV1;
-}): Promise<ProductEd25519YaoRegistrationResultV1> {
+export async function registerProductEd25519YaoV1(
+  args: {
+    request: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+    factor: RouterAbEd25519YaoClientRootFactorV1;
+    transport: RouterAbEd25519YaoRegistrationTransportV1;
+  } & (
+    | {
+        admission: {
+          kind: 'verified_receipt';
+          receipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
+        };
+      }
+    | {
+        admission: { kind: 'transport_request' };
+      }
+  ),
+): Promise<ProductEd25519YaoRegistrationResultV1> {
   const client = await RouterAbEd25519YaoClientV1.initializeBundled();
-  const result = await client.register({
-    request: args.request,
-    factor: args.factor,
-    transport: args.transport,
-  });
+  const result =
+    args.admission.kind === 'verified_receipt'
+      ? await client.registerAdmitted({
+          request: args.request,
+          admissionReceipt: args.admission.receipt,
+          factor: args.factor,
+          transport: args.transport,
+        })
+      : await client.register({
+          request: args.request,
+          factor: args.factor,
+          transport: args.transport,
+        });
   if (!result.ok) return result;
   try {
     return {
       ok: true,
       registration: PendingProductEd25519YaoRegistrationV1.fromVerifiedClient(result.activeClient),
+      ...(result.routerServerTiming ? { routerServerTiming: result.routerServerTiming } : {}),
+      ...(result.clientTimings ? { clientTimings: result.clientTimings } : {}),
     };
   } catch (error) {
     result.activeClient.dispose();

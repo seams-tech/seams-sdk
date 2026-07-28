@@ -665,6 +665,7 @@ test.describe('wallet registration route boundaries', () => {
         'wallet_registration_finalize',
         {
           registrationCeremonyId: 'wrc_123',
+          idempotencyKey: 'wallet-registration-finalize-1',
           kind: 'evm_family_ecdsa',
           ecdsa: { expectedKeyHandles: ['ederivation-key-alice'] },
         },
@@ -717,6 +718,7 @@ test.describe('wallet registration route boundaries', () => {
         'wallet_registration_finalize',
         {
           registrationCeremonyId: ' wrc_123 ',
+          idempotencyKey: ' wallet-registration-finalize-2 ',
           kind: 'evm_family_ecdsa',
           ecdsa: {
             expectedKeyHandles: ['ederivation-key-alice'],
@@ -792,6 +794,7 @@ test.describe('wallet registration route boundaries', () => {
         'wallet_registration_finalize',
         {
           registrationCeremonyId: 'wrc_123',
+          idempotencyKey: 'wallet-registration-finalize-3',
           kind: 'evm_family_ecdsa',
           ecdsa: {
             expectedKeyHandles: ['ederivation-key-alice'],
@@ -830,6 +833,7 @@ test.describe('wallet registration route boundaries', () => {
         'wallet_registration_finalize',
         {
           registrationCeremonyId: 'wrc_123',
+          idempotencyKey: 'wallet-registration-finalize-4',
           kind: 'evm_family_ecdsa',
           ecdsa: {
             expectedKeyHandles: ['ederivation-key-alice'],
@@ -861,6 +865,7 @@ test.describe('wallet registration route boundaries', () => {
         'wallet_registration_finalize',
         {
           registrationCeremonyId: 'wrc_123',
+          idempotencyKey: 'wallet-registration-finalize-5',
           kind: 'evm_family_ecdsa',
           ecdsa: {
             expectedKeyHandles: ['ederivation-key-alice'],
@@ -899,6 +904,7 @@ test.describe('wallet registration route boundaries', () => {
         'wallet_registration_finalize',
         {
           registrationCeremonyId: 'wrc_123',
+          idempotencyKey: 'wallet-registration-finalize-6',
           kind: 'evm_family_ecdsa',
           ecdsa: {
             expectedKeyHandles: ['ederivation-key-alice', ' '],

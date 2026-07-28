@@ -19,7 +19,6 @@ import {
   type RouterAbEcdsaDerivationRecoveryRequestV1,
   type RouterAbEcdsaDerivationSignerSetV1,
   type RouterAbEcdsaRegistrationActivationReceiptV1,
-  type RouterAbEcdsaRegistrationLifecycleV1,
   type RouterAbEcdsaRegistrationRecipientKeysV1,
   type RouterAbEcdsaRegistrationRequestFactsV1,
   type RouterAbEcdsaRegistrationRequestV1,
@@ -29,6 +28,10 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
+import {
+  ROUTER_AB_TRACE_ID_HEADER_V1,
+  type RouterAbTraceContextV1,
+} from '@shared/utils/routerAbTraceContext';
 
 type JsonObject = Record<string, unknown>;
 declare const routerAbEcdsaPendingActivationJsonBrand: unique symbol;
@@ -101,11 +104,39 @@ export type RouterAbEcdsaStrictRegistrationTopology = {
   readonly deriverRecipientKeys: RouterAbEcdsaRegistrationRecipientKeysV1;
 };
 
+/**
+ * Receives the Router's raw `Server-Timing` header, when it sent one
+ * (Refactor 94B Phase 0). Diagnostics only: the Router's spans never reach the
+ * response body, and a caller that omits this sink changes nothing about the
+ * ceremony. Called at most once per forwarded request, before the result is
+ * parsed, so a failing leg still reports where its time went.
+ */
+export type RouterAbEcdsaStrictServerTimingSink = (header: string) => void;
+
+/**
+ * Refactor 94B Phase 0. Reports whether a role leg returned the diagnostics
+ * header we expect, and nothing about what it contained.
+ *
+ * `Server-Timing` carries role and span names from inside the MPC topology.
+ * A missing header and an empty one are different failures — the first means
+ * the leg never emitted diagnostics, the second that it emitted nothing
+ * measurable — so presence is worth recording. The value is not: it is
+ * attacker-influencable in principle and identifying in practice, so it is
+ * never passed here.
+ */
+export type RouterAbEcdsaStrictHeaderPresenceSink = (presence: {
+  readonly leg: string;
+  readonly serverTiming: 'present' | 'absent';
+}) => void;
+
 export interface RouterAbEcdsaStrictRegistrationPort {
   topology(): RouterAbEcdsaStrictRegistrationTopology;
   register(input: {
     readonly request: RouterAbEcdsaRegistrationRequestV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly traceContext?: RouterAbTraceContextV1;
+    readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
+    readonly onHeaderPresence?: RouterAbEcdsaStrictHeaderPresenceSink;
   }): Promise<RouterAbEcdsaStrictRegistrationResult>;
   activate(input: {
     readonly activationCorrelationId: CorrelationId;
@@ -113,6 +144,9 @@ export interface RouterAbEcdsaStrictRegistrationPort {
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly traceContext?: RouterAbTraceContextV1;
+    readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
+    readonly onHeaderPresence?: RouterAbEcdsaStrictHeaderPresenceSink;
   }): Promise<RouterAbEcdsaStrictActivationResult>;
   prepareActivation(input: {
     readonly activationCorrelationId: CorrelationId;
@@ -227,6 +261,9 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
   async register(input: {
     readonly request: RouterAbEcdsaRegistrationRequestV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly traceContext?: RouterAbTraceContextV1;
+    readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
+    readonly onHeaderPresence?: RouterAbEcdsaStrictHeaderPresenceSink;
   }): Promise<RouterAbEcdsaStrictRegistrationResult> {
     const authorityFailure = validateRegistrationAuthorityBinding(input);
     if (authorityFailure) return authorityFailure;
@@ -235,6 +272,9 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       path: STRICT_ECDSA_REGISTRATION_PATH,
       authority: input.authority,
       request: input.request,
+      traceContext: input.traceContext,
+      onServerTiming: input.onServerTiming,
+      onHeaderPresence: input.onHeaderPresence,
     });
     if (!body.ok) return body;
     return parseStrictRegistrationForwardingResult(body.value);
@@ -246,6 +286,9 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly traceContext?: RouterAbTraceContextV1;
+    readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
+    readonly onHeaderPresence?: RouterAbEcdsaStrictHeaderPresenceSink;
   }): Promise<RouterAbEcdsaStrictActivationResult> {
     const body = await this.forward({
       kind: 'activation',
@@ -254,6 +297,9 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       activationCorrelationId: input.activationCorrelationId,
       pendingActivation: input.pendingActivation,
       clientActivation: input.clientActivation,
+      traceContext: input.traceContext,
+      onServerTiming: input.onServerTiming,
+      onHeaderPresence: input.onHeaderPresence,
     });
     if (!body.ok) return body;
     try {
@@ -366,6 +412,9 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
     input: {
       readonly path: string;
       readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+      readonly traceContext?: RouterAbTraceContextV1;
+      readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
+    readonly onHeaderPresence?: RouterAbEcdsaStrictHeaderPresenceSink;
     } & (
       | {
           readonly kind: 'registration';
@@ -388,16 +437,36 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
     const token = await this.config.tokenIssuer.issue(
       ceremonyTokenClaimsForAuthority(input.authority, this.config.tokenScope),
     );
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${token}`,
+      'content-type': JSON_CONTENT_TYPE,
+    };
+    if (input.traceContext) {
+      headers[ROUTER_AB_TRACE_ID_HEADER_V1] = input.traceContext.value;
+    }
     const response = await this.config.router.fetch(
       new Request(`https://router.router-ab.internal${input.path}`, {
         method: 'POST',
-        headers: {
-          authorization: `Bearer ${token}`,
-          'content-type': JSON_CONTENT_TYPE,
-        },
+        headers,
         body: strictForwardBodyJson(input),
       }),
     );
+    /* Read before the outcome branch so a failed leg still reports its spans,
+       and never let a diagnostics sink fail the ceremony. */
+    try {
+      const header = response.headers.get('Server-Timing');
+      /* Presence is recorded for every leg, including the ones that returned
+         nothing — an absent header is the observation worth having. The value
+         only ever reaches the timing sink, which folds it into fixed metric
+         names; it is never logged. */
+      input.onHeaderPresence?.({
+        leg: input.path,
+        serverTiming: header ? 'present' : 'absent',
+      });
+      if (header) input.onServerTiming?.(header);
+    } catch {
+      /* Diagnostics only; never fail the ceremony. */
+    }
     const body = await readJsonResponse(response);
     if (!response.ok) {
       const code = responseErrorCode(body, response.status);
@@ -821,55 +890,43 @@ export function routerAbEcdsaStrictRegistrationRequestMatchesFacts(input: {
   readonly facts: RouterAbEcdsaRegistrationRequestFactsV1;
 }): boolean {
   return (
-    input.request.registration_purpose === input.facts.registration_purpose &&
-    input.request.context.application_binding_digest_b64u ===
-      input.facts.context.application_binding_digest_b64u &&
-    registrationLifecycleMatches(input.request.lifecycle, input.facts.lifecycle) &&
-    signerSetMatches(input.request.signer_set, input.facts.signer_set) &&
-    input.request.router_id === input.facts.router_id &&
-    input.request.client_id === input.facts.client_id &&
-    input.request.replay_nonce === input.facts.replay_nonce &&
-    input.request.expires_at_ms === input.facts.expires_at_ms &&
-    input.request.deriver_a_envelope.recipient_role ===
-      input.facts.deriver_recipient_keys.deriver_a.role &&
-    input.request.deriver_b_envelope.recipient_role ===
-      input.facts.deriver_recipient_keys.deriver_b.role
+    routerAbEcdsaStrictRegistrationRequestBindingJson(input.request) ===
+    routerAbEcdsaStrictRegistrationFactsBindingJson(input.facts)
   );
 }
 
-function registrationLifecycleMatches(
-  left: RouterAbEcdsaRegistrationLifecycleV1,
-  right: RouterAbEcdsaRegistrationLifecycleV1,
-): boolean {
-  return (
-    left.lifecycle_id === right.lifecycle_id &&
-    left.work_kind === right.work_kind &&
-    left.primitive_request_kind === right.primitive_request_kind &&
-    left.root_share_epoch === right.root_share_epoch &&
-    left.account_id === right.account_id &&
-    left.session_id === right.session_id &&
-    left.signer_set_id === right.signer_set_id &&
-    left.selected_server_id === right.selected_server_id
-  );
+export function routerAbEcdsaStrictRegistrationFactsBindingJson(
+  facts: RouterAbEcdsaRegistrationRequestFactsV1,
+): string {
+  return canonicalJson({
+    registration_purpose: facts.registration_purpose,
+    context: facts.context,
+    lifecycle: facts.lifecycle,
+    signer_set: facts.signer_set,
+    router_id: facts.router_id,
+    client_id: facts.client_id,
+    replay_nonce: facts.replay_nonce,
+    expires_at_ms: facts.expires_at_ms,
+    deriver_a_role: facts.deriver_recipient_keys.deriver_a.role,
+    deriver_b_role: facts.deriver_recipient_keys.deriver_b.role,
+  });
 }
 
-function signerSetMatches(
-  left: RouterAbEcdsaDerivationSignerSetV1,
-  right: RouterAbEcdsaDerivationSignerSetV1,
-): boolean {
-  return (
-    left.signer_set_id === right.signer_set_id &&
-    left.policy === right.policy &&
-    left.signer_a.role === right.signer_a.role &&
-    left.signer_a.signer_id === right.signer_a.signer_id &&
-    left.signer_a.key_epoch === right.signer_a.key_epoch &&
-    left.signer_b.role === right.signer_b.role &&
-    left.signer_b.signer_id === right.signer_b.signer_id &&
-    left.signer_b.key_epoch === right.signer_b.key_epoch &&
-    left.selected_server.server_id === right.selected_server.server_id &&
-    left.selected_server.key_epoch === right.selected_server.key_epoch &&
-    left.selected_server.recipient_encryption_key === right.selected_server.recipient_encryption_key
-  );
+export function routerAbEcdsaStrictRegistrationRequestBindingJson(
+  request: RouterAbEcdsaRegistrationRequestV1,
+): string {
+  return canonicalJson({
+    registration_purpose: request.registration_purpose,
+    context: request.context,
+    lifecycle: request.lifecycle,
+    signer_set: request.signer_set,
+    router_id: request.router_id,
+    client_id: request.client_id,
+    replay_nonce: request.replay_nonce,
+    expires_at_ms: request.expires_at_ms,
+    deriver_a_role: request.deriver_a_envelope.recipient_role,
+    deriver_b_role: request.deriver_b_envelope.recipient_role,
+  });
 }
 
 class Ed25519CeremonyTokenIssuer implements RouterAbEcdsaCeremonyTokenIssuer {

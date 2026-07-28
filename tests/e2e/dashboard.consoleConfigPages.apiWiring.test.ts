@@ -22,6 +22,59 @@ function isPlainObject(raw: unknown): raw is Record<string, unknown> {
   return Boolean(raw) && typeof raw === 'object' && !Array.isArray(raw);
 }
 
+function mockOwnerOrganizationAccess(membershipId: string): Record<string, unknown> {
+  return {
+    membershipId,
+    authorizationVersion: 1,
+    role: 'OWNER',
+    adminPermissions: ['members.manage', 'projects.manage', 'billing.view', 'billing.manage'],
+    projectAccess: { kind: 'all' },
+  };
+}
+
+function mockAdminOrganizationAccess(membershipId: string): Record<string, unknown> {
+  return {
+    membershipId,
+    authorizationVersion: 1,
+    role: 'ADMIN',
+    adminPermissions: ['members.manage', 'projects.manage', 'billing.view', 'billing.manage'],
+    projectAccess: { kind: 'all' },
+  };
+}
+
+function mockOwnerSessionAccess(): Record<string, unknown> {
+  return {
+    membershipId: 'membership_test_owner',
+    authorizationVersion: 1,
+    role: 'OWNER',
+    adminPermissions: ['members.manage', 'projects.manage', 'billing.view', 'billing.manage'],
+    projectAccess: [],
+    platformSupport: false,
+  };
+}
+
+function mockAdminSessionAccess(platformSupport = false): Record<string, unknown> {
+  return {
+    membershipId: 'membership_test_admin',
+    authorizationVersion: 1,
+    role: 'ADMIN',
+    adminPermissions: ['members.manage', 'projects.manage', 'billing.view', 'billing.manage'],
+    projectAccess: [],
+    platformSupport,
+  };
+}
+
+function mockMemberSessionAccess(): Record<string, unknown> {
+  return {
+    membershipId: 'membership_test_member',
+    authorizationVersion: 1,
+    role: 'MEMBER',
+    adminPermissions: [],
+    projectAccess: [],
+    platformSupport: false,
+  };
+}
+
 interface MockDashboardContext {
   org: Record<string, unknown>;
   activeProject: Record<string, unknown>;
@@ -328,7 +381,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'google:dashboard-login-test',
               orgId: 'org-dashboard-login-test',
-              roles: ['owner', 'admin'],
+              ...mockOwnerSessionAccess(),
             },
           }),
         });
@@ -458,7 +511,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user-dashboard-entry-existing-org',
               orgId: 'org-dashboard-entry-existing-org',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: null,
               environmentId: null,
             },
@@ -614,7 +667,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user-dashboard-entry-orgless',
               orgId: '',
-              roles: [],
+              ...mockMemberSessionAccess(),
               email: 'orgless@example.com',
               name: 'Orgless User',
             },
@@ -679,7 +732,7 @@ test.describe('dashboard console config page api wiring', () => {
     let sessionClaims: Record<string, unknown> = {
       userId: 'user-dashboard-entry-recover-org',
       orgId: '',
-      roles: [],
+      ...mockMemberSessionAccess(),
       email: 'recover@example.com',
       name: 'Recover User',
     };
@@ -717,15 +770,12 @@ test.describe('dashboard console config page api wiring', () => {
                 createdAt: iso('2026-03-10T00:00:00.000Z'),
                 updatedAt: iso('2026-03-11T00:00:00.000Z'),
                 isCurrentOrg: false,
-                actorRoles: ['owner', 'admin'],
-                actorIsOwner: true,
-                actorIsAdmin: true,
+                ...mockOwnerOrganizationAccess('membership_watchbook_owner'),
                 onboardingComplete: true,
                 selectedProjectId: 'proj_watchbook',
                 selectedProjectName: 'Watchbook Core',
                 selectedEnvironmentId: 'env_watchbook',
                 selectedEnvironmentName: 'Production',
-                adminCandidates: [],
               },
               {
                 id: 'org_pokopia',
@@ -735,15 +785,12 @@ test.describe('dashboard console config page api wiring', () => {
                 createdAt: iso('2026-03-08T00:00:00.000Z'),
                 updatedAt: iso('2026-03-09T00:00:00.000Z'),
                 isCurrentOrg: false,
-                actorRoles: ['owner', 'admin'],
-                actorIsOwner: true,
-                actorIsAdmin: true,
+                ...mockOwnerOrganizationAccess('membership_pokopia_owner'),
                 onboardingComplete: true,
                 selectedProjectId: 'proj_pokopia',
                 selectedProjectName: 'Pokopia Core',
                 selectedEnvironmentId: 'env_pokopia',
                 selectedEnvironmentName: 'Production',
-                adminCandidates: [],
               },
             ],
           }),
@@ -761,7 +808,7 @@ test.describe('dashboard console config page api wiring', () => {
         sessionClaims = {
           userId: 'user-dashboard-entry-recover-org',
           orgId,
-          roles: ['owner', 'admin'],
+          ...mockOwnerSessionAccess(),
           projectId: 'proj_watchbook',
           environmentId: 'env_watchbook',
           email: 'recover@example.com',
@@ -776,7 +823,8 @@ test.describe('dashboard console config page api wiring', () => {
               orgId,
               projectId: 'proj_watchbook',
               environmentId: 'env_watchbook',
-              actorRoles: ['owner', 'admin'],
+              ...mockOwnerOrganizationAccess('membership_watchbook_owner'),
+              platformSupport: false,
               onboardingComplete: true,
             },
           }),
@@ -960,7 +1008,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user-dashboard-entry-placeholder-org',
               orgId: 'org_mmm2dbnq_lrhgv',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: null,
               environmentId: null,
             },
@@ -1105,7 +1153,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_onboarding_label_hidden',
               orgId: 'org_mmm2dbnq_lrhgv',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: null,
               environmentId: null,
             },
@@ -1277,7 +1325,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user-signout-test',
               orgId: 'org-signout-test',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj-signout-test',
               environmentId: 'env-signout-test',
             },
@@ -1368,23 +1416,12 @@ test.describe('dashboard console config page api wiring', () => {
         createdAt: iso('2026-01-01T00:00:00.000Z'),
         updatedAt: iso('2026-01-02T00:00:00.000Z'),
         isCurrentOrg: true,
-        actorRoles: ['admin'],
-        actorIsOwner: false,
-        actorIsAdmin: true,
+        ...mockAdminOrganizationAccess('membership_dashboard_admin'),
         onboardingComplete: true,
         selectedProjectId: 'proj_active',
         selectedProjectName: 'Active Project',
         selectedEnvironmentId: 'env_active',
         selectedEnvironmentName: 'Production',
-        adminCandidates: [
-          {
-            memberId: 'member_admin',
-            userId: 'user_admin',
-            email: 'admin@example.com',
-            displayName: 'Admin User',
-            isOwner: false,
-          },
-        ],
       },
     ];
 
@@ -1403,7 +1440,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -1600,7 +1637,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_environment_cleanup',
               orgId: 'org-dev',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_mmggz8jp_v9pft0',
               environmentId: 'proj_mmggz8jp_v9pft0:dev',
             },
@@ -1745,15 +1782,12 @@ test.describe('dashboard console config page api wiring', () => {
                 createdAt: iso('2026-03-08T00:00:00.000Z'),
                 updatedAt: iso('2026-03-11T00:00:00.000Z'),
                 isCurrentOrg: true,
-                actorRoles: ['admin'],
-                actorIsOwner: true,
-                actorIsAdmin: true,
+                ...mockOwnerOrganizationAccess('membership_org_dev_owner'),
                 onboardingComplete: true,
                 selectedProjectId: 'proj_mmggz8jp_v9pft0',
                 selectedProjectName: 'test1_project',
                 selectedEnvironmentId: 'proj_mmggz8jp_v9pft0:dev',
                 selectedEnvironmentName: 'Development',
-                adminCandidates: [],
               },
             ],
           }),
@@ -1847,7 +1881,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_context_fallback',
               orgId: 'org_pokopia',
-              roles: ['owner', 'admin'],
+              ...mockOwnerSessionAccess(),
             },
           }),
         });
@@ -1970,15 +2004,12 @@ test.describe('dashboard console config page api wiring', () => {
                 createdAt: iso('2026-03-08T00:00:00.000Z'),
                 updatedAt: iso('2026-03-11T00:00:00.000Z'),
                 isCurrentOrg: true,
-                actorRoles: ['owner', 'admin'],
-                actorIsOwner: true,
-                actorIsAdmin: true,
+                ...mockOwnerOrganizationAccess('membership_pokopia_owner'),
                 onboardingComplete: true,
                 selectedProjectId: 'proj_tlabs',
                 selectedProjectName: 'Tlabs',
                 selectedEnvironmentId: 'proj_tlabs:dev',
                 selectedEnvironmentName: 'Development',
-                adminCandidates: [],
               },
             ],
           }),
@@ -2018,7 +2049,7 @@ test.describe('dashboard console config page api wiring', () => {
     let sessionClaims: Record<string, unknown> = {
       userId: 'user_multi_org',
       orgId: 'org_pokopia',
-      roles: ['owner', 'admin'],
+      ...mockOwnerSessionAccess(),
       projectId: 'proj_pokopia',
       environmentId: 'env_pokopia',
       provider: 'passkey',
@@ -2034,11 +2065,8 @@ test.describe('dashboard console config page api wiring', () => {
         status: 'ACTIVE',
         createdAt: iso('2026-03-01T00:00:00.000Z'),
         updatedAt: iso('2026-03-02T00:00:00.000Z'),
-        actorRoles: ['owner', 'admin'],
-        actorIsOwner: true,
-        actorIsAdmin: true,
+        ...mockOwnerOrganizationAccess('membership_pokopia_owner'),
         onboardingComplete: true,
-        adminCandidates: [],
       },
       {
         id: 'org_watchbook',
@@ -2047,11 +2075,8 @@ test.describe('dashboard console config page api wiring', () => {
         status: 'ACTIVE',
         createdAt: iso('2026-03-03T00:00:00.000Z'),
         updatedAt: iso('2026-03-04T00:00:00.000Z'),
-        actorRoles: ['owner', 'admin'],
-        actorIsOwner: true,
-        actorIsAdmin: true,
+        ...mockOwnerOrganizationAccess('membership_watchbook_owner'),
         onboardingComplete: true,
-        adminCandidates: [],
       },
     ] as const;
     const projectsByOrg = new Map<string, Record<string, unknown>>([
@@ -2250,7 +2275,7 @@ test.describe('dashboard console config page api wiring', () => {
         sessionClaims = {
           userId: 'user_multi_org',
           orgId,
-          roles: ['owner', 'admin'],
+          ...mockOwnerSessionAccess(),
           projectId: project ? String(project.id || '').trim() : '',
           environmentId: environment ? String(environment.id || '').trim() : '',
           provider: 'passkey',
@@ -2264,7 +2289,12 @@ test.describe('dashboard console config page api wiring', () => {
               orgId,
               projectId: project ? String(project.id || '').trim() : null,
               environmentId: environment ? String(environment.id || '').trim() : null,
-              actorRoles: ['owner', 'admin'],
+              ...mockOwnerOrganizationAccess(
+                orgId === 'org_watchbook'
+                  ? 'membership_watchbook_owner'
+                  : 'membership_pokopia_owner',
+              ),
+              platformSupport: false,
               onboardingComplete: true,
             },
           }),
@@ -2390,7 +2420,7 @@ test.describe('dashboard console config page api wiring', () => {
     let sessionClaims: Record<string, unknown> = {
       userId: 'user_account_settings_switch',
       orgId: 'org_pokopia',
-      roles: ['owner', 'admin'],
+      ...mockOwnerSessionAccess(),
       projectId: 'proj_pokopia',
       environmentId: 'env_pokopia',
       provider: 'passkey',
@@ -2405,11 +2435,8 @@ test.describe('dashboard console config page api wiring', () => {
         status: 'ACTIVE',
         createdAt: iso('2026-03-01T00:00:00.000Z'),
         updatedAt: iso('2026-03-02T00:00:00.000Z'),
-        actorRoles: ['owner', 'admin'],
-        actorIsOwner: true,
-        actorIsAdmin: true,
+        ...mockOwnerOrganizationAccess('membership_pokopia_owner'),
         onboardingComplete: true,
-        adminCandidates: [],
       },
       {
         id: 'org_watchbook',
@@ -2418,11 +2445,8 @@ test.describe('dashboard console config page api wiring', () => {
         status: 'ACTIVE',
         createdAt: iso('2026-03-03T00:00:00.000Z'),
         updatedAt: iso('2026-03-04T00:00:00.000Z'),
-        actorRoles: ['owner', 'admin'],
-        actorIsOwner: true,
-        actorIsAdmin: true,
+        ...mockOwnerOrganizationAccess('membership_watchbook_owner'),
         onboardingComplete: true,
-        adminCandidates: [],
       },
     ] as const;
     const projectsByOrg = new Map<string, Record<string, unknown>>([
@@ -2632,7 +2656,7 @@ test.describe('dashboard console config page api wiring', () => {
         sessionClaims = {
           userId: 'user_account_settings_switch',
           orgId,
-          roles: ['owner', 'admin'],
+          ...mockOwnerSessionAccess(),
           projectId: project ? String(project.id || '').trim() : '',
           environmentId: environment ? String(environment.id || '').trim() : '',
           provider: 'passkey',
@@ -2646,7 +2670,12 @@ test.describe('dashboard console config page api wiring', () => {
               orgId,
               projectId: project ? String(project.id || '').trim() : null,
               environmentId: environment ? String(environment.id || '').trim() : null,
-              actorRoles: ['owner', 'admin'],
+              ...mockOwnerOrganizationAccess(
+                orgId === 'org_watchbook'
+                  ? 'membership_watchbook_owner'
+                  : 'membership_pokopia_owner',
+              ),
+              platformSupport: false,
               onboardingComplete: true,
             },
           }),
@@ -2711,7 +2740,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_account_settings_gate',
               orgId: 'org_account_settings_gate',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
             },
           }),
         });
@@ -2784,15 +2813,12 @@ test.describe('dashboard console config page api wiring', () => {
                 createdAt: iso('2026-01-01T00:00:00.000Z'),
                 updatedAt: iso('2026-01-01T00:00:00.000Z'),
                 isCurrentOrg: true,
-                actorRoles: ['admin'],
-                actorIsOwner: false,
-                actorIsAdmin: true,
+                ...mockAdminOrganizationAccess('membership_account_settings_admin'),
                 onboardingComplete: false,
                 selectedProjectId: null,
                 selectedProjectName: null,
                 selectedEnvironmentId: null,
                 selectedEnvironmentName: null,
-                adminCandidates: [],
               },
             ],
           }),
@@ -2870,7 +2896,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_account_settings_orgless',
               orgId: '',
-              roles: [],
+              ...mockMemberSessionAccess(),
               email: 'orgless@example.com',
               name: 'Orgless User',
             },
@@ -2998,23 +3024,12 @@ test.describe('dashboard console config page api wiring', () => {
           status: 'ACTIVE',
           createdAt: iso('2026-01-01T00:00:00.000Z'),
           updatedAt: iso('2026-01-02T00:00:00.000Z'),
-          actorRoles: ['owner', 'admin'],
-          actorIsOwner: true,
-          actorIsAdmin: true,
+          ...mockOwnerOrganizationAccess('membership_current_owner'),
           onboardingComplete: true,
           selectedProjectId: 'proj_current',
           selectedProjectName: 'Current Project',
           selectedEnvironmentId: 'env_current',
           selectedEnvironmentName: 'Current Environment',
-          adminCandidates: [
-            {
-              memberId: 'member_current_admin',
-              userId: 'user_current_admin',
-              email: 'current-admin@example.com',
-              displayName: 'Current Admin',
-              isOwner: false,
-            },
-          ],
         },
       ],
       [
@@ -3026,23 +3041,12 @@ test.describe('dashboard console config page api wiring', () => {
           status: 'ACTIVE',
           createdAt: iso('2026-01-03T00:00:00.000Z'),
           updatedAt: iso('2026-01-04T00:00:00.000Z'),
-          actorRoles: ['owner', 'admin'],
-          actorIsOwner: true,
-          actorIsAdmin: true,
+          ...mockOwnerOrganizationAccess('membership_target_owner'),
           onboardingComplete: true,
           selectedProjectId: 'proj_target',
           selectedProjectName: 'Target Project',
           selectedEnvironmentId: 'env_target',
           selectedEnvironmentName: 'Target Environment',
-          adminCandidates: [
-            {
-              memberId: 'member_target_admin',
-              userId: 'user_target_admin',
-              email: 'target-admin@example.com',
-              displayName: 'Target Admin',
-              isOwner: false,
-            },
-          ],
         },
       ],
     ]);
@@ -3126,14 +3130,18 @@ test.describe('dashboard console config page api wiring', () => {
     let sessionClaims: Record<string, unknown> = {
       userId: 'user_account_settings_flow',
       orgId: 'org_current',
-      roles: ['owner', 'admin'],
+      membershipId: 'membership_current_owner',
+      authorizationVersion: 1,
+      role: 'OWNER',
+      adminPermissions: ['members.manage', 'projects.manage', 'billing.view', 'billing.manage'],
+      projectAccess: [],
+      platformSupport: false,
       projectId: 'proj_current',
       environmentId: 'env_current',
       provider: 'passkey',
     };
     const createBodies: Record<string, unknown>[] = [];
     const renameBodies: Array<{ orgId: string; body: Record<string, unknown> }> = [];
-    const transferBodies: Array<{ orgId: string; body: Record<string, unknown> }> = [];
     const switchBodies: Array<{ orgId: string; body: Record<string, unknown> }> = [];
     const billingOverviewOrgIds: string[] = [];
     const billingUsageOrgIds: string[] = [];
@@ -3340,15 +3348,12 @@ test.describe('dashboard console config page api wiring', () => {
           status: 'ACTIVE',
           createdAt: iso('2026-01-05T00:00:00.000Z'),
           updatedAt: iso('2026-01-05T00:00:00.000Z'),
-          actorRoles: ['owner', 'admin'],
-          actorIsOwner: true,
-          actorIsAdmin: true,
+          ...mockOwnerOrganizationAccess(`membership_${createdOrgId}_owner`),
           onboardingComplete: false,
           selectedProjectId: null,
           selectedProjectName: null,
           selectedEnvironmentId: null,
           selectedEnvironmentName: null,
-          adminCandidates: [],
         };
         organizations.set(createdOrgId, createdOrganization);
         orgDetails.set(createdOrgId, {
@@ -3374,7 +3379,7 @@ test.describe('dashboard console config page api wiring', () => {
       }
 
       const accountOrgMatch = pathname.match(
-        /^\/console\/account\/organizations\/([^/]+?)(?:\/(transfer-owner|switch-context))?$/,
+        /^\/console\/account\/organizations\/([^/]+?)(?:\/(switch-context))?$/,
       );
       const orgId = accountOrgMatch?.[1] ? decodeURIComponent(accountOrgMatch[1]) : '';
       const action = String(accountOrgMatch?.[2] || '').trim();
@@ -3413,49 +3418,6 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
-      if (orgId && method === 'POST' && action === 'transfer-owner') {
-        const body = parseJsonBody(req.postData());
-        transferBodies.push({ orgId, body });
-        const organization = organizations.get(orgId);
-        if (organization) {
-          organizations.set(orgId, {
-            ...organization,
-            actorRoles: ['admin'],
-            actorIsOwner: false,
-            actorIsAdmin: true,
-            updatedAt: iso('2026-01-07T00:00:00.000Z'),
-          });
-        }
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            transfer: {
-              organization: {
-                ...(organizations.get(orgId) || {}),
-                isCurrentOrg: orgId === activeOrgId,
-              },
-              previousOwner: {
-                memberId: 'member_actor',
-                userId: 'user_account_settings_flow',
-                email: 'account-flow@example.com',
-                displayName: 'Account Flow User',
-                isOwner: false,
-              },
-              nextOwner: {
-                memberId: 'member_target_admin',
-                userId: 'user_target_admin',
-                email: 'target-admin@example.com',
-                displayName: 'Target Admin',
-                isOwner: true,
-              },
-            },
-          }),
-        });
-        return;
-      }
-
       if (orgId && method === 'POST' && action === 'switch-context') {
         const body = parseJsonBody(req.postData());
         switchBodies.push({ orgId, body });
@@ -3468,9 +3430,14 @@ test.describe('dashboard console config page api wiring', () => {
         sessionClaims = {
           userId: 'user_account_settings_flow',
           orgId,
-          roles: (organization?.actorRoles as string[] | undefined)?.filter(
-            (role) => role === 'owner' || role === 'admin',
-          ) || ['admin'],
+          membershipId: String(organization?.membershipId || `membership_${orgId}_owner`),
+          authorizationVersion: Number(organization?.authorizationVersion || 1),
+          role: String(organization?.role || 'OWNER'),
+          adminPermissions: Array.isArray(organization?.adminPermissions)
+            ? organization.adminPermissions
+            : [],
+          projectAccess: [],
+          platformSupport: false,
           projectId: project ? String(project.id || '').trim() : '',
           environmentId: environment ? String(environment.id || '').trim() : '',
           provider: 'passkey',
@@ -3484,7 +3451,12 @@ test.describe('dashboard console config page api wiring', () => {
               orgId,
               projectId: project ? String(project.id || '').trim() : null,
               environmentId: environment ? String(environment.id || '').trim() : null,
-              actorRoles: sessionClaims.roles,
+              membershipId: sessionClaims.membershipId,
+              authorizationVersion: sessionClaims.authorizationVersion,
+              role: sessionClaims.role,
+              adminPermissions: sessionClaims.adminPermissions,
+              projectAccess: organization?.projectAccess,
+              platformSupport: false,
               onboardingComplete: Boolean(organization?.onboardingComplete),
             },
           }),
@@ -3634,7 +3606,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_account_settings_read_only',
               orgId: 'org_account_settings_read_only',
-              roles: ['owner', 'admin'],
+              ...mockOwnerSessionAccess(),
               projectId: 'proj_account_settings_read_only',
               environmentId: 'env_account_settings_read_only',
               provider: 'oidc',
@@ -3924,7 +3896,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -4110,7 +4082,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'proj_active:dev',
             },
@@ -4262,15 +4234,6 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
-      if (method === 'GET' && pathname === '/console/billing/stablecoins/assets') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, version: 'v1', assets: [] }),
-        });
-        return;
-      }
-
       await route.fulfill({
         status: 404,
         contentType: 'application/json',
@@ -4352,7 +4315,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -4579,7 +4542,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -4861,7 +4824,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: null,
               environmentId: null,
             },
@@ -5029,7 +4992,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_pick_same_name',
               orgId: 'org_pick_same_name',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: null,
               environmentId: null,
             },
@@ -5192,7 +5155,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -5387,7 +5350,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -5594,7 +5557,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -5786,7 +5749,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: developmentEnvironment.id,
             },
@@ -6667,7 +6630,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -7037,7 +7000,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -7304,7 +7267,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -7471,311 +7434,6 @@ test.describe('dashboard console config page api wiring', () => {
     await expect.poll(() => createRequestCount).toBe(0);
   });
 
-  test('team-members page wires invite, role update, remove, status, and permission filter flows', async ({
-    page,
-    baseURL,
-  }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
-    const context = buildMockDashboardContext();
-    const members: any[] = [
-      {
-        id: 'member_existing_admin',
-        orgId: 'org_dash_console_pages',
-        userId: 'user_existing_admin',
-        email: 'existing-admin@example.com',
-        displayName: 'Existing Admin',
-        status: 'ACTIVE',
-        roles: [{ role: 'admin', scope: 'ORG' }],
-        invitedByUserId: 'user_seed',
-        invitedAt: iso('2026-01-01T00:00:00.000Z'),
-        createdAt: iso('2026-01-01T00:00:00.000Z'),
-        updatedAt: iso('2026-01-01T00:00:00.000Z'),
-        lastStatusChangedAt: iso('2026-01-01T00:00:00.000Z'),
-      },
-    ];
-    let lastInviteBody: Record<string, unknown> | null = null;
-    let lastRolesPatchBody: Record<string, unknown> | null = null;
-    let lastRolesPatchMemberId = '';
-    let lastRemovedMemberId = '';
-    let lastListStatus = '';
-
-    await page.route(`${consoleOrigin}/console/**`, async (route) => {
-      const req = route.request();
-      const method = req.method().toUpperCase();
-      const url = new URL(req.url());
-      const { pathname } = url;
-
-      if (pathname === '/console/session') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            claims: {
-              userId: 'user_dash_console_pages',
-              orgId: 'org_dash_console_pages',
-              roles: ['admin'],
-              projectId: 'proj_active',
-              environmentId: 'env_active',
-            },
-          }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/org') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, org: context.org }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/account/organizations' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, organizations: [context.org] }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/projects') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/environments') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/members' && method === 'GET') {
-        const status = String(url.searchParams.get('status') || '')
-          .trim()
-          .toUpperCase();
-        lastListStatus = status;
-        const rows = status
-          ? members.filter((entry) => String(entry.status || '').toUpperCase() === status)
-          : [...members];
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, members: rows }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/members/invite' && method === 'POST') {
-        const body = parseJsonBody(req.postData());
-        lastInviteBody = body;
-        const now = iso('2026-02-10T00:00:00.000Z');
-        const created = {
-          id: `member_${Date.now()}`,
-          orgId: 'org_dash_console_pages',
-          userId: String(body.userId || '').trim(),
-          email: String(body.email || '').trim(),
-          displayName: String(body.displayName || '').trim() || undefined,
-          status: 'ACTIVE',
-          roles: Array.isArray(body.roles) ? body.roles : [],
-          invitedByUserId: 'user_dash_console_pages',
-          invitedAt: now,
-          createdAt: now,
-          updatedAt: now,
-          lastStatusChangedAt: now,
-        };
-        members.unshift(created);
-        await route.fulfill({
-          status: 201,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, member: created }),
-        });
-        return;
-      }
-
-      const rolesPatchMatch = pathname.match(/^\/console\/members\/([^/]+)\/roles$/);
-      if (rolesPatchMatch && method === 'PATCH') {
-        const memberId = decodeURIComponent(String(rolesPatchMatch[1] || ''));
-        const body = parseJsonBody(req.postData());
-        lastRolesPatchMemberId = memberId;
-        lastRolesPatchBody = body;
-        const target = members.find((entry) => String(entry.id || '') === memberId);
-        if (!target) {
-          await route.fulfill({
-            status: 404,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              ok: false,
-              code: 'member_not_found',
-              message: `Member ${memberId} was not found`,
-            }),
-          });
-          return;
-        }
-        target.roles = Array.isArray(body.roles) ? body.roles : target.roles;
-        target.updatedAt = iso('2026-02-11T00:00:00.000Z');
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, member: target }),
-        });
-        return;
-      }
-
-      const removeMatch = pathname.match(/^\/console\/members\/([^/]+)$/);
-      if (removeMatch && method === 'DELETE') {
-        const memberId = decodeURIComponent(String(removeMatch[1] || ''));
-        lastRemovedMemberId = memberId;
-        const target = members.find((entry) => String(entry.id || '') === memberId);
-        if (!target) {
-          await route.fulfill({
-            status: 404,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              ok: false,
-              code: 'member_not_found',
-              message: `Member ${memberId} was not found`,
-            }),
-          });
-          return;
-        }
-        target.status = 'REMOVED';
-        target.roles = [];
-        target.updatedAt = iso('2026-02-12T00:00:00.000Z');
-        target.lastStatusChangedAt = target.updatedAt;
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, removed: true, member: target }),
-        });
-        return;
-      }
-
-      await route.fulfill({
-        status: 404,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          ok: false,
-          code: 'not_found',
-          message: `Unhandled mock path ${pathname}`,
-        }),
-      });
-    });
-
-    await page.goto('/dashboard/team-members');
-    await expect(page.locator('#dashboard-main-title')).toHaveText(/team members and roles/i);
-    await expect(page.locator('section[aria-label="Team members table"]')).toContainText(
-      'existing-admin@example.com',
-    );
-
-    await page.locator('button:has-text("Add Team Member")').click();
-
-    const inviteModal = page.locator('section[aria-label="Add team member modal"]');
-    await inviteModal.locator('label:has-text("Email") input').fill('new-member@example.com');
-    await inviteModal.locator('label:has-text("Admin member") input').check();
-    await inviteModal.locator('label:has-text("Can add/remove team members") input').check();
-    await inviteModal
-      .locator('.dashboard-team-members-access-item', { hasText: 'Integrations' })
-      .locator('button:has-text("Write")')
-      .click();
-    await inviteModal.locator('button:has-text("Invite member")').click();
-
-    await expect.poll(() => String(lastInviteBody?.email || '')).toBe('new-member@example.com');
-    await expect.poll(() => String(lastInviteBody?.userId || '')).toBe('user_new_member');
-    await expect
-      .poll(
-        () =>
-          Array.isArray(lastInviteBody?.roles) &&
-          (lastInviteBody?.roles as any[]).some(
-            (entry: any) => String(entry?.role || '') === 'admin',
-          ),
-      )
-      .toBe(true);
-    await expect
-      .poll(
-        () =>
-          Array.isArray(lastInviteBody?.roles) &&
-          (lastInviteBody?.roles as any[]).some(
-            (entry: any) => String(entry?.role || '') === 'integrations_write',
-          ),
-      )
-      .toBe(true);
-    await expect(page.locator('section[aria-label="Team members table"]')).toContainText(
-      'new-member@example.com',
-    );
-
-    const table = page.locator('section[aria-label="Team members table"]');
-    const filterSection = page.locator('section[aria-label="Team member filters section"]');
-    await filterSection.locator('input[aria-label="Search team members"]').fill('new-member');
-    await expect(table).toContainText('new-member@example.com');
-    await expect(table).not.toContainText('existing-admin@example.com');
-    await filterSection.locator('input[aria-label="Search team members"]').fill('');
-    await filterSection
-      .locator('select[aria-label="Filter team members by permission"]')
-      .selectOption('MANAGE_MEMBERS');
-    await expect(table).toContainText('new-member@example.com');
-    await expect(table).not.toContainText('existing-admin@example.com');
-    await filterSection
-      .locator('select[aria-label="Filter team members by permission"]')
-      .selectOption('ALL');
-
-    const newMemberRow = table.locator('.dashboard-data-table__row', {
-      hasText: 'new-member@example.com',
-    });
-    await newMemberRow.locator('button:has-text("Edit")').click();
-
-    const updateModal = page.locator('section[aria-label="Update member permissions modal"]');
-    await updateModal.locator('label:has-text("Can add/remove team members") input').uncheck();
-    await updateModal
-      .locator('.dashboard-team-members-access-item', { hasText: 'Integrations' })
-      .locator('button:has-text("Read")')
-      .click();
-    await updateModal.locator('button:has-text("Apply permissions")').click();
-
-    await expect.poll(() => lastRolesPatchMemberId).toContain('member_');
-    await expect
-      .poll(
-        () =>
-          Array.isArray(lastRolesPatchBody?.roles) &&
-          (lastRolesPatchBody?.roles as any[]).some(
-            (entry: any) => String(entry?.role || '') === 'integrations_read',
-          ),
-      )
-      .toBe(true);
-    await expect
-      .poll(
-        () =>
-          Array.isArray(lastRolesPatchBody?.roles) &&
-          (lastRolesPatchBody?.roles as any[]).some(
-            (entry: any) => String(entry?.role || '') === 'admin_manage_members',
-          ),
-      )
-      .toBe(false);
-    await expect(newMemberRow).toContainText('Integrations:read');
-
-    page.once('dialog', (dialog) => dialog.accept());
-    await newMemberRow.locator('button:has-text("Delete")').click({ force: true });
-    await expect.poll(() => lastRemovedMemberId).toContain('member_');
-    await expect(newMemberRow).toContainText('REMOVED');
-
-    await filterSection
-      .locator('select[aria-label="Filter team members by status"]')
-      .selectOption('REMOVED');
-    await expect.poll(() => lastListStatus).toBe('REMOVED');
-    await expect(page.locator('section[aria-label="Team members table"]')).toContainText(
-      'new-member@example.com',
-    );
-  });
-
   test('audit page renders a single searchable events table without depending on evidence or exports', async ({
     page,
     baseURL,
@@ -7832,7 +7490,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -8098,37 +7756,6 @@ test.describe('dashboard console config page api wiring', () => {
         resolvedAt: iso('2026-03-10T09:30:00.000Z'),
       },
     ];
-    const members = [
-      {
-        id: 'mbr_user_security',
-        orgId: 'org_dash_console_pages',
-        userId: 'user_security',
-        email: 'security@example.com',
-        displayName: 'Security Admin',
-        status: 'ACTIVE',
-        roles: [{ role: 'admin', scope: 'ORG' }],
-        invitedByUserId: 'user_owner',
-        invitedAt: iso('2026-01-01T00:00:00.000Z'),
-        createdAt: iso('2026-01-01T00:00:00.000Z'),
-        updatedAt: iso('2026-01-01T00:00:00.000Z'),
-        lastStatusChangedAt: iso('2026-01-01T00:00:00.000Z'),
-      },
-      {
-        id: 'mbr_user_ops',
-        orgId: 'org_dash_console_pages',
-        userId: 'user_ops',
-        email: 'ops@example.com',
-        displayName: 'Ops Admin',
-        status: 'ACTIVE',
-        roles: [{ role: 'admin', scope: 'ORG' }],
-        invitedByUserId: 'user_owner',
-        invitedAt: iso('2026-01-01T00:00:00.000Z'),
-        createdAt: iso('2026-01-01T00:00:00.000Z'),
-        updatedAt: iso('2026-01-01T00:00:00.000Z'),
-        lastStatusChangedAt: iso('2026-01-01T00:00:00.000Z'),
-      },
-    ];
-
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
       const req = route.request();
       const method = req.method().toUpperCase();
@@ -8144,7 +7771,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -8185,15 +7812,6 @@ test.describe('dashboard console config page api wiring', () => {
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/members' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, members }),
         });
         return;
       }
@@ -8380,23 +7998,6 @@ test.describe('dashboard console config page api wiring', () => {
         createdAt: iso('2026-03-11T10:00:00.000Z'),
       },
     ];
-    const members = [
-      {
-        id: 'mbr_user_owner',
-        orgId: 'org_dash_console_pages',
-        userId: 'user_owner',
-        email: 'owner@example.com',
-        displayName: 'Owner User',
-        status: 'ACTIVE',
-        roles: [{ role: 'owner', scope: 'ORG' }],
-        invitedByUserId: 'user_owner',
-        invitedAt: iso('2026-01-01T00:00:00.000Z'),
-        createdAt: iso('2026-01-01T00:00:00.000Z'),
-        updatedAt: iso('2026-01-01T00:00:00.000Z'),
-        lastStatusChangedAt: iso('2026-01-01T00:00:00.000Z'),
-      },
-    ];
-
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
       const req = route.request();
       const method = req.method().toUpperCase();
@@ -8412,7 +8013,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin'],
+              ...mockAdminSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -8453,15 +8054,6 @@ test.describe('dashboard console config page api wiring', () => {
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/members' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, members }),
         });
         return;
       }
@@ -8582,7 +8174,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['owner', 'admin'],
+              ...mockOwnerSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -8949,7 +8541,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin', 'ops'],
+              ...mockAdminSessionAccess(true),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -9180,7 +8772,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin', 'ops'],
+              ...mockAdminSessionAccess(true),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -9393,7 +8985,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_filters',
               orgId: 'org_dash_console_filters',
-              roles: ['admin', 'ops'],
+              ...mockAdminSessionAccess(true),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -9620,7 +9212,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['developer'],
+              ...mockMemberSessionAccess(),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },
@@ -9695,7 +9287,7 @@ test.describe('dashboard console config page api wiring', () => {
             body: JSON.stringify({
               ok: false,
               code: 'forbidden',
-              message: 'Only owner, admin, security_admin, ops, or support can view observability',
+              message: 'Project viewer access is required to view observability',
             }),
           });
           return;
@@ -9768,7 +9360,7 @@ test.describe('dashboard console config page api wiring', () => {
             claims: {
               userId: 'user_dash_console_pages',
               orgId: 'org_dash_console_pages',
-              roles: ['admin', 'ops'],
+              ...mockAdminSessionAccess(true),
               projectId: 'proj_active',
               environmentId: 'env_active',
             },

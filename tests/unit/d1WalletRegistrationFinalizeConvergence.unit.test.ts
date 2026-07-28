@@ -18,6 +18,19 @@ const RESPONSE_LOSS_FAULTS: readonly FinalizeConvergenceFault[] = [
   'finalize_completion_response_loss',
 ];
 
+test('wallet registration binds Yao consumption to the bounded finalize fingerprint', async () => {
+  const harness = await createFinalizeConvergenceHarness();
+  try {
+    const response = await harness.service.walletRegistration.finalizeWalletRegistration(
+      harness.request,
+    );
+    expect(response.ok, response.ok ? undefined : response.message).toBe(true);
+    expect(harness.activationConsumerBinding()).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
 for (const fault of RESPONSE_LOSS_FAULTS) {
   test(`wallet registration finalize converges after ${fault}`, async () => {
     const harness = await createFinalizeConvergenceHarness();
@@ -80,6 +93,49 @@ test('a live finalize claim prevents concurrent duplicate execution', async () =
     await expect(harness.countRows('wallets')).resolves.toBe(1);
     await expect(harness.countRows('wallet_signers')).resolves.toBe(1);
     await expect(harness.countRows('wallet_auth_methods')).resolves.toBe(1);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+/* Refactor 94 Phase 4+5+6. The Ed25519 branch is now committed on its own,
+   deferred, call. An exact replay of it must converge on the stored response
+   rather than re-running the ceremony: consumeActivated is consume-once, so a
+   replay that reached it would fail outright, and a replay that re-executed
+   would double the signer activation. */
+test('exact replay of the deferred Ed25519 finalize converges without a duplicate effect', async () => {
+  const harness = await createFinalizeConvergenceHarness();
+  try {
+    expect(harness.request.kind).toBe('near_ed25519');
+
+    const first = await harness.service.walletRegistration.finalizeWalletRegistration(
+      harness.request,
+    );
+    if (!first.ok) throw new Error(`expected the deferred Ed25519 finalize to succeed: ${first.code}`);
+    const consumerBindingAfterFirst = harness.activationConsumerBinding();
+    expect(consumerBindingAfterFirst).not.toBeNull();
+
+    await expect(harness.countRows('wallets')).resolves.toBe(1);
+    await expect(harness.countRows('wallet_signers')).resolves.toBe(1);
+
+    /* Same ceremony, same idempotency key, byte-identical body. */
+    const replayed = await harness.service.walletRegistration.finalizeWalletRegistration(
+      harness.request,
+    );
+    expect(replayed).toEqual(first);
+
+    /* One converged signer activation, and the Yao activation was consumed
+       once — the replay short-circuited before touching it again. */
+    await expect(harness.countRows('wallets')).resolves.toBe(1);
+    await expect(harness.countRows('wallet_signers')).resolves.toBe(1);
+    await expect(harness.countRows('wallet_auth_methods')).resolves.toBe(1);
+    expect(harness.activationConsumerBinding()).toBe(consumerBindingAfterFirst);
+
+    /* A third replay is still the same answer. */
+    await expect(
+      harness.service.walletRegistration.finalizeWalletRegistration(harness.request),
+    ).resolves.toEqual(first);
+    await expect(harness.countRows('wallet_signers')).resolves.toBe(1);
   } finally {
     await harness.cleanup();
   }

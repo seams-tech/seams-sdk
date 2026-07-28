@@ -23,6 +23,7 @@ import type {
 } from './types';
 import {
   DashboardConsoleSessionProvider,
+  markDashboardConsoleSignOut,
   revokeDashboardConsoleSession,
   useDashboardConsoleSession,
 } from './consoleSession';
@@ -254,16 +255,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     : '';
   const billingReady = onboardingState?.billingReady === true;
   const isPlatformRoute = pathname === PLATFORM_BILLING_ROUTE || pathname.startsWith('/platform/');
-  const isPlatformAdmin = React.useMemo(
-    () =>
-      (consoleSession.claims?.roles || []).some(
-        (role) =>
-          String(role || '')
-            .trim()
-            .toLowerCase() === 'platform_admin',
-      ),
-    [consoleSession.claims?.roles],
-  );
+  const isPlatformAdmin = consoleSession.claims?.platformSupport === true;
   const isSidebarNavigationLocked =
     !isPlatformRoute &&
     onboardingGateEnabled &&
@@ -901,16 +893,18 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         if (logoutPending) return;
         setLogoutPending(true);
         setLogoutErrorMessage('');
+        /* Sign-out is fail-safe: a revoke that errors must still drop the user
+           out of the console. Leaving them on the dashboard with only an inline
+           error reads as "sign out did nothing". */
         void revokeDashboardConsoleSession()
-          .then(() => {
-            clearDashboardUiState();
-            consoleSession.refresh();
-            go(DASHBOARD_LOGIN_ROUTE);
-          })
           .catch((error: unknown) => {
             setLogoutErrorMessage(error instanceof Error ? error.message : String(error));
           })
           .finally(() => {
+            markDashboardConsoleSignOut();
+            clearDashboardUiState();
+            consoleSession.refresh();
+            go(DASHBOARD_LOGIN_ROUTE);
             setLogoutPending(false);
           });
         return;
@@ -1039,6 +1033,20 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       ),
     [visibleSidebarGroups],
   );
+
+  /* No claims means no console. Rendering the shell while the session check is
+     in flight (or after a sign-out, before the redirect effect runs) shows the
+     chrome of a workspace the visitor has no session for. `sessionForbidden`
+     keeps rendering because that state has its own in-shell message. */
+  if (!consoleSession.claims && !sessionForbidden) {
+    return (
+      <main className="dashboard-session-gate" aria-label="Dashboard workspace" aria-busy>
+        <p className="dashboard-session-gate__note" role="status">
+          {consoleSession.loading ? 'Checking your session...' : 'Redirecting to sign in...'}
+        </p>
+      </main>
+    );
+  }
 
   return (
     <main className={shellClassName} aria-label="Dashboard workspace">

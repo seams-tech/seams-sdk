@@ -1378,6 +1378,7 @@ export class CloudflareD1WalletAddSignerService {
         execute: this.executeWalletAddSignerFinalizeSideEffect.bind(this, {
           finalizeRequest,
           store,
+          consumerBinding: requestFingerprint,
         }),
       });
       switch (run.kind) {
@@ -1424,6 +1425,7 @@ export class CloudflareD1WalletAddSignerService {
     input: {
       readonly finalizeRequest: StoredWalletAddSignerFinalizeRequest;
       readonly store: CloudflareD1RegistrationCeremonyIntentStore;
+      readonly consumerBinding: string;
     },
     prepared: D1WalletAddSignerFinalizePreparedV1,
   ): Promise<WalletAddSignerFinalizeResponse> {
@@ -1435,6 +1437,7 @@ export class CloudflareD1WalletAddSignerService {
     input: {
       readonly finalizeRequest: StoredWalletAddSignerFinalizeRequest;
       readonly store: CloudflareD1RegistrationCeremonyIntentStore;
+      readonly consumerBinding: string;
     },
     prepared: D1WalletAddSignerFinalizePreparedV1,
   ): Promise<WalletAddSignerFinalizeResponse> {
@@ -1529,7 +1532,7 @@ export class CloudflareD1WalletAddSignerService {
         }
         const consumed = await yaoRuntime.consumeActivated({
           reference: requestedActivationReference,
-          consumerBinding: alphabetizeStringify(finalizeRequest),
+          consumerBinding: input.consumerBinding,
         });
         if (!consumed.ok) return consumed;
         if (

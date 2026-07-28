@@ -180,6 +180,77 @@ const CAPTURE_UNLOCK_PAYLOAD_SCRIPT = String.raw`
         };
       };
 `;
+const EMAIL_OTP_REGISTRATION_SESSION_SCRIPT = String.raw`
+      const captureEmailOtpRequest = (requestType) => {
+        window.parent?.postMessage(
+          {
+            type: 'CAPTURED_EMAIL_OTP_ROUTER_REQUEST',
+            requestType,
+          },
+          '*',
+        );
+      };
+      const completedSession = {
+        login: {
+          isLoggedIn: true,
+          walletId: 'alice.testnet',
+        },
+        signingSession: null,
+      };
+      const originalAdoptPort = adoptPort;
+      adoptPort = function patchedAdoptPort(port) {
+        originalAdoptPort(port);
+        if (!adoptedPort) return;
+        const originalHandler = adoptedPort.onmessage;
+        adoptedPort.onmessage = (event) => {
+          const data = event.data || {};
+          if (!data || typeof data !== 'object' || typeof data.requestId !== 'string') {
+            originalHandler?.(event);
+            return;
+          }
+          const requestId = data.requestId;
+          if (data.type === 'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH') {
+            captureEmailOtpRequest(data.type);
+            postResult(requestId, {
+              ok: true,
+              value: {
+                flowHandleId: 'registration-handle-1',
+                flowId: 'registration-flow-1',
+                state: 'registration_ready',
+                requestedMode: 'register',
+                mode: 'register',
+                walletId: 'alice.testnet',
+                emailHint: 'alice@example.com',
+                prompt: {
+                  title: 'Create your Email OTP wallet',
+                  description: 'Google verified alice@example.com.',
+                  submitLabel: 'Create wallet',
+                  helperText: 'Choose this wallet name.',
+                },
+                expiresAtMs: Date.now() + 60_000,
+              },
+            });
+            return;
+          }
+          if (data.type === 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION') {
+            captureEmailOtpRequest(data.type);
+            postResult(requestId, {
+              ok: true,
+              value: {
+                walletId: 'alice.testnet',
+                mode: 'register',
+                session: completedSession,
+              },
+            });
+            return;
+          }
+          if (data.type === 'PM_GET_EXACT_WALLET_SESSION_STATE') {
+            captureEmailOtpRequest(data.type);
+          }
+          originalHandler?.(event);
+        };
+      };
+`;
 
 test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
   test.beforeEach(async ({ page }) => {
@@ -561,6 +632,94 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     expect(result.unlockResult.success).toBe(false);
     expect(result.unlockResult.error).toContain('No authenticators found');
     expect(result.statuses).toEqual([]);
+  });
+
+  test('Email OTP registration mirrors its returned session without another iframe request', async ({
+    page,
+  }) => {
+    await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
+    await registerWalletServiceRoute(
+      page,
+      buildWalletServiceHtml({
+        extraScript: EMAIL_OTP_REGISTRATION_SESSION_SCRIPT,
+      }),
+      WALLET_SERVICE_ROUTE,
+    );
+
+    const routerPath = SDK_ESM_PATHS.walletIframeRouter;
+    const result = await page.evaluate(
+      async ({ walletOrigin, routerPath }) => {
+        const requestTypes: string[] = [];
+        const captureRequest = (event: MessageEvent): void => {
+          const data = event.data;
+          if (!data || typeof data !== 'object') return;
+          if ((data as { type?: unknown }).type !== 'CAPTURED_EMAIL_OTP_ROUTER_REQUEST') return;
+          const requestType = (data as { requestType?: unknown }).requestType;
+          if (typeof requestType === 'string') requestTypes.push(requestType);
+        };
+        window.addEventListener('message', captureRequest);
+        try {
+          const mod = await import(routerPath);
+          const { WalletIframeRouter } =
+            mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+          const router = new WalletIframeRouter({
+            walletOrigin,
+            servicePath: '/wallet-service',
+            connectTimeoutMs: 3000,
+            requestTimeoutMs: 1000,
+            debug: true,
+            sdkBasePath: '/sdk',
+          });
+          await router.init();
+
+          const statuses: Array<{ isLoggedIn: boolean; walletId: string | null }> = [];
+          router.onLoginStatusChanged((status) => statuses.push(status));
+          const started = await router.beginGoogleEmailOtpWalletAuth({
+            idToken: 'google-id-token',
+            mode: 'register',
+          });
+          if (!started.ok || started.value.mode !== 'register') {
+            throw new Error('Expected Google Email OTP registration flow');
+          }
+          const completed = await started.value.completeRegistration();
+
+          return {
+            success: true as const,
+            completed,
+            requestTypes,
+            statuses,
+            mirroredSession: router.getMirroredExactSessionState(),
+          };
+        } catch (error: unknown) {
+          return {
+            success: false as const,
+            error: String((error as { message?: unknown })?.message || error || ''),
+          };
+        } finally {
+          window.removeEventListener('message', captureRequest);
+        }
+      },
+      { walletOrigin: WALLET_ORIGIN, routerPath },
+    );
+
+    if (!result.success) {
+      if (handleInfrastructureErrors(result)) return;
+      expect(result.success, result.error).toBe(true);
+      return;
+    }
+
+    expect(result.completed.ok).toBe(true);
+    expect(result.requestTypes).toEqual([
+      'PM_GET_EXACT_WALLET_SESSION_STATE',
+      'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH',
+      'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION',
+    ]);
+    expect(result.statuses).toEqual([{ isLoggedIn: true, walletId: 'alice.testnet' }]);
+    expect(result.mirroredSession).toEqual({
+      kind: 'wallet_unlocked_without_signing_session',
+      walletId: 'alice.testnet',
+      reason: 'not_found',
+    });
   });
 
   test('unlock posts strict protocol options for selection and ECDSA inventory', async ({

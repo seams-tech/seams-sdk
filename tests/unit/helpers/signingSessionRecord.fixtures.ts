@@ -44,6 +44,7 @@ import { parseEcdsaDerivationRoleLocalKeyRecord } from '../../../packages/sdk-se
 import type { EcdsaDerivationRoleLocalKeyRecord } from '../../../packages/sdk-server-ts/src/core/types';
 import {
   createThresholdEcdsaBootstrapFixture,
+  fixtureEcdsaRoleLocalReadyRecordFromBootstrap,
   fixtureRuntimePolicyScopeFromSigningRoot,
   toWorkerOwnedPasskeyEcdsaBootstrapFixture,
 } from './ecdsaBootstrap.fixtures';
@@ -337,7 +338,9 @@ function ecdsaFixtureChainBinding(args: EcdsaSessionRecordFixtureSharedArgs): {
   chain: ThresholdEcdsaActivationChain;
   chainTarget: ThresholdEcdsaChainTarget;
 } {
-  const chain = args.chain || (args.chainTarget?.kind === 'tempo' ? 'tempo' : args.chainTarget ? 'evm' : 'tempo');
+  const chain =
+    args.chain ||
+    (args.chainTarget?.kind === 'tempo' ? 'tempo' : args.chainTarget ? 'evm' : 'tempo');
   const fixtureTarget = testEcdsaChainTarget(chain);
   const chainTarget = args.chainTarget || fixtureTarget;
   if (!thresholdEcdsaChainTargetsEqual(chainTarget, fixtureTarget)) {
@@ -377,11 +380,7 @@ function ecdsaFixtureBootstrapArgs(
 }
 
 function ecdsaFixtureReadyRecord(bootstrap: ThresholdEcdsaSessionBootstrapResult) {
-  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
-  if (binding?.materialKind !== 'role_local_ready_state_blob') {
-    throw new Error('ECDSA session record fixture requires a role-local ready-state bootstrap');
-  }
-  return binding.ecdsaRoleLocalReadyRecord;
+  return fixtureEcdsaRoleLocalReadyRecordFromBootstrap(bootstrap);
 }
 
 function ecdsaSessionRecordRawFromBootstrapFixture(args: {
@@ -391,10 +390,18 @@ function ecdsaSessionRecordRawFromBootstrapFixture(args: {
 }): Record<string, unknown> {
   const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
   const binding = keyRef.backendBinding;
-  if (binding?.materialKind !== 'role_local_ready_state_blob') {
-    throw new Error('ECDSA session record fixture requires a role-local ready-state bootstrap');
+  if (
+    binding?.materialKind !== 'role_local_ready_state_blob' &&
+    binding?.materialKind !== 'role_local_worker_handle'
+  ) {
+    throw new Error('ECDSA session record fixture requires a role-local bootstrap binding');
   }
-  const readyRecord = binding.ecdsaRoleLocalReadyRecord;
+  const readyRecord = fixtureEcdsaRoleLocalReadyRecordFromBootstrap(args.bootstrap);
+  // Worker-owned (passkey) material is referenced, never inlined, on canonical records.
+  const roleLocalDurableMaterialRef =
+    binding.materialKind === 'role_local_worker_handle'
+      ? binding.roleLocalMaterialHandle.durableMaterialRef
+      : null;
   const participantIds = keyRef.participantIds;
   if (!participantIds) {
     throw new Error('ECDSA session record fixture requires bootstrap participantIds');

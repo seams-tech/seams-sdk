@@ -7,6 +7,7 @@ pub struct CloudflareDurableObjectMemoryStorageV1 {
     replay_by_request_id: BTreeMap<String, CloudflareReplayReserveRequestV1>,
     replay_by_storage_key: BTreeMap<String, CloudflareReplayReserveRequestV1>,
     lifecycle_states: BTreeMap<String, RouterAbLifecycleStateV1>,
+    public_registration_completions: BTreeMap<String, String>,
     derivation_ceremonies: BTreeMap<String, CloudflareDerivationCeremonyV1>,
     project_policies: BTreeMap<String, CloudflareRouterProjectPolicyRecordV1>,
     abuse_records: BTreeMap<String, CloudflareRouterAbuseRecordV1>,
@@ -206,6 +207,32 @@ impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1
     ) -> RouterAbProtocolResult<Option<RouterAbLifecycleStateV1>> {
         require_non_empty("storage_key", storage_key)?;
         Ok(self.lifecycle_states.get(storage_key).cloned())
+    }
+
+    fn public_registration_completion(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<String>> {
+        require_non_empty("storage_key", storage_key)?;
+        Ok(self
+            .public_registration_completions
+            .get(storage_key)
+            .cloned())
+    }
+
+    fn put_public_registration_completion(
+        &mut self,
+        storage_key: &str,
+        response_json: String,
+    ) -> RouterAbProtocolResult<()> {
+        require_non_empty("storage_key", storage_key)?;
+        CloudflareRouterPublicAdmissionCompletionV1::Completed {
+            response_json: response_json.clone(),
+        }
+        .validate()?;
+        self.public_registration_completions
+            .insert(storage_key.to_owned(), response_json);
+        Ok(())
     }
 
     fn put_derivation_ceremony(

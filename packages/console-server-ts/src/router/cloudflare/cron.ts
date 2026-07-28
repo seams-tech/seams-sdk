@@ -16,10 +16,27 @@ import {
   type D1ConsoleWebhookRetryDispatchResult,
 } from '@seams-internal/console-server/webhooks/d1';
 import type { ConsoleObservabilityIngestionService } from '@seams-internal/console-server/observability/ingestionService';
-import type { D1DatabaseLike } from '@seams/sdk-server/internal/storage/tenantRoute';
-import type { ScheduledHandler } from '@seams/sdk-server/internal/router/cloudflare/cloudflare.types';
-import type { RouterLogger } from '@seams/sdk-server/internal/router/logger';
-import { coerceRouterLogger } from '@seams/sdk-server/internal/router/logger';
+import {
+  runD1ConsoleEmailDispatcher,
+  type D1ConsoleEmailDispatcherOptions,
+} from '@seams-internal/console-server/email/d1';
+import {
+  createCaptureConsoleEmailProvider,
+  createResendConsoleEmailProvider,
+} from '@seams-internal/console-server/email/providers';
+import {
+  createAesGcmConsoleInvitationSecretCipher,
+  type ConsoleInvitationSecretCipher,
+} from '@seams-internal/console-server/email/secrets';
+import type {
+  ConsoleEmailDispatchResult,
+  ConsoleEmailProvider,
+} from '@seams-internal/console-server/email/types';
+import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
+import type { ScheduledHandler } from '@seams/sdk-server/cloud-host';
+import type { RouterLogger } from '@seams/sdk-server/cloud-host';
+import { base64UrlDecode, coerceRouterLogger } from '@seams/sdk-server/cloud-host';
+import type { RouterApiCloudflareConsoleWorkerEnv } from './cloudflareConsole.types';
 
 type BillingMonthlyFinalizationRunner = (
   options: D1ConsoleBillingMonthlyFinalizationOptions,
@@ -32,6 +49,32 @@ type RuntimeSnapshotOutboxRunner = (
 type WebhookRetryDispatchRunner = (
   options: D1ConsoleWebhookRetryDispatchOptions,
 ) => Promise<D1ConsoleWebhookRetryDispatchResult>;
+
+type ConsoleEmailDispatchRunner = (
+  options: D1ConsoleEmailDispatcherOptions,
+) => Promise<ConsoleEmailDispatchResult>;
+
+export type CloudflareConsoleEmailRuntimeProfile = 'DEVELOPMENT' | 'PRODUCTION';
+
+export interface CloudflareConsoleEmailDispatchCronOptions {
+  readonly runtimeProfile: CloudflareConsoleEmailRuntimeProfile;
+  readonly database: D1DatabaseLike;
+  readonly provider: ConsoleEmailProvider;
+  readonly invitationSecretCipher: ConsoleInvitationSecretCipher;
+  readonly namespace: string;
+  readonly cronExpressions?: string[];
+  readonly ensureSchema?: boolean;
+  readonly runner?: ConsoleEmailDispatchRunner;
+  readonly now?: () => Date;
+}
+
+export interface ResolveCloudflareConsoleEmailDispatchCronOptionsInput {
+  readonly env: RouterApiCloudflareConsoleWorkerEnv;
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly ensureSchema?: boolean;
+  readonly now?: () => Date;
+}
 
 export interface CloudflareBillingMonthlyFinalizationCronOptions {
   /**
@@ -213,27 +256,157 @@ export interface CloudflareCronOptions {
    * Optional webhook retry dispatch job.
    */
   webhookRetryDispatch?: CloudflareWebhookRetryDispatchCronOptions;
+  /**
+   * Optional console transactional-email dispatch job.
+   */
+  consoleEmailDispatch?: CloudflareConsoleEmailDispatchCronOptions;
+}
+
+export function resolveCloudflareConsoleEmailDispatchCronOptions(
+  input: ResolveCloudflareConsoleEmailDispatchCronOptionsInput,
+): CloudflareConsoleEmailDispatchCronOptions {
+  const runtimeProfile = parseConsoleEmailRuntimeProfile(
+    requireConsoleEmailEnv(
+      input.env.CONSOLE_EMAIL_RUNTIME_PROFILE,
+      'CONSOLE_EMAIL_RUNTIME_PROFILE',
+    ),
+  );
+  const provider = resolveConsoleEmailProvider(input.env, runtimeProfile);
+  const invitationSecretCipher = resolveConsoleEmailInvitationSecretCipher(input.env);
+  return {
+    runtimeProfile,
+    database: input.database,
+    provider,
+    invitationSecretCipher,
+    namespace: requireConsoleEmailEnv(input.namespace, 'console email namespace'),
+    cronExpressions: parseConsoleEmailCommaList(input.env.CONSOLE_EMAIL_CRON_EXPRESSIONS),
+    ensureSchema: input.ensureSchema,
+    now: input.now,
+  };
+}
+
+function resolveConsoleEmailInvitationSecretCipher(
+  env: RouterApiCloudflareConsoleWorkerEnv,
+): ConsoleInvitationSecretCipher {
+  const keyId = requireConsoleEmailEnv(
+    env.CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID,
+    'CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID',
+  );
+  const keyBytes = decodeConsoleEmailInvitationSecretKey(
+    requireConsoleEmailEnv(
+      env.CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U,
+      'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
+    ),
+  );
+  try {
+    return createAesGcmConsoleInvitationSecretCipher({ keyId, keyBytes });
+  } finally {
+    keyBytes.fill(0);
+  }
+}
+
+function resolveConsoleEmailProvider(
+  env: RouterApiCloudflareConsoleWorkerEnv,
+  runtimeProfile: CloudflareConsoleEmailRuntimeProfile,
+): ConsoleEmailProvider {
+  const providerKind = requireConsoleEmailEnv(
+    env.CONSOLE_EMAIL_PROVIDER,
+    'CONSOLE_EMAIL_PROVIDER',
+  ).toUpperCase();
+  switch (runtimeProfile) {
+    case 'DEVELOPMENT':
+      if (providerKind !== 'CAPTURE') {
+        throw new Error('Development console email requires CONSOLE_EMAIL_PROVIDER=CAPTURE');
+      }
+      return createCaptureConsoleEmailProvider();
+    case 'PRODUCTION':
+      if (providerKind !== 'RESEND') {
+        throw new Error('Production console email requires CONSOLE_EMAIL_PROVIDER=RESEND');
+      }
+      return createResendConsoleEmailProvider({
+        apiKey: requireConsoleEmailEnv(env.RESEND_API_KEY, 'RESEND_API_KEY'),
+        from: requireConsoleEmailEnv(env.CONSOLE_EMAIL_FROM, 'CONSOLE_EMAIL_FROM'),
+        replyTo: optionalConsoleEmailEnv(env.CONSOLE_EMAIL_REPLY_TO) || undefined,
+      });
+    default:
+      return assertNeverConsoleEmailRuntimeProfile(runtimeProfile);
+  }
+}
+
+function parseConsoleEmailRuntimeProfile(value: string): CloudflareConsoleEmailRuntimeProfile {
+  switch (value.trim().toUpperCase()) {
+    case 'DEVELOPMENT':
+      return 'DEVELOPMENT';
+    case 'PRODUCTION':
+      return 'PRODUCTION';
+    default:
+      throw new Error('CONSOLE_EMAIL_RUNTIME_PROFILE must be DEVELOPMENT or PRODUCTION');
+  }
+}
+
+function decodeConsoleEmailInvitationSecretKey(value: string): Uint8Array {
+  let decoded: Uint8Array;
+  try {
+    decoded = base64UrlDecode(value);
+  } catch {
+    throw new Error('CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U must be valid base64url');
+  }
+  if (decoded.byteLength !== 32) {
+    decoded.fill(0);
+    throw new Error('CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U must decode to 32 bytes');
+  }
+  return decoded;
+}
+
+function parseConsoleEmailCommaList(value: string | undefined): string[] {
+  const normalized = optionalConsoleEmailEnv(value);
+  if (!normalized) return [];
+  const items: string[] = [];
+  const seen = new Set<string>();
+  for (const item of normalized.split(',')) {
+    const entry = item.trim();
+    if (!entry || seen.has(entry)) continue;
+    seen.add(entry);
+    items.push(entry);
+  }
+  return items;
+}
+
+function requireConsoleEmailEnv(value: string | undefined, field: string): string {
+  const normalized = optionalConsoleEmailEnv(value);
+  if (!normalized) throw new Error(`${field} is required`);
+  return normalized;
+}
+
+function optionalConsoleEmailEnv(value: string | undefined): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function assertNeverConsoleEmailRuntimeProfile(value: never): never {
+  throw new Error(`Unhandled console email runtime profile: ${String(value)}`);
 }
 
 function normalizeCronExpressions(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
-  return Array.from(
-    new Set(
-      input
-        .map((value) => String(value || '').trim())
-        .filter(Boolean),
-    ),
-  );
+  return Array.from(new Set(input.map((value) => String(value || '').trim()).filter(Boolean)));
 }
 
-function shouldRunForCronTick(
-  cronExpressions: string[],
-  eventCron: string | undefined,
-): boolean {
+function shouldRunForCronTick(cronExpressions: string[], eventCron: string | undefined): boolean {
   if (cronExpressions.length === 0) return true;
   const tick = String(eventCron || '').trim();
   if (!tick) return false;
   return cronExpressions.includes(tick);
+}
+
+function validateConsoleEmailDispatchCronOptions(
+  options: CloudflareConsoleEmailDispatchCronOptions,
+): void {
+  if (options.runtimeProfile === 'DEVELOPMENT' && options.provider.provider !== 'capture') {
+    throw new Error('Development console email cron requires the capture provider');
+  }
+  if (options.runtimeProfile === 'PRODUCTION' && options.provider.provider !== 'resend') {
+    throw new Error('Production console email cron requires the Resend provider');
+  }
 }
 
 export function createCloudflareCron(opts: CloudflareCronOptions = {}): ScheduledHandler {
@@ -245,7 +418,8 @@ export function createCloudflareCron(opts: CloudflareCronOptions = {}): Schedule
     new Set(
       (billingFinalization && Array.isArray(billingFinalization.orgIds)
         ? billingFinalization.orgIds
-        : [])
+        : []
+      )
         .map((orgId) => String(orgId || '').trim())
         .filter(Boolean),
     ),
@@ -259,7 +433,8 @@ export function createCloudflareCron(opts: CloudflareCronOptions = {}): Schedule
     new Set(
       (runtimeSnapshotOutbox && Array.isArray(runtimeSnapshotOutbox.orgIds)
         ? runtimeSnapshotOutbox.orgIds
-        : [])
+        : []
+      )
         .map((orgId) => String(orgId || '').trim())
         .filter(Boolean),
     ),
@@ -273,13 +448,22 @@ export function createCloudflareCron(opts: CloudflareCronOptions = {}): Schedule
     new Set(
       (webhookRetryDispatch && Array.isArray(webhookRetryDispatch.orgIds)
         ? webhookRetryDispatch.orgIds
-        : [])
+        : []
+      )
         .map((orgId) => String(orgId || '').trim())
         .filter(Boolean),
     ),
   );
   const webhookRetryDispatchCronExpressions = normalizeCronExpressions(
     webhookRetryDispatch?.cronExpressions,
+  );
+  const consoleEmailDispatch = opts.consoleEmailDispatch;
+  const consoleEmailDispatchEnabled = Boolean(consoleEmailDispatch);
+  if (consoleEmailDispatch) {
+    validateConsoleEmailDispatchCronOptions(consoleEmailDispatch);
+  }
+  const consoleEmailDispatchCronExpressions = normalizeCronExpressions(
+    consoleEmailDispatch?.cronExpressions,
   );
   return async (event) => {
     if (verbose) {
@@ -289,6 +473,7 @@ export function createCloudflareCron(opts: CloudflareCronOptions = {}): Schedule
         billingMonthlyFinalization: billingFinalizationEnabled,
         runtimeSnapshotOutbox: runtimeSnapshotOutboxEnabled,
         webhookRetryDispatch: webhookRetryDispatchEnabled,
+        consoleEmailDispatch: consoleEmailDispatchEnabled,
       });
     }
 
@@ -355,7 +540,10 @@ export function createCloudflareCron(opts: CloudflareCronOptions = {}): Schedule
         logger.warn('[cron][runtime-snapshot-outbox] skipped: missing D1 database');
       } else if (runtimeSnapshotOutboxOrgIds.length === 0) {
         logger.warn('[cron][runtime-snapshot-outbox] skipped: missing orgIds');
-      } else if (!runtimeSnapshotOutbox?.runner && typeof runtimeSnapshotOutbox?.dispatch !== 'function') {
+      } else if (
+        !runtimeSnapshotOutbox?.runner &&
+        typeof runtimeSnapshotOutbox?.dispatch !== 'function'
+      ) {
         logger.warn(
           '[cron][runtime-snapshot-outbox] skipped: missing dispatch callback for default D1 runner',
         );
@@ -408,9 +596,7 @@ export function createCloudflareCron(opts: CloudflareCronOptions = {}): Schedule
       } else if (webhookRetryDispatchOrgIds.length === 0) {
         logger.warn('[cron][webhook-retry-dispatch] skipped: missing orgIds');
       } else if (!d1Database || !d1SecretCipher) {
-        logger.warn(
-          '[cron][webhook-retry-dispatch] skipped: missing D1 database or secret cipher',
-        );
+        logger.warn('[cron][webhook-retry-dispatch] skipped: missing D1 database or secret cipher');
       } else {
         const runner = webhookRetryDispatch?.runner || runD1ConsoleWebhookRetryDispatch;
         const result = await runner({
@@ -441,6 +627,45 @@ export function createCloudflareCron(opts: CloudflareCronOptions = {}): Schedule
         if (result.failures.length > 0) {
           logger.warn('[cron][webhook-retry-dispatch] failures', {
             namespace: result.namespace,
+            failures: result.failures,
+          });
+        }
+      }
+    }
+
+    if (consoleEmailDispatchEnabled && consoleEmailDispatch) {
+      const eventCron = typeof event?.cron === 'string' ? event.cron : undefined;
+      const consoleEmailCronMatches = shouldRunForCronTick(
+        consoleEmailDispatchCronExpressions,
+        eventCron,
+      );
+      if (!consoleEmailCronMatches) {
+        if (verbose) {
+          logger.info('[cron][console-email] skipped: cron expression mismatch', {
+            eventCron,
+            cronExpressions: consoleEmailDispatchCronExpressions,
+          });
+        }
+      } else {
+        const runner = consoleEmailDispatch.runner || runD1ConsoleEmailDispatcher;
+        const result = await runner({
+          database: consoleEmailDispatch.database,
+          provider: consoleEmailDispatch.provider,
+          invitationSecretCipher: consoleEmailDispatch.invitationSecretCipher,
+          namespace: consoleEmailDispatch.namespace,
+          ensureSchema: consoleEmailDispatch.ensureSchema,
+          now: consoleEmailDispatch.now,
+        });
+        logger.info('[cron][console-email] completed', {
+          claimedCount: result.claimedCount,
+          sentCount: result.sentCount,
+          retryScheduledCount: result.retryScheduledCount,
+          finalFailureCount: result.finalFailureCount,
+          canceledCount: result.canceledCount,
+          failureCount: result.failures.length,
+        });
+        if (result.failures.length > 0) {
+          logger.warn('[cron][console-email] failures', {
             failures: result.failures,
           });
         }

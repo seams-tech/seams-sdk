@@ -256,6 +256,7 @@ type ActiveRegistrationPromptState = {
   onSubmit: SeamsAuthMenuRegistrationPrompt['onSubmit'];
   onRerollAccount: NonNullable<SeamsAuthMenuRegistrationPrompt['onRerollAccount']>;
   onCancel?: SeamsAuthMenuRegistrationPrompt['onCancel'];
+  refreshLoginStateAfterSubmit: boolean;
 };
 
 type ActivePostRecoveryRotationPromptState = {
@@ -316,6 +317,7 @@ function resolveOtpPrompt(
 
 function resolveRegistrationPrompt(
   prompt: SeamsAuthMenuRegistrationPrompt,
+  options?: { refreshLoginStateAfterSubmit?: boolean },
 ): ActiveRegistrationPromptState {
   const accountId = String(prompt.accountId || prompt.username || '').trim();
   if (!accountId) {
@@ -344,6 +346,7 @@ function resolveRegistrationPrompt(
     onSubmit: prompt.onSubmit,
     onRerollAccount,
     ...(prompt.onCancel ? { onCancel: prompt.onCancel } : {}),
+    refreshLoginStateAfterSubmit: options?.refreshLoginStateAfterSubmit !== false,
   };
 }
 
@@ -1180,7 +1183,9 @@ export function useSeamsAuthMenuController(
             setMethodError('');
             setOtpPromptState(null);
             setRegistrationPromptState(
-              resolveRegistrationPrompt(mappedRegistrationFlowResult.registrationPrompt),
+              resolveRegistrationPrompt(mappedRegistrationFlowResult.registrationPrompt, {
+                refreshLoginStateAfterSubmit: !flowResult.onComplete,
+              }),
             );
             return;
           }
@@ -1483,7 +1488,9 @@ export function useSeamsAuthMenuController(
     void (async () => {
       try {
         await activePrompt.onSubmit();
-        await runtime.refreshLoginState(activePrompt.accountId).catch(() => {});
+        if (activePrompt.refreshLoginStateAfterSubmit) {
+          await runtime.refreshLoginState(activePrompt.accountId).catch(() => {});
+        }
         setRegistrationPromptState(null);
       } catch (error: unknown) {
         setRegistrationError(getErrorMessage(error, 'Wallet registration failed.'));
