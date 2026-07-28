@@ -2246,6 +2246,100 @@ test('registerWallet keeps the ECDSA wallet when the deferred Yao seal fails', a
   }
 });
 
+test('a passkey mixed registration returns an ECDSA-ready wallet before Yao settles', async () => {
+  const events: string[] = [];
+  const captures: Record<string, unknown> = {
+    registrationEvents: events,
+    enableRegistrationPreparationModalClose: true,
+  };
+  const fetchMock = installRegisterWalletFetch(captures);
+  try {
+    resetNearProvisioningRegistryForTests();
+    const result = await withMockedIndexedDb(() =>
+      registerWallet({
+        context: createContext(captures),
+        authMethod: { kind: 'passkey', rpId: RP_ID },
+        wallet: { kind: 'server_allocated' },
+        signerSelection: registrationSignerSet(
+          nearEd25519RegistrationSigner(),
+          evmFamilyRegistrationSigner([{ kind: 'evm', namespace: 'eip155', chainId: 1 }]),
+        ),
+        options: {},
+        authenticatorOptions: {
+          userVerification: UserVerificationPolicy.Preferred,
+          originPolicy: { single: true, all_subdomains: false, multiple: [] },
+        },
+      }),
+    );
+
+    /* Passkey takes the same split: ECDSA-ready first, NEAR still pending, and
+       exactly one Touch ID prompt for the whole registration. */
+    expectRegistrationSuccess(result);
+    expect(result).toMatchObject({
+      success: true,
+      kind: 'ecdsa_wallet_registered_near_pending',
+      nearProvisioning: { status: 'pending' },
+    });
+    expect(captures.storedEcdsaRegistration).toBeDefined();
+    expectSingleRegistrationTouchIdPrompt(captures);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+/* Refactor 94 Phase 4+5. The whole point of the split is that the wallet is
+   usable before the Yao ceremony settles, so this holds Yao open for the entire
+   test and checks what the wallet can already do. */
+test('the ECDSA wallet is durable and usable while the Yao ceremony is still blocked', async () => {
+  const events: string[] = [];
+  const deferredEmailOtpYaoStart = createDeferredPromise<void>();
+  const captures: Record<string, unknown> = {
+    registrationEvents: events,
+    deferredEmailOtpYaoStart,
+    enableRegistrationPreparationModalClose: true,
+  };
+  const fetchMock = installRegisterWalletFetch(captures);
+  const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
+  backupCapture.install();
+  try {
+    const { result } = await runMixedEmailOtpRegistration(captures);
+    const walletId = walletIdFromString('email-otp-mixed.testnet');
+
+    /* Yao has not been released, and registration has already returned. */
+    expect(events).not.toContain('emailOtpYaoCommitCalled');
+    expectRegistrationSuccess(result);
+    expect(result).toMatchObject({
+      success: true,
+      kind: 'ecdsa_wallet_registered_near_pending',
+      nearProvisioning: { status: 'pending' },
+    });
+
+    /* Commit #1 is durable: the ECDSA signer records were persisted, and the
+       wallet carries a usable threshold address. */
+    expect(captures.storedEcdsaRegistration).toBeDefined();
+    const ecdsaAddress = String(
+      (result as { thresholdEcdsaEthereumAddress?: string }).thresholdEcdsaEthereumAddress ?? '',
+    );
+    expect(ecdsaAddress).not.toBe('');
+    expect(
+      String((result as { thresholdEcdsaPublicKeyB64u?: string }).thresholdEcdsaPublicKeyB64u ?? ''),
+    ).not.toBe('');
+
+    /* The wallet is entered under its own id, not a NEAR account that does not
+       exist yet. */
+    expect(String((result as { walletId?: unknown }).walletId ?? '')).toBe(String(walletId));
+
+    /* NEAR is still unfinished the whole time, which is what makes the above
+       an assertion about the gap between the two commits. */
+    expect(readNearProvisioningState(walletId)?.status).not.toBe('near_ready');
+    expect(events).not.toContain('emailOtpYaoCommitCalled');
+  } finally {
+    backupCapture.restore();
+    deferredEmailOtpYaoStart.reject(new Error('test cleanup'));
+    fetchMock.restore();
+  }
+});
+
 test('a failed near_ready write never publishes near_ready', async () => {
   const events: string[] = [];
   const captures: Record<string, unknown> = {

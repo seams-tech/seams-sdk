@@ -651,12 +651,12 @@ which would reset the original creation time. Check whether the put preserves
 - [x] Return the ECDSA-ready result once the ECDSA commit is durable.
 - [x] Keep the Yao promise owned by the page, outside the registration
       completion promise.
-- [ ] Commit the Ed25519 signer, NEAR account facts, and `near_ready` state
+- [x] Commit the Ed25519 signer, NEAR account facts, and `near_ready` state
       when the ceremony settles.
 - [x] Add a ceremony state representing "ECDSA committed, Ed25519 pending",
       and suppress the unconditional `deleteCeremony` while it holds.
 - [x] Give the Ed25519 finalize its own side-effect operation and effect key.
-- [ ] Join duplicate same-tab requests to the in-flight promise.
+- [x] Join duplicate same-tab requests to the in-flight promise.
 - [x] Leave the wallet `ecdsa_ready` on any terminal failure.
 - [x] Do not introduce a feature flag or compatibility branch.
 
