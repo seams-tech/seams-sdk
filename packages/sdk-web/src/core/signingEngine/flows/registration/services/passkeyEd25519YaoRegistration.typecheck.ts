@@ -19,7 +19,7 @@ declare const passkeyAuthMethod: PasskeyRegistrationAuthMethodInput;
 declare const genericIntent: RegistrationIntentV1;
 declare const passkeyIntent: PasskeyRegistrationIntentV1;
 declare const walletId: WalletId;
-declare const registrationIntentGrant: RegistrationIntentGrant;
+declare const registrationBearerToken: string;
 declare const admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
 declare const admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
 declare const fetchFn: typeof fetch;
@@ -30,7 +30,7 @@ const validInput: VerifiedPasskeyEd25519YaoRegistrationInputV1 = {
     kind: 'verified_passkey_registration_intent_v1',
     intent: passkeyIntent,
     registrationIntentDigestB64u: 'digest',
-    registrationIntentGrant,
+    registrationBearerToken,
     registrationCeremonyId: 'ceremony',
   },
   verifiedAuthority: {
