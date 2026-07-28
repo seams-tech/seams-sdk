@@ -46,6 +46,7 @@ import type {
   WalletSession,
   LoginState,
   RegistrationResult,
+  NearProvisioningState,
   SignAndSendDelegateActionResult,
   SignDelegateActionResult,
   SignTransactionResult,
@@ -67,6 +68,8 @@ import type {
   SignNEP413HooksOptions,
   SignTransactionHooksOptions,
   SdkLifecycleEventListener,
+  NearProvisioningStateChangedEvent,
+  SdkLifecycleEvent,
 } from '@/core/types/sdkSentEvents';
 
 import type { ActionArgs, TransactionInput, TxExecutionStatus } from '@/core/types';
@@ -135,6 +138,13 @@ function resolveRuntimeAppearance(
       fallback: current.palette,
     }),
   };
+}
+
+function deliverNearProvisioningStateChanged(
+  listener: (event: NearProvisioningStateChangedEvent) => void,
+  event: SdkLifecycleEvent,
+): void {
+  if (event.event === 'registration.near_provisioning_changed') listener(event);
 }
 
 export class SeamsWebIframe {
@@ -229,7 +239,8 @@ export class SeamsWebIframe {
         : undefined;
     const signingSessionDefaults = this.configs.signing.sessionDefaults;
     const routerAb = this.configs.signing.routerAb;
-    const routerAbEcdsaDerivationPresignaturePool = this.configs.signing.routerAbEcdsaDerivation.presignaturePool;
+    const routerAbEcdsaDerivationPresignaturePool =
+      this.configs.signing.routerAbEcdsaDerivation.presignaturePool;
     const provisioningDefaults = this.configs.signing.thresholdEcdsa.provisioningDefaults;
 
     this.router = new WalletIframeRouter({
@@ -277,6 +288,9 @@ export class SeamsWebIframe {
         await this.router.beginGoogleEmailOtpWalletAuth(args),
     };
     this.registration = {
+      getNearProvisioningState: async (args) => await this.getNearProvisioningStateDomain(args),
+      onNearProvisioningStateChanged: (listener) =>
+        this.router.onSdkLifecycleEvent(deliverNearProvisioningStateChanged.bind(null, listener)),
       addWalletSigner: async (args) => await this.addWalletSignerDomain(args),
       registerWallet: async (args) => await this.registerWalletDomain(args),
       registerWithEmailOtp: async (args) => await this.registerWalletDomain(args),
@@ -618,6 +632,13 @@ export class SeamsWebIframe {
     });
   }
 
+  private async getNearProvisioningStateDomain(
+    args: Parameters<RegistrationCapability['getNearProvisioningState']>[0],
+  ): Promise<NearProvisioningState | null> {
+    await this.requireRouterReady();
+    return await this.router.getNearProvisioningState({ walletId: toWalletId(args.walletId) });
+  }
+
   private async registerWalletDomain(
     args: Parameters<RegistrationCapability['registerWallet']>[0],
   ): Promise<RegistrationResult> {
@@ -846,9 +867,8 @@ export class SeamsWebIframe {
       this.configs.network.relayer?.routes?.delegateAction || '/signed-delegate'
     ).replace(/^\/?/, '/');
     const endpoint = `${base}${route}`;
-    const { sendDelegateActionViaRelayer, delegateRelayerAuthFromConfigs } = await import(
-      '@/SeamsWeb/operations/near'
-    );
+    const { sendDelegateActionViaRelayer, delegateRelayerAuthFromConfigs } =
+      await import('@/SeamsWeb/operations/near');
     return sendDelegateActionViaRelayer({
       url: endpoint,
       payload: {

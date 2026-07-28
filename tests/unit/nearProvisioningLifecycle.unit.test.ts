@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { setWalletNearProvisioningState } from '../../packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle';
+import {
+  getWalletNearProvisioningState,
+  setWalletNearProvisioningState,
+} from '../../packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle';
 import {
   publishNearProvisioningState,
   readNearProvisioningState,
@@ -14,6 +17,11 @@ import type {
 } from '../../packages/sdk-web/src/core/types/seams';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import type { ProfileRecord } from '../../packages/sdk-web/src/core/indexedDB/passkeyClientDB.types';
+import {
+  createNearProvisioningStateChangedEvent,
+  parseSdkLifecycleEvent,
+} from '../../packages/sdk-web/src/core/types/sdkSentEvents';
+import { createNearProvisioningProfileRecordFixture } from './helpers/nearProvisioningLifecycle.fixtures';
 
 /**
  * Refactor 94 Phase 6. The durable wallet-profile record is authoritative for
@@ -27,20 +35,19 @@ function createProfileStore() {
   const rows = new Map<string, ProfileRecord>();
   return {
     rows,
+    async getProfile(profileId: string): Promise<ProfileRecord | undefined> {
+      return rows.get(profileId);
+    },
     async upsertProfile(input: {
       profileId: string;
       nearProvisioning?: NearProvisioningState;
     }): Promise<ProfileRecord> {
       const existing = rows.get(input.profileId);
-      const next: ProfileRecord = {
-        profileId: input.profileId as ProfileRecord['profileId'],
-        defaultSignerSlot: existing?.defaultSignerSlot ?? 1,
-        ...(input.nearProvisioning ?? existing?.nearProvisioning
-          ? { nearProvisioning: input.nearProvisioning ?? existing?.nearProvisioning }
-          : {}),
-        createdAt: existing?.createdAt ?? 1,
-        updatedAt: 2,
-      };
+      const next = createNearProvisioningProfileRecordFixture({
+        profileId: input.profileId,
+        nearProvisioning: input.nearProvisioning ?? existing?.nearProvisioning,
+        existing,
+      });
       rows.set(input.profileId, next);
       return next;
     },
@@ -53,12 +60,33 @@ function depsFor(store: ReturnType<typeof createProfileStore>) {
 
 const WALLET_ID = walletIdFromString('provisioning-wallet.testnet');
 
+test('the public lifecycle boundary parses NEAR provisioning events precisely', () => {
+  const event = createNearProvisioningStateChangedEvent({
+    walletId: WALLET_ID,
+    state: {
+      status: 'near_ready',
+      updatedAtMs: 1_700_000_000_000,
+      nearAccountId: String(WALLET_ID),
+    },
+  });
+  expect(parseSdkLifecycleEvent({ ...event, privateKey: 'must-not-cross' })).toEqual(event);
+  expect(
+    parseSdkLifecycleEvent({
+      ...event,
+      state: { status: 'near_ready', updatedAtMs: 1_700_000_000_000 },
+    }),
+  ).toBeNull();
+});
+
 test('each provisioning status is written durably to the wallet profile', async () => {
   resetNearProvisioningRegistryForTests();
   const store = createProfileStore();
   const deps = depsFor(store);
 
-  await setWalletNearProvisioningState(deps, { walletId: String(WALLET_ID), status: 'near_pending' });
+  await setWalletNearProvisioningState(deps, {
+    walletId: String(WALLET_ID),
+    status: 'near_pending',
+  });
   expect(store.rows.get(String(WALLET_ID))?.nearProvisioning?.status).toBe('near_pending');
 
   await setWalletNearProvisioningState(deps, {
@@ -83,6 +111,20 @@ test('each provisioning status is written durably to the wallet profile', async 
   expect(store.rows.get(String(WALLET_ID))?.nearProvisioning).toMatchObject({
     status: 'near_failed_retryable',
     errorCode: 'near_seal_failed',
+  });
+});
+
+test('the public read survives loss of page-owned registry state', async () => {
+  const store = createProfileStore();
+  const deps = depsFor(store);
+  await setWalletNearProvisioningState(deps, {
+    walletId: String(WALLET_ID),
+    status: 'near_pending',
+  });
+  resetNearProvisioningRegistryForTests();
+
+  await expect(getWalletNearProvisioningState(deps, WALLET_ID)).resolves.toMatchObject({
+    status: 'near_pending',
   });
 });
 

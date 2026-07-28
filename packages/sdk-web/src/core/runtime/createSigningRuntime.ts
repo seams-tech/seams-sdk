@@ -60,6 +60,8 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
       (await getRegistrationAccounts()).activateAuthenticatedWalletState(input),
     setWalletNearProvisioningState: async (write) =>
       (await getRegistrationAccounts()).setWalletNearProvisioningState(write),
+    getWalletNearProvisioningState: async (walletId) =>
+      (await getRegistrationAccounts()).getWalletNearProvisioningState(walletId),
     storeAuthenticator: async (authenticatorData) =>
       (await getRegistrationAccounts()).storeAuthenticator(authenticatorData),
     rollbackUserRegistration: async (nearAccountId) =>

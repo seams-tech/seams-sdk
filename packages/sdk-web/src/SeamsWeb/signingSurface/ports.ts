@@ -1,5 +1,5 @@
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
-import type { NearProvisioningWriteV1 } from '@/core/types/seams';
+import type { NearProvisioningState, NearProvisioningWriteV1 } from '@/core/types/seams';
 import type { WalletId } from '@shared/utils/registrationIntent';
 import type {
   ThresholdEcdsaChainTarget,
@@ -242,6 +242,7 @@ export interface RegistrationAccountSurface {
   /* Refactor 94 Phase 6. Durable NEAR provisioning state on the wallet root
      profile. This is authoritative; the page registry mirrors it. */
   setWalletNearProvisioningState(write: NearProvisioningWriteV1): Promise<void>;
+  getWalletNearProvisioningState(walletId: EcdsaWalletId): Promise<NearProvisioningState | null>;
   activateAuthenticatedWalletState(args: {
     walletId: EcdsaWalletId;
     nearAccountId: AccountId;
