@@ -18,7 +18,6 @@ import type {
 import type { CreateSigningEnginePortsArgs } from './shared';
 import type {
   EmailOtpEcdsaExportArtifact,
-  ExportEcdsaKeyWithAuthorizationArgs,
   ExportEcdsaKeyWithDurableAuthorizationArgs,
   ExportEcdsaKeyWithPublicReauthAuthorizationArgs,
 } from '../../session/emailOtp/exportRecoveryRuntime';
@@ -49,9 +48,6 @@ export function createRecoveryPublicDeps(args: {
     readWarmSessionStatusOnly: (sessionId: string) => Promise<WarmSessionStatusResult>;
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
     requestPublicReauthExportChallenge: EmailOtpEcdsaExportAuthorizationDeps['requestPublicReauthExportChallenge'];
-    exportEcdsaKeyWithAuthorization: (
-      request: ExportEcdsaKeyWithAuthorizationArgs,
-    ) => Promise<EmailOtpEcdsaExportArtifact>;
     exportEcdsaKeyWithDurableAuthorization: (
       request: ExportEcdsaKeyWithDurableAuthorizationArgs,
     ) => Promise<EmailOtpEcdsaExportArtifact>;
@@ -117,8 +113,8 @@ export function createRecoveryPublicDeps(args: {
         ) => args.emailOtpSessions.requestExportChallenge(request),
         requestPublicReauthExportChallenge: (request) =>
           args.emailOtpSessions.requestPublicReauthExportChallenge(request),
-        exportEcdsaKeyWithAuthorization: (request) =>
-          args.emailOtpSessions.exportEcdsaKeyWithAuthorization(request),
+        exportEcdsaKeyWithDurableAuthorization: (request) =>
+          args.emailOtpSessions.exportEcdsaKeyWithDurableAuthorization(request),
         exportEcdsaKeyWithPublicReauthAuthorization: (request) =>
           args.emailOtpSessions.exportEcdsaKeyWithPublicReauthAuthorization(request),
       },

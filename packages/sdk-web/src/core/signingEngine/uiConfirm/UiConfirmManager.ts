@@ -49,19 +49,10 @@ import {
   type DurableSealedSessionDeleteReason,
 } from '../session/persistence/durableSealedSessionCommands';
 import {
-  getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
-  getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
-  thresholdEcdsaRecordRpId,
-  type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '../session/persistence/records';
 import { parseRouterAbEd25519WalletSessionAuthorityFromRecord } from '../session/routerAbSigningWalletSession';
-import {
-  buildPersistedEcdsaRoleLocalMaterial,
-  getLiveEcdsaRoleLocalMaterialBinding,
-} from '../session/material/ecdsaRoleLocalMaterialResolver';
-import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import {
   emailOtpAuthContextEmailHashHex,
   emailOtpAuthContextProvider,
@@ -120,6 +111,8 @@ import type {
 } from '../session/sealedRecovery/sealedRecovery.types';
 import type { SealedRecoveryRecord } from '../session/sealedRecovery/recoveryRecord';
 import { sealedRecoveryWalletSessionJwt } from '../session/sealedRecovery/recoveryRecord';
+import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
+import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -204,18 +197,6 @@ function ed25519RestoreWalletSessionAuthFields(
   return record.thresholdSessionKind === 'cookie' ? { sessionKind: 'cookie' } : null;
 }
 
-function ecdsaRestoreWalletSessionAuthFields(
-  record: ThresholdEcdsaSessionRecord,
-): SealedSigningSessionWalletSessionAuth | null {
-  if (record.thresholdSessionKind === 'jwt') {
-    const authority = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
-    return authority.kind === 'ready'
-      ? { sessionKind: 'jwt', walletSessionJwt: authority.walletSessionJwt }
-      : null;
-  }
-  return record.thresholdSessionKind === 'cookie' ? { sessionKind: 'cookie' } : null;
-}
-
 function requirePasskeyEcdsaRestoreOutcome(
   result: WarmSessionStatusResult | null,
   success: Extract<RestoreSealedRecordResult, 'ready' | 'restored'>,
@@ -235,6 +216,38 @@ type PasskeySealedRecordAccountMetadata = {
   ecdsaRestore?: SigningSessionSealedStoreRecord['ecdsaRestore'];
   ed25519Restore?: CurrentEd25519RestoreMetadata;
 };
+
+async function passkeyEcdsaRestoreMetadataFromRecoveryRecord(
+  record: Extract<SealedRecoveryRecord, { authMethod: 'passkey' }>,
+): Promise<
+  Exclude<
+    SealedSigningSessionEcdsaRestoreMetadata,
+    { source: 'email_otp' }
+  >
+> {
+  return {
+    chainTarget: record.chainTarget,
+    signingRootId: record.signingRootId,
+    signingRootVersion: record.signingRootVersion,
+    source: record.source,
+    authority: await walletAuthAuthorityRef({ authority: record.authority }),
+    roleLocalMaterialRef: record.roleLocalMaterialRef,
+    rpId: record.authority.verifier.rpId,
+    credentialIdB64u: record.authority.factor.credentialIdB64u,
+    sessionKind: 'jwt',
+    walletSessionJwt: record.walletSessionAuth.walletSessionJwt,
+    keyHandle: record.keyHandle,
+    ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+    ethereumAddress: record.ethereumAddress,
+    relayerKeyId: record.relayerKeyId,
+    clientVerifyingShareB64u: record.clientVerifyingShareB64u,
+    thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u,
+    participantIds: [...record.participantIds],
+    ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+    routerAbEcdsaDerivationNormalSigning: record.routerAbEcdsaDerivationNormalSigning,
+    publicCapability: record.publicCapability,
+  };
+}
 
 type PasskeyEd25519ExpiryObservation =
   | {
@@ -729,10 +742,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       (getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId)
         ? 'ed25519'
         : undefined) ||
-      (explicitChainTarget ? 'ecdsa' : undefined) ||
-      (getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId)
-        ? 'ecdsa'
-        : undefined);
+      (explicitChainTarget ? 'ecdsa' : undefined);
     if (!curve) {
       console.warn('[UiConfirm] cannot resolve sealed refresh purpose for passkey session', {
         thresholdSessionId,
@@ -790,21 +800,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       }
       return inferredAuthMethod;
     }
-    const ecdsaRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
-      thresholdSessionId: args.thresholdSessionId,
-      chainTarget: args.chainTarget,
-    });
-    if (!ecdsaRecord) {
-      if (args.authMethod) return args.authMethod;
-      throw new Error(
-        '[UiConfirm] cannot resolve ECDSA sealed refresh auth without session record',
-      );
+    if (!args.authMethod) {
+      throw new Error('[UiConfirm] ECDSA sealed refresh requires an explicit auth method');
     }
-    const inferredAuthMethod = sealedAuthMethodForThresholdEcdsaSource(ecdsaRecord.source);
-    if (args.authMethod && args.authMethod !== inferredAuthMethod) {
-      throw new Error('[UiConfirm] ECDSA sealed refresh auth does not match session record');
-    }
-    return inferredAuthMethod;
+    return args.authMethod;
   }
 
   private buildPasskeyDurableDeleteCommand(args: {
@@ -904,11 +903,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     if (!existing) return;
     const refreshedMetadata = this.mergePasskeySealedRecordMetadata({
       existing,
-      refreshed: this.buildPasskeySealedRecordAccountMetadata({
-        thresholdSessionId: args.thresholdSessionId,
-        curve: purpose.curve,
-        ...(purpose.curve === 'ecdsa' ? { chainTarget: purpose.chainTarget } : {}),
-      }),
+      refreshed: {},
     });
     if (existing.curve === 'ecdsa') {
       const walletId = String(refreshedMetadata.walletId || '').trim();
@@ -1153,47 +1148,29 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
 
   private async resolveSealTransportInput(
     thresholdSessionIdRaw: string,
-    explicitTransport: {
-      curve?: 'ed25519' | 'ecdsa';
-      authMethod?: SigningSessionSealAuthMethod;
-      walletId?: string;
-      chainTarget?: ThresholdEcdsaChainTarget;
-      relayerUrl?: string;
-      signingGrantId?: string;
-      walletSessionJwt?: string;
-      signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-      shamirPrimeB64u?: string;
-    } | null,
+    explicitTransport: WarmSessionSealTransportInput | null,
     sealedRecordInput: CurrentSealedSessionRecord | null,
   ): Promise<WarmSessionSealTransportInput | null> {
     const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
     if (!thresholdSessionId) return null;
     const ed25519Record =
       getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
-    const ecdsaRecord = explicitTransport?.chainTarget
-      ? getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
-          thresholdSessionId,
-          chainTarget: explicitTransport.chainTarget,
-        })
-      : getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
     const curve =
       explicitTransport?.curve ||
       sealedRecordInput?.curve ||
-      (ed25519Record ? 'ed25519' : undefined) ||
-      (ecdsaRecord ? 'ecdsa' : undefined);
+      (ed25519Record ? 'ed25519' : undefined);
     const authMethod = explicitTransport?.authMethod || sealedRecordInput?.authMethod;
     const sealedRecord =
       sealedRecordInput ||
       (await this.readPasskeySealedRecord(
         thresholdSessionId,
         curve,
-        explicitTransport?.chainTarget,
+        explicitTransport?.curve === 'ecdsa' ? explicitTransport.chainTarget : undefined,
       ));
     const relayerUrl = String(
       explicitTransport?.relayerUrl ||
         sealedRecord?.relayerUrl ||
         ed25519Record?.relayerUrl ||
-        ecdsaRecord?.relayerUrl ||
         '',
     ).trim();
     if (!relayerUrl) return null;
@@ -1206,31 +1183,31 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       explicitTransport?.signingGrantId ||
         sealedRecord?.signingGrantId ||
         ed25519Record?.signingGrantId ||
-        ecdsaRecord?.signingGrantId ||
         '',
     ).trim();
     const walletId = String(
       explicitTransport?.walletId ||
         sealedRecord?.walletId ||
         ed25519Record?.walletId ||
-        ecdsaRecord?.walletId ||
         '',
     ).trim();
     const signingSessionSealKeyVersion = firstSigningSessionSealKeyVersion([
       explicitTransport?.signingSessionSealKeyVersion,
       sealedRecord?.keyVersion,
-      ecdsaRecord?.signingSessionSealKeyVersion,
       this.config.signingSessionSealKeyVersion,
     ]);
     const shamirPrimeB64u = String(
       explicitTransport?.shamirPrimeB64u ||
         sealedRecord?.shamirPrimeB64u ||
-        ecdsaRecord?.signingSessionSealShamirPrimeB64u ||
         this.config.signingSessionSealShamirPrimeB64u ||
         '',
     ).trim();
     if (curve === 'ecdsa') {
-      const chainTarget = explicitTransport?.chainTarget || ecdsaRecord?.chainTarget;
+      const explicitEcdsaTransport =
+        explicitTransport?.curve === 'ecdsa' ? explicitTransport : null;
+      const sealedEcdsaRecord = sealedRecord?.curve === 'ecdsa' ? sealedRecord : null;
+      const chainTarget =
+        explicitEcdsaTransport?.chainTarget || sealedEcdsaRecord?.ecdsaRestore.chainTarget;
       if (!chainTarget) return null;
       const ecdsaBase = {
         curve,
@@ -1249,10 +1226,22 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           walletSessionJwt,
         };
       }
+      let ecdsaRestore =
+        explicitEcdsaTransport?.authMethod !== 'email_otp'
+          ? explicitEcdsaTransport?.ecdsaRestore
+          : undefined;
+      if (!ecdsaRestore && sealedEcdsaRecord?.authMethod === 'passkey') {
+        const sealedRestore = sealedEcdsaRecord.ecdsaRestore;
+        if (sealedRestore.source !== 'email_otp') {
+          ecdsaRestore = sealedRestore;
+        }
+      }
+      if (!ecdsaRestore) return null;
       return {
         ...ecdsaBase,
         ...(authMethod === 'passkey' ? { authMethod } : {}),
         ...(walletSessionJwt ? { walletSessionJwt } : {}),
+        ecdsaRestore,
       };
     }
     if (curve !== 'ed25519') return null;
@@ -1281,93 +1270,24 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
 
   private buildPasskeySealedRecordAccountMetadata(args: {
     thresholdSessionId: string;
-    curve: 'ed25519' | 'ecdsa';
-    chainTarget?: ThresholdEcdsaChainTarget;
-    walletId?: string;
+    transport: WarmSessionSealTransportInput;
   }): PasskeySealedRecordAccountMetadata {
+    if (args.transport.curve === 'ecdsa') {
+      if (args.transport.authMethod === 'email_otp') return {};
+      return {
+        ...(args.transport.walletId ? { walletId: args.transport.walletId } : {}),
+        ecdsaRestore: args.transport.ecdsaRestore,
+      };
+    }
     const ed25519Record =
-      args.curve === 'ed25519'
-        ? getStoredThresholdEd25519SessionRecordByThresholdSessionId(args.thresholdSessionId)
-        : null;
-    const ecdsaRecord =
-      args.curve === 'ecdsa'
-        ? args.chainTarget
-          ? getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
-              thresholdSessionId: args.thresholdSessionId,
-              chainTarget: args.chainTarget,
-            })
-          : null
-        : null;
-    const ecdsaPasskeyCredentialId =
-      ecdsaRecord?.ecdsaRoleLocalAuthMethod.kind === 'passkey'
-        ? ecdsaRecord.ecdsaRoleLocalAuthMethod.credentialIdB64u
-        : '';
-    const ecdsaRoleLocalMaterialRef = ecdsaRecord
-      ? getLiveEcdsaRoleLocalMaterialBinding(
-          buildPersistedEcdsaRoleLocalMaterial({
-            authority: ecdsaRecord.authority,
-            materialActivation: ecdsaRecord.materialActivation,
-            publicFacts: ecdsaRecord.ecdsaRoleLocalPublicFacts,
-          }),
-        )?.materialRef
-      : undefined;
-    const walletId = String(
-      ed25519Record?.walletId || ecdsaRecord?.walletId || args.walletId || '',
-    ).trim();
-    const ethereumAddress = String(ecdsaRecord?.ethereumAddress || '')
-      .trim()
-      .toLowerCase();
-    const ecdsaWalletSessionAuth = ecdsaRecord
-      ? ecdsaRestoreWalletSessionAuthFields(ecdsaRecord)
-      : null;
-    const ecdsaPasskeySource =
-      ecdsaRecord && ecdsaRecord.source !== 'email_otp' ? ecdsaRecord.source : null;
-    const ecdsaSigningRootId = String(ecdsaRecord?.signingRootId || '').trim();
-    const ecdsaSigningRootVersion = String(ecdsaRecord?.signingRootVersion || '').trim();
-    const ecdsaRestore =
-      ecdsaRecord &&
-      ecdsaRecord.chainTarget &&
-      ecdsaPasskeySource &&
-      ecdsaPasskeyCredentialId &&
-      ecdsaRoleLocalMaterialRef &&
-      ecdsaWalletSessionAuth &&
-      ecdsaSigningRootId &&
-      ecdsaSigningRootVersion &&
-      ecdsaRecord.routerAbEcdsaDerivationNormalSigning &&
-      /^0x[0-9a-f]{40}$/.test(ethereumAddress)
-        ? {
-            chainTarget: ecdsaRecord.chainTarget,
-            signingRootId: ecdsaSigningRootId,
-            signingRootVersion: ecdsaSigningRootVersion,
-            source: ecdsaPasskeySource,
-            evmFamilySigningKeySlotId: ecdsaRecord.evmFamilySigningKeySlotId,
-            authority: ecdsaRecord.authority,
-            roleLocalMaterialRef: ecdsaRoleLocalMaterialRef,
-            rpId: thresholdEcdsaRecordRpId(ecdsaRecord),
-            credentialIdB64u: ecdsaPasskeyCredentialId,
-            ...ecdsaWalletSessionAuth,
-            keyHandle: ecdsaRecord.keyHandle,
-            ecdsaThresholdKeyId: ecdsaRecord.ecdsaThresholdKeyId,
-            ethereumAddress,
-            relayerKeyId: ecdsaRecord.relayerKeyId,
-            clientVerifyingShareB64u: ecdsaRecord.clientVerifyingShareB64u,
-            ...(ecdsaRecord.thresholdEcdsaPublicKeyB64u
-              ? { thresholdEcdsaPublicKeyB64u: ecdsaRecord.thresholdEcdsaPublicKeyB64u }
-              : {}),
-            participantIds: ecdsaRecord.participantIds,
-            ...(ecdsaRecord.runtimePolicyScope
-              ? { runtimePolicyScope: ecdsaRecord.runtimePolicyScope }
-              : {}),
-            routerAbEcdsaDerivationNormalSigning: ecdsaRecord.routerAbEcdsaDerivationNormalSigning,
-            publicCapability: ecdsaRecord.ecdsaRoleLocalPublicFacts.publicCapability,
-          }
-        : undefined;
+      getStoredThresholdEd25519SessionRecordByThresholdSessionId(args.thresholdSessionId);
+    const walletId = String(ed25519Record?.walletId || args.transport.walletId || '').trim();
     const ed25519Restore = currentEd25519RestoreMetadataFromSessionRecord(ed25519Record);
     if (ed25519Record && !ed25519Restore) {
       console.warn('[UiConfirm] skipping incomplete Ed25519 durable session metadata', {
         thresholdSessionId: args.thresholdSessionId,
-        curve: args.curve,
-        walletId: String(ed25519Record.walletId || args.walletId || '').trim(),
+        curve: args.transport.curve,
+        walletId: String(ed25519Record.walletId || args.transport.walletId || '').trim(),
         source: ed25519Record.source,
         missingFields: ed25519RestoreMetadataMissingFields(ed25519Record),
       });
@@ -1378,7 +1298,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       ...(ed25519Record?.signingRootVersion
         ? { signingRootVersion: ed25519Record.signingRootVersion }
         : {}),
-      ...(ecdsaRestore ? { ecdsaRestore } : {}),
       ...(ed25519Restore ? { ed25519Restore } : {}),
     };
   }
@@ -1415,8 +1334,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
     if (!thresholdSessionId) return 'deferred';
     if (args.record.authMethod !== 'passkey') return 'deferred';
+    const passkeyRecord = args.record;
     const curve = 'ecdsa';
     const chainTarget = args.purpose.chainTarget;
+    if (!chainTarget) return 'deferred';
     if (!thresholdEcdsaChainTargetsEqual(args.record.chainTarget, chainTarget)) {
       return 'deferred';
     }
@@ -1471,17 +1392,20 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       if (!lease) return null;
       try {
         const walletSessionJwt = sealedRecoveryWalletSessionJwt(args.record.walletSessionAuth);
+        const ecdsaRestore = await passkeyEcdsaRestoreMetadataFromRecoveryRecord(passkeyRecord);
         const transport = await this.resolveSealTransportInput(
           thresholdSessionId,
           {
             curve,
+            authMethod: 'passkey',
             walletId: args.walletId,
-            ...(chainTarget ? { chainTarget } : {}),
-            relayerUrl: args.record.relayerUrl,
+            chainTarget,
+            relayerUrl: passkeyRecord.relayerUrl,
             signingGrantId: args.purpose.signingGrantId,
-            signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(args.record.keyVersion),
-            shamirPrimeB64u: args.record.shamirPrimeB64u,
+            signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(passkeyRecord.keyVersion),
+            shamirPrimeB64u: passkeyRecord.shamirPrimeB64u,
             ...(walletSessionJwt ? { walletSessionJwt } : {}),
+            ecdsaRestore,
           },
           null,
         );
@@ -1867,13 +1791,17 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         ecdsaTransportChainTarget = inferredTransport.chainTarget;
       }
     }
+    const resolvedMetadataTransport = args.transport || inferredTransport;
+    if (!resolvedMetadataTransport) {
+      return {
+        ok: false,
+        code: 'invalid_args',
+        message: 'Missing transport for signing-session seal persistence',
+      };
+    }
     const recordMetadata = this.buildPasskeySealedRecordAccountMetadata({
       thresholdSessionId,
-      curve,
-      ...(ecdsaTransportChainTarget ? { chainTarget: ecdsaTransportChainTarget } : {}),
-      ...(args.transport?.walletId || inferredTransport?.walletId
-        ? { walletId: args.transport?.walletId || inferredTransport?.walletId }
-        : {}),
+      transport: resolvedMetadataTransport,
     });
     if (curve === 'ed25519' && !recordMetadata.ed25519Restore) {
       return {
@@ -2090,25 +2018,78 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           message: 'Missing shamirPrimeB64u for signing-session seal persistence',
         };
       }
-      const transport =
-        curve === 'ecdsa'
-          ? {
-              curve,
-              chainTarget: chainTarget!,
-              relayerUrl,
-              signingGrantId,
-              ...(walletSessionJwt ? { walletSessionJwt } : {}),
-              ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
-              shamirPrimeB64u,
-            }
-          : {
-              curve,
-              relayerUrl,
-              signingGrantId,
-              ...(walletSessionJwt ? { walletSessionJwt } : {}),
-              ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
-              shamirPrimeB64u,
+      let transport: WarmSessionSealTransportInput;
+      if (curve === 'ecdsa') {
+        if (!chainTarget) {
+          return {
+            ok: false,
+            code: 'invalid_args',
+            message: 'Missing ECDSA chain target for signing-session seal persistence',
+          };
+        }
+        if (authMethod === 'email_otp') {
+          if (!walletSessionJwt) {
+            return {
+              ok: false,
+              code: 'invalid_args',
+              message: 'Missing Wallet Session JWT for Email OTP seal persistence',
             };
+          }
+          transport = {
+            curve: 'ecdsa',
+            authMethod: 'email_otp',
+            chainTarget,
+            relayerUrl,
+            signingGrantId,
+            walletSessionJwt,
+            ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
+            shamirPrimeB64u,
+          };
+        } else {
+          const passkeyEcdsaRestore =
+            recordMetadata.ecdsaRestore?.source !== 'email_otp'
+              ? recordMetadata.ecdsaRestore
+              : undefined;
+          transport = {
+            curve: 'ecdsa',
+            authMethod: 'passkey',
+            chainTarget,
+            relayerUrl,
+            signingGrantId,
+            ...(walletSessionJwt ? { walletSessionJwt } : {}),
+            ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
+            shamirPrimeB64u,
+            ...(passkeyEcdsaRestore ? { ecdsaRestore: passkeyEcdsaRestore } : {}),
+          };
+        }
+      } else if (authMethod === 'email_otp') {
+        if (!walletSessionJwt) {
+          return {
+            ok: false,
+            code: 'invalid_args',
+            message: 'Missing Wallet Session JWT for Email OTP seal persistence',
+          };
+        }
+        transport = {
+          curve: 'ed25519',
+          authMethod: 'email_otp',
+          relayerUrl,
+          signingGrantId,
+          walletSessionJwt,
+          ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
+          shamirPrimeB64u,
+        };
+      } else {
+        transport = {
+          curve: 'ed25519',
+          authMethod: 'passkey',
+          relayerUrl,
+          signingGrantId,
+          ...(walletSessionJwt ? { walletSessionJwt } : {}),
+          ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
+          shamirPrimeB64u,
+        };
+      }
       const applyServerSealStartedAt = performance.now();
       const sealed = await this.sealAndPersistWarmSessionMaterial({
         sessionId: thresholdSessionId,

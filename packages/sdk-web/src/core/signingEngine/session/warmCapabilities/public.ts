@@ -22,11 +22,7 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa
 import type { ThresholdEcdsaBootstrapSignerAuth } from './ecdsaBootstrapPersistence';
 import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '../material/ecdsaCapabilityManifest';
-import type {
-  WarmEcdsaRecordBackedSigningSessionStatus,
-  WarmEcdsaSigningSessionStatus,
-  ThresholdWarmSessionStatusReader,
-} from './types';
+import type { ThresholdWarmSessionStatusReader } from './types';
 
 export type PersistThresholdEcdsaBootstrapForWalletTargetInput = {
   walletId: WalletId;
@@ -47,9 +43,7 @@ export type HydrateSigningSessionInput = {
 export type WarmCapabilitiesPublicDeps = {
   statusReader: Pick<
     ThresholdWarmSessionStatusReader,
-    | 'getEd25519SigningSessionStatus'
-    | 'getEcdsaSigningSessionStatus'
-    | 'listEcdsaSigningSessionStatuses'
+    'getEd25519SigningSessionStatus'
   >;
   persistThresholdEcdsaBootstrapForWalletTarget: (
     args: PersistThresholdEcdsaBootstrapForWalletTargetInput,
@@ -102,40 +96,6 @@ export async function getWarmThresholdEd25519SessionStatus(
   return mergeWalletSigningBudgetStatus(status, walletBudgetStatus);
 }
 
-export async function getWarmThresholdEcdsaSessionStatus(
-  deps: WarmCapabilitiesPublicDeps,
-  walletId: WalletId,
-  chainTarget: ThresholdEcdsaChainTarget,
-  thresholdSessionId: string,
-): Promise<WarmEcdsaSigningSessionStatus | null> {
-  const status = await deps.statusReader.getEcdsaSigningSessionStatus({
-    walletId,
-    chainTarget,
-    thresholdSessionId,
-  });
-  // EVM-family ECDSA wallet quota is server-owned against the reusable Wallet
-  // Session; there is no client-side budget status to merge in.
-  return status;
-}
-
-export async function listWarmThresholdEcdsaSessionStatuses(
-  deps: WarmCapabilitiesPublicDeps,
-  walletId: WalletId,
-  chainTarget: ThresholdEcdsaChainTarget,
-): Promise<WarmEcdsaSigningSessionStatus[]> {
-  const statuses = await deps.statusReader.listEcdsaSigningSessionStatuses({
-    walletId,
-    chainTarget,
-  });
-  return statuses;
-}
-
-function isRecordBackedEcdsaStatus(
-  status: WarmEcdsaSigningSessionStatus | null,
-): status is WarmEcdsaRecordBackedSigningSessionStatus {
-  return Boolean(status && typeof status.signingGrantId === 'string');
-}
-
 export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
   deps: WarmCapabilitiesPublicDeps,
   args: {
@@ -148,16 +108,6 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
 ): Promise<RouterAbEcdsaDerivationLoginPresignaturePrefillResult> {
   return await scheduleRouterAbEcdsaDerivationLoginPresignaturePrefillValue(
     {
-      getWarmThresholdEcdsaSessionStatus: async (
-        walletIdArg: WalletId,
-        thresholdSessionId: string,
-        chainTargetArg: ThresholdEcdsaChainTarget,
-      ) =>
-        await deps.statusReader.getEcdsaSigningSessionStatus({
-          walletId: walletIdArg,
-          chainTarget: chainTargetArg,
-          thresholdSessionId,
-        }),
       getSignerWorkerContext: deps.getSignerWorkerContext,
       resolveClientSigningMaterialSource: deps.resolveClientSigningMaterialSource,
       routerAbEcdsaDerivationPresignaturePoolPolicy: deps.routerAbEcdsaDerivationPresignaturePoolPolicy,

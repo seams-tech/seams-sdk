@@ -121,12 +121,6 @@ export class EmailOtpWalletSessionCoordinator {
     return await this.runtime.requestPublicReauthExportChallenge(args);
   }
 
-  exportEcdsaKeyWithAuthorization(
-    args: Parameters<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithAuthorization']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithAuthorization']> {
-    return this.runtime.exportEcdsaKeyWithAuthorization(args);
-  }
-
   exportEcdsaKeyWithDurableAuthorization(
     args: Parameters<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithDurableAuthorization']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithDurableAuthorization']> {

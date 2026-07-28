@@ -11,7 +11,6 @@ import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetS
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import {
   markThresholdEd25519EmailOtpSessionConsumedForWallet as markThresholdEd25519EmailOtpSessionConsumedForWalletOperation,
-  type ThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
@@ -35,6 +34,7 @@ import {
   type AuthorizedEvmFamilyEcdsaSigningCapability,
 } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSigningCapability';
 import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
+import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import { listEcdsaSealedSessionsForWallet } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { signEvmFamily as signEvmFamilyOperation } from '@/core/signingEngine/flows/signEvmFamily/signEvmFamily';
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
@@ -285,6 +285,20 @@ export async function listBrowserEcdsaSigningCapabilitiesForWallet(
     capabilities.push(capability);
   }
   return capabilities;
+}
+
+export async function listBrowserActiveEcdsaCapabilityManifestsForWallet(
+  walletIdInput: string,
+): Promise<readonly ActiveEcdsaCapabilityManifest[]> {
+  const walletId = toWalletId(walletIdInput);
+  const subjects = await ecdsaCapabilityManifestStore.listActiveWalletCapabilitySubjects(walletId);
+  if (subjects.kind !== 'resolved') return [];
+  const manifests: ActiveEcdsaCapabilityManifest[] = [];
+  for (const subject of subjects.subjects) {
+    const lookup = await ecdsaCapabilityManifestStore.lookup(subject);
+    if (lookup.kind === 'active') manifests.push(lookup.manifest);
+  }
+  return manifests;
 }
 
 async function requestEmailOtpEcdsaStepUpChallenge(args: {

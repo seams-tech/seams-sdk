@@ -15,6 +15,8 @@ import {
   type WarmSessionReadPortsInput,
 } from './readModel';
 import type { WarmSessionCapabilityReader } from './types';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type WarmSessionCapabilityReaderSealInput = {
   signingSessionSealKeyVersion: SigningSessionSealKeyVersion;
@@ -49,6 +51,9 @@ export type WarmSessionCapabilityReaderFactoryDeps = Omit<
   touchConfirm: WarmSessionCapabilityReaderTouchConfirmInput;
   signingSessionSeal: WarmSessionCapabilityReaderSealInput;
   getEmailOtpWarmSessionStatus: ((sessionId: string) => Promise<WarmSessionStatusResult>) | null;
+  resolveActiveEcdsaWalletSessionAuthorization?: (
+    walletId: WalletId,
+  ) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
 };
 
 const UNCONFIGURED_WARM_SESSION_CAPABILITY_READER_DEPS: WarmSessionCapabilityReaderFactoryDeps = {
@@ -121,14 +126,6 @@ export function createWarmSessionCapabilityReader(
   const statusReader = createWarmSessionStatusReader({
     touchConfirm: ports.touchConfirm,
     getEmailOtpWarmSessionStatus: ports.getEmailOtpWarmSessionStatus,
-    getThresholdEcdsaSessionRecordByThresholdSessionId:
-      deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
-    ...(deps.resolveActiveEcdsaWalletSessionAuthorization
-      ? {
-          resolveActiveEcdsaWalletSessionAuthorization:
-            deps.resolveActiveEcdsaWalletSessionAuthorization,
-        }
-      : {}),
   });
   return createWarmSessionCapabilityReaderCore({
     touchConfirm: ports.touchConfirm,

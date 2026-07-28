@@ -2,9 +2,6 @@ import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthor
 import {
   type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
-import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
-import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
@@ -25,18 +22,13 @@ export function buildEmailOtpEcdsaSigningSessionAuthority(args: {
   };
 }
 
-export type EmailOtpEcdsaSigningSessionAuthorityRecordResolution =
+export type EmailOtpEcdsaSigningSessionAuthorityResolution =
   | {
       kind: 'ready';
       authority: EmailOtpEcdsaSigningSessionAuthority;
     }
   | {
       kind: 'record_missing';
-      authority?: never;
-    }
-  | {
-      kind: 'not_email_otp_record';
-      source: ThresholdEcdsaSessionStoreSource;
       authority?: never;
     }
   | {
@@ -53,37 +45,6 @@ export type EmailOtpEcdsaSigningSessionAuthorityRecordResolution =
       authority?: never;
     };
 
-export function resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord(
-  record: ThresholdEcdsaSessionRecord | null | undefined,
-): EmailOtpEcdsaSigningSessionAuthorityRecordResolution {
-  if (!record) return { kind: 'record_missing' };
-  if (record.source !== 'email_otp') {
-    return { kind: 'not_email_otp_record', source: record.source };
-  }
-  const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
-  if (walletSessionAuth.kind !== 'ready') {
-    if (walletSessionAuth.reason === 'missing_session_identity') {
-      return { kind: 'missing_session_identity' };
-    }
-    return {
-      kind: 'wallet_session_auth_unavailable',
-      reason: walletSessionAuth.reason,
-    };
-  }
-  const authority = buildEmailOtpEcdsaSigningSessionAuthority({
-    authority: record.emailOtpAuthContext.authority,
-    authLane: {
-      kind: 'signing_session',
-      jwt: walletSessionAuth.walletSessionJwt,
-      thresholdSessionId: walletSessionAuth.identity.thresholdSessionId,
-      curve: 'ecdsa',
-      chainTarget: record.chainTarget,
-    },
-  });
-  if (!authority) return { kind: 'authority_not_ecdsa_signing_session' };
-  return { kind: 'ready', authority };
-}
-
 /** Canonical counterpart of the record-backed resolver: the Email OTP authority
  * comes from the sealed runtime's auth binding, and the signing-session lane is
  * completed by the independently-resolved reusable Wallet Session. Material
@@ -91,7 +52,7 @@ export function resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord(
 export function resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime(args: {
   runtime: ExactEcdsaSealedRuntime;
   authorization: ActiveWalletSessionAuthorizationProjection;
-}): EmailOtpEcdsaSigningSessionAuthorityRecordResolution {
+}): EmailOtpEcdsaSigningSessionAuthorityResolution {
   const authBinding = args.runtime.authBinding;
   if (authBinding.kind !== 'email_otp') {
     // A passkey-bound runtime is not an Email OTP signing session; report the

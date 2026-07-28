@@ -143,7 +143,7 @@ work is tracked in five units.
 | -------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | **1. Canonical hydration + canonical ECDSA state** | Foundations A/B, Phases 4–5, ECDSA identity work from 18 | Implementation complete; exit validation open | Exact subjects, protocol-local resolvers with shared outcomes, required ECDSA state, and slim material references. |
 | **2. Shared authorization core**                   | Phases 7–14, including Phase 8 SDK selection             | Operating core complete; cleanup gate open    | Closed capability vocabulary plus DB-backed session → evidence → grant → claim → audit flow.                       |
-| **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | ECDSA signing/provisioning/export implemented; sealed-runtime migration open | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
+| **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | Structural ECDSA signing/provisioning/export cutover implemented; operating-path validation and final deletion open | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
 | **3b. Vault proving vertical**                     | Phase 16                                                 | Complete                                      | [Satyr vault plan Phase 6](./satyr-secrets-vault.md) proves one real vault operation.                              |
 | **4. UI + provisioning**                           | Phases 22–23                                             | Started; typed expiry complete                | Typed lifecycle events and provisioning use the canonical capability model.                                        |
 
@@ -442,7 +442,9 @@ the replacement and legacy MPC paths must not ship together.
       immediately.
 - [ ] Add fault-injection tests for crashes before call, after call, after
       readback, and during atomic local finalization.
-- [ ] Ensure expiry never invokes recovery or device linking.
+- [x] Ensure expiry never invokes recovery or device linking; the canonical
+      Email OTP refresh and sealed-lifecycle paths preserve material and its
+      activation while invalidating authorization/runtime projections.
 
 ### Capability-owned MPC operations
 
@@ -473,8 +475,36 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Before sealed-runtime consumers move, match sealed public, auth, and
       normal-signing facts against the manifest binding; require the exact
       two-party participant shape and valid allowance facts.
-- [ ] Move registration, unlock, refresh, signing, step-up, and export to
-      capability-owned modules using the shared authorization core.
+- [x] Move ECDSA export and operation step-up to capability-owned modules using
+      the shared authorization core; active Email OTP export resolves the exact
+      manifest + sealed runtime, and the write-dead runtime record map and
+      record-backed ready-export branch are deleted.
+- [x] Move Email OTP signing-session refresh, sealed restore, and sealed
+      refresh policy to the exact manifest + sealed-runtime boundary.
+- [x] Move the warm ECDSA read model, login public-capability warm-up, and
+      presignature prefill to the exact manifest + sealed-runtime boundary;
+      preserve reusable-session authorization as an independent proof.
+- [x] Remove `EcdsaWalletSessionAuthority`, ECDSA signing-grant aliases, and
+      Wallet Session JWT control-state reads from committed ECDSA lanes; carry
+      the typed active authorization and use the JWT only as its bearer
+      credential.
+- [x] Make ECDSA selection and prepared signing decide exact lane and
+      authorization without a duplicate material-readiness model; delete
+      `ecdsaMaterialState.ts` and hydrate canonical material immediately before
+      worker use.
+- [x] Remove the composite session record from
+      `ReadyEvmFamilyEcdsaMaterial` and delete the record-backed ready-material
+      and export helpers that depended on it.
+- [x] Construct the Passkey committed lane from its exact Passkey binding and
+      active authorization; selection no longer depends on record-backed or
+      pre-hydrated material state.
+- [ ] Demonstrate Passkey and Email OTP normal signing through canonical
+      hydration and worker binding using current shared factories.
+- [x] Move the remaining registration and explicit-unlock entry points to
+      capability-owned state: Passkey unlock plans from active signer and
+      capability facts, while Email OTP registration/unlock resolves existing
+      role-local material from active manifests instead of the write-dead
+      composite session store.
 - [ ] Use the five preparation outcomes exhaustively:
       `ready | pending | authorization_required | superseded | failed`.
 - [ ] Serialize recovery, signing, refresh, and export material use per exact
@@ -550,6 +580,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Restore current shared authorization/ECDSA factories, regenerate their
       current shapes through canonical builders, and delete obsolete
       record-store and pre-cutover export tests.
+- [x] Restore unit-suite collection by deleting obsolete imports/tests and
+      updating still-valid tests through current shared factories; require a
+      successful non-empty Playwright unit test listing before normal-signing
+      work proceeds.
 - [ ] Delete the complete `ThresholdEcdsaSessionRecord*` family, public APIs,
       runtime maps, and fixtures after Unit 2 supplies the narrow
       authorization/session/quota projection and this cutover removes the final

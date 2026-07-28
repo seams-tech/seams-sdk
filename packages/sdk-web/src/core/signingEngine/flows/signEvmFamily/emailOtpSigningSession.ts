@@ -20,7 +20,6 @@ import {
   buildVerifiedEcdsaPublicFacts,
   toEvmFamilyEcdsaKeyHandle,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
-import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
 import {
 } from '../../session/persistence/records';
 import type {
@@ -57,7 +56,6 @@ type WalletSessionEmailOtpChallengeArgs = Extract<
 >;
 
 export type EmailOtpEcdsaSigningSessionDeps = {
-  ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   emailOtpSessions: {
     requestTransactionSigningChallenge: (
       args: WalletSessionEmailOtpChallengeArgs,

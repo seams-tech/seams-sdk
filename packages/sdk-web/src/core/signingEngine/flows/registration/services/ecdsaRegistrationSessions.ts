@@ -32,6 +32,10 @@ import type {
   WarmSessionMaterialWriteDiagnostics,
 } from '@/core/signingEngine/session/passkey/warmSessionMaterialWriter';
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
+import {
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 import type { StoreWalletEcdsaWalletKey } from '../accountLifecycle';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { persistActiveWalletSessionAuthorizationFromEcdsaBootstrap } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
@@ -245,6 +249,11 @@ async function hydratePasskeyRegistrationSession(args: {
   walletId: WalletId;
   walletKey: WalletRegistrationEcdsaWalletKey;
   bootstrap: WalletRegistrationEcdsaSessionBootstrap;
+  authority: WalletAuthAuthorityRef;
+  materialRef: EcdsaRoleLocalPersistedMaterialRef;
+  publicFacts: ReturnType<typeof buildEcdsaRoleLocalPublicFacts>;
+  runtimePolicyScope: WalletRegistrationEcdsaClientBootstrap['runtimePolicyScope'];
+  normalSigning: WalletRegistrationEcdsaDerivationRespondBootstrap['routerAbEcdsaDerivationNormalSigning'];
 }): Promise<void> {
   const thresholdSessionId = String(args.bootstrap.session.thresholdSessionId).trim();
   const signingGrantId = String(args.bootstrap.session.signingGrantId).trim();
@@ -255,6 +264,31 @@ async function hydratePasskeyRegistrationSession(args: {
       '[SigningEngine] passkey ECDSA registration requires exact warm-session material',
     );
   }
+  const ecdsaRestore: Exclude<
+    SealedSigningSessionEcdsaRestoreMetadata,
+    { source: 'email_otp' }
+  > = {
+    chainTarget: args.walletKey.chainTarget,
+    signingRootId: args.walletKey.signingRootId,
+    signingRootVersion: args.walletKey.signingRootVersion,
+    source: 'registration',
+    authority: args.authority,
+    roleLocalMaterialRef: args.materialRef,
+    rpId: args.auth.rpId,
+    credentialIdB64u: args.auth.credentialIdB64u,
+    sessionKind: 'jwt',
+    walletSessionJwt,
+    keyHandle: args.walletKey.keyHandle,
+    ecdsaThresholdKeyId: args.walletKey.ecdsaThresholdKeyId,
+    ethereumAddress: args.walletKey.thresholdOwnerAddress,
+    relayerKeyId: args.walletKey.relayerKeyId,
+    clientVerifyingShareB64u: args.walletKey.derivationClientSharePublicKey33B64u,
+    thresholdEcdsaPublicKeyB64u: args.walletKey.thresholdEcdsaPublicKeyB64u,
+    participantIds: [...args.walletKey.participantIds],
+    runtimePolicyScope: args.runtimePolicyScope,
+    routerAbEcdsaDerivationNormalSigning: args.normalSigning,
+    publicCapability: args.publicFacts.publicCapability,
+  };
   const transport: WarmSessionSealTransportInput = {
     curve: 'ecdsa',
     authMethod: 'passkey',
@@ -263,6 +297,7 @@ async function hydratePasskeyRegistrationSession(args: {
     relayerUrl: args.relayerUrl,
     signingGrantId,
     walletSessionJwt,
+    ecdsaRestore,
     serverSealedSecretCacheScope: {
       kind: 'passkey_registration',
       walletId: String(args.walletId),
@@ -410,6 +445,11 @@ export async function finalizeWalletRegistrationEcdsaSessions(
             walletId,
             walletKey,
             bootstrap,
+            authority: input.session.authority,
+            materialRef,
+            publicFacts,
+            runtimePolicyScope: input.session.clientBootstrap.runtimePolicyScope,
+            normalSigning: input.session.bootstrap.routerAbEcdsaDerivationNormalSigning,
           });
         } finally {
           recordDiagnosticDuration({

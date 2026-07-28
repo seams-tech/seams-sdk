@@ -18,14 +18,12 @@ import type {
   WarmSessionEd25519CapabilityState,
   WarmSessionPrfClaim,
 } from './types';
-import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from './routerAbEcdsaWalletSessionAuth';
 import {
   emailOtpAuthContextConsumedAtMs,
   emailOtpAuthContextRetention,
 } from '../identity/laneIdentity';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import {
-  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
   parseRouterAbEd25519WalletSessionAuthorityFromRecord,
 } from '../routerAbSigningWalletSession';

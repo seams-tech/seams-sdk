@@ -18,7 +18,6 @@ import {
 } from '../../threshold/crypto/ecdsaDerivationClientWasm';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { SigningSessionIds } from '../../session/operationState/types';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
@@ -26,11 +25,6 @@ import { parseEcdsaRoleLocalPersistedMaterialRef } from '../../session/keyMateri
 import type { EcdsaExportOperationAuthorization } from './ecdsaExportMaterial';
 import type { ThresholdEcdsaExplicitKeyExportBootstrapResult } from '../../session/passkey/ecdsaSessionProvision';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
-import type { ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
-import {
-  requirePersistedEcdsaRoleLocalMaterial,
-  type ThresholdEcdsaSessionRecord,
-} from '../../session/persistence/records';
 import {
   ecdsaRoleLocalPersistedMaterialSource,
   resolveEcdsaRoleLocalMaterial,
@@ -530,99 +524,6 @@ export async function exportEcdsaDerivationKeyWithExplicitExportSession(
     authorization: {
       kind: 'passkey',
       passkeyCredentialIdB64u: args.exportProvision.passkeyCredentialIdB64u,
-      credential: args.credential,
-    },
-  });
-}
-
-export async function exportEcdsaDerivationKeyWithWalletSession(
-  deps: EcdsaDerivationExportDeps,
-  args: {
-    walletSessionUserId: string;
-    signerSession: ReadyEcdsaSignerSession;
-    laneIdentity: ExactEcdsaSigningLaneIdentity;
-    record: ThresholdEcdsaSessionRecord;
-    credential: WebAuthnAuthenticationCredential;
-  },
-): Promise<{
-  publicKeyHex: string;
-  privateKeyHex: string;
-  ethereumAddress: string;
-}> {
-  const record = args.record;
-  const signerTransport = args.signerSession.transport;
-  const authorization = args.laneIdentity.authorization;
-  const signerWalletSessionJwt = String(
-    args.signerSession.routerAbEcdsaDerivationNormalSigning.credential.walletSessionJwt,
-  ).trim();
-  // Opaque bearer comparison only; the JWT is never decoded here.
-  const walletSessionJwt = String(authorization.projection.walletSessionJwt || '').trim();
-  const relayerUrl = String(signerTransport.relayerUrl).trim();
-  const keyHandle = String(args.signerSession.publicFacts.keyHandle).trim();
-  const walletId = toWalletId(args.walletSessionUserId);
-  if (!relayerUrl || !keyHandle || !walletSessionJwt || !signerWalletSessionJwt) {
-    throw new Error(
-      '[SigningEngine][ecdsa-export] ready export signer session is missing canonical transport',
-    );
-  }
-  if (walletSessionJwt !== signerWalletSessionJwt) {
-    throw new Error('[SigningEngine][ecdsa-export] committed lane Wallet Session JWT mismatch');
-  }
-  if (String(authorization.projection.walletId) !== String(walletId)) {
-    throw new Error(
-      '[SigningEngine][ecdsa-export] Wallet Session authorization does not match the wallet',
-    );
-  }
-  if (
-    !mpcMaterialActivationRefsEqual(
-      record.materialActivation,
-      args.laneIdentity.signer.materialActivation,
-    )
-  ) {
-    throw new Error(
-      '[SigningEngine][ecdsa-export] export record does not carry the exact material activation',
-    );
-  }
-
-  const authMethod = record.ecdsaRoleLocalAuthMethod;
-  if (authMethod.kind !== 'passkey') {
-    throw new Error('[SigningEngine][ecdsa-export] passkey export requires passkey ready material');
-  }
-  const publicFacts = record.ecdsaRoleLocalPublicFacts;
-  const persistedRoleLocalMaterial = requirePersistedEcdsaRoleLocalMaterial(record);
-  const exactRoleLocalMaterial = await hydrateEcdsaRoleLocalMaterialForExport({
-    persistedMaterial: persistedRoleLocalMaterial,
-    workerCtx: deps.getSignerWorkerContext(),
-  });
-  const ecdsaThresholdKeyId = toEcdsaDerivationThresholdKeyId(record.ecdsaThresholdKeyId);
-  const signingRootId = toEcdsaDerivationSigningRootId(record.signingRootId);
-  const signingRootVersion = toEcdsaDerivationSigningRootVersion(
-    record.signingRootVersion || ECDSA_DERIVATION_SIGNING_ROOT_VERSION_DEFAULT,
-  );
-  return await executeEcdsaDerivationExport(deps, {
-    walletId: String(walletId),
-    keyHandle,
-    relayerKeyId: String(signerTransport.relayerKeyId),
-    participantIds: publicFacts.participantIds.map(Number),
-    walletSessionJwtBearer: walletSessionJwt,
-    operationAuthorization: {
-      kind: 'reusable_wallet_session',
-      walletSessionId: String(authorization.projection.walletSessionId),
-    },
-    materialActivationId: String(args.laneIdentity.signer.materialActivation.activationId),
-    authorizationExpiresAtMsCeiling:
-      Math.floor(Number(authorization.status.expiresAtMs) || 0) || null,
-    lifecycleSessionId: String(record.thresholdSessionId),
-    relayerUrl,
-    publicFacts,
-    roleLocalMaterial: exactRoleLocalMaterial.liveHandle,
-    roleLocalMaterialRef: exactRoleLocalMaterial.materialRef,
-    ecdsaThresholdKeyId,
-    signingRootId,
-    signingRootVersion,
-    authorization: {
-      kind: 'passkey',
-      passkeyCredentialIdB64u: authMethod.credentialIdB64u,
       credential: args.credential,
     },
   });

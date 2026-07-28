@@ -12,6 +12,7 @@ import {
 import type { WarmSigningPorts } from '@/core/signingEngine/assembly/ports/warmSigning';
 import type { createSigningEnginePorts } from '@/core/signingEngine/assembly/createPorts';
 import { provisionEmailOtpEcdsaExplicitExportSession } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
+import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 
@@ -27,6 +28,9 @@ export function createBrowserStepUpRuntime(args: {
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   getWarmSigning: () => WarmSigningPorts;
   ensureSealedRefreshStartupParity: () => Promise<void>;
+  listActiveEcdsaCapabilityManifestsForWallet: (
+    walletId: string,
+  ) => Promise<readonly ActiveEcdsaCapabilityManifest[]>;
 }): StepUpRuntime {
   return createStepUpRuntime({
     seamsWebConfigs: args.seamsWebConfigs,
@@ -56,13 +60,8 @@ export function createBrowserStepUpRuntime(args: {
       ),
     thresholdEcdsaBootstrapQueueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
     persistEcdsaRoleLocalReadyRecord: args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-    listActiveEcdsaSignersForWallet: (signerArgs) =>
-      args.stores.walletProfileAndSignerRecords.walletSignerStore.listActiveWalletSigners({
-        walletId: signerArgs.walletId,
-        signerFamily: 'ecdsa',
-      }),
-    getThresholdEcdsaSessionRecordByThresholdSessionId: (thresholdSessionId) =>
-      args.getWarmSigning().getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId),
+    listActiveEcdsaCapabilityManifestsForWallet:
+      args.listActiveEcdsaCapabilityManifestsForWallet,
     ensureSealedRefreshStartupParity: args.ensureSealedRefreshStartupParity,
   });
 }

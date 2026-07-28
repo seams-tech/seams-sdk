@@ -5,12 +5,6 @@ import {
   THRESHOLD_SESSION_EXHAUSTED_ERROR,
   THRESHOLD_SESSION_MISSING_ERROR,
 } from '@/core/signingEngine/session/warmCapabilities/statusReader';
-import type { ThresholdWarmSessionStatusReader } from '@/core/signingEngine/session/warmCapabilities/types';
-import {
-  toWalletId,
-  type ThresholdEcdsaChainTarget,
-  type WalletId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   WarmSessionStatusResult,
   WarmSessionStatusReader,
@@ -83,20 +77,4 @@ export async function isThresholdSigningSessionReady(args: {
     usesNeeded: args.usesNeeded,
   });
   return status.ok;
-}
-
-export async function assertThresholdSigningSessionReady(args: {
-  signingSessionCoordinator: Pick<ThresholdWarmSessionStatusReader, 'assertEcdsaSigningSessionReady'>;
-  walletId: WalletId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  sessionId: unknown;
-  usesNeeded?: number;
-}): Promise<Extract<WarmSessionStatusResult, { ok: true }>> {
-  const thresholdSessionId = requireThresholdSigningSessionId(args.sessionId);
-  return await args.signingSessionCoordinator.assertEcdsaSigningSessionReady({
-    walletId: args.walletId,
-    chainTarget: args.chainTarget,
-    thresholdSessionId,
-    usesNeeded: args.usesNeeded,
-  });
 }

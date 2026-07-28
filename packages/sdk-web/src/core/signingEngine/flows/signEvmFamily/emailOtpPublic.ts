@@ -10,7 +10,6 @@ import type {
   WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
-import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ThresholdEcdsaChainTarget,
@@ -151,7 +150,6 @@ export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult =
   EmailOtpThresholdEcdsaEnrollmentResult;
 
 export type EmailOtpPublicDeps = {
-  ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   relayerUrl: string;
   shamirPrimeB64u: string;
   getSignerWorkerContext: () => WorkerOperationContext;
@@ -288,7 +286,6 @@ export async function requestEmailOtpSigningSessionChallenge(
 ): Promise<{ challengeId: string; emailHint?: string }> {
   return await requestEmailOtpSigningSessionChallengeValue(
     {
-      ecdsaSessions: deps.ecdsaSessions,
       emailOtpSessions: {
         requestTransactionSigningChallenge: (challengeArgs) =>
           deps.emailOtpSessions.requestTransactionSigningChallenge(challengeArgs),
@@ -324,7 +321,6 @@ export async function refreshEmailOtpSigningSession(
 ): Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult> {
   const refreshed = await refreshEmailOtpSigningSessionValue(
     {
-      ecdsaSessions: deps.ecdsaSessions,
       emailOtpSessions: {
         requestTransactionSigningChallenge: (challengeArgs) =>
           deps.emailOtpSessions.requestTransactionSigningChallenge(challengeArgs),

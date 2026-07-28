@@ -7,11 +7,9 @@ import type {
   EnsureWarmEcdsaProvisionPlanReadyArgs,
   WarmSessionEcdsaCapabilityState,
   WarmSessionEd25519CapabilityState,
-  WarmSessionEcdsaCapabilityRef,
   WarmSessionPrfClaim,
 } from './types';
 import type {
-  ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '../persistence/records';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
@@ -45,7 +43,6 @@ declare const freshPlan: FreshEcdsaSessionProvisionPlan;
 declare const passkeyFreshPlan: PasskeyEcdsaSessionProvisionPlan;
 declare const emailOtpFreshPlan: EmailOtpEcdsaSessionProvisionPlan;
 declare const reconnectPlan: ReconnectEcdsaSessionProvisionPlan;
-declare const selectedRecord: ThresholdEcdsaSessionRecord;
 declare const selectedEd25519Record: ThresholdEd25519SessionRecord;
 declare const keyRef: ThresholdEcdsaSecp256k1KeyRef;
 declare const presentEcdsaCapability: PresentWarmSessionEcdsaCapabilityState;
@@ -138,21 +135,6 @@ const invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithKeyRef = {
   keyRef,
 } satisfies EnsureWarmEcdsaProvisionPlanReadyArgs;
 void invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithKeyRef;
-
-const validWarmSessionEcdsaCapabilityRef = {
-  walletId,
-  chainTarget,
-  thresholdSessionId: 'threshold-session-id',
-} satisfies WarmSessionEcdsaCapabilityRef;
-void validWarmSessionEcdsaCapabilityRef;
-
-const invalidWarmSessionEcdsaCapabilityRefWithRawWalletId = {
-  // @ts-expect-error ECDSA capability refs require a normalized WalletId.
-  walletId: 'wallet.testnet',
-  chainTarget,
-  thresholdSessionId: 'threshold-session-id',
-} satisfies WarmSessionEcdsaCapabilityRef;
-void invalidWarmSessionEcdsaCapabilityRefWithRawWalletId;
 
 const invalidReadyEd25519CapabilityWithoutJwt = {
   capability: 'ed25519',

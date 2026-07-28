@@ -1,6 +1,5 @@
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type { EcdsaRoleLocalPersistedMaterialRef } from '../../session/keyMaterialBrands';
-import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecdsaRoleLocalMaterialResolver';
 import { hydrateEcdsaRoleLocalMaterialForExport } from './ecdsaDerivationExport';
 
@@ -8,7 +7,6 @@ type ExportHydrationInput = Parameters<typeof hydrateEcdsaRoleLocalMaterialForEx
 
 declare const materialRef: EcdsaRoleLocalPersistedMaterialRef;
 declare const persistedMaterial: PersistedEcdsaRoleLocalMaterial;
-declare const record: ThresholdEcdsaSessionRecord;
 declare const workerCtx: WorkerOperationContext;
 
 const validExportHydrationInput = {
@@ -24,8 +22,11 @@ const invalidMaterialRefOnlyExportHydrationInput: ExportHydrationInput = {
 };
 void invalidMaterialRefOnlyExportHydrationInput;
 
-// @ts-expect-error export hydration cannot accept authorization/session state.
-const invalidExportHydrationInput: ExportHydrationInput = { record, workerCtx };
+const invalidExportHydrationInput: ExportHydrationInput = {
+  // @ts-expect-error export hydration cannot accept authorization/session state.
+  authorization: { kind: 'reusable_wallet_session' },
+  workerCtx,
+};
 void invalidExportHydrationInput;
 
 export {};

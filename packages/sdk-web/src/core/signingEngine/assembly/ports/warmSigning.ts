@@ -1,11 +1,5 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../interfaces/signing';
-import {
-  getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
-  getThresholdEcdsaSessionRecordByThresholdSessionId,
-  type ThresholdEcdsaSessionRecord,
-  type ThresholdEcdsaSessionStoreDeps,
-} from '../../session/persistence/records';
 import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
 import {
   createWarmSessionStatusReader,
@@ -39,50 +33,35 @@ import type { SigningEnginePorts } from './shared';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import type { DurableRecordStore } from '@/core/platform';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 
-export type EcdsaRoleLocalReadyRecordStorePorts = {
-  recordsByLane: Map<string, ThresholdEcdsaSessionRecord>;
+export type EcdsaExportArtifactStorePorts = {
   exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
 };
 
-type WarmSigningAuthorizationResolver = NonNullable<
-  WarmSessionStatusReaderDeps['resolveActiveEcdsaWalletSessionAuthorization']
->;
+type WarmSigningAuthorizationResolver = (
+  walletId: import('../../interfaces/ecdsaChainTarget').WalletId,
+) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
 
 type WarmSigningPortsArgs = {
   touchConfirm: UiConfirmRuntimeBridgePort;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
   signingSessionSeal: SeamsConfigsReadonly['signing']['sessionSeal'];
-  ecdsaRoleLocalReadyRecords: EcdsaRoleLocalReadyRecordStorePorts;
+  ecdsaExportArtifacts: EcdsaExportArtifactStorePorts;
   resolveActiveEcdsaWalletSessionAuthorization?: WarmSigningAuthorizationResolver;
 };
 
 export type WarmSigningPorts = {
-  ecdsaSessions: ThresholdEcdsaSessionStoreDeps & {
-    exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
-  };
+  ecdsaSessions: EcdsaExportArtifactStorePorts;
   statusUiConfirm: WarmSessionStatusOnlyReaderPort;
   capabilityReader: WarmSessionCapabilityReader;
   statusReader: WarmSigningStatusReader;
-  getThresholdEcdsaSessionRecordByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => ThresholdEcdsaSessionRecord | null;
 };
 
 export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningPorts {
   const ecdsaSessions: WarmSigningPorts['ecdsaSessions'] = {
-    recordsByLane: args.ecdsaRoleLocalReadyRecords.recordsByLane,
-    exportArtifactsByLane: args.ecdsaRoleLocalReadyRecords.exportArtifactsByLane,
+    exportArtifactsByLane: args.ecdsaExportArtifacts.exportArtifactsByLane,
   };
-  const getSessionRecordByThresholdSessionId: WarmSigningPorts['getThresholdEcdsaSessionRecordByThresholdSessionId'] =
-    (thresholdSessionIdRaw) => {
-      const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
-      if (!thresholdSessionId) return null;
-      return (
-        getThresholdEcdsaSessionRecordByThresholdSessionId(ecdsaSessions, thresholdSessionId) ||
-        getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId)
-      );
-    };
   const statusUiConfirm = createWarmSessionStatusOnlyUiConfirm({
     base: args.touchConfirm,
     secondary: {
@@ -93,14 +72,7 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
     statusUiConfirm.getWarmSessionStatus({ sessionId });
   const statusReader = createWarmSessionStatusReader({
     touchConfirm: statusUiConfirm,
-    getThresholdEcdsaSessionRecordByThresholdSessionId: getSessionRecordByThresholdSessionId,
     getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
-    ...(args.resolveActiveEcdsaWalletSessionAuthorization
-      ? {
-          resolveActiveEcdsaWalletSessionAuthorization:
-            args.resolveActiveEcdsaWalletSessionAuthorization,
-        }
-      : {}),
   });
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: args.touchConfirm,
@@ -113,7 +85,6 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
             shamirPrimeB64u: args.signingSessionSeal.shamirPrimeB64u,
           }
         : null,
-    getThresholdEcdsaSessionRecordByThresholdSessionId: getSessionRecordByThresholdSessionId,
     getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
     ...(args.resolveActiveEcdsaWalletSessionAuthorization
       ? {
@@ -128,7 +99,6 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
     statusUiConfirm,
     capabilityReader,
     statusReader,
-    getThresholdEcdsaSessionRecordByThresholdSessionId: getSessionRecordByThresholdSessionId,
   };
 }
 

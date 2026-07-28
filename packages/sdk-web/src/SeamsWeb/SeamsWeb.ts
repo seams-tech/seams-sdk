@@ -122,8 +122,6 @@ import {
   type WalletRuntimeInventory,
 } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
 import {
-  type EmailOtpEcdsaSessionRecord,
-  type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from '@/core/signingEngine/session/emailOtp/persistedSnapshot';
@@ -166,9 +164,6 @@ type EmailOtpEd25519YaoLoginDomainArgs = Omit<
   LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
   'emailHashHex'
 >;
-
-type EmailOtpThresholdEcdsaSessionRecord = ThresholdEcdsaSessionRecord &
-  EmailOtpEcdsaSessionRecord;
 
 ///////////////////////////////////////
 // PASSKEY MANAGER
@@ -413,20 +408,6 @@ function emailOtpUnlockActiveRuntimeState(
     kind: 'email_otp_unlock_active_runtime_state_v1',
     inventory,
   };
-}
-
-function assertEmailOtpUnlockEcdsaRecord(
-  record: ThresholdEcdsaSessionRecord,
-): asserts record is EmailOtpThresholdEcdsaSessionRecord {
-  if (record.source !== 'email_otp') {
-    throw new Error('Email OTP unlock ECDSA current record is missing Email OTP authority');
-  }
-  if (!record.emailOtpAuthContext) {
-    throw new Error('Email OTP unlock ECDSA current record is missing Email OTP authority');
-  }
-  if (!String(record.walletSessionJwt || '').trim()) {
-    throw new Error('Email OTP unlock ECDSA current record is missing bearer JWT');
-  }
 }
 
 function buildEmailOtpEcdsaUnlockActivationPlan(args: {

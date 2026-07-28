@@ -4159,7 +4159,6 @@ async function resolveProfileContinuityEcdsaWarmKeys(
     activeSignerRecords,
     keyFactsInventoryRequiredRecords,
     blockedRecords,
-    localSessionRecords: [],
     runtimeConfig: {
       explicitKeyFactsInventoryMode: keyFactsInventoryInput?.keyFactsInventoryRequested === true,
       allowAuthenticatedKeyFactsInventory: Boolean(
@@ -4813,7 +4812,6 @@ export type LockOperationContext = {
   signingEngine: {
     getNonceCoordinator(): { clearAll(): void };
     clearThresholdEcdsaSigningQueue(): void;
-    clearAllThresholdEcdsaSessionRecords(): void;
     clearVolatileWarmSigningMaterial(): Promise<void>;
   };
 };
@@ -4826,9 +4824,6 @@ export async function lock(context: LockOperationContext): Promise<void> {
   } catch {}
   try {
     signingEngine.clearThresholdEcdsaSigningQueue();
-  } catch {}
-  try {
-    signingEngine.clearAllThresholdEcdsaSessionRecords();
   } catch {}
   try {
     await signingEngine.clearVolatileWarmSigningMaterial();

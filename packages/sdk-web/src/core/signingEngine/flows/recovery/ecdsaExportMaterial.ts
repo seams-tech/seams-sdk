@@ -1,4 +1,3 @@
-import type { ThresholdEcdsaCanonicalExportArtifact } from '../../interfaces/signing';
 import type {
   EmailOtpWalletAuthAuthority,
   PasskeyWalletAuthAuthority,
@@ -9,10 +8,7 @@ import {
   deriveEvmFamilySigningKeySlotId,
   deriveEvmFamilyKeyFingerprintFromPublicFacts,
   toVerifiedEcdsaPublicFactsFromDurableRecord,
-  toVerifiedEcdsaPublicFactsFromRecord,
-  type EvmFamilyKeyFingerprint,
   type EvmFamilyEcdsaKeyIdentity,
-  type ReadyEcdsaSignerSession,
   type ThresholdEcdsaSessionId,
   type VerifiedEcdsaPublicFacts,
   type SigningGrantId,
@@ -27,11 +23,8 @@ import {
   buildPersistedEcdsaRoleLocalMaterial,
   requirePersistedEcdsaRoleLocalMaterial,
   type PersistedEcdsaRoleLocalMaterial,
-  type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
-import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
-import { resolveEmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
 import {
@@ -52,6 +45,11 @@ import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exact
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { buildEcdsaRoleLocalPublicFacts } from '@/core/platform';
 import { parseEcdsaRoleLocalPersistedMaterialRef } from '../../session/keyMaterialBrands';
+import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
+import {
+  resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime,
+  type EmailOtpEcdsaSigningSessionAuthority,
+} from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 
 export type EcdsaExportMaterialAvailability =
   | { kind: 'loaded_worker_material' }
@@ -94,14 +92,8 @@ export type ExactEcdsaExportLane = {
 };
 
 export type EcdsaExportSessionStoreDeps = {
-  recordsByLane: Map<string, ThresholdEcdsaSessionRecord>;
   exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
 };
-
-export type EmailOtpEcdsaExportSessionRecord = Extract<
-  ThresholdEcdsaSessionRecord,
-  { source: 'email_otp' }
->;
 
 export type EmailOtpEcdsaExportAuthLane = Extract<
   EmailOtpSigningSessionAuthLane,
@@ -116,39 +108,6 @@ export type EcdsaExportOperationAuthorization =
   | { kind: 'reusable_wallet_session'; walletSessionId: string; grantId?: never }
   | { kind: 'operation_step_up'; grantId: string; walletSessionId?: never };
 
-type ReadyThresholdEcdsaExportMaterialBase = {
-  kind: 'ready_threshold_ecdsa_export_material';
-  signerSession: ReadyEcdsaSignerSession;
-  publicFacts: VerifiedEcdsaPublicFacts;
-  cachedExportArtifact: ThresholdEcdsaCanonicalExportArtifact | null;
-  evmFamilyKeyFingerprint: EvmFamilyKeyFingerprint;
-  // Exact lane identity (carries the active reusable Wallet Session
-  // authorization and the exact material activation). The record is the
-  // transitional durable material carrier, matched by exact material
-  // activation; it never sources authority identity.
-  laneIdentity: ExactEcdsaSigningLaneIdentity;
-  record: ThresholdEcdsaSessionRecord;
-  ecdsaThresholdKeyId?: never;
-  keyRef?: never;
-  readyMaterial?: never;
-};
-
-export type ReadyPasskeyThresholdEcdsaExportMaterial = ReadyThresholdEcdsaExportMaterialBase & {
-  authMethod: 'passkey';
-  authLane?: never;
-};
-
-export type ReadyEmailOtpThresholdEcdsaExportMaterial = ReadyThresholdEcdsaExportMaterialBase & {
-  authMethod: 'email_otp';
-  authLane: EmailOtpEcdsaExportAuthLane;
-};
-
-export type ReadyThresholdEcdsaExportMaterial =
-  | ReadyPasskeyThresholdEcdsaExportMaterial
-  | ReadyEmailOtpThresholdEcdsaExportMaterial;
-
-export type ReadyEcdsaExportMaterial = ReadyThresholdEcdsaExportMaterial;
-
 export type EmailOtpEcdsaPublicReauthExportAuthority = Extract<
   EcdsaReauthAnchorPublicRestore,
   { source: 'email_otp' }
@@ -156,8 +115,7 @@ export type EmailOtpEcdsaPublicReauthExportAuthority = Extract<
 
 type FreshEmailOtpEcdsaWalletSessionExportAuthority = {
   kind: 'wallet_session_authorized';
-  record: EmailOtpEcdsaExportSessionRecord;
-  authLane: EmailOtpEcdsaExportAuthLane;
+  signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
   operationAuthorization: EcdsaExportOperationAuthorization;
   publicReauthAuthority?: never;
 };
@@ -204,7 +162,6 @@ export type PasskeyEcdsaExportBootstrapContext = {
 };
 
 export type EcdsaExportMaterial =
-  | ReadyEcdsaExportMaterial
   | FreshEmailOtpEcdsaExportMaterial
   | FreshPasskeyEcdsaExportMaterial;
 
@@ -235,66 +192,6 @@ export function isConcreteEcdsaExportLane(
   );
 }
 
-// Exact persistence-boundary read: the export lane names one canonical
-// material owner, matched on material activation, wallet, chain target, and
-// auth-method coherence. Ambiguity fails closed; there is no by-session-id
-// lookup and no source-priority tiebreak.
-export function readEcdsaExportRecordForLane(
-  deps: EcdsaExportSessionStoreDeps,
-  exportLane: ExactEcdsaExportLane,
-): ThresholdEcdsaSessionRecord | null {
-  const signer = exportLane.laneIdentity.signer;
-  const matches: ThresholdEcdsaSessionRecord[] = [];
-  for (const record of deps.recordsByLane.values()) {
-    if (String(record.walletId || '').trim() !== String(signer.walletId)) continue;
-    if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, exportLane.session.chainTarget)) {
-      continue;
-    }
-    const recordIsEmailOtp = record.source === 'email_otp';
-    if ((exportLane.session.authMethod === 'email_otp') !== recordIsEmailOtp) continue;
-    if (!mpcMaterialActivationRefsEqual(record.materialActivation, signer.materialActivation)) {
-      continue;
-    }
-    matches.push(record);
-  }
-  if (matches.length !== 1) {
-    if (matches.length > 1) {
-      throw new Error(
-        '[SigningEngine][ecdsa-export] exact export record read is ambiguous; failing closed',
-      );
-    }
-    return null;
-  }
-  return matches[0];
-}
-
-// Derives the email-OTP export route auth from the matched record's own
-// transport fields at the persistence boundary. This never parses the
-// reusable Wallet Session authorization JWT.
-export function emailOtpEcdsaExportAuthLaneFromRecord(
-  record: ThresholdEcdsaSessionRecord,
-  chainTarget: ThresholdEcdsaChainTarget,
-): EmailOtpEcdsaExportAuthLane | null {
-  if (record.source !== 'email_otp') return null;
-  const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
-  if (walletSessionAuth.kind !== 'ready') return null;
-  const lane = resolveEmailOtpAuthLane({
-    routeAuth: { kind: 'wallet_session', jwt: walletSessionAuth.walletSessionJwt },
-    thresholdSessionId: walletSessionAuth.identity.thresholdSessionId,
-    authorizingSigningGrantId: walletSessionAuth.identity.signingGrantId,
-    curve: 'ecdsa',
-    chainTarget,
-  });
-  if (!lane || lane.kind !== 'signing_session' || lane.curve !== 'ecdsa') return null;
-  return lane;
-}
-
-function isEmailOtpEcdsaExportSessionRecord(
-  record: ThresholdEcdsaSessionRecord,
-): record is EmailOtpEcdsaExportSessionRecord {
-  return record.source === 'email_otp' && Boolean(record.runtimePolicyScope);
-}
-
 export function ecdsaExportOperationAuthorizationForLane(
   exportLane: ExactEcdsaExportLane,
 ): EcdsaExportOperationAuthorization {
@@ -304,16 +201,6 @@ export function ecdsaExportOperationAuthorizationForLane(
       exportLane.laneIdentity.authorization.projection.walletSessionId,
     ),
   };
-}
-
-export function isFreshEcdsaExportSessionRecord(record: ThresholdEcdsaSessionRecord): boolean {
-  const remainingUses = Math.floor(Number(record.remainingUses));
-  const expiresAtMs = Math.floor(Number(record.expiresAtMs));
-  return (
-    Number.isFinite(remainingUses) &&
-    remainingUses > 0 &&
-    (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0 || expiresAtMs > Date.now())
-  );
 }
 
 export async function resolveExactSealedEcdsaExportRecordForLane(
@@ -381,32 +268,6 @@ function requirePasskeyEcdsaExportParticipants(
   return [...participantIds];
 }
 
-function passkeyEcdsaExportBootstrapFromRuntimeRecord(
-  record: Exclude<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>,
-  exportLane: ExactEcdsaExportLane,
-): PasskeyEcdsaExportBootstrapContext {
-  return {
-    source: record.source,
-    relayerUrl: requirePasskeyEcdsaExportField(record.relayerUrl, 'relayerUrl'),
-    relayerKeyId: requirePasskeyEcdsaExportField(record.relayerKeyId, 'relayerKeyId'),
-    ecdsaThresholdKeyId: requirePasskeyEcdsaExportField(
-      record.ecdsaThresholdKeyId,
-      'ecdsaThresholdKeyId',
-    ),
-    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-      walletId: exportLane.key.walletId,
-      signingRootId: record.signingRootId,
-      signingRootVersion: record.signingRootVersion,
-    }),
-    signingRootId: requirePasskeyEcdsaExportField(record.signingRootId, 'signingRootId'),
-    signingRootVersion: requirePasskeyEcdsaExportField(
-      record.signingRootVersion || exportLane.key.signingRootVersion,
-      'signingRootVersion',
-    ),
-    participantIds: requirePasskeyEcdsaExportParticipants(record.participantIds),
-  };
-}
-
 function passkeyEcdsaExportBootstrapFromSealedRecord(
   record: CurrentEcdsaSealedSessionRecord,
   exportLane: ExactEcdsaExportLane,
@@ -466,47 +327,52 @@ async function verifiedEcdsaPublicFactsFromPublicReauthAuthority(
 }
 
 export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
-  deps: EcdsaExportSessionStoreDeps,
+  _deps: EcdsaExportSessionStoreDeps,
   exportLane: ExactEcdsaExportLane,
 ): Promise<FreshEmailOtpEcdsaExportMaterial> {
   if (exportLane.session.authMethod !== 'email_otp') {
     throw new Error('[SigningEngine][ecdsa-export] fresh Email OTP export requires Email OTP lane');
   }
-  const runtimeRecord = readEcdsaExportRecordForLane(deps, exportLane);
   const publicReauthAuthority = emailOtpPublicReauthAuthorityForExportLane(exportLane);
-  if (runtimeRecord && isEmailOtpEcdsaExportSessionRecord(runtimeRecord)) {
-    const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record: runtimeRecord });
-    assertMatchingVerifiedEcdsaPublicFacts({
-      expected: exportLane.publicFacts,
-      actual: publicFacts,
-      context: 'fresh Email OTP export lane',
+  if (!publicReauthAuthority) {
+    const resolution = await resolveActiveEcdsaCapabilityRuntime({
+      walletId: exportLane.key.walletId,
+      chainTarget: exportLane.session.chainTarget,
     });
-    const authLane = emailOtpEcdsaExportAuthLaneFromRecord(
-      runtimeRecord,
-      exportLane.session.chainTarget,
-    );
-    if (!authLane) {
+    if (resolution.kind !== 'resolved') {
       throw new Error(
-        '[SigningEngine][ecdsa-export] fresh Email OTP export requires record route auth',
+        `[SigningEngine][ecdsa-export] Email OTP capability runtime unavailable: ${resolution.reason}`,
       );
     }
-    const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
-      runtimeRecord.runtimePolicyScope,
-    );
-    if (!runtimePolicyScope) {
+    if (
+      !mpcMaterialActivationRefsEqual(
+        resolution.runtime.materialActivation,
+        exportLane.laneIdentity.signer.materialActivation,
+      )
+    ) {
+      throw new Error('[SigningEngine][ecdsa-export] Email OTP material activation mismatch');
+    }
+    const authority = resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime({
+      runtime: resolution.runtime,
+      authorization: exportLane.laneIdentity.authorization.projection,
+    });
+    if (authority.kind !== 'ready') {
       throw new Error(
-        '[SigningEngine][ecdsa-export] fresh Email OTP export requires runtimePolicyScope',
+        `[SigningEngine][ecdsa-export] Email OTP signing-session authority unavailable: ${authority.kind}`,
       );
+    }
+    const runtimePolicyScope = resolution.runtime.runtimePolicyScope;
+    if (!runtimePolicyScope) {
+      throw new Error('[SigningEngine][ecdsa-export] Email OTP runtime policy scope is missing');
     }
     return {
       kind: 'fresh_email_otp_route_auth_ready',
       chainTarget: exportLane.session.chainTarget,
-      publicFacts,
+      publicFacts: exportLane.publicFacts,
       runtimePolicyScope,
       authorization: {
         kind: 'wallet_session_authorized',
-        record: runtimeRecord,
-        authLane,
+        signingSessionAuthority: authority.authority,
         operationAuthorization: ecdsaExportOperationAuthorizationForLane(exportLane),
       },
     };
@@ -641,3 +507,4 @@ export async function resolveEcdsaExportMaterialForLane(
     },
   };
 }
+import type { ThresholdEcdsaCanonicalExportArtifact } from '../../interfaces/signing';

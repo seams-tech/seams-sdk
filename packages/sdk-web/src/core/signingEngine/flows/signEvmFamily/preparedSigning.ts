@@ -579,10 +579,8 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         const selection = await resolveEvmFamilyEcdsaSigningSelection({
           deps: args.deps,
           walletId,
-          chain,
           chainTarget,
           senderSignatureAlgorithm: 'secp256k1',
-          authMethod,
           laneCandidate,
           reauth:
             reauthAnchor && selectedAvailableLane.source === 'durable_sealed_record'
@@ -592,19 +590,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
                   publicRestore: selectedAvailableLane.publicReauthAuthority,
                 }
               : { kind: 'not_required' },
-          allowMissingHotMaterial: args.forceFreshAuth === true,
         });
-        if (selection.kind === 'missing_material' || selection.kind === 'restore_required') {
-          emitSigningSessionFlowFailure('evm-family', {
-            stage: 'ecdsa_selection.canonical_material_unavailable',
-            walletId,
-            chain,
-            chainTarget,
-            authMethod: selection.authMethod,
-            candidate: selection.diagnostics.selectedLaneCandidate,
-          });
-          throw new Error('[SigningEngine][ecdsa] canonical ECDSA material is unavailable');
-        }
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.material_selected',
           walletId,

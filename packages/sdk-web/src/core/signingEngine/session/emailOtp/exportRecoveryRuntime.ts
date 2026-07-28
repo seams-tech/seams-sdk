@@ -11,14 +11,12 @@ import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthor
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type {
   EmailOtpEcdsaExportAuthLane,
-  EmailOtpEcdsaExportSessionRecord,
   EmailOtpEcdsaPublicReauthExportAuthority,
 } from '../../flows/recovery/ecdsaExportMaterial';
 import type { EmailOtpEcdsaSigningSessionAuthority } from './ecdsaSigningSessionAuthority';
 import { buildEmailOtpSigningSessionRoutePlan } from './routePlan';
 import {
   exportEd25519YaoSeedWithFreshEmailOtpLane,
-  exportEcdsaKeyWithAuthorization,
   exportEcdsaKeyWithDurableAuthorization,
   exportEcdsaKeyWithPublicReauthAuthorization,
   requestExportChallenge,
@@ -59,16 +57,6 @@ export type RequestEmailOtpChallengeArgs =
       authLane?: never;
       routeAuth?: never;
     };
-
-export type ExportEcdsaKeyWithAuthorizationArgs = {
-  walletSession: WalletSessionRef;
-  challengeId: string;
-  otpCode: string;
-  record: EmailOtpEcdsaExportSessionRecord;
-  authLane: EmailOtpEcdsaExportAuthLane;
-  materialActivationId: string;
-  routeAuth?: never;
-};
 
 export type ExportEcdsaKeyWithDurableAuthorizationArgs = {
   walletSession: WalletSessionRef;
@@ -127,20 +115,6 @@ export class EmailOtpExportRecoveryRuntime {
     args: RequestEmailOtpChallengeArgs,
   ): Promise<{ challengeId: string; emailHint?: string }> {
     return await requestExportChallenge(this.workerPorts(), args);
-  }
-
-  async exportEcdsaKeyWithAuthorization(
-    args: ExportEcdsaKeyWithAuthorizationArgs,
-  ): Promise<EmailOtpEcdsaExportArtifact> {
-    return await exportEcdsaKeyWithAuthorization(this.signingSessionWorkerPorts(), {
-      walletSession: args.walletSession,
-      challengeId: args.challengeId,
-      otpCode: args.otpCode,
-      record: args.record,
-      authLane: args.authLane,
-      materialActivationId: args.materialActivationId,
-      prepareEcdsaExportCapability: this.ports.prepareEcdsaExportCapability,
-    });
   }
 
   async exportEcdsaKeyWithDurableAuthorization(

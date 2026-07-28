@@ -1,6 +1,5 @@
 import { parseThresholdSecp256k1Ecdsa2pParticipantIdsV1 } from '@shared/threshold/secp256k1';
 import type {
-  SigningSessionStatus,
   RouterAbEcdsaDerivationPresignaturePoolPolicy,
   RouterAbEcdsaDerivationPresignaturePoolPolicyInput,
 } from '@/core/types/seams';
@@ -100,11 +99,6 @@ export type RouterAbEcdsaDerivationLoginPresignaturePrefillResult =
     };
 
 export type RouterAbEcdsaDerivationLoginPresignaturePrefillDeps = {
-  getWarmThresholdEcdsaSessionStatus: (
-    walletId: WalletId,
-    thresholdSessionId: string,
-    chainTarget: ThresholdEcdsaChainTarget,
-  ) => Promise<SigningSessionStatus | null>;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   resolveClientSigningMaterialSource: (args: {
     manifest: ActiveEcdsaCapabilityManifest;
@@ -115,19 +109,6 @@ export type RouterAbEcdsaDerivationLoginPresignaturePrefillDeps = {
     | RouterAbEcdsaDerivationPresignaturePoolPolicyInput
     | RouterAbEcdsaDerivationPresignaturePoolPolicy;
 };
-
-function isWarmSessionActive(
-  status: SigningSessionStatus | null,
-): status is SigningSessionStatus & { status: 'active'; remainingUses: number } {
-  return Boolean(
-    status && status.status === 'active' && Number.isFinite(Number(status.remainingUses)),
-  );
-}
-
-function activeSessionExpiresAtMs(status: SigningSessionStatus): number | null {
-  const expiresAtMs = Math.floor(Number(status.expiresAtMs));
-  return Number.isSafeInteger(expiresAtMs) && expiresAtMs > Date.now() ? expiresAtMs : null;
-}
 
 export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
   deps: RouterAbEcdsaDerivationLoginPresignaturePrefillDeps,
@@ -201,42 +182,21 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
       };
     }
 
-    const warmStatus = await deps.getWarmThresholdEcdsaSessionStatus(
-      walletId,
-      thresholdSessionId,
-      args.chainTarget,
-    );
-    if (!isWarmSessionActive(warmStatus)) {
+    const nowMs = Date.now();
+    if (authorization.expiresAtMs <= nowMs || runtime.expiresAtMs <= nowMs) {
       return {
         status: 'skipped',
         reason: 'warm_session_not_active',
         thresholdSessionId,
       };
     }
-    if (String(warmStatus.sessionId || '').trim() !== thresholdSessionId) {
-      return {
-        status: 'skipped',
-        reason: 'threshold_session_mismatch',
-        thresholdSessionId,
-        details: `active=${warmStatus.sessionId}`,
-      };
-    }
-
-    const warmSessionExpiresAtMs = activeSessionExpiresAtMs(warmStatus);
-    if (warmSessionExpiresAtMs === null) {
-      return {
-        status: 'skipped',
-        reason: 'warm_session_expiry_unavailable',
-        thresholdSessionId,
-      };
-    }
 
     const routerAbPoolFillExpiresAtMs = Math.min(
       runtime.expiresAtMs,
-      warmSessionExpiresAtMs,
-      Date.now() + 60_000,
+      authorization.expiresAtMs,
+      nowMs + 60_000,
     );
-    if (routerAbPoolFillExpiresAtMs <= Date.now()) {
+    if (routerAbPoolFillExpiresAtMs <= nowMs) {
       return {
         status: 'skipped',
         reason: 'warm_session_expiry_unavailable',
@@ -248,7 +208,7 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
       LOGIN_PREFILL_MIN_REMAINING_USES,
       Math.floor(Number(args.minRemainingUsesBeforePrefill ?? LOGIN_PREFILL_MIN_REMAINING_USES)),
     );
-    const remainingUsesBefore = Math.floor(Number(warmStatus.remainingUses) || 0);
+    const remainingUsesBefore = runtime.remainingUses;
     if (remainingUsesBefore < minimumUses) {
       return {
         status: 'skipped',

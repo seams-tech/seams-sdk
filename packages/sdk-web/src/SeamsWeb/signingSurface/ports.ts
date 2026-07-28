@@ -7,22 +7,18 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ProvisionWarmEd25519CapabilityResult,
-  WarmEcdsaSigningSessionStatus,
 } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
   AvailableSigningLanes,
-  ListThresholdEcdsaSessionRecordsForWalletTargetInput,
   ReadAvailableSigningLanesInput,
   DiscoverPersistedSessionsForWalletInput,
   DiscoverPersistedSessionsForWalletResult,
-  ThresholdEcdsaSessionRecord as SessionPublicThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/public';
 import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import type {
-  ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import type { ReusableWalletSessionState } from '@/core/types/seams';
@@ -329,15 +325,6 @@ export interface WarmSessionStatusSurface {
   getWarmThresholdEd25519SessionStatus(
     nearAccountId: AccountId | string,
   ): Promise<SigningSessionStatus | null>;
-  getWarmThresholdEcdsaSessionStatus(
-    walletId: EcdsaWalletId,
-    chainTarget: ThresholdEcdsaChainTarget,
-    thresholdSessionId: string,
-  ): Promise<WarmEcdsaSigningSessionStatus | null>;
-  listWarmThresholdEcdsaSessionStatuses(
-    walletId: EcdsaWalletId,
-    chainTarget: ThresholdEcdsaChainTarget,
-  ): Promise<WarmEcdsaSigningSessionStatus[]>;
 }
 
 export type WalletSessionReadSurface = RuntimeStartupSurface &
@@ -370,7 +357,6 @@ export type RecentUnlocksSigningSurface = Pick<
 >;
 
 export interface EcdsaSessionControlSurface {
-  clearAllThresholdEcdsaSessionRecords(): void;
   clearVolatileWarmSigningMaterial(walletId?: EcdsaWalletId): Promise<void>;
   clearThresholdEcdsaSigningQueue(): void;
 }

@@ -1,10 +1,4 @@
-import type {
-  ThresholdEcdsaChainTarget,
-  WalletId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  ListThresholdEcdsaSessionRecordsForWalletTargetInput,
-} from './public';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ConnectEd25519SessionArgs } from './passkey/public';
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 import type {
@@ -23,7 +17,6 @@ import {
 import type { ExactEd25519SigningLaneIdentity } from './identity/exactSigningLaneIdentity';
 
 declare const walletId: WalletId;
-declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 declare const rpId: WebAuthnRpId;
 declare const exactEd25519LaneIdentity: ExactEd25519SigningLaneIdentity;
@@ -56,24 +49,6 @@ const invalidConsumedSingleUseEmailOtpAuthUse = {
   reason: 'sign',
 } satisfies EmailOtpAuthUse;
 void invalidConsumedSingleUseEmailOtpAuthUse;
-
-const listThresholdEcdsaSessionRecordsForWalletTargetArgs: ListThresholdEcdsaSessionRecordsForWalletTargetInput =
-  {
-    walletId,
-    chainTarget,
-    source: 'registration',
-  };
-void listThresholdEcdsaSessionRecordsForWalletTargetArgs;
-
-const invalidListThresholdEcdsaSessionRecordsForWalletTargetArgs: ListThresholdEcdsaSessionRecordsForWalletTargetInput =
-  {
-    walletId,
-    chainTarget,
-    source: 'registration',
-    // @ts-expect-error public wallet-target session listing no longer accepts signing-root filters.
-    signingRootId: 'project:dev',
-  };
-void invalidListThresholdEcdsaSessionRecordsForWalletTargetArgs;
 
 const connectEmailOtpEd25519SessionArgs: ConnectEd25519SessionArgs = {
   kind: 'exact_ed25519_provisioning',

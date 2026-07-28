@@ -43,37 +43,15 @@ function inferThresholdEcdsaSessionChainFromLabel(labelRaw: unknown): EcdsaSessi
   return null;
 }
 
-function requireResolvedRoleLocalWorkerHandle(
-  resolution: EcdsaRoleLocalMaterialResolution,
-): ResolvedEcdsaRoleLocalSigningMaterial {
-  switch (resolution.kind) {
-    case 'rehydrated':
-      return resolution;
-    case 'device_link_required':
-      throw new Error(
-        '[multichain] device_link_required: local threshold ECDSA material is unavailable',
-      );
-    case 'corrupt':
-      throw new Error(
-        `[multichain] threshold-ecdsa role-local material is corrupt (${resolution.reason}): ${resolution.message}`,
-      );
-    default: {
-      const exhaustive: never = resolution;
-      throw new Error(`Unsupported ECDSA role-local material resolution: ${String(exhaustive)}`);
-    }
-  }
-}
-
 export async function hydrateEcdsaRoleLocalMaterialForSigning(args: {
   persistedMaterial: PersistedEcdsaRoleLocalMaterial;
   workerCtx: WorkerOperationContext;
-}): Promise<ResolvedEcdsaRoleLocalSigningMaterial> {
-  const resolution = await resolveEcdsaRoleLocalMaterial({
+}): Promise<EcdsaRoleLocalMaterialResolution> {
+  return resolveEcdsaRoleLocalMaterial({
     purpose: 'transaction_signing',
     source: ecdsaRoleLocalPersistedMaterialSource(args.persistedMaterial),
     workerCtx: args.workerCtx,
   });
-  return requireResolvedRoleLocalWorkerHandle(resolution);
 }
 
 export type ReadySecp256k1SigningMaterialResolution =
@@ -91,6 +69,8 @@ export type ReadySecp256k1SigningMaterialResolution =
         | 'runtime_policy_scope_missing'
         | 'authorization_expired'
         | 'authorization_exhausted'
+        | 'device_link_required'
+        | 'material_corrupt'
         | 'worker_binding_failed';
       readonly material?: never;
     };
@@ -171,10 +151,24 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
   }
 
   // 4. Persisted material hydration into an exact worker handle.
-  const resolvedRoleLocalMaterial = await hydrateEcdsaRoleLocalMaterialForSigning({
+  const roleLocalMaterialResolution = await hydrateEcdsaRoleLocalMaterialForSigning({
     persistedMaterial,
     workerCtx: args.workerCtx,
   });
+  let resolvedRoleLocalMaterial: ResolvedEcdsaRoleLocalSigningMaterial;
+  switch (roleLocalMaterialResolution.kind) {
+    case 'rehydrated':
+      resolvedRoleLocalMaterial = roleLocalMaterialResolution;
+      break;
+    case 'device_link_required':
+      return { kind: 'unavailable', reason: 'device_link_required' };
+    case 'corrupt':
+      return { kind: 'unavailable', reason: 'material_corrupt' };
+    default: {
+      const exhaustive: never = roleLocalMaterialResolution;
+      return exhaustive;
+    }
+  }
   const walletSessionJwt = projection.walletSessionJwt;
   // The sealed record owns the normal-signing state. It was cross-checked
   // against this manifest's facts during runtime correlation, which is where

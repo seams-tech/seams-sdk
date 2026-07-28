@@ -91,7 +91,6 @@ import {
   routeAuthFromEmailOtpRoutePlan,
   type EmailOtpEcdsaBootstrapAuthorization,
 } from './routePlan';
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import {
   DEV_DEFAULT_UNLOCK_REMAINING_USES,
   normalizeStepUpOperationId,
@@ -276,18 +275,6 @@ function normalizeEmailOtpProviderUserId(value: unknown, field: string): string 
     throw new Error(`[SigningEngine][email-otp] ${field} is required`);
   }
   return normalized;
-}
-
-export function emailOtpEcdsaProviderIdentityFromRecord(
-  record: ThresholdEcdsaSessionRecord,
-): EmailOtpEcdsaProviderIdentity {
-  if (record.source !== 'email_otp') {
-    throw new Error('Email OTP ECDSA signing refresh requires an Email OTP session record');
-  }
-  return {
-    kind: 'explicit_provider_user',
-    providerUserId: emailOtpAuthContextProviderUserId(record.emailOtpAuthContext),
-  };
 }
 
 function resolveEmailOtpEcdsaProviderUserId(args: {
@@ -995,9 +982,8 @@ async function runEmailOtpEcdsaCapability(
     chainTarget,
     runtimePolicyScope,
     keyHandle: args.keyHandle,
-    listThresholdEcdsaSessionRecordsForWallet:
-      publicationPorts.listThresholdEcdsaSessionRecordsForWallet,
-    listActiveEcdsaSignersForWallet: publicationPorts.listActiveEcdsaSignersForWallet,
+    listActiveEcdsaCapabilityManifestsForWallet:
+      publicationPorts.listActiveEcdsaCapabilityManifestsForWallet,
   });
   if (!existingKey) {
     throw new Error(

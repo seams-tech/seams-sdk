@@ -3,7 +3,6 @@ import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
   type ThresholdEcdsaChainTarget,
-  type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   readPersistedAvailableSigningLanes as readPersistedAvailableSigningLanesValue,
@@ -17,15 +16,6 @@ import type {
   DiscoverPersistedSessionsForWalletInput,
   DiscoverPersistedSessionsForWalletResult,
 } from './sealedRecovery/sealedRecovery.types';
-import {
-  clearAllThresholdEcdsaSessionRecords as clearAllThresholdEcdsaSessionRecordsValue,
-  getThresholdEcdsaSessionRecordForWalletTarget as getThresholdEcdsaSessionRecordForWalletTargetValue,
-  listThresholdEcdsaSessionRecordsForWalletTarget as listThresholdEcdsaSessionRecordsForWalletTargetValue,
-  clearThresholdEcdsaSessionRecordForWalletTarget as clearThresholdEcdsaSessionRecordForWalletTargetValue,
-  type ThresholdEcdsaSessionRecord,
-  type ThresholdEcdsaSessionStoreDeps,
-} from './persistence/records';
-import type { ThresholdEcdsaSessionStoreSource } from './identity/laneIdentity';
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 
 const EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT: DiscoverPersistedSessionsForWalletResult =
@@ -38,7 +28,6 @@ const EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT: DiscoverPersistedSess
 export type SessionPublicDeps = {
   availableLanes: PersistedAvailableSigningLanesDeps;
   getConfiguredEcdsaChainTargets: () => readonly ThresholdEcdsaChainTarget[];
-  ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   signingSessionSeal?: {
     keyVersion?: string;
     shamirPrimeB64u?: string;
@@ -57,12 +46,6 @@ export type SessionPublicDeps = {
       },
     ) => Promise<DiscoverPersistedSessionsForWalletResult>;
   };
-};
-
-export type ListThresholdEcdsaSessionRecordsForWalletTargetInput = {
-  walletId: WalletId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  source?: ThresholdEcdsaSessionStoreSource;
 };
 
 function mergeDiscoverPersistedSessionsForWalletResults(
@@ -128,28 +111,6 @@ export async function readPersistedAvailableSigningLanes(
   );
 }
 
-export function listThresholdEcdsaSessionRecordsForWalletTarget(
-  deps: SessionPublicDeps,
-  args: ListThresholdEcdsaSessionRecordsForWalletTargetInput,
-): ThresholdEcdsaSessionRecord[] {
-  return listThresholdEcdsaSessionRecordsForWalletTargetValue(deps.ecdsaSessions, args);
-}
-
-export function clearThresholdEcdsaSessionRecordForWalletTarget(
-  deps: SessionPublicDeps,
-  args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  },
-): void {
-  clearThresholdEcdsaSessionRecordForWalletTargetValue(deps.ecdsaSessions, args);
-}
-
-export function clearAllThresholdEcdsaSessionRecords(deps: SessionPublicDeps): void {
-  clearAllThresholdEcdsaSessionRecordsValue(deps.ecdsaSessions);
-}
-
 export type {
   DiscoverPersistedSessionsForWalletInput,
   DiscoverPersistedSessionsForWalletResult,
@@ -165,4 +126,3 @@ export type {
   ReadAvailableSigningLanesInput,
   AvailableSigningLanes,
 } from './availability/availableSigningLanes';
-export type { ThresholdEcdsaSessionRecord } from './persistence/records';
