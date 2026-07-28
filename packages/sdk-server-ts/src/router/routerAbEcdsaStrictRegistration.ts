@@ -76,16 +76,27 @@ export type RouterAbEcdsaStrictRegistrationTopology = {
   readonly deriverRecipientKeys: RouterAbEcdsaRegistrationRecipientKeysV1;
 };
 
+/**
+ * Receives the Router's raw `Server-Timing` header, when it sent one
+ * (Refactor 94B Phase 0). Diagnostics only: the Router's spans never reach the
+ * response body, and a caller that omits this sink changes nothing about the
+ * ceremony. Called at most once per forwarded request, before the result is
+ * parsed, so a failing leg still reports where its time went.
+ */
+export type RouterAbEcdsaStrictServerTimingSink = (header: string) => void;
+
 export interface RouterAbEcdsaStrictRegistrationPort {
   topology(): RouterAbEcdsaStrictRegistrationTopology;
   register(input: {
     readonly request: RouterAbEcdsaRegistrationRequestV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
   }): Promise<RouterAbEcdsaStrictRegistrationResult>;
   activate(input: {
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
   }): Promise<RouterAbEcdsaStrictActivationResult>;
 }
 
@@ -185,6 +196,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
   async register(input: {
     readonly request: RouterAbEcdsaRegistrationRequestV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
   }): Promise<RouterAbEcdsaStrictRegistrationResult> {
     const authorityFailure = validateRegistrationAuthorityBinding(input);
     if (authorityFailure) return authorityFailure;
@@ -193,6 +205,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       path: STRICT_ECDSA_REGISTRATION_PATH,
       authority: input.authority,
       request: input.request,
+      onServerTiming: input.onServerTiming,
     });
     if (!body.ok) return body;
     return parseStrictRegistrationForwardingResult(body.value);
@@ -202,6 +215,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
   }): Promise<RouterAbEcdsaStrictActivationResult> {
     const body = await this.forward({
       kind: 'activation',
@@ -209,6 +223,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       authority: input.authority,
       pendingActivation: input.pendingActivation,
       clientActivation: input.clientActivation,
+      onServerTiming: input.onServerTiming,
     });
     if (!body.ok) return body;
     try {
@@ -230,6 +245,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
     input: {
       readonly path: string;
       readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+      readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
     } & (
       | {
           readonly kind: 'registration';
@@ -255,6 +271,16 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
         body: strictForwardBodyJson(input),
       }),
     );
+    /* Read before the outcome branch so a failed leg still reports its spans,
+       and never let a diagnostics sink fail the ceremony. */
+    if (input.onServerTiming) {
+      try {
+        const header = response.headers.get('Server-Timing');
+        if (header) input.onServerTiming(header);
+      } catch {
+        /* Diagnostics only. */
+      }
+    }
     const body = await readJsonResponse(response);
     if (!response.ok) {
       const code = responseErrorCode(body, response.status);

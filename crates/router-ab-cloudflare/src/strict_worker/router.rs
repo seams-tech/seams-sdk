@@ -243,6 +243,7 @@ pub(super) async fn handle_strict_router_fetch_v1(
             Ok(parsed) => parsed,
             Err(response) => return Ok(response),
         };
+        let mut timing = CloudflareEcdsaBoundaryTimingV1::new();
         let response =
             handle_cloudflare_router_ab_ecdsa_derivation_activation_authenticated_public_request_v1(
                 &env,
@@ -252,9 +253,10 @@ pub(super) async fn handle_strict_router_fetch_v1(
                 authorization,
                 trusted_source_digest,
                 verifier,
+                &mut timing,
             )
             .await;
-        return router_json_cors_response_v1(response, &request, &env);
+        return router_ecdsa_timed_json_cors_response_v1(response, &timing, &request, &env);
     }
 
     if let Some(registration_purpose) =
@@ -285,6 +287,7 @@ pub(super) async fn handle_strict_router_fetch_v1(
             let response = cloudflare_protocol_error_response_v1(err)?;
             return cloudflare_router_normal_signing_response_v1(response, &request, &env);
         }
+        let mut timing = CloudflareEcdsaBoundaryTimingV1::new();
         let response = handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1(
             &env,
             &runtime,
@@ -293,9 +296,10 @@ pub(super) async fn handle_strict_router_fetch_v1(
             authorization,
             trusted_source_digest,
             verifier,
+            &mut timing,
         )
         .await;
-        return router_json_cors_response_v1(response, &request, &env);
+        return router_ecdsa_timed_json_cors_response_v1(response, &timing, &request, &env);
     }
 
     if path == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH {
@@ -548,6 +552,22 @@ fn router_json_cors_response_v1<T: serde::Serialize>(
             cloudflare_router_normal_signing_response_v1(response, request, env)
         }
     }
+}
+
+/// As `router_json_cors_response_v1`, but attaches the Router's ECDSA boundary
+/// spans as `Server-Timing` (Refactor 94B Phase 0). The response body is
+/// untouched — the Gateway reads the header and drops it before the browser.
+/// A failed leg still carries whatever spans completed before it failed.
+#[cfg(feature = "strict-worker-router-entrypoint")]
+fn router_ecdsa_timed_json_cors_response_v1<T: serde::Serialize>(
+    result: RouterAbProtocolResult<T>,
+    timing: &CloudflareEcdsaBoundaryTimingV1,
+    request: &Request,
+    env: &Env,
+) -> worker::Result<Response> {
+    let response = router_json_cors_response_v1(result, request, env)?;
+    timing.apply_to(&response)?;
+    Ok(response)
 }
 
 #[cfg(feature = "strict-worker-router-entrypoint")]
