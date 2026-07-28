@@ -22,7 +22,6 @@ import type { SigningSessionCoordinator } from '../session/SigningSessionCoordin
 import type { ThresholdEcdsaSessionStoreSource } from '../session/identity/laneIdentity';
 import type { ExactEcdsaSigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
 import type {
-  ThresholdEcdsaKeyRefLookupResult,
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '../session/persistence/records';

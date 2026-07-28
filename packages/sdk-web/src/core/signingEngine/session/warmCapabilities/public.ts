@@ -56,10 +56,6 @@ export type WarmCapabilitiesPublicDeps = {
   hydrateSigningSession: (args: HydrateSigningSessionInput) => Promise<void>;
   clearVolatileWarmSigningMaterial: (walletId?: WalletId) => Promise<void>;
   getWalletSigningBudgetStatus: WalletSigningBudgetAvailableStatusDeps['getAvailableStatus'];
-  resolveCanonicalThresholdEcdsaSessionIdForWalletTarget: (
-    walletId: WalletId,
-    chainTarget: ThresholdEcdsaChainTarget,
-  ) => string | null;
   getSignerWorkerContext: Parameters<
     typeof scheduleRouterAbEcdsaDerivationLoginPresignaturePrefillValue
   >[0]['getSignerWorkerContext'];
@@ -154,23 +150,12 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
         walletIdArg: WalletId,
         thresholdSessionId: string,
         chainTargetArg: ThresholdEcdsaChainTarget,
-      ) => {
-        const canonicalSessionId = deps.resolveCanonicalThresholdEcdsaSessionIdForWalletTarget(
-          args.walletId,
-          chainTargetArg,
-        );
-        if (canonicalSessionId && canonicalSessionId !== String(thresholdSessionId || '').trim()) {
-          return {
-            sessionId: canonicalSessionId,
-            status: 'not_found',
-          };
-        }
-        return await deps.statusReader.getEcdsaSigningSessionStatus({
+      ) =>
+        await deps.statusReader.getEcdsaSigningSessionStatus({
           walletId: walletIdArg,
           chainTarget: chainTargetArg,
           thresholdSessionId,
-        });
-      },
+        }),
       getSignerWorkerContext: deps.getSignerWorkerContext,
       resolveClientSigningMaterialSource: deps.resolveClientSigningMaterialSource,
       routerAbEcdsaDerivationPresignaturePoolPolicy: deps.routerAbEcdsaDerivationPresignaturePoolPolicy,

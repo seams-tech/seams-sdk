@@ -66,7 +66,6 @@ import {
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaLaneKey,
   toWalletId,
-  type ThresholdEcdsaSessionRecordKey,
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -95,7 +94,6 @@ import {
   type BuildEcdsaWalletSessionTransportAuthInput,
 } from '../identity/evmFamilyEcdsaIdentity';
 import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../warmCapabilities/routerAbEcdsaWalletSessionAuth';
-import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '../identity/thresholdEcdsaSignerAdapter';
 import {
   type ExactEd25519SigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
@@ -341,26 +339,12 @@ export type ThresholdEcdsaSessionStoreDeps = {
   now?: () => number;
 };
 
-export type ThresholdEcdsaKeyRefLookupResult = {
-  source: ThresholdEcdsaSessionStoreSource;
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
-};
-
 export type ThresholdEcdsaSessionRecordReadModel = {
   record: ThresholdEcdsaSessionRecord;
   key: EvmFamilyEcdsaKeyIdentity;
   resolvedKey?: ResolvedEvmFamilyEcdsaKey;
   lane: EvmFamilyEcdsaSessionLane;
 };
-
-export type ThresholdEcdsaSessionRecordLookupKey =
-  ThresholdEcdsaSessionRecordKey;
-
-function thresholdEcdsaRecordKeyFromLookupKey(
-  identity: ThresholdEcdsaSessionRecordLookupKey,
-): ThresholdEcdsaSessionRecordKey {
-  return identity;
-}
 
 export function thresholdEcdsaRecordRpId(record: ThresholdEcdsaSessionRecord): string {
   if (record.ecdsaRoleLocalAuthMethod.kind !== 'passkey') {
@@ -503,15 +487,6 @@ function assertUniqueEvmFamilyEcdsaIdentityForStore(args: {
       '[SigningEngine] EVM-family ECDSA key identity already exists for wallet/key/signing root',
     );
   }
-}
-
-function thresholdEcdsaRecordMatchesLookupKey(args: {
-  record: ThresholdEcdsaSessionRecord;
-  identity: ThresholdEcdsaSessionRecordLookupKey;
-}): boolean {
-  const identity = args.identity;
-  const lookupKey = thresholdEcdsaRecordKeyFromLookupKey(identity);
-  return getThresholdEcdsaSessionLaneKeyForRecord(args.record) === thresholdEcdsaLaneKey(lookupKey);
 }
 
 function laneCandidateStateFromRuntimePolicy(args: {
@@ -3128,42 +3103,6 @@ export function getThresholdEcdsaSessionRecordForWalletTarget(
   throw new Error(
     `[SigningEngine] missing concrete threshold ECDSA session for wallet ${String(walletId)} ${thresholdEcdsaChainTargetKey(args.chainTarget)}; reconnect threshold session via bootstrapEcdsaSession`,
   );
-}
-
-export function getThresholdEcdsaSessionRecordByKey(
-  deps: ThresholdEcdsaSessionStoreDeps,
-  identity: ThresholdEcdsaSessionRecordLookupKey,
-): ThresholdEcdsaSessionRecord | null {
-  const laneKey = thresholdEcdsaLaneKey(thresholdEcdsaRecordKeyFromLookupKey(identity));
-  const record = deps.recordsByLane.get(laneKey) || inMemoryEcdsaRecordsByLane.get(laneKey) || null;
-  if (!record) return null;
-  return thresholdEcdsaRecordMatchesLookupKey({ record, identity }) ? record : null;
-}
-
-function thresholdEcdsaKeyRefFromRecord(
-  deps: ThresholdEcdsaSessionStoreDeps,
-  record: ThresholdEcdsaSessionRecord,
-): ThresholdEcdsaSecp256k1KeyRef {
-  const laneKey = getThresholdEcdsaSessionLaneKeyForRecord(record);
-  const ecdsaDerivationExportArtifact = deps.exportArtifactsByLane?.get(laneKey);
-  return buildThresholdEcdsaSecp256k1KeyRefFromRecord({
-    record,
-    ...(ecdsaDerivationExportArtifact ? { exportArtifact: ecdsaDerivationExportArtifact } : {}),
-  });
-}
-
-export function listThresholdEcdsaKeyRefsForWalletTarget(
-  deps: ThresholdEcdsaSessionStoreDeps,
-  args: {
-    walletId: WalletId | string;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  },
-): ThresholdEcdsaKeyRefLookupResult[] {
-  return listThresholdEcdsaSessionRecordsForWalletTarget(deps, args).map((record) => ({
-    source: record.source,
-    keyRef: thresholdEcdsaKeyRefFromRecord(deps, record),
-  }));
 }
 
 export function clearThresholdEcdsaSessionRecordForWalletTarget(

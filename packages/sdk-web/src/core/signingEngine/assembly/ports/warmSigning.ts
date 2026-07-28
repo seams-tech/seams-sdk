@@ -194,7 +194,6 @@ export function createWarmCapabilitiesPublicDeps(args: {
   touchConfirm: UiConfirmRuntimeBridgePort;
   warmSigning: Pick<WarmSigningPorts, 'ecdsaSessions' | 'capabilityReader' | 'statusReader'>;
   walletSessionActivationDeps: WalletSessionActivationDeps;
-  resolveCanonicalThresholdEcdsaSessionIdForWalletTarget: SigningEnginePorts['resolveCanonicalThresholdEcdsaSessionIdForWalletTarget'];
   signingSessionCoordinator: Pick<
     SigningEnginePorts['signingSessionCoordinator'],
     'getAvailableStatus'
@@ -225,8 +224,6 @@ export function createWarmCapabilitiesPublicDeps(args: {
       ),
     getWalletSigningBudgetStatus: (statusArgs) =>
       args.signingSessionCoordinator.getAvailableStatus(statusArgs),
-    resolveCanonicalThresholdEcdsaSessionIdForWalletTarget: (walletId, chainTarget) =>
-      args.resolveCanonicalThresholdEcdsaSessionIdForWalletTarget(walletId, chainTarget),
     routerAbEcdsaDerivationPresignaturePoolPolicy: args.seamsWebConfigs.signing.routerAbEcdsaDerivation.presignaturePool,
     getSignerWorkerContext: () => args.walletSessionActivationDeps.getSignerWorkerContext(),
     resolveClientSigningMaterialSource: createEcdsaLoginPrefillClientSigningMaterialSource,

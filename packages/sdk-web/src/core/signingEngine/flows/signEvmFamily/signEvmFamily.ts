@@ -13,7 +13,6 @@ import type {
 } from '../../session/availability/availableSigningLanes';
 import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
 import type {
-  ThresholdEcdsaKeyRefLookupResult,
   ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import {

@@ -22,15 +22,10 @@ import type {
   ReadAvailableSigningLanesForSigningInput,
   AvailableSigningLanes,
 } from '../../session/availability/availableSigningLanes';
-import {
-  THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES,
-  type ThresholdEcdsaSessionStoreSource,
-} from '../../session/identity/laneIdentity';
+import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
-  ThresholdEcdsaKeyRefLookupResult,
-  ThresholdEcdsaSessionRecordLookupKey,
 } from '../../session/persistence/records';
 import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
@@ -153,19 +148,11 @@ export type CreateSigningEnginePortsArgs = {
   signTempo: SigningEngineConveniencePorts['signTempo'];
   activateAuthenticatedWalletState: WorkerResourceWarmupDeps['activateAuthenticatedWalletState'];
   persistThresholdEcdsaBootstrapForWalletTarget: WalletSessionActivationDeps['persistThresholdEcdsaBootstrapForWalletTarget'];
-  listThresholdEcdsaKeyRefsForWalletTarget: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  }) => ThresholdEcdsaKeyRefLookupResult[];
   listThresholdEcdsaSessionRecordsForWalletTarget: (args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => ThresholdEcdsaSessionRecord[];
-  getThresholdEcdsaSessionRecordByKey: (
-    identity: ThresholdEcdsaSessionRecordLookupKey,
-  ) => ThresholdEcdsaSessionRecord | null;
   requestEmailOtpTransactionSigningChallenge?: (
     args: RequestEmailOtpTransactionSigningChallengeArgs,
   ) => Promise<EmailOtpTransactionSigningChallenge>;
@@ -224,10 +211,6 @@ export type SigningEnginePorts = {
   registrationAccountLifecycleDeps: RegistrationAccountLifecycleDeps;
   registrationSessionDeps: RegistrationSessionDeps;
   walletSessionActivationDeps: WalletSessionActivationDeps;
-  resolveCanonicalThresholdEcdsaSessionIdForWalletTarget: (
-    walletId: WalletId,
-    chainTarget: ThresholdEcdsaChainTarget,
-  ) => string | null;
   signingSessionCoordinator: SigningSessionCoordinator;
   getWorkerResourceWarmupDeps: () => WorkerResourceWarmupDeps;
   getManagerConveniencePorts: () => SigningEngineConveniencePorts;
@@ -237,26 +220,6 @@ export function resolveNearRpcUrl(args: CreateSigningEnginePortsArgs): string {
   return resolvePrimaryNearRpcUrl(args.seamsWebConfigs.network.chains);
 }
 
-export function createResolveCanonicalThresholdEcdsaSessionIdForWalletTarget(
-  args: CreateSigningEnginePortsArgs,
-): SigningEnginePorts['resolveCanonicalThresholdEcdsaSessionIdForWalletTarget'] {
-  return (walletId, chainTarget) => {
-    for (const source of THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES) {
-      try {
-        const keyRefs = args.listThresholdEcdsaKeyRefsForWalletTarget({
-          walletId,
-          chainTarget,
-          source,
-        });
-        if (keyRefs.length !== 1) continue;
-        const keyRef = keyRefs[0]!.keyRef;
-        const thresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
-        if (thresholdSessionId) return thresholdSessionId;
-      } catch {}
-    }
-    return null;
-  };
-}
 
 export function createGetOrCreateActiveThresholdEcdsaSessionId(): (
   nearAccountId: AccountId,

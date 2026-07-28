@@ -14,7 +14,6 @@ import { Ed25519YaoActiveClientRegistry } from '../threshold/ed25519/yaoActiveCl
 import {
   createGetOrCreateActiveThresholdEcdsaSessionId,
   createManagerConveniencePortsFactory,
-  createResolveCanonicalThresholdEcdsaSessionIdForWalletTarget,
   createWorkerResourceWarmupDepsFactory,
   resolveNearRpcUrl,
   type CreateSigningEnginePortsArgs,
@@ -81,8 +80,6 @@ export function createSigningEnginePorts(args: CreateSigningEnginePortsArgs): Si
       credentialStore: args.stores.recoveryAndDeviceLinking.credentialStore,
       getOrCreateActiveThresholdEcdsaSessionId,
     }),
-    resolveCanonicalThresholdEcdsaSessionIdForWalletTarget:
-      createResolveCanonicalThresholdEcdsaSessionIdForWalletTarget(args),
     signingSessionCoordinator,
     getWorkerResourceWarmupDeps,
     getManagerConveniencePorts: createManagerConveniencePortsFactory({
