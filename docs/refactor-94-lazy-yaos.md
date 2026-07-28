@@ -542,32 +542,100 @@ needs already exist for the respond/activate routes
 (`d1RegistrationCeremonyStore.ts:183`, `:202`, `:217`, funnelling through
 private `claimEcdsaBranch` at `:529`) and are the model to follow.
 
-**Correction 3 — there are already three idempotency mechanisms; the second
-finalize needs its own key, not a share of the first.**
+**Correction 3 — there are already three idempotency mechanisms, and the
+second call needs no new one.** An earlier revision of this section called for
+a new route, a new server operation, and a new side-effect key. That was
+wrong, and in an expensive direction. The mechanisms are:
 
 1. Outer: `runRouterAbEd25519YaoRegistrationSideEffectV1` (`:2570`), keyed on
    `sha256("wallet-registration-finalize-v1\0{ceremonyId}\0{idempotencyKey}")`
-   (`:2565-2569`). The operation enum
-   (`routerAbEd25519YaoRegistrationSideEffectBoundary.ts:6-10`) needs a new
-   member for the Ed25519 finalize.
+   (`:2565-2569`). `idempotencyKey` is **client-supplied per call**, so two
+   finalize calls already get two distinct effect keys. No new operation
+   member is needed in
+   `routerAbEd25519YaoRegistrationSideEffectBoundary.ts:6-10`.
 2. Inner: the ceremony store's `getFinalizeReplay`/`putFinalizeReplay` pair
-   (`:2645`, `:3170`) — a plain response cache, not CAS.
+   (`:2645`, `:3170`) — a plain response cache keyed the same way, so it also
+   separates the two calls for free.
 3. Yao-local: `yaoRuntime.consumeActivated(...)` (`:2828`), one-shot via its
-   `activation_consumed` failure code. This already belongs to the Ed25519
-   half and moves with it unchanged.
+   `activation_consumed` failure code. Already belongs to the Ed25519 half and
+   moves with it unchanged.
+
+**Correction 4 — no new route and no second service method. The existing
+finalize already has the right internal shape.** Both halves of
+`executeWalletRegistrationFinalize` are *already* independently gated and
+independently build their own records:
+
+- the ECDSA half (`:2718-2765`) gated on `requestedEvmFamilyEcdsa`, producing
+  `ecdsaWalletKeys`;
+- the Ed25519 half (`:2794-3010`) gated on `requestedNearEd25519`, producing
+  `ed25519SignerRecord`, `resolvedNearAccount`, and the capability install;
+- the commit (`:3012-3060`) assembling whatever those two produced;
+- the response builder (`:3084-3164`) already covering all three kinds off the
+  same two booleans.
+
+Both booleans come from the **plan**. Deriving them from the **request kind**
+instead is what splits the operation — the rest of the function already works
+per-half. That is the whole server change, and it is on the order of a hundred
+lines, not a new subsystem.
 
 **Shape of the split.** The request discriminator already distinguishes the
-three cases (`registrationContracts.ts:563-578`), so:
+three cases (`registrationContracts.ts:563-578`):
 
 | plan | finalize calls |
 | --- | --- |
-| `evm_family_ecdsa` | ECDSA finalize only; deletes the ceremony as today |
-| `near_ed25519` | Ed25519 finalize only |
-| `near_ed25519_and_evm_family_ecdsa` | ECDSA finalize, ceremony stays open, then Ed25519 finalize |
+| `evm_family_ecdsa` | one call, `evm_family_ecdsa`; deletes the ceremony as today |
+| `near_ed25519` | one call, `near_ed25519` |
+| mixed | `evm_family_ecdsa`, ceremony stays open, then `near_ed25519` |
 
-Only the mixed case changes. The single atomic commit batch
-(`d1WalletRegistrationCommitStore.ts:209-242`) becomes two batches for that
-case — which Phase 4 already requires.
+Only the mixed plan changes. The single atomic commit batch
+(`d1WalletRegistrationCommitStore.ts:209-242`) becomes two batches for it,
+which Phase 4 already requires, and both batches are safe: every statement is
+an upsert, and `prepareAuthorityStatements` (`:84-166`) already writes the
+credential binding with Ed25519 facts only when an Ed25519 signer is present.
+Commit #2 passing just the Ed25519 signer therefore performs the Phase 3
+convergence with no further change. Email-OTP statements must not run twice —
+they belong to commit #1.
+
+**Consequence: the combined kind becomes unreachable and must be deleted.**
+For a mixed plan the client now receives `evm_family_ecdsa` then
+`near_ed25519`, so `near_ed25519_and_evm_family_ecdsa` disappears from both
+the request and response unions. Decision 12 (no compatibility branches)
+requires removing it in the same change set. Measured blast radius: 52
+references across 8 source files —
+
+`core/registrationContracts.ts`, `core/registrationRequests.typecheck.ts`,
+`router/walletRegistrationRoutes.ts`,
+`router/cloudflare/d1WalletRegistrationService.ts`,
+`router/cloudflare/d1RegistrationCeremonyRecords.ts`,
+`sdk-web/core/rpcClients/relayer/walletRegistration.ts`,
+`sdk-web/core/signingEngine/flows/registration/accountLifecycle.ts`,
+`sdk-web/SeamsWeb/operations/registration/registration.ts`
+
+— plus `tests/unit/walletRegistrationYaoFinalizeContracts.domain.guard.unit.test.ts`,
+`tests/unit/walletRegistrationYaoClientContracts.unit.test.ts`, and
+`tests/unit/addWalletSigner.orchestration.unit.test.ts`. Most are one case in a
+three-case switch.
+
+### Phase 4+5 server checklist, corrected
+
+- [ ] Derive the two half-gates from `request.kind`, not from the plan.
+- [ ] Replace `finalizeSignerWorkMatchesPlan` (`:875-888`) with a check that
+      the requested kind is a subset of the plan **and** legal for the current
+      branch progress: `evm_family_ecdsa` requires the ECDSA branch
+      `activated`; `near_ed25519` on a mixed plan requires it `finalized`.
+- [ ] Add an `evm_family_ecdsa_finalized` branch kind
+      (`RegistrationCeremonyStore.ts:343-378`), extend
+      `findStoredWalletRegistrationEvmFamilyEcdsaBranch` (`:423-438`), and
+      commit the transition through the existing `commitEcdsaClaim` CAS.
+- [ ] Make `deleteCeremony` (`:3185`) conditional on no planned branch
+      remaining un-finalized.
+- [ ] Keep Email-OTP enrollment persistence on commit #1 only.
+- [ ] Delete the combined request and response kind across all 11 files.
+
+Open question for implementation: commit #2 re-puts the credential binding
+with `createdAtMs: input.now` (`d1WalletRegistrationCommitStore.ts:134`),
+which would reset the original creation time. Check whether the put preserves
+`created_at` on conflict; if not, thread the ceremony's original timestamp.
 
 - [ ] Remove the `claimRegistrationYao` await from the registration completion
       path (`registration.ts:3720`).
