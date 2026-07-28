@@ -49,10 +49,8 @@ function fakeSetupSigner() {
       return token;
     },
     verifyJwt: async (token: string) => {
-      const claims = issued.get(token);
-      return claims
-        ? ({ ok: true, claims } as const)
-        : ({ ok: false, code: 'invalid_token', message: 'unknown token' } as const);
+      const payload = issued.get(token);
+      return payload ? ({ valid: true, payload } as const) : ({ valid: false } as const);
     },
   };
 }
@@ -264,11 +262,8 @@ test('signedSetup authorizes only the ceremony and parameters it was minted for'
     });
 
     /* And an expired one is refused even though it is otherwise exact. */
-    const claims = parseWalletRegistrationSetupClaims(
-      (await signer.verifyJwt(String(first.signedSetup))).ok
-        ? ((await signer.verifyJwt(String(first.signedSetup))) as { claims: unknown }).claims
-        : null,
-    );
+    const verified = await signer.verifyJwt(String(first.signedSetup));
+    const claims = parseWalletRegistrationSetupClaims(verified.valid ? verified.payload : null);
     if (!claims) throw new Error('Expected parseable setup claims');
     await expect(
       verifySignedWalletRegistrationSetup(signer, first.signedSetup, {

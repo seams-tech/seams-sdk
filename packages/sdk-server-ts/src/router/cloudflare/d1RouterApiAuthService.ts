@@ -1077,6 +1077,9 @@ function createD1WalletRegistrationRouteService(
     setupWalletRegistration: assembly.walletRegistrations.setupWalletRegistration.bind(
       assembly.walletRegistrations,
     ),
+    respondWalletRegistration: assembly.walletRegistrations.respondWalletRegistration.bind(
+      assembly.walletRegistrations,
+    ),
     startWalletRegistration: assembly.walletRegistrations.startWalletRegistration.bind(
       assembly.walletRegistrations,
     ),

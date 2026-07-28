@@ -558,6 +558,19 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
+      'wallet_registration_respond',
+      'POST',
+      '/wallets/register/respond',
+      'Verify registration authority and continue the ECDSA ceremony',
+      {
+        plane: 'public',
+        proof: 'webauthn',
+        rationale:
+          'Registration respond is authorized by the signed setup payload and the registration authority proof.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
+    ),
+    publicRoute(
       'wallet_registration_ecdsa_derivation_respond',
       'POST',
       '/wallets/register/derivation/respond',

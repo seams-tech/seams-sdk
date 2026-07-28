@@ -45,14 +45,21 @@ import {
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { ThresholdRuntimePolicyScope } from '../../core/types';
-import type { WalletRegistrationSetupResponseV2 } from '../../core/threeRouteRegistrationContracts';
+import type {
+  RespondEd25519DeferredWorkV2,
+  WalletRegistrationRespondResponseV2,
+  WalletRegistrationSetupResponseV2,
+} from '../../core/threeRouteRegistrationContracts';
 import type { StoredWalletRegistrationCeremony } from '../../core/RegistrationCeremonyStore';
 import { thresholdEcdsaChainTargetFromValue } from '../../core/thresholdEcdsaChainTarget';
 import {
   computeWalletRegistrationSetupDigestB64u,
   mintSignedWalletRegistrationSetup,
   type WalletRegistrationSetupMinter,
+  type WalletRegistrationSetupVerifier,
 } from '../walletRegistrationSetupPayload';
+import type { WalletRegistrationAuthorityInput } from '../../core/registrationContracts';
+import type { RouterAbEcdsaRegistrationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
 
 /** Setup's ceremony lives only as long as an authenticator prompt plausibly takes. */
 const WALLET_REGISTRATION_SETUP_TTL_MS = 10 * 60_000;
@@ -74,6 +81,21 @@ export type WalletRegistrationSetupInput = {
   readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
   readonly signingRootId?: string;
   readonly signingRootVersion?: string;
+};
+
+export type WalletRegistrationRespondInput = {
+  readonly registrationCeremonyId: string;
+  readonly signedSetup: unknown;
+  readonly authority: WalletRegistrationAuthorityInput;
+  readonly ecdsa: {
+    readonly kind: 'router_ab_ecdsa_registration_v1';
+    readonly strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+  };
+  /** Verifies `signedSetup`; separate from the minter, which respond also needs. */
+  readonly verifier: WalletRegistrationSetupVerifier;
+  /** Mints the internal per-call Router policy JWT. */
+  readonly minter: WalletRegistrationSetupMinter;
+  readonly userAgent?: string;
 };
 
 export function walletRegistrationSetupIds(): {
@@ -182,6 +204,48 @@ export async function walletRegistrationSetupIntentDigest(
   intent: StoredWalletRegistrationCeremony['intent'],
 ): Promise<string> {
   return await computeRegistrationIntentDigestB64u(intent);
+}
+
+/**
+ * Builds respond's discriminated result. The signer plan decides the shape:
+ * a mixed plan always carries its deferred NEAR work, an ECDSA-only plan has
+ * no arm to omit. There is no optional `ed25519` member to forget to check.
+ */
+export function walletRegistrationRespondResult(input: {
+  readonly ceremony: { readonly registrationCeremonyId: string };
+  readonly strictResult: unknown;
+  readonly ed25519: RespondEd25519DeferredWorkV2 | null;
+}): WalletRegistrationRespondResponseV2 {
+  const base = {
+    ok: true as const,
+    registrationCeremonyId: input.ceremony.registrationCeremonyId,
+    ecdsa: {
+      kind: 'router_ab_ecdsa_registration_forwarded_v1' as const,
+      strictResult: input.strictResult,
+    },
+  };
+  return input.ed25519
+    ? { ...base, kind: 'near_ed25519_and_evm_family_ecdsa', ed25519: input.ed25519 }
+    : { ...base, kind: 'evm_family_ecdsa' };
+}
+
+/**
+ * Recovers the deferred NEAR work from a ceremony that already advanced, so an
+ * exact respond replay returns the same shape it returned the first time.
+ */
+export function storedRespondEd25519DeferredWork(
+  signerState: StoredWalletRegistrationCeremony['signerState'],
+): RespondEd25519DeferredWorkV2 | null {
+  if (signerState.kind !== 'signer_set_registration') return null;
+  const branch = signerState.branches.find(
+    (candidate) => candidate.kind === 'near_ed25519_yao_authorized',
+  );
+  if (!branch || branch.kind !== 'near_ed25519_yao_authorized') return null;
+  return {
+    status: 'deferred',
+    admissionRequest: branch.admissionRequest,
+    admissionReceipt: branch.admissionReceipt,
+  };
 }
 
 export function walletRegistrationSetupError(

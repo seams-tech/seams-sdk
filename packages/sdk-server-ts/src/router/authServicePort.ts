@@ -1,5 +1,11 @@
-import type { WalletRegistrationSetupResponseV2 } from '../core/threeRouteRegistrationContracts';
-import type { WalletRegistrationSetupInput } from './cloudflare/d1WalletRegistrationSetup';
+import type {
+  WalletRegistrationRespondResponseV2,
+  WalletRegistrationSetupResponseV2,
+} from '../core/threeRouteRegistrationContracts';
+import type {
+  WalletRegistrationRespondInput,
+  WalletRegistrationSetupInput,
+} from './cloudflare/d1WalletRegistrationSetup';
 import type { WalletEmailOtpAction } from '@shared/utils/emailOtpDomain';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
@@ -1072,6 +1078,10 @@ export interface RouterApiWalletRegistrationService {
   setupWalletRegistration(
     input: WalletRegistrationSetupInput,
   ): Promise<WalletRegistrationSetupResponseV2>;
+  respondWalletRegistration(
+    input: WalletRegistrationRespondInput,
+    traceContext?: RouterAbTraceContextV1,
+  ): Promise<WalletRegistrationRespondResponseV2>;
   startWalletRegistration(
     input: WalletRegistrationStartRequest,
     context?: { readonly userAgent?: string },
