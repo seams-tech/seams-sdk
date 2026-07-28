@@ -233,6 +233,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       request: input.request,
       traceContext: input.traceContext,
       onServerTiming: input.onServerTiming,
+      onHeaderPresence: input.onHeaderPresence,
     });
     if (!body.ok) return body;
     return parseStrictRegistrationForwardingResult(body.value);
@@ -254,6 +255,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       clientActivation: input.clientActivation,
       traceContext: input.traceContext,
       onServerTiming: input.onServerTiming,
+      onHeaderPresence: input.onHeaderPresence,
     });
     if (!body.ok) return body;
     try {

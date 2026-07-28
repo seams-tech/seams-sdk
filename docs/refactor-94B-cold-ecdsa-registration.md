@@ -189,8 +189,14 @@ comparison.
 
 - [x] Preserve the July 28 passkey baseline in this plan.
 - [x] Separate the WebAuthn interval from post-authentication product latency.
-- [ ] Propagate the existing opaque trace correlation value through ECDSA
+- [x] Propagate the existing opaque trace correlation value through ECDSA
       `respond` and `activate` without changing request or response bodies.
+      Validated once at the public boundary: a missing header is allowed
+      because callers need not trace, while a malformed one is a 400 rather
+      than being silently coerced into "untraced". The parsed value is threaded
+      as a typed `RouterAbTraceContextV1` into the strict registration port and
+      set on the outbound request in the shared `forward` path, so both legs
+      carry it byte-identically and nothing downstream re-derives it.
 - [x] Add Gateway `Server-Timing` metrics for:
   - [x] D1 claim — `ecdsa_respond_d1_claim`, `ecdsa_activate_d1_claim`;
   - [x] Router service-binding call — `ecdsa_respond_router`,
@@ -252,8 +258,15 @@ and transport rather than work — the measurement that decides Phase 2.
       `Server-Timing` sink, threaded to the two strict-ceremony call sites; the
       existing Yao metric map absorbed the fourteen `ecdsa_*` names, so one
       parser covers both families.
-- [ ] Log whether each expected raw header was present without logging its raw
-      contents.
+- [x] Log whether each expected raw header was present without logging its raw
+      contents. Presence is reported for every leg including those that
+      returned nothing, since an absent header and an empty one are different
+      failures. The value reaches only the timing fold, which emits fixed
+      metric names; it never reaches the presence sink or a log.
+      Covered by `strict ECDSA registration reports header presence without its
+      contents` in `tests/unit/registrationTerminalCancellation.unit.test.ts`,
+      which asserts both branches and that no fragment of the header survives
+      into the presence payload.
 - [x] Add one behavioral test proving unknown or malformed metrics cannot
       affect registration — `tests/unit/ecdsaRegistrationServerTiming.unit.test.ts`.
       It caught a real defect: the Yao metric lookup used property access on an
@@ -263,6 +276,23 @@ and transport rather than work — the measurement that decides Phase 2.
 - [ ] Record one cold and one warm passkey registration.
 - [ ] Capture deployed role `startup_time_ms` and upload size from the exact
       tested artifacts.
+
+The three measurement items above are blocked on an authorized staging deploy
+of the completed instrumentation. No phase from 1-5 may be selected until they
+are recorded: the choice between topology prewarming, artifact size, respond,
+activate, and the passkey tail is exactly what the measurement decides.
+
+Two findings from finishing this phase:
+
+- The transplanted diagnostics work left `strict_worker/router.rs` missing two
+  imports, so the router entrypoint did not compile. Deriver A/B and
+  SigningWorker were unaffected, so a single-entrypoint check would have passed.
+  All four entrypoints are checked now.
+- The presence sink was initially declared and type-correct but never invoked:
+  `register` and `activate` built their `forward` input field by field and
+  silently dropped it. Nothing failed — the diagnostic was simply dead. It was
+  caught by writing the behavioural test, not by the typechecker, which is the
+  argument for covering diagnostics rather than trusting that they compile.
 
 Acceptance:
 
