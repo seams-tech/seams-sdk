@@ -6,6 +6,8 @@ import {
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
 import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../warmCapabilities/routerAbEcdsaWalletSessionAuth';
+import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type EmailOtpEcdsaSigningSessionAuthority = {
   authLane: Extract<EmailOtpAuthLane, { kind: 'signing_session'; curve: 'ecdsa' }>;
@@ -80,6 +82,41 @@ export function resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord(
       ),
       curve: 'ecdsa',
       chainTarget: record.chainTarget,
+    },
+  });
+  if (!authority) return { kind: 'authority_not_ecdsa_signing_session' };
+  return { kind: 'ready', authority };
+}
+
+/** Canonical counterpart of the record-backed resolver: the Email OTP authority
+ * comes from the sealed runtime's auth binding, and the signing-session lane is
+ * completed by the independently-resolved reusable Wallet Session. Material
+ * identity plays no part here -- it is proven separately by the manifest.  */
+export function resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime(args: {
+  runtime: ExactEcdsaSealedRuntime;
+  authorization: ActiveWalletSessionAuthorizationProjection;
+}): EmailOtpEcdsaSigningSessionAuthorityRecordResolution {
+  const authBinding = args.runtime.authBinding;
+  if (authBinding.kind !== 'email_otp') {
+    // A passkey-bound runtime is not an Email OTP signing session; report the
+    // missing lane rather than inventing a store source for it.
+    return { kind: 'record_missing' };
+  }
+  const walletSessionJwt = String(args.authorization.walletSessionJwt || '').trim();
+  if (!walletSessionJwt) {
+    return { kind: 'wallet_session_auth_unavailable', reason: 'missing_wallet_session_jwt' };
+  }
+  const authority = buildEmailOtpEcdsaSigningSessionAuthority({
+    authority: authBinding.emailOtpAuthority,
+    authLane: {
+      kind: 'signing_session',
+      jwt: walletSessionJwt,
+      thresholdSessionId: args.runtime.sealedRecord.thresholdSessionId,
+      authorizingSigningGrantId: toAuthorizingSigningGrantId(
+        String(args.authorization.walletSessionId),
+      ),
+      curve: 'ecdsa',
+      chainTarget: args.runtime.chainTarget,
     },
   });
   if (!authority) return { kind: 'authority_not_ecdsa_signing_session' };

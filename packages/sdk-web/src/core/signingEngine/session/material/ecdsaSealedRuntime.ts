@@ -20,6 +20,7 @@ import {
 } from '../keyMaterialBrands';
 import type { MpcCapabilityHydrationBlockedReason } from './mpcCapabilityHydration';
 import type { ActiveEcdsaCapabilityManifest } from './ecdsaCapabilityManifest';
+import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 // The manifest and the sealed store own complementary halves of one capability:
 // the manifest selects the exact capability, its public facts, and the material
@@ -41,6 +42,8 @@ export type ExactEcdsaSealedRuntimeAuthBinding =
   | {
       readonly kind: 'email_otp';
       readonly providerSubjectId: string;
+      readonly emailHashHex: string;
+      readonly emailOtpAuthority: EmailOtpWalletAuthAuthority;
       readonly rpId?: never;
       readonly credentialIdB64u?: never;
     };
@@ -238,7 +241,11 @@ function authBindingFromRestore(
 ): ExactEcdsaSealedRuntimeAuthBinding | null {
   if (restore.source === 'email_otp') {
     const providerSubjectId = normalizedNonEmpty(restore.providerSubjectId);
-    return providerSubjectId ? { kind: 'email_otp', providerSubjectId } : null;
+    const emailHashHex = normalizedNonEmpty(restore.emailHashHex);
+    const emailOtpAuthority = restore.emailOtpAuthority;
+    return providerSubjectId && emailHashHex && emailOtpAuthority
+      ? { kind: 'email_otp', providerSubjectId, emailHashHex, emailOtpAuthority }
+      : null;
   }
   const rpId = normalizedNonEmpty(restore.rpId);
   const credentialIdB64u = normalizedNonEmpty(restore.credentialIdB64u);
