@@ -7,6 +7,11 @@ import type {
   SdkLifecycleEventListener,
   SigningFlowEvent,
 } from '@/core/types/sdkSentEvents';
+import { createNearProvisioningStateChangedEvent } from '@/core/types/sdkSentEvents';
+import {
+  subscribeToNearProvisioning,
+  type NearProvisioningListener,
+} from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import type {
   AppearanceConfig,
   SigningSessionStatus,
@@ -313,6 +318,8 @@ function sdkLifecycleEventDeliveryKey(event: SdkLifecycleEvent): string {
   switch (eventName) {
     case 'signing_session.expired':
       return `${String(event.walletId)}:${String(event.walletSessionId)}`;
+    case 'registration.near_provisioning_changed':
+      return `${String(event.walletId)}:${event.state.status}:${event.state.updatedAtMs}`;
     default:
       return assertNeverSdkLifecycleEventName(eventName);
   }
@@ -338,7 +345,8 @@ export class BrowserSigningSurface {
   private readonly thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>> = new Map();
   private readonly thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey = new Map();
   private readonly thresholdEd25519CommitQueueByKey: ThresholdEd25519CommitQueueByKey = new Map();
-  private readonly nearEd25519CapabilityRehydrationBySubject: Map<string, Promise<void>> = new Map();
+  private readonly nearEd25519CapabilityRehydrationBySubject: Map<string, Promise<void>> =
+    new Map();
   private readonly emailOtpEd25519SilentRecoveryBySubject: Map<
     string,
     Promise<EmailOtpEd25519YaoSilentRecoveryResultV1>
@@ -367,6 +375,7 @@ export class BrowserSigningSurface {
   private readonly sdkLifecycleEventListeners = new Set<SdkLifecycleEventListener>();
   private readonly deliveredSdkLifecycleEventKeys = new Set<string>();
   private readonly signingSessionLifecycleSubscription: SigningSessionLifecycleSubscription;
+  private readonly nearProvisioningUnsubscribe: () => void;
 
   readonly seamsWebConfigs: SeamsConfigsReadonly;
 
@@ -517,6 +526,9 @@ export class BrowserSigningSurface {
       this.enginePorts.signingSessionCoordinator.subscribeLifecycle(
         this.publishSdkLifecycleEvent.bind(this),
       );
+    const nearProvisioningListener: NearProvisioningListener =
+      this.publishNearProvisioningLifecycleEvent.bind(this);
+    this.nearProvisioningUnsubscribe = subscribeToNearProvisioning(nearProvisioningListener);
     this.ed25519YaoPageLifecycleOwner = new Ed25519YaoPageLifecycleOwner(
       typeof window === 'undefined' ? null : window,
       this.enginePorts.ed25519YaoActiveClients,
@@ -663,8 +675,7 @@ export class BrowserSigningSurface {
     }
 
     const rehydrationKey = nearEd25519CapabilityRehydrationKey(subject);
-    const existingRehydration =
-      this.nearEd25519CapabilityRehydrationBySubject.get(rehydrationKey);
+    const existingRehydration = this.nearEd25519CapabilityRehydrationBySubject.get(rehydrationKey);
     if (existingRehydration) {
       await existingRehydration;
       const rehydrated = await this.resolveActiveNearEd25519YaoSigningLane(subject);
@@ -677,9 +688,7 @@ export class BrowserSigningSurface {
     try {
       await rehydration;
     } finally {
-      if (
-        this.nearEd25519CapabilityRehydrationBySubject.get(rehydrationKey) === rehydration
-      ) {
+      if (this.nearEd25519CapabilityRehydrationBySubject.get(rehydrationKey) === rehydration) {
         this.nearEd25519CapabilityRehydrationBySubject.delete(rehydrationKey);
       }
     }
@@ -934,9 +943,7 @@ export class BrowserSigningSurface {
     if (args.expectedLaneIdentity.auth.kind !== 'passkey') {
       throw new Error('[SigningEngine][near] passkey rehydration requires passkey lane identity');
     }
-    const prfFirstB64u = passkeyPrfFirstB64uFromCredential(
-      args.policySecretSource.credential,
-    );
+    const prfFirstB64u = passkeyPrfFirstB64uFromCredential(args.policySecretSource.credential);
     if (!prfFirstB64u) {
       throw new Error('[SigningEngine][near] passkey rehydration requires WebAuthn PRF.first');
     }
@@ -1061,6 +1068,15 @@ export class BrowserSigningSurface {
     write: Parameters<typeof registrationPublic.setWalletNearProvisioningState>[1],
   ): ReturnType<typeof registrationPublic.setWalletNearProvisioningState> {
     return registrationPublic.setWalletNearProvisioningState(this.registrationPublicDeps, write);
+  }
+
+  getWalletNearProvisioningState(
+    walletId: Parameters<typeof registrationPublic.getWalletNearProvisioningState>[1],
+  ): ReturnType<typeof registrationPublic.getWalletNearProvisioningState> {
+    return registrationPublic.getWalletNearProvisioningState(
+      this.registrationPublicDeps,
+      walletId,
+    );
   }
 
   storeAuthenticator(
@@ -1621,12 +1637,20 @@ export class BrowserSigningSurface {
     }
   }
 
+  private publishNearProvisioningLifecycleEvent(
+    walletId: Parameters<NearProvisioningListener>[0],
+    state: Parameters<NearProvisioningListener>[1],
+  ): void {
+    this.publishSdkLifecycleEvent(createNearProvisioningStateChangedEvent({ walletId, state }));
+  }
+
   private removeSdkLifecycleEventListener(listener: SdkLifecycleEventListener): void {
     this.sdkLifecycleEventListeners.delete(listener);
   }
 
   dispose(): void {
     this.signingSessionLifecycleSubscription.unsubscribe();
+    this.nearProvisioningUnsubscribe();
     this.sdkLifecycleEventListeners.clear();
     this.deliveredSdkLifecycleEventKeys.clear();
     this.ed25519YaoPageLifecycleOwner.dispose();

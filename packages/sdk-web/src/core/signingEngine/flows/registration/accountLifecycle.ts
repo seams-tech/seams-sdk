@@ -630,6 +630,18 @@ type NearProvisioningWriteDeps = {
   accountStore: Pick<RegistrationAccountLifecycleDeps['accountStore'], 'upsertProfile'>;
 };
 
+type NearProvisioningReadDeps = {
+  accountStore: Pick<RegistrationAccountLifecycleDeps['accountStore'], 'getProfile'>;
+};
+
+export async function getWalletNearProvisioningState(
+  deps: NearProvisioningReadDeps,
+  walletId: WalletId,
+): Promise<NearProvisioningState | null> {
+  const profile = await deps.accountStore.getProfile(String(walletId));
+  return profile?.nearProvisioning ?? null;
+}
+
 /**
  * Refactor 94 Phase 6. Writes the wallet root profile's NEAR provisioning
  * state. The durable record is authoritative, so this is the write every

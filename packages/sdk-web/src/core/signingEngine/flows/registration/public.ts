@@ -3,7 +3,7 @@ import type {
   ClientUserData,
   StoreUserDataInput,
 } from '@/core/accountData/near/nearAccountData.types';
-import type { NearProvisioningWriteV1 } from '@/core/types/seams';
+import type { NearProvisioningState, NearProvisioningWriteV1 } from '@/core/types/seams';
 import type { AccountId } from '@/core/types/accountIds';
 import type { WalletId } from '@shared/utils/registrationIntent';
 import type {
@@ -26,6 +26,7 @@ import {
   hasPasskeyCredential as hasPasskeyCredentialValue,
   activateAuthenticatedWalletState as activateAuthenticatedWalletStateValue,
   setWalletNearProvisioningState as setWalletNearProvisioningStateValue,
+  getWalletNearProvisioningState as getWalletNearProvisioningStateValue,
   nearAuthenticatorsByAccount as nearAuthenticatorsByAccountValue,
   rollbackUserRegistration as rollbackUserRegistrationValue,
   setLastUser as setLastUserValue,
@@ -128,6 +129,13 @@ export function setWalletNearProvisioningState(
   write: NearProvisioningWriteV1,
 ): Promise<void> {
   return setWalletNearProvisioningStateValue(deps.accountLifecycle, write);
+}
+
+export function getWalletNearProvisioningState(
+  deps: RegistrationPublicDeps,
+  walletId: WalletId,
+): Promise<NearProvisioningState | null> {
+  return getWalletNearProvisioningStateValue(deps.accountLifecycle, walletId);
 }
 
 export function activateAuthenticatedWalletState(

@@ -453,13 +453,13 @@ export type NearProvisioningState =
       status: 'near_failed_retryable';
       updatedAtMs: number;
       error: string;
-      errorCode: string;
+      errorCode: NearProvisioningErrorCode;
     };
 
 /** Snapshot carried on the registration result. */
 export type RegistrationNearProvisioningState =
   | { status: 'pending'; error?: never; errorCode?: never }
-  | { status: 'retryable'; error: string; errorCode: string };
+  | { status: 'retryable'; error: string; errorCode: NearProvisioningErrorCode };
 
 export type RegistrationResult =
   | {
