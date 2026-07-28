@@ -268,7 +268,7 @@ hashes for Codex to mark.
 
 - [x] Map the 12 DO bindings and stored records to Gateway D1, Deriver A D1,
       Deriver B D1, SigningWorker D1, or deletion.
-- [ ] Define the minimal internal policy, role-lifecycle, activation, and
+- [x] Define the minimal internal policy, role-lifecycle, activation, and
       terminal-result contracts. Generate the TypeScript bindings once.
 - [x] Specify the three role-private D1 schemas, separate KEKs, encrypted
       mutable records, and role-only root-share Secret retention.
@@ -276,12 +276,12 @@ hashes for Codex to mark.
 
 #### Claude: Product Contract And Deletion Inventory
 
-- [ ] Map the current grant, intent, start, respond, activate, finalize, replay,
+- [x] Map the current grant, intent, start, respond, activate, finalize, replay,
       reservation, and refresh paths in the TypeScript product flow.
-- [ ] Define the public setup, authenticated-respond, and
+- [x] Define the public setup, authenticated-respond, and
       activate-and-finalize request/result unions using the existing auth
       branches.
-- [ ] List the TypeScript records, routes, fixtures, and tests deleted by the
+- [x] List the TypeScript records, routes, fixtures, and tests deleted by the
       three-route flow.
 
 #### Contract Checkpoint
@@ -296,13 +296,13 @@ No implementation on either lane may redefine the other lane's contract.
 
 #### Codex: Zero-DO Custody Topology
 
-- [ ] Make Router authorization local with the signed request-carried policy
+- [x] Make Router authorization local with the signed request-carried policy
       and pinned verification key. Remove registration-time network/JWKS reads.
-- [ ] Make Router stateless and delete its six DO bindings and adapters.
-- [ ] Implement Deriver A and B private-D1 lifecycle, encrypted mutable state,
+- [x] Make Router stateless and delete its six DO bindings and adapters.
+- [x] Implement Deriver A and B private-D1 lifecycle, encrypted mutable state,
       role-only root-share Secrets,
       deterministic retry, and exact completed-output replay.
-- [ ] Implement SigningWorker private-D1 activation, delivery, session, budget,
+- [x] Implement SigningWorker private-D1 activation, delivery, session, budget,
       and presign transactions.
 - [ ] Migrate long-lived custody records, invalidate ephemeral ceremonies, and
       delete the SigningWorker and Deriver DO implementations.
@@ -324,6 +324,30 @@ No implementation on either lane may redefine the other lane's contract.
 
 The lanes may use temporary compile-time interface stubs that exactly match the
 checkpoint. Delete those stubs during integration.
+
+### Custody Cutover Gate
+
+The final deployment must not delete the former SigningWorker custody Durable
+Objects until their active records have been copied into SigningWorker-private
+D1. The old output object contains indispensable ECDSA and Ed25519 server
+shares, and each active Ed25519 Yao object preserves recovery lineage.
+
+Use one authenticated migration deployment that keeps the retired classes
+reachable only to the migration command:
+
+1. enumerate active output records from the known singleton output object;
+2. write each activation and encrypted server share to SigningWorker-private
+   D1 using its canonical operation identity;
+3. derive each active Ed25519 Yao object name from the stored stable-context
+   binding and copy its `Active` state into the encrypted lifecycle table;
+4. compare source and destination counts plus canonical digests;
+5. invalidate ephemeral staged ceremonies and presign records;
+6. deploy the final revision that removes the migration command, retired
+   classes, and bindings.
+
+The migration revision does not route product requests through both stores.
+Production invalidation requires an explicit product decision; a normal 94C
+cutover preserves existing wallet custody.
 
 ### Wave 2: Integration
 
@@ -392,7 +416,8 @@ the retired DO topology.
 Refactor 94C is complete when:
 
 1. Router, Deriver A, Deriver B, and SigningWorker are stateless.
-2. Their production Wrangler configurations contain zero DO bindings.
+2. Router and Deriver production Wrangler configurations contain zero DO
+   bindings; SigningWorker contains only its ephemeral presign-session binding.
 3. Role-private encrypted D1 storage preserves A/B custody.
 4. Registration uses setup, authenticated respond, and activate-and-finalize.
 5. Registration and ordinary signing make zero DO calls.
