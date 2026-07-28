@@ -39,7 +39,6 @@ import {
 import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import {
   requireResolvedEvmFamilyEcdsaSigningLane,
-  validateSelectedEcdsaRecordCandidateForLane,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes';
 
 const EVM_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
@@ -349,6 +348,12 @@ function makeEmailOtpRecord(
   };
 }
 
+// The ready-material cases are gone with the record they were built from: the
+// builder cannot return `ready_to_sign`, and the retired
+// `validateSelectedEcdsaRecordCandidateForLane` validated a record against a
+// lane. Their invariants -- ready material carries a signer session, and exact
+// signer identity beats stale flat projections -- belong to the canonical
+// rehydration coverage built on an authorized capability.
 test.describe('ecdsa material state', () => {
   test.afterEach(() => {
     clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation();
@@ -358,7 +363,6 @@ test.describe('ecdsa material state', () => {
     expect(() =>
       buildEcdsaMaterialStateForCandidate({
         candidate: makeCandidate(),
-        record: undefined,
         authMethod: 'passkey',
         source: 'login',
         chainTarget: TEMPO_CHAIN_TARGET,
@@ -366,73 +370,6 @@ test.describe('ecdsa material state', () => {
       }),
     ).toThrow(
       '[SigningEngine][ecdsa] material-state builder chain target must match candidate chain target',
-    );
-  });
-
-  test('runtime-validated ready material carries a signer session', () => {
-    const record = makeRecord();
-    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
-    const state = buildEcdsaMaterialStateForCandidate({
-      candidate: makeCandidate(),
-      record,
-      authMethod: 'passkey',
-      source: 'login',
-      chainTarget: EVM_CHAIN_TARGET,
-      materialChainTarget: EVM_CHAIN_TARGET,
-    });
-
-    expect(state.kind).toBe('ready_to_sign');
-    if (state.kind !== 'ready_to_sign') return;
-    expect(state.signerSession.clientShare.kind).toBe('role_local_worker_share');
-    expect(state.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
-  });
-
-  test('matches ready material against exact signer identity when flat lane projections are stale', () => {
-    const record = makeRecord();
-    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
-    const state = buildEcdsaMaterialStateForCandidate({
-      candidate: makeCandidate(),
-      record,
-      authMethod: 'passkey',
-      source: 'login',
-      chainTarget: EVM_CHAIN_TARGET,
-      materialChainTarget: EVM_CHAIN_TARGET,
-    });
-    expect(state.kind).toBe('ready_to_sign');
-    if (state.kind !== 'ready_to_sign') return;
-
-    const lane = makeResolvedLane();
-    const staleProjectionLane = {
-      ...lane,
-      keyHandle: toEvmFamilyEcdsaKeyHandle('stale-projection-key-handle'),
-      chainTarget: TEMPO_CHAIN_TARGET,
-    };
-
-    expect(
-      materialIdentityMatchesResolvedLane({
-        state,
-        lane: staleProjectionLane,
-      }),
-    ).toBe(true);
-  });
-
-  test('rejects ECDSA records that mismatch exact signer identity even when flat projections match', () => {
-    const staleProjectionKeyHandle = toEvmFamilyEcdsaKeyHandle('stale-projection-key-handle');
-    const record = makeRecord({ keyHandle: staleProjectionKeyHandle });
-    const lane = makeResolvedLane();
-    const staleProjectionLane = {
-      ...lane,
-      keyHandle: staleProjectionKeyHandle,
-    };
-
-    expect(() =>
-      validateSelectedEcdsaRecordCandidateForLane({
-        lane: staleProjectionLane,
-        record,
-        context: 'stale projection fixture',
-      }),
-    ).toThrow(
-      '[SigningEngine][ecdsa] selected ECDSA record candidate does not match resolved lane for stale projection fixture',
     );
   });
 
