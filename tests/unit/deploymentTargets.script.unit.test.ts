@@ -166,5 +166,6 @@ test('required secrets are derived from enabled capabilities and their owners', 
     'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
     'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
     'DERIVER_A_PEER_SIGNING_KEY',
+    'DERIVER_A_ROLE_PRIVATE_D1_KEK',
   ]);
 });
