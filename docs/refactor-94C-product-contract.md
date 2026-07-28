@@ -110,16 +110,27 @@ idempotency key, activation reference) renamed off the deleted finalize route:
 `POST /wallets/register/near-provisioning`. Persists Yao consume + signer
 material only — no RPC, no chain state, per the effect ledger.
 
-**Checkpoint questions for Codex** (answers freeze the contract):
-1. Fingerprint algorithm + canonicalization: reuse `alphabetizeStringify`
-   digest or the Rust-side canonical digest from refactor-93?
-2. Signed payload encoding: JWT-shaped or the existing signed-receipt envelope
-   from Yao admission? (Client treats both as opaque; roles must verify with
-   pinned keys.)
-3. Does route 2's response carry a Router-signed readiness receipt that
-   route 3 must echo, or does route 3 re-derive from `clientActivation` alone?
-4. Which route mints the wallet-session JWT in the zero-DO world (route 3
-   Gateway-side, or SigningWorker returns it in the activation batch)?
+**Checkpoint decisions (approved 2026-07-28; contract frozen):**
+1. **Fingerprint**: the existing typed domain encoder with a `PublicDigest32`
+   request digest over canonical encoded request bytes — never raw JSON or
+   property-order-dependent serialization. The same canonical digest binds
+   setup, respond, activate, idempotency, and policy claims.
+2. **Signed payloads**: compact Ed25519 JWS/JWT strings, opaque to the client.
+   Claims: issuer, audience, subject, environment, expiry, work kind, policy
+   version, canonical request digest. Unknown algorithms rejected; verification
+   is local against the pinned deployment key. No JWKS fetch anywhere.
+3. **Activate response**: the exact terminal activation/finalization response
+   bytes; the operation row is the replay record. Router validates role
+   receipts internally — no readiness receipt crosses the public wire.
+4. **Wallet-session JWT**: Gateway is the sole minting authority. Router and
+   roles verify locally with pinned key material and never mint.
+
+Boundary decisions folded in: `respond` stays deterministic-or-refused at the
+role layer with a stable public wire shape while the Gateway bookkeeping
+deletion is validated; policy travels only inside the signed request-carried
+token (Router does no policy/quota/abuse/JWKS lookup); registration creates an
+implicit-account keypair only; no compatibility route, legacy field, or
+dual-write path.
 
 ## 3. Deletion inventory (TypeScript, product lane)
 
