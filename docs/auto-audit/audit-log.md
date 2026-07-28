@@ -1,25 +1,25 @@
 # Auto Audit Log
 
-Last updated: `2026-07-13T00:05:03Z`
+Last updated: `2026-07-27T01:30:26Z`
 
 ## Latest Entry
 
-- Timestamp: `2026-07-13T00:05:03Z`
-- Target file: `packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts`
-- Flow: `Wallet SDK NEAR Ed25519 lane selection, readiness planning, passkey or Email OTP reauth, confirmation funding, and transaction/delegate/NEP-413 signing entrypoints`
-- Report: [`/Users/pta/Dev/rust/seams-sdk/docs/auto-audit/2026-07-13T00-05-03Z-sdk-web-sign-near-readiness.md`](/Users/pta/Dev/rust/seams-sdk/docs/auto-audit/2026-07-13T00-05-03Z-sdk-web-sign-near-readiness.md)
+- Timestamp: `2026-07-27T01:30:26Z`
+- Target file: `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts`
+- Flow: `Wallet SDK NEAR Ed25519 shared auth planning for delegate and NEP-413 signing, exact account/session selection, warm-session status normalization, and step-up handoff`
+- Report: [`/Users/pta/Dev/rust/seams-sdk/docs/auto-audit/2026-07-27T01-30-26Z-sdk-web-signing-session-auth-mode.md`](/Users/pta/Dev/rust/seams-sdk/docs/auto-audit/2026-07-27T01-30-26Z-sdk-web-signing-session-auth-mode.md)
 - Findings:
-  - Security: `2`
+  - Security: `1`
   - Refactor/slimming: `2`
 - Highest severity: `medium`
 - Highest-severity items:
-  - Runtime-validated NEAR transaction lanes ignore live warm-session status and can still plan stale sessions as ready.
-  - Passkey reauth still sends the pre-reauth wallet-session JWT into implicit-account funding during confirmation.
+  - Already-expired active warm-session status can still be normalized to `ready`, delaying reauth failure until later signing checks.
+  - NEAR transaction and ad hoc flows maintain separate readiness planners with divergent expiry behavior.
 - Next audit candidates:
-  - `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts`
   - `packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/flows/signing.ts`
-  - `packages/sdk-web/src/core/signingEngine/assembly/ports/near.ts`
   - `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/statusReader.ts`
+  - `packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts`
+  - `packages/sdk-web/src/core/signingEngine/assembly/ports/near.ts`
 
 ## Audited Files
 
@@ -28,6 +28,7 @@ Last updated: `2026-07-13T00:05:03Z`
 - `packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts`
 - `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
 - `packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts`
+- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts`
 
 ## Audited Flows
 
@@ -36,3 +37,4 @@ Last updated: `2026-07-13T00:05:03Z`
 - `Wallet SDK Router A/B Ed25519 normal-signing prepare/finalize RPC, presign-pool refill, and budget-bound response binding`
 - `Wallet SDK Router A/B Ed25519 wallet-session authority parsing, persisted-state classification, runtime worker-material validation, and NEAR readiness gating`
 - `Wallet SDK NEAR Ed25519 lane selection, readiness planning, passkey or Email OTP reauth, confirmation funding, and transaction/delegate/NEP-413 signing entrypoints`
+- `Wallet SDK NEAR Ed25519 shared auth planning for delegate and NEP-413 signing, exact account/session selection, warm-session status normalization, and step-up handoff`
