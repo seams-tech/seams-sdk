@@ -15,8 +15,15 @@
  * Setup necessarily runs *before* the client's WebAuthn create, because setup
  * issues the challenge that create must sign. So it stores the ceremony with
  * its authority awaiting proof, and respond binds the proof one leg later.
- * The valuable consequence is that the expensive Router preparation overlaps
- * the user's authenticator interaction instead of being serialized after it.
+ * The valuable consequence is that the ECDSA preparation — the Router call
+ * that dominated the measured cold path — overlaps the user's authenticator
+ * interaction instead of being serialized after it.
+ *
+ * Setup is ECDSA-only for both authentication methods. Yao admission binds the
+ * Ed25519 authority scope, which is only sound once the proof is verified, so
+ * respond derives it. Admitting at setup would have been possible for a
+ * passkey and not for Email OTP, and two setup protocols split by auth method
+ * is a worse contract than one that always defers.
  *
  * The wallet reservation is deliberately not carried over. It existed so a
  * randomly generated wallet id allocated at intent time could not be taken
@@ -29,7 +36,6 @@ import {
   computeRegistrationIntentDigestB64u,
   normalizeRegistrationAuthMethodInput,
   normalizeRegistrationSignerPlan,
-  registrationEd25519AuthorityScopeFromAuthMethod,
   registrationSignerSetSelectionFromPlan,
   type RegisterWalletInput,
   type RegistrationAuthMethodInput,
@@ -39,10 +45,7 @@ import {
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { ThresholdRuntimePolicyScope } from '../../core/types';
-import type {
-  SetupEd25519PreparationV2,
-  WalletRegistrationSetupResponseV2,
-} from '../../core/threeRouteRegistrationContracts';
+import type { WalletRegistrationSetupResponseV2 } from '../../core/threeRouteRegistrationContracts';
 import type { StoredWalletRegistrationCeremony } from '../../core/RegistrationCeremonyStore';
 import { thresholdEcdsaChainTargetFromValue } from '../../core/thresholdEcdsaChainTarget';
 import {
@@ -114,14 +117,6 @@ export function resolveWalletRegistrationSetupWalletId(input: {
     return { ok: true, walletId };
   }
   return { ok: false, code: 'invalid_body', message: 'wallet.kind is unsupported' };
-}
-
-export function walletRegistrationSetupEd25519Deferral(
-  authMethod: RegistrationAuthMethodInput,
-): SetupEd25519PreparationV2 | null {
-  return registrationEd25519AuthorityScopeFromAuthMethod(authMethod)
-    ? null
-    : { status: 'deferred_to_respond', reason: 'authority_scope_requires_proof' };
 }
 
 export function normalizeWalletRegistrationSetupRequest(request: WalletRegistrationSetupRequest):

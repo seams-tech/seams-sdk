@@ -499,6 +499,11 @@ export type WalletRegistrationStartResponse = WalletRegistrationStartResponseBas
  * `signedSetup` is opaque to the client: it is carried to routes 2 and 3 and
  * echoed verbatim, never parsed. `registrationIntentDigestB64u` is the
  * challenge the WebAuthn create must sign.
+ *
+ * ECDSA only, for both authentication methods. The Ed25519 branch of a mixed
+ * plan is admitted by respond, once the verified proof determines its
+ * authority scope; the client then starts that work asynchronously and never
+ * awaits it for wallet readiness.
  */
 export type WalletRegistrationSetupResponseV2 =
   | {
@@ -509,9 +514,6 @@ export type WalletRegistrationSetupResponseV2 =
       intent: RegistrationIntentV1;
       signedSetup: string;
       ecdsa: WalletRegistrationEcdsaPreparePayload;
-      ed25519?:
-        | ({ status: 'admitted' } & WalletRegistrationEd25519YaoStart)
-        | { status: 'deferred_to_respond'; reason: 'authority_scope_requires_proof' };
     }
   | { ok: false; code: string; message: string; retryAfterMs?: number };
 

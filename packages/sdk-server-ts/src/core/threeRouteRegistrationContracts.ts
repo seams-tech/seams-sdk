@@ -76,20 +76,16 @@ export type WalletRegistrationSetupRequestV2 = {
 };
 
 /**
- * Yao admission binds the Ed25519 authority scope. For a passkey that scope is
- * the rpId the caller declared, so admission is prepared here; for Email OTP
- * the scope carries a `providerUserId` that only the verified proof
- * establishes, so admission is deferred to respond rather than bound to an
- * unauthenticated claim. The two cases are distinct states, not a present or
- * absent field.
+ * Setup is ECDSA-only, uniformly, for both authentication methods.
+ *
+ * Yao admission binds the Ed25519 authority scope, and that scope is only
+ * sound once the proof is verified. Preparing it at setup would have been
+ * possible for a passkey and not for Email OTP — which would have meant two
+ * different setup protocols depending on auth method. One protocol that always
+ * defers is simpler and strictly safer, so Ed25519 work does not appear in the
+ * setup request or response at all. Respond derives it, authority-bound, for
+ * both methods.
  */
-export type SetupEd25519PreparationV2 =
-  | ({ status: 'admitted' } & SetupEd25519Work)
-  | {
-      status: 'deferred_to_respond';
-      reason: 'authority_scope_requires_proof';
-    };
-
 export type WalletRegistrationSetupResponseV2 =
   | {
       ok: true;
@@ -101,8 +97,6 @@ export type WalletRegistrationSetupResponseV2 =
       /** Opaque; echoed verbatim on routes 2 and 3. */
       signedSetup: SignedSetupPayloadB64u;
       ecdsa: WalletRegistrationEcdsaPreparePayload;
-      /** Mixed plans only; absent when the plan has no Ed25519 branch. */
-      ed25519?: SetupEd25519PreparationV2;
     }
   | WalletRegistrationRouteErrorV2;
 
@@ -116,6 +110,48 @@ export type WalletRegistrationRespondRequestV2 = {
     strictRegistration: unknown; // RouterAbEcdsaRegistrationRequestV1; bound at the parser
   };
 };
+
+/**
+ * What respond returns for the ceremony's signer plan.
+ *
+ * Respond verifies the authority first, then derives the authority-bound Yao
+ * admission — for both authentication methods, since by this point the proof
+ * exists either way. The plan's shape is exhaustive rather than an optional
+ * `ed25519` field: a mixed plan always carries its deferred NEAR work, and an
+ * ECDSA-only plan has no arm to omit.
+ *
+ * The NEAR work is deferred, not pending-in-progress. The client starts it
+ * asynchronously and must not await it: the wallet is usable on ECDSA alone,
+ * and blocking registration on Yao is the coupling this refactor removes.
+ */
+export type WalletRegistrationRespondSignerPlanV2 =
+  | {
+      kind: 'evm_family_ecdsa';
+      ecdsa: RespondEcdsaProofBundles;
+      ed25519?: never;
+    }
+  | {
+      kind: 'near_ed25519_and_evm_family_ecdsa';
+      ecdsa: RespondEcdsaProofBundles;
+      /** Authority-bound admission, derived here because the proof now exists. */
+      ed25519: RespondEd25519DeferredWork;
+    };
+
+/** Exact A/B role bundles, unchanged from the derivation respond leg. */
+type RespondEcdsaProofBundles = {
+  kind: 'router_ab_ecdsa_registration_forwarded_v1';
+  strictResult: unknown; // RouterAbEcdsaStrictForwardedRegistrationResponseV1; bound at the parser
+};
+
+type RespondEd25519DeferredWork = {
+  status: 'deferred';
+  admissionRequest: SetupEd25519Work extends { admissionRequest: infer T } ? T : never;
+  admissionReceipt: SetupEd25519Work extends { admissionReceipt: infer T } ? T : never;
+};
+
+export type WalletRegistrationRespondResponseV2 =
+  | ({ ok: true; registrationCeremonyId: string } & WalletRegistrationRespondSignerPlanV2)
+  | WalletRegistrationRouteErrorV2;
 
 /** Route 3 — activate-and-finalize; the operation row is the replay record. */
 export type WalletRegistrationActivateRequestV2 = {
