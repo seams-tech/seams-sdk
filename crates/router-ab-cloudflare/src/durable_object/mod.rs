@@ -591,6 +591,43 @@ impl CloudflareSigningWorkerOutputActivationRecordV1 {
         }
     }
 
+    /// Compares the immutable activation input and role-local material, excluding commit time.
+    pub fn matches_activation_and_material(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::RecipientProofBundle {
+                    activation: left_activation,
+                    material: left_material,
+                    ..
+                },
+                Self::RecipientProofBundle {
+                    activation: right_activation,
+                    material: right_material,
+                    ..
+                },
+            ) => left_activation == right_activation && left_material == right_material,
+            (
+                Self::Ed25519Yao {
+                    binding: left_binding,
+                    receipt: left_receipt,
+                    material: left_material,
+                    ..
+                },
+                Self::Ed25519Yao {
+                    binding: right_binding,
+                    receipt: right_receipt,
+                    material: right_material,
+                    ..
+                },
+            ) => {
+                left_binding == right_binding
+                    && left_receipt == right_receipt
+                    && left_material == right_material
+            }
+            _ => false,
+        }
+    }
+
     /// Consumes the activation record and returns SigningWorker-local material.
     pub fn into_material(self) -> CloudflareServerOutputMaterialRecordV1 {
         match self {

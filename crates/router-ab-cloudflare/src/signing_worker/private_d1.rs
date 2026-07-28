@@ -839,7 +839,13 @@ pub async fn put_cloudflare_signing_worker_output_activation_record_v1(
         &material_key,
         &stored.record_json,
     )?;
-    if stored_record != *record || stored.active_state_json != active_state_json {
+    let stored_active_state_json = encode_json(
+        "SigningWorker stored active state",
+        stored_record.active_signing_worker_state(),
+    )?;
+    if !stored_record.matches_activation_and_material(record)
+        || stored.active_state_json != stored_active_state_json
+    {
         return Err(d1_error(
             "server-output activation conflicts with existing activation or material",
         ));
@@ -1038,7 +1044,12 @@ async fn activate_output_v1(
         &material_key,
         &stored.record_json,
     )?;
-    if stored_record != record || stored.active_state_json != active_state_json {
+    let stored_active_state = stored_record.active_signing_worker_state().clone();
+    let stored_active_state_json =
+        encode_json("SigningWorker stored active state", &stored_active_state)?;
+    if !stored_record.matches_activation_and_material(&record)
+        || stored.active_state_json != stored_active_state_json
+    {
         return Err(d1_error(
             "server-output activation conflicts with existing activation or material",
         ));
@@ -1049,7 +1060,7 @@ async fn activate_output_v1(
                 activation_context.lifecycle().lifecycle_id.clone(),
                 selected_server.server_id.clone(),
                 activation_context.transcript_digest(),
-                active_state,
+                stored_active_state,
                 false,
             )?,
         },
