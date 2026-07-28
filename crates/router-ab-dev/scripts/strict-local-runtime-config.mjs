@@ -109,24 +109,7 @@ function applyRoleVars(source, role, env) {
         'ROUTER_JWT_JWKS_JSON',
         env.ceremonyJwksJson,
       );
-      config = replaceTopologyPublicVars(config, env);
-      return replaceTomlAssignment(
-        config,
-        'ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON',
-        JSON.stringify({
-          org_id: env.localConsoleOrganizationId,
-          project_id: 'local-smoke-project',
-          environment: 'local',
-          allowed_work_kinds: [
-            'registration_prepare',
-            'key_export',
-            'recovery',
-            'server_share_refresh',
-          ],
-          allow_normal_signing: true,
-          rejected_retry_after_ms: 1000,
-        }),
-      );
+      return replaceTopologyPublicVars(config, env);
     case 'deriver-a':
       config = replaceTomlAssignment(
         config,
