@@ -259,6 +259,49 @@ test('strict ECDSA registration forwards the opaque trace correlation header', a
   expect(router.request?.headers.get('x-seams-trace-id')).toBe(traceContext.value);
 });
 
+/* Refactor 94B Phase 0. Role diagnostics are presence-only: whether the leg
+   returned Server-Timing is recorded, what it said is not. The value carries
+   role and span names from inside the MPC topology, so it reaches the timing
+   fold and nothing else. */
+test('strict ECDSA registration reports header presence without its contents', async () => {
+  const secret = 'router_internal_span;dur=42, deriver_a_internal;dur=7';
+  for (const [serverTiming, expected] of [
+    [secret, 'present'],
+    [null, 'absent'],
+  ] as const) {
+    const request = strictRegistrationRequest();
+    const router = new TraceCapturingRouter(serverTiming);
+    const port = strictRegistrationPortForRequest({ request, router });
+    const presences: { leg: string; serverTiming: 'present' | 'absent' }[] = [];
+    const timingHeaders: string[] = [];
+
+    await port.register({
+      request,
+      authority: {
+        subjectId: request.client_id,
+        sessionId: request.lifecycle.session_id,
+        accountId: request.lifecycle.account_id,
+        expiresAtMs: request.expires_at_ms,
+      },
+      onServerTiming: (header) => timingHeaders.push(header),
+      onHeaderPresence: (presence) => presences.push({ ...presence }),
+    });
+
+    /* Absence is an observation too, so it is reported either way. */
+    expect(presences).toHaveLength(1);
+    expect(presences[0]?.serverTiming).toBe(expected);
+
+    /* Nothing the presence sink saw may contain the header's contents. */
+    const presenceJson = JSON.stringify(presences);
+    for (const fragment of ['router_internal_span', 'deriver_a_internal', 'dur=', '42']) {
+      expect(presenceJson).not.toContain(fragment);
+    }
+
+    /* The value goes only to the timing sink, which folds it to fixed names. */
+    expect(timingHeaders).toEqual(serverTiming ? [secret] : []);
+  }
+});
+
 function strictRegistrationPortForRequest(args: {
   request: RouterAbEcdsaRegistrationRequestV1;
   router: TraceCapturingRouter;
