@@ -13,6 +13,20 @@ export type RouterAbEd25519YaoPrimitiveRequestKindV1 = "registration" | "recover
 
 export type RouterAbEd25519YaoWorkKindV1 = "registration_prepare" | "key_export" | "recovery" | "server_share_refresh";
 
+export type RouterAbRequestPolicyClaimsV1 = {
+/**
+ * Deployment policy revision used to admit the request.
+ */
+policyVersion: string,
+/**
+ * Protected work class.
+ */
+workKind: RouterAbEd25519YaoWorkKindV1,
+/**
+ * Canonical digest of the request carried to Router.
+ */
+requestDigest: RouterAbEd25519YaoPublicDigestV1, };
+
 export type RouterAbEd25519YaoAdmittedLifecycleV1 = {
 /**
  * Router-assigned lifecycle id.

@@ -6,7 +6,7 @@ use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoCeremonyIdentityV1, Ed25519YaoCircuitFamilyV1,
     Ed25519YaoCircuitIdV1, Ed25519YaoInputPairBindingV1, Ed25519YaoOperationV1,
     Ed25519YaoProtocolIdV1, ExpensiveWorkKindV1, LifecycleScopeV1, PublicDigest32, RequestKind,
-    RootShareEpoch,
+    RootShareEpoch, RouterRequestPolicyClaimsV1,
 };
 use ts_rs::{Config, TS};
 
@@ -49,6 +49,7 @@ fn generated_router_ab_ed25519_yao_types_ts() -> String {
     push_decl::<RootShareEpoch>(&mut out, &cfg);
     push_decl::<RequestKind>(&mut out, &cfg);
     push_decl::<ExpensiveWorkKindV1>(&mut out, &cfg);
+    push_decl::<RouterRequestPolicyClaimsV1>(&mut out, &cfg);
     push_decl::<LifecycleScopeV1>(&mut out, &cfg);
     push_decl::<Ed25519YaoCircuitFamilyV1>(&mut out, &cfg);
     push_decl::<Ed25519YaoOperationV1>(&mut out, &cfg);
