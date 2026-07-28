@@ -42,7 +42,10 @@ test('parses Ed25519-only finalize without an ECDSA branch', () => {
   });
 });
 
-test('parses mixed Ed25519 and ECDSA finalize as one coherent variant', () => {
+/* Refactor 94 Phase 4+5: finalize commits one signer branch per call. The
+   combined kind is gone from the wire, so the parser must reject it rather
+   than admit a request no server path can serve. */
+test('rejects a combined Ed25519 and ECDSA finalize request', () => {
   const parsed = parseWalletRegistrationFinalizeRequest({
     registrationCeremonyId: 'registration-ceremony-2',
     idempotencyKey: IDEMPOTENCY_KEY,
@@ -51,16 +54,19 @@ test('parses mixed Ed25519 and ECDSA finalize as one coherent variant', () => {
     ecdsa: { expectedKeyHandles: [' key-handle-1 '] },
   });
 
-  expect(parsed).toEqual({
-    ok: true,
-    value: {
-      registrationCeremonyId: 'registration-ceremony-2',
-      idempotencyKey: IDEMPOTENCY_KEY,
-      kind: 'near_ed25519_and_evm_family_ecdsa',
-      ed25519: { activationReference: ACTIVATION_REFERENCE },
-      ecdsa: { expectedKeyHandles: ['key-handle-1'] },
-    },
+  expect(parsed).toMatchObject({ ok: false });
+});
+
+test('rejects an ECDSA finalize request that smuggles Ed25519 work alongside it', () => {
+  const parsed = parseWalletRegistrationFinalizeRequest({
+    registrationCeremonyId: 'registration-ceremony-2',
+    idempotencyKey: IDEMPOTENCY_KEY,
+    kind: 'evm_family_ecdsa',
+    ed25519: { activationReference: ACTIVATION_REFERENCE },
+    ecdsa: { expectedKeyHandles: ['key-handle-1'] },
   });
+
+  expect(parsed).toMatchObject({ ok: false });
 });
 
 test('keeps strict ECDSA finalize available through its explicit variant', () => {

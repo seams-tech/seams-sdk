@@ -37,29 +37,6 @@ test('builds Ed25519 finalize with only the opaque one-use activation reference'
   });
 });
 
-test('builds mixed finalize only through its coherent mixed variant', () => {
-  expect(
-    buildWalletRegistrationFinalizeBody({
-      relayerUrl: 'http://127.0.0.1:8787',
-      registrationCeremonyId: 'registration-42',
-      idempotencyKey: 'registration-finalize-42',
-      kind: 'near_ed25519_and_evm_family_ecdsa',
-      ed25519: {
-        activationReference: {
-          kind: 'router_ab_ed25519_yao_activation_reference_v1',
-          lifecycle_id: 'registration-42',
-          session_id: SESSION_ID,
-        },
-      },
-      ecdsa: { expectedKeyHandles: ['ecdsa-key-1'] },
-    }),
-  ).toMatchObject({
-    kind: 'near_ed25519_and_evm_family_ecdsa',
-    ed25519: { activationReference: { lifecycle_id: 'registration-42' } },
-    ecdsa: { expectedKeyHandles: ['ecdsa-key-1'] },
-  });
-});
-
 test('add-signer start parser rejects a branch substituted by the relayer', () => {
   const walletId = walletIdFromString('wallet-parser-substitution');
   const expectedIntent = {

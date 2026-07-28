@@ -443,32 +443,41 @@ five fields it requires are Ed25519-specific, and it calls
 `initializeNearAccessKey`, which is meaningless without a NEAR operational key.
 Add a second, ECDSA-shaped activation instead.
 
-- [ ] Persist ECDSA through the existing ECDSA-only path, adding
+- [x] Persist ECDSA through the existing ECDSA-only path, adding
       `lastProfileState: { profileId: walletId, activeSignerSlot: 1 }` so the
       wallet is selectable before any Ed25519 signer exists.
-- [ ] Commit the deferred Ed25519 signer through
+- [x] Commit the deferred Ed25519 signer through
       `finalizeWalletEd25519SignerRegistration` (`accountLifecycle.ts:1345`),
       which already upserts the NEAR profile, creates the
       `nearAccountProjections` row, writes `lastProfileState`, and — unlike
       `persistWalletRegistrationFinalize` — returns a `rollbackReceipt`.
-- [ ] Parameterize its hardcoded `SIGNER_AUTH_METHODS.passkey` /
+- [~] Parameterize its hardcoded `SIGNER_AUTH_METHODS.passkey` /
       `passkeyRegistration` (`:1401-1402`, `:1420-1421`); otherwise an
       Email OTP wallet gets a passkey-typed Ed25519 signer, contradicting the
       metadata written at `:1209-1210`.
+      Superseded by what the code turned out to be. This premise was wrong:
+      registration never reaches `finalizeWalletEd25519SignerRegistration`.
+      That is the add-signer surface, and `RegistrationPersistencePlan` has no
+      `ed25519` member. Registration persists its Ed25519 signer through
+      `persistWarmSessionEd25519Capability`, which already takes the auth
+      method as an argument, so no Email OTP wallet could get a passkey-typed
+      signer from this path. The finalizer was parameterized, found unreachable
+      from registration, and collapsed back to a single explicit `passkey`
+      branch rather than retaining an unreachable Email OTP branch.
 - [ ] Make its `activationPolicy` retry-tolerant; `fail_if_occupied`
       (`:1405`, `:1424`) hard-fails instead of converging when a retry already
       landed.
-- [ ] Split the incomplete-signer-set guard across the two commits as above.
+- [x] Split the incomplete-signer-set guard across the two commits as above.
 - [ ] Add an ECDSA-only activation variant: resolve by `walletId` profile and
       `signerKind === thresholdEcdsa`, do `setLastProfileStateForProfile` +
       `setCurrentWallet` + `reloadUserSettings`, and omit both
       `initializeNearAccessKey` and the NEAR prefetch.
-- [ ] Keep each commit individually atomic and read-back verified. Verified
+- [x] Keep each commit individually atomic and read-back verified. Verified
       safe: slot planning is scoped to `(chainIdKey, accountAddress)` so
       Ed25519 (`wallet`/`near:*`) cannot collide with ECDSA (`evm:*`), and
       `assertSignerKeyMaterialPairsInTransaction` merges already-stored
       material, so commit #1's ECDSA rows still validate during commit #2.
-- [ ] Keep the NEAR projection write with the Ed25519 commit. It is already
+- [x] Keep the NEAR projection write with the Ed25519 commit. It is already
       implicit: `shouldWriteNearAccountProjection` fires only for
       `accountModel === 'near-native'`, which no ECDSA activation uses.
 - [ ] Update the three batch-shape assertions in
@@ -618,38 +627,38 @@ three-case switch.
 
 ### Phase 4+5 server checklist, corrected
 
-- [ ] Derive the two half-gates from `request.kind`, not from the plan.
-- [ ] Replace `finalizeSignerWorkMatchesPlan` (`:875-888`) with a check that
+- [x] Derive the two half-gates from `request.kind`, not from the plan.
+- [x] Replace `finalizeSignerWorkMatchesPlan` (`:875-888`) with a check that
       the requested kind is a subset of the plan **and** legal for the current
       branch progress: `evm_family_ecdsa` requires the ECDSA branch
       `activated`; `near_ed25519` on a mixed plan requires it `finalized`.
-- [ ] Add an `evm_family_ecdsa_finalized` branch kind
+- [x] Add an `evm_family_ecdsa_finalized` branch kind
       (`RegistrationCeremonyStore.ts:343-378`), extend
       `findStoredWalletRegistrationEvmFamilyEcdsaBranch` (`:423-438`), and
       commit the transition through the existing `commitEcdsaClaim` CAS.
-- [ ] Make `deleteCeremony` (`:3185`) conditional on no planned branch
+- [x] Make `deleteCeremony` (`:3185`) conditional on no planned branch
       remaining un-finalized.
-- [ ] Keep Email-OTP enrollment persistence on commit #1 only.
-- [ ] Delete the combined request and response kind across all 11 files.
+- [x] Keep Email-OTP enrollment persistence on commit #1 only.
+- [x] Delete the combined request and response kind across all 11 files.
 
 Open question for implementation: commit #2 re-puts the credential binding
 with `createdAtMs: input.now` (`d1WalletRegistrationCommitStore.ts:134`),
 which would reset the original creation time. Check whether the put preserves
 `created_at` on conflict; if not, thread the ceremony's original timestamp.
 
-- [ ] Remove the `claimRegistrationYao` await from the registration completion
+- [x] Remove the `claimRegistrationYao` await from the registration completion
       path (`registration.ts:3720`).
-- [ ] Return the ECDSA-ready result once the ECDSA commit is durable.
-- [ ] Keep the Yao promise owned by the page, outside the registration
+- [x] Return the ECDSA-ready result once the ECDSA commit is durable.
+- [x] Keep the Yao promise owned by the page, outside the registration
       completion promise.
 - [ ] Commit the Ed25519 signer, NEAR account facts, and `near_ready` state
       when the ceremony settles.
-- [ ] Add a ceremony state representing "ECDSA committed, Ed25519 pending",
+- [x] Add a ceremony state representing "ECDSA committed, Ed25519 pending",
       and suppress the unconditional `deleteCeremony` while it holds.
-- [ ] Give the Ed25519 finalize its own side-effect operation and effect key.
+- [x] Give the Ed25519 finalize its own side-effect operation and effect key.
 - [ ] Join duplicate same-tab requests to the in-flight promise.
-- [ ] Leave the wallet `ecdsa_ready` on any terminal failure.
-- [ ] Do not introduce a feature flag or compatibility branch.
+- [x] Leave the wallet `ecdsa_ready` on any terminal failure.
+- [x] Do not introduce a feature flag or compatibility branch.
 
 Passkey and Email OTP registration follow the same product lifecycle.
 
