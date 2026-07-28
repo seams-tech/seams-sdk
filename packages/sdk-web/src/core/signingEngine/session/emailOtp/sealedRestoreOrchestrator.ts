@@ -1,3 +1,4 @@
+import type { EmailOtpEcdsaSealedRuntimePurpose } from './sealedRuntimePurpose';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   thresholdEcdsaChainTargetKey,
@@ -46,16 +47,12 @@ export type EmailOtpSealedRestoreOrchestratorPorts = {
   readExactSealedSession: typeof readExactSealedSession;
   acquireSigningSessionRestoreLease: typeof acquireSigningSessionRestoreLease;
   releaseSigningSessionRestoreLease: typeof releaseSigningSessionRestoreLease;
-  /** Chain targets the sealed store may hold ECDSA records for. The sealed
-   * record is addressed by its own session id; material identity is proven
-   * separately when the record is correlated against the active manifest. */
-  configuredEcdsaChainTargets: () => readonly ThresholdEcdsaChainTarget[];
   readWarmSessionStatusFromWorker: (sessionId: string) => Promise<WarmSessionStatusResult>;
   restoreEcdsaSigningSessionMaterialFromSealedRecord: (
     args: EmailOtpEcdsaSealedRecoveryRecordInput,
   ) => Promise<EmailOtpThresholdEcdsaRehydrateResult | null>;
   recordSessionMaterialRestored: (
-    sessionId: string,
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
     status: RestoredWarmSessionStatus,
   ) => Promise<void>;
   shouldLogDiagnostic: (key: string) => boolean;
@@ -79,6 +76,11 @@ export class EmailOtpSealedRestoreOrchestrator {
   private readonly restoreAttempts: SigningSessionRestoreAttemptRegistry =
     createSigningSessionRestoreAttemptRegistry();
 
+  /** The lane the in-flight restore was requested for. Set from the request's
+   * purpose, never guessed, so an identical session id on another target reads
+   * that target's record and no other. */
+  private requestedChainTarget: ThresholdEcdsaChainTarget | null = null;
+
   constructor(private readonly ports: EmailOtpSealedRestoreOrchestratorPorts) {}
 
   clearCache(): void {
@@ -86,18 +88,13 @@ export class EmailOtpSealedRestoreOrchestrator {
     this.restoreAttempts.clear();
   }
 
-  shouldAttemptEcdsaSealedRestoreForSessionId(sessionIdRaw: string): boolean {
-    const sessionId = String(sessionIdRaw || '').trim();
-    if (!sessionId) return false;
-    return true;
-  }
-
   async tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
-    sessionId: string,
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
   ): Promise<WarmSessionStatusResult | null> {
     if (this.ports.sessionPersistenceMode !== 'sealed_refresh_v1') return null;
-    const requestedSessionId = String(sessionId || '').trim();
+    const requestedSessionId = String(purpose.thresholdSessionId || '').trim();
     if (!requestedSessionId) return null;
+    this.requestedChainTarget = purpose.chainTarget;
 
     const thresholdSessionId = requestedSessionId;
     const sealedRecord = await this.readEcdsaSealedRecord(requestedSessionId);
@@ -182,7 +179,10 @@ export class EmailOtpSealedRestoreOrchestrator {
           updatedAtMs: restoredAtMs,
         });
       }
-      await this.ports.recordSessionMaterialRestored(thresholdSessionId, result);
+      await this.ports.recordSessionMaterialRestored(
+        { thresholdSessionId, chainTarget: sealedRecord.chainTarget },
+        result,
+      );
       return result;
     } finally {
       await this.ports.releaseSigningSessionRestoreLease(lease).catch(() => undefined);
@@ -274,11 +274,9 @@ export class EmailOtpSealedRestoreOrchestrator {
   private async readEcdsaSealedRecord(
     thresholdSessionId: string,
   ): Promise<EmailOtpEcdsaSealedRecoveryRecord | null> {
-    for (const chainTarget of this.ports.configuredEcdsaChainTargets()) {
-      const found = await this.readEcdsaSealedRecordForTarget(thresholdSessionId, chainTarget);
-      if (found) return found;
-    }
-    return null;
+    const chainTarget = this.requestedChainTarget;
+    if (!chainTarget) return null;
+    return await this.readEcdsaSealedRecordForTarget(thresholdSessionId, chainTarget);
   }
 
   private async readEcdsaSealedRecordForTarget(
@@ -363,7 +361,9 @@ export class EmailOtpSealedRestoreOrchestrator {
         ecdsaRecord: null,
       });
       if (restored) {
-        await this.ports.recordSessionMaterialRestored(thresholdSessionId, {
+        await this.ports.recordSessionMaterialRestored(
+          { thresholdSessionId, chainTarget: args.record.chainTarget },
+          {
           ok: true,
           remainingUses: restored.remainingUses,
           expiresAtMs: restored.expiresAtMs,

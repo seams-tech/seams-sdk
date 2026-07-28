@@ -1,3 +1,4 @@
+import type { WarmSessionLanePurpose } from '../../session/emailOtp/sealedRuntimePurpose';
 import type { AccountId } from '../../../types/accountIds';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { ProfileAuthenticatorRecord } from '../../../indexedDB';
@@ -43,7 +44,10 @@ export type ThresholdWarmSessionMaterialPort = {
     remainingUses: number;
     transport?: WarmSessionSealTransportInput;
   }) => Promise<void>;
-  claimWarmSessionMaterial?: (args: { sessionId: string; uses?: number }) => Promise<{
+  claimWarmSessionMaterial?: (args: {
+    purpose: WarmSessionLanePurpose;
+    uses?: number;
+  }) => Promise<{
     ok: boolean;
     code?: string;
     message?: string;

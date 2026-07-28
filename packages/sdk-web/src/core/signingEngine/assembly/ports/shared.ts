@@ -1,3 +1,4 @@
+import type { WarmSessionLanePurpose } from '../../session/emailOtp/sealedRuntimePurpose';
 import type { RuntimePorts } from '@/core/platform';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
@@ -134,7 +135,7 @@ export type CreateSigningEnginePortsArgs = {
   touchConfirm: UiConfirmRuntimeBridgePort;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
   consumeEmailOtpWarmSessionUses?: (args: {
-    sessionId: string;
+    purpose: WarmSessionLanePurpose;
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
   clearEmailOtpWarmSessionMaterial: (sessionId: string) => Promise<void>;

@@ -17,6 +17,10 @@ import {
   readEmailOtpWarmSessionStatusOnly,
 } from './status';
 import type { EmailOtpSealedRefreshPolicy } from './sealedRefreshPolicy';
+import {
+  ecdsaSealedRuntimePurpose,
+  type WarmSessionLanePurpose,
+} from './sealedRuntimePurpose';
 import type { EmailOtpSealedRestoreOrchestrator } from './sealedRestoreOrchestrator';
 
 export type EmailOtpWarmSessionWorkerClient = {
@@ -85,58 +89,46 @@ export class EmailOtpWarmSessionRuntime {
   }
 
   async claimWarmSessionMaterial(args: {
-    sessionId: string;
+    purpose: WarmSessionLanePurpose;
     uses?: number;
     consume?: boolean;
-    curve?: 'ed25519' | 'ecdsa';
-    chain?: 'near';
-    chainTarget?: ThresholdEcdsaChainTarget;
   }): Promise<WarmSessionClaimResult> {
     return await claimEmailOtpWarmSessionMaterial({
-      sessionId: args.sessionId,
+      sessionId: args.purpose.thresholdSessionId,
       ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
       ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
       claimWarmSessionMaterialFromWorker: (claimArgs) =>
         this.ports.workerClient.claimMaterial(claimArgs),
-      shouldAttemptEcdsaSealedRestoreForSessionId: (sessionId) =>
-        this.ports.sealedRestoreOrchestrator.shouldAttemptEcdsaSealedRestoreForSessionId(
-          sessionId,
-        ),
-      tryRestoreEcdsaWarmSessionStatusFromSealedRecord: (sessionId) =>
+      ecdsaPurpose: ecdsaSealedRuntimePurpose(args.purpose),
+      tryRestoreEcdsaWarmSessionStatusFromSealedRecord: (purpose) =>
         this.ports.sealedRestoreOrchestrator.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
-          sessionId,
+          purpose,
         ),
-      recordSessionMaterialClaimed: (sessionId, result) =>
-        this.ports.sealedRefreshPolicy.recordSessionMaterialClaimed(sessionId, result),
-      recordSessionMaterialRestored: (sessionId, result) =>
-        this.ports.sealedRefreshPolicy.recordSessionMaterialRestored(sessionId, result),
+      recordSessionMaterialClaimed: (purpose, result) =>
+        this.ports.sealedRefreshPolicy.recordSessionMaterialClaimed(purpose, result),
+      recordSessionMaterialRestored: (purpose, result) =>
+        this.ports.sealedRefreshPolicy.recordSessionMaterialRestored(purpose, result),
     });
   }
 
   async consumeWarmSessionUses(args: {
-    sessionId: string;
+    purpose: WarmSessionLanePurpose;
     uses?: number;
-    curve?: 'ed25519' | 'ecdsa';
-    chain?: 'near';
-    chainTarget?: ThresholdEcdsaChainTarget;
   }): Promise<WarmSessionStatusResult> {
     return await consumeEmailOtpWarmSessionUses({
-      sessionId: args.sessionId,
+      sessionId: args.purpose.thresholdSessionId,
       ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
       consumeWarmSessionUsesFromWorker: (consumeArgs) =>
         this.ports.workerClient.consumeUses(consumeArgs),
-      shouldAttemptEcdsaSealedRestoreForSessionId: (sessionId) =>
-        this.ports.sealedRestoreOrchestrator.shouldAttemptEcdsaSealedRestoreForSessionId(
-          sessionId,
-        ),
-      tryRestoreEcdsaWarmSessionStatusFromSealedRecord: (sessionId) =>
+      ecdsaPurpose: ecdsaSealedRuntimePurpose(args.purpose),
+      tryRestoreEcdsaWarmSessionStatusFromSealedRecord: (purpose) =>
         this.ports.sealedRestoreOrchestrator.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
-          sessionId,
+          purpose,
         ),
-      recordSessionUseConsumed: (sessionId, result) =>
-        this.ports.sealedRefreshPolicy.recordSessionUseConsumed(sessionId, result),
-      recordSessionMaterialRestored: (sessionId, result) =>
-        this.ports.sealedRefreshPolicy.recordSessionMaterialRestored(sessionId, result),
+      recordSessionUseConsumed: (purpose, result) =>
+        this.ports.sealedRefreshPolicy.recordSessionUseConsumed(purpose, result),
+      recordSessionMaterialRestored: (purpose, result) =>
+        this.ports.sealedRefreshPolicy.recordSessionMaterialRestored(purpose, result),
     });
   }
 
