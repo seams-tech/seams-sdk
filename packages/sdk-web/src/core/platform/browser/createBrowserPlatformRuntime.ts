@@ -28,14 +28,12 @@ import {
 import { getPrfFirstB64uFromCredential } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
   clearThresholdEcdsaSessionRecordsForWalletTargetKeyHandle,
-  listThresholdEcdsaSessionRecordsForWalletTarget,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../../signingEngine/session/persistence/records';
 import {
   ecdsaRoleLocalReadyRecordMatchesInput,
   ecdsaRoleLocalReadyRecordStorageKey,
   parseEcdsaRoleLocalReadyRecord,
-  parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
   serializeEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
@@ -315,22 +313,6 @@ function createBrowserDurableRecordStore(
             };
           }
           return { ok: true, value: { kind: 'found', record: parsed } };
-        }
-        if (!ecdsaSessionStore) return { ok: true, value: { kind: 'not_found' } };
-        const candidates = listThresholdEcdsaSessionRecordsForWalletTarget(ecdsaSessionStore, {
-          walletId: input.walletId,
-          chainTarget: input.chainTarget,
-        });
-        for (const candidate of candidates) {
-          let parsed = null;
-          try {
-            parsed = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(candidate);
-          } catch {
-            continue;
-          }
-          if (ecdsaRoleLocalReadyRecordMatchesInput({ record: parsed, input })) {
-            return { ok: true, value: { kind: 'found', record: parsed } };
-          }
         }
         return { ok: true, value: { kind: 'not_found' } };
       } catch (error) {

@@ -3608,50 +3608,11 @@ const THRESHOLD_ECDSA_LOGIN_METADATA_SOURCES: readonly ThresholdEcdsaSessionStor
   'manual-bootstrap',
 ];
 
-function readThresholdEcdsaLoginMetadataRecords(
-  context: WalletSessionWebContext,
-  walletId: WalletId,
-): ThresholdEcdsaSessionRecord[] {
-  const allowedSources = new Set<ThresholdEcdsaSessionStoreSource>(
-    THRESHOLD_ECDSA_LOGIN_METADATA_SOURCES,
-  );
-  return listConfiguredThresholdEcdsaPublicationTargets(context.configs.network.chains).flatMap(
-    (target) =>
-      context.signingEngine
-        .listThresholdEcdsaSessionRecordsForWalletTarget({
-          walletId,
-          chainTarget: target.chainTarget,
-        })
-        .filter((record) => allowedSources.has(record.source)),
-  );
-}
-
 function normalizeEvmOwnerAddress(value: unknown): string {
   const candidate = String(value || '')
     .trim()
     .toLowerCase();
   return /^0x[0-9a-f]{40}$/.test(candidate) ? candidate : '';
-}
-
-function resolveUniqueThresholdEcdsaRecordAddress(args: {
-  walletId: WalletId;
-  records: readonly ThresholdEcdsaSessionRecord[];
-}): string | null {
-  const addresses = [
-    ...new Set(
-      args.records
-        .map((record) => normalizeEvmOwnerAddress(record.ethereumAddress))
-        .filter(Boolean),
-    ),
-  ];
-  if (addresses.length === 1) return addresses[0]!;
-  if (addresses.length > 1) {
-    console.warn('[WalletSession] conflicting threshold ECDSA record addresses', {
-      walletId: String(args.walletId),
-      addresses,
-    });
-  }
-  return null;
 }
 
 async function readProfileContinuityThresholdEcdsaWalletKeys(
@@ -3705,11 +3666,6 @@ async function resolveThresholdEcdsaEthereumAddress(
   context: WalletSessionWebContext,
   walletId: WalletId,
 ): Promise<string | null> {
-  const runtimeAddress = resolveUniqueThresholdEcdsaRecordAddress({
-    walletId,
-    records: readThresholdEcdsaLoginMetadataRecords(context, walletId),
-  });
-  if (runtimeAddress) return runtimeAddress;
   const profileAddress = await resolveProfileContinuityThresholdEcdsaEthereumAddress(
     context,
     walletId,
@@ -4520,17 +4476,6 @@ function resolveSessionExchangeRuntimeScope(
   };
 }
 
-function resolveThresholdEcdsaPublicKeyB64u(
-  context: WalletSessionWebContext,
-  walletId: WalletId,
-): string | null {
-  for (const record of readThresholdEcdsaLoginMetadataRecords(context, walletId)) {
-    const thresholdEcdsaPublicKeyB64u = String(record.thresholdEcdsaPublicKeyB64u || '').trim();
-    if (thresholdEcdsaPublicKeyB64u) return thresholdEcdsaPublicKeyB64u;
-  }
-  return null;
-}
-
 async function resolveProfileContinuityThresholdEcdsaPublicKeyB64u(
   context: WalletSessionWebContext,
   walletId: WalletId,
@@ -4562,8 +4507,7 @@ async function resolveThresholdEcdsaLoginMetadata(
   const [ethereumAddress, thresholdEcdsaPublicKeyB64u] = await Promise.all([
     resolveThresholdEcdsaEthereumAddress(context, walletId),
     (async () =>
-      resolveThresholdEcdsaPublicKeyB64u(context, walletId) ||
-      (await resolveProfileContinuityThresholdEcdsaPublicKeyB64u(context, walletId)))(),
+      await resolveProfileContinuityThresholdEcdsaPublicKeyB64u(context, walletId))(),
   ]);
   return {
     ethereumAddress,
