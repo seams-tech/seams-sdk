@@ -126,20 +126,6 @@ function requireEvmSigningOperationId(operation: EvmFamilyThresholdEcdsaOperatio
   return operationId;
 }
 
-export function reusableEcdsaSigningAuthorizationFromWalletSessionJwt(
-  walletSessionJwt: string,
-): ReusableEcdsaSigningAuthorization {
-  const payload = decodeJwtPayloadRecord(walletSessionJwt);
-  const walletSessionId = parseWalletSessionId(payload?.walletSessionId);
-  if (!walletSessionId.ok) {
-    throw new Error('[multichain] ECDSA reusable Wallet Session id is required');
-  }
-  return {
-    kind: 'reusable_wallet_session',
-    wallet_session_id: walletSessionId.value,
-  };
-}
-
 function scheduleRouterAbEcdsaDerivationSigningRefill(args: {
   trigger: RouterAbEcdsaDerivationSigningRefillTrigger;
   loadedMaterial: LoadedRouterAbEcdsaDerivationSigningMaterialSource;

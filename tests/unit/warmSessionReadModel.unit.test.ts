@@ -255,12 +255,13 @@ test.describe('warmSessionReadModel', () => {
     ).toMatchObject({
       curve: 'ecdsa',
       // Transport identity is the runtime's; the bearer proof is the Wallet
-      // Session's. The two halves are read from their own owners.
+      // Session's. The two halves are read from their own owners, and no grant
+      // is carried: a grant is a distinct identity from a Wallet Session and
+      // the authorization boundary has none to give.
       walletId: String(runtime.walletId),
       chainTarget: runtime.chainTarget,
       relayerUrl: runtime.relayerUrl,
       walletSessionJwt: String(authorization.projection.walletSessionJwt),
-      signingGrantId: String(authorization.projection.walletSessionId),
       walletSessionJwtSource: 'ecdsa',
       signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
         'signing-session-seal-kek-2026-02-r1',

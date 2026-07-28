@@ -61,7 +61,6 @@ const validSession = {
   curve: 'ecdsa',
   auth: walletSessionAuth,
   thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
   remainingUses: 1,
   expiresAtMs: 1_900_000_000_000,
   signingMaterial,

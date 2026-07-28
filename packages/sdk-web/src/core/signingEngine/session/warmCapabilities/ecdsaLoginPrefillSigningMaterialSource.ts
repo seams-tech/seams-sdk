@@ -65,7 +65,6 @@ function loginPrefillSigningWalletSession(args: {
       credential: { kind: 'jwt', walletSessionJwt },
     },
     thresholdSessionId: args.runtime.sealedRecord.thresholdSessionId,
-    signingGrantId: String(args.authorization.walletSessionId),
     remainingUses: args.runtime.remainingUses,
     expiresAtMs: args.runtime.expiresAtMs,
     signingMaterial: buildRouterAbEcdsaDerivationSigningMaterialRef({
