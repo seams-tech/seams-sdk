@@ -180,13 +180,6 @@ export function makeRouterAbEcdsaDerivationNormalSigningStateFixture(
   return {
     kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
     scope: {
-      wallet_key_id:
-        input.walletKeyId ??
-        deriveEvmFamilySigningKeySlotId({
-          walletId: toWalletId(walletId),
-          signingRootId,
-          signingRootVersion,
-        }),
       wallet_id: walletId,
       ecdsa_threshold_key_id: input.ecdsaThresholdKeyId ?? 'ederivation-shared-key',
       signing_root_id: signingRootId,

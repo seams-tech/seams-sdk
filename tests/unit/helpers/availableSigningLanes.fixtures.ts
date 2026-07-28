@@ -12,10 +12,19 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toAccountId } from '@/core/types/accountIds';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSigningCapability';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseSeamsSessionId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import { WALLET_SESSION_AUTHORIZATION_RECORD_VERSION } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { buildWalletAuthAuthorityRefFixture } from './ecdsaMaterialRef.fixtures';
 import { parseRootShareEpoch, type RootShareEpoch } from '@shared/utils/domainIds';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
+  buildVerifiedEcdsaPublicFacts,
   deriveEvmFamilySigningKeySlotId,
   toRpId,
   type EvmFamilyEcdsaKeyHandle,
@@ -88,7 +97,6 @@ export function runtimeEcdsaRouterAbNormalSigningState(args: {
   return {
     kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
     scope: {
-      wallet_key_id: provisioningKeySlotId,
       wallet_id: args.key.walletId,
       ecdsa_threshold_key_id: args.key.ecdsaThresholdKeyId,
       signing_root_id: args.key.signingRootId,
@@ -123,6 +131,50 @@ function fixtureRootShareEpoch(value: string): RootShareEpoch {
     throw new Error(`invalid fixture activation epoch: ${value}`);
   }
   return parsed.value;
+}
+
+function requireAvailableLaneId<T>(result: { ok: true; value: T } | { ok: false }): T {
+  if (!result.ok) throw new Error('available-lane fixture id is invalid');
+  return result.value;
+}
+
+// Active reusable Wallet Session authorization for a runtime ECDSA lane.
+// Runtime state a durable record never carries, so the fixture supplies it.
+function availableLaneEcdsaAuthorization(args: {
+  thresholdSessionId: string;
+  remainingUses: number;
+  expiresAtMs: number;
+}): ActiveEvmFamilyWalletSessionAuthorization {
+  const walletSessionId = requireAvailableLaneId(
+    parseWalletSessionId(`available-lane-wallet-session:${args.thresholdSessionId}`),
+  );
+  const quotaId = requireAvailableLaneId(
+    parseMpcWalletSigningQuotaId(`available-lane-quota:${args.thresholdSessionId}`),
+  );
+  return {
+    kind: 'active_reusable_wallet_session_authorization',
+    projection: {
+      recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
+      walletId: toWalletId(AVAILABLE_LANES_WALLET_ID),
+      authorizationSessionId: requireAvailableLaneId(
+        parseSeamsSessionId(`available-lane-authorization-session:${args.thresholdSessionId}`),
+      ),
+      walletSessionId,
+      quotaId,
+      authMethod: 'passkey',
+      authority: buildWalletAuthAuthorityRefFixture({ walletId: AVAILABLE_LANES_WALLET_ID }),
+      expiresAtMs: args.expiresAtMs,
+      status: 'active',
+      walletSessionJwt: `fixture-wallet-session-jwt:${args.thresholdSessionId}` as never,
+    },
+    status: {
+      walletSessionId,
+      quotaId,
+      status: 'active',
+      remainingUses: args.remainingUses,
+      expiresAtMs: args.expiresAtMs,
+    },
+  };
 }
 
 export function runtimeEcdsaAvailableLaneRecord(args: {
@@ -160,10 +212,19 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
     }),
     keyHandle: args.keyHandle || (`ederivation-key-${keyId}` as EvmFamilyEcdsaKeyHandle),
     thresholdEcdsaPublicKeyB64u: AVAILABLE_LANES_ECDSA_PUBLIC_KEY_B64U,
+    verifiedPublicFacts: buildVerifiedEcdsaPublicFacts({
+      keyHandle: args.keyHandle || (`ederivation-key-${keyId}` as EvmFamilyEcdsaKeyHandle),
+      publicKeyB64u: AVAILABLE_LANES_ECDSA_PUBLIC_KEY_B64U,
+      participantIds: [1, 2],
+      thresholdOwnerAddress,
+    }),
     curve: 'ecdsa',
     chainTarget: args.chainTarget,
-    thresholdSessionId: args.thresholdSessionId,
-    signingGrantId: args.signingGrantId,
+    authorization: availableLaneEcdsaAuthorization({
+      thresholdSessionId: args.thresholdSessionId,
+      remainingUses: args.remainingUses ?? 3,
+      expiresAtMs: args.expiresAtMs ?? AVAILABLE_LANES_EXPIRES_AT_MS,
+    }),
     remainingUses: args.remainingUses ?? 3,
     expiresAtMs: args.expiresAtMs ?? AVAILABLE_LANES_EXPIRES_AT_MS,
     updatedAtMs: args.updatedAtMs ?? 700,
@@ -225,7 +286,9 @@ export async function readAvailableLanesFixture(args: {
           advisories.set(
             advisoryKey,
             args.warmEcdsaAdvisories?.get(advisoryKey) ||
-              args.warmStatusAdvisories?.get(record.thresholdSessionId) ||
+              args.warmStatusAdvisories?.get(
+                String(record.authorization.projection.walletSessionId),
+              ) ||
               null,
           );
         }
