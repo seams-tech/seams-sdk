@@ -52,7 +52,6 @@ import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/mater
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import {
   getStoredThresholdEd25519SessionRecordForAccount,
-  type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import {
@@ -147,7 +146,6 @@ import { isRetryableSealedRefreshCapabilityFetchError } from '@/core/signingEngi
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type {
   ProvisionWarmEd25519CapabilityResult,
-  WarmEcdsaSigningSessionStatus,
 } from '@/core/signingEngine/session/warmCapabilities/types';
 import {
   resolveEmailOtpEd25519YaoColdRecoveryV1,
@@ -184,8 +182,6 @@ import type {
   ReadAvailableSigningLanesInput,
   AvailableSigningLanes,
   SessionPublicDeps,
-  ThresholdEcdsaSessionRecord as SessionPublicThresholdEcdsaSessionRecord,
-  ListThresholdEcdsaSessionRecordsForWalletTargetInput,
 } from '@/core/signingEngine/session/public';
 import * as sessionPublic from '@/core/signingEngine/session/public';
 import {
@@ -206,6 +202,7 @@ import { createBrowserWarmSessionPublicDeps } from '../assembly/createBrowserWar
 import {
   createBrowserActiveEcdsaWalletSessionAuthorizationResolver,
   createBrowserSigningSurfaceEnginePorts,
+  listBrowserActiveEcdsaCapabilityManifestsForWallet,
   listBrowserEcdsaSigningCapabilitiesForWallet,
   type BrowserSigningSurfaceEnginePorts,
 } from '../assembly/browserSigningSurfaceAssembly';
@@ -390,7 +387,6 @@ export class BrowserSigningSurface {
     Promise<EmailOtpEd25519YaoSilentRecoveryResultV1>
   > = new Map();
   private readonly emailOtpSessions: EmailOtpWalletSessionCoordinator;
-  private readonly thresholdEcdsaSessionByLane: Map<string, ThresholdEcdsaSessionRecord>;
   private readonly thresholdEcdsaExportArtifactByLane: Map<
     string,
     ThresholdEcdsaCanonicalExportArtifact
@@ -467,9 +463,8 @@ export class BrowserSigningSurface {
     });
     this.signingRuntime = signingRuntime;
     runtimePortsForUiConfirm.current = signingRuntime.runtimePorts;
-    const ecdsaRoleLocalReadyRecordStore = signingRuntime.state.ecdsaSessions;
+    const ecdsaExportArtifactStore = signingRuntime.state.ecdsaSessions;
     this.runtimePorts = signingRuntime.runtimePorts;
-    this.thresholdEcdsaSessionByLane = signingRuntime.state.ecdsaSessions.recordsByLane;
     this.thresholdEcdsaExportArtifactByLane =
       signingRuntime.state.ecdsaSessions.exportArtifactsByLane;
     const stepUpRuntime = createBrowserStepUpRuntime({
@@ -484,6 +479,8 @@ export class BrowserSigningSurface {
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
       getWarmSigning: () => this.warmSigning,
       ensureSealedRefreshStartupParity: () => this.ensureSealedRefreshStartupParity(),
+      listActiveEcdsaCapabilityManifestsForWallet:
+        listBrowserActiveEcdsaCapabilityManifestsForWallet,
     });
     this.emailOtpSessions = stepUpRuntime.emailOtpSessions;
     this.touchConfirm = stepUpRuntime.touchConfirm;
@@ -492,7 +489,7 @@ export class BrowserSigningSurface {
       getEmailOtpWarmSessionStatus: (sessionId) =>
         this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
       signingSessionSeal: this.seamsWebConfigs.signing.sessionSeal,
-      ecdsaRoleLocalReadyRecords: ecdsaRoleLocalReadyRecordStore,
+      ecdsaExportArtifacts: ecdsaExportArtifactStore,
       resolveActiveEcdsaWalletSessionAuthorization:
         createBrowserActiveEcdsaWalletSessionAuthorizationResolver({
           seamsWebConfigs: this.seamsWebConfigs,
@@ -503,7 +500,6 @@ export class BrowserSigningSurface {
       seamsWebConfigs: this.seamsWebConfigs,
       touchConfirm: this.touchConfirm,
       emailOtpSessions: this.emailOtpSessions,
-      warmSigning: this.warmSigning,
       listEcdsaSigningCapabilitiesForWallet: (input) =>
         listBrowserEcdsaSigningCapabilitiesForWallet(
           {
@@ -514,7 +510,6 @@ export class BrowserSigningSurface {
         ),
     });
     this.emailOtpPublicDeps = {
-      ecdsaSessions: this.warmSigning.ecdsaSessions,
       relayerUrl: this.seamsWebConfigs.network.relayer?.url || '',
       shamirPrimeB64u: this.seamsWebConfigs.signing.sessionSeal?.shamirPrimeB64u || '',
       getSignerWorkerContext: () =>
@@ -1929,40 +1924,12 @@ export class BrowserSigningSurface {
 
 
 
-  clearAllThresholdEcdsaSessionRecords(): void {
-    sessionPublic.clearAllThresholdEcdsaSessionRecords(this.sessionPublicDeps);
-  }
-
   getWarmThresholdEd25519SessionStatus(
     nearAccountId: AccountId | string,
   ): Promise<SigningSessionStatus | null> {
     return warmCapabilitiesPublic.getWarmThresholdEd25519SessionStatus(
       this.warmCapabilitiesPublicDeps,
       toAccountId(nearAccountId),
-    );
-  }
-
-  getWarmThresholdEcdsaSessionStatus(
-    walletId: WalletId,
-    chainTarget: ThresholdEcdsaChainTarget,
-    thresholdSessionId: string,
-  ): Promise<WarmEcdsaSigningSessionStatus | null> {
-    return warmCapabilitiesPublic.getWarmThresholdEcdsaSessionStatus(
-      this.warmCapabilitiesPublicDeps,
-      walletId,
-      chainTarget,
-      thresholdSessionId,
-    );
-  }
-
-  listWarmThresholdEcdsaSessionStatuses(
-    walletId: WalletId,
-    chainTarget: ThresholdEcdsaChainTarget,
-  ): Promise<WarmEcdsaSigningSessionStatus[]> {
-    return warmCapabilitiesPublic.listWarmThresholdEcdsaSessionStatuses(
-      this.warmCapabilitiesPublicDeps,
-      walletId,
-      chainTarget,
     );
   }
 

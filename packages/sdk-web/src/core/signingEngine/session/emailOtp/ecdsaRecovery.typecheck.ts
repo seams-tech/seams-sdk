@@ -1,19 +1,11 @@
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { EmailOtpEcdsaSealedRecoveryRecord } from '../sealedRecovery/recoveryRecord';
 import type { EmailOtpEcdsaRestoreSource } from './ecdsaRecovery';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 
 declare const sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
-declare const ecdsaRecord: ThresholdEcdsaSessionRecord & {
-  source: 'email_otp';
-  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-  thresholdSessionKind: 'jwt';
-  signingRootVersion: string;
-  participantIds: [number, ...number[]];
-};
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
 const provisioningKeySlotId = deriveEvmFamilySigningKeySlotId({
@@ -45,32 +37,12 @@ void ({
 } satisfies EmailOtpEcdsaRestoreSource);
 
 void ({
-  kind: 'current_record_restore',
-  sealedRecord,
-  ecdsaRecord,
-  ...restoreSourceCommon,
-} satisfies EmailOtpEcdsaRestoreSource);
-
-const sealedSourceWithCurrentRecord = {
   kind: 'sealed_record_restore',
   sealedRecord,
-  ecdsaRecord,
   ...restoreSourceCommon,
-} as const;
-// @ts-expect-error sealed-source restore cannot carry current-record fallback bags.
-const invalidSealedSourceWithCurrentRecord: EmailOtpEcdsaRestoreSource =
-  sealedSourceWithCurrentRecord;
-void invalidSealedSourceWithCurrentRecord;
-
-const currentSourceWithoutCurrentRecord = {
-  kind: 'current_record_restore',
-  sealedRecord,
-  ...restoreSourceCommon,
-} as const;
-// @ts-expect-error current-source restore requires the current ECDSA record.
-const invalidCurrentSourceWithoutCurrentRecord: EmailOtpEcdsaRestoreSource =
-  currentSourceWithoutCurrentRecord;
-void invalidCurrentSourceWithoutCurrentRecord;
+  // @ts-expect-error sealed restore cannot carry a composite current-record fallback.
+  ecdsaRecord: {},
+} satisfies EmailOtpEcdsaRestoreSource);
 
 void ({
   kind: 'sealed_record_restore',

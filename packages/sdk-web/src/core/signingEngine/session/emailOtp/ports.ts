@@ -1,11 +1,7 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type {
-  listStoredThresholdEcdsaSessionRecordsForWallet,
-  ThresholdEcdsaSessionRecord,
-} from '@/core/signingEngine/session/persistence/records';
-import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
+import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type {
@@ -51,10 +47,9 @@ export type EmailOtpEcdsaSessionPorts = {
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     authorization: ActiveWalletSessionAuthorizationProjection;
   }>;
-  listThresholdEcdsaSessionRecordsForWallet: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
-  listActiveEcdsaSignersForWallet: (args: {
-    walletId: WalletId;
-  }) => Promise<readonly AccountSignerRecord[]>;
+  listActiveEcdsaCapabilityManifestsForWallet: (
+    walletId: WalletId,
+  ) => Promise<readonly ActiveEcdsaCapabilityManifest[]>;
 };
 
 export type EmailOtpSealedSessionStorePorts = {

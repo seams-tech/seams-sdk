@@ -8,7 +8,6 @@ import {
   type EcdsaExportMaterial,
 } from './ecdsaExportMaterial';
 import {
-  exportThresholdEcdsaKeyWithAuthorization,
   exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth,
   exportThresholdEcdsaKeyWithFreshPasskeyAuthorization,
   type EcdsaExportFlowDeps,
@@ -159,15 +158,12 @@ function emitEcdsaExportFailureDiagnostics(args: {
   error: unknown;
 }): void {
   const publicFacts = args.exportMaterial?.publicFacts || args.exportLane?.publicFacts;
-  const keyFingerprint =
-    args.exportMaterial?.kind === 'ready_threshold_ecdsa_export_material'
-      ? args.exportMaterial.evmFamilyKeyFingerprint
-      : args.exportLane
-        ? deriveEvmFamilyKeyFingerprintFromPublicFacts({
-            walletId: args.exportLane.key.walletId,
-            publicFacts: args.exportLane.publicFacts,
-          })
-        : undefined;
+  const keyFingerprint = args.exportLane
+    ? deriveEvmFamilyKeyFingerprintFromPublicFacts({
+        walletId: args.exportLane.key.walletId,
+        publicFacts: args.exportLane.publicFacts,
+      })
+    : undefined;
   try {
     console.warn('[SigningEngine][ecdsa-export][failure]', {
       operationId: args.flowId,
@@ -225,17 +221,8 @@ async function exportEcdsaKeypairWithFlowId(
         onEvent: args.options.onEvent,
       });
     }
-    return await exportThresholdEcdsaKeyWithAuthorization(deps.ecdsa, {
-      walletId,
-      material: exportMaterial,
-      exportLane,
-      options: {
-        variant: args.options.variant,
-        theme: args.options.theme,
-      },
-      flowId: args.flowId,
-      onEvent: args.options.onEvent,
-    });
+    exportMaterial satisfies never;
+    throw new Error('[SigningEngine][ecdsa-export] unsupported export material');
   } catch (error: unknown) {
     emitEcdsaExportFailureDiagnostics({
       input: args,

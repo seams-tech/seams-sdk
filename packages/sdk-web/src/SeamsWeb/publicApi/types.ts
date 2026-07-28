@@ -26,7 +26,6 @@ import type {
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type {
   ProvisionWarmEd25519CapabilityResult,
-  WarmEcdsaSigningSessionStatus,
 } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
@@ -87,13 +86,10 @@ import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccou
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type {
   AvailableSigningLanes,
-  ListThresholdEcdsaSessionRecordsForWalletTargetInput,
   ReadAvailableSigningLanesInput,
   DiscoverPersistedSessionsForWalletInput,
   DiscoverPersistedSessionsForWalletResult,
-  ThresholdEcdsaSessionRecord as SessionPublicThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/public';
-import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type {
   NearSignIntentRequest,
   NearSignIntentResult,

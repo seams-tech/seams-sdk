@@ -794,40 +794,6 @@ export type ClaimWarmSessionPrfArgs =
   | WalletScopedEd25519WarmSessionPrfClaimArgs
   | WalletScopedEcdsaWarmSessionPrfClaimArgs;
 
-export type WarmEcdsaRecordBackedSigningSessionStatus = SigningSessionStatus & {
-  key: EvmFamilyEcdsaKeyIdentity;
-  // Null when no active reusable Wallet Session authorization exists for the
-  // wallet: a SelectedEcdsaLane embeds that authorization by construction.
-  lane: SelectedEcdsaLane | null;
-  chainTarget: ThresholdEcdsaChainTarget;
-  source: ThresholdEcdsaSessionStoreSource;
-  signingGrantId: string;
-};
-
-export type WarmEcdsaMissingSigningSessionStatus = SigningSessionStatus & {
-  status: 'not_found';
-  chainTarget: ThresholdEcdsaChainTarget;
-  source?: never;
-  signingGrantId?: never;
-};
-
-export type WarmEcdsaSigningSessionStatus =
-  | WarmEcdsaRecordBackedSigningSessionStatus
-  | WarmEcdsaMissingSigningSessionStatus;
-
-export type WarmSessionEcdsaCapabilityRef = {
-  walletId: WalletId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  thresholdSessionId: string;
-};
-
-export type GetWarmEcdsaSigningSessionStatusArgs = Omit<
-  WarmSessionEcdsaCapabilityRef,
-  'thresholdSessionId'
-> & {
-  thresholdSessionId: string;
-};
-
 export type WarmSessionCapabilityReader = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
   getEd25519CapabilityForNearAccount: (
@@ -864,19 +830,6 @@ export type ThresholdWarmSessionStatusReader = {
     nearAccountId: AccountId;
     thresholdSessionId: string;
   }) => Promise<SigningSessionStatus | null>;
-  getEcdsaSigningSessionStatus: (
-    args: GetWarmEcdsaSigningSessionStatusArgs,
-  ) => Promise<WarmEcdsaSigningSessionStatus | null>;
-  listEcdsaSigningSessionStatuses: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-  }) => Promise<WarmEcdsaRecordBackedSigningSessionStatus[]>;
-  assertEcdsaSigningSessionReady: (
-    args: Omit<WarmSessionEcdsaCapabilityRef, 'thresholdSessionId'> & {
-      thresholdSessionId: unknown;
-      usesNeeded?: number;
-    },
-  ) => Promise<Extract<WarmSessionStatusResult, { ok: true }>>;
 };
 
 export type WarmSessionProvisioner = {

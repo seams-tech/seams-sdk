@@ -66,9 +66,7 @@ export type WarmSessionCapabilityReaderCoreDeps = {
   touchConfirm: WarmSessionReadPorts | null;
   statusReader: Pick<
     WarmSigningStatusReader,
-    | 'readWalletScopedClaimsForRecords'
-    | 'readEcdsaWarmSessionClaimForRecord'
-    | 'resolveExactEcdsaRecord'
+    'readEd25519WarmSessionClaim'
   >;
   signingSessionSeal: WarmSessionCapabilityReaderSeal;
   // Resolves the active reusable Wallet Session authorization for a wallet.
@@ -375,8 +373,8 @@ export function createWarmSessionCapabilityReaderCore(
     // read unconditionally, so a wallet with durable material and no active
     // Wallet Session reaches authorization_required instead of being gated out
     // by a material precondition.
-    const [claims, ecdsaAuthorization, evmResolution, tempoResolution] = await Promise.all([
-      deps.statusReader.readWalletScopedClaimsForRecords(records),
+    const [ed25519Claim, ecdsaAuthorization, evmResolution, tempoResolution] = await Promise.all([
+      deps.statusReader.readEd25519WarmSessionClaim(records.ed25519),
       resolveEcdsaAuthorizationForWallet(normalizedWalletId),
       resolveActiveEcdsaCapabilityRuntimeForChain({
         walletId: normalizedWalletId,
@@ -387,8 +385,6 @@ export function createWarmSessionCapabilityReaderCore(
         chain: 'tempo',
       }),
     ]);
-    const { ed25519Claim } = claims;
-
     return assertWarmSessionEnvelopeInvariant({
       walletId: normalizedWalletId,
       capabilities: {

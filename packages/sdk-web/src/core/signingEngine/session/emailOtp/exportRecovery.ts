@@ -16,7 +16,6 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import type {
   EmailOtpEcdsaExportAuthLane,
-  EmailOtpEcdsaExportSessionRecord,
   EmailOtpEcdsaPublicReauthExportAuthority,
 } from '../../flows/recovery/ecdsaExportMaterial';
 import {
@@ -31,10 +30,6 @@ import {
   type EmailOtpRoutePlan,
   type EmailOtpSigningSessionAuthLane,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
-import {
-  emailOtpAuthContextEmailHashHex,
-  emailOtpAuthContextProviderUserId,
-} from '../identity/laneIdentity';
 import type { RequestEmailOtpChallengeArgs } from './exportRecoveryRuntime';
 import type {
   EmailOtpThresholdEcdsaExportPreparation,
@@ -93,31 +88,6 @@ function requireProvidedEmailOtpSigningSessionAuthLane(args: {
 // The export operation is authorized by the discriminated branch and bound to
 // the exact material activation. The record supplies transport only, so the
 // check is that the route auth was derived from this very record's material.
-function requireEmailOtpEcdsaExportRuntimePolicyScope(
-  record: EmailOtpEcdsaExportSessionRecord,
-): ThresholdRuntimePolicyScope {
-  const scope = record.runtimePolicyScope;
-  if (!scope) {
-    throw new Error('Email OTP ECDSA export requires runtime policy scope');
-  }
-  return scope;
-}
-
-function assertEmailOtpEcdsaExportAuthorizationMatchesRecord(args: {
-  record: EmailOtpEcdsaExportSessionRecord;
-  authLane: EmailOtpEcdsaExportAuthLane;
-  materialActivationId: string;
-}): void {
-  if (String(args.record.materialActivation.activationId) !== args.materialActivationId) {
-    throw new Error(
-      'Email OTP ECDSA export record does not carry the authorized material activation',
-    );
-  }
-  if (!String(args.authLane.jwt || '').trim()) {
-    throw new Error('Email OTP ECDSA export auth lane is missing route authorization');
-  }
-}
-
 async function requestEmailOtpChallengeWithRoutePlan(
   ports: Pick<EmailOtpWorkerPorts, 'getSignerWorkerContext' | 'requireRelayUrl'>,
   args:
@@ -311,55 +281,6 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
         capability: args.capability,
       },
     },
-  });
-}
-
-export async function exportEcdsaKeyWithAuthorization(
-  ports: Pick<
-    EmailOtpWorkerPorts,
-    | 'getSignerWorkerContext'
-    | 'requireRelayUrl'
-    | 'requireShamirPrimeB64u'
-    | 'buildSigningSessionRoutePlan'
-  >,
-  args: {
-    walletSession: WalletSessionRef;
-    challengeId: string;
-    otpCode: string;
-    record: EmailOtpEcdsaExportSessionRecord;
-    authLane: EmailOtpEcdsaExportAuthLane;
-    materialActivationId: string;
-    prepareEcdsaExportCapability: EmailOtpEcdsaExportLogin;
-  },
-): Promise<EmailOtpEcdsaExportArtifact> {
-  assertEmailOtpEcdsaExportAuthorizationMatchesRecord({
-    record: args.record,
-    authLane: args.authLane,
-    materialActivationId: args.materialActivationId,
-  });
-  const record = args.record;
-  if (!record.emailOtpAuthContext) {
-    throw new Error('Email OTP ECDSA export requires Email OTP record authority');
-  }
-  const routePlan = ports.buildSigningSessionRoutePlan({
-    authLane: args.authLane,
-    operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
-  });
-  return await exportEcdsaKeyWithFreshLoginAuthorization({
-    walletSession: args.walletSession,
-    authority: record.authority,
-    chainTarget: record.chainTarget,
-    challengeId: args.challengeId,
-    otpCode: args.otpCode,
-    routePlan,
-    keyHandle: record.keyHandle,
-    participantIds: record.participantIds.map(Number),
-    emailHashHex: emailOtpAuthContextEmailHashHex(record.emailOtpAuthContext),
-    providerUserId: emailOtpAuthContextProviderUserId(record.emailOtpAuthContext),
-    runtimePolicyScope: requireEmailOtpEcdsaExportRuntimePolicyScope(record),
-    relayUrl: String(record.relayerUrl || ports.requireRelayUrl()).trim(),
-    getSignerWorkerContext: ports.getSignerWorkerContext,
-    prepareEcdsaExportCapability: args.prepareEcdsaExportCapability,
   });
 }
 

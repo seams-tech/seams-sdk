@@ -41,7 +41,6 @@ import { EmailOtpEcdsaLifecycleRuntime } from './ecdsaLifecycleRuntime';
 import {
   EmailOtpExportRecoveryRuntime,
   type EmailOtpEcdsaExportArtifact,
-  type ExportEcdsaKeyWithAuthorizationArgs,
   type ExportEcdsaKeyWithDurableAuthorizationArgs,
   type ExportEd25519YaoSeedWithFreshEmailOtpLaneArgs,
   type RequestEmailOtpChallengeArgs,
@@ -94,8 +93,8 @@ export class EmailOtpWalletSessionRuntime {
       configs: deps.configs,
       getSignerWorkerContext: deps.getSignerWorkerContext,
       commitEvmFamilyThresholdEcdsaSessions: deps.commitEvmFamilyThresholdEcdsaSessions,
-      listThresholdEcdsaSessionRecordsForWallet: deps.listThresholdEcdsaSessionRecordsForWallet,
-      listActiveEcdsaSignersForWallet: deps.listActiveEcdsaSignersForWallet,
+      listActiveEcdsaCapabilityManifestsForWallet:
+        deps.listActiveEcdsaCapabilityManifestsForWallet,
       writeExactSealedSession: deps.writeExactSealedSession,
       readExactSealedSession: deps.readExactSealedSession,
       clearEcdsaRestoreCaches: () => this.clearEcdsaRestoreCaches(),
@@ -278,12 +277,6 @@ export class EmailOtpWalletSessionRuntime {
       chain: args.chain,
       appSessionJwt,
     });
-  }
-
-  async exportEcdsaKeyWithAuthorization(
-    args: ExportEcdsaKeyWithAuthorizationArgs,
-  ): Promise<EmailOtpEcdsaExportArtifact> {
-    return await this.exportRecoveryRuntime.exportEcdsaKeyWithAuthorization(args);
   }
 
   async exportEcdsaKeyWithDurableAuthorization(

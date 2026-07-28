@@ -15,6 +15,7 @@ import type {
   RouterAbEd25519YaoLifecycleScopeV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
+import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 export type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
@@ -68,23 +69,30 @@ export type WarmSessionSealTransportInput =
   | (EmailOtpWarmSessionSealTransportCommon & {
       curve: 'ed25519';
       authMethod: 'email_otp';
+      ecdsaRestore?: never;
       emailOtpRestore?: never;
     })
   | (PasskeyWarmSessionSealTransportCommon & {
       curve: 'ed25519';
       authMethod?: 'passkey';
+      ecdsaRestore?: never;
       emailOtpRestore?: never;
     })
   | (EmailOtpWarmSessionSealTransportCommon & {
       curve: 'ecdsa';
       authMethod: 'email_otp';
       chainTarget: ThresholdEcdsaChainTarget;
+      ecdsaRestore?: never;
       emailOtpRestore?: never;
     })
   | (PasskeyWarmSessionSealTransportCommon & {
       curve: 'ecdsa';
       authMethod?: 'passkey';
       chainTarget: ThresholdEcdsaChainTarget;
+      ecdsaRestore?: Exclude<
+        SealedSigningSessionEcdsaRestoreMetadata,
+        { source: 'email_otp' }
+      >;
       emailOtpRestore?: never;
     });
 

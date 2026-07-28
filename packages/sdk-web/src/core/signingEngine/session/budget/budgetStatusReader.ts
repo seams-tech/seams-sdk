@@ -19,9 +19,7 @@ export type WalletSigningBudgetAvailableStatusDeps = {
   ) => Promise<SigningSessionStatus | null>;
 };
 
-export type TrustedWalletSigningBudgetStatusDeps = {
-  ecdsaSessions?: unknown;
-};
+export type TrustedWalletSigningBudgetStatusDeps = Record<never, never>;
 
 type ThresholdScopedBudgetStatusAuth = {
   kind: 'threshold_scoped';

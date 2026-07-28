@@ -1,5 +1,7 @@
 import { KeyExportEventPhase } from '@/core/types/sdkSentEvents';
 import type { ThemeMode, WalletAuthCurve } from '@/core/types/seams';
+import type { VerifiedEcdsaPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
+import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import {
   walletSessionRefFromSession,
   type ThresholdEcdsaChainTarget,
@@ -12,16 +14,13 @@ import {
   ecdsaExportBoundaryChain,
   type EcdsaExportSessionStoreDeps,
   type EmailOtpEcdsaExportAuthLane,
-  type EmailOtpEcdsaExportSessionRecord,
   type ExactEcdsaExportLane,
   type FreshEmailOtpEcdsaExportMaterial,
   type FreshPasskeyEcdsaExportMaterial,
-  type ReadyEcdsaExportMaterial,
   resolveEcdsaExportMaterialForLane,
 } from './ecdsaExportMaterial';
 import {
   exportEcdsaDerivationKeyWithExplicitExportSession,
-  exportEcdsaDerivationKeyWithWalletSession,
 } from './ecdsaDerivationExport';
 import { buildEcdsaSessionPolicy } from '../../threshold/sessionPolicy';
 import { computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
@@ -63,13 +62,17 @@ export type EcdsaExportFlowDeps = {
   emailOtp: {
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
     requestPublicReauthExportChallenge: EmailOtpEcdsaExportAuthorizationDeps['requestPublicReauthExportChallenge'];
-    exportEcdsaKeyWithAuthorization: (args: {
+    exportEcdsaKeyWithDurableAuthorization: (args: {
       walletSession: ReturnType<typeof walletSessionRefFromSession>;
+      chainTarget: ThresholdEcdsaChainTarget;
       challengeId: string;
       otpCode: string;
-      record: EmailOtpEcdsaExportSessionRecord;
-      authLane: EmailOtpEcdsaExportAuthLane;
-      materialActivationId: string;
+      publicFacts: VerifiedEcdsaPublicFacts;
+      runtimePolicyScope: ThresholdRuntimePolicyScope;
+      signingSessionAuthority: Extract<
+        FreshEmailOtpEcdsaExportMaterial['authorization'],
+        { kind: 'wallet_session_authorized' }
+      >['signingSessionAuthority'];
     }) => Promise<EcdsaExportArtifact>;
     exportEcdsaKeyWithPublicReauthAuthorization: (args: {
       walletSession: ReturnType<typeof walletSessionRefFromSession>;
@@ -401,21 +404,12 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
   };
 }
 
-function requireEmailOtpEcdsaExportSessionRecordForReady(
-  record: ReadyEcdsaExportMaterial['record'],
-): EmailOtpEcdsaExportSessionRecord {
-  if (record.source === 'email_otp') return record;
-  throw new Error(
-    '[SigningEngine][ecdsa-export] ready Email OTP export requires an Email OTP record with runtimePolicyScope',
-  );
-}
-
 function emailOtpEcdsaExportChallengeAuthority(material: FreshEmailOtpEcdsaExportMaterial) {
   switch (material.authorization.kind) {
     case 'wallet_session_authorized':
       return {
         kind: 'signing_session' as const,
-        authLane: material.authorization.authLane,
+        authLane: material.authorization.signingSessionAuthority.authLane,
       };
     case 'public_reauth_authority_backed':
       return { kind: 'public_reauth' as const };
@@ -434,15 +428,14 @@ async function prepareFreshEmailOtpEcdsaExportArtifact(args: {
   });
   switch (args.material.authorization.kind) {
     case 'wallet_session_authorized':
-      return await args.deps.emailOtp.exportEcdsaKeyWithAuthorization({
+      return await args.deps.emailOtp.exportEcdsaKeyWithDurableAuthorization({
         walletSession,
+        chainTarget: args.material.chainTarget,
         challengeId: args.authorization.challengeId,
         otpCode: args.authorization.otpCode,
-        record: args.material.authorization.record,
-        authLane: args.material.authorization.authLane,
-        materialActivationId: String(
-          args.material.authorization.record.materialActivation.activationId,
-        ),
+        publicFacts: args.material.publicFacts,
+        runtimePolicyScope: args.material.runtimePolicyScope,
+        signingSessionAuthority: args.material.authorization.signingSessionAuthority,
       });
     case 'public_reauth_authority_backed':
       return await args.deps.emailOtp.exportEcdsaKeyWithPublicReauthAuthorization({
@@ -539,126 +532,6 @@ export async function exportThresholdEcdsaKeyWithFreshPasskeyAuthorization(
           walletSessionUserId: args.walletId,
           exportProvision: prepared.exportProvision,
           credential: prepared.credential,
-        },
-      ),
-  });
-}
-
-export async function exportThresholdEcdsaKeyWithAuthorization(
-  deps: EcdsaExportFlowDeps,
-  args: {
-    walletId: string;
-    material: ReadyEcdsaExportMaterial;
-    exportLane: ExactEcdsaExportLane;
-    options: EcdsaExportOptions;
-    flowId: string;
-    onEvent?: KeyExportEventCallback;
-  },
-): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes }> {
-  const exportChain = ecdsaExportBoundaryChain(args.exportLane);
-  const exportPublicKey =
-    String(args.material.cachedExportArtifact?.publicKeyHex || '').trim() ||
-    String(args.material.publicFacts.publicKeyB64u);
-  const cachedArtifact = args.material.cachedExportArtifact;
-
-  if (args.material.authMethod === 'email_otp') {
-    const readyAuthLane = args.material.authLane;
-    const authorization = await requestEmailOtpKeyExportAuthorization(
-      {
-        touchConfirm: deps.touchConfirm,
-        requestExportChallenge: deps.emailOtp.requestExportChallenge,
-        requestPublicReauthExportChallenge: deps.emailOtp.requestPublicReauthExportChallenge,
-      },
-      {
-        kind: 'wallet_session_export_auth',
-        walletSession: walletSessionRefFromSession({
-          walletId: args.walletId,
-          walletSessionUserId: args.walletId,
-        }),
-        chain: exportChain,
-        publicKey: exportPublicKey,
-        curve: 'ecdsa',
-        challengeAuthority: { kind: 'signing_session', authLane: readyAuthLane },
-      },
-    );
-    return await prepareAndShowEcdsaExportArtifact(deps, {
-      walletId: args.walletId,
-      exportLane: args.exportLane,
-      exportPublicKey,
-      options: args.options,
-      flowId: args.flowId,
-      onEvent: args.onEvent,
-      prepareArtifact: async () =>
-        await deps.emailOtp.exportEcdsaKeyWithAuthorization({
-          walletSession: walletSessionRefFromSession({
-            walletId: args.walletId,
-            walletSessionUserId: args.walletId,
-          }),
-          challengeId: authorization.challengeId,
-          otpCode: authorization.otpCode,
-          record: requireEmailOtpEcdsaExportSessionRecordForReady(args.material.record),
-          authLane: readyAuthLane,
-          materialActivationId: String(
-            args.material.laneIdentity.signer.materialActivation.activationId,
-          ),
-        }),
-    });
-  }
-
-
-  if (cachedArtifact) {
-    emitEcdsaMaterialStarted({
-      flowId: args.flowId,
-      walletId: args.walletId,
-      chain: exportChain,
-      onEvent: args.onEvent,
-    });
-    emitEcdsaMaterialSucceeded({
-      flowId: args.flowId,
-      walletId: args.walletId,
-      chain: exportChain,
-      source: 'cached',
-      onEvent: args.onEvent,
-    });
-    await showEcdsaExportArtifact(deps, {
-      walletId: args.walletId,
-      exportLane: args.exportLane,
-      artifact: cachedArtifact,
-      options: args.options,
-      flowId: args.flowId,
-      onEvent: args.onEvent,
-    });
-    return {
-      accountId: String(args.walletId),
-      exportedSchemes: ['secp256k1'],
-    };
-  }
-  const exportCredential = await requestThresholdEcdsaExportAuthorization(
-    { touchConfirm: deps.touchConfirm, theme: deps.theme },
-    {
-      walletSessionUserId: args.walletId,
-      publicKey: exportPublicKey,
-      chainTarget: args.exportLane.session.chainTarget,
-      flowId: args.flowId,
-      onEvent: args.onEvent,
-    },
-  );
-  return await prepareAndShowEcdsaExportArtifact(deps, {
-    walletId: args.walletId,
-    exportLane: args.exportLane,
-    exportPublicKey,
-    options: args.options,
-    flowId: args.flowId,
-    onEvent: args.onEvent,
-    prepareArtifact: async () =>
-      await exportEcdsaDerivationKeyWithWalletSession(
-        { getSignerWorkerContext: deps.getSignerWorkerContext },
-        {
-          walletSessionUserId: args.walletId,
-          signerSession: args.material.signerSession,
-          laneIdentity: args.material.laneIdentity,
-          record: args.material.record,
-          credential: exportCredential.credential,
         },
       ),
   });

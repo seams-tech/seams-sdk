@@ -27,10 +27,6 @@ import {
 } from '../../signingEngine/webauthnAuth/credentials/helpers';
 import { getPrfFirstB64uFromCredential } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
-  clearThresholdEcdsaSessionRecordsForWalletTargetKeyHandle,
-  type ThresholdEcdsaSessionStoreDeps,
-} from '../../signingEngine/session/persistence/records';
-import {
   ecdsaRoleLocalReadyRecordMatchesInput,
   ecdsaRoleLocalReadyRecordStorageKey,
   parseEcdsaRoleLocalReadyRecord,
@@ -83,7 +79,6 @@ type BrowserRuntimePortsDeps = {
   crypto?: Crypto;
   credentials?: CredentialsContainer;
   workerCtx?: WorkerOperationContext;
-  ecdsaSessionStore?: ThresholdEcdsaSessionStoreDeps;
   nowMs?: () => number;
 };
 
@@ -288,7 +283,6 @@ function parseRelayerPublicIdentity(input: unknown): BrowserRelayerPublicIdentit
 
 function createBrowserDurableRecordStore(
   indexedDB: typeof IndexedDBManager,
-  ecdsaSessionStore: ThresholdEcdsaSessionStoreDeps | undefined,
 ): BrowserDurableRecordStore {
   return {
     kind: 'durable_record_store',
@@ -358,13 +352,6 @@ function createBrowserDurableRecordStore(
     ): Promise<CleanupMalformedEcdsaRoleLocalRecordResult> {
       try {
         await indexedDB.setAppState(ecdsaRoleLocalReadyRecordStorageKey(input), null);
-        if (ecdsaSessionStore) {
-          clearThresholdEcdsaSessionRecordsForWalletTargetKeyHandle(ecdsaSessionStore, {
-            walletId: input.walletId,
-            chainTarget: input.chainTarget,
-            keyHandle: input.keyHandle,
-          });
-        }
         return { ok: true, value: { kind: 'deleted' } };
       } catch (error) {
         return {
@@ -865,7 +852,7 @@ export function createBrowserPlatformRuntime(
   const indexedDB = deps.indexedDB || IndexedDBManager;
   return {
     kind: 'browser',
-    storage: createBrowserDurableRecordStore(indexedDB, deps.ecdsaSessionStore),
+    storage: createBrowserDurableRecordStore(indexedDB),
     secrets: createBrowserSecureSecretStore(),
     authenticator: createBrowserAuthenticatorPort(
       deps.credentials || globalThis.navigator?.credentials,

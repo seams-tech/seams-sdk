@@ -1,90 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  assertThresholdSigningSessionReady,
   isThresholdSigningSessionReady,
   readThresholdSigningSessionReadiness,
-  THRESHOLD_SESSION_EXHAUSTED_ERROR,
-  THRESHOLD_SESSION_MISSING_ERROR,
 } from '@/core/signingEngine/session/warmCapabilities/thresholdSigningSessionReadiness';
 
-const EVM_CHAIN_TARGET = {
-  kind: 'evm',
-  namespace: 'eip155',
-  chainId: 1,
-  networkSlug: 'evm-1',
-} as const;
-
 test.describe('threshold signing session readiness', () => {
-  test('asserts ready when warm session cache is available', async () => {
-    const ready = await assertThresholdSigningSessionReady({
-      walletId: toWalletId('planner.testnet'),
-      chainTarget: EVM_CHAIN_TARGET,
-      sessionId: 'session-1',
-      usesNeeded: 2,
-      signingSessionCoordinator: {
-        assertEcdsaSigningSessionReady: async () => ({
-          ok: true,
-          remainingUses: 3,
-          expiresAtMs: Date.now() + 60_000,
-        }),
-      },
-    });
-
-    expect(ready.ok).toBe(true);
-    expect(ready.remainingUses).toBe(3);
-  });
-
-  test('fails with canonical missing-session error when sessionId is absent', async () => {
-    await expect(
-      assertThresholdSigningSessionReady({
-        walletId: toWalletId('planner.testnet'),
-        chainTarget: EVM_CHAIN_TARGET,
-        sessionId: '',
-        signingSessionCoordinator: {
-          assertEcdsaSigningSessionReady: async () => {
-            throw new Error('should not be called');
-          },
-        },
-      }),
-    ).rejects.toThrow(THRESHOLD_SESSION_MISSING_ERROR);
-  });
-
-  test('fails with canonical exhausted error when remaining uses are insufficient', async () => {
-    await expect(
-      assertThresholdSigningSessionReady({
-        walletId: toWalletId('planner.testnet'),
-        chainTarget: EVM_CHAIN_TARGET,
-        sessionId: 'session-1',
-        usesNeeded: 3,
-        signingSessionCoordinator: {
-          assertEcdsaSigningSessionReady: async () => {
-            throw new Error(THRESHOLD_SESSION_EXHAUSTED_ERROR);
-          },
-        },
-      }),
-    ).rejects.toThrow(THRESHOLD_SESSION_EXHAUSTED_ERROR);
-  });
-
-  test('normalizes cache miss errors to canonical reconnect message', async () => {
-    await expect(
-      assertThresholdSigningSessionReady({
-        walletId: toWalletId('planner.testnet'),
-        chainTarget: EVM_CHAIN_TARGET,
-        sessionId: 'session-1',
-        signingSessionCoordinator: {
-          assertEcdsaSigningSessionReady: async () => {
-            throw new Error(
-              '[chains] threshold signingSession is not_found; reconnect threshold session before signing',
-            );
-          },
-        },
-      }),
-    ).rejects.toThrow(
-      '[chains] threshold signingSession is not_found; reconnect threshold session before signing',
-    );
-  });
-
   test('readiness helper is false when session id is blank', async () => {
     let statusReadCalls = 0;
     const ready = await isThresholdSigningSessionReady({

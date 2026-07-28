@@ -277,9 +277,8 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
         chainTarget,
         runtimePolicyScope: registrationInput.runtimePolicyScope,
         keyHandle: registrationKeyHandle,
-        listThresholdEcdsaSessionRecordsForWallet:
-          publicationPorts.listThresholdEcdsaSessionRecordsForWallet,
-        listActiveEcdsaSignersForWallet: publicationPorts.listActiveEcdsaSignersForWallet,
+        listActiveEcdsaCapabilityManifestsForWallet:
+          publicationPorts.listActiveEcdsaCapabilityManifestsForWallet,
       })
     : null;
   if (registrationKeyHandle && !existingKey) {

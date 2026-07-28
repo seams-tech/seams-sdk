@@ -145,7 +145,6 @@ export class EmailOtpSealedRestoreOrchestrator {
       const restored = await this.ports
         .restoreEcdsaSigningSessionMaterialFromSealedRecord({
           sealedRecord,
-          ecdsaRecord: null,
         })
         .catch((error) => {
           console.warn('[EmailOtpSession] sealed refresh restore failed', {
@@ -358,7 +357,6 @@ export class EmailOtpSealedRestoreOrchestrator {
     const task = (async () => {
       const restored = await this.ports.restoreEcdsaSigningSessionMaterialFromSealedRecord({
         sealedRecord: args.record,
-        ecdsaRecord: null,
       });
       if (restored) {
         await this.ports.recordSessionMaterialRestored(
