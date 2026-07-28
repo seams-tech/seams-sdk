@@ -413,7 +413,6 @@ export type ReadyEvmFamilyEcdsaMaterial = {
   kind: 'ready_evm_family_ecdsa_material';
   key: EvmFamilyEcdsaKeyIdentity;
   lane: EvmFamilyEcdsaSessionLane;
-  record: ThresholdEcdsaSessionRecord;
   signingKeyContext: ReadyEvmFamilyEcdsaSigningKeyContext;
   cachedExportArtifact: ThresholdEcdsaCanonicalExportArtifact | null;
   keyRef?: never;
@@ -563,22 +562,6 @@ export type BuildEvmFamilyEcdsaSessionLanePolicyInput = {
   ttlMs: unknown;
   remainingUses: unknown;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-};
-
-export type ResolveReadyEvmFamilyEcdsaMaterialInput = {
-  record: ThresholdEcdsaSessionRecord | null;
-  keyRef?: never;
-  expected: {
-    walletId: WalletId | string;
-    materialActivation: MpcMaterialActivationRef;
-    chainTarget: ThresholdEcdsaChainTarget;
-    authMethod: EvmFamilyEcdsaAuthMethod;
-    source: ThresholdEcdsaSessionStoreSource;
-    thresholdSessionId: ThresholdEcdsaSessionId | string;
-    signingGrantId: SigningGrantId | string;
-  };
-  cachedExportArtifact?: ThresholdEcdsaCanonicalExportArtifact | null;
-  nowMs?: number;
 };
 
 function requiredString(value: unknown, field: string): string {
@@ -1375,42 +1358,6 @@ function buildThresholdEcdsaBackendBindingFromSessionRecord(
   };
 }
 
-export function buildReadyEcdsaSignerSessionFromReadyMaterial(args: {
-  material: ReadyEvmFamilyEcdsaMaterial;
-  publicFacts: VerifiedEcdsaPublicFacts;
-}): ReadyEcdsaSignerSession {
-  const keyRef = buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord({
-    record: args.material.record,
-    ...(args.material.cachedExportArtifact
-      ? { exportArtifact: args.material.cachedExportArtifact }
-      : {}),
-  });
-  if (args.material.lane.walletSessionAuth.kind !== 'wallet_session_jwt') {
-    throw new Error(
-      '[evm-family-ecdsa] Router A/B ECDSA derivation signing requires bearer Wallet Session auth',
-    );
-  }
-  return buildReadyEcdsaSignerSession({
-    keyRef,
-    materialActivation: args.material.record.materialActivation,
-    publicFacts: args.publicFacts,
-    sessionPolicy: buildKnownReadyThresholdEcdsaSessionPolicy({
-      remainingUses: args.material.lane.remainingUses,
-      expiresAtMs: args.material.lane.expiresAtMs,
-    }),
-    walletSessionJwt: args.material.lane.walletSessionAuth.walletSessionJwt,
-  });
-}
-
-export async function toReadyEcdsaSignerSessionFromReadyMaterial(args: {
-  material: ReadyEvmFamilyEcdsaMaterial;
-}): Promise<ReadyEcdsaSignerSession> {
-  return buildReadyEcdsaSignerSessionFromReadyMaterial({
-    material: args.material,
-    publicFacts: await toVerifiedEcdsaPublicFactsFromReadyMaterial({ material: args.material }),
-  });
-}
-
 export async function toVerifiedEcdsaPublicFactsFromServerRecord(
   record: EvmFamilyEcdsaPublicFactsRecord,
 ): Promise<VerifiedEcdsaPublicFacts> {
@@ -1465,12 +1412,6 @@ export async function toVerifiedEcdsaPublicFactsFromPairedRecordAndKeyRef(args: 
     context: args.context,
   });
   return recordFacts;
-}
-
-export async function toVerifiedEcdsaPublicFactsFromReadyMaterial(args: {
-  material: ReadyEvmFamilyEcdsaMaterial;
-}): Promise<VerifiedEcdsaPublicFacts> {
-  return toVerifiedEcdsaPublicFactsFromRecord({ record: args.material.record });
 }
 
 export async function toVerifiedEcdsaPublicFactsFromDurableRecord(args: {
@@ -1640,131 +1581,4 @@ export function deriveEvmFamilyKeyFingerprintFromRecordPublicFacts(args: {
       thresholdOwnerAddress: args.record.ethereumAddress,
     }),
   });
-}
-
-export function resolveReadyEvmFamilyEcdsaMaterial(
-  input: ResolveReadyEvmFamilyEcdsaMaterialInput,
-): EvmFamilyEcdsaMaterialResolution {
-  const expectedThresholdSessionId = SigningSessionIds.thresholdEcdsaSession(
-    input.expected.thresholdSessionId,
-  );
-  const expectedSigningGrantId = SigningSessionIds.signingGrant(input.expected.signingGrantId);
-  if (!input.record) {
-    return { kind: 'missing', reason: staleReason('invalid_identity') };
-  }
-
-  let recordKey: EvmFamilyEcdsaKeyIdentity;
-  try {
-    recordKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
-      record: input.record,
-    });
-  } catch {
-    return { kind: 'identity_mismatch', reason: staleReason('invalid_identity') };
-  }
-
-  const expectedWalletId = toWalletId(input.expected.walletId);
-  if (String(recordKey.walletId) !== String(expectedWalletId)) {
-    return {
-      kind: 'identity_mismatch',
-      reason: mismatch('wallet_mismatch', 'walletId', expectedWalletId, recordKey.walletId),
-    };
-  }
-  if (!mpcMaterialActivationRefsEqual(input.record.materialActivation, input.expected.materialActivation)) {
-    return {
-      kind: 'identity_mismatch',
-      reason: mismatch(
-        'material_activation_mismatch',
-        'materialActivation',
-        input.expected.materialActivation.activationId,
-        input.record.materialActivation.activationId,
-      ),
-    };
-  }
-  if (!thresholdEcdsaChainTargetsEqual(input.record.chainTarget, input.expected.chainTarget)) {
-    return {
-      kind: 'identity_mismatch',
-      reason: mismatch(
-        'chain_family_mismatch',
-        'chainTarget',
-        thresholdEcdsaChainTargetKey(input.expected.chainTarget),
-        thresholdEcdsaChainTargetKey(input.record.chainTarget),
-      ),
-    };
-  }
-  if (authMethodForRecord(input.record) !== input.expected.authMethod) {
-    return {
-      kind: 'identity_mismatch',
-      reason: mismatch(
-        'auth_method_mismatch',
-        'authMethod',
-        input.expected.authMethod,
-        authMethodForRecord(input.record),
-      ),
-    };
-  }
-  if (
-    String(input.record.thresholdSessionId) !== String(expectedThresholdSessionId) ||
-    String(input.record.signingGrantId) !== String(expectedSigningGrantId)
-  ) {
-    return {
-      kind: 'identity_mismatch',
-      reason: mismatch(
-        'session_identity_mismatch',
-        'sessionIdentity',
-        `${String(expectedSigningGrantId)}:${String(expectedThresholdSessionId)}`,
-        `${String(input.record.signingGrantId)}:${String(input.record.thresholdSessionId)}`,
-      ),
-    };
-  }
-
-  const nowMs = Math.floor(Number(input.nowMs) || Date.now());
-  if (input.record.remainingUses <= 0) {
-    return { kind: 'stale', reason: staleReason('exhausted') };
-  }
-  if (input.record.expiresAtMs > 0 && input.record.expiresAtMs <= nowMs) {
-    return { kind: 'stale', reason: staleReason('expired') };
-  }
-  if (!hasReadyThresholdEcdsaRecordClientShare(input.record)) {
-    return { kind: 'stale', reason: staleReason('auth_missing') };
-  }
-  const workerMaterial = classifyRouterAbEcdsaDerivationPersistedSigningRecord(input.record);
-  if (workerMaterial.kind !== 'runtime_validated') {
-    return { kind: 'stale', reason: staleReason('auth_missing') };
-  }
-
-  let lane: EvmFamilyEcdsaSessionLane;
-  try {
-    lane = buildEvmFamilyEcdsaSessionLane({
-      key: recordKey,
-      materialActivation: input.record.materialActivation,
-      chainTarget: input.expected.chainTarget,
-      authMethod: input.expected.authMethod,
-      source: input.expected.source,
-      thresholdSessionId: expectedThresholdSessionId,
-      signingGrantId: expectedSigningGrantId,
-      walletSessionAuth: {
-        kind: 'wallet_session_jwt',
-        walletSessionJwt: workerMaterial.value.auth.walletSessionJwt,
-      },
-      remainingUses: input.record.remainingUses,
-      expiresAtMs: input.record.expiresAtMs,
-    });
-  } catch {
-    return { kind: 'stale', reason: staleReason('auth_missing') };
-  }
-
-  return {
-    kind: 'ready',
-    material: {
-      kind: 'ready_evm_family_ecdsa_material',
-      key: recordKey,
-      lane,
-      record: input.record,
-      signingKeyContext: {
-        ecdsaThresholdKeyId: recordKey.ecdsaThresholdKeyId,
-        participantIds: recordKey.participantIds,
-      },
-      cachedExportArtifact: input.cachedExportArtifact || null,
-    },
-  };
 }
