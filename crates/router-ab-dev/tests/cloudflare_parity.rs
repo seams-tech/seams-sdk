@@ -309,7 +309,7 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     signing_worker.assert_wrangler_absent("ROUTER_AB_WORKER_ROLE");
     signing_worker.assert_wrangler_absent("ROUTER_AB_ROUTE_PROFILE");
     signing_worker.assert_wrangler(
-        "SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING = \"SIGNING_WORKER_SERVER_OUTPUT_DO\"",
+        "SIGNING_WORKER_PRESIGN_SESSION_DO_BINDING = \"SIGNING_WORKER_PRESIGN_SESSION_DO\"",
     );
     signing_worker.assert_wrangler(
         "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING = \"SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY\"",

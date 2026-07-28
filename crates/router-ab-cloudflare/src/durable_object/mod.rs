@@ -12,8 +12,6 @@ use router_ab_core::{
     RouterAbProtocolResult,
 };
 use router_ab_ed25519_yao::Ed25519YaoSigningWorkerActivationReceiptV1;
-#[cfg(feature = "workers-rs")]
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "workers-rs")]
 use wasm_bindgen as _;
@@ -32,23 +30,6 @@ use crate::{
     CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1,
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1, CloudflareWorkerRoleV1,
 };
-#[cfg(feature = "workers-rs")]
-use crate::{
-    DERIVER_A_ROOT_SHARE_DO_BINDING_ENV, DERIVER_A_ROOT_SHARE_DO_KEY_PREFIX_ENV,
-    DERIVER_A_ROOT_SHARE_DO_OBJECT_ENV, DERIVER_B_ROOT_SHARE_DO_BINDING_ENV,
-    DERIVER_B_ROOT_SHARE_DO_KEY_PREFIX_ENV, DERIVER_B_ROOT_SHARE_DO_OBJECT_ENV,
-    ROUTER_ABUSE_DO_BINDING_ENV, ROUTER_ABUSE_DO_KEY_PREFIX_ENV, ROUTER_ABUSE_DO_OBJECT_ENV,
-    ROUTER_LIFECYCLE_DO_BINDING_ENV, ROUTER_LIFECYCLE_DO_KEY_PREFIX_ENV,
-    ROUTER_LIFECYCLE_DO_OBJECT_ENV, ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV,
-    ROUTER_PROJECT_POLICY_DO_BINDING_ENV, ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV,
-    ROUTER_PROJECT_POLICY_DO_OBJECT_ENV, ROUTER_QUOTA_DO_BINDING_ENV,
-    ROUTER_QUOTA_DO_KEY_PREFIX_ENV, ROUTER_QUOTA_DO_OBJECT_ENV, ROUTER_REPLAY_DO_BINDING_ENV,
-    ROUTER_REPLAY_DO_KEY_PREFIX_ENV, ROUTER_REPLAY_DO_OBJECT_ENV,
-    ROUTER_WALLET_BUDGET_DO_BINDING_ENV, ROUTER_WALLET_BUDGET_DO_KEY_PREFIX_ENV,
-    ROUTER_WALLET_BUDGET_DO_OBJECT_ENV, SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING_ENV,
-    SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX_ENV, SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT_ENV,
-};
-
 #[cfg(feature = "workers-rs")]
 mod ecdsa_presign_live_session;
 mod handlers;
@@ -69,301 +50,28 @@ pub use handlers::handle_cloudflare_durable_object_call_v1;
 pub use memory_storage::CloudflareDurableObjectMemoryStorageV1;
 #[cfg(feature = "workers-rs")]
 pub(crate) use worker_storage::execute_cloudflare_durable_object_custom_json_call_v1;
-#[cfg(feature = "workers-rs")]
-use worker_storage::{
-    cloudflare_durable_object_class_binding_v1, handle_cloudflare_durable_object_class_fetch_v1,
-    handle_cloudflare_project_policy_durable_object_class_fetch_v1,
-    handle_cloudflare_signing_worker_ecdsa_pool_alarm_v1,
-};
-#[cfg(feature = "workers-rs")]
-pub use worker_storage::{
-    execute_cloudflare_durable_object_call_v1, handle_cloudflare_durable_object_fetch_v1,
-    handle_cloudflare_durable_object_worker_request_v1,
-};
-
 /// Version label for the Router/A/B Cloudflare Durable Object API.
 pub const CLOUDFLARE_DURABLE_OBJECT_API_VERSION: &str = "router-ab-cloudflare-do";
 
-/// Router replay/idempotency Durable Object class.
+/// Ephemeral SigningWorker ECDSA presign rendezvous.
 #[cfg(feature = "workers-rs")]
 #[worker::durable_object(fetch)]
-pub struct RouterAbRouterReplayDurableObject {
-    state: worker::State,
-    env: worker::Env,
-}
-
-#[cfg(feature = "workers-rs")]
-impl worker::DurableObject for RouterAbRouterReplayDurableObject {
-    fn new(state: worker::State, env: worker::Env) -> Self {
-        Self { state, env }
-    }
-
-    async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
-        handle_cloudflare_durable_object_class_fetch_v1(
-            CloudflareDurableObjectScopeV1::RouterReplay,
-            ROUTER_REPLAY_DO_BINDING_ENV,
-            ROUTER_REPLAY_DO_OBJECT_ENV,
-            ROUTER_REPLAY_DO_KEY_PREFIX_ENV,
-            &self.env,
-            &self.state,
-            request,
-        )
-        .await
-    }
-}
-
-/// Router public lifecycle Durable Object class.
-#[cfg(feature = "workers-rs")]
-#[worker::durable_object(fetch)]
-pub struct RouterAbRouterLifecycleDurableObject {
-    state: worker::State,
-    env: worker::Env,
-}
-
-#[cfg(feature = "workers-rs")]
-impl worker::DurableObject for RouterAbRouterLifecycleDurableObject {
-    fn new(state: worker::State, env: worker::Env) -> Self {
-        Self { state, env }
-    }
-
-    async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
-        handle_cloudflare_durable_object_class_fetch_v1(
-            CloudflareDurableObjectScopeV1::RouterLifecycle,
-            ROUTER_LIFECYCLE_DO_BINDING_ENV,
-            ROUTER_LIFECYCLE_DO_OBJECT_ENV,
-            ROUTER_LIFECYCLE_DO_KEY_PREFIX_ENV,
-            &self.env,
-            &self.state,
-            request,
-        )
-        .await
-    }
-}
-
-/// Router project-policy Durable Object class.
-#[cfg(feature = "workers-rs")]
-#[worker::durable_object(fetch)]
-pub struct RouterAbRouterProjectPolicyDurableObject {
-    state: worker::State,
-    env: worker::Env,
-}
-
-#[cfg(feature = "workers-rs")]
-impl worker::DurableObject for RouterAbRouterProjectPolicyDurableObject {
-    fn new(state: worker::State, env: worker::Env) -> Self {
-        Self { state, env }
-    }
-
-    async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
-        handle_cloudflare_project_policy_durable_object_class_fetch_v1(
-            CloudflareDurableObjectScopeV1::RouterProjectPolicy,
-            ROUTER_PROJECT_POLICY_DO_BINDING_ENV,
-            ROUTER_PROJECT_POLICY_DO_OBJECT_ENV,
-            ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV,
-            ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV,
-            &self.env,
-            &self.state,
-            request,
-        )
-        .await
-    }
-}
-
-/// Router quota Durable Object class.
-#[cfg(feature = "workers-rs")]
-#[worker::durable_object(fetch)]
-pub struct RouterAbRouterQuotaDurableObject {
-    state: worker::State,
-    env: worker::Env,
-}
-
-#[cfg(feature = "workers-rs")]
-impl worker::DurableObject for RouterAbRouterQuotaDurableObject {
-    fn new(state: worker::State, env: worker::Env) -> Self {
-        Self { state, env }
-    }
-
-    async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
-        handle_cloudflare_durable_object_class_fetch_v1(
-            CloudflareDurableObjectScopeV1::RouterQuota,
-            ROUTER_QUOTA_DO_BINDING_ENV,
-            ROUTER_QUOTA_DO_OBJECT_ENV,
-            ROUTER_QUOTA_DO_KEY_PREFIX_ENV,
-            &self.env,
-            &self.state,
-            request,
-        )
-        .await
-    }
-}
-
-/// Router abuse-control Durable Object class.
-#[cfg(feature = "workers-rs")]
-#[worker::durable_object(fetch)]
-pub struct RouterAbRouterAbuseDurableObject {
-    state: worker::State,
-    env: worker::Env,
-}
-
-#[cfg(feature = "workers-rs")]
-impl worker::DurableObject for RouterAbRouterAbuseDurableObject {
-    fn new(state: worker::State, env: worker::Env) -> Self {
-        Self { state, env }
-    }
-
-    async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
-        handle_cloudflare_durable_object_class_fetch_v1(
-            CloudflareDurableObjectScopeV1::RouterAbuse,
-            ROUTER_ABUSE_DO_BINDING_ENV,
-            ROUTER_ABUSE_DO_OBJECT_ENV,
-            ROUTER_ABUSE_DO_KEY_PREFIX_ENV,
-            &self.env,
-            &self.state,
-            request,
-        )
-        .await
-    }
-}
-
-/// Router Wallet Session budget Durable Object class.
-#[cfg(feature = "workers-rs")]
-#[worker::durable_object(fetch)]
-pub struct RouterAbRouterWalletBudgetDurableObject {
-    state: worker::State,
-    env: worker::Env,
-}
-
-#[cfg(feature = "workers-rs")]
-impl worker::DurableObject for RouterAbRouterWalletBudgetDurableObject {
-    fn new(state: worker::State, env: worker::Env) -> Self {
-        Self { state, env }
-    }
-
-    async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
-        handle_cloudflare_durable_object_class_fetch_v1(
-            CloudflareDurableObjectScopeV1::RouterWalletBudget,
-            ROUTER_WALLET_BUDGET_DO_BINDING_ENV,
-            ROUTER_WALLET_BUDGET_DO_OBJECT_ENV,
-            ROUTER_WALLET_BUDGET_DO_KEY_PREFIX_ENV,
-            &self.env,
-            &self.state,
-            request,
-        )
-        .await
-    }
-}
-
-/// Deriver A root-share Durable Object class.
-#[cfg(feature = "workers-rs")]
-#[worker::durable_object(fetch)]
-pub struct RouterAbDeriverARootShareDurableObject {
-    state: worker::State,
-    env: worker::Env,
-}
-
-#[cfg(feature = "workers-rs")]
-impl worker::DurableObject for RouterAbDeriverARootShareDurableObject {
-    fn new(state: worker::State, env: worker::Env) -> Self {
-        Self { state, env }
-    }
-
-    async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
-        handle_cloudflare_durable_object_class_fetch_v1(
-            CloudflareDurableObjectScopeV1::SignerRootShare {
-                role: Role::SignerA,
-            },
-            DERIVER_A_ROOT_SHARE_DO_BINDING_ENV,
-            DERIVER_A_ROOT_SHARE_DO_OBJECT_ENV,
-            DERIVER_A_ROOT_SHARE_DO_KEY_PREFIX_ENV,
-            &self.env,
-            &self.state,
-            request,
-        )
-        .await
-    }
-}
-
-/// SigningWorker server-output Durable Object class.
-#[cfg(feature = "workers-rs")]
-#[worker::durable_object(alarm)]
-pub struct RouterAbSigningWorkerServerOutputDurableObject {
-    state: worker::State,
-    env: worker::Env,
+pub struct RouterAbSigningWorkerPresignSessionDurableObject {
     ecdsa_presign_sessions: CloudflareSigningWorkerEcdsaPresignLiveSessionsV1,
 }
 
 #[cfg(feature = "workers-rs")]
-impl worker::DurableObject for RouterAbSigningWorkerServerOutputDurableObject {
-    fn new(state: worker::State, env: worker::Env) -> Self {
+impl worker::DurableObject for RouterAbSigningWorkerPresignSessionDurableObject {
+    fn new(_state: worker::State, _env: worker::Env) -> Self {
         Self {
-            state,
-            env,
             ecdsa_presign_sessions: Default::default(),
         }
     }
 
     async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
-        if matches!(
-            request.path().as_str(),
-            crate::CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_DO_INIT_PATH
-                | crate::CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_DO_STEP_PATH
-        ) {
-            return handle_cloudflare_signing_worker_ecdsa_presign_session_do_fetch_v1(
-                request,
-                &self.ecdsa_presign_sessions,
-            )
-            .await;
-        }
-        handle_cloudflare_durable_object_class_fetch_v1(
-            CloudflareDurableObjectScopeV1::signing_worker_server_output(),
-            SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING_ENV,
-            SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT_ENV,
-            SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX_ENV,
-            &self.env,
-            &self.state,
+        handle_cloudflare_signing_worker_ecdsa_presign_session_do_fetch_v1(
             request,
-        )
-        .await
-    }
-
-    async fn alarm(&self) -> worker::Result<worker::Response> {
-        let binding = cloudflare_durable_object_class_binding_v1(
-            CloudflareDurableObjectScopeV1::signing_worker_server_output(),
-            SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING_ENV,
-            SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT_ENV,
-            SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX_ENV,
-            &self.env,
-        )
-        .map_err(|err| worker::Error::RustError(format!("{:?}: {}", err.code(), err.message())))?;
-        handle_cloudflare_signing_worker_ecdsa_pool_alarm_v1(&binding, &self.state.storage()).await
-    }
-}
-
-/// Deriver B root-share Durable Object class.
-#[cfg(feature = "workers-rs")]
-#[worker::durable_object(fetch)]
-pub struct RouterAbDeriverBRootShareDurableObject {
-    state: worker::State,
-    env: worker::Env,
-}
-
-#[cfg(feature = "workers-rs")]
-impl worker::DurableObject for RouterAbDeriverBRootShareDurableObject {
-    fn new(state: worker::State, env: worker::Env) -> Self {
-        Self { state, env }
-    }
-
-    async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
-        handle_cloudflare_durable_object_class_fetch_v1(
-            CloudflareDurableObjectScopeV1::SignerRootShare {
-                role: Role::SignerB,
-            },
-            DERIVER_B_ROOT_SHARE_DO_BINDING_ENV,
-            DERIVER_B_ROOT_SHARE_DO_OBJECT_ENV,
-            DERIVER_B_ROOT_SHARE_DO_KEY_PREFIX_ENV,
-            &self.env,
-            &self.state,
-            request,
+            &self.ecdsa_presign_sessions,
         )
         .await
     }
@@ -5548,193 +5256,6 @@ fn validate_lifecycle_state(state: &RouterAbLifecycleStateV1) -> RouterAbProtoco
 }
 
 #[cfg(feature = "workers-rs")]
-fn worker_role_for_durable_object_scope(
-    scope: CloudflareDurableObjectScopeV1,
-) -> RouterAbProtocolResult<CloudflareWorkerRoleV1> {
-    scope.validate()?;
-    match scope {
-        CloudflareDurableObjectScopeV1::RouterReplay
-        | CloudflareDurableObjectScopeV1::RouterLifecycle
-        | CloudflareDurableObjectScopeV1::RouterProjectPolicy
-        | CloudflareDurableObjectScopeV1::RouterQuota
-        | CloudflareDurableObjectScopeV1::RouterAbuse
-        | CloudflareDurableObjectScopeV1::RouterWalletBudget => Ok(CloudflareWorkerRoleV1::Router),
-        CloudflareDurableObjectScopeV1::SignerRootShare {
-            role: Role::SignerA,
-        } => Ok(CloudflareWorkerRoleV1::DeriverA),
-        CloudflareDurableObjectScopeV1::SignerRootShare {
-            role: Role::SignerB,
-        } => Ok(CloudflareWorkerRoleV1::DeriverB),
-        CloudflareDurableObjectScopeV1::ServerOutput {
-            owner_role: CloudflareWorkerRoleV1::SigningWorker,
-        } => Ok(CloudflareWorkerRoleV1::SigningWorker),
-        CloudflareDurableObjectScopeV1::SignerRootShare { role } => {
-            Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidRole,
-                format!(
-                    "no Router A/B Worker role can own Durable Object scope for {}",
-                    role.as_str()
-                ),
-            ))
-        }
-        CloudflareDurableObjectScopeV1::ServerOutput { owner_role } => {
-            Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidRole,
-                format!(
-                    "no Router A/B Worker role can own server-output Durable Object scope for {}",
-                    owner_role.as_str()
-                ),
-            ))
-        }
-    }
-}
-
-#[cfg(feature = "workers-rs")]
-async fn worker_storage_get<T>(
-    storage: &worker::Storage,
-    storage_key: &str,
-    operation_kind: CloudflareDurableObjectOperationKindV1,
-) -> RouterAbProtocolResult<Option<T>>
-where
-    T: DeserializeOwned,
-{
-    require_non_empty("storage_key", storage_key)?;
-    storage.get::<T>(storage_key).await.map_err(|err| {
-        worker_storage_error(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            operation_kind,
-            storage_key,
-            format!("Durable Object storage read failed: {err}"),
-        )
-    })
-}
-
-#[cfg(feature = "workers-rs")]
-async fn worker_storage_put<T>(
-    storage: &worker::Storage,
-    storage_key: &str,
-    value: T,
-    operation_kind: CloudflareDurableObjectOperationKindV1,
-) -> RouterAbProtocolResult<()>
-where
-    T: Serialize,
-{
-    require_non_empty("storage_key", storage_key)?;
-    storage.put(storage_key, value).await.map_err(|err| {
-        worker_storage_error(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            operation_kind,
-            storage_key,
-            format!("Durable Object storage write failed: {err}"),
-        )
-    })
-}
-
-#[cfg(feature = "workers-rs")]
-async fn worker_storage_cleanup_expired_values<T>(
-    storage: &worker::Storage,
-    storage_prefix: &str,
-    now_unix_ms: u64,
-    operation_kind: CloudflareDurableObjectOperationKindV1,
-    expires_at_ms: fn(&T) -> u64,
-) -> RouterAbProtocolResult<u64>
-where
-    T: DeserializeOwned,
-{
-    require_non_empty("storage_prefix", storage_prefix)?;
-    require_positive_ms("cleanup now_unix_ms", now_unix_ms)?;
-    let values = storage
-        .list_with_options(worker::ListOptions::new().prefix(storage_prefix))
-        .await
-        .map_err(|err| {
-            worker_storage_error(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                operation_kind,
-                storage_prefix,
-                format!("Durable Object storage list failed: {err}"),
-            )
-        })?;
-    let keys = worker::js_sys::Array::from(&values.keys());
-    let mut removed = 0u64;
-    for key in keys.iter() {
-        let storage_key = key.as_string().ok_or_else(|| {
-            worker_storage_error(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                operation_kind,
-                storage_prefix,
-                "Durable Object storage list returned a non-string key".to_owned(),
-            )
-        })?;
-        let Some(record) = worker_storage_get::<T>(storage, &storage_key, operation_kind).await?
-        else {
-            continue;
-        };
-        if expires_at_ms(&record) <= now_unix_ms {
-            worker_storage_delete(storage, &storage_key, operation_kind).await?;
-            removed += 1;
-        }
-    }
-    Ok(removed)
-}
-
-#[cfg(feature = "workers-rs")]
-fn cloudflare_replay_reservation_expires_at_ms_v1(
-    request: &CloudflareReplayReserveRequestV1,
-) -> u64 {
-    request.expires_at_ms
-}
-
-#[cfg(feature = "workers-rs")]
-fn cloudflare_quota_reservation_expires_at_ms_v1(
-    reservation: &CloudflareRouterQuotaReservationV1,
-) -> u64 {
-    reservation.expires_at_ms
-}
-
-#[cfg(feature = "workers-rs")]
-fn cloudflare_signing_worker_round1_expires_at_ms_v1(
-    record: &CloudflareSigningWorkerRound1RecordV1,
-) -> u64 {
-    record.expires_at_ms
-}
-
-#[cfg(feature = "workers-rs")]
-#[cfg(feature = "workers-rs")]
-async fn worker_storage_delete(
-    storage: &worker::Storage,
-    storage_key: &str,
-    operation_kind: CloudflareDurableObjectOperationKindV1,
-) -> RouterAbProtocolResult<()> {
-    require_non_empty("storage_key", storage_key)?;
-    storage.delete(storage_key).await.map_err(|err| {
-        worker_storage_error(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            operation_kind,
-            storage_key,
-            format!("Durable Object storage delete failed: {err}"),
-        )
-    })?;
-    Ok(())
-}
-
-#[cfg(feature = "workers-rs")]
-fn worker_storage_error(
-    code: RouterAbProtocolErrorCode,
-    operation_kind: CloudflareDurableObjectOperationKindV1,
-    storage_key: &str,
-    message: String,
-) -> RouterAbProtocolError {
-    RouterAbProtocolError::new(
-        code,
-        format!(
-            "{} storage key `{}` failed: {message}",
-            operation_kind.as_str(),
-            storage_key
-        ),
-    )
-}
-
-#[cfg(feature = "workers-rs")]
 fn durable_object_error_status(code: RouterAbProtocolErrorCode) -> u16 {
     match code {
         RouterAbProtocolErrorCode::ForbiddenLocalBinding
@@ -5779,23 +5300,6 @@ fn validate_base64url_fixed_len_v1(
         RouterAbProtocolErrorCode::MalformedWirePayload,
         format!("{field_name} must decode to {expected_len} bytes"),
     ))
-}
-
-#[cfg(feature = "workers-rs")]
-fn worker_do_error(
-    code: RouterAbProtocolErrorCode,
-    call: &CloudflareDurableObjectCallV1,
-    message: String,
-) -> RouterAbProtocolError {
-    RouterAbProtocolError::new(
-        code,
-        format!(
-            "{} via {} binding `{}` failed: {message}",
-            call.operation_kind().as_str(),
-            call.worker_role.as_str(),
-            call.binding.binding_name
-        ),
-    )
 }
 
 fn digest_hex(digest: PublicDigest32) -> String {
