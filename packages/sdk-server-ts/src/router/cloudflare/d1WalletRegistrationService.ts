@@ -14,6 +14,9 @@ import {
   type RegistrationSignerPlan,
   type ResolvedRegistrationNearAccount,
   type WalletId,
+  registrationEd25519AuthorityScopeFromAuthMethod,
+  registrationEd25519AuthorityScopeFromAuthority,
+  type RegistrationAuthMethodInput,
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
@@ -96,6 +99,21 @@ import {
   type StoredWalletRegistrationCeremonyAuthorityState,
   verifiedRegistrationCeremonyAuthority,
 } from '../../core/RegistrationCeremonyStore';
+import type {
+  SetupEd25519PreparationV2,
+  WalletRegistrationSetupResponseV2,
+} from '../../core/threeRouteRegistrationContracts';
+import {
+  buildWalletRegistrationSetupSignature,
+  normalizeWalletRegistrationSetupRequest,
+  resolveWalletRegistrationSetupWalletId,
+  walletRegistrationSetupEd25519Deferral,
+  walletRegistrationSetupError,
+  walletRegistrationSetupExpiresAtMs,
+  walletRegistrationSetupIds,
+  walletRegistrationSetupIntentDigest,
+  type WalletRegistrationSetupInput,
+} from './d1WalletRegistrationSetup';
 import {
   buildD1EcdsaWalletKeysFromBootstrap,
   buildD1WalletEcdsaSignerRecords,
@@ -106,6 +124,10 @@ import {
   parseD1RuntimePolicyScope,
   parseD1StoredRegistrationIntent,
   parseD1StoredWalletRegistrationCeremony,
+  buildRegistrationIntent,
+  createD1ServerAllocatedWalletId,
+  inferRuntimePolicyScopeFromSigningRoot,
+  parseWalletIdForIntent,
 } from './d1RegistrationCeremonyRecords';
 import {
   walletAuthAuthorityFromRegistrationAuthority,
@@ -1787,6 +1809,271 @@ export class CloudflareD1WalletRegistrationService {
     }
   }
 
+  /**
+   * Refactor 94C. `/wallets/register/setup` — grant, intent, and start in one
+   * request, with one D1 write.
+   *
+   * Setup runs before the client's WebAuthn create, because it issues the
+   * challenge that create signs. So the ECDSA prepare and the Ed25519
+   * admission — the two Router calls that dominated the measured cold path —
+   * overlap the authenticator prompt instead of being serialized after it.
+   * They are started before either is awaited: they share no state and neither
+   * can invalidate the other.
+   */
+  async setupWalletRegistration(
+    input: WalletRegistrationSetupInput,
+  ): Promise<WalletRegistrationSetupResponseV2> {
+    const timing = createD1RegistrationRouteTimingRecorder('wallets_register_setup');
+    const total = startD1RegistrationRouteTiming('registerSetupTotalMs');
+    try {
+      const normalized = normalizeWalletRegistrationSetupRequest(input.request);
+      if (!normalized.ok) return walletRegistrationSetupError(normalized.code, normalized.message);
+
+      const wallet = resolveWalletRegistrationSetupWalletId({
+        wallet: input.request?.wallet,
+        parseProvided: parseWalletIdForIntent,
+        createServerAllocated: createD1ServerAllocatedWalletId,
+      });
+      if (!wallet.ok) return walletRegistrationSetupError(wallet.code, wallet.message);
+
+      const runtimePolicyScope =
+        input.runtimePolicyScope ||
+        inferRuntimePolicyScopeFromSigningRoot({
+          orgId: input.orgId,
+          signingRootId: input.signingRootId,
+          signingRootVersion: input.signingRootVersion,
+        });
+      const signingRootId =
+        toOptionalTrimmedString(input.signingRootId) ||
+        (runtimePolicyScope ? deriveSigningRootId(runtimePolicyScope) : '');
+      const signingRootVersion =
+        toOptionalTrimmedString(input.signingRootVersion) ||
+        runtimePolicyScope?.signingRootVersion ||
+        'default';
+      if (!signingRootId) {
+        return walletRegistrationSetupError(
+          'invalid_body',
+          'registration requires a signing root',
+        );
+      }
+
+      const intent = buildRegistrationIntent({
+        walletId: wallet.walletId,
+        authMethod: normalized.authMethod,
+        signerSelection: normalized.signerSelection,
+        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+      });
+      const digestB64u = await walletRegistrationSetupIntentDigest(intent);
+      const branches = registrationIntentSignerBranches(intent);
+      if (!branches.ok) return walletRegistrationSetupError(branches.code, branches.message);
+      const nearEd25519Branch = branches.value.nearEd25519;
+      const ecdsaBranch = branches.value.evmFamilyEcdsa;
+      if (!ecdsaBranch) {
+        return walletRegistrationSetupError(
+          'invalid_body',
+          'registration setup requires an ECDSA signer branch',
+        );
+      }
+      const preparedContext = resolveRegistrationPreparedContextFromPlan({
+        signerPlan: branches.value.plan,
+        runtimePolicyScope,
+        signingRootId,
+        signingRootVersion,
+      });
+      if (!preparedContext.ok) {
+        return walletRegistrationSetupError(preparedContext.code, preparedContext.message);
+      }
+      if (!runtimePolicyScope) {
+        return walletRegistrationSetupError(
+          'invalid_body',
+          'ECDSA registration requires an exact runtime policy scope',
+        );
+      }
+      const chainTargets = registrationPreparedContextEcdsaChainTargets(
+        preparedContext.preparedContext,
+      );
+      if (!chainTargets) {
+        return walletRegistrationSetupError('invalid_body', 'ECDSA chain targets are required');
+      }
+
+      const nowMs = Date.now();
+      const expiresAtMs = walletRegistrationSetupExpiresAtMs(nowMs);
+      const { registrationCeremonyId, registrationPreparationId } = walletRegistrationSetupIds();
+
+      /* Both Router calls are in flight before either is awaited. */
+      const ecdsaPreparePromise = buildD1EvmFamilyEcdsaRegistrationPrepare({
+        registrationPurpose: 'wallet_registration',
+        registrationCeremonyId,
+        registrationPreparationId: registrationPreparationIdFromString(registrationPreparationId),
+        walletId: wallet.walletId,
+        signingRootId,
+        signingRootVersion,
+        chainTargets,
+        participantIds: [...ecdsaBranch.participantIds],
+        strictRegistration: this.ecdsaStrictRegistration,
+        runtimePolicyScope,
+      });
+      const ed25519AdmissionPromise = this.admitSetupEd25519Branch({
+        branch: nearEd25519Branch,
+        authMethod: normalized.authMethod,
+        registrationCeremonyId,
+        walletId: wallet.walletId,
+        signingRootId,
+        signingRootVersion,
+        expiresAtMs,
+        intent,
+      });
+
+      const [ecdsaPrepared, ed25519Admission] = await Promise.all([
+        ecdsaPreparePromise,
+        ed25519AdmissionPromise,
+      ]);
+      if (!ecdsaPrepared.ok) {
+        return walletRegistrationSetupError(ecdsaPrepared.code, ecdsaPrepared.message);
+      }
+      if (!ed25519Admission.ok) {
+        return walletRegistrationSetupError(ed25519Admission.code, ed25519Admission.message);
+      }
+
+      const storedBranches: StoredWalletRegistrationSignerBranch[] = [];
+      if (ed25519Admission.branch) storedBranches.push(ed25519Admission.branch);
+      storedBranches.push(
+        buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch({
+          branchKey: ecdsaBranch.branchKey,
+          ecdsa: {
+            kind: ecdsaPrepared.ecdsa.kind,
+            chainTargets: ecdsaPrepared.ecdsa.chainTargets,
+            prepare: ecdsaPrepared.ecdsa.prepare,
+            strictRegistration: ecdsaPrepared.ecdsa.strictRegistration,
+            strictRegistrationBindingJson: routerAbEcdsaStrictRegistrationFactsBindingJson(
+              ecdsaPrepared.ecdsa.strictRegistration,
+            ),
+          },
+        }),
+      );
+
+      const ceremony: StoredWalletRegistrationCeremony = {
+        registrationCeremonyId,
+        intent,
+        digestB64u,
+        signerPlan: branches.value.plan,
+        preparedContext: preparedContext.preparedContext,
+        orgId: toOptionalTrimmedString(input.orgId) || '',
+        signingRootId,
+        signingRootVersion,
+        ...(input.expectedOrigin ? { expectedOrigin: input.expectedOrigin } : {}),
+        expiresAtMs,
+        /* The proof does not exist yet; respond binds it. */
+        authorityState: { kind: 'awaiting_proof', authMethod: normalized.authMethod },
+        signerState: { kind: 'signer_set_registration', branches: storedBranches },
+      };
+      /* The one canonical D1 write. */
+      const ceremonyWriteTiming = startD1RegistrationRouteTiming('registrationCeremonyInsertMs');
+      try {
+        await this.getRegistrationCeremonyIntentStore().putCeremony(ceremony);
+      } finally {
+        finishD1RegistrationRouteTiming(timing, ceremonyWriteTiming);
+      }
+
+      const { signedSetup } = await buildWalletRegistrationSetupSignature({
+        signer: input.signer,
+        ceremony,
+        expectedOrigin: input.expectedOrigin,
+      });
+      finishD1RegistrationRouteTiming(timing, total);
+      return {
+        ok: true,
+        registrationCeremonyId,
+        walletId: String(wallet.walletId),
+        registrationIntentDigestB64u: digestB64u,
+        intent,
+        signedSetup,
+        ecdsa: {
+          kind: ecdsaPrepared.ecdsa.kind,
+          chainTargets: ecdsaPrepared.ecdsa.chainTargets,
+          prepare: ecdsaPrepared.ecdsa.prepare,
+          strictRegistration: ecdsaPrepared.ecdsa.strictRegistration,
+        },
+        ...(ed25519Admission.payload ? { ed25519: ed25519Admission.payload } : {}),
+      };
+    } catch (error: unknown) {
+      return walletRegistrationSetupError(
+        'internal',
+        errorMessage(error) || 'Failed to set up wallet registration',
+      );
+    }
+  }
+
+  /**
+   * Admits the Ed25519 branch when the authority scope is fully determined by
+   * the requested auth method, and defers it otherwise. Deferral is a typed
+   * outcome, not a silent omission: binding key material to a `providerUserId`
+   * that no proof has established would be the bug this guards against.
+   */
+  private async admitSetupEd25519Branch(input: {
+    readonly branch: RegistrationNearEd25519SignerPlan | null;
+    readonly authMethod: RegistrationAuthMethodInput;
+    readonly registrationCeremonyId: string;
+    readonly walletId: WalletId;
+    readonly signingRootId: string;
+    readonly signingRootVersion: string;
+    readonly expiresAtMs: number;
+    readonly intent: RegistrationIntentV1;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly branch: StoredWalletRegistrationSignerBranch | null;
+        readonly payload: SetupEd25519PreparationV2 | null;
+      }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  > {
+    if (!input.branch) return { ok: true, branch: null, payload: null };
+    const deferral = walletRegistrationSetupEd25519Deferral(input.authMethod);
+    if (deferral) return { ok: true, branch: null, payload: deferral };
+    const authorityScope = registrationEd25519AuthorityScopeFromAuthMethod(input.authMethod);
+    if (!authorityScope) {
+      return { ok: false, code: 'internal', message: 'Ed25519 authority scope is unavailable' };
+    }
+    const yaoRuntime = this.getEd25519YaoProductRegistration();
+    if (!yaoRuntime) {
+      return {
+        ok: false,
+        code: 'not_configured',
+        message: 'Ed25519 Yao product registration is not configured',
+      };
+    }
+    const admissionRequest = await buildRouterAbEd25519YaoProductAdmissionRequestV1({
+      registrationCeremonyId: input.registrationCeremonyId,
+      walletId: input.walletId,
+      signingRootId: input.signingRootId,
+      signingRootVersion: input.signingRootVersion,
+      authorityScope,
+      branch: input.branch,
+      signingWorkerId: yaoRuntime.signingWorkerId,
+    });
+    const admitted = await yaoRuntime.bindAndAdmitVerifiedRegistration({
+      kind: 'verified_registration_intent',
+      registrationIntentGrant: registrationIntentGrantFromString(input.registrationCeremonyId),
+      intent: input.intent,
+      admissionRequest,
+      expiresAtMs: input.expiresAtMs,
+    });
+    if (!admitted.ok) return { ok: false, code: admitted.code, message: admitted.message };
+    return {
+      ok: true,
+      branch: buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch({
+        branchKey: input.branch.branchKey,
+        admissionRequest,
+        admissionReceipt: admitted.value,
+      }),
+      payload: {
+        status: 'admitted',
+        admissionRequest,
+        admissionReceipt: admitted.value,
+      },
+    };
+  }
+
   async startWalletRegistration(
     request: StartWalletRegistrationInput,
     context?: { readonly userAgent?: string },
@@ -2049,7 +2336,7 @@ export class CloudflareD1WalletRegistrationService {
         walletId: storedIntent.intent.walletId,
         signingRootId,
         signingRootVersion,
-        authority: prepared.authority,
+        authorityScope: registrationEd25519AuthorityScopeFromAuthority(prepared.authority),
         branch: nearEd25519Branch,
         signingWorkerId: yaoRuntime.signingWorkerId,
       });

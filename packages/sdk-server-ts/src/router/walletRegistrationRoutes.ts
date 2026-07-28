@@ -1,3 +1,4 @@
+import type { WalletRegistrationSetupResponseV2 } from '../core/threeRouteRegistrationContracts';
 import type { RouterApiWalletRegistrationRouteService } from './authServicePort';
 import type {
   EcdsaKeyFactsInventoryPolicy,
@@ -2397,6 +2398,85 @@ export async function handleRouterApiWalletAddSignerIntent(
         }
       : {}),
     expectedOrigin: origin,
+  });
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+/**
+ * Refactor 94C. `POST /wallets/register/setup` — the single admitted entry
+ * point that replaces the bootstrap grant, the intent, and start.
+ *
+ * Authentication is the same API-credential plane the intent route used, so
+ * origin and environment binding are unchanged; what is gone is the stored
+ * grant that used to sit between the check and its only reader.
+ */
+export async function handleRouterApiWalletRegistrationSetup(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationSetupResponseV2 | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const origin = normalizeCorsOrigin(input.origin);
+  if (!origin) {
+    return routeError(
+      403,
+      'forbidden',
+      'Origin header is required and must be a valid exact origin',
+    );
+  }
+  const resolved = await enforceRoutePolicy({
+    headers: input.headers,
+    logger: input.logger,
+    request: { body: input.body, headers: input.headers },
+    route: input.route,
+    services: walletRegistrationRoutePolicyServices(input),
+    sourceIp: input.sourceIp,
+    resolvers: {
+      apiCredentials: async () =>
+        await resolveRegistrationBootstrapApiCredentialAuth({
+          apiKeyAuth: input.services.apiKeyAuth,
+          body: input.body as Record<string, unknown>,
+          bootstrapTokenVerifier: input.services.bootstrapTokenVerifier,
+          headers: input.headers,
+          origin,
+          route: input.route,
+          sourceIp: input.sourceIp,
+        }),
+    },
+  });
+  if (!resolved.ok) return routeJson(resolved.status, resolved.body);
+  if (resolved.context.principal.kind !== 'api_credentials') {
+    return routeError(500, 'internal', 'wallet registration setup requires API credentials');
+  }
+  const principal = resolved.context.principal.principal;
+  const runtimePolicyScope = await resolveActiveRuntimePolicyScopeForEnvironment({
+    orgProjectEnv: input.services.orgProjectEnv || null,
+    orgId: principal.orgId,
+    environmentId: principal.environmentId,
+    projectId: principal.projectId,
+    envId: principal.envId,
+  });
+  const session = input.services.session;
+  if (!session) {
+    return routeError(500, 'internal', 'wallet registration setup requires session signing');
+  }
+  const body = input.body as Record<string, unknown>;
+  const result = await input.services.walletRegistration.setupWalletRegistration({
+    request: {
+      ...(isPlainObject(body.wallet) ? { wallet: body.wallet as never } : {}),
+      signerSelection: body.signerSelection as never,
+      authMethod: body.authMethod as never,
+    },
+    orgId: principal.orgId,
+    expectedOrigin: origin,
+    signer: session,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    ...(runtimePolicyScope
+      ? {
+          signingRootId: `${runtimePolicyScope.projectId}:${runtimePolicyScope.envId}`,
+          signingRootVersion: runtimePolicyScope.signingRootVersion,
+        }
+      : {}),
   });
   return routeJson(result.ok ? 200 : 400, result);
 }

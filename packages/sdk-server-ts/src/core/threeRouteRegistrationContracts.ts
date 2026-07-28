@@ -1,4 +1,9 @@
 import type {
+  RegisterWalletInput,
+  RegistrationAuthMethodInput,
+  RegistrationSignerSetSelection,
+} from '@shared/utils/registrationIntent';
+import type {
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationStartRequest,
   WalletRegistrationStartResponse,
@@ -59,22 +64,45 @@ export type WalletRegistrationRouteErrorV2 = {
 
 /** Route 1 — one Gateway request replacing grant, intent, and start. */
 export type WalletRegistrationSetupRequestV2 = {
-  wallet: WalletRegistrationStartRequest['intent']['walletId'] extends never
-    ? never
-    : { kind: 'provided'; walletId: string } | { kind: 'server_allocated' };
-  intent: WalletRegistrationStartRequest['intent'];
+  /** Omitted means server-allocated, matching the intent route it replaces. */
+  wallet?: RegisterWalletInput;
+  signerSelection: RegistrationSignerSetSelection;
+  /**
+   * The requested method, not a proof. Setup issues the challenge that the
+   * client's WebAuthn create must sign, so no proof can exist yet; it arrives
+   * on respond.
+   */
+  authMethod: RegistrationAuthMethodInput;
 };
+
+/**
+ * Yao admission binds the Ed25519 authority scope. For a passkey that scope is
+ * the rpId the caller declared, so admission is prepared here; for Email OTP
+ * the scope carries a `providerUserId` that only the verified proof
+ * establishes, so admission is deferred to respond rather than bound to an
+ * unauthenticated claim. The two cases are distinct states, not a present or
+ * absent field.
+ */
+export type SetupEd25519PreparationV2 =
+  | ({ status: 'admitted' } & SetupEd25519Work)
+  | {
+      status: 'deferred_to_respond';
+      reason: 'authority_scope_requires_proof';
+    };
 
 export type WalletRegistrationSetupResponseV2 =
   | {
       ok: true;
       registrationCeremonyId: string;
       walletId: string;
+      /** The WebAuthn create challenge; the client signs exactly this. */
+      registrationIntentDigestB64u: string;
+      intent: WalletRegistrationStartRequest['intent'];
       /** Opaque; echoed verbatim on routes 2 and 3. */
       signedSetup: SignedSetupPayloadB64u;
       ecdsa: WalletRegistrationEcdsaPreparePayload;
-      /** Mixed plans only; unchanged Yao admission shapes. */
-      ed25519?: SetupEd25519Work;
+      /** Mixed plans only; absent when the plan has no Ed25519 branch. */
+      ed25519?: SetupEd25519PreparationV2;
     }
   | WalletRegistrationRouteErrorV2;
 
