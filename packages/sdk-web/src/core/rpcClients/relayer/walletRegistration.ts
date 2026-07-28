@@ -777,14 +777,6 @@ type WalletRegistrationFinalizeSignerResult =
       accountProvisioning?: never;
       resolvedAccount?: never;
       ed25519?: never;
-    }
-  | {
-      kind: 'near_ed25519_and_evm_family_ecdsa';
-      authorityScope: Ed25519AuthorityScope;
-      accountProvisioning: RegistrationNearAccountProvisioning;
-      resolvedAccount: ResolvedRegistrationNearAccount;
-      ed25519: WalletRegistrationEd25519YaoPublicResult;
-      ecdsa: { walletKeys: WalletRegistrationEcdsaWalletKey[] };
     };
 
 export type EmailOtpWalletRegistrationFinalizeResponse = WalletRegistrationFinalizeResponseBase &
@@ -2433,11 +2425,6 @@ export type FinalizeWalletRegistrationArgs = FinalizeWalletRegistrationBaseArgs 
         ecdsa: { expectedKeyHandles?: string[] };
         ed25519?: never;
       }
-    | {
-        kind: 'near_ed25519_and_evm_family_ecdsa';
-        ed25519: { activationReference: WalletRegistrationEd25519YaoActivationReference };
-        ecdsa: { expectedKeyHandles?: string[] };
-      }
   );
 
 export function buildWalletRegistrationFinalizeBody(args: FinalizeWalletRegistrationArgs): unknown {
@@ -2452,8 +2439,6 @@ export function buildWalletRegistrationFinalizeBody(args: FinalizeWalletRegistra
       return { ...base, kind: args.kind, ed25519: args.ed25519 };
     case 'evm_family_ecdsa':
       return { ...base, kind: args.kind, ecdsa: args.ecdsa };
-    case 'near_ed25519_and_evm_family_ecdsa':
-      return { ...base, kind: args.kind, ed25519: args.ed25519, ecdsa: args.ecdsa };
     default:
       return assertNeverFinalizeWalletRegistrationArgs(args);
   }
@@ -2968,47 +2953,6 @@ export function parseWalletRegistrationFinalizeResponse(args: {
         authMethod: authorityBranch.authMethod,
         appSessionJwt: authorityBranch.appSessionJwt,
         kind: 'evm_family_ecdsa',
-        ecdsa,
-      };
-    }
-    case 'near_ed25519_and_evm_family_ecdsa': {
-      const near = parseWalletRegistrationFinalizeNearResult({
-        response,
-        walletId,
-        authority,
-      });
-      const ecdsa = parseWalletRegistrationFinalizeEcdsaResult({
-        value: response.ecdsa,
-        walletId,
-      });
-      if (authorityBranch.kind === 'passkey') {
-        return {
-          ok: true,
-          walletId,
-          authority,
-          ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
-          rpId: authorityBranch.rpId,
-          authMethod: authorityBranch.authMethod,
-          kind: 'near_ed25519_and_evm_family_ecdsa',
-          authorityScope: near.authorityScope,
-          accountProvisioning: near.accountProvisioning,
-          resolvedAccount: near.resolvedAccount,
-          ed25519: near.ed25519,
-          ecdsa,
-        };
-      }
-      return {
-        ok: true,
-        walletId,
-        authority,
-        ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
-        authMethod: authorityBranch.authMethod,
-        appSessionJwt: authorityBranch.appSessionJwt,
-        kind: 'near_ed25519_and_evm_family_ecdsa',
-        authorityScope: near.authorityScope,
-        accountProvisioning: near.accountProvisioning,
-        resolvedAccount: near.resolvedAccount,
-        ed25519: near.ed25519,
         ecdsa,
       };
     }

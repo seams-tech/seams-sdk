@@ -350,6 +350,24 @@ export type StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch = StoredEcdsaR
   bootstrap: EcdsaDerivationServerBootstrapResponse;
 };
 
+/**
+ * The ECDSA signer is durable and the wallet is usable. Reached only on a plan
+ * that also has an Ed25519 branch: registration returns ECDSA-ready here and
+ * the ceremony stays open for the Ed25519 finalize (Refactor 94 Phase 4+5).
+ * On an ECDSA-only plan the ceremony is deleted instead, so this state never
+ * appears.
+ */
+export type StoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch = StoredEcdsaRegistrationBase & {
+  kind: 'evm_family_ecdsa_finalized';
+  branchKey: RegistrationSignerBranchKey;
+  registrationRequest: RouterAbEcdsaRegistrationRequestV1;
+  publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  activation: RouterAbEcdsaRegistrationActivationReceiptV1;
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  bootstrap: EcdsaDerivationServerBootstrapResponse;
+  finalizedAtMs: number;
+};
+
 export type StoredWalletRegistrationNearEd25519YaoAuthorizedBranch = {
   kind: 'near_ed25519_yao_authorized';
   branchKey: RegistrationSignerBranchKey;
@@ -363,7 +381,8 @@ export type StoredWalletRegistrationSignerBranch =
   | StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch
   | StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch
   | StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch
-  | StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch;
+  | StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch
+  | StoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch;
 
 export type StoredWalletRegistrationSignerSetState = {
   kind: 'signer_set_registration';
@@ -375,7 +394,15 @@ export type StoredWalletRegistrationEvmFamilyEcdsaBranch =
   | StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch
   | StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch
   | StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch
-  | StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch;
+  | StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch
+  | StoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch;
+
+export function buildStoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch(input: {
+  readonly activated: StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch;
+  readonly finalizedAtMs: number;
+}): StoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch {
+  return { ...input.activated, kind: 'evm_family_ecdsa_finalized', finalizedAtMs: input.finalizedAtMs };
+}
 
 export function buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch(input: {
   readonly branchKey: RegistrationSignerBranchKey;
@@ -429,7 +456,8 @@ export function findStoredWalletRegistrationEvmFamilyEcdsaBranch(
       branch.kind === 'evm_family_ecdsa_response_claimed' ||
       branch.kind === 'evm_family_ecdsa_pending_activation' ||
       branch.kind === 'evm_family_ecdsa_activation_claimed' ||
-      branch.kind === 'evm_family_ecdsa_activated'
+      branch.kind === 'evm_family_ecdsa_activated' ||
+      branch.kind === 'evm_family_ecdsa_finalized'
     ) {
       return branch;
     }

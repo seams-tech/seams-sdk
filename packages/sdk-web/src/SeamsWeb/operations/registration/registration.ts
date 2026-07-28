@@ -7,7 +7,11 @@ import type {
   RegistrationTimingSpanV1,
   WalletFlowAuthMethod,
 } from '@/core/types/sdkSentEvents';
-import type { RegistrationResult, SeamsConfigsReadonly } from '@/core/types/seams';
+import type {
+  RegistrationNearProvisioningState,
+  RegistrationResult,
+  SeamsConfigsReadonly,
+} from '@/core/types/seams';
 import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { createRegistrationFlowEvent, RegistrationEventPhase } from '@/core/types/sdkSentEvents';
 import { createManagedRegistrationFlowGrant } from '@/SeamsWeb/operations/registration/createAccountRouterApiServer';
@@ -90,6 +94,7 @@ import {
   type WalletRegistrationEcdsaClientBootstrap,
   type WalletRegistrationEcdsaWalletKey,
   type WalletRegistrationEmailOtpEnrollmentMaterial,
+  type WalletRegistrationEd25519YaoActivationReference,
   type WalletRegistrationEmailOtpBackupAck,
   type WalletRegistrationFinalizeResponse,
   type WalletRegistrationEcdsaRespondResponse,
@@ -2587,17 +2592,12 @@ type RegistrationLocalEcdsaWalletKeys = Awaited<
   ReturnType<RegistrationSigningSurface['finalizeWalletRegistrationEcdsaSessions']>
 >;
 
-type MixedRegistrationEd25519Session = Extract<
-  WalletRegistrationFinalizeResponse,
-  { kind: 'near_ed25519_and_evm_family_ecdsa' }
->['ed25519']['session'];
-
 async function buildRegistrationPersistenceAuth(args: {
   authMethod: RegistrationAuthMethodInput;
   configs: SeamsConfigsReadonly;
   walletId: WalletId;
   finalized: WalletRegistrationFinalizeResponse;
-  passkeyAuthority: Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>> | null;
+  passkeyAuthority: RegistrationPasskeyAuthority | null;
   email: string;
   providerSubject: string;
   registrationAuthorityId: string;
@@ -2680,31 +2680,6 @@ function registrationParticipantIdsMatch(
     if (left[index] !== right[index]) return false;
   }
   return true;
-}
-
-function assertMixedRegistrationSharedSigningBudget(args: {
-  readonly walletId: WalletId;
-  readonly ed25519Session: MixedRegistrationEd25519Session;
-  readonly ecdsa: RegistrationPersistenceEcdsa;
-}): void {
-  const ed25519Session = args.ed25519Session;
-  if (ed25519Session.walletId !== args.walletId) {
-    throw new Error('Mixed registration Ed25519 signing budget has a walletId mismatch');
-  }
-  const clientBootstrap = args.ecdsa.session.clientBootstrap;
-  const serverBootstrap = args.ecdsa.session.bootstrap;
-  if (
-    clientBootstrap.walletId !== args.walletId ||
-    serverBootstrap.walletId !== args.walletId ||
-    clientBootstrap.signingGrantId !== ed25519Session.signingGrantId ||
-    serverBootstrap.signingGrantId !== ed25519Session.signingGrantId ||
-    clientBootstrap.remainingUses !== ed25519Session.remainingUses ||
-    serverBootstrap.remainingUses !== ed25519Session.remainingUses ||
-    serverBootstrap.expiresAtMs !== ed25519Session.expiresAtMs ||
-    !registrationParticipantIdsMatch(clientBootstrap.participantIds, serverBootstrap.participantIds)
-  ) {
-    throw new Error('Mixed registration must persist one signing budget across Ed25519 and ECDSA');
-  }
 }
 
 function firstRegistrationEvmFamilyWalletKeyMaterialMismatch(
@@ -3505,7 +3480,7 @@ function requireEcdsaEnabledRegistrationStart(
 function startMixedRegistrationYaoWork(args: {
   intent: ReturnType<typeof requirePasskeyRegistrationIntent>;
   intentResponse: WalletRegistrationIntentResponse;
-  passkeyAuthority: Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>>;
+  passkeyAuthority: RegistrationPasskeyAuthority;
   started: Extract<WalletRegistrationStartResponse, { kind: 'near_ed25519_and_evm_family_ecdsa' }>;
   relayerUrl: string;
   traceContext: RouterAbTraceContextV1;
@@ -3645,7 +3620,6 @@ async function finalizeEcdsaOrMixedRegistration(args: {
   headers: Record<string, string> | undefined;
   idempotencyKey: RegistrationFinalizeIdempotencyKey;
   expectedKeyHandles: string[];
-  claimedYao: ClaimedRegistrationYao;
   emailOtpEnrollment: WalletRegistrationEmailOtpEnrollmentMaterial | null;
   emailOtpBackupAck: WalletRegistrationEmailOtpBackupAck | null;
 }): Promise<WalletRegistrationFinalizeResponse> {
@@ -3653,226 +3627,163 @@ async function finalizeEcdsaOrMixedRegistration(args: {
     ...(args.emailOtpEnrollment ? { emailOtpEnrollment: args.emailOtpEnrollment } : {}),
     ...(args.emailOtpBackupAck ? { emailOtpBackupAck: args.emailOtpBackupAck } : {}),
   };
-  switch (args.claimedYao.kind) {
-    case 'disabled':
-      return await finalizeWalletRegistration({
-        relayerUrl: args.relayerUrl,
-        registrationCeremonyId: args.registrationCeremonyId,
-        headers: args.headers,
-        idempotencyKey: args.idempotencyKey,
-        kind: 'evm_family_ecdsa',
-        ecdsa: { expectedKeyHandles: args.expectedKeyHandles },
-        ...optionalEmailMaterial,
-      });
-    case 'pending':
-      return await finalizeWalletRegistration({
-        relayerUrl: args.relayerUrl,
-        registrationCeremonyId: args.registrationCeremonyId,
-        headers: args.headers,
-        idempotencyKey: args.idempotencyKey,
-        kind: 'near_ed25519_and_evm_family_ecdsa',
-        ed25519: { activationReference: args.claimedYao.pending.activationReference() },
-        ecdsa: { expectedKeyHandles: args.expectedKeyHandles },
-        ...optionalEmailMaterial,
-      });
-    default:
-      return assertNever(args.claimedYao);
-  }
+  /* Refactor 94 Phase 4+5. Registration success means ECDSA-ready, so this
+     always finalizes the ECDSA branch alone. On a mixed plan the ceremony
+     stays open and the Ed25519 branch is finalized separately once the Yao
+     ceremony settles, which is what takes the ~2 s Yao wait off registration.
+     Email OTP enrollment belongs to this first commit. */
+  return await finalizeWalletRegistration({
+    relayerUrl: args.relayerUrl,
+    registrationCeremonyId: args.registrationCeremonyId,
+    headers: args.headers,
+    idempotencyKey: args.idempotencyKey,
+    kind: 'evm_family_ecdsa',
+    ecdsa: { expectedKeyHandles: args.expectedKeyHandles },
+    ...optionalEmailMaterial,
+  });
 }
 
-async function persistAndActivateMixedRegistration(args: {
+/**
+ * Finalizes the deferred Ed25519 branch against the still-open registration
+ * ceremony. Carries its own idempotency key: the server derives the
+ * side-effect key from `{ceremonyId, idempotencyKey}`, so reusing the ECDSA
+ * call's key would replay that response instead of committing this branch.
+ */
+async function finalizeDeferredEd25519Registration(args: {
+  relayerUrl: string;
+  registrationCeremonyId: string;
+  headers: Record<string, string> | undefined;
+  idempotencyKey: RegistrationFinalizeIdempotencyKey;
+  activationReference: WalletRegistrationEd25519YaoActivationReference;
+}): Promise<WalletRegistrationFinalizeResponse> {
+  return await finalizeWalletRegistration({
+    relayerUrl: args.relayerUrl,
+    registrationCeremonyId: args.registrationCeremonyId,
+    headers: args.headers,
+    idempotencyKey: args.idempotencyKey,
+    kind: 'near_ed25519',
+    ed25519: { activationReference: args.activationReference },
+  });
+}
+
+type RegistrationPasskeyAuthority = Awaited<
+  ReturnType<typeof collectPasskeyRegistrationAuthority>
+>;
+
+/**
+ * Commit #2. Runs after registration has already returned an ECDSA-ready
+ * wallet, so every failure here is reported as a retryable NEAR-provisioning
+ * state rather than raised: the ECDSA wallet is durable and must survive a
+ * terminal Yao failure untouched.
+ */
+async function commitDeferredEd25519Registration(args: {
   context: RegistrationWebContext;
   relayerUrl: string;
-  registrationTiming: RegistrationTimingRecorder;
-  persistencePlan: RegistrationPersistencePlan;
-  finalized: Extract<
-    WalletRegistrationFinalizeResponse,
-    { kind: 'near_ed25519_and_evm_family_ecdsa' }
-  >;
-  claimedYao: Extract<ClaimedRegistrationYao, { kind: 'pending' }>;
+  registrationCeremonyId: string;
+  headers: Record<string, string> | undefined;
   yaoWork: RegistrationYaoWork;
-  passkeyAuthority: Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>> | null;
-}): Promise<RegistrationResult> {
-  assertMixedRegistrationSharedSigningBudget({
-    walletId: args.persistencePlan.walletId,
-    ed25519Session: args.finalized.ed25519.session,
-    ecdsa: args.persistencePlan.ecdsa,
-  });
-  const localEcdsaWalletKeys = await finalizeRegistrationEcdsaSessions({
-    context: args.context,
-    relayerUrl: args.relayerUrl,
-    registrationTiming: args.registrationTiming,
-    plan: args.persistencePlan,
-  });
-  const persistenceStartedAt = performance.now();
-  let record: ThresholdEd25519SessionRecord;
-  let stored: { signerSlot: number; storedSigners: readonly unknown[] };
-  const session = args.finalized.ed25519.session;
-  switch (args.persistencePlan.auth.kind) {
-    case 'passkey': {
+  plan: RegistrationPersistencePlan;
+  passkeyAuthority: RegistrationPasskeyAuthority | null;
+  walletId: WalletId;
+}): Promise<RegistrationNearProvisioningState> {
+  const auth = args.plan.auth;
+  try {
+    /* The page-owned RegistrationYaoWork is the single-flight: `requirePending`
+       hands out the one in-flight ceremony for this tab and claims it once. */
+    const pending = await args.yaoWork.requirePending();
+    const finalized = await finalizeDeferredEd25519Registration({
+      relayerUrl: args.relayerUrl,
+      registrationCeremonyId: args.registrationCeremonyId,
+      headers: args.headers,
+      /* Distinct from commit #1's key: the server derives its side-effect key
+         from {ceremonyId, idempotencyKey}, so sharing one would replay the
+         ECDSA response instead of committing this branch. */
+      idempotencyKey: createRegistrationOperationIdempotencyKey(
+        'wallet-registration-finalize-ed25519',
+      ),
+      activationReference: pending.activationReference(),
+    });
+    if (finalized.kind !== 'near_ed25519') {
+      throw new Error('Deferred Ed25519 finalize returned a different signer branch');
+    }
+    const nearAccountId = toAccountId(finalized.ed25519.nearAccountId);
+    const session = finalized.ed25519.session;
+    const passkeyCredentialIdB64u =
+      auth.kind === 'passkey'
+        ? String(auth.credential.rawId || auth.credential.id || '').trim()
+        : '';
+    const warmSessionCommon = {
+      walletId: args.walletId,
+      nearAccountId,
+      nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+      relayerUrl: args.relayerUrl,
+      relayerKeyId: finalized.ed25519.relayerKeyId,
+      runtimePolicyScope: session.runtimePolicyScope,
+      participantIds: session.participantIds,
+      signerSlot: finalized.ed25519.signerSlot,
+      routerAbNormalSigning: session.routerAbNormalSigning,
+      sessionId: session.thresholdSessionId,
+      signingGrantId: session.signingGrantId,
+      expiresAtMs: session.expiresAtMs,
+      remainingUses: session.remainingUses,
+      jwt: session.walletSessionJwt,
+    };
+    const record =
+      auth.kind === 'passkey'
+        ? persistWarmSessionEd25519Capability({
+            ...warmSessionCommon,
+            kind: 'jwt_passkey',
+            rpId: auth.rpId,
+            passkeyCredentialIdB64u,
+            source: 'registration',
+          })
+        : persistWarmSessionEd25519Capability({
+            ...warmSessionCommon,
+            kind: 'jwt_email_otp',
+            rpId: args.context.signingEngine.getRpId(),
+            source: 'email_otp',
+            emailOtpAuthContext: auth.emailOtpAuthContext,
+          });
+    await args.context.signingEngine.activateAuthenticatedWalletState({
+      walletId: args.walletId,
+      nearAccountId,
+      signerSlot: finalized.ed25519.signerSlot,
+      nearClient: args.context.nearClient,
+    });
+    const walletSessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(record);
+    if (!walletSessionState) {
+      throw new Error('Deferred Ed25519 registration produced an unusable wallet session');
+    }
+    /* Sealing the local Ed25519 material is what makes the signer usable. The
+       signer record above is only bookkeeping until this lands. */
+    if (auth.kind === 'passkey') {
       if (!args.passkeyAuthority) {
-        throw new Error('Mixed passkey registration is missing its verified authority');
+        throw new Error('Deferred Ed25519 registration is missing its verified passkey authority');
       }
-      const finalizedPasskey = requireEd25519YaoRegistrationPublicResultMatches({
-        clientPublicKey: args.claimedYao.clientPublicKey,
-        finalized: args.finalized,
-        expectedRpId: args.persistencePlan.auth.rpId,
-        expectedWalletId: args.persistencePlan.walletId,
+      await persistPasskeyEd25519YaoSessionForRefresh({
+        persistence: args.context.signingEngine,
+        session: walletSessionState,
+        prfFirstB64u: args.passkeyAuthority.prfFirstB64u,
       });
-      stored = await args.context.signingEngine.storeWalletMixedRegistrationData({
-        walletId: args.finalized.walletId,
-        nearAccountId: toAccountId(args.finalized.ed25519.nearAccountId),
-        nearEd25519SigningKeyId: args.finalized.ed25519.nearEd25519SigningKeyId,
-        credential: args.passkeyAuthority.credential,
-        credentialPublicKeyB64u: requireFinalizedPasskeyCredentialPublicKeyB64u({
-          finalized: args.finalized,
-          credential: args.passkeyAuthority.credential,
-        }),
-        signerSlot: args.finalized.ed25519.signerSlot,
-        operationalPublicKey: args.claimedYao.clientPublicKey,
-        relayerKeyId: args.finalized.ed25519.relayerKeyId,
-        keyVersion: args.finalized.ed25519.keyVersion,
-        participantIds: [...args.finalized.ed25519.participantIds],
-        walletKeys: localEcdsaWalletKeys,
+      await commitPendingPasskeyEd25519YaoRegistration({
+        pending,
+        activation: args.context.signingEngine,
+        walletSessionState,
+        rpId: auth.rpId,
+        credentialIdB64u: passkeyCredentialIdB64u,
+        passkeyPrfFirstB64u: args.passkeyAuthority.prfFirstB64u,
       });
-      record = persistWarmSessionEd25519Capability({
-        kind: 'jwt_passkey',
-        walletId: args.finalized.walletId,
-        nearAccountId: toAccountId(args.finalized.ed25519.nearAccountId),
-        nearEd25519SigningKeyId: args.finalized.ed25519.nearEd25519SigningKeyId,
-        rpId: finalizedPasskey.rpId,
-        relayerUrl: args.relayerUrl,
-        relayerKeyId: args.finalized.ed25519.relayerKeyId,
-        runtimePolicyScope: session.runtimePolicyScope,
-        participantIds: session.participantIds,
-        signerSlot: args.finalized.ed25519.signerSlot,
-        routerAbNormalSigning: session.routerAbNormalSigning,
-        sessionId: session.thresholdSessionId,
-        signingGrantId: session.signingGrantId,
-        expiresAtMs: session.expiresAtMs,
-        remainingUses: session.remainingUses,
-        jwt: session.walletSessionJwt,
-        passkeyCredentialIdB64u: finalizedPasskey.credentialIdB64u,
-        source: 'registration',
-      });
-      break;
+    } else {
+      await args.yaoWork.commit({ activation: args.context.signingEngine, walletSessionState });
     }
-    case 'email_otp': {
-      requireEmailOtpEd25519YaoRegistrationPublicResultMatches({
-        clientPublicKey: args.claimedYao.clientPublicKey,
-        finalized: args.finalized,
-        expectedRegistrationAuthorityId: args.persistencePlan.auth.registrationAuthorityId,
-        expectedWalletId: args.persistencePlan.walletId,
-      });
-      stored = await args.context.signingEngine.storeWalletEmailOtpMixedRegistrationData({
-        walletId: args.finalized.walletId,
-        nearAccountId: toAccountId(args.finalized.ed25519.nearAccountId),
-        nearEd25519SigningKeyId: args.finalized.ed25519.nearEd25519SigningKeyId,
-        email: args.persistencePlan.auth.email,
-        registrationAuthorityId: args.persistencePlan.auth.registrationAuthorityId,
-        signerSlot: args.finalized.ed25519.signerSlot,
-        operationalPublicKey: args.claimedYao.clientPublicKey,
-        relayerKeyId: args.finalized.ed25519.relayerKeyId,
-        keyVersion: args.finalized.ed25519.keyVersion,
-        participantIds: [...args.finalized.ed25519.participantIds],
-        walletKeys: localEcdsaWalletKeys,
-      });
-      record = persistWarmSessionEd25519Capability({
-        kind: 'jwt_email_otp',
-        walletId: args.finalized.walletId,
-        nearAccountId: toAccountId(args.finalized.ed25519.nearAccountId),
-        nearEd25519SigningKeyId: args.finalized.ed25519.nearEd25519SigningKeyId,
-        rpId: args.context.signingEngine.getRpId(),
-        relayerUrl: args.relayerUrl,
-        relayerKeyId: args.finalized.ed25519.relayerKeyId,
-        runtimePolicyScope: session.runtimePolicyScope,
-        participantIds: session.participantIds,
-        signerSlot: args.finalized.ed25519.signerSlot,
-        routerAbNormalSigning: session.routerAbNormalSigning,
-        sessionId: session.thresholdSessionId,
-        signingGrantId: session.signingGrantId,
-        expiresAtMs: session.expiresAtMs,
-        remainingUses: session.remainingUses,
-        jwt: session.walletSessionJwt,
-        emailOtpAuthContext: args.persistencePlan.auth.emailOtpAuthContext,
-        source: 'email_otp',
-      });
-      break;
-    }
-    default:
-      return assertNever(args.persistencePlan.auth);
+    return { status: 'pending' };
+  } catch (error: unknown) {
+    return {
+      status: 'retryable',
+      error: getUserFriendlyErrorMessage(error, 'registration', String(args.walletId)),
+      errorCode: registrationErrorCodeFromUnknown(error),
+    };
   }
-  args.registrationTiming.record(
-    'ecdsaRegistrationLocalRecordPersistenceMs',
-    roundDurationMs(persistenceStartedAt),
-  );
-  if (
-    stored.signerSlot !== args.finalized.ed25519.signerSlot ||
-    stored.storedSigners.length !== args.persistencePlan.ecdsa.walletKeys.length
-  ) {
-    throw new Error('Mixed wallet registration persisted an incomplete signer set');
-  }
-  await args.context.signingEngine.activateAuthenticatedWalletState({
-    walletId: args.finalized.walletId,
-    nearAccountId: toAccountId(args.finalized.ed25519.nearAccountId),
-    signerSlot: args.finalized.ed25519.signerSlot,
-    nearClient: args.context.nearClient,
-  });
-  const walletSessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(record);
-  if (!walletSessionState) {
-    throw new Error('Mixed wallet registration produced an unusable Ed25519 session');
-  }
-  if (args.persistencePlan.auth.kind === 'passkey') {
-    if (!args.passkeyAuthority) {
-      throw new Error('Mixed passkey registration lost its verified authority');
-    }
-    await persistPasskeyEd25519YaoSessionForRefresh({
-      persistence: args.context.signingEngine,
-      session: walletSessionState,
-      prfFirstB64u: args.passkeyAuthority.prfFirstB64u,
-    });
-  }
-  if (args.persistencePlan.auth.kind === 'passkey') {
-    if (!args.passkeyAuthority) {
-      throw new Error('Mixed passkey registration lost its verified authority');
-    }
-    await args.yaoWork.commitPasskey({
-      activation: args.context.signingEngine,
-      walletSessionState,
-      rpId: args.context.signingEngine.getRpId(),
-      credentialIdB64u: String(
-        args.passkeyAuthority.credential.rawId || args.passkeyAuthority.credential.id || '',
-      ).trim(),
-      passkeyPrfFirstB64u: args.passkeyAuthority.prfFirstB64u,
-    });
-  } else {
-    await args.yaoWork.commit({
-      activation: args.context.signingEngine,
-      walletSessionState,
-    });
-  }
-  if (args.persistencePlan.auth.kind === 'email_otp') {
-    await args.context.signingEngine.persistEmailOtpEd25519YaoSessionForRefreshInternal(record);
-  }
-  const primaryKey = args.persistencePlan.ecdsa.walletKeys[0];
-  return {
-    success: true,
-    kind: 'near_ed25519_and_ecdsa_wallet_registered',
-    walletId: args.finalized.walletId,
-    accountProvisioning: args.finalized.accountProvisioning,
-    resolvedAccount: args.finalized.resolvedAccount,
-    nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
-      args.finalized.ed25519.nearEd25519SigningKeyId,
-    ),
-    operationalPublicKey: args.claimedYao.clientPublicKey,
-    nearAccountId: toAccountId(args.finalized.ed25519.nearAccountId),
-    transactionId:
-      args.finalized.resolvedAccount.kind === 'sponsored_named_account'
-        ? args.finalized.resolvedAccount.transactionHash
-        : null,
-    thresholdEcdsaEthereumAddress: primaryKey.thresholdOwnerAddress,
-    thresholdEcdsaPublicKeyB64u: primaryKey.thresholdEcdsaPublicKeyB64u,
-  };
 }
 
 async function registerEcdsaOrMixedWallet(
@@ -3934,7 +3845,7 @@ async function registerEcdsaOrMixedWallet(
     let emailOtpProviderSubject = '';
     let emailOtpAppSessionBinding: EmailOtpAppSessionBinding | null = null;
     let emailOtpRecoveryCodeBackup: Promise<EmailOtpRecoveryCodeBackupOutcome> | null = null;
-    let passkeyAuthority: Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>> | null =
+    let passkeyAuthority: RegistrationPasskeyAuthority | null =
       null;
     let startAuthority:
       | {
@@ -4105,30 +4016,6 @@ async function registerEcdsaOrMixedWallet(
         authMethod: args.authMethod,
         backup: emailOtpRecoveryCodeBackup,
       })) ?? null;
-    const yaoClaimStartedAt = performance.now();
-    const claimedYao = await claimRegistrationYao(args.kind, yaoWork);
-    /* Only meaningful when the Yao branch actually ran; an ECDSA-only
-       registration claims a disabled branch and must leave these at zero. */
-    if (claimedYao.kind === 'pending') {
-      /* Yao runs concurrently with ECDSA, so this measures only how long the
-         branch kept registration waiting after ECDSA finished — not the
-         ceremony duration. The Router's breakdown arrives via Server-Timing. */
-      registrationTiming.record('yaoClientCompletionMs', performance.now() - yaoClaimStartedAt);
-      /* Wall time of the whole concurrent branch, for the <=1.5s branch target.
-         Distinct from yaoClientCompletionMs, which is only the tail that
-         outlasted ECDSA. */
-      registrationTiming.record('yaoBranchTotalMs', yaoWork.elapsedMs());
-      for (const [bucket, durationMs] of parseYaoServerTimingBuckets(
-        yaoWork.consumeRouterServerTiming(),
-      )) {
-        registrationTiming.record(bucket, durationMs);
-      }
-      const yaoClientTimings = yaoWork.consumeClientTimings();
-      if (yaoClientTimings) {
-        registrationTiming.record('yaoAdmissionMs', yaoClientTimings.admissionMs);
-        registrationTiming.record('yaoClientSessionCreateMs', yaoClientTimings.sessionCreateMs);
-      }
-    }
     const finalized = await registrationTiming.measure(
       'walletRegisterFinalizeMs',
       finalizeEcdsaOrMixedRegistration.bind(undefined, {
@@ -4137,12 +4024,13 @@ async function registerEcdsaOrMixedWallet(
         headers: registrationRouteHeaders(traceContext),
         idempotencyKey: finalizeIdempotencyKey,
         expectedKeyHandles: registrationEcdsaExpectedKeyHandles(ecdsaSession),
-        claimedYao,
         emailOtpEnrollment,
         emailOtpBackupAck,
       }),
     );
-    if (finalized.kind !== args.kind) {
+    /* Commit #1 finalizes the ECDSA branch alone, on both the ECDSA-only and
+       the mixed plan, so this no longer compares against `args.kind`. */
+    if (finalized.kind !== 'evm_family_ecdsa') {
       throw new Error('Wallet registration finalize returned a different signer branch');
     }
     if (args.authMethod.kind === 'email_otp') {
@@ -4196,47 +4084,52 @@ async function registerEcdsaOrMixedWallet(
       phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED,
       status: 'running',
     });
-    let result: RegistrationResult;
-    switch (finalized.kind) {
-      case 'evm_family_ecdsa': {
-        if (claimedYao.kind !== 'disabled') {
-          throw new Error('ECDSA-only registration unexpectedly claimed Ed25519 Yao state');
-        }
-        await commitRegistrationPersistencePlan({
-          context,
-          relayerUrl,
-          registrationTiming,
-          plan: persistencePlan,
-        });
-        const primaryKey = persistencePlan.ecdsa.walletKeys[0];
-        result = {
-          success: true,
-          kind: 'ecdsa_wallet_registered',
-          walletId: finalized.walletId,
-          thresholdEcdsaEthereumAddress: primaryKey.thresholdOwnerAddress,
-          thresholdEcdsaPublicKeyB64u: primaryKey.thresholdEcdsaPublicKeyB64u,
-        };
-        break;
-      }
-      case 'near_ed25519_and_evm_family_ecdsa': {
-        if (claimedYao.kind !== 'pending') {
-          throw new Error('Mixed registration is missing claimed Ed25519 Yao state');
-        }
-        result = await persistAndActivateMixedRegistration({
-          context,
-          relayerUrl,
-          registrationTiming,
-          persistencePlan,
-          finalized,
-          claimedYao,
-          yaoWork,
-          passkeyAuthority,
-        });
-        break;
-      }
-      default:
-        result = assertNever(finalized);
-    }
+    /* Commit #1. This is the whole of registration success: it writes the
+       wallet profile, its auth method, and the ECDSA signers, so the wallet is
+       durable and usable the moment it resolves. The Ed25519/NEAR branch is
+       committed separately once the Yao ceremony settles. */
+    await commitRegistrationPersistencePlan({
+      context,
+      relayerUrl,
+      registrationTiming,
+      plan: persistencePlan,
+    });
+    const primaryEcdsaKey = persistencePlan.ecdsa.walletKeys[0];
+    /* Commit #2 is deliberately not awaited: registration returns as soon as
+       the ECDSA wallet is durable, which is what takes the Yao wait off the
+       critical path. It reports failure as a retryable provisioning state
+       instead of rejecting, so it can never fault this returned wallet. */
+    const deferredEd25519Commit: Promise<RegistrationNearProvisioningState> | null =
+      args.kind === 'near_ed25519_and_evm_family_ecdsa'
+        ? commitDeferredEd25519Registration({
+            context,
+            relayerUrl,
+            registrationCeremonyId: startedCeremony.registrationCeremonyId,
+            headers: registrationRouteHeaders(traceContext),
+            yaoWork,
+            plan: persistencePlan,
+            passkeyAuthority,
+            walletId: toWalletId(finalized.walletId),
+          })
+        : null;
+    void deferredEd25519Commit;
+    const result: RegistrationResult =
+      args.kind === 'near_ed25519_and_evm_family_ecdsa'
+        ? {
+            success: true,
+            kind: 'ecdsa_wallet_registered_near_pending',
+            walletId: finalized.walletId,
+            thresholdEcdsaEthereumAddress: primaryEcdsaKey.thresholdOwnerAddress,
+            thresholdEcdsaPublicKeyB64u: primaryEcdsaKey.thresholdEcdsaPublicKeyB64u,
+            nearProvisioning: { status: 'pending' },
+          }
+        : {
+            success: true,
+            kind: 'ecdsa_wallet_registered',
+            walletId: finalized.walletId,
+            thresholdEcdsaEthereumAddress: primaryEcdsaKey.thresholdOwnerAddress,
+            thresholdEcdsaPublicKeyB64u: primaryEcdsaKey.thresholdEcdsaPublicKeyB64u,
+          };
     if (emailOtpAppSessionBinding) {
       rememberEmailOtpAppSessionForRegisteredWallet({
         context,
@@ -5336,7 +5229,7 @@ async function addPasskeyEd25519YaoWalletSigner(
       walletId: input.walletId,
       nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
       nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
-      credential: input.credential,
+      auth: { kind: 'passkey', credential: input.credential },
       signerSlot: finalized.ed25519.signerSlot,
       operationalPublicKey: clientPublicKey,
       relayerKeyId: finalized.ed25519.relayerKeyId,
