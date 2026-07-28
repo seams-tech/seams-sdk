@@ -90,6 +90,7 @@ use crate::{
     handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_private_fetch_v1,
     handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_private_fetch_from_pool_v1,
     handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presignature_pool_put_private_fetch_v1,
+    handle_cloudflare_signing_worker_wallet_budget_private_fetch_v1,
     CloudflareEd25519YaoNormalSigningHandlerV1,
     CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1,
     CloudflareSigningWorkerRuntimeV1, CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH,
@@ -105,6 +106,7 @@ use crate::{
     CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
     CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
     CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PATH,
+    CLOUDFLARE_SIGNING_WORKER_WALLET_BUDGET_PATH_V1,
 };
 #[cfg(any(
     feature = "strict-worker-router-entrypoint",
