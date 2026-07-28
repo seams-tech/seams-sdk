@@ -38,7 +38,7 @@ export interface AppSessionConsoleAuthAdapterOptions {
   readonly defaultOrgId?: string;
   readonly defaultProjectId?: string;
   readonly defaultEnvironmentId?: string;
-  readonly initialOwnerEmails?: ReadonlyArray<unknown> | string;
+  readonly initialOwnerEmail?: string;
   readonly platformSupportEmails?: ReadonlyArray<unknown> | string;
   readonly provisioning?: ConsoleSsoProvisioningOptions | null;
 }
@@ -50,13 +50,22 @@ interface ReconciledConsoleScope {
   readonly derivedOrganization: boolean;
 }
 
-interface ConsoleIdentityProfile {
-  readonly email: string;
-  readonly displayName: string;
-  readonly provider: string;
-}
+type ConsoleIdentityProfile =
+  | {
+      readonly kind: 'google_oidc';
+      readonly email: string;
+      readonly displayName: string;
+      readonly provider: 'oidc';
+      readonly emailVerified: boolean;
+      readonly hostedDomain: string | null;
+    }
+  | {
+      readonly kind: 'other';
+      readonly email: string;
+      readonly displayName: string;
+      readonly provider: string;
+    };
 
-const consoleSsoProvisioningLocks = new Map<string, Promise<void>>();
 const CONSOLE_SSO_ORG_ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
 function normalizeString(value: unknown): string {
@@ -75,12 +84,37 @@ function normalizeConsoleEmailList(input: unknown): readonly string[] {
   const seen = new Set<string>();
   const values = Array.isArray(input) ? input : parseCsvValues(input);
   for (const raw of values) {
-    const email = normalizeString(raw).toLowerCase();
-    if (!email || !email.includes('@') || seen.has(email)) continue;
+    const email = normalizeConsoleEmail(raw);
+    if (!email || seen.has(email)) continue;
     seen.add(email);
     out.push(email);
   }
   return out;
+}
+
+function normalizeConsoleEmail(value: unknown): string | null {
+  const email = normalizeString(value).toLowerCase();
+  const separator = email.indexOf('@');
+  if (
+    !email ||
+    separator <= 0 ||
+    separator === email.length - 1 ||
+    email.indexOf('@', separator + 1) !== -1 ||
+    /\s/u.test(email)
+  ) {
+    return null;
+  }
+  return email;
+}
+
+function normalizeInitialOwnerEmail(value: unknown): string | null {
+  const raw = normalizeString(value);
+  if (!raw) return null;
+  const email = normalizeConsoleEmail(raw);
+  if (!email || raw.includes(',')) {
+    throw new Error('initialOwnerEmail must contain exactly one valid email address');
+  }
+  return email;
 }
 
 function hasConsoleErrorCode(error: unknown, code: string): boolean {
@@ -110,11 +144,43 @@ function resolveConsoleIdentityProfile(
   const emailUser = normalizeString(userId)
     .toLowerCase()
     .replace(/[^a-z0-9._+-]/gu, '_');
-  return {
-    email: claimedEmail ?? `${emailUser || 'user'}@console.local`,
-    displayName: readConsoleDisplayNameClaim(claims) ?? userId,
-    provider: normalizeString(claims.provider) || 'unknown',
-  };
+  const email = claimedEmail ?? `${emailUser || 'user'}@console.local`;
+  const displayName = readConsoleDisplayNameClaim(claims) ?? userId;
+  const provider = normalizeString(claims.provider) || 'unknown';
+  if (provider === 'oidc' && normalizeString(claims.oidcProvider).toLowerCase() === 'google') {
+    return {
+      kind: 'google_oidc',
+      email,
+      displayName,
+      provider,
+      emailVerified: claims.oidcEmailVerified === true,
+      hostedDomain: normalizeConsoleEmailDomain(claims.oidcHostedDomain),
+    };
+  }
+  return { kind: 'other', email, displayName, provider };
+}
+
+function normalizeConsoleEmailDomain(value: unknown): string | null {
+  const domain = normalizeString(value).toLowerCase();
+  if (!domain || domain.includes('@') || /\s/u.test(domain)) return null;
+  return domain;
+}
+
+function isAuthoritativeGoogleEmail(profile: ConsoleIdentityProfile): boolean {
+  if (profile.kind !== 'google_oidc' || !profile.emailVerified) return false;
+  const domain = profile.email.slice(profile.email.lastIndexOf('@') + 1);
+  return domain === 'gmail.com' || profile.hostedDomain === domain;
+}
+
+function matchesInitialOwnerEmail(input: {
+  readonly profile: ConsoleIdentityProfile;
+  readonly initialOwnerEmail: string | null;
+}): boolean {
+  return (
+    Boolean(input.initialOwnerEmail) &&
+    input.profile.email === input.initialOwnerEmail &&
+    isAuthoritativeGoogleEmail(input.profile)
+  );
 }
 
 function readEnvironmentKeyCandidate(
@@ -407,27 +473,6 @@ async function provisionInitialOidcOwner(input: {
   });
 }
 
-async function ensureInitialOidcOwner(input: {
-  readonly orgId: string;
-  readonly userId: string;
-  readonly profile: ConsoleIdentityProfile;
-  readonly organizationAccess: ConsoleOrganizationAccessService;
-  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
-  readonly audit: ConsoleAuditService | null;
-  readonly logger: { warn(message?: unknown, ...optionalParams: unknown[]): void };
-}): Promise<void> {
-  const lockKey = `${input.orgId}:${input.userId}`;
-  const existing = consoleSsoProvisioningLocks.get(lockKey);
-  if (existing) return existing;
-  const inFlight = provisionInitialOidcOwner(input).finally(() => {
-    if (consoleSsoProvisioningLocks.get(lockKey) === inFlight) {
-      consoleSsoProvisioningLocks.delete(lockKey);
-    }
-  });
-  consoleSsoProvisioningLocks.set(lockKey, inFlight);
-  return inFlight;
-}
-
 async function restrictScopeToAuthorization(input: {
   readonly scope: ReconciledConsoleScope;
   readonly authorization: ActiveOrganizationAuthorization;
@@ -541,7 +586,7 @@ interface AppSessionConsoleAuthRuntime {
   readonly defaultOrgId: string;
   readonly defaultProjectId: string;
   readonly defaultEnvironmentId: string;
-  readonly initialOwnerEmails: readonly string[];
+  readonly initialOwnerEmail: string | null;
   readonly platformSupportEmails: readonly string[];
   readonly orgProjectEnv: ConsoleOrgProjectEnvService | null;
   readonly audit: ConsoleAuditService | null;
@@ -557,7 +602,7 @@ class AppSessionConsoleAuthAdapter implements ConsoleAuthAdapter {
       defaultOrgId: normalizeString(options.defaultOrgId),
       defaultProjectId: normalizeString(options.defaultProjectId),
       defaultEnvironmentId: normalizeString(options.defaultEnvironmentId),
-      initialOwnerEmails: normalizeConsoleEmailList(options.initialOwnerEmails ?? []),
+      initialOwnerEmail: normalizeInitialOwnerEmail(options.initialOwnerEmail),
       platformSupportEmails: normalizeConsoleEmailList(
         options.platformSupportEmails ?? [],
       ),
@@ -630,9 +675,12 @@ class AppSessionConsoleAuthAdapter implements ConsoleAuthAdapter {
       profile.provider === 'oidc' &&
       this.#runtime.orgProjectEnv &&
       (scope.derivedOrganization ||
-        this.#runtime.initialOwnerEmails.includes(profile.email.toLowerCase()))
+        matchesInitialOwnerEmail({
+          profile,
+          initialOwnerEmail: this.#runtime.initialOwnerEmail,
+        }))
     ) {
-      await ensureInitialOidcOwner({
+      await provisionInitialOidcOwner({
         orgId: scope.orgId,
         userId,
         profile,
@@ -667,9 +715,9 @@ class AppSessionConsoleAuthAdapter implements ConsoleAuthAdapter {
         authorization,
         scope,
         profile,
-        platformSupport: this.#runtime.platformSupportEmails.includes(
-          profile.email.toLowerCase(),
-        ),
+        platformSupport:
+          isAuthoritativeGoogleEmail(profile) &&
+          this.#runtime.platformSupportEmails.includes(profile.email),
       }),
     };
   }
