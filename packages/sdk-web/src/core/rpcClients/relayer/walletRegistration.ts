@@ -2665,10 +2665,29 @@ export async function respondWalletRegistration(
  * before readiness — those appear once deferred provisioning reaches
  * `near_ready`, never from this response.
  */
+/**
+ * Activate absorbed two routes, so its response is the union of what both
+ * returned: the finalize terminal wallet *and* the activation payload the old
+ * `derivation/activate` returned.
+ *
+ * Both halves are load-bearing on the client. `activation` feeds
+ * `finalizeRouterAbEcdsaRegistrationActivation`, and `bootstrap` feeds the
+ * session bootstrap; without them the wallet registers server-side and cannot
+ * sign locally, which is the opposite of what this route exists to deliver.
+ *
+ * DEPENDENCY ON CLAUDE A: the frozen server contract currently derives this
+ * from `EcdsaFinalizeSuccess` alone and omits both fields. Names and types here
+ * are exactly the ones `derivation/activate` already returned — this is the
+ * union, not a new shape. The strict parser below rejects a response missing
+ * them, so the gap fails loudly at the boundary rather than silently producing
+ * an unusable wallet.
+ */
 export type WalletRegistrationActivateResponseV2 = Extract<
   WalletRegistrationFinalizeResponse,
   { ok: true; kind: 'evm_family_ecdsa' }
 > & {
+  activation: RouterAbEcdsaRegistrationPublicActivationReceiptV1;
+  bootstrap: ThresholdEcdsaDerivationRoleLocalBootstrapValue;
   nearProvisioning?: { status: 'pending' };
 };
 
@@ -2688,7 +2707,7 @@ function parseWalletRegistrationActivateResponseV2(
 ): WalletRegistrationActivateResponseV2 {
   const responseName = 'Wallet registration activate';
   const record = requireResponseRecord({ responseName, field: 'body', value });
-  const { nearProvisioning, ...terminal } = record;
+  const { nearProvisioning, activation, bootstrap, ...terminal } = record;
   /* Validate the snapshot before the terminal body, so a leaked NEAR
      identifier is reported as such rather than buried behind whatever the
      finalize parser objects to first. */
@@ -2703,6 +2722,13 @@ function parseWalletRegistrationActivateResponseV2(
       throw new Error(`${responseName} nearProvisioning status is invalid`);
     }
   }
+  /* Without these the wallet cannot sign locally, so their absence is a
+     failure of the route rather than an optional extra. */
+  if (activation === undefined || bootstrap === undefined) {
+    throw new Error(
+      `${responseName} is missing the activation payload the client needs to build its ECDSA session`,
+    );
+  }
   const finalized = parseWalletRegistrationFinalizeResponse({
     value: terminal,
     expectedKind: 'evm_family_ecdsa',
@@ -2710,9 +2736,12 @@ function parseWalletRegistrationActivateResponseV2(
   if (!finalized.ok || finalized.kind !== 'evm_family_ecdsa') {
     throw new Error(`${responseName} did not return an activated ECDSA wallet`);
   }
-  return nearProvisioning === undefined
-    ? finalized
-    : { ...finalized, nearProvisioning: { status: 'pending' } };
+  return {
+    ...finalized,
+    activation: parseRouterAbEcdsaRegistrationPublicActivationReceiptV1(activation),
+    bootstrap: parseThresholdEcdsaDerivationRoleLocalBootstrapValue(bootstrap),
+    ...(nearProvisioning === undefined ? {} : { nearProvisioning: { status: 'pending' as const } }),
+  };
 }
 
 export async function activateWalletRegistration(args: {

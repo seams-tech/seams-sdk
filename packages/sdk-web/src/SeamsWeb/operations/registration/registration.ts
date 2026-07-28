@@ -81,6 +81,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { computeRegistrationIntentDigest } from '@/utils/intentDigest';
 import { computeAddSignerIntentDigest } from '@/utils/intentDigest';
+import type { EmailOtpRegistrationProof } from '@shared/utils/registrationIntent';
 import {
   cancelWalletRegistrationIntent,
   activateWalletAddSignerEcdsa,
@@ -91,11 +92,15 @@ import {
   finalizeWalletRegistration,
   isEmailOtpWalletRegistrationFinalizeResponse,
   parseWalletRegistrationEcdsaDerivationRespond,
+  activateWalletRegistration,
   respondWalletAddSignerEcdsa,
+  respondWalletRegistration,
   respondWalletRegistrationEcdsa,
   startWalletAddSigner,
   startWalletRegistration,
   type RegistrationPreparationId,
+  type WalletRegistrationActivateResponseV2,
+  type WalletRegistrationRespondEd25519DeferredWork,
   type WalletRegistrationEcdsaDerivationRespondBootstrap,
   type WalletRegistrationEcdsaClientBootstrap,
   type WalletRegistrationEcdsaWalletKey,
@@ -3052,6 +3057,163 @@ async function runStrictEcdsaFamilyCeremony(args: {
       context: args.context,
       ceremonyId,
     });
+    throw error;
+  }
+}
+
+/**
+ * Refactor 94C. The registration ceremony over the three routes.
+ *
+ * Linear and registration-specific on purpose. Add-signer keeps the shared
+ * `runStrictEcdsaFamilyCeremony`, which still has its own respond, activate,
+ * and finalize legs; forcing both through one function is what made the shared
+ * version hard to follow, and add-signer's semantics are not changing here.
+ *
+ * The ordering that matters: deferred NEAR work is handed to the caller as
+ * soon as respond returns it, *before* activate runs, so Yao proceeds
+ * alongside the rest of registration instead of behind it. Nothing here awaits
+ * it — the wallet is usable on ECDSA alone, and the caller decides what to do
+ * with the handle.
+ */
+type RegistrationThreeRouteAuthority =
+  | { kind: 'passkey'; webauthnRegistration: unknown }
+  | { kind: 'email_otp'; emailOtpRegistrationProof: EmailOtpRegistrationProof };
+
+async function runThreeRouteRegistrationCeremony(args: {
+  context: RegistrationWebContext;
+  relayerUrl: string;
+  registrationCeremonyId: string;
+  signedSetup: string;
+  ecdsaPrepare: WalletRegistrationEcdsaPreparePayload;
+  authority: RegistrationThreeRouteAuthority;
+  idempotencyKey: string;
+  emailOtpEnrollment: WalletRegistrationEmailOtpEnrollmentMaterial | null;
+  emailOtpBackupAck: WalletRegistrationEmailOtpBackupAck | null;
+  traceContext?: RouterAbTraceContextV1;
+  registrationTiming: RegistrationTimingRecorder | null;
+  /** Invoked once, before activate, when the plan carries a NEAR branch. */
+  onDeferredNearWork: (work: WalletRegistrationRespondEd25519DeferredWork) => void;
+}): Promise<{
+  session: RegistrationEcdsaSession;
+  activated: WalletRegistrationActivateResponseV2;
+  deferredNear: WalletRegistrationRespondEd25519DeferredWork | null;
+}> {
+  const [firstChainTarget, ...remainingChainTargets] = args.ecdsaPrepare.chainTargets;
+  if (!firstChainTarget) {
+    throw new Error('Strict ECDSA ceremony requires at least one EVM-family target');
+  }
+  const ceremonyId = args.registrationCeremonyId;
+  try {
+    const created = await measureStrictEcdsaCeremonyStep({
+      registrationTiming: args.registrationTiming,
+      bucket: 'ecdsaRegistrationClientCreateMs',
+      operation: args.context.signingEngine.createRouterAbEcdsaRegistrationCeremony.bind(
+        args.context.signingEngine,
+        {
+          kind: 'create_router_ab_ecdsa_registration_ceremony_v1',
+          ceremonyId,
+          registration: args.ecdsaPrepare.strictRegistration,
+        },
+      ),
+    });
+
+    const responded = await measureStrictEcdsaCeremonyStep({
+      registrationTiming: args.registrationTiming,
+      bucket: 'ecdsaRegistrationGatewayRespondMs',
+      operation: respondWalletRegistration.bind(undefined, {
+        relayerUrl: args.relayerUrl,
+        headers: registrationRouteHeaders(args.traceContext),
+        registrationCeremonyId: ceremonyId,
+        signedSetup: args.signedSetup,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_v1',
+          strictRegistration: created.registrationRequest,
+        },
+        ...args.authority,
+        onServerTiming: (header) =>
+          recordStrictEcdsaServerTimingBuckets(args.registrationTiming, 'respond', header),
+      }),
+    });
+
+    /* Hand off before activate so Yao runs alongside it, not after. */
+    const deferredNear =
+      responded.kind === 'near_ed25519_and_evm_family_ecdsa' ? responded.ed25519 : null;
+    if (deferredNear) args.onDeferredNearWork(deferredNear);
+
+    const verified = await measureStrictEcdsaCeremonyStep({
+      registrationTiming: args.registrationTiming,
+      bucket: 'ecdsaRegistrationClientProofVerifyMs',
+      operation: args.context.signingEngine.verifyRouterAbEcdsaRegistrationClientProofs.bind(
+        args.context.signingEngine,
+        {
+          kind: 'verify_router_ab_ecdsa_registration_client_proofs_v1',
+          ceremonyId,
+          clientProofFinalization: {
+            kind: 'finalize_encrypted_client_proof_bundles_v1',
+            bundles: responded.ecdsa.strictResult.response.bundles,
+          },
+        },
+      ),
+    });
+
+    const activated = await measureStrictEcdsaCeremonyStep({
+      registrationTiming: args.registrationTiming,
+      bucket: 'ecdsaRegistrationGatewayActivateMs',
+      operation: activateWalletRegistration.bind(undefined, {
+        relayerUrl: args.relayerUrl,
+        headers: registrationRouteHeaders(args.traceContext),
+        registrationCeremonyId: ceremonyId,
+        signedSetup: args.signedSetup,
+        idempotencyKey: args.idempotencyKey,
+        /* No `expectedKeyHandles`: the handle only exists once activate
+           returns the server bootstrap, so the client cannot assert it
+           beforehand. The guard it provided — finalize persisting a different
+           key than the session — is structurally impossible now that activate
+           both activates and persists within one ceremony-bound operation. */
+        ecdsa: { clientActivation: verified.publicFacts },
+        ...(args.emailOtpEnrollment ? { emailOtpEnrollment: args.emailOtpEnrollment } : {}),
+        ...(args.emailOtpBackupAck ? { emailOtpBackupAck: args.emailOtpBackupAck } : {}),
+        onServerTiming: (header) =>
+          recordStrictEcdsaServerTimingBuckets(args.registrationTiming, 'activate', header),
+      }),
+    });
+
+    const finalized = await measureStrictEcdsaCeremonyStep({
+      registrationTiming: args.registrationTiming,
+      bucket: 'ecdsaRegistrationClientActivationFinalizeMs',
+      operation: args.context.signingEngine.finalizeRouterAbEcdsaRegistrationActivation.bind(
+        args.context.signingEngine,
+        {
+          kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
+          ceremonyId,
+          relayerKeyId: args.ecdsaPrepare.prepare.relayerKeyId,
+          activationReceipt: activated.activation,
+        },
+      ),
+    });
+
+    const clientBootstrap = buildStrictRegistrationClientBootstrap({
+      prepare: args.ecdsaPrepare.prepare,
+      verified: verified.clientBootstrap,
+    });
+    return {
+      session: {
+        chainTargets: [firstChainTarget, ...remainingChainTargets],
+        clientBootstrap,
+        bootstrap: parseWalletRegistrationEcdsaDerivationRespond({
+          clientBootstrap,
+          serverBootstrap: activated.bootstrap,
+          activationEpoch: finalized.publicCapability.activation_epoch,
+        }),
+        roleLocalMaterial: finalized.roleLocalMaterial,
+        clientPublicFacts: finalized.publicFacts,
+        publicCapability: finalized.publicCapability,
+      },
+      activated,
+      deferredNear,
+    };
+  } catch (error: unknown) {
+    await closeStrictEcdsaRegistrationCeremony({ context: args.context, ceremonyId });
     throw error;
   }
 }
