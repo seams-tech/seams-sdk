@@ -85,3 +85,50 @@ test('awaiting resolves through the pending attempt and null when never schedule
   release?.();
   await expect(awaited).resolves.toEqual({ status: 'sealed' });
 });
+
+test('the restore coordinator waits out a pending seal before listing sealed records', async () => {
+  resetEcdsaWarmSessionSealRegistryForTests();
+  const { restorePersistedSessionForSigningCommand } = await import(
+    '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator'
+  );
+
+  let sealSettled = false;
+  let release: (() => void) | null = null;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  void runSingleFlightEcdsaWarmSessionSeal({
+    walletId: WALLET,
+    attempt: async () => {
+      await gate;
+      sealSettled = true;
+    },
+  });
+
+  let listedAfterSeal: boolean | null = null;
+  const restore = restorePersistedSessionForSigningCommand(
+    {
+      walletId: WALLET,
+      authMethod: 'passkey',
+      curve: 'ecdsa',
+      chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 1 },
+      reason: 'transaction',
+    } as never,
+    {
+      listExactSealedSessionsForWallet: async () => {
+        /* The coordinator must not look for the record while the seal that
+           writes it is still in flight. */
+        listedAfterSeal = sealSettled;
+        return [];
+      },
+      restoreSealedRecordForWallet: async () => 'deferred',
+    } as never,
+  );
+
+  /* Give the coordinator a chance to run ahead wrongly before releasing. */
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(listedAfterSeal).toBeNull();
+  release?.();
+  await restore;
+  expect(listedAfterSeal).toBe(true);
+});
