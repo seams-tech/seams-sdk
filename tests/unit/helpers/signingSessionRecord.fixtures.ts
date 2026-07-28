@@ -45,13 +45,13 @@ import type { EcdsaDerivationRoleLocalKeyRecord } from '../../../packages/sdk-se
 import {
   createThresholdEcdsaBootstrapFixture,
   fixtureRuntimePolicyScopeFromSigningRoot,
+  toWorkerOwnedPasskeyEcdsaBootstrapFixture,
 } from './ecdsaBootstrap.fixtures';
 import {
   buildEcdsaRoleLocalPersistedMaterialRefFixture,
   buildWalletAuthAuthorityRefFixture,
 } from './ecdsaMaterialRef.fixtures';
 import { testEcdsaChainTarget } from './ecdsaChainTarget.fixtures';
-import { toWorkerOwnedPasskeyEcdsaBootstrapFixture } from './warmSessionTestServices.fixtures';
 
 const FIXTURE_EMAIL_HASH_HEX = '11'.repeat(32);
 

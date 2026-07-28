@@ -2,7 +2,13 @@ import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
 } from '@/core/signingEngine/threshold/ecdsa/activation';
-import { parseEcdsaThresholdKeyId } from '@/core/signingEngine/session/keyMaterialBrands';
+import {
+  parseEcdsaRoleLocalBindingDigest,
+  parseEcdsaRoleLocalDurableMaterialRef,
+  parseEcdsaRoleLocalMaterialHandle,
+  parseEcdsaThresholdKeyId,
+} from '@/core/signingEngine/session/keyMaterialBrands';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './ecdsaMaterialRef.fixtures';
 import {
   parseMpcWalletSigningQuotaId,
   parseSeamsSessionId,
@@ -367,4 +373,48 @@ function toFixtureWalletSessionJwt(
     }),
   ).toString('base64url');
   return `${header}.${payload}.fixture`;
+}
+
+/** Converts a bootstrap fixture carrying an inline role-local ready-state blob
+ * into the current worker-owned material binding: canonical passkey ECDSA
+ * material is referenced through a durable worker handle, never carried inline.
+ * Its previous home (`warmSessionTestServices.fixtures`) exercised the retired
+ * composite record store and was deleted with it. */
+export function toWorkerOwnedPasskeyEcdsaBootstrapFixture(
+  bootstrap: ThresholdEcdsaSessionBootstrapResult,
+): ThresholdEcdsaSessionBootstrapResult {
+  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  if (!binding || binding.materialKind !== 'role_local_ready_state_blob') {
+    return bootstrap;
+  }
+  const sessionId =
+    String(bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '').trim() || 'fixture-session';
+  const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef(`role-local:${sessionId}`);
+  const bindingDigest = parseEcdsaRoleLocalBindingDigest(
+    binding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+  );
+  const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+    durableMaterialRef,
+    bindingDigest,
+  });
+  return {
+    ...bootstrap,
+    thresholdEcdsaKeyRef: {
+      ...bootstrap.thresholdEcdsaKeyRef,
+      backendBinding: {
+        materialKind: 'role_local_worker_handle' as const,
+        relayerKeyId: binding.relayerKeyId,
+        clientVerifyingShareB64u: binding.clientVerifyingShareB64u,
+        roleLocalMaterialHandle: {
+          kind: 'ecdsa_role_local_worker_handle_v1' as const,
+          materialHandle: parseEcdsaRoleLocalMaterialHandle(`role-local-live:${sessionId}`),
+          bindingDigest,
+          durableMaterialRef,
+        },
+        roleLocalMaterialRef,
+        publicFacts: binding.ecdsaRoleLocalReadyRecord.publicFacts,
+        authMethod: binding.ecdsaRoleLocalReadyRecord.authMethod,
+      },
+    },
+  };
 }

@@ -14,7 +14,8 @@
     "unit/d1EvmFamilyEcdsaRegistrationBranch.unit.test.ts",
     "unit/d1WalletRegistrationFinalizeConvergence.unit.test.ts",
     "unit/d1WalletRegistrationCommitStore.unit.test.ts",
-    "unit/ecdsaExportMaterial.unit.test.ts",
+    "unit/ecdsaExportOperationAuthorization.unit.test.ts",
+    "unit/ecdsaOperationStepUpChallengeBinding.unit.test.ts",
     "unit/emailOtpMixedWalletUnlock.unit.test.ts",
     "unit/emailOtpRecoveryWrappedEnrollmentEscrowStore.unit.test.ts",
     "unit/emailOtpWalletSessionCoordinator.unit.test.ts",
@@ -27,7 +28,6 @@
     "unit/signingRootRecords.script.unit.test.ts",
     "unit/signingSessionSeal.shared.unit.test.ts",
     "unit/thresholdEcdsa.bootstrapPersistence.unit.test.ts",
-    "unit/thresholdEcdsa.emailOtpBootstrapCommit.unit.test.ts",
     "unit/thresholdEcdsa.persistedRecords.unit.test.ts",
     "unit/warmSessionEcdsaProvisioning.unit.test.ts",
     "unit/warmSessionTransitions.unit.test.ts"
