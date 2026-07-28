@@ -55,9 +55,6 @@ export type EmailOtpEcdsaSessionPorts = {
   listActiveEcdsaSignersForWallet: (args: {
     walletId: WalletId;
   }) => Promise<readonly AccountSignerRecord[]>;
-  getThresholdEcdsaSessionRecordByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => ThresholdEcdsaSessionRecord | null;
 };
 
 export type EmailOtpSealedSessionStorePorts = {
