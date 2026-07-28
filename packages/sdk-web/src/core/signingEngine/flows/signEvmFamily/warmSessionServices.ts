@@ -65,26 +65,6 @@ export function createEvmFamilyWarmSessionServices(
     deps.getEmailOtpWarmSessionStatus ||
     (async (sessionId: string): Promise<WarmSessionStatusResult> =>
       deps.touchConfirm.getWarmSessionStatus({ sessionId }));
-  const listThresholdEcdsaRecordsForWalletTarget = ({
-    walletId,
-    chainTarget,
-    source,
-  }: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  }) => {
-    return deps
-      .listThresholdEcdsaSessionRecordsForSigning({
-        walletId,
-        chainTarget,
-        ...(source ? { source } : {}),
-      })
-      .map((record) => ({
-        source: record.source,
-        record,
-      }));
-  };
   const resolveActiveEcdsaWalletSessionAuthorization =
     deps.resolveActiveEcdsaWalletSessionAuthorization;
   const capabilityReader = createWarmSessionCapabilityReader({
@@ -114,7 +94,6 @@ export function createEvmFamilyWarmSessionServices(
       ensureWarmEcdsaCapabilityReady(
         {
           getWarmSession: (walletId) => capabilityReader.getWarmSession(walletId),
-          listThresholdEcdsaRecordsForWalletTarget,
           canProvisionEcdsaCapability: true,
           provisionThresholdEcdsaSession: (provisionRequest) =>
             deps.provisionThresholdEcdsaSession(provisionRequest),

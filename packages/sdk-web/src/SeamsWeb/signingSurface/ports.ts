@@ -19,6 +19,8 @@ import type {
   DiscoverPersistedSessionsForWalletResult,
   ThresholdEcdsaSessionRecord as SessionPublicThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/public';
+import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
+import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
@@ -218,7 +220,8 @@ export interface EcdsaLoginSessionSurface {
   scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(args: {
     walletId: EcdsaWalletId;
     chainTarget: ThresholdEcdsaChainTarget;
-    thresholdEcdsaSessionRecord: ThresholdEcdsaSessionRecord;
+    manifest: ActiveEcdsaCapabilityManifest;
+    runtime: ExactEcdsaSealedRuntime;
     minRemainingUsesBeforePrefill?: number;
   }): Promise<RouterAbEcdsaDerivationLoginPresignaturePrefillResult>;
 }

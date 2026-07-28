@@ -21,6 +21,7 @@ import {
   type LockOperationContext,
 } from '@/SeamsWeb/operations/auth/login';
 import { IndexedDBManager } from '@/core/indexedDB';
+import { resolveActiveEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
   WalletAuthWebContext,
@@ -265,23 +266,28 @@ export async function prefillRouterAbEcdsaDerivationPresignaturePoolDomain(
     });
   }
 
-  const ecdsaRecords = deps.signingEngine.listThresholdEcdsaSessionRecordsForWalletTarget({
-    walletId: args.walletSession.walletId,
+  // Canonical resolution: the manifest selects the exact capability and the
+  // sealed store supplies its runtime state. A missing or mismatched half is a
+  // typed skip, not a throw -- prefill is an optimisation, and failing it must
+  // never fail the unlock that triggered it.
+  const walletId = toWalletId(args.walletSession.walletId);
+  const resolved = await resolveActiveEcdsaCapabilityRuntime({
+    walletId,
     chainTarget: args.chainTarget,
-    source: 'login',
   });
-  if (ecdsaRecords.length !== 1) {
-    throw new Error(
-      ecdsaRecords.length > 1
-        ? `[SeamsWeb] ambiguous threshold ECDSA session record for wallet ${String(args.walletSession.walletId)} ${thresholdEcdsaChainTargetKey(args.chainTarget)}`
-        : `[SeamsWeb] missing threshold ECDSA session record for wallet ${String(args.walletSession.walletId)} ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
-    );
+  if (resolved.kind !== 'resolved') {
+    return {
+      status: 'skipped',
+      reason: 'invalid_session_record',
+      thresholdSessionId: null,
+      details: resolved.reason,
+    };
   }
-  const record = ecdsaRecords[0]!;
   return await deps.signingEngine.scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill({
-    walletId: toWalletId(args.walletSession.walletId),
-    chainTarget: record.chainTarget,
-    thresholdEcdsaSessionRecord: record,
+    walletId,
+    chainTarget: args.chainTarget,
+    manifest: resolved.manifest,
+    runtime: resolved.runtime,
     ...(typeof args.waitForPoolReady === 'boolean'
       ? { waitForPoolReady: args.waitForPoolReady }
       : {}),
