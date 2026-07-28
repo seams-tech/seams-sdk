@@ -4,14 +4,12 @@ import type {
 } from '../../session/identity/laneIdentity';
 import type { EcdsaSigningKeyContext } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import {
-  deriveEvmFamilyKeyFingerprintFromRecordPublicFacts,
+  deriveEvmFamilyKeyFingerprintFromPublicFacts,
   type ReadyEcdsaSignerSession,
   type ReadyEvmFamilyEcdsaMaterial,
   type VerifiedEcdsaPublicFacts,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
-import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
-import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../../session/persistence/ecdsaRoleLocalRecords';
 import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
@@ -19,7 +17,6 @@ import {
 import {
   type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
-  summarizeEvmFamilyEcdsaSessionRecord,
 } from './ecdsaLanes';
 
 type EcdsaMaterialBase = {
@@ -79,23 +76,6 @@ export type MissingEcdsaMaterial = EcdsaMaterialBase & {
   signerSession?: never;
 };
 
-export type PublicIdentityAvailableEcdsaMaterial = EcdsaMaterialBase & {
-  kind: 'public_identity_available';
-  publicFacts: VerifiedEcdsaPublicFacts;
-  record: ThresholdEcdsaSessionRecord;
-  keyRef?: never;
-  signerSession?: never;
-};
-
-export type ReauthRequiredEcdsaMaterial = EcdsaMaterialBase & {
-  kind: 'reauth_required';
-  publicFacts: VerifiedEcdsaPublicFacts;
-  record: ThresholdEcdsaSessionRecord;
-  keyRef?: never;
-  reason: 'missing_worker_share' | 'missing_inline_share' | 'expired' | 'exhausted';
-  signerSession?: never;
-};
-
 export type ReadyEcdsaMaterial = EcdsaMaterialBase & {
   kind: 'ready_to_sign';
   publicFacts: VerifiedEcdsaPublicFacts;
@@ -103,15 +83,13 @@ export type ReadyEcdsaMaterial = EcdsaMaterialBase & {
   readyMaterial: ReadyEvmFamilyEcdsaMaterial;
   signerSession: ReadyEcdsaSignerSession;
   sharedKeyState: EvmFamilySharedEcdsaReadyState;
-  record: ThresholdEcdsaSessionRecord;
   keyRef?: never;
 };
 
-export type EcdsaMaterialState =
-  | MissingEcdsaMaterial
-  | PublicIdentityAvailableEcdsaMaterial
-  | ReauthRequiredEcdsaMaterial
-  | ReadyEcdsaMaterial;
+// Only absence and readiness remain. The intermediate record-carrying states
+// described a composite record that has no writer, so nothing could construct
+// them; public identity now travels with the manifest and sealed runtime.
+export type EcdsaMaterialState = MissingEcdsaMaterial | ReadyEcdsaMaterial;
 
 export type EcdsaMaterialSummary = {
   present: boolean;
@@ -168,18 +146,15 @@ export function requireReadyEcdsaMaterial(
 }
 
 export function summarizeEcdsaMaterialState(state: EcdsaMaterialState): EcdsaMaterialSummary {
+  // The signer session carries the verified public facts directly, so the
+  // fingerprint no longer has to be reconstructed from a record.
   const evmFamilyKeyFingerprint =
     state.kind === 'ready_to_sign'
-      ? safeDeriveRecordPublicFactsFingerprint({
-          walletId: state.readyMaterial.key.walletId,
-          record: state.readyMaterial.record,
+      ? safePublicFactsFingerprint({
+          walletId: state.signerSession.walletId,
+          publicFacts: state.signerSession.publicFacts,
         })
-      : state.kind === 'public_identity_available' || state.kind === 'reauth_required'
-        ? safeDeriveRecordPublicFactsFingerprint({
-            walletId: state.record.walletId,
-            record: state.record,
-          })
-        : undefined;
+      : undefined;
   const publicIdentityPresent = state.kind !== 'public_identity_unavailable';
   const signerMaterialPresent = state.kind === 'ready_to_sign';
   return {
@@ -196,66 +171,34 @@ export function summarizeEcdsaMaterialState(state: EcdsaMaterialState): EcdsaMat
   };
 }
 
-function safeDeriveRecordPublicFactsFingerprint(args: {
-  walletId: string;
-  record: ThresholdEcdsaSessionRecord;
+function safePublicFactsFingerprint(args: {
+  walletId: ReadyEcdsaSignerSession['walletId'];
+  publicFacts: VerifiedEcdsaPublicFacts;
 }): string | undefined {
   try {
-    return deriveEvmFamilyKeyFingerprintFromRecordPublicFacts({
+    return deriveEvmFamilyKeyFingerprintFromPublicFacts({
       walletId: args.walletId,
-      record: args.record,
+      publicFacts: args.publicFacts,
     });
   } catch {
     return undefined;
   }
 }
 
-export function getEcdsaMaterialRecord(
-  state: EcdsaMaterialState,
-): ThresholdEcdsaSessionRecord | undefined {
-  switch (state.kind) {
-    case 'public_identity_unavailable':
-      return undefined;
-    case 'public_identity_available':
-    case 'reauth_required':
-    case 'ready_to_sign':
-      return state.record;
-  }
-}
-
-export function resolveEmailOtpEcdsaReadinessSource(args: {
-  record: ThresholdEcdsaSessionRecord;
-  nowMs: number;
-}): EmailOtpEcdsaReadinessSource {
-  const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
-    record: args.record,
-    nowMs: args.nowMs,
-  });
-  if (roleLocalState.kind !== 'ready_email_otp_role_local_material_v1') {
-    return { kind: 'unavailable' };
-  }
-  return {
-    kind: 'persisted_record_policy',
-    expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
-    remainingUses: Math.floor(Number(args.record.remainingUses) || 0),
-  };
-}
-
 export function summarizeReadyEcdsaMaterialForDiagnostics(
   state: ReadyEcdsaMaterial | undefined,
 ): Record<string, unknown> {
   if (!state) return { present: false };
-  return {
-    material: summarizeEcdsaMaterialState(state),
-    record: summarizeEvmFamilyEcdsaSessionRecord(state.record),
-  };
+  return { material: summarizeEcdsaMaterialState(state) };
 }
 
 export function materialIdentityMatchesResolvedLane(args: {
   state: ReadyEcdsaMaterial;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
 }): boolean {
-  const materialKeyHandle = String(args.state.record.keyHandle || '').trim();
+  // Key handle comes from the signer session's verified public facts; the
+  // material activation is the identity that actually names the material.
+  const materialKeyHandle = String(args.state.signerSession.publicFacts.keyHandle || '').trim();
   const signer = requireEvmFamilyEcdsaSigner(
     args.lane.identity,
     'ECDSA material identity comparison',
@@ -264,8 +207,10 @@ export function materialIdentityMatchesResolvedLane(args: {
   return (
     args.lane.authorization.projection.walletSessionId ===
       args.state.authorization.projection.walletSessionId &&
+    Boolean(materialKeyHandle) &&
     materialKeyHandle === laneKeyHandle &&
-    String(args.state.record.keyHandle || '').trim() === laneKeyHandle &&
+    String(signer.materialActivation.activationId) ===
+      String(args.state.materialActivation.activationId) &&
     thresholdEcdsaChainTargetsEqual(signer.chainTarget, args.state.chainTarget)
   );
 }
