@@ -5201,12 +5201,24 @@ const CLOUDFLARE_ROUTER_ECDSA_MERGED_ROLE_METRIC_LIMIT_V1: usize = 12;
 #[derive(Default)]
 pub struct CloudflareEcdsaBoundaryTimingV1 {
     entries: Vec<(String, u64)>,
+    trace_id: Option<CloudflareTraceIdV1>,
 }
 
 #[cfg(feature = "workers-rs")]
 impl CloudflareEcdsaBoundaryTimingV1 {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_trace_id(trace_id: Option<CloudflareTraceIdV1>) -> Self {
+        Self {
+            entries: Vec::new(),
+            trace_id,
+        }
+    }
+
+    fn trace_id(&self) -> Option<CloudflareTraceIdV1> {
+        self.trace_id
     }
 
     pub(crate) fn now_ms() -> u64 {
@@ -5355,6 +5367,7 @@ where
                             runtime.deriver_a_peer(),
                             &request,
                             deriver_a_message,
+                            timing.trace_id(),
                         )
                         .await;
                     (
@@ -5370,6 +5383,7 @@ where
                             runtime.deriver_b_peer(),
                             &request,
                             deriver_b_message,
+                            timing.trace_id(),
                         )
                         .await;
                     (
@@ -5509,6 +5523,7 @@ where
             env,
             runtime.signing_worker_peer(),
             &request,
+            timing.trace_id(),
         )
         .await;
     timing.mark("ecdsa_rt_act_worker", worker_started_at_ms);
@@ -11456,7 +11471,7 @@ where
     TResp: serde::de::DeserializeOwned,
 {
     let (response, _server_timing) =
-        post_service_json_with_server_timing(env, binding_name, url, label, request).await?;
+        post_service_json_with_server_timing(env, binding_name, url, label, request, None).await?;
     Ok(response)
 }
 
@@ -11470,6 +11485,7 @@ async fn post_service_json_with_server_timing<TReq, TResp>(
     url: &str,
     label: &str,
     request: &TReq,
+    trace_id: Option<CloudflareTraceIdV1>,
 ) -> RouterAbProtocolResult<(TResp, Option<String>)>
 where
     TReq: Serialize,
@@ -11494,6 +11510,9 @@ where
             )
         })?;
     set_cloudflare_internal_service_auth_header_v1(env, &headers, label)?;
+    if let Some(trace_id) = trace_id {
+        set_cloudflare_trace_id_header_v1(&headers, trace_id)?;
+    }
     let mut init = worker::RequestInit::new();
     init.with_method(worker::Method::Post)
         .with_headers(headers)
@@ -11546,6 +11565,7 @@ async fn execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_serv
     peer: &CloudflarePeerBindingV1,
     registration_request: &RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     message: &WireMessageV1,
+    trace_id: Option<CloudflareTraceIdV1>,
 ) -> RouterAbProtocolResult<(
     CloudflareSignerRecipientProofBundleResponseV1,
     Option<String>,
@@ -11575,6 +11595,7 @@ async fn execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_serv
             cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_url(peer)?,
             &label,
             &private_request,
+            trace_id,
         )
         .await?;
     validate_cloudflare_signer_recipient_proof_bundle_private_response_v1(
@@ -11711,6 +11732,7 @@ async fn execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation
     env: &worker::Env,
     peer: &CloudflarePeerBindingV1,
     request: &CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1,
+    trace_id: Option<CloudflareTraceIdV1>,
 ) -> RouterAbProtocolResult<(
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1,
     Option<String>,
@@ -11732,6 +11754,7 @@ async fn execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation
         cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_url(peer)?,
         "Router A/B ECDSA derivation SigningWorker activation request",
         request,
+        trace_id,
     )
     .await?;
     receipt.validate()?;

@@ -257,6 +257,25 @@ function recordServerTimingBuckets(
   }
 }
 
+type StrictEcdsaServerTimingLeg = 'respond' | 'activate';
+
+/** Records fixed timing buckets and reports only whether the raw header arrived. */
+export function recordStrictEcdsaServerTimingBuckets(
+  recorder: {
+    record: (bucket: RegistrationTimingBucketName, durationMs: number) => void;
+  } | null,
+  leg: StrictEcdsaServerTimingLeg,
+  header: string | null,
+): void {
+  if (isRegistrationBenchmarkDiagnosticsEnabled()) {
+    console.info('[Registration] ECDSA Server-Timing header presence', {
+      leg,
+      present: Boolean(header?.trim()),
+    });
+  }
+  recordServerTimingBuckets(recorder, header);
+}
+
 export function parseYaoServerTimingBuckets(
   header: string | null | undefined,
 ): ReadonlyArray<readonly [RegistrationTimingBucketName, number]> {
@@ -2843,6 +2862,7 @@ function strictEcdsaFamilyCeremonyId(route: StrictEcdsaFamilyCeremonyRoute): str
 async function forwardStrictEcdsaFamilyRegistration(args: {
   relayerUrl: string;
   route: StrictEcdsaFamilyCeremonyRoute;
+  traceContext?: RouterAbTraceContextV1;
   strictRegistration: Awaited<
     ReturnType<RegistrationWebContext['signingEngine']['createRouterAbEcdsaRegistrationCeremony']>
   >['registrationRequest'];
@@ -2852,7 +2872,7 @@ async function forwardStrictEcdsaFamilyRegistration(args: {
     case 'registration':
       return await respondWalletRegistrationEcdsa({
         relayerUrl: args.relayerUrl,
-        headers: registrationRouteHeaders(),
+        headers: registrationRouteHeaders(args.traceContext),
         registrationCeremonyId: args.route.registrationCeremonyId,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_v1',
@@ -2878,6 +2898,7 @@ async function forwardStrictEcdsaFamilyRegistration(args: {
 async function activateStrictEcdsaFamilyRegistration(args: {
   relayerUrl: string;
   route: StrictEcdsaFamilyCeremonyRoute;
+  traceContext?: RouterAbTraceContextV1;
   publicFacts: Parameters<typeof activateWalletRegistrationEcdsa>[0]['publicFacts'];
   onServerTiming?: (header: string | null) => void;
 }) {
@@ -2885,7 +2906,7 @@ async function activateStrictEcdsaFamilyRegistration(args: {
     case 'registration':
       return await activateWalletRegistrationEcdsa({
         relayerUrl: args.relayerUrl,
-        headers: registrationRouteHeaders(),
+        headers: registrationRouteHeaders(args.traceContext),
         registrationCeremonyId: args.route.registrationCeremonyId,
         publicFacts: args.publicFacts,
         ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
@@ -2922,6 +2943,7 @@ async function runStrictEcdsaFamilyCeremony(args: {
   context: RegistrationWebContext;
   relayerUrl: string;
   route: StrictEcdsaFamilyCeremonyRoute;
+  traceContext?: RouterAbTraceContextV1;
   started: WalletRegistrationEcdsaPreparePayload;
   registrationTiming: RegistrationTimingRecorder | null;
 }): Promise<RegistrationEcdsaSession> {
@@ -2949,8 +2971,10 @@ async function runStrictEcdsaFamilyCeremony(args: {
       operation: forwardStrictEcdsaFamilyRegistration.bind(undefined, {
         relayerUrl: args.relayerUrl,
         route: args.route,
+        traceContext: args.traceContext,
         strictRegistration: created.registrationRequest,
-        onServerTiming: (header) => recordServerTimingBuckets(args.registrationTiming, header),
+        onServerTiming: (header) =>
+          recordStrictEcdsaServerTimingBuckets(args.registrationTiming, 'respond', header),
       }),
     });
     const verified = await measureStrictEcdsaCeremonyStep({
@@ -2974,8 +2998,10 @@ async function runStrictEcdsaFamilyCeremony(args: {
       operation: activateStrictEcdsaFamilyRegistration.bind(undefined, {
         relayerUrl: args.relayerUrl,
         route: args.route,
+        traceContext: args.traceContext,
         publicFacts: verified.publicFacts,
-        onServerTiming: (header) => recordServerTimingBuckets(args.registrationTiming, header),
+        onServerTiming: (header) =>
+          recordStrictEcdsaServerTimingBuckets(args.registrationTiming, 'activate', header),
       }),
     });
     const finalized = await measureStrictEcdsaCeremonyStep({
@@ -4035,6 +4061,7 @@ async function registerEcdsaOrMixedWallet(
           kind: 'registration',
           registrationCeremonyId: startedCeremony.registrationCeremonyId,
         },
+        traceContext,
         started: startedEcdsa,
         registrationTiming,
       }),

@@ -16,6 +16,7 @@ import {
   type WalletId,
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   deriveSigningRootId,
@@ -2133,6 +2134,7 @@ export class CloudflareD1WalletRegistrationService {
 
   async respondWalletRegistrationEcdsaDerivation(
     request: RespondWalletRegistrationDerivationInput,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<WalletRegistrationEcdsaDerivationRespondResponse> {
     /* Gateway boundary timings; the route strips these into a Server-Timing
        header, so nothing here reaches the wire body. Fixed names + numeric
@@ -2235,7 +2237,11 @@ export class CloudflareD1WalletRegistrationService {
       const strictResult = await this.ecdsaStrictRegistration.register({
         request: ecdsaBranch.registrationRequest,
         authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
+        traceContext,
         onServerTiming: (header) => mergeRouterServerTiming(serverTiming, header),
+        /* Presence only: a fixed metric name, never the header contents. */
+        onHeaderPresence: (presence) =>
+          serverTiming.push([`ecdsa_role_timing_${presence.serverTiming}`, 1]),
       });
       markServerTiming('ecdsa_respond_router', routerStartedAtMs);
       if (!strictResult.ok) {
@@ -2314,6 +2320,7 @@ export class CloudflareD1WalletRegistrationService {
 
   async activateWalletRegistrationEcdsa(
     request: ActivateWalletRegistrationEcdsaInput,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<WalletRegistrationEcdsaActivationResponse> {
     /* Same contract as respondWalletRegistrationEcdsaDerivation: stripped into
        a Server-Timing header at the route, never serialized to the wire. */
@@ -2410,7 +2417,11 @@ export class CloudflareD1WalletRegistrationService {
         pendingActivation: ecdsaBranch.pendingActivation,
         clientActivation: ecdsaBranch.publicFacts,
         authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
+        traceContext,
         onServerTiming: (header) => mergeRouterServerTiming(serverTiming, header),
+        /* Presence only: a fixed metric name, never the header contents. */
+        onHeaderPresence: (presence) =>
+          serverTiming.push([`ecdsa_role_timing_${presence.serverTiming}`, 1]),
       });
       markServerTiming('ecdsa_activate_router', routerStartedAtMs);
       if (!activated.ok) {
