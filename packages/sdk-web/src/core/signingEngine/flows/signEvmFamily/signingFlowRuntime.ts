@@ -20,8 +20,15 @@ import type {
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
-import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
+import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
+
+/** The exact material activation the signer binding names. Signing serializes
+ * per activation, so this is the only identity the runtime needs — no selected
+ * lane, and therefore no authorization. */
+type EvmFamilyEcdsaMaterialActivation = ReturnType<
+  typeof requireEvmFamilyEcdsaSigner
+>['materialActivation'];
 import {
   authorizeEvmFamilyEcdsaOperationStepUp,
   prepareEvmFamilyEcdsaOperationStepUp,
@@ -37,7 +44,7 @@ async function runSerializedEcdsaMaterialUse<T>(
   args: {
     deps: EvmFamilySigningDeps;
     walletId: WalletId;
-    materialActivation: ResolvedEvmFamilyEcdsaSigningLane['materialActivation'];
+    materialActivation: EvmFamilyEcdsaMaterialActivation;
     shouldAbort?: () => boolean;
   },
   task: () => Promise<T>,
@@ -67,7 +74,7 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   requestLabel: unknown;
-  materialActivation: ResolvedEvmFamilyEcdsaSigningLane['materialActivation'];
+  materialActivation: EvmFamilyEcdsaMaterialActivation;
   workerCtx: ReturnType<EvmFamilySigningDeps['getSignerWorkerContext']>;
 }): Promise<EcdsaSigningMaterialPlan> {
   // Session-scoped runtime state comes from the exact sealed record correlated
@@ -116,7 +123,10 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   onAuthSideEffectStarted?: (sideEffect: EvmFamilySigningAuthSideEffect) => void;
   signingOperation?: SigningOperationContext;
   onSigningOperationTransition?: SigningOperationTransitionObserver;
-  getResolvedEcdsaSigningLane: () => ResolvedEvmFamilyEcdsaSigningLane;
+  // The exact material identity, whether or not a reusable Wallet Session
+  // authorizes it. Everything below is resolved from wallet, chain target and
+  // material activation.
+  getEcdsaSigningLaneIdentity: () => ExactEcdsaSigningLaneIdentity;
 }) {
   const [Secp256k1Engine, WebAuthnP256Engine] = await Promise.all([
     loadSecp256k1EngineCtor(),
@@ -130,7 +140,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   const resolvedSigner =
     args.senderSignatureAlgorithm === 'secp256k1'
       ? requireEvmFamilyEcdsaSigner(
-          args.getResolvedEcdsaSigningLane().identity,
+          args.getEcdsaSigningLaneIdentity(),
           'ECDSA signing material hydration',
         )
       : undefined;

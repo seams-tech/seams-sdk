@@ -86,13 +86,24 @@ type ResolveEvmFamilyTransactionStepUpBaseArgs = {
 export type ResolveEvmFamilyTransactionStepUpArgs =
   | (ResolveEvmFamilyTransactionStepUpBaseArgs & {
       senderSignatureAlgorithm: 'secp256k1';
+      ecdsaAuthorization: 'reusable_wallet_session';
       preparedOperation: PreparedThresholdSigningOperation<
         ResolvedEvmFamilyEcdsaSigningLane,
         Record<string, unknown>
       >;
     })
+  // Auth-neutral ECDSA material: the reusable-session planner never ran, so
+  // there is no prepared threshold operation and no signing session plan to
+  // derive a warm-session plan from. The operation is authorized directly on
+  // the capability's own factor.
+  | (ResolveEvmFamilyTransactionStepUpBaseArgs & {
+      senderSignatureAlgorithm: 'secp256k1';
+      ecdsaAuthorization: 'operation_step_up';
+      preparedOperation?: never;
+    })
   | (ResolveEvmFamilyTransactionStepUpBaseArgs & {
       senderSignatureAlgorithm: Exclude<EvmFamilySenderSignatureAlgorithm, 'secp256k1'>;
+      ecdsaAuthorization?: never;
       preparedOperation?: never;
     });
 
@@ -107,43 +118,47 @@ export async function resolveEvmFamilyTransactionStepUp(
   };
 }> {
   const walletId = toWalletId(args.walletSession.walletId);
-  const preparedEcdsaMetadata =
-    args.senderSignatureAlgorithm === 'secp256k1'
-      ? (args.preparedOperation.metadata as {
-          selection:
-            | ReadyEvmFamilyEcdsaSigningSelection
-            | ReauthRequiredEvmFamilyEcdsaSigningSelection;
-        })
+  // Only a reusable-session preparation carries a threshold operation. Every
+  // warm-session fact below is derived from it, so an auth-neutral operation
+  // simply has none of them.
+  const reusableSessionEcdsaOperation =
+    args.senderSignatureAlgorithm === 'secp256k1' &&
+    args.ecdsaAuthorization === 'reusable_wallet_session'
+      ? args.preparedOperation
       : null;
-  const preparedEcdsaLane =
-    args.senderSignatureAlgorithm === 'secp256k1' ? args.preparedOperation.lane : undefined;
+  const preparedEcdsaMetadata = reusableSessionEcdsaOperation
+    ? (reusableSessionEcdsaOperation.metadata as {
+        selection:
+          | ReadyEvmFamilyEcdsaSigningSelection
+          | ReauthRequiredEvmFamilyEcdsaSigningSelection;
+      })
+    : null;
+  const preparedEcdsaLane = reusableSessionEcdsaOperation?.lane;
   const preparedSelection = preparedEcdsaMetadata?.selection;
   const confirmedEmailOtpDeps = args.confirmedDeps;
   const emailOtpAuthority =
-    args.senderSignatureAlgorithm === 'secp256k1' &&
     preparedEcdsaLane &&
     signingLaneAuthMethod(preparedEcdsaLane.auth) === SIGNER_AUTH_METHODS.emailOtp &&
     preparedSelection?.authMethod === SIGNER_AUTH_METHODS.emailOtp
       ? emailOtpStepUpAuthority(preparedSelection)
       : undefined;
-  const emailOtpAuthBridge =
-    args.senderSignatureAlgorithm === 'secp256k1' && emailOtpAuthority
-      ? createEmailOtpEcdsaTransactionSigningBridge({
-          walletId,
-          walletSession: args.walletSession,
-          chain: args.chain,
-          selectedLane: preparedEcdsaLane,
-          authority: emailOtpAuthority,
-          onEvent: args.onEvent,
-          requestEmailOtpTransactionSigningChallenge:
-            confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge,
-        })
-      : null;
+  const emailOtpAuthBridge = emailOtpAuthority
+    ? createEmailOtpEcdsaTransactionSigningBridge({
+        walletId,
+        walletSession: args.walletSession,
+        chain: args.chain,
+        ...(preparedEcdsaLane ? { selectedLane: preparedEcdsaLane } : {}),
+        authority: emailOtpAuthority,
+        onEvent: args.onEvent,
+        requestEmailOtpTransactionSigningChallenge:
+          confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge,
+      })
+    : null;
   const signingIntent = SigningOperationIntent.TransactionSign;
   let plannedEcdsaSigningAuthPlan: SigningAuthPlan | null = null;
   let plannedSigningSessionPlan: SigningSessionPlan | undefined;
-  if (args.senderSignatureAlgorithm === 'secp256k1') {
-    const preparedOperation = args.preparedOperation;
+  if (reusableSessionEcdsaOperation) {
+    const preparedOperation = reusableSessionEcdsaOperation;
     const signingSessionPlan = preparedOperation.signingSessionPlan;
     plannedSigningSessionPlan = signingSessionPlan;
     if (signingSessionPlan.kind === SigningSessionPlanKind.NotReady) {
@@ -212,6 +227,15 @@ export async function resolveEvmFamilyTransactionStepUp(
     }
     if (args.accountAuth.primaryAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
       if (!emailOtpAuthBridge) {
+        if (args.ecdsaAuthorization === 'operation_step_up') {
+          // The Email OTP challenge is still requested through a warm-session
+          // or public-reauth authority, neither of which an auth-neutral
+          // candidate has. Passkey material reaches operation step-up; Email
+          // OTP material needs a capability-bound challenge authority first.
+          throw new Error(
+            '[SigningEngine] Email OTP operation step-up requires a capability-bound challenge authority',
+          );
+        }
         throw new Error('[SigningEngine] Email OTP transaction signing requires ECDSA lane state');
       }
       return {
