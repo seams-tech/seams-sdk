@@ -56,7 +56,6 @@ function fixtureRouterAbEcdsaDerivationNormalSigning(args: {
   return {
     kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
     scope: {
-      wallet_key_id: args.walletKeyId,
       wallet_id: args.walletId,
       ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
       signing_root_id: args.signingRootId,
