@@ -6,6 +6,10 @@ import {
 import { createEvmSignerCapability } from '../../packages/sdk-web/src/SeamsWeb/publicApi/evm';
 import { IndexedDBManager } from '../../packages/sdk-web/src/core/indexedDB';
 import { finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation } from '../../packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
+import {
+  readNearProvisioningState,
+  resetNearProvisioningRegistryForTests,
+} from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import { UserVerificationPolicy } from '../../packages/sdk-web/src/core/types/authenticatorOptions';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
@@ -2078,6 +2082,7 @@ test('registerWallet starts Email OTP Yao and ECDSA registration in parallel', a
    Ed25519 branch settles, so a terminal failure in the deferred commit must
    never fault the wallet that already resolved. */
 async function runMixedEmailOtpRegistration(captures: Record<string, unknown>) {
+  resetNearProvisioningRegistryForTests();
   const events = captures.registrationEvents as string[];
   const walletId = walletIdFromString('email-otp-mixed.testnet');
   const appSessionJwt = jwtWithPayload({
@@ -2146,6 +2151,11 @@ test('registerWallet keeps the ECDSA wallet when the deferred Ed25519 finalize f
     });
     /* A failed deferred commit must not seal Yao material. */
     expect(events).not.toContain('emailOtpYaoCommitCalled');
+    /* Phase 6: the outcome is published, not swallowed. */
+    await waitForTestCondition({
+      label: 'NEAR provisioning to be published as retryable',
+      predicate: () => readNearProvisioningState(walletIdFromString('email-otp-mixed.testnet'))?.status === 'near_failed_retryable',
+    });
   } finally {
     backupCapture.restore();
     fetchMock.restore();
@@ -2177,6 +2187,12 @@ test('registerWallet keeps the ECDSA wallet when the deferred Yao seal fails', a
       label: 'the deferred Yao seal to be attempted',
       predicate: () => events.includes('emailOtpYaoCommitCalled'),
     });
+    /* A seal failure leaves NEAR retryable, never ready. */
+    await waitForTestCondition({
+      label: 'NEAR provisioning to be published as retryable after the seal failed',
+      predicate: () => readNearProvisioningState(walletIdFromString('email-otp-mixed.testnet'))?.status === 'near_failed_retryable',
+    });
+    expect(readNearProvisioningState(walletIdFromString('email-otp-mixed.testnet'))?.status).not.toBe('near_ready');
   } finally {
     backupCapture.restore();
     fetchMock.restore();
