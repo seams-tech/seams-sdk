@@ -25,10 +25,14 @@ export type EmailOtpSigningSessionAuthLane =
       curve: 'ed25519';
     }
   | {
+      // No authorizing grant: the ECDSA authorization boundary carries none,
+      // and deriving one from the Wallet Session id would alias two
+      // independent identity domains. A real CapabilityGrantId is attached at
+      // operation authorization, not here.
       kind: 'signing_session';
       jwt: string;
       thresholdSessionId: string;
-      authorizingSigningGrantId: AuthorizingSigningGrantId;
+      authorizingSigningGrantId?: never;
       curve: 'ecdsa';
       chainTarget: ThresholdEcdsaChainTarget;
     };
@@ -111,9 +115,6 @@ function buildEmailOtpSigningSessionAuthLane(args: {
       kind: 'signing_session',
       jwt,
       thresholdSessionId,
-      authorizingSigningGrantId: toAuthorizingSigningGrantId(
-        authorizingSigningGrantId,
-      ),
       curve: 'ecdsa',
       chainTarget: args.chainTarget,
     };

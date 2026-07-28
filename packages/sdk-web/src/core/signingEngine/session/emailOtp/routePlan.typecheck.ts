@@ -30,7 +30,6 @@ void ({
   kind: 'signing_session',
   jwt: 'threshold-session-jwt',
   thresholdSessionId: 'threshold-session',
-  authorizingSigningGrantId,
   curve: 'ecdsa',
   chainTarget,
 } satisfies EmailOtpSigningSessionAuthLane);
@@ -41,7 +40,6 @@ const routePlan = buildEmailOtpRoutePlan({
     kind: 'signing_session',
     jwt: 'threshold-session-jwt',
     thresholdSessionId: 'threshold-session',
-    authorizingSigningGrantId,
     curve: 'ecdsa',
     chainTarget,
   },
@@ -58,7 +56,6 @@ const ecdsaBootstrapRouteAuth = {
   jwt: 'threshold-ecdsa-session-jwt',
   curve: 'ecdsa',
   thresholdSessionId: 'ecdsa-threshold-session',
-  signingGrantId: authorizingSigningGrantId,
   chainTarget,
 } satisfies EmailOtpEcdsaBootstrapRouteAuth;
 
