@@ -8,6 +8,7 @@ import type {
   WalletFlowAuthMethod,
 } from '@/core/types/sdkSentEvents';
 import type {
+  NearProvisioningErrorCode,
   NearProvisioningState,
   RegistrationResult,
   SeamsConfigsReadonly,
@@ -3592,9 +3593,7 @@ function recordEmailOtpRegistrationYaoDiagnostics(
   recorder: RegistrationTimingRecorder,
   diagnostics: EmailOtpEd25519YaoRegistrationDiagnosticsV1,
 ): void {
-  for (const [bucket, durationMs] of parseYaoServerTimingBuckets(
-    diagnostics.routerServerTiming,
-  )) {
+  for (const [bucket, durationMs] of parseYaoServerTimingBuckets(diagnostics.routerServerTiming)) {
     recorder.record(bucket, durationMs);
   }
   if (!diagnostics.clientTimings) return;
@@ -3670,9 +3669,7 @@ async function finalizeDeferredEd25519Registration(args: {
   });
 }
 
-type RegistrationPasskeyAuthority = Awaited<
-  ReturnType<typeof collectPasskeyRegistrationAuthority>
->;
+type RegistrationPasskeyAuthority = Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>>;
 
 /**
  * Commit #2. Runs after registration has already returned an ECDSA-ready
@@ -3780,6 +3777,15 @@ async function commitDeferredEd25519Registration(args: {
     } else {
       await args.yaoWork.commit({ activation: args.context.signingEngine, walletSessionState });
     }
+    /* Durable first: finalize, capability persistence, and the Yao seal have
+       all succeeded by here, and the record is authoritative. If this write
+       throws, the catch below records a retryable failure — near_ready is
+       never published on an unpersisted success. */
+    await args.context.signingEngine.setWalletNearProvisioningState({
+      walletId: String(args.walletId),
+      status: 'near_ready',
+      nearAccountId: String(nearAccountId),
+    });
     return {
       status: 'near_ready',
       updatedAtMs: Date.now(),
@@ -3788,16 +3794,34 @@ async function commitDeferredEd25519Registration(args: {
   } catch (error: unknown) {
     /* The ECDSA wallet is already durable, so this is reported as a retryable
        provisioning state rather than raised. */
+    const errorCode = nearProvisioningErrorCode(error);
+    try {
+      await args.context.signingEngine.setWalletNearProvisioningState({
+        walletId: String(args.walletId),
+        status: 'near_failed_retryable',
+        errorCode,
+      });
+    } catch {
+      /* The page still learns the outcome even if the record could not be
+         written; it must not be upgraded to ready either way. */
+    }
     return {
       status: 'near_failed_retryable',
       updatedAtMs: Date.now(),
       error: getUserFriendlyErrorMessage(error, 'registration', String(args.walletId)),
-      errorCode: registrationErrorCodeFromUnknown(error),
+      errorCode,
     };
   }
 }
 
-
+/** Maps a deferred-commit throw onto the closed set of provisioning codes. */
+function nearProvisioningErrorCode(error: unknown): NearProvisioningErrorCode {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('finalize')) return 'near_finalize_failed';
+  if (message.includes('seal') || message.includes('Yao')) return 'near_seal_failed';
+  if (message.includes('wallet session')) return 'near_capability_persist_failed';
+  return 'near_provisioning_failed';
+}
 
 async function registerEcdsaOrMixedWallet(
   args: RegisterEcdsaOrMixedWalletArgs,
@@ -3858,8 +3882,7 @@ async function registerEcdsaOrMixedWallet(
     let emailOtpProviderSubject = '';
     let emailOtpAppSessionBinding: EmailOtpAppSessionBinding | null = null;
     let emailOtpRecoveryCodeBackup: Promise<EmailOtpRecoveryCodeBackupOutcome> | null = null;
-    let passkeyAuthority: RegistrationPasskeyAuthority | null =
-      null;
+    let passkeyAuthority: RegistrationPasskeyAuthority | null = null;
     let startAuthority:
       | {
           kind: 'passkey';
@@ -4114,27 +4137,43 @@ async function registerEcdsaOrMixedWallet(
        instead of rejecting, so it can never fault this returned wallet. */
     const deferredWalletId = toWalletId(finalized.walletId);
     if (args.kind === 'near_ed25519_and_evm_family_ecdsa') {
-      publishNearProvisioningState(deferredWalletId, {
-        status: 'near_pending',
-        updatedAtMs: Date.now(),
-      });
-      /* Joined rather than raced: concurrent first-NEAR requests for this
-         wallet attach to this one attempt. */
-      void runSingleFlightNearProvisioning({
-        walletId: deferredWalletId,
-        nowMs: () => Date.now(),
-        attempt: () =>
-          commitDeferredEd25519Registration({
-            context,
-            relayerUrl,
-            registrationCeremonyId: startedCeremony.registrationCeremonyId,
-            headers: registrationRouteHeaders(traceContext),
-            yaoWork,
-            plan: persistencePlan,
-            passkeyAuthority,
-            walletId: deferredWalletId,
-          }),
-      });
+      /* Persist before publishing at every transition: the durable record is
+         authoritative and the registry mirrors it. */
+      void (async () => {
+        await context.signingEngine
+          .setWalletNearProvisioningState({
+            walletId: String(deferredWalletId),
+            status: 'near_pending',
+          })
+          .catch(() => undefined);
+        publishNearProvisioningState(deferredWalletId, {
+          status: 'near_pending',
+          updatedAtMs: Date.now(),
+        });
+        await context.signingEngine
+          .setWalletNearProvisioningState({
+            walletId: String(deferredWalletId),
+            status: 'near_provisioning',
+          })
+          .catch(() => undefined);
+        /* Joined rather than raced: concurrent first-NEAR requests for this
+           wallet attach to this one attempt. */
+        await runSingleFlightNearProvisioning({
+          walletId: deferredWalletId,
+          nowMs: () => Date.now(),
+          attempt: () =>
+            commitDeferredEd25519Registration({
+              context,
+              relayerUrl,
+              registrationCeremonyId: startedCeremony.registrationCeremonyId,
+              headers: registrationRouteHeaders(traceContext),
+              yaoWork,
+              plan: persistencePlan,
+              passkeyAuthority,
+              walletId: deferredWalletId,
+            }),
+        });
+      })();
     }
     const result: RegistrationResult =
       args.kind === 'near_ed25519_and_evm_family_ecdsa'

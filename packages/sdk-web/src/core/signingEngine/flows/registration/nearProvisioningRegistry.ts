@@ -73,24 +73,27 @@ export function subscribeToNearProvisioning(listener: NearProvisioningListener):
 /**
  * Seeds state observed from the durable wallet record on page load.
  *
- * A record still reading `near_provisioning` describes an attempt that died
- * with the tab that owned it — no promise survives a reload — so it converges
- * to a retryable failure rather than leaving the wallet looking busy forever.
+ * A record still reading `near_pending` or `near_provisioning` describes an
+ * attempt that died with the tab that owned it: neither the live factor nor the
+ * promise survives a reload. Both converge to a retryable failure rather than
+ * leaving the wallet looking busy forever. Recovery is a later authenticated
+ * retry, which converges because finalize replay is exact.
  */
 export function reconcileNearProvisioningOnLoad(args: {
   walletId: WalletId;
   persisted: NearProvisioningState | null | undefined;
   nowMs: number;
 }): NearProvisioningState {
-  const converged: NearProvisioningState =
-    args.persisted?.status === 'near_provisioning'
-      ? {
-          status: 'near_failed_retryable',
-          updatedAtMs: args.nowMs,
-          error: 'NEAR provisioning was interrupted before it completed',
-          errorCode: 'near_provisioning_interrupted',
-        }
-      : (args.persisted ?? { status: 'near_pending', updatedAtMs: args.nowMs });
+  const interrupted =
+    args.persisted?.status === 'near_pending' || args.persisted?.status === 'near_provisioning';
+  const converged: NearProvisioningState = interrupted
+    ? {
+        status: 'near_failed_retryable',
+        updatedAtMs: args.nowMs,
+        error: 'NEAR provisioning was interrupted before it completed',
+        errorCode: 'near_provisioning_interrupted',
+      }
+    : (args.persisted ?? { status: 'near_pending', updatedAtMs: args.nowMs });
   publishNearProvisioningState(args.walletId, converged);
   return converged;
 }

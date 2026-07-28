@@ -3,6 +3,7 @@ import type {
   ClientUserData,
   StoreUserDataInput,
 } from '@/core/accountData/near/nearAccountData.types';
+import type { NearProvisioningWriteV1 } from '@/core/types/seams';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { AccountId } from '@/core/types/accountIds';
 import type { WalletId } from '@shared/utils/registrationIntent';
@@ -13,6 +14,7 @@ import {
   getUserBySignerSlot,
   hasPasskeyCredential,
   activateAuthenticatedWalletState,
+  setWalletNearProvisioningState,
   nearAuthenticatorsByAccount,
   rollbackUserRegistration,
   setLastUser,
@@ -50,6 +52,7 @@ export type RegistrationAccountsService = {
   nearAuthenticatorsByAccount(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]>;
   setLastUser(walletId: WalletId, signerSlot: number): Promise<void>;
   activateAuthenticatedWalletState(input: ActivateAuthenticatedWalletStateInput): Promise<void>;
+  setWalletNearProvisioningState(write: NearProvisioningWriteV1): Promise<void>;
   storeAuthenticator(authenticatorData: StoreAuthenticatorInput): Promise<void>;
   rollbackUserRegistration(nearAccountId: AccountId): Promise<void>;
   hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean>;
@@ -89,6 +92,8 @@ export function createRegistrationAccountsService(
     setLastUser: (walletId, signerSlot) => setLastUser(accountLifecycle, walletId, signerSlot),
     activateAuthenticatedWalletState: (input) =>
       activateAuthenticatedWalletState(accountLifecycle, input),
+    setWalletNearProvisioningState: (write) =>
+      setWalletNearProvisioningState(accountLifecycle, write),
     storeAuthenticator: (authenticatorData) =>
       storeAuthenticator(accountLifecycle, authenticatorData),
     rollbackUserRegistration: (nearAccountId) =>

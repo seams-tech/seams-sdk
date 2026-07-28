@@ -1162,6 +1162,16 @@ function createContext(captures: Record<string, unknown>): any {
             signerSlot,
           }),
           activateAuthenticatedWalletState: async () => undefined,
+      setWalletNearProvisioningState: async () => undefined,
+      setWalletNearProvisioningState: async (write: { walletId: string; status: string }) => {
+        const writes = (captures.nearProvisioningWrites as unknown[] | undefined) ?? [];
+        writes.push(write);
+        captures.nearProvisioningWrites = writes;
+        if (captures.failNearProvisioningWrite) {
+          throw new Error('durable NEAR provisioning write unavailable');
+        }
+      },
+          setWalletNearProvisioningState: async () => undefined,
           rollbackUserRegistration: async () => undefined,
         },
       },
@@ -1259,6 +1269,7 @@ function createContext(captures: Record<string, unknown>): any {
         signerSlot,
       }),
       activateAuthenticatedWalletState: async () => undefined,
+      setWalletNearProvisioningState: async () => undefined,
       activateVerifiedNearEd25519YaoSigningCapability:
         captureActivatedEmailOtpEd25519YaoCapability.bind(undefined, captures),
       createRouterAbEcdsaRegistrationCeremony: async (args: Record<string, any>) => {

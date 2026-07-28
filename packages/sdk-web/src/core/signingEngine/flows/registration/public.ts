@@ -3,6 +3,7 @@ import type {
   ClientUserData,
   StoreUserDataInput,
 } from '@/core/accountData/near/nearAccountData.types';
+import type { NearProvisioningWriteV1 } from '@/core/types/seams';
 import type { AccountId } from '@/core/types/accountIds';
 import type { WalletId } from '@shared/utils/registrationIntent';
 import type {
@@ -24,6 +25,7 @@ import {
   getUserBySignerSlot as getUserBySignerSlotValue,
   hasPasskeyCredential as hasPasskeyCredentialValue,
   activateAuthenticatedWalletState as activateAuthenticatedWalletStateValue,
+  setWalletNearProvisioningState as setWalletNearProvisioningStateValue,
   nearAuthenticatorsByAccount as nearAuthenticatorsByAccountValue,
   rollbackUserRegistration as rollbackUserRegistrationValue,
   setLastUser as setLastUserValue,
@@ -119,6 +121,13 @@ export function setLastUser(
   signerSlot: number,
 ): Promise<void> {
   return setLastUserValue(deps.accountLifecycle, walletId, signerSlot);
+}
+
+export function setWalletNearProvisioningState(
+  deps: RegistrationPublicDeps,
+  write: NearProvisioningWriteV1,
+): Promise<void> {
+  return setWalletNearProvisioningStateValue(deps.accountLifecycle, write);
 }
 
 export function activateAuthenticatedWalletState(

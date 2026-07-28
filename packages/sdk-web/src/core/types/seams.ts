@@ -416,6 +416,29 @@ export type NearProvisioningStatus =
   | 'near_ready'
   | 'near_failed_retryable';
 
+/**
+ * Wire input for a durable NEAR provisioning write.
+ *
+ * Deliberately a closed discriminated union of plain data: it carries the
+ * wallet, the target status, and — only where the status defines them — the
+ * NEAR account or a stable error code. No promises, factors, credentials,
+ * sessions, or raw error objects cross this boundary, and no lifecycle field
+ * is optional on a status that does not define it.
+ */
+export type NearProvisioningWriteV1 =
+  | { walletId: string; status: 'near_pending' }
+  | { walletId: string; status: 'near_provisioning' }
+  | { walletId: string; status: 'near_ready'; nearAccountId: string }
+  | { walletId: string; status: 'near_failed_retryable'; errorCode: NearProvisioningErrorCode };
+
+/** Stable, enumerable reasons a deferred NEAR commit can fail. */
+export type NearProvisioningErrorCode =
+  | 'near_provisioning_interrupted'
+  | 'near_finalize_failed'
+  | 'near_capability_persist_failed'
+  | 'near_seal_failed'
+  | 'near_provisioning_failed';
+
 export type NearProvisioningState =
   | { status: 'near_pending'; updatedAtMs: number; error?: never; errorCode?: never }
   | { status: 'near_provisioning'; updatedAtMs: number; error?: never; errorCode?: never }
