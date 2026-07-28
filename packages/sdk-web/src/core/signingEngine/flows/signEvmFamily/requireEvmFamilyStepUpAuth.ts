@@ -234,17 +234,25 @@ function stepUpPolicyFromSigningAuthPlan(
   return { kind: 'use_selected_lane' };
 }
 
+// The confirmation plan must describe the method actually being prepared. An
+// incoming plan survives only when it already matches; otherwise the prepared
+// method wins. This is what lets an escalated warm-session plan carry the
+// capability's own factor into confirmation instead of being rejected by the
+// branch it no longer matches.
 function signingAuthPlanFromPreparedEvmFamilyStepUp(args: {
   signingAuthPlan?: SigningAuthPlan;
   prepared: Awaited<ReturnType<typeof prepareStepUpAuth>>;
 }): SigningAuthPlan {
   if (args.signingAuthPlan) {
-    if (args.prepared.method === 'email_otp' && isEmailOtpSigningAuthPlan(args.signingAuthPlan)) {
+    if (args.prepared.method === 'email_otp') {
       return {
         kind: 'emailOtpReauth',
         method: 'email_otp',
         emailOtpPrompt: args.prepared.prompt,
       };
+    }
+    if (args.prepared.method === 'passkey' && !isPasskeySigningAuthPlan(args.signingAuthPlan)) {
+      return { kind: 'passkeyReauth', method: 'passkey' };
     }
     return args.signingAuthPlan;
   }
