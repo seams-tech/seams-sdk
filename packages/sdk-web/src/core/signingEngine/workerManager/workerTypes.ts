@@ -1194,6 +1194,10 @@ export const EcdsaDerivationClientCustomRequestType = {
   VerifyRouterAbEcdsaRefreshClientProofs: 70_014,
   StoreThresholdEcdsaRoleLocalSigningMaterial: 70_004,
   RehydrateEcdsaRoleLocalSigningMaterial: 70_015,
+  /* Refactor 94C. Initializes the derivation and registration WASM modules
+     without performing an operation, so the cost lands during the
+     authentication prompt instead of on the first ceremony call. */
+  PrewarmEcdsaRegistrationCrypto: 70_016,
 } as const;
 
 export type EcdsaDerivationClientCustomRequestType =
@@ -1213,6 +1217,7 @@ export const EcdsaDerivationClientCustomResponseType = {
   VerifyRouterAbEcdsaRefreshClientProofsSuccess: 70_114,
   StoreThresholdEcdsaRoleLocalSigningMaterialSuccess: 70_104,
   RehydrateEcdsaRoleLocalSigningMaterialSuccess: 70_115,
+  PrewarmEcdsaRegistrationCryptoSuccess: 70_116,
 } as const;
 
 export type EcdsaDerivationClientCustomResponseType =
@@ -1506,6 +1511,14 @@ type EcdsaDerivationClientCustomOperationMap = {
     result: {
       type: typeof EcdsaDerivationClientCustomResponseType.RehydrateEcdsaRoleLocalSigningMaterialSuccess;
       payload: RehydrateEcdsaRoleLocalSigningMaterialResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
+  [EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto]: {
+    payload: Record<string, never>;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.PrewarmEcdsaRegistrationCryptoSuccess;
+      payload: { kind: 'ecdsa_registration_crypto_prewarm_result_v1'; wasmInitMs: number };
       diagnostics?: WorkerResponseDiagnostics;
     };
   };
