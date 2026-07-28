@@ -4,7 +4,7 @@ CREATE TABLE yao_pair_sessions (
     lifecycle TEXT NOT NULL CHECK (
         lifecycle IN ('prepared', 'running', 'completed', 'burned', 'expired')
     ),
-    record_json TEXT NOT NULL,
+    ciphertext_json TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK (revision > 0),
     expires_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL

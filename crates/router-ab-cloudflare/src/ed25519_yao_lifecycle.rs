@@ -468,16 +468,6 @@ enum DeriverAYaoSessionCommandV1 {
 }
 
 impl DeriverAYaoSessionCommandV1 {
-    fn operation(&self) -> &'static str {
-        match self {
-            Self::PreparePair { .. } => "prepare_pair",
-            Self::StartPair { .. } => "start_pair",
-            Self::CompletePair { .. } => "complete_pair",
-            Self::ReadPairStatus { .. } => "read_pair_status",
-            Self::BurnPair { .. } => "burn_pair",
-        }
-    }
-
     fn validate(&self) -> RouterAbProtocolResult<()> {
         match self {
             Self::PreparePair {
@@ -1201,6 +1191,16 @@ impl DeriverAYaoSessionD1V1 {
         )
         .await
         .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        storage.bind_creation_scope(
+            &request.pair_binding.binding().lifecycle.signer_set_id,
+            request
+                .pair_binding
+                .binding()
+                .lifecycle
+                .root_share_epoch
+                .as_str(),
+            root_metadata_digest,
+        )?;
         let prepared_at_ms = cloudflare_yao_now_unix_ms()?;
         if let Some(existing) = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
@@ -1631,6 +1631,16 @@ impl DeriverBYaoSessionD1V1 {
         )
         .await
         .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        storage.bind_creation_scope(
+            &request.pair_binding.binding().lifecycle.signer_set_id,
+            request
+                .pair_binding
+                .binding()
+                .lifecycle
+                .root_share_epoch
+                .as_str(),
+            root_metadata_digest,
+        )?;
         let prepared_at_ms = cloudflare_yao_now_unix_ms()?;
         if let Some(existing) = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
