@@ -403,8 +403,8 @@ redeploy. Locating it requires the worker transport to capture the
 header and return it alongside its result, mirroring what the main-thread
 transport already does.
 
-- [ ] Capture `Server-Timing` in the Email OTP worker's Yao transport and
-      surface it through the worker result.
+- [x] Capture `Server-Timing` in the Email OTP worker's Yao transport and
+      surface it through the worker result (`208ecb1ba`).
 
 Note also that every `ecdsaRegistrationWarmSession*` bucket is 0 on those
 production Email OTP runs, so the Shamir 3-pass seal path — the suspected cost in the local
@@ -416,9 +416,11 @@ and works: `emailOtpYaoPrewarm` reports 107 ms with 105 ms of WASM init.
 `yaoClientSessionCreateMs` (WASM registration-session construction) are
 measured inside `yaoClient.ts` and returned on the success result, then
 recorded at the same join point.
-- [ ] Add Gateway spans around each registration D1 claim and terminal CAS.
-- [ ] Add Router spans around the ECDSA replay/lifecycle transaction, parallel
-      Deriver work, SigningWorker activation, and session/budget provisioning.
+- [x] Add Gateway spans around each registration D1 claim and terminal CAS
+      (`11e783cba`, completed by the nested propagation in `3d8effe25`).
+- [x] Add Router spans around the ECDSA replay/lifecycle transaction, parallel
+      Deriver work, SigningWorker activation, and session/budget provisioning
+      (`3d8effe25`).
 - [x] Keep the existing opaque trace correlation value across every new span.
       The Yao execute request still carries `ROUTER_AB_TRACE_ID_HEADER_V1`
       unchanged, and every new timing value rides the response of that same
@@ -613,6 +615,12 @@ Acceptance:
       100-sample release run measured 88.954 ms p50, 93.989 ms p95, and
       96.647 ms p99 for the connected local Yao registration topology.
 - [ ] Confirm one Email OTP and one passkey registration complete locally.
+  - [x] Passkey registration completed on the optimized local topology on
+        2026-07-28. The frontend summary reported 698 ms total and 252 ms for
+        the ECDSA branch, including a 261 ms simulated passkey interaction.
+  - [ ] The Email OTP rerun is environment-gated because the checked-in local
+        Google `id_token` has expired. The request was rejected by
+        `/session/exchange` before registration began.
 - [ ] Confirm one Email OTP and one passkey registration complete in staging.
 - [ ] Verify the frontend timing summary reports:
   - [ ] ECDSA branch at or below 2.0 seconds;
@@ -634,6 +642,15 @@ the current workspace has unrelated Console package/export drift. The
 source-guard build also remains environment-gated after its WASM dependency
 download was denied; the generated release client package was restored and
 all affected typechecks passed afterward.
+
+The July 28 optimized passkey run also verified the split-registration product
+path. Registration returned an ECDSA-ready wallet while NEAR remained pending;
+the deferred Ed25519 commit then persisted the NEAR signer without another
+passkey prompt. SDK Web, SDK Server, intended-contract typechecks, the focused
+passkey intended contract, the passkey benchmark, nine provisioning lifecycle
+tests, and `git diff --check` pass. The repository-wide `pnpm check` still
+stops in unrelated Console package/export drift under `apps/web-server` after
+the Refactor 94A lint slice completes with zero errors.
 
 Acceptance:
 

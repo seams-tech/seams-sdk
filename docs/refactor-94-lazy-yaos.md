@@ -2,21 +2,23 @@
 
 ## Status
 
-Phases 1, 3, and 9 are complete. Phase 2 is closed on production evidence
-(see below) rather than implemented. **Phases 4+5 are the active work** — they
-are queued directly after the Refactor 94B Phase 0 instrumentation boundary,
-not behind the whole cold-ECDSA refactor. Phases 6–8 and 10 follow, and must
-land before deployment so `ecdsa_ready`, `near_provisioning`, and `near_ready`
-are represented correctly in UI, unlock, recovery, and export.
+Phases 1, 3, 5, and 9 are complete. Phase 2 is closed on production evidence
+(see below) rather than implemented. Phase 4's split persistence and its
+convergence tests landed through `d83a906ca`; the ECDSA-only activation variant
+remains open. The public host API has landed, while the UI consumers remain
+open in Phase 6.
+Phases 6–8 and the remaining Phase 10 validation must land before deployment
+so `ecdsa_ready`, `near_provisioning`, and `near_ready` are represented
+correctly in UI, unlock, recovery, and export.
 
 The two workstreams are complementary and neither substitutes for the other:
 94B addresses the 3–5 s cold ECDSA penalty; Phases 4+5 remove the ~2 s warm
 Yao wait.
 
 The design changed on 2026-07-27, after measurement. The original plan was
-*on-demand lazy provisioning*: registration mints ECDSA only, and the Ed25519
+_on-demand lazy provisioning_: registration mints ECDSA only, and the Ed25519
 signer is provisioned later when the user first wants NEAR. The adopted design
-is *non-blocking provisioning*: the Ed25519 Yao ceremony still runs during
+is _non-blocking provisioning_: the Ed25519 Yao ceremony still runs during
 registration, but registration success no longer waits for it. On-demand
 provisioning is preserved as a follow-on in Phase 11.
 
@@ -31,7 +33,7 @@ path. That is not what the code does, and no longer what it costs.
 
 The baseline in
 [refactor-94A-performance-regression.md](./refactor-94A-performance-regression.md)
-records ECDSA at 4.734 s and Ed25519 Yao at 3.544 s running *concurrently*,
+records ECDSA at 4.734 s and Ed25519 Yao at 3.544 s running _concurrently_,
 with ECDSA determining when finalization begins. Removing the shorter
 concurrent branch does not shorten the critical path.
 
@@ -39,14 +41,14 @@ That baseline is also pre-optimization. Phases 4–6 of the performance refactor
 have since landed (`25cf4c3a0`, `d0de9311a`, `1e8c16f3a`). A measured **local**
 release-profile passkey registration on 2026-07-27 recorded:
 
-| Measure                              |   Observed |
-| ------------------------------------ | ---------: |
-| Total registration                   |   1,695 ms |
-| ECDSA registration ceremony          |     234 ms |
-| authProof (Touch ID, user-controlled) |     334 ms |
-| Unattributed                         |   1,026 ms |
+| Measure                               | Observed |
+| ------------------------------------- | -------: |
+| Total registration                    | 1,695 ms |
+| ECDSA registration ceremony           |   234 ms |
+| authProof (Touch ID, user-controlled) |   334 ms |
+| Unattributed                          | 1,026 ms |
 
-The Yao execute call returned 3 ms *before* finalize started. **Locally**,
+The Yao execute call returned 3 ms _before_ finalize started. **Locally**,
 Ed25519 is not on the critical path, and registration is already inside the
 2–3 s target.
 
@@ -109,14 +111,14 @@ Also buys, resolved 2026-07-28 in production:
 
 ### Production evidence (seams.sh, Email OTP, 2 runs)
 
-| Measure            | Run 1 (cold) |         Run 2 (warm) |
-| ------------------ | -----------: | -------------------: |
-| Total              |     6,350 ms |         **3,439 ms** |
-| ECDSA total        |  5,154 ms    |          1,097 ms    |
-| ECDSA ends at      |     5,783 ms |          **1,776 ms** |
-| Yao total          |     4,089 ms |          2,171 ms    |
-| Yao ends at        |     4,718 ms |          **2,850 ms** |
-| Finalize starts at |     5,783 ms |          **2,850 ms** |
+| Measure            | Run 1 (cold) | Run 2 (warm) |
+| ------------------ | -----------: | -----------: |
+| Total              |     6,350 ms | **3,439 ms** |
+| ECDSA total        |     5,154 ms |     1,097 ms |
+| ECDSA ends at      |     5,783 ms | **1,776 ms** |
+| Yao total          |     4,089 ms |     2,171 ms |
+| Yao ends at        |     4,718 ms | **2,850 ms** |
+| Finalize starts at |     5,783 ms | **2,850 ms** |
 
 The branches invert. Cold, ECDSA determines finalization. **Warm, Yao does**:
 finalize begins exactly when Yao ends, 1,074 ms after ECDSA already finished.
@@ -136,15 +138,15 @@ is why none appear.
 Two further Email OTP registrations after the frontend deploy, now with the
 dedicated buckets:
 
-| Measure                 | Run 3 (cold) | Run 4 (warm) |
-| ----------------------- | -----------: | -----------: |
-| Total                   |     4,685 ms | **3,963 ms** |
-| ECDSA total             |     3,420 ms |       627 ms |
-| ECDSA ends at           |     4,013 ms |   **1,340 ms** |
-| Yao total               |     2,895 ms |     2,626 ms |
-| Yao ends at             |     3,487 ms |   **3,339 ms** |
-| Finalize starts at      |     4,013 ms |   **3,339 ms** |
-| **`yaoClientCompletionMs`** |        0 ms |  **2,000 ms** |
+| Measure                     | Run 3 (cold) | Run 4 (warm) |
+| --------------------------- | -----------: | -----------: |
+| Total                       |     4,685 ms | **3,963 ms** |
+| ECDSA total                 |     3,420 ms |       627 ms |
+| ECDSA ends at               |     4,013 ms | **1,340 ms** |
+| Yao total                   |     2,895 ms |     2,626 ms |
+| Yao ends at                 |     3,487 ms | **3,339 ms** |
+| Finalize starts at          |     4,013 ms | **3,339 ms** |
+| **`yaoClientCompletionMs`** |         0 ms | **2,000 ms** |
 
 Run 4 measures the payoff directly rather than inferring it from span offsets:
 registration idles **2,000 ms** after ECDSA completes, waiting on Yao. Detaching
@@ -339,9 +341,9 @@ and the WASM material seal from the critical path, but not the activation.
 - [x] Fire the NEAR RPC prefetch (`accountLifecycle.ts:657`) fire-and-forget.
       It was awaited on the critical path despite its own comment describing it
       as non-fatal UX warm-up.
-The remaining client-side span work was **dropped as unnecessary**, on
-evidence. The 613 ms and 291 ms windows were local-workerd artifacts, not a
-production cost:
+      The remaining client-side span work was **dropped as unnecessary**, on
+      evidence. The 613 ms and 291 ms windows were local-workerd artifacts, not a
+      production cost:
 
 - production span coverage is already 94.7–96.7% with only 154–210 ms
   unattributed, against 39% locally;
@@ -451,11 +453,12 @@ Add a second, ECDSA-shaped activation instead.
       which already upserts the NEAR profile, creates the
       `nearAccountProjections` row, writes `lastProfileState`, and — unlike
       `persistWalletRegistrationFinalize` — returns a `rollbackReceipt`.
-- [~] Parameterize its hardcoded `SIGNER_AUTH_METHODS.passkey` /
+- [x] ~~Parameterize its hardcoded `SIGNER_AUTH_METHODS.passkey` /~~
       `passkeyRegistration` (`:1401-1402`, `:1420-1421`); otherwise an
       Email OTP wallet gets a passkey-typed Ed25519 signer, contradicting the
       metadata written at `:1209-1210`.
-      Superseded by what the code turned out to be. This premise was wrong:
+      Closed as superseded after mapping the actual persistence path. This
+      premise was wrong:
       registration never reaches `finalizeWalletEd25519SignerRegistration`.
       That is the add-signer surface, and `RegistrationPersistencePlan` has no
       `ed25519` member. Registration persists its Ed25519 signer through
@@ -464,9 +467,6 @@ Add a second, ECDSA-shaped activation instead.
       signer from this path. The finalizer was parameterized, found unreachable
       from registration, and collapsed back to a single explicit `passkey`
       branch rather than retaining an unreachable Email OTP branch.
-- [ ] Make its `activationPolicy` retry-tolerant; `fail_if_occupied`
-      (`:1405`, `:1424`) hard-fails instead of converging when a retry already
-      landed.
 - [x] Split the incomplete-signer-set guard across the two commits as above.
 - [ ] Add an ECDSA-only activation variant: resolve by `walletId` profile and
       `signerKind === thresholdEcdsa`, do `setLastProfileStateForProfile` +
@@ -480,12 +480,12 @@ Add a second, ECDSA-shaped activation instead.
 - [x] Keep the NEAR projection write with the Ed25519 commit. It is already
       implicit: `shouldWriteNearAccountProjection` fires only for
       `accountModel === 'near-native'`, which no ECDSA activation uses.
-- [ ] Update the three batch-shape assertions in
+- [x] Update the three batch-shape assertions in
       `tests/unit/registrationWalletPersistence.unit.test.ts` — the fixture at
       `:116-119` throws on any `persistWalletSignerFinalize`, and `:492`,
       `:689` assert exactly one finalize batch. Keep them for the non-deferred
-      path; add deferred-path cases.
-- [ ] Do not use the identifiers `registrationContinuation` /
+      path; deferred-path cases now cover the split commits.
+- [x] Do not use the identifiers `registrationContinuation` /
       `registration_continuation`; they are banned by
       `tests/scripts/check-passkey-registration-rollback-boundaries.mjs:131-135`.
 
@@ -510,7 +510,7 @@ were considered:
    (`shared-ts/src/utils/registrationIntent.ts:339`) is bound into the
    **add-signer intent digest**, which the client recomputes and compares
    (`registration.ts:5171-5174`). Adding a variant changes an authorization
-   digest preimage. It also routes the deferred commit through a *different*
+   digest preimage. It also routes the deferred commit through a _different_
    ceremony with a different authorization, contradicting decision §2 above.
 3. **Split registration finalize into an ECDSA finalize and an Ed25519
    finalize.** Chosen. The second call is authorized by the same registration
@@ -531,7 +531,7 @@ Mapped against `04c044efb`. Three assumptions above needed correcting.
 **Correction 1 — NEAR account creation is already Ed25519-local.** The
 checklist item below said to move it out of ECDSA finalize, citing
 `d1WalletRegistrationService.ts:2774-2776`. That anchor is the Email-OTP
-enrollment *prepare* (pure validation, no write). The only NEAR
+enrollment _prepare_ (pure validation, no write). The only NEAR
 account-creation call is `this.createSponsoredNamedNearAccount(...)` at
 `:2870-2879`, already inside the Ed25519 sub-block (`:2789-3010`), gated by
 `sponsoredNamedRegistrationAccountId(requestedNearEd25519.accountProvisioning)`
@@ -571,7 +571,7 @@ wrong, and in an expensive direction. The mechanisms are:
 
 **Correction 4 — no new route and no second service method. The existing
 finalize already has the right internal shape.** Both halves of
-`executeWalletRegistrationFinalize` are *already* independently gated and
+`executeWalletRegistrationFinalize` are _already_ independently gated and
 independently build their own records:
 
 - the ECDSA half (`:2718-2765`) gated on `requestedEvmFamilyEcdsa`, producing
@@ -590,11 +590,11 @@ lines, not a new subsystem.
 **Shape of the split.** The request discriminator already distinguishes the
 three cases (`registrationContracts.ts:563-578`):
 
-| plan | finalize calls |
-| --- | --- |
-| `evm_family_ecdsa` | one call, `evm_family_ecdsa`; deletes the ceremony as today |
-| `near_ed25519` | one call, `near_ed25519` |
-| mixed | `evm_family_ecdsa`, ceremony stays open, then `near_ed25519` |
+| plan               | finalize calls                                               |
+| ------------------ | ------------------------------------------------------------ |
+| `evm_family_ecdsa` | one call, `evm_family_ecdsa`; deletes the ceremony as today  |
+| `near_ed25519`     | one call, `near_ed25519`                                     |
+| mixed              | `evm_family_ecdsa`, ceremony stays open, then `near_ed25519` |
 
 Only the mixed plan changes. The single atomic commit batch
 (`d1WalletRegistrationCommitStore.ts:209-242`) becomes two batches for it,
@@ -664,7 +664,7 @@ Passkey and Email OTP registration follow the same product lifecycle.
 
 ## Phase 6 — Provisioning UI
 
-- [ ] Surface `ecdsa_ready | near_provisioning | near_ready` to the host app.
+- [x] Surface `ecdsa_ready | near_provisioning | near_ready` to the host app.
 - [ ] Show a `Provisioning` state on the NEAR sign control and account menu.
 - [ ] Show a retryable failure state distinct from provisioning.
 - [ ] Never block Tempo or Arc controls on NEAR readiness.
@@ -680,23 +680,23 @@ Passkey and Email OTP registration follow the same product lifecycle.
 - [ ] Ed25519 export returns typed `ed25519_not_provisioned` for
       `ecdsa_ready`; it must not silently create a signer.
 - [ ] Active Ed25519 export keeps its existing fresh authorization requirement.
-- [ ] Restate "registration and unlock produce equivalent runtime lanes"
+- [x] Restate "registration and unlock produce equivalent runtime lanes"
       (`docs/intended-behaviours.md:386`) as equivalence against the durable
       signer inventory actually present.
 
 ## Phase 8 — Contract and documentation updates
 
-- [ ] Update `docs/intended-behaviours.md:55-63` and `:86-93` so registration
+- [x] Update `docs/intended-behaviours.md:55-63` and `:86-93` so registration
       success means ECDSA-ready.
-- [ ] Update the verification rows at `docs/intended-behaviours.md:387-388`.
-- [ ] Update `email-otp.registration.contract.test.ts`, which currently exports
+- [x] Update the verification rows at `docs/intended-behaviours.md:387-388`.
+- [x] Update `email-otp.registration.contract.test.ts`, which currently exports
       Ed25519 and signs NEAR immediately after registration with no
       intervening step.
-- [ ] Update `passkey.ed25519-yao-local.contract.test.ts` to await the
-      provisioning state before asserting NEAR signing.
-- [ ] `harness.ts:1014` asserts no Yao registration routes during
-      `signNearTransaction`; keep it, since this design provisions during
-      registration and not at signing time.
+- [x] Update the mixed passkey registration contract to sign Tempo while NEAR
+      remains pending, then await `near_ready` before NEAR signing.
+- [x] Keep the harness assertion that NEAR signing does not invoke Yao
+      registration routes, since this design provisions during registration
+      and not at signing time.
 
 ## Phase 9 — Demo order and eager chain effects
 
@@ -713,12 +713,14 @@ both Tempo and Arc on an interval while logged out.
 
 ## Phase 10 — Validation
 
-- [ ] Passkey registration returns before the Yao ceremony completes.
-- [ ] Email OTP registration returns before the Yao ceremony completes.
+- [x] Passkey registration returns before the Yao ceremony completes. Covered
+      with Yao held unresolved and one Touch ID prompt in `d83a906ca`.
+- [x] Email OTP registration returns before the Yao ceremony completes. Covered
+      with the Email OTP Yao promise held unresolved in `d83a906ca`.
 - [ ] Tempo and Arc sign immediately after registration returns.
 - [ ] NEAR shows `Provisioning`, then becomes signable with no further prompt.
-- [ ] A forced Yao failure leaves a usable ECDSA wallet and a retryable NEAR
-      state.
+- [x] A forced Yao finalize or seal failure leaves the durable ECDSA wallet
+      intact and publishes `near_failed_retryable`.
 - [ ] Closing the tab mid-ceremony leaves a usable ECDSA wallet.
 - [ ] Refresh rehydrates `ecdsa_ready`, `near_provisioning`, and `near_ready`.
 - [ ] ECDSA export works before Ed25519 is provisioned.

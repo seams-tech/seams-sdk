@@ -52,15 +52,16 @@ Expected behaviour:
 - Registration prompts for one passkey credential creation.
 - The newly created passkey credential is bound to the wallet and stored as a
   passkey auth method.
-- Registration creates the wallet row, auth-method row, signer rows, key
-  material, and NEAR projection in one finalize path.
-- Registration provisions immediate warm signing lanes for:
-  - NEAR Ed25519 signing
-  - configured ECDSA targets, including Tempo and Arc/EVM when enabled
-- Immediately after registration, NEAR, Tempo, and EVM transaction signing
-  should work without another prompt while the warm session has enough budget.
-- Immediately after registration, Ed25519 and ECDSA key export should work only
-  after fresh export authorization.
+- Registration returns after the wallet, auth method, and configured ECDSA
+  signer inventory are durable. Tempo and Arc/EVM signing may begin immediately.
+- For a mixed signer set, Ed25519/NEAR provisioning continues under the same
+  authenticated ceremony and publishes one of `near_pending`,
+  `near_provisioning`, `near_ready`, or `near_failed_retryable`.
+- NEAR signing and Ed25519 export become available at `near_ready` without a
+  second passkey prompt. A retryable provisioning failure remains visible to
+  the caller.
+- ECDSA key export remains available while NEAR is pending and requires fresh
+  export authorization.
 - Passkey registration must not send or verify an Email OTP challenge.
 
 Failure behaviour:
@@ -83,15 +84,17 @@ Expected behaviour:
   registration purpose match.
 - Registration stores the Email OTP auth method and binds it to the final
   wallet id.
-- Registration creates the wallet row, auth-method row, signer rows, key
-  material, and NEAR projection in one finalize path.
-- Registration provisions immediate Email OTP warm signing lanes for:
-  - NEAR Ed25519 signing
-  - configured ECDSA targets, including Tempo and Arc/EVM when enabled
-- Immediately after registration, NEAR, Tempo, and EVM transaction signing
-  should work without another OTP while the warm session has enough budget.
-- Immediately after registration, Ed25519 and ECDSA key export should work only
-  after fresh export authorization.
+- Registration returns after the wallet, Email OTP auth method, and configured
+  ECDSA signer inventory are durable. Tempo and Arc/EVM signing may begin
+  immediately.
+- For a mixed signer set, Ed25519/NEAR provisioning continues with the live
+  registration factor and publishes one of `near_pending`,
+  `near_provisioning`, `near_ready`, or `near_failed_retryable`.
+- NEAR signing and Ed25519 export become available at `near_ready` without a
+  second OTP verification. A retryable provisioning failure remains visible to
+  the caller.
+- ECDSA key export remains available while NEAR is pending and requires fresh
+  export authorization.
 - Email OTP registration must not create passkey-owned runtime material.
 - Email OTP registration must not call passkey PRF/touch-confirm sealed restore.
 
@@ -365,10 +368,10 @@ Expected behaviour:
 Every release touching registration, auth methods, signing sessions, budget,
 lane selection, worker material, or export should validate this matrix.
 
-| Account type | Registration                                     | Unlock                                | NEAR tx                      | Tempo tx                     | EVM tx                       | Step-up NEAR     | Step-up Tempo    | Step-up EVM      | Ed25519 export              | ECDSA export                | Page refresh                                          |
-| ------------ | ------------------------------------------------ | ------------------------------------- | ---------------------------- | ---------------------------- | ---------------------------- | ---------------- | ---------------- | ---------------- | --------------------------- | --------------------------- | ----------------------------------------------------- |
-| Passkey      | creates exact passkey lanes                      | warms exact passkey lanes             | no prompt while budget valid | no prompt while budget valid | no prompt while budget valid | passkey prompt   | passkey prompt   | passkey prompt   | fresh passkey export auth   | fresh passkey export auth   | restores valid exact lanes or requires unlock/step-up |
-| Email OTP    | one OTP; reroll allowed; creates exact OTP lanes | one unlock OTP; warms exact OTP lanes | no OTP while budget valid    | no OTP while budget valid    | no OTP while budget valid    | Email OTP prompt | Email OTP prompt | Email OTP prompt | fresh Email OTP export auth | fresh Email OTP export auth | restores valid exact lanes or requires unlock/step-up |
+| Account type | Registration                            | Unlock                    | NEAR tx                   | Tempo tx                     | EVM tx                       | Step-up NEAR     | Step-up Tempo    | Step-up EVM      | Ed25519 export                | ECDSA export                | Page refresh                                       |
+| ------------ | --------------------------------------- | ------------------------- | ------------------------- | ---------------------------- | ---------------------------- | ---------------- | ---------------- | ---------------- | ----------------------------- | --------------------------- | -------------------------------------------------- |
+| Passkey      | ECDSA-ready; NEAR readiness is explicit | warms exact present lanes | available at `near_ready` | no prompt while budget valid | no prompt while budget valid | passkey prompt   | passkey prompt   | passkey prompt   | fresh auth after `near_ready` | fresh passkey export auth   | restores durable readiness and exact present lanes |
+| Email OTP    | one OTP; reroll allowed; ECDSA-ready    | warms exact present lanes | available at `near_ready` | no OTP while budget valid    | no OTP while budget valid    | Email OTP prompt | Email OTP prompt | Email OTP prompt | fresh auth after `near_ready` | fresh Email OTP export auth | restores durable readiness and exact present lanes |
 
 ## Validation Mapping
 
@@ -376,23 +379,23 @@ Each row needs either an automated test or an explicit manual verification note
 when a change touches registration, unlock, signing, step-up, export, session
 restore, lane selection, or budget handling.
 
-| Behaviour                                                               | Evidence                                                   |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Email OTP registration with zero rerolls uses one OTP code              | Relayer route/auth-service test                            |
-| Email OTP registration with one reroll uses the original OTP code       | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
-| Email OTP registration with multiple rerolls uses the original OTP code | Relayer route test or manual registration reroll note      |
-| Wrong Email OTP provider subject is rejected                            | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
-| Wrong Email OTP challenged email is rejected                            | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
-| Registration and unlock produce equivalent runtime lanes                | Client runtime-postcondition test                          |
-| Immediate passkey registration signs NEAR, Tempo, and Arc/EVM           | Client signing test or manual browser note                 |
-| Immediate Email OTP registration signs NEAR, Tempo, and Arc/EVM         | Client signing test or manual browser note                 |
-| Passkey step-up signs NEAR, Tempo, and Arc/EVM                          | Client signing test or manual browser note                 |
-| Email OTP step-up signs NEAR, Tempo, and Arc/EVM                        | Client signing test or manual browser note                 |
-| Passkey Ed25519 and ECDSA export require fresh export auth              | Client export test or manual browser note                  |
-| Email OTP Ed25519 and ECDSA export require fresh export auth            | Client export test or manual browser note                  |
-| Page refresh restores only exact valid lanes                            | Page-refresh session test or manual browser note           |
-| Email OTP paths never call passkey credential lookup or PRF restore     | `tests/unit/refactor46d.guard.unit.test.ts`                |
-| ECDSA budget checks are exact to chain target                           | `tests/unit/refactor46d.guard.unit.test.ts`                |
+| Behaviour                                                                | Evidence                                                   |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| Email OTP registration with zero rerolls uses one OTP code               | Relayer route/auth-service test                            |
+| Email OTP registration with one reroll uses the original OTP code        | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
+| Email OTP registration with multiple rerolls uses the original OTP code  | Relayer route test or manual registration reroll note      |
+| Wrong Email OTP provider subject is rejected                             | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
+| Wrong Email OTP challenged email is rejected                             | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
+| Registration and unlock produce equivalent runtime lanes                 | Client runtime-postcondition test                          |
+| Passkey registration signs Tempo/Arc immediately and NEAR at readiness   | Intended-behaviour registration contract                   |
+| Email OTP registration signs Tempo/Arc immediately and NEAR at readiness | Intended-behaviour registration contract                   |
+| Passkey step-up signs NEAR, Tempo, and Arc/EVM                           | Client signing test or manual browser note                 |
+| Email OTP step-up signs NEAR, Tempo, and Arc/EVM                         | Client signing test or manual browser note                 |
+| Passkey Ed25519 and ECDSA export require fresh export auth               | Client export test or manual browser note                  |
+| Email OTP Ed25519 and ECDSA export require fresh export auth             | Client export test or manual browser note                  |
+| Page refresh restores only exact valid lanes                             | Page-refresh session test or manual browser note           |
+| Email OTP paths never call passkey credential lookup or PRF restore      | `tests/unit/refactor46d.guard.unit.test.ts`                |
+| ECDSA budget checks are exact to chain target                            | `tests/unit/refactor46d.guard.unit.test.ts`                |
 
 ## Non-Goals
 
