@@ -44,6 +44,7 @@ import { computeUiIntentDigestFromNep413 } from '@/utils/intentDigest';
 import {
   clearIntentDigestPreparation,
   consumeIntentDigestPreparation,
+  PENDING_CHALLENGE_B64U,
   PENDING_INTENT_DIGEST,
   type IntentDigestPreparationResult,
 } from '@/core/signingEngine/stepUpConfirmation/intentDigestPreparation';
@@ -234,12 +235,21 @@ function cancelNearOperationStepUpPreparation(args: {
   });
 }
 
+// The pending placeholder exists only so the confirmation UI can mount before
+// the operation is prepared. It is never a signable challenge: any path that
+// still holds it after preparation must fail closed rather than authenticate
+// over unbound bytes.
+function requireBoundChallengeB64u(value: unknown): string {
+  const challenge = String(value || '').trim();
+  return !challenge || challenge === PENDING_CHALLENGE_B64U ? '' : challenge;
+}
+
 function resolveTypedWebAuthnChallenge(args: {
   webauthnChallenge?: WebAuthnChallenge;
   defaultChallengeB64u: string;
   requireTypedChallenge: boolean;
 }): string {
-  const defaultChallengeB64u = String(args.defaultChallengeB64u || '').trim();
+  const defaultChallengeB64u = requireBoundChallengeB64u(args.defaultChallengeB64u);
   if (!args.webauthnChallenge) {
     if (args.requireTypedChallenge) {
       throw new Error('Missing typed WebAuthn challenge for passkey signing flow');
@@ -249,7 +259,12 @@ function resolveTypedWebAuthnChallenge(args: {
 
   switch (args.webauthnChallenge.kind) {
     case 'intent_digest':
-      return String(args.webauthnChallenge.challengeB64u || '').trim();
+      // An intent-digest challenge is a placeholder until the operation
+      // preparation replaces it; falling back to the resolved (prepared)
+      // challenge keeps WebAuthn bound to the exact prepared operation.
+      return (
+        requireBoundChallengeB64u(args.webauthnChallenge.challengeB64u) || defaultChallengeB64u
+      );
     case 'threshold_session_policy':
       return String(args.webauthnChallenge.digest32B64u || '').trim();
     case 'ecdsa_role_local_bootstrap':

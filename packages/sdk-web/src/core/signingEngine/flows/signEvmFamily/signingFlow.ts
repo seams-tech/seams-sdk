@@ -32,11 +32,6 @@ import {
   type CreateSigningFlowEventInput,
   type SigningFlowEvent,
 } from '@/core/types/sdkSentEvents';
-import {
-  PENDING_CHALLENGE_B64U,
-  PENDING_INTENT_DIGEST,
-  registerIntentDigestPreparation,
-} from '@/core/signingEngine/stepUpConfirmation/intentDigestPreparation';
 import type { SigningOperationContext, SigningSessionPlan } from '../../session/operationState/types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -68,6 +63,7 @@ import {
   type EvmFamilyThresholdEcdsaStepUpRuntime,
 } from './requireEvmFamilyStepUpAuth';
 import { buildEvmFamilyEcdsaStepUpAuthorization } from './stepUpAuthorization';
+import type { PreparedEcdsaOperationStepUp } from '../../threshold/ecdsa/operationStepUp';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
 import type {
   ReadySecp256k1Signer,
@@ -146,6 +142,61 @@ async function buildEvmFamilyOperationDigests(input: {
       base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(input.displayModel))),
     ),
   };
+}
+
+function digestsEqual(left: OperationDigestSet, right: OperationDigestSet): boolean {
+  return (
+    String(left.laneDigest) === String(right.laneDigest) &&
+    String(left.intentDigest) === String(right.intentDigest) &&
+    String(left.displayDigest) === String(right.displayDigest)
+  );
+}
+
+// The confirmation signed one exact prepared operation. Signing anything whose
+// operation identity or digest set differs from it fails closed rather than
+// silently authorizing a different operation than the user approved.
+function assertPreparedEcdsaOperationStepUpMatches(args: {
+  prepared: {
+    readonly prepared: PreparedEcdsaOperationStepUp;
+    readonly operation: EvmFamilyThresholdEcdsaOperation;
+    readonly operationDigests: OperationDigestSet;
+  };
+  operation: EvmFamilyThresholdEcdsaOperation;
+  operationDigests: OperationDigestSet;
+}): void {
+  if (args.prepared.operation !== args.operation) {
+    throw new Error(
+      '[chains] prepared ECDSA operation step-up does not match the operation being signed',
+    );
+  }
+  if (!digestsEqual(args.prepared.operationDigests, args.operationDigests)) {
+    throw new Error('[chains] prepared ECDSA operation step-up digest drift');
+  }
+}
+
+// Passkey step-up cannot proceed on an unprepared operation: the WebAuthn
+// challenge must be the canonical digest of the exact preparation the grant
+// will later be issued against.
+function requirePreparedEcdsaStepUpChallenge(args: {
+  prepared: {
+    readonly prepared: PreparedEcdsaOperationStepUp;
+    readonly operation: EvmFamilyThresholdEcdsaOperation;
+    readonly operationDigests: OperationDigestSet;
+  } | null;
+  challengeB64u: string;
+}): string {
+  if (!args.prepared) {
+    throw new Error(
+      '[chains] passkey ECDSA step-up requires an operation prepared before confirmation',
+    );
+  }
+  const challengeB64u = String(args.prepared.prepared.challengeB64u || '').trim();
+  if (!challengeB64u || challengeB64u !== String(args.challengeB64u || '').trim()) {
+    throw new Error(
+      '[chains] passkey ECDSA step-up challenge does not match the prepared operation',
+    );
+  }
+  return challengeB64u;
 }
 
 export type EvmFamilyUiConfirmFlowConfig<TRequest, TResult extends object> = {
@@ -288,15 +339,6 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     }
   };
 
-  let eagerDisplayModel: TxDisplayModel | undefined;
-  try {
-    eagerDisplayModel = config.buildDisplayModel({
-      request: input.request,
-      signerAccount: input.walletId,
-      title: config.title,
-      subtitle: config.body,
-    });
-  } catch {}
   const needsWebAuthn =
     config.webauthn.kind === 'supported' &&
     config.webauthn.requestNeedsWebAuthn(input.request);
@@ -354,7 +396,6 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       throw new Error('[chains] signing intent has no sign requests');
     }
     const firstDigest = inferDigest32FromSignRequest(firstSignRequest);
-    const challengeB64u = base64UrlEncode(firstDigest);
     const intentDigestHex = bytesToHex(firstDigest);
     const displayModel = config.buildDisplayModel({
       request: preparedRequest,
@@ -363,6 +404,41 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       title: config.title,
       subtitle: config.body,
     });
+    // Operation step-up preparation runs here, ahead of confirmation, so the
+    // Passkey challenge can bind the exact prepared operation instead of the
+    // raw transaction digest. Email OTP shares this prepared operation; only
+    // its OTP challenge stays factor-specific.
+    let challengeB64u = base64UrlEncode(firstDigest);
+    if (
+      firstSignRequest.algorithm === 'secp256k1' &&
+      thresholdEcdsaStepUpRuntime &&
+      activeThresholdEcdsaOperation &&
+      input.resolveEcdsaSigningMaterialPlan
+    ) {
+      const operationDigests = await buildEvmFamilyOperationDigests({
+        operationFingerprint: input.signingOperation?.operationFingerprint,
+        signingDigest32: inferDigest32FromSignRequest(firstSignRequest),
+        displayModel,
+      });
+      const plan = await input.resolveEcdsaSigningMaterialPlan({
+        requestLabel: firstSignRequest.label,
+      });
+      if (plan.kind === 'unavailable') {
+        throw new Error(`[chains] threshold ECDSA material is unavailable: ${plan.reason}`);
+      }
+      recordBackedReadySecp256k1MaterialSource = plan;
+      const prepared = await thresholdEcdsaStepUpRuntime.operationStepUp.prepare({
+        operation: activeThresholdEcdsaOperation,
+        operationDigests,
+        material: plan.material,
+      });
+      preparedEcdsaOperationStepUp = {
+        prepared,
+        operation: activeThresholdEcdsaOperation,
+        operationDigests,
+      };
+      challengeB64u = prepared.challengeB64u;
+    }
     return {
       intent,
       challengeB64u,
@@ -370,17 +446,6 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       displayModel,
     };
   })();
-  registerIntentDigestPreparation({
-    requestId: sessionId,
-    preparation: intentPreparationTask.then((prepared) => ({
-      intentDigest: prepared.intentDigestHex,
-      challengeB64u: prepared.challengeB64u,
-      displayModel: prepared.displayModel,
-      title: config.title,
-      body: config.body,
-    })),
-  });
-
   type ConfirmationAuthPayload = Awaited<
     ReturnType<typeof resolveSigningConfirmationAuth>
   >['confirmationAuthPayload'];
@@ -393,6 +458,15 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   let intentHasSecp256k1Request = false;
   let signedResult: TResult | null = null;
   let recordBackedReadySecp256k1MaterialSource: ReadyEcdsaSigningMaterialSource | null = null;
+  // The exact operation step-up prepared BEFORE confirmation. Its canonical
+  // digest is what the Passkey challenge signs and what the server recomputes
+  // from the parsed preparation, so the object is built once and threaded
+  // through confirmation and grant issuance unchanged.
+  let preparedEcdsaOperationStepUp: {
+    readonly prepared: PreparedEcdsaOperationStepUp;
+    readonly operation: EvmFamilyThresholdEcdsaOperation;
+    readonly operationDigests: OperationDigestSet;
+  } | null = null;
 
   const ensureReadySecp256k1SigningMaterial = async (
     signReq: SignRequest,
@@ -420,21 +494,25 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     if (!thresholdEcdsaStepUpRuntime) {
       throw new Error('[chains] ECDSA operation step-up runtime is unavailable');
     }
-    // NOTE: preparation runs here, after confirmation, which preserves the
-    // pre-cutover ordering but leaves the passkey challenge bound to the
-    // placeholder digest rather than this prepared operation. Correcting that
-    // ordering is the operation-step-up challenge-binding fix, tracked
-    // separately -- it is deliberately not attempted here.
-    const prepared = await thresholdEcdsaStepUpRuntime.operationStepUp.prepare({
+    // The prepared operation is the one the user's confirmation actually
+    // signed over. It is never rebuilt here; any drift between it and the
+    // operation now being signed fails closed.
+    const preparedStepUp = preparedEcdsaOperationStepUp;
+    if (!preparedStepUp) {
+      throw new Error(
+        '[chains] ECDSA step-up signing requires an operation prepared before confirmation',
+      );
+    }
+    assertPreparedEcdsaOperationStepUpMatches({
+      prepared: preparedStepUp,
       operation,
       operationDigests,
-      material: source.material,
     });
     return {
       kind: 'material_from_step_up',
       material: await thresholdEcdsaStepUpRuntime.operationStepUp.authorize({
         authorization: stepUpAuthorization,
-        prepared,
+        prepared: preparedStepUp.prepared,
         material: source.material,
       }),
     };
@@ -473,6 +551,14 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         },
       });
     }
+    // The confirmation opens with the operation it authorizes already fixed:
+    // the intent, managed-nonce reservation, exact ECDSA material, and the
+    // operation step-up preparation all complete first, so the user approves
+    // the real digest and the Passkey challenge is bound to that preparation.
+    intentPrepared = await intentPreparationTask;
+    intentHasSecp256k1Request = intentPrepared.intent.signRequests.some(
+      (signReq) => signReq.algorithm === 'secp256k1',
+    );
     const confirmationRequestBase = {
       ctx: { touchConfirm: input.touchConfirm },
       sessionId,
@@ -482,9 +568,9 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         kind: 'evm_wallet' as const,
         walletId: input.walletId,
       },
-      challengeB64u: PENDING_CHALLENGE_B64U,
-      intentDigest: PENDING_INTENT_DIGEST,
-      ...(eagerDisplayModel ? { displayModel: eagerDisplayModel } : {}),
+      challengeB64u: intentPrepared.challengeB64u,
+      intentDigest: intentPrepared.intentDigestHex,
+      displayModel: intentPrepared.displayModel,
       title: config.title,
       body: config.body,
       onProgress: emitUiConfirmProgress,
@@ -497,7 +583,10 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
             ...stepUp.confirmationAuthPayload,
             webauthnChallenge: {
               kind: 'intent_digest' as const,
-              challengeB64u: PENDING_CHALLENGE_B64U,
+              challengeB64u: requirePreparedEcdsaStepUpChallenge({
+                prepared: preparedEcdsaOperationStepUp,
+                challengeB64u: intentPrepared.challengeB64u,
+              }),
             },
           }
         : stepUp.kind === 'email_otp'
@@ -528,10 +617,9 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   };
 
   const runPreparePayloadCommand = async (): Promise<void> => {
-    intentPrepared = await intentPreparationTask;
-    intentHasSecp256k1Request = intentPrepared.intent.signRequests.some(
-      (signReq) => signReq.algorithm === 'secp256k1',
-    );
+    if (!intentPrepared) {
+      throw new Error('[chains] signing intent must be prepared before threshold admission');
+    }
     if (!confirmation) {
       throw new Error('[chains] signing confirmation is required before threshold admission');
     }
