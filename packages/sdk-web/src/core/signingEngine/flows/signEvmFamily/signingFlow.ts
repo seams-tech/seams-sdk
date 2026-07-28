@@ -69,7 +69,11 @@ import type {
   ReadySecp256k1Signer,
   ReadySecp256k1SigningMaterial,
 } from './signers/secp256k1';
-import type { ReadySecp256k1SigningMaterialResolution } from './readySecp256k1Material';
+import type {
+  HydratedSecp256k1SigningMaterialResolution,
+  ReadySecp256k1SigningMaterialResolution,
+} from './readySecp256k1Material';
+import type { HydratedEcdsaSignerMaterial } from '../../session/identity/evmFamilyEcdsaIdentity';
 
 type EvmFamilySigningWebAuthnMode<TRequest> =
   | {
@@ -106,15 +110,37 @@ export type ReadyEcdsaSigningMaterialSource =
       material: ReadySecp256k1SigningMaterial;
     };
 
+export type EcdsaSigningMaterialSource =
+  | ReadyEcdsaSigningMaterialSource
+  | {
+      kind: 'material_for_step_up';
+      material: HydratedEcdsaSignerMaterial;
+    };
+
 // The unavailable arm is the resolver's own, so the typed outcomes cannot
 // drift apart from the gates that produce them.
 export type EcdsaSigningMaterialPlan =
-  | ReadyEcdsaSigningMaterialSource
-  | Extract<ReadySecp256k1SigningMaterialResolution, { kind: 'unavailable' }>;
+  | EcdsaSigningMaterialSource
+  | Extract<ReadySecp256k1SigningMaterialResolution, { kind: 'unavailable' }>
+  | Extract<HydratedSecp256k1SigningMaterialResolution, { kind: 'unavailable' }>;
 
 export type ResolveEcdsaSigningMaterialPlan = (args: {
   requestLabel: unknown;
 }) => Promise<EcdsaSigningMaterialPlan>;
+
+export type RunEcdsaMaterialUse = <T>(task: () => Promise<T>) => Promise<T>;
+
+function hydratedMaterialFromSource(
+  source: EcdsaSigningMaterialSource,
+): HydratedEcdsaSignerMaterial {
+  switch (source.kind) {
+    case 'material_for_step_up':
+      return source.material;
+    case 'material_from_canonical_capability':
+    case 'material_from_step_up':
+      return source.material.signerSession;
+  }
+}
 
 function isReadySecp256k1Signer(engine: unknown): engine is ReadySecp256k1Signer {
   return typeof (engine as { signReady?: unknown } | null)?.signReady === 'function';
@@ -235,6 +261,7 @@ export type SignEvmFamilyWithUiConfirmArgs<TRequest> = {
   signingOperation?: SigningOperationContext;
   onSigningOperationTransition?: SigningOperationTransitionObserver;
   resolveEcdsaSigningMaterialPlan?: ResolveEcdsaSigningMaterialPlan;
+  runEcdsaMaterialUse?: RunEcdsaMaterialUse;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   workerCtx: WorkerOperationContext;
   prepareRequestWithManagedNonce?: () => Promise<{
@@ -427,7 +454,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       const prepared = await thresholdEcdsaStepUpRuntime.operationStepUp.prepare({
         operation: activeThresholdEcdsaOperation,
         operationDigests,
-        material: plan.material,
+        material: hydratedMaterialFromSource(plan),
       });
       preparedEcdsaOperationStepUp = {
         prepared,
@@ -454,7 +481,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   let intentPrepared: PreparedIntent | null = null;
   let intentHasSecp256k1Request = false;
   let signedResult: TResult | null = null;
-  let recordBackedReadySecp256k1MaterialSource: ReadyEcdsaSigningMaterialSource | null = null;
+  let recordBackedReadySecp256k1MaterialSource: EcdsaSigningMaterialSource | null = null;
   // The exact operation step-up prepared BEFORE confirmation. Its canonical
   // digest is what the Passkey challenge signs and what the server recomputes
   // from the parsed preparation, so the object is built once and threaded
@@ -477,6 +504,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       switch (plan.kind) {
         case 'material_from_step_up':
         case 'material_from_canonical_capability':
+        case 'material_for_step_up':
           recordBackedReadySecp256k1MaterialSource = plan;
           break;
         case 'unavailable':
@@ -487,7 +515,17 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     if (!source) {
       throw new Error('[chains] missing ready threshold ECDSA material for secp256k1 signing');
     }
-    if (!stepUpAuthorization || stepUpAuthorization.kind === 'warm_session') return source;
+    if (!stepUpAuthorization || stepUpAuthorization.kind === 'warm_session') {
+      if (source.kind === 'material_for_step_up') {
+        // Unreachable: an auth-neutral candidate escalates to a same-method
+        // step-up when the runtime reports no active reusable Wallet Session,
+        // so a warm-session authorization cannot be paired with one here.
+        throw new Error(
+          '[chains] auth-neutral ECDSA material reached signing without a same-method step-up',
+        );
+      }
+      return source;
+    }
     if (!thresholdEcdsaStepUpRuntime) {
       throw new Error('[chains] ECDSA operation step-up runtime is unavailable');
     }
@@ -510,7 +548,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       material: await thresholdEcdsaStepUpRuntime.operationStepUp.authorize({
         authorization: stepUpAuthorization,
         prepared: preparedStepUp.prepared,
-        material: source.material,
+        material: hydratedMaterialFromSource(source),
       }),
     };
   };
@@ -679,18 +717,23 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
           signingDigest32: signReq.digest32,
           displayModel: intentPrepared.displayModel,
         });
-        const readyMaterialSource = await ensureReadySecp256k1SigningMaterial(
-          signReq,
-          thresholdEcdsaOperation,
-          operationDigests,
-        );
+        if (!input.runEcdsaMaterialUse) {
+          throw new Error('[chains] secp256k1 signing requires exact material serialization');
+        }
         signatures.push(
-          await engine.signReady(
-            signReq,
-            readyMaterialSource.material,
-            thresholdEcdsaOperation,
-            operationDigests,
-          ),
+          await input.runEcdsaMaterialUse(async () => {
+            const readyMaterialSource = await ensureReadySecp256k1SigningMaterial(
+              signReq,
+              thresholdEcdsaOperation,
+              operationDigests,
+            );
+            return await engine.signReady(
+              signReq,
+              readyMaterialSource.material,
+              thresholdEcdsaOperation,
+              operationDigests,
+            );
+          }),
         );
         continue;
       } else {
