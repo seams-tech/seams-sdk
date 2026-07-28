@@ -84,6 +84,7 @@ import {
   isWalletFlowEvent,
   LinkDeviceEventPhase,
   RegistrationEventPhase,
+  parseNearProvisioningState,
   parseSdkLifecycleEvent,
   SigningEventPhase,
   UnlockEventPhase,
@@ -94,6 +95,7 @@ import type {
   GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
   WalletSession,
+  NearProvisioningState,
   RegistrationResult,
   SignDelegateActionResult,
   SignTransactionResult,
@@ -111,6 +113,7 @@ import type { DemoEmailOtpCodeResponse } from '@/core/signingEngine/session/emai
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
   thresholdEcdsaChainTargetsEqual,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -209,6 +212,7 @@ import type { LoginUnlockRequest } from '@/core/types/login.types';
 import { buildPMUnlockPayload } from '../shared/unlockOptions';
 import type { WalletId } from '@shared/utils/domainIds';
 import {
+  exactSessionStateFromWalletSession,
   parseWalletIframeExactSessionLockResult,
   parseWalletIframeExactSessionState,
   parseWalletIframeMissingSessionLockResult,
@@ -1369,9 +1373,14 @@ export class WalletIframeRouter {
     }
   }
 
+  private mirrorExactSessionAndEmitLoginStatus(state: WalletIframeExactSessionState): void {
+    this.exactSessionState = state;
+    this.emitLoginStatusChanged(walletIframeLoginStatusFromExactSession(state));
+  }
+
   private async refreshExactSessionAndEmitLoginStatus(): Promise<WalletIframeExactSessionState> {
     const state = await this.refreshExactSessionState();
-    this.emitLoginStatusChanged(walletIframeLoginStatusFromExactSession(state));
+    this.mirrorExactSessionAndEmitLoginStatus(state);
     return state;
   }
 
@@ -1398,6 +1407,11 @@ export class WalletIframeRouter {
         this.failPendingRequestsForExpiredSession(event);
         this.mirrorExpiredSession(event);
         if (!this.markSigningSessionExpiryAsNew(event)) return;
+        for (const listener of Array.from(this.listeners.sdkLifecycleEvent)) {
+          listener(event);
+        }
+        return;
+      case 'registration.near_provisioning_changed':
         for (const listener of Array.from(this.listeners.sdkLifecycleEvent)) {
           listener(event);
         }
@@ -1571,6 +1585,20 @@ export class WalletIframeRouter {
       await this.refreshExactSessionAndEmitLoginStatus();
     }
     return res.result;
+  }
+
+  async getNearProvisioningState(args: {
+    walletId: WalletId | string;
+  }): Promise<NearProvisioningState | null> {
+    const walletId = toWalletId(args.walletId);
+    const response = await this.post<unknown>({
+      type: 'PM_GET_NEAR_PROVISIONING_STATE',
+      payload: { walletId: String(walletId) },
+    });
+    if (response.result === null) return null;
+    const state = parseNearProvisioningState(response.result);
+    if (!state) throw new Error('[WalletIframeRouter] Invalid NEAR provisioning state response');
+    return state;
   }
 
   async addWalletSigner(
@@ -1760,7 +1788,9 @@ export class WalletIframeRouter {
             },
           );
           if (res.result.ok) {
-            await this.refreshExactSessionAndEmitLoginStatus();
+            this.mirrorExactSessionAndEmitLoginStatus(
+              exactSessionStateFromWalletSession(res.result.value.session),
+            );
           }
           return res.result;
         },
@@ -1850,10 +1880,13 @@ export class WalletIframeRouter {
     const { onDemoOtp, onEvent, ...wirePayload } = payload;
     const diagnosticsEnabled =
       Reflect.get(globalThis, '__SEAMS_EMAIL_OTP_UNLOCK_DIAGNOSTICS') === true;
+    const registrationBenchmarkTimings =
+      Reflect.get(globalThis, '__SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS') === true;
     const requestPayload: PMGoogleEmailOtpWalletAuthStartPayload = {
       ...wirePayload,
       diagnostics: {
         emailOtpUnlockTimings: diagnosticsEnabled,
+        registrationBenchmarkTimings,
       },
     };
     const res = await this.post<

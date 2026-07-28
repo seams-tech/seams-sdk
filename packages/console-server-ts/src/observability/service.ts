@@ -14,7 +14,6 @@ import type {
 export interface ConsoleObservabilityContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 }

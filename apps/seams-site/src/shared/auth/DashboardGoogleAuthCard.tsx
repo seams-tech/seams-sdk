@@ -7,11 +7,13 @@ export interface DashboardGoogleAuthCardClassNames {
   eyebrow: string;
   title?: string;
   copy: string;
-  provider: string;
-  providerIcon: string;
-  providerBody: string;
-  providerLabel: string;
-  providerCopy: string;
+  /* Provider tile: omitted on the standalone login page, where the single CTA
+     is the whole form and a lone tile above it reads as a card-in-a-card. */
+  provider?: string;
+  providerIcon?: string;
+  providerBody?: string;
+  providerLabel?: string;
+  providerCopy?: string;
   ctaButton: string;
   ctaIcon: string;
   note: string;
@@ -26,12 +28,14 @@ export interface DashboardGoogleAuthCardProps {
   rootAttributes?: Omit<React.HTMLAttributes<HTMLDivElement>, 'className'>;
   closeControl?: React.ReactNode;
   description: string;
-  providerLabel: string;
-  providerDescription: string;
+  /** Both provider fields together render the tile; omit either to hide it. */
+  providerLabel?: string;
+  providerDescription?: string;
   continueLabel: string;
   continueDisabled: boolean;
   onContinue: () => void;
-  note: string;
+  /** Optional footnote; omit or pass an empty string to leave it out. */
+  note?: string;
   errorMessage?: string;
 }
 
@@ -87,15 +91,17 @@ export function DashboardGoogleAuthCard({
         {closeControl}
       </div>
       <p className={classNames.copy}>{description}</p>
-      <div className={classNames.provider}>
-        <div className={classNames.providerIcon} aria-hidden="true">
-          <GoogleMark />
+      {providerLabel && providerDescription ? (
+        <div className={classNames.provider}>
+          <div className={classNames.providerIcon} aria-hidden="true">
+            <GoogleMark />
+          </div>
+          <div className={classNames.providerBody}>
+            <p className={classNames.providerLabel}>{providerLabel}</p>
+            <p className={classNames.providerCopy}>{providerDescription}</p>
+          </div>
         </div>
-        <div className={classNames.providerBody}>
-          <p className={classNames.providerLabel}>{providerLabel}</p>
-          <p className={classNames.providerCopy}>{providerDescription}</p>
-        </div>
-      </div>
+      ) : null}
       <button
         type="button"
         className={classNames.ctaButton}
@@ -107,7 +113,7 @@ export function DashboardGoogleAuthCard({
         </span>
         <span>{continueLabel}</span>
       </button>
-      <p className={classNames.note}>{note}</p>
+      {note ? <p className={classNames.note}>{note}</p> : null}
       {errorMessage ? (
         <p className={classNames.error} role="alert">
           {errorMessage}

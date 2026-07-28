@@ -611,15 +611,17 @@ Rules:
 
 Org/project/environment creation:
 
-- create/update/archive project/environment: `owner` or `admin` (already aligned).
+- create/update/archive project/environment: owner or administrator with
+  `projects.manage`.
 
 Credential operations:
 
 - create/rotate/revoke credentials:
-  - `owner`, `admin` at org scope,
-  - optionally `developer`/`ops` at project scope only for environments in that project.
+  - owners and administrators for organization-wide credentials,
+  - assigned project editors for credentials in their projects.
 - read/list credentials:
-  - `owner`, `admin`, `security_admin`, and project-scoped roles within allowed project scope.
+  - owners and administrators across the organization,
+  - assigned project viewers and editors within their projects.
 
 Audit requirements:
 

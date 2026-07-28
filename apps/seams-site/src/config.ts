@@ -4,7 +4,7 @@ import {
   DEFAULT_WALLET_SESSION_TTL_MS,
   MAX_WALLET_SESSION_REMAINING_USES,
   MAX_WALLET_SESSION_TTL_MS,
-} from '@seams-internal/shared-ts/threshold/sessionPolicy';
+} from '@seams/sdk/advanced';
 
 const DEFAULT_NEAR_RPC_URL = 'https://test.rpc.fastnear.com';
 const DEFAULT_NEAR_EXPLORER_URL = 'https://testnet.nearblocks.io';

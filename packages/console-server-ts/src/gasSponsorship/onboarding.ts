@@ -76,7 +76,7 @@ function hasDesiredTempoOnboardingProjection(input: {
 
 async function listProjectedGasPolicies(input: {
   policies: ConsolePolicyService;
-  ctx: { orgId: string; actorUserId: string; roles: string[] };
+  ctx: { orgId: string; actorUserId: string };
 }): Promise<ConsoleGasSponsorshipPolicyProjection[]> {
   return (
     await Promise.all(
@@ -90,7 +90,7 @@ async function listProjectedGasPolicies(input: {
 
 export async function ensureTempoTestnetOnboardingPolicyForEnvironment(input: {
   policies: ConsolePolicyService;
-  ctx: { orgId: string; actorUserId: string; roles: string[] };
+  ctx: { orgId: string; actorUserId: string };
   projectId?: string | null;
   environmentId: string;
   contractAddress: `0x${string}`;

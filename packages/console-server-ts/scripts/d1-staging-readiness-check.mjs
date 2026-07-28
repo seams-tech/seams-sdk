@@ -36,7 +36,7 @@ const consoleD1Database = Object.freeze({
 const signerD1Database = Object.freeze({
   binding: 'SIGNER_DB',
   databaseName: 'seams-signer-staging',
-  migrationsDir: '../sdk-server-ts/migrations/d1-signer',
+  migrationsDir: 'node_modules/@seams/sdk-server/migrations/d1-signer',
 });
 const requiredD1DatabasesByProfile = Object.freeze({
   console: Object.freeze([consoleD1Database]),
@@ -79,6 +79,7 @@ const requiredVarsByProfile = Object.freeze({
     'RELAY_SESSION_ISSUER',
     'RELAY_SESSION_AUDIENCE',
     'SPONSORED_EXECUTION_REAL_PRICING_JSON',
+    'CONSOLE_BASE_URL',
   ]),
 });
 const forbiddenPostgresTokens = Object.freeze([
@@ -97,6 +98,9 @@ const forbiddenPlaintextVars = Object.freeze([
   'SEAMS_LOCAL_RELAYER_PUBLIC_KEY',
   'SPONSORED_EVM_EXECUTORS_JSON',
   'STRIPE_API_SK',
+  'STRIPE_WEBHOOK_SECRET',
+  'RESEND_API_KEY',
+  'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
   'ACCOUNT_ID_DERIVATION_SECRET',
 ]);
 const forbiddenConsoleProfileTokens = Object.freeze([
@@ -454,10 +458,23 @@ function checkRequiredVars(source, profile, errors) {
       errors.push(`${required} is required under [vars]`);
       continue;
     }
+    if (required === 'CONSOLE_EMAIL_FROM') {
+      if (!isConfiguredConsoleEmailFrom(value)) {
+        errors.push(`${required} still contains a placeholder`);
+      }
+      continue;
+    }
     if (valueLooksPlaceholder(value)) {
       errors.push(`${required} still contains a placeholder`);
     }
   }
+}
+
+function isConfiguredConsoleEmailFrom(value) {
+  const match = value.match(/^(?:[^<>]+<)?([^<>\s@]+@[^<>\s@]+)>?$/);
+  if (!match) return false;
+  const address = match[1].toLowerCase();
+  return !address.includes('example.') && !address.endsWith('.example');
 }
 
 function checkSecretVars(source, profile, errors) {

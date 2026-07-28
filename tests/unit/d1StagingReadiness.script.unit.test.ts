@@ -53,6 +53,7 @@ function envScopedGatewayStagingConfigBody(): string {
     .replaceAll('[[migrations]]', '[[env.staging.migrations]]')
     .replaceAll('[[secrets_store_secrets]]', '[[env.staging.secrets_store_secrets]]')
     .replace('[vars]', '[env.staging.vars]')
+    .replace('[triggers]', '[env.staging.triggers]')
     .replace('[secrets]', '[env.staging.secrets]');
 }
 

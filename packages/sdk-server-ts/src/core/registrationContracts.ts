@@ -4,6 +4,7 @@ import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
+  RouterAbEd25519YaoActivationAdmissionReceiptV1,
   RouterAbEd25519YaoBytes32V1,
   RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
@@ -320,6 +321,10 @@ export type WalletAddSignerStartRequest = {
   auth: AddSignerAuth;
 };
 
+export type WalletAddSignerEd25519YaoStart = {
+  admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+};
+
 export type WalletAddSignerStartResponse =
   | ({
       ok: true;
@@ -328,7 +333,7 @@ export type WalletAddSignerStartResponse =
     } & (
       | {
           kind: 'near_ed25519';
-          ed25519: WalletRegistrationEd25519YaoStart;
+          ed25519: WalletAddSignerEd25519YaoStart;
           ecdsa?: never;
         }
       | {
@@ -573,6 +578,7 @@ export type WalletRegistrationEcdsaWalletKey = {
 
 export type WalletRegistrationEd25519YaoStart = {
   admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
 };
 
 export type WalletRegistrationStartSignerWork =
@@ -606,6 +612,13 @@ export type WalletRegistrationEcdsaFinalize = {
   expectedKeyHandles: readonly [string];
 };
 
+/**
+ * One finalize call commits one signer branch. A wallet planned with both
+ * signers finalizes twice — `evm_family_ecdsa` first, which returns the wallet
+ * ECDSA-ready, then `near_ed25519` once the Yao ceremony settles (Refactor 94
+ * Phase 4+5). There is deliberately no combined member: registration success
+ * no longer waits on Ed25519, so nothing can commit both at once.
+ */
 export type WalletRegistrationFinalizeSignerWork =
   | {
       kind: 'near_ed25519';
@@ -616,11 +629,6 @@ export type WalletRegistrationFinalizeSignerWork =
       kind: 'evm_family_ecdsa';
       ecdsa: WalletRegistrationEcdsaFinalize;
       ed25519?: never;
-    }
-  | {
-      kind: 'near_ed25519_and_evm_family_ecdsa';
-      ed25519: WalletRegistrationEd25519YaoFinalize;
-      ecdsa: WalletRegistrationEcdsaFinalize;
     };
 
 export type WalletRegistrationRouteTimingName =
@@ -688,6 +696,12 @@ export type WalletRegistrationEcdsaDerivationRespondResponse =
       ok: true;
       registrationCeremonyId: string;
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+      /**
+       * Gateway boundary timings for this call, as fixed metric names with
+       * millisecond durations. Stripped into a `Server-Timing` response header
+       * at the route layer and never serialized into the wire body.
+       */
+      gatewayServerTiming?: readonly (readonly [string, number])[];
       ecdsa: {
         kind: 'router_ab_ecdsa_registration_forwarded_v1';
         strictResult: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
@@ -750,6 +764,8 @@ export type WalletRegistrationEcdsaActivationResponse =
   | {
       ok: true;
       registrationCeremonyId: string;
+      /** See WalletRegistrationEcdsaDerivationRespondResponse.gatewayServerTiming. */
+      gatewayServerTiming?: readonly (readonly [string, number])[];
       ecdsa: {
         kind: 'router_ab_ecdsa_registration_activated_v1';
         activation: RouterAbEcdsaRegistrationActivationReceiptV1;
@@ -877,16 +893,6 @@ type WalletRegistrationFinalizeSignerSuccess =
       accountProvisioning?: never;
       resolvedAccount?: never;
       ed25519?: never;
-    }
-  | {
-      kind: 'near_ed25519_and_evm_family_ecdsa';
-      authorityScope: ThresholdEd25519AuthorityScope;
-      accountProvisioning: RegistrationNearAccountProvisioning;
-      resolvedAccount: ResolvedRegistrationNearAccount;
-      ed25519: WalletRegistrationEd25519YaoPublicResult;
-      ecdsa: {
-        walletKeys: WalletRegistrationEcdsaWalletKey[];
-      };
     };
 
 type WalletRegistrationFinalizeSuccessForAuth<

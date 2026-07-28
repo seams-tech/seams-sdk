@@ -65,6 +65,7 @@ export type RouterAbEd25519YaoRegistrationBackendResult =
   | RouterAbEd25519YaoRegistrationBackendFailure;
 
 export interface RouterAbEd25519YaoRegistrationBackend {
+  takeLastRouterServerTiming?(): string | null;
   admit(
     request: RouterAbEd25519YaoRegistrationAdmissionRequestV1,
     traceContext?: RouterAbTraceContextV1,
@@ -327,14 +328,14 @@ function registrationScopeMatchesReceipt(
   );
 }
 
-function bindingMatchesAdmission(
+export function routerAbEd25519YaoExecutionMatchesAdmissionV1(
   request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
   receipt: RouterAbEd25519YaoRegistrationAdmissionReceiptV1,
 ): boolean {
   return canonicalWireFingerprint(request.binding) === canonicalWireFingerprint(receipt.binding);
 }
 
-function resultMatchesExecution(
+export function routerAbEd25519YaoResultMatchesExecutionV1(
   request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
   result: RouterAbEd25519YaoRegistrationResultV1,
 ): boolean {
@@ -568,6 +569,13 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
     const admissionFingerprint = canonicalWireFingerprint(request);
     const existingSessionKey = this.lifecycleSessions.get(lifecycleId);
     if (existingSessionKey !== undefined) {
+      const existingState = this.states.get(existingSessionKey);
+      if (
+        existingState !== undefined &&
+        canonicalWireFingerprint(existingState.admissionRequest) === admissionFingerprint
+      ) {
+        return { kind: 'completed', value: existingState.admissionReceipt };
+      }
       return {
         kind: 'failed',
         failure: {
@@ -720,7 +728,7 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
         },
       };
     }
-    if (!bindingMatchesAdmission(request, state.admissionReceipt)) {
+    if (!routerAbEd25519YaoExecutionMatchesAdmissionV1(request, state.admissionReceipt)) {
       return {
         kind: 'failed',
         failure: {
@@ -797,7 +805,7 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
     if (
       state.kind !== 'executing' ||
       state.executeFingerprint !== input.claim.executeFingerprint ||
-      !bindingMatchesAdmission(input.request, state.admissionReceipt)
+      !routerAbEd25519YaoExecutionMatchesAdmissionV1(input.request, state.admissionReceipt)
     ) {
       return {
         ok: false,
@@ -823,7 +831,7 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
       this.storeFailure(state, key, failure);
       return failure;
     }
-    if (!resultMatchesExecution(input.request, parsed.value)) {
+    if (!routerAbEd25519YaoResultMatchesExecutionV1(input.request, parsed.value)) {
       const failure = invalidBackendResponse(
         'registration backend result binding does not match execution',
       );

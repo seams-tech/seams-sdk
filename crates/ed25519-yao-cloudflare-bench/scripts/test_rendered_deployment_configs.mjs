@@ -12,7 +12,7 @@ import {
 
 const PACKAGE_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const WRANGLER = fileURLToPath(
-  new URL("../../../packages/console-server-ts/node_modules/.bin/wrangler", import.meta.url),
+  new URL("../../../node_modules/.bin/wrangler", import.meta.url),
 );
 const DEPLOYMENT_ID = "0123456789abcdef0123456789abcdef";
 

@@ -39,6 +39,7 @@ import {
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoBytes32V1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
@@ -235,6 +236,12 @@ async function postJson<TResponse>(args: {
   path: string;
   body: unknown;
   headers?: Record<string, string>;
+  /**
+   * Receives the raw `Server-Timing` response header when the Gateway sends
+   * one. Diagnostics only: never awaited, never allowed to throw into the
+   * request, and null whenever the header is absent or unexposed by CORS.
+   */
+  onServerTiming?: (header: string | null) => void;
 }): Promise<TResponse> {
   const startedAt = Date.now();
   const requestBody = JSON.stringify(args.body);
@@ -259,6 +266,13 @@ async function postJson<TResponse>(args: {
         ok: response.ok,
         durationMs: Date.now() - startedAt,
       });
+    }
+    if (args.onServerTiming) {
+      try {
+        args.onServerTiming(response.headers.get('Server-Timing'));
+      } catch {
+        // Diagnostics must never change registration behavior.
+      }
     }
     const responseText = await readResponseText(response);
     if (args.path === WALLET_REGISTRATION_FINALIZE_PATH) {
@@ -470,6 +484,7 @@ export type WalletRegistrationRouteDiagnostics = {
 
 export type WalletRegistrationEd25519YaoStart = {
   admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
 };
 
 export type WalletRegistrationEcdsaPreparePayload = {
@@ -979,14 +994,6 @@ type WalletRegistrationFinalizeSignerResult =
       accountProvisioning?: never;
       resolvedAccount?: never;
       ed25519?: never;
-    }
-  | {
-      kind: 'near_ed25519_and_evm_family_ecdsa';
-      authorityScope: Ed25519AuthorityScope;
-      accountProvisioning: RegistrationNearAccountProvisioning;
-      resolvedAccount: ResolvedRegistrationNearAccount;
-      ed25519: WalletRegistrationEd25519YaoPublicResult;
-      ecdsa: { walletKeys: WalletRegistrationEcdsaWalletKey[] };
     };
 
 export type EmailOtpWalletRegistrationFinalizeResponse = WalletRegistrationFinalizeResponseBase &
@@ -1168,7 +1175,9 @@ export type WalletAddSignerStartResponse = {
 } & (
   | {
       kind: 'near_ed25519';
-      ed25519: WalletRegistrationEd25519YaoStart;
+      ed25519: {
+        admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+      };
       ecdsa?: never;
     }
   | {
@@ -2646,6 +2655,7 @@ export async function respondWalletRegistrationEcdsa(args: {
     kind: 'router_ab_ecdsa_registration_v1';
     strictRegistration: RouterAbEcdsaRegistrationRequestV1;
   };
+  onServerTiming?: (header: string | null) => void;
 }): Promise<WalletRegistrationEcdsaRespondResponse> {
   const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
@@ -2655,6 +2665,7 @@ export async function respondWalletRegistrationEcdsa(args: {
       registrationCeremonyId: args.registrationCeremonyId,
       ecdsa: args.ecdsa,
     },
+    ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
   });
   return parseWalletRegistrationEcdsaRespondResponse(response);
 }
@@ -2701,6 +2712,7 @@ export async function activateWalletRegistrationEcdsa(args: {
   activationCorrelationId: CorrelationId;
   publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
   expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+  onServerTiming?: (header: string | null) => void;
 }): Promise<WalletRegistrationEcdsaActivationResponse> {
   const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
@@ -2717,6 +2729,7 @@ export async function prepareWalletRegistrationEcdsaActivation(args: {
   registrationCeremonyId: string;
   activationCorrelationId: CorrelationId;
   publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  onServerTiming?: (header: string | null) => void;
 }): Promise<WalletRegistrationEcdsaActivationPrepareResponse> {
   const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
@@ -2730,6 +2743,7 @@ export async function prepareWalletRegistrationEcdsaActivation(args: {
         publicFacts: args.publicFacts,
       },
     },
+    ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
   });
   return parseWalletRegistrationEcdsaActivationPrepareResponse(response);
 }
@@ -2772,11 +2786,6 @@ export type FinalizeWalletRegistrationArgs = FinalizeWalletRegistrationBaseArgs 
         ecdsa: { expectedKeyHandles?: string[] };
         ed25519?: never;
       }
-    | {
-        kind: 'near_ed25519_and_evm_family_ecdsa';
-        ed25519: { activationReference: WalletRegistrationEd25519YaoActivationReference };
-        ecdsa: { expectedKeyHandles?: string[] };
-      }
   );
 
 export function buildWalletRegistrationFinalizeBody(args: FinalizeWalletRegistrationArgs): unknown {
@@ -2791,8 +2800,6 @@ export function buildWalletRegistrationFinalizeBody(args: FinalizeWalletRegistra
       return { ...base, kind: args.kind, ed25519: args.ed25519 };
     case 'evm_family_ecdsa':
       return { ...base, kind: args.kind, ecdsa: args.ecdsa };
-    case 'near_ed25519_and_evm_family_ecdsa':
-      return { ...base, kind: args.kind, ed25519: args.ed25519, ecdsa: args.ecdsa };
     default:
       return assertNeverFinalizeWalletRegistrationArgs(args);
   }
@@ -3307,47 +3314,6 @@ export function parseWalletRegistrationFinalizeResponse(args: {
         authMethod: authorityBranch.authMethod,
         appSessionJwt: authorityBranch.appSessionJwt,
         kind: 'evm_family_ecdsa',
-        ecdsa,
-      };
-    }
-    case 'near_ed25519_and_evm_family_ecdsa': {
-      const near = parseWalletRegistrationFinalizeNearResult({
-        response,
-        walletId,
-        authority,
-      });
-      const ecdsa = parseWalletRegistrationFinalizeEcdsaResult({
-        value: response.ecdsa,
-        walletId,
-      });
-      if (authorityBranch.kind === 'passkey') {
-        return {
-          ok: true,
-          walletId,
-          authority,
-          ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
-          rpId: authorityBranch.rpId,
-          authMethod: authorityBranch.authMethod,
-          kind: 'near_ed25519_and_evm_family_ecdsa',
-          authorityScope: near.authorityScope,
-          accountProvisioning: near.accountProvisioning,
-          resolvedAccount: near.resolvedAccount,
-          ed25519: near.ed25519,
-          ecdsa,
-        };
-      }
-      return {
-        ok: true,
-        walletId,
-        authority,
-        ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
-        authMethod: authorityBranch.authMethod,
-        appSessionJwt: authorityBranch.appSessionJwt,
-        kind: 'near_ed25519_and_evm_family_ecdsa',
-        authorityScope: near.authorityScope,
-        accountProvisioning: near.accountProvisioning,
-        resolvedAccount: near.resolvedAccount,
-        ed25519: near.ed25519,
         ecdsa,
       };
     }

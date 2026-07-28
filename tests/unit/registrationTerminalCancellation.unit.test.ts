@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { RouterAbEcdsaRegistrationRequestV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 import { createRouterAbEcdsaStrictRegistrationPort } from '../../packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration';
+import { createRouterAbTraceContextV1 } from '../../packages/shared-ts/src/utils/routerAbTraceContext';
 
 class MemoryStorage {
   readonly values = new Map<string, unknown>();
@@ -44,6 +45,24 @@ async function configurationFailureFetch(): Promise<Response> {
     'InvalidLocalServiceConfig: router_project_policy.evaluate returned HTTP status 422',
     { status: 500 },
   );
+}
+
+class TraceCapturingRouter {
+  request: Request | null = null;
+
+  constructor(private readonly serverTiming: string | null = null) {}
+
+  async fetch(input: RequestInfo | URL): Promise<Response> {
+    this.request = new Request(input);
+    const response = await configurationFailureFetch();
+    if (!this.serverTiming) return response;
+    const headers = new Headers(response.headers);
+    headers.set('Server-Timing', this.serverTiming);
+    return new Response(await response.clone().text(), {
+      status: response.status,
+      headers,
+    });
+  }
 }
 
 async function issueCeremonyToken(): Promise<string> {
@@ -192,6 +211,119 @@ test('coordinator configuration failures are terminal registration failures', as
     retryable: false,
   });
 });
+
+test('strict ECDSA registration forwards the opaque trace correlation header', async () => {
+  const request = strictRegistrationRequest();
+  const router = new TraceCapturingRouter();
+  const port = createRouterAbEcdsaStrictRegistrationPort({
+    router,
+    tokenIssuer: {
+      issue: issueCeremonyToken,
+      publicJwks: emptyJwks,
+    },
+    tokenScope: {
+      orgId: 'org_abcdefgh1234',
+      projectId: 'local-smoke-project',
+      environment: 'local',
+    },
+    topology: {
+      routerId: request.router_id,
+      signerSet: request.signer_set,
+      deriverRecipientKeys: {
+        deriver_a: {
+          role: 'signer_a',
+          key_epoch: 'epoch-1',
+          public_key: 'deriver-a-public-key',
+        },
+        deriver_b: {
+          role: 'signer_b',
+          key_epoch: 'epoch-1',
+          public_key: 'deriver-b-public-key',
+        },
+      },
+    },
+  });
+  const traceContext = createRouterAbTraceContextV1();
+
+  await port.register({
+    request,
+    authority: {
+      subjectId: request.client_id,
+      sessionId: request.lifecycle.session_id,
+      accountId: request.lifecycle.account_id,
+      expiresAtMs: request.expires_at_ms,
+    },
+    traceContext,
+  });
+
+  expect(router.request?.headers.get('x-seams-trace-id')).toBe(traceContext.value);
+});
+
+/* Refactor 94B Phase 0. Role diagnostics are presence-only: whether the leg
+   returned Server-Timing is recorded, what it said is not. The value carries
+   role and span names from inside the MPC topology, so it reaches the timing
+   fold and nothing else. */
+test('strict ECDSA registration reports header presence without its contents', async () => {
+  const secret = 'router_internal_span;dur=42, deriver_a_internal;dur=7';
+  for (const [serverTiming, expected] of [
+    [secret, 'present'],
+    [null, 'absent'],
+  ] as const) {
+    const request = strictRegistrationRequest();
+    const router = new TraceCapturingRouter(serverTiming);
+    const port = strictRegistrationPortForRequest({ request, router });
+    const presences: { leg: string; serverTiming: 'present' | 'absent' }[] = [];
+    const timingHeaders: string[] = [];
+
+    await port.register({
+      request,
+      authority: {
+        subjectId: request.client_id,
+        sessionId: request.lifecycle.session_id,
+        accountId: request.lifecycle.account_id,
+        expiresAtMs: request.expires_at_ms,
+      },
+      onServerTiming: (header) => timingHeaders.push(header),
+      onHeaderPresence: (presence) => presences.push({ ...presence }),
+    });
+
+    /* Absence is an observation too, so it is reported either way. */
+    expect(presences).toHaveLength(1);
+    expect(presences[0]?.serverTiming).toBe(expected);
+
+    /* Nothing the presence sink saw may contain the header's contents. */
+    const presenceJson = JSON.stringify(presences);
+    for (const fragment of ['router_internal_span', 'deriver_a_internal', 'dur=', '42']) {
+      expect(presenceJson).not.toContain(fragment);
+    }
+
+    /* The value goes only to the timing sink, which folds it to fixed names. */
+    expect(timingHeaders).toEqual(serverTiming ? [secret] : []);
+  }
+});
+
+function strictRegistrationPortForRequest(args: {
+  request: RouterAbEcdsaRegistrationRequestV1;
+  router: TraceCapturingRouter;
+}) {
+  return createRouterAbEcdsaStrictRegistrationPort({
+    router: args.router,
+    tokenIssuer: { issue: issueCeremonyToken, publicJwks: emptyJwks },
+    tokenScope: {
+      orgId: 'org_abcdefgh1234',
+      projectId: 'local-smoke-project',
+      environment: 'local',
+    },
+    topology: {
+      routerId: args.request.router_id,
+      signerSet: args.request.signer_set,
+      deriverRecipientKeys: {
+        deriver_a: { role: 'signer_a', key_epoch: 'epoch-1', public_key: 'deriver-a-public-key' },
+        deriver_b: { role: 'signer_b', key_epoch: 'epoch-1', public_key: 'deriver-b-public-key' },
+      },
+    },
+  });
+}
 
 function strictRegistrationRequest(): RouterAbEcdsaRegistrationRequestV1 {
   const digest = { bytes: new Array<number>(32).fill(0) };

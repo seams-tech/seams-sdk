@@ -54,6 +54,20 @@ export type CloudflareD1VersionedJsonRecordBatchPutResultV1 =
     }
   | { readonly kind: 'version_mismatch'; readonly key: string };
 
+export type CloudflareD1VersionedJsonRecordAtomicPatchV1 = {
+  readonly key: string;
+  readonly expectedVersion: string;
+  readonly exactStringPredicates: readonly {
+    readonly jsonPath: string;
+    readonly value: string;
+  }[];
+  readonly unexpired: {
+    readonly jsonPath: string;
+    readonly nowMs: number;
+  };
+  readonly patch: CloudflareVersionedJsonObject;
+};
+
 type StoredRecord = {
   readonly version?: unknown;
   readonly record_json?: unknown;
@@ -106,21 +120,23 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
   ): Promise<readonly CloudflareD1VersionedJsonRecordReadManyEntryV1<T>[]> {
     const preparedKeys = prepareReadKeys(keys, this.keyPrefix);
     const statements = preparedKeys.map(({ storageKey }) =>
-      this.database.prepare(
-        `SELECT version, record_json
+      this.database
+        .prepare(
+          `SELECT version, record_json
            FROM ${TABLE_NAME}
           WHERE namespace = ?1
             AND org_id = ?2
             AND project_id = ?3
             AND env_id = ?4
             AND record_key = ?5`,
-      ).bind(
-        this.scope.namespace,
-        this.scope.orgId,
-        this.scope.projectId,
-        this.scope.envId,
-        storageKey,
-      ),
+        )
+        .bind(
+          this.scope.namespace,
+          this.scope.orgId,
+          this.scope.projectId,
+          this.scope.envId,
+          storageKey,
+        ),
     );
     let results: readonly D1ResultLike<StoredRecord>[];
     try {
@@ -206,6 +222,78 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
       if (conflictKey !== null) return { kind: 'version_mismatch', key: conflictKey };
       throw requestFailure(error);
     }
+  }
+
+  async patchAtomically(
+    input: CloudflareD1VersionedJsonRecordAtomicPatchV1,
+  ): Promise<CloudflareVersionedJsonRecordPutResult & { readonly value?: T }> {
+    const storageKey = this.storageKey(input.key);
+    const expectedVersion = parseVersion(input.expectedVersion);
+    if (expectedVersion === null) {
+      throw new Error('Cloudflare D1 atomic JSON patch expectedVersion is invalid');
+    }
+    if (
+      !Number.isSafeInteger(input.unexpired.nowMs) ||
+      input.unexpired.nowMs <= 0 ||
+      !isJsonPath(input.unexpired.jsonPath)
+    ) {
+      throw new Error('Cloudflare D1 atomic JSON patch expiry predicate is invalid');
+    }
+    for (const predicate of input.exactStringPredicates) {
+      if (!isJsonPath(predicate.jsonPath) || typeof predicate.value !== 'string') {
+        throw new Error('Cloudflare D1 atomic JSON patch exact predicate is invalid');
+      }
+    }
+    if (!isJsonObject(input.patch)) {
+      throw new Error('Cloudflare D1 atomic JSON patch value is invalid');
+    }
+    const exactSql = input.exactStringPredicates
+      .map((_, index) => `AND json_extract(record_json, ?${9 + index * 2}) = ?${10 + index * 2}`)
+      .join('\n');
+    const expiryPathIndex = 9 + input.exactStringPredicates.length * 2;
+    const nowIndex = expiryPathIndex + 1;
+    const bindings: unknown[] = [
+      this.scope.namespace,
+      this.scope.orgId,
+      this.scope.projectId,
+      this.scope.envId,
+      storageKey,
+      JSON.stringify(input.patch),
+      Date.now(),
+      expectedVersion,
+      ...input.exactStringPredicates.flatMap((predicate) => [predicate.jsonPath, predicate.value]),
+      input.unexpired.jsonPath,
+      input.unexpired.nowMs,
+    ];
+    let row: StoredRecord | null;
+    try {
+      row = await this.database
+        .prepare(
+          `UPDATE ${TABLE_NAME}
+              SET version = version + 1,
+                  record_json = json_patch(record_json, json(?6)),
+                  updated_at_ms = ?7
+            WHERE namespace = ?1
+              AND org_id = ?2
+              AND project_id = ?3
+              AND env_id = ?4
+              AND record_key = ?5
+              AND version = ?8
+              ${exactSql}
+              AND json_extract(record_json, ?${expiryPathIndex}) > ?${nowIndex}
+          RETURNING version, record_json`,
+        )
+        .bind(...bindings)
+        .first<StoredRecord>();
+    } catch (error: unknown) {
+      throw requestFailure(error);
+    }
+    if (row === null) return { kind: 'version_mismatch' };
+    const parsed = this.parseReadResult({ success: true, results: [row] });
+    if (parsed.kind !== 'present') {
+      throw invalidResponseFailure('Cloudflare D1 atomic JSON patch omitted its stored value');
+    }
+    return { kind: 'stored', version: parsed.version, value: parsed.value };
   }
 
   private prepareBatchMutations(
@@ -402,6 +490,10 @@ function normalizeRecordKey(value: unknown): string {
     throw new Error('Cloudflare D1 versioned JSON record key is invalid');
   }
   return key;
+}
+
+function isJsonPath(value: unknown): value is string {
+  return typeof value === 'string' && /^\$\.[A-Za-z][A-Za-z0-9.]*$/u.test(value);
 }
 
 function parseVersion(value: unknown): number | null {

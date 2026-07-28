@@ -9,12 +9,14 @@ import {
   type SignIntentDigestSubject,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/publicTypes';
 
 export type EmailOtpExportAuthorizationChain = 'near' | ThresholdEcdsaChainTarget['kind'];
 
 export type EmailOtpExportAuthorizationChallenge = {
   challengeId: string;
-  emailHint?: string;
+  emailHint: string;
+  delivery: EmailOtpChallengeDelivery;
 };
 
 export type EmailOtpExportAuthorizationResult = {
@@ -111,6 +113,7 @@ export async function requestEmailOtpExportAuthorization(args: {
   curve: WalletAuthCurve;
   challengeSource: EmailOtpExportAuthorizationChallengeSource;
   confirmer: EmailOtpExportAuthorizationConfirmer;
+  onChallenge?: (challenge: EmailOtpExportAuthorizationChallenge) => void;
 }): Promise<EmailOtpExportAuthorizationResult> {
   const accountIdForUi = accountIdForEmailOtpExportUi(args.identity);
   const requestExportChallenge = async (): Promise<EmailOtpExportAuthorizationChallenge> => {
@@ -119,12 +122,17 @@ export async function requestEmailOtpExportAuthorization(args: {
     if (!challengeId) {
       throw new Error('Email OTP export challenge response did not include challengeId');
     }
-    return {
+    const emailHint = String(challenge.emailHint || '').trim();
+    if (!emailHint) {
+      throw new Error('Email OTP export challenge response did not include emailHint');
+    }
+    const normalizedChallenge: EmailOtpExportAuthorizationChallenge = {
       challengeId,
-      ...(String(challenge.emailHint || '').trim()
-        ? { emailHint: String(challenge.emailHint || '').trim() }
-        : {}),
+      emailHint,
+      delivery: challenge.delivery,
     };
+    args.onChallenge?.(normalizedChallenge);
+    return normalizedChallenge;
   };
 
   let challenge = await requestExportChallenge();

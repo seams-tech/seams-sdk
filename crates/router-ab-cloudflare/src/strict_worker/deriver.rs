@@ -250,16 +250,6 @@ async fn handle_strict_deriver_fetch_v1(
     }
 
     #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
-    if path == CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH {
-        return match handle_cloudflare_ed25519_yao_deriver_b_read_completed_pair_v1(request, &env)
-            .await
-        {
-            Ok(response) => Ok(response),
-            Err(error) => cloudflare_role_failure_response_v1(error),
-        };
-    }
-
-    #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
     if path == CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH {
         return match handle_cloudflare_ed25519_yao_deriver_b_read_pair_status_v1(request, &env)
             .await
@@ -291,6 +281,11 @@ async fn handle_strict_deriver_fetch_v1(
     }
 
     if path == runtime.registration_private_path() {
+        /* Refactor 94B Phase 0. The Router folds this header into its own under
+        an `ecdsa_a_`/`ecdsa_b_` prefix, so a cold registration shows whether
+        the time went to the root-metadata load or to proof generation. */
+        let mut timing = CloudflareEcdsaBoundaryTimingV1::new();
+        let total_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
         let registration_request: CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1 =
             match parse_strict_deriver_json_v1(
                 &mut request,
@@ -304,6 +299,8 @@ async fn handle_strict_deriver_fetch_v1(
         if let Err(err) = registration_request.validate_for_worker_role(worker_role) {
             return cloudflare_protocol_error_response_v1(err);
         }
+        timing.mark("parse", total_started_at_ms);
+        let preload_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
         let preloaded = match preload_strict_deriver_request_v1(
             &env,
             &runtime,
@@ -314,6 +311,8 @@ async fn handle_strict_deriver_fetch_v1(
             Ok(loaded) => loaded,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
+        timing.mark("preload", preload_started_at_ms);
+        let execute_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
         let response =
             match decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_registration_signer_private_request_v1(
                 &env,
@@ -330,7 +329,9 @@ async fn handle_strict_deriver_fetch_v1(
                 Ok(response) => response,
                 Err(err) => return cloudflare_protocol_error_response_v1(err),
             };
-        return Response::from_json(&response);
+        timing.mark("execute", execute_started_at_ms);
+        timing.mark("total", total_started_at_ms);
+        return strict_deriver_timed_json_response_v1(&response, &timing);
     }
 
     if path == runtime.export_private_path() {
@@ -498,6 +499,22 @@ async fn handle_strict_deriver_fetch_v1(
     }
 
     Response::error(runtime.route_error_message(), 404)
+}
+
+/// Serialises a deriver response and attaches its role-local `Server-Timing`.
+/// The body is unchanged: only the Router reads this header, and it folds the
+/// metrics into its own before the Gateway ever sees them.
+#[cfg(any(
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
+))]
+fn strict_deriver_timed_json_response_v1<T: serde::Serialize>(
+    body: &T,
+    timing: &CloudflareEcdsaBoundaryTimingV1,
+) -> worker::Result<Response> {
+    let response = Response::from_json(body)?;
+    timing.apply_to(&response)?;
+    Ok(response)
 }
 
 #[cfg(any(

@@ -1,1024 +1,2781 @@
-import { secureRandomBase36 } from '@seams-internal/shared-ts/utils/secureRandomId';
+import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
 import {
-  d1Number as toNumber,
   d1ChangedRows,
-  formatD1ExecStatement,
+  d1Number,
   parseD1JsonArrayColumn,
   queryD1All,
   queryD1One,
   type D1Row,
-} from '@seams/sdk-server/internal/storage/d1Sql';
-import type { D1DatabaseLike } from '@seams/sdk-server/internal/storage/tenantRoute';
-import { ConsoleTeamRbacError } from './errors';
-import type { ConsoleTeamRbacContext, ConsoleTeamRbacService } from './service';
+  type D1ResultLike,
+} from '@seams/sdk-server/cloud-host';
+import type { D1DatabaseLike, D1PreparedStatementLike } from '@seams/sdk-server/cloud-host';
 import {
-  CONSOLE_ORG_SCOPED_TEAM_ROLES,
-  type ConsoleTeamMember,
-  type ConsoleTeamMembershipStatus,
-  type ConsoleTeamRole,
-  type ConsoleTeamRoleAssignment,
-  type InviteConsoleTeamMemberRequest,
-  type ListConsoleTeamMembersRequest,
-  type UpdateConsoleTeamMemberRolesRequest,
+  createConsoleEmailOutboxInsertStatement,
+  createConsoleInvitationEmailCancellationStatement,
+} from '../email/d1';
+import type { ConsoleInvitationSecretCipher } from '../email/secrets';
+import {
+  buildMembershipAccessChangedEmailV1,
+  buildOrganizationInvitationEmailV1,
+  buildOwnerMembershipChangedEmailV1,
+} from '../email/templates';
+import { ConsoleOrganizationAccessError } from './errors';
+import { createOrganizationInvitationToken, hashOrganizationInvitationToken } from './secret';
+import type {
+  BootstrapInitialOwnerInput,
+  ConsoleOrganizationAccessService,
+  OrganizationAccessContext,
+  OrganizationAuthorizationLookup,
+  VerifiedInvitationAccount,
+} from './service';
+import {
+  ORGANIZATION_ADMIN_PERMISSIONS,
+  type ActiveOrganizationMembership,
+  type ActiveOwnerMembership,
+  type ChangeOrganizationMembershipRoleRequest,
+  type InviteOrganizationMemberRequest,
+  type IssuedOrganizationInvitation,
+  type ListOrganizationInvitationsRequest,
+  type ListOrganizationMembershipsRequest,
+  type OrganizationAdminPermission,
+  type OrganizationAuthorization,
+  type OrganizationInvitation,
+  type OrganizationInvitationGrant,
+  type OrganizationMembership,
+  type OrganizationMembershipWithAccess,
+  type OrganizationOwnerEvent,
+  type ProjectAccessAssignment,
+  type ProjectAccessLevel,
+  type RedeemOrganizationInvitationRequest,
+  type SetOrganizationAdminPermissionsRequest,
+  type SetProjectMemberAccessRequest,
 } from './types';
 
-const ORG_ROLE_SET = new Set<string>(CONSOLE_ORG_SCOPED_TEAM_ROLES);
+const DEFAULT_INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 
-export const CONSOLE_TEAM_RBAC_D1_RUNTIME = Symbol('consoleTeamRbacD1Runtime');
+const REQUIRED_ORGANIZATION_ACCESS_TABLES = [
+  'organizations',
+  'organization_memberships',
+  'organization_admin_permissions',
+  'organization_invitations',
+  'project_member_access',
+  'organization_owner_events',
+] as const;
 
-export interface ConsoleTeamRbacD1Runtime {
-  database: D1DatabaseLike;
-  namespace: string;
-  now: () => Date;
+export const CONSOLE_ORGANIZATION_ACCESS_D1_RUNTIME = Symbol('consoleOrganizationAccessD1Runtime');
+
+export interface ConsoleOrganizationAccessD1Runtime {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly now: () => Date;
 }
 
-export type ConsoleTeamRbacD1Service = ConsoleTeamRbacService & {
-  [CONSOLE_TEAM_RBAC_D1_RUNTIME]: ConsoleTeamRbacD1Runtime;
+export type ConsoleOrganizationAccessD1Service = ConsoleOrganizationAccessService & {
+  readonly [CONSOLE_ORGANIZATION_ACCESS_D1_RUNTIME]: ConsoleOrganizationAccessD1Runtime;
 };
 
-export interface D1ConsoleTeamRbacSchemaOptions {
-  database: D1DatabaseLike;
+export interface D1ConsoleOrganizationAccessSchemaOptions {
+  readonly database: D1DatabaseLike;
 }
 
-export interface D1ConsoleTeamRbacServiceOptions {
-  database: D1DatabaseLike;
-  namespace?: string;
-  ensureSchema?: boolean;
-  now?: () => Date;
+export interface D1ConsoleOrganizationAccessServiceOptions {
+  readonly database: D1DatabaseLike;
+  readonly namespace?: string;
+  readonly ensureSchema?: boolean;
+  readonly now?: () => Date;
+  readonly invitationTtlMs?: number;
+  readonly createInvitationToken?: () => string;
+  readonly hashInvitationToken?: (token: string) => Promise<string>;
+  readonly email?: D1ConsoleOrganizationEmailOptions;
 }
 
-interface D1TeamRbacState {
-  database: D1DatabaseLike;
-  namespace: string;
-  now: () => Date;
+export interface D1ConsoleOrganizationEmailOptions {
+  readonly invitationSecretCipher: ConsoleInvitationSecretCipher;
+  readonly consoleBaseUrl: string;
 }
 
-export const CONSOLE_TEAM_RBAC_D1_SCHEMA_SQL = Object.freeze([
-  `
-    CREATE TABLE IF NOT EXISTS team_members (
-      namespace TEXT NOT NULL,
-      id TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      email TEXT NOT NULL,
-      email_normalized TEXT NOT NULL,
-      display_name TEXT,
-      status TEXT NOT NULL,
-      roles_json TEXT NOT NULL,
-      invited_by_user_id TEXT NOT NULL,
-      invited_at_ms INTEGER NOT NULL,
-      last_status_changed_at_ms INTEGER NOT NULL,
-      created_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, id),
-      CHECK (status IN ('INVITED', 'ACTIVE', 'SUSPENDED', 'REMOVED')),
-      CHECK (json_valid(roles_json))
-    )
-  `,
-  `
-    CREATE UNIQUE INDEX IF NOT EXISTS team_members_org_email_uidx
-      ON team_members (namespace, org_id, email_normalized)
-  `,
-  `
-    CREATE UNIQUE INDEX IF NOT EXISTS team_members_org_user_uidx
-      ON team_members (namespace, org_id, user_id)
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS team_members_org_updated_idx
-      ON team_members (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS team_members_org_status_idx
-      ON team_members (namespace, org_id, status)
-  `,
-] as const);
-
-export async function ensureConsoleTeamRbacD1Schema(
-  options: D1ConsoleTeamRbacSchemaOptions,
-): Promise<void> {
-  for (const statement of CONSOLE_TEAM_RBAC_D1_SCHEMA_SQL) {
-    await options.database.exec(formatD1ExecStatement(statement));
-  }
+interface D1OrganizationAccessState {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly now: () => Date;
+  readonly invitationTtlMs: number;
+  readonly createToken: () => string;
+  readonly hashToken: (token: string) => Promise<string>;
+  readonly email: D1ConsoleOrganizationEmailOptions | null;
 }
 
-export function getConsoleTeamRbacD1Runtime(
-  service: ConsoleTeamRbacService | null | undefined,
-): ConsoleTeamRbacD1Runtime | null {
-  if (!service || typeof service !== 'object') return null;
-  return (
-    (service as Partial<ConsoleTeamRbacD1Service>)[CONSOLE_TEAM_RBAC_D1_RUNTIME] || null
-  );
+interface OrganizationRowState {
+  readonly name: string;
+  readonly ownerAnchorMembershipId: string | null;
+  readonly ownerSetVersion: number;
+  readonly authorizationVersion: number;
+}
+
+interface InvitationRecord {
+  readonly id: string;
+  readonly orgId: string;
+  readonly email: string;
+  readonly invitedByUserId: string;
+  readonly role: 'OWNER' | 'ADMIN' | 'MEMBER';
+  readonly adminPermissions: readonly OrganizationAdminPermission[];
+  readonly projectAccess: readonly ProjectAccessAssignment[];
+  readonly kind: 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired';
+  readonly tokenHash: string | null;
+  readonly expiresAtMs: number | null;
+  readonly membershipId: string | null;
+  readonly acceptedAtMs: number | null;
+  readonly declinedAtMs: number | null;
+  readonly revokedAtMs: number | null;
+  readonly expiredAtMs: number | null;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+}
+
+function accessError(
+  code: string,
+  status: number,
+  message: string,
+): ConsoleOrganizationAccessError {
+  return new ConsoleOrganizationAccessError(code, status, message);
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled D1 organization access branch: ${JSON.stringify(value)}`);
 }
 
 function defaultNow(): Date {
   return new Date();
 }
 
-function ensureNamespace(namespace: string | undefined): string {
-  const normalized = String(namespace || 'default').trim();
-  return normalized || 'default';
+function normalizeNamespace(value: string | undefined): string {
+  return value?.trim() || 'default';
 }
 
-function nowMs(now: Date): number {
-  return now.getTime();
+function normalizeOrganizationEmailOptions(
+  value: D1ConsoleOrganizationEmailOptions | undefined,
+): D1ConsoleOrganizationEmailOptions | null {
+  if (!value) return null;
+  const consoleBaseUrl = value.consoleBaseUrl.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(consoleBaseUrl);
+  } catch {
+    throw new Error('organization email consoleBaseUrl must be a valid URL');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('organization email consoleBaseUrl must use http or https');
+  }
+  return {
+    invitationSecretCipher: value.invitationSecretCipher,
+    consoleBaseUrl: parsed.toString(),
+  };
+}
+
+function normalizeRequired(value: string, field: string): string {
+  const normalized = value.trim();
+  if (!normalized) throw accessError('invalid_body', 400, `${field} is required`);
+  return normalized;
+}
+
+function normalizeEmail(value: string): string {
+  const normalized = normalizeRequired(value, 'email').toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/u.test(normalized)) {
+    throw accessError('invalid_body', 400, 'email must be a valid email address');
+  }
+  return normalized;
+}
+
+function normalizeRowString(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function nullableRowString(value: unknown): string | null {
+  const normalized = normalizeRowString(value);
+  return normalized || null;
+}
+
+function nullableRowNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.trunc(parsed);
 }
 
 function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
-
-function normalizeString(value: unknown): string {
-  return String(value || '').trim();
-}
-
-function normalizeLower(value: unknown): string {
-  return normalizeString(value).toLowerCase();
-}
-
 function makeId(prefix: string, now: Date): string {
-  return `${prefix}_${now.getTime().toString(36)}_${secureRandomBase36(8, 'console IDs')}`;
+  return `${prefix}_${now.getTime().toString(36)}_${secureRandomBase36(
+    10,
+    'organization access IDs',
+  )}`;
 }
 
-
-function normalizeRole(raw: unknown): ConsoleTeamRole | null {
-  const role = normalizeLower(raw);
-  if (!ORG_ROLE_SET.has(role)) return null;
-  return role as ConsoleTeamRole;
+function membershipDisplayName(membership: OrganizationMembership): string {
+  return membership.displayName?.trim() || membership.email;
 }
 
-function parseRoleAssignments(raw: unknown): ConsoleTeamRoleAssignment[] {
-  const out: ConsoleTeamRoleAssignment[] = [];
-  const seen = new Set<string>();
-  for (const entryRaw of parseD1JsonArrayColumn(raw)) {
-    if (!entryRaw || typeof entryRaw !== 'object' || Array.isArray(entryRaw)) continue;
-    const entry = entryRaw as Record<string, unknown>;
-    const role = normalizeRole(entry.role);
-    if (!role) continue;
-    if (normalizeString(entry.projectId)) continue;
-    const key = `ORG:${role}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ role, scope: 'ORG' });
-  }
-  return out.sort((left, right) => left.role.localeCompare(right.role));
+async function createInvitationEmailStatement(
+  state: D1OrganizationAccessState,
+  input: {
+    readonly orgId: string;
+    readonly organizationName: string;
+    readonly invitationId: string;
+    readonly invitationSecret: string;
+    readonly recipientEmail: string;
+    readonly inviterDisplayName: string;
+    readonly invitedRole: 'OWNER' | 'ADMIN' | 'MEMBER';
+    readonly expiresAt: Date;
+    readonly now: Date;
+  },
+): Promise<D1PreparedStatementLike | null> {
+  if (!state.email) return null;
+  const outboxId = makeId('console_email', input.now);
+  return await createConsoleEmailOutboxInsertStatement({
+    database: state.database,
+    namespace: state.namespace,
+    invitationSecretCipher: state.email.invitationSecretCipher,
+    insertGuard: 'PREVIOUS_STATEMENT_CHANGED_ONE',
+    email: {
+      outboxId,
+      dedupeKey: outboxId,
+      orgId: input.orgId,
+      recipient: {
+        email: input.recipientEmail,
+        displayName: input.recipientEmail,
+      },
+      template: buildOrganizationInvitationEmailV1({
+        invitationId: input.invitationId,
+        organizationName: input.organizationName,
+        inviterDisplayName: input.inviterDisplayName,
+        invitedRole: input.invitedRole,
+        consoleBaseUrl: state.email.consoleBaseUrl,
+        expiresAt: input.expiresAt.toISOString(),
+      }),
+      invitationSecret: input.invitationSecret,
+      createdAt: input.now,
+      availableAt: input.now,
+    },
+  });
 }
 
-function normalizeRoleAssignments(input: ConsoleTeamRoleAssignment[]): ConsoleTeamRoleAssignment[] {
-  return parseRoleAssignments(input);
+async function createOwnerMembershipChangedEmailStatement(
+  state: D1OrganizationAccessState,
+  input: {
+    readonly orgId: string;
+    readonly organizationName: string;
+    readonly ownerEmail: string;
+    readonly ownerDisplayName: string;
+    readonly changedByDisplayName: string;
+    readonly change: 'ADDED' | 'REMOVED';
+    readonly now: Date;
+  },
+): Promise<D1PreparedStatementLike | null> {
+  if (!state.email) return null;
+  const outboxId = makeId('console_email', input.now);
+  return await createConsoleEmailOutboxInsertStatement({
+    database: state.database,
+    namespace: state.namespace,
+    invitationSecretCipher: state.email.invitationSecretCipher,
+    insertGuard: 'PREVIOUS_STATEMENT_CHANGED_ONE',
+    email: {
+      outboxId,
+      dedupeKey: outboxId,
+      orgId: input.orgId,
+      recipient: {
+        email: input.ownerEmail,
+        displayName: input.ownerDisplayName,
+      },
+      template: buildOwnerMembershipChangedEmailV1({
+        change: input.change,
+        organizationName: input.organizationName,
+        ownerDisplayName: input.ownerDisplayName,
+        changedByDisplayName: input.changedByDisplayName,
+      }),
+      createdAt: input.now,
+      availableAt: input.now,
+    },
+  });
 }
 
-function parseMembershipStatus(value: unknown): ConsoleTeamMembershipStatus {
-  const normalized = normalizeString(value);
-  switch (normalized) {
-    case 'INVITED':
-    case 'ACTIVE':
-    case 'SUSPENDED':
-    case 'REMOVED':
-      return normalized;
+async function createMembershipAccessChangedEmailStatement(
+  state: D1OrganizationAccessState,
+  input: {
+    readonly orgId: string;
+    readonly organizationName: string;
+    readonly memberEmail: string;
+    readonly memberDisplayName: string;
+    readonly changedByDisplayName: string;
+    readonly change: 'SUSPENDED' | 'REMOVED';
+    readonly now: Date;
+  },
+): Promise<D1PreparedStatementLike | null> {
+  if (!state.email) return null;
+  const outboxId = makeId('console_email', input.now);
+  return await createConsoleEmailOutboxInsertStatement({
+    database: state.database,
+    namespace: state.namespace,
+    invitationSecretCipher: state.email.invitationSecretCipher,
+    insertGuard: 'PREVIOUS_STATEMENT_CHANGED_ONE',
+    email: {
+      outboxId,
+      dedupeKey: outboxId,
+      orgId: input.orgId,
+      recipient: {
+        email: input.memberEmail,
+        displayName: input.memberDisplayName,
+      },
+      template: buildMembershipAccessChangedEmailV1({
+        change: input.change,
+        organizationName: input.organizationName,
+        memberDisplayName: input.memberDisplayName,
+        changedByDisplayName: input.changedByDisplayName,
+      }),
+      createdAt: input.now,
+      availableAt: input.now,
+    },
+  });
+}
+
+function createInvitationCancellationStatement(
+  state: D1OrganizationAccessState,
+  input: {
+    readonly orgId: string;
+    readonly invitationId: string;
+    readonly now: Date;
+    readonly guarded: boolean;
+  },
+): D1PreparedStatementLike | null {
+  if (!state.email) return null;
+  return createConsoleInvitationEmailCancellationStatement({
+    database: state.database,
+    namespace: state.namespace,
+    orgId: input.orgId,
+    invitationId: input.invitationId,
+    canceledAt: input.now,
+    ...(input.guarded ? { cancellationGuard: 'PREVIOUS_STATEMENT_CHANGED_ONE' as const } : {}),
+  });
+}
+
+function parseMembershipRole(value: unknown): 'OWNER' | 'ADMIN' | 'MEMBER' {
+  switch (normalizeRowString(value)) {
+    case 'OWNER':
+      return 'OWNER';
+    case 'ADMIN':
+      return 'ADMIN';
+    case 'MEMBER':
+      return 'MEMBER';
     default:
-      throw new Error(`Invalid console team member status row: ${normalized || 'empty'}`);
+      throw new Error(`Invalid organization membership role row: ${String(value)}`);
   }
 }
 
-function normalizeListStatus(
-  request: ListConsoleTeamMembersRequest | undefined,
-): ConsoleTeamMembershipStatus | undefined {
-  if (!request?.status || request.status === 'ALL') return undefined;
-  return request.status;
+function parseAdminPermission(value: unknown): OrganizationAdminPermission {
+  switch (normalizeRowString(value)) {
+    case 'members.manage':
+      return 'members.manage';
+    case 'projects.manage':
+      return 'projects.manage';
+    case 'billing.view':
+      return 'billing.view';
+    case 'billing.manage':
+      return 'billing.manage';
+    default:
+      throw new Error(`Invalid organization administrator permission row: ${String(value)}`);
+  }
 }
 
-function parseMemberRow(row: D1Row): ConsoleTeamMember {
+function normalizeAdminPermissions(
+  permissions: readonly OrganizationAdminPermission[],
+): readonly OrganizationAdminPermission[] {
+  const values = new Set<OrganizationAdminPermission>(permissions);
+  if (values.has('billing.manage')) values.add('billing.view');
+  return ORGANIZATION_ADMIN_PERMISSIONS.filter((permission) => values.has(permission));
+}
+
+function parseAdminPermissionsJson(value: unknown): readonly OrganizationAdminPermission[] {
+  const permissions: OrganizationAdminPermission[] = [];
+  for (const rawPermission of parseD1JsonArrayColumn(value)) {
+    permissions.push(parseAdminPermission(rawPermission));
+  }
+  return normalizeAdminPermissions(permissions);
+}
+
+function parseProjectAccessLevel(value: unknown): ProjectAccessLevel {
+  switch (normalizeRowString(value)) {
+    case 'viewer':
+      return 'viewer';
+    case 'editor':
+      return 'editor';
+    default:
+      throw new Error(`Invalid project access level row: ${String(value)}`);
+  }
+}
+
+function parseProjectAccessJson(value: unknown): readonly ProjectAccessAssignment[] {
+  const assignments = new Map<string, ProjectAccessAssignment>();
+  for (const rawAssignment of parseD1JsonArrayColumn(value)) {
+    if (!rawAssignment || typeof rawAssignment !== 'object' || Array.isArray(rawAssignment)) {
+      throw new Error('Invalid project access invitation row');
+    }
+    const row = rawAssignment as Record<string, unknown>;
+    const projectId = normalizeRowString(row.projectId);
+    if (!projectId) throw new Error('Project access invitation row is missing projectId');
+    assignments.set(projectId, {
+      projectId,
+      accessLevel: parseProjectAccessLevel(row.accessLevel),
+    });
+  }
+  return Array.from(assignments.values()).sort((left, right) =>
+    left.projectId.localeCompare(right.projectId),
+  );
+}
+
+function parseMembershipRow(row: D1Row): OrganizationMembership {
+  const id = normalizeRowString(row.id);
+  const orgId = normalizeRowString(row.org_id);
+  const userId = normalizeRowString(row.user_id);
+  const email = normalizeRowString(row.email);
+  const displayName = nullableRowString(row.display_name);
+  const createdAt = toIso(d1Number(row.created_at_ms));
+  const updatedAt = toIso(d1Number(row.updated_at_ms));
+  const role = parseMembershipRole(row.role);
+  const kind = normalizeRowString(row.kind);
+  switch (kind) {
+    case 'ACTIVE':
+      switch (role) {
+        case 'OWNER':
+          return {
+            id,
+            orgId,
+            userId,
+            email,
+            displayName,
+            createdAt,
+            updatedAt,
+            kind: 'active',
+            role: 'OWNER',
+          };
+        case 'ADMIN':
+          return {
+            id,
+            orgId,
+            userId,
+            email,
+            displayName,
+            createdAt,
+            updatedAt,
+            kind: 'active',
+            role: 'ADMIN',
+          };
+        case 'MEMBER':
+          return {
+            id,
+            orgId,
+            userId,
+            email,
+            displayName,
+            createdAt,
+            updatedAt,
+            kind: 'active',
+            role: 'MEMBER',
+          };
+        default:
+          return assertNever(role);
+      }
+    case 'SUSPENDED': {
+      const suspendedAtMs = nullableRowNumber(row.suspended_at_ms);
+      if (suspendedAtMs === null) throw new Error(`Membership ${id} is missing suspended_at_ms`);
+      switch (role) {
+        case 'ADMIN':
+          return {
+            id,
+            orgId,
+            userId,
+            email,
+            displayName,
+            createdAt,
+            updatedAt,
+            kind: 'suspended',
+            role: 'ADMIN',
+            suspendedAt: toIso(suspendedAtMs),
+          };
+        case 'MEMBER':
+          return {
+            id,
+            orgId,
+            userId,
+            email,
+            displayName,
+            createdAt,
+            updatedAt,
+            kind: 'suspended',
+            role: 'MEMBER',
+            suspendedAt: toIso(suspendedAtMs),
+          };
+        case 'OWNER':
+          throw new Error(`Owner membership ${id} cannot be suspended`);
+        default:
+          return assertNever(role);
+      }
+    }
+    case 'REMOVED': {
+      const removedAtMs = nullableRowNumber(row.removed_at_ms);
+      if (removedAtMs === null) throw new Error(`Membership ${id} is missing removed_at_ms`);
+      switch (role) {
+        case 'ADMIN':
+          return {
+            id,
+            orgId,
+            userId,
+            email,
+            displayName,
+            createdAt,
+            updatedAt,
+            kind: 'removed',
+            role: 'ADMIN',
+            removedAt: toIso(removedAtMs),
+          };
+        case 'MEMBER':
+          return {
+            id,
+            orgId,
+            userId,
+            email,
+            displayName,
+            createdAt,
+            updatedAt,
+            kind: 'removed',
+            role: 'MEMBER',
+            removedAt: toIso(removedAtMs),
+          };
+        case 'OWNER':
+          throw new Error(`Owner membership ${id} cannot be removed`);
+        default:
+          return assertNever(role);
+      }
+    }
+    default:
+      throw new Error(`Invalid organization membership kind row: ${kind}`);
+  }
+}
+
+function parseInvitationKind(
+  value: unknown,
+): 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired' {
+  switch (normalizeRowString(value)) {
+    case 'PENDING':
+      return 'pending';
+    case 'ACCEPTED':
+      return 'accepted';
+    case 'DECLINED':
+      return 'declined';
+    case 'REVOKED':
+      return 'revoked';
+    case 'EXPIRED':
+      return 'expired';
+    default:
+      throw new Error(`Invalid organization invitation kind row: ${String(value)}`);
+  }
+}
+
+function parseInvitationRecord(row: D1Row): InvitationRecord {
   return {
-    id: normalizeString(row.id),
-    orgId: normalizeString(row.org_id),
-    userId: normalizeString(row.user_id || row.id),
-    email: normalizeString(row.email),
-    ...(normalizeString(row.display_name)
-      ? { displayName: normalizeString(row.display_name) }
-      : {}),
-    status: parseMembershipStatus(row.status || 'INVITED'),
-    roles: parseRoleAssignments(row.roles_json || row.roles),
-    invitedByUserId: normalizeString(row.invited_by_user_id),
-    invitedAt: toIso(toNumber(row.invited_at_ms)),
-    createdAt: toIso(toNumber(row.created_at_ms)),
-    updatedAt: toIso(toNumber(row.updated_at_ms)),
-    lastStatusChangedAt: toIso(toNumber(row.last_status_changed_at_ms)),
+    id: normalizeRowString(row.id),
+    orgId: normalizeRowString(row.org_id),
+    email: normalizeRowString(row.email),
+    invitedByUserId: normalizeRowString(row.invited_by_user_id),
+    role: parseMembershipRole(row.role),
+    adminPermissions: parseAdminPermissionsJson(row.admin_permissions_json),
+    projectAccess: parseProjectAccessJson(row.project_access_json),
+    kind: parseInvitationKind(row.kind),
+    tokenHash: nullableRowString(row.token_hash),
+    expiresAtMs: nullableRowNumber(row.expires_at_ms),
+    membershipId: nullableRowString(row.membership_id),
+    acceptedAtMs: nullableRowNumber(row.accepted_at_ms),
+    declinedAtMs: nullableRowNumber(row.declined_at_ms),
+    revokedAtMs: nullableRowNumber(row.revoked_at_ms),
+    expiredAtMs: nullableRowNumber(row.expired_at_ms),
+    createdAtMs: d1Number(row.created_at_ms),
+    updatedAtMs: d1Number(row.updated_at_ms),
   };
 }
 
-function rolesJson(roles: readonly ConsoleTeamRoleAssignment[]): string {
-  return JSON.stringify(roles.map((entry) => ({ role: entry.role, scope: 'ORG' })));
-}
-
-function hasOwnerClaim(ctx: ConsoleTeamRbacContext): boolean {
-  return ctx.roles.some((entry) => normalizeLower(entry) === 'owner');
-}
-
-function hasOwnerRole(member: ConsoleTeamMember): boolean {
-  return member.roles.some((entry) => entry.role === 'owner');
-}
-
-function memberHasAdminEligibility(member: ConsoleTeamMember): boolean {
-  return member.roles.some((entry) => entry.role === 'owner' || entry.role === 'admin');
-}
-
-function deriveActorRoles(ctx: ConsoleTeamRbacContext): ConsoleTeamRoleAssignment[] {
-  const out: ConsoleTeamRoleAssignment[] = [];
-  for (const roleRaw of ctx.roles) {
-    const role = normalizeRole(roleRaw);
-    if (!role) continue;
-    out.push({ role, scope: 'ORG' });
+function invitationDomain(record: InvitationRecord): OrganizationInvitation {
+  switch (record.kind) {
+    case 'pending':
+      if (record.expiresAtMs === null) {
+        throw new Error(`Pending invitation ${record.id} is missing expires_at_ms`);
+      }
+      return pendingInvitationDomain(record, toIso(record.expiresAtMs));
+    case 'accepted':
+      if (!record.membershipId || record.acceptedAtMs === null) {
+        throw new Error(`Accepted invitation ${record.id} is missing acceptance state`);
+      }
+      return acceptedInvitationDomain(record, record.membershipId, toIso(record.acceptedAtMs));
+    case 'declined':
+      if (record.declinedAtMs === null) {
+        throw new Error(`Declined invitation ${record.id} is missing declined_at_ms`);
+      }
+      return declinedInvitationDomain(record, toIso(record.declinedAtMs));
+    case 'revoked':
+      if (record.revokedAtMs === null) {
+        throw new Error(`Revoked invitation ${record.id} is missing revoked_at_ms`);
+      }
+      return revokedInvitationDomain(record, toIso(record.revokedAtMs));
+    case 'expired':
+      if (record.expiredAtMs === null) {
+        throw new Error(`Expired invitation ${record.id} is missing expired_at_ms`);
+      }
+      return expiredInvitationDomain(record, toIso(record.expiredAtMs));
+    default:
+      return assertNever(record.kind);
   }
-  return normalizeRoleAssignments(out);
 }
 
-function isConsoleLocalEmail(value: string): boolean {
-  return normalizeLower(value).endsWith('@console.local');
+function pendingInvitationDomain(
+  record: InvitationRecord,
+  expiresAt: string,
+): OrganizationInvitation {
+  switch (record.role) {
+    case 'OWNER':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'OWNER',
+        kind: 'pending',
+        expiresAt,
+      };
+    case 'ADMIN':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'ADMIN',
+        adminPermissions: record.adminPermissions,
+        kind: 'pending',
+        expiresAt,
+      };
+    case 'MEMBER':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'MEMBER',
+        projectAccess: record.projectAccess,
+        kind: 'pending',
+        expiresAt,
+      };
+    default:
+      return assertNever(record.role);
+  }
 }
 
-function resolveActorEmail(ctx: ConsoleTeamRbacContext): string {
-  const claimed = normalizeLower(ctx.actorEmail);
-  if (claimed && claimed.includes('@')) return claimed;
-  return `${normalizeString(ctx.actorUserId)}@console.local`;
+function acceptedInvitationDomain(
+  record: InvitationRecord,
+  membershipId: string,
+  acceptedAt: string,
+): OrganizationInvitation {
+  switch (record.role) {
+    case 'OWNER':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'OWNER',
+        kind: 'accepted',
+        membershipId,
+        acceptedAt,
+      };
+    case 'ADMIN':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'ADMIN',
+        adminPermissions: record.adminPermissions,
+        kind: 'accepted',
+        membershipId,
+        acceptedAt,
+      };
+    case 'MEMBER':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'MEMBER',
+        projectAccess: record.projectAccess,
+        kind: 'accepted',
+        membershipId,
+        acceptedAt,
+      };
+    default:
+      return assertNever(record.role);
+  }
 }
 
-function resolveActorDisplayName(ctx: ConsoleTeamRbacContext): string {
-  const claimed = normalizeString(ctx.actorDisplayName);
-  if (claimed) return claimed;
-  return normalizeString(ctx.actorUserId);
+function declinedInvitationDomain(
+  record: InvitationRecord,
+  declinedAt: string,
+): OrganizationInvitation {
+  switch (record.role) {
+    case 'OWNER':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'OWNER',
+        kind: 'declined',
+        declinedAt,
+      };
+    case 'ADMIN':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'ADMIN',
+        adminPermissions: record.adminPermissions,
+        kind: 'declined',
+        declinedAt,
+      };
+    case 'MEMBER':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'MEMBER',
+        projectAccess: record.projectAccess,
+        kind: 'declined',
+        declinedAt,
+      };
+    default:
+      return assertNever(record.role);
+  }
 }
 
-async function findMemberById(input: {
-  state: D1TeamRbacState;
-  orgId: string;
-  memberId: string;
-}): Promise<ConsoleTeamMember | null> {
+function revokedInvitationDomain(
+  record: InvitationRecord,
+  revokedAt: string,
+): OrganizationInvitation {
+  switch (record.role) {
+    case 'OWNER':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'OWNER',
+        kind: 'revoked',
+        revokedAt,
+      };
+    case 'ADMIN':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'ADMIN',
+        adminPermissions: record.adminPermissions,
+        kind: 'revoked',
+        revokedAt,
+      };
+    case 'MEMBER':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'MEMBER',
+        projectAccess: record.projectAccess,
+        kind: 'revoked',
+        revokedAt,
+      };
+    default:
+      return assertNever(record.role);
+  }
+}
+
+function expiredInvitationDomain(
+  record: InvitationRecord,
+  expiredAt: string,
+): OrganizationInvitation {
+  switch (record.role) {
+    case 'OWNER':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'OWNER',
+        kind: 'expired',
+        expiredAt,
+      };
+    case 'ADMIN':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'ADMIN',
+        adminPermissions: record.adminPermissions,
+        kind: 'expired',
+        expiredAt,
+      };
+    case 'MEMBER':
+      return {
+        id: record.id,
+        orgId: record.orgId,
+        email: record.email,
+        invitedByUserId: record.invitedByUserId,
+        createdAt: toIso(record.createdAtMs),
+        updatedAt: toIso(record.updatedAtMs),
+        role: 'MEMBER',
+        projectAccess: record.projectAccess,
+        kind: 'expired',
+        expiredAt,
+      };
+    default:
+      return assertNever(record.role);
+  }
+}
+
+function invitationGrant(request: OrganizationInvitationGrant): OrganizationInvitationGrant {
+  switch (request.role) {
+    case 'OWNER':
+      return { role: 'OWNER' };
+    case 'ADMIN':
+      return {
+        role: 'ADMIN',
+        adminPermissions: normalizeAdminPermissions(request.adminPermissions),
+      };
+    case 'MEMBER':
+      return {
+        role: 'MEMBER',
+        projectAccess: request.projectAccess.map((assignment) => ({
+          projectId: assignment.projectId,
+          accessLevel: assignment.accessLevel,
+        })),
+      };
+    default:
+      return assertNever(request);
+  }
+}
+
+function grantAdminPermissions(
+  grant: OrganizationInvitationGrant,
+): readonly OrganizationAdminPermission[] {
+  return grant.role === 'ADMIN' ? grant.adminPermissions : [];
+}
+
+function grantProjectAccess(
+  grant: OrganizationInvitationGrant,
+): readonly ProjectAccessAssignment[] {
+  return grant.role === 'MEMBER' ? grant.projectAccess : [];
+}
+
+function adminPermissionsJson(grant: OrganizationInvitationGrant): string {
+  return JSON.stringify(grantAdminPermissions(grant));
+}
+
+function projectAccessJson(grant: OrganizationInvitationGrant): string {
+  return JSON.stringify(grantProjectAccess(grant));
+}
+
+async function loadOrganizationState(
+  state: D1OrganizationAccessState,
+  orgId: string,
+): Promise<OrganizationRowState | null> {
   const row = await queryD1One(
-    input.state.database,
+    state.database,
+    `SELECT name, owner_anchor_membership_id, owner_set_version, authorization_version
+       FROM organizations
+      WHERE namespace = ?
+        AND id = ?
+      LIMIT 1`,
+    [state.namespace, orgId],
+  );
+  if (!row) return null;
+  return {
+    name: normalizeRowString(row.name),
+    ownerAnchorMembershipId: nullableRowString(row.owner_anchor_membership_id),
+    ownerSetVersion: d1Number(row.owner_set_version),
+    authorizationVersion: d1Number(row.authorization_version),
+  };
+}
+
+async function requireOrganizationState(
+  state: D1OrganizationAccessState,
+  orgId: string,
+): Promise<OrganizationRowState> {
+  const organization = await loadOrganizationState(state, orgId);
+  if (!organization) {
+    throw accessError('organization_not_found', 404, 'Organization was not found');
+  }
+  return organization;
+}
+
+async function loadMembershipById(
+  state: D1OrganizationAccessState,
+  orgId: string,
+  membershipId: string,
+): Promise<OrganizationMembership | null> {
+  const row = await queryD1One(
+    state.database,
     `SELECT *
-       FROM team_members
+       FROM organization_memberships
       WHERE namespace = ?
         AND org_id = ?
         AND id = ?
       LIMIT 1`,
-    [input.state.namespace, input.orgId, input.memberId],
+    [state.namespace, orgId, membershipId],
   );
-  return row ? parseMemberRow(row) : null;
+  return row ? parseMembershipRow(row) : null;
 }
 
-async function findMemberByUserId(input: {
-  state: D1TeamRbacState;
-  orgId: string;
-  userId: string;
-}): Promise<ConsoleTeamMember | null> {
+async function loadCurrentMembershipByUserId(
+  state: D1OrganizationAccessState,
+  orgId: string,
+  userId: string,
+): Promise<OrganizationMembership | null> {
   const row = await queryD1One(
-    input.state.database,
+    state.database,
     `SELECT *
-       FROM team_members
+       FROM organization_memberships
       WHERE namespace = ?
         AND org_id = ?
         AND user_id = ?
+        AND kind <> 'REMOVED'
       LIMIT 1`,
-    [input.state.namespace, input.orgId, input.userId],
+    [state.namespace, orgId, userId],
   );
-  return row ? parseMemberRow(row) : null;
+  return row ? parseMembershipRow(row) : null;
 }
 
-async function findMemberByEmail(input: {
-  state: D1TeamRbacState;
-  orgId: string;
-  email: string;
-}): Promise<ConsoleTeamMember | null> {
+async function loadLatestMembershipByUserId(
+  state: D1OrganizationAccessState,
+  orgId: string,
+  userId: string,
+): Promise<OrganizationMembership | null> {
   const row = await queryD1One(
-    input.state.database,
+    state.database,
     `SELECT *
-       FROM team_members
+       FROM organization_memberships
       WHERE namespace = ?
         AND org_id = ?
-        AND email_normalized = ?
+        AND user_id = ?
+      ORDER BY created_at_ms DESC, id DESC
       LIMIT 1`,
-    [input.state.namespace, input.orgId, normalizeLower(input.email)],
+    [state.namespace, orgId, userId],
   );
-  return row ? parseMemberRow(row) : null;
+  return row ? parseMembershipRow(row) : null;
 }
 
-async function listMembersForOrg(input: {
-  state: D1TeamRbacState;
-  orgId: string;
-  status?: ConsoleTeamMembershipStatus;
-}): Promise<ConsoleTeamMember[]> {
-  const values: unknown[] = [input.state.namespace, input.orgId];
-  let statusFilter = '';
-  if (input.status) {
-    values.push(input.status);
-    statusFilter = ' AND status = ?';
-  }
+async function loadAdminPermissions(
+  state: D1OrganizationAccessState,
+  orgId: string,
+  membershipId: string,
+): Promise<readonly OrganizationAdminPermission[]> {
   const rows = await queryD1All(
-    input.state.database,
-    `SELECT *
-       FROM team_members
+    state.database,
+    `SELECT permission
+       FROM organization_admin_permissions
       WHERE namespace = ?
-        AND org_id = ?${statusFilter}
-      ORDER BY updated_at_ms DESC, created_at_ms DESC`,
-    values,
+        AND org_id = ?
+        AND membership_id = ?
+      ORDER BY permission ASC`,
+    [state.namespace, orgId, membershipId],
   );
-  return rows.map(parseMemberRow);
+  return normalizeAdminPermissions(rows.map((row) => parseAdminPermission(row.permission)));
 }
 
-async function countActiveOwners(input: {
-  state: D1TeamRbacState;
-  orgId: string;
-}): Promise<number> {
-  const members = await listMembersForOrg({
-    state: input.state,
-    orgId: input.orgId,
-    status: 'ACTIVE',
-  });
-  let count = 0;
-  for (const member of members) {
-    if (hasOwnerRole(member)) count += 1;
-  }
-  return count;
+async function loadProjectAccess(
+  state: D1OrganizationAccessState,
+  orgId: string,
+  membershipId: string,
+): Promise<readonly ProjectAccessAssignment[]> {
+  const rows = await queryD1All(
+    state.database,
+    `SELECT project_id, access_level
+       FROM project_member_access
+      WHERE namespace = ?
+        AND org_id = ?
+        AND membership_id = ?
+      ORDER BY project_id ASC`,
+    [state.namespace, orgId, membershipId],
+  );
+  return rows.map((row) => ({
+    projectId: normalizeRowString(row.project_id),
+    accessLevel: parseProjectAccessLevel(row.access_level),
+  }));
 }
 
-async function insertActorMembership(input: {
-  state: D1TeamRbacState;
-  ctx: ConsoleTeamRbacContext;
-  actorUserId: string;
-  actorEmail: string;
-  actorDisplayName: string;
-  actorRoles: ConsoleTeamRoleAssignment[];
-  nowMsValue: number;
-}): Promise<void> {
-  await input.state.database
-    .prepare(
-      `INSERT INTO team_members
-        (namespace, id, org_id, user_id, email, email_normalized, display_name, status, roles_json, invited_by_user_id, invited_at_ms, last_status_changed_at_ms, created_at_ms, updated_at_ms)
-       VALUES
-        (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.state.namespace,
-      makeId('mbr', input.state.now()),
-      input.ctx.orgId,
-      input.actorUserId,
-      input.actorEmail,
-      normalizeLower(input.actorEmail),
-      input.actorDisplayName,
-      rolesJson(input.actorRoles),
-      input.actorUserId,
-      input.nowMsValue,
-      input.nowMsValue,
-      input.nowMsValue,
-      input.nowMsValue,
-    )
-    .run();
+async function membershipWithAccess(
+  state: D1OrganizationAccessState,
+  membership: OrganizationMembership,
+): Promise<OrganizationMembershipWithAccess> {
+  return {
+    membership,
+    adminPermissions:
+      membership.role === 'ADMIN'
+        ? await loadAdminPermissions(state, membership.orgId, membership.id)
+        : [],
+    projectAccess:
+      membership.role === 'MEMBER'
+        ? await loadProjectAccess(state, membership.orgId, membership.id)
+        : [],
+  };
 }
 
-async function updateActorMembership(input: {
-  state: D1TeamRbacState;
-  ctx: ConsoleTeamRbacContext;
-  existing: ConsoleTeamMember;
-  actorEmail: string;
-  actorDisplayName: string;
-  actorRoles: ConsoleTeamRoleAssignment[];
-  nowMsValue: number;
-}): Promise<void> {
-  const mergedRoles = normalizeRoleAssignments([
-    ...input.existing.roles,
-    ...input.actorRoles,
-  ]);
-  const nextEmail =
-    input.actorEmail &&
-    (isConsoleLocalEmail(input.existing.email) || !normalizeString(input.existing.email))
-      ? input.actorEmail
-      : input.existing.email;
-  const nextDisplayName =
-    input.actorDisplayName &&
-    (!normalizeString(input.existing.displayName) ||
-      normalizeString(input.existing.displayName) === normalizeString(input.ctx.actorUserId))
-      ? input.actorDisplayName
-      : input.existing.displayName || null;
-  await input.state.database
-    .prepare(
-      `UPDATE team_members
-          SET status = 'ACTIVE',
-              roles_json = ?,
-              email = ?,
-              email_normalized = ?,
-              display_name = ?,
-              updated_at_ms = ?,
-              last_status_changed_at_ms = CASE
-                WHEN status <> 'ACTIVE' THEN ?
-                ELSE last_status_changed_at_ms
-              END
-        WHERE namespace = ?
-          AND org_id = ?
-          AND id = ?`,
-    )
-    .bind(
-      rolesJson(mergedRoles),
-      nextEmail,
-      normalizeLower(nextEmail),
-      nextDisplayName,
-      input.nowMsValue,
-      input.nowMsValue,
-      input.state.namespace,
-      input.ctx.orgId,
-      input.existing.id,
-    )
-    .run();
-}
-
-async function ensureActorMembership(input: {
-  state: D1TeamRbacState;
-  ctx: ConsoleTeamRbacContext;
-}): Promise<void> {
-  const actorUserId = normalizeString(input.ctx.actorUserId);
-  if (!actorUserId) return;
-  const actorRoles = deriveActorRoles(input.ctx);
-  const actorEmail = resolveActorEmail(input.ctx);
-  const actorDisplayName = resolveActorDisplayName(input.ctx);
-  const nowMsValue = nowMs(input.state.now());
-  const existing = await findMemberByUserId({
-    state: input.state,
-    orgId: input.ctx.orgId,
-    userId: actorUserId,
-  });
-  if (!existing) {
-    await insertActorMembership({
-      state: input.state,
-      ctx: input.ctx,
-      actorUserId,
-      actorEmail,
-      actorDisplayName,
-      actorRoles,
-      nowMsValue,
-    });
-    return;
-  }
-  await updateActorMembership({
-    state: input.state,
-    ctx: input.ctx,
-    existing,
-    actorEmail,
-    actorDisplayName,
-    actorRoles,
-    nowMsValue,
-  });
-}
-
-async function loadActorMember(input: {
-  state: D1TeamRbacState;
-  ctx: ConsoleTeamRbacContext;
-}): Promise<ConsoleTeamMember> {
-  const actorUserId = normalizeString(input.ctx.actorUserId);
-  if (!actorUserId) {
-    throw new ConsoleTeamRbacError('invalid_body', 400, 'Actor user id is required');
-  }
-  const actor = await findMemberByUserId({
-    state: input.state,
-    orgId: input.ctx.orgId,
-    userId: actorUserId,
-  });
-  if (!actor) {
-    throw new ConsoleTeamRbacError(
-      'member_not_found',
-      404,
-      `Actor member for user ${actorUserId} was not found`,
-    );
+async function loadActor(
+  state: D1OrganizationAccessState,
+  ctx: OrganizationAccessContext,
+): Promise<OrganizationMembership> {
+  const actor = await loadCurrentMembershipByUserId(
+    state,
+    normalizeRequired(ctx.orgId, 'orgId'),
+    normalizeRequired(ctx.actorUserId, 'actorUserId'),
+  );
+  if (!actor || actor.kind !== 'active') {
+    throw accessError('forbidden', 403, 'An active membership is required');
   }
   return actor;
 }
 
-async function updateMemberRolesJson(input: {
-  state: D1TeamRbacState;
-  orgId: string;
-  memberId: string;
-  roles: readonly ConsoleTeamRoleAssignment[];
-  nowMsValue: number;
-}): Promise<ConsoleTeamMember | null> {
-  const result = await input.state.database
-    .prepare(
-      `UPDATE team_members
-          SET roles_json = ?,
-              updated_at_ms = ?
-        WHERE namespace = ?
-          AND org_id = ?
-          AND id = ?`,
-    )
-    .bind(
-      rolesJson(input.roles),
-      input.nowMsValue,
-      input.state.namespace,
-      input.orgId,
-      input.memberId,
-    )
-    .run();
-  if (d1ChangedRows(result) !== 1) return null;
-  return await findMemberById({
-    state: input.state,
-    orgId: input.orgId,
-    memberId: input.memberId,
-  });
+async function requireOwner(
+  state: D1OrganizationAccessState,
+  ctx: OrganizationAccessContext,
+): Promise<OrganizationMembership> {
+  const actor = await loadActor(state, ctx);
+  if (actor.role !== 'OWNER') throw accessError('forbidden', 403, 'Owner access is required');
+  return actor;
 }
 
-async function restoreRemovedMember(input: {
-  state: D1TeamRbacState;
-  ctx: ConsoleTeamRbacContext;
-  removedMember: ConsoleTeamMember;
-  userId: string;
-  email: string;
-  displayName: string;
-  roles: readonly ConsoleTeamRoleAssignment[];
-  nowMsValue: number;
-}): Promise<ConsoleTeamMember> {
-  await input.state.database
-    .prepare(
-      `UPDATE team_members
-          SET user_id = ?,
-              email = ?,
-              email_normalized = ?,
-              display_name = CASE
-                WHEN ? = '' THEN display_name
-                ELSE ?
-              END,
-              status = 'ACTIVE',
-              roles_json = ?,
-              invited_by_user_id = ?,
-              invited_at_ms = ?,
-              last_status_changed_at_ms = ?,
-              updated_at_ms = ?
-        WHERE namespace = ?
-          AND org_id = ?
-          AND id = ?`,
-    )
-    .bind(
-      input.userId,
-      input.email,
-      normalizeLower(input.email),
-      input.displayName,
-      input.displayName,
-      rolesJson(input.roles),
-      input.ctx.actorUserId,
-      input.nowMsValue,
-      input.nowMsValue,
-      input.nowMsValue,
-      input.state.namespace,
-      input.ctx.orgId,
-      input.removedMember.id,
-    )
-    .run();
-  const member = await findMemberById({
-    state: input.state,
-    orgId: input.ctx.orgId,
-    memberId: input.removedMember.id,
-  });
-  if (!member) {
-    throw new ConsoleTeamRbacError('internal', 500, 'Failed to restore removed member');
-  }
-  return member;
+async function actorHasPermission(
+  state: D1OrganizationAccessState,
+  actor: OrganizationMembership,
+  permission: OrganizationAdminPermission,
+): Promise<boolean> {
+  if (actor.role !== 'ADMIN') return false;
+  const permissions = await loadAdminPermissions(state, actor.orgId, actor.id);
+  return permissions.includes(permission);
 }
 
-async function insertMember(input: {
-  state: D1TeamRbacState;
-  ctx: ConsoleTeamRbacContext;
-  userId: string;
-  email: string;
-  displayName: string;
-  roles: readonly ConsoleTeamRoleAssignment[];
-  now: Date;
-}): Promise<ConsoleTeamMember> {
-  const memberId = makeId('mbr', input.now);
-  const ts = nowMs(input.now);
-  await input.state.database
-    .prepare(
-      `INSERT INTO team_members
-        (namespace, id, org_id, user_id, email, email_normalized, display_name, status, roles_json, invited_by_user_id, invited_at_ms, last_status_changed_at_ms, created_at_ms, updated_at_ms)
-       VALUES
-        (?, ?, ?, ?, ?, ?, NULLIF(?, ''), 'ACTIVE', ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.state.namespace,
-      memberId,
-      input.ctx.orgId,
-      input.userId,
-      input.email,
-      normalizeLower(input.email),
-      input.displayName,
-      rolesJson(input.roles),
-      input.ctx.actorUserId,
-      ts,
-      ts,
-      ts,
-      ts,
-    )
-    .run();
-  const member = await findMemberById({
-    state: input.state,
-    orgId: input.ctx.orgId,
-    memberId,
-  });
-  if (!member) {
-    throw new ConsoleTeamRbacError('internal', 500, 'Failed to create member');
-  }
-  return member;
+async function requireMembershipManager(
+  state: D1OrganizationAccessState,
+  ctx: OrganizationAccessContext,
+): Promise<OrganizationMembership> {
+  const actor = await loadActor(state, ctx);
+  if (actor.role === 'OWNER') return actor;
+  if (await actorHasPermission(state, actor, 'members.manage')) return actor;
+  throw accessError('forbidden', 403, 'Membership management access is required');
 }
 
-export async function createD1ConsoleTeamRbacService(
-  options: D1ConsoleTeamRbacServiceOptions,
-): Promise<ConsoleTeamRbacService> {
-  if (options.ensureSchema) {
-    await ensureConsoleTeamRbacD1Schema({ database: options.database });
+async function requireProjectManager(
+  state: D1OrganizationAccessState,
+  ctx: OrganizationAccessContext,
+): Promise<OrganizationMembership> {
+  const actor = await loadActor(state, ctx);
+  if (actor.role === 'OWNER') return actor;
+  if (await actorHasPermission(state, actor, 'projects.manage')) return actor;
+  throw accessError('forbidden', 403, 'Project management access is required');
+}
+
+async function requireInvitationAuthority(
+  state: D1OrganizationAccessState,
+  ctx: OrganizationAccessContext,
+  role: 'OWNER' | 'ADMIN' | 'MEMBER',
+): Promise<OrganizationMembership> {
+  const actor = await loadActor(state, ctx);
+  if (actor.role === 'OWNER') return actor;
+  if (
+    actor.role === 'ADMIN' &&
+    role === 'MEMBER' &&
+    (await actorHasPermission(state, actor, 'members.manage'))
+  ) {
+    return actor;
   }
-  const state: D1TeamRbacState = {
-    database: options.database,
-    namespace: ensureNamespace(options.namespace),
-    now: options.now || defaultNow,
-  };
-  const runtime: ConsoleTeamRbacD1Runtime = {
-    database: state.database,
-    namespace: state.namespace,
-    now: state.now,
-  };
+  throw accessError(
+    'forbidden',
+    403,
+    'This membership cannot issue or manage the requested invitation',
+  );
+}
 
-  const service: ConsoleTeamRbacD1Service = {
-    async bootstrapOwner(ctx): Promise<ConsoleTeamMember> {
-      await ensureActorMembership({ state, ctx });
-      const actor = await loadActorMember({ state, ctx });
-      const currentNow = state.now();
-      const ts = nowMs(currentNow);
-      if (hasOwnerRole(actor)) {
-        await state.database
-          .prepare(
-            `UPDATE team_members
-                SET status = 'ACTIVE',
-                    updated_at_ms = ?,
-                    last_status_changed_at_ms = CASE
-                      WHEN status <> 'ACTIVE' THEN ?
-                      ELSE last_status_changed_at_ms
-                    END
-              WHERE namespace = ?
-                AND org_id = ?
-                AND id = ?`,
-          )
-          .bind(ts, ts, state.namespace, ctx.orgId, actor.id)
-          .run();
-        const refreshed = await findMemberById({ state, orgId: ctx.orgId, memberId: actor.id });
-        if (!refreshed) {
-          throw new ConsoleTeamRbacError('internal', 500, 'Failed to update owner membership');
-        }
-        return refreshed;
-      }
+async function requireLifecycleAuthority(
+  state: D1OrganizationAccessState,
+  ctx: OrganizationAccessContext,
+  target: OrganizationMembership,
+): Promise<OrganizationMembership> {
+  const actor = await loadActor(state, ctx);
+  if (actor.role === 'OWNER') return actor;
+  if (
+    actor.role === 'ADMIN' &&
+    target.role === 'MEMBER' &&
+    (await actorHasPermission(state, actor, 'members.manage'))
+  ) {
+    return actor;
+  }
+  throw accessError('forbidden', 403, 'This membership cannot change the target membership');
+}
 
-      const ownerCount = await countActiveOwners({ state, orgId: ctx.orgId });
-      if (ownerCount > 0) {
-        throw new ConsoleTeamRbacError(
-          'owner_already_exists',
-          409,
-          'Owner membership already exists for this organization',
-        );
-      }
-      const ownerRoles = normalizeRoleAssignments([
-        ...actor.roles,
-        { role: 'owner', scope: 'ORG' },
-      ]);
-      const updated = await updateMemberRolesJson({
-        state,
-        orgId: ctx.orgId,
-        memberId: actor.id,
-        roles: ownerRoles,
-        nowMsValue: ts,
-      });
-      if (!updated) {
-        throw new ConsoleTeamRbacError('internal', 500, 'Failed to bootstrap owner membership');
-      }
-      return updated;
-    },
-
-    async listMembers(ctx, request?: ListConsoleTeamMembersRequest): Promise<ConsoleTeamMember[]> {
-      await ensureActorMembership({ state, ctx });
-      return await listMembersForOrg({
-        state,
-        orgId: ctx.orgId,
-        status: normalizeListStatus(request),
-      });
-    },
-
-    async listOrganizationMembers(
-      orgId: string,
-      request?: ListConsoleTeamMembersRequest,
-    ): Promise<ConsoleTeamMember[]> {
-      return await listMembersForOrg({
-        state,
-        orgId,
-        status: normalizeListStatus(request),
-      });
-    },
-
-    async purgeOrganization(ctx): Promise<void> {
-      await state.database
+async function expireInvitations(
+  state: D1OrganizationAccessState,
+  orgId: string | null,
+): Promise<void> {
+  const nowMs = state.now().getTime();
+  if (!state.email && orgId) {
+    await state.database
+      .prepare(
+        `UPDATE organization_invitations
+            SET kind = 'EXPIRED',
+                token_hash = NULL,
+                expires_at_ms = NULL,
+                expired_at_ms = ?,
+                updated_at_ms = ?
+          WHERE namespace = ?
+            AND org_id = ?
+            AND kind = 'PENDING'
+            AND expires_at_ms <= ?`,
+      )
+      .bind(nowMs, nowMs, state.namespace, orgId, nowMs)
+      .run();
+    return;
+  }
+  if (!state.email) {
+    await state.database
+      .prepare(
+        `UPDATE organization_invitations
+            SET kind = 'EXPIRED',
+                token_hash = NULL,
+                expires_at_ms = NULL,
+                expired_at_ms = ?,
+                updated_at_ms = ?
+          WHERE namespace = ?
+            AND kind = 'PENDING'
+            AND expires_at_ms <= ?`,
+      )
+      .bind(nowMs, nowMs, state.namespace, nowMs)
+      .run();
+    return;
+  }
+  const values: unknown[] = [state.namespace, nowMs];
+  const organizationFilter = orgId ? ' AND org_id = ?' : '';
+  if (orgId) values.push(orgId);
+  const rows = await queryD1All(
+    state.database,
+    `SELECT org_id, id
+       FROM organization_invitations
+      WHERE namespace = ?
+        AND kind = 'PENDING'
+        AND expires_at_ms <= ?${organizationFilter}`,
+    values,
+  );
+  if (rows.length === 0) return;
+  const now = new Date(nowMs);
+  const statements: D1PreparedStatementLike[] = [];
+  for (const row of rows) {
+    const expiredOrgId = normalizeRowString(row.org_id);
+    const invitationId = normalizeRowString(row.id);
+    statements.push(
+      state.database
         .prepare(
-          `DELETE FROM team_members
-            WHERE namespace = ?
-              AND org_id = ?`,
-        )
-        .bind(state.namespace, ctx.orgId)
-        .run();
-    },
-
-    async transferOwner(ctx, targetMemberId): Promise<{
-      previousOwner: ConsoleTeamMember;
-      nextOwner: ConsoleTeamMember;
-    }> {
-      await ensureActorMembership({ state, ctx });
-      const actor = await loadActorMember({ state, ctx });
-      if (actor.status !== 'ACTIVE' || !hasOwnerRole(actor)) {
-        throw new ConsoleTeamRbacError(
-          'forbidden',
-          403,
-          'Only the current owner can transfer organization ownership',
-        );
-      }
-      const target = await findMemberById({ state, orgId: ctx.orgId, memberId: targetMemberId });
-      if (!target) {
-        throw new ConsoleTeamRbacError(
-          'member_not_found',
-          404,
-          `Member ${targetMemberId} was not found`,
-        );
-      }
-      if (target.status !== 'ACTIVE') {
-        throw new ConsoleTeamRbacError(
-          'invalid_body',
-          409,
-          'Owner transfer target must be an active organization member',
-        );
-      }
-      if (!memberHasAdminEligibility(target)) {
-        throw new ConsoleTeamRbacError(
-          'invalid_body',
-          409,
-          'Owner transfer target must already have admin eligibility',
-        );
-      }
-      if (target.id === actor.id) {
-        return { previousOwner: actor, nextOwner: target };
-      }
-
-      const ts = nowMs(state.now());
-      const nextTargetRoles = normalizeRoleAssignments([
-        ...target.roles,
-        { role: 'owner', scope: 'ORG' },
-        { role: 'admin', scope: 'ORG' },
-      ]);
-      const nextActorRoles = normalizeRoleAssignments([
-        ...actor.roles.filter((entry) => entry.role !== 'owner'),
-        { role: 'admin', scope: 'ORG' },
-      ]);
-      await state.database.batch([
-        state.database
-          .prepare(
-            `UPDATE team_members
-                SET roles_json = ?,
-                    updated_at_ms = ?
-              WHERE namespace = ?
-                AND org_id = ?
-                AND id = ?`,
-          )
-          .bind(rolesJson(nextTargetRoles), ts, state.namespace, ctx.orgId, target.id),
-        state.database
-          .prepare(
-            `UPDATE team_members
-                SET roles_json = ?,
-                    updated_at_ms = ?
-              WHERE namespace = ?
-                AND org_id = ?
-                AND id = ?`,
-          )
-          .bind(rolesJson(nextActorRoles), ts, state.namespace, ctx.orgId, actor.id),
-      ]);
-      const previousOwner = await findMemberById({
-        state,
-        orgId: ctx.orgId,
-        memberId: actor.id,
-      });
-      const nextOwner = await findMemberById({
-        state,
-        orgId: ctx.orgId,
-        memberId: target.id,
-      });
-      if (!previousOwner || !nextOwner) {
-        throw new ConsoleTeamRbacError('internal', 500, 'Failed to transfer owner membership');
-      }
-      return { previousOwner, nextOwner };
-    },
-
-    async inviteMember(
-      ctx,
-      request: InviteConsoleTeamMemberRequest,
-    ): Promise<ConsoleTeamMember> {
-      await ensureActorMembership({ state, ctx });
-      const roles = normalizeRoleAssignments(request.roles);
-      if (roles.length === 0) {
-        throw new ConsoleTeamRbacError(
-          'invalid_body',
-          400,
-          'At least one role assignment is required',
-        );
-      }
-      if (roles.some((entry) => entry.role === 'owner') && !hasOwnerClaim(ctx)) {
-        throw new ConsoleTeamRbacError(
-          'forbidden',
-          403,
-          'Only owner can assign owner role memberships',
-        );
-      }
-
-      const userId = normalizeString(request.userId);
-      if (!userId) {
-        throw new ConsoleTeamRbacError('invalid_body', 400, 'Field userId is required');
-      }
-      const email = normalizeLower(request.email);
-      if (!email) {
-        throw new ConsoleTeamRbacError('invalid_body', 400, 'Field email is required');
-      }
-      const displayName = normalizeString(request.displayName);
-      const existingByUserId = await findMemberByUserId({ state, orgId: ctx.orgId, userId });
-      if (existingByUserId && existingByUserId.status !== 'REMOVED') {
-        throw new ConsoleTeamRbacError(
-          'member_already_exists',
-          409,
-          `Member with userId ${userId} already exists`,
-        );
-      }
-      const existingByEmail = await findMemberByEmail({ state, orgId: ctx.orgId, email });
-      if (
-        existingByEmail &&
-        existingByEmail.status !== 'REMOVED' &&
-        (!existingByUserId || existingByUserId.id !== existingByEmail.id)
-      ) {
-        throw new ConsoleTeamRbacError(
-          'member_already_exists',
-          409,
-          `Member with email ${email} already exists`,
-        );
-      }
-      const removedMember =
-        (existingByUserId && existingByUserId.status === 'REMOVED' ? existingByUserId : null) ||
-        (existingByEmail && existingByEmail.status === 'REMOVED' ? existingByEmail : null);
-      if (removedMember) {
-        return await restoreRemovedMember({
-          state,
-          ctx,
-          removedMember,
-          userId,
-          email,
-          displayName,
-          roles,
-          nowMsValue: nowMs(state.now()),
-        });
-      }
-      return await insertMember({
-        state,
-        ctx,
-        userId,
-        email,
-        displayName,
-        roles,
-        now: state.now(),
-      });
-    },
-
-    async updateMemberRoles(
-      ctx,
-      memberId: string,
-      request: UpdateConsoleTeamMemberRolesRequest,
-    ): Promise<ConsoleTeamMember | null> {
-      await ensureActorMembership({ state, ctx });
-      const member = await findMemberById({ state, orgId: ctx.orgId, memberId });
-      if (!member) return null;
-      if (member.status === 'REMOVED') {
-        throw new ConsoleTeamRbacError(
-          'member_removed',
-          409,
-          `Member ${memberId} is removed and cannot be mutated`,
-        );
-      }
-
-      const roles = normalizeRoleAssignments(request.roles);
-      if (roles.length === 0) {
-        throw new ConsoleTeamRbacError(
-          'invalid_body',
-          400,
-          'At least one role assignment is required',
-        );
-      }
-      if (roles.some((entry) => entry.role === 'owner') && !hasOwnerClaim(ctx)) {
-        throw new ConsoleTeamRbacError(
-          'forbidden',
-          403,
-          'Only owner can assign owner role memberships',
-        );
-      }
-
-      const wasOwner = hasOwnerRole(member);
-      const willBeOwner = roles.some((entry) => entry.role === 'owner');
-      if (wasOwner && !willBeOwner && member.status === 'ACTIVE') {
-        const ownerCount = await countActiveOwners({ state, orgId: ctx.orgId });
-        if (ownerCount <= 1) {
-          throw new ConsoleTeamRbacError(
-            'last_owner_required',
-            409,
-            'Cannot remove owner role from the last active owner in the organization',
-          );
-        }
-      }
-
-      const actorIsTarget = normalizeString(member.userId) === normalizeString(ctx.actorUserId);
-      const actorEmail = actorIsTarget ? resolveActorEmail(ctx) : '';
-      const actorDisplayName = actorIsTarget ? resolveActorDisplayName(ctx) : '';
-      const nextEmail =
-        actorEmail && (isConsoleLocalEmail(member.email) || !normalizeString(member.email))
-          ? actorEmail
-          : member.email;
-      const nextDisplayName =
-        actorDisplayName &&
-        (!normalizeString(member.displayName) ||
-          normalizeString(member.displayName) === normalizeString(ctx.actorUserId))
-          ? actorDisplayName
-          : member.displayName || null;
-      const result = await state.database
-        .prepare(
-          `UPDATE team_members
-              SET roles_json = ?,
-                  email = ?,
-                  email_normalized = ?,
-                  display_name = ?,
+          `UPDATE organization_invitations
+              SET kind = 'EXPIRED',
+                  token_hash = NULL,
+                  expires_at_ms = NULL,
+                  expired_at_ms = ?,
                   updated_at_ms = ?
             WHERE namespace = ?
               AND org_id = ?
-              AND id = ?`,
+              AND id = ?
+              AND kind = 'PENDING'
+              AND expires_at_ms <= ?`,
+        )
+        .bind(nowMs, nowMs, state.namespace, expiredOrgId, invitationId, nowMs),
+    );
+    const cancellation = createInvitationCancellationStatement(state, {
+      orgId: expiredOrgId,
+      invitationId,
+      now,
+      guarded: true,
+    });
+    if (cancellation) statements.push(cancellation);
+  }
+  await state.database.batch(statements);
+}
+
+async function loadInvitationByOrg(
+  state: D1OrganizationAccessState,
+  orgId: string,
+  invitationId: string,
+): Promise<InvitationRecord | null> {
+  const row = await queryD1One(
+    state.database,
+    `SELECT *
+       FROM organization_invitations
+      WHERE namespace = ?
+        AND org_id = ?
+        AND id = ?
+      LIMIT 1`,
+    [state.namespace, orgId, invitationId],
+  );
+  return row ? parseInvitationRecord(row) : null;
+}
+
+async function loadInvitationAcrossOrganizations(
+  state: D1OrganizationAccessState,
+  invitationId: string,
+): Promise<InvitationRecord | null> {
+  const row = await queryD1One(
+    state.database,
+    `SELECT *
+       FROM organization_invitations
+      WHERE namespace = ?
+        AND id = ?
+      LIMIT 1`,
+    [state.namespace, invitationId],
+  );
+  return row ? parseInvitationRecord(row) : null;
+}
+
+function requirePendingInvitation(record: InvitationRecord): void {
+  if (record.kind !== 'pending') {
+    throw accessError('invitation_not_pending', 409, `Invitation is already ${record.kind}`);
+  }
+}
+
+function activeMembership(membership: OrganizationMembership): ActiveOrganizationMembership {
+  if (membership.kind !== 'active') {
+    throw new Error(`Expected active membership ${membership.id}`);
+  }
+  return membership;
+}
+
+function ownerMembership(membership: OrganizationMembership): ActiveOwnerMembership {
+  if (membership.kind !== 'active' || membership.role !== 'OWNER') {
+    throw new Error(`Expected owner membership ${membership.id}`);
+  }
+  return membership;
+}
+
+async function validateProjectAssignments(
+  state: D1OrganizationAccessState,
+  orgId: string,
+  assignments: readonly ProjectAccessAssignment[],
+): Promise<void> {
+  for (const assignment of assignments) {
+    const row = await queryD1One(
+      state.database,
+      `SELECT id
+         FROM projects
+        WHERE namespace = ?
+          AND org_id = ?
+          AND id = ?
+        LIMIT 1`,
+      [state.namespace, orgId, assignment.projectId],
+    );
+    if (!row) {
+      throw accessError('project_not_found', 404, `Project ${assignment.projectId} was not found`);
+    }
+  }
+}
+
+function ownerEventStatement(
+  state: D1OrganizationAccessState,
+  input: {
+    readonly orgId: string;
+    readonly membershipId: string;
+    readonly ownerUserId: string;
+    readonly actorUserId: string;
+    readonly kind: 'OWNER_ADDED' | 'OWNER_REMOVED';
+    readonly now: Date;
+  },
+): D1PreparedStatementLike {
+  return state.database
+    .prepare(
+      `INSERT INTO organization_owner_events
+        (namespace, org_id, id, membership_id, owner_user_id, actor_user_id, kind, created_at_ms)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE EXISTS (
+         SELECT 1
+         FROM organization_memberships
+         WHERE namespace = ?
+           AND org_id = ?
+           AND id = ?
+       )`,
+    )
+    .bind(
+      state.namespace,
+      input.orgId,
+      makeId('org_owner_evt', input.now),
+      input.membershipId,
+      input.ownerUserId,
+      input.actorUserId,
+      input.kind,
+      input.now.getTime(),
+      state.namespace,
+      input.orgId,
+      input.membershipId,
+    );
+}
+
+function permissionInsertStatements(
+  state: D1OrganizationAccessState,
+  input: {
+    readonly orgId: string;
+    readonly membershipId: string;
+    readonly permissions: readonly OrganizationAdminPermission[];
+    readonly nowMs: number;
+  },
+): readonly D1PreparedStatementLike[] {
+  return input.permissions.map((permission) =>
+    state.database
+      .prepare(
+        `INSERT INTO organization_admin_permissions
+          (namespace, org_id, membership_id, permission, created_at_ms, updated_at_ms)
+         SELECT ?, ?, ?, ?, ?, ?
+         WHERE EXISTS (
+           SELECT 1
+           FROM organization_memberships
+           WHERE namespace = ?
+             AND org_id = ?
+             AND id = ?
+             AND role = 'ADMIN'
+             AND kind <> 'REMOVED'
+         )
+         ON CONFLICT (namespace, org_id, membership_id, permission)
+         DO UPDATE SET updated_at_ms = excluded.updated_at_ms`,
+      )
+      .bind(
+        state.namespace,
+        input.orgId,
+        input.membershipId,
+        permission,
+        input.nowMs,
+        input.nowMs,
+        state.namespace,
+        input.orgId,
+        input.membershipId,
+      ),
+  );
+}
+
+function projectAccessInsertStatements(
+  state: D1OrganizationAccessState,
+  input: {
+    readonly orgId: string;
+    readonly membershipId: string;
+    readonly assignments: readonly ProjectAccessAssignment[];
+    readonly actorUserId: string;
+    readonly nowMs: number;
+  },
+): readonly D1PreparedStatementLike[] {
+  return input.assignments.map((assignment) =>
+    state.database
+      .prepare(
+        `INSERT INTO project_member_access
+          (namespace, org_id, project_id, membership_id, access_level, granted_by_user_id, created_at_ms, updated_at_ms)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?
+         WHERE EXISTS (
+           SELECT 1
+           FROM organization_memberships
+           WHERE namespace = ?
+             AND org_id = ?
+             AND id = ?
+             AND role = 'MEMBER'
+             AND kind = 'ACTIVE'
+         )
+         ON CONFLICT (namespace, org_id, project_id, membership_id)
+         DO UPDATE SET
+           access_level = excluded.access_level,
+           granted_by_user_id = excluded.granted_by_user_id,
+           updated_at_ms = excluded.updated_at_ms`,
+      )
+      .bind(
+        state.namespace,
+        input.orgId,
+        assignment.projectId,
+        input.membershipId,
+        assignment.accessLevel,
+        input.actorUserId,
+        input.nowMs,
+        input.nowMs,
+        state.namespace,
+        input.orgId,
+        input.membershipId,
+      ),
+  );
+}
+
+class D1ConsoleOrganizationAccessService implements ConsoleOrganizationAccessD1Service {
+  readonly [CONSOLE_ORGANIZATION_ACCESS_D1_RUNTIME]: ConsoleOrganizationAccessD1Runtime;
+
+  constructor(private readonly state: D1OrganizationAccessState) {
+    this[CONSOLE_ORGANIZATION_ACCESS_D1_RUNTIME] = {
+      database: state.database,
+      namespace: state.namespace,
+      now: state.now,
+    };
+  }
+
+  async bootstrapInitialOwner(input: BootstrapInitialOwnerInput): Promise<ActiveOwnerMembership> {
+    const orgId = normalizeRequired(input.orgId, 'orgId');
+    const userId = normalizeRequired(input.userId, 'userId');
+    const email = normalizeEmail(input.email);
+    const organization = await requireOrganizationState(this.state, orgId);
+    const existing = await loadCurrentMembershipByUserId(this.state, orgId, userId);
+    if (existing?.kind === 'active' && existing.role === 'OWNER') {
+      return ownerMembership(existing);
+    }
+    if (organization.ownerAnchorMembershipId) {
+      throw accessError(
+        'owner_already_exists',
+        409,
+        'The organization already has its initial owner',
+      );
+    }
+    const now = this.state.now();
+    const nowMs = now.getTime();
+    const membershipId = makeId('org_mbr', now);
+    const ownerDisplayName = input.displayName?.trim() || email;
+    const ownerEmail = await createOwnerMembershipChangedEmailStatement(this.state, {
+      orgId,
+      organizationName: organization.name,
+      ownerEmail: email,
+      ownerDisplayName,
+      changedByDisplayName: ownerDisplayName,
+      change: 'ADDED',
+      now,
+    });
+    const statements: D1PreparedStatementLike[] = [
+      this.state.database
+        .prepare(
+          `INSERT INTO organization_memberships
+            (namespace, org_id, id, user_id, email, email_normalized, display_name, kind, role, suspended_at_ms, removed_at_ms, created_at_ms, updated_at_ms)
+           SELECT ?, ?, ?, ?, ?, ?, NULLIF(?, ''), 'ACTIVE', 'OWNER', NULL, NULL, ?, ?
+           FROM organizations
+           WHERE namespace = ?
+             AND id = ?
+             AND owner_anchor_membership_id IS NULL`,
         )
         .bind(
-          rolesJson(roles),
-          nextEmail,
-          normalizeLower(nextEmail),
-          nextDisplayName,
-          nowMs(state.now()),
-          state.namespace,
-          ctx.orgId,
-          memberId,
-        )
-        .run();
-      if (d1ChangedRows(result) !== 1) return null;
-      return await findMemberById({ state, orgId: ctx.orgId, memberId });
-    },
-
-    async removeMember(ctx, memberId): Promise<{
-      removed: boolean;
-      member: ConsoleTeamMember | null;
-    }> {
-      await ensureActorMembership({ state, ctx });
-      const member = await findMemberById({ state, orgId: ctx.orgId, memberId });
-      if (!member) return { removed: false, member: null };
-      if (member.status === 'REMOVED') return { removed: true, member };
-
-      if (hasOwnerRole(member) && member.status === 'ACTIVE') {
-        const ownerCount = await countActiveOwners({ state, orgId: ctx.orgId });
-        if (ownerCount <= 1) {
-          throw new ConsoleTeamRbacError(
-            'last_owner_required',
-            409,
-            'Cannot remove the last active owner in the organization',
-          );
-        }
-      }
-
-      const ts = nowMs(state.now());
-      const result = await state.database
+          this.state.namespace,
+          orgId,
+          membershipId,
+          userId,
+          email,
+          email,
+          input.displayName?.trim() || '',
+          nowMs,
+          nowMs,
+          this.state.namespace,
+          orgId,
+        ),
+    ];
+    if (ownerEmail) statements.push(ownerEmail);
+    statements.push(
+      ownerEventStatement(this.state, {
+        orgId,
+        membershipId,
+        ownerUserId: userId,
+        actorUserId: userId,
+        kind: 'OWNER_ADDED',
+        now,
+      }),
+      this.state.database
         .prepare(
-          `UPDATE team_members
-              SET status = 'REMOVED',
-                  roles_json = '[]',
-                  updated_at_ms = ?,
-                  last_status_changed_at_ms = ?
+          `UPDATE organizations
+              SET owner_anchor_membership_id = ?
+            WHERE namespace = ?
+              AND id = ?
+              AND owner_anchor_membership_id IS NULL
+              AND EXISTS (
+                SELECT 1
+                FROM organization_memberships
+                WHERE namespace = ?
+                  AND org_id = ?
+                  AND id = ?
+                  AND kind = 'ACTIVE'
+                  AND role = 'OWNER'
+              )`,
+        )
+        .bind(membershipId, this.state.namespace, orgId, this.state.namespace, orgId, membershipId),
+    );
+    await this.state.database.batch(statements);
+    const created = await loadMembershipById(this.state, orgId, membershipId);
+    if (created) return ownerMembership(created);
+    const concurrent = await loadCurrentMembershipByUserId(this.state, orgId, userId);
+    if (concurrent?.kind === 'active' && concurrent.role === 'OWNER') {
+      return ownerMembership(concurrent);
+    }
+    throw accessError(
+      'owner_already_exists',
+      409,
+      'The organization already has its initial owner',
+    );
+  }
+
+  async listMemberships(
+    ctx: OrganizationAccessContext,
+    request: ListOrganizationMembershipsRequest,
+  ): Promise<readonly OrganizationMembershipWithAccess[]> {
+    await requireMembershipManager(this.state, ctx);
+    const values: unknown[] = [this.state.namespace, ctx.orgId];
+    let filter = '';
+    if (request.kind !== 'all') {
+      filter = ' AND kind = ?';
+      values.push(request.kind.toUpperCase());
+    }
+    const rows = await queryD1All(
+      this.state.database,
+      `SELECT *
+         FROM organization_memberships
+        WHERE namespace = ?
+          AND org_id = ?${filter}
+        ORDER BY
+          CASE kind WHEN 'ACTIVE' THEN 0 WHEN 'SUSPENDED' THEN 1 ELSE 2 END,
+          email_normalized ASC`,
+      values,
+    );
+    const memberships: OrganizationMembershipWithAccess[] = [];
+    for (const row of rows) {
+      memberships.push(await membershipWithAccess(this.state, parseMembershipRow(row)));
+    }
+    return memberships;
+  }
+
+  async listInvitations(
+    ctx: OrganizationAccessContext,
+    request: ListOrganizationInvitationsRequest,
+  ): Promise<readonly OrganizationInvitation[]> {
+    await requireMembershipManager(this.state, ctx);
+    await expireInvitations(this.state, ctx.orgId);
+    const values: unknown[] = [this.state.namespace, ctx.orgId];
+    let filter = '';
+    if (request.kind !== 'all') {
+      filter = ' AND kind = ?';
+      values.push(request.kind.toUpperCase());
+    }
+    const rows = await queryD1All(
+      this.state.database,
+      `SELECT *
+         FROM organization_invitations
+        WHERE namespace = ?
+          AND org_id = ?${filter}
+        ORDER BY updated_at_ms DESC, id DESC`,
+      values,
+    );
+    return rows.map((row) => invitationDomain(parseInvitationRecord(row)));
+  }
+
+  async invite(
+    ctx: OrganizationAccessContext,
+    request: InviteOrganizationMemberRequest,
+  ): Promise<IssuedOrganizationInvitation> {
+    const grant = invitationGrant(request);
+    const actor = await requireInvitationAuthority(this.state, ctx, grant.role);
+    const email = normalizeEmail(request.email);
+    await expireInvitations(this.state, ctx.orgId);
+    const duplicate = await queryD1One(
+      this.state.database,
+      `SELECT 1
+       WHERE EXISTS (
+         SELECT 1
+         FROM organization_memberships
+         WHERE namespace = ?
+           AND org_id = ?
+           AND email_normalized = ?
+           AND kind <> 'REMOVED'
+       )
+       OR EXISTS (
+         SELECT 1
+         FROM organization_invitations
+         WHERE namespace = ?
+           AND org_id = ?
+           AND email_normalized = ?
+           AND kind = 'PENDING'
+       )`,
+      [this.state.namespace, ctx.orgId, email, this.state.namespace, ctx.orgId, email],
+    );
+    if (duplicate) {
+      throw accessError(
+        'invitation_already_exists',
+        409,
+        'A current membership or pending invitation already uses this email address',
+      );
+    }
+    await validateProjectAssignments(this.state, ctx.orgId, grantProjectAccess(grant));
+    const organization = await requireOrganizationState(this.state, ctx.orgId);
+    const token = this.state.createToken();
+    const tokenHash = await this.state.hashToken(token);
+    const now = this.state.now();
+    const nowMs = now.getTime();
+    const invitationId = makeId('org_inv', now);
+    const expiresAtMs = nowMs + this.state.invitationTtlMs;
+    const invitationStatement = this.state.database
+      .prepare(
+        `INSERT INTO organization_invitations
+          (namespace, org_id, id, email, email_normalized, invited_by_user_id, role, admin_permissions_json, project_access_json, kind, token_hash, expires_at_ms, membership_id, accepted_at_ms, declined_at_ms, revoked_at_ms, expired_at_ms, created_at_ms, updated_at_ms)
+         VALUES
+          (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
+      )
+      .bind(
+        this.state.namespace,
+        ctx.orgId,
+        invitationId,
+        email,
+        email,
+        actor.userId,
+        grant.role,
+        adminPermissionsJson(grant),
+        projectAccessJson(grant),
+        tokenHash,
+        expiresAtMs,
+        nowMs,
+        nowMs,
+      );
+    const invitationEmail = await createInvitationEmailStatement(this.state, {
+      orgId: ctx.orgId,
+      organizationName: organization.name,
+      invitationId,
+      invitationSecret: token,
+      recipientEmail: email,
+      inviterDisplayName: membershipDisplayName(actor),
+      invitedRole: grant.role,
+      expiresAt: new Date(expiresAtMs),
+      now,
+    });
+    const statements = [invitationStatement];
+    if (invitationEmail) statements.push(invitationEmail);
+    await this.state.database.batch(statements);
+    const record = await loadInvitationByOrg(this.state, ctx.orgId, invitationId);
+    if (!record) throw new Error(`Failed to create invitation ${invitationId}`);
+    const invitation = invitationDomain(record);
+    if (invitation.kind !== 'pending') {
+      throw new Error(`Created invitation ${invitationId} is not pending`);
+    }
+    return { invitation, token };
+  }
+
+  async resendInvitation(
+    ctx: OrganizationAccessContext,
+    invitationId: string,
+  ): Promise<IssuedOrganizationInvitation> {
+    await expireInvitations(this.state, ctx.orgId);
+    const existing = await this.requireInvitation(ctx.orgId, invitationId);
+    const actor = await requireInvitationAuthority(this.state, ctx, existing.role);
+    requirePendingInvitation(existing);
+    const organization = await requireOrganizationState(this.state, ctx.orgId);
+    const token = this.state.createToken();
+    const tokenHash = await this.state.hashToken(token);
+    const now = this.state.now();
+    const nowMs = now.getTime();
+    const expiresAtMs = nowMs + this.state.invitationTtlMs;
+    const statements: D1PreparedStatementLike[] = [];
+    const cancellation = createInvitationCancellationStatement(this.state, {
+      orgId: ctx.orgId,
+      invitationId,
+      now,
+      guarded: false,
+    });
+    if (cancellation) statements.push(cancellation);
+    const updateIndex = statements.length;
+    statements.push(
+      this.state.database
+        .prepare(
+          `UPDATE organization_invitations
+            SET token_hash = ?,
+                expires_at_ms = ?,
+                updated_at_ms = ?
+          WHERE namespace = ?
+            AND org_id = ?
+            AND id = ?
+            AND kind = 'PENDING'`,
+        )
+        .bind(tokenHash, expiresAtMs, nowMs, this.state.namespace, ctx.orgId, invitationId),
+    );
+    const invitationEmail = await createInvitationEmailStatement(this.state, {
+      orgId: ctx.orgId,
+      organizationName: organization.name,
+      invitationId,
+      invitationSecret: token,
+      recipientEmail: existing.email,
+      inviterDisplayName: membershipDisplayName(actor),
+      invitedRole: existing.role,
+      expiresAt: new Date(expiresAtMs),
+      now,
+    });
+    if (invitationEmail) statements.push(invitationEmail);
+    const results = await this.state.database.batch<D1ResultLike>(statements);
+    const updateResult = results[updateIndex];
+    if (!updateResult || d1ChangedRows(updateResult) !== 1) {
+      throw accessError('invitation_not_pending', 409, 'Invitation is no longer pending');
+    }
+    const refreshed = await this.requireInvitation(ctx.orgId, invitationId);
+    const invitation = invitationDomain(refreshed);
+    if (invitation.kind !== 'pending') throw new Error(`Invitation ${invitationId} is not pending`);
+    return { invitation, token };
+  }
+
+  async revokeInvitation(
+    ctx: OrganizationAccessContext,
+    invitationId: string,
+  ): Promise<OrganizationInvitation> {
+    await expireInvitations(this.state, ctx.orgId);
+    const existing = await this.requireInvitation(ctx.orgId, invitationId);
+    await requireInvitationAuthority(this.state, ctx, existing.role);
+    requirePendingInvitation(existing);
+    const now = this.state.now();
+    const nowMs = now.getTime();
+    const statements: D1PreparedStatementLike[] = [
+      this.state.database
+        .prepare(
+          `UPDATE organization_invitations
+            SET kind = 'REVOKED',
+                token_hash = NULL,
+                expires_at_ms = NULL,
+                revoked_at_ms = ?,
+                updated_at_ms = ?
+          WHERE namespace = ?
+            AND org_id = ?
+            AND id = ?
+            AND kind = 'PENDING'`,
+        )
+        .bind(nowMs, nowMs, this.state.namespace, ctx.orgId, invitationId),
+    ];
+    const cancellation = createInvitationCancellationStatement(this.state, {
+      orgId: ctx.orgId,
+      invitationId,
+      now,
+      guarded: true,
+    });
+    if (cancellation) statements.push(cancellation);
+    const results = await this.state.database.batch<D1ResultLike>(statements);
+    const mutationResult = results[0];
+    if (!mutationResult || d1ChangedRows(mutationResult) !== 1) {
+      throw accessError('invitation_not_pending', 409, 'Invitation is no longer pending');
+    }
+    return invitationDomain(await this.requireInvitation(ctx.orgId, invitationId));
+  }
+
+  async acceptInvitation(
+    account: VerifiedInvitationAccount,
+    invitationId: string,
+    request: RedeemOrganizationInvitationRequest,
+  ): Promise<ActiveOrganizationMembership> {
+    await expireInvitations(this.state, null);
+    const existing = await this.requireGlobalInvitation(invitationId);
+    requirePendingInvitation(existing);
+    const email = normalizeEmail(account.verifiedEmail);
+    if (email !== existing.email) {
+      throw accessError(
+        'invitation_email_mismatch',
+        403,
+        'The authenticated verified email does not match the invitation',
+      );
+    }
+    const tokenHash = await this.state.hashToken(normalizeRequired(request.token, 'token'));
+    if (!existing.tokenHash || tokenHash !== existing.tokenHash) {
+      throw accessError('invalid_invitation_token', 403, 'Invitation token is invalid');
+    }
+    const userId = normalizeRequired(account.userId, 'userId');
+    const now = this.state.now();
+    const nowMs = now.getTime();
+    const membershipId = makeId('org_mbr', now);
+    const grant: OrganizationInvitationGrant =
+      existing.role === 'OWNER'
+        ? { role: 'OWNER' }
+        : existing.role === 'ADMIN'
+          ? { role: 'ADMIN', adminPermissions: existing.adminPermissions }
+          : { role: 'MEMBER', projectAccess: existing.projectAccess };
+    const statements: D1PreparedStatementLike[] = [
+      this.state.database
+        .prepare(
+          `INSERT INTO organization_memberships
+            (namespace, org_id, id, user_id, email, email_normalized, display_name, kind, role, suspended_at_ms, removed_at_ms, created_at_ms, updated_at_ms)
+           SELECT ?, org_id, ?, ?, email, email_normalized, NULL, 'ACTIVE', role, NULL, NULL, ?, ?
+           FROM organization_invitations
+           WHERE namespace = ?
+             AND id = ?
+             AND kind = 'PENDING'
+             AND token_hash = ?
+             AND email_normalized = ?
+             AND expires_at_ms > ?
+             AND NOT EXISTS (
+               SELECT 1
+               FROM organization_memberships
+               WHERE namespace = ?
+                 AND org_id = organization_invitations.org_id
+                 AND kind <> 'REMOVED'
+                 AND (user_id = ? OR email_normalized = ?)
+             )`,
+        )
+        .bind(
+          this.state.namespace,
+          membershipId,
+          userId,
+          nowMs,
+          nowMs,
+          this.state.namespace,
+          invitationId,
+          tokenHash,
+          email,
+          nowMs,
+          this.state.namespace,
+          userId,
+          email,
+        ),
+      ...permissionInsertStatements(this.state, {
+        orgId: existing.orgId,
+        membershipId,
+        permissions: grantAdminPermissions(grant),
+        nowMs,
+      }),
+      ...projectAccessInsertStatements(this.state, {
+        orgId: existing.orgId,
+        membershipId,
+        assignments: grantProjectAccess(grant),
+        actorUserId: userId,
+        nowMs,
+      }),
+      this.state.database
+        .prepare(
+          `UPDATE organization_invitations
+              SET kind = 'ACCEPTED',
+                  token_hash = NULL,
+                  expires_at_ms = NULL,
+                  membership_id = ?,
+                  accepted_at_ms = ?,
+                  updated_at_ms = ?
+            WHERE namespace = ?
+              AND id = ?
+              AND kind = 'PENDING'
+              AND token_hash = ?
+              AND EXISTS (
+                SELECT 1
+                FROM organization_memberships
+                WHERE namespace = ?
+                  AND org_id = organization_invitations.org_id
+                  AND id = ?
+              )`,
+        )
+        .bind(
+          membershipId,
+          nowMs,
+          nowMs,
+          this.state.namespace,
+          invitationId,
+          tokenHash,
+          this.state.namespace,
+          membershipId,
+        ),
+    ];
+    const cancellation = createInvitationCancellationStatement(this.state, {
+      orgId: existing.orgId,
+      invitationId,
+      now,
+      guarded: true,
+    });
+    if (cancellation) statements.push(cancellation);
+    if (existing.role === 'OWNER') {
+      const organization = await requireOrganizationState(this.state, existing.orgId);
+      statements.push(
+        ownerEventStatement(this.state, {
+          orgId: existing.orgId,
+          membershipId,
+          ownerUserId: userId,
+          actorUserId: userId,
+          kind: 'OWNER_ADDED',
+          now,
+        }),
+      );
+      const ownerEmail = await createOwnerMembershipChangedEmailStatement(this.state, {
+        orgId: existing.orgId,
+        organizationName: organization.name,
+        ownerEmail: email,
+        ownerDisplayName: email,
+        changedByDisplayName: email,
+        change: 'ADDED',
+        now,
+      });
+      if (ownerEmail) statements.push(ownerEmail);
+    }
+    try {
+      await this.state.database.batch(statements);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('UNIQUE constraint failed')) {
+        throw accessError(
+          'membership_already_exists',
+          409,
+          'This account or email already has a current membership',
+        );
+      }
+      throw error;
+    }
+    const membership = await loadMembershipById(this.state, existing.orgId, membershipId);
+    if (membership) return activeMembership(membership);
+    const refreshed = await this.requireGlobalInvitation(invitationId);
+    if (refreshed.kind !== 'pending') {
+      throw accessError('invitation_not_pending', 409, `Invitation is already ${refreshed.kind}`);
+    }
+    throw accessError(
+      'membership_already_exists',
+      409,
+      'This account or email already has a current membership',
+    );
+  }
+
+  async declineInvitation(
+    account: VerifiedInvitationAccount,
+    invitationId: string,
+    request: RedeemOrganizationInvitationRequest,
+  ): Promise<OrganizationInvitation> {
+    normalizeRequired(account.userId, 'userId');
+    await expireInvitations(this.state, null);
+    const existing = await this.requireGlobalInvitation(invitationId);
+    requirePendingInvitation(existing);
+    const email = normalizeEmail(account.verifiedEmail);
+    if (email !== existing.email) {
+      throw accessError(
+        'invitation_email_mismatch',
+        403,
+        'The authenticated verified email does not match the invitation',
+      );
+    }
+    const tokenHash = await this.state.hashToken(normalizeRequired(request.token, 'token'));
+    if (!existing.tokenHash || tokenHash !== existing.tokenHash) {
+      throw accessError('invalid_invitation_token', 403, 'Invitation token is invalid');
+    }
+    const now = this.state.now();
+    const nowMs = now.getTime();
+    const statements: D1PreparedStatementLike[] = [
+      this.state.database
+        .prepare(
+          `UPDATE organization_invitations
+            SET kind = 'DECLINED',
+                token_hash = NULL,
+                expires_at_ms = NULL,
+                declined_at_ms = ?,
+                updated_at_ms = ?
+          WHERE namespace = ?
+            AND id = ?
+            AND kind = 'PENDING'
+            AND token_hash = ?
+            AND email_normalized = ?
+            AND expires_at_ms > ?`,
+        )
+        .bind(nowMs, nowMs, this.state.namespace, invitationId, tokenHash, email, nowMs),
+    ];
+    const cancellation = createInvitationCancellationStatement(this.state, {
+      orgId: existing.orgId,
+      invitationId,
+      now,
+      guarded: true,
+    });
+    if (cancellation) statements.push(cancellation);
+    const results = await this.state.database.batch<D1ResultLike>(statements);
+    const mutationResult = results[0];
+    if (!mutationResult || d1ChangedRows(mutationResult) !== 1) {
+      throw accessError('invitation_not_pending', 409, 'Invitation is no longer pending');
+    }
+    return invitationDomain(await this.requireGlobalInvitation(invitationId));
+  }
+
+  async changeRole(
+    ctx: OrganizationAccessContext,
+    membershipId: string,
+    request: ChangeOrganizationMembershipRoleRequest,
+  ): Promise<OrganizationMembershipWithAccess> {
+    const actor = await requireOwner(this.state, ctx);
+    const target = await this.requireMembership(ctx.orgId, membershipId);
+    if (target.userId === ctx.actorUserId) {
+      throw accessError('self_role_change_forbidden', 409, 'Owners cannot change their own role');
+    }
+    if (target.kind !== 'active') {
+      throw accessError('membership_not_active', 409, 'Only an active membership can change role');
+    }
+    const grant = invitationGrant(request);
+    await validateProjectAssignments(this.state, ctx.orgId, grantProjectAccess(grant));
+    const organization = await requireOrganizationState(this.state, ctx.orgId);
+    const now = this.state.now();
+    const nowMs = now.getTime();
+    const ownerChange =
+      target.role === 'OWNER' && grant.role !== 'OWNER'
+        ? 'REMOVED'
+        : target.role !== 'OWNER' && grant.role === 'OWNER'
+          ? 'ADDED'
+          : null;
+    const ownerEmail = ownerChange
+      ? await createOwnerMembershipChangedEmailStatement(this.state, {
+          orgId: ctx.orgId,
+          organizationName: organization.name,
+          ownerEmail: target.email,
+          ownerDisplayName: membershipDisplayName(target),
+          changedByDisplayName: membershipDisplayName(actor),
+          change: ownerChange,
+          now,
+        })
+      : null;
+    const statements: D1PreparedStatementLike[] = [];
+    if (target.role === 'OWNER' && grant.role !== 'OWNER') {
+      const nextOwner = await queryD1One(
+        this.state.database,
+        `SELECT id
+           FROM organization_memberships
+          WHERE namespace = ?
+            AND org_id = ?
+            AND kind = 'ACTIVE'
+            AND role = 'OWNER'
+            AND id <> ?
+          ORDER BY created_at_ms ASC, id ASC
+          LIMIT 1`,
+        [this.state.namespace, ctx.orgId, target.id],
+      );
+      if (!nextOwner) {
+        throw accessError('last_owner_required', 409, 'The final owner cannot change role');
+      }
+      if (organization.ownerAnchorMembershipId === target.id) {
+        statements.push(
+          this.state.database
+            .prepare(
+              `UPDATE organizations
+                  SET owner_anchor_membership_id = ?
+                WHERE namespace = ?
+                  AND id = ?
+                  AND owner_anchor_membership_id = ?`,
+            )
+            .bind(normalizeRowString(nextOwner.id), this.state.namespace, ctx.orgId, target.id),
+        );
+      }
+    }
+    statements.push(
+      this.state.database
+        .prepare(
+          `UPDATE organization_memberships
+              SET role = ?,
+                  updated_at_ms = ?
+            WHERE namespace = ?
+              AND org_id = ?
+              AND id = ?
+              AND kind = 'ACTIVE'
+              AND role = ?`,
+        )
+        .bind(grant.role, nowMs, this.state.namespace, ctx.orgId, target.id, target.role),
+    );
+    if (ownerEmail) statements.push(ownerEmail);
+    statements.push(
+      this.state.database
+        .prepare(
+          `DELETE FROM organization_admin_permissions
+            WHERE namespace = ?
+              AND org_id = ?
+              AND membership_id = ?`,
+        )
+        .bind(this.state.namespace, ctx.orgId, target.id),
+      this.state.database
+        .prepare(
+          `DELETE FROM project_member_access
+            WHERE namespace = ?
+              AND org_id = ?
+              AND membership_id = ?`,
+        )
+        .bind(this.state.namespace, ctx.orgId, target.id),
+      ...permissionInsertStatements(this.state, {
+        orgId: ctx.orgId,
+        membershipId: target.id,
+        permissions: grantAdminPermissions(grant),
+        nowMs,
+      }),
+      ...projectAccessInsertStatements(this.state, {
+        orgId: ctx.orgId,
+        membershipId: target.id,
+        assignments: grantProjectAccess(grant),
+        actorUserId: ctx.actorUserId,
+        nowMs,
+      }),
+    );
+    if (target.role === 'OWNER' && grant.role !== 'OWNER') {
+      statements.push(
+        ownerEventStatement(this.state, {
+          orgId: ctx.orgId,
+          membershipId: target.id,
+          ownerUserId: target.userId,
+          actorUserId: ctx.actorUserId,
+          kind: 'OWNER_REMOVED',
+          now,
+        }),
+      );
+    } else if (target.role !== 'OWNER' && grant.role === 'OWNER') {
+      statements.push(
+        ownerEventStatement(this.state, {
+          orgId: ctx.orgId,
+          membershipId: target.id,
+          ownerUserId: target.userId,
+          actorUserId: ctx.actorUserId,
+          kind: 'OWNER_ADDED',
+          now,
+        }),
+      );
+    }
+    try {
+      await this.state.database.batch(statements);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('last_owner_required') || message.includes('owner_anchor_required')) {
+        throw accessError('last_owner_required', 409, 'The final owner cannot change role');
+      }
+      throw error;
+    }
+    return membershipWithAccess(this.state, await this.requireMembership(ctx.orgId, target.id));
+  }
+
+  async setAdminPermissions(
+    ctx: OrganizationAccessContext,
+    membershipId: string,
+    request: SetOrganizationAdminPermissionsRequest,
+  ): Promise<OrganizationMembershipWithAccess> {
+    await requireOwner(this.state, ctx);
+    const target = await this.requireMembership(ctx.orgId, membershipId);
+    if (target.role !== 'ADMIN' || target.kind === 'removed') {
+      throw accessError(
+        'membership_not_administrator',
+        409,
+        'Administrator permissions require a current administrator membership',
+      );
+    }
+    const nowMs = this.state.now().getTime();
+    await this.state.database.batch([
+      this.state.database
+        .prepare(
+          `DELETE FROM organization_admin_permissions
+            WHERE namespace = ?
+              AND org_id = ?
+              AND membership_id = ?`,
+        )
+        .bind(this.state.namespace, ctx.orgId, target.id),
+      ...permissionInsertStatements(this.state, {
+        orgId: ctx.orgId,
+        membershipId: target.id,
+        permissions: normalizeAdminPermissions(request.permissions),
+        nowMs,
+      }),
+      this.state.database
+        .prepare(
+          `UPDATE organization_memberships
+              SET updated_at_ms = ?
             WHERE namespace = ?
               AND org_id = ?
               AND id = ?`,
         )
-        .bind(ts, ts, state.namespace, ctx.orgId, memberId)
-        .run();
-      if (d1ChangedRows(result) !== 1) return { removed: false, member: null };
+        .bind(nowMs, this.state.namespace, ctx.orgId, target.id),
+    ]);
+    return membershipWithAccess(this.state, await this.requireMembership(ctx.orgId, target.id));
+  }
+
+  async suspendMembership(
+    ctx: OrganizationAccessContext,
+    membershipId: string,
+  ): Promise<OrganizationMembershipWithAccess> {
+    const target = await this.requireMembership(ctx.orgId, membershipId);
+    const actor = await requireLifecycleAuthority(this.state, ctx, target);
+    this.rejectSelfLifecycle(ctx, target);
+    if (target.kind !== 'active') {
+      throw accessError('membership_not_active', 409, 'Only an active membership can be suspended');
+    }
+    if (target.role === 'OWNER') {
+      throw accessError(
+        'owner_must_be_demoted',
+        409,
+        'An owner must become an administrator before suspension',
+      );
+    }
+    const organization = await requireOrganizationState(this.state, ctx.orgId);
+    const now = this.state.now();
+    const nowMs = now.getTime();
+    const membershipEmail = await createMembershipAccessChangedEmailStatement(this.state, {
+      orgId: ctx.orgId,
+      organizationName: organization.name,
+      memberEmail: target.email,
+      memberDisplayName: membershipDisplayName(target),
+      changedByDisplayName: membershipDisplayName(actor),
+      change: 'SUSPENDED',
+      now,
+    });
+    const statements: D1PreparedStatementLike[] = [
+      this.state.database
+        .prepare(
+          `UPDATE organization_memberships
+            SET kind = 'SUSPENDED',
+                suspended_at_ms = ?,
+                updated_at_ms = ?
+          WHERE namespace = ?
+            AND org_id = ?
+            AND id = ?
+            AND kind = 'ACTIVE'
+            AND role <> 'OWNER'`,
+        )
+        .bind(nowMs, nowMs, this.state.namespace, ctx.orgId, target.id),
+    ];
+    if (membershipEmail) statements.push(membershipEmail);
+    const results = await this.state.database.batch<D1ResultLike>(statements);
+    const mutationResult = results[0];
+    if (!mutationResult || d1ChangedRows(mutationResult) !== 1) {
+      throw accessError('membership_not_active', 409, 'Membership is no longer active');
+    }
+    return membershipWithAccess(this.state, await this.requireMembership(ctx.orgId, target.id));
+  }
+
+  async reactivateMembership(
+    ctx: OrganizationAccessContext,
+    membershipId: string,
+  ): Promise<OrganizationMembershipWithAccess> {
+    const target = await this.requireMembership(ctx.orgId, membershipId);
+    await requireLifecycleAuthority(this.state, ctx, target);
+    this.rejectSelfLifecycle(ctx, target);
+    if (target.kind !== 'suspended') {
+      throw accessError(
+        'membership_not_suspended',
+        409,
+        'Only a suspended membership can be reactivated',
+      );
+    }
+    const nowMs = this.state.now().getTime();
+    const result = await this.state.database
+      .prepare(
+        `UPDATE organization_memberships
+            SET kind = 'ACTIVE',
+                suspended_at_ms = NULL,
+                updated_at_ms = ?
+          WHERE namespace = ?
+            AND org_id = ?
+            AND id = ?
+            AND kind = 'SUSPENDED'`,
+      )
+      .bind(nowMs, this.state.namespace, ctx.orgId, target.id)
+      .run();
+    if (d1ChangedRows(result) !== 1) {
+      throw accessError('membership_not_suspended', 409, 'Membership is no longer suspended');
+    }
+    return membershipWithAccess(this.state, await this.requireMembership(ctx.orgId, target.id));
+  }
+
+  async removeMembership(
+    ctx: OrganizationAccessContext,
+    membershipId: string,
+  ): Promise<OrganizationMembershipWithAccess> {
+    const target = await this.requireMembership(ctx.orgId, membershipId);
+    const actor = await requireLifecycleAuthority(this.state, ctx, target);
+    this.rejectSelfLifecycle(ctx, target);
+    if (target.kind === 'removed') return membershipWithAccess(this.state, target);
+    if (target.role === 'OWNER') {
+      throw accessError(
+        'owner_must_be_demoted',
+        409,
+        'An owner must become an administrator before removal',
+      );
+    }
+    await this.removeNonOwner(target, actor);
+    return membershipWithAccess(this.state, await this.requireMembership(ctx.orgId, target.id));
+  }
+
+  async leaveOrganization(
+    ctx: OrganizationAccessContext,
+  ): Promise<OrganizationMembershipWithAccess> {
+    const actor = await loadActor(this.state, ctx);
+    if (actor.role !== 'OWNER') {
+      await this.removeNonOwner(actor, actor);
+      return membershipWithAccess(this.state, await this.requireMembership(ctx.orgId, actor.id));
+    }
+    const organization = await requireOrganizationState(this.state, ctx.orgId);
+    const nextOwner = await queryD1One(
+      this.state.database,
+      `SELECT id
+         FROM organization_memberships
+        WHERE namespace = ?
+          AND org_id = ?
+          AND kind = 'ACTIVE'
+          AND role = 'OWNER'
+          AND id <> ?
+        ORDER BY created_at_ms ASC, id ASC
+        LIMIT 1`,
+      [this.state.namespace, ctx.orgId, actor.id],
+    );
+    if (!nextOwner) {
+      throw accessError('last_owner_required', 409, 'The final owner cannot leave');
+    }
+    const now = this.state.now();
+    const nowMs = now.getTime();
+    const ownerEmail = await createOwnerMembershipChangedEmailStatement(this.state, {
+      orgId: ctx.orgId,
+      organizationName: organization.name,
+      ownerEmail: actor.email,
+      ownerDisplayName: membershipDisplayName(actor),
+      changedByDisplayName: membershipDisplayName(actor),
+      change: 'REMOVED',
+      now,
+    });
+    const statements: D1PreparedStatementLike[] = [];
+    if (organization.ownerAnchorMembershipId === actor.id) {
+      statements.push(
+        this.state.database
+          .prepare(
+            `UPDATE organizations
+                SET owner_anchor_membership_id = ?
+              WHERE namespace = ?
+                AND id = ?
+                AND owner_anchor_membership_id = ?`,
+          )
+          .bind(normalizeRowString(nextOwner.id), this.state.namespace, ctx.orgId, actor.id),
+      );
+    }
+    statements.push(
+      this.state.database
+        .prepare(
+          `UPDATE organization_memberships
+              SET kind = 'REMOVED',
+                  role = 'ADMIN',
+                  suspended_at_ms = NULL,
+                  removed_at_ms = ?,
+                  updated_at_ms = ?
+            WHERE namespace = ?
+              AND org_id = ?
+              AND id = ?
+              AND kind = 'ACTIVE'
+              AND role = 'OWNER'`,
+        )
+        .bind(nowMs, nowMs, this.state.namespace, ctx.orgId, actor.id),
+    );
+    if (ownerEmail) statements.push(ownerEmail);
+    statements.push(
+      this.state.database
+        .prepare(
+          `DELETE FROM organization_admin_permissions
+            WHERE namespace = ?
+              AND org_id = ?
+              AND membership_id = ?`,
+        )
+        .bind(this.state.namespace, ctx.orgId, actor.id),
+      this.state.database
+        .prepare(
+          `DELETE FROM project_member_access
+            WHERE namespace = ?
+              AND org_id = ?
+              AND membership_id = ?`,
+        )
+        .bind(this.state.namespace, ctx.orgId, actor.id),
+      ownerEventStatement(this.state, {
+        orgId: ctx.orgId,
+        membershipId: actor.id,
+        ownerUserId: actor.userId,
+        actorUserId: actor.userId,
+        kind: 'OWNER_REMOVED',
+        now,
+      }),
+    );
+    try {
+      await this.state.database.batch(statements);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('last_owner_required') || message.includes('owner_anchor_required')) {
+        throw accessError('last_owner_required', 409, 'The final owner cannot leave');
+      }
+      throw error;
+    }
+    return membershipWithAccess(this.state, await this.requireMembership(ctx.orgId, actor.id));
+  }
+
+  async setProjectAccess(
+    ctx: OrganizationAccessContext,
+    projectId: string,
+    membershipId: string,
+    request: SetProjectMemberAccessRequest,
+  ): Promise<OrganizationMembershipWithAccess> {
+    await requireProjectManager(this.state, ctx);
+    const target = await this.requireActiveMember(ctx.orgId, membershipId);
+    const assignment = {
+      projectId: normalizeRequired(projectId, 'projectId'),
+      accessLevel: request.accessLevel,
+    } satisfies ProjectAccessAssignment;
+    await validateProjectAssignments(this.state, ctx.orgId, [assignment]);
+    const nowMs = this.state.now().getTime();
+    await this.state.database.batch(
+      projectAccessInsertStatements(this.state, {
+        orgId: ctx.orgId,
+        membershipId: target.id,
+        assignments: [assignment],
+        actorUserId: ctx.actorUserId,
+        nowMs,
+      }),
+    );
+    return membershipWithAccess(this.state, await this.requireMembership(ctx.orgId, target.id));
+  }
+
+  async removeProjectAccess(
+    ctx: OrganizationAccessContext,
+    projectId: string,
+    membershipId: string,
+  ): Promise<OrganizationMembershipWithAccess> {
+    await requireProjectManager(this.state, ctx);
+    const target = await this.requireActiveMember(ctx.orgId, membershipId);
+    await this.state.database
+      .prepare(
+        `DELETE FROM project_member_access
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND membership_id = ?`,
+      )
+      .bind(this.state.namespace, ctx.orgId, normalizeRequired(projectId, 'projectId'), target.id)
+      .run();
+    return membershipWithAccess(this.state, await this.requireMembership(ctx.orgId, target.id));
+  }
+
+  async lookupAuthorization(
+    lookup: OrganizationAuthorizationLookup,
+  ): Promise<OrganizationAuthorization | null> {
+    const orgId = normalizeRequired(lookup.orgId, 'orgId');
+    const userId = normalizeRequired(lookup.userId, 'userId');
+    const organization = await loadOrganizationState(this.state, orgId);
+    if (!organization) return null;
+    const membership = await loadLatestMembershipByUserId(this.state, orgId, userId);
+    if (!membership) {
       return {
-        removed: true,
-        member: await findMemberById({ state, orgId: ctx.orgId, memberId }),
+        kind: 'denied',
+        orgId,
+        userId,
+        authorizationVersion: organization.authorizationVersion,
+        membershipId: null,
+        reason: 'membership_not_found',
       };
-    },
+    }
+    if (membership.kind === 'suspended') {
+      return {
+        kind: 'denied',
+        orgId,
+        userId,
+        authorizationVersion: organization.authorizationVersion,
+        membershipId: membership.id,
+        reason: 'membership_suspended',
+      };
+    }
+    if (membership.kind === 'removed') {
+      return {
+        kind: 'denied',
+        orgId,
+        userId,
+        authorizationVersion: organization.authorizationVersion,
+        membershipId: membership.id,
+        reason: 'membership_removed',
+      };
+    }
+    const role = membership.role;
+    switch (role) {
+      case 'OWNER':
+        return {
+          kind: 'authorized',
+          orgId,
+          userId,
+          membershipId: membership.id,
+          role: 'OWNER',
+          authorizationVersion: organization.authorizationVersion,
+          adminPermissions: ORGANIZATION_ADMIN_PERMISSIONS,
+          projectAccess: { kind: 'all' },
+        };
+      case 'ADMIN':
+        return {
+          kind: 'authorized',
+          orgId,
+          userId,
+          membershipId: membership.id,
+          role: 'ADMIN',
+          authorizationVersion: organization.authorizationVersion,
+          adminPermissions: await loadAdminPermissions(this.state, orgId, membership.id),
+          projectAccess: { kind: 'all' },
+        };
+      case 'MEMBER':
+        return {
+          kind: 'authorized',
+          orgId,
+          userId,
+          membershipId: membership.id,
+          role: 'MEMBER',
+          authorizationVersion: organization.authorizationVersion,
+          adminPermissions: [],
+          projectAccess: {
+            kind: 'assigned',
+            assignments: await loadProjectAccess(this.state, orgId, membership.id),
+          },
+        };
+      default:
+        return assertNever(role);
+    }
+  }
 
-    [CONSOLE_TEAM_RBAC_D1_RUNTIME]: runtime,
-  };
+  async getAuthorizationVersion(orgId: string): Promise<number | null> {
+    const organization = await loadOrganizationState(this.state, normalizeRequired(orgId, 'orgId'));
+    return organization?.authorizationVersion ?? null;
+  }
 
-  return service;
+  async listOwnerEvents(
+    ctx: OrganizationAccessContext,
+  ): Promise<readonly OrganizationOwnerEvent[]> {
+    await requireOwner(this.state, ctx);
+    const rows = await queryD1All(
+      this.state.database,
+      `SELECT *
+         FROM organization_owner_events
+        WHERE namespace = ?
+          AND org_id = ?
+        ORDER BY created_at_ms DESC, id DESC`,
+      [this.state.namespace, ctx.orgId],
+    );
+    return rows.map((row) => {
+      const kind = normalizeRowString(row.kind);
+      if (kind !== 'OWNER_ADDED' && kind !== 'OWNER_REMOVED') {
+        throw new Error(`Invalid owner event kind row: ${kind}`);
+      }
+      return {
+        id: normalizeRowString(row.id),
+        orgId: normalizeRowString(row.org_id),
+        membershipId: normalizeRowString(row.membership_id),
+        ownerUserId: normalizeRowString(row.owner_user_id),
+        actorUserId: normalizeRowString(row.actor_user_id),
+        kind,
+        createdAt: toIso(d1Number(row.created_at_ms)),
+      };
+    });
+  }
+
+  async purgeOrganization(orgId: string): Promise<void> {
+    await this.state.database
+      .prepare(
+        `DELETE FROM organizations
+          WHERE namespace = ?
+            AND id = ?`,
+      )
+      .bind(this.state.namespace, normalizeRequired(orgId, 'orgId'))
+      .run();
+  }
+
+  private async requireMembership(
+    orgId: string,
+    membershipId: string,
+  ): Promise<OrganizationMembership> {
+    const membership = await loadMembershipById(
+      this.state,
+      normalizeRequired(orgId, 'orgId'),
+      normalizeRequired(membershipId, 'membershipId'),
+    );
+    if (!membership) throw accessError('membership_not_found', 404, 'Membership was not found');
+    return membership;
+  }
+
+  private async requireActiveMember(
+    orgId: string,
+    membershipId: string,
+  ): Promise<OrganizationMembership> {
+    const membership = await this.requireMembership(orgId, membershipId);
+    if (membership.kind !== 'active' || membership.role !== 'MEMBER') {
+      throw accessError(
+        'membership_not_member',
+        409,
+        'Project access requires an active member membership',
+      );
+    }
+    return membership;
+  }
+
+  private async requireInvitation(orgId: string, invitationId: string): Promise<InvitationRecord> {
+    const invitation = await loadInvitationByOrg(
+      this.state,
+      normalizeRequired(orgId, 'orgId'),
+      normalizeRequired(invitationId, 'invitationId'),
+    );
+    if (!invitation) throw accessError('invitation_not_found', 404, 'Invitation was not found');
+    return invitation;
+  }
+
+  private async requireGlobalInvitation(invitationId: string): Promise<InvitationRecord> {
+    const invitation = await loadInvitationAcrossOrganizations(
+      this.state,
+      normalizeRequired(invitationId, 'invitationId'),
+    );
+    if (!invitation) throw accessError('invitation_not_found', 404, 'Invitation was not found');
+    return invitation;
+  }
+
+  private rejectSelfLifecycle(
+    ctx: OrganizationAccessContext,
+    target: OrganizationMembership,
+  ): void {
+    if (target.userId === ctx.actorUserId) {
+      throw accessError(
+        'self_membership_change_forbidden',
+        409,
+        'Use the organization leave operation for your own membership',
+      );
+    }
+  }
+
+  private async removeNonOwner(
+    target: OrganizationMembership,
+    changedBy: OrganizationMembership,
+  ): Promise<void> {
+    const organization = await requireOrganizationState(this.state, target.orgId);
+    const now = this.state.now();
+    const nowMs = now.getTime();
+    const membershipEmail = await createMembershipAccessChangedEmailStatement(this.state, {
+      orgId: target.orgId,
+      organizationName: organization.name,
+      memberEmail: target.email,
+      memberDisplayName: membershipDisplayName(target),
+      changedByDisplayName: membershipDisplayName(changedBy),
+      change: 'REMOVED',
+      now,
+    });
+    const statements: D1PreparedStatementLike[] = [
+      this.state.database
+        .prepare(
+          `UPDATE organization_memberships
+              SET kind = 'REMOVED',
+                  suspended_at_ms = NULL,
+                  removed_at_ms = ?,
+                  updated_at_ms = ?
+            WHERE namespace = ?
+              AND org_id = ?
+              AND id = ?
+              AND kind <> 'REMOVED'
+              AND role <> 'OWNER'`,
+        )
+        .bind(nowMs, nowMs, this.state.namespace, target.orgId, target.id),
+    ];
+    if (membershipEmail) statements.push(membershipEmail);
+    statements.push(
+      this.state.database
+        .prepare(
+          `DELETE FROM organization_admin_permissions
+            WHERE namespace = ?
+              AND org_id = ?
+              AND membership_id = ?`,
+        )
+        .bind(this.state.namespace, target.orgId, target.id),
+      this.state.database
+        .prepare(
+          `DELETE FROM project_member_access
+            WHERE namespace = ?
+              AND org_id = ?
+              AND membership_id = ?`,
+        )
+        .bind(this.state.namespace, target.orgId, target.id),
+    );
+    await this.state.database.batch(statements);
+  }
+}
+
+export async function ensureConsoleOrganizationAccessD1Schema(
+  options: D1ConsoleOrganizationAccessSchemaOptions,
+): Promise<void> {
+  const rows = await queryD1All(
+    options.database,
+    `SELECT name
+       FROM sqlite_master
+      WHERE type = 'table'`,
+    [],
+  );
+  const tables = new Set(rows.map((row) => normalizeRowString(row.name)));
+  const missing = REQUIRED_ORGANIZATION_ACCESS_TABLES.filter((table) => !tables.has(table));
+  if (missing.length > 0) {
+    throw new Error(
+      `Console organization access migration 0020 is required; missing tables: ${missing.join(', ')}`,
+    );
+  }
+  const organizationColumns = await queryD1All(
+    options.database,
+    'PRAGMA table_info(organizations)',
+    [],
+  );
+  const columns = new Set(organizationColumns.map((row) => normalizeRowString(row.name)));
+  for (const required of [
+    'owner_anchor_membership_id',
+    'owner_set_version',
+    'authorization_version',
+  ]) {
+    if (!columns.has(required)) {
+      throw new Error(
+        `Console organization access migration 0020 is required; missing organizations.${required}`,
+      );
+    }
+  }
+}
+
+export function getConsoleOrganizationAccessD1Runtime(
+  service: ConsoleOrganizationAccessService | null | undefined,
+): ConsoleOrganizationAccessD1Runtime | null {
+  if (!service || typeof service !== 'object') return null;
+  return (
+    (service as Partial<ConsoleOrganizationAccessD1Service>)[
+      CONSOLE_ORGANIZATION_ACCESS_D1_RUNTIME
+    ] ?? null
+  );
+}
+
+export async function createD1ConsoleOrganizationAccessService(
+  options: D1ConsoleOrganizationAccessServiceOptions,
+): Promise<ConsoleOrganizationAccessService> {
+  if (options.ensureSchema) {
+    await ensureConsoleOrganizationAccessD1Schema({ database: options.database });
+  }
+  const invitationTtlMs = options.invitationTtlMs ?? DEFAULT_INVITATION_TTL_MS;
+  if (!Number.isSafeInteger(invitationTtlMs) || invitationTtlMs <= 0) {
+    throw new Error('invitationTtlMs must be a positive integer');
+  }
+  return new D1ConsoleOrganizationAccessService({
+    database: options.database,
+    namespace: normalizeNamespace(options.namespace),
+    now: options.now ?? defaultNow,
+    invitationTtlMs,
+    createToken: options.createInvitationToken ?? createOrganizationInvitationToken,
+    hashToken: options.hashInvitationToken ?? hashOrganizationInvitationToken,
+    email: normalizeOrganizationEmailOptions(options.email),
+  });
 }

@@ -10,9 +10,7 @@ import {
   parsePasskeyEd25519YaoSyncResponseV1,
   recoverPasskeyEd25519YaoCapabilityV1,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
-import {
-  RouterAbEd25519YaoHttpActivationTransportV1,
-} from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
+import { RouterAbEd25519YaoHttpActivationTransportV1 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
 
 const WALLET_ID = 'wallet-recovery-1';
 const NEAR_ACCOUNT_ID = 'wallet-recovery.testnet';
@@ -359,6 +357,36 @@ test.describe('passkey Ed25519 Yao browser recovery boundary', () => {
       `Bearer ${WALLET_SESSION_JWT}`,
     );
     expect(String(capturedFetch?.init.body)).not.toContain(WALLET_SESSION_JWT);
+  });
+
+  test('preserves the raw Server-Timing header from the worker fetch', async () => {
+    const serverTiming = 'yao_d1_claim;dur=12.5, yao_router_role_execution;dur=345.6';
+    resetTransportFetch(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          'content-type': 'application/json',
+          'server-timing': serverTiming,
+        },
+      }),
+    );
+    const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
+      routerOrigin: 'https://router.example.test',
+      authorization: `Bearer ${WALLET_SESSION_JWT}`,
+      fetch: recoveryTransportFetch,
+    });
+
+    await expect(
+      transport.send({
+        kind: 'recovery_admit',
+        path: ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+        body: requireAdmissionRequest(),
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      value: { ok: true },
+      serverTiming,
+    });
   });
 
   test('returns a typed transport failure for malformed router JSON', async () => {

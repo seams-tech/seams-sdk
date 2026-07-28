@@ -1,5 +1,5 @@
 {
-  "$schema": "../../packages/console-server-ts/node_modules/wrangler/config-schema.json",
+  "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "ed25519-yao-ab-benchmark-fixed-wrong-service",
   "main": "src/wrong_service.mjs",
   "compatibility_date": "2026-07-02",

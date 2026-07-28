@@ -152,7 +152,6 @@ async function makeSponsorshipServices(input?: {
       {
         orgId: apiKeyCtx.orgId,
         actorUserId: 'user-platform-admin',
-        roles: ['platform_admin'],
       },
       {
         amountMinor: seedBalanceMinor,

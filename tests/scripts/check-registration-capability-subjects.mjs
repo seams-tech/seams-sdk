@@ -205,7 +205,16 @@ function checkRegistrationTimingUsesSpanCoverage() {
   assertContains(registration, 'registrationTimingSpanUnionMs', 'registration span union');
   assertContains(registration, 'spanCoverageRatio', 'registration span coverage');
   assertContains(registration, 'emailOtpYaoTotalMs', 'Yao timing span');
-  assertContains(registration, 'walletRegisterDerivationRespondMs', 'ECDSA timing span');
+  for (const timing of [
+    'ecdsaRegistrationTotalMs',
+    'ecdsaRegistrationClientCreateMs',
+    'ecdsaRegistrationGatewayRespondMs',
+    'ecdsaRegistrationClientProofVerifyMs',
+    'ecdsaRegistrationGatewayActivateMs',
+    'ecdsaRegistrationClientActivationFinalizeMs',
+  ]) {
+    assertContains(registration, timing, 'ECDSA timing span');
+  }
   assertContains(registration, 'JSON.stringify(summary)', 'registration');
 }
 

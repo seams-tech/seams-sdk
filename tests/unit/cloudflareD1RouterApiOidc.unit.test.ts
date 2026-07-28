@@ -1,9 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
+import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 import {
   cleanupTemporaryD1Database,
   createTemporaryD1Database,
 } from '../helpers/sqliteD1';
+import { callCf, makeSessionAdapter } from '../relayer/helpers';
 import {
   applySignerMigrations,
   generateGoogleOidcTestKey,
@@ -66,6 +68,41 @@ test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and link
       ok: true,
       subjects: ['google:subject-123'],
     });
+
+    const signedClaims: Record<string, unknown>[] = [];
+    const router = createCloudflareRouter(service, {
+      session: makeSessionAdapter({
+        signJwt: async (subject, claims = {}) => {
+          signedClaims.push({ sub: subject, ...claims });
+          return `${jsonBase64Url({ alg: 'none' })}.${jsonBase64Url({
+            exp: nowSec + 300,
+          })}.signature`;
+        },
+      }),
+    });
+    const exchange = await callCf(router, {
+      method: 'POST',
+      path: '/session/exchange',
+      body: {
+        session_kind: 'jwt',
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          token: idToken,
+        },
+      },
+    });
+    expect(exchange.status).toBe(200);
+    expect(signedClaims).toContainEqual(
+      expect.objectContaining({
+        sub: 'google:subject-123',
+        provider: 'oidc',
+        oidcProvider: 'google',
+        email: 'alice@example.test',
+        oidcEmailVerified: true,
+        oidcHostedDomain: 'example.test',
+      }),
+    );
 
     const parts = idToken.split('.');
     const tamperedPayloadB64u = jsonBase64Url({

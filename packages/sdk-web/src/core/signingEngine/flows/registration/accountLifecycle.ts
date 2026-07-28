@@ -4,6 +4,7 @@ import {
   SIGNER_SOURCES,
   type WalletAuthMethod,
 } from '@shared/utils/signerDomain';
+import type { NearProvisioningState, NearProvisioningWriteV1 } from '@/core/types/seams';
 import {
   nearEd25519SigningKeyIdFromString,
   type NearEd25519SigningKeyId,
@@ -16,10 +17,7 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import type {
-  WebAuthnAuthenticationCredential,
-  WebAuthnRegistrationCredential,
-} from '@/core/types';
+import type { WebAuthnRegistrationCredential } from '@/core/types';
 import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
 import {
   getLastSelectedNearAccountProjection,
@@ -116,11 +114,23 @@ export type StoreWalletEmailOtpEd25519RegistrationInput = Omit<
   registrationAuthorityId: string;
 };
 
+/**
+ * Which auth method owns a deferred Ed25519 signer commit. Registration can
+ * reach this path from either branch, so the signer's auth method and source
+ * must come from the caller rather than defaulting to passkey.
+ */
+export type StoreWalletEd25519SignerAuthV1 = {
+  kind: 'passkey';
+  /* Identifiers only, so a caller reuses the credential it already collected
+     rather than prompting for a second Touch ID. */
+  credential: { readonly id: string; readonly rawId: string };
+};
+
 export type StoreWalletEd25519SignerRecordInput = {
   walletId: WalletId;
   nearAccountId: AccountId;
   nearEd25519SigningKeyId: string;
-  credential: WebAuthnAuthenticationCredential;
+  auth: StoreWalletEd25519SignerAuthV1;
   signerSlot: number;
   operationalPublicKey: string;
   relayerKeyId: string;
@@ -618,6 +628,53 @@ async function resolveAuthenticatedWalletProfileBinding(
   };
 }
 
+type NearProvisioningWriteDeps = {
+  accountStore: Pick<RegistrationAccountLifecycleDeps['accountStore'], 'upsertProfile'>;
+};
+
+type NearProvisioningReadDeps = {
+  accountStore: Pick<RegistrationAccountLifecycleDeps['accountStore'], 'getProfile'>;
+};
+
+export async function getWalletNearProvisioningState(
+  deps: NearProvisioningReadDeps,
+  walletId: WalletId,
+): Promise<NearProvisioningState | null> {
+  const profile = await deps.accountStore.getProfile(String(walletId));
+  return profile?.nearProvisioning ?? null;
+}
+
+/**
+ * Refactor 94 Phase 6. Writes the wallet root profile's NEAR provisioning
+ * state. The durable record is authoritative, so this is the write every
+ * publish is sequenced behind.
+ */
+export async function setWalletNearProvisioningState(
+  deps: NearProvisioningWriteDeps,
+  write: NearProvisioningWriteV1,
+): Promise<void> {
+  const profileId = String(write.walletId || '').trim();
+  if (!profileId) throw new Error('SeamsWalletDB: walletId is required');
+  const updatedAtMs = Date.now();
+  const state: NearProvisioningState =
+    write.status === 'near_ready'
+      ? { status: 'near_ready', updatedAtMs, nearAccountId: write.nearAccountId }
+      : write.status === 'near_failed_retryable'
+        ? {
+            status: 'near_failed_retryable',
+            updatedAtMs,
+            error: write.errorCode,
+            errorCode: write.errorCode,
+          }
+        : { status: write.status, updatedAtMs };
+  await deps.accountStore.upsertProfile({
+    profileId: profileId as Parameters<
+      NearProvisioningWriteDeps['accountStore']['upsertProfile']
+    >[0]['profileId'],
+    nearProvisioning: state,
+  });
+}
+
 export async function activateAuthenticatedWalletState(
   deps: AuthenticatedWalletActivationDeps,
   args: {
@@ -655,9 +712,13 @@ export async function activateAuthenticatedWalletState(
     publicKey: binding.operationalPublicKey,
   });
 
-  // Prefetch block height for better UX (non-fatal if it fails and nearClient is provided)
+  /* Prefetch block height for better UX. Deliberately not awaited: it is a
+     warm-up whose only effect is making a later signature slightly faster, and
+     awaiting it puts a NEAR RPC round trip on the registration critical path.
+     Failures stay non-fatal, and a signature that arrives first simply fetches
+     the context itself. */
   if (args.nearClient) {
-    await deps.nonceCoordinator
+    void deps.nonceCoordinator
       .prefetchNearContext({ kind: 'initialized_state', nearClient: args.nearClient })
       .catch((prefetchErr) =>
         console.debug(
@@ -1348,7 +1409,7 @@ export async function finalizeWalletEd25519SignerRegistration(
   deps: RegistrationAccountLifecycleDeps,
   args: StoreWalletEd25519SignerRecordInput,
 ): Promise<StoredWalletEd25519SignerRegistration> {
-  const credentialId = String(args.credential.rawId || args.credential.id || '').trim();
+  const credentialId = String(args.auth.credential.rawId || args.auth.credential.id || '').trim();
   if (!credentialId) {
     throw new Error('SeamsWalletDB: add-signer credential id is required');
   }
@@ -1365,10 +1426,7 @@ export async function finalizeWalletEd25519SignerRegistration(
   if (!nearEd25519SigningKeyId) {
     throw new Error('SeamsWalletDB: nearEd25519SigningKeyId is required');
   }
-  const passkeyCredential = {
-    id: args.credential.id,
-    rawId: credentialId,
-  };
+  const passkeyCredential = { id: args.auth.credential.id, rawId: credentialId };
   const signerMetadata = {
     walletId,
     nearAccountId: String(nearAccountId),
@@ -1376,7 +1434,7 @@ export async function finalizeWalletEd25519SignerRegistration(
     operationalPublicKey: args.operationalPublicKey,
     relayerKeyId: args.relayerKeyId,
     keyVersion: args.keyVersion,
-    passkeyCredentialId: args.credential.id,
+    passkeyCredentialId: args.auth.credential.id,
     passkeyCredentialRawId: credentialId,
     ...(args.participantIds ? { participantIds: args.participantIds } : {}),
     ...(args.clientParticipantId != null ? { clientParticipantId: args.clientParticipantId } : {}),

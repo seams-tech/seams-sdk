@@ -8,6 +8,10 @@ import { buildEvmWalletRegistrationArgs } from '../../packages/sdk-web/src/Seams
 import { buildNearWalletRegistrationArgs } from '../../packages/sdk-web/src/SeamsWeb/operations/near';
 import { IndexedDBManager } from '../../packages/sdk-web/src/core/indexedDB';
 import { finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation } from '../../packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
+import {
+  readNearProvisioningState,
+  resetNearProvisioningRegistryForTests,
+} from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import { UserVerificationPolicy } from '../../packages/sdk-web/src/core/types/authenticatorOptions';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
@@ -221,6 +225,24 @@ function nearEd25519RegistrationSigner(): RegistrationSignerRequest {
     participantIds: [1, 2],
     derivationVersion: 1,
   };
+}
+
+/* A sponsored named account is created under the walletId itself, so the NEAR
+   identity must come back as the walletId rather than a derived key. */
+function sponsoredNearEd25519RegistrationSigner(
+  requestedAccountId: string,
+): RegistrationSignerRequest {
+  return {
+    kind: 'near_ed25519' as const,
+    accountProvisioning: {
+      kind: 'sponsored_named_account' as const,
+      requestedAccountId,
+      sponsor: 'relayer' as const,
+    },
+    signerSlot: 1,
+    participantIds: [1, 2],
+    derivationVersion: 1,
+  } as RegistrationSignerRequest;
 }
 
 function registrationSignerSet(
@@ -815,6 +837,9 @@ class EmailOtpEd25519YaoWorkerContextCapture {
       case 'commitEmailOtpEd25519YaoRegistration': {
         this.captures.emailOtpYaoCommit = request.payload;
         registrationEvents(this.captures)?.push('emailOtpYaoCommitCalled');
+        if (this.captures.failEmailOtpYaoSeal) {
+          throw new Error('Yao seal rejected the wallet session');
+        }
         const scope = this.captures.emailOtpYaoRootScope as Record<string, any>;
         return {
           activeClientHandle: 'email-otp-ed25519-active-1',
@@ -1155,6 +1180,7 @@ function createContext(captures: Record<string, unknown>): any {
             signerSlot,
           }),
           activateAuthenticatedWalletState: async () => undefined,
+          setWalletNearProvisioningState: async () => undefined,
           rollbackUserRegistration: async () => undefined,
         },
       },
@@ -1252,6 +1278,16 @@ function createContext(captures: Record<string, unknown>): any {
         signerSlot,
       }),
       activateAuthenticatedWalletState: async () => undefined,
+      setWalletNearProvisioningState: async (write: { walletId: string; status: string }) => {
+        const writes = (captures.nearProvisioningWrites as { status: string }[] | undefined) ?? [];
+        writes.push(write);
+        captures.nearProvisioningWrites = writes;
+        /* Fails only the status the test names, so a test can break the
+           near_ready write while every earlier transition still persists. */
+        if (captures.failNearProvisioningWriteForStatus === write.status) {
+          throw new Error(`durable NEAR provisioning write unavailable: ${write.status}`);
+        }
+      },
       activateVerifiedNearEd25519YaoSigningCapability:
         captureActivatedEmailOtpEd25519YaoCapability.bind(undefined, captures),
       createRouterAbEcdsaRegistrationCeremony: async (args: Record<string, any>) => {
@@ -1642,6 +1678,12 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
       captures.finalizeBody = body;
       const order = (captures.ecdsaActivationFinalizationOrder ||= []) as string[];
       order.push('wallet_registration_finalized');
+      const finalizeBodies = (captures.finalizeBodies as unknown[] | undefined) ?? [];
+      finalizeBodies.push(body);
+      captures.finalizeBodies = finalizeBodies;
+      if (body.ed25519 && captures.failDeferredEd25519Finalize) {
+        return jsonResponse({ ok: false, message: 'deferred Ed25519 finalize unavailable' }, 503);
+      }
       const responseWalletId = String((captures.intent as any)?.walletId || WALLET_SUBJECT_ID);
       const intentAuthMethod = (captures.intent as any)?.authMethod;
       if (body.ed25519) {
@@ -1665,7 +1707,9 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         const responseBody: Record<string, unknown> = {
           ok: true,
           walletId: responseWalletId,
-          kind: body.ecdsa ? 'near_ed25519_and_evm_family_ecdsa' : 'near_ed25519',
+          /* Refactor 94 Phase 4+5: finalize commits one branch per call, so the
+             relayer answers with the branch the request asked for. */
+          kind: body.ecdsa ? 'evm_family_ecdsa' : 'near_ed25519',
           authority: buildEmailOtpWalletAuthAuthority({
             walletId: responseWalletId,
             provider: 'google',
@@ -1678,18 +1722,33 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
           },
           appSessionJwt: String(intentAuthMethod?.appSessionJwt || ''),
           authorityScope,
-          accountProvisioning: {
-            kind: 'implicit_account',
-            accountIdSource: 'ed25519_public_key',
-          },
-          resolvedAccount: {
-            kind: 'implicit_account',
-            nearAccountId: 'ab'.repeat(32),
-            nearEd25519SigningKeyId,
-          },
+          /* Sponsored named provisioning resolves to the requested account,
+             which is the walletId; implicit resolves to the derived key. */
+          accountProvisioning: captures.sponsoredNearAccountId
+            ? {
+                kind: 'sponsored_named_account',
+                requestedAccountId: String(captures.sponsoredNearAccountId),
+                sponsor: 'relayer',
+              }
+            : {
+                kind: 'implicit_account',
+                accountIdSource: 'ed25519_public_key',
+              },
+          resolvedAccount: captures.sponsoredNearAccountId
+            ? {
+                kind: 'sponsored_named_account',
+                nearAccountId: String(captures.sponsoredNearAccountId),
+                nearEd25519SigningKeyId,
+                transactionHash: 'sponsored-named-account-tx',
+              }
+            : {
+                kind: 'implicit_account',
+                nearAccountId: 'ab'.repeat(32),
+                nearEd25519SigningKeyId,
+              },
           ed25519: {
             signerSlot: ed25519Signer.signerSlot,
-            nearAccountId: 'ab'.repeat(32),
+            nearAccountId: String(captures.sponsoredNearAccountId || 'ab'.repeat(32)),
             nearEd25519SigningKeyId,
             publicKey,
             relayerKeyId: 'signing-worker-test',
@@ -1700,13 +1759,13 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
               sessionKind: 'jwt',
               walletSessionJwt: ed25519WalletSessionJwt({
                 walletId: responseWalletId,
-                nearAccountId: 'ab'.repeat(32),
+                nearAccountId: String(captures.sponsoredNearAccountId || 'ab'.repeat(32)),
                 nearEd25519SigningKeyId,
                 thresholdSessionId: 'registration-ceremony',
                 signingGrantId: 'email-otp-ed25519-signing-grant',
               }),
               walletId: responseWalletId,
-              nearAccountId: 'ab'.repeat(32),
+              nearAccountId: String(captures.sponsoredNearAccountId || 'ab'.repeat(32)),
               nearEd25519SigningKeyId,
               authorityScope,
               thresholdSessionId: 'registration-ceremony',
@@ -2228,24 +2287,376 @@ test('registerWallet starts Email OTP Yao and ECDSA registration in parallel', a
         events.includes('emailOtpYaoStartCalled') && events.includes('ecdsaCeremonyStarted'),
     });
     expect(captures.emailOtpYaoPrewarmCalls).toBe(1);
-    expect(captures.finalizeBody).toBeUndefined();
+    /* Refactor 94 Phase 4+5: the ECDSA branch finalizes without waiting for the
+       Yao ceremony, so by this point commit #1 has already gone out — and it
+       carries the ECDSA kind alone, never the removed combined kind. */
+    await waitForTestCondition({
+      label: 'ECDSA finalize to be issued before the Yao ceremony settles',
+      predicate: () => captures.finalizeBody !== undefined,
+    });
+    expect(captures.finalizeBody).toMatchObject({ kind: 'evm_family_ecdsa' });
 
     deferredEmailOtpYaoStart.resolve(undefined);
     const result = await registration;
 
     expectRegistrationSuccess(result);
+    /* Registration success now means ECDSA-ready. The NEAR branch is still
+       settling, and the caller learns that from `nearProvisioning` rather than
+       from registration having blocked on it. */
     expect(result).toMatchObject({
       success: true,
-      kind: 'wallet_registered',
-      capabilities: [{ kind: 'near_ed25519' }, { kind: 'evm_family_ecdsa' }],
+      kind: 'ecdsa_wallet_registered_near_pending',
+      capabilities: [{ kind: 'evm_family_ecdsa' }],
+      nearProvisioning: { status: 'pending' },
     });
-    expect(events).toContain('emailOtpYaoCommitCalled');
+    /* Commit #2 is deliberately not awaited by registration, so it lands after
+       the ECDSA-ready result resolves rather than before it. */
+    await waitForTestCondition({
+      label: 'the deferred Ed25519 Yao commit to land after registration returned',
+       predicate: () => events.includes('emailOtpYaoCommitCalled'),
+    });
     expect(registrationEventCount(events, 'emailOtpYaoCommitCalled')).toBe(1);
     expect(events).not.toContain('emailOtpYaoDisposed');
     expect(captures.finalizeBody).toBeDefined();
   } finally {
     backupCapture.restore();
     deferredEmailOtpYaoStart.reject(new Error('test cleanup'));
+    fetchMock.restore();
+  }
+});
+
+/* Refactor 94 Phase 4+5. Registration returns an ECDSA-ready wallet before the
+   Ed25519 branch settles, so a terminal failure in the deferred commit must
+   never fault the wallet that already resolved. */
+async function runMixedEmailOtpRegistration(
+  captures: Record<string, unknown>,
+  nearSigner: RegistrationSignerRequest = nearEd25519RegistrationSigner(),
+) {
+  resetNearProvisioningRegistryForTests();
+  const events = captures.registrationEvents as string[];
+  const walletId = walletIdFromString('email-otp-mixed.testnet');
+  const appSessionJwt = jwtWithPayload({
+    kind: 'app_session_v1',
+    sub: EMAIL_OTP_PROVIDER_SUBJECT,
+    walletId: String(walletId),
+    providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
+    appSessionVersion: 'app-session-v1',
+    exp: Math.floor(Date.now() / 1000) + 3_600,
+  });
+  const result = await withMockedIndexedDb(() =>
+    registerWallet({
+      context: createContext(captures),
+      authMethod: {
+        kind: 'email_otp',
+        proofKind: 'google_sso_registration',
+        email: 'alice@example.com',
+        appSessionJwt,
+        googleEmailOtpRegistrationAttemptId: 'registration-attempt-1',
+        googleEmailOtpRegistrationOfferId: 'registration-offer-1',
+        googleEmailOtpRegistrationCandidateId: 'registration-candidate-1',
+      },
+      wallet: { kind: 'provided', walletId },
+      signerSelection: registrationSignerSet(
+        nearSigner,
+        evmFamilyRegistrationSigner([{ kind: 'evm', namespace: 'eip155', chainId: 1 }]),
+      ),
+      options: {},
+      authenticatorOptions: {
+        userVerification: UserVerificationPolicy.Preferred,
+        originPolicy: { single: true, all_subdomains: false, multiple: [] },
+      },
+    }),
+  );
+  return { result, events, walletId };
+}
+
+test('registerWallet keeps the ECDSA wallet when the deferred Ed25519 finalize fails', async () => {
+  const events: string[] = [];
+  const captures: Record<string, unknown> = {
+    registrationEvents: events,
+    enableRegistrationPreparationModalClose: true,
+    failDeferredEd25519Finalize: true,
+  };
+  const fetchMock = installRegisterWalletFetch(captures);
+  const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
+  backupCapture.install();
+  try {
+    const { result } = await runMixedEmailOtpRegistration(captures);
+
+    /* The ECDSA wallet is durable and reported as such even though the NEAR
+       branch could not be committed. */
+    expectRegistrationSuccess(result);
+    expect(result).toMatchObject({
+      success: true,
+      kind: 'ecdsa_wallet_registered_near_pending',
+    });
+    expect(String((result as { thresholdEcdsaEthereumAddress?: string }).thresholdEcdsaEthereumAddress ?? '')).not.toBe('');
+
+    await waitForTestCondition({
+      label: 'the deferred Ed25519 finalize to be attempted and rejected',
+      predicate: () =>
+        ((captures.finalizeBodies as unknown[] | undefined) ?? []).some(
+          (entry) => (entry as { ed25519?: unknown }).ed25519 !== undefined,
+        ),
+    });
+    /* A failed deferred commit must not seal Yao material. */
+    expect(events).not.toContain('emailOtpYaoCommitCalled');
+    /* Phase 6: the outcome is published, not swallowed. */
+    await waitForTestCondition({
+      label: 'NEAR provisioning to be published as retryable',
+      predicate: () => readNearProvisioningState(walletIdFromString('email-otp-mixed.testnet'))?.status === 'near_failed_retryable',
+    });
+  } finally {
+    backupCapture.restore();
+    fetchMock.restore();
+  }
+});
+
+test('registerWallet keeps the ECDSA wallet when the deferred Yao seal fails', async () => {
+  const events: string[] = [];
+  const captures: Record<string, unknown> = {
+    registrationEvents: events,
+    enableRegistrationPreparationModalClose: true,
+    failEmailOtpYaoSeal: true,
+  };
+  const fetchMock = installRegisterWalletFetch(captures);
+  const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
+  backupCapture.install();
+  try {
+    const { result } = await runMixedEmailOtpRegistration(captures);
+
+    expectRegistrationSuccess(result);
+    expect(result).toMatchObject({
+      success: true,
+      kind: 'ecdsa_wallet_registered_near_pending',
+    });
+
+    /* The seal is reached and rejects; the wallet that already resolved is
+       untouched by it. */
+    await waitForTestCondition({
+      label: 'the deferred Yao seal to be attempted',
+      predicate: () => events.includes('emailOtpYaoCommitCalled'),
+    });
+    /* A seal failure leaves NEAR retryable, never ready. */
+    await waitForTestCondition({
+      label: 'NEAR provisioning to be published as retryable after the seal failed',
+      predicate: () => readNearProvisioningState(walletIdFromString('email-otp-mixed.testnet'))?.status === 'near_failed_retryable',
+    });
+    expect(readNearProvisioningState(walletIdFromString('email-otp-mixed.testnet'))?.status).not.toBe('near_ready');
+  } finally {
+    backupCapture.restore();
+    fetchMock.restore();
+  }
+});
+
+test('a passkey mixed registration returns an ECDSA-ready wallet before Yao settles', async () => {
+  const events: string[] = [];
+  const captures: Record<string, unknown> = {
+    registrationEvents: events,
+    enableRegistrationPreparationModalClose: true,
+  };
+  const fetchMock = installRegisterWalletFetch(captures);
+  try {
+    resetNearProvisioningRegistryForTests();
+    const result = await withMockedIndexedDb(() =>
+      registerWallet({
+        context: createContext(captures),
+        authMethod: { kind: 'passkey', rpId: RP_ID },
+        wallet: { kind: 'server_allocated' },
+        signerSelection: registrationSignerSet(
+          nearEd25519RegistrationSigner(),
+          evmFamilyRegistrationSigner([{ kind: 'evm', namespace: 'eip155', chainId: 1 }]),
+        ),
+        options: {},
+        authenticatorOptions: {
+          userVerification: UserVerificationPolicy.Preferred,
+          originPolicy: { single: true, all_subdomains: false, multiple: [] },
+        },
+      }),
+    );
+
+    /* Passkey takes the same split: ECDSA-ready first, NEAR still pending, and
+       exactly one Touch ID prompt for the whole registration. */
+    expectRegistrationSuccess(result);
+    expect(result).toMatchObject({
+      success: true,
+      kind: 'ecdsa_wallet_registered_near_pending',
+      nearProvisioning: { status: 'pending' },
+    });
+    expect(captures.storedEcdsaRegistration).toBeDefined();
+    expectSingleRegistrationTouchIdPrompt(captures);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+/* Refactor 94 Phase 4+5. The whole point of the split is that the wallet is
+   usable before the Yao ceremony settles, so this holds Yao open for the entire
+   test and checks what the wallet can already do. */
+test('the ECDSA wallet is durable and usable while the Yao ceremony is still blocked', async () => {
+  const events: string[] = [];
+  const deferredEmailOtpYaoStart = createDeferredPromise<void>();
+  const captures: Record<string, unknown> = {
+    registrationEvents: events,
+    deferredEmailOtpYaoStart,
+    enableRegistrationPreparationModalClose: true,
+  };
+  const fetchMock = installRegisterWalletFetch(captures);
+  const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
+  backupCapture.install();
+  try {
+    const { result } = await runMixedEmailOtpRegistration(captures);
+    const walletId = walletIdFromString('email-otp-mixed.testnet');
+
+    /* Yao has not been released, and registration has already returned. */
+    expect(events).not.toContain('emailOtpYaoCommitCalled');
+    expectRegistrationSuccess(result);
+    expect(result).toMatchObject({
+      success: true,
+      kind: 'ecdsa_wallet_registered_near_pending',
+      nearProvisioning: { status: 'pending' },
+    });
+
+    /* Commit #1 is durable: the ECDSA signer records were persisted, and the
+       wallet carries a usable threshold address. */
+    expect(captures.storedEcdsaRegistration).toBeDefined();
+    const ecdsaAddress = String(
+      (result as { thresholdEcdsaEthereumAddress?: string }).thresholdEcdsaEthereumAddress ?? '',
+    );
+    expect(ecdsaAddress).not.toBe('');
+    expect(
+      String((result as { thresholdEcdsaPublicKeyB64u?: string }).thresholdEcdsaPublicKeyB64u ?? ''),
+    ).not.toBe('');
+
+    /* The wallet is entered under its own id, not a NEAR account that does not
+       exist yet. */
+    expect(String((result as { walletId?: unknown }).walletId ?? '')).toBe(String(walletId));
+
+    /* NEAR is still unfinished the whole time, which is what makes the above
+       an assertion about the gap between the two commits. */
+    expect(readNearProvisioningState(walletId)?.status).not.toBe('near_ready');
+    expect(events).not.toContain('emailOtpYaoCommitCalled');
+  } finally {
+    backupCapture.restore();
+    deferredEmailOtpYaoStart.reject(new Error('test cleanup'));
+    fetchMock.restore();
+  }
+});
+
+test('a failed near_ready write never publishes near_ready', async () => {
+  const events: string[] = [];
+  const captures: Record<string, unknown> = {
+    registrationEvents: events,
+    enableRegistrationPreparationModalClose: true,
+    /* Yao succeeds; only the durable near_ready write breaks. */
+    failNearProvisioningWriteForStatus: 'near_ready',
+  };
+  const fetchMock = installRegisterWalletFetch(captures);
+  const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
+  backupCapture.install();
+  try {
+    const { result } = await runMixedEmailOtpRegistration(captures);
+    const walletId = walletIdFromString('email-otp-mixed.testnet');
+
+    /* The ECDSA wallet is durable and reported as such. */
+    expectRegistrationSuccess(result);
+    expect(result).toMatchObject({ success: true, kind: 'ecdsa_wallet_registered_near_pending' });
+    expect(
+      String(
+        (result as { thresholdEcdsaEthereumAddress?: string }).thresholdEcdsaEthereumAddress ?? '',
+      ),
+    ).not.toBe('');
+
+    /* The Yao ceremony itself succeeded, so this isolates the durable write. */
+    await waitForTestCondition({
+      label: 'the Yao seal to succeed before the durable write is attempted',
+      predicate: () => events.includes('emailOtpYaoCommitCalled'),
+    });
+    await waitForTestCondition({
+      label: 'provisioning to settle as retryable after the near_ready write failed',
+      predicate: () => readNearProvisioningState(walletId)?.status === 'near_failed_retryable',
+    });
+
+    /* near_ready must never reach the page on an unpersisted success. */
+    expect(readNearProvisioningState(walletId)?.status).not.toBe('near_ready');
+
+    const writes = (captures.nearProvisioningWrites as { status: string }[]) ?? [];
+    const attempted = writes.map((entry) => entry.status);
+    expect(attempted).toContain('near_ready');
+    expect(attempted).toContain('near_failed_retryable');
+    /* The failed write is attempted before the retryable one that replaces it. */
+    expect(attempted.indexOf('near_ready')).toBeLessThan(attempted.indexOf('near_failed_retryable'));
+  } finally {
+    backupCapture.restore();
+    fetchMock.restore();
+  }
+});
+
+test('sponsored NEAR provisioning keeps the wallet id as the account identity', async () => {
+  const events: string[] = [];
+  const captures: Record<string, unknown> = {
+    registrationEvents: events,
+    enableRegistrationPreparationModalClose: true,
+  };
+  captures.sponsoredNearAccountId = 'email-otp-mixed.testnet';
+  const fetchMock = installRegisterWalletFetch(captures);
+  const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
+  backupCapture.install();
+  try {
+    await runMixedEmailOtpRegistration(
+      captures,
+      sponsoredNearEd25519RegistrationSigner('email-otp-mixed.testnet'),
+    );
+    const walletId = walletIdFromString('email-otp-mixed.testnet');
+
+    await waitForTestCondition({
+      label: 'deferred NEAR provisioning to reach near_ready',
+      predicate: () => readNearProvisioningState(walletId)?.status === 'near_ready',
+    });
+
+    const state = readNearProvisioningState(walletId);
+    /* A sponsored named account must not rename the wallet: the NEAR account
+       identity stays the walletId registration was issued against. */
+    expect(state).toMatchObject({ status: 'near_ready', nearAccountId: String(walletId) });
+
+    /* The durable write agrees with what the page observed. */
+    const readyWrite = ((captures.nearProvisioningWrites as { status: string; nearAccountId?: string }[]) ?? []).find(
+      (entry) => entry.status === 'near_ready',
+    );
+    expect(readyWrite?.nearAccountId).toBe(String(walletId));
+  } finally {
+    backupCapture.restore();
+    fetchMock.restore();
+  }
+});
+
+test('the two registration commits carry distinct idempotency keys', async () => {
+  const events: string[] = [];
+  const captures: Record<string, unknown> = {
+    registrationEvents: events,
+    enableRegistrationPreparationModalClose: true,
+  };
+  const fetchMock = installRegisterWalletFetch(captures);
+  const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
+  backupCapture.install();
+  try {
+    await runMixedEmailOtpRegistration(captures);
+    await waitForTestCondition({
+      label: 'both registration commits to be issued',
+      predicate: () => ((captures.finalizeBodies as unknown[] | undefined) ?? []).length >= 2,
+    });
+
+    const bodies = (captures.finalizeBodies as { kind: string; idempotencyKey: string }[]).slice(0, 2);
+    expect(bodies.map((entry) => entry.kind)).toEqual(['evm_family_ecdsa', 'near_ed25519']);
+    /* The server derives its side-effect key from {ceremonyId, idempotencyKey}.
+       A shared key would replay commit #1's response instead of committing the
+       Ed25519 branch, so exact retry of either commit can only converge while
+       these stay distinct. */
+    expect(bodies[0].idempotencyKey).not.toBe(bodies[1].idempotencyKey);
+    expect(bodies[0].idempotencyKey).toBeTruthy();
+    expect(bodies[1].idempotencyKey).toBeTruthy();
+  } finally {
+    backupCapture.restore();
     fetchMock.restore();
   }
 });

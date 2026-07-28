@@ -1,8 +1,8 @@
-import { secureRandomBase36 } from '@seams-internal/shared-ts/utils/secureRandomId';
+import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
 import type { ConsoleBillingService } from '../billing/service';
 import type { ConsoleBillingD1Runtime } from '../billing/d1';
 import {
-  createSponsoredExecutionDebitD1InsertStatement,
+  createSponsoredExecutionDebitD1Statements,
   getConsoleBillingD1Runtime,
 } from '../billing/d1';
 import type {
@@ -38,8 +38,8 @@ import {
 import type { ConsoleBillingContext } from '../billing/service';
 import type { ConsoleBillingPrepaidReservationContext } from '../billingPrepaidReservations/service';
 import type { ConsoleSponsoredCallContext } from '../sponsoredCalls/service';
-import type { D1PreparedStatementLike, D1ResultLike } from '@seams/sdk-server/internal/storage/tenantRoute';
-import type { RouteResponse } from '@seams/sdk-server/internal/router/routeExecutionContext';
+import type { D1PreparedStatementLike, D1ResultLike } from '@seams/sdk-server/cloud-host';
+import type { RouteResponse } from '@seams/sdk-server/cloud-host';
 import type { SponsorshipSpendPricingService } from '../sponsorship/spendCaps';
 import type {
   SponsoredPrepaidReservationHandle,
@@ -69,7 +69,6 @@ export interface SponsorshipExecutionAssessment {
 export interface SponsoredExecutionBillingContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
 }
 
 export interface RecordSponsoredExecutionInput {
@@ -101,6 +100,7 @@ interface FinalizedSponsoredPrepaidSettlementD1 {
   billingLedgerEntryId: string | null;
   settlement: FinalizedSponsoredPrepaidSettlement | null;
   statements: D1PreparedStatementLike[];
+  notificationStatements: D1PreparedStatementLike[];
   reservationTransition: D1ReservationTransition;
 }
 
@@ -493,6 +493,7 @@ async function recordSponsoredExecutionD1(
     const batchResults = await input.billingRuntime.database.batch<D1ResultLike<unknown>>([
       ...finalized.statements,
       recordInsert,
+      ...finalized.notificationStatements,
     ]);
     if (
       d1ReservationTransitionFailed({
@@ -546,6 +547,7 @@ async function finalizeSponsoredPrepaidSettlementD1(
       settlement: null,
       billingLedgerEntryId: null,
       statements: [],
+      notificationStatements: [],
       reservationTransition: NO_D1_RESERVATION_TRANSITION,
     };
   }
@@ -562,6 +564,7 @@ async function finalizeSponsoredPrepaidSettlementD1(
       settlement: null,
       billingLedgerEntryId: null,
       statements: [],
+      notificationStatements: [],
       reservationTransition: NO_D1_RESERVATION_TRANSITION,
     };
   }
@@ -647,14 +650,16 @@ function buildReleasedD1PrepaidSettlement(
     },
     billingLedgerEntryId: null,
     statements,
+    notificationStatements: [],
     reservationTransition,
   };
 }
 
-function buildSettledD1PrepaidSettlement(
+async function buildSettledD1PrepaidSettlement(
   input: D1SettledReservationInput,
-): FinalizedSponsoredPrepaidSettlementD1 {
+): Promise<FinalizedSponsoredPrepaidSettlementD1> {
   const statements: D1PreparedStatementLike[] = [];
+  const notificationStatements: D1PreparedStatementLike[] = [];
   let reservationTransition: D1ReservationTransition = NO_D1_RESERVATION_TRANSITION;
   switch (input.reservation.status) {
     case 'RESERVED': {
@@ -699,23 +704,23 @@ function buildSettledD1PrepaidSettlement(
   if (input.quote.settledSpendMinor > 0) {
     billingLedgerEntryId = `ble_${input.recordId}`;
     const occurredAtMs = parseD1SponsoredDebitOccurredAtMs(input.occurredAt, input.settledAtMs);
-    statements.push(
-      createSponsoredExecutionDebitD1InsertStatement({
-        runtime: input.billingRuntime,
-        ctx: input.billingContext,
-        request: {
-          amountMinor: input.quote.settledSpendMinor,
-          sourceEventId: `${input.billingSourceEventIdPrefix}:${input.reservation.sourceEventId}`,
-          walletId: input.walletId,
-          occurredAt: new Date(occurredAtMs).toISOString(),
-          txOrExecutionRef: input.prepaidSettlementInput.txOrExecutionRef,
-          pricingVersion: input.quote.pricingVersion,
-        },
-        entryId: billingLedgerEntryId,
-        occurredAtMs,
-        insertGuard: D1_PREVIOUS_STATEMENT_CHANGED_ONE_INSERT_GUARD,
-      }),
-    );
+    const debitStatements = await createSponsoredExecutionDebitD1Statements({
+      runtime: input.billingRuntime,
+      ctx: input.billingContext,
+      request: {
+        amountMinor: input.quote.settledSpendMinor,
+        sourceEventId: `${input.billingSourceEventIdPrefix}:${input.reservation.sourceEventId}`,
+        walletId: input.walletId,
+        occurredAt: new Date(occurredAtMs).toISOString(),
+        txOrExecutionRef: input.prepaidSettlementInput.txOrExecutionRef,
+        pricingVersion: input.quote.pricingVersion,
+      },
+      entryId: billingLedgerEntryId,
+      occurredAtMs,
+      insertGuard: D1_PREVIOUS_STATEMENT_CHANGED_ONE_INSERT_GUARD,
+    });
+    statements.push(debitStatements.ledgerStatement);
+    notificationStatements.push(...debitStatements.notificationStatements);
   }
 
   return {
@@ -732,6 +737,7 @@ function buildSettledD1PrepaidSettlement(
     },
     billingLedgerEntryId,
     statements,
+    notificationStatements,
     reservationTransition,
   };
 }

@@ -1,9 +1,5 @@
 import { ConsoleBillingError } from './errors';
-import {
-  CUSTOM_BILLING_CREDIT_PACK_ID,
-  isBillingCreditPackId,
-  validateCustomCreditPackAmountMinor,
-} from './creditPacks';
+import { isBillingCreditPackId } from './creditPacks';
 import {
   readOptionalQueryBooleanField as readOptionalQueryBoolean,
   readOptionalQueryPositiveIntegerField as readOptionalQueryPositiveInteger,
@@ -18,11 +14,12 @@ import type {
   BillingAccountActivityRequest,
   BillingInvoiceListRequest,
   BillingManualAdjustmentRequest,
+  BillingRefundReconcileRequest,
+  BillingRefundRequest,
   BillingUsageEventRequest,
   GenerateMonthlyInvoiceRequest,
   StripeCheckoutSessionReconcileRequest,
   StripeCheckoutSessionRequest,
-  StripeWebhookEventRequest,
 } from './types';
 
 function createParseError(code: string, status: number, message: string): ConsoleBillingError {
@@ -37,7 +34,8 @@ const BILLING_LEDGER_ENTRY_TYPES = new Set([
   'SPONSORED_EXECUTION_DEBIT',
   'MANUAL_ADJUSTMENT',
   'REFUND',
-  'REVERSAL',
+  'DISPUTE_OPENED',
+  'DISPUTE_WON',
 ]);
 const DEFAULT_INVOICE_LIST_LIMIT = 25;
 const MAX_INVOICE_LIST_LIMIT = 100;
@@ -182,23 +180,6 @@ export function parseBillingManualAdjustmentRequest(body: unknown): BillingManua
   };
 }
 
-function validateHttpUrlOrThrow(value: string, field: string): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch (_error: unknown) {
-    throw new ConsoleBillingError('invalid_body', 400, `Field ${field} must be a valid URL`);
-  }
-  const protocol = parsed.protocol.toLowerCase();
-  if (protocol !== 'http:' && protocol !== 'https:') {
-    throw new ConsoleBillingError(
-      'invalid_body',
-      400,
-      `Field ${field} must use http or https protocol`,
-    );
-  }
-}
-
 function parseOptionalIsoDate(value: string | undefined, field: string): string | undefined {
   if (value === undefined) return undefined;
   const parsed = Date.parse(value);
@@ -214,75 +195,45 @@ function parseOptionalIsoDate(value: string | undefined, field: string): string 
 
 export function parseStripeCheckoutSessionRequest(body: unknown): StripeCheckoutSessionRequest {
   const obj = requireObject(body, createParseError);
-  const successUrl = readRequiredString(obj, 'successUrl', createParseError);
-  const cancelUrl = readRequiredString(obj, 'cancelUrl', createParseError);
   const creditPackId = readRequiredString(obj, 'creditPackId', createParseError);
-  const customAmountMinorRaw = obj.customAmountMinor;
-  validateHttpUrlOrThrow(successUrl, 'successUrl');
-  validateHttpUrlOrThrow(cancelUrl, 'cancelUrl');
   if (!isBillingCreditPackId(creditPackId)) {
     throw new ConsoleBillingError('invalid_body', 400, `Unsupported creditPackId: ${creditPackId}`);
   }
-  const customAmountMinor =
-    customAmountMinorRaw === undefined || customAmountMinorRaw === null
-      ? undefined
-      : typeof customAmountMinorRaw === 'number'
-        ? customAmountMinorRaw
-        : Number(customAmountMinorRaw);
-  if (
-    customAmountMinor !== undefined &&
-    (!Number.isFinite(customAmountMinor) || !Number.isInteger(customAmountMinor))
-  ) {
+  if ('customAmountMinor' in obj) {
     throw new ConsoleBillingError(
       'invalid_body',
       400,
-      'Field customAmountMinor must be an integer number of cents',
-    );
-  }
-  if (creditPackId === CUSTOM_BILLING_CREDIT_PACK_ID) {
-    if (customAmountMinor === undefined) {
-      throw new ConsoleBillingError(
-        'invalid_body',
-        400,
-        'Field customAmountMinor is required when creditPackId is usd_custom',
-      );
-    }
-    validateCustomCreditPackAmountMinor(customAmountMinor);
-  } else if (customAmountMinor !== undefined) {
-    throw new ConsoleBillingError(
-      'invalid_body',
-      400,
-      'Field customAmountMinor is only supported when creditPackId is usd_custom',
+      'Custom top-up amounts are not supported; select a configured credit pack',
     );
   }
   return {
-    successUrl,
-    cancelUrl,
-    creditPackId: creditPackId as StripeCheckoutSessionRequest['creditPackId'],
-    ...(customAmountMinor === undefined ? {} : { customAmountMinor }),
+    creditPackId,
   };
 }
 
-export function parseStripeWebhookEventRequest(body: unknown): StripeWebhookEventRequest {
+export function parseBillingRefundRequest(body: unknown): BillingRefundRequest {
   const obj = requireObject(body, createParseError);
-  const eventId = readRequiredString(obj, 'eventId', createParseError);
-  const eventTypeRaw = readOptionalString(obj, 'eventType');
-  const eventType = eventTypeRaw ? eventTypeRaw.trim() : undefined;
-  if (eventType && eventType !== 'checkout.session.completed') {
+  const purchaseId = readRequiredString(obj, 'purchaseId', createParseError).trim();
+  const amountMinor = readRequiredInteger(obj, 'amountMinor', createParseError);
+  const reason = readRequiredString(obj, 'reason', createParseError).trim();
+  const idempotencyKey = readRequiredString(obj, 'idempotencyKey', createParseError).trim();
+  if (amountMinor <= 0) {
+    throw new ConsoleBillingError('invalid_body', 400, 'Field amountMinor must be positive');
+  }
+  if (!purchaseId || !reason || !idempotencyKey) {
     throw new ConsoleBillingError(
       'invalid_body',
       400,
-      `Unsupported Stripe eventType: ${eventType}`,
+      'Fields purchaseId, reason, and idempotencyKey are required',
     );
   }
+  return { purchaseId, amountMinor, reason, idempotencyKey };
+}
 
+export function parseBillingRefundReconcileRequest(body: unknown): BillingRefundReconcileRequest {
+  const obj = requireObject(body, createParseError);
   return {
-    eventId,
-    ...(eventType ? { eventType: 'checkout.session.completed' as const } : {}),
-    orgId: readOptionalString(obj, 'orgId'),
-    providerCustomerRef: readOptionalString(obj, 'providerCustomerRef'),
-    checkoutSessionId: readOptionalString(obj, 'checkoutSessionId'),
-    providerRef: readOptionalString(obj, 'providerRef'),
+    refundId: readRequiredString(obj, 'refundId', createParseError).trim(),
   };
 }
 

@@ -41,7 +41,7 @@ const migrationTargets = Object.freeze([
     profile: 'gateway',
     databaseName: 'seams-signer-staging',
     configField: 'gatewayConfigPath',
-    migrationsDir: '../sdk-server-ts/migrations/d1-signer',
+    migrationsDir: 'node_modules/@seams/sdk-server/migrations/d1-signer',
   }),
 ]);
 

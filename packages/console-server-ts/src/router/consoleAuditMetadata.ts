@@ -1,8 +1,4 @@
-import type {
-  BillingCreditPurchase,
-  BillingInvoice,
-  GenerateMonthlyInvoiceResult,
-} from '@seams-internal/console-server/billing';
+import type { GenerateMonthlyInvoiceResult } from '@seams-internal/console-server/billing';
 import type {
   ConsolePolicy,
   ConsolePolicyAssignment,
@@ -163,42 +159,7 @@ export function buildConsolePolicyAssignmentAuditEvent(input: {
   };
 }
 
-export function buildConsoleBillingCreditPurchaseSettledAuditEvent(input: {
-  purchase: BillingCreditPurchase;
-  invoice: BillingInvoice | null;
-  source: 'stripe_webhook' | 'stripe_checkout_reconcile';
-  settlementEventId?: string;
-}): {
-  summary: string;
-  metadata: Record<string, unknown>;
-} {
-  return {
-    summary: `Settled Stripe credit purchase ${input.purchase.id}`,
-    metadata: {
-      purchaseId: input.purchase.id,
-      creditPackId: input.purchase.creditPackId,
-      amountMinor: input.purchase.amountMinor,
-      currency: input.purchase.currency,
-      purchaseStatus: input.purchase.status,
-      provider: input.purchase.provider,
-      providerCheckoutSessionRef: input.purchase.providerCheckoutSessionRef,
-      ...(input.purchase.providerCustomerRef
-        ? { providerCustomerRef: input.purchase.providerCustomerRef }
-        : {}),
-      ...(input.purchase.relatedInvoiceId ? { relatedInvoiceId: input.purchase.relatedInvoiceId } : {}),
-      ...(input.purchase.settledAt ? { settledAt: input.purchase.settledAt } : {}),
-      settlementSource: input.source,
-      ...(input.settlementEventId ? { settlementEventId: input.settlementEventId } : {}),
-      ...(input.invoice
-        ? {
-            receiptId: input.invoice.id,
-            receiptStatus: input.invoice.status,
-            receiptDocumentType: input.invoice.documentType,
-          }
-        : {}),
-    },
-  };
-}
+export { buildConsoleBillingCreditPurchaseSettledAuditEvent } from '../billing/stripePostProcessing';
 
 export function buildConsoleBillingInvoiceGeneratedAuditEvent(input: {
   generation: GenerateMonthlyInvoiceResult;

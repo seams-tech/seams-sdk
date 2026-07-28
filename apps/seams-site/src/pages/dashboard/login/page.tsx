@@ -1,16 +1,18 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 import { FRONTEND_CONFIG } from '@/config';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { DashboardGoogleAuthCard } from '@/shared/auth/DashboardGoogleAuthCard';
-import SeamsLogo from '@/components/icons/SeamsLogo';
+import SeamsWordmark from '@/components/icons/SeamsWordmark';
 import {
   ensureGoogleIdentityScriptLoaded,
   fetchGoogleAuthOptions,
   requestGoogleIdToken,
 } from '@/shared/auth/googleIdentity';
-import '@/components/Navbar/Navbar.css';
-import { fetchDashboardConsoleSession } from '../consoleSession';
+import {
+  consumeDashboardConsoleSignOut,
+  fetchDashboardConsoleSession,
+} from '../consoleSession';
 import '../styles.css';
 
 function normalizeBaseUrl(input: unknown): string {
@@ -26,6 +28,8 @@ async function parseOptionalJson(response: Response): Promise<any> {
 export function DashboardLoginPage(): React.JSX.Element {
   const { go, linkProps } = useSiteRouter();
   const homeProps = linkProps('/');
+  const docsProps = linkProps('/docs');
+  const contactProps = linkProps('/contact');
   const relayerBaseUrl = React.useMemo(
     () => normalizeBaseUrl(FRONTEND_CONFIG.consoleBaseUrl || FRONTEND_CONFIG.relayerUrl),
     [],
@@ -35,9 +39,20 @@ export function DashboardLoginPage(): React.JSX.Element {
   const [loading, setLoading] = React.useState<boolean>(false);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [googleConfigured, setGoogleConfigured] = React.useState<boolean>(false);
+  const [signedOut, setSignedOut] = React.useState<boolean>(false);
 
   React.useEffect(() => {
     let cancelled = false;
+    /* Arriving here from an explicit sign-out: never auto-resume, even if the
+       session still validates (a revoke can fail server-side). Otherwise the
+       user is thrown straight back into the console they just left. */
+    if (consumeDashboardConsoleSignOut()) {
+      setSignedOut(true);
+      setInitializing(false);
+      return () => {
+        cancelled = true;
+      };
+    }
     fetchDashboardConsoleSession()
       .then(() => {
         if (cancelled) return;
@@ -143,56 +158,76 @@ export function DashboardLoginPage(): React.JSX.Element {
 
   return (
     <main className="dashboard-login" aria-label="Dashboard login page">
-      <a
-        className="dashboard-login__brand"
-        href={homeProps.href}
-        onClick={homeProps.onClick}
-        aria-label="Seams home"
-      >
-        <SeamsLogo size={68} />
-        <span>Seams Console</span>
-      </a>
-      <DashboardGoogleAuthCard
-        classNames={{
-          root: 'navbar-static__auth-modal',
-          header: 'navbar-static__auth-header',
-          heading: 'navbar-static__auth-heading',
-          eyebrow: 'navbar-static__auth-eyebrow',
-          copy: 'navbar-static__auth-copy',
-          provider: 'navbar-static__auth-provider',
-          providerIcon: 'navbar-static__auth-provider-icon',
-          providerBody: 'navbar-static__auth-provider-body',
-          providerLabel: 'navbar-static__auth-provider-label',
-          providerCopy: 'navbar-static__auth-provider-copy',
-          ctaButton: 'navbar-static__auth-google-button',
-          ctaIcon: 'navbar-static__auth-google-button-icon',
-          note: 'navbar-static__auth-note',
-          error: 'navbar-static__auth-error',
-        }}
-        titleId="dashboard-login-title"
-        titleTag="h1"
-        title="Sign In With Google"
-        description="Use Google SSO to enter the console. Wallet passkeys can be added later inside the dashboard when you create wallets for stablecoin billing."
-        providerLabel="Google SSO"
-        providerDescription="One secure sign-in to open the dashboard and start managing billing."
-        continueLabel={ctaLabel}
-        continueDisabled={initializing || loading || !googleConfigured}
-        onContinue={() => {
-          void onGoogleSignIn();
-        }}
-        note={footerNote}
-        errorMessage={errorMessage}
-        closeControl={
-          <a
-            className="navbar-static__auth-close"
-            href={homeProps.href}
-            onClick={homeProps.onClick}
-            aria-label="Back to site"
-          >
-            <X size={18} aria-hidden />
+      {/* Split layout: the sign-in column carries the whole flow, the aside is
+          static product framing that collapses away under 900px. */}
+      <section className="dashboard-login__panel">
+        <a
+          className="dashboard-login__brand"
+          href={homeProps.href}
+          onClick={homeProps.onClick}
+          aria-label="Seams home"
+        >
+          <SeamsWordmark height={24} theme="light" />
+          <span className="dashboard-login__brand-label">Console</span>
+        </a>
+        <div className="dashboard-login__body">
+          <DashboardGoogleAuthCard
+            classNames={{
+              root: 'dashboard-login__form',
+              header: 'dashboard-login__form-header',
+              heading: 'dashboard-login__form-heading',
+              eyebrow: 'dashboard-login__form-eyebrow',
+              copy: 'dashboard-login__form-copy',
+              ctaButton: 'dashboard-login__google-button',
+              ctaIcon: 'dashboard-login__google-button-icon',
+              note: 'dashboard-login__form-note',
+              error: 'dashboard-login__form-error',
+            }}
+            titleId="dashboard-login-title"
+            titleTag="h1"
+            title={signedOut ? 'Signed out' : 'Welcome back'}
+            description={
+              signedOut
+                ? 'You have been signed out of the Seams console.'
+                : 'Sign in to the Seams console'
+            }
+            continueLabel={ctaLabel}
+            continueDisabled={initializing || loading || !googleConfigured}
+            onContinue={() => {
+              void onGoogleSignIn();
+            }}
+            note={footerNote}
+            errorMessage={errorMessage}
+          />
+        </div>
+        <p className="dashboard-login__legal">
+          Don&rsquo;t have console access?{' '}
+          <a href={contactProps.href} onClick={contactProps.onClick}>
+            Contact sales
           </a>
-        }
-      />
+          .
+        </p>
+      </section>
+      <aside className="dashboard-login__aside" aria-label="About Seams">
+        <a
+          className="dashboard-login__aside-link"
+          href={docsProps.href}
+          onClick={docsProps.onClick}
+        >
+          <BookOpen size={16} aria-hidden />
+          <span>Documentation</span>
+        </a>
+        <div className="dashboard-login__aside-body">
+          <p className="dashboard-login__statement">Commerce accounts for people and AI agents</p>
+          <p className="dashboard-login__statement-sub">
+            Auth, wallets, credentials, and delegated access in one SDK. Policy checks every action
+            before it runs.
+          </p>
+          <span className="dashboard-login__aside-mark">
+            <SeamsWordmark height={20} theme="light" />
+          </span>
+        </div>
+      </aside>
     </main>
   );
 }

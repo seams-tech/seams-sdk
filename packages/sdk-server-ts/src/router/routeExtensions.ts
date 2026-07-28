@@ -1,4 +1,4 @@
-import { defineRoute, type RouteDefinition } from './routeDefinitions';
+import { defineRouteExtension, type RouteDefinition } from './routeDefinitions';
 import type { NormalizedRouterLogger } from './logger';
 
 export type RouterApiRouteExtensionTransport = 'cloudflare';
@@ -55,7 +55,7 @@ export function getRouterApiRouteExtensionRoutes(
 
   return Object.freeze(
     extension.routes.map((route) => {
-      const normalized = defineRoute(route);
+      const normalized = defineRouteExtension(route);
       if (normalized.surface !== 'relay') {
         throw new Error(
           `Router API route extension ${extensionId} route ${normalized.id} must use Router API surface`,

@@ -91,6 +91,7 @@ import type {
 import {
   ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
   type RouterAbEd25519YaoApplicationBindingFactsV1,
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoBytes32V1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoRecoveryActivationReceiptV1,
@@ -624,6 +625,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       rootHandle: EmailOtpEd25519YaoRootHandle;
       admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+      admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
       walletId: string;
       providerSubject: string;
       registrationAuthorityId: string;
@@ -638,6 +640,13 @@ export interface EmailOtpWorkerOperationMap {
         lifecycle_id: string;
         session_id: readonly number[];
       };
+      /**
+       * Yao timing breakdown observed inside the worker. Email OTP runs its
+       * ceremony here, so this is how the Router's `Server-Timing` reaches the
+       * main thread. Diagnostics only, and always optional.
+       */
+      routerServerTiming?: string;
+      clientTimings?: { admissionMs: number; sessionCreateMs: number };
     };
   };
   commitEmailOtpEd25519YaoRegistration: {

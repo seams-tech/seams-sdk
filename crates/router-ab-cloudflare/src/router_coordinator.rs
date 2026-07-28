@@ -6,9 +6,9 @@ use crate::{
     parse_cloudflare_deriver_peer_verifying_key_set_v1, parse_cloudflare_trace_id_from_request_v1,
     require_cloudflare_internal_service_auth_request_v1,
     set_cloudflare_internal_service_auth_header_v1, set_cloudflare_trace_id_header_v1,
-    CloudflareEd25519YaoPackagePairDeliveryV1, CloudflareEd25519YaoPairCompletionAcknowledgementV1,
-    CloudflareEd25519YaoPairExecuteRequestV1, CloudflareEd25519YaoPairPrepareRequestV1,
-    CloudflareEd25519YaoPairStatusResponseV1, CloudflareEd25519YaoReadCompletedPairRequestV1,
+    CloudflareEd25519YaoPackagePairDeliveryV1, CloudflareEd25519YaoPairExecuteRequestV1,
+    CloudflareEd25519YaoPairExecuteResponseV1, CloudflareEd25519YaoPairLookupRequestV1,
+    CloudflareEd25519YaoPairPrepareRequestV1, CloudflareEd25519YaoPairStatusResponseV1,
     CloudflareEd25519YaoRoleFailureResponseV1, CloudflareRouterWorkerRuntimeV1,
     CloudflareWorkerEnvReaderV1, CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
@@ -16,7 +16,6 @@ use crate::{
     CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH,
-    CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
@@ -42,6 +41,27 @@ const SIGNING_WORKER_SERVICE_URL: &str = "https://router-ab-signing-worker.inter
 const ROUTER_SPAN_EVENT: &str = "router_ab_yao_coordinator_span_v1";
 const ROUTER_REPLAY_HEADER: &str = "x-seams-yao-replay";
 const ROUTER_AUTHORITY_TTL_MS: u64 = 60_000;
+
+#[derive(Default)]
+struct RouterExecutionTimingV1 {
+    prepare_pair_ms: u64,
+    verify_readiness_ms: u64,
+    role_execution_ms: u64,
+    signing_worker_delivery_ms: u64,
+}
+
+impl RouterExecutionTimingV1 {
+    fn server_timing(&self) -> String {
+        format!(
+            "yao_router_prepare_pair;dur={}, yao_router_verify_readiness;dur={}, \
+             yao_router_role_execution;dur={}, yao_router_signing_worker_delivery;dur={}",
+            self.prepare_pair_ms,
+            self.verify_readiness_ms,
+            self.role_execution_ms,
+            self.signing_worker_delivery_ms,
+        )
+    }
+}
 
 enum RouterRoleCallError {
     Protocol(RouterAbProtocolError),
@@ -148,8 +168,17 @@ pub async fn handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(
         "success",
     );
     let started_at_ms = now_ms;
-    let result =
-        execute_router_ceremony_v1(env, &runtime, execute_request, now_ms, trace_id, replay).await;
+    let mut timing = RouterExecutionTimingV1::default();
+    let result = execute_router_ceremony_v1(
+        env,
+        &runtime,
+        execute_request,
+        now_ms,
+        trace_id,
+        replay,
+        &mut timing,
+    )
+    .await;
     emit_span(
         trace_id,
         "router.yao_execute",
@@ -157,10 +186,14 @@ pub async fn handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(
         started_at_ms,
         if result.is_ok() { "success" } else { "failure" },
     );
-    match result {
-        Ok(result) => Response::from_json(&result),
-        Err(error) => protocol_error_response(error),
-    }
+    let response = match result {
+        Ok(result) => Response::from_json(&result)?,
+        Err(error) => protocol_error_response(error)?,
+    };
+    response
+        .headers()
+        .set("Server-Timing", &timing.server_timing())?;
+    Ok(response)
 }
 
 fn router_recipient_set_digest_v1(env: &Env) -> RouterAbProtocolResult<PublicDigest32> {
@@ -237,6 +270,7 @@ async fn execute_router_ceremony_v1(
     now_ms: u64,
     trace_id: Option<crate::CloudflareTraceIdV1>,
     replay: bool,
+    timing: &mut RouterExecutionTimingV1,
 ) -> RouterAbProtocolResult<RouterEd25519YaoExecuteResultV1> {
     request.authority().validate_at(now_ms)?;
     request.pair_binding().validate()?;
@@ -247,9 +281,16 @@ async fn execute_router_ceremony_v1(
     let pair_binding = request.pair_binding().clone();
 
     if replay {
-        if let Some(result) =
-            reconcile_router_replay_v1(env, runtime, &request, &binding, &pair_binding, trace_id)
-                .await?
+        if let Some(result) = reconcile_router_replay_v1(
+            env,
+            runtime,
+            &request,
+            &binding,
+            &pair_binding,
+            trace_id,
+            timing,
+        )
+        .await?
         {
             return Ok(result);
         }
@@ -258,7 +299,7 @@ async fn execute_router_ceremony_v1(
     let prepare_started_at_ms = cloudflare_now_unix_ms_v1()?;
     let prepare_request_a = CloudflareEd25519YaoPairPrepareRequestV1 {
         pair_binding: pair_binding.clone(),
-        input: input_a,
+        input: input_a.clone(),
     };
     let prepare_request_b = CloudflareEd25519YaoPairPrepareRequestV1 {
         pair_binding: pair_binding.clone(),
@@ -306,6 +347,7 @@ async fn execute_router_ceremony_v1(
         prepare_started_at_ms,
         "success",
     );
+    timing.prepare_pair_ms = cloudflare_now_unix_ms_v1()?.saturating_sub(prepare_started_at_ms);
     let readiness_now_ms = cloudflare_now_unix_ms_v1()?;
     let readiness_started_at_ms = cloudflare_now_unix_ms_v1()?;
     let readiness_result = validate_readiness(
@@ -335,9 +377,14 @@ async fn execute_router_ceremony_v1(
             "failure"
         },
     );
+    timing.verify_readiness_ms =
+        cloudflare_now_unix_ms_v1()?.saturating_sub(readiness_started_at_ms);
     readiness_result?;
     let execute_started_at_ms = cloudflare_now_unix_ms_v1()?;
-    let execution = match post_role_json_for_ceremony_with_span::<_, Ed25519YaoRoleExecutionV1>(
+    let execution = match post_role_json_for_ceremony_with_span::<
+        _,
+        CloudflareEd25519YaoPairExecuteResponseV1,
+    >(
         env,
         runtime.deriver_a_peer().binding_name.as_str(),
         DERIVER_A_SERVICE_URL,
@@ -345,6 +392,8 @@ async fn execute_router_ceremony_v1(
         "Deriver A pair execution",
         &CloudflareEd25519YaoPairExecuteRequestV1 {
             pair_binding: pair_binding.clone(),
+            input: input_a,
+            local_receipt: receipt_a,
             peer_receipt: receipt_b,
         },
         trace_id,
@@ -365,9 +414,9 @@ async fn execute_router_ceremony_v1(
             return resolve_role_call_error(error, &pair_binding);
         }
     };
-    let execution_validation = match execution.validate() {
+    let execution_validation = match execution.deriver_a_execution.validate() {
         Ok(()) => validate_execution(
-            &execution,
+            &execution.deriver_a_execution,
             Ed25519YaoDeriverRoleV1::DeriverA,
             &binding,
             None,
@@ -385,56 +434,14 @@ async fn execute_router_ceremony_v1(
             "failure"
         },
     );
+    timing.role_execution_ms = cloudflare_now_unix_ms_v1()?.saturating_sub(execute_started_at_ms);
     execution_validation?;
 
-    let transcript = execution_transcript(&execution);
-    let completed_read_started_at_ms = cloudflare_now_unix_ms_v1()?;
-    let completed_b = post_role_json_for_ceremony_with_span::<
-        _,
-        CloudflareEd25519YaoPairCompletionAcknowledgementV1,
-    >(
-        env,
-        runtime.deriver_b_peer().binding_name.as_str(),
-        DERIVER_B_SERVICE_URL,
-        CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH,
-        "Deriver B completed pair read",
-        &CloudflareEd25519YaoReadCompletedPairRequestV1 {
-            session: pair_binding.session(),
-            pair_digest: pair_binding.pair_digest().bytes,
-        },
-        trace_id,
-        "router.deriver_b_completed_read.http",
-        operation_label(operation),
+    let transcript = execution_transcript(&execution.deriver_a_execution);
+    let completed_b = serde_json::from_str::<Ed25519YaoRoleExecutionV1>(
+        &execution.deriver_b_sealed_execution_json,
     )
-    .await;
-    let completed_b = match completed_b {
-        Ok(acknowledgement) => {
-            let result = acknowledgement.validate_for_request(
-                &CloudflareEd25519YaoReadCompletedPairRequestV1 {
-                    session: pair_binding.session(),
-                    pair_digest: pair_binding.pair_digest().bytes,
-                },
-            );
-            emit_span(
-                trace_id,
-                "router.deriver_b_completed_read",
-                operation_label(operation),
-                completed_read_started_at_ms,
-                if result.is_ok() { "success" } else { "failure" },
-            );
-            result?
-        }
-        Err(error) => {
-            emit_span(
-                trace_id,
-                "router.deriver_b_completed_read",
-                operation_label(operation),
-                completed_read_started_at_ms,
-                "failure",
-            );
-            return resolve_role_call_error(error, &pair_binding);
-        }
-    };
+    .map_err(|_| invalid_coordinator("Deriver B sealed execution is malformed"))?;
     validate_execution(
         &completed_b,
         Ed25519YaoDeriverRoleV1::DeriverB,
@@ -447,9 +454,10 @@ async fn execute_router_ceremony_v1(
         runtime,
         &request,
         &binding,
-        execution,
+        execution.deriver_a_execution,
         completed_b,
         trace_id,
+        timing,
     )
     .await
 }
@@ -461,6 +469,7 @@ async fn reconcile_router_replay_v1(
     binding: &router_ab_core::Ed25519YaoCeremonyBindingV1,
     pair_binding: &Ed25519YaoInputPairBindingV1,
     trace_id: Option<crate::CloudflareTraceIdV1>,
+    timing: &mut RouterExecutionTimingV1,
 ) -> RouterAbProtocolResult<Option<RouterEd25519YaoExecuteResultV1>> {
     let reconciliation_started_at_ms = cloudflare_now_unix_ms_v1()?;
     let statuses = futures::try_join!(
@@ -531,6 +540,7 @@ async fn reconcile_router_replay_v1(
             execution_a,
             execution_b,
             trace_id,
+            timing,
         )
         .await
         .map(Some);
@@ -620,7 +630,7 @@ async fn read_pair_status_v1(
         service_origin,
         path,
         label,
-        &CloudflareEd25519YaoReadCompletedPairRequestV1 {
+        &CloudflareEd25519YaoPairLookupRequestV1 {
             session: pair_binding.session(),
             pair_digest: pair_binding.pair_digest().bytes,
         },
@@ -644,7 +654,7 @@ async fn burn_pair_v1(
         service_origin,
         path,
         label,
-        &CloudflareEd25519YaoReadCompletedPairRequestV1 {
+        &CloudflareEd25519YaoPairLookupRequestV1 {
             session: pair_binding.session(),
             pair_digest: pair_binding.pair_digest().bytes,
         },
@@ -661,6 +671,7 @@ async fn finalize_router_result_v1(
     execution: Ed25519YaoRoleExecutionV1,
     completed_b: Ed25519YaoRoleExecutionV1,
     trace_id: Option<crate::CloudflareTraceIdV1>,
+    timing: &mut RouterExecutionTimingV1,
 ) -> RouterAbProtocolResult<RouterEd25519YaoExecuteResultV1> {
     let operation = request.operation();
     let success = match operation {
@@ -684,6 +695,8 @@ async fn finalize_router_result_v1(
             .await;
             let worker_response = match worker_response {
                 Ok(receipt) => {
+                    timing.signing_worker_delivery_ms =
+                        cloudflare_now_unix_ms_v1()?.saturating_sub(delivery_started_at_ms);
                     emit_span(
                         trace_id,
                         "router.signing_worker_delivery",
@@ -694,6 +707,8 @@ async fn finalize_router_result_v1(
                     receipt
                 }
                 Err(error) => {
+                    timing.signing_worker_delivery_ms =
+                        cloudflare_now_unix_ms_v1()?.saturating_sub(delivery_started_at_ms);
                     emit_span(
                         trace_id,
                         "router.signing_worker_delivery",

@@ -3,14 +3,14 @@
     "branch": "dev",
     "origins": {
       "gateway": "https://seams-sdk-d1-gateway-staging.n6378056.workers.dev",
-      "site": "https://seams-site-staging.pages.dev",
-      "wallet": "https://seams-wallet-staging.pages.dev"
+      "site": "https://staging.seams.sh",
+      "wallet": "https://staging.sign.seams.sh"
     },
     "resources": {
       "gateway": {
         "workerName": "seams-sdk-d1-gateway-staging",
-        "consoleD1Name": "seams-console-staging",
-        "signerD1Name": "seams-signer-staging"
+        "consoleD1Name": "seams-console-staging-nrt",
+        "signerD1Name": "seams-signer-staging-nrt"
       },
       "router": {
         "workerName": "router-ab-mpc-router-staging",
@@ -54,7 +54,9 @@
       "billing": {
         "enabled": true,
         "owner": "gateway",
-        "secrets": ["STRIPE_API_SK"]
+        "secrets": [
+          "STRIPE_API_SK"
+        ]
       },
       "sponsoredExecution": {
         "enabled": true,
@@ -124,7 +126,9 @@
       "billing": {
         "enabled": true,
         "owner": "gateway",
-        "secrets": ["STRIPE_API_SK"]
+        "secrets": [
+          "STRIPE_API_SK"
+        ]
       },
       "sponsoredExecution": {
         "enabled": true,

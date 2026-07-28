@@ -1,6 +1,6 @@
 # Dashboard + Backend Implementation Plan
 
-Date updated: March 10, 2026
+Date updated: July 26, 2026
 
 ## Objective
 
@@ -37,7 +37,7 @@ This plan assumes:
   Postgres escape hatch must migrate console, signer, and coordination semantics
   together rather than reviving partial console-only adapters.
 
-## Current State (as of February 27, 2026)
+## Current State (as of July 26, 2026)
 
 Frontend:
 
@@ -54,7 +54,7 @@ Backend:
 - Org/project/environment metadata APIs are implemented.
 - Wallet-index console APIs are implemented.
 
-## Status Snapshot (as of February 27, 2026)
+## Status Snapshot (as of July 26, 2026)
 
 Completed:
 
@@ -109,22 +109,27 @@ Completed:
   - mutation RBAC enforced (`admin` or `owner` for project/environment mutations).
   - focused parser/service tests cover status-filter normalization/validation and in-memory filter semantics.
   - D1-backed org-isolation route tests are implemented for Express and Cloudflare adapters.
-- Team/RBAC backend slice is implemented (in-memory service + router contracts):
-  - `GET /console/members`
-  - `POST /console/members/invite`
-  - `PATCH /console/members/:id/roles`
-  - `DELETE /console/members/:id`
-  - role-scope validation is enforced for org-scoped (`owner`, `admin`, `security_admin`, `billing_admin`) and project-scoped (`developer`, `support`, `ops`) assignments.
-  - mutation RBAC is enforced (`admin` or `owner` for invite/role-update/remove).
-  - relayer route coverage is implemented for Express and Cloudflare adapters (success paths, validation errors, and mutation-forbidden checks).
-  - D1-backed Team/RBAC persistence is implemented (`team_members`) and covered by Express + Cloudflare org-isolation route tests.
+- Organization access is implemented with the GitHub-style multi-owner model:
+  - `GET /console/organization/memberships`
+  - `GET/POST /console/organization/invitations`
+  - `POST /console/organization/invitations/:invitationId/resend`
+  - `DELETE /console/organization/invitations/:invitationId`
+  - `POST /console/account/invitations/:invitationId/accept`
+  - `POST /console/account/invitations/:invitationId/decline`
+  - membership role, administrator permission, suspend/reactivate/remove, project assignment, and leave routes under `/console/organization/*`
+  - every organization retains at least one owner; multiple owners are equal and a transfer-owner operation does not exist.
+  - administrator capabilities use only `members.manage`, `projects.manage`, `billing.view`, and `billing.manage`.
+  - members receive explicit per-project `viewer` or `editor` access.
+  - D1 persistence uses `organization_memberships`, `organization_admin_permissions`,
+    `organization_invitations`, `project_member_access`, and `organization_owner_events`.
+  - Express and Cloudflare adapters use the same route-policy evaluator and authorization-version refresh.
 - Approval queue backend slice is implemented (in-memory + D1 service + router contracts):
   - `GET /console/approvals`
   - `GET /console/approvals/:id`
   - `POST /console/approvals`
   - `POST /console/approvals/:id/approve`
   - `POST /console/approvals/:id/reject`
-  - mutation RBAC is enforced (`owner`, `admin`, or `security_admin` for create/approve/reject).
+  - mutation access is enforced for owners, administrators, and assigned project editors.
   - operation defaults are implemented (`POLICY_PUBLISH`, `KEY_EXPORT`) with per-operation approval/MFA defaults.
   - D1-backed approval persistence is implemented (`approvals`).
   - relayer route coverage is implemented for Express and Cloudflare adapters (`*_not_configured`, mutation-forbidden checks, MFA-required checks, and state-transition behavior), including D1 org-isolation route tests.
@@ -144,13 +149,11 @@ Completed:
     - policy publish,
     - key export approval.
   - relayer route coverage now includes service-not-wired behavior, filtered list success paths, and approval-create -> audit-event projection for Express + Cloudflare adapters.
-- Dashboard Team members and roles page now consumes live Team/RBAC APIs:
-  - `GET /console/members`
-  - `POST /console/members/invite`
-  - `PATCH /console/members/:id/roles`
-  - `DELETE /console/members/:id`
-  - role-spec driven invite/update/remove actions are wired with owner/admin mutation gating.
-  - browser-level API wiring coverage validates invite -> role update -> remove and status-filter refresh behavior.
+- Dashboard Team members uses the organization membership and invitation APIs:
+  - owners can invite owners, administrators, and members, then manage accepted memberships.
+  - administrator permission controls expose the same four capabilities enforced by the server.
+  - member project assignments expose only `viewer` and `editor`.
+  - the page lists all owners and recommends adding a second owner.
 - Account settings backend slice is implemented (in-memory + D1 service + router contracts):
   - `GET /console/account/profile`
   - `PATCH /console/account/profile`
@@ -158,12 +161,11 @@ Completed:
   - `POST /console/account/organizations`
   - `PATCH /console/account/organizations/:orgId`
   - `DELETE /console/account/organizations/:orgId`
-  - `POST /console/account/organizations/:orgId/transfer-owner`
   - `POST /console/account/organizations/:orgId/switch-context`
   - account org creation reuses the onboarding org bootstrap path instead of duplicating owner/bootstrap logic.
   - empty-org deletion is implemented with owner-only, non-current-org, no-other-members, and no-wallets guardrails.
   - D1-backed account persistence is implemented with `user_profiles`, `user_backup_emails`, and `organizations.created_by_user_id`.
-  - focused relayer route coverage is implemented for Express and Cloudflare adapters, including owner transfer and context-switch session re-signing.
+  - ownership changes use organization invitations and membership role changes; focused relayer coverage includes context-switch session re-signing.
 - Wallet backend slice is implemented:
   - `GET /console/wallets`
   - `GET /console/wallets/search`
@@ -179,7 +181,7 @@ Completed:
   - `GET /console/policies/assignments`
   - `PUT /console/policies/assignments`
   - `DELETE /console/policies/assignments/:id`
-  - mutation RBAC is enforced for policy create/update/publish (`owner`, `admin`, `security_admin`).
+  - mutation access is enforced for owners, administrators, and assigned project editors.
   - route coverage now includes policy lifecycle and org-isolation tests for Express and Cloudflare adapters.
   - D1 policy persistence is implemented (`policies`, `policy_versions`), including default-policy bootstrap and publish-version snapshots.
   - policy assignment persistence is implemented (`policy_assignments`) with precedence resolver (`WALLET` > `ENVIRONMENT` > `PROJECT` > `ORG`).
@@ -216,7 +218,6 @@ Completed:
   - `GET/POST /console/account/organizations`
   - `PATCH /console/account/organizations/:orgId`
   - `DELETE /console/account/organizations/:orgId`
-  - `POST /console/account/organizations/:orgId/transfer-owner`
   - `POST /console/account/organizations/:orgId/switch-context`
   - topbar account-menu cutover now routes directly to `/dashboard/account-settings`.
   - `/dashboard/account-settings` remains reachable while onboarding is incomplete.
@@ -241,7 +242,7 @@ Completed:
   - project environment counts are sourced from `/console/projects` aggregate fields (`environmentCount`), avoiding extra all-environments scans for count-only rendering.
   - app-settings hierarchy decision logic (project/environment scope resolution + active-project-only environment creation guard) is covered by dedicated unit tests.
   - browser-level app-settings flow coverage validates archived toggles and active-project-only environment creation selection/guard behavior.
-  - settings mutation controls are gated in UI to `owner`/`admin`/`security_admin` roles to match backend RBAC.
+  - settings mutation controls use the same owner, administrator, and project-editor rule as the backend.
 - Dedicated console insight APIs are implemented for policy/gas/export workflows:
   - `GET /console/policy/coverage`
   - `GET /console/gas/readiness`
@@ -361,9 +362,10 @@ Recently completed hardening:
 4. Approval defaults:
    - policy publish: `1 admin`
    - key export: `2 admin + MFA + reason`
-5. Role scope model: hybrid
-   - org-scoped roles: `owner`, `admin`, `security_admin`, `billing_admin`
-   - project-scoped roles: `developer`, `support`, `ops`
+5. Organization access model:
+   - one or more equal owners with full access
+   - administrators with the four fixed organization permissions
+   - members with explicit project `viewer` or `editor` access
 6. Retention defaults:
    - runtime + webhook: `180d` hot + `2y` archive
    - billing + payments + audit: `7y`

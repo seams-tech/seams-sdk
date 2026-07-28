@@ -25,6 +25,7 @@ import {
   type WalletId,
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   deriveSigningRootId,
@@ -81,6 +82,8 @@ import type { RouterAbNormalSigningRuntime } from '../../core/routerAbSigning/Ro
 import type { AuthorizationService } from '../../authorization/service';
 import { parseEcdsaDerivationPublicIdentity } from '../../core/ThresholdService/validation';
 import {
+  routerAbEcdsaStrictRegistrationFactsBindingJson,
+  routerAbEcdsaStrictRegistrationRequestBindingJson,
   routerAbEcdsaStrictRegistrationRequestMatchesFacts,
   type RouterAbEcdsaStrictRegistrationPort,
 } from '../routerAbEcdsaStrictRegistration';
@@ -94,6 +97,7 @@ import {
   buildStoredWalletRegistrationPreparedContext,
   buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch,
   buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch,
+  buildStoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch,
   findStoredWalletRegistrationEvmFamilyEcdsaBranch,
   findStoredWalletRegistrationNearEd25519YaoBranch,
   replaceStoredWalletRegistrationSignerBranch,
@@ -312,7 +316,12 @@ function walletRegistrationStartResponseFromCeremony(
     intent: ceremony.intent,
     ...(diagnostics ? { registrationDiagnostics: diagnostics } : {}),
   };
-  const ed25519 = nearBranch ? { admissionRequest: nearBranch.admissionRequest } : null;
+  const ed25519 = nearBranch
+    ? {
+        admissionRequest: nearBranch.admissionRequest,
+        admissionReceipt: nearBranch.admissionReceipt,
+      }
+    : null;
   const ecdsa = ecdsaBranch
     ? {
         kind: ecdsaBranch.derivationKind,
@@ -948,18 +957,52 @@ function sponsoredNamedRegistrationAccountId(
   }
 }
 
-function finalizeSignerWorkMatchesPlan(input: {
+/**
+ * A mixed plan finalizes in two calls: `evm_family_ecdsa` first, which returns
+ * the wallet ECDSA-ready and leaves the ceremony open, then `near_ed25519`
+ * once the Yao ceremony settles (Refactor 94 Phase 4+5). Single-signer plans
+ * still finalize in one call.
+ *
+ * The requested kind must name only branches the plan admitted, and must be
+ * legal for the progress those branches have made — a `near_ed25519` call on a
+ * mixed plan before the ECDSA commit is durable would return a NEAR-ready
+ * wallet whose ECDSA signer does not exist.
+ */
+function finalizeSignerWorkSequenceFailure(input: {
   readonly request: FinalizeWalletRegistrationInput;
   readonly hasNearEd25519: boolean;
   readonly hasEvmFamilyEcdsa: boolean;
-}): boolean {
+  readonly ecdsaFinalized: boolean;
+}): { readonly code: 'invalid_body' | 'invalid_state'; readonly message: string } | null {
   switch (input.request.kind) {
     case 'near_ed25519':
-      return input.hasNearEd25519 && !input.hasEvmFamilyEcdsa;
+      if (!input.hasNearEd25519) {
+        return {
+          code: 'invalid_body',
+          message: 'registration plan has no Ed25519 signer to finalize',
+        };
+      }
+      if (input.hasEvmFamilyEcdsa && !input.ecdsaFinalized) {
+        return {
+          code: 'invalid_state',
+          message: 'ECDSA finalize must complete before the Ed25519 finalize',
+        };
+      }
+      return null;
     case 'evm_family_ecdsa':
-      return !input.hasNearEd25519 && input.hasEvmFamilyEcdsa;
-    case 'near_ed25519_and_evm_family_ecdsa':
-      return input.hasNearEd25519 && input.hasEvmFamilyEcdsa;
+      if (!input.hasEvmFamilyEcdsa) {
+        return {
+          code: 'invalid_body',
+          message: 'registration plan has no ECDSA signer to finalize',
+        };
+      }
+      if (input.ecdsaFinalized) {
+        return {
+          code: 'invalid_state',
+          message: 'ECDSA finalize has already completed for this ceremony',
+        };
+      }
+      return null;
   }
 }
 
@@ -1170,6 +1213,47 @@ function buildPostRegistrationEcdsaNormalSigningState(input: {
     throw new Error('registered ECDSA normal-signing state is invalid');
   }
   return state;
+}
+
+/**
+ * Upper bound on Router metrics folded into one Gateway header. The Router is
+ * ours, but a merged header grows at every hop, so the fold is bounded rather
+ * than trusting the peer to stay terse.
+ */
+const ROUTER_SERVER_TIMING_MERGE_LIMIT = 32;
+
+/** Metric names the Gateway is willing to re-emit in its own header. */
+const ROUTER_SERVER_TIMING_NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Folds the Router's own `Server-Timing` header into the Gateway's span list
+ * (Refactor 94B Phase 0), so the Router and role-worker breakdown reaches the
+ * browser on the same header as the Gateway's own boundaries.
+ *
+ * Entries without a finite non-negative `dur` are dropped, which also discards
+ * Cloudflare's descriptive metrics, and names are restricted to a token
+ * charset so a metric name can never forge extra entries downstream.
+ */
+export function mergeRouterServerTiming(
+  target: Array<readonly [string, number]>,
+  header: string,
+): void {
+  let merged = 0;
+  for (const entry of header.split(',')) {
+    if (merged >= ROUTER_SERVER_TIMING_MERGE_LIMIT) return;
+    const parts = entry.split(';');
+    const name = String(parts[0] || '').trim();
+    if (!ROUTER_SERVER_TIMING_NAME_PATTERN.test(name)) continue;
+    for (const part of parts.slice(1)) {
+      const [key, rawValue] = part.split('=');
+      if (String(key || '').trim() !== 'dur') continue;
+      const duration = Number(String(rawValue || '').trim());
+      if (!Number.isFinite(duration) || duration < 0) break;
+      target.push([name, duration]);
+      merged += 1;
+      break;
+    }
+  }
 }
 
 export class CloudflareD1WalletRegistrationService {
@@ -2085,18 +2169,19 @@ export class CloudflareD1WalletRegistrationService {
         branch: nearEd25519Branch,
         signingWorkerId: yaoRuntime.signingWorkerId,
       });
-      const bound = await yaoRuntime.bindVerifiedIntent({
+      const admitted = await yaoRuntime.bindAndAdmitVerifiedRegistration({
         kind: 'verified_registration_intent',
         registrationIntentGrant: storedIntent.grant,
         intent: storedIntent.intent,
         admissionRequest,
         expiresAtMs: prepared.expiresAtMs,
       });
-      if (!bound.ok) return rejectedWalletRegistrationStartResult(bound);
+      if (!admitted.ok) return rejectedWalletRegistrationStartResult(admitted);
       storedBranches.push(
         buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch({
           branchKey: nearEd25519Branch.branchKey,
           admissionRequest,
+          admissionReceipt: admitted.value,
         }),
       );
     }
@@ -2134,7 +2219,16 @@ export class CloudflareD1WalletRegistrationService {
       storedBranches.push(
         buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch({
           branchKey: ecdsaBranch.branchKey,
-          ecdsa: ecdsaPrepared.ecdsa,
+          ecdsa: {
+            kind: ecdsaPrepared.ecdsa.kind,
+            chainTargets: ecdsaPrepared.ecdsa.chainTargets,
+            prepare: ecdsaPrepared.ecdsa.prepare,
+            strictRegistration: ecdsaPrepared.ecdsa.strictRegistration,
+            strictRegistrationBindingJson:
+              routerAbEcdsaStrictRegistrationFactsBindingJson(
+                ecdsaPrepared.ecdsa.strictRegistration,
+              ),
+          },
         }),
       );
     }
@@ -2165,81 +2259,116 @@ export class CloudflareD1WalletRegistrationService {
 
   async respondWalletRegistrationEcdsaDerivation(
     request: RespondWalletRegistrationDerivationInput,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<WalletRegistrationEcdsaDerivationRespondResponse> {
+    /* Gateway boundary timings; the route strips these into a Server-Timing
+       header, so nothing here reaches the wire body. Fixed names + numeric
+       durations only. */
+    const serverTiming: Array<readonly [string, number]> = [];
+    const totalStartedAtMs = Date.now();
+    const markServerTiming = (name: string, startedAtMs: number): void => {
+      serverTiming.push([name, Math.max(0, Date.now() - startedAtMs)]);
+    };
+    const withServerTiming = <T extends { ok: true }>(response: T): T => {
+      markServerTiming('ecdsa_respond_total', totalStartedAtMs);
+      return { ...response, gatewayServerTiming: serverTiming };
+    };
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      const ceremony = await store.getCeremony(request.registrationCeremonyId);
-      if (!ceremony) {
-        return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
-      }
-      if (!registrationCeremonyWalletsMatch({ ceremony })) {
-        return {
-          ok: false,
-          code: 'scope_mismatch',
-          message: 'registration ceremony walletId mismatch',
-        };
-      }
-      if (ceremony.signerState.kind !== 'signer_set_registration') {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'signer-set registration state is required',
-        };
-      }
-      const signerBranches = registrationSignerBranchesFromPlan(ceremony.signerPlan);
-      if (!signerBranches.evmFamilyEcdsa) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'registration signer set does not accept ECDSA registration input',
-        };
-      }
-      const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
-      if (ecdsaBranch?.kind === 'evm_family_ecdsa_pending_activation') {
+      const strictRegistrationBindingJson =
+        routerAbEcdsaStrictRegistrationRequestBindingJson(request.ecdsa.strictRegistration);
+      const claimStartedAtMs = Date.now();
+      let claimed = await store.claimEcdsaRespond({
+        registrationCeremonyId: request.registrationCeremonyId,
+        strictRegistrationBindingJson,
+        registrationRequest: request.ecdsa.strictRegistration,
+      });
+      markServerTiming('ecdsa_respond_d1_claim', claimStartedAtMs);
+      if (!claimed) {
+        const reconcileStartedAtMs = Date.now();
+        const existing = await store.getCeremonySnapshot(request.registrationCeremonyId);
+        markServerTiming('ecdsa_respond_reconcile', reconcileStartedAtMs);
+        if (!existing) {
+          return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
+        }
+        const ceremony = existing.ceremony;
         if (
-          !routerAbEcdsaStrictRegistrationRequestMatchesFacts({
-            request: request.ecdsa.strictRegistration,
-            facts: ecdsaBranch.strictRegistration,
-          })
+          !registrationCeremonyWalletsMatch({ ceremony }) ||
+          ceremony.signerState.kind !== 'signer_set_registration'
+        ) {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'signer-set registration state is required',
+          };
+        }
+        const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(
+          ceremony.signerState,
+        );
+        if (ecdsaBranch?.kind === 'evm_family_ecdsa_pending_activation') {
+          if (
+            alphabetizeStringify(ecdsaBranch.registrationRequest) !==
+            alphabetizeStringify(request.ecdsa.strictRegistration)
+          ) {
+            return {
+              ok: false,
+              code: 'scope_mismatch',
+              message: 'ECDSA registration replay changed the exact request',
+            };
+          }
+          return withServerTiming({
+            ok: true,
+            registrationCeremonyId: ceremony.registrationCeremonyId,
+            ecdsa: {
+              kind: 'router_ab_ecdsa_registration_forwarded_v1',
+              strictResult: ecdsaBranch.publicResponse,
+            },
+          } as const);
+        }
+        if (ecdsaBranch?.kind !== 'evm_family_ecdsa_response_claimed') {
+          const bindingMatches =
+            ecdsaBranch?.strictRegistrationBindingJson === strictRegistrationBindingJson;
+          return {
+            ok: false,
+            code: bindingMatches ? 'invalid_state' : 'scope_mismatch',
+            message: bindingMatches
+              ? 'ECDSA registration response is not claimable'
+              : 'ECDSA registration request does not match the admitted ceremony facts',
+          };
+        }
+        if (
+          alphabetizeStringify(ecdsaBranch.registrationRequest) !==
+          alphabetizeStringify(request.ecdsa.strictRegistration)
         ) {
           return {
             ok: false,
             code: 'scope_mismatch',
-            message: 'ECDSA registration replay changed the admitted ceremony facts',
+            message: 'ECDSA registration claim belongs to a different exact request',
           };
         }
-        return {
-          ok: true,
-          registrationCeremonyId: ceremony.registrationCeremonyId,
-          ecdsa: {
-            kind: 'router_ab_ecdsa_registration_forwarded_v1',
-            strictResult: ecdsaBranch.publicResponse,
-          },
-        };
+        claimed = existing;
       }
-      if (!ecdsaBranch || ecdsaBranch.kind !== 'evm_family_ecdsa_prepared') {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'one prepared ECDSA family registration is required',
-        };
+      const ceremony = claimed.ceremony;
+      if (ceremony.signerState.kind !== 'signer_set_registration') {
+        throw new Error('Claimed ECDSA registration ceremony has an invalid signer state');
       }
-      if (
-        !routerAbEcdsaStrictRegistrationRequestMatchesFacts({
-          request: request.ecdsa.strictRegistration,
-          facts: ecdsaBranch.strictRegistration,
-        })
-      ) {
-        return {
-          ok: false,
-          code: 'scope_mismatch',
-          message: 'ECDSA registration request does not match the admitted ceremony facts',
-        };
+      const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(
+        ceremony.signerState,
+      );
+      if (!ecdsaBranch || ecdsaBranch.kind !== 'evm_family_ecdsa_response_claimed') {
+        throw new Error('Claimed ECDSA registration branch is invalid');
       }
+      const routerStartedAtMs = Date.now();
       const strictResult = await this.ecdsaStrictRegistration.register({
-        request: request.ecdsa.strictRegistration,
+        request: ecdsaBranch.registrationRequest,
         authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
+        traceContext,
+        onServerTiming: (header) => mergeRouterServerTiming(serverTiming, header),
+        /* Presence only: a fixed metric name, never the header contents. */
+        onHeaderPresence: (presence) =>
+          serverTiming.push([`ecdsa_role_timing_${presence.serverTiming}`, 1]),
       });
+      markServerTiming('ecdsa_respond_router', routerStartedAtMs);
       if (!strictResult.ok) {
         if (!strictResult.retryable) {
           await store.cancelTerminalCeremony({
@@ -2262,26 +2391,49 @@ export class CloudflareD1WalletRegistrationService {
           chainTargets: ecdsaBranch.chainTargets,
           prepare: ecdsaBranch.prepare,
           strictRegistration: ecdsaBranch.strictRegistration,
-          registrationRequest: request.ecdsa.strictRegistration,
+          strictRegistrationBindingJson: ecdsaBranch.strictRegistrationBindingJson,
+          registrationRequest: ecdsaBranch.registrationRequest,
           pendingActivation: strictResult.value.pendingActivation,
           publicResponse: strictResult.value.publicResponse,
         },
       });
-      await store.updateCeremony({
-        expected: ceremony,
-        next: {
-          ...ceremony,
-          signerState: nextSignerState,
-        },
-      });
-      return {
+      const commitStartedAtMs = Date.now();
+      try {
+        await store.commitEcdsaClaim({
+          expected: claimed,
+          next: {
+            ...ceremony,
+            signerState: nextSignerState,
+          },
+        });
+      } catch (error: unknown) {
+        const reconciled = await store.getCeremony(request.registrationCeremonyId);
+        const reconciledBranch =
+          reconciled?.signerState.kind === 'signer_set_registration'
+            ? findStoredWalletRegistrationEvmFamilyEcdsaBranch(reconciled.signerState)
+            : null;
+        if (
+          reconciledBranch?.kind !== 'evm_family_ecdsa_pending_activation' ||
+          alphabetizeStringify(reconciledBranch.registrationRequest) !==
+            alphabetizeStringify(ecdsaBranch.registrationRequest) ||
+          alphabetizeStringify(reconciledBranch.pendingActivation) !==
+            alphabetizeStringify(strictResult.value.pendingActivation) ||
+          alphabetizeStringify(reconciledBranch.publicResponse) !==
+            alphabetizeStringify(strictResult.value.publicResponse)
+        ) {
+          throw error;
+        }
+      } finally {
+        markServerTiming('ecdsa_respond_d1_commit', commitStartedAtMs);
+      }
+      return withServerTiming({
         ok: true,
         registrationCeremonyId: ceremony.registrationCeremonyId,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_forwarded_v1',
           strictResult: strictResult.value.publicResponse,
         },
-      };
+      } as const);
     } catch (error: unknown) {
       return {
         ok: false,
@@ -2293,25 +2445,132 @@ export class CloudflareD1WalletRegistrationService {
 
   async activateWalletRegistrationEcdsa(
     request: ActivateWalletRegistrationEcdsaInput,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<WalletRegistrationEcdsaActivationResponse> {
+    /* Same contract as respondWalletRegistrationEcdsaDerivation: stripped into
+       a Server-Timing header at the route, never serialized to the wire. */
+    const serverTiming: Array<readonly [string, number]> = [];
+    const totalStartedAtMs = Date.now();
+    const markServerTiming = (name: string, startedAtMs: number): void => {
+      serverTiming.push([name, Math.max(0, Date.now() - startedAtMs)]);
+    };
+    const withServerTiming = <T extends { ok: true }>(response: T): T => {
+      markServerTiming('ecdsa_activate_total', totalStartedAtMs);
+      return { ...response, gatewayServerTiming: serverTiming };
+    };
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      const ceremony = await store.getCeremony(request.registrationCeremonyId);
-      if (!ceremony) {
-        return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
-      }
+      const preflight = await store.getCeremonySnapshot(request.registrationCeremonyId);
+      const preflightBranch =
+        preflight?.ceremony.signerState.kind === 'signer_set_registration'
+          ? findStoredWalletRegistrationEvmFamilyEcdsaBranch(preflight.ceremony.signerState)
+          : null;
       if (
-        !registrationCeremonyWalletsMatch({ ceremony }) ||
-        ceremony.signerState.kind !== 'signer_set_registration'
+        preflightBranch?.kind === 'evm_family_ecdsa_pending_activation' ||
+        preflightBranch?.kind === 'evm_family_ecdsa_activation_claimed'
       ) {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'signer-set registration state is required',
-        };
+        if (
+          preflightBranch.kind === 'evm_family_ecdsa_activation_claimed' &&
+          (preflightBranch.activation.activation_correlation_id !==
+            request.ecdsa.activationCorrelationId ||
+            !publicDigest32Matches(
+              preflightBranch.activation.activation_request_digest,
+              request.ecdsa.expectedActivationRequestDigest,
+            ) ||
+            alphabetizeStringify(preflightBranch.publicFacts) !==
+              alphabetizeStringify(request.ecdsa.publicFacts))
+        ) {
+          return {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'ECDSA activation claim belongs to different verified client facts',
+          };
+        }
+        const preparedActivation = await this.ecdsaStrictRegistration.prepareActivation({
+          activationCorrelationId: request.ecdsa.activationCorrelationId,
+          pendingActivation: preflightBranch.pendingActivation,
+          clientActivation: request.ecdsa.publicFacts,
+          authority: ecdsaStrictRegistrationAuthority(preflightBranch.strictRegistration),
+        });
+        if (!preparedActivation.ok) {
+          return {
+            ok: false,
+            code: preparedActivation.code,
+            message: preparedActivation.message,
+          };
+        }
+        if (
+          !publicDigest32Matches(
+            preparedActivation.value.activation_request_digest,
+            request.ecdsa.expectedActivationRequestDigest,
+          )
+        ) {
+          return {
+            ok: false,
+            code: 'activation_digest_mismatch',
+            message: 'ECDSA activation request digest does not match prepared activation',
+          };
+        }
       }
-      const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
-      if (ecdsaBranch?.kind === 'evm_family_ecdsa_activated') {
+      const claimStartedAtMs = Date.now();
+      let claimed = await store.claimEcdsaActivation({
+        registrationCeremonyId: request.registrationCeremonyId,
+        publicFacts: request.ecdsa.publicFacts,
+        activation: {
+          activation_correlation_id: request.ecdsa.activationCorrelationId,
+          activation_request_digest: request.ecdsa.expectedActivationRequestDigest,
+        },
+      });
+      markServerTiming('ecdsa_activate_d1_claim', claimStartedAtMs);
+      if (!claimed) {
+        const reconcileStartedAtMs = Date.now();
+        const existing = await store.getCeremonySnapshot(request.registrationCeremonyId);
+        markServerTiming('ecdsa_activate_reconcile', reconcileStartedAtMs);
+        if (!existing) {
+          return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
+        }
+        const ceremony = existing.ceremony;
+        if (
+          !registrationCeremonyWalletsMatch({ ceremony }) ||
+          ceremony.signerState.kind !== 'signer_set_registration'
+        ) {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'signer-set registration state is required',
+          };
+        }
+        const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(
+          ceremony.signerState,
+        );
+        if (ecdsaBranch?.kind === 'evm_family_ecdsa_activated') {
+          if (
+            alphabetizeStringify(ecdsaBranch.publicFacts) !==
+            alphabetizeStringify(request.ecdsa.publicFacts)
+          ) {
+            return {
+              ok: false,
+              code: 'scope_mismatch',
+              message: 'ECDSA activation replay changed the verified client facts',
+            };
+          }
+          return withServerTiming({
+            ok: true,
+            registrationCeremonyId: ceremony.registrationCeremonyId,
+            ecdsa: {
+              kind: 'router_ab_ecdsa_registration_activated_v1',
+              activation: ecdsaBranch.activation,
+              bootstrap: ecdsaBranch.bootstrap,
+            },
+          } as const);
+        }
+        if (ecdsaBranch?.kind !== 'evm_family_ecdsa_activation_claimed') {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'ECDSA registration activation is not claimable',
+          };
+        }
         if (
           ecdsaBranch.activation.activation_correlation_id !==
             request.ecdsa.activationCorrelationId ||
@@ -2325,57 +2584,38 @@ export class CloudflareD1WalletRegistrationService {
           return {
             ok: false,
             code: 'scope_mismatch',
-            message: 'ECDSA activation replay changed the verified client facts',
+            message: 'ECDSA activation claim belongs to different verified client facts',
           };
         }
-        return {
-          ok: true,
-          registrationCeremonyId: ceremony.registrationCeremonyId,
-          ecdsa: {
-            kind: 'router_ab_ecdsa_registration_activated_v1',
-            activation: ecdsaBranch.activation,
-            bootstrap: ecdsaBranch.bootstrap,
-          },
-        };
+        claimed = existing;
       }
-      if (!ecdsaBranch || ecdsaBranch.kind !== 'evm_family_ecdsa_pending_activation') {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'one pending ECDSA family activation is required',
-        };
+      const ceremony = claimed.ceremony;
+      if (ceremony.signerState.kind !== 'signer_set_registration') {
+        throw new Error('Claimed ECDSA activation ceremony has an invalid signer state');
       }
+      const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(
+        ceremony.signerState,
+      );
+      if (!ecdsaBranch || ecdsaBranch.kind !== 'evm_family_ecdsa_activation_claimed') {
+        throw new Error('Claimed ECDSA activation branch is invalid');
+      }
+      const routerStartedAtMs = Date.now();
       const activationInput = {
         activationCorrelationId: request.ecdsa.activationCorrelationId,
         pendingActivation: ecdsaBranch.pendingActivation,
-        clientActivation: request.ecdsa.publicFacts,
+        clientActivation: ecdsaBranch.publicFacts,
         authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
       };
-      const preparedActivation =
-        await this.ecdsaStrictRegistration.prepareActivation(activationInput);
-      if (!preparedActivation.ok) {
-        return {
-          ok: false,
-          code: preparedActivation.code,
-          message: preparedActivation.message,
-        };
-      }
-      if (
-        !publicDigest32Matches(
-          preparedActivation.value.activation_request_digest,
-          request.ecdsa.expectedActivationRequestDigest,
-        )
-      ) {
-        return {
-          ok: false,
-          code: 'activation_digest_mismatch',
-          message: 'ECDSA activation request digest does not match prepared activation',
-        };
-      }
       const activated = await this.ecdsaStrictRegistration.activate({
         ...activationInput,
         expectedActivationRequestDigest: request.ecdsa.expectedActivationRequestDigest,
+        traceContext,
+        onServerTiming: (header) => mergeRouterServerTiming(serverTiming, header),
+        /* Presence only: a fixed metric name, never the header contents. */
+        onHeaderPresence: (presence) =>
+          serverTiming.push([`ecdsa_role_timing_${presence.serverTiming}`, 1]),
       });
+      markServerTiming('ecdsa_activate_router', routerStartedAtMs);
       if (!activated.ok) {
         return {
           ok: false,
@@ -2384,15 +2624,18 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
       try {
+        const bootstrapStartedAtMs = Date.now();
         const bootstrap = await buildActivatedEcdsaFamilyBootstrap({
           branch: ecdsaBranch,
-          publicFacts: request.ecdsa.publicFacts,
+          publicFacts: ecdsaBranch.publicFacts,
           activation: activated.value,
         });
+        markServerTiming('ecdsa_activate_bootstrap', bootstrapStartedAtMs);
         const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
         if (!normalSigningRuntime) {
           throw new Error('Router A/B normal signing is not configured');
         }
+        const sessionProvisionStartedAtMs = Date.now();
         const provisioned = await normalSigningRuntime.provisionRouterAbEcdsaNormalSigningSession({
           kind: 'router_ab_ecdsa_normal_signing_session_v1',
           walletId: bootstrap.walletId,
@@ -2406,6 +2649,7 @@ export class CloudflareD1WalletRegistrationService {
           expiresAtMs: bootstrap.expiresAtMs,
           remainingUses: bootstrap.remainingUses,
         });
+        markServerTiming('ecdsa_activate_session_provision', sessionProvisionStartedAtMs);
         if (!provisioned.ok) {
           throw new Error(provisioned.message);
         }
@@ -2416,13 +2660,14 @@ export class CloudflareD1WalletRegistrationService {
           chainTargets: ecdsaBranch.chainTargets,
           prepare: ecdsaBranch.prepare,
           strictRegistration: ecdsaBranch.strictRegistration,
+          strictRegistrationBindingJson: ecdsaBranch.strictRegistrationBindingJson,
           registrationRequest: ecdsaBranch.registrationRequest,
-          publicFacts: request.ecdsa.publicFacts,
+          publicFacts: ecdsaBranch.publicFacts,
           activation: activated.value,
           publicCapability: buildRouterAbEcdsaDerivationPublicCapabilityV1({
             registrationFacts: ecdsaBranch.strictRegistration,
             registrationRequest: ecdsaBranch.registrationRequest,
-            clientActivation: request.ecdsa.publicFacts,
+            clientActivation: ecdsaBranch.publicFacts,
             activationReceipt: activated.value,
           }),
           bootstrap: {
@@ -2452,17 +2697,39 @@ export class CloudflareD1WalletRegistrationService {
             participantIds: [...provisioned.participantIds],
           },
         };
-        await store.updateCeremony({
-          expected: ceremony,
-          next: {
-            ...ceremony,
-            signerState: replaceStoredWalletRegistrationSignerBranch({
-              state: ceremony.signerState,
-              replacement: activatedBranch,
-            }),
-          },
-        });
-        return {
+        const commitStartedAtMs = Date.now();
+        try {
+          await store.commitEcdsaClaim({
+            expected: claimed,
+            next: {
+              ...ceremony,
+              signerState: replaceStoredWalletRegistrationSignerBranch({
+                state: ceremony.signerState,
+                replacement: activatedBranch,
+              }),
+            },
+          });
+        } catch (error: unknown) {
+          const reconciled = await store.getCeremony(request.registrationCeremonyId);
+          const reconciledBranch =
+            reconciled?.signerState.kind === 'signer_set_registration'
+              ? findStoredWalletRegistrationEvmFamilyEcdsaBranch(reconciled.signerState)
+              : null;
+          if (
+            reconciledBranch?.kind !== 'evm_family_ecdsa_activated' ||
+            alphabetizeStringify(reconciledBranch.publicFacts) !==
+              alphabetizeStringify(activatedBranch.publicFacts) ||
+            alphabetizeStringify(reconciledBranch.activation) !==
+              alphabetizeStringify(activatedBranch.activation) ||
+            alphabetizeStringify(reconciledBranch.bootstrap) !==
+              alphabetizeStringify(activatedBranch.bootstrap)
+          ) {
+            throw error;
+          }
+        } finally {
+          markServerTiming('ecdsa_activate_d1_commit', commitStartedAtMs);
+        }
+        return withServerTiming({
           ok: true,
           registrationCeremonyId: ceremony.registrationCeremonyId,
           ecdsa: {
@@ -2470,7 +2737,7 @@ export class CloudflareD1WalletRegistrationService {
             activation: activated.value,
             bootstrap: activatedBranch.bootstrap,
           },
-        };
+        } as const);
       } catch (error: unknown) {
         const message =
           errorMessage(error) || 'ECDSA activation could not establish normal signing';
@@ -2531,6 +2798,28 @@ export class CloudflareD1WalletRegistrationService {
               activation_correlation_id: ecdsaBranch.activation.activation_correlation_id,
               activation_request_digest: ecdsaBranch.activation.activation_request_digest,
             },
+          },
+        };
+      }
+      if (ecdsaBranch?.kind === 'evm_family_ecdsa_activation_claimed') {
+        if (
+          ecdsaBranch.activation.activation_correlation_id !==
+            request.ecdsa.activationCorrelationId ||
+          alphabetizeStringify(ecdsaBranch.publicFacts) !==
+            alphabetizeStringify(request.ecdsa.publicFacts)
+        ) {
+          return {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'ECDSA activation preparation changed the claimed coordinates',
+          };
+        }
+        return {
+          ok: true,
+          registrationCeremonyId: ceremony.registrationCeremonyId,
+          ecdsa: {
+            kind: 'router_ab_ecdsa_registration_activation_prepared_v1',
+            preparation: ecdsaBranch.activation,
           },
         };
       }
@@ -2616,11 +2905,32 @@ export class CloudflareD1WalletRegistrationService {
           },
         };
       }
-      if (!ecdsaBranch || ecdsaBranch.kind !== 'evm_family_ecdsa_pending_activation') {
+      if (
+        !ecdsaBranch ||
+        (ecdsaBranch.kind !== 'evm_family_ecdsa_pending_activation' &&
+          ecdsaBranch.kind !== 'evm_family_ecdsa_activation_claimed')
+      ) {
         return {
           ok: false,
           code: 'invalid_state',
           message: 'one pending ECDSA family activation is required',
+        };
+      }
+      if (
+        ecdsaBranch.kind === 'evm_family_ecdsa_activation_claimed' &&
+        (ecdsaBranch.activation.activation_correlation_id !==
+          request.ecdsa.activationCorrelationId ||
+          !publicDigest32Matches(
+            ecdsaBranch.activation.activation_request_digest,
+            request.ecdsa.expectedActivationRequestDigest,
+          ) ||
+          alphabetizeStringify(ecdsaBranch.publicFacts) !==
+            alphabetizeStringify(request.ecdsa.publicFacts))
+      ) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'ECDSA activation query changed the claimed activation coordinates',
         };
       }
       const queried = await this.ecdsaStrictRegistration.queryActivation({
@@ -2733,35 +3043,80 @@ export class CloudflareD1WalletRegistrationService {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
       const idempotencyKey = toOptionalTrimmedString(request.idempotencyKey);
-      const requestFingerprint = idempotencyKey
-        ? await walletRegistrationFinalizeRequestFingerprint(request)
-        : null;
-      if (idempotencyKey) {
-        const replayTiming = startD1RegistrationRouteTiming('registrationFinalizeReplayLoadMs');
-        let replay: Awaited<ReturnType<typeof store.getFinalizeReplay>>;
-        try {
-          replay = await store.getFinalizeReplay({
-            registrationCeremonyId: request.registrationCeremonyId,
-            idempotencyKey,
-          });
-        } finally {
-          finishD1RegistrationRouteTiming(finalizeTiming, replayTiming);
+      if (!idempotencyKey) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration finalize idempotencyKey is required',
+        };
+      }
+      const requestFingerprint = await walletRegistrationFinalizeRequestFingerprint(request);
+      const replayTiming = startD1RegistrationRouteTiming('registrationFinalizeReplayLoadMs');
+      let replay: Awaited<ReturnType<typeof store.getFinalizeReplay>>;
+      try {
+        replay = await store.getFinalizeReplay({
+          registrationCeremonyId: request.registrationCeremonyId,
+          idempotencyKey,
+        });
+      } finally {
+        finishD1RegistrationRouteTiming(finalizeTiming, replayTiming);
+      }
+      if (replay) {
+        if (replay.requestFingerprint !== requestFingerprint) {
+          return {
+            ok: false,
+            code: 'idempotency_conflict',
+            message: 'registration finalize idempotency key was reused for a different request',
+          };
         }
-        if (replay) {
-          if (replay.requestFingerprint !== requestFingerprint) {
-            return {
-              ok: false,
-              code: 'idempotency_conflict',
-              message: 'registration finalize idempotency key was reused for a different request',
-            };
+        const replayedCeremony = await store.getCeremony(request.registrationCeremonyId);
+        const preservesDeferredEd25519Finalize =
+          replay.response.ok &&
+          replay.response.kind === 'evm_family_ecdsa' &&
+          replayedCeremony !== null &&
+          registrationSignerBranchesFromPlan(replayedCeremony.signerPlan).nearEd25519 !== null;
+        if (preservesDeferredEd25519Finalize) {
+          if (replayedCeremony.signerState.kind !== 'signer_set_registration') {
+            throw new Error('Replayed mixed registration has an invalid signer state');
           }
+          const replayedEcdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(
+            replayedCeremony.signerState,
+          );
+          if (replayedEcdsaBranch?.kind === 'evm_family_ecdsa_activated') {
+            try {
+              await store.updateCeremony({
+                expected: replayedCeremony,
+                next: {
+                  ...replayedCeremony,
+                  signerState: replaceStoredWalletRegistrationSignerBranch({
+                    state: replayedCeremony.signerState,
+                    replacement: buildStoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch({
+                      activated: replayedEcdsaBranch,
+                      finalizedAtMs: replay.createdAtMs,
+                    }),
+                  }),
+                },
+              });
+            } catch (error: unknown) {
+              const reconciled = await store.getCeremony(request.registrationCeremonyId);
+              const reconciledEcdsaBranch =
+                reconciled?.signerState.kind === 'signer_set_registration'
+                  ? findStoredWalletRegistrationEvmFamilyEcdsaBranch(reconciled.signerState)
+                  : null;
+              if (reconciledEcdsaBranch?.kind !== 'evm_family_ecdsa_finalized') throw error;
+            }
+          } else if (replayedEcdsaBranch?.kind !== 'evm_family_ecdsa_finalized') {
+            throw new Error('Replayed mixed registration has not completed ECDSA activation');
+          }
+        }
+        if (!preservesDeferredEd25519Finalize) {
           await cleanupFinalizedRegistrationCeremony({
             store,
             registrationCeremonyId: request.registrationCeremonyId,
           });
-          finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
-          return withD1RegistrationRouteDiagnostics(replay.response, finalizeTiming);
         }
+        finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
+        return withD1RegistrationRouteDiagnostics(replay.response, finalizeTiming);
       }
       const ceremonyLoadTiming = startD1RegistrationRouteTiming('registrationCeremonyLoadMs');
       let ceremony: Awaited<ReturnType<typeof store.getCeremony>>;
@@ -2790,19 +3145,6 @@ export class CloudflareD1WalletRegistrationService {
           message: 'registration signer set requires a signer branch',
         };
       }
-      if (
-        !finalizeSignerWorkMatchesPlan({
-          request,
-          hasNearEd25519: requestedNearEd25519 !== null,
-          hasEvmFamilyEcdsa: requestedEvmFamilyEcdsa !== null,
-        })
-      ) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'registration finalize signer work does not match the admitted signer plan',
-        };
-      }
       if (ceremony.signerState.kind !== 'signer_set_registration') {
         return {
           ok: false,
@@ -2810,12 +3152,36 @@ export class CloudflareD1WalletRegistrationService {
           message: 'signer-set registration state is required',
         };
       }
+      const storedEcdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(
+        ceremony.signerState,
+      );
+      const sequenceFailure = finalizeSignerWorkSequenceFailure({
+        request,
+        hasNearEd25519: requestedNearEd25519 !== null,
+        hasEvmFamilyEcdsa: requestedEvmFamilyEcdsa !== null,
+        ecdsaFinalized: storedEcdsaBranch?.kind === 'evm_family_ecdsa_finalized',
+      });
+      if (sequenceFailure) {
+        return { ok: false, ...sequenceFailure };
+      }
+      /* Refactor 94 Phase 4+5. Which half this call commits comes from the
+         request, not from the plan: a mixed plan finalizes ECDSA first and
+         Ed25519 later, so the plan alone no longer says what is being
+         committed now. The sequence check above has already confirmed the
+         requested half is admitted and legal at this point. */
+      const finalizeEvmFamilyEcdsa =
+        request.kind === 'evm_family_ecdsa' ? requestedEvmFamilyEcdsa : null;
+      const finalizeNearEd25519 = request.kind === 'near_ed25519' ? requestedNearEd25519 : null;
+      /* True when this ECDSA finalize is step one of two, so the ceremony must
+         survive for the Ed25519 finalize to resume from. */
+      const ed25519FinalizePending = finalizeEvmFamilyEcdsa !== null && requestedNearEd25519 !== null;
       const ecdsaWalletKeys: WalletRegistrationEcdsaWalletKey[] = [];
       let ecdsaFinalizeState: D1RegistrationEcdsaFinalizeState = {
         kind: 'ecdsa_registration_disabled',
       };
-      if (requestedEvmFamilyEcdsa) {
-        const ecdsaState = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
+      let activatedEcdsaBranch: StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch | null = null;
+      if (finalizeEvmFamilyEcdsa) {
+        const ecdsaState = storedEcdsaBranch;
         if (!ecdsaState || ecdsaState.kind !== 'evm_family_ecdsa_activated') {
           return {
             ok: false,
@@ -2823,6 +3189,7 @@ export class CloudflareD1WalletRegistrationService {
             message: 'ECDSA family activation is required before finalize',
           };
         }
+        activatedEcdsaBranch = ecdsaState;
         if (!request.ecdsa) {
           return {
             ok: false,
@@ -2890,7 +3257,7 @@ export class CloudflareD1WalletRegistrationService {
       let ed25519SignerRecord: WalletEd25519SignerRecord | null = null;
       let ed25519CapabilityInstallation: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1 | null =
         null;
-      if (requestedNearEd25519) {
+      if (finalizeNearEd25519) {
         const yaoRuntime = this.getEd25519YaoProductRegistration();
         if (!yaoRuntime) {
           return {
@@ -2929,7 +3296,7 @@ export class CloudflareD1WalletRegistrationService {
             lifecycleId: activationReference.lifecycle_id,
             sessionId: activationReference.session_id,
           },
-          consumerBinding: alphabetizeStringify(request),
+          consumerBinding: requestFingerprint,
         });
         if (!consumed.ok) {
           return { ok: false, code: consumed.code, message: consumed.message };
@@ -2944,10 +3311,10 @@ export class CloudflareD1WalletRegistrationService {
             message: 'activated Ed25519 Yao registration does not match the stored signer branch',
           };
         }
-        const firstParticipantId = requestedNearEd25519.participantIds[0];
-        const secondParticipantId = requestedNearEd25519.participantIds[1];
+        const firstParticipantId = finalizeNearEd25519.participantIds[0];
+        const secondParticipantId = finalizeNearEd25519.participantIds[1];
         if (
-          requestedNearEd25519.participantIds.length !== 2 ||
+          finalizeNearEd25519.participantIds.length !== 2 ||
           firstParticipantId === undefined ||
           secondParticipantId === undefined
         ) {
@@ -2963,7 +3330,7 @@ export class CloudflareD1WalletRegistrationService {
         let nearAccountId = implicitNearAccountIdFromEd25519PublicKeyBytes(publicKeyBytes);
         let sponsoredTransactionHash: string | undefined;
         const sponsoredAccountId = sponsoredNamedRegistrationAccountId(
-          requestedNearEd25519.accountProvisioning,
+          finalizeNearEd25519.accountProvisioning,
         );
         if (sponsoredAccountId) {
           const created = await this.createSponsoredNamedNearAccount({
@@ -2999,7 +3366,7 @@ export class CloudflareD1WalletRegistrationService {
           }
         }
         const resolved = resolvedRegistrationNearAccount({
-          accountProvisioning: requestedNearEd25519.accountProvisioning,
+          accountProvisioning: finalizeNearEd25519.accountProvisioning,
           nearAccountId,
           nearEd25519SigningKeyId:
             consumed.activation.admissionRequest.application_binding.near_ed25519_signing_key_id,
@@ -3097,13 +3464,13 @@ export class CloudflareD1WalletRegistrationService {
           });
         if (!provisioned.ok) return provisioned;
         ed25519PublicResult = {
-          signerSlot: requestedNearEd25519.signerSlot,
+          signerSlot: finalizeNearEd25519.signerSlot,
           nearAccountId,
           nearEd25519SigningKeyId:
             consumed.activation.admissionRequest.application_binding.near_ed25519_signing_key_id,
           publicKey,
           relayerKeyId: yaoRuntime.signingWorkerId,
-          keyVersion: requestedNearEd25519.keyVersion,
+          keyVersion: finalizeNearEd25519.keyVersion,
           recoveryExportCapable: true,
           participantIds,
           session: session.session,
@@ -3113,10 +3480,10 @@ export class CloudflareD1WalletRegistrationService {
           nearAccountId,
           nearEd25519SigningKeyId: ed25519PublicResult.nearEd25519SigningKeyId,
           thresholdSessionId: session.session.thresholdSessionId,
-          signerSlot: requestedNearEd25519.signerSlot,
+          signerSlot: finalizeNearEd25519.signerSlot,
           publicKey,
           signingWorkerId: yaoRuntime.signingWorkerId,
-          keyVersion: requestedNearEd25519.keyVersion,
+          keyVersion: finalizeNearEd25519.keyVersion,
           participantIds,
           signingRootId: ceremony.preparedContext.signingRootId,
           signingRootVersion: ceremony.preparedContext.signingRootVersion,
@@ -3200,64 +3567,34 @@ export class CloudflareD1WalletRegistrationService {
       }
       const authMethod = walletRegistrationFinalizeAuthMethodFromAuthority(ceremony.authority);
       let response: WalletRegistrationFinalizeSuccess;
-      if (ed25519PublicResult && requestedNearEd25519 && resolvedNearAccount) {
+      if (ed25519PublicResult && finalizeNearEd25519 && resolvedNearAccount) {
         const authorityScope =
           thresholdEd25519AuthorityScopeFromWalletAuthAuthority(walletAuthAuthority);
-        if (requestedEvmFamilyEcdsa) {
-          response =
-            authMethod.kind === 'passkey'
-              ? {
-                  ok: true,
-                  kind: 'near_ed25519_and_evm_family_ecdsa',
-                  walletId: ceremony.intent.walletId,
-                  authority: walletAuthAuthority,
-                  rpId: finalizePasskeyRpId(ceremony.authority),
-                  authMethod,
-                  authorityScope,
-                  accountProvisioning: requestedNearEd25519.accountProvisioning,
-                  resolvedAccount: resolvedNearAccount,
-                  ed25519: ed25519PublicResult,
-                  ecdsa: { walletKeys: ecdsaWalletKeys },
-                }
-              : {
-                  ok: true,
-                  kind: 'near_ed25519_and_evm_family_ecdsa',
-                  walletId: ceremony.intent.walletId,
-                  authority: walletAuthAuthority,
-                  authMethod,
-                  authorityScope,
-                  accountProvisioning: requestedNearEd25519.accountProvisioning,
-                  resolvedAccount: resolvedNearAccount,
-                  ed25519: ed25519PublicResult,
-                  ecdsa: { walletKeys: ecdsaWalletKeys },
-                };
-        } else {
-          response =
-            authMethod.kind === 'passkey'
-              ? {
-                  ok: true,
-                  kind: 'near_ed25519',
-                  walletId: ceremony.intent.walletId,
-                  authority: walletAuthAuthority,
-                  rpId: finalizePasskeyRpId(ceremony.authority),
-                  authMethod,
-                  authorityScope,
-                  accountProvisioning: requestedNearEd25519.accountProvisioning,
-                  resolvedAccount: resolvedNearAccount,
-                  ed25519: ed25519PublicResult,
-                }
-              : {
-                  ok: true,
-                  kind: 'near_ed25519',
-                  walletId: ceremony.intent.walletId,
-                  authority: walletAuthAuthority,
-                  authMethod,
-                  authorityScope,
-                  accountProvisioning: requestedNearEd25519.accountProvisioning,
-                  resolvedAccount: resolvedNearAccount,
-                  ed25519: ed25519PublicResult,
-                };
-        }
+        response =
+          authMethod.kind === 'passkey'
+            ? {
+                ok: true,
+                kind: 'near_ed25519',
+                walletId: ceremony.intent.walletId,
+                authority: walletAuthAuthority,
+                rpId: finalizePasskeyRpId(ceremony.authority),
+                authMethod,
+                authorityScope,
+                accountProvisioning: finalizeNearEd25519.accountProvisioning,
+                resolvedAccount: resolvedNearAccount,
+                ed25519: ed25519PublicResult,
+              }
+            : {
+                ok: true,
+                kind: 'near_ed25519',
+                walletId: ceremony.intent.walletId,
+                authority: walletAuthAuthority,
+                authMethod,
+                authorityScope,
+                accountProvisioning: finalizeNearEd25519.accountProvisioning,
+                resolvedAccount: resolvedNearAccount,
+                ed25519: ed25519PublicResult,
+              };
       } else {
         response =
           authMethod.kind === 'passkey'
@@ -3296,6 +3633,33 @@ export class CloudflareD1WalletRegistrationService {
         } finally {
           finishD1RegistrationRouteTiming(finalizeTiming, replayCacheTiming);
         }
+      }
+      /* Refactor 94 Phase 4+5. On a mixed plan this is step one of two: mark
+         the ECDSA branch finalized and keep the ceremony, which is what the
+         Ed25519 finalize resumes from. Deleting here would strand it. */
+      if (ed25519FinalizePending) {
+        if (!activatedEcdsaBranch) {
+          return {
+            ok: false,
+            code: 'internal',
+            message: 'ECDSA finalize completed without an activated branch to advance',
+          };
+        }
+        await store.updateCeremony({
+          expected: ceremony,
+          next: {
+            ...ceremony,
+            signerState: replaceStoredWalletRegistrationSignerBranch({
+              state: ceremony.signerState,
+              replacement: buildStoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch({
+                activated: activatedEcdsaBranch,
+                finalizedAtMs: now,
+              }),
+            }),
+          },
+        });
+        finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
+        return withD1RegistrationRouteDiagnostics(response, finalizeTiming);
       }
       let deleted = false;
       try {

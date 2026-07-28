@@ -10,6 +10,7 @@ import {
 } from '@shared/utils/registrationIntent';
 import {
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type {
@@ -17,6 +18,7 @@ import type {
   RouterAbEd25519YaoActivationConsumptionRequestV1,
   RouterAbEd25519YaoActivationConsumptionResultV1,
   RouterAbEd25519YaoRegistrationAdmissionClaimV1,
+  RouterAbEd25519YaoRegistrationServiceResult,
 } from './routerAbEd25519YaoRegistration';
 import {
   createRouterAbEd25519YaoRegistrationModule,
@@ -124,6 +126,9 @@ export type RouterAbEd25519YaoProductRegistrationRuntimeV1 =
     RouterAbEd25519YaoActiveCapabilityResolverV1 & {
       readonly kind: 'router_ab_ed25519_yao_product_registration_runtime_v1';
       readonly signingWorkerId: string;
+      bindAndAdmitVerifiedRegistration(
+        input: RouterAbEd25519YaoVerifiedActivationIntentV1,
+      ): Promise<RouterAbEd25519YaoVerifiedRegistrationAdmissionResultV1>;
       bindVerifiedIntent(
         input: RouterAbEd25519YaoVerifiedActivationIntentV1,
       ): Promise<RouterAbEd25519YaoRegistrationIntentBindingResult>;
@@ -134,6 +139,12 @@ export type RouterAbEd25519YaoProductRegistrationRuntimeV1 =
         input: RouterAbEd25519YaoWalletSessionMintInputV1,
       ): Promise<RouterAbEd25519YaoWalletSessionMintResultV1>;
     };
+
+export type RouterAbEd25519YaoVerifiedRegistrationAdmissionResultV1 =
+  | Extract<RouterAbEd25519YaoRegistrationIntentBindingResult, { readonly ok: false }>
+  | RouterAbEd25519YaoRegistrationServiceResult<
+      RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>
+    >;
 
 export type RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1 = (
   input: RouterAbEd25519YaoActiveCapabilityLookupV1,
@@ -484,6 +495,14 @@ class RouterAbEd25519YaoProductRegistrationRuntime implements RouterAbEd25519Yao
     input: RouterAbEd25519YaoVerifiedActivationIntentV1,
   ): Promise<RouterAbEd25519YaoRegistrationIntentBindingResult> {
     return await this.input.authorization.bindVerifiedIntent(input);
+  }
+
+  async bindAndAdmitVerifiedRegistration(
+    input: RouterAbEd25519YaoVerifiedActivationIntentV1,
+  ): Promise<RouterAbEd25519YaoVerifiedRegistrationAdmissionResultV1> {
+    const bound = await this.input.authorization.bindVerifiedIntent(input);
+    if (!bound.ok) return bound;
+    return await this.input.registrationService.admit(input.admissionRequest);
   }
 
   async consumeActivated(

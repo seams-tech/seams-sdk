@@ -113,7 +113,7 @@ export class EmailOtpExportRecoveryRuntime {
 
   async requestExportChallenge(
     args: RequestEmailOtpChallengeArgs,
-  ): Promise<{ challengeId: string; emailHint?: string }> {
+  ): Promise<EmailOtpTransactionSigningChallenge> {
     return await requestExportChallenge(this.workerPorts(), args);
   }
 

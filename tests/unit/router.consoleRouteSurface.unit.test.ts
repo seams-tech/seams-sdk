@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { getConsoleRouteSurface } from '../../packages/console-server-ts/src/router/consoleRouteSurface';
 import { createCloudflareConsoleRouter } from '../../packages/console-server-ts/src/router/cloudflare/createCloudflareConsoleRouter';
 import { createConsoleRouter } from '../../packages/console-server-ts/src/router/express/createConsoleRouter';
-import { findRouteDefinitionForRequest } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
+import { findConsoleRouteDefinitionForRequest } from '../../packages/console-server-ts/src/router/consoleRouteDefinitions';
 
 type ExpressRouteEntry = {
   method: string;
@@ -16,7 +16,8 @@ function listExpressRoutes(router: unknown): ExpressRouteEntry[] {
     if (!Array.isArray(stack)) return;
     for (const layer of stack) {
       if (!layer || typeof layer !== 'object') continue;
-      const route = (layer as { route?: { path?: unknown; methods?: Record<string, boolean> } }).route;
+      const route = (layer as { route?: { path?: unknown; methods?: Record<string, boolean> } })
+        .route;
       if (route && typeof route.path === 'string' && route.methods) {
         for (const [method, enabled] of Object.entries(route.methods)) {
           if (!enabled) continue;
@@ -32,13 +33,9 @@ function listExpressRoutes(router: unknown): ExpressRouteEntry[] {
   return entries;
 }
 
-function canonicalRouteKeys(input: { method: string; path: string; aliases?: readonly string[] }[]): string[] {
-  return input.flatMap((route) => {
-    const keys = [`${route.method} ${route.path}`];
-    for (const alias of route.aliases || []) {
-      keys.push(`${route.method} ${alias}`);
-    }
-    return keys;
+function canonicalRouteKeys(input: { method: string; path: string }[]): string[] {
+  return input.map((route) => {
+    return `${route.method} ${route.path}`;
   });
 }
 
@@ -66,9 +63,7 @@ test.describe('console route surface wiring', () => {
     expect(routeDefinitions.length).toBeGreaterThan(0);
     expect(
       routeDefinitions.every(
-        (route) =>
-          route.path === '/console' ||
-          route.path.startsWith('/console/'),
+        (route) => route.path === '/console' || route.path.startsWith('/console/'),
       ),
     ).toBe(true);
     expect(routeDefinitions.every((route) => route.surface === 'console')).toBe(true);
@@ -81,11 +76,12 @@ test.describe('console route surface wiring', () => {
         .map((entry) => `${entry.method} ${entry.path}`),
     );
     const expectedKeys = new Set(
-      canonicalRouteKeys(routeDefinitions.map((route) => ({
-        method: route.method,
-        path: route.path,
-        aliases: route.aliases,
-      }))),
+      canonicalRouteKeys(
+        routeDefinitions.map((route) => ({
+          method: route.method,
+          path: route.path,
+        })),
+      ),
     );
 
     expect([...expectedKeys].filter((key) => !actualKeys.has(key))).toEqual([]);
@@ -145,11 +141,15 @@ test.describe('console route surface wiring', () => {
     );
 
     for (const key of ALLOWLISTED_CONSOLE_ROUTE_KEYS) {
-      expect(liveRouteKeys.has(key), `allowlisted route missing from live router: ${key}`).toBe(true);
+      expect(liveRouteKeys.has(key), `allowlisted route missing from live router: ${key}`).toBe(
+        true,
+      );
       const separatorIndex = key.indexOf(' ');
       const method = key.slice(0, separatorIndex);
       const path = key.slice(separatorIndex + 1);
-      expect(findRouteDefinitionForRequest(surface?.routeDefinitions || [], method, path)).toBeNull();
+      expect(
+        findConsoleRouteDefinitionForRequest(surface?.routeDefinitions || [], method, path),
+      ).toBeNull();
     }
 
     for (const key of liveRouteKeys) {
@@ -157,7 +157,11 @@ test.describe('console route surface wiring', () => {
       const separatorIndex = key.indexOf(' ');
       const method = key.slice(0, separatorIndex);
       const path = key.slice(separatorIndex + 1);
-      const route = findRouteDefinitionForRequest(surface?.routeDefinitions || [], method, path);
+      const route = findConsoleRouteDefinitionForRequest(
+        surface?.routeDefinitions || [],
+        method,
+        path,
+      );
       expect(route, `policy definition missing for ${key}`).toBeTruthy();
       expect(route?.auth.plane, `non-console auth attached to ${key}`).toBe('console');
       expect(route?.metering.kind, `non-none metering attached to ${key}`).toBe('none');

@@ -223,6 +223,18 @@ const invalidEvmRegistrationWithoutAuth: Parameters<EvmSignerCapability['registe
 void invalidEvmRegistrationWithoutAuth;
 
 declare const registrationCapability: RegistrationCapability;
+void registrationCapability.getNearProvisioningState({ walletId: 'alice.testnet' });
+const unsubscribeNearProvisioning = registrationCapability.onNearProvisioningStateChanged(
+  (event) => {
+    const walletId: string = event.walletId;
+    const status = event.state.status;
+    void walletId;
+    void status;
+  },
+);
+unsubscribeNearProvisioning();
+// @ts-expect-error wallet identity is required for a provisioning-state read.
+void registrationCapability.getNearProvisioningState({});
 const legacyPublicNearMode = ['ed25519', 'only'].join('_');
 const legacyPublicEvmMode = ['ecdsa', 'only'].join('_');
 
@@ -259,7 +271,7 @@ void registrationCapability.registerWallet({
     kind: 'passkey',
     rpId: 'wallet.example.test' as import('@shared/utils/domainIds').WebAuthnRpId,
   },
-    signerSelection: {
+  signerSelection: {
     // @ts-expect-error Public wallet registration accepts signer-set requests, not legacy modes.
     mode: legacyPublicNearMode,
     // @ts-expect-error Public wallet registration accepts signer-set requests, not legacy modes.

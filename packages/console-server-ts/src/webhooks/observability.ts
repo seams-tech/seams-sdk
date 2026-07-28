@@ -1,4 +1,4 @@
-import type { NormalizedLogger } from '@seams/sdk-server/internal/core/logger';
+import type { NormalizedLogger } from '@seams/sdk-server/cloud-host';
 import {
   buildWebhookDeadLetterObservabilityEvent,
   buildWebhookEndpointDegradedObservabilityEvent,
@@ -65,12 +65,6 @@ function normalizeString(raw: unknown): string {
   return String(raw || '').trim();
 }
 
-function normalizeRoles(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return ['ops'];
-  const roles = raw.map((role) => normalizeString(role)).filter(Boolean);
-  return roles.length > 0 ? roles : ['ops'];
-}
-
 export function normalizeConsoleWebhookEndpointDegradedThreshold(raw: unknown): number {
   const value = Math.floor(Number(raw));
   if (!Number.isFinite(value) || value <= 0) {
@@ -90,7 +84,6 @@ export async function appendConsoleWebhookObservabilitySignals(
   const ingestCtx = {
     orgId: normalizeString(ctx.orgId),
     actorUserId: normalizeString(ctx.actorUserId) || 'system-webhook-delivery',
-    roles: normalizeRoles(ctx.roles),
   };
   if (!ingestCtx.orgId) return;
 

@@ -120,33 +120,44 @@ function prepareAuthorityStatements(input: {
           },
         }),
       ];
+      // The credential binding is what login resolves a passkey against, so it
+      // must be written even when no Ed25519 signer exists yet — otherwise a
+      // wallet whose Yao ceremony has not settled fails the next login with
+      // `unknown_credential`. The Ed25519 facts are filled in when that signer
+      // is committed.
       const ed25519Signer = ed25519Signers[0];
-      if (ed25519Signer) {
-        const credentialBinding: WebAuthnCredentialBindingRecord = {
-          version: 'webauthn_credential_binding_v1',
-          rpId: input.authority.rpId,
-          credentialIdB64u: input.authority.credentialIdB64u,
-          userId: input.authority.walletId,
-          nearAccountId: ed25519Signer.nearAccountId,
-          nearEd25519SigningKeyId: ed25519Signer.nearEd25519SigningKeyId,
-          signerSlot: ed25519Signer.signerSlot,
-          publicKey: ed25519Signer.publicKey,
-          relayerKeyId: ed25519Signer.signingWorkerId,
-          keyVersion: ed25519Signer.keyVersion,
-          recoveryExportCapable: ed25519Signer.recoveryExportCapable,
-          participantIds: [...ed25519Signer.participantIds],
-          runtimePolicyScope: ed25519Signer.runtimePolicyScope,
-          createdAtMs: input.now,
-          updatedAtMs: input.now,
-        };
-        statements.push(
-          prepareD1WebAuthnCredentialBindingPutStatement({
-            database: input.database,
-            scope: input.scope,
-            record: credentialBinding,
-          }),
-        );
-      }
+      const credentialBindingBase = {
+        version: 'webauthn_credential_binding_v1',
+        rpId: input.authority.rpId,
+        credentialIdB64u: input.authority.credentialIdB64u,
+        userId: input.authority.walletId,
+        createdAtMs: input.now,
+        updatedAtMs: input.now,
+      } as const;
+      // The Ed25519 facts are a union branch, not four independent optionals:
+      // spreading them all selects the present branch, omitting them selects
+      // the absent one. A partial set cannot be constructed.
+      const credentialBinding: WebAuthnCredentialBindingRecord = ed25519Signer
+        ? {
+            ...credentialBindingBase,
+            nearAccountId: ed25519Signer.nearAccountId,
+            nearEd25519SigningKeyId: ed25519Signer.nearEd25519SigningKeyId,
+            signerSlot: ed25519Signer.signerSlot,
+            publicKey: ed25519Signer.publicKey,
+            relayerKeyId: ed25519Signer.signingWorkerId,
+            keyVersion: ed25519Signer.keyVersion,
+            recoveryExportCapable: ed25519Signer.recoveryExportCapable,
+            participantIds: [...ed25519Signer.participantIds],
+            runtimePolicyScope: ed25519Signer.runtimePolicyScope,
+          }
+        : credentialBindingBase;
+      statements.push(
+        prepareD1WebAuthnCredentialBindingPutStatement({
+          database: input.database,
+          scope: input.scope,
+          record: credentialBinding,
+        }),
+      );
       statements.push(authMethodStatement);
       return statements;
     }

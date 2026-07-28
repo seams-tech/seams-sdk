@@ -42,7 +42,7 @@ import {
 } from '@shared/utils/normalize';
 import { awaitUserConfirmationV2 } from '../../uiConfirm/awaitUserConfirmation';
 import { parseNearOperationStepUpPreparationRef } from '../../interfaces/operationStepUpPreparation';
-import { getShamir3PassRuntime } from './shamir3pass/runtime';
+import { getShamir3PassRuntime, warmupShamir3PassRuntime } from './shamir3pass/runtime';
 import {
   UserConfirmationType,
   UserConfirmMessageType,
@@ -1826,6 +1826,15 @@ self.onmessage = (event: MessageEvent) => {
   // Health check / liveness
   if (eventType === 'PING') {
     postUserConfirmWorkerResponse(id, { success: true, data: { ok: true } });
+    return;
+  }
+
+  if (eventType === 'PREWARM_SHAMIR3PASS') {
+    void (async () => {
+      // warmupShamir3PassRuntime never rejects; it reports failure as data.
+      const outcome = await warmupShamir3PassRuntime();
+      postUserConfirmWorkerResponse(id, { success: true, data: outcome });
+    })();
     return;
   }
 

@@ -493,6 +493,9 @@ function profileRow(input: UpsertProfileInput, existing?: ProfileRecord): Wallet
     defaultSignerSlot: input.defaultSignerSlot ?? existing?.defaultSignerSlot ?? 1,
     ...(passkeyCredential ? { passkeyCredential } : {}),
     preferences: input.preferences ?? existing?.preferences,
+    ...(input.nearProvisioning ?? existing?.nearProvisioning
+      ? { nearProvisioning: input.nearProvisioning ?? existing?.nearProvisioning }
+      : {}),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };

@@ -620,6 +620,71 @@ export type AddedEvmFamilyEcdsaSignerCapability = {
   readonly thresholdEcdsaPublicKeyB64u: string;
 };
 
+/**
+ * Lifecycle of the deferred Ed25519/NEAR branch for one wallet.
+ *
+ * `near_pending` is the state registration returns in: the ECDSA wallet is
+ * durable and nothing has started provisioning NEAR yet. `near_provisioning`
+ * means an attempt is in flight. `near_failed_retryable` means the Yao ceremony
+ * or its finalize failed without touching the ECDSA wallet, so the commit can
+ * be reissued against the same registration ceremony.
+ *
+ * These are published to page-owned state and persisted to the local wallet
+ * record. `RegistrationResult` carries only a snapshot: it has crossed the
+ * postMessage boundary by the time provisioning settles and must not be
+ * mutated.
+ */
+export type NearProvisioningStatus =
+  | 'near_pending'
+  | 'near_provisioning'
+  | 'near_ready'
+  | 'near_failed_retryable';
+
+/**
+ * Wire input for a durable NEAR provisioning write.
+ *
+ * Deliberately a closed discriminated union of plain data: it carries the
+ * wallet, the target status, and — only where the status defines them — the
+ * NEAR account or a stable error code. No promises, factors, credentials,
+ * sessions, or raw error objects cross this boundary, and no lifecycle field
+ * is optional on a status that does not define it.
+ */
+export type NearProvisioningWriteV1 =
+  | { walletId: string; status: 'near_pending' }
+  | { walletId: string; status: 'near_provisioning' }
+  | { walletId: string; status: 'near_ready'; nearAccountId: string }
+  | { walletId: string; status: 'near_failed_retryable'; errorCode: NearProvisioningErrorCode };
+
+/** Stable, enumerable reasons a deferred NEAR commit can fail. */
+export type NearProvisioningErrorCode =
+  | 'near_provisioning_interrupted'
+  | 'near_finalize_failed'
+  | 'near_capability_persist_failed'
+  | 'near_seal_failed'
+  | 'near_provisioning_failed';
+
+export type NearProvisioningState =
+  | { status: 'near_pending'; updatedAtMs: number; error?: never; errorCode?: never }
+  | { status: 'near_provisioning'; updatedAtMs: number; error?: never; errorCode?: never }
+  | {
+      status: 'near_ready';
+      updatedAtMs: number;
+      nearAccountId: string;
+      error?: never;
+      errorCode?: never;
+    }
+  | {
+      status: 'near_failed_retryable';
+      updatedAtMs: number;
+      error: string;
+      errorCode: NearProvisioningErrorCode;
+    };
+
+/** Snapshot carried on the registration result. */
+export type RegistrationNearProvisioningState =
+  | { status: 'pending'; error?: never; errorCode?: never }
+  | { status: 'retryable'; error: string; errorCode: NearProvisioningErrorCode };
+
 export type RegistrationResult =
   | {
       readonly success: true;
@@ -629,6 +694,15 @@ export type RegistrationResult =
         | readonly [RegisteredNearEd25519Capability]
         | readonly [RegisteredEvmFamilyEcdsaCapability]
         | readonly [RegisteredNearEd25519Capability, RegisteredEvmFamilyEcdsaCapability];
+      readonly error?: never;
+      readonly errorCode?: never;
+    }
+  | {
+      readonly success: true;
+      readonly kind: 'ecdsa_wallet_registered_near_pending';
+      readonly walletId: WalletId;
+      readonly capabilities: readonly [RegisteredEvmFamilyEcdsaCapability];
+      readonly nearProvisioning: RegistrationNearProvisioningState;
       readonly error?: never;
       readonly errorCode?: never;
     }

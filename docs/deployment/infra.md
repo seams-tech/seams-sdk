@@ -127,6 +127,9 @@ cross-run artifact inputs.
 | `RELAYER_PRIVATE_KEY`                           | Gateway deploy           | Optional funded NEAR relayer key; its public key is derived during startup.                      |
 | `SPONSORED_EVM_EXECUTORS_JSON`                  | Gateway deploy           | Optional environment-specific sponsored EVM executor secrets.                                    |
 | `STRIPE_API_SK`                                 | Gateway deploy           | Required Stripe secret or restricted key for hosted Checkout sessions.                           |
+| `STRIPE_WEBHOOK_SECRET`                         | Gateway deploy           | Required Stripe endpoint signing secret for webhook verification.                                |
+| `RESEND_API_KEY`                                | Gateway deploy           | Required Resend API key for console transactional email.                                         |
+| `CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U`      | Gateway deploy           | Generated 32-byte base64url key for invitation-secret encryption.                                |
 
 ### Variables
 
@@ -136,6 +139,8 @@ cross-run artifact inputs.
 | `ROUTER_AB_JWT_AUDIENCE`                                 | Router A/B deploy | JWT audience accepted by the Router; defaults operationally to `router-ab`.    |
 | `ROUTER_AB_JWT_JWKS_JSON`                                | Router A/B deploy | Public JWKS injected into Router JWT verification.                             |
 | `SPONSORED_EXECUTION_REAL_PRICING_JSON`                  | Gateway deploy    | CoinGecko-backed pricing rules for sponsored NEAR execution.                   |
+| `CONSOLE_BASE_URL`                                       | Console, Gateway  | Public console URL used in transactional email links.                          |
+| `CONSOLE_EMAIL_FROM`                                     | Gateway deploy    | Resend sender using a verified domain.                                         |
 | `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`           | Router A/B deploy | Public key matching `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`.                     |
 | `ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY`           | Router A/B deploy | Public key matching `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`.                     |
 | `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY` | Router A/B deploy | Public key matching `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`.           |
