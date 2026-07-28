@@ -324,6 +324,18 @@ worker isolates: the Router authorization/admission path (~2.3 s cold), the
 SigningWorker output Durable Object (~1.4 s), and the Gateway session/budget
 Durable Objects (~1.3 s).
 
+A third registration ~1 hour after the warm pair measured the ECDSA branch at
+4,515 ms — roughly 60% of the way back to cold. Topology warmth decays on a
+tens-of-minutes timescale, which is why Phase 1 warms per admitted intent
+rather than on a schedule: scheduled warming would fight continuous decay in
+every location, per-intent warming pays once at the moment it matters.
+
+The same run exposed an unowned interval: finalize measured 1,091 ms on the
+server but 3,105 ms from the browser on a healthy connection — a ~2 s
+edge-to-handler gap invisible to the current server-side spans. Start shows a
+smaller version. Not selected work; candidate instrumentation for the
+Phase 3/4 lane.
+
 Already visible for later: even fully warm, respond (669 ms vs ≤500 target)
 and activate (646 ms vs ≤350) miss their warm targets, dominated by D1
 claim/commit at ~145-270 ms per operation, and the non-ECDSA route costs
