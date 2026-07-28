@@ -10,10 +10,18 @@ import {
   emitSigningBoundaryTrace,
 } from '../../session/operationState/trace';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
+import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
+import type { ExactEcdsaSealedRuntime } from '../../session/material/ecdsaSealedRuntime';
+import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsaCapabilityManifest';
+import { resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import {
+  buildVerifiedEcdsaPublicFacts,
+  toEvmFamilyEcdsaKeyHandle,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
 import {
-  getThresholdEcdsaSessionRecordForWalletTarget,
-  thresholdEcdsaEmailOtpAuthContext,
 } from '../../session/persistence/records';
 import type {
   ThresholdEcdsaChainTarget,
@@ -23,7 +31,6 @@ import type {
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { RequestEmailOtpChallengeArgs } from '../../session/emailOtp/exportRecoveryRuntime';
 import {
-  toVerifiedEcdsaPublicFactsFromRecord,
   type VerifiedEcdsaPublicFacts,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyChain, EvmFamilyLifecycleEventCallback } from './types';
@@ -34,15 +41,12 @@ import {
   type EmailOtpEcdsaBootstrapAuthorization,
 } from '../../session/emailOtp/routePlan';
 import {
-  emailOtpEcdsaProviderIdentityFromRecord,
   type EmailOtpEcdsaProviderIdentity,
   type EmailOtpThresholdEcdsaLoginResult,
 } from '../../session/emailOtp/ecdsaLogin';
 import {
-  resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord,
   type EmailOtpEcdsaSigningSessionAuthority,
 } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
-import { emailOtpAuthContextEmailHashHex } from '../../session/identity/laneIdentity';
 import type { EmailOtpEcdsaCommittedLane, EmailOtpEcdsaPublicReauthLane } from './ecdsaSelection';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { demoEmailOtpCodeFromDelivery } from '../../session/emailOtp/challengeDelivery';
@@ -190,22 +194,43 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
   };
 }
 
-function resolveEmailOtpEcdsaSigningSessionAuth(
-  deps: Pick<EmailOtpEcdsaSigningSessionDeps, 'ecdsaSessions'>,
-  args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-  },
-): {
-  record: NonNullable<ReturnType<typeof getThresholdEcdsaSessionRecordForWalletTarget>>;
+/** Canonical Email OTP signing-session resolution: the manifest proves exact
+ * material, the sealed runtime supplies session-scoped facts and the Email OTP
+ * binding, and the reusable Wallet Session is resolved independently. Refresh
+ * must land on the same material activation it started from, so the caller
+ * checks that before and after; nothing here invokes Yao recovery or device
+ * linking. */
+async function resolveEmailOtpEcdsaSigningSessionAuth(args: {
+  walletId: WalletId;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): Promise<{
+  manifest: ActiveEcdsaCapabilityManifest;
+  runtime: ExactEcdsaSealedRuntime;
   authority: EmailOtpEcdsaSigningSessionAuthority;
-} {
-  const record = getThresholdEcdsaSessionRecordForWalletTarget(deps.ecdsaSessions, {
+}> {
+  const resolved = await resolveActiveEcdsaCapabilityRuntime({
     walletId: args.walletId,
     chainTarget: args.chainTarget,
-    source: 'email_otp',
   });
-  const authorityResolution = resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord(record);
+  if (resolved.kind !== 'resolved') {
+    throwEmailOtpSigningSessionAuthStateError({
+      kind: 'auth_lane_missing',
+      source: 'evm_signing_refresh',
+      expectedCurve: 'ecdsa',
+    });
+  }
+  const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(args.walletId);
+  if (authorizationRead.kind !== 'found') {
+    throwEmailOtpSigningSessionAuthStateError({
+      kind: 'auth_lane_missing',
+      source: 'evm_signing_refresh',
+      expectedCurve: 'ecdsa',
+    });
+  }
+  const authorityResolution = resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime({
+    runtime: resolved.runtime,
+    authorization: authorizationRead.projection,
+  });
   if (authorityResolution.kind !== 'ready') {
     throwEmailOtpSigningSessionAuthStateError({
       kind: 'auth_lane_missing',
@@ -213,12 +238,9 @@ function resolveEmailOtpEcdsaSigningSessionAuth(
       expectedCurve: 'ecdsa',
     });
   }
-  const emailOtpAuthContext = thresholdEcdsaEmailOtpAuthContext(record);
-  if (!emailOtpAuthContext) {
-    throw new Error('Email OTP signing-session auth requires Email OTP auth context');
-  }
   return {
-    record,
+    manifest: resolved.manifest,
+    runtime: resolved.runtime,
     authority: authorityResolution.authority,
   };
 }
@@ -230,7 +252,7 @@ export async function requestEmailOtpSigningSessionChallenge(
     chainTarget: ThresholdEcdsaChainTarget;
   },
 ): Promise<EmailOtpTransactionSigningChallenge> {
-  const { authority } = resolveEmailOtpEcdsaSigningSessionAuth(deps, {
+  const { authority } = await resolveEmailOtpEcdsaSigningSessionAuth({
     walletId: args.walletSession.walletId,
     chainTarget: args.chainTarget,
   });
@@ -253,24 +275,28 @@ export async function refreshEmailOtpSigningSession(
     remainingUses?: number;
   },
 ): Promise<EmailOtpThresholdEcdsaLoginResult> {
-  const { record, authority } = resolveEmailOtpEcdsaSigningSessionAuth(deps, {
+  const { manifest, runtime, authority } = await resolveEmailOtpEcdsaSigningSessionAuth({
     walletId: args.walletSession.walletId,
     chainTarget: args.chainTarget,
   });
+  const activationBeforeRefresh = runtime.materialActivation;
   const routePlan = buildEmailOtpRoutePlan({
     routeFamily: 'signing_session',
     authLane: authority.authLane,
     operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
   });
-  const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record });
-  if (record.source !== 'email_otp') {
-    throw new Error('Email OTP signing-session refresh requires an Email OTP session record');
+  // Public facts are the manifest's half of the capability split.
+  const publicFacts = buildVerifiedEcdsaPublicFacts({
+    keyHandle: toEvmFamilyEcdsaKeyHandle(String(manifest.durableMaterial.roleLocalPublicFacts.keyHandle)),
+    publicKeyB64u: runtime.thresholdEcdsaPublicKeyB64u,
+    participantIds: [...runtime.participantIds],
+    thresholdOwnerAddress: manifest.durableMaterial.roleLocalPublicFacts.ethereumAddress,
+  });
+  const emailOtpBinding = runtime.authBinding;
+  if (emailOtpBinding.kind !== 'email_otp') {
+    throw new Error('Email OTP signing-session refresh requires an Email OTP sealed runtime');
   }
-  const emailOtpAuthContext = thresholdEcdsaEmailOtpAuthContext(record);
-  if (!emailOtpAuthContext) {
-    throw new Error('Email OTP signing-session refresh requires Email OTP auth context');
-  }
-  return await deps.emailOtpSessions.loginWithEcdsaCapabilityInternal({
+  const refreshed = await deps.emailOtpSessions.loginWithEcdsaCapabilityInternal({
     walletSession: args.walletSession,
     chainTarget: args.chainTarget,
     emailOtpAuthPolicy: 'session',
@@ -281,10 +307,33 @@ export async function refreshEmailOtpSigningSession(
     routePlan,
     publicFacts,
     ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-    providerIdentity: emailOtpEcdsaProviderIdentityFromRecord(record),
-    emailHashHex: emailOtpAuthContextEmailHashHex(emailOtpAuthContext),
+    providerIdentity: {
+      kind: 'explicit_provider_user',
+      providerUserId: emailOtpBinding.providerSubjectId,
+    },
+    emailHashHex: emailOtpBinding.emailHashHex,
     ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
     ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),
-    ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+    ...(runtime.runtimePolicyScope ? { runtimePolicyScope: runtime.runtimePolicyScope } : {}),
   });
+  // Refresh renews authorization over the same material; it must never land on
+  // a different activation, and it never invokes recovery or device linking.
+  const activationAfterRefresh = (
+    await resolveActiveEcdsaCapabilityRuntime({
+      walletId: args.walletSession.walletId,
+      chainTarget: args.chainTarget,
+    })
+  );
+  if (
+    activationAfterRefresh.kind === 'resolved' &&
+    !mpcMaterialActivationRefsEqual(
+      activationAfterRefresh.runtime.materialActivation,
+      activationBeforeRefresh,
+    )
+  ) {
+    throw new Error(
+      '[SigningEngine][ecdsa] Email OTP signing-session refresh changed the material activation',
+    );
+  }
+  return refreshed;
 }
