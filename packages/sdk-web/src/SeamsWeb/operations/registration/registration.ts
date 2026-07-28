@@ -171,18 +171,20 @@ export const REGISTRATION_TIMING_LABEL = '[Registration] wallet timing summary';
  * the Ed25519 Yao registration execute response; anything unrecognised is
  * ignored so a Router-side rename can never break registration.
  */
-const YAO_SERVER_TIMING_BUCKET_BY_METRIC = {
-  yao_credential_digest: 'yaoServerCredentialDigestMs',
-  yao_request_digest: 'yaoServerRequestDigestMs',
-  yao_d1_claim: 'yaoServerD1ClaimMs',
-  yao_router_execution: 'yaoServerRouterExecutionMs',
-  yao_result_reconstruction: 'yaoServerResultReconstructionMs',
-  yao_d1_terminal_commit: 'yaoServerD1TerminalCommitMs',
-  yao_router_prepare_pair: 'yaoServerRouterPreparePairMs',
-  yao_router_verify_readiness: 'yaoServerRouterVerifyReadinessMs',
-  yao_router_role_execution: 'yaoServerRouterRoleExecutionMs',
-  yao_router_signing_worker_delivery: 'yaoServerRouterSigningWorkerDeliveryMs',
-} as const satisfies Record<string, RegistrationTimingBucketName>;
+const YAO_SERVER_TIMING_BUCKET_BY_METRIC = new Map<string, RegistrationTimingBucketName>(
+  Object.entries({
+    yao_credential_digest: 'yaoServerCredentialDigestMs',
+    yao_request_digest: 'yaoServerRequestDigestMs',
+    yao_d1_claim: 'yaoServerD1ClaimMs',
+    yao_router_execution: 'yaoServerRouterExecutionMs',
+    yao_result_reconstruction: 'yaoServerResultReconstructionMs',
+    yao_d1_terminal_commit: 'yaoServerD1TerminalCommitMs',
+    yao_router_prepare_pair: 'yaoServerRouterPreparePairMs',
+    yao_router_verify_readiness: 'yaoServerRouterVerifyReadinessMs',
+    yao_router_role_execution: 'yaoServerRouterRoleExecutionMs',
+    yao_router_signing_worker_delivery: 'yaoServerRouterSigningWorkerDeliveryMs',
+  } as const satisfies Record<string, RegistrationTimingBucketName>),
+);
 
 /**
  * Parses a `Server-Timing` header into bucket durations. Diagnostics only: a
@@ -196,9 +198,10 @@ export function parseYaoServerTimingBuckets(
   for (const entry of header.split(',')) {
     const parts = entry.split(';');
     const name = String(parts[0] || '').trim();
-    const bucket = (
-      YAO_SERVER_TIMING_BUCKET_BY_METRIC as Record<string, RegistrationTimingBucketName | undefined>
-    )[name];
+    /* Map lookup, not property access: a metric literally named `__proto__`
+       or `constructor` would otherwise resolve against Object.prototype and be
+       recorded as a bucket. */
+    const bucket = YAO_SERVER_TIMING_BUCKET_BY_METRIC.get(name);
     if (!bucket) continue;
     for (const part of parts.slice(1)) {
       const [key, rawValue] = part.split('=');
