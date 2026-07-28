@@ -6,6 +6,7 @@ async function verifyPasskeyUnlockImmediateLifecycle({
   harness: IntendedBehaviourHarness;
 }): Promise<void> {
   await harness.registerPasskeyWallet();
+  await harness.awaitNearReady();
   await harness.unlockPasskeyWallet();
   await harness.exportEd25519Key();
   await harness.exportEcdsaKey();
@@ -25,6 +26,7 @@ async function verifyPasskeyPageRefreshHydration({
   harness: IntendedBehaviourHarness;
 }): Promise<void> {
   await harness.registerPasskeyWallet();
+  await harness.awaitNearReady();
   await harness.unlockPasskeyWallet();
   await harness.refreshPagePreservingWalletStorage();
   await harness.exportEd25519Key();
