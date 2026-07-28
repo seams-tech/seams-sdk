@@ -85,10 +85,15 @@ cache records the same effect.
 
 ### Signed Setup And Policy
 
-The Gateway signs the setup and admitted-policy payloads carried by the client
-and sent to Router. Each payload binds its operation, environment, request
-fingerprint, issue time, expiry, and policy/key version. The setup payload also
-binds the wallet candidate, authentication challenge, and signer plan.
+The Gateway signs the setup payload carried opaquely by the client. It binds
+the immutable ceremony specification: environment, wallet candidate,
+authentication challenge, signer plan, issue time, expiry, and key version.
+
+For each concrete Router call, Gateway mints an internal Router JWT containing
+`RouterRequestPolicyClaimsV1`. Those claims bind that operation's canonical
+request fingerprint, work kind, and policy version. Respond and activate use
+their own fingerprints because their complete request bodies do not exist at
+setup time. The policy claims never cross the public client contract.
 
 Workers verify these payloads locally against deployment-pinned keys.
 Registration performs no JWKS, policy, or authorization-state fetch.
@@ -97,8 +102,8 @@ The frozen internal contract uses these exact rules:
 
 - request fingerprints are `PublicDigest32` values over the existing canonical
   typed domain encoding, never raw JSON serialization;
-- signed setup and policy payloads are compact Ed25519 JWS/JWT strings that the
-  client carries opaquely;
+- signed setup is a compact Ed25519 JWS that the client carries opaquely;
+- request policy is an internal Gateway-to-Router JWT claim verified locally;
 - activate returns exact terminal response bytes and exposes no Router
   readiness receipt;
 - Gateway is the only wallet-session JWT minting authority; Router and role
@@ -181,7 +186,7 @@ One Gateway request:
 - applies rate limiting and any conditional exact quota;
 - chooses the generated wallet name;
 - inserts the canonical ceremony with its wallet UNIQUE constraint;
-- returns the signed setup and policy payloads;
+- returns the signed setup payload;
 - starts safe ECDSA and Yao preparation concurrently during the user prompt.
 
 Preparation creates no custody commitment, consumes no factor, and enters no
@@ -192,7 +197,8 @@ irreversible state.
 One Gateway request:
 
 - verifies the passkey or Email OTP proof;
-- verifies setup and policy signatures locally;
+- verifies the setup signature locally and mints request-bound Router policy
+  claims after the authenticated respond body is complete;
 - returns the exact A/B proof bundles for browser verification.
 
 Role-private state owns exact retry and partial-role convergence. Remove the
