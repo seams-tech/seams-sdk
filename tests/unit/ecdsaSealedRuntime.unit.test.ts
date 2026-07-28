@@ -79,6 +79,30 @@ test.describe('exact ECDSA sealed runtime resolution', () => {
     // The exact record is carried back so allowance writes target it.
     expect(runtime.sealedRecord.storeKey).toBe(record.storeKey);
     expect(runtime.sealedRecord.thresholdSessionId).toBe(record.thresholdSessionIds.ecdsa);
+    // Durable material is exposed in the canonical persisted form, naming the
+    // same activation, so callers never re-derive it from the sealed shape.
+    expect(runtime.roleLocalMaterialRef.materialActivation.activationId).toBe(
+      manifest.durableMaterial.materialActivation.activationId,
+    );
+    expect(String(runtime.roleLocalMaterialRef.durableMaterialRef)).toBe(
+      String(manifest.durableMaterial.durableMaterialRef),
+    );
+  });
+
+  test('blocks when the sealed material ref is not canonical persisted material', () => {
+    const manifest = activeManifest();
+    const bound = sealedRecordForManifest(manifest);
+    const malformed = {
+      ...bound,
+      ecdsaRestore: {
+        ...bound.ecdsaRestore,
+        roleLocalMaterialRef: {
+          ...bound.ecdsaRestore.roleLocalMaterialRef,
+          bindingDigest: '',
+        },
+      },
+    } as CurrentEcdsaSealedSessionRecord;
+    expect(resolve(manifest, [malformed])).toEqual({ kind: 'blocked', reason: 'corrupt' });
   });
 
   test('blocks when no sealed record names the manifest material activation', () => {

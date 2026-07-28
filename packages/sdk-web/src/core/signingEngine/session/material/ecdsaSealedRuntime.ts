@@ -6,6 +6,10 @@ import {
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { CurrentEcdsaSealedSessionRecord } from '../persistence/sealedSessionStore';
+import {
+  parseEcdsaRoleLocalPersistedMaterialRef,
+  type EcdsaRoleLocalPersistedMaterialRef,
+} from '../keyMaterialBrands';
 import type { MpcCapabilityHydrationBlockedReason } from './mpcCapabilityHydration';
 import type { ActiveEcdsaCapabilityManifest } from './ecdsaCapabilityManifest';
 
@@ -54,6 +58,9 @@ export type ExactEcdsaSealedRuntime = {
   readonly ecdsaThresholdKeyId: string;
   readonly thresholdEcdsaPublicKeyB64u: string;
   readonly keyHandle: string;
+  /** The durable material this runtime unlocks, in the canonical persisted form
+   * the role-local material resolver consumes. */
+  readonly roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
   readonly authBinding: ExactEcdsaSealedRuntimeAuthBinding;
   readonly expiresAtMs: number;
   readonly remainingUses: number;
@@ -163,6 +170,14 @@ function runtimeFromSealedRecord(args: {
   const remainingUses = Math.floor(Number(args.record.remainingUses));
   const thresholdSessionId = normalizedNonEmpty(args.record.thresholdSessionIds?.ecdsa);
   const storeKey = normalizedNonEmpty(args.record.storeKey);
+  // Parsed through the production boundary parser: a sealed ref that cannot
+  // become canonical persisted material makes the whole runtime corrupt.
+  let roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
+  try {
+    roleLocalMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef(restore.roleLocalMaterialRef);
+  } catch {
+    return null;
+  }
   if (
     !authBinding ||
     !relayerUrl ||
@@ -192,6 +207,7 @@ function runtimeFromSealedRecord(args: {
     ecdsaThresholdKeyId,
     thresholdEcdsaPublicKeyB64u,
     keyHandle,
+    roleLocalMaterialRef,
     authBinding,
     expiresAtMs,
     remainingUses,
