@@ -18,7 +18,6 @@ import {
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   generateSigningGrantId,
-  parseThresholdRuntimePolicyScopeFromJwt,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -762,13 +761,12 @@ type EmailOtpEcdsaSigningRefreshFacts = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
 };
 
+// The runtime policy scope is sealed-runtime state. It is not read back out of
+// the Wallet Session JWT, which is a bearer credential here.
 function requireEmailOtpEcdsaSigningRefreshRuntimePolicyScope(args: {
-  committedLane: EmailOtpEcdsaCommittedLane;
   recordRuntimePolicyScope: ThresholdRuntimePolicyScope | undefined;
 }): ThresholdRuntimePolicyScope {
-  const runtimePolicyScope =
-    args.recordRuntimePolicyScope ||
-    parseThresholdRuntimePolicyScopeFromJwt(args.committedLane.authLane.jwt);
+  const runtimePolicyScope = args.recordRuntimePolicyScope;
   if (!runtimePolicyScope) {
     throw new Error('Email OTP ECDSA signing refresh requires runtimePolicyScope');
   }
@@ -787,7 +785,6 @@ function buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(
       providerUserId: committedLane.authority.factor.providerUserId,
     },
     runtimePolicyScope: requireEmailOtpEcdsaSigningRefreshRuntimePolicyScope({
-      committedLane,
       recordRuntimePolicyScope: undefined,
     }),
   };
@@ -941,10 +938,9 @@ async function runEmailOtpEcdsaCapability(
   const bootstrapTransportAuth = bootstrapRouteAuth
     ? emailOtpEcdsaBootstrapRouteAuthToTransport(bootstrapRouteAuth)
     : undefined;
-  const runtimePolicyScope =
-    args.runtimePolicyScope ||
-    parseThresholdRuntimePolicyScopeFromJwt(routeAuth?.jwt) ||
-    parseThresholdRuntimePolicyScopeFromJwt(bootstrapTransportAuth?.jwt);
+  // Supplied by the caller from sealed runtime state; the route and bootstrap
+  // tokens are bearer credentials and are not decoded for control state.
+  const runtimePolicyScope = args.runtimePolicyScope;
 
   if (!workerCtx) {
     throw new Error('Email OTP login requires the dedicated emailOtp worker');

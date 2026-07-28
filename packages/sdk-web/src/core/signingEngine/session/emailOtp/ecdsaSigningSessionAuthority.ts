@@ -1,6 +1,5 @@
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
-  toAuthorizingSigningGrantId,
   type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
@@ -77,9 +76,6 @@ export function resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord(
       kind: 'signing_session',
       jwt: walletSessionAuth.walletSessionJwt,
       thresholdSessionId: walletSessionAuth.identity.thresholdSessionId,
-      authorizingSigningGrantId: toAuthorizingSigningGrantId(
-        walletSessionAuth.identity.signingGrantId,
-      ),
       curve: 'ecdsa',
       chainTarget: record.chainTarget,
     },
@@ -112,9 +108,6 @@ export function resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime(args: {
       kind: 'signing_session',
       jwt: walletSessionJwt,
       thresholdSessionId: args.runtime.sealedRecord.thresholdSessionId,
-      authorizingSigningGrantId: toAuthorizingSigningGrantId(
-        String(args.authorization.walletSessionId),
-      ),
       curve: 'ecdsa',
       chainTarget: args.runtime.chainTarget,
     },
