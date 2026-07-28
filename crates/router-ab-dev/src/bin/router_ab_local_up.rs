@@ -2,12 +2,9 @@
 mod local_dev_process;
 
 use local_dev_process::{
-    assert_worker_binary_bindable, normalize_root, read_pid, read_router_config,
-    resolve_worker_binary, wait_for_managed_health, write_pid, LocalWorkerSpawnReceipt,
-    ManagedChild, LOCAL_WORKER_PROCESS_SPECS,
-};
-use router_ab_dev::{
-    initialize_local_router_persistence_v1, LocalRouterPersistenceStartupReceiptV1,
+    assert_worker_binary_bindable, normalize_root, read_pid, resolve_worker_binary,
+    wait_for_managed_health, write_pid, LocalWorkerSpawnReceipt, ManagedChild,
+    LOCAL_WORKER_PROCESS_SPECS,
 };
 use serde::Serialize;
 use std::{env, path::PathBuf};
@@ -21,8 +18,6 @@ struct UpOptions {
 struct UpSummary {
     root: String,
     worker_binary: String,
-    /// Router-owned SQLite boundaries initialized before private workers.
-    router_persistence: LocalRouterPersistenceStartupReceiptV1,
     processes: Vec<LocalWorkerSpawnReceipt>,
 }
 
@@ -30,9 +25,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = parse_args(env::args().skip(1))?;
     let root = normalize_root(options.root)?;
     let worker_binary = resolve_worker_binary()?;
-    let router_config = read_router_config(&root)?;
-    let router_persistence = initialize_local_router_persistence_v1(&router_config)?;
-
     for spec in LOCAL_WORKER_PROCESS_SPECS {
         if read_pid(&root, *spec)?.is_some() {
             return Err(format!(
@@ -55,7 +47,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let summary = UpSummary {
         root: root.display().to_string(),
         worker_binary: worker_binary.display().to_string(),
-        router_persistence,
         processes: children
             .iter()
             .map(|(_, receipt)| receipt.clone())
