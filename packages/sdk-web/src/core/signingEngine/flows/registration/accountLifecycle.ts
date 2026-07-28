@@ -4,6 +4,7 @@ import {
   SIGNER_SOURCES,
   type WalletAuthMethod,
 } from '@shared/utils/signerDomain';
+import type { NearProvisioningState, NearProvisioningWriteV1 } from '@/core/types/seams';
 import {
   nearEd25519SigningKeyIdFromString,
   type NearEd25519SigningKeyId,
@@ -16,9 +17,7 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import type {
-  WebAuthnRegistrationCredential,
-} from '@/core/types';
+import type { WebAuthnRegistrationCredential } from '@/core/types';
 import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
 import {
   getLastSelectedNearAccountProjection,
@@ -625,6 +624,41 @@ async function resolveAuthenticatedWalletProfileBinding(
     signerSlot: selectedSigner.signerSlot,
     operationalPublicKey,
   };
+}
+
+type NearProvisioningWriteDeps = {
+  accountStore: Pick<RegistrationAccountLifecycleDeps['accountStore'], 'upsertProfile'>;
+};
+
+/**
+ * Refactor 94 Phase 6. Writes the wallet root profile's NEAR provisioning
+ * state. The durable record is authoritative, so this is the write every
+ * publish is sequenced behind.
+ */
+export async function setWalletNearProvisioningState(
+  deps: NearProvisioningWriteDeps,
+  write: NearProvisioningWriteV1,
+): Promise<void> {
+  const profileId = String(write.walletId || '').trim();
+  if (!profileId) throw new Error('SeamsWalletDB: walletId is required');
+  const updatedAtMs = Date.now();
+  const state: NearProvisioningState =
+    write.status === 'near_ready'
+      ? { status: 'near_ready', updatedAtMs, nearAccountId: write.nearAccountId }
+      : write.status === 'near_failed_retryable'
+        ? {
+            status: 'near_failed_retryable',
+            updatedAtMs,
+            error: write.errorCode,
+            errorCode: write.errorCode,
+          }
+        : { status: write.status, updatedAtMs };
+  await deps.accountStore.upsertProfile({
+    profileId: profileId as Parameters<
+      NearProvisioningWriteDeps['accountStore']['upsertProfile']
+    >[0]['profileId'],
+    nearProvisioning: state,
+  });
 }
 
 export async function activateAuthenticatedWalletState(

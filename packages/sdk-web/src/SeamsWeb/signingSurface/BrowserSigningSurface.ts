@@ -1057,6 +1057,12 @@ export class BrowserSigningSurface {
     return registrationPublic.activateAuthenticatedWalletState(this.registrationPublicDeps, args);
   }
 
+  setWalletNearProvisioningState(
+    write: Parameters<typeof registrationPublic.setWalletNearProvisioningState>[1],
+  ): ReturnType<typeof registrationPublic.setWalletNearProvisioningState> {
+    return registrationPublic.setWalletNearProvisioningState(this.registrationPublicDeps, write);
+  }
+
   storeAuthenticator(
     authenticatorData: Parameters<typeof registrationPublic.storeAuthenticator>[1],
   ): ReturnType<typeof registrationPublic.storeAuthenticator> {
