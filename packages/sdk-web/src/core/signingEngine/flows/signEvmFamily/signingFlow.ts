@@ -69,6 +69,7 @@ import type {
   ReadySecp256k1Signer,
   ReadySecp256k1SigningMaterial,
 } from './signers/secp256k1';
+import type { ReadySecp256k1SigningMaterialResolution } from './readySecp256k1Material';
 
 type EvmFamilySigningWebAuthnMode<TRequest> =
   | {
@@ -105,15 +106,11 @@ export type ReadyEcdsaSigningMaterialSource =
       material: ReadySecp256k1SigningMaterial;
     };
 
+// The unavailable arm is the resolver's own, so the typed outcomes cannot
+// drift apart from the gates that produce them.
 export type EcdsaSigningMaterialPlan =
   | ReadyEcdsaSigningMaterialSource
-  | {
-      kind: 'unavailable';
-      reason:
-        | 'material_activation_mismatch'
-        | 'chain_mismatch'
-        | 'authorization_unavailable';
-    };
+  | Extract<ReadySecp256k1SigningMaterialResolution, { kind: 'unavailable' }>;
 
 export type ResolveEcdsaSigningMaterialPlan = (args: {
   requestLabel: unknown;

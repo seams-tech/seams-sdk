@@ -7,8 +7,10 @@ import type { EcdsaSigningMaterialPlan } from './signingFlow';
 import type { EvmFamilyThresholdEcdsaStepUpRuntime } from './requireEvmFamilyStepUpAuth';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
 import { resolveReadySecp256k1SigningMaterial } from './readySecp256k1Material';
+import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
 import type {
   ThresholdEcdsaChainTarget,
+  WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -32,14 +34,24 @@ function requireEvmFamilyRelayerUrl(deps: EvmFamilySigningDeps): string {
 
 async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   authorized: Awaited<ReturnType<EvmFamilySigningDeps['resolveAuthorizedEcdsaSigningCapability']>>;
-  relayerUrl: string;
+  walletId: WalletId;
+  chainTarget: ThresholdEcdsaChainTarget;
   requestLabel: unknown;
   materialActivation: ResolvedEvmFamilyEcdsaSigningLane['materialActivation'];
   workerCtx: ReturnType<EvmFamilySigningDeps['getSignerWorkerContext']>;
 }): Promise<EcdsaSigningMaterialPlan> {
+  // Session-scoped runtime state comes from the exact sealed record correlated
+  // with this wallet's active manifest, not from the Wallet Session JWT.
+  const runtimeResolution = await resolveActiveEcdsaCapabilityRuntime({
+    walletId: args.walletId,
+    chainTarget: args.chainTarget,
+  });
+  if (runtimeResolution.kind !== 'resolved') {
+    return { kind: 'unavailable', reason: 'runtime_correlation_mismatch' };
+  }
   const resolution = await resolveReadySecp256k1SigningMaterial({
     authorized: args.authorized,
-    relayerUrl: args.relayerUrl,
+    runtime: runtimeResolution.runtime,
     requestLabel: args.requestLabel,
     materialActivation: args.materialActivation,
     workerCtx: args.workerCtx,
@@ -149,7 +161,8 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           resolveEcdsaSigningMaterialPlan: async ({ requestLabel }: { requestLabel: unknown }) =>
             await resolveEcdsaSigningMaterialHydrationPlan({
               authorized,
-              relayerUrl,
+              walletId: resolvedSigner.walletId,
+              chainTarget: resolvedSigner.chainTarget,
               requestLabel,
               materialActivation: resolvedSigner.materialActivation,
               workerCtx,
