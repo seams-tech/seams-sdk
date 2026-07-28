@@ -118,6 +118,7 @@ import {
   StoredWalletAddSignerFinalizeReplay,
   StoredWalletAddSignerFinalizeRequest,
   StoredWalletRegistrationCeremony,
+  StoredWalletRegistrationCeremonyAuthorityState,
   StoredWalletRegistrationFinalizeReplay,
 } from '../../core/RegistrationCeremonyStore';
 import {
@@ -358,7 +359,7 @@ export function parseD1StoredWalletRegistrationCeremony(
   const digestB64u = toOptionalTrimmedString(record.digestB64u);
   const orgId = toOptionalTrimmedString(record.orgId);
   const expiresAtMs = safeInteger(record.expiresAtMs);
-  const authority = parseD1RegistrationAuthority(record.authority);
+  const authorityState = parseD1WalletRegistrationCeremonyAuthorityState(record.authorityState);
   const signerPlan = parseStoredRegistrationSignerPlan(record.signerPlan);
   const preparedContext = parseStoredWalletRegistrationPreparedContext(record.preparedContext);
   const intentSignerPlan = intent
@@ -375,7 +376,7 @@ export function parseD1StoredWalletRegistrationCeremony(
     !signingRootId ||
     !signingRootVersion ||
     expiresAtMs === null ||
-    !authority ||
+    !authorityState ||
     !signerPlan ||
     !preparedContext ||
     !intentSignerPlan ||
@@ -394,7 +395,7 @@ export function parseD1StoredWalletRegistrationCeremony(
     preparedContext,
     orgId,
     expiresAtMs,
-    authority,
+    authorityState,
     signerState,
   };
   const expectedOrigin = toOptionalTrimmedString(record.expectedOrigin);
@@ -402,6 +403,29 @@ export function parseD1StoredWalletRegistrationCeremony(
   if (signingRootVersion) ceremony.signingRootVersion = signingRootVersion;
   if (expectedOrigin) ceremony.expectedOrigin = expectedOrigin;
   return ceremony;
+}
+
+/**
+ * Refactor 94C. Setup creates the ceremony before the WebAuthn proof exists,
+ * so the stored authority is a two-arm state rather than a required record.
+ */
+function parseD1WalletRegistrationCeremonyAuthorityState(
+  raw: unknown,
+): StoredWalletRegistrationCeremonyAuthorityState | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  switch (record.kind) {
+    case 'awaiting_proof': {
+      const authMethod = normalizeRegistrationAuthMethodInput(record.authMethod);
+      return authMethod ? { kind: 'awaiting_proof', authMethod } : null;
+    }
+    case 'verified': {
+      const authority = parseD1RegistrationAuthority(record.authority);
+      return authority ? { kind: 'verified', authority } : null;
+    }
+    default:
+      return null;
+  }
 }
 
 export function parseD1StoredWalletRegistrationFinalizeReplay(

@@ -850,7 +850,10 @@ function buildCeremony(input: {
     signingRootVersion: runtimePolicyScope.signingRootVersion,
     expectedOrigin: 'https://app.example.com',
     expiresAtMs: Date.now() + 60_000,
-    authority: testPasskeyAuthority(input.walletId, testRpId()),
+    authorityState: {
+      kind: 'verified',
+      authority: testPasskeyAuthority(input.walletId, testRpId()),
+    },
     signerState: {
       kind: 'signer_set_registration',
       branches: [
