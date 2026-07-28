@@ -828,6 +828,9 @@ pub async fn put_cloudflare_signing_worker_output_activation_record_v1(
         .await
         .map_err(|error| map_d1_error("SigningWorker activation insert failed", error))?;
     let activated = d1_changes(&inserted)? == 1;
+    if activated {
+        return Ok(true);
+    }
     let stored = activation_row_by_material_key_v1(&session, &material_key)
         .await?
         .ok_or_else(|| d1_error("SigningWorker activation insert did not produce a record"))?;
@@ -841,7 +844,7 @@ pub async fn put_cloudflare_signing_worker_output_activation_record_v1(
             "server-output activation conflicts with existing activation or material",
         ));
     }
-    Ok(activated)
+    Ok(false)
 }
 
 pub(crate) async fn load_cloudflare_signing_worker_private_d1_secret_v1<T>(
@@ -1012,6 +1015,21 @@ async fn activate_output_v1(
         .await
         .map_err(|error| map_d1_error("SigningWorker activation insert failed", error))?;
     let activated = d1_changes(&inserted)? == 1;
+    let activation_context = &activation.activation_context;
+    let selected_server = &activation_context.signer_set().selected_server;
+    if activated {
+        return Ok(
+            CloudflareSigningWorkerPrivateD1ResponseV1::OutputActivated {
+                receipt: CloudflareSigningWorkerOutputActivationReceiptV1::new(
+                    activation_context.lifecycle().lifecycle_id.clone(),
+                    selected_server.server_id.clone(),
+                    activation_context.transcript_digest(),
+                    active_state,
+                    true,
+                )?,
+            },
+        );
+    }
     let stored = activation_row_by_material_key_v1(db, &material_key)
         .await?
         .ok_or_else(|| d1_error("SigningWorker activation insert did not produce a record"))?;
@@ -1025,8 +1043,6 @@ async fn activate_output_v1(
             "server-output activation conflicts with existing activation or material",
         ));
     }
-    let activation_context = &activation.activation_context;
-    let selected_server = &activation_context.signer_set().selected_server;
     Ok(
         CloudflareSigningWorkerPrivateD1ResponseV1::OutputActivated {
             receipt: CloudflareSigningWorkerOutputActivationReceiptV1::new(
@@ -1034,7 +1050,7 @@ async fn activate_output_v1(
                 selected_server.server_id.clone(),
                 activation_context.transcript_digest(),
                 active_state,
-                activated,
+                false,
             )?,
         },
     )
