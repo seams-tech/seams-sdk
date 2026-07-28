@@ -2,7 +2,24 @@
 
 Date created: July 28, 2026
 
-Status: planned
+Status: closed — diagnosis complete; structural remediation moved to Refactor 94C
+
+## Closure
+
+Refactor 94B completed the cold-boundary instrumentation and identified the
+deployed cause. Worker startup measured 3–11 ms and Deriver computation
+measured 22–49 ms. Cold latency instead concentrated in Router authorization
+and admission, SigningWorker output state, and Gateway session and budget
+Durable Objects. Their combined cold penalty was several seconds.
+
+Prewarming the existing stateful topology would hide the symptom temporarily
+while retaining the duplicated authorities that created it. The unimplemented
+warmup, bundle-size, respond, activate, passkey-tail, and deployment phases are
+superseded by
+[`refactor-94C-regression-fixes.md`](./refactor-94C-regression-fixes.md), which
+removes those Durable Object boundaries. All unchecked checklist entries and
+unimplemented phase proposals have been removed. Refactor 94C owns the
+production latency target and final deployment acceptance.
 
 ## Objective
 
@@ -129,21 +146,36 @@ that verification boundary.
    for Deriver B, and 3.7 MB for SigningWorker in the current local release
    build.
 
-### Still unmeasured
+### Measurement Resolution
 
-1. Gateway D1 claim and terminal-CAS duration for each ECDSA operation.
-2. Router JWT verification and request parsing.
-3. Router lifecycle claim and completion duration.
-4. Deriver service-binding wait per role.
-5. Root metadata Durable Object load per role.
-6. Deriver host construction and proof computation per role.
-7. SigningWorker startup, HPKE work, and output Durable Object activation.
-8. Normal-signing session and budget provisioning.
-9. Runtime-policy lookup and wallet-session JWT creation.
-10. Deployed `startup_time_ms` for each role artifact.
+The completed instrumentation resolved the decision-driving intervals. Router
+authorization and admission measured about 2,360 ms cold versus 60 ms warm;
+SigningWorker output state measured about 1,406 ms cold versus 38 ms warm;
+Gateway session and budget state measured about 1,336 ms cold versus 22 ms
+warm. Deriver work measured 22–49 ms, and deployed Worker startup measured
+3–11 ms. These results selected structural state-topology removal in Refactor
+94C.
 
-Refactor 94B does not select a structural rewrite until these intervals are
-visible in one cold trace and one immediate warm trace.
+## Registration Effect Ledger (2026-07-28)
+
+What is actually irreversible in a **default** registration, recorded so
+insurance machinery is scoped to it and nothing else:
+
+- **NEAR account creation is implicit.** The account ID is the Ed25519 public
+  key; creating it is keypair derivation only. No on-chain transaction, no
+  gas, no relayer spend, nothing exists on chain until the account is funded
+  at first use. Default registration therefore creates **no irrevocable
+  on-chain state** and must not carry on-chain-grade claim/replay ceremony.
+- **Irreversible in the default path:** custody activation (the signer set
+  and key material commitment) and Yao consume-once material. These keep
+  their claims.
+- **The sponsored `named` account path is the exception, not the default.**
+  When a tenant opts into named accounts at signup, that path broadcasts a
+  funded on-chain transaction and keeps the full durable-claim and replay
+  ceremony. The ceremony's cost belongs to that option alone.
+
+Invariant 2 below is scoped by this ledger: "irreversible effect" means the
+items named here, not every persistence step in the flow.
 
 ## Required Invariants
 
@@ -154,7 +186,10 @@ visible in one cold trace and one immediate warm trace.
 5. A response lost after a durable effect reconciles without repeating that
    effect.
 6. Deriver A and Deriver B retain independent secret custody.
-7. Root shares remain outside Gateway, Router, D1, and shared caches.
+7. This diagnostic baseline kept root shares outside D1. Refactor 94C
+   supersedes that storage invariant by permitting only envelope-encrypted
+   role-share ciphertext in role-private D1; plaintext shares remain outside
+   Gateway, Router, D1, and shared caches.
 8. Warmup never creates ceremony state, reserves a wallet, consumes a grant,
    advances lifecycle state, or writes signing material.
 9. Warmup failure never changes registration behavior or error handling.
@@ -335,286 +370,12 @@ and transport rather than work — the measurement that decides Phase 2.
       | Router | 4,832.04 KiB | 1,456.16 KiB | 3 ms |
       | Gateway | 5,596.97 KiB | 1,152.98 KiB | 11 ms |
 
-## Phase selection (2026-07-28)
 
-**Phase 1 is selected.** The largest measured cold interval is topology
-wakeup: ~5.5 s of the 7.2 s cold ECDSA branch disappears when the Durable
-Objects and authorization path are resident, and none of it is artifact
-startup (3-11 ms validated) or deriver computation (22-49 ms). Phase 2's
-hypothesis is rejected by both the deploy metrics and the trace.
+## Final Closeout
 
-Phase 1's warmup must therefore target what the trace proved material, not
-worker isolates: the Router authorization/admission path (~2.3 s cold), the
-SigningWorker output Durable Object (~1.4 s), and the Gateway session/budget
-Durable Objects (~1.3 s).
-
-A third registration ~1 hour after the warm pair measured the ECDSA branch at
-4,515 ms — roughly 60% of the way back to cold. Topology warmth decays on a
-tens-of-minutes timescale, which is why Phase 1 warms per admitted intent
-rather than on a schedule: scheduled warming would fight continuous decay in
-every location, per-intent warming pays once at the moment it matters.
-
-The same run exposed an unowned interval: finalize measured 1,091 ms on the
-server but 3,105 ms from the browser on a healthy connection — a ~2 s
-edge-to-handler gap invisible to the current server-side spans. Start shows a
-smaller version. Not selected work; candidate instrumentation for the
-Phase 3/4 lane. A production sample sharpened it: the pre-refactor combined
-finalize — strictly more work, both signer branches, four activations —
-measured 450 ms browser-observed, while the post-refactor ECDSA-only finalize
-measures 1.4-3.1 s on staging. The finalize slowdown is a refactor-94-lineage
-regression, not ambient platform behavior.
-
-Already visible for later: even fully warm, respond (669 ms vs ≤500 target)
-and activate (646 ms vs ≤350) miss their warm targets, dominated by D1
-claim/commit at ~145-270 ms per operation, and the non-ECDSA route costs
-(start 1,670 ms, finalize 1,654 ms warm) now exceed the entire warm ECDSA
-branch. That is Phase 3/4 territory and is not selected yet — one phase per
-measurement, and the cold interval is the largest by a wide margin.
-
-The three measurement items above are blocked on an authorized staging deploy
-of the completed instrumentation. No phase from 1-5 may be selected until they
-are recorded: the choice between topology prewarming, artifact size, respond,
-activate, and the passkey tail is exactly what the measurement decides.
-
-Two findings from finishing this phase:
-
-- The transplanted diagnostics work left `strict_worker/router.rs` missing two
-  imports, so the router entrypoint did not compile. Deriver A/B and
-  SigningWorker were unaffected, so a single-entrypoint check would have passed.
-  All four entrypoints are checked now.
-- The presence sink was initially declared and type-correct but never invoked:
-  `register` and `activate` built their `forward` input field by field and
-  silently dropped it. Nothing failed — the diagnostic was simply dead. It was
-  caught by writing the behavioural test, not by the typechecker, which is the
-  argument for covering diagnostics rather than trusting that they compile.
-
-Acceptance:
-
-- one trace accounts for at least 95% of each public ECDSA request;
-- child spans never exceed their parent interval after accounting for
-  concurrency;
-- response bodies, execution order, retries, and lifecycle decisions remain
-  unchanged;
-- the trace distinguishes Worker/service startup from Durable Object and
-  cryptographic work.
-
-## Phase 1: Prewarm The Existing Topology
-
-Use the already authorized registration-intent execution as the warmup trigger.
-The Gateway schedules best-effort internal warmup after the intent is admitted,
-leaving Google selection or WebAuthn time available to absorb startup.
-
-- [ ] Define one private, authenticated Router warmup command.
-- [ ] Have the Router warm Deriver A, Deriver B, and SigningWorker concurrently
-      through existing service bindings.
-- [ ] Make each role validate its runtime and load only stable startup data.
-- [ ] Warm stable root-metadata and SigningWorker Durable Object instances with
-      read-only operations where Phase 0 proves their wakeup is material.
-- [ ] Schedule warmup with the request execution context so it survives the
-      intent response without delaying that response.
-- [ ] Bind warmup eligibility to a successfully admitted registration intent.
-- [ ] Coalesce repeated warmups for the same request execution without global
-      request state.
-- [ ] Emit a typed best-effort warmup outcome for diagnostics only.
-- [ ] Prove warmup performs no lifecycle or signing-material writes.
-- [ ] Delete any existing browser-only “signer worker prewarm” naming that
-      could be mistaken for server topology warmup, or rename it precisely.
-
-Acceptance:
-
-- a cold registration after an admitted intent reaches the warm ECDSA target;
-- a warmup failure produces the same registration behavior as no warmup;
-- the warmup route is unavailable from the public Internet;
-- all internal calls use service bindings.
-
-## Phase 2: Reduce Worker Startup Cost If It Dominates
-
-Enter this phase only if Phase 0 attributes at least 300 ms of the cold ECDSA
-branch to role Worker startup after Phase 1.
-
-- [ ] Compare each deployed `startup_time_ms` with its raw and compressed
-      artifact size.
-- [ ] Produce a role-by-role dependency and symbol inventory for Router,
-      Deriver A, Deriver B, and SigningWorker.
-- [ ] Make protocol and role dependencies optional where the active entrypoint
-      does not use them.
-- [ ] Remove entrypoint-unreachable protocol adapters and generated bindings
-      from each role artifact.
-- [ ] Preserve one deployment per custody role; do not duplicate role secrets
-      across ECDSA-only and Yao-only Workers unless a measured follow-up plan
-      explicitly approves that custody expansion.
-- [ ] Compare `opt-level=3` with a size-oriented profile using the real cold
-      registration benchmark and the cryptographic kernel benchmark.
-- [ ] Select the profile with the lowest end-to-end cold registration time.
-      Artifact size alone does not decide the profile.
-- [ ] Require at least a 30% startup-time reduction or delete the experimental
-      build changes.
-
-Acceptance:
-
-- selected artifacts preserve all Rust vectors and role-separation tests;
-- cold end-to-end registration improves without materially regressing warm
-  proof generation or Yao execution;
-- no duplicate Worker topology or secret distribution remains.
-
-## Phase 3: Reduce ECDSA Respond Latency If It Remains Above Target
-
-Enter this phase only when the Phase 0 trace identifies a remaining respond
-interval above 900 ms.
-
-- [ ] Keep the existing atomic Gateway D1 claim and terminal CAS.
-- [ ] Keep the Router lifecycle claim before Deriver execution and exact
-      completion after it.
-- [ ] Keep Deriver A and B concurrent.
-- [ ] If root metadata loading dominates, replace repeated reconstruction with
-      an epoch-bound role-local read path that preserves role authority and
-      invalidates exactly on epoch change.
-- [ ] If host construction dominates, cache only validated immutable public
-      configuration; never cache request state, plaintext, root-share bytes, or
-      I/O objects across requests.
-- [ ] If lifecycle storage dominates, reduce serialization and stored payload
-      size while preserving claim-before-effect and exact replay.
-- [ ] If service-binding wait dominates after startup is removed, measure
-      scheduling contention between concurrent ECDSA and Yao work before
-      changing topology.
-- [ ] Delete the superseded read, conversion, and serialization paths in the
-      same change.
-
-Acceptance:
-
-- cold respond is at or below 900 ms;
-- the browser still verifies exact A/B proof bundles;
-- exact replay and conflicting replay retain their typed outcomes;
-- no external I/O occurs inside a Durable Object transaction.
-
-## Phase 4: Reduce ECDSA Activate Latency If It Remains Above Target
-
-Enter this phase only when the Phase 0 trace identifies a remaining activate
-interval above 650 ms.
-
-- [ ] Move normal-signing session and budget provisioning into the Router
-      activation execution path so the Gateway makes one Router call and one
-      terminal D1 CAS.
-- [ ] Return one typed combined result that requires both SigningWorker
-      activation and session/budget provisioning.
-- [ ] Preserve durable claim-before-effect and reconcile either durable result
-      after a lost response.
-- [ ] Keep the browser-verified client facts and exact pending activation as
-      required activation inputs.
-- [ ] Remove the Gateway-side post-Router provisioning call after the combined
-      path is live.
-- [ ] Fold runtime-policy scope needed for the wallet-session JWT into the
-      claimed activation state so the public handler does not perform another
-      ceremony lookup.
-- [ ] Create the wallet-session JWT after the combined durable result and
-      before the public response.
-- [ ] If SigningWorker output activation itself dominates, reduce its Durable
-      Object payload and storage work before considering a new coordinator.
-- [ ] Do not claim atomicity across separate Durable Objects. Model partial
-      durable success explicitly and reconcile it.
-
-Acceptance:
-
-- cold activate is at or below 650 ms;
-- Gateway performs no normal-signing provisioning call after Router activation;
-- registration returns success only after SigningWorker material and
-  normal-signing authority are durable;
-- a lost response resumes without repeating either durable effect.
-
-## Phase 5: Remove The Remaining Passkey-Only Tail
-
-The measured passkey sample spends another 628 ms sealing and persisting its
-warm ECDSA session after the network ceremony.
-
-- [ ] Keep this work separate from ECDSA server timing.
-- [ ] Reuse the Shamir 3-pass prewarm work already planned for passkey
-      registration.
-- [ ] Measure server seal, runtime setup, server route, client unseal, and local
-      persistence independently after prewarm.
-- [ ] Start safe local preparation during the WebAuthn ceremony where it does
-      not retain or derive credential material early.
-- [ ] Parallelize local session persistence with registration finalization only
-      if failure cleanup is deterministic and covered by a behavioral test.
-- [ ] Delete abandoned prewarm attempts and duplicate local-session paths.
-
-Acceptance:
-
-- passkey-only post-network work is at or below 250 ms;
-- no passkey secret or PRF output has a longer lifetime;
-- failed registration leaves no usable orphaned local session.
-
-## Phase 6: Validation And Deployment
-
-- [ ] Run focused ECDSA registration lifecycle, replay, conflict, and
-      reconciliation tests.
-- [ ] Run focused Router, Deriver, SigningWorker, and Durable Object tests.
-- [ ] Run the relevant Rust vectors and TypeScript type fixtures.
-- [ ] Run one optimized local Email OTP registration and one optimized local
-      passkey registration.
-- [ ] Deploy backend and frontend instrumentation to staging.
-- [ ] Capture one cold and one warm registration for each authentication
-      method in staging.
-- [ ] Implement only the Phase 2, 3, or 4 optimization selected by those
-      timings.
-- [ ] Repeat staging validation and confirm all cold targets.
-- [ ] Deploy backend roles before the frontend timing consumer when the metric
-      contract changes.
-- [ ] Deploy production and capture one cold and one warm manual registration
-      for each authentication method.
-- [ ] Remove temporary verbose console diagnostics after the timing summary
-      carries every required bucket.
-- [ ] Update `docs/refactor-94A-performance-regression.md` with the final cause,
-      implementation, and measured gain.
-- [ ] Run `pnpm check` and classify any failure according to `AGENTS.md` before
-      changing code or fixtures.
-- [ ] Run `git diff --check`.
-
-Acceptance:
-
-- Email OTP and passkey share the same measured ECDSA path;
-- typical wallet-ready time is 2–3 seconds after confirmation;
-- cold wallet-ready time is at or below 3.5 seconds;
-- no correctness, replay, custody, or crash-convergence invariant regresses;
-- no legacy registration route, feature flag, selector, duplicate Worker, or
-  compatibility implementation remains.
-
-## Phase Dependencies
-
-```text
-Phase 0: exact ECDSA timing
-  |
-  +--> Phase 1: topology prewarm
-  |      |
-  |      +--> remeasure
-  |
-  +--> Phase 2: bundle/startup reduction       [only if startup dominates]
-  +--> Phase 3: respond-path reduction         [only if respond remains high]
-  +--> Phase 4: activation-path reduction      [only if activate remains high]
-
-Phase 5: passkey local tail                     [independent after Phase 0]
-
-Selected optimization phases
-  +--> Phase 6: staging and production validation
-```
-
-Phase 0 is the gate. Phase 1 is the smallest likely cold-path win and uses the
-existing user-interaction window. Phases 2–4 are conditional. Their measured
-intervals determine which one is implemented, preventing another broad
-performance refactor based on speculation.
-
-## Completion Criteria
-
-Refactor 94B is complete when:
-
-1. ECDSA timing accounts for at least 95% of cold `respond` and `activate`;
-2. cold ECDSA registration completes at or below 1.75 seconds;
-3. warm ECDSA registration completes at or below 1.0 second;
-4. typical Email OTP and passkey registration reaches wallet-ready state in
-   2–3 seconds after confirmation;
-5. first-use cold registration reaches wallet-ready state within 3.5 seconds;
-6. exact replay, conflict rejection, uncertainty reconciliation, and
-   claim-before-effect remain verified;
-7. role-secret custody remains unchanged;
-8. no diagnostics value influences execution;
-9. every replacement deletes its obsolete path; and
-10. the final document records the measured cold cause and realized gain.
+Refactor 94B is closed. Phase 0 delivered the complete cold-boundary
+instrumentation and proved that Durable Object wakeups and stateful topology
+dominate the cold ECDSA regression. The proposed prewarm and
+topology-preserving optimization phases were not implemented and have been
+removed. Refactor 94C is the sole owner of structural remediation, production
+performance targets, and deployment acceptance.
