@@ -351,15 +351,11 @@ async function signEvmFamilyAttempt(
     operationFingerprint,
     intent: SigningOperationIntent.TransactionSign,
   });
+  // The key fingerprint is a property of hydrated material, which no longer
+  // exists at prepare time; it is derived after canonical hydration.
   const derivePreparedEvmFamilyKeyFingerprint = (
-    prepared: PreparedEvmFamilyEcdsaSigningSession | undefined,
-  ): string | undefined =>
-    prepared && prepared.material.kind === 'ready_to_sign'
-      ? safePreparedPublicFactsFingerprint({
-          walletId: prepared.material.signerSession.walletId,
-          publicFacts: prepared.material.signerSession.publicFacts,
-        })
-      : undefined;
+    _prepared: PreparedEvmFamilyEcdsaSigningSession | undefined,
+  ): string | undefined => undefined;
   const safePreparedPublicFactsFingerprint = (args: {
     walletId: string;
     publicFacts: VerifiedEcdsaPublicFacts;
@@ -635,10 +631,9 @@ async function signEvmFamilyAttempt(
     });
   }
   const preparedExecutorSession = getPreparedEcdsaSigningSessionIfEcdsa();
-  const preparedExecutorReadyMaterial =
-    preparedExecutorSession?.material.kind === 'ready_to_sign'
-      ? preparedExecutorSession.material
-      : null;
+  // Ready material is produced by `resolveReadySecp256k1SigningMaterial`
+  // immediately before worker use, so the prepared session carries none.
+  const preparedExecutorReadyMaterial = null;
   const requireThresholdEcdsaStepUpRuntime = () => {
     const runtime = flowArgs.thresholdEcdsaStepUpRuntime;
     if (!runtime) {
@@ -671,18 +666,13 @@ async function signEvmFamilyAttempt(
     if (!signingSessionPlan) {
       throw new Error('[SigningEngine][ecdsa] prepared executor requires a signing session plan');
     }
-    let verifiedMaterialPublicFacts: VerifiedEcdsaPublicFacts | null = null;
-    if (preparedExecutorReadyMaterial) {
-      verifiedMaterialPublicFacts = preparedExecutorReadyMaterial.publicFacts;
-    }
-    const publicIdentityContinuity: PreparedEvmFamilyPublicIdentityContinuity =
-      verifiedMaterialPublicFacts
-        ? {
-            kind: 'verified_material_identity',
-            verifiedMaterialThresholdOwnerAddress:
-              verifiedMaterialPublicFacts.thresholdOwnerAddress,
-          }
-        : { kind: 'lane_identity_only' };
+    // Public identity continuity is established from hydrated material, which
+    // the canonical resolver produces after this point.
+    // Lane identity only at prepare time: material public facts are verified by
+    // the canonical hydration boundary, after this point.
+    const publicIdentityContinuity: PreparedEvmFamilyPublicIdentityContinuity = {
+      kind: 'lane_identity_only',
+    };
     thresholdEcdsaState = buildPreparedEvmFamilyExecutorThresholdEcdsaState({
       transactionLane: preparedExecutorSession.transactionOperation.lane,
       signingSessionPlan,

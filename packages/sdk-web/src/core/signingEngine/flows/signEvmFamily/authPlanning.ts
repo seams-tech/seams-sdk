@@ -24,7 +24,6 @@ import {
   type EmailOtpEcdsaStepUpAuthority,
   type EvmFamilyEmailOtpTransactionSigningBridge,
 } from './emailOtpSigningSession';
-import type { EcdsaMaterialState } from './ecdsaMaterialState';
 import type {
   EmailOtpEcdsaCommittedLane,
   EmailOtpEcdsaPublicReauthLane,
@@ -64,7 +63,7 @@ function emailOtpStepUpAuthority(
     { authMethod: 'email_otp' }
   >,
 ): EmailOtpEcdsaStepUpAuthority {
-  if (selection.kind === 'ready' || selection.reason === 'missing_hot_material') {
+  if (selection.kind === 'ready') {
     return { kind: 'live_session', committedLane: selection.committedLane };
   }
   return { kind: 'public_reauth_anchor', reauthLane: selection.reauthLane };
@@ -114,7 +113,6 @@ export async function resolveEvmFamilyTransactionStepUp(
           selection:
             | ReadyEvmFamilyEcdsaSigningSelection
             | ReauthRequiredEvmFamilyEcdsaSigningSelection;
-          material: EcdsaMaterialState;
         })
       : null;
   const preparedEcdsaLane =

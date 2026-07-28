@@ -23,14 +23,6 @@ import {
   type EvmFamilyAccountMetadataDeps,
 } from './accountAuth';
 import {
-  buildEcdsaMaterialStateForCandidate,
-  summarizeEcdsaMaterialState,
-  type EcdsaMaterialState,
-  type EcdsaMaterialSummary,
-  type MissingEcdsaMaterial,
-  type ReadyEcdsaMaterial,
-} from './ecdsaMaterialState';
-import {
   logEvmFamilyEcdsaLaneDiagnostic,
   requireResolvedEvmFamilyEcdsaSigningLane,
   summarizeEvmFamilyEcdsaLane,
@@ -98,22 +90,17 @@ type EcdsaSelectionLaneCandidateDiagnostics =
 
 export type EcdsaSelectionDiagnostics = {
   selectedLaneCandidate: EcdsaSelectionLaneCandidateDiagnostics;
-  exactCandidateMaterial: EcdsaMaterialSummary;
 };
 
 type ReadyEvmFamilyEcdsaSigningSelectionBase = {
   kind: 'ready';
   accountAuth: AccountAuthMetadata;
-  source: ThresholdEcdsaSessionStoreSource;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  material: ReadyEcdsaMaterial;
   diagnostics: EcdsaSelectionDiagnostics;
 };
 
 export type ReadyEcdsaCommittedLane<A extends WalletAuthAuthority = WalletAuthAuthority> =
-  EcdsaCommittedLane<A> & {
-    material: ReadyEcdsaMaterial;
-  };
+  EcdsaCommittedLane<A>;
 
 export type ReadyEmailOtpEcdsaCommittedLane = ReadyEcdsaCommittedLane<EmailOtpWalletAuthAuthority>;
 
@@ -133,8 +120,7 @@ type ReauthRequiredEvmFamilyEcdsaSigningSelectionBase = {
   kind: 'reauth_required';
   accountAuth: AccountAuthMetadata;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  material: EcdsaMaterialState;
-  reason: 'missing_hot_material' | 'expired' | 'exhausted';
+  reason: 'expired' | 'exhausted';
   diagnostics: EcdsaSelectionDiagnostics;
 };
 
@@ -142,12 +128,6 @@ type ReauthAnchorBackedEvmFamilyEcdsaSigningSelection = {
   reason: 'expired' | 'exhausted';
   reauthLane: EcdsaPublicReauthLane;
   committedLane?: never;
-};
-
-type MaterialBackedEvmFamilyEcdsaSigningSelection = {
-  reason: 'missing_hot_material';
-  committedLane: EcdsaCommittedLane;
-  reauthLane?: never;
 };
 
 export type ReauthRequiredEvmFamilyEcdsaSigningSelection =
@@ -161,23 +141,14 @@ export type ReauthRequiredEvmFamilyEcdsaSigningSelection =
         authMethod: 'passkey';
         reauthLane: PasskeyEcdsaPublicReauthLane;
       })
-  | (ReauthRequiredEvmFamilyEcdsaSigningSelectionBase &
-      MaterialBackedEvmFamilyEcdsaSigningSelection & {
-        authMethod: 'email_otp';
-        committedLane: EmailOtpEcdsaCommittedLane;
-      })
-  | (ReauthRequiredEvmFamilyEcdsaSigningSelectionBase &
-      MaterialBackedEvmFamilyEcdsaSigningSelection & {
-        authMethod: 'passkey';
-        committedLane: PasskeyEcdsaCommittedLane;
-      });
+
+;
 
 export type MissingMaterialEvmFamilyEcdsaSigningSelection = {
   kind: 'missing_material';
   accountAuth: AccountAuthMetadata;
   authMethod: EvmFamilyEcdsaAuthMethod;
   candidate: EcdsaLaneCandidate;
-  material: EcdsaMaterialState;
   diagnostics: EcdsaSelectionDiagnostics;
 };
 
@@ -192,7 +163,6 @@ export type RestoreRequiredEvmFamilyEcdsaSigningSelection = {
   authMethod: 'passkey';
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   candidate: RestoreRequiredPasskeyEcdsaLaneCandidate;
-  material: MissingEcdsaMaterial & { authMethod: 'passkey' };
   restoreChainTarget: ThresholdEcdsaChainTarget;
   diagnostics: EcdsaSelectionDiagnostics;
 };
@@ -292,7 +262,6 @@ export function ecdsaCommittedLaneAuthMethod(lane: EcdsaCommittedLane): EvmFamil
 
 function buildPasskeyEcdsaPublicReauthLane(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  material: EcdsaMaterialState;
   reauthAnchor: ReauthAnchorIdentity;
   publicRestore: Extract<
     EcdsaReauthAnchorPublicRestore,
@@ -318,13 +287,11 @@ function buildPasskeyEcdsaPublicReauthLane(args: {
     }),
     publicRestore: args.publicRestore,
     reauthAnchor: args.reauthAnchor,
-    material: args.material,
   };
 }
 
 function buildEmailOtpEcdsaPublicReauthLane(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  material: EcdsaMaterialState;
   reauthAnchor: ReauthAnchorIdentity;
   publicRestore: Extract<EcdsaReauthAnchorPublicRestore, { source: 'email_otp' }>;
 }): EmailOtpEcdsaPublicReauthLane {
@@ -348,111 +315,59 @@ function buildEmailOtpEcdsaPublicReauthLane(args: {
     }),
     publicRestore: args.publicRestore,
     reauthAnchor: args.reauthAnchor,
-    material: args.material,
   };
 }
 
 type PasskeyReauthRequiredSelectionInput = {
   accountAuth: AccountAuthMetadata;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  material: EcdsaMaterialState;
   diagnostics: EcdsaSelectionDiagnostics;
-} & (
-  | {
-      reason: 'expired' | 'exhausted';
-      reauthLane: PasskeyEcdsaPublicReauthLane;
-      committedLane?: never;
-    }
-  | {
-      reason: 'missing_hot_material';
-      committedLane: PasskeyEcdsaCommittedLane;
-      reauthLane?: never;
-    }
-);
+} & {
+  reason: 'expired' | 'exhausted';
+  reauthLane: PasskeyEcdsaPublicReauthLane;
+};
 
 function passkeyReauthRequiredSelection(
   args: PasskeyReauthRequiredSelectionInput,
 ): Extract<ReauthRequiredEvmFamilyEcdsaSigningSelection, { authMethod: 'passkey' }> {
-  switch (args.reason) {
-    case 'expired':
-    case 'exhausted':
-      return {
-        kind: 'reauth_required',
-        accountAuth: args.accountAuth,
-        authMethod: 'passkey',
-        lane: args.lane,
-        material: args.material,
-        reason: args.reason,
-        reauthLane: args.reauthLane,
-        diagnostics: args.diagnostics,
-      };
-    case 'missing_hot_material':
-      return {
-        kind: 'reauth_required',
-        accountAuth: args.accountAuth,
-        authMethod: 'passkey',
-        lane: args.lane,
-        material: args.material,
-        reason: 'missing_hot_material',
-        committedLane: args.committedLane,
-        diagnostics: args.diagnostics,
-      };
-  }
+  return {
+    kind: 'reauth_required',
+    accountAuth: args.accountAuth,
+    authMethod: 'passkey',
+    lane: args.lane,
+    reason: args.reason,
+    reauthLane: args.reauthLane,
+    diagnostics: args.diagnostics,
+  };
 }
 
 type EmailOtpReauthRequiredSelectionInput = {
   accountAuth: AccountAuthMetadata;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  material: EcdsaMaterialState;
   diagnostics: EcdsaSelectionDiagnostics;
-} & (
-  | {
-      reason: 'expired' | 'exhausted';
-      reauthLane: EmailOtpEcdsaPublicReauthLane;
-      committedLane?: never;
-    }
-  | {
-      reason: 'missing_hot_material';
-      committedLane: EmailOtpEcdsaCommittedLane;
-      reauthLane?: never;
-    }
-);
+} & {
+  reason: 'expired' | 'exhausted';
+  reauthLane: EmailOtpEcdsaPublicReauthLane;
+};
 
 function emailOtpReauthRequiredSelection(
   args: EmailOtpReauthRequiredSelectionInput,
 ): Extract<ReauthRequiredEvmFamilyEcdsaSigningSelection, { authMethod: 'email_otp' }> {
-  switch (args.reason) {
-    case 'expired':
-    case 'exhausted':
-      return {
-        kind: 'reauth_required',
-        accountAuth: args.accountAuth,
-        authMethod: 'email_otp',
-        lane: args.lane,
-        material: args.material,
-        reason: args.reason,
-        reauthLane: args.reauthLane,
-        diagnostics: args.diagnostics,
-      };
-    case 'missing_hot_material':
-      return {
-        kind: 'reauth_required',
-        accountAuth: args.accountAuth,
-        authMethod: 'email_otp',
-        lane: args.lane,
-        material: args.material,
-        reason: 'missing_hot_material',
-        committedLane: args.committedLane,
-        diagnostics: args.diagnostics,
-      };
-  }
+  return {
+    kind: 'reauth_required',
+    accountAuth: args.accountAuth,
+    authMethod: 'email_otp',
+    lane: args.lane,
+    reason: args.reason,
+    reauthLane: args.reauthLane,
+    diagnostics: args.diagnostics,
+  };
 }
 
 function passkeyRestoreRequiredSelection(args: {
   accountAuth: AccountAuthMetadata;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   candidate: RestoreRequiredPasskeyEcdsaLaneCandidate;
-  material: MissingEcdsaMaterial & { authMethod: 'passkey' };
   restoreChainTarget: ThresholdEcdsaChainTarget;
   diagnostics: EcdsaSelectionDiagnostics;
 }): RestoreRequiredEvmFamilyEcdsaSigningSelection {
@@ -462,7 +377,6 @@ function passkeyRestoreRequiredSelection(args: {
     authMethod: SIGNER_AUTH_METHODS.passkey,
     lane: args.lane,
     candidate: args.candidate,
-    material: args.material,
     restoreChainTarget: args.restoreChainTarget,
     diagnostics: args.diagnostics,
   };
@@ -474,15 +388,6 @@ function isRestoreRequiredPasskeyEcdsaLaneCandidate(
   return (
     candidate.auth.kind === SIGNER_AUTH_METHODS.passkey &&
     (candidate.state === 'restorable' || candidate.state === 'deferred')
-  );
-}
-
-function isMissingPasskeyEcdsaMaterial(
-  material: EcdsaMaterialState,
-): material is MissingEcdsaMaterial & { authMethod: 'passkey' } {
-  return (
-    material.kind === 'public_identity_unavailable' &&
-    material.authMethod === SIGNER_AUTH_METHODS.passkey
   );
 }
 
@@ -608,7 +513,6 @@ function requireEvmFamilyEcdsaSignerForSelection(
 
 type PasskeyMaterialSelectionResult = {
   kind: 'missing';
-  material: EcdsaMaterialState;
 };
 
 type PasskeyMaterialDiagnosticsSelection =
@@ -638,28 +542,13 @@ type EcdsaCommittedLaneAuthFacts<A extends WalletAuthAuthority> =
         }
       : never;
 
-type EcdsaCommittedLaneDurableRestoreFacts<A extends WalletAuthAuthority> =
-  A extends EmailOtpWalletAuthAuthority
-    ? {
-        source: 'durable_authority_backed';
-        durableRestore: 'sealed_record_authority';
-      }
-    : A extends PasskeyWalletAuthAuthority
-      ? {
-          source: PasskeyEcdsaSessionStoreSource;
-          durableRestore: 'sealed_record_authority';
-        }
-      : never;
-
 export type EcdsaCommittedLane<A extends WalletAuthAuthority = WalletAuthAuthority> =
   A extends WalletAuthAuthority
     ? {
         lane: ResolvedEvmFamilyEcdsaSigningLane;
         authority: A;
         authorization: ActiveEvmFamilyWalletSessionAuthorization;
-        material: EcdsaMaterialState;
-      } & EcdsaCommittedLaneAuthFacts<A> &
-        EcdsaCommittedLaneDurableRestoreFacts<A>
+      } & EcdsaCommittedLaneAuthFacts<A>
     : never;
 
 export type EmailOtpEcdsaCommittedLane = EcdsaCommittedLane<EmailOtpWalletAuthAuthority>;
@@ -672,7 +561,6 @@ export type EcdsaPublicReauthLane<A extends WalletAuthAuthority = WalletAuthAuth
   authority: A;
   publicRestore: EcdsaReauthAnchorPublicRestore;
   reauthAnchor: ReauthAnchorIdentity;
-  material: EcdsaMaterialState;
   authorization?: never;
   authLane?: never;
   record?: never;
@@ -688,33 +576,25 @@ type PasskeyEcdsaLaneCandidate = EcdsaLaneCandidate & {
 function readyEmailOtpEcdsaCommittedLane(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   committedLane: EmailOtpEcdsaCommittedLane;
-  material: ReadyEcdsaMaterial;
 }): ReadyEmailOtpEcdsaCommittedLane {
   const common = {
     lane: args.lane,
     authLane: args.committedLane.authLane,
     authorization: args.committedLane.authorization,
-    material: args.material,
     authority: args.committedLane.authority,
   };
   return {
     ...common,
-    source: 'durable_authority_backed',
-    durableRestore: 'sealed_record_authority',
   };
 }
 
 function readyPasskeyEcdsaCommittedLane(args: {
   committedLane: PasskeyEcdsaCommittedLane;
-  material: ReadyEcdsaMaterial;
 }): ReadyPasskeyEcdsaCommittedLane {
   return {
-    source: args.committedLane.source,
     lane: args.committedLane.lane,
     authority: args.committedLane.authority,
     authorization: args.committedLane.authorization,
-    material: args.material,
-    durableRestore: 'sealed_record_authority',
   };
 }
 
@@ -771,12 +651,8 @@ function assertEcdsaCommittedLaneAuthorityMatchesWallet(args: {
 
 function buildEcdsaSelectionDiagnostics(args: {
   candidate: EcdsaLaneCandidate;
-  exactCandidateMaterial: EcdsaMaterialState;
 }): EcdsaSelectionDiagnostics {
-  return {
-    selectedLaneCandidate: summarizeLaneCandidate(args.candidate),
-    exactCandidateMaterial: summarizeEcdsaMaterialState(args.exactCandidateMaterial),
-  };
+  return { selectedLaneCandidate: summarizeLaneCandidate(args.candidate) };
 }
 
 // Exact-record-only: the lane identity names one canonical material owner, so
@@ -786,16 +662,7 @@ function selectPasskeyMaterialForCandidate(args: {
   chainTarget: ThresholdEcdsaChainTarget;
   materialChainTarget: ThresholdEcdsaChainTarget;
 }): PasskeyMaterialSelectionResult {
-  return {
-    kind: 'missing',
-    material: buildEcdsaMaterialStateForCandidate({
-      candidate: args.candidate,
-      authMethod: SIGNER_AUTH_METHODS.passkey,
-      source: 'manual-bootstrap',
-      chainTarget: args.chainTarget,
-      materialChainTarget: args.materialChainTarget,
-    }),
-  };
+  return { kind: 'missing' };
 }
 
 function selectAuthMethodForWalletAuth(args: {
@@ -919,11 +786,23 @@ function requireEmailOtpCommittedLaneForReady(args: {
   throwEmailOtpEcdsaCommittedLaneStateError({ kind: 'committed_lane_missing_for_ready' });
 }
 
+function requirePasskeyCommittedLaneForReady(args: {
+  committedLane: PasskeyEcdsaCommittedLane | null;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  candidate: EcdsaLaneCandidate;
+}): PasskeyEcdsaCommittedLane {
+  if (args.committedLane) return args.committedLane;
+  logEvmFamilyEcdsaLaneDiagnostic('passkey ECDSA committed lane missing for ready signing', {
+    lane: summarizeEvmFamilyEcdsaLane(args.lane),
+    candidate: summarizeLaneCandidate(args.candidate),
+  });
+  throw new Error('[SigningEngine][ecdsa] passkey ECDSA committed lane missing for ready signing');
+}
+
 function commitEmailOtpEcdsaLaneForSelection(args: {
   authority: EmailOtpSelectionAuthority;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   candidate: EcdsaLaneCandidate;
-  material: EcdsaMaterialState;
 }): EmailOtpEcdsaCommittedLane {
   const authLane = requireEmailOtpEcdsaSigningSessionAuthLane({
     authority: args.authority,
@@ -942,12 +821,9 @@ function commitEmailOtpEcdsaLaneForSelection(args: {
     authority,
     authLane,
     authorization: args.lane.authorization,
-    material: args.material,
   };
   return {
     ...common,
-    source: 'durable_authority_backed',
-    durableRestore: 'sealed_record_authority',
   };
 }
 
@@ -1014,25 +890,6 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
           chainTarget: args.chainTarget,
           materialChainTarget,
         });
-  const exactCandidateMaterial =
-    candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp
-      ? buildEcdsaMaterialStateForCandidate({
-          candidate: args.laneCandidate,
-          authMethod: SIGNER_AUTH_METHODS.emailOtp,
-          source: SIGNER_AUTH_METHODS.emailOtp,
-          chainTarget: args.chainTarget,
-          materialChainTarget,
-        })
-      : (selectedPasskeyMaterial.kind === 'not_applicable'
-          ? undefined
-          : selectedPasskeyMaterial.material) ??
-        buildEcdsaMaterialStateForCandidate({
-          candidate: args.laneCandidate,
-          authMethod: SIGNER_AUTH_METHODS.passkey,
-          source: 'manual-bootstrap',
-          chainTarget: args.chainTarget,
-          materialChainTarget,
-        });
 
   const committedEmailOtpLane =
     candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp && requiredEmailOtpAuthority
@@ -1040,7 +897,6 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
           authority: requiredEmailOtpAuthority,
           lane: emailOtpAuthorityLane,
           candidate: args.laneCandidate,
-          material: exactCandidateMaterial,
         })
       : null;
   // A passkey ECDSA committed lane has no canonical constructor yet: material
@@ -1065,23 +921,8 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
 
   const diagnostics = buildEcdsaSelectionDiagnostics({
     candidate: args.laneCandidate,
-    exactCandidateMaterial,
   });
 
-  if (
-    !args.allowMissingHotMaterial &&
-    exactEcdsaCandidateRequiresHotMaterial(args.laneCandidate) &&
-    exactCandidateMaterial.kind !== 'ready_to_sign'
-  ) {
-    return {
-      kind: 'missing_material',
-      accountAuth: selectedAccountAuth,
-      authMethod: candidateAuthMethod,
-      candidate: args.laneCandidate,
-      material: exactCandidateMaterial,
-      diagnostics,
-    };
-  }
 
   if (args.laneCandidate.state === 'expired' || args.laneCandidate.state === 'exhausted') {
     const reason = args.laneCandidate.state;
@@ -1094,14 +935,12 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       }
       const reauthLane = buildEmailOtpEcdsaPublicReauthLane({
         lane,
-        material: exactCandidateMaterial,
         reauthAnchor: reauth.reauthAnchor,
         publicRestore: reauth.publicRestore,
       });
       return emailOtpReauthRequiredSelection({
         accountAuth: selectedAccountAuth,
         lane,
-        material: exactCandidateMaterial,
         reason,
         reauthLane,
         diagnostics,
@@ -1114,87 +953,16 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     }
     const reauthLane = buildPasskeyEcdsaPublicReauthLane({
       lane,
-      material: exactCandidateMaterial,
       reauthAnchor: reauth.reauthAnchor,
       publicRestore: reauth.publicRestore,
     });
     return passkeyReauthRequiredSelection({
       accountAuth: selectedAccountAuth,
       lane,
-      material: exactCandidateMaterial,
       reason,
       reauthLane,
       diagnostics,
     });
-  }
-
-  if (exactCandidateMaterial.kind !== 'ready_to_sign') {
-    if (candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
-      const reauthLane = requireEmailOtpCommittedLaneForReauth({
-        committedLane: committedEmailOtpLane,
-        lane,
-        candidate: args.laneCandidate,
-        reason: 'missing_hot_material',
-      });
-      return emailOtpReauthRequiredSelection({
-        accountAuth: selectedAccountAuth,
-        lane,
-        material: exactCandidateMaterial,
-        reason: 'missing_hot_material',
-        committedLane: reauthLane,
-        diagnostics,
-      });
-    }
-    if (!committedPasskeyLane) {
-      if (
-        isRestoreRequiredPasskeyEcdsaLaneCandidate(args.laneCandidate) &&
-        isMissingPasskeyEcdsaMaterial(exactCandidateMaterial)
-      ) {
-        return passkeyRestoreRequiredSelection({
-          accountAuth: selectedAccountAuth,
-          lane,
-          candidate: args.laneCandidate,
-          material: exactCandidateMaterial,
-          restoreChainTarget: materialChainTarget,
-          diagnostics,
-        });
-      }
-      logEvmFamilyEcdsaLaneDiagnostic('Passkey ECDSA material is unavailable', {
-        lane: summarizeEvmFamilyEcdsaLane(lane),
-        candidate: summarizeLaneCandidate(args.laneCandidate),
-        material: summarizeEcdsaMaterialState(exactCandidateMaterial),
-      });
-      return {
-        kind: 'missing_material',
-        accountAuth: selectedAccountAuth,
-        authMethod: SIGNER_AUTH_METHODS.passkey,
-        candidate: args.laneCandidate,
-        material: exactCandidateMaterial,
-        diagnostics,
-      };
-    }
-    const reauthLane = requirePasskeyCommittedLaneForReauth({
-      committedLane: committedPasskeyLane,
-      lane,
-      candidate: args.laneCandidate,
-      reason: 'missing_hot_material',
-    });
-    return passkeyReauthRequiredSelection({
-      accountAuth: selectedAccountAuth,
-      lane,
-      material: exactCandidateMaterial,
-      reason: 'missing_hot_material',
-      committedLane: reauthLane,
-      diagnostics,
-    });
-  }
-
-  if (candidateAuthMethod !== exactCandidateMaterial.authMethod) {
-    logEvmFamilyEcdsaLaneDiagnostic('selected ECDSA material auth method mismatch', {
-      lane: summarizeEvmFamilyEcdsaLane(lane),
-      material: summarizeEcdsaMaterialState(exactCandidateMaterial),
-    });
-    throw new Error('[SigningEngine][ecdsa] selected ECDSA material auth method mismatch');
   }
 
   if (candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
@@ -1206,36 +974,29 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     const readyCommittedLane = readyEmailOtpEcdsaCommittedLane({
       lane,
       committedLane,
-      material: exactCandidateMaterial,
     });
     return {
       kind: 'ready',
       accountAuth: selectedAccountAuth,
       authMethod: ecdsaCommittedLaneAuthMethod(readyCommittedLane),
-      source: exactCandidateMaterial.source,
       lane,
-      material: exactCandidateMaterial,
       committedLane: readyCommittedLane,
       diagnostics,
     };
   }
 
   const readyCommittedLane = readyPasskeyEcdsaCommittedLane({
-    committedLane: requirePasskeyCommittedLaneForReauth({
+    committedLane: requirePasskeyCommittedLaneForReady({
       committedLane: committedPasskeyLane,
       lane,
       candidate: args.laneCandidate,
-      reason: 'missing_hot_material',
     }),
-    material: exactCandidateMaterial,
   });
   return {
     kind: 'ready',
     accountAuth: selectedAccountAuth,
     authMethod: ecdsaCommittedLaneAuthMethod(readyCommittedLane),
-    source: exactCandidateMaterial.source,
     lane,
-    material: exactCandidateMaterial,
     committedLane: readyCommittedLane,
     diagnostics,
   };

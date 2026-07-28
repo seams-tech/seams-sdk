@@ -774,7 +774,7 @@ function requireEmailOtpEcdsaSigningRefreshRuntimePolicyScope(args: {
 }
 
 function buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(
-  committedLane: Extract<EmailOtpEcdsaCommittedLane, { source: 'durable_authority_backed' }>,
+  committedLane: EmailOtpEcdsaCommittedLane,
 ): EmailOtpEcdsaSigningRefreshFacts {
   return {
     // Exact lane signer binding, not a JWT-decoded authority structure.
