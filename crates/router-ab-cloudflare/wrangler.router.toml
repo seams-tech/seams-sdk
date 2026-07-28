@@ -6,16 +6,6 @@ workers_dev = true
 [build]
 command = "cargo install -q worker-build --version 0.8.4 && bash ./scripts/build-strict-worker.sh router"
 
-[durable_objects]
-bindings = [
-  { name = "ROUTER_REPLAY_DO", class_name = "RouterAbRouterReplayDurableObject" },
-  { name = "ROUTER_LIFECYCLE_DO", class_name = "RouterAbRouterLifecycleDurableObject" },
-  { name = "ROUTER_PROJECT_POLICY_DO", class_name = "RouterAbRouterProjectPolicyDurableObject" },
-  { name = "ROUTER_QUOTA_DO", class_name = "RouterAbRouterQuotaDurableObject" },
-  { name = "ROUTER_ABUSE_DO", class_name = "RouterAbRouterAbuseDurableObject" },
-  { name = "ROUTER_WALLET_BUDGET_DO", class_name = "RouterAbRouterWalletBudgetDurableObject" },
-]
-
 [[migrations]]
 tag = "router_ab_router_v1"
 new_sqlite_classes = [
@@ -29,6 +19,17 @@ new_sqlite_classes = [
 [[migrations]]
 tag = "router_ab_router_wallet_budget_v1"
 new_sqlite_classes = [
+  "RouterAbRouterWalletBudgetDurableObject",
+]
+
+[[migrations]]
+tag = "router_ab_router_stateless_v1"
+deleted_classes = [
+  "RouterAbRouterReplayDurableObject",
+  "RouterAbRouterLifecycleDurableObject",
+  "RouterAbRouterProjectPolicyDurableObject",
+  "RouterAbRouterQuotaDurableObject",
+  "RouterAbRouterAbuseDurableObject",
   "RouterAbRouterWalletBudgetDurableObject",
 ]
 
@@ -57,25 +58,6 @@ DERIVER_A_PEER_VERIFYING_KEY_HEX = "5afa80b305e72e02615ed1f580144a40a42a71dfcac1
 DERIVER_B_PEER_VERIFYING_KEY_HEX = "0c700dd63695221e508f3164b528f190bed63a4437d38e882308f9a57acc1bc3"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:3333333333333333333333333333333333333333333333333333333333333333"
-ROUTER_REPLAY_DO_BINDING = "ROUTER_REPLAY_DO"
-ROUTER_REPLAY_DO_OBJECT = "router-replay"
-ROUTER_REPLAY_DO_KEY_PREFIX = "router-replay/"
-ROUTER_LIFECYCLE_DO_BINDING = "ROUTER_LIFECYCLE_DO"
-ROUTER_LIFECYCLE_DO_OBJECT = "router-lifecycle"
-ROUTER_LIFECYCLE_DO_KEY_PREFIX = "router-lifecycle/"
-ROUTER_PROJECT_POLICY_DO_BINDING = "ROUTER_PROJECT_POLICY_DO"
-ROUTER_PROJECT_POLICY_DO_OBJECT = "router-project-policy"
-ROUTER_PROJECT_POLICY_DO_KEY_PREFIX = "router-project-policy/"
-ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON = '{"org_id":"org_staging","project_id":"project_staging","environment":"staging","allowed_work_kinds":["registration_prepare","key_export","recovery","server_share_refresh"],"allow_normal_signing":true,"rejected_retry_after_ms":1000}'
-ROUTER_QUOTA_DO_BINDING = "ROUTER_QUOTA_DO"
-ROUTER_QUOTA_DO_OBJECT = "router-quota"
-ROUTER_QUOTA_DO_KEY_PREFIX = "router-quota/"
-ROUTER_ABUSE_DO_BINDING = "ROUTER_ABUSE_DO"
-ROUTER_ABUSE_DO_OBJECT = "router-abuse"
-ROUTER_ABUSE_DO_KEY_PREFIX = "router-abuse/"
-ROUTER_WALLET_BUDGET_DO_BINDING = "ROUTER_WALLET_BUDGET_DO"
-ROUTER_WALLET_BUDGET_DO_OBJECT = "router-wallet-budget"
-ROUTER_WALLET_BUDGET_DO_KEY_PREFIX = "router-wallet-budget/"
 DERIVER_A_PEER_BINDING = "DERIVER_A"
 DERIVER_B_PEER_BINDING = "DERIVER_B"
 SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
@@ -84,30 +66,6 @@ SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
 [env.staging]
 name = "router-ab-mpc-router-staging"
 workers_dev = true
-
-[[env.staging.durable_objects.bindings]]
-name = "ROUTER_REPLAY_DO"
-class_name = "RouterAbRouterReplayDurableObject"
-
-[[env.staging.durable_objects.bindings]]
-name = "ROUTER_LIFECYCLE_DO"
-class_name = "RouterAbRouterLifecycleDurableObject"
-
-[[env.staging.durable_objects.bindings]]
-name = "ROUTER_PROJECT_POLICY_DO"
-class_name = "RouterAbRouterProjectPolicyDurableObject"
-
-[[env.staging.durable_objects.bindings]]
-name = "ROUTER_QUOTA_DO"
-class_name = "RouterAbRouterQuotaDurableObject"
-
-[[env.staging.durable_objects.bindings]]
-name = "ROUTER_ABUSE_DO"
-class_name = "RouterAbRouterAbuseDurableObject"
-
-[[env.staging.durable_objects.bindings]]
-name = "ROUTER_WALLET_BUDGET_DO"
-class_name = "RouterAbRouterWalletBudgetDurableObject"
 
 [[env.staging.services]]
 binding = "DERIVER_A"
@@ -134,25 +92,6 @@ DERIVER_A_PEER_VERIFYING_KEY_HEX = "d6d21d388a92e6eb9d85d9fcdbcba81c383d7102717b
 DERIVER_B_PEER_VERIFYING_KEY_HEX = "1a369e342f555305e278312f3b704465e11fadbbab09134ed897402ed65c2d4a"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:d0a06a6445d78bc87f449dfac2b427ad1857a0b00d91e20f152031ad49c18010"
-ROUTER_REPLAY_DO_BINDING = "ROUTER_REPLAY_DO"
-ROUTER_REPLAY_DO_OBJECT = "router-replay"
-ROUTER_REPLAY_DO_KEY_PREFIX = "router-replay/"
-ROUTER_LIFECYCLE_DO_BINDING = "ROUTER_LIFECYCLE_DO"
-ROUTER_LIFECYCLE_DO_OBJECT = "router-lifecycle"
-ROUTER_LIFECYCLE_DO_KEY_PREFIX = "router-lifecycle/"
-ROUTER_PROJECT_POLICY_DO_BINDING = "ROUTER_PROJECT_POLICY_DO"
-ROUTER_PROJECT_POLICY_DO_OBJECT = "router-project-policy"
-ROUTER_PROJECT_POLICY_DO_KEY_PREFIX = "router-project-policy/"
-ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON = '{"org_id":"org_staging","project_id":"project_staging","environment":"staging","allowed_work_kinds":["registration_prepare","key_export","recovery","server_share_refresh"],"allow_normal_signing":true,"rejected_retry_after_ms":1000}'
-ROUTER_QUOTA_DO_BINDING = "ROUTER_QUOTA_DO"
-ROUTER_QUOTA_DO_OBJECT = "router-quota"
-ROUTER_QUOTA_DO_KEY_PREFIX = "router-quota/"
-ROUTER_ABUSE_DO_BINDING = "ROUTER_ABUSE_DO"
-ROUTER_ABUSE_DO_OBJECT = "router-abuse"
-ROUTER_ABUSE_DO_KEY_PREFIX = "router-abuse/"
-ROUTER_WALLET_BUDGET_DO_BINDING = "ROUTER_WALLET_BUDGET_DO"
-ROUTER_WALLET_BUDGET_DO_OBJECT = "router-wallet-budget"
-ROUTER_WALLET_BUDGET_DO_KEY_PREFIX = "router-wallet-budget/"
 DERIVER_A_PEER_BINDING = "DERIVER_A"
 DERIVER_B_PEER_BINDING = "DERIVER_B"
 SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"

@@ -77,6 +77,7 @@ export function componentSecretNames(target, component) {
       return [
         'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
         'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
+        'SIGNING_WORKER_PRIVATE_D1_KEK',
       ];
     case 'deriver-a':
       return [
@@ -84,6 +85,7 @@ export function componentSecretNames(target, component) {
         'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
         'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
         'DERIVER_A_PEER_SIGNING_KEY',
+        'DERIVER_A_ROLE_PRIVATE_D1_KEK',
       ];
     case 'deriver-b':
       return [
@@ -91,6 +93,7 @@ export function componentSecretNames(target, component) {
         'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
         'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
         'DERIVER_B_PEER_SIGNING_KEY',
+        'DERIVER_B_ROLE_PRIVATE_D1_KEK',
       ];
     case 'router':
       return ['ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET'];
