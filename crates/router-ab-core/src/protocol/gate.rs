@@ -24,6 +24,45 @@ pub enum ExpensiveWorkKindV1 {
     ServerShareRefresh,
 }
 
+/// Request-carried Router policy claims verified locally before expensive work.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(rename = "RouterAbRequestPolicyClaimsV1", rename_all = "camelCase")
+)]
+pub struct RouterRequestPolicyClaimsV1 {
+    /// Deployment policy revision used to admit the request.
+    pub policy_version: String,
+    /// Protected work class.
+    pub work_kind: ExpensiveWorkKindV1,
+    /// Canonical digest of the request carried to Router.
+    pub request_digest: PublicDigest32,
+}
+
+impl RouterRequestPolicyClaimsV1 {
+    /// Creates validated request-carried policy claims.
+    pub fn new(
+        policy_version: impl Into<String>,
+        work_kind: ExpensiveWorkKindV1,
+        request_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<Self> {
+        let claims = Self {
+            policy_version: policy_version.into(),
+            work_kind,
+            request_digest,
+        };
+        claims.validate()?;
+        Ok(claims)
+    }
+
+    /// Validates required policy identity.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("policy_version", &self.policy_version)
+    }
+}
+
 impl ExpensiveWorkKindV1 {
     /// Returns the canonical work-kind label.
     pub fn as_str(self) -> &'static str {
