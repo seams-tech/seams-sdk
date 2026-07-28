@@ -2,8 +2,16 @@
 
 ## Status
 
-Phase 1 (demo OTP export UX) and Phase 9 (demo chain order) are implemented.
-Phases 2–8 and 10 are unstarted.
+Phases 1, 3, and 9 are complete. Phase 2 is closed on production evidence
+(see below) rather than implemented. **Phases 4+5 are the active work** — they
+are queued directly after the Refactor 94B Phase 0 instrumentation boundary,
+not behind the whole cold-ECDSA refactor. Phases 6–8 and 10 follow, and must
+land before deployment so `ecdsa_ready`, `near_provisioning`, and `near_ready`
+are represented correctly in UI, unlock, recovery, and export.
+
+The two workstreams are complementary and neither substitutes for the other:
+94B addresses the 3–5 s cold ECDSA penalty; Phases 4+5 remove the ~2 s warm
+Yao wait.
 
 The design changed on 2026-07-27, after measurement. The original plan was
 *on-demand lazy provisioning*: registration mints ECDSA only, and the Ed25519
@@ -389,8 +397,13 @@ It ships with no behaviour change: every wallet still receives both signers.
       so an unprovisioned wallet no longer reaches that branch.
 - [x] Remove the `loginState.nearAccountId!` non-null assertion and widen
       `AccountMenuButtonProps.nearAccountId` to `string | null`.
-- [ ] Add type fixtures rejecting mixed readiness states and direct invalid
-      construction.
+- [x] Add type fixtures rejecting mixed readiness states and direct invalid
+      construction — `core/WebAuthnCredentialBindingStore.typecheck.ts`. Five
+      `@ts-expect-error` cases cover each single fact alone, three-of-four, and
+      an explicitly `undefined` fact. They are live: `sdk-server-ts` compiles
+      `src/**/*`, and an unsatisfied `@ts-expect-error` is itself an error.
+
+**Phase 3 is complete.**
 
 Note: there are **two** credential-binding record types and **two** parsers —
 `core/WebAuthnCredentialBindingStore.ts` (carries `version`) and
@@ -502,6 +515,59 @@ machine, not a client-only change. The ceremony record must stay resumable
 between the two finalizes, and the Ed25519 finalize must be idempotent under
 retry.
 
+### Server map, verified 2026-07-28
+
+Mapped against `04c044efb`. Three assumptions above needed correcting.
+
+**Correction 1 — NEAR account creation is already Ed25519-local.** The
+checklist item below said to move it out of ECDSA finalize, citing
+`d1WalletRegistrationService.ts:2774-2776`. That anchor is the Email-OTP
+enrollment *prepare* (pure validation, no write). The only NEAR
+account-creation call is `this.createSponsoredNamedNearAccount(...)` at
+`:2870-2879`, already inside the Ed25519 sub-block (`:2789-3010`), gated by
+`sponsoredNamedRegistrationAccountId(requestedNearEd25519.accountProvisioning)`
+at `:2867`. The split inherits correct placement for free, and the Ed25519
+finalize keeps `accountProvisioning` handling verbatim — including the
+sponsored-named path, which is exactly why option 3 was chosen over reusing
+add-signer.
+
+**Correction 2 — finalize does no CAS today, so the resumable state is new
+work, not an extension.** `executeWalletRegistrationFinalize` (`:2626-3201`)
+reads the ceremony with unversioned `getCeremony` (`:2670`), never calls
+`updateCeremony` / `claimEcdsa*` / `commitEcdsaClaim`, and ends with an
+**unconditional `deleteCeremony`** (`:3185`). The ECDSA finalize must stop that
+delete from firing when an Ed25519 branch is still pending; otherwise the
+second finalize has no ceremony to resume. The claim/commit CAS primitives it
+needs already exist for the respond/activate routes
+(`d1RegistrationCeremonyStore.ts:183`, `:202`, `:217`, funnelling through
+private `claimEcdsaBranch` at `:529`) and are the model to follow.
+
+**Correction 3 — there are already three idempotency mechanisms; the second
+finalize needs its own key, not a share of the first.**
+
+1. Outer: `runRouterAbEd25519YaoRegistrationSideEffectV1` (`:2570`), keyed on
+   `sha256("wallet-registration-finalize-v1\0{ceremonyId}\0{idempotencyKey}")`
+   (`:2565-2569`). The operation enum
+   (`routerAbEd25519YaoRegistrationSideEffectBoundary.ts:6-10`) needs a new
+   member for the Ed25519 finalize.
+2. Inner: the ceremony store's `getFinalizeReplay`/`putFinalizeReplay` pair
+   (`:2645`, `:3170`) — a plain response cache, not CAS.
+3. Yao-local: `yaoRuntime.consumeActivated(...)` (`:2828`), one-shot via its
+   `activation_consumed` failure code. This already belongs to the Ed25519
+   half and moves with it unchanged.
+
+**Shape of the split.** The request discriminator already distinguishes the
+three cases (`registrationContracts.ts:563-578`), so:
+
+| plan | finalize calls |
+| --- | --- |
+| `evm_family_ecdsa` | ECDSA finalize only; deletes the ceremony as today |
+| `near_ed25519` | Ed25519 finalize only |
+| `near_ed25519_and_evm_family_ecdsa` | ECDSA finalize, ceremony stays open, then Ed25519 finalize |
+
+Only the mixed case changes. The single atomic commit batch
+(`d1WalletRegistrationCommitStore.ts:209-242`) becomes two batches for that
+case — which Phase 4 already requires.
 
 - [ ] Remove the `claimRegistrationYao` await from the registration completion
       path (`registration.ts:3720`).
@@ -510,8 +576,9 @@ retry.
       completion promise.
 - [ ] Commit the Ed25519 signer, NEAR account facts, and `near_ready` state
       when the ceremony settles.
-- [ ] Move NEAR account creation out of ECDSA finalize; it needs the Yao public
-      key (`d1WalletRegistrationService.ts:2774-2776`).
+- [ ] Add a ceremony state representing "ECDSA committed, Ed25519 pending",
+      and suppress the unconditional `deleteCeremony` while it holds.
+- [ ] Give the Ed25519 finalize its own side-effect operation and effect key.
 - [ ] Join duplicate same-tab requests to the in-flight promise.
 - [ ] Leave the wallet `ecdsa_ready` on any terminal failure.
 - [ ] Do not introduce a feature flag or compatibility branch.
