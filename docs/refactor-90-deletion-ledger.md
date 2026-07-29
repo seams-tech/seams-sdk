@@ -390,6 +390,8 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   verified evidence satisfying two exact requirements)
 - replaced worker entrypoints, loaders, asset-manifest rows,
   `UiConfirmManager` factor branches, and adapter wrappers
+- ~~zero-caller Router A/B ECDSA refresh-client-proof worker operation~~ —
+  deleted end to end by `4d0a1d8af`
 
 ## Phase 27 — final sweep
 

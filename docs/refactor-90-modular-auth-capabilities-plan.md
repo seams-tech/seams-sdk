@@ -654,6 +654,8 @@ the replacement and legacy MPC paths must not ship together.
       custody in their secure owners.
 - [ ] Remove replaced worker entrypoints, loaders, manifest rows, and public
       exports.
+- [x] Delete the zero-caller Router A/B ECDSA refresh-client-proof worker
+      operation across its wrapper, channel, type map, and worker dispatch.
 - [ ] Preserve existing import/export and bundle guards.
 - [ ] Split no worker or bundle without measured evidence.
 - [ ] Verify generic orchestration cannot import secret-bearing worker
