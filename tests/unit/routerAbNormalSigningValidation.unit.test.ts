@@ -81,9 +81,12 @@ function prepareResponse(signingWorkerId: string): RouterAbNormalSigningPrepareR
     budget_reservation_id: 'ed25519-sign-budget-reservation-1',
     budget_operation_id: 'operation-1',
     budget_status: {
+      remaining_uses: 3,
       committed_remaining_uses: 3,
       reserved_uses: 1,
       available_uses: 2,
+      projection_version: 2,
+      expires_at_ms: 1_900_000_000_000,
     },
     signing_payload_digest: digest32,
     round1_binding_digest: digest32,
@@ -116,6 +119,14 @@ function signingResponse(signingWorkerId: string): RouterAbNormalSigningResponse
     signature_scheme: 'ed25519_v1',
     signature: { bytes: byteRange(64) },
     signed_at_ms: 1_800_000_000_000,
+    budget_status: {
+      remaining_uses: 8,
+      committed_remaining_uses: 8,
+      reserved_uses: 0,
+      available_uses: 8,
+      projection_version: 3,
+      expires_at_ms: 1_900_000_000_000,
+    },
   };
 }
 
@@ -134,6 +145,24 @@ async function prepareWithHttpError(fixture: HttpErrorFixture): Promise<unknown>
     return error;
   } finally {
     httpErrorFixture = null;
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function prepareWithHttpResponse(body: unknown): Promise<unknown> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  try {
+    return await prepareRouterAbNormalSigningV2({
+      relayServerUrl: 'https://router.example/base/',
+      credential: { kind: 'jwt', walletSessionJwt: 'wallet-session-jwt' },
+      request,
+    });
+  } finally {
     globalThis.fetch = originalFetch;
   }
 }
@@ -221,3 +250,14 @@ test(
   rejectsMismatchedSigningWorker,
 );
 test('maps server budget failures to signing-session budget domain errors', mapsBudgetFailures);
+
+test('parses the complete SigningWorker-private D1 budget projection', async () => {
+  const response = prepareResponse('signing-worker-a');
+  await expect(prepareWithHttpResponse(response)).resolves.toEqual(response);
+
+  const { projection_version: _projectionVersion, ...truncatedBudgetStatus } =
+    response.budget_status;
+  await expect(
+    prepareWithHttpResponse({ ...response, budget_status: truncatedBudgetStatus }),
+  ).rejects.toThrow('budget_status.projection_version must be a positive integer');
+});

@@ -97,6 +97,9 @@ const ROUTER_API_THRESHOLD_SESSION_SERVICES = [
   'thresholdRuntime',
   'session',
 ] as const satisfies readonly CoreRouteServiceKey[];
+const ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES = [
+  'session',
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES = [
   'thresholdRuntime',
   'webAuthn',
@@ -762,7 +765,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
       'Prepare Router A/B Ed25519 normal signing',
       'ed25519',
-      ROUTER_API_THRESHOLD_SESSION_SERVICES,
+      ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ed25519_sign_finalize',
@@ -770,7 +773,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
       'Finalize Router A/B Ed25519 normal signing',
       'ed25519',
-      ROUTER_API_THRESHOLD_SESSION_SERVICES,
+      ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
     publicRoute(
       'router_ab_ecdsa_derivation_healthz',
@@ -821,7 +824,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH,
       'Prepare Router A/B ECDSA derivation normal signing',
       'ecdsa',
-      ROUTER_API_THRESHOLD_SESSION_SERVICES,
+      ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ecdsa_derivation_sign_finalize',
@@ -829,7 +832,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH,
       'Finalize Router A/B ECDSA derivation normal signing',
       'ecdsa',
-      ROUTER_API_THRESHOLD_SESSION_SERVICES,
+      ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ecdsa_derivation_presignature_pool_fill_init',
