@@ -2669,6 +2669,58 @@ export class CloudflareD1WalletRegistrationService {
   }
 
   /**
+   * Persists the Ed25519-only wallet in `near_pending`: wallet, profile, and
+   * authentication state, and no signer record — the signer does not exist
+   * until deferred Yao produces it.
+   *
+   * The terminal response carries no signer, resolved account, or key
+   * identity, because none of those are known yet. Reporting them would be
+   * fabricating readiness.
+   */
+  private async commitEd25519PendingWallet(input: {
+    readonly ceremony: StoredWalletRegistrationCeremony;
+    readonly authority: StoredRegistrationAuthority;
+  }): Promise<WalletRegistrationActivateResponseV2> {
+    const now = Date.now();
+    const ceremony = input.ceremony;
+    const authority = input.authority;
+    const wallet = buildD1WalletRecord({ walletId: ceremony.intent.walletId, now });
+    const walletAuthAuthority = walletAuthAuthorityFromRegistrationAuthority(authority);
+    switch (authority.kind) {
+      case 'passkey':
+        await this.walletRegistrationCommitStore.commit({
+          kind: 'passkey_wallet_registration_commit_v1',
+          wallet,
+          /* Deliberately empty: the sole signer arrives with Yao. */
+          walletSigners: [],
+          authority,
+          now,
+        });
+        break;
+      case 'email_otp':
+        return {
+          ok: false,
+          code: 'not_implemented',
+          message: 'Email OTP Ed25519-only registration requires its enrollment commit plan',
+        };
+    }
+    const authMethod = walletRegistrationFinalizeAuthMethodFromAuthority(authority);
+    const base = {
+      ok: true as const,
+      kind: 'near_ed25519' as const,
+      walletId: ceremony.intent.walletId,
+      authority: walletAuthAuthority,
+      authMethod,
+      nearProvisioning: { status: 'near_pending' as const },
+    };
+    return (
+      authMethod.kind === 'passkey'
+        ? { ...base, rpId: finalizePasskeyRpId(authority) }
+        : base
+    ) as WalletRegistrationActivateResponseV2;
+  }
+
+  /**
    * Ed25519-only respond. The wallet's sole signer is Yao, and that is
    * deliberately not a reason to block: the admission is returned as deferred
    * work exactly as on a mixed plan, and the wallet lives in `near_pending`
@@ -2945,12 +2997,20 @@ export class CloudflareD1WalletRegistrationService {
     if (!ceremony) {
       return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
     }
-    if (!verifiedRegistrationCeremonyAuthority(ceremony)) {
+    const ceremonyAuthority = verifiedRegistrationCeremonyAuthority(ceremony);
+    if (!ceremonyAuthority) {
       return {
         ok: false,
         code: 'invalid_state',
         message: 'registration ceremony has not verified its authority proof',
       };
+    }
+    /* Ed25519-only: no ECDSA Router activation, and no Yao output required.
+       The wallet is created pending so it exists before its sole signer does —
+       which is what lets the client overlap the Yao computation with this
+       call instead of serializing behind it. */
+    if (!registrationSignerBranchesFromPlan(ceremony.signerPlan).evmFamilyEcdsa) {
+      return await this.commitEd25519PendingWallet({ ceremony, authority: ceremonyAuthority });
     }
     const activated = await this.activateWalletRegistrationEcdsa(
       {

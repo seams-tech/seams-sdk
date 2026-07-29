@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import { implicitNearAccountProvisioning } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
   buildFixtureRouterAbEcdsaStrictRegistrationRequest,
@@ -307,3 +308,90 @@ test('activate refuses a signedSetup that does not belong to the ceremony', asyn
     cleanupTemporaryD1Database(tempDir);
   }
 });
+
+/**
+ * Refactor 94C. Ed25519-only registration on the three-route system.
+ *
+ * Its defining property is that it stays asynchronous: Yao is the wallet's
+ * only signer, and that is deliberately not a reason to block. The wallet is
+ * created in `near_pending` with no signer at all, and becomes signable when
+ * the deferred computation completes.
+ */
+
+const ED_SCOPE = {
+  namespace: 'registration-ed25519',
+  orgId: 'org-ed25519',
+  projectId: 'project-ed25519',
+  envId: 'env-ed25519',
+};
+
+const ED25519_ONLY_PLAN = {
+  kind: 'signer_set' as const,
+  signers: [
+    {
+      kind: 'near_ed25519' as const,
+      accountProvisioning: implicitNearAccountProvisioning(),
+      signerSlot: 1,
+      participantIds: [1, 2],
+      derivationVersion: 1,
+    },
+  ],
+};
+
+async function ed25519OnlyCeremony(database: unknown) {
+  const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
+    config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-ed25519' },
+  });
+  const service = createCloudflareD1RouterApiAuthService({
+    database: database as never,
+    ...ED_SCOPE,
+    routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
+    ecdsaStrictRegistration: new CountingStrictRegistrationPort(),
+    thresholdStore: {
+      kind: 'cloudflare-do',
+      namespace: new RecordingDurableObjectNamespace(),
+      THRESHOLD_PREFIX: 'registration-ed25519-test',
+      ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-ed25519',
+    },
+  } as never);
+  const signer = fakeGatewaySigner();
+  const rpId = requireParsedDomainId(parseWebAuthnRpId('example.com'));
+  const setup = await service.walletRegistration.setupWalletRegistration({
+    request: { signerSelection: ED25519_ONLY_PLAN, authMethod: { kind: 'passkey', rpId } },
+    orgId: ED_SCOPE.orgId,
+    expectedOrigin: 'https://app.example.com',
+    signer,
+    signingRootId: `${ED_SCOPE.projectId}:${ED_SCOPE.envId}`,
+    signingRootVersion: 'root-ed25519-v1',
+  } as never);
+  return { service, signer, setup, rpId };
+}
+
+test('Ed25519-only setup skips ECDSA preparation entirely', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const { setup } = await ed25519OnlyCeremony(database);
+    if (!setup.ok) throw new Error(`${setup.code}: ${setup.message}`);
+
+    expect(setup.kind).toBe('near_ed25519');
+    /* Not an empty preparation — no preparation at all. */
+    expect('ecdsa' in setup).toBe(false);
+    /* The challenge still exists: setup's job is the ceremony and the proof
+       challenge, which this plan needs exactly as much as any other. */
+    expect(setup.registrationIntentDigestB64u).toBeTruthy();
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+/*
+ * Not yet covered here: Ed25519-only respond and activate.
+ *
+ * Both need a configured Yao product-registration runtime, which this file's
+ * harness does not build — respond stops at `not_configured` before reaching
+ * the admission it is supposed to derive. Asserting that error would test the
+ * harness, not the branch, so the cases are deliberately absent rather than
+ * present-and-misleading. They need `createActivatedFinalizeYaoRuntimeFixture`
+ * threaded through `createCloudflareD1RouterApiAuthService`.
+ */
