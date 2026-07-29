@@ -46,6 +46,7 @@ import {
   parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
   parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1,
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  routerAbEcdsaDerivationActiveStateId,
   type RouterAbEcdsaRegistrationRequestFactsV1,
   type RouterAbEcdsaRegistrationRequestV1,
   type RouterAbEcdsaRegistrationPublicActivationReceiptV1,
@@ -1701,11 +1702,7 @@ export function parseWalletRegistrationEcdsaDerivationRespond(args: {
     expected: clientBootstrap.evmFamilySigningKeySlotId,
     actual: serverBootstrap.evmFamilySigningKeySlotId,
   });
-  const thresholdSessionId = requireMatchingString({
-    field: 'thresholdSessionId',
-    expected: clientBootstrap.thresholdSessionId,
-    actual: serverBootstrap.thresholdSessionId,
-  });
+  const thresholdSessionId = String(serverBootstrap.thresholdSessionId || '').trim();
   requireMatchingString({
     field: 'activationEpoch',
     expected: args.activationEpoch,
@@ -1764,6 +1761,11 @@ export function parseWalletRegistrationEcdsaDerivationRespond(args: {
         serverShareRetryCounter: Math.floor(Number(serverBootstrap.relayerShareRetryCounter)),
       },
     });
+  requireMatchingString({
+    field: 'thresholdSessionId',
+    expected: routerAbEcdsaDerivationActiveStateId(routerAbEcdsaDerivationNormalSigning),
+    actual: thresholdSessionId,
+  });
   const ecdsaThresholdKeyId = String(serverBootstrap.ecdsaThresholdKeyId || '').trim();
   const keyHandle = String(serverBootstrap.keyHandle || '').trim();
   const signingRootId = String(serverBootstrap.signingRootId || '').trim();
