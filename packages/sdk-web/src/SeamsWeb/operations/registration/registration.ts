@@ -4760,7 +4760,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     const finalizeIdempotencyKey = createRegistrationOperationIdempotencyKey(
       'wallet-registration-finalize',
     );
-    const prepared = await startWalletRegistrationPrecomputeReady({
+    const prepared = await setupThreeRouteRegistration({
       context,
       authMethod: args.authMethod,
       wallet: args.wallet,
@@ -4771,9 +4771,8 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       recorder: registrationTiming,
       warmup: prepared.registrationWarmup,
     });
-    activeIntent = activeWalletRegistrationIntentFromReady(prepared);
-    const { relayerUrl, intentResponse } = prepared;
-    const walletId = intentResponse.intent.walletId;
+    const { relayerUrl, setup } = prepared;
+    const walletId = setup.intent.walletId;
     const eventAccountId = registrationEventAccountId(String(walletId));
     const emailAuthority = await registrationTiming.measure(
       'authProofMs',
@@ -4781,7 +4780,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
         authMethod: args.authMethod,
         relayUrl: relayerUrl,
         walletId: String(walletId),
-        registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
+        registrationIntentDigestB64u: setup.registrationIntentDigestB64u,
         appSessionJwt: args.authMethod.appSessionJwt,
       }),
     );
@@ -4812,61 +4811,74 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       phase: RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_STARTED,
       status: 'running',
     });
-    const started = await registrationTiming.measure(
+    const responded = await registrationTiming.measure(
       'walletRegisterStartMs',
-      startWalletRegistration.bind(undefined, {
+      respondWalletRegistration.bind(undefined, {
         relayerUrl,
-        registrationIntentGrant: intentResponse.registrationIntentGrant,
-        registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
-        intent: intentResponse.intent,
+        registrationCeremonyId: setup.registrationCeremonyId,
+        signedSetup: setup.signedSetup,
         headers: registrationRouteHeaders(),
         kind: 'email_otp',
         emailOtpRegistrationProof: emailAuthority.proof,
       }),
     );
-    registrationTiming.captureRouteDiagnostics(started.registrationDiagnostics);
-    if (started.kind !== 'near_ed25519') {
-      throw new Error('Wallet registration start returned a different signer branch');
+    if (responded.kind !== 'near_ed25519') {
+      throw new Error('Ed25519-only registration respond returned a different signer branch');
     }
-    /* Ed25519-only registration still runs the legacy grant/intent/start
-       chain: `/wallets/register/setup` requires an ECDSA branch, so the
-       three-route contract cannot express this plan (see the report to
-       Claude A). Its bearer is still the intent grant. */
     yaoWork = startEmailOtpRegistrationYaoWork({
       recorder: registrationTiming,
       context,
       enrollmentMaterial,
-      deferredNear: { status: 'deferred', ...started.ed25519 },
+      deferredNear: responded.ed25519,
       walletId: String(walletId),
       providerSubject: emailAuthority.providerSubject,
       registrationAuthorityId: emailAuthority.registrationAuthorityId,
-      signedSetup: String(intentResponse.registrationIntentGrant),
-      registrationCeremonyId: started.registrationCeremonyId,
+      signedSetup: String(setup.signedSetup),
+      registrationCeremonyId: setup.registrationCeremonyId,
       relayerUrl,
     });
-    const pending = await yaoWork.requirePending();
-    const clientPublicKey = pending.publicKey();
-    const materialForFinalize = await requireEmailOtpRegistrationEnrollmentMaterial({
+    const materialForActivate = await requireEmailOtpRegistrationEnrollmentMaterial({
       material: enrollmentMaterial,
-      operation: 'finalize',
+      operation: 'activate',
     });
     const emailOtpBackupAck = await resolveEmailOtpBackupAck({
       authMethod: args.authMethod,
       backup: recoveryCodeBackup,
     });
+    /* Activate before awaiting Yao: the wallet becomes durable in
+       `near_pending` and registration can return, while the computation that
+       produces its sole signer is still running. */
+    const activated = await activateWalletRegistration({
+      relayerUrl,
+      registrationCeremonyId: setup.registrationCeremonyId,
+      signedSetup: setup.signedSetup,
+      headers: registrationRouteHeaders(),
+      idempotencyKey: finalizeIdempotencyKey,
+      emailOtpEnrollment: materialForActivate.emailOtpEnrollment,
+      ...(emailOtpBackupAck ? { emailOtpBackupAck } : {}),
+    });
+    if (activated.kind !== 'near_ed25519' || activated.nearProvisioning?.status !== 'near_pending') {
+      throw new Error('Ed25519-only activate did not return a wallet pending NEAR provisioning');
+    }
+    const pending = await yaoWork.requirePending();
+    const clientPublicKey = pending.publicKey();
     const finalized = await registrationTiming.measure(
       'walletRegisterFinalizeMs',
-      finalizeWalletRegistration.bind(undefined, {
+      completeWalletRegistrationNearProvisioning.bind(undefined, {
         relayerUrl,
-        registrationCeremonyId: started.registrationCeremonyId,
+        registrationCeremonyId: setup.registrationCeremonyId,
+        signedSetup: setup.signedSetup,
         headers: registrationRouteHeaders(),
-        idempotencyKey: finalizeIdempotencyKey,
-        kind: 'near_ed25519',
+        /* Its own key: a separate effect from activate's. */
+        idempotencyKey: createRegistrationOperationIdempotencyKey(
+          'wallet-registration-near-provisioning',
+        ),
         ed25519: { activationReference: pending.activationReference() },
-        emailOtpEnrollment: materialForFinalize.emailOtpEnrollment,
-        ...(emailOtpBackupAck ? { emailOtpBackupAck } : {}),
       }),
     );
+    if (!finalized.ok) {
+      throw new Error('Deferred NEAR provisioning did not complete');
+    }
     registrationTiming.captureRouteDiagnostics(finalized.registrationDiagnostics);
     if (finalized.kind !== 'near_ed25519') {
       throw new Error('Wallet registration finalize returned a different signer branch');
