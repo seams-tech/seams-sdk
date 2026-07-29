@@ -42,6 +42,11 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'wallet_unlock_challenge',
   'wallet_unlock_verify',
   'wallet_registration_intent_cancel',
+  /* 94C three-route surface; the legacy ids below it are deleted once the
+     client cutover lands. */
+  'wallet_registration_respond',
+  'wallet_registration_activate',
+  'wallet_registration_near_provisioning',
   'wallet_registration_start',
   'wallet_registration_ecdsa_derivation_respond',
   'wallet_registration_ecdsa_activation',

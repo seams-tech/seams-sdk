@@ -1195,6 +1195,10 @@ function createD1WalletRegistrationRouteService(
     activateWalletRegistration: assembly.walletRegistrations.activateWalletRegistration.bind(
       assembly.walletRegistrations,
     ),
+    completeWalletRegistrationNearProvisioning:
+      assembly.walletRegistrations.completeWalletRegistrationNearProvisioning.bind(
+        assembly.walletRegistrations,
+      ),
     startWalletRegistration: assembly.walletRegistrations.startWalletRegistration.bind(
       assembly.walletRegistrations,
     ),

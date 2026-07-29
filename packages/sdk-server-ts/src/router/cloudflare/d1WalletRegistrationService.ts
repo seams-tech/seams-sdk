@@ -100,6 +100,7 @@ import {
   verifiedRegistrationCeremonyAuthority,
 } from '../../core/RegistrationCeremonyStore';
 import type {
+  WalletRegistrationNearProvisioningResponseV2,
   RespondEd25519DeferredWorkV2,
   WalletRegistrationActivateResponseV2,
   WalletRegistrationRespondResponseV2,
@@ -118,6 +119,7 @@ import {
   type WalletRegistrationSetupInput,
   type WalletRegistrationRespondInput,
   type WalletRegistrationActivateInput,
+  type WalletRegistrationNearProvisioningInput,
 } from './d1WalletRegistrationSetup';
 import {
   computeWalletRegistrationRespondDigestB64u,
@@ -2664,6 +2666,58 @@ export class CloudflareD1WalletRegistrationService {
         ok: false,
         code: 'internal',
         message: errorMessage(error) || 'Failed to respond to wallet registration ceremony',
+      };
+    }
+  }
+
+  /**
+   * Deferred NEAR provisioning. Verifies the signed setup, then reuses the
+   * existing deferred Ed25519 commit — the same path lazy-Yao 4+5 built — so
+   * signer installation and the implicit-account projection keep one
+   * implementation across both plans.
+   *
+   * A retryable failure leaves the pending wallet intact: the wallet must not
+   * be destroyed because its signer ceremony needs another attempt.
+   */
+  async completeWalletRegistrationNearProvisioning(
+    input: WalletRegistrationNearProvisioningInput,
+  ): Promise<WalletRegistrationNearProvisioningResponseV2> {
+    try {
+      const verified = await verifyWalletRegistrationSetupClaims(input.verifier, input.signedSetup, {
+        registrationCeremonyId: input.registrationCeremonyId,
+        nowMs: Date.now(),
+      });
+      if (!verified.ok) {
+        return { ok: false, code: verified.code, message: verified.message };
+      }
+      const committed = await this.finalizeWalletRegistration({
+        kind: 'near_ed25519',
+        registrationCeremonyId: input.registrationCeremonyId,
+        idempotencyKey: input.idempotencyKey,
+        ed25519: input.ed25519,
+      } as FinalizeWalletRegistrationInput);
+      if (!committed.ok) {
+        return {
+          ok: false,
+          code: committed.code,
+          message: committed.message,
+          nearProvisioning: { status: 'near_failed_retryable' },
+        };
+      }
+      if (committed.kind !== 'near_ed25519') {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'NEAR provisioning committed a different signer branch',
+        };
+      }
+      return { ...committed, nearProvisioning: { status: 'near_ready' } };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to complete NEAR provisioning',
+        nearProvisioning: { status: 'near_failed_retryable' },
       };
     }
   }

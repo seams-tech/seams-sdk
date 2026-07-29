@@ -1,9 +1,11 @@
 import type {
+  WalletRegistrationNearProvisioningResponseV2,
   WalletRegistrationActivateResponseV2,
   WalletRegistrationRespondResponseV2,
   WalletRegistrationSetupResponseV2,
 } from '../core/threeRouteRegistrationContracts';
 import type {
+  WalletRegistrationNearProvisioningInput,
   WalletRegistrationActivateInput,
   WalletRegistrationRespondInput,
   WalletRegistrationSetupInput,
@@ -1088,6 +1090,9 @@ export interface RouterApiWalletRegistrationService {
     input: WalletRegistrationActivateInput,
     traceContext?: RouterAbTraceContextV1,
   ): Promise<WalletRegistrationActivateResponseV2>;
+  completeWalletRegistrationNearProvisioning(
+    input: WalletRegistrationNearProvisioningInput,
+  ): Promise<WalletRegistrationNearProvisioningResponseV2>;
   startWalletRegistration(
     input: WalletRegistrationStartRequest,
     context?: { readonly userAgent?: string },

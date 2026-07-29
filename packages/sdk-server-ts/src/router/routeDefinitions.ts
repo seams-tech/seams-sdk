@@ -597,6 +597,19 @@ export function createRouterApiRouteDefinitions(
       { kind: 'event', action: 'wallet_created' },
     ),
     publicRoute(
+      'wallet_registration_near_provisioning',
+      'POST',
+      '/wallets/register/near-provisioning',
+      'Complete deferred NEAR provisioning for a registered wallet',
+      {
+        plane: 'public',
+        proof: 'threshold_protocol_state',
+        rationale:
+          'NEAR provisioning is bound to a signed setup payload and a completed Yao activation.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
+    ),
+    publicRoute(
       'wallet_registration_ecdsa_activation',
       'POST',
       '/wallets/register/derivation/activate',

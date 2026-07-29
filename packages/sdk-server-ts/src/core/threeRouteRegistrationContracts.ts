@@ -251,3 +251,42 @@ export type WalletRegistrationActivateResponseV2 =
     })
   | WalletRegistrationActivateEd25519PendingV2
   | WalletRegistrationRouteErrorV2;
+
+/**
+ * Deferred NEAR provisioning — `POST /wallets/register/near-provisioning`.
+ *
+ * Not one of the three routes: it is the non-blocking completion the client
+ * calls *after* activate has returned, with the Yao activation the already
+ * running computation produced. It installs the wallet's Ed25519 signer,
+ * derives the implicit-account projection, and moves provisioning to ready.
+ *
+ * Implicit-account registration is keypair derivation only — no NEAR RPC and
+ * no on-chain transaction, so nothing here spends gas or creates irreversible
+ * chain state.
+ *
+ * Both plans use it. On a mixed plan the wallet was already signable on ECDSA;
+ * on an Ed25519-only plan this call is what makes the wallet signable at all.
+ */
+export type WalletRegistrationNearProvisioningRequestV2 = {
+  registrationCeremonyId: string;
+  signedSetup: SignedSetupPayloadB64u;
+  /** Its own key: this commit is a separate effect from activate's. */
+  idempotencyKey: ActivateIdempotencyKey;
+  ed25519: Extract<
+    WalletRegistrationFinalizeRequest,
+    { kind: 'near_ed25519' }
+  >['ed25519'];
+};
+
+export type WalletRegistrationNearProvisioningResponseV2 =
+  | (Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'near_ed25519' }> & {
+      nearProvisioning: { status: 'near_ready' };
+    })
+  | (WalletRegistrationRouteErrorV2 & {
+      /**
+       * A retryable failure leaves the pending wallet intact and the call
+       * repeatable — the wallet must never be destroyed because its signer
+       * ceremony needs another attempt.
+       */
+      nearProvisioning?: { status: 'near_failed_retryable' };
+    });
