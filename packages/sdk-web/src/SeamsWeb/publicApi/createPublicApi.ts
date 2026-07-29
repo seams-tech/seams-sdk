@@ -69,7 +69,6 @@ export type RegistrationCapabilityDomainMethods = {
   registerPasskey: RegistrationCapability['registerPasskey'];
   requestEmailOtpEnrollmentChallenge: RegistrationCapability['requestEmailOtpEnrollmentChallenge'];
   enrollEmailOtp: RegistrationCapability['enrollEmailOtp'];
-  enrollAndLoginWithEmailOtpEcdsaCapability: RegistrationCapability['enrollAndLoginWithEmailOtpEcdsaCapability'];
 };
 
 export type KeyExportCapabilityDomainMethods = {
@@ -188,8 +187,6 @@ export function createPublicApi(deps: {
       registerPasskey: deps.registration.registerPasskey,
       requestEmailOtpEnrollmentChallenge: deps.registration.requestEmailOtpEnrollmentChallenge,
       enrollEmailOtp: deps.registration.enrollEmailOtp,
-      enrollAndLoginWithEmailOtpEcdsaCapability:
-        deps.registration.enrollAndLoginWithEmailOtpEcdsaCapability,
     },
     recovery: createRecoveryCapability({
       getContext: getEmailRecoveryContext,

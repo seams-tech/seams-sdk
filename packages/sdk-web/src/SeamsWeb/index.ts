@@ -16,8 +16,6 @@ export type {
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
-  EmailOtpEcdsaEnrollmentCapabilityArgs,
-  EmailOtpEcdsaEnrollmentCapabilityResult,
   EmailOtpEnrollmentResult,
   EmailOtpRecoveryCodeBackupStatus,
   EmailOtpRecoveryCodeRotationResult,

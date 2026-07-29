@@ -347,8 +347,6 @@ export class SeamsWebIframe {
       requestEmailOtpEnrollmentChallenge: async (args) =>
         await this.router.requestEmailOtpEnrollmentChallenge(args),
       enrollEmailOtp: async (args) => await this.router.enrollEmailOtp(args),
-      enrollAndLoginWithEmailOtpEcdsaCapability: async (args) =>
-        await this.router.enrollAndLoginWithEmailOtpEcdsaCapability(args),
     };
     this.preferences = {
       setCurrentWallet: (walletId) => {

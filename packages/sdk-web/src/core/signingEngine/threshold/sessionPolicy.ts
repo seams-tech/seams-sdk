@@ -91,23 +91,6 @@ export type EmailOtpEd25519SessionPolicyAuthority = {
   rpId?: never;
 };
 
-function decodeBase64UrlUtf8(input: string): string | null {
-  const normalized = String(input || '')
-    .trim()
-    .replace(/-/g, '+')
-    .replace(/_/g, '/');
-  if (!normalized) return null;
-  const padded = normalized + '='.repeat((4 - (normalized.length % 4 || 4)) % 4);
-  try {
-    if (typeof atob === 'function') {
-      const binary = atob(padded);
-      const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
-      return new TextDecoder().decode(bytes);
-    }
-  } catch {}
-  return null;
-}
-
 export function normalizeThresholdRuntimePolicyScope(
   value: unknown,
 ): ThresholdRuntimePolicyScope | undefined {
@@ -120,23 +103,6 @@ export function normalizeThresholdRuntimePolicyScope(
 
 export function normalizeThresholdSessionKind(value: unknown): ThresholdSessionKind {
   return normalizeJwtCookieSessionKind(value);
-}
-
-export function parseThresholdRuntimePolicyScopeFromJwt(
-  jwtRaw: string | undefined,
-): ThresholdRuntimePolicyScope | undefined {
-  const jwt = String(jwtRaw || '').trim();
-  if (!jwt) return undefined;
-  const parts = jwt.split('.');
-  if (parts.length < 2) return undefined;
-  const payloadJson = decodeBase64UrlUtf8(parts[1] || '');
-  if (!payloadJson) return undefined;
-  try {
-    const payload = JSON.parse(payloadJson) as { runtimePolicyScope?: unknown };
-    return normalizeThresholdRuntimePolicyScope(payload.runtimePolicyScope);
-  } catch {
-    return undefined;
-  }
 }
 
 export type Ed25519SessionPolicy = {
@@ -258,9 +224,7 @@ export function generateThresholdSessionId(): string {
 }
 
 export function generateSigningGrantId(): SigningGrantId {
-  return toEcdsaDerivationSigningGrantId(
-    secureRandomId('wsess', 32, 'signing grant IDs'),
-  );
+  return toEcdsaDerivationSigningGrantId(secureRandomId('wsess', 32, 'signing grant IDs'));
 }
 
 export async function computeEd25519SessionPolicyDigest32(
