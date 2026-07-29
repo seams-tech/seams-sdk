@@ -1262,12 +1262,6 @@ function createD1WalletRegistrationRouteService(
       assembly.walletRegistrations.listWalletEcdsaKeyFactsInventory.bind(
         assembly.walletRegistrations,
       ),
-    createRegistrationIntent: assembly.registrationIntents.createRegistrationIntent.bind(
-      assembly.registrationIntents,
-    ),
-    cancelRegistrationIntent: assembly.registrationIntents.cancelRegistrationIntent.bind(
-      assembly.registrationIntents,
-    ),
     setupWalletRegistration: assembly.walletRegistrations.setupWalletRegistration.bind(
       assembly.walletRegistrations,
     ),
@@ -1281,24 +1275,6 @@ function createD1WalletRegistrationRouteService(
       assembly.walletRegistrations.completeWalletRegistrationNearProvisioning.bind(
         assembly.walletRegistrations,
       ),
-    startWalletRegistration: assembly.walletRegistrations.startWalletRegistration.bind(
-      assembly.walletRegistrations,
-    ),
-    respondWalletRegistrationEcdsaDerivation:
-      assembly.walletRegistrations.respondWalletRegistrationEcdsaDerivation.bind(
-        assembly.walletRegistrations,
-      ),
-    activateWalletRegistrationEcdsa:
-      assembly.walletRegistrations.activateWalletRegistrationEcdsa.bind(
-        assembly.walletRegistrations,
-      ),
-    getWalletRegistrationRuntimePolicyScope:
-      assembly.walletRegistrations.getWalletRegistrationRuntimePolicyScope.bind(
-        assembly.walletRegistrations,
-      ),
-    finalizeWalletRegistration: assembly.walletRegistrations.finalizeWalletRegistration.bind(
-      assembly.walletRegistrations,
-    ),
     refreshEd25519YaoWalletSession:
       assembly.walletRegistrations.refreshEd25519YaoWalletSession.bind(
         assembly.walletRegistrations,
