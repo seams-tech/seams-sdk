@@ -140,8 +140,6 @@ export type EvmFamilyEcdsaWalletKeyFacts = {
   rpId?: never;
 };
 
-export type EcdsaKeyFacts = EvmFamilyEcdsaWalletKeyFacts;
-
 export type EvmFamilyEcdsaWalletKey = {
   kind: 'evm_family_ecdsa_wallet_key';
   walletId: WalletId;
@@ -494,10 +492,6 @@ export type BuildEvmFamilyEcdsaKeyIdentityInput = {
   thresholdOwnerAddress: unknown;
 };
 
-export type BuildBaseEvmFamilyEcdsaKeyIdentityInput = BuildEvmFamilyEcdsaKeyIdentityInput;
-
-export type BuildEvmFamilyEcdsaKeyHandleInput = ThresholdEcdsaKeyHandleInput;
-
 export type BuildVerifiedEcdsaPublicFactsInput = {
   keyHandle: EvmFamilyEcdsaKeyHandle;
   publicKeyB64u: unknown;
@@ -505,7 +499,7 @@ export type BuildVerifiedEcdsaPublicFactsInput = {
   thresholdOwnerAddress: unknown;
 };
 
-export type BuildEvmFamilyEcdsaWalletKeyInput = BuildBaseEvmFamilyEcdsaKeyIdentityInput & {
+export type BuildEvmFamilyEcdsaWalletKeyInput = BuildEvmFamilyEcdsaKeyIdentityInput & {
   evmFamilySigningKeySlotId: unknown;
   keyHandle: unknown;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -517,7 +511,7 @@ export type BuildEvmFamilyKeyFingerprintFromPublicFactsInput = {
   publicFacts: VerifiedEcdsaPublicFacts;
 };
 
-export type EvmFamilyEcdsaPublicFactsRecord = BuildEvmFamilyEcdsaKeyHandleInput & {
+export type EvmFamilyEcdsaPublicFactsRecord = ThresholdEcdsaKeyHandleInput & {
   thresholdEcdsaPublicKeyB64u: unknown;
   participantIds: unknown;
   ethereumAddress: unknown;
@@ -906,7 +900,7 @@ function buildNormalizedEvmFamilyEcdsaKeyIdentity(input: {
 }
 
 export function buildBaseEvmFamilyEcdsaKeyIdentity(
-  input: BuildBaseEvmFamilyEcdsaKeyIdentityInput,
+  input: BuildEvmFamilyEcdsaKeyIdentityInput,
 ): EvmFamilyEcdsaKeyIdentity {
   return buildNormalizedEvmFamilyEcdsaKeyIdentity({
     walletId: toWalletId(input.walletId),
@@ -939,7 +933,7 @@ export function deriveBaseEcdsaSubjectIdFromWalletId(
 }
 
 export async function deriveEvmFamilyEcdsaKeyHandle(
-  input: BuildEvmFamilyEcdsaKeyHandleInput,
+  input: ThresholdEcdsaKeyHandleInput,
 ): Promise<EvmFamilyEcdsaKeyHandle> {
   return (await deriveThresholdEcdsaKeyHandle(input)) as string as EvmFamilyEcdsaKeyHandle;
 }
