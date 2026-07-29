@@ -3198,6 +3198,13 @@ export async function runThreeRouteRegistrationCeremony(args: {
       }),
     });
 
+    if (responded.kind === 'near_ed25519') {
+      /* This ceremony exists to drive the ECDSA legs; an Ed25519-only plan has
+         none and runs its own path. Reaching here means setup and respond
+         disagreed about the plan, which must fail rather than proceed with a
+         wallet whose signer was never prepared. */
+      throw new Error('ECDSA registration ceremony received an Ed25519-only respond result');
+    }
     /* Hand off before activate so Yao runs alongside it, not after. */
     const deferredNear =
       responded.kind === 'near_ed25519_and_evm_family_ecdsa' ? responded.ed25519 : null;
@@ -3244,6 +3251,11 @@ export async function runThreeRouteRegistrationCeremony(args: {
       }),
     });
 
+    if (activated.kind !== 'evm_family_ecdsa' || !activated.ecdsa) {
+      /* Same disagreement as above, one leg later: this ceremony cannot build
+         a local session without the activation payload. */
+      throw new Error('ECDSA registration ceremony received a non-ECDSA activate result');
+    }
     const finalized = await measureStrictEcdsaCeremonyStep({
       registrationTiming: args.registrationTiming,
       bucket: 'ecdsaRegistrationClientActivationFinalizeMs',

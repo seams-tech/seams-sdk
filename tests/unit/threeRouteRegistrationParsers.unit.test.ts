@@ -75,12 +75,48 @@ test('respond rejects an unknown signer-plan kind', async () => {
       {
         ok: true,
         registrationCeremonyId: 'wrc_test',
-        kind: 'near_ed25519',
+        kind: 'secp256r1_passkey_only',
         ecdsa: { kind: 'router_ab_ecdsa_registration_forwarded_v1', strictResult: {} },
       },
       () => respondWalletRegistration(RESPOND_ARGS),
     ),
   ).rejects.toThrow(/kind is invalid/);
+});
+
+test('respond rejects an Ed25519-only plan carrying ECDSA proof bundles', async () => {
+  /* No ECDSA leg ran for this plan, so bundles cannot exist. Accepting them
+     would mean verifying proofs for a ceremony that never produced any. */
+  await expect(
+    withStubbedFetch(
+      {
+        ok: true,
+        registrationCeremonyId: 'wrc_test',
+        kind: 'near_ed25519',
+        ecdsa: { kind: 'router_ab_ecdsa_registration_forwarded_v1', strictResult: {} },
+        ed25519: { status: 'deferred', admissionRequest: {}, admissionReceipt: {} },
+      },
+      () => respondWalletRegistration(RESPOND_ARGS),
+    ),
+  ).rejects.toThrow(/unknown fields: ecdsa/);
+});
+
+test('respond accepts an Ed25519-only plan with only deferred NEAR work', async () => {
+  const { buildFixtureRespondEd25519DeferredWork } = await import(
+    '../helpers/ed25519YaoAdmissionFixtures'
+  );
+  const result = await withStubbedFetch(
+    {
+      ok: true,
+      registrationCeremonyId: 'wrc_test',
+      kind: 'near_ed25519',
+      ed25519: buildFixtureRespondEd25519DeferredWork({ lifecycleId: 'wrc_test' }),
+    },
+    () => respondWalletRegistration(RESPOND_ARGS),
+  );
+  expect(result.kind).toBe('near_ed25519');
+  /* The wallet's sole signer is still deferred — never awaited here. */
+  expect(result.ed25519?.status).toBe('deferred');
+  expect('ecdsa' in result).toBe(false);
 });
 
 test('respond rejects deferred NEAR work claiming a non-deferred status', async () => {
