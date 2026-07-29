@@ -10,6 +10,7 @@ import {
   parseMpcMaterialActivationId,
   parseMpcMaterialOwnerRef,
   parseMpcSigningWorkerRef,
+  type CapabilityInstanceRef,
   type DomainIdParseResult,
   type MpcCapabilityRuntimeRef,
   type MpcMaterialActivationRef,
@@ -17,9 +18,11 @@ import {
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   buildBlockedMpcCapabilityHydrationPlan,
+  buildReauthorizePublicAnchorHydrationPlan,
   buildRehydrateMaterialActivationHydrationPlan,
   buildUseLiveRuntimeHydrationPlan,
   type MpcCapabilityHydrationPlan,
+  type MpcCapabilityPublicReauthAnchor,
   type RestorableMpcMaterialRef,
 } from './mpcCapabilityHydration';
 
@@ -55,10 +58,19 @@ export type NearEd25519YaoPublicLocatorObservationV1 =
       readonly kind: 'missing';
     }
   | {
+      readonly kind: 'retired';
+      readonly retirement: 'expired' | 'exhausted';
+      readonly publicReauthAnchor: MpcCapabilityPublicReauthAnchor;
+    }
+  | {
       readonly kind: 'conflict';
     }
   | {
       readonly kind: 'corrupt';
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly capability: CapabilityInstanceRef;
     };
 
 export type NearEd25519YaoSealedMaterialObservationV1 =
@@ -141,10 +153,20 @@ export function resolveNearEd25519YaoCapabilityHydrationV1(
         capability: null,
         reason: 'missing_capability',
       });
+    case 'retired':
+      return buildReauthorizePublicAnchorHydrationPlan({
+        retirement: input.publicLocator.retirement,
+        publicReauthAnchor: input.publicLocator.publicReauthAnchor,
+      });
     case 'conflict':
       return blockedNearHydration(input, 'exact_record_conflict');
     case 'corrupt':
       return blockedNearHydration(input, 'corrupt');
+    case 'unavailable':
+      return buildBlockedMpcCapabilityHydrationPlan({
+        capability: input.publicLocator.capability,
+        reason: 'persistence_unavailable',
+      });
     case 'available':
       break;
     default:
