@@ -37,10 +37,12 @@ import {
   type RouterAbNormalSigningAuthorizationWire,
 } from './routerAbNormalSigningIdentity';
 import {
+  EVM_ECDSA_MPC_OPERATION_KINDS,
   parseMpcWalletSigningQuotaId,
   parseReusableWalletSessionMintId,
   parseSeamsSessionId,
   parseWalletSessionId,
+  type EvmEcdsaMpcOperationKind,
   type MpcWalletSigningQuotaId,
   type ReusableWalletSessionMintId,
   type SeamsSessionId,
@@ -638,6 +640,7 @@ export type RouterAbEcdsaOperationStepUpWebAuthnCredentialV1Wire = {
 
 export type RouterAbEcdsaOperationStepUpPreparationV1Wire = {
   readonly wallet_id: string;
+  readonly operation_kind: EvmEcdsaMpcOperationKind;
   readonly operation_id: string;
   readonly operation_digests: RouterAbEcdsaDerivationOperationDigestsV1Wire;
   readonly material_activation: RouterAbMpcMaterialActivationRefWire;
@@ -3233,6 +3236,7 @@ export function parseRouterAbEcdsaOperationStepUpPreparationV1(
   const operation = requireRecord(value, 'ecdsaOperationStepUpPreparation');
   requireExactKeys(operation, 'operationStepUpGrantRequest.operation', [
     'wallet_id',
+    'operation_kind',
     'operation_id',
     'operation_digests',
     'material_activation',
@@ -3260,6 +3264,7 @@ export function parseRouterAbEcdsaOperationStepUpPreparationV1(
       operation.wallet_id,
       'operationStepUpGrantRequest.operation.wallet_id',
     ),
+    operation_kind: requireEcdsaOperationStepUpKind(operation.operation_kind),
     operation_id: requireAsciiNonEmptyString(
       operation.operation_id,
       'operationStepUpGrantRequest.operation.operation_id',
@@ -3294,6 +3299,18 @@ export function parseRouterAbEcdsaOperationStepUpPreparationV1(
       'operationStepUpGrantRequest.operation.expires_at_ms',
     ),
   };
+}
+
+function requireEcdsaOperationStepUpKind(value: unknown): EvmEcdsaMpcOperationKind {
+  switch (value) {
+    case EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction:
+    case EVM_ECDSA_MPC_OPERATION_KINDS.exportKey:
+      return value;
+    default:
+      throw new Error(
+        'operationStepUpGrantRequest.operation.operation_kind must be evm.sign_transaction or evm.export_key',
+      );
+  }
 }
 
 export function buildRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1(input: {

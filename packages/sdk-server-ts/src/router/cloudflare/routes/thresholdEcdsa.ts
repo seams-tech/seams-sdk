@@ -111,6 +111,7 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import { parseEmailOtpChallengeId } from '@shared/utils/domainIds';
 import {
   EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_EXPORT_OPERATION,
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import { hashEmailOtpAppSessionClaims } from '../../emailOtpSessionRouteHelpers';
@@ -205,7 +206,7 @@ async function issueEcdsaOperationStepUpGrant(input: {
         parseCapabilityId(operation.material_activation.capability),
       ),
       operationId: requireAuthorizationValue(parseCapabilityOperationId(operation.operation_id)),
-      operation: buildEvmEcdsaMpcOperationRef('evm.sign_transaction'),
+      operation: buildEvmEcdsaMpcOperationRef(operation.operation_kind),
       digests: {
         laneDigest: parseDigestB64u(operation.operation_digests.lane_digest_b64u),
         intentDigest: parseDigestB64u(operation.operation_digests.intent_digest_b64u),
@@ -303,7 +304,10 @@ async function issueEcdsaOperationStepUpGrant(input: {
         otpChannel: EMAIL_OTP_CHANNEL,
         sessionHash,
         appSessionVersion: activeSession.appSessionVersion,
-        operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+        operation:
+          operation.operation_kind === 'evm.export_key'
+            ? WALLET_EMAIL_OTP_EXPORT_OPERATION
+            : WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
       });
       if (!verified.ok) {
         return json(verified, { status: verified.code === 'invalid_body' ? 400 : 401 });
