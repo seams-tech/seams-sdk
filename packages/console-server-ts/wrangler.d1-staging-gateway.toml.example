@@ -40,6 +40,7 @@ SEAMS_STAGING_ORG_ID = "org_staging"
 SEAMS_STAGING_PROJECT_ID = "project_staging"
 SEAMS_STAGING_ENV_ID = "staging"
 ROUTER_AB_NORMAL_SIGNING_WORKER_ID = "router-ab-signing-worker-staging"
+ROUTER_AB_PREWARM_ENABLED = "true"
 SIGNING_WORKER_ID = "router-ab-signing-worker-staging"
 ROUTER_AB_CEREMONY_JWT_ISSUER = "https://<gateway-staging-host>"
 ROUTER_AB_CEREMONY_JWT_AUDIENCE = "router-ab"
@@ -61,7 +62,7 @@ SIGNING_ROOT_KEK_ENCODING = "base64url"
 SIGNING_ROOT_KEK_IDS = "signing-root-kek-staging-r1"
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["* * * * *"]
 
 [secrets]
 required = [

@@ -9,6 +9,15 @@ pub(super) async fn handle_strict_deriver_a_fetch_v1(
     if let Err(err) = require_cloudflare_internal_service_auth_request_v1(&request, &env) {
         return cloudflare_private_service_auth_error_response_v1(err);
     }
+    if request.path() == CLOUDFLARE_INTERNAL_PREWARM_PATH {
+        if request.method() != Method::Post {
+            return cloudflare_prewarm_response_v1(&request);
+        }
+        if let Err(err) = CloudflareDeriverAWorkerRuntimeV1::from_worker_env(&env) {
+            return cloudflare_protocol_error_response_v1(err);
+        }
+        return cloudflare_prewarm_response_v1(&request);
+    }
     let runtime = match CloudflareDeriverAWorkerRuntimeV1::from_worker_env(&env) {
         Ok(runtime) => StrictDeriverRuntimeV1::DeriverA(runtime),
         Err(err) => return cloudflare_protocol_error_response_v1(err),
@@ -586,6 +595,15 @@ pub(super) async fn handle_strict_deriver_b_fetch_v1(
 ) -> worker::Result<Response> {
     if let Err(err) = require_cloudflare_internal_service_auth_request_v1(&request, &env) {
         return cloudflare_private_service_auth_error_response_v1(err);
+    }
+    if request.path() == CLOUDFLARE_INTERNAL_PREWARM_PATH {
+        if request.method() != Method::Post {
+            return cloudflare_prewarm_response_v1(&request);
+        }
+        if let Err(err) = CloudflareDeriverBWorkerRuntimeV1::from_worker_env(&env) {
+            return cloudflare_protocol_error_response_v1(err);
+        }
+        return cloudflare_prewarm_response_v1(&request);
     }
     let runtime = match CloudflareDeriverBWorkerRuntimeV1::from_worker_env(&env) {
         Ok(runtime) => StrictDeriverRuntimeV1::DeriverB(runtime),
