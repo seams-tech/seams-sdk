@@ -2128,6 +2128,24 @@ export async function handleRouterApiWalletRegistrationActivate(
     traceContext.value ?? undefined,
   );
   if (!result.ok) return routeJson(400, result);
+  /* One verification serves both mints below: the wallet-session JWT needs the
+     signed policy scope, and the app session carries the same scope so it
+     stays at parity with the /session/exchange mint. */
+  const verifiedSetup = await verifyWalletRegistrationSetupClaims(session, signedSetup, {
+    registrationCeremonyId,
+    nowMs: Date.now(),
+  });
+  if (!verifiedSetup.ok) {
+    return routeJson(400, {
+      ok: false,
+      code: verifiedSetup.code,
+      message: verifiedSetup.message,
+    });
+  }
+  const setupPolicyScope =
+    verifiedSetup.claims.policy.kind === 'runtime_policy_scope'
+      ? verifiedSetup.claims.policy.scope
+      : null;
   let routeResult: WalletRegistrationActivateRouteResponseV2;
   if (isEmailOtpWalletRegistrationActivateSuccessV2(result)) {
     if (!isEmailOtpWalletAuthAuthority(result.authority)) {
@@ -2145,24 +2163,14 @@ export async function handleRouterApiWalletRegistrationActivate(
       provider: result.authority.factor.provider,
       providerSubject: result.authority.factor.providerUserId,
       walletId: result.walletId,
+      ...(setupPolicyScope ? { runtimePolicyScope: setupPolicyScope } : {}),
     });
     routeResult = { ...result, appSessionJwt };
   } else {
     routeResult = result;
   }
   if ('ecdsa' in routeResult && routeResult.ecdsa) {
-    const verifiedSetup = await verifyWalletRegistrationSetupClaims(session, signedSetup, {
-      registrationCeremonyId,
-      nowMs: Date.now(),
-    });
-    if (!verifiedSetup.ok) {
-      return routeJson(400, {
-        ok: false,
-        code: verifiedSetup.code,
-        message: verifiedSetup.message,
-      });
-    }
-    if (verifiedSetup.claims.policy.kind !== 'runtime_policy_scope') {
+    if (!setupPolicyScope) {
       return routeError(
         500,
         'internal',
@@ -2174,7 +2182,7 @@ export async function handleRouterApiWalletRegistrationActivate(
       routeResult.ecdsa.bootstrap,
       routeResult.ecdsa.activation.ecdsa_activation.signing_worker.server_id,
       routeResult.ecdsa.activation.ecdsa_activation.activation_epoch,
-      verifiedSetup.claims.policy.scope,
+      setupPolicyScope,
     );
     if (signingError) return signingError;
   }
