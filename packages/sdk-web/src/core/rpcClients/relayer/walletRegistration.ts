@@ -2661,7 +2661,10 @@ export async function respondWalletRegistration(
     registrationCeremonyId: string;
     /** Opaque; echoed exactly as setup returned it. */
     signedSetup: string;
-    ecdsa: {
+    /* Absent for an Ed25519-only plan: no ECDSA ceremony was created, so there
+       is no registration request to forward. Modelled as optional rather than
+       cast away at the call site. */
+    ecdsa?: {
       kind: 'router_ab_ecdsa_registration_v1';
       strictRegistration: RouterAbEcdsaRegistrationRequestV1;
     };
@@ -2676,7 +2679,7 @@ export async function respondWalletRegistration(
       registrationCeremonyId: args.registrationCeremonyId,
       signedSetup: args.signedSetup,
       authority: walletRegistrationStartAuthorityBody(args),
-      ecdsa: args.ecdsa,
+      ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
     },
     ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
   });
@@ -2809,7 +2812,9 @@ export async function activateWalletRegistration(args: {
   registrationCeremonyId: string;
   signedSetup: string;
   idempotencyKey: string;
-  ecdsa: {
+  /* Absent for an Ed25519-only plan: nothing was verified in the browser
+     because no ECDSA proof bundles were produced. */
+  ecdsa?: {
     clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     expectedKeyHandles?: string[];
   };
@@ -2825,7 +2830,7 @@ export async function activateWalletRegistration(args: {
       registrationCeremonyId: args.registrationCeremonyId,
       signedSetup: args.signedSetup,
       idempotencyKey: args.idempotencyKey,
-      ecdsa: args.ecdsa,
+      ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
       ...(args.emailOtpEnrollment ? { emailOtpEnrollment: args.emailOtpEnrollment } : {}),
       ...(args.emailOtpBackupAck ? { emailOtpBackupAck: args.emailOtpBackupAck } : {}),
     },
