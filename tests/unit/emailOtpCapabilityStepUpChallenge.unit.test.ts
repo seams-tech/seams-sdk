@@ -76,9 +76,12 @@ test.describe('Email OTP capability step-up challenge', () => {
       authority: stepUpAuthority,
       requestEmailOtpTransactionSigningChallenge: async (args) => {
         seen.push(args.authority);
+        // The full production challenge shape: `delivery` is required, and the
+        // bridge derives the demo-code hint from it after the mint.
         return {
           challengeId: 'capability-step-up-challenge',
           emailHint: 'a***@x.test',
+          delivery: { kind: 'provider', status: 'sent', emailHint: 'a***@x.test' },
         } as never;
       },
     });
