@@ -793,9 +793,7 @@ function buildGatewayEnvironment(input) {
         SPONSORED_EVM_EXECUTORS_JSON: manual(`${input.target}-sponsored-evm-executors-json`),
         STRIPE_API_SK: manual(`${input.target}-stripe-secret-key`),
         STRIPE_WEBHOOK_SECRET: manual(`${input.target}-stripe-webhook-signing-secret`),
-        RESEND_API_KEY: manual(`${input.target}-resend-api-key`),
-        CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U:
-          input.generatedSecrets.consoleEmailInvitationSecret,
+        CONSOLE_INITIAL_OWNER_EMAIL: manual(`${input.target}-console-initial-owner-email`),
         SIGNING_ROOT_KEK_VALUE: input.generatedSecrets.signingRootKek,
         SIGNING_SESSION_SEAL_KEY_VERSION: signingSession.keyVersion,
         SIGNING_SESSION_SHAMIR_P_B64U: signingSession.shamirPrimeB64u,
