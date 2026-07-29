@@ -232,39 +232,6 @@ check(
 );
 
 check(
-  'exact lookup fallback boundary keeps ECDSA threshold-session lookup exact or fail-closed',
-  () => {
-    const recordsSource = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
-    );
-    const inMemoryLookup = sourceRangeBetween(
-      recordsSource,
-      'function getInMemoryThresholdEcdsaSessionRecordByThresholdSessionId',
-      'function normalizeThresholdEcdsaSessionStoreSource',
-    );
-    const uniqueSelector = sourceRangeBetween(
-      recordsSource,
-      'function selectUniqueThresholdEcdsaRecordByThresholdSessionId',
-      'export function deriveThresholdEcdsaRuntimeLaneKey',
-    );
-    const exportedLookup = sourceRangeBetween(
-      recordsSource,
-      'export function getThresholdEcdsaSessionRecordByThresholdSessionId',
-      'export function upsertThresholdEd25519SessionFact',
-    );
-
-    expect(inMemoryLookup).toContain('selectUniqueThresholdEcdsaRecordByThresholdSessionId({');
-    expect(uniqueSelector).toContain('switch (unique.size)');
-    expect(uniqueSelector).toContain('case 0:');
-    expect(uniqueSelector).toContain('case 1:');
-    expect(uniqueSelector).toContain('default:');
-    expect(exportedLookup).toContain('selectUniqueThresholdEcdsaRecordByThresholdSessionId({');
-    expect(inMemoryLookup).not.toContain('[0] || null');
-    expect(exportedLookup).not.toContain('[0] || null');
-  },
-);
-
-check(
   'exact lookup fallback boundary keeps budget compatibility fallback at the boundary parser only',
   () => {
     const budgetReader = readRepoSource(

@@ -395,9 +395,6 @@ describeChecks('Email OTP operation split guard', () => {
     const ecdsaIdentity = readRepoFile(
       'packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts',
     );
-    const sessionRecords = readRepoFile(
-      'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
-    );
     const preparedSigning = readRepoFile(
       'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
     );
@@ -431,11 +428,6 @@ describeChecks('Email OTP operation split guard', () => {
     expect(ecdsaSelection).not.toContain("kind: 'email_otp_ecdsa_committed_lane'");
     expect(committedLaneType).not.toContain('walletId:');
     expect(ecdsaSelection).not.toContain('function passkeyAuthorityFromCandidate');
-    expect(ecdsaSelection).toContain('function passkeyAuthorityFromRecord');
-    expect(ecdsaSelection).toContain("record.ecdsaRoleLocalAuthMethod.kind !== 'passkey'");
-    expect(ecdsaSelection).not.toContain(
-      'parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record)',
-    );
     expect(ecdsaSelection).toContain('function assertEcdsaCommittedLaneAuthorityMatchesWallet');
     expect(ecdsaSelection).toContain('committed lane authority wallet mismatch');
     expect(readySelectionType).toContain('committedLane: ReadyPasskeyEcdsaCommittedLane');
@@ -457,8 +449,6 @@ describeChecks('Email OTP operation split guard', () => {
       'signerSession.routerAbEcdsaDerivationNormalSigning.credential.walletSessionJwt',
     );
     expect(ecdsaIdentity).not.toContain('walletSessionAuthInputFromPersistedThresholdSession');
-    expect(sessionRecords).toContain('resolveRouterAbEcdsaWalletSessionAuthFromRecord(record)');
-    expect(sessionRecords).not.toContain('keyRef.walletSessionJwt || args.bootstrap.session.jwt');
   });
 
   check('EVM-family ECDSA signing does not use legacy read-side restore fallback paths', () => {

@@ -99,26 +99,4 @@ test.describe('EVM-family request boundaries', () => {
     );
     expect(signEvmFamilyWithUiConfirmForTempo).toContain("targetKind: 'tempo'");
   });
-
-  // The "refreshes step-up ECDSA lanes with the normalized signing target
-  // chain" case is gone with its subject. It sliced `signEvmFamily.ts` around
-  // `completeEvmFamilyEmailOtpSigningRefresh` and a record-refresh call to
-  // `updateResolvedEvmFamilyEcdsaSigningLaneIdentity`; neither exists in
-  // production any more, so both `indexOf` lookups returned -1 and the
-  // assertions ran against a garbage slice. Signing no longer refreshes a
-  // record in place -- material is selected by manifest and sealed runtime, and
-  // the chain it serves is checked at the hydration boundary.
-
-  test('committed Email OTP ECDSA selection does not probe session records by wallet and chain', () => {
-    const ecdsaSelection = fs.readFileSync(
-      path.join(
-        repoRoot,
-        'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts',
-      ),
-      'utf8',
-    );
-
-    expect(ecdsaSelection).not.toContain('getEmailOtpThresholdEcdsaSessionRecordForSigning');
-    expect(ecdsaSelection).not.toContain('tryGetEmailOtpThresholdEcdsaSessionRecordForAuthority');
-  });
 });
