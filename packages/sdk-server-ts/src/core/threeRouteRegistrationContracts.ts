@@ -9,6 +9,7 @@ import type {
   WalletRegistrationStartResponse,
   WalletRegistrationFinalizeRequest,
   WalletRegistrationFinalizeResponse,
+  WalletRegistrationEcdsaActivationResponse,
 } from './registrationContracts';
 
 /**
@@ -54,6 +55,7 @@ type EcdsaFinalizeSuccess = Extract<
   WalletRegistrationFinalizeResponse,
   { ok: true; kind: 'evm_family_ecdsa' }
 >;
+type EcdsaActivationSuccess = Extract<WalletRegistrationEcdsaActivationResponse, { ok: true }>;
 
 export type WalletRegistrationRouteErrorV2 = {
   ok: false;
@@ -165,8 +167,23 @@ export type WalletRegistrationActivateRequestV2 = {
   emailOtpBackupAck?: EcdsaFinalizeWork extends { emailOtpBackupAck?: infer T } ? T : never;
 };
 
+/**
+ * Activate's terminal response is both legs merged.
+ *
+ * The commit half supplies the wallet keys; the activation half supplies the
+ * receipt and the derivation bootstrap the client needs to bring the wallet
+ * online. Separate requests used to return these separately — folding the
+ * legs without merging the payloads would leave the client unable to finish,
+ * so `ecdsa` carries all three.
+ */
+type ActivateEcdsaTerminalPayload = EcdsaFinalizeSuccess['ecdsa'] & {
+  activation: EcdsaActivationSuccess['ecdsa']['activation'];
+  bootstrap: EcdsaActivationSuccess['ecdsa']['bootstrap'];
+};
+
 export type WalletRegistrationActivateResponseV2 =
-  | (EcdsaFinalizeSuccess & {
+  | (Omit<EcdsaFinalizeSuccess, 'ecdsa'> & {
+      ecdsa: ActivateEcdsaTerminalPayload;
       /** Mixed plans: deferred NEAR snapshot; never identifiers before readiness. */
       nearProvisioning?: { status: 'pending' };
     })

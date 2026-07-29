@@ -1,3 +1,5 @@
+import { parseRouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { WalletRegistrationActivateResponseV2 } from '../../core/threeRouteRegistrationContracts';
 import {
   D1WalletAuthMethodStore,
   type WalletAuthMethodStore,
@@ -58,6 +60,8 @@ import {
   CloudflareD1WalletRegistrationService,
   parseD1WalletRegistrationStartSideEffectRecord,
   type D1WalletRegistrationFinalizePreparedV1,
+  type D1WalletRegistrationActivateSideEffectRecord,
+  type D1WalletRegistrationActivateSideEffectStore,
   type D1WalletRegistrationFinalizeSideEffectRecord,
   type D1WalletRegistrationFinalizeSideEffectStore,
   type D1WalletRegistrationStartSideEffectRecord,
@@ -555,9 +559,48 @@ function parseWalletRegistrationFinalizeSideEffectRecord(
  * finalize journal it absorbs, tagged with its own operation so an activate
  * row can never be read as a finalize row or vice versa.
  */
+/**
+ * The activate terminal response is the finalize commit merged with the
+ * activation receipt and derivation bootstrap. Validating the commit half
+ * through the existing parser keeps one definition of that shape; the
+ * activation half must simply be present, since a stored response missing it
+ * could not bring a wallet online and is not a usable replay.
+ */
+function parseD1WalletRegistrationActivateTerminalResponse(
+  raw: unknown,
+): WalletRegistrationActivateResponseV2 | null {
+  const commit = parseD1WalletRegistrationFinalizeTerminalResponse(raw);
+  if (!commit) return null;
+  if (!commit.ok) return commit;
+  if (commit.kind !== 'evm_family_ecdsa' || !isRecordValue(raw)) return null;
+  const stored = isRecordValue(raw.ecdsa) ? raw.ecdsa : null;
+  if (!stored || !isRecordValue(stored.bootstrap)) return null;
+  let activation: ReturnType<typeof parseRouterAbEcdsaRegistrationActivationReceiptV1>;
+  try {
+    activation = parseRouterAbEcdsaRegistrationActivationReceiptV1(stored.activation);
+  } catch {
+    return null;
+  }
+  return {
+    ...commit,
+    ecdsa: {
+      ...commit.ecdsa,
+      activation,
+      /* The bootstrap is the Gateway's own derivation payload, written by
+         this service and never client-supplied; there is no separate parser
+         for it, so presence is the check. */
+      bootstrap: stored.bootstrap as WalletRegistrationActivateResponseV2 extends { ecdsa: infer E }
+        ? E extends { bootstrap: infer B }
+          ? B
+          : never
+        : never,
+    },
+  };
+}
+
 function parseWalletRegistrationActivateSideEffectRecord(
   raw: unknown,
-): D1WalletRegistrationFinalizeSideEffectRecord | null {
+): D1WalletRegistrationActivateSideEffectRecord | null {
   if (
     !isRecordValue(raw) ||
     raw.operation !== 'registration_activate' ||
@@ -587,7 +630,7 @@ function parseWalletRegistrationActivateSideEffectRecord(
   ) {
     return null;
   }
-  const response = parseD1WalletRegistrationFinalizeTerminalResponse(raw.response);
+  const response = parseD1WalletRegistrationActivateTerminalResponse(raw.response);
   if (!response) return null;
   return {
     kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
@@ -748,8 +791,8 @@ function walletRegistrationFinalizeSideEffectStore(
 
 function walletRegistrationActivateSideEffectStore(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
-): D1WalletRegistrationFinalizeSideEffectStore {
-  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationFinalizeSideEffectRecord>({
+): D1WalletRegistrationActivateSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationActivateSideEffectRecord>({
     database: options.database,
     scope: {
       namespace: options.namespace,

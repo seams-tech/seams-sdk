@@ -208,6 +208,14 @@ test('an identical activate retry returns the stored terminal bytes without repe
     expect(replayed).toEqual(first);
     /* And no repeated custody effect. */
     expect(strictRegistration.activateCalls).toBe(custodyCallsAfterFirst);
+    /* Both legs merged: the commit half's wallet keys plus the activation
+       half's receipt and bootstrap. Returning only the commit half would
+       leave the client unable to bring the wallet online. */
+    expect(first.ecdsa.walletKeys.length).toBeGreaterThan(0);
+    expect(first.ecdsa.activation).toBeTruthy();
+    expect(first.ecdsa.bootstrap).toBeTruthy();
+    expect(replayed.ok && replayed.ecdsa.activation).toBeTruthy();
+    expect(replayed.ok && replayed.ecdsa.bootstrap).toBeTruthy();
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
