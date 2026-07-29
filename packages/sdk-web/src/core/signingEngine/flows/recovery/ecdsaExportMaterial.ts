@@ -98,14 +98,6 @@ export type EmailOtpEcdsaExportAuthLane = Extract<
   { curve: 'ecdsa' }
 >;
 
-// The discriminated export operation authority. Mirrors the wire union: a
-// reusable Wallet Session authorizes warm export; an explicit single-operation
-// grant authorizes step-up export. Session and grant identifiers exist only
-// inside this branch.
-export type EcdsaExportOperationAuthorization =
-  | { kind: 'reusable_wallet_session'; walletSessionId: string; grantId?: never }
-  | { kind: 'operation_step_up'; grantId: string; walletSessionId?: never };
-
 export type EmailOtpEcdsaPublicReauthExportAuthority = Extract<
   EcdsaReauthAnchorPublicRestore,
   { source: 'email_otp' }
@@ -114,7 +106,6 @@ export type EmailOtpEcdsaPublicReauthExportAuthority = Extract<
 type FreshEmailOtpEcdsaWalletSessionExportAuthority = {
   kind: 'wallet_session_authorized';
   signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
-  operationAuthorization: EcdsaExportOperationAuthorization;
   publicReauthAuthority?: never;
 };
 
@@ -177,17 +168,6 @@ export function isConcreteEcdsaExportLane(
     Boolean(lane!.authorization) &&
     Boolean(String(lane!.publicFacts.keyHandle || '').trim())
   );
-}
-
-export function ecdsaExportOperationAuthorizationForLane(
-  exportLane: ExactEcdsaExportLane,
-): EcdsaExportOperationAuthorization {
-  return {
-    kind: 'reusable_wallet_session',
-    walletSessionId: String(
-      exportLane.authorization.projection.walletSessionId,
-    ),
-  };
 }
 
 export async function resolveExactSealedEcdsaExportRecordForLane(
@@ -316,7 +296,6 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
       authorization: {
         kind: 'wallet_session_authorized',
         signingSessionAuthority: authority.authority,
-        operationAuthorization: ecdsaExportOperationAuthorizationForLane(exportLane),
       },
     };
   }

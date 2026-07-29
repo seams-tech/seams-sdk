@@ -55,8 +55,6 @@ export type RestorePersistedSessionForSigningResult =
       duplicateRecordSummaries: readonly Record<string, unknown>[];
     };
 
-export type RestorePersistedEcdsaSessionForSigningInput = RestorePersistedSessionForSigningInput;
-
 export type RestorePersistedSessionPurpose = {
   walletId: string;
   authMethod: 'email_otp' | 'passkey';
@@ -66,8 +64,6 @@ export type RestorePersistedSessionPurpose = {
   thresholdSessionId: string;
   reason: 'transaction' | 'export' | 'session_status';
 };
-
-export type RestorePersistedEcdsaSessionPurpose = RestorePersistedSessionPurpose;
 
 export type RestorePersistedSessionWorkItem = {
   record: SealedRecoveryRecord;

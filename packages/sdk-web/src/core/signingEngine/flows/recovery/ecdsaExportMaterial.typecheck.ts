@@ -5,7 +5,6 @@ import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/ro
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 import type {
-  EcdsaExportOperationAuthorization,
   EmailOtpEcdsaPublicReauthExportAuthority,
   ExactEcdsaExportSession,
   FreshEmailOtpEcdsaExportMaterial,
@@ -26,19 +25,6 @@ declare const currentExactExportSession: Extract<
 >;
 declare const obsoleteRecord: unknown;
 
-const reusableSessionAuthorization: EcdsaExportOperationAuthorization = {
-  kind: 'reusable_wallet_session',
-  walletSessionId: 'wallet-session-1',
-};
-
-// @ts-expect-error one export authorization branch cannot carry both identities.
-const mixedAuthorization: EcdsaExportOperationAuthorization = {
-  kind: 'reusable_wallet_session',
-  walletSessionId: 'wallet-session-1',
-  grantId: 'grant-1',
-};
-void mixedAuthorization;
-
 const exportSessionWithThresholdSessionId: ExactEcdsaExportSession = {
   ...currentExactExportSession,
   // @ts-expect-error export sessions carry no threshold-session identity.
@@ -54,7 +40,6 @@ const walletSessionAuthorizedMaterial: FreshEmailOtpEcdsaExportMaterial = {
   authorization: {
     kind: 'wallet_session_authorized',
     signingSessionAuthority,
-    operationAuthorization: reusableSessionAuthorization,
   },
 };
 
@@ -64,7 +49,6 @@ const invalidMixedPublicReauthAuthority: FreshEmailOtpEcdsaExportMaterial = {
   authorization: {
     kind: 'wallet_session_authorized',
     signingSessionAuthority,
-    operationAuthorization: reusableSessionAuthorization,
     publicReauthAuthority,
   },
 };
