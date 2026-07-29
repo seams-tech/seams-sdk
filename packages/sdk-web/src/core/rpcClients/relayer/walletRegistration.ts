@@ -110,6 +110,7 @@ const ROUTE_PAYLOAD_BREAKDOWN_MAX_FIELDS = 64;
 const WALLET_REGISTRATION_SETUP_PATH = '/wallets/register/setup';
 const WALLET_REGISTRATION_RESPOND_PATH = '/wallets/register/respond';
 const WALLET_REGISTRATION_ACTIVATE_PATH = '/wallets/register/activate';
+const WALLET_REGISTRATION_NEAR_PROVISIONING_PATH = '/wallets/register/near-provisioning';
 /** Managed environment id header for Router API `api_credentials` auth. */
 const ROUTER_API_ENVIRONMENT_ID_HEADER = 'X-Seams-Environment-Id';
 const WALLET_REGISTRATION_INTENT_CANCEL_PATH = '/wallets/register/intent/cancel';
@@ -2520,6 +2521,16 @@ export type WalletRegistrationRespondResponseV2 =
       kind: 'near_ed25519_and_evm_family_ecdsa';
       ecdsa: WalletRegistrationRespondEcdsaBundles;
       ed25519: WalletRegistrationRespondEd25519DeferredWork;
+    }
+  | {
+      /* Ed25519-only: no ECDSA leg ran, so there are no proof bundles to
+         verify. The deferred work is still deferred — being the wallet's sole
+         signer is not a reason to block on it. */
+      ok: true;
+      registrationCeremonyId: string;
+      kind: 'near_ed25519';
+      ecdsa?: never;
+      ed25519: WalletRegistrationRespondEd25519DeferredWork;
     };
 
 /**
@@ -2548,22 +2559,38 @@ function parseWalletRegistrationRespondResponseV2(
   /* Discriminate and check shape before parsing any nested payload. A wrong
      plan shape should say so, not surface as a confusing failure from deep
      inside the ECDSA bundle parser. */
+  const kind = response.kind;
   if (
-    response.kind !== 'evm_family_ecdsa' &&
-    response.kind !== 'near_ed25519_and_evm_family_ecdsa'
+    kind !== 'evm_family_ecdsa' &&
+    kind !== 'near_ed25519_and_evm_family_ecdsa' &&
+    kind !== 'near_ed25519'
   ) {
     throw new Error(`${responseName} response kind is invalid`);
   }
-  const mixed = response.kind === 'near_ed25519_and_evm_family_ecdsa';
+  const carriesEcdsa = kind !== 'near_ed25519';
+  const carriesEd25519 = kind !== 'evm_family_ecdsa';
   requireExactResponseKeys(
     response,
-    mixed
-      ? ['ok', 'registrationCeremonyId', 'kind', 'ecdsa', 'ed25519']
-      : ['ok', 'registrationCeremonyId', 'kind', 'ecdsa'],
+    [
+      'ok',
+      'registrationCeremonyId',
+      'kind',
+      ...(carriesEcdsa ? ['ecdsa'] : []),
+      ...(carriesEd25519 ? ['ed25519'] : []),
+    ],
     responseName,
   );
-  if (mixed && response.ed25519 === undefined) {
-    throw new Error(`${responseName} mixed signer plan is missing its ed25519 deferred work`);
+  if (carriesEd25519 && response.ed25519 === undefined) {
+    throw new Error(`${responseName} signer plan is missing its ed25519 deferred work`);
+  }
+  if (!carriesEcdsa) {
+    /* No ECDSA leg ran, so there is nothing to verify in the browser. */
+    return {
+      ok: true,
+      registrationCeremonyId,
+      kind: 'near_ed25519',
+      ed25519: parseWalletRegistrationRespondEd25519DeferredWork(response.ed25519),
+    };
   }
   const ecdsaRecord = requireResponseRecord({
     responseName,
@@ -2574,7 +2601,7 @@ function parseWalletRegistrationRespondResponseV2(
   if (ecdsaRecord.kind !== 'router_ab_ecdsa_registration_forwarded_v1') {
     throw new Error(`${responseName} ecdsa kind is invalid`);
   }
-  const ed25519 = mixed
+  const ed25519 = carriesEd25519
     ? parseWalletRegistrationRespondEd25519DeferredWork(response.ed25519)
     : null;
   const ecdsa: WalletRegistrationRespondEcdsaBundles = {
@@ -2689,13 +2716,30 @@ type ActivateTerminalEcdsaPayload = Extract<
   bootstrap: ThresholdEcdsaDerivationRoleLocalBootstrapValue;
 };
 
-export type WalletRegistrationActivateResponseV2 = Extract<
-  WalletRegistrationFinalizeResponse,
-  { ok: true; kind: 'evm_family_ecdsa' }
+/**
+ * Ed25519-only activate returns a wallet that cannot sign yet: its sole signer
+ * arrives with the deferred Yao computation. `nearProvisioning` is required on
+ * this arm — a pending wallet with no provisioning state would be
+ * indistinguishable from one that never needed NEAR.
+ */
+export type WalletRegistrationActivateEd25519PendingV2 = Omit<
+  Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'near_ed25519' }>,
+  'ed25519' | 'resolvedAccount' | 'accountProvisioning' | 'authorityScope'
 > & {
-  ecdsa: ActivateTerminalEcdsaPayload;
-  nearProvisioning?: { status: 'pending' };
+  nearProvisioning: { status: 'near_pending' };
+  ecdsa?: never;
+  ed25519?: never;
+  resolvedAccount?: never;
+  accountProvisioning?: never;
+  authorityScope?: never;
 };
+
+export type WalletRegistrationActivateResponseV2 =
+  | (Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'evm_family_ecdsa' }> & {
+      ecdsa: ActivateTerminalEcdsaPayload;
+      nearProvisioning?: { status: 'pending' };
+    })
+  | WalletRegistrationActivateEd25519PendingV2;
 
 /**
  * Strict boundary parser for route 3.
@@ -2788,6 +2832,54 @@ export async function activateWalletRegistration(args: {
     ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
   });
   return parseWalletRegistrationActivateResponseV2(response);
+}
+
+/**
+ * Refactor 94C route 4. The deferred NEAR completion, called once the Yao
+ * computation the client started after respond has finished.
+ *
+ * One completion path serves both plans: an Ed25519-only wallet installs its
+ * sole signer here, and a mixed wallet's NEAR arm lands here too. It carries
+ * its own idempotency key because it is a separate effect from activate's —
+ * sharing one would let a retry of this call replay activate's commit.
+ *
+ * A retryable failure leaves the pending wallet intact and the call
+ * repeatable, so the caller reports provisioning state rather than unwinding
+ * a wallet that already exists.
+ */
+export type WalletRegistrationNearProvisioningResponseV2 =
+  | (Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'near_ed25519' }> & {
+      nearProvisioning: { status: 'near_ready' };
+    })
+  | {
+      ok: false;
+      code: string;
+      message: string;
+      nearProvisioning?: { status: 'near_failed_retryable' };
+    };
+
+export async function completeWalletRegistrationNearProvisioning(args: {
+  relayerUrl: string;
+  headers?: Record<string, string>;
+  registrationCeremonyId: string;
+  signedSetup: string;
+  /** Distinct from activate's: a separate effect needs a separate key. */
+  idempotencyKey: string;
+  ed25519: { activationReference: WalletRegistrationEd25519YaoActivationReference };
+  onServerTiming?: (header: string | null) => void;
+}): Promise<WalletRegistrationNearProvisioningResponseV2> {
+  return await postJson<WalletRegistrationNearProvisioningResponseV2>({
+    relayerUrl: args.relayerUrl,
+    path: WALLET_REGISTRATION_NEAR_PROVISIONING_PATH,
+    headers: args.headers,
+    body: {
+      registrationCeremonyId: args.registrationCeremonyId,
+      signedSetup: args.signedSetup,
+      idempotencyKey: args.idempotencyKey,
+      ed25519: args.ed25519,
+    },
+    ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
+  });
 }
 
 type FinalizeWalletRegistrationBaseArgs = {
