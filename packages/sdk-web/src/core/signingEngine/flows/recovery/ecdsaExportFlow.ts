@@ -501,7 +501,6 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
   credential: Awaited<ReturnType<typeof requestThresholdEcdsaExportAuthorization>>['credential'];
 }> {
   requirePasskeyEcdsaExportAuth(args.exportLane);
-  const bootstrap = args.material.bootstrap;
   const requestId = createExportUiRequestId('tecdsa-export');
   const prepared = await prepareExplicitEcdsaExportOperation({
     walletId: args.walletId,
@@ -527,7 +526,7 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
     authMethod: 'passkey',
   });
   const authorization = await issueExplicitEcdsaExportAuthorization({
-    relayerUrl: bootstrap.relayerUrl,
+    relayerUrl: args.material.relayerUrl,
     sessionAuth,
     prepared,
     proof: passkeyExportProof({
@@ -537,7 +536,7 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
     }),
   });
   const exportActivation = buildEcdsaExportActivation({
-    relayerUrl: bootstrap.relayerUrl,
+    relayerUrl: args.material.relayerUrl,
     existingRoleLocalMaterial: args.material.existingRoleLocalMaterial,
     authorization,
   });
