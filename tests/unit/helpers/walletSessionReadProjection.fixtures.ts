@@ -180,6 +180,29 @@ export function unavailableWalletSessionFixture(
   };
 }
 
+/** A reusable Wallet Session whose authority or lifecycle was replaced. The
+ * wallet is still the user's; only this session is stale, so it carries the
+ * identity it had and no budget. */
+export function supersededWalletSessionFixture(
+  input: ReusableWalletSessionFixtureInput & {
+    readonly detectedAtMs?: number;
+  } = {},
+): WalletSession {
+  const appIdentity = resolvedWalletSessionAppIdentityFixture(input);
+  return {
+    appIdentity,
+    reusableWalletSession: {
+      kind: 'superseded',
+      walletId: appIdentity.walletId,
+      walletSessionId: fixtureWalletSessionId(input.walletSessionId),
+      authMethod: input.authMethod ?? 'passkey',
+      detectedAtMs: input.detectedAtMs ?? 1_777_777_777_000,
+    },
+    capabilityProjection: { kind: 'not_requested' },
+    nonceDiagnostics: null,
+  };
+}
+
 export function invalidWalletSessionFixture(
   input: ResolvedWalletSessionAppIdentityFixtureInput = {},
 ): WalletSession {
