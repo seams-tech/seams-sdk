@@ -3127,7 +3127,10 @@ async function setupThreeRouteRegistration(args: {
   return { relayerUrl, setup, registrationWarmup };
 }
 
-async function runThreeRouteRegistrationCeremony(args: {
+/* Exported for tests: the ordering guarantee below (deferred NEAR handed off
+   before activate, never awaited) is the ceremony's contract, and it is only
+   observable by driving the ceremony itself. */
+export async function runThreeRouteRegistrationCeremony(args: {
   context: RegistrationWebContext;
   relayerUrl: string;
   registrationCeremonyId: string;
