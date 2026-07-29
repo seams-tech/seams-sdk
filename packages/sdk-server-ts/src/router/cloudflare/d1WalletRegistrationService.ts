@@ -1261,6 +1261,8 @@ export class CloudflareD1WalletRegistrationService {
   private readonly finalizeSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
   /** The single Gateway operation row for activate-with-finalize (94C). */
   private readonly activateSideEffects: D1WalletRegistrationActivateSideEffectStore;
+  /** Deferred NEAR provisioning's own operation row (94C). */
+  private readonly nearProvisioningSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
   private readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
 
@@ -1275,6 +1277,7 @@ export class CloudflareD1WalletRegistrationService {
     readonly startSideEffects: D1WalletRegistrationStartSideEffectStore;
     readonly finalizeSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
     readonly activateSideEffects: D1WalletRegistrationActivateSideEffectStore;
+    readonly nearProvisioningSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
     readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   }) {
@@ -1288,6 +1291,7 @@ export class CloudflareD1WalletRegistrationService {
     this.startSideEffects = input.startSideEffects;
     this.finalizeSideEffects = input.finalizeSideEffects;
     this.activateSideEffects = input.activateSideEffects;
+    this.nearProvisioningSideEffects = input.nearProvisioningSideEffects;
     this.walletRegistrationCommitStore = input.walletRegistrationCommitStore;
     this.walletAuthMethods = input.walletAuthMethods;
   }
@@ -2687,6 +2691,28 @@ export class CloudflareD1WalletRegistrationService {
   }
 
   /**
+   * The Ed25519 commit core, extracted so deferred provisioning reaches it
+   * without going through the standalone finalize wrapper. The operation row
+   * owns idempotency here, so the commit keeps no replay cache of its own.
+   */
+  private async commitDeferredEd25519Signer(
+    input: WalletRegistrationNearProvisioningInput,
+  ): Promise<WalletRegistrationFinalizeResponse> {
+    const committed = await this.executeWalletRegistrationFinalize(
+      {
+        kind: 'near_ed25519',
+        registrationCeremonyId: input.registrationCeremonyId,
+        idempotencyKey: input.idempotencyKey,
+        ed25519: input.ed25519,
+      } as FinalizeWalletRegistrationInput,
+      { kind: 'operation_row' },
+    );
+    return committed.ok
+      ? committed
+      : throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(committed);
+  }
+
+  /**
    * Deferred NEAR provisioning. Verifies the signed setup, then reuses the
    * existing deferred Ed25519 commit — the same path lazy-Yao 4+5 built — so
    * signer installation and the implicit-account projection keep one
@@ -2706,12 +2732,64 @@ export class CloudflareD1WalletRegistrationService {
       if (!verified.ok) {
         return { ok: false, code: verified.code, message: verified.message };
       }
-      const committed = await this.finalizeWalletRegistration({
-        kind: 'near_ed25519',
-        registrationCeremonyId: input.registrationCeremonyId,
-        idempotencyKey: input.idempotencyKey,
-        ed25519: input.ed25519,
-      } as FinalizeWalletRegistrationInput);
+      /* Its own operation row. This is a separate effect from activate with
+         its own idempotency key, so it claims, records uncertainty, and
+         replays through one record of its own rather than borrowing the
+         legacy finalize journal and replay cache. */
+      const requestFingerprint = base64UrlEncode(
+        await sha256BytesUtf8(
+          alphabetizeStringify({
+            version: 'wallet_registration_near_provisioning_digest_v1',
+            registrationCeremonyId: input.registrationCeremonyId,
+            setupDigestB64u: verified.claims.setupDigestB64u,
+            idempotencyKey: input.idempotencyKey,
+            ed25519: input.ed25519,
+          }),
+        ),
+      );
+      const run = await runRouterAbEd25519YaoRegistrationSideEffectV1(
+        this.nearProvisioningSideEffects,
+        {
+          kind: 'prepared_resumable',
+          operation: 'near_provisioning',
+          key: `near-provisioning:${input.registrationCeremonyId}:${input.idempotencyKey}`,
+          requestFingerprint,
+          resumeAfterMs: D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS,
+          nowMs: Date.now,
+          prepare: async () =>
+            ({ kind: 'd1_wallet_registration_finalize_prepared_v1' }) as const,
+          derivePreparedArtifactFingerprint: async (prepared) =>
+            base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared))),
+          execute: this.commitDeferredEd25519Signer.bind(this, input),
+        },
+      );
+      switch (run.kind) {
+        case 'executed':
+        case 'exact_replay':
+          break;
+        case 'request_conflict':
+          return {
+            ok: false,
+            code: 'idempotency_conflict',
+            message: 'NEAR provisioning idempotency key was reused for a different request',
+          };
+        case 'in_progress':
+          return {
+            ok: false,
+            code: 'conflict',
+            message: 'NEAR provisioning is already in progress; retry later',
+          };
+        case 'uncertain':
+          return {
+            ok: false,
+            code: 'internal',
+            message: run.message || 'Failed to reconcile NEAR provisioning',
+            nearProvisioning: { status: 'near_failed_retryable' },
+          };
+        default:
+          return { ok: false, code: 'internal', message: 'unsupported provisioning outcome' };
+      }
+      const committed = run.value;
       if (!committed.ok) {
         return {
           ok: false,
