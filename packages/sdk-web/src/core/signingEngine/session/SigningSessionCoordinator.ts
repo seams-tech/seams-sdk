@@ -659,13 +659,20 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       input.readiness.status === 'ready' &&
       (walletBudgetStatus?.status === 'budget_unknown' ||
         walletBudgetStatus?.status === 'unavailable');
+    const passkeyEd25519PreflightUnavailable =
+      input.lane.curve === 'ed25519' &&
+      signingLaneAuthMethod(input.lane.auth) === 'passkey' &&
+      input.readiness.status === 'ready' &&
+      (walletBudgetStatus?.status === 'budget_unknown' ||
+        walletBudgetStatus?.status === 'unavailable');
     // Email OTP can mint a fresh Ed25519 session at step-up. Treat an
     // unreadable preflight as reauthable so server-side authorize remains
     // the budget enforcement point instead of failing before the prompt.
-    // ECDSA keeps record-backed warm readiness here; later admission and
-    // reservation remain the budget enforcement points.
+    // Record-backed passkey and ECDSA sessions keep their signed local
+    // readiness here. Router admission and reservation remain the
+    // authoritative budget enforcement points.
     let budgetStatusForPlanning = walletBudgetStatus;
-    if (ecdsaStepUpPreflightUnavailable) {
+    if (ecdsaStepUpPreflightUnavailable || passkeyEd25519PreflightUnavailable) {
       budgetStatusForPlanning = null;
     } else if (emailOtpEd25519PreflightUnavailable && walletBudgetStatus) {
       budgetStatusForPlanning = {
@@ -686,6 +693,16 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     }
     if (ecdsaStepUpPreflightUnavailable && walletBudgetStatus) {
       console.debug('[SigningSessionCoordinator][ecdsa] budget preflight deferred', {
+        signingGrantId,
+        thresholdSessionId: input.lane.thresholdSessionId,
+        budgetStatus: walletBudgetStatus.status,
+        readiness: input.readiness.status,
+        remainingUses: input.remainingUses,
+        usesNeeded: input.usesNeeded,
+      });
+    }
+    if (passkeyEd25519PreflightUnavailable && walletBudgetStatus) {
+      console.debug('[SigningSessionCoordinator][passkey-ed25519] budget preflight deferred', {
         signingGrantId,
         thresholdSessionId: input.lane.thresholdSessionId,
         budgetStatus: walletBudgetStatus.status,
