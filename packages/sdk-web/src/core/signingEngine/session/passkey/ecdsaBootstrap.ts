@@ -1,5 +1,4 @@
 import type {
-  EmailOtpEcdsaExportWorkerIssuedSessionHandle,
   EmailOtpWorkerIssuedSessionHandle,
 } from '@/core/platform';
 import type { RouterAbNormalSigningConfig } from '@/core/types/seams';
@@ -10,13 +9,12 @@ import type {
   ThresholdWarmSessionMaterialPort,
 } from '../../threshold/crypto/webauthn';
 import {
-  activateEmailOtpExplicitExportBootstrapSession,
   activateEcdsaSession,
   activateExplicitKeyExportEcdsaSession,
-  type ActivateEmailOtpExplicitExportBootstrapSessionRequest,
   type ActivateExplicitKeyExportEcdsaSessionRequest,
   type ActivateEcdsaSessionAuth,
   type ActivateEcdsaSessionRequest,
+  type EcdsaExplicitExportOperationAuthorization,
   type ThresholdEcdsaExplicitKeyExportActivationResult,
   type ThresholdEcdsaSessionBootstrapResult,
 } from '../../threshold/ecdsa/activation';
@@ -181,14 +179,16 @@ type PasskeyFreshEcdsaBootstrapExactRequest =
       routeAuth?: never;
     } & PasskeyPromptBootstrapAuth);
 
-export type PasskeyEcdsaExportBootstrapRequest = Omit<
-  PasskeyFreshEcdsaBootstrapExactRequestBase,
-  'kind'
-> &
-  PasskeyWebAuthnPrfBootstrapAuth & {
+type EcdsaExplicitExportBootstrapRequestBase = {
+  readonly relayerUrl?: string;
+  readonly existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
+  readonly authorization: EcdsaExplicitExportOperationAuthorization;
+};
+
+export type PasskeyEcdsaExportBootstrapRequest =
+  EcdsaExplicitExportBootstrapRequestBase & {
     kind: 'passkey_ecdsa_export_bootstrap';
     purpose: 'explicit_key_export';
-    routeAuth: PasskeyFreshBootstrapRouteAuth;
   };
 
 export type PasskeyFreshEcdsaBootstrapRequest = PasskeyFreshEcdsaBootstrapExactRequest;
@@ -233,21 +233,14 @@ export type EmailOtpEcdsaBootstrapRequest = EmailOtpEcdsaBootstrapRequestBase &
 
 export type EmailOtpEcdsaExactBootstrapRequest = EmailOtpEcdsaBootstrapRequest;
 
-export type EmailOtpEcdsaExplicitExportBootstrapRequest = Omit<
-  EmailOtpEcdsaBootstrapRequestBase,
-  'emailOtpWorkerSessionHandle'
-> & {
+export type EmailOtpEcdsaExplicitExportBootstrapRequest =
+  EcdsaExplicitExportBootstrapRequestBase & {
+  kind: 'email_otp_ecdsa_export_bootstrap';
   purpose: 'explicit_key_export';
-  emailOtpWorkerSessionHandle: EmailOtpEcdsaExportWorkerIssuedSessionHandle;
-  routeAuth?: AppOrWalletSessionAuth;
-  sessionActivation?: never;
 };
 
-export type EmailOtpEcdsaExplicitExportBootstrapResult = {
-  kind: 'email_otp_explicit_export_bootstrap_result';
-  purpose: 'explicit_key_export';
-  bootstrap: ThresholdEcdsaSessionBootstrapResult;
-};
+export type EmailOtpEcdsaExplicitExportBootstrapResult =
+  ThresholdEcdsaExplicitKeyExportActivationResult;
 
 export type EcdsaBootstrapRequest =
   | ReuseWarmEcdsaBootstrapRequest
@@ -545,43 +538,22 @@ function toActivateExplicitKeyExportEcdsaSessionRequest(
   relayerUrl: string,
 ): ActivateExplicitKeyExportEcdsaSessionRequest {
   return {
-    kind: 'session_bootstrap',
     purpose: 'explicit_key_export',
     relayerUrl,
-    keyHandle: toEvmFamilyEcdsaKeyHandle(request.keyHandle),
-    key: request.key,
-    lanePolicy: request.lanePolicy,
-    publicCapability: request.publicCapability,
     existingRoleLocalMaterial: request.existingRoleLocalMaterial,
-    requestId: request.requestId,
-    authKind: 'passkey_webauthn_prf_b64u',
-    webauthnAuthentication: request.webauthnAuthentication,
-    passkeyPrfFirstB64u: request.passkeyPrfFirstB64u,
-    ...(request.routeAuth ? { walletSessionRouteAuth: request.routeAuth } : {}),
-    runtimeScopeBootstrap: request.runtimeScopeBootstrap,
+    authorization: request.authorization,
   };
 }
 
 function toActivateEmailOtpExplicitExportBootstrapSessionRequest(
   request: EmailOtpEcdsaExplicitExportBootstrapRequest,
   relayerUrl: string,
-): ActivateEmailOtpExplicitExportBootstrapSessionRequest {
+): ActivateExplicitKeyExportEcdsaSessionRequest {
   return {
-    kind: 'session_bootstrap',
-    purpose: 'transaction_signing',
+    purpose: 'explicit_key_export',
     relayerUrl,
-    keyHandle: toEvmFamilyEcdsaKeyHandle(request.keyHandle),
-    key: request.key,
-    lanePolicy: request.lanePolicy,
-    publicCapability: request.publicCapability,
     existingRoleLocalMaterial: request.existingRoleLocalMaterial,
-    authKind: 'email_otp',
-    emailOtpWorkerSessionHandle: request.emailOtpWorkerSessionHandle,
-    ...(request.requestId ? { requestId: request.requestId } : {}),
-    walletSessionRouteAuth: request.routeAuth,
-    ...(request.runtimeScopeBootstrap
-      ? { runtimeScopeBootstrap: request.runtimeScopeBootstrap }
-      : {}),
+    authorization: request.authorization,
   };
 }
 
@@ -725,50 +697,21 @@ export async function bootstrapEcdsaSessionValue(
 }
 
 export async function bootstrapExplicitKeyExportEcdsaSessionValue(
-  deps: WalletSessionActivationDeps,
+  deps: Pick<WalletSessionActivationDeps, 'defaultRelayerUrl'>,
   request: PasskeyEcdsaExportBootstrapRequest,
 ): Promise<ThresholdEcdsaExplicitKeyExportActivationResult> {
   const relayerUrl = resolveRelayerUrl(request.relayerUrl, deps.defaultRelayerUrl);
-  const activation = await activateExplicitKeyExportEcdsaSession(
-    {
-      credentialStore: deps.credentialStore,
-      touchIdPrompt: deps.touchIdPrompt,
-      workerCtx: deps.getSignerWorkerContext(),
-      routerAbNormalSigning: deps.routerAbNormalSigning,
-      getOrCreateActiveThresholdEcdsaSessionId: deps.getOrCreateActiveThresholdEcdsaSessionId,
-    },
+  return await activateExplicitKeyExportEcdsaSession(
     toActivateExplicitKeyExportEcdsaSessionRequest(request, relayerUrl),
   );
-  return activation;
 }
 
 export async function bootstrapEmailOtpExplicitExportEcdsaSessionValue(
-  deps: WalletSessionActivationDeps,
+  deps: Pick<WalletSessionActivationDeps, 'defaultRelayerUrl'>,
   request: EmailOtpEcdsaExplicitExportBootstrapRequest,
 ): Promise<EmailOtpEcdsaExplicitExportBootstrapResult> {
-  const walletId = toWalletId(ecdsaBootstrapWalletId(request));
-  const chainTarget = ecdsaBootstrapChainTarget(request);
   const relayerUrl = resolveRelayerUrl(request.relayerUrl, deps.defaultRelayerUrl);
-  const activation = await activateEmailOtpExplicitExportBootstrapSession(
-    {
-      credentialStore: deps.credentialStore,
-      touchIdPrompt: deps.touchIdPrompt,
-      workerCtx: deps.getSignerWorkerContext(),
-      routerAbNormalSigning: deps.routerAbNormalSigning,
-      getOrCreateActiveThresholdEcdsaSessionId: deps.getOrCreateActiveThresholdEcdsaSessionId,
-    },
+  return await activateExplicitKeyExportEcdsaSession(
     toActivateEmailOtpExplicitExportBootstrapSessionRequest(request, relayerUrl),
   );
-  const thresholdEcdsaKeyRef = requireCanonicalThresholdEcdsaKeyRefIdentity(
-    activation.thresholdEcdsaKeyRef,
-  );
-  return {
-    kind: 'email_otp_explicit_export_bootstrap_result',
-    purpose: 'explicit_key_export',
-    bootstrap: {
-      thresholdEcdsaKeyRef,
-      keygen: activation.keygen,
-      session: activation.session,
-    },
-  };
 }

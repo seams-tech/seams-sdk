@@ -6,7 +6,6 @@ import {
   type EcdsaRoleLocalPublicFacts,
 } from '@/core/platform';
 import type {
-  EmailOtpEcdsaExportWorkerIssuedSessionHandle,
   EmailOtpWorkerIssuedSessionHandle,
 } from '@/core/platform';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
@@ -72,12 +71,18 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RootShareEpoch } from '@shared/utils/domainIds';
 import type {
+  CapabilityGrantId,
   MpcWalletSigningQuotaId,
   SeamsSessionId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import { parseCapabilityGrantId } from '@shared/authorization/capabilityKinds';
+import {
+  requireAppSessionJwt,
+  type AppSessionJwtAuth,
+  type CookieSessionAuth,
+} from '@shared/utils/sessionTokens';
 import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecdsaRoleLocalMaterialResolver';
-import type { ExistingEcdsaRoleLocalActivation } from './postRegistrationSessionActivation';
 
 export type ThresholdEcdsaEvmChainTarget = EvmEip155ChainTarget;
 export type ThresholdEcdsaTempoChainTarget = TempoChainTarget;
@@ -130,33 +135,25 @@ export type ThresholdEcdsaSessionBootstrapResult = {
 
 export type ThresholdEcdsaSessionActivationResult = ThresholdEcdsaSessionBootstrapResult;
 
+export type EcdsaExplicitExportSessionAuth = AppSessionJwtAuth | CookieSessionAuth;
+
+export type EcdsaExplicitExportOperationAuthorization = {
+  readonly kind: 'operation_step_up';
+  readonly grantId: CapabilityGrantId;
+  readonly sessionAuth: EcdsaExplicitExportSessionAuth;
+  readonly expiresAtMs: number;
+  readonly quotaUse: 'none';
+};
+
 export type ThresholdEcdsaExplicitKeyExportActivationResult = {
   kind: 'explicit_key_export_ecdsa_activation_result';
   purpose: 'explicit_key_export';
   material: {
-    walletId: WalletId;
-    evmFamilySigningKeySlotId: string;
-    chainTarget: ThresholdEcdsaChainTarget;
-    relayerUrl: string;
-    keyHandle: EvmFamilyEcdsaKeyHandle;
-    ecdsaThresholdKeyId: string;
-    relayerKeyId: string;
-    clientVerifyingShareB64u: string;
-    participantIds: readonly number[];
-    thresholdEcdsaPublicKeyB64u: string;
-    ethereumAddress: string;
-    relayerVerifyingShareB64u: string;
-    thresholdSessionId: string;
-    signingGrantId: string;
-    expiresAtMs: number;
-    remainingUses: number;
-    walletSessionJwt: string;
-    roleLocalMaterial: ExistingEcdsaRoleLocalActivation['roleLocalMaterial'];
-    roleLocalMaterialRef: ExistingEcdsaRoleLocalActivation['roleLocalMaterialRef'];
-    publicFacts: EcdsaRoleLocalPublicFacts;
+    readonly kind: 'auth_neutral_ecdsa_export_material_v1';
+    readonly relayerUrl: string;
+    readonly persistedMaterial: PersistedEcdsaRoleLocalMaterial;
   };
-  passkeyPrfFirstB64u: string;
-  passkeyCredentialIdB64u: string;
+  authorization: EcdsaExplicitExportOperationAuthorization;
 };
 
 export type ActivateEcdsaSessionDeps = {
@@ -386,25 +383,18 @@ type ActivateEcdsaExistingSessionRequest = ActivateEcdsaExistingSessionRequestBa
       }
   );
 
-export type ActivateEmailOtpExplicitExportBootstrapSessionRequest =
-  ActivateEcdsaExistingSessionRequestBase &
-    Omit<ActivateEcdsaEmailOtpAuth, 'emailOtpWorkerSessionHandle'> & {
-      purpose: 'transaction_signing';
-      emailOtpWorkerSessionHandle: EmailOtpEcdsaExportWorkerIssuedSessionHandle;
-    };
-
-export type ActivateExplicitKeyExportEcdsaSessionRequest = ActivateEcdsaExistingSessionRequestBase &
-  ActivateEcdsaPasskeyWebAuthnPrfB64uAuth & {
-    purpose: 'explicit_key_export';
-  };
+export type ActivateExplicitKeyExportEcdsaSessionRequest = {
+  readonly purpose: 'explicit_key_export';
+  readonly relayerUrl: string;
+  readonly existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
+  readonly authorization: EcdsaExplicitExportOperationAuthorization;
+};
 
 export type ActivateEcdsaSessionRequest =
   | ActivateEcdsaRegistrationRequest
   | ActivateEcdsaExistingSessionRequest;
 
-type ActivateEcdsaSessionByPurposeRequest =
-  | ActivateEcdsaSessionRequest
-  | ActivateExplicitKeyExportEcdsaSessionRequest;
+type ActivateEcdsaSessionByPurposeRequest = ActivateEcdsaSessionRequest;
 
 function requireStrictEcdsaRouteAuth(
   auth: ThresholdEcdsaDerivationRouteAuth | undefined,
@@ -614,9 +604,7 @@ function bootstrapSecretSourceArgsForActivation(
 async function activateEcdsaSessionByPurpose(
   deps: ActivateEcdsaSessionDeps,
   args: ActivateEcdsaSessionByPurposeRequest,
-): Promise<
-  ThresholdEcdsaSessionActivationResult | ThresholdEcdsaExplicitKeyExportActivationResult
-> {
+): Promise<ThresholdEcdsaSessionActivationResult> {
   const exactActivation = args.kind === 'session_bootstrap';
   const walletId = toWalletId(exactActivation ? String(args.key.walletId) : args.walletId);
   const chainTarget = exactActivation ? args.lanePolicy.chainTarget : args.chainTarget;
@@ -852,39 +840,6 @@ async function activateEcdsaSessionByPurpose(
   if (!roleLocalPublicFacts) {
     throw new Error('threshold-ecdsa bootstrap returned empty role-local public facts');
   }
-  if (args.purpose === 'explicit_key_export') {
-    if (bootstrap.secretSourceKind !== 'passkey') {
-      throw new Error('Explicit ECDSA key export activation requires passkey material');
-    }
-    return {
-      kind: 'explicit_key_export_ecdsa_activation_result',
-      purpose: 'explicit_key_export',
-      material: {
-        walletId,
-        evmFamilySigningKeySlotId: String(bootstrap.evmFamilySigningKeySlotId || '').trim(),
-        chainTarget,
-        relayerUrl: args.relayerUrl,
-        keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
-        ecdsaThresholdKeyId,
-        relayerKeyId,
-        clientVerifyingShareB64u,
-        participantIds,
-        thresholdEcdsaPublicKeyB64u: String(bootstrap.thresholdEcdsaPublicKeyB64u || '').trim(),
-        ethereumAddress: thresholdOwnerAddress,
-        relayerVerifyingShareB64u: String(bootstrap.relayerVerifyingShareB64u || '').trim(),
-        thresholdSessionId: sessionId,
-        signingGrantId,
-        expiresAtMs,
-        remainingUses,
-        walletSessionJwt,
-        roleLocalMaterial: bootstrap.roleLocalActivation.roleLocalMaterial,
-        roleLocalMaterialRef: bootstrap.roleLocalActivation.roleLocalMaterialRef,
-        publicFacts: roleLocalPublicFacts,
-      },
-      passkeyPrfFirstB64u: bootstrap.passkeyPrfFirstB64u,
-      passkeyCredentialIdB64u: bootstrap.passkeyCredentialIdB64u,
-    };
-  }
   const routerAbEcdsaDerivationNormalSigning = bootstrap.routerAbEcdsaDerivationNormalSigning;
   const roleLocalMaterialHandle = bootstrap.roleLocalActivation.roleLocalMaterial;
   const roleLocalAuthMethod = roleLocalAuthMethodForActivation({
@@ -979,27 +934,56 @@ export async function activateEcdsaSession(
   deps: ActivateEcdsaSessionDeps,
   args: ActivateEcdsaSessionRequest,
 ): Promise<ThresholdEcdsaSessionActivationResult> {
-  const result = await activateEcdsaSessionByPurpose(deps, args);
-  if ('purpose' in result) {
-    throw new Error('Transaction ECDSA activation returned explicit export material');
-  }
-  return result;
+  return await activateEcdsaSessionByPurpose(deps, args);
 }
 
-export async function activateEmailOtpExplicitExportBootstrapSession(
-  deps: ActivateEcdsaSessionDeps,
-  args: ActivateEmailOtpExplicitExportBootstrapSessionRequest,
-): Promise<ThresholdEcdsaSessionActivationResult> {
-  return await activateEcdsaSession(deps, args);
+function normalizeEcdsaExplicitExportAuthorization(
+  authorization: EcdsaExplicitExportOperationAuthorization,
+): EcdsaExplicitExportOperationAuthorization {
+  const grantId = parseCapabilityGrantId(authorization.grantId);
+  if (!grantId.ok) throw new Error(grantId.error.message);
+  const expiresAtMs = Math.floor(Number(authorization.expiresAtMs));
+  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
+    throw new Error('ECDSA explicit export operation grant expiry is invalid');
+  }
+  switch (authorization.sessionAuth.kind) {
+    case 'app_session':
+      return {
+        kind: 'operation_step_up',
+        grantId: grantId.value,
+        sessionAuth: {
+          kind: 'app_session',
+          jwt: requireAppSessionJwt(authorization.sessionAuth.jwt),
+        },
+        expiresAtMs,
+        quotaUse: 'none',
+      };
+    case 'cookie':
+      return {
+        kind: 'operation_step_up',
+        grantId: grantId.value,
+        sessionAuth: { kind: 'cookie' },
+        expiresAtMs,
+        quotaUse: 'none',
+      };
+  }
 }
 
 export async function activateExplicitKeyExportEcdsaSession(
-  deps: ActivateEcdsaSessionDeps,
   args: ActivateExplicitKeyExportEcdsaSessionRequest,
 ): Promise<ThresholdEcdsaExplicitKeyExportActivationResult> {
-  const result = await activateEcdsaSessionByPurpose(deps, args);
-  if (!('purpose' in result)) {
-    throw new Error('Explicit ECDSA key export activation returned transaction material');
+  const relayerUrl = String(args.relayerUrl || '').trim();
+  if (!relayerUrl) {
+    throw new Error('ECDSA explicit export relayer URL is required');
   }
-  return result;
+  return {
+    kind: 'explicit_key_export_ecdsa_activation_result',
+    purpose: 'explicit_key_export',
+    material: {
+      kind: 'auth_neutral_ecdsa_export_material_v1',
+      relayerUrl,
+      persistedMaterial: args.existingRoleLocalMaterial,
+    },
+    authorization: normalizeEcdsaExplicitExportAuthorization(args.authorization),
+  };
 }
