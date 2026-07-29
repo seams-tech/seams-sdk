@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  exportEd25519YaoKeyWithFreshEmailOtp,
+  exportEd25519YaoKeyWithFreshAuthorization,
   type Ed25519YaoExportFlowDeps,
 } from '@/core/signingEngine/flows/recovery/ed25519YaoExportFlow';
 import { exactEd25519SigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
@@ -197,7 +197,7 @@ class EmailOtpEd25519ExportRefreshHarness {
 
 test('page-refresh Email OTP Ed25519 export resolves durable context without passkey recovery', async () => {
   const harness = new EmailOtpEd25519ExportRefreshHarness();
-  const result = await exportEd25519YaoKeyWithFreshEmailOtp(harness.deps(), {
+  const result = await exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
     laneIdentity: buildLaneIdentity(),
