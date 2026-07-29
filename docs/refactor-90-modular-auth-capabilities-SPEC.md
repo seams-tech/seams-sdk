@@ -172,14 +172,33 @@ implementing commit SHA as the evidence.
   by exact owner and reject stale generations/fences.
 - [ ] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
   applicable quota once; existing claims consume neither again.
-- [ ] `R90-INV-010` — authority/lifecycle replacement returns `superseded` and
+- [x] `R90-INV-010` — authority/lifecycle replacement returns `superseded` and
   every SDK/UI adapter discards and re-resolves the stale lane.
+  (Typed `superseded` with three supersession kinds through the material plan;
+  early replacement race at the browser capability resolver throws the typed
+  error; `signEvmFamily` performs one bounded re-resolution from auth planning,
+  runtime creation, and the executor ladder. Public
+  `ReusableWalletSessionState` gained the `superseded` arm and
+  `lifecycle_mismatch` was deleted; the `satisfies never` sweep forced every
+  adapter — direct SDK, iframe boundary, React login refresh, iframe
+  lifecycle, demo lock — to keep the wallet unlocked and re-resolve. Covered by
+  `ecdsaMaterialSupersession` and `walletSessionSuperseded` unit suites.
+  Commits 53632c8c6, 4c418cde7, dc1fda487.)
 - [ ] `R90-INV-011` — Near post-commit verification creates no durable readback
   stage.
-- [ ] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
+- [x] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
   and export use an exact material-activation reference independently from the
   discriminated reusable-session or operation-step-up authority; step-up
   carries no `WalletSessionId`.
+  (Hydration, the signing queue, step-up freshness, and operation-step-up
+  preparation are all keyed by the exact `MpcMaterialActivationRef`;
+  `HydratedEcdsaSignerMaterial` is auth-neutral by type; the step-up grant wire
+  is `{kind: 'operation_step_up', grant_id}` with exact-field parsing, so a
+  `WalletSessionId` cannot ride along; persistence, expiry, warm-capability,
+  seal, and export consumers receive authorization only through their explicit
+  operation carrier. Covered by the canonical operating-path, challenge-binding,
+  and auth-neutral prepared-signing suites. Commits 847ded366, 96612453b,
+  dc1fda487.)
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.
