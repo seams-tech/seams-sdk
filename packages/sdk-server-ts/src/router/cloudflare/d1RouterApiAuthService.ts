@@ -644,6 +644,57 @@ function parseWalletRegistrationActivateSideEffectRecord(
   };
 }
 
+/**
+ * Deferred NEAR provisioning's own operation row. Same record shape as the
+ * finalize journal it replaces for this route, tagged with its own operation
+ * so a provisioning row can never be read as an activate or finalize row.
+ */
+function parseWalletRegistrationNearProvisioningSideEffectRecord(
+  raw: unknown,
+): D1WalletRegistrationFinalizeSideEffectRecord | null {
+  if (
+    !isRecordValue(raw) ||
+    raw.operation !== 'near_provisioning' ||
+    !isNonNegativeSafeInteger(raw.claimedAtMs)
+  ) {
+    return null;
+  }
+  const requestFingerprint = parseSideEffectFingerprint(raw.requestFingerprint);
+  const preparedArtifactFingerprint = parseSideEffectFingerprint(raw.preparedArtifactFingerprint);
+  const prepared = parseWalletRegistrationFinalizePrepared(raw.prepared);
+  if (requestFingerprint === null || preparedArtifactFingerprint === null || prepared === null) {
+    return null;
+  }
+  if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
+    return {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: 'near_provisioning',
+      requestFingerprint,
+      preparedArtifactFingerprint,
+      claimedAtMs: raw.claimedAtMs,
+      prepared,
+    };
+  }
+  if (
+    raw.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v1' ||
+    !isNonNegativeSafeInteger(raw.completedAtMs)
+  ) {
+    return null;
+  }
+  const response = parseD1WalletRegistrationFinalizeTerminalResponse(raw.response);
+  if (!response) return null;
+  return {
+    kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+    operation: 'near_provisioning',
+    requestFingerprint,
+    preparedArtifactFingerprint,
+    claimedAtMs: raw.claimedAtMs,
+    completedAtMs: raw.completedAtMs,
+    prepared,
+    response,
+  };
+}
+
 function parsePreparedSponsoredNearAccountCreation(
   value: unknown,
 ): PreparedSponsoredNearAccountCreationV1 | null {
@@ -803,6 +854,23 @@ function walletRegistrationActivateSideEffectStore(
     keyPrefix: 'wallet-registration-activate:',
     encode: (value) => value as unknown as CloudflareVersionedJsonObject,
     parse: parseWalletRegistrationActivateSideEffectRecord,
+  });
+}
+
+function walletRegistrationNearProvisioningSideEffectStore(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): D1WalletRegistrationFinalizeSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationFinalizeSideEffectRecord>({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+    keyPrefix: 'wallet-registration-near-provisioning:',
+    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    parse: parseWalletRegistrationNearProvisioningSideEffectRecord,
   });
 }
 
@@ -1101,6 +1169,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     startSideEffects: walletRegistrationStartSideEffectStore(options),
     finalizeSideEffects: walletRegistrationFinalizeSideEffectStore(options),
     activateSideEffects: walletRegistrationActivateSideEffectStore(options),
+    nearProvisioningSideEffects: walletRegistrationNearProvisioningSideEffectStore(options),
     walletRegistrationCommitStore,
     walletAuthMethods,
   });
