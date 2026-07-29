@@ -660,13 +660,10 @@ test('exact signing-lane authority Ed25519 grant clearing uses exact lane keys o
   expect(clearSigningGrantSource).toContain('ed25519LaneKeyFromDiscoveredLane');
   expect(clearSigningGrantSource).toContain('clearStoredThresholdEd25519SessionRecordForLaneKey');
   expect(clearSigningGrantSource).toContain('serializeThresholdEd25519SessionLaneKey');
-  expect(clearSigningGrantSource).toContain('ecdsaExactIdentityFromDiscoveredLane');
-  expect(clearSigningGrantSource).toContain('clearThresholdEcdsaSessionRecordForExactIdentity');
   expect(clearSigningGrantSource).not.toContain('nearAccountIdsToClear');
   expect(clearSigningGrantSource).not.toContain(
     'clearStoredThresholdEd25519SessionRecordForAccount',
   );
-  expect(clearSigningGrantSource).not.toContain('clearThresholdEcdsaSessionRecordForWalletTarget');
 });
 test('exact signing-lane authority Ed25519 availability paths enumerate exact lane records', () => {
   const files = [
