@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { proxyNormalSigningRequestToMpcRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/routes/normalSigningRouterProxy';
+import { handleSigningBudgetStatus } from '../../packages/sdk-server-ts/src/router/cloudflare/routes/sessions';
+import type { CloudflareRouterApiContext } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 
 test('normal-signing proxy preserves authorization and source-binding headers', async () => {
   let forwarded: Request | null = null;
@@ -60,5 +62,49 @@ test('normal-signing proxy fails closed when MPC Router transport is absent', as
   await expect(response.json()).resolves.toMatchObject({
     ok: false,
     code: 'not_configured',
+  });
+});
+
+test('wallet-budget status is read from Router private D1 without Gateway session storage', async () => {
+  let forwarded: Request | null = null;
+  const request = new Request('https://gateway.example/router-ab/wallet-budget/status', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer wallet-session-jwt',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ signingGrantId: 'grant-1', thresholdSessionId: 'session-1' }),
+  });
+  const response = await handleSigningBudgetStatus({
+    method: 'POST',
+    pathname: '/router-ab/wallet-budget/status',
+    request,
+    opts: {
+      routerAbNormalSigningRouterProxy: {
+        async fetch(input) {
+          forwarded = input;
+          return Response.json({
+            ok: true,
+            signingGrantId: 'grant-1',
+            thresholdSessionId: 'session-1',
+            status: 'active',
+            remainingUses: 3,
+          });
+        },
+      },
+    },
+  } as CloudflareRouterApiContext);
+
+  expect(response).not.toBeNull();
+  if (!response || !forwarded) throw new Error('expected Router budget-status response');
+  expect(forwarded.headers.get('authorization')).toBe('Bearer wallet-session-jwt');
+  await expect(forwarded.json()).resolves.toEqual({
+    signingGrantId: 'grant-1',
+    thresholdSessionId: 'session-1',
+  });
+  await expect(response.json()).resolves.toMatchObject({
+    ok: true,
+    status: 'active',
+    remainingUses: 3,
   });
 });
