@@ -176,7 +176,6 @@ import {
   generateThresholdSessionId,
   generateSigningGrantId,
   normalizeThresholdRuntimePolicyScope,
-  parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
