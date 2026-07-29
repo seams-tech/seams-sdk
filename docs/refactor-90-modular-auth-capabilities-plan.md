@@ -271,6 +271,8 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
 - [x] Delete JWT-payload inference from normal signing and worker orchestration;
       retain token decoding only in boundary parsers.
 - [ ] Delete remaining optional-ID inference from core transitions.
+- [x] Require persisted-session discovery to name one exact auth method; delete
+      the omitted-method branch that silently searched Passkey and Email OTP.
 - [x] Add boundary and lifecycle tests for missing, mixed, stale, and exact
       subjects.
 
@@ -345,6 +347,9 @@ removes.
       activation/durable bindings, persistence keys, and sealing AAD.
 - [ ] Delete `evmFamilySigningKeySlotId` from remaining runtime paths or prove
       it is a provisioning-only identifier outside material selection.
+- [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
+      equality, and sealed projections to required branded `EcdsaKeyHandle`;
+      reject old slot-bearing persisted records at the parser boundary.
 - [x] Verify Tempo, EVM, and export consumers use the same durable material
       reference.
 - [x] Reject cross-chain mismatch before worker open or material use.
@@ -397,6 +402,9 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 - [x] Make disabled capability requests fail early with a typed result.
 - [x] Keep protocol, auth method, capability, and lifecycle as separate unions.
 - [ ] Remove duplicate aliases and direct string comparisons from generic code.
+- [x] Delete the restore-purpose, bootstrap-request, ECDSA transport-auth, and
+      ready-session-policy aliases after their consumers adopt the canonical
+      types directly.
 - [x] Add type fixtures for invalid capability/auth/protocol combinations.
 
 ### Ports and host-independent assembly
@@ -689,6 +697,9 @@ the replacement and legacy MPC paths must not ship together.
       direct Gateway role calls, and Gateway-owned SigningWorker delivery.
 - [ ] Remove obsolete route handlers, service locators, and direct host-role
       access with their last caller.
+- [x] Delete the obsolete standalone Email OTP ECDSA enrollment SDK/iframe
+      route and its JWT-derived runtime-policy scope; canonical `registerWallet`
+      remains the sole registration owner.
 
 ### Same-change deletion
 
@@ -711,6 +722,8 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete `active_state_session_id` from production types and wire shapes.
 - [ ] Delete remaining generic wire session aliases and
       authorization/material-scope aliases owned by this cutover.
+- [x] Delete the unread duplicate ECDSA export operation-authorization carrier;
+      explicit export authorization remains the operation's sole authority.
 - [x] Delete legacy recovery microstates and compensation branches.
 - [ ] Delete duplicate signing-lane selectors, auth-method fallbacks, direct
       protocol dispatch, and superseded export coordinators.
@@ -812,6 +825,8 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
       moves.
 - [ ] Delete obsolete loading heuristics, fallback lane selection, and
       pre-cutover fixtures in the same change.
+- [x] Delete the Ed25519 updated-at fallback lane and select directly from the
+      canonicalized, priority-sorted candidates.
 
 ### Unit 4 exit
 

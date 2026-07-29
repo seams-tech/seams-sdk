@@ -118,8 +118,10 @@ replacement.
   sealed recovery, Ed25519 cold recovery, and dormant record normalization~~ —
   replaced by exact bootstrap, sealed-record, authorization-record, and mint
   response fields in `ffdc64fdc`, `44c4e58c4`, `5971a3753`, and `ca6b86fa0`
-- runtime-policy scope inferred from the Email OTP ECDSA enrollment route JWT;
-  thread the registration intent's exact scope into the enrollment boundary
+- ~~runtime-policy scope inferred from the Email OTP ECDSA enrollment route
+  JWT~~ — the obsolete standalone enrollment SDK/iframe route was deleted by
+  `859961771`; canonical `registerWallet` retains the verified registration
+  boundary.
 
 ## Phase 5 — role-local material identity
 
@@ -140,6 +142,10 @@ replacement.
   authorization projections, budget matching, and normal-signing admission~~ —
   deleted by `d18133431`; admission now keys ECDSA work by branded material
   activation and pool-fill derives its provisioning slot from material scope.
+- ~~`evmFamilySigningKeySlotId` in server ECDSA Wallet Session records, budget
+  bindings, Durable Object equality, and signing-session seal projections~~ —
+  replaced by required branded `EcdsaKeyHandle` in `51ee85a29`; the slot remains
+  only on the provisioning input where the runtime validates the plan.
 - ~~`clientVerifyingShareB64u` inside `EcdsaRoleLocalMaterialBinding`, its
   digest, and material handle~~ — replaced by the strict
   `EcdsaClientVerifyingPublicKey33B64u` fact in `fcdf0ad3c`
@@ -320,7 +326,9 @@ ports, and the two-state recovery journal.
   active-Client record)
 - `Ed25519YaoExportFlowDeps.recoverPasskeyCapability` and the nested
   `emailOtp.resolveExportContext` callback bag
-- `exportEd25519YaoKeyWithFreshPasskey`, `exportEd25519YaoKeyWithFreshEmailOtp`
+- ~~`exportEd25519YaoKeyWithFreshPasskey`,
+  `exportEd25519YaoKeyWithFreshEmailOtp`~~ — replaced by one exhaustive
+  same-method coordinator in `01bcabb29`
 - ~~`ExactPasskeyEd25519SigningLaneIdentity`,
   `ExactEmailOtpEd25519SigningLaneIdentity`~~ — deleted by `a5fad3851`; export
   narrows the canonical generic lane by its factor authority.
@@ -329,7 +337,8 @@ ports, and the two-state recovery journal.
 - `recoverExactPasskeyEd25519YaoCapabilityForExport`
 - `resolveEmailOtpEd25519YaoExportContext` and matching Browser/assembly port
   aliases
-- the `laneIdentity.auth.kind` dispatch in `exportKeypairOperation.ts`
+- ~~the `laneIdentity.auth.kind` dispatch in `exportKeypairOperation.ts`~~ —
+  moved inside the exhaustive capability-owned coordinator in `01bcabb29`
 - `EmailOtpEd25519YaoActiveCapabilityDescriptorV1` (destructive replace at the
   generic lifecycle/export-context boundary; strip `signingGrantId`, raw
   provider subject, and bearer JWT from the worker payload)
@@ -432,6 +441,19 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - public exports implying wallet-only auth/sessions/grants
 - source guards and fixtures whose invariant became structural during the
   slices
+- ~~optional auth-method discovery that silently searched both Passkey and
+  Email OTP~~ — exact auth method is required by `e3fe3d32e`
+- ~~`RestorePersistedEcdsaSessionPurpose`,
+  `WalletSessionReconnectEcdsaBootstrapRouteAuth`,
+  `PasskeyFreshEcdsaBootstrapRequest`,
+  `EmailOtpEcdsaExactBootstrapRequest`, `EcdsaWalletSessionTransportAuth`, and
+  `ReadyThresholdEcdsaSessionPolicy` aliases~~ — consumers use canonical types
+  directly after `9c9c7aec6`, `fe9ed96f7`, and `df7c3d0b8`
+- ~~the duplicate unused `EcdsaExportOperationAuthorization` projection and its
+  projection-only unit test~~ — deleted by `9c9c7aec6`
+- ~~the Ed25519 updated-at primary-lane fallback and
+  `primaryEd25519LaneFromNormalizedCandidates`~~ — deleted by `ae8f7b72d`;
+  canonicalized priority order now selects the lane
 
 ## 6e gate — composite ECDSA record family (measured 2026-07-28, at `3b904b63a`)
 
