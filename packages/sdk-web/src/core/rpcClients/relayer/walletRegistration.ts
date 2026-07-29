@@ -490,24 +490,6 @@ export type WalletRegistrationSetupResponseV2 =
     }
   | { ok: false; code: string; message: string; retryAfterMs?: number };
 
-export type WalletRegistrationEcdsaRespondResponse = {
-  ok: true;
-  registrationCeremonyId: string;
-  ecdsa: {
-    kind: 'router_ab_ecdsa_registration_forwarded_v1';
-    strictResult: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
-  };
-};
-
-export type WalletRegistrationEcdsaActivationResponse = {
-  ok: true;
-  registrationCeremonyId: string;
-  ecdsa: {
-    kind: 'router_ab_ecdsa_registration_activated_v1';
-    activation: RouterAbEcdsaRegistrationPublicActivationReceiptV1;
-    bootstrap: ThresholdEcdsaDerivationRoleLocalBootstrapValue;
-  };
-};
 
 function requireExactResponseKeys(
   record: Record<string, unknown>,
@@ -519,93 +501,6 @@ function requireExactResponseKeys(
   if (unknown.length > 0) {
     throw new Error(`${label} contains unknown fields: ${unknown.join(', ')}`);
   }
-}
-
-function parseWalletRegistrationEcdsaRespondResponse(
-  value: unknown,
-): WalletRegistrationEcdsaRespondResponse {
-  const response = requireResponseRecord({
-    responseName: 'ECDSA registration derivation',
-    field: 'response',
-    value,
-  });
-  requireExactResponseKeys(
-    response,
-    ['ok', 'registrationCeremonyId', 'registrationDiagnostics', 'ecdsa'],
-    'ECDSA registration derivation response',
-  );
-  if (response.ok !== true) {
-    throw new Error('ECDSA registration derivation response is not successful');
-  }
-  const ecdsa = requireResponseRecord({
-    responseName: 'ECDSA registration derivation',
-    field: 'ecdsa',
-    value: response.ecdsa,
-  });
-  requireExactResponseKeys(
-    ecdsa,
-    ['kind', 'strictResult'],
-    'ECDSA registration derivation response ecdsa',
-  );
-  if (ecdsa.kind !== 'router_ab_ecdsa_registration_forwarded_v1') {
-    throw new Error('ECDSA registration derivation response kind is invalid');
-  }
-  return {
-    ok: true,
-    registrationCeremonyId: requireResponseString({
-      responseName: 'ECDSA registration derivation',
-      field: 'registrationCeremonyId',
-      value: response.registrationCeremonyId,
-    }),
-    ecdsa: {
-      kind: 'router_ab_ecdsa_registration_forwarded_v1',
-      strictResult: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(ecdsa.strictResult),
-    },
-  };
-}
-
-function parseWalletRegistrationEcdsaActivationResponse(
-  value: unknown,
-): WalletRegistrationEcdsaActivationResponse {
-  const response = requireResponseRecord({
-    responseName: 'ECDSA registration activation',
-    field: 'response',
-    value,
-  });
-  requireExactResponseKeys(
-    response,
-    ['ok', 'registrationCeremonyId', 'ecdsa'],
-    'ECDSA registration activation response',
-  );
-  if (response.ok !== true) {
-    throw new Error('ECDSA registration activation response is not successful');
-  }
-  const ecdsa = requireResponseRecord({
-    responseName: 'ECDSA registration activation',
-    field: 'ecdsa',
-    value: response.ecdsa,
-  });
-  requireExactResponseKeys(
-    ecdsa,
-    ['kind', 'activation', 'bootstrap'],
-    'ECDSA registration activation response ecdsa',
-  );
-  if (ecdsa.kind !== 'router_ab_ecdsa_registration_activated_v1') {
-    throw new Error('ECDSA registration activation response kind is invalid');
-  }
-  return {
-    ok: true,
-    registrationCeremonyId: requireResponseString({
-      responseName: 'ECDSA registration activation',
-      field: 'registrationCeremonyId',
-      value: response.registrationCeremonyId,
-    }),
-    ecdsa: {
-      kind: 'router_ab_ecdsa_registration_activated_v1',
-      activation: parseRouterAbEcdsaRegistrationPublicActivationReceiptV1(ecdsa.activation),
-      bootstrap: parseThresholdEcdsaDerivationRoleLocalBootstrapValue(ecdsa.bootstrap),
-    },
-  };
 }
 
 function parseWalletAddSignerEcdsaRespondResponse(
@@ -2364,51 +2259,6 @@ function walletRegistrationStartAuthorityBody(
   }
 }
 
-export async function respondWalletRegistrationEcdsa(args: {
-  relayerUrl: string;
-  headers?: Record<string, string>;
-  registrationCeremonyId: string;
-  ecdsa: {
-    kind: 'router_ab_ecdsa_registration_v1';
-    strictRegistration: RouterAbEcdsaRegistrationRequestV1;
-  };
-  onServerTiming?: (header: string | null) => void;
-}): Promise<WalletRegistrationEcdsaRespondResponse> {
-  const response = await postJson<unknown>({
-    relayerUrl: args.relayerUrl,
-    path: '/wallets/register/derivation/respond',
-    headers: args.headers,
-    body: {
-      registrationCeremonyId: args.registrationCeremonyId,
-      ecdsa: args.ecdsa,
-    },
-    ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
-  });
-  return parseWalletRegistrationEcdsaRespondResponse(response);
-}
-
-export async function activateWalletRegistrationEcdsa(args: {
-  relayerUrl: string;
-  headers?: Record<string, string>;
-  registrationCeremonyId: string;
-  publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
-  onServerTiming?: (header: string | null) => void;
-}): Promise<WalletRegistrationEcdsaActivationResponse> {
-  const response = await postJson<unknown>({
-    relayerUrl: args.relayerUrl,
-    path: '/wallets/register/derivation/activate',
-    headers: args.headers,
-    body: {
-      registrationCeremonyId: args.registrationCeremonyId,
-      ecdsa: {
-        kind: 'router_ab_ecdsa_registration_activation_v1',
-        publicFacts: args.publicFacts,
-      },
-    },
-    ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
-  });
-  return parseWalletRegistrationEcdsaActivationResponse(response);
-}
 
 /**
  * Refactor 94C route 2. Authenticated respond: the proof the client just

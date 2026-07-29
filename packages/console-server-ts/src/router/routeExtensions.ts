@@ -1,5 +1,4 @@
-import type { RouterApiBootstrapGrantBroker, RouterApiKeyAuthAdapter } from '@seams/sdk-server/cloud-host';
-import { handleRouterApiBootstrapGrant } from '@seams/sdk-server/cloud-host';
+import type { RouterApiKeyAuthAdapter } from '@seams/sdk-server/cloud-host';
 import { resolveSourceIpFromFetchHeaders } from '@seams/sdk-server/cloud-host';
 import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
 import type { RouteDefinition } from '@seams/sdk-server/cloud-host';
@@ -80,7 +79,6 @@ export interface ConsoleRouterApiSponsoredEvmCallRouteOptions {
 
 export interface ConsoleRouterApiRouteExtensionsOptions {
   readonly apiKeyAuth?: RouterApiKeyAuthAdapter | null;
-  readonly bootstrapGrantBroker?: RouterApiBootstrapGrantBroker | null;
   readonly signedDelegate?: ConsoleRouterApiSignedDelegateRouteOptions | null;
   readonly sponsoredEvmCall?: ConsoleRouterApiSponsoredEvmCallRouteOptions | null;
   readonly wallets?: ConsoleWalletService | null;
@@ -96,24 +94,6 @@ function routeHeaders(headers: Headers): Record<string, string> {
 
 function routeUrl(request: Request): URL {
   return new URL(request.url);
-}
-
-function registrationBootstrapGrantRoute(): RouteDefinition {
-  return {
-    id: 'registration_bootstrap_grants',
-    surface: 'relay',
-    method: 'POST',
-    path: '/v1/registration/bootstrap-grants',
-    summary: 'Issue managed registration bootstrap grants',
-    auth: {
-      plane: 'api_credentials',
-      credentials: ['publishable_key'],
-      environmentBinding: 'required',
-      originBinding: 'required',
-    },
-    metering: { kind: 'none' },
-    requiredServices: ['bootstrapGrantBroker'],
-  };
 }
 
 function apiWalletListRoute(): RouteDefinition {
@@ -207,9 +187,6 @@ function consoleRouterApiRoutes(
   options: ConsoleRouterApiRouteExtensionsOptions,
 ): readonly RouteDefinition[] {
   const routes: RouteDefinition[] = [];
-  if (options.bootstrapGrantBroker) {
-    routes.push(registrationBootstrapGrantRoute());
-  }
   if (options.apiKeyAuth && options.wallets) {
     routes.push(apiWalletListRoute(), apiWalletSearchRoute(), apiWalletGetRoute());
   }
@@ -220,25 +197,6 @@ function consoleRouterApiRoutes(
     routes.push(sponsoredEvmCallRoute(options.sponsoredEvmCall.route));
   }
   return routes;
-}
-
-async function handleConsoleBootstrapGrantRoute(input: {
-  readonly request: Request;
-  readonly route: RouteDefinition;
-  readonly logger: NormalizedRouterLogger;
-  readonly broker?: RouterApiBootstrapGrantBroker | null;
-}): Promise<Response> {
-  const response = await handleRouterApiBootstrapGrant({
-    body: await readJson(input.request),
-    headers: routeHeaders(input.request.headers),
-    logger: input.logger,
-    origin: routeOrigin(input.request.headers),
-    route: input.route,
-    services: {
-      bootstrapGrantBroker: input.broker,
-    },
-  });
-  return toFetchRouteResponse(response);
 }
 
 async function handleConsoleApiWalletRoute(input: {
@@ -381,15 +339,6 @@ export function createConsoleRouterApiRouteExtensions(
       routes,
       async handleCloudflareRoute(input) {
         const logger = input.logger;
-        if (input.route.id === 'registration_bootstrap_grants') {
-          return await handleConsoleBootstrapGrantRoute({
-            request: input.request,
-            route: input.route,
-            logger,
-            broker: options.bootstrapGrantBroker,
-          });
-        }
-
         if (
           input.route.id === ROUTER_API_SPONSORED_EVM_CALL_ROUTE_ID &&
           options.sponsoredEvmCall
