@@ -142,3 +142,67 @@ test('the deferred runner never throws, whatever the commit does', async () => {
     resetNearProvisioningRegistryForTests();
   }
 });
+
+test('a successful deferred commit reaches and republishes near_ready', async () => {
+  /* Closes the ready path against the exact primitive the orchestrator drives
+     rather than the store directly. Reaching ready through the full commit —
+     Yao consume, signer persistence, capability install — would mean stubbing
+     a cryptographic binding check and asserting the stub, so the seam under
+     test is the one that decides the published outcome. */
+  const { runSingleFlightNearProvisioning } = await import(
+    '@/core/signingEngine/flows/registration/nearProvisioningRegistry'
+  );
+  resetNearProvisioningRegistryForTests();
+  const published: string[] = [];
+  const unsubscribe = subscribeToNearProvisioning((_walletId, state) => {
+    published.push(state.status);
+  });
+  try {
+    const settled = await runSingleFlightNearProvisioning({
+      walletId: WALLET_ID,
+      nowMs: () => 1_700_000_000_000,
+      attempt: async () => ({
+        status: 'near_ready',
+        updatedAtMs: 1_700_000_000_000,
+        nearAccountId: String(WALLET_ID),
+      }),
+    });
+    expect(settled.status).toBe('near_ready');
+  } finally {
+    unsubscribe();
+  }
+  /* The wallet passes through provisioning and lands on ready, in that order. */
+  expect(published).toEqual(['near_provisioning', 'near_ready']);
+  expect(readNearProvisioningState(WALLET_ID)?.status).toBe('near_ready');
+  resetNearProvisioningRegistryForTests();
+});
+
+test('a settled ready wallet is not re-provisioned by a later request', async () => {
+  /* Ready is terminal: a second caller must not restart Yao for a wallet whose
+     NEAR signer already exists. */
+  const { runSingleFlightNearProvisioning } = await import(
+    '@/core/signingEngine/flows/registration/nearProvisioningRegistry'
+  );
+  resetNearProvisioningRegistryForTests();
+  let attempts = 0;
+  const ready = async () => {
+    attempts += 1;
+    return {
+      status: 'near_ready' as const,
+      updatedAtMs: 1_700_000_000_000,
+      nearAccountId: String(WALLET_ID),
+    };
+  };
+  await runSingleFlightNearProvisioning({
+    walletId: WALLET_ID,
+    nowMs: () => 1_700_000_000_000,
+    attempt: ready,
+  });
+  await runSingleFlightNearProvisioning({
+    walletId: WALLET_ID,
+    nowMs: () => 1_700_000_000_001,
+    attempt: ready,
+  });
+  expect(attempts).toBe(1);
+  resetNearProvisioningRegistryForTests();
+});
