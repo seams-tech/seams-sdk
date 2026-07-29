@@ -21,11 +21,14 @@ import { fileURLToPath } from 'node:url';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const typesRoot = join(packageRoot, 'dist/types');
-/* `@/*` maps to this package's `src`, which tsc emits under this subtree. */
-const aliasRoot = join(typesRoot, 'sdk-web/src');
+/* Each alias maps to a package `src` that tsc emits under its own subtree. */
+const ALIAS_ROOTS = [
+  { prefix: '@/', root: join(typesRoot, 'sdk-web/src') },
+  { prefix: '@shared/', root: join(typesRoot, 'shared-ts/src') },
+];
 
-/** Matches the specifier in `from '@/x'`, `import('@/x')`, and `import '@/x'`. */
-const ALIAS_SPECIFIER = /(['"])@\/([^'"]+)\1/g;
+/** Matches the specifier in `from '<alias>x'`, `import('<alias>x')`, etc. */
+const ALIAS_SPECIFIER = /(['"])(@\/|@shared\/)([^'"]+)\1/g;
 
 async function* declarationFiles(dir) {
   let entries;
@@ -41,8 +44,10 @@ async function* declarationFiles(dir) {
   }
 }
 
-function toRelativeSpecifier(fromFile, aliasTarget) {
-  const absolute = join(aliasRoot, aliasTarget);
+function toRelativeSpecifier(fromFile, prefix, aliasTarget) {
+  const alias = ALIAS_ROOTS.find((entry) => entry.prefix === prefix);
+  if (!alias) throw new Error(`unmapped declaration alias: ${prefix}`);
+  const absolute = join(alias.root, aliasTarget);
   let specifier = relative(dirname(fromFile), absolute).split('\\').join('/');
   /* A bare sibling name is a package specifier to the resolver, not a path. */
   if (!specifier.startsWith('.')) specifier = `./${specifier}`;
@@ -53,11 +58,11 @@ let rewrittenFiles = 0;
 let rewrittenSpecifiers = 0;
 for await (const file of declarationFiles(typesRoot)) {
   const source = await readFile(file, 'utf8');
-  if (!source.includes("'@/") && !source.includes('"@/')) continue;
+  if (!/(['"])(@\/|@shared\/)/.test(source)) continue;
   let count = 0;
-  const next = source.replace(ALIAS_SPECIFIER, (_match, quote, target) => {
+  const next = source.replace(ALIAS_SPECIFIER, (_match, quote, prefix, target) => {
     count += 1;
-    return `${quote}${toRelativeSpecifier(file, target)}${quote}`;
+    return `${quote}${toRelativeSpecifier(file, prefix, target)}${quote}`;
   });
   if (count === 0) continue;
   await writeFile(file, next, 'utf8');
@@ -66,5 +71,5 @@ for await (const file of declarationFiles(typesRoot)) {
 }
 
 console.log(
-  `[declarations] rewrote ${rewrittenSpecifiers} '@/' specifier(s) across ${rewrittenFiles} file(s)`,
+  `[declarations] rewrote ${rewrittenSpecifiers} alias specifier(s) across ${rewrittenFiles} file(s)`,
 );
