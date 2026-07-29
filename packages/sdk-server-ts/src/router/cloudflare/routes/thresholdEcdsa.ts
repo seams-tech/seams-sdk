@@ -116,10 +116,6 @@ import {
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import { hashEmailOtpAppSessionClaims } from '../../emailOtpSessionRouteHelpers';
-import {
-  deriveEvmFamilySigningKeySlotId,
-  parseEvmFamilySigningKeySlotIdOrNull,
-} from '@shared/signing-lanes';
 
 const NOT_IMPLEMENTED = {
   ok: false,
@@ -417,7 +413,7 @@ type RouterAbEcdsaPoolFillClaims = Pick<
   | 'participantIds'
   | 'thresholdExpiresAtMs'
   | 'routerAbEcdsaDerivationNormalSigning'
-> & { readonly evmFamilySigningKeySlotId: string };
+>;
 
 type RouterAbEcdsaPoolFillAuthorizationResult =
   | {
@@ -452,10 +448,7 @@ async function authorizeEcdsaPoolFillOperationStepUp(input: {
   >;
   readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
 }): Promise<RouterAbEcdsaPoolFillAuthorizationResult> {
-  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    input.operation.material_activation.key_binding,
-  );
-  if (!evmFamilySigningKeySlotId || !validateEcdsaPoolFillOperationIdentity(input.operation)) {
+  if (!validateEcdsaPoolFillOperationIdentity(input.operation)) {
     return {
       ok: false,
       error: {
@@ -505,7 +498,6 @@ async function authorizeEcdsaPoolFillOperationStepUp(input: {
     ok: true,
     claims: {
       walletId: input.operation.wallet_id,
-      evmFamilySigningKeySlotId,
       relayerKeyId: input.operation.relayer_key_id,
       keyHandle: input.operation.key_handle,
       runtimePolicyScope: authenticated.session.runtimePolicyScope,
@@ -552,17 +544,9 @@ async function authorizeEcdsaPoolFill(input: {
           },
         };
       }
-      const scope = validated.claims.routerAbEcdsaDerivationNormalSigning.scope;
       return {
         ok: true,
-        claims: {
-          ...validated.claims,
-          evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-            walletId: validated.claims.walletId,
-            signingRootId: scope.signing_root_id,
-            signingRootVersion: scope.signing_root_version,
-          }),
-        },
+        claims: validated.claims,
       };
     }
     case 'operation_step_up': {
