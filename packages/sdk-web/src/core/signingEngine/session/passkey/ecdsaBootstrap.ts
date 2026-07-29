@@ -557,61 +557,19 @@ function toActivateEmailOtpExplicitExportBootstrapSessionRequest(
   };
 }
 
-async function normalizeRuntimeEcdsaBootstrapRequest(
-  deps: WalletSessionActivationDeps,
-  request: EcdsaBootstrapRequest,
-): Promise<EcdsaBootstrapRequest> {
-  if (request.kind !== 'wallet_session_reconnect_ecdsa_bootstrap') {
-    return request;
-  }
-
-  const providedPasskeyPrfFirstB64u = String(request.passkeyPrfFirstB64u || '').trim();
-  if (providedPasskeyPrfFirstB64u) {
-    return {
-      ...request,
-      passkeyPrfFirstB64u: providedPasskeyPrfFirstB64u,
-    };
-  }
-
-  const sessionIdentity = ecdsaBootstrapSessionIdentityFromLanePolicy(request.lanePolicy);
-  const claimedMaterial =
-    typeof deps.touchConfirm.claimWarmSessionMaterial === 'function'
-      ? await deps.touchConfirm.claimWarmSessionMaterial({
-          purpose: {
-            curve: 'ecdsa',
-            thresholdSessionId: sessionIdentity.thresholdSessionId,
-            chainTarget: request.lanePolicy.chainTarget,
-          },
-          uses: 1,
-        })
-      : null;
-  const claimedPasskeyPrfFirstB64u = String(claimedMaterial?.prfFirstB64u || '').trim();
-  if (claimedMaterial?.ok && claimedPasskeyPrfFirstB64u) {
-    return {
-      ...request,
-      passkeyPrfFirstB64u: claimedPasskeyPrfFirstB64u,
-    };
-  }
-
-  throw new Error(
-    '[SigningEngine][ecdsa] threshold-session reconnect bootstrap requires passkeyPrfFirstB64u from the primed signing session',
-  );
-}
-
 export async function bootstrapEcdsaSessionValue(
   deps: WalletSessionActivationDeps,
   request: EcdsaBootstrapRequest,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
-  const normalizedRequest = await normalizeRuntimeEcdsaBootstrapRequest(deps, request);
-  if (normalizedRequest.kind === 'reuse_warm_ecdsa_bootstrap') {
+  if (request.kind === 'reuse_warm_ecdsa_bootstrap') {
     throw new Error(
       '[SigningEngine][ecdsa] reuse_warm bootstrap must resolve an existing exact material request before activation',
     );
   }
-  const authority = normalizedRequest.existingRoleLocalMaterial.authority;
-  const walletId = toWalletId(ecdsaBootstrapWalletId(normalizedRequest));
-  const chainTarget = ecdsaBootstrapChainTarget(normalizedRequest);
-  const relayerUrl = resolveRelayerUrl(normalizedRequest.relayerUrl, deps.defaultRelayerUrl);
+  const authority = request.existingRoleLocalMaterial.authority;
+  const walletId = toWalletId(ecdsaBootstrapWalletId(request));
+  const chainTarget = ecdsaBootstrapChainTarget(request);
+  const relayerUrl = resolveRelayerUrl(request.relayerUrl, deps.defaultRelayerUrl);
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
   const activationDeps = {
@@ -627,7 +585,7 @@ export async function bootstrapEcdsaSessionValue(
 
   const activation = await activateEcdsaSession(
     activationDeps,
-    toActivateEcdsaSessionRequest(normalizedRequest, relayerUrl),
+    toActivateEcdsaSessionRequest(request, relayerUrl),
   );
   const walletSessionJwt = String(activation.session.jwt || '').trim();
   const transport = {
@@ -646,7 +604,7 @@ export async function bootstrapEcdsaSessionValue(
     thresholdEcdsaKeyRef,
   };
 
-  const signerAuth = ecdsaBootstrapSignerAuth(normalizedRequest);
+  const signerAuth = ecdsaBootstrapSignerAuth(request);
   await deps.persistThresholdEcdsaBootstrapForWalletTarget({
     walletId,
     chainTarget,
@@ -663,10 +621,10 @@ export async function bootstrapEcdsaSessionValue(
     activation.session.thresholdSessionId,
   );
   const passkeyPersistenceSource = resolvePasskeyEcdsaBootstrapPersistenceSource({
-    request: normalizedRequest,
+    request,
     thresholdSessionId,
   });
-  if (normalizedRequest.kind !== 'email_otp_ecdsa_bootstrap' && passkeyPersistenceSource) {
+  if (request.kind !== 'email_otp_ecdsa_bootstrap' && passkeyPersistenceSource) {
     const passkeyPrfFirstB64u = String(activation.passkeyPrfFirstB64u || '').trim();
     if (!passkeyPrfFirstB64u) {
       throw new Error('[SigningEngine][ecdsa] passkey ECDSA bootstrap returned empty PRF.first');

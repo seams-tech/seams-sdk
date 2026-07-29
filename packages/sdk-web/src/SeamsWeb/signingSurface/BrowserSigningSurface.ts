@@ -77,7 +77,6 @@ import {
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
   resolvePasskeyEd25519YaoExportContextV1,
-  restorePasskeyEd25519YaoLocalPrfV1,
   type PasskeyEd25519WarmRecoverySubject,
 } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import { readPersistedEd25519SessionRecordForSigning } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
@@ -1288,26 +1287,9 @@ export class BrowserSigningSurface {
         `[SigningEngine][near] local threshold Ed25519 hydration blocked: ${liveHydration.plan.reason}`,
       );
     }
-    const warmSubject: PasskeyEd25519WarmRecoverySubject = {
-      walletId: String(subject.walletId),
-      nearAccountId: String(subject.nearAccountId),
-      signerSlot: lane.signerSlot,
-      thresholdSessionId: lane.thresholdSessionId,
-    };
-    const restored = await restorePasskeyEd25519YaoLocalPrfV1({
-      subject: warmSubject,
-      ports: this.touchConfirm,
-    });
-    if (restored.kind === 'unavailable') {
-      throw new Error(
-        `[SigningEngine][near] sealed Ed25519 authorization is unavailable: ${restored.reason}`,
-      );
-    }
-    await this.activateRehydratedPasskeyEd25519YaoCapability({
-      walletSessionState,
-      credentialIdB64u,
-      prfFirstB64u: restored.prfFirstB64u,
-    });
+    throw new Error(
+      '[SigningEngine][near] local threshold Ed25519 material requires Passkey reauthorization',
+    );
   }
 
   private async resolvePasskeyEd25519YaoHydration(args: {
@@ -1338,44 +1320,6 @@ export class BrowserSigningSurface {
             })
           : null,
     });
-  }
-
-  private async activateRehydratedPasskeyEd25519YaoCapability(args: {
-    walletSessionState: NearEd25519YaoSigningCapability['walletSessionState'];
-    credentialIdB64u: string;
-    prfFirstB64u: string;
-  }): Promise<NearEd25519YaoSigningCapability> {
-    const hydrated = await this.resolvePasskeyEd25519YaoHydration({
-      walletSessionState: args.walletSessionState,
-      credentialIdB64u: args.credentialIdB64u,
-      unlockSource: {
-        kind: 'available',
-        passkeyPrfFirstB64u: args.prfFirstB64u,
-      },
-    });
-    switch (hydrated.kind) {
-      case 'live':
-        return hydrated.capability;
-      case 'blocked':
-        throw new Error(
-          `[SigningEngine][near] local threshold Ed25519 hydration blocked: ${hydrated.plan.reason}`,
-        );
-      case 'rehydrated':
-        break;
-      default:
-        hydrated satisfies never;
-    }
-    const capability: NearEd25519YaoSigningCapability = {
-      activeClient: hydrated.activeClient,
-      walletSessionState: args.walletSessionState,
-    };
-    try {
-      await this.activateVerifiedNearEd25519YaoSigningCapability(capability);
-      return capability;
-    } catch (error) {
-      hydrated.activeClient.dispose();
-      throw error;
-    }
   }
 
   async signEvmFamily(args: {
