@@ -74,6 +74,7 @@ import type {
   HydratedSecp256k1SigningMaterialResolution,
   ReadySecp256k1SigningMaterialResolution,
 } from './readySecp256k1Material';
+import type { CapabilityPreparationResult } from '../../session/material/capabilityPreparationResult';
 import type { HydratedEcdsaSignerMaterial } from '../../session/identity/evmFamilyEcdsaIdentity';
 
 type EvmFamilySigningWebAuthnMode<TRequest> =
@@ -158,13 +159,24 @@ export function isEvmFamilyEcdsaMaterialSupersededError(
   return error instanceof EvmFamilyEcdsaMaterialSupersededError;
 }
 
-// The unavailable arm is the resolver's own, so the typed outcomes cannot
-// drift apart from the gates that produce them.
-export type EcdsaSigningMaterialPlan =
-  | EcdsaSigningMaterialSource
-  | SupersededEcdsaSigningMaterial
+type EcdsaSigningMaterialFailure =
   | Extract<ReadySecp256k1SigningMaterialResolution, { kind: 'unavailable' }>
   | Extract<HydratedSecp256k1SigningMaterialResolution, { kind: 'unavailable' }>;
+
+/** Signing preparation has no resumable intermediate state. The generic
+ * capability result retains `pending` for operations that genuinely persist a
+ * resume token; this specialization exposes only outcomes this boundary can
+ * produce. */
+export type EcdsaSigningMaterialPlan = Exclude<
+  CapabilityPreparationResult<
+    ReadyEcdsaSigningMaterialSource,
+    never,
+    Extract<EcdsaSigningMaterialSource, { kind: 'material_for_step_up' }>,
+    SupersededEcdsaSigningMaterial,
+    EcdsaSigningMaterialFailure
+  >,
+  { kind: 'pending' }
+>;
 
 export type ResolveEcdsaSigningMaterialPlan = (args: {
   requestLabel: unknown;
@@ -489,17 +501,28 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       const plan = await input.resolveEcdsaSigningMaterialPlan({
         requestLabel: firstSignRequest.label,
       });
-      if (plan.kind === 'superseded') {
-        throw new EvmFamilyEcdsaMaterialSupersededError(plan);
+      switch (plan.kind) {
+        case 'ready':
+          ecdsaSigningMaterialSource = plan.value;
+          break;
+        case 'authorization_required':
+          ecdsaSigningMaterialSource = plan.requirement;
+          break;
+        case 'superseded':
+          throw new EvmFamilyEcdsaMaterialSupersededError(plan.replacement);
+        case 'failed':
+          throw new Error(
+            `[chains] threshold ECDSA material is unavailable: ${plan.failure.reason}`,
+          );
       }
-      if (plan.kind === 'unavailable') {
-        throw new Error(`[chains] threshold ECDSA material is unavailable: ${plan.reason}`);
+      const preparationMaterialSource = ecdsaSigningMaterialSource;
+      if (!preparationMaterialSource) {
+        throw new Error('[chains] ECDSA preparation did not produce signing material');
       }
-      ecdsaSigningMaterialSource = plan;
       const prepared = await thresholdEcdsaStepUpRuntime.operationStepUp.prepare({
         operation: activeThresholdEcdsaOperation,
         operationDigests,
-        material: hydratedMaterialFromSource(plan),
+        material: hydratedMaterialFromSource(preparationMaterialSource),
       });
       preparedEcdsaOperationStepUp = {
         prepared,
@@ -550,15 +573,18 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         requestLabel: signReq.label,
       });
       switch (plan.kind) {
-        case 'material_from_step_up':
-        case 'material_from_canonical_capability':
-        case 'material_for_step_up':
-          ecdsaSigningMaterialSource = plan;
+        case 'ready':
+          ecdsaSigningMaterialSource = plan.value;
+          break;
+        case 'authorization_required':
+          ecdsaSigningMaterialSource = plan.requirement;
           break;
         case 'superseded':
-          throw new EvmFamilyEcdsaMaterialSupersededError(plan);
-        case 'unavailable':
-          throw new Error(`[chains] threshold ECDSA material is unavailable: ${plan.reason}`);
+          throw new EvmFamilyEcdsaMaterialSupersededError(plan.replacement);
+        case 'failed':
+          throw new Error(
+            `[chains] threshold ECDSA material is unavailable: ${plan.failure.reason}`,
+          );
       }
     }
     const source = ecdsaSigningMaterialSource;

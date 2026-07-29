@@ -177,20 +177,25 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
     chainTarget: args.chainTarget,
   });
   if (runtimeResolution.kind !== 'resolved') {
-    return { kind: 'unavailable', reason: 'runtime_correlation_mismatch' };
+    return {
+      kind: 'failed',
+      failure: { kind: 'unavailable', reason: 'runtime_correlation_mismatch' },
+    };
   }
   const superseded = ecdsaSigningCapabilitySupersession({
     preparedCapability: args.capability,
     currentManifest: runtimeResolution.manifest,
   });
-  if (superseded) return superseded;
+  if (superseded) return { kind: 'superseded', replacement: superseded };
   if (args.preparedAuthorization) {
     const authorizationSupersession = ecdsaSigningAuthorizationSupersession({
       preparedAuthorization: args.preparedAuthorization,
       currentAuthorization: args.currentAuthorization,
       materialActivation: args.materialActivation,
     });
-    if (authorizationSupersession) return authorizationSupersession;
+    if (authorizationSupersession) {
+      return { kind: 'superseded', replacement: authorizationSupersession };
+    }
   }
   const resolution = await resolveHydratedSecp256k1SigningMaterial({
     capability: args.capability,
@@ -199,20 +204,28 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
     materialActivation: args.materialActivation,
     workerCtx: args.workerCtx,
   });
-  if (resolution.kind === 'unavailable') return resolution;
+  if (resolution.kind === 'unavailable') {
+    return { kind: 'failed', failure: resolution };
+  }
   if (!args.preparedAuthorization) {
     return {
-      kind: 'material_for_step_up',
-      material: resolution.material,
+      kind: 'authorization_required',
+      requirement: {
+        kind: 'material_for_step_up',
+        material: resolution.material,
+      },
     };
   }
   return {
-    kind: 'material_from_canonical_capability',
+    kind: 'ready',
+    value: {
+      kind: 'material_from_canonical_capability',
       material: attachReusableEcdsaWalletSessionAuthorization({
         material: resolution.material,
         capability: args.capability,
         authorization: args.currentAuthorization ?? args.preparedAuthorization,
-    }),
+      }),
+    },
   };
 }
 
