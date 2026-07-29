@@ -111,6 +111,9 @@ function buildConfig(deployment, packageRoot) {
       { binding: 'SIGNING_WORKER', service: deployment.serviceNames.signingWorker },
       { binding: 'MPC_ROUTER', service: deployment.serviceNames.mpcRouter },
     ],
+    triggers: {
+      crons: ['* * * * *'],
+    },
     observability: {
       enabled: true,
       logs: {
@@ -146,6 +149,7 @@ function buildWorkerVars(deployment) {
     SEAMS_STAGING_PROJECT_ID: deployment.tenant.projectId,
     SEAMS_STAGING_ENV_ID: deployment.tenant.environmentId,
     ROUTER_AB_NORMAL_SIGNING_WORKER_ID: deployment.serviceNames.signingWorker,
+    ROUTER_AB_PREWARM_ENABLED: 'true',
     SIGNING_WORKER_ID: deployment.serviceNames.signingWorker,
     ROUTER_AB_CEREMONY_JWT_ISSUER: deployment.origins.gateway,
     ROUTER_AB_CEREMONY_JWT_AUDIENCE: deployment.routerAb.ceremonyJwtAudience,

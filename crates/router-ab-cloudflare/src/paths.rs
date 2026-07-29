@@ -7,6 +7,8 @@ use router_ab_core::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbP
 pub const CLOUDFLARE_ROUTER_PUBLIC_KEYSET_WELL_KNOWN_PATH: &str = "/.well-known/router-ab/keyset";
 /// Public Router endpoint for Router A/B public deployment keys.
 pub const CLOUDFLARE_ROUTER_PUBLIC_KEYSET_PATH: &str = "/router-ab/keyset";
+/// Authenticated internal endpoint that initializes one deployed Worker isolate.
+pub const CLOUDFLARE_INTERNAL_PREWARM_PATH: &str = "/internal/prewarm";
 /// Public Router endpoint for normal signing through the active SigningWorker.
 pub const CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH: &str = "/router-ab/ed25519/sign";
 /// Public Router endpoint for preparing normal-signing round-1 material.
