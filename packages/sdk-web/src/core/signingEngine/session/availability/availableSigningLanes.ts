@@ -2078,21 +2078,6 @@ function emailOtpPreferredEd25519PrimaryLane(args: {
   return emailOtpLane || args.primaryLane;
 }
 
-function primaryEd25519LaneFromNormalizedCandidates(args: {
-  primaryLane: AvailableEd25519SigningLane;
-  candidates: AvailableEd25519SigningLane[];
-}): AvailableEd25519SigningLane {
-  const primaryKey = ed25519AvailableLaneIdentityKey(args.primaryLane);
-  if (!primaryKey) return args.primaryLane;
-  return (
-    args.candidates.find(
-      (candidate) => ed25519AvailableLaneIdentityKey(candidate) === primaryKey,
-    ) ||
-    args.candidates[0] ||
-    args.primaryLane
-  );
-}
-
 function isAvailableSigningLaneDiagnosticsEnabled(): boolean {
   try {
     const storage = (globalThis as { localStorage?: Storage }).localStorage;
@@ -2709,8 +2694,6 @@ export async function readAvailableSigningLanes(
     ecdsaLaneUpdatedAtMsByTarget[targetKey] = 0;
   }
   const ed25519Candidates: AvailableEd25519SigningLane[] = [];
-  let ed25519Lane = emptyEd25519Lane();
-  let ed25519LaneUpdatedAtMs = 0;
   let generation = 0;
   const collectDiagnostics = isAvailableSigningLaneDiagnosticsEnabled();
   const durableEcdsaDiscovery: Record<string, unknown>[] = [];
@@ -2732,10 +2715,6 @@ export async function readAvailableSigningLanes(
     ed25519Candidates.push(lane);
     const updatedAtMs = availableLaneUpdatedAtMs(lane);
     generation = Math.max(generation, updatedAtMs);
-    if (updatedAtMs >= ed25519LaneUpdatedAtMs) {
-      ed25519LaneUpdatedAtMs = updatedAtMs;
-      ed25519Lane = lane;
-    }
   }
 
   for (const record of ecdsaRecords) {
@@ -2949,11 +2928,6 @@ export async function readAvailableSigningLanes(
     } else {
       ed25519Candidates.push(runtimeLane);
     }
-    const runtimeUpdatedAtMs = availableLaneUpdatedAtMs(runtimeLane);
-    if (runtimeUpdatedAtMs >= ed25519LaneUpdatedAtMs) {
-      ed25519LaneUpdatedAtMs = runtimeUpdatedAtMs;
-      ed25519Lane = runtimeLane;
-    }
   }
 
   const normalizedEd25519Candidates = collapseExactDuplicateAvailableLanes(
@@ -2965,12 +2939,7 @@ export async function readAvailableSigningLanes(
     normalizedEd25519Candidates,
     invalidLanes,
   );
-  const primaryEd25519Lane = activeEd25519Candidates.length
-    ? primaryEd25519LaneFromNormalizedCandidates({
-        primaryLane: ed25519Lane,
-        candidates: activeEd25519Candidates,
-      })
-    : emptyEd25519Lane();
+  const primaryEd25519Lane = activeEd25519Candidates[0] || emptyEd25519Lane();
   const preferredEd25519Lane = emailOtpPreferredEd25519PrimaryLane({
     primaryLane: primaryEd25519Lane,
     candidates: activeEd25519Candidates,

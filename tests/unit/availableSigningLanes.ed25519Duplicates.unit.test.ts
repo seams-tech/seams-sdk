@@ -392,6 +392,56 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
     ]);
   });
 
+  test('selects the canonical ready lane instead of a newer exhausted fallback', async () => {
+    const availableLanes = await readAvailableLanes({
+      runtimeEd25519Records: [
+        runtimeEd25519Record({
+          auth: PASSKEY_AUTH,
+          signingGrantId: 'wsess-ready-runtime',
+          thresholdSessionId: 'tsess-ready-runtime',
+          updatedAtMs: 100,
+        }),
+        runtimeEd25519Record({
+          auth: EMAIL_OTP_AUTH,
+          signingGrantId: 'wsess-exhausted-newer',
+          thresholdSessionId: 'tsess-exhausted-newer',
+          remainingUses: 0,
+          updatedAtMs: 900,
+        }),
+      ],
+      warmStatusAdvisories: new Map([
+        [
+          'tsess-ready-runtime',
+          {
+            kind: 'warm_status',
+            status: 'active',
+            thresholdSessionId: 'tsess-ready-runtime',
+            remainingUses: 3,
+            expiresAtMs: EXPIRES_AT_MS,
+          },
+        ],
+        [
+          'tsess-exhausted-newer',
+          {
+            kind: 'warm_status',
+            status: 'exhausted',
+            thresholdSessionId: 'tsess-exhausted-newer',
+            remainingUses: 0,
+          },
+        ],
+      ]),
+    });
+
+    expect(availableLanes.candidates.ed25519.near).toHaveLength(2);
+    expect(availableLanes.lanes.ed25519.near).toMatchObject({
+      auth: { kind: 'passkey' },
+      state: 'ready',
+      source: 'runtime_session_record',
+      signingGrantId: 'wsess-ready-runtime',
+      thresholdSessionId: 'tsess-ready-runtime',
+    });
+  });
+
   test('collapses same-authority durable Ed25519 sessions to the newest lane', async () => {
     const availableLanes = await readAvailableLanes({
       sealedRecords: [
