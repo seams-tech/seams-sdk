@@ -1,6 +1,5 @@
 import { toOptionalTrimmedString } from '@seams/sdk-server/cloud-host';
 import { normalizeLogger, type Logger } from '@seams/sdk-server/cloud-host';
-import type { CloudflareDurableObjectNamespaceLike } from '@seams/sdk-server/cloud-host';
 import {
   createSigningRootSecretShareKekResolver,
   type SigningRootKekProvider,
@@ -121,7 +120,6 @@ import type {
   D1BindingName,
   D1DatabaseLike,
   D1DatabaseName,
-  DurableObjectBindingName,
   TenantDataJurisdiction,
 } from '@seams/sdk-server/cloud-host';
 import {
@@ -134,7 +132,6 @@ const DEFAULT_CONSOLE_D1_BINDING_NAME = 'CONSOLE_DB';
 const DEFAULT_CONSOLE_D1_DATABASE_NAME = 'seams-console';
 const DEFAULT_SIGNER_D1_BINDING_NAME = 'SIGNER_DB';
 const DEFAULT_SIGNER_D1_DATABASE_NAME = 'seams-signer';
-const DEFAULT_THRESHOLD_STORE_BINDING_NAME = 'THRESHOLD_STORE';
 const DEFAULT_ROUTE_VERSION = 1;
 const DEFAULT_TOPOLOGY: CloudflareTenantTopology = 'shared';
 const DEFAULT_JURISDICTION: TenantDataJurisdiction = 'automatic';
@@ -142,7 +139,6 @@ const DEFAULT_JURISDICTION: TenantDataJurisdiction = 'automatic';
 export interface CloudflareD1ConsoleStorageBindings {
   readonly consoleDatabase: D1DatabaseLike;
   readonly signerMetadataDatabase: D1DatabaseLike;
-  readonly thresholdStore: CloudflareDurableObjectNamespaceLike;
   readonly kekProvider: SigningRootKekProvider;
 }
 
@@ -155,7 +151,6 @@ export interface CloudflareD1ConsoleStorageBindingNames {
   readonly consoleDatabaseName?: D1DatabaseName;
   readonly signerMetadataBindingName?: D1BindingName;
   readonly signerMetadataDatabaseName?: D1DatabaseName;
-  readonly thresholdStoreBindingName?: DurableObjectBindingName;
 }
 
 export interface CloudflareD1ConsoleRouteOptions {
@@ -342,7 +337,6 @@ interface NormalizedCloudflareD1ConsoleCommonOptions {
 
 interface NormalizedCloudflareD1ConsoleServiceBundleOptions extends NormalizedCloudflareD1ConsoleCommonOptions {
   readonly signerMetadataDatabase: D1DatabaseLike;
-  readonly thresholdStore: CloudflareDurableObjectNamespaceLike;
   readonly kekProvider: SigningRootKekProvider;
   readonly routeVersion: number;
   readonly topology: CloudflareTenantTopology;
@@ -351,7 +345,6 @@ interface NormalizedCloudflareD1ConsoleServiceBundleOptions extends NormalizedCl
   readonly consoleDatabaseName: D1DatabaseName;
   readonly signerMetadataBindingName: D1BindingName;
   readonly signerMetadataDatabaseName: D1DatabaseName;
-  readonly thresholdStoreBindingName: DurableObjectBindingName;
   readonly sponsorshipPricing?: SponsorshipSpendPricingService | null;
   readonly sponsoredEvmCallConfig?: SponsoredEvmCallExecutorConfig | null;
   readonly resolveSponsoredEvmExecutionAdapter?: SponsoredEvmExecutionAdapterResolver | null;
@@ -641,7 +634,6 @@ function normalizeCloudflareD1ConsoleServiceBundleOptions(
   return {
     consoleDatabase: options.bindings.consoleDatabase,
     signerMetadataDatabase: options.bindings.signerMetadataDatabase,
-    thresholdStore: options.bindings.thresholdStore,
     kekProvider: options.bindings.kekProvider,
     namespace: normalizeNamespace(options.route.namespace),
     routeVersion: normalizeRouteVersion(options.route.routeVersion),
@@ -666,11 +658,6 @@ function normalizeCloudflareD1ConsoleServiceBundleOptions(
       options.bindingNames?.signerMetadataDatabaseName,
       DEFAULT_SIGNER_D1_DATABASE_NAME,
       'signerMetadataDatabaseName',
-    ),
-    thresholdStoreBindingName: normalizeRequiredString(
-      options.bindingNames?.thresholdStoreBindingName,
-      DEFAULT_THRESHOLD_STORE_BINDING_NAME,
-      'thresholdStoreBindingName',
     ),
     ensureSchema: options.adapters?.ensureSchema !== false,
     now: options.adapters?.now,
@@ -736,8 +723,6 @@ function createCloudflareD1TenantRouteResolver(
     signerMetadataBindingName: options.signerMetadataBindingName,
     signerMetadataDatabaseName: options.signerMetadataDatabaseName,
     signerMetadataDatabase: options.signerMetadataDatabase,
-    thresholdStoreBindingName: options.thresholdStoreBindingName,
-    thresholdStore: options.thresholdStore,
     kekProvider: options.kekProvider,
   });
 }

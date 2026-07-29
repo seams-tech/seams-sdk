@@ -10,6 +10,7 @@ export * from './core/ThresholdService/stores/SigningRootSecretStore.d1';
 export * from './core/ThresholdService/stores/SigningRootSecretStore.shared';
 export * from './core/d1WalletStore';
 export * from './core/logger';
+export * from './core/routerAbSigning/RouterAbEcdsaPresignRuntime';
 export * from './core/types';
 export * from './delegateAction';
 export * from './router/apiCredentialPorts';

@@ -124,7 +124,6 @@ export type {
   D1DatabaseLike,
   D1DatabaseName,
   D1PreparedStatementLike,
-  DurableObjectBindingName,
   NamespaceId,
   OrgId,
   ResolveTenantStorageRouteInput,

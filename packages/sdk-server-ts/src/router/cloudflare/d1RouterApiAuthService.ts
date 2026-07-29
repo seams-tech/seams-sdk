@@ -47,7 +47,6 @@ import { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVeri
 import { CloudflareD1EmailOtpChallengeIssuer } from './d1EmailOtpChallengeIssuer';
 import { CloudflareD1EmailOtpChallengeService } from './d1EmailOtpChallengeService';
 import { CloudflareD1EmailOtpRecoveryService } from './d1EmailOtpRecoveryService';
-import { CloudflareD1RouterAbSigningRuntime } from './d1RouterAbSigningRuntime';
 import { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from './d1GoogleEmailOtpRegistrationAttemptStore';
 import { CloudflareD1GoogleEmailOtpSessionResolver } from './d1GoogleEmailOtpSessionResolver';
 import { CloudflareD1SessionStore } from './d1SessionStore';
@@ -110,14 +109,15 @@ export type {
 } from './d1RouterApiAuthConfig';
 
 export type CloudflareD1RouterApiAuthService = Omit<RouterApiServiceBag, 'thresholdRuntime'> & {
-  readonly thresholdRuntime: RouterApiServiceBag['thresholdRuntime'] &
-    Pick<CloudflareD1RouterAbSigningRuntime, 'getRouterAbLocalSigningSeedRuntime'>;
+  readonly thresholdRuntime: RouterApiServiceBag['thresholdRuntime'];
   readonly executeSignedDelegate: (
     input: ExecuteSignedDelegateRequest,
   ) => Promise<ExecuteSignedDelegateResult>;
 };
 
 type ScopedD1Prepare = (sql: string, values: readonly unknown[]) => D1PreparedStatementLike;
+const DEFAULT_D1_THRESHOLD_RELAYER_ACCOUNT = 'cloudflare-d1-relayer.local';
+const DEFAULT_D1_THRESHOLD_RELAYER_PUBLIC_KEY = 'd1-relayer-public-key';
 
 type D1IdentityLinkInput = {
   readonly userId: string;
@@ -157,13 +157,12 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly walletRegistrations: CloudflareD1WalletRegistrationService;
   readonly walletAddSigners: CloudflareD1WalletAddSignerService;
   readonly registrationIntents: CloudflareD1RegistrationIntentService;
-  readonly routerAbSigning: CloudflareD1RouterAbSigningRuntime;
   readonly signedDelegateExecutor: CloudflareD1SignedDelegateExecutor;
 };
 
 type D1WalletRegistrationRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'registrationIntents' | 'routerAbSigning' | 'walletRegistrations'
+  'registrationIntents' | 'walletRegistrations'
 >;
 
 type D1WalletAuthMethodRouteServiceAssembly = Pick<
@@ -202,7 +201,7 @@ type D1SessionVersionRouteServiceAssembly = Pick<
 
 type D1ThresholdRuntimeRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'options' | 'routerAbSigning'
+  'options'
 >;
 
 type D1NearFundingRouteServiceAssembly = Pick<
@@ -216,7 +215,7 @@ type D1EmailRecoveryAuthServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly
 
 type D1RouterAccountRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'routerAbSigning'
+  'options'
 >;
 
 class CloudflareD1SignedDelegateExecutor {
@@ -1159,16 +1158,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     projectId: options.projectId,
     envId: options.envId,
   });
-  const routerAbSigning = new CloudflareD1RouterAbSigningRuntime({
-    relayerAccount: options.relayerAccount,
-    relayerPublicKey: options.relayerPublicKey,
-    routerAbSigningRuntimes: options.routerAbSigningRuntimes,
-    thresholdStore: options.thresholdStore,
-    auth: {
-      verifyWebAuthnAuthenticationLite:
-        webAuthnAuthService.verifyWebAuthnAuthenticationLite.bind(webAuthnAuthService),
-    },
-  });
   const signedDelegateExecutor = new CloudflareD1SignedDelegateExecutor(options);
   const walletRegistrations = new CloudflareD1WalletRegistrationService({
     createSponsoredNamedNearAccount,
@@ -1246,7 +1235,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     walletRegistrations,
     walletAddSigners,
     registrationIntents,
-    routerAbSigning,
     signedDelegateExecutor,
   };
 }
@@ -1511,11 +1499,7 @@ function createD1ThresholdRuntimeRouteService(
       undefined,
       assembly.options,
     ),
-    getRouterAbEcdsaPresignRuntime: assembly.routerAbSigning.getRouterAbEcdsaPresignRuntime.bind(
-      assembly.routerAbSigning,
-    ),
-    getRouterAbLocalSigningSeedRuntime:
-      assembly.routerAbSigning.getRouterAbLocalSigningSeedRuntime.bind(assembly.routerAbSigning),
+    getRouterAbEcdsaPresignRuntime: () => assembly.options.routerAbEcdsaPresignRuntime || null,
   };
 }
 
@@ -1559,11 +1543,11 @@ function createD1EmailRecoveryAuthService(
 function createD1RouterAccountRouteService(
   assembly: D1RouterAccountRouteServiceAssembly,
 ): RouterApiServiceBag['router'] {
+  const accountId = assembly.options.relayerAccount || DEFAULT_D1_THRESHOLD_RELAYER_ACCOUNT;
+  const publicKey = assembly.options.relayerPublicKey || DEFAULT_D1_THRESHOLD_RELAYER_PUBLIC_KEY;
   return {
-    getConfiguredRelayerAccount: assembly.routerAbSigning.getConfiguredRelayerAccount.bind(
-      assembly.routerAbSigning,
-    ),
-    getRelayerAccount: assembly.routerAbSigning.getRelayerAccount.bind(assembly.routerAbSigning),
+    getConfiguredRelayerAccount: () => accountId,
+    getRelayerAccount: async () => ({ accountId, publicKey }),
   };
 }
 

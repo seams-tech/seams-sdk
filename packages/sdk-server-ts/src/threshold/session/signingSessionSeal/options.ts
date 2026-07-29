@@ -1,7 +1,4 @@
-import type { ThresholdStoreConfigInput } from '../../../core/types';
-import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { createSigningSessionSealShamir3PassCipherAdapter } from './crypto/cipher';
-import { resolveSigningSessionSealIdempotencyFromEnv } from './idempotencyBackends';
 import { createSigningSessionSealRoutesOptions } from './routesOptions';
 import {
   formatSigningSessionSealShamirPrimeB64uForWire,
@@ -17,7 +14,6 @@ export type CreateSigningSessionSealOptionsInput = {
   shamirPrimeB64u: string;
   serverEncryptExponentB64u: string;
   serverDecryptExponentB64u: string;
-  thresholdStoreConfig: ThresholdStoreConfigInput;
 };
 
 function createShamir3PassCipher(input: {
@@ -38,31 +34,6 @@ function createShamir3PassCipher(input: {
         serverDecryptExponentB64u: input.serverDecryptExponentB64u,
       },
     ],
-  });
-}
-
-function toPositiveInt(value: unknown): number | undefined {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
-  return Math.floor(parsed);
-}
-
-function buildIdempotencyOptions(thresholdStoreConfig: ThresholdStoreConfigInput) {
-  const config =
-    thresholdStoreConfig && typeof thresholdStoreConfig === 'object'
-      ? (thresholdStoreConfig as Record<string, unknown>)
-      : {};
-  const idempotencyKind = toOptionalTrimmedString(config.SIGNING_SESSION_SEAL_IDEMPOTENCY_KIND) || '';
-  if (!idempotencyKind) return undefined;
-
-  return resolveSigningSessionSealIdempotencyFromEnv({
-    idempotencyKind,
-    upstashUrl: toOptionalTrimmedString(config.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL) || null,
-    upstashToken:
-      toOptionalTrimmedString(config.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN) || null,
-    redisUrl: toOptionalTrimmedString(config.SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL) || null,
-    keyPrefix: toOptionalTrimmedString(config.SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX) || undefined,
-    ttlMs: toPositiveInt(config.SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS),
   });
 }
 
@@ -88,7 +59,6 @@ export function createSigningSessionSealOptions(input: CreateSigningSessionSealO
       keyVersion,
       shamirPrimeB64u,
     },
-    idempotency: buildIdempotencyOptions(input.thresholdStoreConfig),
     logger: console,
   });
 }
