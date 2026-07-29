@@ -771,6 +771,12 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 - [ ] Send the first exact activation through Passkey session exchange and
       Email OTP wallet-unlock verification; use its Wallet Session JWT for
       additional configured targets.
+  - [x] Passkey assertion exchange verifies the proof, provisions the first
+        exact ECDSA activation, adopts that correlated activation locally, and
+        reuses its Wallet Session JWT for later targets.
+  - [ ] Email OTP wallet-unlock verification performs the equivalent first
+        activation and later-target reuse without exposing worker-owned secret
+        material.
 - [ ] Keep step-up single-operation across signing and export surfaces.
 
 ### Provisioning

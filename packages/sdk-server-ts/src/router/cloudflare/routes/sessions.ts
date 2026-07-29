@@ -19,6 +19,7 @@ import { handleStrictEcdsaSessionActivation } from './thresholdEcdsa';
 import {
   parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+  type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   routerApiEmailOtpRouteService,
@@ -1201,6 +1202,40 @@ export async function handleSessionExchange(
         },
       }),
     );
+    let ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | undefined;
+    if (
+      command.kind === 'passkey_assertion' &&
+      command.ecdsaActivation.kind === 'activate_first_ecdsa_wallet_session'
+    ) {
+      if (!passkeyAuthorityRef) {
+        throw new Error('verified passkey exchange did not resolve an authority');
+      }
+      const activationResponse = await handleStrictEcdsaSessionActivation({
+        ctx,
+        body: command.ecdsaActivation.request,
+        source: 'verified_passkey_session_exchange',
+        authorization: {
+          walletId: userId,
+          principalId,
+          authorizationSessionId: seamsSessionId,
+          authority: passkeyAuthorityRef,
+        },
+      });
+      const activationBody: unknown = await activationResponse.json();
+      if (!activationResponse.ok) {
+        const failure = isPlainObject(activationBody) ? activationBody : {};
+        await emitSessionExchangeFailed(ctx, {
+          status: activationResponse.status,
+          code: String(failure.code || 'ecdsa_session_activation_failed'),
+          message: String(failure.message || 'ECDSA Wallet Session activation failed'),
+          exchangeType,
+          sessionKind,
+          userId,
+        });
+        return json(activationBody, { status: activationResponse.status });
+      }
+      ecdsaSession = parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(activationBody);
+    }
     if (
       isGoogleEmailOtpExchange &&
       oidcAccountMode === 'login' &&
@@ -1253,6 +1288,7 @@ export async function handleSessionExchange(
     }
     const responseBody = {
       ok: true,
+      ...(ecdsaSession ? { ecdsaSession } : {}),
       session: {
         kind: 'app_session_v1',
         userId,
@@ -1628,16 +1664,12 @@ export async function handleReusableWalletSessionStatus(
     );
   }
   const nowMs = Date.now();
-  const activeAuthorizationSession =
-    await ctx.service.authorizationSessions.readActiveSession({
-      tenantId: tenantId.value,
-      sessionId: authorizationSessionId.value,
-      nowMs,
-    });
-  if (
-    !activeAuthorizationSession ||
-    activeAuthorizationSession.principalId !== principalId.value
-  ) {
+  const activeAuthorizationSession = await ctx.service.authorizationSessions.readActiveSession({
+    tenantId: tenantId.value,
+    sessionId: authorizationSessionId.value,
+    nowMs,
+  });
+  if (!activeAuthorizationSession || activeAuthorizationSession.principalId !== principalId.value) {
     return json(
       { ok: false, code: 'unauthorized', message: 'App session is unavailable' },
       { status: 401 },

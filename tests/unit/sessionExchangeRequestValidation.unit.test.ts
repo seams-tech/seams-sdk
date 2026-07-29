@@ -1,5 +1,96 @@
 import { expect, test } from '@playwright/test';
 import { parseSessionExchangeRouteCommand } from '../../packages/sdk-server-ts/src/router/sessionExchangeRequestValidation';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+
+const PASSKEY_ASSERTION = {
+  id: 'credential-id',
+  rawId: 'credential-id',
+  type: 'public-key',
+  authenticatorAttachment: null,
+  response: {
+    clientDataJSON: 'client-data',
+    authenticatorData: 'authenticator-data',
+    signature: 'signature',
+    userHandle: null,
+  },
+  clientExtensionResults: null,
+};
+
+function firstEcdsaSessionActivationRequest() {
+  const bootstrap = createThresholdEcdsaBootstrapFixture({
+    nearAccountId: 'alice.testnet',
+    chain: 'evm',
+  });
+  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  if (!binding || binding.materialKind !== 'role_local_worker_handle') {
+    throw new Error('expected passkey ECDSA role-local fixture');
+  }
+  if (!bootstrap.session.runtimePolicyScope) {
+    throw new Error('expected ECDSA runtime policy scope');
+  }
+  return {
+    kind: 'router_ab_ecdsa_post_registration_session_activation_v1',
+    public_capability: binding.publicFacts.publicCapability,
+    session_policy: {
+      threshold_session_id: bootstrap.session.thresholdSessionId,
+      signing_grant_id: bootstrap.session.signingGrantId,
+      ttl_ms: 120_000,
+      remaining_uses: bootstrap.session.remainingUses,
+      runtime_policy_scope: bootstrap.session.runtimePolicyScope,
+    },
+  };
+}
+
+test.describe('passkey session exchange ECDSA activation validation', () => {
+  test('accepts exact first-session activation only on passkey exchange', () => {
+    const activation = firstEcdsaSessionActivationRequest();
+    const parsed = parseSessionExchangeRouteCommand({
+      sessionKind: 'jwt',
+      exchange: {
+        type: 'passkey_assertion',
+        challengeId: 'challenge-id',
+        webauthn_authentication: PASSKEY_ASSERTION,
+        ecdsa_session_activation: activation,
+      },
+    });
+    if (!parsed.ok) throw new Error(parsed.body.message);
+    expect(parsed).toMatchObject({
+      ok: true,
+      command: {
+        kind: 'passkey_assertion',
+        ecdsaActivation: {
+          kind: 'activate_first_ecdsa_wallet_session',
+          request: activation,
+        },
+      },
+    });
+  });
+
+  test('rejects ECDSA activation on OIDC and hosted-wallet exchanges', () => {
+    const activation = firstEcdsaSessionActivationRequest();
+    expect(
+      parseSessionExchangeRouteCommand({
+        sessionKind: 'jwt',
+        exchange: {
+          type: 'oidc_jwt',
+          token: 'oidc-token',
+          provider: 'oidc',
+          ecdsa_session_activation: activation,
+        },
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseSessionExchangeRouteCommand({
+        sessionKind: 'jwt',
+        exchange: {
+          type: 'hosted_wallet_exchange_code',
+          wallet_origin: 'https://wallet.example.test',
+          ecdsa_session_activation: activation,
+        },
+      }),
+    ).toMatchObject({ ok: false });
+  });
+});
 
 test.describe('hosted-wallet Seams session exchange request validation', () => {
   test('parses code issuance and redemption as exact JWT exchanges', () => {

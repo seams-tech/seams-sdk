@@ -171,8 +171,7 @@ async function issueEcdsaOperationStepUpGrant(input: {
   if (
     operation.wallet_id !== authenticated.session.walletId ||
     operation.normal_signing_scope.wallet_id !== operation.wallet_id ||
-    operation.normal_signing_scope.signing_worker.server_id !==
-      operation.signing_worker_id ||
+    operation.normal_signing_scope.signing_worker.server_id !== operation.signing_worker_id ||
     operation.material_activation.material_owner !== authenticated.session.walletId ||
     operation.material_activation.signing_worker !== operation.signing_worker_id ||
     operation.expires_at_ms <= Date.now() ||
@@ -205,9 +204,7 @@ async function issueEcdsaOperationStepUpGrant(input: {
       capabilityId: requireAuthorizationValue(
         parseCapabilityId(operation.material_activation.capability),
       ),
-      operationId: requireAuthorizationValue(
-        parseCapabilityOperationId(operation.operation_id),
-      ),
+      operationId: requireAuthorizationValue(parseCapabilityOperationId(operation.operation_id)),
       operation: buildEvmEcdsaMpcOperationRef('evm.sign_transaction'),
       digests: {
         laneDigest: parseDigestB64u(operation.operation_digests.lane_digest_b64u),
@@ -225,8 +222,7 @@ async function issueEcdsaOperationStepUpGrant(input: {
       { status: 400 },
     );
   }
-  const expectedChallenge =
-    await computeRouterAbEcdsaOperationStepUpChallengeB64u(operation);
+  const expectedChallenge = await computeRouterAbEcdsaOperationStepUpChallengeB64u(operation);
   const nowMs = Date.now();
   const requestId = operation.operation_id;
   const evidenceId = requireAuthorizationValue(
@@ -241,8 +237,7 @@ async function issueEcdsaOperationStepUpGrant(input: {
     case 'passkey': {
       if (
         activeSession.authSource.kind !== 'passkey' ||
-        proof.authority.factor.credentialIdB64u !==
-          activeSession.authSource.credentialIdB64u
+        proof.authority.factor.credentialIdB64u !== activeSession.authSource.credentialIdB64u
       ) {
         return json(
           { ok: false, code: 'scope_mismatch', message: 'Passkey authority changed' },
@@ -335,9 +330,7 @@ async function issueEcdsaOperationStepUpGrant(input: {
         ),
         authorityRef: authenticated.authorityRef,
         operation: envelope,
-        challengeId: requireAuthorizationValue(
-          parseEmailOtpChallengeId(consumed.challengeId),
-        ),
+        challengeId: requireAuthorizationValue(parseEmailOtpChallengeId(consumed.challengeId)),
         verificationReceiptDigest: parseDigestB64u(
           base64UrlEncode(
             await sha256BytesUtf8(
@@ -507,10 +500,7 @@ async function authorizeEcdsaPoolFillOperationStepUp(input: {
       keyHandle: input.operation.key_handle,
       runtimePolicyScope: authenticated.session.runtimePolicyScope,
       participantIds: [...input.operation.participant_ids],
-      thresholdExpiresAtMs: Math.min(
-        input.operation.expires_at_ms,
-        authenticated.expiresAtMs,
-      ),
+      thresholdExpiresAtMs: Math.min(input.operation.expires_at_ms, authenticated.expiresAtMs),
       routerAbEcdsaDerivationNormalSigning: {
         kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
         scope: input.operation.normal_signing_scope,
@@ -521,9 +511,7 @@ async function authorizeEcdsaPoolFillOperationStepUp(input: {
 
 async function authorizeEcdsaPoolFill(input: {
   readonly ctx: CloudflareRouterApiContext;
-  readonly request:
-    | RouterAbEcdsaPoolFillInitRouteRequest
-    | RouterAbEcdsaPoolFillStepRouteRequest;
+  readonly request: RouterAbEcdsaPoolFillInitRouteRequest | RouterAbEcdsaPoolFillStepRouteRequest;
 }): Promise<RouterAbEcdsaPoolFillAuthorizationResult> {
   switch (input.request.authorization.kind) {
     case 'reusable_wallet_session': {
@@ -541,10 +529,7 @@ async function authorizeEcdsaPoolFill(input: {
           },
         };
       }
-      if (
-        input.request.authorization.wallet_session_id !==
-        validated.claims.walletSessionId
-      ) {
+      if (input.request.authorization.wallet_session_id !== validated.claims.walletSessionId) {
         return {
           ok: false,
           error: {
@@ -1200,11 +1185,27 @@ async function authorizeStrictEcdsaSessionActivation(input: {
   return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
 }
 
-export async function handleStrictEcdsaSessionActivation(input: {
-  readonly ctx: CloudflareRouterApiContext;
-  readonly body: unknown;
-  readonly source: 'verified_wallet_unlock' | 'additional_wallet_target';
-}): Promise<Response> {
+type StrictEcdsaSessionActivationInput =
+  | {
+      readonly ctx: CloudflareRouterApiContext;
+      readonly body: unknown;
+      readonly source: 'verified_wallet_unlock' | 'additional_wallet_target';
+    }
+  | {
+      readonly ctx: CloudflareRouterApiContext;
+      readonly body: unknown;
+      readonly source: 'verified_passkey_session_exchange';
+      readonly authorization: {
+        readonly walletId: string;
+        readonly principalId: PrincipalId;
+        readonly authorizationSessionId: SeamsSessionId;
+        readonly authority: WalletAuthAuthorityRef;
+      };
+    };
+
+export async function handleStrictEcdsaSessionActivation(
+  input: StrictEcdsaSessionActivationInput,
+): Promise<Response> {
   let request: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
   try {
     request = parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(input.body);
@@ -1221,11 +1222,26 @@ export async function handleStrictEcdsaSessionActivation(input: {
       { status: 400 },
     );
   }
-  const authorized = await authorizeStrictEcdsaSessionActivation({
-    ctx: input.ctx,
-    walletId: request.public_capability.client_id,
-    source: input.source,
-  });
+  const authorized =
+    input.source === 'verified_passkey_session_exchange'
+      ? request.public_capability.client_id === input.authorization.walletId
+        ? {
+            ok: true as const,
+            kind: 'issue_reusable_wallet_session' as const,
+            principalId: input.authorization.principalId,
+            authorizationSessionId: input.authorization.authorizationSessionId,
+            authority: input.authorization.authority,
+          }
+        : {
+            ok: false as const,
+            code: 'identity_mismatch' as const,
+            message: 'ECDSA activation wallet does not match the verified passkey principal',
+          }
+      : await authorizeStrictEcdsaSessionActivation({
+          ctx: input.ctx,
+          walletId: request.public_capability.client_id,
+          source: input.source,
+        });
   if (!authorized.ok) {
     return json(authorized, {
       status: strictEcdsaAuthorizationFailureStatus(authorized),

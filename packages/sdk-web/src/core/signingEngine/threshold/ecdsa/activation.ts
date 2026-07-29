@@ -68,6 +68,7 @@ import {
   verifyRouterAbEcdsaDerivationNormalSigningScopeContextBindingV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
+  type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RootShareEpoch } from '@shared/utils/domainIds';
 import type {
@@ -375,7 +376,15 @@ type ActivateEcdsaRegistrationRequest = ActivateEcdsaRegistrationRequestBase &
   ActivateEcdsaSessionAuth;
 
 type ActivateEcdsaExistingSessionRequest = ActivateEcdsaExistingSessionRequestBase &
-  ActivateEcdsaSessionAuth & { purpose: 'transaction_signing' };
+  ActivateEcdsaSessionAuth & { purpose: 'transaction_signing' } & (
+    | {
+        preauthorizedSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        walletSessionRouteAuth?: never;
+      }
+    | {
+        preauthorizedSessionActivation?: never;
+      }
+  );
 
 export type ActivateEmailOtpExplicitExportBootstrapSessionRequest =
   ActivateEcdsaExistingSessionRequestBase &
@@ -710,7 +719,9 @@ async function activateEcdsaSessionByPurpose(
           runtimeScopeBootstrap: args.runtimeScopeBootstrap,
           workerCtx: deps.workerCtx,
           ...bootstrapSecretSourceArgs,
-          bootstrapAuth: requireStrictEcdsaRouteAuth(args.walletSessionRouteAuth),
+          ...('preauthorizedSessionActivation' in args && args.preauthorizedSessionActivation
+            ? { sessionActivation: args.preauthorizedSessionActivation }
+            : { bootstrapAuth: requireStrictEcdsaRouteAuth(args.walletSessionRouteAuth) }),
           keyHandle: args.keyHandle,
           key: args.key,
           lanePolicy: args.lanePolicy,
