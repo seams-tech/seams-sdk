@@ -640,7 +640,7 @@ the replacement and legacy MPC paths must not ship together.
       and never receives the active client.
 - [x] Delete the dead Email OTP registration-commit worker operation and reject
       non-positive or unsafe signer slots at the remaining persistence boundary.
-- [ ] Keep live secret material owned by the worker or WASM boundary.
+- [x] Keep live secret material owned by the worker or WASM boundary.
 - [ ] Preserve the Refactor 93 rule that `SigningWorker` receives the exact A/B
       package pair atomically and the Refactor 94C rule that its activation,
       delivery, session, budget, and presign effects live in private D1.
