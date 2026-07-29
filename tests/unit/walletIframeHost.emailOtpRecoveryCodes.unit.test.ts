@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createWalletIframeHandlers } from '@/SeamsWeb/walletIframe/host/wallet-iframe-handlers';
+import { redeemHostedWalletSeamsSession } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import { routeWalletHostRequest } from '@/SeamsWeb/walletIframe/host/requestRouter';
 import type {
   ChildToParentEnvelope,
@@ -26,6 +27,30 @@ function handlerDeps(input: { seamsWeb: unknown; posts: ChildToParentEnvelope[] 
 }
 
 test.describe('wallet iframe Email OTP recovery-code RPC', () => {
+  test('rejects legacy fields in the hosted-wallet session exchange response', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          session: {},
+          jwt: 'legacy-token',
+          session_id: 'legacy-session',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    try {
+      await expect(
+        redeemHostedWalletSeamsSession(
+          { exchangeCode: 'exchange-1', nonce: 'nonce-1' },
+          'https://relay.example.test',
+        ),
+      ).rejects.toThrow(/Unsupported hosted-wallet redemption response field: session_id/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test('routes recovery-code status to the Email OTP runtime', () => {
     const statusRoute = routeWalletHostRequest({
       type: 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS',
@@ -56,6 +81,11 @@ test.describe('wallet iframe Email OTP recovery-code RPC', () => {
       sub: 'alice',
       seamsSessionId: 'session-wallet-1',
       deviceId: 'device-1',
+      sessionAudience: {
+        kind: 'hosted_wallet_iframe',
+        appOrigin: 'https://app.example.test',
+        walletOrigin: 'https://wallet.example.test',
+      },
       exp: Math.floor(Date.now() / 1000) + 3600,
     })}.signature`;
     const walletOrigin = 'https://wallet.example.test';
