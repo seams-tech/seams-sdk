@@ -867,16 +867,6 @@ export interface EmailOtpWorkerOperationMap {
       | { ok: true; remainingUses: number; expiresAtMs: number }
       | { ok: false; code: string; message: string };
   };
-  claimEmailOtpWarmSessionMaterial: {
-    payload: {
-      sessionId: string;
-      uses?: number;
-      consume?: boolean;
-    };
-    result:
-      | { ok: true; prfFirstB64u: string; remainingUses: number; expiresAtMs: number }
-      | { ok: false; code: string; message: string };
-  };
   consumeEmailOtpWarmSessionUses: {
     payload: {
       sessionId: string;
@@ -1102,7 +1092,6 @@ export type EmailOtpWarmSessionOperationType =
   | 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle'
   | 'bindEmailOtpEcdsaWarmSessionFromWorkerHandle'
   | 'getEmailOtpWarmSessionStatus'
-  | 'claimEmailOtpWarmSessionMaterial'
   | 'consumeEmailOtpWarmSessionUses'
   | 'sealEmailOtpWarmSessionMaterial'
   | 'rehydrateEmailOtpEcdsaWarmSessionMaterial'

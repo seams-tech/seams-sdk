@@ -103,26 +103,6 @@ export async function requestGetEmailOtpWarmSessionStatus(args: {
   });
 }
 
-export async function requestClaimEmailOtpWarmSessionMaterial(args: {
-  worker: EmailOtpWorkerRequester;
-  sessionId: string;
-  uses?: number;
-  consume?: boolean;
-}): Promise<SignerWorkerOperationResult<'emailOtp', 'claimEmailOtpWarmSessionMaterial'>> {
-  return await args.worker.requestWorkerOperation({
-    kind: 'emailOtp',
-    request: {
-      type: 'claimEmailOtpWarmSessionMaterial',
-      timeoutMs: 5_000,
-      payload: {
-        sessionId: args.sessionId,
-        ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
-        ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
-      },
-    },
-  });
-}
-
 export async function requestConsumeEmailOtpWarmSessionUses(args: {
   worker: EmailOtpWorkerRequester;
   sessionId: string;
