@@ -414,6 +414,11 @@ No mixed-topology revision is deployed.
 - [x] Run one optimized local Email OTP and one passkey registration.
 - [ ] Deploy one coherent staging revision and manually exercise registration,
       unlock/sign, recovery, and export.
+      Progress (July 30, 2026): a staging revision is deployed and passkey and
+      Email OTP registration were exercised there. Recovery and export remain
+      unexercised — the ECDSA recovery and server-share-refresh Router calls
+      lacked their request policy until the fix landed on this branch, so the
+      checkbox stays open until they pass on a redeployed revision.
 - [x] Confirm the existing timing summary reports zero DO intervals and a
       wallet-ready result within 3 seconds.
 - [ ] Deploy the same revision to production after staging passes.
