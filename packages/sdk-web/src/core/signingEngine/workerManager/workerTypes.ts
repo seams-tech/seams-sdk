@@ -40,12 +40,6 @@ import type { EmailOtpChallengeDelivery } from '../session/emailOtp/publicTypes'
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpRoutePlan } from '../stepUpConfirmation/otpPrompt/authLane';
 import type {
-  WalletRegistrationEcdsaClientBootstrap,
-  WalletRegistrationEcdsaPrepareContext,
-} from '@/core/rpcClients/relayer/walletRegistration';
-import type {
-  EcdsaPreparePublicFacts,
-  EcdsaRoleLocalPendingStateBlob,
   EcdsaRoleLocalReadyStateBlob,
   EmailOtpWorkerSessionSecretSource,
   PrepareEcdsaClientBootstrapInput,
@@ -738,30 +732,6 @@ export interface EmailOtpWorkerOperationMap {
     payload: { activeClientHandle: string };
     result: { removed: boolean };
   };
-  prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle: {
-    payload: {
-      prepare: WalletRegistrationEcdsaPrepareContext;
-      clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
-      chainTarget: ThresholdEcdsaChainTarget;
-    };
-    result: {
-      clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
-      pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
-      preparePublicFacts: EcdsaPreparePublicFacts;
-      retainedClientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
-    };
-  };
-  commitEmailOtpEcdsaRegistrationWarmMaterial: {
-    payload: {
-      walletId: string;
-      chainTarget: ThresholdEcdsaChainTarget;
-      retainedClientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
-      thresholdSessionId: string;
-      expiresAtMs: number;
-      remainingUses: number;
-    };
-    result: { committed: true };
-  };
   prepareEcdsaClientBootstrapFromEmailOtpHandle: {
     payload: {
       input: EmailOtpPrepareEcdsaClientBootstrapInput;
@@ -1113,7 +1083,6 @@ export type EmailOtpChallengeOperationType =
 export type EmailOtpEnrollmentOperationType =
   | 'enrollEmailOtpWallet'
   | 'prepareEmailOtpRegistrationEnrollmentMaterial'
-  | 'prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle'
   | 'prepareEcdsaClientBootstrapFromEmailOtpHandle'
   | 'bindEmailOtpEd25519YaoRoot'
   | 'disposeEmailOtpEd25519YaoPendingFactor'
