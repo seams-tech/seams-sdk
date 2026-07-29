@@ -40,14 +40,10 @@ import type {
   WebAuthnAuthenticationCredential,
 } from '../core/types';
 import type {
-  CancelRegistrationIntentRequest,
-  CancelRegistrationIntentResponse,
   CreateAddAuthMethodIntentRequest,
   CreateAddAuthMethodIntentResponse,
   CreateAddSignerIntentRequest,
   CreateAddSignerIntentResponse,
-  CreateRegistrationIntentRequest,
-  CreateRegistrationIntentResponse,
   WalletAddAuthMethodFinalizeRequest,
   WalletAddAuthMethodFinalizeResponse,
   WalletAddAuthMethodStartRequest,
@@ -60,15 +56,11 @@ import type {
   WalletAddSignerEcdsaDerivationRespondResponse,
   WalletAddSignerStartRequest,
   WalletAddSignerStartResponse,
-  WalletRegistrationFinalizeRequest,
-  WalletRegistrationFinalizeResponse,
   WalletRegistrationEcdsaActivationRequest,
   WalletRegistrationEcdsaActivationResponse,
   WalletRegistrationEcdsaDerivationRespondRequest,
   WalletRegistrationEcdsaDerivationRespondResponse,
   WalletRegistrationEcdsaWalletKey,
-  WalletRegistrationStartRequest,
-  WalletRegistrationStartResponse,
   WalletRevokeAuthMethodRequest,
   WalletRevokeAuthMethodResponse,
 } from '../core/registrationContracts';
@@ -538,10 +530,6 @@ export type RouterApiMethodTypes = {
     readonly input: WalletAddSignerFinalizeRequest;
     readonly result: WalletAddSignerFinalizeResponse;
   };
-  finalizeWalletRegistration: {
-    readonly input: WalletRegistrationFinalizeRequest;
-    readonly result: WalletRegistrationFinalizeResponse;
-  };
   fundImplicitNearAccount: {
     readonly input: FundImplicitNearAccountRequest;
     readonly result: FundImplicitNearAccountResult;
@@ -835,10 +823,6 @@ export type RouterApiMethodTypes = {
   startWalletAddSigner: {
     readonly input: WalletAddSignerStartRequest;
     readonly result: WalletAddSignerStartResponse;
-  };
-  startWalletRegistration: {
-    readonly input: WalletRegistrationStartRequest;
-    readonly result: WalletRegistrationStartResponse;
   };
   unlinkIdentity: {
     readonly input: { readonly userId: string; readonly subject: string };
