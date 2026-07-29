@@ -22,6 +22,8 @@ import type {
 
 const SHA256_BYTES = 32;
 const STRICT_BEARER_VALUE = /^Bearer ([A-Za-z0-9._~-]{1,1024})$/;
+// Signed setup JWTs are verified before this adapter and may carry the setup policy snapshot.
+const VERIFIED_INTENT_CREDENTIAL = /^[A-Za-z0-9._~-]{1,8192}$/;
 const UTF8 = new TextEncoder();
 
 type RouterAbEd25519YaoRegistrationBindingV1 =
@@ -400,7 +402,7 @@ export class InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter im
     verified: RouterAbEd25519YaoVerifiedActivationIntentV1,
   ): Promise<RouterAbEd25519YaoRegistrationIntentBindingResult> {
     const credential = activationIntentCredential(verified);
-    if (!STRICT_BEARER_VALUE.test(`Bearer ${credential}`)) {
+    if (!VERIFIED_INTENT_CREDENTIAL.test(credential)) {
       return {
         ok: false,
         code: 'invalid_registration_intent',
