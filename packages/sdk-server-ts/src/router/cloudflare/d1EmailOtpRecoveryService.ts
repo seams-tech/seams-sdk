@@ -946,10 +946,9 @@ export class CloudflareD1EmailOtpRecoveryService {
 function normalizeRecoveryCodeStatusInput(
   input: GetEmailOtpRecoveryCodeStatusInput,
 ): ParseResult<NormalizedRecoveryCodeStatusInput, GetEmailOtpRecoveryCodeStatusResult> {
-  const userId = toOptionalTrimmedString(input.userId);
-  const walletId = parseD1BoundaryWalletIdResult(input.walletId);
-  const orgId = toOptionalTrimmedString(input.orgId);
-  if (!userId) return invalidRecoveryCodeStatusBody('Missing userId');
+  const userId = input.subject.providerSubject;
+  const walletId = parseD1BoundaryWalletIdResult(input.subject.walletId);
+  const orgId = input.subject.orgId;
   if (!walletId.ok) {
     return invalidRecoveryCodeStatusBody(
       walletId.code === 'missing' ? 'Missing walletId' : 'Invalid walletId',

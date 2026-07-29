@@ -244,9 +244,12 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     });
     await expect(
       service.emailOtp.getEmailOtpRecoveryCodeStatus({
-        userId: 'google:not-enrolled',
-        walletId: 'missing-email-wallet.testnet',
-        orgId: scope.orgId,
+        subject: {
+          kind: 'provider_identity',
+          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
+          providerSubject: requireParsedDomainId(parseProviderSubject('google:not-enrolled')),
+          walletId: walletIdFromString('missing-email-wallet.testnet'),
+        },
       }),
     ).resolves.toEqual({
       ok: true,
@@ -263,9 +266,12 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     });
     await expect(
       service.emailOtp.getEmailOtpRecoveryCodeStatus({
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
+        subject: {
+          kind: 'provider_identity',
+          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
+          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
+          walletId: walletIdFromString('email-wallet.testnet'),
+        },
       }),
     ).resolves.toEqual({
       ok: true,

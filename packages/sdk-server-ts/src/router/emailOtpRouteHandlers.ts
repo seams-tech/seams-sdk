@@ -1,7 +1,10 @@
 import { toOptionalRecordString } from '@shared/utils/validation';
 import { parseOrgId, parseProviderSubject, parseWalletId } from '@shared/utils/domainIds';
 import { EMAIL_OTP_CHANNEL, WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
-import type { EmailOtpGrantSubject, RouterApiEmailOtpRouteService } from './authServicePort';
+import type {
+  EmailOtpProviderIdentitySubject,
+  RouterApiEmailOtpRouteService,
+} from './authServicePort';
 import type { RouterApiOptions } from './routerApi';
 import {
   authorizeEmailOtpExportPolicy,
@@ -44,7 +47,7 @@ function providerEmailOtpGrantSubject(input: {
   readonly orgId: string;
   readonly providerUserId: string;
   readonly walletId: string;
-}): EmailOtpGrantSubject | null {
+}): EmailOtpProviderIdentitySubject | null {
   const orgId = parseOrgId(input.orgId);
   const providerSubject = parseProviderSubject(input.providerUserId);
   const walletId = parseWalletId(input.walletId);
@@ -792,10 +795,16 @@ export async function handleEmailOtpRecoveryKeyStatusRoute(input: {
   });
   if (!providerUser.ok) return providerUser.response;
 
-  const result = await input.service.getEmailOtpRecoveryCodeStatus({
-    userId: providerUser.providerUserId,
-    walletId: walletValidation.walletId,
+  const subject = providerEmailOtpGrantSubject({
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    providerUserId: providerUser.providerUserId,
+    walletId: walletValidation.walletId,
+  });
+  if (!subject) {
+    return { status: 400, body: { ok: false, code: 'invalid_body', message: 'Invalid OTP subject' } };
+  }
+  const result = await input.service.getEmailOtpRecoveryCodeStatus({
+    subject,
   });
   return { status: emailOtpResultStatus(result), body: result };
 }
