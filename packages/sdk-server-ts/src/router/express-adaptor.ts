@@ -96,6 +96,28 @@ export {
   createInMemoryRouterApiRuntimeSnapshotConsumer,
   validateRuntimeSnapshotExpectation,
 } from './runtimeSnapshotConsumer';
+export {
+  RouterAbEd25519YaoHttpRegistrationBackend,
+  createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
+} from './routerAbEd25519YaoHttpRegistrationBackend';
+export type {
+  RouterAbEd25519YaoHttpRegistrationBackendConfig,
+  RouterAbEd25519YaoHttpRegistrationBackendRawEnv,
+} from './routerAbEd25519YaoHttpRegistrationBackend';
+export {
+  createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1,
+  createRouterAbEd25519YaoProductRegistrationRuntimeV1,
+  createRouterAbEd25519YaoProductRegistrationStateV1,
+} from './routerAbEd25519YaoProductRegistration';
+export type {
+  RouterAbEd25519YaoProductRecoveryServicePortV1,
+  RouterAbEd25519YaoProductRegistrationAuthorizationPortV1,
+  RouterAbEd25519YaoProductRegistrationCompositionV1,
+  RouterAbEd25519YaoProductRegistrationPortsV1,
+  RouterAbEd25519YaoProductRegistrationRuntimeV1,
+  RouterAbEd25519YaoProductRegistrationServicePortV1,
+  RouterAbEd25519YaoProductRegistrationStateV1,
+} from './routerAbEd25519YaoProductRegistration';
 
 function appendExpressRequestHeaders(headers: Headers, req: ExpressRequest): void {
   for (const [name, value] of Object.entries(req.headers)) {
