@@ -29,18 +29,17 @@ import {
   type HydratedEcdsaSignerMaterial,
   type DurableEvmFamilyEcdsaPublicFactsRecord,
   type EmailOtpEcdsaAuthBinding,
-  type EcdsaWalletSessionTransportAuth,
+  type WalletSessionJwtTransportAuth,
   type PasskeyEcdsaAuthBinding,
   type ReadyEcdsaSignerSession,
   type ReadyRouterAbEcdsaDerivationNormalSigning,
   type ReadyThresholdEcdsaSignerTransport,
   type ReadyThresholdEcdsaSession,
-  type ReadyThresholdEcdsaSessionPolicy,
+  type KnownReadyThresholdEcdsaSessionPolicy,
   type ReadyEvmFamilyEcdsaMaterial,
   type ResolvedEvmFamilyEcdsaKey,
   type ThresholdEcdsaPublicKeyB64u,
   type VerifiedEcdsaPublicFacts,
-  type WalletSessionJwtTransportAuth,
 } from './evmFamilyEcdsaIdentity';
 import { walletIdFromWalletProfile } from '../../interfaces/ecdsaChainTarget';
 import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -363,7 +362,7 @@ const knownReadySessionPolicy = buildKnownReadyThresholdEcdsaSessionPolicy({
 void knownReadySessionPolicy;
 
 // @ts-expect-error known ready threshold-session policy requires remainingUses.
-const invalidKnownReadySessionPolicyMissingUses: ReadyThresholdEcdsaSessionPolicy = {
+const invalidKnownReadySessionPolicyMissingUses: KnownReadyThresholdEcdsaSessionPolicy = {
   kind: 'known_threshold_ecdsa_session_policy',
   expiresAtMs: 1_900_000_000_000,
 };
@@ -380,12 +379,12 @@ const invalidReadySessionWithAuth: ReadyThresholdEcdsaSession = {
 void invalidReadySessionWithAuth;
 
 // @ts-expect-error Wallet Session JWT auth requires a token.
-const invalidWalletSessionJwtTransportAuth: EcdsaWalletSessionTransportAuth = {
+const invalidWalletSessionJwtTransportAuth: WalletSessionJwtTransportAuth = {
   kind: 'wallet_session_jwt',
 };
 void invalidWalletSessionJwtTransportAuth;
 
-const invalidCookieTransportAuth: EcdsaWalletSessionTransportAuth = {
+const invalidCookieTransportAuth: WalletSessionJwtTransportAuth = {
   // @ts-expect-error ECDSA Wallet Session transport auth is bearer-JWT only.
   kind: 'browser_cookie',
   walletSessionJwt: walletSessionJwtTransportAuth.walletSessionJwt,
