@@ -93,10 +93,14 @@ replacement.
 
 - ~~`evmFamilySigningKeySlotId` in `WalletUnlockSubject`~~ — replaced by exact
   `ecdsaThresholdKeyId` capability identity in `b54cd1bca`
-- `WalletSessionReadSubject` / `wallet_near_subject` sibling aliases
-- `WalletSessionReadResolution` (replaced by
-  `WalletCapabilitySubjectResolution`)
-- the `login.publicKey ? 'passkey' : null` auth-method inference fallback
+- ~~`WalletSessionReadSubject` / `wallet_near_subject` sibling aliases~~ — the
+  exact wallet capability subject resolver exposes no sibling subject alias
+  after `ffdc64fdc`
+- ~~`WalletSessionReadResolution`~~ — renamed directly to
+  `WalletCapabilitySubjectResolution` in `ffdc64fdc`; no compatibility export
+  remains
+- ~~the `login.publicKey ? 'passkey' : null` auth-method inference fallback~~ —
+  deleted by the exact wallet-subject restoration in `5d0465e7c`
 - silent signer-slot defaults in restore/session-read paths (boundary parse
   failures instead)
 - fallback paths inferring a wallet from `nearAccountId` outside explicit
@@ -110,6 +114,12 @@ replacement.
 - ~~Ed25519 runtime-policy scope inferred from the app-session bearer JWT~~ —
   the Wallet Session mint response now supplies the required scope explicitly
   in `f75154e88`
+- ~~runtime-policy scope inferred from Wallet Session JWTs in login bootstrap,
+  sealed recovery, Ed25519 cold recovery, and dormant record normalization~~ —
+  replaced by exact bootstrap, sealed-record, authorization-record, and mint
+  response fields in `ffdc64fdc`, `44c4e58c4`, `5971a3753`, and `ca6b86fa0`
+- runtime-policy scope inferred from the Email OTP ECDSA enrollment route JWT;
+  thread the registration intent's exact scope into the enrollment boundary
 
 ## Phase 5 — role-local material identity
 
@@ -126,6 +136,10 @@ replacement.
 - ~~`evmFamilySigningKeySlotId` in ECDSA Wallet Session JWT binding facts and
   normal-signing claims~~ — deleted by `4986d279f`; the value remains only on
   the registration bootstrap request/response boundary in that path.
+- ~~`evmFamilySigningKeySlotId` in server ECDSA Wallet Session claims,
+  authorization projections, budget matching, and normal-signing admission~~ —
+  deleted by `d18133431`; admission now keys ECDSA work by branded material
+  activation and pool-fill derives its provisioning slot from material scope.
 - ~~`clientVerifyingShareB64u` inside `EcdsaRoleLocalMaterialBinding`, its
   digest, and material handle~~ — replaced by the strict
   `EcdsaClientVerifyingPublicKey33B64u` fact in `fcdf0ad3c`
