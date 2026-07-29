@@ -17,6 +17,7 @@ import {
 } from '../../session/identity/laneIdentity';
 import {
   exactEcdsaSigningLaneIdentityFromSelectedLane,
+  requireEvmFamilyEcdsaSigner,
   type ExactEcdsaSigningLaneIdentity,
 } from '../../session/identity/exactSigningLaneIdentity';
 import { isEvmFamilyEcdsaMaterialSupersededError } from './signingFlow';
@@ -507,12 +508,30 @@ async function signEvmFamilyAttempt(
                 ecdsaAuthorization: 'reusable_wallet_session',
                 preparedOperation: prepared.preparedOperation,
               })
-            : await resolveEvmFamilyTransactionStepUp({
-                ...authPlanningArgsBase,
-                chainTarget: signingTarget,
-                senderSignatureAlgorithm: 'secp256k1',
-                ecdsaAuthorization: 'operation_step_up',
-              });
+            : await (async () => {
+                // The capability is the authority an auth-neutral step-up
+                // proves against, so it is resolved before the plan rather
+                // than after it. Resolution is a read of the same manifest the
+                // signing runtime hydrates from.
+                const signer = requireEvmFamilyEcdsaSigner(
+                  prepared.identity,
+                  'auth-neutral ECDSA step-up planning',
+                );
+                const capability = await deps.resolveCanonicalEcdsaSigningCapability({
+                  walletId: signer.walletId,
+                  chainTarget: signer.chainTarget,
+                  materialActivation: signer.materialActivation,
+                });
+                return await resolveEvmFamilyTransactionStepUp({
+                  ...authPlanningArgsBase,
+                  chainTarget: signingTarget,
+                  senderSignatureAlgorithm: 'secp256k1',
+                  ecdsaAuthorization: 'operation_step_up',
+                  capability,
+                  materialActivation: signer.materialActivation,
+                  operationFingerprint,
+                });
+              })();
         })()
       : await resolveEvmFamilyTransactionStepUp({
           ...authPlanningArgsBase,
