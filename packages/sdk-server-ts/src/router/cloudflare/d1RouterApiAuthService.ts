@@ -1,3 +1,5 @@
+import { parseRouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { WalletRegistrationActivateResponseV2 } from '../../core/threeRouteRegistrationContracts';
 import {
   D1WalletAuthMethodStore,
   type WalletAuthMethodStore,
@@ -58,6 +60,8 @@ import {
   CloudflareD1WalletRegistrationService,
   parseD1WalletRegistrationStartSideEffectRecord,
   type D1WalletRegistrationFinalizePreparedV1,
+  type D1WalletRegistrationActivateSideEffectRecord,
+  type D1WalletRegistrationActivateSideEffectStore,
   type D1WalletRegistrationFinalizeSideEffectRecord,
   type D1WalletRegistrationFinalizeSideEffectStore,
   type D1WalletRegistrationStartSideEffectRecord,
@@ -550,6 +554,160 @@ function parseWalletRegistrationFinalizeSideEffectRecord(
   };
 }
 
+/**
+ * Refactor 94C. The activate operation row. Same record shape as the
+ * finalize journal it absorbs, tagged with its own operation so an activate
+ * row can never be read as a finalize row or vice versa.
+ */
+/**
+ * The activate terminal response is the finalize commit merged with the
+ * activation receipt and derivation bootstrap. Validating the commit half
+ * through the existing parser keeps one definition of that shape; the
+ * activation half must simply be present, since a stored response missing it
+ * could not bring a wallet online and is not a usable replay.
+ */
+function parseD1WalletRegistrationActivateTerminalResponse(
+  raw: unknown,
+): WalletRegistrationActivateResponseV2 | null {
+  /* The Ed25519-only pending terminal is not a finalize response: it has no
+     signer, resolved account, or key identity, because none exist yet. It
+     round-trips as itself, so a pending replay returns what was stored rather
+     than a degraded parse. */
+  if (
+    isRecordValue(raw) &&
+    raw.ok === true &&
+    raw.kind === 'near_ed25519' &&
+    isRecordValue(raw.nearProvisioning) &&
+    raw.nearProvisioning.status === 'near_pending'
+  ) {
+    return raw as unknown as WalletRegistrationActivateResponseV2;
+  }
+  const commit = parseD1WalletRegistrationFinalizeTerminalResponse(raw);
+  if (!commit) return null;
+  if (!commit.ok) return commit;
+  if (commit.kind !== 'evm_family_ecdsa' || !isRecordValue(raw)) return null;
+  const stored = isRecordValue(raw.ecdsa) ? raw.ecdsa : null;
+  if (!stored || !isRecordValue(stored.bootstrap)) return null;
+  let activation: ReturnType<typeof parseRouterAbEcdsaRegistrationActivationReceiptV1>;
+  try {
+    activation = parseRouterAbEcdsaRegistrationActivationReceiptV1(stored.activation);
+  } catch {
+    return null;
+  }
+  return {
+    ...commit,
+    ecdsa: {
+      ...commit.ecdsa,
+      activation,
+      /* The bootstrap is the Gateway's own derivation payload, written by
+         this service and never client-supplied; there is no separate parser
+         for it, so presence is the check. */
+      bootstrap: stored.bootstrap as WalletRegistrationActivateResponseV2 extends { ecdsa: infer E }
+        ? E extends { bootstrap: infer B }
+          ? B
+          : never
+        : never,
+    },
+  };
+}
+
+function parseWalletRegistrationActivateSideEffectRecord(
+  raw: unknown,
+): D1WalletRegistrationActivateSideEffectRecord | null {
+  if (
+    !isRecordValue(raw) ||
+    raw.operation !== 'registration_activate' ||
+    !isNonNegativeSafeInteger(raw.claimedAtMs)
+  ) {
+    return null;
+  }
+  const requestFingerprint = parseSideEffectFingerprint(raw.requestFingerprint);
+  const preparedArtifactFingerprint = parseSideEffectFingerprint(raw.preparedArtifactFingerprint);
+  const prepared = parseWalletRegistrationFinalizePrepared(raw.prepared);
+  if (requestFingerprint === null || preparedArtifactFingerprint === null || prepared === null) {
+    return null;
+  }
+  if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
+    return {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: 'registration_activate',
+      requestFingerprint,
+      preparedArtifactFingerprint,
+      claimedAtMs: raw.claimedAtMs,
+      prepared,
+    };
+  }
+  if (
+    raw.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v1' ||
+    !isNonNegativeSafeInteger(raw.completedAtMs)
+  ) {
+    return null;
+  }
+  const response = parseD1WalletRegistrationActivateTerminalResponse(raw.response);
+  if (!response) return null;
+  return {
+    kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+    operation: 'registration_activate',
+    requestFingerprint,
+    preparedArtifactFingerprint,
+    claimedAtMs: raw.claimedAtMs,
+    completedAtMs: raw.completedAtMs,
+    prepared,
+    response,
+  };
+}
+
+/**
+ * Deferred NEAR provisioning's own operation row. Same record shape as the
+ * finalize journal it replaces for this route, tagged with its own operation
+ * so a provisioning row can never be read as an activate or finalize row.
+ */
+function parseWalletRegistrationNearProvisioningSideEffectRecord(
+  raw: unknown,
+): D1WalletRegistrationFinalizeSideEffectRecord | null {
+  if (
+    !isRecordValue(raw) ||
+    raw.operation !== 'near_provisioning' ||
+    !isNonNegativeSafeInteger(raw.claimedAtMs)
+  ) {
+    return null;
+  }
+  const requestFingerprint = parseSideEffectFingerprint(raw.requestFingerprint);
+  const preparedArtifactFingerprint = parseSideEffectFingerprint(raw.preparedArtifactFingerprint);
+  const prepared = parseWalletRegistrationFinalizePrepared(raw.prepared);
+  if (requestFingerprint === null || preparedArtifactFingerprint === null || prepared === null) {
+    return null;
+  }
+  if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
+    return {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: 'near_provisioning',
+      requestFingerprint,
+      preparedArtifactFingerprint,
+      claimedAtMs: raw.claimedAtMs,
+      prepared,
+    };
+  }
+  if (
+    raw.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v1' ||
+    !isNonNegativeSafeInteger(raw.completedAtMs)
+  ) {
+    return null;
+  }
+  const response = parseD1WalletRegistrationFinalizeTerminalResponse(raw.response);
+  if (!response) return null;
+  return {
+    kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+    operation: 'near_provisioning',
+    requestFingerprint,
+    preparedArtifactFingerprint,
+    claimedAtMs: raw.claimedAtMs,
+    completedAtMs: raw.completedAtMs,
+    prepared,
+    response,
+  };
+}
+
 function parsePreparedSponsoredNearAccountCreation(
   value: unknown,
 ): PreparedSponsoredNearAccountCreationV1 | null {
@@ -692,6 +850,40 @@ function walletRegistrationFinalizeSideEffectStore(
     keyPrefix: 'wallet-registration-finalize:',
     encode: (value) => value as unknown as CloudflareVersionedJsonObject,
     parse: parseWalletRegistrationFinalizeSideEffectRecord,
+  });
+}
+
+function walletRegistrationActivateSideEffectStore(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): D1WalletRegistrationActivateSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationActivateSideEffectRecord>({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+    keyPrefix: 'wallet-registration-activate:',
+    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    parse: parseWalletRegistrationActivateSideEffectRecord,
+  });
+}
+
+function walletRegistrationNearProvisioningSideEffectStore(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): D1WalletRegistrationFinalizeSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationFinalizeSideEffectRecord>({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+    keyPrefix: 'wallet-registration-near-provisioning:',
+    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    parse: parseWalletRegistrationNearProvisioningSideEffectRecord,
   });
 }
 
@@ -989,6 +1181,8 @@ function createCloudflareD1RouterApiAuthAssembly(
     getWalletStore,
     startSideEffects: walletRegistrationStartSideEffectStore(options),
     finalizeSideEffects: walletRegistrationFinalizeSideEffectStore(options),
+    activateSideEffects: walletRegistrationActivateSideEffectStore(options),
+    nearProvisioningSideEffects: walletRegistrationNearProvisioningSideEffectStore(options),
     walletRegistrationCommitStore,
     walletAuthMethods,
   });
@@ -1074,6 +1268,19 @@ function createD1WalletRegistrationRouteService(
     cancelRegistrationIntent: assembly.registrationIntents.cancelRegistrationIntent.bind(
       assembly.registrationIntents,
     ),
+    setupWalletRegistration: assembly.walletRegistrations.setupWalletRegistration.bind(
+      assembly.walletRegistrations,
+    ),
+    respondWalletRegistration: assembly.walletRegistrations.respondWalletRegistration.bind(
+      assembly.walletRegistrations,
+    ),
+    activateWalletRegistration: assembly.walletRegistrations.activateWalletRegistration.bind(
+      assembly.walletRegistrations,
+    ),
+    completeWalletRegistrationNearProvisioning:
+      assembly.walletRegistrations.completeWalletRegistrationNearProvisioning.bind(
+        assembly.walletRegistrations,
+      ),
     startWalletRegistration: assembly.walletRegistrations.startWalletRegistration.bind(
       assembly.walletRegistrations,
     ),

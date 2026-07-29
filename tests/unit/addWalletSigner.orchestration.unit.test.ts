@@ -1278,6 +1278,10 @@ function createContext(captures: Record<string, unknown>): any {
         signerSlot,
       }),
       activateAuthenticatedWalletState: async () => undefined,
+      prewarmEcdsaRegistrationCrypto: async () => {
+        incrementCaptureCounter(captures, 'ecdsaCryptoPrewarmCalls');
+        return { kind: 'succeeded', wasmInitMs: 1 };
+      },
       setWalletNearProvisioningState: async (write: { walletId: string; status: string }) => {
         const writes = (captures.nearProvisioningWrites as { status: string }[] | undefined) ?? [];
         writes.push(write);
@@ -2085,6 +2089,9 @@ test('registerWallet starts Email OTP Yao and ECDSA registration in parallel', a
         events.includes('emailOtpYaoStartCalled') && events.includes('ecdsaCeremonyStarted'),
     });
     expect(captures.emailOtpYaoPrewarmCalls).toBe(1);
+    /* Refactor 94C: plans with an ECDSA branch kick the WASM prewarm during
+       the auth window, fire-and-forget. */
+    expect(captures.ecdsaCryptoPrewarmCalls).toBe(1);
     /* Refactor 94 Phase 4+5: the ECDSA branch finalizes without waiting for the
        Yao ceremony, so by this point commit #1 has already gone out — and it
        carries the ECDSA kind alone, never the removed combined kind. */

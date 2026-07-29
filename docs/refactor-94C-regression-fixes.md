@@ -212,6 +212,10 @@ also derives the authority-bound Yao admission and returns the deferred
 provisioning work. The client starts that work after proof verification without
 awaiting it for wallet readiness.
 
+When the signer plan includes NEAR, respond also derives the authority-bound
+Yao admission and returns the deferred provisioning work. The client starts
+that work after proof verification without awaiting it for wallet readiness.
+
 Role-private state owns exact retry and partial-role convergence. Remove the
 Gateway claim/terminal pair after one focused test proves that an identical
 retry following a lost or partial response returns the exact role results and

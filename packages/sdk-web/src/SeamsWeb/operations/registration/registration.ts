@@ -1893,6 +1893,12 @@ function noEmailOtpYaoPrewarm(): Promise<EmailOtpYaoPrewarmOutcome> {
   return Promise.resolve(zeroEmailOtpYaoPrewarmDiagnostics());
 }
 
+function registrationSelectionIncludesEcdsa(
+  signerSelection: RegistrationSignerSetSelection,
+): boolean {
+  return signerSelection.signers.some((signer) => signer.kind === 'evm_family_ecdsa');
+}
+
 function registrationEmailOtpYaoPrewarmWork(input: {
   context: RegistrationWebContext;
   authMethod: RegistrationAuthMethodInput;
@@ -1969,6 +1975,13 @@ function startRegistrationWarmup(input: {
       signerSelection: input.signerSelection,
     }),
   );
+  /* Refactor 94C. ECDSA WASM init pays 654 ms cold on the first ceremony
+     call; starting it here lets the authentication prompt absorb it. Not
+     awaited by the warmup barrier: the create path still lazily initializes,
+     so a failed or slow prewarm changes nothing. */
+  if (registrationSelectionIncludesEcdsa(input.signerSelection)) {
+    void input.context.signingEngine.prewarmEcdsaRegistrationCrypto?.().catch(() => {});
+  }
   return Promise.all([genericWarmup, emailOtpYaoWarmup]).then(
     completedRegistrationWarmup,
     failedRegistrationWarmup,
