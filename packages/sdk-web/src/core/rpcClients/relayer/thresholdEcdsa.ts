@@ -429,7 +429,6 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
       walletSessionJwt: jwt,
       expected: {
         walletId,
-        evmFamilySigningKeySlotId,
         keyHandle,
         relayerKeyId,
         ecdsaThresholdKeyId,

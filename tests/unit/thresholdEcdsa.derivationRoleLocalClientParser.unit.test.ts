@@ -44,7 +44,6 @@ function buildRouterAbEcdsaDerivationWalletSessionJwtFixture(args: { expiresAtMs
     kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     sub: 'wallet-user',
     walletId: 'wallet-user',
-    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     thresholdSessionId: 'threshold-session',
     signingGrantId: 'signing-grant',
     keyScope: 'evm-family',
@@ -55,7 +54,6 @@ function buildRouterAbEcdsaDerivationWalletSessionJwtFixture(args: { expiresAtMs
     routerAbEcdsaDerivationNormalSigning: {
       kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
       scope: {
-        wallet_key_id: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
         wallet_id: 'wallet-user',
         ecdsa_threshold_key_id: 'ecdsa-threshold-key',
         signing_root_id: 'project:env',
@@ -133,6 +131,9 @@ function bootstrapValue(overrides?: Record<string, unknown>): Record<string, unk
     thresholdSessionId: 'threshold-session',
     activationEpoch: ACTIVATION_EPOCH,
     signingGrantId: 'signing-grant',
+    authorizationSessionId: 'authorization-session',
+    walletSessionId: 'wallet-session',
+    quotaId: 'wallet-signing-quota',
     expiresAtMs,
     expiresAt: new Date(expiresAtMs).toISOString(),
     remainingUses: 2,
@@ -183,6 +184,8 @@ test.describe('threshold ECDSA derivation role-local client parser', () => {
       });
 
       expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
+      if (!result.ok) throw new Error(result.error);
+      expect(result.value.evmFamilySigningKeySlotId).toBe(EVM_FAMILY_SIGNING_KEY_SLOT_ID);
       expect((capturedInit?.headers as Record<string, string> | undefined)?.Authorization).toBe(
         'Bearer pk_test_runtime',
       );
