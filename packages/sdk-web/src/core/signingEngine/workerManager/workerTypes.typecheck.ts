@@ -369,8 +369,6 @@ type EmailOtpYaoRegistrationMaterialPayload =
   EmailOtpWorkerOperationMap['persistEmailOtpEd25519YaoRegistrationMaterial']['payload'];
 type EmailOtpYaoRecoveryPayload =
   EmailOtpWorkerOperationMap['recoverEmailOtpEd25519Yao']['payload'];
-type EmailOtpEcdsaRegistrationWarmMaterialCommitPayload =
-  EmailOtpWorkerOperationMap['commitEmailOtpEcdsaRegistrationWarmMaterial']['payload'];
 type EmailOtpDeviceEnrollmentRestoreResult =
   EmailOtpWorkerOperationMap['restoreEmailOtpDeviceEnrollmentEscrow']['result'];
 type EmailOtpRecoveryCodeRotationResult =
@@ -724,28 +722,6 @@ const emailOtpYaoRecoveryWithoutSessionPolicy: EmailOtpYaoRecoveryPayload = {
   routerOrigin: 'https://relay.example',
 };
 void emailOtpYaoRecoveryWithoutSessionPolicy;
-
-const emailOtpEcdsaRegistrationWarmMaterialCommit: EmailOtpEcdsaRegistrationWarmMaterialCommitPayload =
-  {
-    walletId: 'wallet.testnet',
-    chainTarget,
-    retainedClientRootShareHandle: walletRegistrationEcdsaPrepareHandle,
-    thresholdSessionId: 'threshold-ecdsa-session',
-    expiresAtMs: 1_900_000_000_000,
-    remainingUses: 3,
-  };
-void emailOtpEcdsaRegistrationWarmMaterialCommit;
-
-const emailOtpEcdsaRegistrationWarmMaterialCommitWithBootstrapHandle = {
-  walletId: 'wallet.testnet',
-  chainTarget,
-  // @ts-expect-error Registration warm-material commit rejects a session-bootstrap handle.
-  retainedClientRootShareHandle: clientRootShareHandle,
-  thresholdSessionId: 'threshold-ecdsa-session',
-  expiresAtMs: 1_900_000_000_000,
-  remainingUses: 3,
-} satisfies EmailOtpEcdsaRegistrationWarmMaterialCommitPayload;
-void emailOtpEcdsaRegistrationWarmMaterialCommitWithBootstrapHandle;
 
 const emailOtpDeviceEnrollmentRestoreResult: EmailOtpDeviceEnrollmentRestoreResult = {
   walletId: 'wallet.testnet',
