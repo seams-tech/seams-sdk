@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
+import { secp256k1PrivateKey32ToPublicKey33 } from '../../packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { implicitNearAccountProvisioning } from '../../packages/shared-ts/src/utils/registrationIntent';
@@ -12,6 +14,7 @@ import {
 import { createActivatedFinalizeYaoRuntimeFixture } from './helpers/d1WalletRegistrationFinalizeConvergence.fixtures';
 import {
   applySignerMigrations,
+  makeRecoveryWrappedEnrollmentEscrows,
   createWebAuthnRegistrationCredential,
   RecordingDurableObjectNamespace,
   requireParsedDomainId,
@@ -319,6 +322,13 @@ test('activate refuses a signedSetup that does not belong to the ceremony', asyn
  * the deferred computation completes.
  */
 
+/** The commit validates a real curve point, not merely 33 bytes. */
+async function compressedSecp256k1PubkeyB64u(): Promise<string> {
+  const privateKey32 = new Uint8Array(32);
+  privateKey32[31] = 7;
+  return base64UrlEncode(await secp256k1PrivateKey32ToPublicKey33(privateKey32));
+}
+
 const ED_SCOPE = {
   namespace: 'registration-ed25519',
   orgId: 'org-ed25519',
@@ -497,6 +507,156 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
     expect('resolvedAccount' in activated).toBe(false);
 
     /* Exact replay returns the same pending terminal. */
+    const replayed =
+      await service.walletRegistration.activateWalletRegistration(activateRequest as never);
+    expect(replayed).toEqual(activated);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, before any signer', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
+      config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-ed25519' },
+    });
+    const signer = fakeGatewaySigner();
+    const service = createCloudflareD1RouterApiAuthService({
+      database: database as never,
+      ...ED_SCOPE,
+      routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
+      ed25519YaoProductRegistration: derivingYaoRuntime(),
+      ecdsaStrictRegistration: new CountingStrictRegistrationPort(),
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: new RecordingDurableObjectNamespace(),
+        THRESHOLD_PREFIX: 'registration-ed25519-otp',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-ed25519',
+      },
+      emailOtpDeliveryMode: 'dev_d1_outbox',
+    } as never);
+
+    const unlockPublicKeyB64u = await compressedSecp256k1PubkeyB64u();
+    const email = 'ed25519-otp@example.test';
+    const providerSubject = 'google:ed25519-otp-user';
+    const appSessionVersion = 'app-session-v1';
+
+    const setup = await service.walletRegistration.setupWalletRegistration({
+      request: {
+        signerSelection: ED25519_ONLY_PLAN,
+        authMethod: {
+          kind: 'email_otp',
+          proofKind: 'otp_challenge',
+          email,
+          otpCode: 'intent-otp-placeholder',
+          appSessionJwt: 'intent-session-placeholder',
+        },
+      },
+      orgId: ED_SCOPE.orgId,
+      expectedOrigin: 'https://app.example.com',
+      signer,
+      signingRootId: `${ED_SCOPE.projectId}:${ED_SCOPE.envId}`,
+      signingRootVersion: 'root-ed25519-v1',
+    } as never);
+    if (!setup.ok) throw new Error(`setup: ${setup.code}: ${setup.message}`);
+    expect(setup.kind).toBe('near_ed25519');
+
+    /* The challenge binds the digest setup issued, exactly as the passkey
+       flow binds it into the WebAuthn create. */
+    const challenge = await service.emailOtp.createEmailOtpEnrollmentChallenge({
+      userId: providerSubject,
+      walletId: setup.walletId,
+      orgId: ED_SCOPE.orgId,
+      email,
+      otpChannel: 'email_otp',
+      sessionHash: setup.registrationIntentDigestB64u,
+      appSessionVersion,
+    });
+    if (!challenge.ok) throw new Error(`challenge: ${challenge.message}`);
+    const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: providerSubject,
+      walletId: setup.walletId,
+    });
+    if (!outbox.ok) throw new Error(`outbox: ${outbox.message}`);
+
+    const responded = await service.walletRegistration.respondWalletRegistration({
+      registrationCeremonyId: setup.registrationCeremonyId,
+      signedSetup: setup.signedSetup,
+      planKind: 'near_ed25519',
+      authority: {
+        kind: 'email_otp',
+        emailOtpRegistrationProof: {
+          version: 'email_otp_registration_proof_v1',
+          proofKind: 'otp_challenge',
+          providerSubject,
+          email,
+          challengeId: challenge.challenge.challengeId,
+          otpCode: outbox.otpCode,
+          otpChannel: 'email_otp',
+          registrationIntentDigestB64u: setup.registrationIntentDigestB64u,
+          appSessionVersion,
+        },
+      },
+      verifier: signer,
+      minter: signer,
+    } as never);
+    if (!responded.ok) throw new Error(`respond: ${responded.code}: ${responded.message}`);
+    expect(responded.ed25519).toMatchObject({ status: 'deferred' });
+
+    const activateRequest = {
+      registrationCeremonyId: setup.registrationCeremonyId,
+      signedSetup: setup.signedSetup,
+      idempotencyKey: 'ed25519-otp-activate',
+      planKind: 'near_ed25519',
+      emailOtpEnrollment: {
+        recoveryWrappedEnrollmentEscrows: makeRecoveryWrappedEnrollmentEscrows({
+          walletId: setup.walletId,
+          userId: providerSubject,
+          enrollmentId: `enrollment-${setup.walletId}`,
+          enrollmentSealKeyVersion: 'seal-v1',
+        }),
+        enrollmentSealKeyVersion: 'seal-v1',
+        clientUnlockPublicKeyB64u: unlockPublicKeyB64u,
+        unlockKeyVersion: 'unlock-v1',
+        thresholdEcdsaClientVerifyingShareB64u: unlockPublicKeyB64u,
+      },
+      emailOtpBackupAck: {
+        kind: 'email_otp_recovery_code_backup_ack_v1',
+        recoveryCodesIssuedAtMs: Date.now(),
+        backupActionKind: 'download',
+        acknowledgedAtMs: Date.now(),
+        idempotencyKey: 'ed25519-otp-backup-ack',
+      },
+      verifier: signer,
+      minter: signer,
+    };
+
+    /* Yao is unresolved. The wallet must still be created, with its
+       recovery-critical enrollment committed in the same transaction. */
+    const activated =
+      await service.walletRegistration.activateWalletRegistration(activateRequest as never);
+    if (!activated.ok) throw new Error(`activate: ${activated.code}: ${activated.message}`);
+    expect(activated.nearProvisioning).toEqual({ status: 'near_pending' });
+    expect('ecdsa' in activated).toBe(false);
+    expect('resolvedAccount' in activated).toBe(false);
+
+    /* Enrollment landed even though no signer exists yet. */
+    const enrollmentRows = (await database
+      .prepare(`SELECT COUNT(*) AS count FROM email_otp_wallet_enrollments WHERE wallet_id = ?1`)
+      .bind(setup.walletId)
+      .first()) as { count?: number } | null;
+    expect(Number(enrollmentRows?.count || 0)).toBeGreaterThan(0);
+
+    const signerRows = (await database
+      .prepare(`SELECT COUNT(*) AS count FROM wallet_signers WHERE wallet_id = ?1`)
+      .bind(setup.walletId)
+      .first()) as { count?: number } | null;
+    expect(Number(signerRows?.count || 0)).toBe(0);
+
+    /* Exact pending replay. */
     const replayed =
       await service.walletRegistration.activateWalletRegistration(activateRequest as never);
     expect(replayed).toEqual(activated);
