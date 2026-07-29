@@ -51,7 +51,7 @@ import {
 } from '@seams/sdk-server/cloud-host';
 import {
   createCloudflareSecretsStoreKekProviderFromEnv,
-  createHmacSessionAdapterFromEnv,
+  createEd25519SessionAdapter,
   readCsvList,
   readEnvString,
   requireEnvString,
@@ -273,13 +273,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
       sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
     },
   });
-  const session = createHmacSessionAdapterFromEnv({
-    env,
-    secretName: 'RELAY_SESSION_HMAC_SECRET',
-    cookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
-    issuer: readEnvString(env, 'RELAY_SESSION_ISSUER'),
-    audience: readEnvString(env, 'RELAY_SESSION_AUDIENCE'),
-  });
+  const session = stagingSessionAdapter(env);
   const yaoRuntime = createStagingYaoRequestScopedRuntime(env, session);
   const ecdsaCeremonyTokenIssuer = createStagingEcdsaCeremonyTokenIssuer(env);
   const ecdsaStrictRegistration = createRouterAbEcdsaStrictRegistrationPort({
@@ -436,17 +430,21 @@ function requireStagingRouterAbPublicKeyset(
 function createStagingEcdsaCeremonyTokenIssuer(
   env: CloudflareD1RouterApiStagingEnv,
 ): RouterAbEcdsaCeremonyTokenIssuer {
+  return createRouterAbEcdsaEd25519CeremonyTokenIssuer({
+    issuer: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_ISSUER'),
+    audience: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_AUDIENCE'),
+    keyId: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_KEY_ID'),
+    privateJwk: requireStagingEcdsaCeremonyPrivateJwk(env),
+  });
+}
+
+function requireStagingEcdsaCeremonyPrivateJwk(env: CloudflareD1RouterApiStagingEnv) {
   const privateJwkSource = requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK');
   const privateJwk = parseRouterAbEcdsaEd25519PrivateJwk(parseJsonObject(privateJwkSource));
   if (!privateJwk) {
     throw new Error('ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK must be an Ed25519 private JWK');
   }
-  return createRouterAbEcdsaEd25519CeremonyTokenIssuer({
-    issuer: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_ISSUER'),
-    audience: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_AUDIENCE'),
-    keyId: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_KEY_ID'),
-    privateJwk,
-  });
+  return privateJwk;
 }
 
 function requireStagingEcdsaRegistrationTopology(
@@ -880,12 +878,12 @@ export function createStagingExportRequestScopedDependencies(
 }
 
 function stagingSessionAdapter(env: CloudflareD1RouterApiStagingEnv) {
-  return createHmacSessionAdapterFromEnv({
-    env,
-    secretName: 'RELAY_SESSION_HMAC_SECRET',
+  return createEd25519SessionAdapter({
+    privateJwk: requireStagingEcdsaCeremonyPrivateJwk(env),
+    keyId: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_KEY_ID'),
     cookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
-    issuer: readEnvString(env, 'RELAY_SESSION_ISSUER'),
-    audience: readEnvString(env, 'RELAY_SESSION_AUDIENCE'),
+    issuer: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_ISSUER'),
+    audience: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_AUDIENCE'),
   });
 }
 

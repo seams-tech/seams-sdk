@@ -41,7 +41,7 @@ import type {
   CloudflareD1OidcExchangeConfig,
   CloudflareD1OidcExchangeIssuerConfig,
 } from '@seams/sdk-server/cloud-host';
-import { createHmacSessionAdapter } from './d1StagingSession';
+import { createEd25519SessionAdapter } from './d1StagingSession';
 import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,
@@ -198,10 +198,6 @@ type LocalD1SigningRootShareRequest = {
 const DEFAULT_LOCAL_CONSOLE_USER_ID = 'local-console-user';
 const DEFAULT_LOCAL_CONSOLE_PROJECT_ID = 'local-smoke-project';
 const DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID = 'local';
-const DEFAULT_LOCAL_RELAY_SESSION_HMAC_SECRET =
-  'seams-local-d1-relay-session-secret-change-before-shared-dev';
-const DEFAULT_LOCAL_RELAY_SESSION_ISSUER = 'seams-local-d1-relay';
-const DEFAULT_LOCAL_RELAY_SESSION_AUDIENCE = 'seams-local-d1';
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID = 'signing-root-kek-local-r1';
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
@@ -530,7 +526,9 @@ function localEcdsaCeremonyTokenIssuer(
   });
 }
 
-function localRouterAbCeremonyJwksResponse(env: LocalD1DevEnv): Response {
+function requireLocalEcdsaCeremonyPrivateJwk(
+  env: LocalD1DevEnv,
+): RouterAbEcdsaEd25519PrivateJwk {
   const privateJwkSource = normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK);
   const privateJwk = parseRouterAbEcdsaEd25519PrivateJwk(
     privateJwkSource ? JSON.parse(privateJwkSource) : null,
@@ -538,6 +536,11 @@ function localRouterAbCeremonyJwksResponse(env: LocalD1DevEnv): Response {
   if (!privateJwk) {
     throw new Error('Local ceremony JWT private JWK is required');
   }
+  return privateJwk;
+}
+
+function localRouterAbCeremonyJwksResponse(env: LocalD1DevEnv): Response {
+  const privateJwk = requireLocalEcdsaCeremonyPrivateJwk(env);
   const issuer = localEcdsaCeremonyTokenIssuer(env, privateJwk);
   return new Response(JSON.stringify(issuer.publicJwks()), {
     status: 200,
@@ -606,7 +609,6 @@ const CONSOLE_READY_TABLES = Object.freeze([
   'observability_request_rollups_minute',
   'audit_events',
   'audit_evidence',
-  'bootstrap_tokens',
   'billing_accounts',
   'billing_ledger_entries',
   'billing_ledger_postings',
@@ -740,22 +742,8 @@ function localGoogleOidcClientId(env: LocalD1DevEnv): string | undefined {
   );
 }
 
-function localRouterApiSessionSecret(env: LocalD1DevEnv): string {
-  return (
-    normalizeLocalString(env.RELAY_SESSION_HMAC_SECRET) || DEFAULT_LOCAL_RELAY_SESSION_HMAC_SECRET
-  );
-}
-
 function localRouterApiSessionCookieName(env: LocalD1DevEnv): string | undefined {
   return normalizeLocalString(env.SESSION_COOKIE_NAME) || undefined;
-}
-
-function localRouterApiSessionIssuer(env: LocalD1DevEnv): string {
-  return normalizeLocalString(env.RELAY_SESSION_ISSUER) || DEFAULT_LOCAL_RELAY_SESSION_ISSUER;
-}
-
-function localRouterApiSessionAudience(env: LocalD1DevEnv): string {
-  return normalizeLocalString(env.RELAY_SESSION_AUDIENCE) || DEFAULT_LOCAL_RELAY_SESSION_AUDIENCE;
 }
 
 function localOidcExchangeIssuerConfig(
@@ -1189,11 +1177,13 @@ async function createLocalRouterApiHandler(
     },
   });
   const sessionCookieName = localRouterApiSessionCookieName(env);
-  const session = createHmacSessionAdapter({
-    secret: localRouterApiSessionSecret(env),
+  const session = createEd25519SessionAdapter({
+    privateJwk: requireLocalEcdsaCeremonyPrivateJwk(env),
+    keyId: normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_KEY_ID) || 'local-router-ab-r1',
     cookieName: sessionCookieName,
-    issuer: localRouterApiSessionIssuer(env),
-    audience: localRouterApiSessionAudience(env),
+    issuer:
+      normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_ISSUER) || DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL,
+    audience: normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_AUDIENCE) || 'router-ab',
   });
   const ed25519Yao = await createLocalEd25519YaoProductComposition(env, session, routerFetch);
   const ecdsaStrictPorts = localEcdsaStrictPorts(env);
