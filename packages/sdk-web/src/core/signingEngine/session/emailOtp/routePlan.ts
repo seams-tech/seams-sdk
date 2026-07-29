@@ -31,14 +31,8 @@ export type EmailOtpSigningSessionAuthStateFailure =
       source:
         | 'route_plan'
         | 'provided_route_auth'
-        | 'record_backed_export'
-        | 'evm_reauth_anchor'
         | 'evm_signing_refresh';
       expectedCurve: EmailOtpSigningSessionExpectedCurve;
-    }
-  | {
-      kind: 'signing_grant_missing';
-      source: 'record_backed_export';
     };
 
 export class EmailOtpSigningSessionAuthStateError extends Error {
@@ -53,20 +47,10 @@ export class EmailOtpSigningSessionAuthStateError extends Error {
   }
 }
 
-function assertNeverEmailOtpSigningSessionAuthStateFailure(value: never): never {
-  throw new Error(`[EmailOtpRoutePlan] unexpected signing-session auth failure: ${value}`);
-}
-
 function emailOtpSigningSessionAuthStateFailureMessage(
   failure: EmailOtpSigningSessionAuthStateFailure,
 ): string {
-  switch (failure.kind) {
-    case 'auth_lane_missing':
-      return `Email OTP ${failure.expectedCurve} signing-session auth lane is unavailable at ${failure.source}; unlock wallet again`;
-    case 'signing_grant_missing':
-      return 'Email OTP signing-session grant is unavailable for record-backed export; unlock wallet again';
-  }
-  return assertNeverEmailOtpSigningSessionAuthStateFailure(failure);
+  return `Email OTP ${failure.expectedCurve} signing-session auth lane is unavailable at ${failure.source}; unlock wallet again`;
 }
 
 export function throwEmailOtpSigningSessionAuthStateError(
