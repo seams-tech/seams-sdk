@@ -171,10 +171,12 @@ export interface RouterAbEcdsaStrictPostRegistrationPort {
   }): Promise<RouterAbEcdsaStrictExportResult>;
   recover(input: {
     readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
+    readonly requestDigestB64u: string;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
   }): Promise<RouterAbEcdsaStrictPostRegistrationResult>;
   refresh(input: {
     readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+    readonly requestDigestB64u: string;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
   }): Promise<RouterAbEcdsaStrictRefreshResult>;
 }
@@ -415,23 +417,29 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
 
   async recover(input: {
     readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
+    readonly requestDigestB64u: string;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
   }): Promise<RouterAbEcdsaStrictPostRegistrationResult> {
     return await this.forward({
       path: STRICT_ECDSA_RECOVERY_PATH,
       request: parseRouterAbEcdsaDerivationRecoveryRequestV1(input.request),
+      requestDigestB64u: input.requestDigestB64u,
+      workKind: 'recovery',
       authority: input.authority,
     });
   }
 
   async refresh(input: {
     readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+    readonly requestDigestB64u: string;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
   }): Promise<RouterAbEcdsaStrictRefreshResult> {
     const forwarded = await this.forwardRaw({
       kind: 'post_registration_proof',
       path: STRICT_ECDSA_REFRESH_PATH,
       request: parseRouterAbEcdsaDerivationActivationRefreshRequestV1(input.request),
+      requestDigestB64u: input.requestDigestB64u,
+      workKind: 'server_share_refresh',
       authority: input.authority,
     });
     if (!forwarded.ok) return forwarded;
@@ -455,12 +463,16 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
     readonly request:
       | RouterAbEcdsaDerivationRecoveryRequestV1
       | RouterAbEcdsaDerivationActivationRefreshRequestV1;
+    readonly requestDigestB64u: string;
+    readonly workKind: 'recovery' | 'server_share_refresh';
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
   }): Promise<RouterAbEcdsaStrictPostRegistrationResult> {
     const forwarded = await this.forwardRaw({
       kind: 'post_registration_proof',
       path: input.path,
       request: input.request,
+      requestDigestB64u: input.requestDigestB64u,
+      workKind: input.workKind,
       authority: input.authority,
     });
     if (!forwarded.ok) return forwarded;
@@ -497,23 +509,25 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
           readonly request:
             | RouterAbEcdsaDerivationRecoveryRequestV1
             | RouterAbEcdsaDerivationActivationRefreshRequestV1;
+          readonly requestDigestB64u: string;
+          readonly workKind: 'recovery' | 'server_share_refresh';
           readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
         },
   ): Promise<{ readonly ok: true; readonly value: unknown } | RouterAbEcdsaStrictFailure> {
     const authorityFailure = validatePostRegistrationAuthorityBinding(input);
     if (authorityFailure) return authorityFailure;
-    const token =
-      input.kind === 'explicit_export'
-        ? await this.config.tokenIssuer.issueRequest(
-            ceremonyTokenClaimsForAuthority(input.authority, this.config.tokenScope),
-            postRegistrationRequestPolicy({
-              workKind: 'key_export',
-              requestDigestB64u: input.requestDigestB64u,
-            }),
-          )
-        : await this.config.tokenIssuer.issue(
-            ceremonyTokenClaimsForAuthority(input.authority, this.config.tokenScope),
-          );
+    /* Every post-registration call is request-bound: Router recomputes the
+       digest from the forwarded request and rejects a policy that does not
+       match it, so recovery and refresh carry their own policy exactly as
+       export does. */
+    const token = await this.config.tokenIssuer.issueRequest(
+      ceremonyTokenClaimsForAuthority(input.authority, this.config.tokenScope),
+      postRegistrationRequestPolicy(
+        input.kind === 'explicit_export'
+          ? { workKind: 'key_export', requestDigestB64u: input.requestDigestB64u }
+          : { workKind: input.workKind, requestDigestB64u: input.requestDigestB64u },
+      ),
+    );
     const response = await this.config.router.fetch(
       new Request(`https://router.router-ab.internal${input.path}`, {
         method: 'POST',
