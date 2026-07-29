@@ -1267,6 +1267,13 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       'wallet.example.test',
     );
     expect(await page.locator('w3a-tx-tree').count()).toBe(0);
+    await expect
+      .poll(() =>
+        page
+          .locator('.passkey-registration-confirm w3a-passkey-halo-loading')
+          .evaluate((element: any) => element.animated),
+      )
+      .toBe(true);
 
     await page.evaluate(() => {
       (globalThis as any).__passkeyRegistrationHandle?.update({ loading: true });
