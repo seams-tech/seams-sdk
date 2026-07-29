@@ -229,6 +229,19 @@ export type D1WalletRegistrationFinalizePreparedV1 = {
   readonly kind: 'd1_wallet_registration_finalize_prepared_v1';
 };
 
+/** The activate operation row stores activate's own merged terminal bytes. */
+export type D1WalletRegistrationActivateSideEffectStore =
+  RouterAbEd25519YaoRegistrationSideEffectStoreV1<
+    WalletRegistrationActivateResponseV2,
+    D1WalletRegistrationFinalizePreparedV1
+  >;
+
+export type D1WalletRegistrationActivateSideEffectRecord =
+  RouterAbEd25519YaoRegistrationSideEffectRecordV1<
+    WalletRegistrationActivateResponseV2,
+    D1WalletRegistrationFinalizePreparedV1
+  >;
+
 export type D1WalletRegistrationFinalizeSideEffectStore =
   RouterAbEd25519YaoRegistrationSideEffectStoreV1<
     WalletRegistrationFinalizeResponse,
@@ -1244,7 +1257,7 @@ export class CloudflareD1WalletRegistrationService {
   private readonly startSideEffects: D1WalletRegistrationStartSideEffectStore;
   private readonly finalizeSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
   /** The single Gateway operation row for activate-with-finalize (94C). */
-  private readonly activateSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
+  private readonly activateSideEffects: D1WalletRegistrationActivateSideEffectStore;
   private readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
 
@@ -1258,7 +1271,7 @@ export class CloudflareD1WalletRegistrationService {
     readonly getWalletStore: WalletStoreProvider;
     readonly startSideEffects: D1WalletRegistrationStartSideEffectStore;
     readonly finalizeSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
-    readonly activateSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
+    readonly activateSideEffects: D1WalletRegistrationActivateSideEffectStore;
     readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   }) {
@@ -2767,7 +2780,7 @@ export class CloudflareD1WalletRegistrationService {
         case 'executed':
         case 'exact_replay':
           /* Exact terminal bytes, byte-identical across retries. */
-          return run.value as WalletRegistrationActivateResponseV2;
+          return run.value;
         case 'request_conflict':
           return {
             ok: false,
@@ -2815,7 +2828,7 @@ export class CloudflareD1WalletRegistrationService {
       readonly input: WalletRegistrationActivateInput;
       readonly traceContext?: RouterAbTraceContextV1;
     },
-  ): Promise<WalletRegistrationFinalizeResponse> {
+  ): Promise<WalletRegistrationActivateResponseV2> {
     /* Fresh execution only — the ceremony still exists here. Activation
        persists wallet identity, so the proof must already be bound. */
     const ceremony = await this.getRegistrationCeremonyIntentStore().getCeremony(
@@ -2873,7 +2886,27 @@ export class CloudflareD1WalletRegistrationService {
       } as FinalizeWalletRegistrationInput,
       { kind: 'operation_row' },
     );
-    return commit.ok ? commit : throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(commit);
+    if (!commit.ok) return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(commit);
+    /* The terminal response is both legs merged. Activation produced the
+       receipt and the derivation bootstrap; the commit produced the wallet
+       keys. Returning only the commit half would drop what the client needs
+       to bring the wallet online — the whole point of folding the legs is
+       that one response carries the result of both. */
+    if (commit.kind !== 'evm_family_ecdsa') {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'registration activation committed a non-ECDSA branch',
+      };
+    }
+    return {
+      ...commit,
+      ecdsa: {
+        ...commit.ecdsa,
+        activation: activated.ecdsa.activation,
+        bootstrap: activated.ecdsa.bootstrap,
+      },
+    } as WalletRegistrationActivateResponseV2;
   }
 
   async respondWalletRegistrationEcdsaDerivation(
