@@ -20,7 +20,6 @@ import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { ThresholdRuntimePolicyScope } from '../../core/types';
 import type {
-  CreateAddAuthMethodIntentRequest,
   CreateAddAuthMethodIntentResponse,
   CreateAddSignerIntentRequest,
   CreateAddSignerIntentResponse,
@@ -40,6 +39,7 @@ import {
   intentScopeMetadata,
   parseWalletIdForIntent,
 } from './d1RegistrationCeremonyRecords';
+import type { CreateAddAuthMethodIntentCommand } from '../authServicePort';
 
 type CreateRegistrationIntentInput = {
   readonly request: CreateRegistrationIntentRequest;
@@ -61,7 +61,7 @@ type CreateAddSignerIntentInput = {
   readonly expectedOrigin?: string;
 };
 type CreateAddAuthMethodIntentInput = {
-  readonly request: CreateAddAuthMethodIntentRequest;
+  readonly command: CreateAddAuthMethodIntentCommand;
   readonly orgId: string;
   readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
   readonly signingRootId?: string;
@@ -263,11 +263,11 @@ export class CloudflareD1RegistrationIntentService {
   ): Promise<CreateAddAuthMethodIntentResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      const walletId = parseWalletIdForIntent(input.request?.walletId);
+      const walletId = parseWalletIdForIntent(input.command.subject.walletId);
       if (!walletId) {
         return { ok: false, code: 'invalid_body', message: 'walletId is required' };
       }
-      const authMethod = normalizeAddAuthMethodInput(input.request?.authMethod);
+      const authMethod = normalizeAddAuthMethodInput(input.command.authMethod);
       if (!authMethod) {
         return { ok: false, code: 'invalid_body', message: 'authMethod is required' };
       }

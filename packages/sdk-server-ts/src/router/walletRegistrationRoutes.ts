@@ -758,8 +758,7 @@ function parseCreateAddSignerIntentRequest(
 
 function parseCreateAddAuthMethodIntentRequest(
   body: Record<string, unknown>,
-  walletId: string,
-): ParseResult<CreateAddAuthMethodIntentRequest> {
+): ParseResult<Pick<CreateAddAuthMethodIntentRequest, 'authMethod'>> {
   const authMethod = normalizeAddAuthMethodInput(body.authMethod);
   if (!authMethod) {
     return { ok: false, code: 'invalid_body', message: 'authMethod is invalid' };
@@ -767,7 +766,6 @@ function parseCreateAddAuthMethodIntentRequest(
   return {
     ok: true,
     value: {
-      walletId: walletIdFromString(walletId),
       authMethod,
     },
   };
@@ -3088,7 +3086,7 @@ export async function handleRouterApiWalletAddAuthMethodIntent(
   if (!walletId) {
     return routeError(400, 'invalid_body', 'walletId path parameter is required');
   }
-  const request = parseCreateAddAuthMethodIntentRequest(input.body, walletId);
+  const request = parseCreateAddAuthMethodIntentRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
   const origin = normalizeCorsOrigin(input.origin);
   if (!origin) {
@@ -3131,7 +3129,13 @@ export async function handleRouterApiWalletAddAuthMethodIntent(
     envId: principal.envId,
   });
   const result = await input.services.walletRegistration.createAddAuthMethodIntent({
-    request: request.value,
+    command: {
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId: walletIdFromString(walletId),
+      },
+      authMethod: request.value.authMethod,
+    },
     orgId: principal.orgId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(runtimePolicyScope

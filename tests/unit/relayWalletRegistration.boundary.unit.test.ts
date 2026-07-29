@@ -1337,8 +1337,11 @@ test.describe('wallet registration route boundaries', () => {
 
     expect(response.status).toBe(200);
     expect(capturedRequest).toMatchObject({
-      request: {
-        walletId: 'wallet_alice',
+      command: {
+        subject: {
+          kind: 'wallet_auth_method_management',
+          walletId: 'wallet_alice',
+        },
         authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
       },
       expectedOrigin: 'https://wallet.example.test',
