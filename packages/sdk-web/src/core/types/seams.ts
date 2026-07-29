@@ -188,8 +188,7 @@ export interface SigningSessionSealConfig {
  *
  * Notes:
  * - `relayer.url` is required after defaults are merged; missing values fail fast.
- * - Managed registration uses `${relayer.url}/v1/registration/bootstrap-grants`
- *   to obtain a one-time bootstrap token before creating a wallet-registration intent.
+ * - Managed registration authenticates setup directly with the configured publishable key.
  * - `iframeWallet.walletOrigin` is required when `iframeWallet` is configured.
  *   Browser wallet capabilities run through hosted iframe mode.
  * - `relayer.emailRecovery.emailDkimVerifierContract` configures the DKIM verifier
@@ -577,32 +576,8 @@ export type RouterApiSecretKeyAuthErrorCode =
   | 'secret_key_ip_blocked'
   | 'secret_key_environment_mismatch';
 
-export type RouterApiBootstrapGrantErrorCode =
-  | 'publishable_key_missing'
-  | 'publishable_key_invalid'
-  | 'publishable_key_revoked'
-  | 'publishable_key_origin_blocked'
-  | 'publishable_key_environment_mismatch'
-  | 'publishable_key_rate_limited'
-  | 'publishable_key_quota_exhausted'
-  | 'invalid_environment'
-  | 'environment_archived'
-  | 'invalid_body'
-  | 'payment_required'
-  | 'payment_invalid';
-
-export type RouterApiBootstrapTokenErrorCode =
-  | 'bootstrap_token_missing'
-  | 'bootstrap_token_invalid'
-  | 'bootstrap_token_expired'
-  | 'bootstrap_token_already_used'
-  | 'bootstrap_token_request_mismatch'
-  | 'bootstrap_token_origin_mismatch';
-
 export type RegistrationErrorCode =
   | RouterApiSecretKeyAuthErrorCode
-  | RouterApiBootstrapGrantErrorCode
-  | RouterApiBootstrapTokenErrorCode
   | string;
 
 export type LoginResult =

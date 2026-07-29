@@ -78,9 +78,7 @@ import {
 } from './commonRouterUtils';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
-import { resolveRegistrationBootstrapApiCredentialAuth } from './routerApiCredentialAuth';
 import type {
-  RouterApiBootstrapTokenVerifier,
   RouterApiKeyAuthAdapter,
   RouterApiProjectEnvironmentResolver,
   SessionAdapter,
@@ -143,7 +141,6 @@ import type { RouterAbEd25519YaoGatewaySpanV1 } from './routerAbEd25519YaoHttpRe
 type RouterApiWalletRegistrationServices = {
   walletRegistration: RouterApiWalletRegistrationRouteService;
   apiKeyAuth?: RouterApiKeyAuthAdapter | null;
-  bootstrapTokenVerifier?: RouterApiBootstrapTokenVerifier | null;
   orgProjectEnv?: RouterApiProjectEnvironmentResolver | null;
   routerAbPublicKeyset?: RouterAbPublicKeysetV2 | null;
   session?: SessionAdapter | null;
@@ -2835,6 +2832,14 @@ export async function handleRouterApiWalletAddAuthMethodIntent(
       'Origin header is required and must be a valid exact origin',
     );
   }
+  const publishableKeyAuth = input.services.publishableKeyAuth;
+  if (!publishableKeyAuth) {
+    return routeError(
+      500,
+      'route_auth_not_configured',
+      'wallet add-auth-method intent requires publishable key auth on this server',
+    );
+  }
   const resolved = await enforceRoutePolicy({
     headers: input.headers,
     logger: input.logger,
@@ -2844,14 +2849,17 @@ export async function handleRouterApiWalletAddAuthMethodIntent(
     sourceIp: input.sourceIp,
     resolvers: {
       apiCredentials: async () =>
-        await resolveRegistrationBootstrapApiCredentialAuth({
-          apiKeyAuth: input.services.apiKeyAuth,
-          body: input.body as Record<string, unknown>,
-          bootstrapTokenVerifier: input.services.bootstrapTokenVerifier,
+        await resolvePublishableKeyApiCredentialAuth({
+          environmentId: extractRouterApiEnvironmentId(input.headers) || undefined,
           headers: input.headers,
+          missingEnvironmentMessage: 'Environment header is required for add-auth-method intent',
+          missingOriginMessage: 'Origin header is required and must be a valid exact origin',
+          missingPublishableKeyMessage: 'Missing publishable key',
           origin,
+          publishableKeyAuth,
           route: input.route,
-          sourceIp: input.sourceIp,
+          routeAuthNotConfiguredMessage:
+            'Add-auth-method intent requires API credential auth policy',
         }),
     },
   });

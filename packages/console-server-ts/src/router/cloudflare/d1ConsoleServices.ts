@@ -34,8 +34,6 @@ import { createD1ConsoleApprovalService } from '@seams-internal/console-server/a
 import type { ConsoleApprovalService } from '@seams-internal/console-server/approvals/service';
 import { createD1ConsoleAuditService } from '@seams-internal/console-server/audit/d1';
 import type { ConsoleAuditService } from '@seams-internal/console-server/audit/service';
-import { createD1ConsoleBootstrapTokenService } from '@seams-internal/console-server/bootstrapTokens/d1';
-import type { ConsoleBootstrapTokenService } from '@seams-internal/console-server/bootstrapTokens/service';
 import { createD1ConsoleBillingService } from '@seams-internal/console-server/billing/d1';
 import type { BillingProviderAdapters } from '@seams-internal/console-server/billing/providers';
 import type { ConsoleBillingService } from '@seams-internal/console-server/billing/service';
@@ -93,7 +91,6 @@ import { ensureTempoOnboardingSponsorshipForExistingEnvironments } from '@seams-
 import type { ConsoleGasSponsorshipPolicyProjection } from '@seams-internal/console-server/gasSponsorship/types';
 import type {
   RouterApiKeyAuthAdapter,
-  RouterApiBootstrapTokenVerifier,
   RouterApiPublishableKeyAuthAdapter,
   RouterApiOptions,
   RouterApiUsageMeterAdapter,
@@ -104,7 +101,6 @@ import {
   createRouterApiBillingUsageMeterAdapter,
   createRouterApiPublishableKeyAuthAdapter,
 } from '@seams-internal/console-server/router/routerApiKeyAuth';
-import { createRouterApiBootstrapTokenVerifier } from '@seams-internal/console-server/router/bootstrapTokenVerifier';
 import {
   createConsoleRouterApiRouteExtensions,
   DEFAULT_SIGNED_DELEGATE_ROUTE,
@@ -142,7 +138,6 @@ const DEFAULT_THRESHOLD_STORE_BINDING_NAME = 'THRESHOLD_STORE';
 const DEFAULT_ROUTE_VERSION = 1;
 const DEFAULT_TOPOLOGY: CloudflareTenantTopology = 'shared';
 const DEFAULT_JURISDICTION: TenantDataJurisdiction = 'automatic';
-const DEFAULT_BOOTSTRAP_GRANT_TOKEN_TTL_MS = 60_000;
 
 export interface CloudflareD1ConsoleStorageBindings {
   readonly consoleDatabase: D1DatabaseLike;
@@ -188,7 +183,6 @@ export interface CloudflareD1ConsoleAdapterOptions {
   readonly runtimeSnapshotRetentionTtlMs?: number;
   readonly runtimeSnapshotRetentionPruneIntervalMs?: number;
   readonly runtimeSnapshotRetentionBatchSize?: number;
-  readonly bootstrapGrantTokenTtlMs?: number;
   readonly sponsorshipPricing?: SponsorshipSpendPricingService | null;
   readonly sponsoredEvmCallConfig?: SponsoredEvmCallExecutorConfig | null;
   readonly resolveSponsoredEvmExecutionAdapter?: SponsoredEvmExecutionAdapterResolver | null;
@@ -206,10 +200,7 @@ export interface CloudflareD1ConsoleOnlyServiceBundleOptions {
   readonly route: Pick<CloudflareD1ConsoleRouteOptions, 'namespace'>;
   readonly adapters?: Omit<
     CloudflareD1ConsoleAdapterOptions,
-    | 'bootstrapGrantTokenTtlMs'
-    | 'sponsorshipPricing'
-    | 'sponsoredEvmCallConfig'
-    | 'resolveSponsoredEvmExecutionAdapter'
+    'sponsorshipPricing' | 'sponsoredEvmCallConfig' | 'resolveSponsoredEvmExecutionAdapter'
   >;
 }
 
@@ -239,7 +230,6 @@ export interface CloudflareD1RouterApiStorageOptions {
   readonly apiKeyAuth: RouterApiKeyAuthAdapter;
   readonly publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
   readonly apiKeyUsageMeter: RouterApiUsageMeterAdapter;
-  readonly bootstrapTokenVerifier: RouterApiBootstrapTokenVerifier;
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly routeExtensions: NonNullable<RouterApiOptions['routeExtensions']>;
   readonly routerAbNormalSigningAdmission: RouterAbNormalSigningAdmissionAdapter;
@@ -260,7 +250,6 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly observability: ConsoleObservabilityService;
   readonly observabilityIngestion: ConsoleObservabilityIngestionService;
   readonly onboarding: ConsoleOnboardingService;
-  readonly bootstrapTokens: ConsoleBootstrapTokenService;
   readonly audit: ConsoleAuditService;
   readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
@@ -275,7 +264,6 @@ export interface CloudflareD1ConsoleServiceBundle {
 export type CloudflareD1ConsoleOnlyServiceBundle = Omit<
   CloudflareD1ConsoleServiceBundle,
   | 'tenantStorageRouteResolver'
-  | 'bootstrapTokens'
   | 'spendCaps'
   | 'sponsorshipPricing'
   | 'routerApiRouterOptions'
@@ -364,7 +352,6 @@ interface NormalizedCloudflareD1ConsoleServiceBundleOptions extends NormalizedCl
   readonly signerMetadataBindingName: D1BindingName;
   readonly signerMetadataDatabaseName: D1DatabaseName;
   readonly thresholdStoreBindingName: DurableObjectBindingName;
-  readonly bootstrapGrantTokenTtlMs: number;
   readonly sponsorshipPricing?: SponsorshipSpendPricingService | null;
   readonly sponsoredEvmCallConfig?: SponsoredEvmCallExecutorConfig | null;
   readonly resolveSponsoredEvmExecutionAdapter?: SponsoredEvmExecutionAdapterResolver | null;
@@ -563,14 +550,6 @@ function normalizeNamespace(input: string): string {
   return namespace;
 }
 
-function normalizeBootstrapGrantTokenTtlMs(input: number | undefined): number {
-  const ttlMs = Number(input || DEFAULT_BOOTSTRAP_GRANT_TOKEN_TTL_MS);
-  if (!Number.isSafeInteger(ttlMs) || ttlMs < 1_000) {
-    throw new Error('D1 Router API bootstrapGrantTokenTtlMs must be at least 1000');
-  }
-  return ttlMs;
-}
-
 function requireSigningRootAdapterString(input: unknown, field: string): string {
   const value = toOptionalTrimmedString(input);
   if (!value) throw new Error(`${field} is required for D1 signing-root adapters`);
@@ -711,9 +690,6 @@ function normalizeCloudflareD1ConsoleServiceBundleOptions(
     runtimeSnapshotRetentionPruneIntervalMs:
       options.adapters?.runtimeSnapshotRetentionPruneIntervalMs,
     runtimeSnapshotRetentionBatchSize: options.adapters?.runtimeSnapshotRetentionBatchSize,
-    bootstrapGrantTokenTtlMs: normalizeBootstrapGrantTokenTtlMs(
-      options.adapters?.bootstrapGrantTokenTtlMs,
-    ),
     sponsorshipPricing: options.adapters?.sponsorshipPricing,
     sponsoredEvmCallConfig: options.adapters?.sponsoredEvmCallConfig,
     resolveSponsoredEvmExecutionAdapter: options.adapters?.resolveSponsoredEvmExecutionAdapter,
@@ -957,17 +933,6 @@ async function createCloudflareD1Audit(
   });
 }
 
-async function createCloudflareD1BootstrapTokens(
-  options: NormalizedCloudflareD1ConsoleCommonOptions,
-): Promise<ConsoleBootstrapTokenService> {
-  return await createD1ConsoleBootstrapTokenService({
-    database: options.consoleDatabase,
-    namespace: options.namespace,
-    ensureSchema: options.ensureSchema,
-    now: options.now,
-  });
-}
-
 async function createCloudflareD1SponsoredCalls(
   options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleSponsoredCallService> {
@@ -1151,7 +1116,6 @@ function createCloudflareD1RouterApiStorageOptions(input: {
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly wallets: ConsoleWalletService;
   readonly apiKeys: ConsoleApiKeyService;
-  readonly bootstrapTokens: ConsoleBootstrapTokenService;
   readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly spendCaps: ConsoleSponsorshipSpendCapService;
@@ -1168,7 +1132,6 @@ function createCloudflareD1RouterApiStorageOptions(input: {
   const sponsoredEvmCallConfig = options.sponsoredEvmCallConfig || null;
   const apiKeyAuth = createRouterApiKeyAuthAdapter(input.apiKeys);
   const publishableKeyAuth = createRouterApiPublishableKeyAuthAdapter(input.apiKeys);
-  const bootstrapTokenVerifier = createRouterApiBootstrapTokenVerifier(input.bootstrapTokens);
   return {
     apiKeyAuth,
     publishableKeyAuth,
@@ -1176,7 +1139,6 @@ function createCloudflareD1RouterApiStorageOptions(input: {
       orgProjectEnv: input.orgProjectEnv,
       wallets: input.wallets,
     }),
-    bootstrapTokenVerifier,
     orgProjectEnv: input.orgProjectEnv,
     routeExtensions: createConsoleRouterApiRouteExtensions({
       apiKeyAuth,
@@ -1244,7 +1206,6 @@ export async function createCloudflareD1ConsoleServiceBundle(
     ...services,
     apiKeys,
   };
-  const bootstrapTokens = await createCloudflareD1BootstrapTokens(normalized);
   const spendCaps = await createCloudflareD1SpendCaps(normalized);
   const sponsorshipPricing = await createCloudflareD1RouterApiSponsorshipPricing(normalized);
   const consoleRouterOptions = createCloudflareD1ConsoleRouterStorageOptions({
@@ -1258,7 +1219,6 @@ export async function createCloudflareD1ConsoleServiceBundle(
     orgProjectEnv: servicesWithApiKeys.orgProjectEnv,
     wallets: servicesWithApiKeys.wallets,
     apiKeys: servicesWithApiKeys.apiKeys,
-    bootstrapTokens,
     billing: servicesWithApiKeys.billing,
     prepaidReservations: servicesWithApiKeys.prepaidReservations,
     spendCaps,
@@ -1271,7 +1231,6 @@ export async function createCloudflareD1ConsoleServiceBundle(
     tenantStorageRouteResolver,
     tenantStorageNamespace: normalized.namespace,
     ...servicesWithApiKeys,
-    bootstrapTokens,
     spendCaps,
     sponsorshipPricing,
     consoleRouterOptions,

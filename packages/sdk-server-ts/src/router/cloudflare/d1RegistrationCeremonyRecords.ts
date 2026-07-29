@@ -119,7 +119,6 @@ import {
   StoredWalletAddSignerFinalizeRequest,
   StoredWalletRegistrationCeremony,
   StoredWalletRegistrationCeremonyAuthorityState,
-  StoredWalletRegistrationFinalizeReplay,
 } from '../../core/RegistrationCeremonyStore';
 import {
   thresholdEcdsaChainTargetKey,
@@ -426,40 +425,6 @@ function parseD1WalletRegistrationCeremonyAuthorityState(
     default:
       return null;
   }
-}
-
-export function parseD1StoredWalletRegistrationFinalizeReplay(
-  raw: unknown,
-): StoredWalletRegistrationFinalizeReplay | null {
-  const record = toRecordValue(raw);
-  if (!record || record.kind !== 'wallet_registration_finalize_replay_v1') return null;
-  const registrationCeremonyId = toOptionalTrimmedString(record.registrationCeremonyId);
-  const idempotencyKey = toOptionalTrimmedString(record.idempotencyKey);
-  const requestFingerprint = toOptionalTrimmedString(record.requestFingerprint);
-  const response = parseD1WalletRegistrationFinalizeReplayResponse(record.response);
-  const createdAtMs = safeInteger(record.createdAtMs);
-  const expiresAtMs = safeInteger(record.expiresAtMs);
-  if (
-    !registrationCeremonyId ||
-    !idempotencyKey ||
-    !requestFingerprint ||
-    !response ||
-    createdAtMs === null ||
-    createdAtMs <= 0 ||
-    expiresAtMs === null ||
-    expiresAtMs <= 0
-  ) {
-    return null;
-  }
-  return {
-    kind: 'wallet_registration_finalize_replay_v1',
-    registrationCeremonyId,
-    idempotencyKey,
-    requestFingerprint,
-    response,
-    createdAtMs,
-    expiresAtMs,
-  };
 }
 
 export function parseD1StoredWalletAddSignerFinalizeReplay(

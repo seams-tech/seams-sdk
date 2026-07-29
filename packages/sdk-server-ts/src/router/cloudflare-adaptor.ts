@@ -1,13 +1,4 @@
 export type {
-  RouterApiBootstrapGrant,
-  RouterApiBootstrapGrantBroker,
-  RouterApiBootstrapGrantClientContext,
-  RouterApiBootstrapGrantFailureCode,
-  RouterApiBootstrapGrantIssueRequest,
-  RouterApiBootstrapGrantIssueResult,
-  RouterApiBootstrapGrantMode,
-  RouterApiBootstrapGrantPaymentRequirement,
-  RouterApiBootstrapTokenRecord,
   RouterApiKeyAuthAdapter,
   RouterApiKeyAuthFailureCode,
   RouterApiKeyAuthRequest,
@@ -167,10 +158,6 @@ export {
   resolveSourceIpFromExpressRequest,
   resolveSourceIpFromFetchHeaders,
 } from './routerApiKeyAuth';
-export {
-  RouterApiBootstrapGrantError,
-  parseRouterApiBootstrapGrantIssueBody,
-} from './bootstrapGrantBroker';
 export { createCloudflareRouter } from './cloudflare/createCloudflareRouter';
 export type { SelfHostedCloudflareSigningWorkerFactoryInput } from './cloudflare/createSelfHostedCloudflareSigningWorker';
 export {

@@ -632,7 +632,7 @@ export function createRouterApiRouteDefinitions(
       'Create a wallet add-auth-method intent',
       {
         plane: 'api_credentials',
-        credentials: ['secret_key', 'bootstrap_token'],
+        credentials: ['publishable_key'],
         scopes: ['wallets.auth_methods.create'],
         environmentBinding: 'required',
         originBinding: 'required',
