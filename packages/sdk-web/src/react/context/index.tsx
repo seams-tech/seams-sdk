@@ -1,3 +1,8 @@
+/* `React.FC` below is a type-position reference to the namespace, which .tsx
+   resolves globally but the emitted .d.ts does not — leaving `React`
+   unresolvable there and degrading every consumer of `useSeams` to `any`.
+   Importing the type explicitly makes the declaration self-contained. */
+import type * as React from 'react';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNearClient } from '../hooks/useNearClient';
 import { useAccountInput } from '../hooks/useAccountInput';

@@ -6,7 +6,6 @@ import {
   type RegistrationResult,
   type RegistrationSignerSetSelection,
 } from '@seams/sdk/react';
-import type { NearProvisioningState, NearProvisioningStateChangedEvent } from '@seams/sdk';
 import {
   encodeSignedTransactionBase64,
   nearAccountRefFromAccountId,
@@ -351,7 +350,11 @@ type IntendedEmailOtpCodeRequest =
       challengeId?: never;
     };
 
-type IntendedNearProvisioningState = NearProvisioningState;
+type IntendedNearProvisioningState = NonNullable<
+  Awaited<
+    ReturnType<ReturnType<typeof useSeams>['seams']['registration']['getNearProvisioningState']>
+  >
+>;
 
 type IntendedNearProvisioningReadyState = Extract<
   IntendedNearProvisioningState,
@@ -826,6 +829,10 @@ class IntendedPageController {
         session: registration,
         ecdsaTargetKeys,
       });
+      /* Branch on the arm rather than copying members out: deferred NEAR means
+         the result carries either a resolved identity or a provisioning
+         status, never both, and flattening the two into one object loses
+         exactly that guarantee. NEAR identity is read only on the ready arm. */
       const summary: EmailOtpRegistrationResultSummary = registration.nearProvisioning
         ? {
             kind: registration.kind,
@@ -1642,19 +1649,12 @@ function assertPasskeyRegistrationSucceeded(args: {
   }
   switch (args.ecdsaTargetProfile.kind) {
     case 'none': {
-      if (result.kind !== 'wallet_registered') {
-        throw new Error(`Passkey registration returned result kind: ${result.kind}`);
-      }
-      const nearCapability = result.capabilities.find(
-        (capability) => capability.kind === 'near_ed25519',
-      );
-      if (!nearCapability || nearCapability.kind !== 'near_ed25519') {
-        throw new Error('Passkey registration did not return a NEAR capability');
+      if (result.kind !== 'near_wallet_registered') {
+        throw new Error(`NEAR-only passkey registration returned result kind: ${result.kind}`);
       }
       return {
         ...passkeyRegistrationIdentitySummary({
           result,
-          nearCapability,
           expectedWalletId: args.expectedWalletId,
         }),
         ecdsaTargetProfile: 'none',
@@ -1668,9 +1668,8 @@ function assertPasskeyRegistrationSucceeded(args: {
       if (result.kind !== 'ecdsa_wallet_registered_near_pending') {
         throw new Error(`Mixed passkey registration returned result kind: ${result.kind}`);
       }
-      const ecdsaCapability = result.capabilities[0];
       const ecdsa = requireThresholdEcdsaSessionFields({
-        source: ecdsaCapability,
+        source: result,
         label: 'Passkey registration',
       });
       return {
@@ -1705,22 +1704,16 @@ function assertEd25519AddSignerSucceeded(
   if (!result.success) {
     throw new Error(result.error || 'Ed25519 add-signer failed');
   }
-  if (result.kind !== 'wallet_signer_added') {
+  if (result.kind !== 'near_ed25519_signer_added') {
     throw new Error(`Ed25519 add-signer returned result kind: ${result.kind}`);
   }
   const walletId = String(result.walletId).trim();
   if (walletId !== expectedWalletId) {
     throw new Error(`Ed25519 add-signer wallet mismatch: ${walletId}`);
   }
-  const nearCapability = result.capabilities.find(
-    (capability) => capability.kind === 'near_ed25519',
-  );
-  if (!nearCapability) {
-    throw new Error('Ed25519 add-signer did not return a NEAR capability');
-  }
-  const nearAccountId = String(nearCapability.nearAccountId).trim();
-  const nearEd25519SigningKeyId = String(nearCapability.nearEd25519SigningKeyId).trim();
-  const operationalPublicKey = String(nearCapability.operationalPublicKey).trim();
+  const nearAccountId = String(result.nearAccountId).trim();
+  const nearEd25519SigningKeyId = String(result.nearEd25519SigningKeyId).trim();
+  const operationalPublicKey = String(result.operationalPublicKey ?? '').trim();
   if (!nearAccountId || !nearEd25519SigningKeyId || !operationalPublicKey) {
     throw new Error('Ed25519 add-signer returned incomplete signer identity');
   }
@@ -1735,15 +1728,7 @@ function assertEd25519AddSignerSucceeded(
 
 type PasskeyWalletRegistrationResult = Extract<
   RegistrationResult,
-  {
-    success: true;
-    kind: 'wallet_registered';
-  }
->;
-
-type RegisteredNearCapability = Extract<
-  PasskeyWalletRegistrationResult['capabilities'][number],
-  { kind: 'near_ed25519' }
+  { success: true; kind: 'near_wallet_registered' }
 >;
 
 type PendingPasskeyWalletRegistrationResult = Extract<
@@ -1800,7 +1785,6 @@ function registrationNearProvisioningSummary(
 
 function passkeyRegistrationIdentitySummary(args: {
   result: PasskeyWalletRegistrationResult;
-  nearCapability: RegisteredNearCapability;
   expectedWalletId: string;
 }): PasskeyRegistrationIdentitySummary {
   const result = args.result;
@@ -1808,15 +1792,15 @@ function passkeyRegistrationIdentitySummary(args: {
   if (walletId !== args.expectedWalletId) {
     throw new Error(`Passkey registration wallet mismatch: ${walletId}`);
   }
-  const nearAccountId = String(args.nearCapability.nearAccountId).trim();
+  const nearAccountId = String(result.nearAccountId).trim();
   if (!nearAccountId) {
     throw new Error('Passkey registration did not return a NEAR account id');
   }
-  const nearEd25519SigningKeyId = String(args.nearCapability.nearEd25519SigningKeyId).trim();
+  const nearEd25519SigningKeyId = String(result.nearEd25519SigningKeyId).trim();
   if (!nearEd25519SigningKeyId) {
     throw new Error('Passkey registration did not return an Ed25519 signing key id');
   }
-  const operationalPublicKey = String(args.nearCapability.operationalPublicKey).trim();
+  const operationalPublicKey = String(result.operationalPublicKey ?? '').trim();
   if (!operationalPublicKey) {
     throw new Error('Passkey registration did not return an operational public key');
   }
@@ -2035,11 +2019,9 @@ async function awaitWalletNearReady(args: {
         reject(error);
       }
     };
-    unsubscribe = args.registration.onNearProvisioningStateChanged(
-      (event: NearProvisioningStateChangedEvent) => {
+    unsubscribe = args.registration.onNearProvisioningStateChanged((event) => {
       if (String(event.walletId) === args.walletId) settle(event.state);
-      },
-    );
+    });
     void args.registration
       .getNearProvisioningState({ walletId: args.walletId })
       .then(settle)

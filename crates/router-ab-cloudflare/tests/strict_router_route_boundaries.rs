@@ -84,8 +84,6 @@ fn strict_router_router_ab_ecdsa_derivation_routes_apply_boundary_parsers() {
     for required in [
         "is_cloudflare_router_ab_ecdsa_derivation_public_path",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PUBLIC_REQUEST_PATH",
-        "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PREPARE_PUBLIC_REQUEST_PATH",
-        "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_QUERY_PUBLIC_REQUEST_PATH",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ADD_SIGNER_PUBLIC_REQUEST_PATH",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PUBLIC_REQUEST_PATH",
@@ -99,11 +97,9 @@ fn strict_router_router_ab_ecdsa_derivation_routes_apply_boundary_parsers() {
         "validate_for_registration_purpose",
         "parse_cloudflare_router_ab_ecdsa_derivation_export_command_v1_json",
         "parse_router_ab_ecdsa_derivation_recovery_request_v1_json",
-        "parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_commit_request_v1_json",
+        "parse_router_ab_ecdsa_derivation_activation_refresh_request_v1_json",
         "parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json",
         "parse_cloudflare_router_budgeted_router_ab_ecdsa_derivation_finalize_request_v1_json",
-        "handle_cloudflare_router_ab_ecdsa_derivation_activation_prepare_authenticated_public_request_v1",
-        "handle_cloudflare_router_ab_ecdsa_derivation_activation_query_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_explicit_export_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_recovery_authenticated_public_request_v1",
@@ -137,124 +133,6 @@ fn strict_router_router_ab_ecdsa_derivation_routes_apply_boundary_parsers() {
 }
 
 #[test]
-fn ecdsa_activation_replay_reconciles_before_refresh_replay_reservation() {
-    let lib_rs = read_src_file("lib.rs");
-    let refresh_body = extract_function_body(
-        &lib_rs,
-        "handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_authenticated_public_request_v1",
-    );
-    let query_position = refresh_body
-        .find("execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_service_call_v1")
-        .expect("refresh must query an exact activation commit");
-    let replay_position = refresh_body
-        .find("execute_cloudflare_router_replay_reserve_v1")
-        .expect("refresh must retain Router replay admission");
-    assert!(
-        query_position < replay_position,
-        "authenticated refresh replay must reconcile the server commit before Router replay rejection"
-    );
-
-    let registration_activation_body = extract_function_body(
-        &lib_rs,
-        "handle_cloudflare_router_ab_ecdsa_derivation_activation_authenticated_public_request_v1",
-    );
-    let query_position = registration_activation_body
-        .find("execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_service_call_v1")
-        .expect("registration activation must query its exact prior commit");
-    let commit_position = registration_activation_body
-        .find("execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1")
-        .expect("registration activation must retain its commit path");
-    assert!(
-        query_position < commit_position,
-        "authenticated registration activation must reconcile an exact server commit before reopening material"
-    );
-    assert!(
-        !registration_activation_body.contains("execute_cloudflare_router_replay_reserve_v1"),
-        "registration activation replay must reach the idempotent SigningWorker commit directly"
-    );
-
-    let prepare_body = extract_function_body(
-        &lib_rs,
-        "handle_cloudflare_router_ab_ecdsa_derivation_activation_prepare_authenticated_public_request_v1",
-    );
-    assert!(
-        prepare_body
-            .contains("CloudflareRouterAbEcdsaDerivationActivationPrepareResultV1::from_command"),
-        "activation prepare must derive the exact correlation and request digest"
-    );
-    for forbidden in [
-        "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1",
-        "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_service_call_v1",
-    ] {
-        assert!(
-            !prepare_body.contains(forbidden),
-            "activation prepare must remain non-consuming and avoid `{forbidden}`"
-        );
-    }
-
-    let query_body = extract_function_body(
-        &lib_rs,
-        "handle_cloudflare_router_ab_ecdsa_derivation_activation_query_authenticated_public_request_v1",
-    );
-    for required in [
-        "authenticate_cloudflare_router_ab_ecdsa_derivation_activation_command_v1",
-        "request.activation_request_digest()",
-        "CloudflareSigningWorkerEcdsaActivationCommitLookupV1::new",
-        "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_service_call_v1",
-    ] {
-        assert!(
-            query_body.contains(required),
-            "activation query must authenticate and recompute the exact command through `{required}`"
-        );
-    }
-}
-
-#[test]
-fn router_normal_signing_reserves_replay_before_forwarding() {
-    let lib_rs = read_src_file("lib.rs");
-    let body = extract_function_body(
-        &lib_rs,
-        "handle_cloudflare_router_normal_signing_prepare_authenticated_public_request_v2",
-    );
-    let admission = body
-        .find("derive_cloudflare_router_normal_signing_prepare_trusted_admission_from_worker_stores_v2")
-        .expect("normal signing route must evaluate Router-owned admission stores");
-    let replay_builder = body
-        .find("normal_signing_v2_prepare_replay_reserve_call")
-        .expect("normal signing route must build a replay reservation");
-    let replay_execute = body
-        .find("execute_cloudflare_router_replay_reserve_v1")
-        .expect("normal signing route must execute replay reservation");
-    let replay_reject = body
-        .find("ReplayedLocalRequest")
-        .expect("normal signing route must reject replayed requests");
-    let signing_worker_forward = body
-        .find("execute_cloudflare_signing_worker_normal_signing_prepare_service_call_v2")
-        .expect("normal signing route must forward to SigningWorker");
-
-    assert!(
-        admission < replay_builder,
-        "normal signing route must evaluate admission before replay reservation"
-    );
-    assert!(
-        admission < signing_worker_forward,
-        "normal signing route must evaluate admission before forwarding"
-    );
-    assert!(
-        replay_builder < signing_worker_forward,
-        "normal signing route must build replay reservation before forwarding"
-    );
-    assert!(
-        replay_execute < signing_worker_forward,
-        "normal signing route must execute replay reservation before forwarding"
-    );
-    assert!(
-        replay_reject < signing_worker_forward,
-        "normal signing route must reject replay before forwarding"
-    );
-}
-
-#[test]
 fn router_normal_signing_uses_admission_candidate_before_worker_forwarding() {
     let lib_rs = read_src_file("lib.rs");
     for forbidden in [
@@ -281,7 +159,7 @@ fn router_normal_signing_uses_admission_candidate_before_worker_forwarding() {
 }
 
 #[test]
-fn router_ab_ecdsa_derivation_router_prepare_admission_uses_wallet_session_and_replay() {
+fn router_ab_ecdsa_derivation_router_prepare_uses_local_admission_and_signing_worker_budget() {
     let lib_rs = read_src_file("lib.rs");
     for required in [
         "pub client_presignature_id: String",
@@ -301,10 +179,9 @@ fn router_ab_ecdsa_derivation_router_prepare_admission_uses_wallet_session_and_r
         "verify_wallet_session",
         "validate_for_router_ab_ecdsa_derivation_evm_digest_signing_request_v1",
         "CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1::from_prepare_request",
-        "derive_cloudflare_router_ab_ecdsa_derivation_evm_digest_prepare_trusted_admission_from_worker_stores_v1",
+        "derive_cloudflare_router_ab_ecdsa_derivation_evm_digest_prepare_trusted_admission_v1",
         "allows_signing_worker_forwarding",
-        "router_ab_ecdsa_derivation_evm_digest_prepare_replay_reserve_call",
-        "execute_cloudflare_router_replay_reserve_v1",
+        "reserve_cloudflare_router_wallet_budget_v1",
         "CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningRequestV1::new",
         "execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_call_v1",
     ] {
@@ -317,15 +194,19 @@ fn router_ab_ecdsa_derivation_router_prepare_admission_uses_wallet_session_and_r
     let admission = body
         .find("from_prepare_request")
         .expect("Router A/B ECDSA derivation Router prepare must build admission");
-    let replay = body
-        .find("execute_cloudflare_router_replay_reserve_v1")
-        .expect("Router A/B ECDSA derivation Router prepare must reserve replay");
+    let budget = body
+        .find("reserve_cloudflare_router_wallet_budget_v1")
+        .expect("Router A/B ECDSA derivation Router prepare must reserve SigningWorker budget");
     let forward = body
         .find("execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_call_v1")
         .expect("Router A/B ECDSA derivation Router prepare must forward to SigningWorker");
     assert!(
-        admission < replay && replay < forward,
-        "Router A/B ECDSA derivation Router prepare must derive admission, reserve replay, then forward"
+        admission < budget && budget < forward,
+        "Router A/B ECDSA derivation Router prepare must derive local admission, reserve SigningWorker budget, then forward"
+    );
+    assert!(
+        !body.contains("execute_cloudflare_router_replay_reserve_v1"),
+        "Router A/B ECDSA derivation Router prepare must not call a Router replay store"
     );
     for forbidden in [
         "execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1",
@@ -352,7 +233,7 @@ fn router_ab_ecdsa_derivation_router_finalize_admission_uses_wallet_session_and_
         "verify_wallet_session",
         "validate_for_router_ab_ecdsa_derivation_evm_digest_finalize_request_v1",
         "CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1::from_finalize_request",
-        "derive_cloudflare_router_ab_ecdsa_derivation_evm_digest_finalize_trusted_admission_from_worker_stores_v1",
+        "derive_cloudflare_router_ab_ecdsa_derivation_evm_digest_finalize_trusted_admission_v1",
         "allows_signing_worker_forwarding",
         "CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1::new",
         "execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_service_call_v1",

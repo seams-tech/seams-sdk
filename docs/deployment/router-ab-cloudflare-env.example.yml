@@ -209,7 +209,7 @@ cloudflare_workers:
       staging: router-ab-signing-worker-staging
       production: router-ab-signing-worker
     durable_objects:
-      SIGNING_WORKER_SERVER_OUTPUT_DO: RouterAbSigningWorkerServerOutputDurableObject
+      SIGNING_WORKER_PRESIGN_SESSION_DO: RouterAbSigningWorkerPresignSessionDurableObject
     service_bindings: {}
     runtime_vars_from_github:
       ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY

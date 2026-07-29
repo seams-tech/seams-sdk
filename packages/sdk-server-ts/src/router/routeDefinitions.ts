@@ -501,6 +501,23 @@ export function createRouterApiRouteDefinitions(
       ],
     ),
     apiCredentialRoute(
+      'wallet_registration_setup',
+      'POST',
+      '/wallets/register/setup',
+      'Set up a wallet registration ceremony',
+      {
+        plane: 'api_credentials',
+        /* Publishable key only — no bootstrap token to mint and store, and no
+           secret-key fallback on a route the browser calls directly. */
+        credentials: ['publishable_key'],
+        scopes: ['accounts.create'],
+        environmentBinding: 'required',
+        originBinding: 'required',
+      },
+      { kind: 'none' },
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
+    ),
+    apiCredentialRoute(
       'wallet_registration_intent',
       'POST',
       '/wallets/register/intent',
@@ -541,6 +558,19 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
+      'wallet_registration_respond',
+      'POST',
+      '/wallets/register/respond',
+      'Verify registration authority and continue the ECDSA ceremony',
+      {
+        plane: 'public',
+        proof: 'webauthn',
+        rationale:
+          'Registration respond is authorized by the signed setup payload and the registration authority proof.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
+    ),
+    publicRoute(
       'wallet_registration_ecdsa_derivation_respond',
       'POST',
       '/wallets/register/derivation/respond',
@@ -553,30 +583,31 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
-      'wallet_registration_ecdsa_activation_prepare',
+      'wallet_registration_activate',
       'POST',
-      '/wallets/register/derivation/activate/prepare',
-      'Prepare one exact wallet ECDSA family activation command',
+      '/wallets/register/activate',
+      'Activate and finalize one wallet ECDSA registration',
       {
         plane: 'public',
         proof: 'threshold_protocol_state',
         rationale:
-          'Registration activation preparation is bound to one unexpired server-retained Router ceremony.',
+          'Registration activation is bound to one unexpired server-retained Router ceremony.',
       },
-      ROUTER_API_WALLET_REGISTRATION_SERVICES,
+      ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
+      { kind: 'event', action: 'wallet_created' },
     ),
     publicRoute(
-      'wallet_registration_ecdsa_activation_query',
+      'wallet_registration_near_provisioning',
       'POST',
-      '/wallets/register/derivation/activate/query',
-      'Query one exact wallet ECDSA family activation command',
+      '/wallets/register/near-provisioning',
+      'Complete deferred NEAR provisioning for a registered wallet',
       {
         plane: 'public',
         proof: 'threshold_protocol_state',
         rationale:
-          'Registration activation query is bound to one unexpired server-retained Router ceremony.',
+          'NEAR provisioning is bound to a signed setup payload and a completed Yao activation.',
       },
-      ROUTER_API_WALLET_REGISTRATION_SERVICES,
+      ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
     ),
     publicRoute(
       'wallet_registration_ecdsa_activation',
@@ -611,7 +642,10 @@ export function createRouterApiRouteDefinitions(
       'Create a wallet add-signer intent',
       {
         plane: 'api_credentials',
-        credentials: ['secret_key', 'bootstrap_token'],
+        /* 94C: publishable key only, as registration setup already is. The
+           add-signer ceremony and its journals are unchanged — only the
+           admission credential moves off the stored managed grant. */
+        credentials: ['publishable_key'],
         scopes: ['wallets.signers.create'],
         environmentBinding: 'required',
         originBinding: 'required',
@@ -641,32 +675,6 @@ export function createRouterApiRouteDefinitions(
         plane: 'public',
         proof: 'threshold_protocol_state',
         rationale: 'Add-signer DERIVATION respond is bound to an unexpired ceremony id.',
-      },
-      ROUTER_API_WALLET_REGISTRATION_SERVICES,
-    ),
-    publicRoute(
-      'wallet_add_signer_ecdsa_activation_prepare',
-      'POST',
-      '/wallets/:walletId/signers/derivation/activate/prepare',
-      'Prepare one exact wallet add-signer ECDSA activation command',
-      {
-        plane: 'public',
-        proof: 'threshold_protocol_state',
-        rationale:
-          'Add-signer activation preparation is bound to one unexpired server-retained Router ceremony.',
-      },
-      ROUTER_API_WALLET_REGISTRATION_SERVICES,
-    ),
-    publicRoute(
-      'wallet_add_signer_ecdsa_activation_query',
-      'POST',
-      '/wallets/:walletId/signers/derivation/activate/query',
-      'Query one exact wallet add-signer ECDSA activation command',
-      {
-        plane: 'public',
-        proof: 'threshold_protocol_state',
-        rationale:
-          'Add-signer activation query is bound to one unexpired server-retained Router ceremony.',
       },
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
@@ -965,13 +973,6 @@ export function createRouterApiRouteDefinitions(
       '/session/refresh',
       'Refresh current app session',
       ROUTER_API_SESSION_VERSION_SERVICES,
-    ),
-    userSessionRoute(
-      'wallet_session_status',
-      'POST',
-      '/wallet/session/status',
-      'Read exact reusable Wallet Session status',
-      ['session'],
     ),
     thresholdSessionRoute(
       'session_signing_budget_status',

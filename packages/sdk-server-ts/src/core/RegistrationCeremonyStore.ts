@@ -499,6 +499,33 @@ export type StoredWalletRegistrationSignerState =
   | StoredWalletRegistrationSignerSetState
   | StoredWalletRegistrationFailed;
 
+/**
+ * Refactor 94C. A registration ceremony now exists before its authority proof
+ * does.
+ *
+ * `/wallets/register/setup` issues the challenge the client's WebAuthn create
+ * must sign, so the ceremony — and the Router preparation work bound to it —
+ * is necessarily created *before* the user has touched the sensor. The proof
+ * arrives one leg later, on `/wallets/register/respond`, which binds it.
+ *
+ * This is a union rather than an optional field so that no reader can consume
+ * an authority that has not been verified: the awaiting arm carries only the
+ * requested auth method, which is public intent data, and offers no
+ * `authority` to read.
+ */
+export type StoredWalletRegistrationCeremonyAuthorityState =
+  | {
+      kind: 'awaiting_proof';
+      /** The requested method, echoed from the intent; not evidence of anything. */
+      authMethod: RegistrationIntentV1['authMethod'];
+      authority?: never;
+    }
+  | {
+      kind: 'verified';
+      authority: StoredRegistrationAuthority;
+      authMethod?: never;
+    };
+
 type StoredWalletRegistrationCeremonyBase = {
   registrationCeremonyId: string;
   intent: RegistrationIntentV1;
@@ -510,12 +537,43 @@ type StoredWalletRegistrationCeremonyBase = {
   signingRootVersion?: string;
   expectedOrigin?: string;
   expiresAtMs: number;
-  authority: StoredRegistrationAuthority;
+  authorityState: StoredWalletRegistrationCeremonyAuthorityState;
 };
 
 export type StoredWalletRegistrationCeremony = StoredWalletRegistrationCeremonyBase & {
   signerState: StoredWalletRegistrationSignerState;
 };
+
+/**
+ * The verified authority, or `null` while the ceremony is still awaiting its
+ * proof. Legs downstream of respond (activation, finalization, persistence)
+ * require a verified authority and treat `null` as an invalid state rather
+ * than a missing field.
+ */
+export function verifiedRegistrationCeremonyAuthority(ceremony: {
+  readonly authorityState: StoredWalletRegistrationCeremonyAuthorityState;
+}): StoredRegistrationAuthority | null {
+  return ceremony.authorityState.kind === 'verified' ? ceremony.authorityState.authority : null;
+}
+
+export function registrationCeremonyAuthorityRpId(
+  authorityState: StoredWalletRegistrationCeremonyAuthorityState,
+): string | null {
+  switch (authorityState.kind) {
+    case 'awaiting_proof':
+      return authorityState.authMethod.kind === 'passkey'
+        ? String(authorityState.authMethod.rpId)
+        : null;
+    case 'verified':
+      return authorityState.authority.kind === 'passkey'
+        ? String(authorityState.authority.rpId)
+        : null;
+    default: {
+      const exhaustive: never = authorityState;
+      return exhaustive;
+    }
+  }
+}
 
 export type TerminalRegistrationCeremonyCancellationResult =
   | {
@@ -1792,14 +1850,14 @@ function parseStoredWalletRegistrationCeremony(
   if (typeof value.digestB64u !== 'string' || !value.digestB64u.trim()) return null;
   if (typeof value.orgId !== 'string') return null;
   if (!Number.isFinite(Number(value.expiresAtMs))) return null;
-  const authority = parseStoredRegistrationAuthority(value.authority);
+  const authorityState = parseStoredWalletRegistrationCeremonyAuthorityState(value.authorityState);
   const signerPlan = parseStoredRegistrationSignerPlan(value.signerPlan);
   const preparedContext = parseStoredWalletRegistrationPreparedContext(value.preparedContext);
   const intentSignerPlan = isRecord(value.intent)
     ? parseStoredRegistrationSignerPlan(value.intent.signerSelection)
     : null;
   if (
-    !authority ||
+    !authorityState ||
     !signerPlan ||
     !preparedContext ||
     !intentSignerPlan ||
@@ -1815,12 +1873,45 @@ function parseStoredWalletRegistrationCeremony(
   return {
     ...(value as Omit<
       StoredWalletRegistrationCeremony,
-      'authority' | 'signerPlan' | 'preparedContext'
+      'authorityState' | 'signerPlan' | 'preparedContext'
     >),
-    authority,
+    authorityState,
     signerPlan,
     preparedContext,
   };
+}
+
+function parseStoredWalletRegistrationCeremonyAuthorityState(
+  value: unknown,
+): StoredWalletRegistrationCeremonyAuthorityState | null {
+  if (!isRecord(value)) return null;
+  switch (value.kind) {
+    case 'awaiting_proof': {
+      const authMethod = parseStoredRegistrationCeremonyAuthMethod(value.authMethod);
+      return authMethod ? { kind: 'awaiting_proof', authMethod } : null;
+    }
+    case 'verified': {
+      const authority = parseStoredRegistrationAuthority(value.authority);
+      return authority ? { kind: 'verified', authority } : null;
+    }
+    default:
+      return null;
+  }
+}
+
+function parseStoredRegistrationCeremonyAuthMethod(
+  value: unknown,
+): RegistrationIntentV1['authMethod'] | null {
+  if (!isRecord(value)) return null;
+  if (value.kind === 'passkey') {
+    const rpId = trimString(value.rpId);
+    return rpId ? ({ ...value, kind: 'passkey' } as RegistrationIntentV1['authMethod']) : null;
+  }
+  if (value.kind === 'email_otp') {
+    const email = trimString(value.email);
+    return email ? ({ ...value, kind: 'email_otp' } as RegistrationIntentV1['authMethod']) : null;
+  }
+  return null;
 }
 
 function parseStoredWalletAddSignerCeremony(value: unknown): StoredWalletAddSignerCeremony | null {

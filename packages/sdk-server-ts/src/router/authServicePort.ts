@@ -1,3 +1,15 @@
+import type {
+  WalletRegistrationNearProvisioningResponseV2,
+  WalletRegistrationActivateResponseV2,
+  WalletRegistrationRespondResponseV2,
+  WalletRegistrationSetupResponseV2,
+} from '../core/threeRouteRegistrationContracts';
+import type {
+  WalletRegistrationNearProvisioningInput,
+  WalletRegistrationActivateInput,
+  WalletRegistrationRespondInput,
+  WalletRegistrationSetupInput,
+} from './cloudflare/d1WalletRegistrationSetup';
 import type { WalletEmailOtpAction } from '@shared/utils/emailOtpDomain';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
@@ -1121,6 +1133,20 @@ export interface RouterApiWalletRegistrationService {
   cancelRegistrationIntent(input: {
     request: CancelRegistrationIntentRequest;
   }): Promise<CancelRegistrationIntentResponse>;
+  setupWalletRegistration(
+    input: WalletRegistrationSetupInput,
+  ): Promise<WalletRegistrationSetupResponseV2>;
+  respondWalletRegistration(
+    input: WalletRegistrationRespondInput,
+    traceContext?: RouterAbTraceContextV1,
+  ): Promise<WalletRegistrationRespondResponseV2>;
+  activateWalletRegistration(
+    input: WalletRegistrationActivateInput,
+    traceContext?: RouterAbTraceContextV1,
+  ): Promise<WalletRegistrationActivateResponseV2>;
+  completeWalletRegistrationNearProvisioning(
+    input: WalletRegistrationNearProvisioningInput,
+  ): Promise<WalletRegistrationNearProvisioningResponseV2>;
   startWalletRegistration(
     input: WalletRegistrationStartRequest,
     context?: { readonly userAgent?: string },

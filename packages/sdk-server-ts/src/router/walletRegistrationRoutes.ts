@@ -1,7 +1,15 @@
 import type {
-  RouterApiAuthorizationSessionService,
-  RouterApiWalletRegistrationRouteService,
-} from './authServicePort';
+  WalletRegistrationNearProvisioningResponseV2,
+  WalletRegistrationActivateResponseV2,
+  WalletRegistrationRespondResponseV2,
+  WalletRegistrationSetupResponseV2,
+} from '../core/threeRouteRegistrationContracts';
+import type { RouterAbEcdsaRegistrationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { WalletRegistrationAuthorityInput } from '../core/registrationContracts';
+import { resolvePublishableKeyApiCredentialAuth } from './routerApiCredentialAuth';
+import { extractRouterApiEnvironmentId } from './routerApiKeyAuth';
+import type { RouterApiPublishableKeyAuthAdapter } from './routerApi';
+import type { RouterApiWalletRegistrationRouteService } from './authServicePort';
 import type {
   EcdsaKeyFactsInventoryPolicy,
   WebAuthnAuthenticationCredential,
@@ -22,10 +30,6 @@ import type {
   CreateRegistrationIntentResponse,
   WalletAddSignerFinalizeRequest,
   WalletAddSignerFinalizeResponse,
-  WalletAddSignerEcdsaActivationPrepareRequest,
-  WalletAddSignerEcdsaActivationPrepareResponse,
-  WalletAddSignerEcdsaActivationQueryRequest,
-  WalletAddSignerEcdsaActivationQueryResponse,
   WalletAddSignerEcdsaActivationRequest,
   WalletAddSignerEcdsaActivationResponse,
   WalletAddSignerEcdsaDerivationRespondRequest,
@@ -39,10 +43,6 @@ import type {
   WalletAddAuthMethodStartRequest,
   WalletAddAuthMethodStartResponse,
   WalletRegistrationFinalizeRequest,
-  WalletRegistrationEcdsaActivationPrepareRequest,
-  WalletRegistrationEcdsaActivationPrepareResponse,
-  WalletRegistrationEcdsaActivationQueryRequest,
-  WalletRegistrationEcdsaActivationQueryResponse,
   WalletRegistrationEcdsaActivationRequest,
   WalletRegistrationEcdsaActivationResponse,
   WalletRegistrationEcdsaFinalize,
@@ -91,12 +91,10 @@ import type { RouteErrorBody } from './routeResponses';
 import { routeError, routeJson } from './routeResponses';
 import { isPlainObject } from '@shared/utils/validation';
 import {
-  parseRouterAbEcdsaDerivationActivationPrepareResultV1,
   parseRouterAbEcdsaRegistrationActivationRequestV1,
   parseRouterAbEcdsaRegistrationRequestV1,
   parseRouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import { parseCorrelationId } from '@shared/utils/canonicalPrimitives';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import { normalizeCorsOrigin } from '../core/SessionService';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
@@ -104,13 +102,6 @@ import {
   deriveImplicitNearAccountIdFromEd25519PublicKey,
   parseImplicitNearAccountId,
 } from '@shared/utils/near';
-import {
-  parsePrincipalId,
-  parseReusableWalletSessionMintId,
-  type MpcWalletSigningQuotaId,
-  type SeamsSessionId,
-  type WalletSessionId,
-} from '@shared/authorization/capabilityKinds';
 import {
   addAuthMethodIntentGrantFromString,
   computeAddAuthMethodIntentDigestB64u,
@@ -141,7 +132,6 @@ import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
-import { DEFAULT_WALLET_SESSION_TTL_MS } from '@shared/threshold/sessionPolicy';
 import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   parseRouterAbTraceContextV1,
@@ -152,12 +142,12 @@ import type { RouterAbEd25519YaoGatewaySpanV1 } from './routerAbEd25519YaoHttpRe
 
 type RouterApiWalletRegistrationServices = {
   walletRegistration: RouterApiWalletRegistrationRouteService;
-  authorizationSessions: RouterApiAuthorizationSessionService;
   apiKeyAuth?: RouterApiKeyAuthAdapter | null;
   bootstrapTokenVerifier?: RouterApiBootstrapTokenVerifier | null;
   orgProjectEnv?: RouterApiProjectEnvironmentResolver | null;
   routerAbPublicKeyset?: RouterAbPublicKeysetV2 | null;
   session?: SessionAdapter | null;
+  publishableKeyAuth?: RouterApiPublishableKeyAuthAdapter | null;
 };
 
 type ParsedRegistrationSignerSet = {
@@ -579,39 +569,14 @@ async function attachEcdsaWalletSessionJwt(
   bootstrap: EcdsaDerivationServerBootstrapResponse | undefined,
   activationEpoch: RootShareEpoch,
   runtimePolicyScope?: RuntimePolicyScope,
-): Promise<
-  | {
-      readonly ok: true;
-      readonly bootstrap: EcdsaDerivationServerBootstrapResponse & {
-        readonly authorizationSessionId: SeamsSessionId;
-        readonly walletSessionId: WalletSessionId;
-        readonly quotaId: MpcWalletSigningQuotaId;
-        readonly jwt: string;
-      };
-    }
-  | {
-      readonly ok: false;
-      readonly response: RouteResponse<RouteErrorBody>;
-    }
-> {
-  if (!bootstrap) {
-    return {
-      ok: false,
-      response: routeError(500, 'internal', 'ECDSA registration bootstrap is missing'),
-    };
-  }
+): Promise<RouteResponse<RouteErrorBody> | null> {
+  if (!bootstrap) return null;
   if (bootstrap.activationEpoch !== activationEpoch) {
-    return {
-      ok: false,
-      response: routeError(500, 'internal', 'Router A/B ECDSA activation epoch mismatch'),
-    };
+    return routeError(500, 'internal', 'Router A/B ECDSA activation epoch mismatch');
   }
   const normalSigningRuntime = input.services.walletRegistration.getRouterAbNormalSigningRuntime();
   if (!normalSigningRuntime) {
-    return {
-      ok: false,
-      response: routeError(500, 'internal', 'Router A/B normal signing is not configured'),
-    };
+    return routeError(500, 'internal', 'Router A/B normal signing is not configured');
   }
   const signingWorkerId = normalSigningRuntime.getSigningWorkerId();
   const routerAbEcdsaDerivationNormalSigning =
@@ -622,79 +587,17 @@ async function attachEcdsaWalletSessionJwt(
       signingWorkerId,
     });
   if (!routerAbEcdsaDerivationNormalSigning.ok) {
-    return {
-      ok: false,
-      response: routeError(500, 'internal', routerAbEcdsaDerivationNormalSigning.message),
-    };
+    return routeError(500, 'internal', routerAbEcdsaDerivationNormalSigning.message);
   }
-  const session = input.services.session;
-  if (!session) {
-    return {
-      ok: false,
-      response: routeError(401, 'unauthorized', 'ECDSA Wallet Session requires an app session'),
-    };
-  }
-  const parsedSession = await session.parse(input.headers);
-  const appSessionClaims = parsedSession.ok ? parseAppSessionClaims(parsedSession.claims) : null;
-  if (
-    !appSessionClaims?.seamsSessionId ||
-    !appSessionClaims.walletAuthAuthorityRef ||
-    (appSessionClaims.walletId !== bootstrap.walletId && appSessionClaims.sub !== bootstrap.walletId)
-  ) {
-    return {
-      ok: false,
-      response: routeError(
-        401,
-        'unauthorized',
-        'ECDSA Wallet Session requires exact app-session wallet authority',
-      ),
-    };
-  }
-  const principalId = parsePrincipalId(appSessionClaims.sub);
-  const mintId = parseReusableWalletSessionMintId(bootstrap.signingGrantId);
-  if (!principalId.ok || !mintId.ok) {
-    return {
-      ok: false,
-      response: routeError(401, 'unauthorized', 'ECDSA Wallet Session identity is invalid'),
-    };
-  }
-  const activeAuthorizationSession = await input.services.authorizationSessions.readActiveSession({
-    tenantId: input.services.authorizationSessions.tenantId,
-    sessionId: appSessionClaims.seamsSessionId,
-    nowMs: Date.now(),
-  });
-  if (
-    !activeAuthorizationSession ||
-    activeAuthorizationSession.principalId !== principalId.value
-  ) {
-    return {
-      ok: false,
-      response: routeError(401, 'unauthorized', 'ECDSA Wallet Session app authority expired'),
-    };
-  }
-  const reusableWalletSession =
-    await input.services.authorizationSessions.issueReusableWalletSession({
-      tenantId: input.services.authorizationSessions.tenantId,
-      principalId: principalId.value,
-      walletId: walletIdFromString(bootstrap.walletId),
-      authority: appSessionClaims.walletAuthAuthorityRef,
-      mintId: mintId.value,
-      remainingUses: bootstrap.remainingUses,
-      issuedAtMs: bootstrap.expiresAtMs - DEFAULT_WALLET_SESSION_TTL_MS,
-      expiresAtMs: bootstrap.expiresAtMs,
-    });
   const signed = await signRouterAbEcdsaDerivationWalletSessionJwt({
-    session,
+    session: input.services.session,
     userId: bootstrap.walletId,
     evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
     relayerKeyId: bootstrap.relayerKeyId,
     sessionInfo: {
       sessionKind: 'jwt',
-      authorizationSessionId: appSessionClaims.seamsSessionId,
       thresholdSessionId: bootstrap.thresholdSessionId,
       signingGrantId: bootstrap.signingGrantId,
-      walletSessionId: reusableWalletSession.session.walletSessionId,
-      quotaId: reusableWalletSession.quota.quotaId,
       expiresAtMs: bootstrap.expiresAtMs,
       participantIds: bootstrap.participantIds,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -721,21 +624,10 @@ async function attachEcdsaWalletSessionJwt(
   });
   if (!signed.ok) {
     const code = signed.code === 'sessions_disabled' ? 'internal' : signed.code;
-    return {
-      ok: false,
-      response: routeError(signed.status, code, signed.message),
-    };
+    return routeError(signed.status, code, signed.message);
   }
-  return {
-    ok: true,
-    bootstrap: {
-      ...bootstrap,
-      authorizationSessionId: appSessionClaims.seamsSessionId,
-      walletSessionId: reusableWalletSession.session.walletSessionId,
-      quotaId: reusableWalletSession.quota.quotaId,
-      jwt: signed.jwt,
-    },
-  };
+  bootstrap.jwt = signed.jwt;
+  return null;
 }
 
 function parseAddSignerSelection(raw: unknown): ParseResult<AddSignerSelection> {
@@ -1643,9 +1535,9 @@ function parseWalletRegistrationEcdsaDerivationRespondRequest(
   };
 }
 
-function parseWalletRegistrationEcdsaActivationPrepareRequest(
+function parseWalletRegistrationEcdsaActivationRequest(
   body: Record<string, unknown>,
-): ParseResult<WalletRegistrationEcdsaActivationPrepareRequest> {
+): ParseResult<WalletRegistrationEcdsaActivationRequest> {
   try {
     return {
       ok: true,
@@ -1658,64 +1550,6 @@ function parseWalletRegistrationEcdsaActivationPrepareRequest(
       message: 'strict Router A/B ECDSA activation request is invalid',
     };
   }
-}
-
-function parseWalletRegistrationEcdsaActivationRequest(
-  body: Record<string, unknown>,
-): ParseResult<WalletRegistrationEcdsaActivationRequest> {
-  try {
-    const unknownBodyField = findUnknownField(body, ['registrationCeremonyId', 'ecdsa']);
-    if (unknownBodyField) {
-      throw new Error(`ECDSA activation field ${unknownBodyField} is unsupported`);
-    }
-    const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
-    if (!ecdsa) throw new Error('ECDSA activation body is required');
-    const unknownEcdsaField = findUnknownField(ecdsa, [
-      'kind',
-      'activationCorrelationId',
-      'publicFacts',
-      'expectedActivationRequestDigest',
-    ]);
-    if (unknownEcdsaField) {
-      throw new Error(`ECDSA activation field ${unknownEcdsaField} is unsupported`);
-    }
-    const parsed = parseRouterAbEcdsaRegistrationActivationRequestV1({
-      registrationCeremonyId: body.registrationCeremonyId,
-      ecdsa: {
-        kind: ecdsa.kind,
-        activationCorrelationId: ecdsa.activationCorrelationId,
-        publicFacts: ecdsa.publicFacts,
-      },
-    });
-    const preparation = parseRouterAbEcdsaDerivationActivationPrepareResultV1({
-      activation_correlation_id: parsed.ecdsa.activationCorrelationId,
-      activation_request_digest: ecdsa.expectedActivationRequestDigest,
-    });
-    return {
-      ok: true,
-      value: {
-        registrationCeremonyId: parsed.registrationCeremonyId,
-        ecdsa: {
-          kind: parsed.ecdsa.kind,
-          activationCorrelationId: parsed.ecdsa.activationCorrelationId,
-          publicFacts: parsed.ecdsa.publicFacts,
-          expectedActivationRequestDigest: preparation.activation_request_digest,
-        },
-      },
-    };
-  } catch {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'strict Router A/B ECDSA activation request is invalid',
-    };
-  }
-}
-
-function parseWalletRegistrationEcdsaActivationQueryRequest(
-  body: Record<string, unknown>,
-): ParseResult<WalletRegistrationEcdsaActivationQueryRequest> {
-  return parseWalletRegistrationEcdsaActivationRequest(body);
 }
 
 function parseEmailOtpBackupAck(
@@ -2195,9 +2029,9 @@ function parseWalletAddSignerEcdsaDerivationRespondRequest(
   };
 }
 
-function parseWalletAddSignerEcdsaActivationPrepareRequest(
+function parseWalletAddSignerEcdsaActivationRequest(
   body: Record<string, unknown>,
-): ParseResult<WalletAddSignerEcdsaActivationPrepareRequest> {
+): ParseResult<WalletAddSignerEcdsaActivationRequest> {
   const unknownBodyField = findUnknownField(body, ['addSignerCeremonyId', 'ecdsa']);
   if (unknownBodyField) {
     return {
@@ -2220,11 +2054,7 @@ function parseWalletAddSignerEcdsaActivationPrepareRequest(
       message: 'strict Router A/B ECDSA add-signer activation is required',
     };
   }
-  const unknownEcdsaField = findUnknownField(ecdsa, [
-    'kind',
-    'activationCorrelationId',
-    'publicFacts',
-  ]);
+  const unknownEcdsaField = findUnknownField(ecdsa, ['kind', 'publicFacts']);
   if (unknownEcdsaField) {
     return {
       ok: false,
@@ -2239,7 +2069,6 @@ function parseWalletAddSignerEcdsaActivationPrepareRequest(
         addSignerCeremonyId: addSignerCeremonyId.value,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_activation_v1',
-          activationCorrelationId: parseCorrelationId(ecdsa.activationCorrelationId),
           publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(ecdsa.publicFacts),
         },
       },
@@ -2251,79 +2080,6 @@ function parseWalletAddSignerEcdsaActivationPrepareRequest(
       message: 'strict Router A/B ECDSA add-signer activation facts are invalid',
     };
   }
-}
-
-function parseWalletAddSignerEcdsaActivationRequest(
-  body: Record<string, unknown>,
-): ParseResult<WalletAddSignerEcdsaActivationRequest> {
-  const unknownBodyField = findUnknownField(body, ['addSignerCeremonyId', 'ecdsa']);
-  if (unknownBodyField) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: `add-signer ECDSA activation field ${unknownBodyField} is unsupported`,
-    };
-  }
-  const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
-  if (!ecdsa) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'strict Router A/B ECDSA add-signer activation is required',
-    };
-  }
-  const unknownEcdsaField = findUnknownField(ecdsa, [
-    'kind',
-    'activationCorrelationId',
-    'publicFacts',
-    'expectedActivationRequestDigest',
-  ]);
-  if (unknownEcdsaField) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: `add-signer ECDSA activation field ${unknownEcdsaField} is unsupported`,
-    };
-  }
-  const parsed = parseWalletAddSignerEcdsaActivationPrepareRequest({
-    addSignerCeremonyId: body.addSignerCeremonyId,
-    ecdsa: {
-      kind: ecdsa.kind,
-      activationCorrelationId: ecdsa.activationCorrelationId,
-      publicFacts: ecdsa.publicFacts,
-    },
-  });
-  if (!parsed.ok) return parsed;
-  try {
-    const preparation = parseRouterAbEcdsaDerivationActivationPrepareResultV1({
-      activation_correlation_id: parsed.value.ecdsa.activationCorrelationId,
-      activation_request_digest: ecdsa.expectedActivationRequestDigest,
-    });
-    return {
-      ok: true,
-      value: {
-        addSignerCeremonyId: parsed.value.addSignerCeremonyId,
-        ecdsa: {
-          kind: parsed.value.ecdsa.kind,
-          activationCorrelationId: parsed.value.ecdsa.activationCorrelationId,
-          publicFacts: parsed.value.ecdsa.publicFacts,
-          expectedActivationRequestDigest: preparation.activation_request_digest,
-        },
-      },
-    };
-  } catch {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'strict Router A/B ECDSA add-signer activation digest is invalid',
-    };
-  }
-}
-
-function parseWalletAddSignerEcdsaActivationQueryRequest(
-  body: Record<string, unknown>,
-): ParseResult<WalletAddSignerEcdsaActivationQueryRequest> {
-  return parseWalletAddSignerEcdsaActivationRequest(body);
 }
 
 function parseWalletAddSignerFinalizeRequest(
@@ -2610,6 +2366,14 @@ export async function handleRouterApiWalletAddSignerIntent(
       'Origin header is required and must be a valid exact origin',
     );
   }
+  const publishableKeyAuth = input.services.publishableKeyAuth;
+  if (!publishableKeyAuth) {
+    return routeError(
+      500,
+      'route_auth_not_configured',
+      'wallet add-signer intent requires publishable key auth on this server',
+    );
+  }
   const resolved = await enforceRoutePolicy({
     headers: input.headers,
     logger: input.logger,
@@ -2619,14 +2383,16 @@ export async function handleRouterApiWalletAddSignerIntent(
     sourceIp: input.sourceIp,
     resolvers: {
       apiCredentials: async () =>
-        await resolveRegistrationBootstrapApiCredentialAuth({
-          apiKeyAuth: input.services.apiKeyAuth,
-          body: input.body as Record<string, unknown>,
-          bootstrapTokenVerifier: input.services.bootstrapTokenVerifier,
+        await resolvePublishableKeyApiCredentialAuth({
+          environmentId: extractRouterApiEnvironmentId(input.headers) || undefined,
           headers: input.headers,
+          missingEnvironmentMessage: 'Environment header is required for add-signer intent',
+          missingOriginMessage: 'Origin header is required and must be a valid exact origin',
+          missingPublishableKeyMessage: 'Missing publishable key',
           origin,
+          publishableKeyAuth,
           route: input.route,
-          sourceIp: input.sourceIp,
+          routeAuthNotConfiguredMessage: 'Add-signer intent requires API credential auth policy',
         }),
     },
   });
@@ -2654,6 +2420,342 @@ export async function handleRouterApiWalletAddSignerIntent(
       : {}),
     expectedOrigin: origin,
   });
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+/**
+ * Refactor 94C. `POST /wallets/register/setup` — the single admitted entry
+ * point that replaces the bootstrap grant, the intent, and start.
+ *
+ * Authentication is the same API-credential plane the intent route used, so
+ * origin and environment binding are unchanged; what is gone is the stored
+ * grant that used to sit between the check and its only reader.
+ */
+export async function handleRouterApiWalletRegistrationSetup(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationSetupResponseV2 | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const origin = normalizeCorsOrigin(input.origin);
+  if (!origin) {
+    return routeError(
+      403,
+      'forbidden',
+      'Origin header is required and must be a valid exact origin',
+    );
+  }
+  const publishableKeyAuth = input.services.publishableKeyAuth;
+  if (!publishableKeyAuth) {
+    return routeError(
+      500,
+      'route_auth_not_configured',
+      'wallet registration setup requires publishable key auth on this server',
+    );
+  }
+  /* Publishable key only. The client authenticates directly, so there is no
+     bootstrap token to mint, store, and read back — and deliberately no
+     secret-key or bootstrap-token fallback, which would reintroduce the
+     credential the grant existed to carry. */
+  const resolved = await enforceRoutePolicy({
+    headers: input.headers,
+    logger: input.logger,
+    request: { body: input.body, headers: input.headers },
+    route: input.route,
+    services: walletRegistrationRoutePolicyServices(input),
+    sourceIp: input.sourceIp,
+    resolvers: {
+      apiCredentials: async () =>
+        await resolvePublishableKeyApiCredentialAuth({
+          environmentId: extractRouterApiEnvironmentId(input.headers) || undefined,
+          headers: input.headers,
+          missingEnvironmentMessage:
+            'Environment header is required for wallet registration setup',
+          missingOriginMessage: 'Origin header is required and must be a valid exact origin',
+          missingPublishableKeyMessage: 'Missing publishable key',
+          origin,
+          publishableKeyAuth,
+          route: input.route,
+          routeAuthNotConfiguredMessage:
+            'Wallet registration setup requires API credential auth policy',
+        }),
+    },
+  });
+  if (!resolved.ok) return routeJson(resolved.status, resolved.body);
+  if (resolved.context.principal.kind !== 'api_credentials') {
+    return routeError(500, 'internal', 'wallet registration setup requires API credentials');
+  }
+  const principal = resolved.context.principal.principal;
+  const runtimePolicyScope = await resolveActiveRuntimePolicyScopeForEnvironment({
+    orgProjectEnv: input.services.orgProjectEnv || null,
+    orgId: principal.orgId,
+    environmentId: principal.environmentId,
+    projectId: principal.projectId,
+    envId: principal.envId,
+  });
+  const session = input.services.session;
+  if (!session) {
+    return routeError(500, 'internal', 'wallet registration setup requires session signing');
+  }
+  const body = input.body as Record<string, unknown>;
+  const result = await input.services.walletRegistration.setupWalletRegistration({
+    request: {
+      ...(isPlainObject(body.wallet) ? { wallet: body.wallet as never } : {}),
+      signerSelection: body.signerSelection as never,
+      authMethod: body.authMethod as never,
+    },
+    orgId: principal.orgId,
+    expectedOrigin: origin,
+    signer: session,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    ...(runtimePolicyScope
+      ? {
+          signingRootId: `${runtimePolicyScope.projectId}:${runtimePolicyScope.envId}`,
+          signingRootVersion: runtimePolicyScope.signingRootVersion,
+        }
+      : {}),
+  });
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+/**
+ * Refactor 94C. `POST /wallets/register/respond` — the authenticated leg.
+ *
+ * Bearing the proof, so it is a public-plane route authorized by the signed
+ * setup payload plus the WebAuthn or Email OTP proof, exactly as the
+ * derivation respond leg it replaces was.
+ */
+export async function handleRouterApiWalletRegistrationRespond(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationRespondResponseV2 | RouteErrorBody>> {
+  const traceContext = parseRegistrationTraceContext(input.headers);
+  if (!traceContext.ok) return routeError(400, 'invalid_trace_id', traceContext.message);
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const session = input.services.session;
+  if (!session) {
+    return routeError(500, 'internal', 'wallet registration respond requires session signing');
+  }
+  const parsed = parseWalletRegistrationRespondRequest(input.body);
+  if (!parsed.ok) return routeError(400, parsed.code, parsed.message);
+  const result = await input.services.walletRegistration.respondWalletRegistration(
+    {
+      ...parsed.value,
+      verifier: session,
+      minter: session,
+      ...(registrationUserAgentFromHeaders(input.headers)
+        ? { userAgent: registrationUserAgentFromHeaders(input.headers) }
+        : {}),
+    },
+    traceContext.value ?? undefined,
+  );
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+/**
+ * Parses respond's public body. `signedSetup` stays an opaque string here —
+ * the service verifies it; parsing its contents at the boundary would invite
+ * trusting them before verification.
+ */
+function parseWalletRegistrationRespondRequest(
+  body: unknown,
+): ParseResult<{
+  registrationCeremonyId: string;
+  signedSetup: string;
+  authority: WalletRegistrationAuthorityInput;
+  planKind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa' | 'near_ed25519';
+  ecdsa?: {
+    kind: 'router_ab_ecdsa_registration_v1';
+    strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+  };
+}> {
+  if (!isPlainObject(body)) {
+    return { ok: false, code: 'invalid_body', message: 'JSON body required' };
+  }
+  const registrationCeremonyId = String(body.registrationCeremonyId || '').trim();
+  if (!registrationCeremonyId) {
+    return { ok: false, code: 'invalid_body', message: 'registrationCeremonyId is required' };
+  }
+  const signedSetup = String(body.signedSetup || '').trim();
+  if (!signedSetup) {
+    return { ok: false, code: 'invalid_body', message: 'signedSetup is required' };
+  }
+  /* The signer-plan discriminant. The service checks it against the plan the
+     ceremony actually recorded, so a caller cannot drive an Ed25519-only
+     ceremony down the ECDSA arm or the reverse. */
+  const planKind = String(body.kind || '').trim();
+  if (
+    planKind !== 'evm_family_ecdsa' &&
+    planKind !== 'near_ed25519_and_evm_family_ecdsa' &&
+    planKind !== 'near_ed25519'
+  ) {
+    return { ok: false, code: 'invalid_body', message: 'kind must name the signer plan' };
+  }
+  if (planKind === 'near_ed25519' && body.ecdsa !== undefined) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'an Ed25519-only respond carries no ECDSA registration',
+    };
+  }
+  /* Exactly one proof branch; the auth method the ceremony recorded decides
+     which one is admissible, and the service rejects a mismatch. */
+  const hasWebAuthn = Object.prototype.hasOwnProperty.call(body, 'webauthn_registration');
+  const hasEmailOtp = Object.prototype.hasOwnProperty.call(body, 'emailOtpRegistrationProof');
+  if (hasWebAuthn === hasEmailOtp) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'exactly one registration authority proof is required',
+    };
+  }
+  let authority: WalletRegistrationAuthorityInput;
+  if (hasWebAuthn) {
+    authority = { kind: 'passkey', webauthnRegistration: body.webauthn_registration };
+  } else {
+    const proof = normalizeEmailOtpRegistrationProof(body.emailOtpRegistrationProof);
+    if (!proof) {
+      return { ok: false, code: 'invalid_body', message: 'emailOtpRegistrationProof is invalid' };
+    }
+    authority = { kind: 'email_otp', emailOtpRegistrationProof: proof };
+  }
+  if (planKind === 'near_ed25519') {
+    return {
+      ok: true,
+      value: { registrationCeremonyId, signedSetup, authority, planKind },
+    };
+  }
+  const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
+  if (!ecdsa || ecdsa.kind !== 'router_ab_ecdsa_registration_v1') {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA registration request is required',
+    };
+  }
+  let strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+  try {
+    strictRegistration = parseRouterAbEcdsaRegistrationRequestV1(ecdsa.strictRegistration);
+  } catch {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA registration request is invalid',
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      registrationCeremonyId,
+      signedSetup,
+      authority,
+      planKind,
+      ecdsa: { kind: 'router_ab_ecdsa_registration_v1', strictRegistration },
+    },
+  };
+}
+
+/**
+ * Refactor 94C. `POST /wallets/register/activate` — activation and
+ * finalization behind one Gateway operation row.
+ */
+export async function handleRouterApiWalletRegistrationActivate(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationActivateResponseV2 | RouteErrorBody>> {
+  const traceContext = parseRegistrationTraceContext(input.headers);
+  if (!traceContext.ok) return routeError(400, 'invalid_trace_id', traceContext.message);
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const session = input.services.session;
+  if (!session) {
+    return routeError(500, 'internal', 'wallet registration activate requires session signing');
+  }
+  const body = input.body as Record<string, unknown>;
+  const registrationCeremonyId = String(body.registrationCeremonyId || '').trim();
+  if (!registrationCeremonyId) {
+    return routeError(400, 'invalid_body', 'registrationCeremonyId is required');
+  }
+  const signedSetup = String(body.signedSetup || '').trim();
+  if (!signedSetup) return routeError(400, 'invalid_body', 'signedSetup is required');
+  const idempotencyKey = String(body.idempotencyKey || '').trim();
+  if (!idempotencyKey) return routeError(400, 'invalid_body', 'idempotencyKey is required');
+  const planKind = String(body.kind || '').trim();
+  if (
+    planKind !== 'evm_family_ecdsa' &&
+    planKind !== 'near_ed25519_and_evm_family_ecdsa' &&
+    planKind !== 'near_ed25519'
+  ) {
+    return routeError(400, 'invalid_body', 'kind must name the signer plan');
+  }
+  const ed25519Only = planKind === 'near_ed25519';
+  if (ed25519Only && body.ecdsa !== undefined) {
+    return routeError(
+      400,
+      'invalid_body',
+      'an Ed25519-only activate carries no ECDSA activation',
+    );
+  }
+  const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
+  if (!ed25519Only && (!ecdsa || !isPlainObject(ecdsa.clientActivation))) {
+    return routeError(400, 'invalid_body', 'browser-verified clientActivation is required');
+  }
+  const result = await input.services.walletRegistration.activateWalletRegistration(
+    {
+      registrationCeremonyId,
+      signedSetup,
+      idempotencyKey,
+      planKind,
+      ...(ecdsa ? { ecdsa: { clientActivation: ecdsa.clientActivation } } : {}),
+      ...(body.emailOtpEnrollment ? { emailOtpEnrollment: body.emailOtpEnrollment } : {}),
+      ...(body.emailOtpBackupAck ? { emailOtpBackupAck: body.emailOtpBackupAck } : {}),
+      verifier: session,
+      minter: session,
+    },
+    traceContext.value ?? undefined,
+  );
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+/**
+ * Refactor 94C. `POST /wallets/register/near-provisioning` — the non-blocking
+ * completion the client calls after activate, once its already-running Yao
+ * computation produces an activation.
+ */
+export async function handleRouterApiWalletRegistrationNearProvisioning(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationNearProvisioningResponseV2 | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const session = input.services.session;
+  if (!session) {
+    return routeError(500, 'internal', 'NEAR provisioning requires session signing');
+  }
+  const body = input.body as Record<string, unknown>;
+  const registrationCeremonyId = String(body.registrationCeremonyId || '').trim();
+  const signedSetup = String(body.signedSetup || '').trim();
+  const idempotencyKey = String(body.idempotencyKey || '').trim();
+  if (!registrationCeremonyId || !signedSetup || !idempotencyKey) {
+    return routeError(
+      400,
+      'invalid_body',
+      'registrationCeremonyId, signedSetup and idempotencyKey are required',
+    );
+  }
+  const ed25519 = isPlainObject(body.ed25519) ? body.ed25519 : null;
+  if (!ed25519) {
+    return routeError(400, 'invalid_body', 'ed25519 activation reference is required');
+  }
+  const result =
+    await input.services.walletRegistration.completeWalletRegistrationNearProvisioning({
+      registrationCeremonyId,
+      signedSetup,
+      idempotencyKey,
+      ed25519,
+      verifier: session,
+    });
   return routeJson(result.ok ? 200 : 400, result);
 }
 
@@ -2739,56 +2841,23 @@ export async function handleRouterApiWalletRegistrationEcdsaActivation(
     );
   routeTimings.push(['ecdsa_activate_policy_lookup', Math.max(0, Date.now() - policyStartedAtMs)]);
   const jwtStartedAtMs = Date.now();
-  const attached = await attachEcdsaWalletSessionJwt(
+  const signingError = await attachEcdsaWalletSessionJwt(
     input,
     timedResult.ecdsa.bootstrap,
     timedResult.ecdsa.activation.ecdsa_activation.activation_epoch,
     runtimePolicyScope,
   );
-  if (!attached.ok) return attached.response;
   routeTimings.push(['ecdsa_activate_jwt_mint', Math.max(0, Date.now() - jwtStartedAtMs)]);
-  const response = {
-    ...timedResult,
-    ecdsa: {
-      ...timedResult.ecdsa,
-      bootstrap: attached.bootstrap,
-    },
-  };
+  if (signingError) return signingError;
+  /* The route-level marks ride the same header as the service marks so one
+     response carries the whole Gateway-side breakdown. */
   const routeHeader = routeTimings
     .map(([name, durationMs]) => `${name};dur=${durationMs.toFixed(1)}`)
     .join(', ');
   const serverTiming = headers?.['Server-Timing']
     ? `${headers['Server-Timing']}, ${routeHeader}`
     : routeHeader;
-  return routeJson(200, response, { headers: { 'Server-Timing': serverTiming } });
-}
-
-export async function handleRouterApiWalletRegistrationEcdsaActivationPrepare(
-  input: RouterApiWalletRegistrationInput,
-): Promise<RouteResponse<WalletRegistrationEcdsaActivationPrepareResponse | RouteErrorBody>> {
-  if (!isPlainObject(input.body)) {
-    return routeError(400, 'invalid_body', 'JSON body required');
-  }
-  const request = parseWalletRegistrationEcdsaActivationPrepareRequest(input.body);
-  if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.walletRegistration.prepareWalletRegistrationEcdsaActivation(
-    request.value,
-  );
-  return routeJson(result.ok ? 200 : 400, result);
-}
-
-export async function handleRouterApiWalletRegistrationEcdsaActivationQuery(
-  input: RouterApiWalletRegistrationInput,
-): Promise<RouteResponse<WalletRegistrationEcdsaActivationQueryResponse | RouteErrorBody>> {
-  if (!isPlainObject(input.body)) {
-    return routeError(400, 'invalid_body', 'JSON body required');
-  }
-  const request = parseWalletRegistrationEcdsaActivationQueryRequest(input.body);
-  if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.walletRegistration.queryWalletRegistrationEcdsaActivation(
-    request.value,
-  );
-  return routeJson(result.ok ? 200 : 400, result);
+  return routeJson(200, timedResult, { headers: { 'Server-Timing': serverTiming } });
 }
 
 export async function handleRouterApiWalletRegistrationFinalize(
@@ -2954,35 +3023,18 @@ export async function handleRouterApiWalletAddSignerEcdsaActivation(
     request.value,
   );
   if (!result.ok) return routeJson(400, result);
+  const runtimePolicyScope =
+    await input.services.walletRegistration.getWalletAddSignerRuntimePolicyScope(
+      request.value.addSignerCeremonyId,
+    );
+  const signingError = await attachEcdsaWalletSessionJwt(
+    input,
+    result.ecdsa.bootstrap,
+    result.ecdsa.activation.ecdsa_activation.activation_epoch,
+    runtimePolicyScope || undefined,
+  );
+  if (signingError) return signingError;
   return routeJson(200, result);
-}
-
-export async function handleRouterApiWalletAddSignerEcdsaActivationPrepare(
-  input: RouterApiWalletRegistrationInput,
-): Promise<RouteResponse<WalletAddSignerEcdsaActivationPrepareResponse | RouteErrorBody>> {
-  if (!isPlainObject(input.body)) {
-    return routeError(400, 'invalid_body', 'JSON body required');
-  }
-  const request = parseWalletAddSignerEcdsaActivationPrepareRequest(input.body);
-  if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.walletRegistration.prepareWalletAddSignerEcdsaActivation(
-    request.value,
-  );
-  return routeJson(result.ok ? 200 : 400, result);
-}
-
-export async function handleRouterApiWalletAddSignerEcdsaActivationQuery(
-  input: RouterApiWalletRegistrationInput,
-): Promise<RouteResponse<WalletAddSignerEcdsaActivationQueryResponse | RouteErrorBody>> {
-  if (!isPlainObject(input.body)) {
-    return routeError(400, 'invalid_body', 'JSON body required');
-  }
-  const request = parseWalletAddSignerEcdsaActivationQueryRequest(input.body);
-  if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.walletRegistration.queryWalletAddSignerEcdsaActivation(
-    request.value,
-  );
-  return routeJson(result.ok ? 200 : 400, result);
 }
 
 export async function handleRouterApiWalletAddSignerFinalize(

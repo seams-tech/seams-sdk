@@ -758,7 +758,7 @@ test('mixed registration preserves deferred Ed25519 finalize across exact ECDSA 
       signingRootVersion: ceremony.signingRootVersion,
       expectedOrigin: ceremony.expectedOrigin,
       expiresAtMs: ceremony.expiresAtMs,
-      authority: ceremony.authority,
+      authorityState: ceremony.authorityState,
       signerState: {
         kind: 'signer_set_registration',
         branches: [
@@ -1115,6 +1115,133 @@ test('Cloudflare D1 Router API auth service cancels unconsumed registration inte
     expect(recreated.ok).toBe(true);
     if (!recreated.ok) throw new Error(recreated.message);
     expect(recreated.intent.walletId).toBe(providedWalletId);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+/**
+ * Refactor 94C. `/wallets/register/setup` creates the ceremony before the
+ * client's WebAuthn create runs, because setup issues the challenge that
+ * create must sign. The stored authority is therefore a two-arm state, and
+ * every leg that persists wallet identity has to refuse the arm that has not
+ * been proved. This asserts the refusal directly: a ceremony rewritten back to
+ * `awaiting_proof` cannot be finalized even though its ECDSA branch is fully
+ * activated and would otherwise commit.
+ */
+test('finalize refuses a registration ceremony that is still awaiting its authority proof', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'registration-awaiting-proof',
+      orgId: 'org-awaiting',
+      projectId: 'project-awaiting',
+      envId: 'env-awaiting',
+    };
+    const walletId = walletIdFromString('awaiting-proof-wallet');
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.com'));
+    const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
+      config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-awaiting' },
+    });
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      ...scope,
+      routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
+      ecdsaStrictRegistration: new SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort(),
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: new RecordingDurableObjectNamespace(),
+        THRESHOLD_PREFIX: 'awaiting-proof-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-awaiting',
+      },
+    });
+    const ecdsaSigner = {
+      kind: 'evm_family_ecdsa' as const,
+      participantIds: [1, 2] as const,
+      chainTargets: [{ kind: 'evm' as const, namespace: 'eip155' as const, chainId: 8453 }],
+    };
+    const registration = await service.walletRegistration.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-awaiting-v1',
+      expectedOrigin: 'https://app.example.com',
+      request: {
+        wallet: { kind: 'provided', walletId },
+        authMethod: { kind: 'passkey', rpId },
+        signerSelection: { kind: 'signer_set', signers: [ecdsaSigner] },
+      },
+    });
+    if (!registration.ok) throw new Error(registration.message);
+    const started = await service.walletRegistration.startWalletRegistration(
+      passkeyRegistrationStartRequest({
+        registration,
+        webauthnRegistration: await createWebAuthnRegistrationCredential({
+          rpId,
+          challengeB64u: registration.registrationIntentDigestB64u,
+          origin: 'https://app.example.com',
+        }),
+      }),
+    );
+    if (!started.ok || !started.ecdsa) throw new Error('Expected ECDSA start');
+    const responded = await service.walletRegistration.respondWalletRegistrationEcdsaDerivation({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_v1',
+        strictRegistration: buildFixtureRouterAbEcdsaStrictRegistrationRequest(
+          started.ecdsa.strictRegistration,
+        ),
+      },
+    });
+    if (!responded.ok) throw new Error(responded.message);
+    const activated = await service.walletRegistration.activateWalletRegistrationEcdsa({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_v1',
+        publicFacts: fixtureRouterAbEcdsaActivationFacts(),
+      },
+    });
+    if (!activated.ok) throw new Error(activated.message);
+
+    const ceremonyStore = new CloudflareD1RegistrationCeremonyIntentStore({
+      kind: 'partitioned_d1',
+      database,
+      scope,
+      keyPrefix: 'gateway-registration:',
+    });
+    const ceremony = await ceremonyStore.getCeremony(started.registrationCeremonyId);
+    if (!ceremony) throw new Error('Expected activated ECDSA ceremony');
+    expect(ceremony.authorityState.kind).toBe('verified');
+    await ceremonyStore.updateCeremony({
+      expected: ceremony,
+      next: {
+        ...ceremony,
+        authorityState: { kind: 'awaiting_proof', authMethod: { kind: 'passkey', rpId } },
+      },
+    });
+    /* The awaiting arm must survive a storage round trip as itself; a parser
+       that silently dropped it would make this test pass for the wrong
+       reason by making the ceremony unreadable. */
+    const reloaded = await ceremonyStore.getCeremony(started.registrationCeremonyId);
+    expect(reloaded?.authorityState).toEqual({
+      kind: 'awaiting_proof',
+      authMethod: { kind: 'passkey', rpId },
+    });
+
+    const finalized = await service.walletRegistration.finalizeWalletRegistration({
+      kind: 'evm_family_ecdsa',
+      registrationCeremonyId: started.registrationCeremonyId,
+      idempotencyKey: 'awaiting-proof-finalize',
+      ecdsa: { expectedKeyHandles: [activated.ecdsa.bootstrap.keyHandle] },
+    });
+    /* Finalize has other `invalid_state` paths (Email OTP enrollment
+       mismatches); pin the message so this asserts the authority guard and
+       not one of those. */
+    expect(finalized).toMatchObject({
+      ok: false,
+      code: 'invalid_state',
+      message: 'registration ceremony has not verified its authority proof',
+    });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

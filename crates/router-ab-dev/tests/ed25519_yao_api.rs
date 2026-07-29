@@ -69,7 +69,7 @@ fn deriver_a_config() -> LocalDeriverAWorkerConfigV1 {
         peer_signing_key: "a-signing".to_owned(),
         deriver_a_peer_verifying_key: "a-verifying".to_owned(),
         deriver_b_peer_verifying_key: "b-verifying".to_owned(),
-        root_share_storage_path: "a-root.sqlite".to_owned(),
+        role_private_storage_path: "a-role-private.sqlite".to_owned(),
         sealed_root_shares_path: "a-sealed.sqlite".to_owned(),
     }
 }
@@ -84,7 +84,7 @@ fn deriver_b_config() -> LocalDeriverBWorkerConfigV1 {
         peer_signing_key: "b-signing".to_owned(),
         deriver_a_peer_verifying_key: "a-verifying".to_owned(),
         deriver_b_peer_verifying_key: "b-verifying".to_owned(),
-        root_share_storage_path: "b-root.sqlite".to_owned(),
+        role_private_storage_path: "b-role-private.sqlite".to_owned(),
         sealed_root_shares_path: "b-sealed.sqlite".to_owned(),
     }
 }
