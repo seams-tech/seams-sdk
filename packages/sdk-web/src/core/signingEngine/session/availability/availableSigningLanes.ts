@@ -34,13 +34,13 @@ import {
   toRpId,
   toVerifiedEcdsaPublicFactsFromDurableRecord,
   type EvmFamilyKeyFingerprint,
-  type EvmFamilyEcdsaAuthMethod,
   type EvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
   type PasskeyEcdsaAuthBinding,
   type ResolvedEvmFamilyEcdsaKey,
   type VerifiedEcdsaPublicFacts,
 } from '../identity/evmFamilyEcdsaIdentity';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
@@ -262,7 +262,7 @@ export type EcdsaCanonicalLaneSelection =
 
 export function availableEcdsaSigningLaneAuthMethod(
   lane: Pick<ConcreteAvailableEcdsaSigningLane, 'auth'>,
-): EvmFamilyEcdsaAuthMethod {
+): WalletAuthAuthority['factor']['kind'] {
   return signingLaneAuthMethod(lane.auth);
 }
 

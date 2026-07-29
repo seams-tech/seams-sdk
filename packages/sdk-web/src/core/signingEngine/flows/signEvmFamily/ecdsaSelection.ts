@@ -26,7 +26,6 @@ import {
   logEvmFamilyEcdsaLaneDiagnostic,
   requireResolvedEvmFamilyEcdsaSigningLane,
   summarizeEvmFamilyEcdsaLane,
-  type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import type {
@@ -54,7 +53,7 @@ export type EvmFamilyEcdsaSigningSelectionDeps = EvmFamilyAccountMetadataDeps &
   DurableEmailOtpEcdsaSigningSessionAuthorityResolver;
 
 type EcdsaSelectionLaneCandidateDiagnosticsBase = {
-  authMethod: EvmFamilyEcdsaAuthMethod;
+  authMethod: WalletAuthAuthority['factor']['kind'];
   chain: EcdsaLaneCandidate['chain'];
   chainTarget: ThresholdEcdsaChainTarget;
   state: EcdsaLaneCandidate['state'];
@@ -64,7 +63,9 @@ type EcdsaSelectionLaneCandidateDiagnosticsBase = {
   expiresAtMs: number;
 };
 
-function ecdsaLaneCandidateAuthMethod(candidate: EcdsaLaneCandidate): EvmFamilyEcdsaAuthMethod {
+function ecdsaLaneCandidateAuthMethod(
+  candidate: EcdsaLaneCandidate,
+): WalletAuthAuthority['factor']['kind'] {
   const authMethod = laneCandidateAuthMethod(candidate);
   switch (authMethod) {
     case SIGNER_AUTH_METHODS.emailOtp:
@@ -139,32 +140,13 @@ export type EvmFamilyEcdsaSigningSelectionResult =
 
 function walletAuthWithSelectedPrimary(
   accountAuth: AccountAuthMetadata,
-  authMethod: EvmFamilyEcdsaAuthMethod,
+  authMethod: WalletAuthAuthority['factor']['kind'],
 ): AccountAuthMetadata {
   return {
     ...accountAuth,
     primaryAuthMethod: authMethod,
     linkedAuthMethods: Array.from(new Set([...accountAuth.linkedAuthMethods, authMethod])),
   };
-}
-
-export function ecdsaCommittedLaneAuthMethod(
-  lane: PasskeyEcdsaCommittedLane,
-): typeof SIGNER_AUTH_METHODS.passkey;
-export function ecdsaCommittedLaneAuthMethod(
-  lane: EmailOtpEcdsaCommittedLane,
-): typeof SIGNER_AUTH_METHODS.emailOtp;
-export function ecdsaCommittedLaneAuthMethod(lane: EcdsaCommittedLane): EvmFamilyEcdsaAuthMethod;
-export function ecdsaCommittedLaneAuthMethod(lane: EcdsaCommittedLane): EvmFamilyEcdsaAuthMethod {
-  const factorKind = lane.authority.factor.kind;
-  switch (factorKind) {
-    case 'passkey':
-      return SIGNER_AUTH_METHODS.passkey;
-    case 'email_otp':
-      return SIGNER_AUTH_METHODS.emailOtp;
-  }
-  factorKind satisfies never;
-  throw new Error('[SigningEngine][ecdsa] unsupported committed lane authority');
 }
 
 function buildPasskeyEcdsaPublicReauthLane(args: {
@@ -749,7 +731,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     return {
       kind: 'ready',
       accountAuth: selectedAccountAuth,
-      authMethod: ecdsaCommittedLaneAuthMethod(committedLane),
+      authMethod: committedLane.authority.factor.kind,
       lane,
       committedLane,
       diagnostics,
@@ -764,7 +746,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   return {
     kind: 'ready',
     accountAuth: selectedAccountAuth,
-    authMethod: ecdsaCommittedLaneAuthMethod(committedLane),
+    authMethod: committedLane.authority.factor.kind,
     lane,
     committedLane,
     diagnostics,

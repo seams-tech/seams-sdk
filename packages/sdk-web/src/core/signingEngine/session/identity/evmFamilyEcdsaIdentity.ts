@@ -1,7 +1,8 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { alphabetizeStringify } from '@shared/utils/digests';
-import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
+import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   deriveThresholdEcdsaKeyHandle,
@@ -106,11 +107,6 @@ export type EvmFamilyKeyScope = 'evm-family';
 export type EvmFamilyKeyFingerprint = string & {
   readonly __brand: 'EvmFamilyKeyFingerprint';
 };
-
-export type EvmFamilyEcdsaAuthMethod = Extract<
-  SignerAuthMethod,
-  typeof SIGNER_AUTH_METHODS.passkey | typeof SIGNER_AUTH_METHODS.emailOtp
->;
 
 export type VerifiedEcdsaPublicFacts = {
   kind: 'verified_ecdsa_public_facts';
@@ -398,7 +394,7 @@ export type EvmFamilyEcdsaSessionLane = {
   key: EvmFamilyEcdsaKeyIdentity;
   materialActivation: MpcMaterialActivationRef;
   chainTarget: ThresholdEcdsaChainTarget;
-  authMethod: EvmFamilyEcdsaAuthMethod;
+  authMethod: WalletAuthAuthority['factor']['kind'];
   source: ThresholdEcdsaSessionStoreSource;
   thresholdSessionId: ThresholdEcdsaSessionId;
   signingGrantId: SigningGrantId;
@@ -586,7 +582,7 @@ export type BuildEvmFamilyEcdsaSessionLaneInput = {
   key: EvmFamilyEcdsaKeyIdentity;
   materialActivation: MpcMaterialActivationRef;
   chainTarget: ThresholdEcdsaChainTarget;
-  authMethod: EvmFamilyEcdsaAuthMethod;
+  authMethod: WalletAuthAuthority['factor']['kind'];
   source: ThresholdEcdsaSessionStoreSource;
   thresholdSessionId: unknown;
   signingGrantId: unknown;
