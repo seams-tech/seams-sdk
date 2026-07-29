@@ -149,6 +149,11 @@ export type ConsumeEmailOtpGrantCommand = Readonly<{
 export type GetEmailOtpRecoveryCodeStatusCommand = Readonly<{
   subject: EmailOtpProviderIdentitySubject;
 }>;
+
+export type EmailOtpStrongAuthSubject = Readonly<{
+  kind: 'email_otp_strong_auth';
+  walletId: WalletId;
+}>;
 import type {
   RouterAbEd25519YaoBudgetRefreshRequestV1,
   RouterAbEd25519YaoBudgetRefreshResponseV1,
@@ -718,7 +723,7 @@ export type RouterApiMethodTypes = {
     readonly result: RouterAbNormalSigningRuntime | null;
   };
   isEmailOtpStrongAuthRequired: {
-    readonly input: { readonly walletId?: unknown };
+    readonly input: { readonly subject: EmailOtpStrongAuthSubject };
     readonly result:
       | {
           readonly ok: true;

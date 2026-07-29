@@ -116,10 +116,6 @@ type NormalizedActiveEmailOtpEnrollmentReadInput = NormalizedEmailOtpEnrollmentR
   readonly providerUserId: string | undefined;
 };
 
-type NormalizedEmailOtpStrongAuthInput = {
-  readonly walletId: string;
-};
-
 type NormalizedUnlockChallengeInput = {
   readonly walletId: string;
   readonly orgId: string;
@@ -221,8 +217,8 @@ function normalizeActiveEmailOtpEnrollmentReadInput(
 }
 
 function normalizeEmailOtpStrongAuthInput(
-  input: IsEmailOtpStrongAuthRequiredInput | MarkEmailOtpStrongAuthSatisfiedInput,
-): ParseResult<NormalizedEmailOtpStrongAuthInput, InvalidBodyResult> {
+  input: MarkEmailOtpStrongAuthSatisfiedInput,
+): ParseResult<{ readonly walletId: string }, InvalidBodyResult> {
   const walletId = parseD1BoundaryWalletIdResult(input.walletId);
   if (!walletId.ok) {
     return {
@@ -326,15 +322,13 @@ export class CloudflareD1EmailOtpRecoveryService {
   async isEmailOtpStrongAuthRequired(
     input: IsEmailOtpStrongAuthRequiredInput,
   ): Promise<IsEmailOtpStrongAuthRequiredResult> {
-    const parsed = normalizeEmailOtpStrongAuthInput(input);
-    if (!parsed.ok) return parsed.result;
-
-    const enrollment = await this.emailOtpEnrollments.readEnrollment(parsed.value.walletId);
-    if (!enrollment) return { ok: true, required: false, walletId: parsed.value.walletId };
+    const walletId = input.subject.walletId;
+    const enrollment = await this.emailOtpEnrollments.readEnrollment(walletId);
+    if (!enrollment) return { ok: true, required: false, walletId };
     const authState = await this.emailOtpEnrollments.readAuthStateForEnrollment(enrollment);
     if (!authState.ok) return authState;
     const state = authState.state;
-    if (!state) return { ok: true, required: false, walletId: parsed.value.walletId };
+    if (!state) return { ok: true, required: false, walletId };
     const lastEmailOtpLoginAtMs =
       typeof state.lastEmailOtpLoginAtMs === 'number' ? state.lastEmailOtpLoginAtMs : undefined;
     const lastStrongAuthAtMs =
@@ -345,7 +339,7 @@ export class CloudflareD1EmailOtpRecoveryService {
         lastEmailOtpLoginAtMs &&
         (!lastStrongAuthAtMs || lastEmailOtpLoginAtMs > lastStrongAuthAtMs),
       ),
-      walletId: parsed.value.walletId,
+      walletId,
       ...(lastEmailOtpLoginAtMs ? { lastEmailOtpLoginAtMs } : {}),
       ...(lastStrongAuthAtMs ? { lastStrongAuthAtMs } : {}),
     };

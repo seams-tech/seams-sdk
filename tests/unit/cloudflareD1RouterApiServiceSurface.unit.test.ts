@@ -4,6 +4,7 @@ import {
   parseOrgId,
   parseProviderSubject,
   parseWebAuthnRpId,
+  parseWalletId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
@@ -211,8 +212,12 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         providerUserId: 'google:email-user',
       }),
     ).resolves.toMatchObject({ ok: false, code: 'tenant_scope_mismatch' });
+    const strongAuthSubject = {
+      kind: 'email_otp_strong_auth' as const,
+      walletId: requireParsedDomainId(parseWalletId('email-wallet.testnet')),
+    };
     await expect(
-      service.emailOtp.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
+      service.emailOtp.isEmailOtpStrongAuthRequired({ subject: strongAuthSubject }),
     ).resolves.toEqual({
       ok: true,
       required: false,
@@ -220,7 +225,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     });
     await insertEmailOtpAuthState({ database, ...scope });
     await expect(
-      service.emailOtp.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
+      service.emailOtp.isEmailOtpStrongAuthRequired({ subject: strongAuthSubject }),
     ).resolves.toEqual({
       ok: true,
       required: true,
@@ -234,7 +239,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     if (!strongAuth.ok) throw new Error(strongAuth.message);
     expect(strongAuth.lastStrongAuthAtMs).toBeGreaterThanOrEqual(800);
     await expect(
-      service.emailOtp.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
+      service.emailOtp.isEmailOtpStrongAuthRequired({ subject: strongAuthSubject }),
     ).resolves.toMatchObject({
       ok: true,
       required: false,

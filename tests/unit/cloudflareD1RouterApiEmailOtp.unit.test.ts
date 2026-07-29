@@ -1942,7 +1942,12 @@ test('Cloudflare D1 Router API auth service verifies Email OTP unlock proofs onc
       }),
     ).resolves.toMatchObject({ ok: false, code: 'challenge_expired_or_invalid' });
     await expect(
-      service.emailOtp.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
+      service.emailOtp.isEmailOtpStrongAuthRequired({
+        subject: {
+          kind: 'email_otp_strong_auth',
+          walletId: requireParsedDomainId(parseWalletId('email-wallet.testnet')),
+        },
+      }),
     ).resolves.toMatchObject({
       ok: true,
       required: true,
