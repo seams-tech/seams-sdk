@@ -6,9 +6,6 @@ import {
 } from '../../../core/ThresholdService/validation';
 import type {
   CreateSigningSessionSealServiceOptions,
-  SigningSessionSealCurve,
-  SigningSessionSealConsumePolicy,
-  SigningSessionSealConsumeUseResult,
   SigningSessionSealOperation,
   SigningSessionSealRouteResult,
   SigningSessionSealService,
@@ -36,12 +33,6 @@ function toCode(input: unknown, defaultCode: string): string {
   return value || defaultCode;
 }
 
-function toNonNegativeInt(value: unknown): number | undefined {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return undefined;
-  return Math.max(0, Math.floor(parsed));
-}
-
 function toPositiveInt(value: unknown, defaultValue: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return defaultValue;
@@ -53,32 +44,6 @@ function isExpired(
   nowMs: number,
 ): boolean {
   return !Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= nowMs;
-}
-
-function shouldConsume(
-  policy: SigningSessionSealConsumePolicy,
-  operation: SigningSessionSealOperation,
-): boolean {
-  if (policy === 'always') return true;
-  if (policy === 'apply-only') return operation === 'apply-server-seal';
-  if (policy === 'remove-only') return operation === 'remove-server-seal';
-  return false;
-}
-
-function mapConsumeFailure(input: SigningSessionSealConsumeUseResult & { ok: false }): {
-  code: string;
-  message: string;
-} {
-  const code = toCode(input.code, 'unauthorized');
-  const message = toMessage(input.message, 'Threshold session rejected');
-
-  if (code === 'expired') {
-    return { code: 'expired', message };
-  }
-  if (code === 'exhausted') {
-    return { code: 'exhausted', message };
-  }
-  return { code, message };
 }
 
 async function emitAudit(input: {
@@ -220,28 +185,10 @@ function hasSigningGrantBudgetClaim(auth: { claims: Record<string, unknown> }): 
   return Boolean(String(auth.claims.signingGrantId || '').trim());
 }
 
-function parseCurveBoundWalletBudgetLookup(
-  claims: Record<string, unknown>,
-): { signingGrantId: string } | null {
-  const ecdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(claims);
-  if (ecdsaClaims) {
-    return {
-      signingGrantId: ecdsaClaims.signingGrantId,
-    };
-  }
-  const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(claims);
-  if (ed25519Claims) {
-    return {
-      signingGrantId: ed25519Claims.signingGrantId,
-    };
-  }
-  return null;
-}
-
-function parseCurveBoundThresholdLookup(args: {
+function parseCurveBoundThresholdSession(args: {
   claims: Record<string, unknown>;
   thresholdSessionId: string;
-}): { curve: SigningSessionSealCurve; thresholdSessionId: string } | null {
+}): SigningSessionSealThresholdSessionRecord | null {
   const requestedThresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!requestedThresholdSessionId) return null;
   const ecdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(args.claims);
@@ -250,6 +197,11 @@ function parseCurveBoundThresholdLookup(args: {
       ? {
           curve: 'ecdsa',
           thresholdSessionId: requestedThresholdSessionId,
+          userId: ecdsaClaims.walletId,
+          expiresAtMs: ecdsaClaims.thresholdExpiresAtMs,
+          relayerKeyId: ecdsaClaims.relayerKeyId,
+          participantIds: ecdsaClaims.participantIds,
+          evmFamilySigningKeySlotId: ecdsaClaims.evmFamilySigningKeySlotId,
         }
       : null;
   }
@@ -259,71 +211,15 @@ function parseCurveBoundThresholdLookup(args: {
       ? {
           curve: 'ed25519',
           thresholdSessionId: requestedThresholdSessionId,
+          userId: ed25519Claims.walletId,
+          expiresAtMs: ed25519Claims.thresholdExpiresAtMs,
+          relayerKeyId: ed25519Claims.relayerKeyId,
+          participantIds: ed25519Claims.participantIds,
+          authorityScope: ed25519Claims.authorityScope,
         }
       : null;
   }
   return null;
-}
-
-async function resolveBudgetStatusForSealOperation(input: {
-  options: CreateSigningSessionSealServiceOptions;
-  auth: { userId: string; claims: Record<string, unknown> };
-  fallbackSession: SigningSessionSealThresholdSessionRecord;
-  nowMs: number;
-}): Promise<
-  | { ok: true; remainingUses?: number; expiresAtMs: number }
-  | { ok: false; code: string; message: string }
-> {
-  const walletBudgetLookup = parseCurveBoundWalletBudgetLookup(input.auth.claims);
-  if (!walletBudgetLookup) {
-    return {
-      ok: true,
-      remainingUses: toNonNegativeInt(input.fallbackSession.remainingUses),
-      expiresAtMs: input.fallbackSession.expiresAtMs,
-    };
-  }
-  if (!input.options.sessionPolicy.getWalletBudgetStatus) {
-    return {
-      ok: false,
-      code: 'not_configured',
-      message: 'signing grant status is not configured',
-    };
-  }
-  const walletStatus = await input.options.sessionPolicy.getWalletBudgetStatus(walletBudgetLookup);
-  if (!walletStatus) {
-    return {
-      ok: false,
-      code: 'not_found',
-      message: 'signing grant not found',
-    };
-  }
-  if (walletStatus.userId !== input.auth.userId) {
-    return {
-      ok: false,
-      code: 'forbidden',
-      message: 'signing grant does not belong to authenticated user',
-    };
-  }
-  if (isExpired(walletStatus, input.nowMs)) {
-    return {
-      ok: false,
-      code: 'expired',
-      message: 'signing grant expired',
-    };
-  }
-  const remainingUses = toNonNegativeInt(walletStatus.remainingUses) ?? 0;
-  if (remainingUses <= 0) {
-    return {
-      ok: false,
-      code: 'exhausted',
-      message: 'signing grant exhausted',
-    };
-  }
-  return {
-    ok: true,
-    remainingUses,
-    expiresAtMs: Math.min(input.fallbackSession.expiresAtMs, walletStatus.expiresAtMs),
-  };
 }
 
 async function runSealOperation(input: {
@@ -355,25 +251,15 @@ async function runSealOperation(input: {
       metadata: input.request.metadata,
     });
 
-    const thresholdLookup = parseCurveBoundThresholdLookup({
+    const session = parseCurveBoundThresholdSession({
       claims: input.auth.claims,
       thresholdSessionId: input.request.thresholdSessionId,
     });
-    if (!thresholdLookup) {
+    if (!session) {
       result = {
         ok: false,
         code: 'forbidden',
         message: 'Wallet Session does not match requested thresholdSessionId',
-      };
-      return result;
-    }
-
-    const session = await input.options.sessionPolicy.getThresholdSession(thresholdLookup);
-    if (!session) {
-      result = {
-        ok: false,
-        code: 'not_found',
-        message: 'Unknown or expired threshold session',
       };
       return result;
     }
@@ -412,38 +298,8 @@ async function runSealOperation(input: {
       }
     }
 
-    const budgetStatus = await resolveBudgetStatusForSealOperation({
-      options: input.options,
-      auth: input.auth,
-      fallbackSession: session,
-      nowMs: nowMs(),
-    });
-    if (!budgetStatus.ok) {
-      result = budgetStatus;
-      return result;
-    }
-
-    let remainingUses = budgetStatus.remainingUses;
-    const expiresAtMs = budgetStatus.expiresAtMs;
-    const consumePolicy = input.options.consumePolicy || 'never';
-    if (shouldConsume(consumePolicy, input.operation)) {
-      if (!input.options.sessionPolicy.consumeUseCount) {
-        result = {
-          ok: false,
-          code: 'not_implemented',
-          message: 'consumeUseCount is required for selected consumePolicy',
-        };
-        return result;
-      }
-      const consumed = await input.options.sessionPolicy.consumeUseCount(thresholdLookup);
-      if (!consumed.ok) {
-        const mapped = mapConsumeFailure(consumed);
-        result = { ok: false, code: mapped.code, message: mapped.message };
-        return result;
-      }
-      remainingUses = toNonNegativeInt(consumed.remainingUses);
-    }
-
+    // Router/SigningWorker private D1 owns the live signing budget; sealing only binds
+    // ciphertext to the signed Wallet Session identity and expiry.
     const sealed = await input.options.cipher.run({
       operation: input.operation,
       thresholdSessionId: input.request.thresholdSessionId,
@@ -465,8 +321,7 @@ async function runSealOperation(input: {
       ok: true,
       ciphertext: sealed.ciphertext,
       keyVersion: sealed.keyVersion || input.request.keyVersion,
-      expiresAtMs,
-      ...(remainingUses !== undefined ? { remainingUses } : {}),
+      expiresAtMs: session.expiresAtMs,
     };
     return result;
   } catch (error: unknown) {

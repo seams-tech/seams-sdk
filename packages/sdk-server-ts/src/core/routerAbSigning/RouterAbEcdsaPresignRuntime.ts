@@ -1,5 +1,3 @@
-import type { NormalizedLogger } from '../logger';
-import type { RouterAbEcdsaDerivationPoolFillSessionStore } from '../ThresholdService/stores/EcdsaSigningStore';
 import {
   coerceThresholdNodeRole,
   parseThresholdEd25519ParticipantIds2p,
@@ -49,8 +47,8 @@ type RouterAbEcdsaPresignStepResult = Awaited<
   >
 >;
 
-function createPresignSessionId(): string {
-  return `ecdsa-presign-${secureRandomIdFragment()}`;
+function createPresignSessionId(expiresAtMs: number): string {
+  return `ecdsa-presign-v2:${expiresAtMs}:${secureRandomIdFragment()}`;
 }
 
 function routerAbEcdsaPresignGlobalFetch(
@@ -82,19 +80,13 @@ export class RouterAbEcdsaPresignRuntime {
   private readonly handlers: RouterAbEcdsaDerivationPoolFillHandlers;
 
   constructor(input: {
-    readonly logger: NormalizedLogger;
     readonly config: RouterAbEcdsaPresignRuntimeConfig;
-    readonly ecdsaPoolFillSessionStore: RouterAbEcdsaDerivationPoolFillSessionStore;
     readonly signingWorkerTransport: RouterAbConfiguredSigningWorkerPrivateTransport;
     readonly ensureReady: () => Promise<void>;
   }) {
     this.handlers = new RouterAbEcdsaDerivationPoolFillHandlers({
-      logger: input.logger,
       nodeRole: input.config.nodeRole,
       participantIds2p: input.config.participantIds.participantIds2p,
-      clientParticipantId: input.config.participantIds.clientParticipantId,
-      relayerParticipantId: input.config.participantIds.relayerParticipantId,
-      poolFillSessionStore: input.ecdsaPoolFillSessionStore,
       ensureReady: input.ensureReady,
       createPoolFillSessionId: createPresignSessionId,
       signingWorkerTransport: resolveSigningWorkerTransport(input.signingWorkerTransport),
