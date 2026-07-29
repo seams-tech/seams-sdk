@@ -85,8 +85,8 @@ import type {
 } from '@/core/indexedDB/passkeyClientDB.types';
 import type {
   EcdsaBootstrapRequest,
-  WalletSessionReconnectEcdsaBootstrapRouteAuth,
 } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
@@ -2622,15 +2622,13 @@ type ThresholdLoginWarmEd25519State = {
   ecdsaDerivationPasskeyPrfFirstB64u: string;
 };
 
-type ThresholdLoginWarmEcdsaBootstrapRouteAuth = WalletSessionReconnectEcdsaBootstrapRouteAuth;
-
 type ThresholdLoginWarmEcdsaBootstrapIdentity = {
-  routeAuth?: ThresholdLoginWarmEcdsaBootstrapRouteAuth;
+  routeAuth?: AppOrWalletSessionAuth;
 };
 
 function isWalletSessionReconnectEcdsaRouteAuth(
-  auth: ThresholdLoginWarmEcdsaBootstrapRouteAuth | undefined,
-): auth is WalletSessionReconnectEcdsaBootstrapRouteAuth {
+  auth: AppOrWalletSessionAuth | undefined,
+): auth is AppOrWalletSessionAuth {
   return auth?.kind === 'app_session' || auth?.kind === 'wallet_session';
 }
 

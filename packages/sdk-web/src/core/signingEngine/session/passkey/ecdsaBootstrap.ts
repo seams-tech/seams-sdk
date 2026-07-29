@@ -110,8 +110,6 @@ type EcdsaBootstrapExactRequestBase = EcdsaBootstrapRequestCommon & EcdsaBootstr
 
 type PasskeyFreshBootstrapRouteAuth = AppOrWalletSessionAuth;
 
-export type WalletSessionReconnectEcdsaBootstrapRouteAuth = AppOrWalletSessionAuth;
-
 type EmailOtpEcdsaBootstrapWorkerHandle = Extract<
   EmailOtpWorkerIssuedSessionHandle,
   { action: 'threshold_ecdsa_bootstrap' }
@@ -191,8 +189,6 @@ export type PasskeyEcdsaExportBootstrapRequest =
     purpose: 'explicit_key_export';
   };
 
-export type PasskeyFreshEcdsaBootstrapRequest = PasskeyFreshEcdsaBootstrapExactRequest;
-
 export type PasskeyExchangeEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBase &
   PasskeyPrfCredentialBootstrapAuth & {
     kind: 'passkey_exchange_ecdsa_bootstrap';
@@ -203,7 +199,7 @@ export type PasskeyExchangeEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBas
 
 export type WalletSessionReconnectEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBase & {
   kind: 'wallet_session_reconnect_ecdsa_bootstrap';
-  routeAuth: WalletSessionReconnectEcdsaBootstrapRouteAuth;
+  routeAuth: AppOrWalletSessionAuth;
   passkeyCredentialIdB64u: string;
   webauthnAuthentication?: never;
   passkeyPrfFirstB64u: string;
@@ -231,8 +227,6 @@ export type EmailOtpEcdsaBootstrapRequest = EmailOtpEcdsaBootstrapRequestBase &
       }
   );
 
-export type EmailOtpEcdsaExactBootstrapRequest = EmailOtpEcdsaBootstrapRequest;
-
 export type EmailOtpEcdsaExplicitExportBootstrapRequest =
   EcdsaExplicitExportBootstrapRequestBase & {
   kind: 'email_otp_ecdsa_export_bootstrap';
@@ -244,7 +238,7 @@ export type EmailOtpEcdsaExplicitExportBootstrapResult =
 
 export type EcdsaBootstrapRequest =
   | ReuseWarmEcdsaBootstrapRequest
-  | PasskeyFreshEcdsaBootstrapRequest
+  | PasskeyFreshEcdsaBootstrapExactRequest
   | PasskeyExchangeEcdsaBootstrapRequest
   | WalletSessionReconnectEcdsaBootstrapRequest
   | EmailOtpEcdsaBootstrapRequest;
