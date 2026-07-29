@@ -116,8 +116,8 @@ export type RouterAbEd25519YaoWalletSessionMintInputV1 =
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'same_identity_budget_refresh_v1';
-      readonly signingGrantId: string;
-      readonly expiresAtMs: number;
+      readonly signingGrantId?: never;
+      readonly expiresAtMs?: never;
       readonly remainingUses: number;
     });
 
@@ -456,6 +456,7 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
         nowMs,
       });
     case 'shared_email_otp_recovery_wallet_session_v1':
+    case 'same_identity_budget_refresh_v1':
       return {
         signingGrantId: `wss_${secureRandomBase64Url(24)}`,
         expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
@@ -465,7 +466,6 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
         ),
       };
     case 'shared_registration_wallet_session_v1':
-    case 'same_identity_budget_refresh_v1':
       return requireInheritedWalletSessionTerms({
         signingGrantId: input.signingGrantId,
         expiresAtMs: input.expiresAtMs,

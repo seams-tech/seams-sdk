@@ -564,6 +564,7 @@ function parseParticipantIds(raw: unknown, field: string): ParseResult<number[]>
 async function attachEcdsaWalletSessionJwt(
   input: RouterApiWalletRegistrationInput,
   bootstrap: EcdsaDerivationServerBootstrapResponse | undefined,
+  signingWorkerId: string,
   activationEpoch: RootShareEpoch,
   runtimePolicyScope?: RuntimePolicyScope,
 ): Promise<RouteResponse<RouteErrorBody> | null> {
@@ -571,11 +572,6 @@ async function attachEcdsaWalletSessionJwt(
   if (bootstrap.activationEpoch !== activationEpoch) {
     return routeError(500, 'internal', 'Router A/B ECDSA activation epoch mismatch');
   }
-  const normalSigningRuntime = input.services.walletRegistration.getRouterAbNormalSigningRuntime();
-  if (!normalSigningRuntime) {
-    return routeError(500, 'internal', 'Router A/B normal signing is not configured');
-  }
-  const signingWorkerId = normalSigningRuntime.getSigningWorkerId();
   const routerAbEcdsaDerivationNormalSigning =
     buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
       bootstrap,
@@ -2791,6 +2787,7 @@ export async function handleRouterApiWalletAddSignerEcdsaActivation(
   const signingError = await attachEcdsaWalletSessionJwt(
     input,
     result.ecdsa.bootstrap,
+    result.ecdsa.activation.ecdsa_activation.signing_worker.server_id,
     result.ecdsa.activation.ecdsa_activation.activation_epoch,
     runtimePolicyScope || undefined,
   );

@@ -163,7 +163,7 @@ function selfHostedHealthResponse(ctx: SelfHostedCloudflareRouterApiContext): Re
       ok: true,
       selfHosted: true,
       threshold: {
-        configured: Boolean(ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime()),
+        configured: Boolean(ctx.opts.routerAbNormalSigningRouterProxy),
       },
     },
     { status: 200 },

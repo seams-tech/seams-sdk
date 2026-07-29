@@ -67,7 +67,6 @@ import {
   type WalletRegistrationRouteDiagnostics,
   type WalletRegistrationRouteTimingName,
 } from '../../core/registrationContracts';
-import type { RouterAbNormalSigningRuntime } from '../../core/routerAbSigning/RouterAbNormalSigningRuntime';
 import { parseEcdsaDerivationPublicIdentity } from '../../core/ThresholdService/validation';
 import {
   routerAbEcdsaStrictRegistrationFactsBindingJson,
@@ -587,7 +586,6 @@ async function mintD1RegistrationEd25519WalletSession(input: {
 }
 
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore;
-type RouterAbNormalSigningRuntimeProvider = () => RouterAbNormalSigningRuntime | null;
 type WalletStoreProvider = () => D1WalletStore;
 type Ed25519YaoProductRegistrationProvider =
   () => RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
@@ -1027,6 +1025,19 @@ function registrationWalletBudgetIssuerId(signingGrantId: string): string {
   return `registration:${signingGrantId}`;
 }
 
+function walletSessionBudgetRelyingPartyId(
+  authority: WalletAuthAuthority,
+  orgId: string,
+): string {
+  return isPasskeyWalletAuthAuthority(authority)
+    ? authority.verifier.rpId
+    : `email-otp:${orgId}`;
+}
+
+function walletSessionBudgetIssuerId(operation: string, signingGrantId: string): string {
+  return `${operation}:${signingGrantId}`;
+}
+
 export function ecdsaStrictRegistrationAuthority(facts: RouterAbEcdsaRegistrationRequestFactsV1): {
   readonly subjectId: string;
   readonly sessionId: string;
@@ -1277,7 +1288,6 @@ export class CloudflareD1WalletRegistrationService {
   private readonly emailOtpRegistrationEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
-  private readonly getRouterAbNormalSigningRuntime: RouterAbNormalSigningRuntimeProvider;
   private readonly walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null;
   private readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
   private readonly getWalletStore: WalletStoreProvider;
@@ -1295,7 +1305,6 @@ export class CloudflareD1WalletRegistrationService {
     readonly emailOtpRegistrationEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
-    readonly getRouterAbNormalSigningRuntime: RouterAbNormalSigningRuntimeProvider;
     readonly walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null;
     readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
     readonly getWalletStore: WalletStoreProvider;
@@ -1310,7 +1319,6 @@ export class CloudflareD1WalletRegistrationService {
     this.emailOtpRegistrationEnrollmentFinalizer = input.emailOtpRegistrationEnrollmentFinalizer;
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getEd25519YaoProductRegistration = input.getEd25519YaoProductRegistration;
-    this.getRouterAbNormalSigningRuntime = input.getRouterAbNormalSigningRuntime;
     this.walletBudgetGrantProvisioner = input.walletBudgetGrantProvisioner;
     this.ecdsaStrictRegistration = input.ecdsaStrictRegistration;
     this.getWalletStore = input.getWalletStore;
@@ -1464,26 +1472,30 @@ export class CloudflareD1WalletRegistrationService {
         publicCapability: input.public_capability,
       });
       const expiresAtMs = nowMs + input.session_policy.ttl_ms;
-      const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
-      if (!normalSigningRuntime) {
+      const budgetProvisioner = this.walletBudgetGrantProvisioner;
+      if (!budgetProvisioner) {
         return {
           ok: false,
           code: 'not_configured',
-          message: 'Router A/B normal signing is not configured',
+          message: 'Router A/B private-D1 wallet-budget provisioning is not configured',
         };
       }
-      const provisioned = await normalSigningRuntime.provisionRouterAbEcdsaNormalSigningSession({
-        kind: 'router_ab_ecdsa_normal_signing_session_v1',
+      const provisioned = await budgetProvisioner.provisionGrant({
         walletId,
-        evmFamilySigningKeySlotId: walletKey.evmFamilySigningKeySlotId,
-        relayerKeyId: walletKey.relayerKeyId,
-        thresholdSessionId: input.session_policy.threshold_session_id,
         signingGrantId: input.session_policy.signing_grant_id,
-        signingRootId: walletKey.signingRootId,
-        signingRootVersion: walletKey.signingRootVersion,
-        participantIds: walletKey.participantIds,
+        relyingPartyId: `wallet-session:${walletId}`,
+        authorizedSigners: [
+          ecdsaRegistrationWalletBudgetSigner({
+            thresholdSessionId: input.session_policy.threshold_session_id,
+            signingWorkerId: normalSigning.scope.signing_worker.server_id,
+          }),
+        ],
+        initialSignatureUses: input.session_policy.remaining_uses,
         expiresAtMs,
-        remainingUses: input.session_policy.remaining_uses,
+        issuerIdempotencyKey: walletSessionBudgetIssuerId(
+          'ecdsa-session',
+          input.session_policy.signing_grant_id,
+        ),
       });
       if (!provisioned.ok) {
         return {
@@ -1496,7 +1508,7 @@ export class CloudflareD1WalletRegistrationService {
         ok: true,
         walletKey,
         session: {
-          thresholdSessionId: provisioned.thresholdSessionId,
+          thresholdSessionId: input.session_policy.threshold_session_id,
           signingGrantId: input.session_policy.signing_grant_id,
           expiresAtMs: provisioned.expiresAtMs,
           remainingUses: provisioned.remainingUses,
@@ -1600,8 +1612,8 @@ export class CloudflareD1WalletRegistrationService {
         secondParticipantId,
       ];
       const yaoRuntime = this.getEd25519YaoProductRegistration();
-      const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
-      if (!yaoRuntime || !normalSigningRuntime) {
+      const budgetProvisioner = this.walletBudgetGrantProvisioner;
+      if (!yaoRuntime || !budgetProvisioner) {
         return {
           ok: false,
           code: 'not_configured',
@@ -1671,35 +1683,37 @@ export class CloudflareD1WalletRegistrationService {
           message: 'Registered Ed25519 Yao signer does not match the refresh policy',
         };
       }
-      const refreshed = await normalSigningRuntime.refreshRouterAbEd25519YaoNormalSigningBudget({
-        kind: 'router_ab_ed25519_yao_normal_signing_budget_refresh_v1',
-        walletId: authority.walletId,
-        nearAccountId: policy.nearAccountId,
-        nearEd25519SigningKeyId: policy.nearEd25519SigningKeyId,
-        authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
-        thresholdSessionId: policy.thresholdSessionId,
-        signingGrantId: policy.signingGrantId,
-        signingWorkerId: yaoRuntime.signingWorkerId,
-        participantIds: exactParticipantIds,
-        ttlMs: policy.ttlMs,
-        remainingUses: policy.remainingUses,
-      });
-      if (!refreshed.ok) return refreshed;
       const minted = await yaoRuntime.mintWalletSession({
         kind: 'same_identity_budget_refresh_v1',
         walletId: authority.walletId,
         nearAccountId: policy.nearAccountId,
         nearEd25519SigningKeyId: policy.nearEd25519SigningKeyId,
         authority,
-        thresholdSessionId: refreshed.thresholdSessionId,
-        signingGrantId: refreshed.signingGrantId,
-        expiresAtMs: refreshed.expiresAtMs,
-        remainingUses: refreshed.remainingUses,
+        thresholdSessionId: policy.thresholdSessionId,
+        remainingUses: policy.remainingUses,
         participantIds: exactParticipantIds,
         runtimePolicyScope,
       });
       if (!minted.ok) return minted;
       const session = minted.session;
+      const provisioned = await budgetProvisioner.provisionGrant({
+        walletId: authority.walletId,
+        signingGrantId: session.signingGrantId,
+        relyingPartyId: walletSessionBudgetRelyingPartyId(authority, runtimePolicyScope.orgId),
+        authorizedSigners: [
+          ed25519RegistrationWalletBudgetSigner({
+            thresholdSessionId: session.thresholdSessionId,
+            signingWorkerId: yaoRuntime.signingWorkerId,
+          }),
+        ],
+        initialSignatureUses: session.remainingUses,
+        expiresAtMs: session.expiresAtMs,
+        issuerIdempotencyKey: walletSessionBudgetIssuerId(
+          'ed25519-refresh',
+          session.signingGrantId,
+        ),
+      });
+      if (!provisioned.ok) return provisioned;
       return {
         ok: true,
         walletId: session.walletId,
@@ -1758,8 +1772,8 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
       const yaoRuntime = this.getEd25519YaoProductRegistration();
-      const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
-      if (!yaoRuntime || !normalSigningRuntime) {
+      const budgetProvisioner = this.walletBudgetGrantProvisioner;
+      if (!yaoRuntime || !budgetProvisioner) {
         return {
           ok: false,
           code: 'not_configured',
@@ -1861,20 +1875,23 @@ export class CloudflareD1WalletRegistrationService {
       });
       if (!minted.ok) return minted;
       const session = minted.session;
-      const provisioned =
-        await normalSigningRuntime.provisionRouterAbEd25519YaoNormalSigningSession({
-          kind: 'router_ab_ed25519_yao_normal_signing_session_v1',
-          walletId,
-          nearAccountId: signer.nearAccountId,
-          nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
-          authorityScope: session.authorityScope,
-          thresholdSessionId: session.thresholdSessionId,
-          signingGrantId: session.signingGrantId,
-          signingWorkerId: signer.signingWorkerId,
-          expiresAtMs: session.expiresAtMs,
-          participantIds,
-          remainingUses: session.remainingUses,
-        });
+      const provisioned = await budgetProvisioner.provisionGrant({
+        walletId,
+        signingGrantId: session.signingGrantId,
+        relyingPartyId: `email-otp:${orgId}`,
+        authorizedSigners: [
+          ed25519RegistrationWalletBudgetSigner({
+            thresholdSessionId: session.thresholdSessionId,
+            signingWorkerId: signer.signingWorkerId,
+          }),
+        ],
+        initialSignatureUses: session.remainingUses,
+        expiresAtMs: session.expiresAtMs,
+        issuerIdempotencyKey: walletSessionBudgetIssuerId(
+          'email-otp-recovery',
+          session.signingGrantId,
+        ),
+      });
       if (!provisioned.ok) return provisioned;
       return { ok: true, session, capability: descriptor };
     } catch (error: unknown) {

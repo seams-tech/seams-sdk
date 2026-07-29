@@ -483,9 +483,12 @@ export type RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire
   };
 
 export type RouterAbEcdsaDerivationBudgetStatusV1Wire = {
+  remaining_uses: number;
   committed_remaining_uses: number;
   reserved_uses: number;
   available_uses: number;
+  projection_version: number;
+  expires_at_ms: number;
 };
 
 export type RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1Wire = {
@@ -511,6 +514,7 @@ export type RouterAbEcdsaDerivationEvmDigestSigningResponseV1Wire = {
   signing_digest: RouterAbPublicDigest32V1Wire;
   signature_scheme: RouterAbEcdsaDerivationSignatureSchemeV1Wire;
   signature65_b64u: string;
+  budget_status: RouterAbEcdsaDerivationBudgetStatusV1Wire;
 };
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
@@ -2822,14 +2826,27 @@ function parseRouterAbEcdsaDerivationBudgetStatusV1(
   label: string,
 ): RouterAbEcdsaDerivationBudgetStatusV1Wire {
   const record = requireRecord(value, label);
-  requireExactKeys(record, label, ['committed_remaining_uses', 'reserved_uses', 'available_uses']);
+  requireExactKeys(record, label, [
+    'remaining_uses',
+    'committed_remaining_uses',
+    'reserved_uses',
+    'available_uses',
+    'projection_version',
+    'expires_at_ms',
+  ]);
   return {
+    remaining_uses: requireNonNegativeInteger(record.remaining_uses, `${label}.remaining_uses`),
     committed_remaining_uses: requireNonNegativeInteger(
       record.committed_remaining_uses,
       `${label}.committed_remaining_uses`,
     ),
     reserved_uses: requireNonNegativeInteger(record.reserved_uses, `${label}.reserved_uses`),
     available_uses: requireNonNegativeInteger(record.available_uses, `${label}.available_uses`),
+    projection_version: requirePositiveCounter(
+      record.projection_version,
+      `${label}.projection_version`,
+    ),
+    expires_at_ms: requirePositiveUnixMs(record.expires_at_ms, `${label}.expires_at_ms`),
   };
 }
 
@@ -2881,6 +2898,7 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningResponseV1(
     'signing_digest',
     'signature_scheme',
     'signature65_b64u',
+    'budget_status',
   ]);
   return {
     scope: parseRouterAbEcdsaDerivationNormalSigningScopeV1(record.scope),
@@ -2901,6 +2919,10 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningResponseV1(
       record.signature65_b64u,
       'ecdsaSigningResponse.signature65_b64u',
       65,
+    ),
+    budget_status: parseRouterAbEcdsaDerivationBudgetStatusV1(
+      record.budget_status,
+      'ecdsaSigningResponse.budget_status',
     ),
   };
 }

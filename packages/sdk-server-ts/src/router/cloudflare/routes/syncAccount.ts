@@ -135,31 +135,33 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
           { status: 500 },
         );
       }
-      const normalSigningRuntime = ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime();
-      if (!normalSigningRuntime) {
+      const budgetProvisioner =
+        ctx.service.thresholdRuntime.getWalletBudgetGrantProvisioner?.() || null;
+      if (!budgetProvisioner) {
         return json(
           {
             ok: false,
             code: 'internal',
-            message: 'Ed25519 Yao normal-signing runtime is not configured',
+            message: 'Router A/B private-D1 wallet-budget provisioning is not configured',
           },
           { status: 500 },
         );
       }
-      const provisioned =
-        await normalSigningRuntime.provisionRouterAbEd25519YaoNormalSigningSession({
-          kind: 'router_ab_ed25519_yao_normal_signing_session_v1',
-          walletId,
-          nearAccountId,
-          nearEd25519SigningKeyId,
-          authorityScope: walletSession.session.authorityScope,
-          thresholdSessionId: walletSession.session.thresholdSessionId,
-          signingGrantId: walletSession.session.signingGrantId,
-          signingWorkerId,
-          expiresAtMs: walletSession.session.expiresAtMs,
-          participantIds: [firstParticipantId, secondParticipantId],
-          remainingUses: walletSession.session.remainingUses,
-        });
+      const provisioned = await budgetProvisioner.provisionGrant({
+        walletId,
+        signingGrantId: walletSession.session.signingGrantId,
+        relyingPartyId: walletBinding.rpId,
+        authorizedSigners: [
+          {
+            curve: 'ed25519',
+            threshold_session_id: walletSession.session.thresholdSessionId,
+            signing_worker_id: signingWorkerId,
+          },
+        ],
+        initialSignatureUses: walletSession.session.remainingUses,
+        expiresAtMs: walletSession.session.expiresAtMs,
+        issuerIdempotencyKey: `sync-account:${walletSession.session.signingGrantId}`,
+      });
       if (!provisioned.ok) {
         return json(
           { ok: false, code: provisioned.code, message: provisioned.message },

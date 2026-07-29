@@ -29,7 +29,6 @@ import type {
   RecoveryExecutionStatus,
 } from '../core/RecoveryExecutionStore';
 import type { RecoverySessionRecord, RecoverySessionStatus } from '../core/RecoverySessionStore';
-import type { RouterAbNormalSigningRuntime } from '../core/routerAbSigning/RouterAbNormalSigningRuntime';
 import type { RouterAbEcdsaPresignRuntime } from '../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
 import type { RouterAbWalletBudgetGrantProvisionerV1 } from './routerAbPrivateSigningWorker';
 import type {
@@ -601,10 +600,6 @@ export type RouterApiMethodTypes = {
           readonly message: string;
         };
   };
-  getRouterAbNormalSigningRuntime: {
-    readonly input: never;
-    readonly result: RouterAbNormalSigningRuntime | null;
-  };
   isEmailOtpStrongAuthRequired: {
     readonly input: { readonly walletId?: unknown };
     readonly result:
@@ -1028,13 +1023,9 @@ export type GoogleEmailOtpRegistrationCandidateWalletValidationResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
-export interface RouterAbWalletSigningRuntimeService {
-  getRouterAbNormalSigningRuntime(): RouterAbNormalSigningRuntime | null;
-  getWalletBudgetGrantProvisioner?(): RouterAbWalletBudgetGrantProvisionerV1 | null;
-}
-
-export interface RouterAbSigningRuntimeService extends RouterAbWalletSigningRuntimeService {
+export interface RouterAbSigningRuntimeService {
   getRouterAbEcdsaPresignRuntime(): RouterAbEcdsaPresignRuntime | null;
+  getWalletBudgetGrantProvisioner?(): RouterAbWalletBudgetGrantProvisionerV1 | null;
 }
 
 export interface RouterApiEmailOtpChallengeService {
@@ -1159,7 +1150,6 @@ export interface RouterApiWalletAuthMethodService {
 
 export interface RouterApiWalletRegistrationRouteService
   extends
-    RouterAbWalletSigningRuntimeService,
     RouterApiWalletRegistrationService,
     RouterApiWalletAuthMethodService,
     RouterApiWalletAuthVerificationService {
@@ -1359,7 +1349,6 @@ export function routerApiWalletRegistrationRouteService(
     ...service.walletRegistration,
     ...service.walletAuthMethods,
     getOrCreateAppSessionVersion: service.sessionVersions.getOrCreateAppSessionVersion,
-    getRouterAbNormalSigningRuntime: service.thresholdRuntime.getRouterAbNormalSigningRuntime,
     validateAppSessionVersion: service.sessionVersions.validateAppSessionVersion,
     verifyWebAuthnAuthenticationLite: service.webAuthn.verifyWebAuthnAuthenticationLite,
     fundImplicitNearAccount: service.nearFunding.fundImplicitNearAccount,

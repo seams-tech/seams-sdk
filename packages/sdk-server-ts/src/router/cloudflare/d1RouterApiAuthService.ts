@@ -163,7 +163,7 @@ type CloudflareD1RouterApiAuthAssembly = {
 
 type D1WalletRegistrationRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'registrationIntents' | 'walletRegistrations'
+  'registrationIntents' | 'routerAbSigning' | 'walletRegistrations'
 >;
 
 type D1WalletAuthMethodRouteServiceAssembly = Pick<
@@ -202,7 +202,7 @@ type D1SessionVersionRouteServiceAssembly = Pick<
 
 type D1ThresholdRuntimeRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'routerAbSigning'
+  'options' | 'routerAbSigning'
 >;
 
 type D1NearFundingRouteServiceAssembly = Pick<
@@ -1175,8 +1175,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     emailOtpRegistrationEnrollmentFinalizer,
     getRegistrationCeremonyIntentStore,
     getEd25519YaoProductRegistration: () => resolveEd25519YaoProductRegistration(options),
-    getRouterAbNormalSigningRuntime:
-      routerAbSigning.getRouterAbNormalSigningRuntime.bind(routerAbSigning),
     walletBudgetGrantProvisioner: options.walletBudgetGrantProvisioner || null,
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
@@ -1509,8 +1507,9 @@ function createD1ThresholdRuntimeRouteService(
   assembly: D1ThresholdRuntimeRouteServiceAssembly,
 ): CloudflareD1RouterApiAuthService['thresholdRuntime'] {
   return {
-    getRouterAbNormalSigningRuntime: assembly.routerAbSigning.getRouterAbNormalSigningRuntime.bind(
-      assembly.routerAbSigning,
+    getWalletBudgetGrantProvisioner: getD1WalletBudgetGrantProvisioner.bind(
+      undefined,
+      assembly.options,
     ),
     getRouterAbEcdsaPresignRuntime: assembly.routerAbSigning.getRouterAbEcdsaPresignRuntime.bind(
       assembly.routerAbSigning,
@@ -1518,6 +1517,12 @@ function createD1ThresholdRuntimeRouteService(
     getRouterAbLocalSigningSeedRuntime:
       assembly.routerAbSigning.getRouterAbLocalSigningSeedRuntime.bind(assembly.routerAbSigning),
   };
+}
+
+function getD1WalletBudgetGrantProvisioner(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+) {
+  return options.walletBudgetGrantProvisioner || null;
 }
 
 function createD1NearFundingRouteService(

@@ -639,6 +639,7 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
     if (!responded.ok) throw new Error(`respond: ${responded.code}: ${responded.message}`);
     expect(responded.ed25519).toMatchObject({ status: 'deferred' });
 
+    const recoveryCodesIssuedAtMs = Date.now();
     const activateRequest = {
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
@@ -650,6 +651,7 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
           userId: providerSubject,
           enrollmentId: `enrollment-${setup.walletId}`,
           enrollmentSealKeyVersion: 'seal-v1',
+          issuedAtMs: recoveryCodesIssuedAtMs,
         }),
         enrollmentSealKeyVersion: 'seal-v1',
         clientUnlockPublicKeyB64u: unlockPublicKeyB64u,
@@ -658,7 +660,7 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
       },
       emailOtpBackupAck: {
         kind: 'email_otp_recovery_code_backup_ack_v1',
-        recoveryCodesIssuedAtMs: Date.now(),
+        recoveryCodesIssuedAtMs,
         backupActionKind: 'download',
         acknowledgedAtMs: Date.now(),
         idempotencyKey: 'ed25519-otp-backup-ack',

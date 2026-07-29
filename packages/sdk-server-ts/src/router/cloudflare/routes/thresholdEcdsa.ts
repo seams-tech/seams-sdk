@@ -35,9 +35,7 @@ import {
   type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
-  handleRouterAbEcdsaDerivationNormalSigningRouteCore,
-  ROUTER_AB_ECDSA_DERIVATION_PRIVATE_SIGNING_PATHS,
-  type RouterAbEcdsaDerivationPrivateSigningPath,
+  authorizeRouterAbEcdsaDerivationNormalSigningRoute,
 } from '../../routerAbPrivateSigningWorker';
 import {
   parseRouterAbEcdsaDerivationPoolFillInitRouteRequest,
@@ -56,6 +54,7 @@ import {
   walletSessionParseFailure,
   type WalletSessionBoundaryFailure,
 } from '../../walletSessionFailure';
+import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
 
 const NOT_IMPLEMENTED = {
   ok: false,
@@ -66,20 +65,23 @@ const NOT_IMPLEMENTED = {
 async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
   ctx: CloudflareRouterApiContext;
   body: Record<string, unknown>;
-  privatePath: RouterAbEcdsaDerivationPrivateSigningPath;
   phase: 'prepare' | 'finalize';
 }): Promise<Response> {
-  const result = await handleRouterAbEcdsaDerivationNormalSigningRouteCore({
+  const authorization = await authorizeRouterAbEcdsaDerivationNormalSigningRoute({
     body: input.body,
     rawBody: input.body,
     headers: Object.fromEntries(input.ctx.request.headers.entries()),
     session: input.ctx.opts.session,
-    runtime: input.ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime(),
     admissionAdapter: input.ctx.opts.routerAbNormalSigningAdmission,
-    privatePath: input.privatePath,
     phase: input.phase,
   });
-  return json(result.body, { status: result.status });
+  if (!authorization.ok) {
+    return json(authorization.result.body, { status: authorization.result.status });
+  }
+  return await proxyNormalSigningRequestToMpcRouter({
+    request: input.ctx.request,
+    proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+  });
 }
 
 type PresignTrafficClass = 'foreground' | 'background';
@@ -729,7 +731,7 @@ export async function handleThresholdEcdsa(
     return null;
   }
 
-  const bodyUnknown = await readJson(ctx.request);
+  const bodyUnknown = await readJson(ctx.request.clone());
   if (pathname === ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH) {
     return handleStrictEcdsaSessionActivation({
       ctx,
@@ -756,7 +758,6 @@ export async function handleThresholdEcdsa(
     return handleRouterAbEcdsaDerivationNormalSigningRoute({
       ctx,
       body,
-      privatePath: ROUTER_AB_ECDSA_DERIVATION_PRIVATE_SIGNING_PATHS.prepare,
       phase: 'prepare',
     });
   }
@@ -765,7 +766,6 @@ export async function handleThresholdEcdsa(
     return handleRouterAbEcdsaDerivationNormalSigningRoute({
       ctx,
       body,
-      privatePath: ROUTER_AB_ECDSA_DERIVATION_PRIVATE_SIGNING_PATHS.finalize,
       phase: 'finalize',
     });
   }

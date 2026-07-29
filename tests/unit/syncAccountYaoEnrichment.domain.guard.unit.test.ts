@@ -12,6 +12,10 @@ import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-serve
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
 import type {
+  RouterAbWalletBudgetGrantProvisionInputV1,
+  RouterAbWalletBudgetGrantProvisionerV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
+import type {
   RouterAbEd25519YaoProductRegistrationRuntimeV1,
   RouterAbEd25519YaoWalletSessionMintInputV1,
   RouterAbEd25519YaoWalletSessionMintResultV1,
@@ -22,16 +26,6 @@ import type {
   RouterAbEd25519YaoActiveCapabilityLookupV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
-import {
-  createEcdsaWalletSessionStore,
-  createEd25519WalletSessionStore,
-  createWalletSigningBudgetSessionStore,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore';
-import {
-  parseRouterAbNormalSigningRuntimeConfig,
-  RouterAbNormalSigningRuntime,
-} from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime';
-import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
 import { FixtureRouterAbEcdsaStrictRegistrationPort } from '../helpers/routerAbSigningRuntimeTestUtils';
 
 const WALLET_ID = 'wallet-sync-1';
@@ -347,6 +341,7 @@ function syncAccountVerifyRequestWithObsoleteSessionPolicy(): Request {
 
 function createBaseService(
   database: Parameters<typeof createCloudflareD1RouterApiAuthService>[0]['database'],
+  walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null = null,
 ) {
   return createCloudflareD1RouterApiAuthService({
     database,
@@ -357,30 +352,32 @@ function createBaseService(
     relayerAccount: 'relay.testnet',
     relayerPublicKey: 'ed25519:relay-public-key',
     accountIdDerivationSecret: 'sync-account-test-derivation-secret',
+    walletBudgetGrantProvisioner,
     ecdsaStrictRegistration: new FixtureRouterAbEcdsaStrictRegistrationPort(),
   });
 }
 
-function createSyncAccountNormalSigningRuntime(): RouterAbNormalSigningRuntime {
-  const config = {
-    kind: 'in-memory' as const,
-    ROUTER_AB_NORMAL_SIGNING_WORKER_ID: SIGNING_WORKER_ID,
-  };
-  const storeInput = { config, logger: normalizeLogger(null), isNode: true };
-  return new RouterAbNormalSigningRuntime({
-    walletSessionStore: createEd25519WalletSessionStore(storeInput),
-    ecdsaWalletSessionStore: createEcdsaWalletSessionStore(storeInput),
-    walletBudgetSessionStore: createWalletSigningBudgetSessionStore(storeInput),
-    config: parseRouterAbNormalSigningRuntimeConfig(config),
-  });
+class RecordingWalletBudgetGrantProvisioner implements RouterAbWalletBudgetGrantProvisionerV1 {
+  readonly calls: RouterAbWalletBudgetGrantProvisionInputV1[] = [];
+
+  async provisionGrant(input: RouterAbWalletBudgetGrantProvisionInputV1) {
+    this.calls.push(input);
+    return {
+      ok: true as const,
+      signingGrantId: input.signingGrantId,
+      remainingUses: input.initialSignatureUses,
+      reservedUses: 0,
+      availableUses: input.initialSignatureUses,
+      expiresAtMs: input.expiresAtMs,
+    };
+  }
 }
 
 async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
   const temporary = createTemporaryD1Database();
   try {
-    const baseService = createBaseService(temporary.database);
-    const normalSigningRuntime = createSyncAccountNormalSigningRuntime();
-    baseService.thresholdRuntime.getRouterAbNormalSigningRuntime = () => normalSigningRuntime;
+    const walletBudgetGrantProvisioner = new RecordingWalletBudgetGrantProvisioner();
+    const baseService = createBaseService(temporary.database, walletBudgetGrantProvisioner);
     const webAuthn = new RecordingSyncAccountWebAuthnService(
       baseService.webAuthn,
       verifiedEd25519WalletFixture(),
@@ -440,18 +437,23 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
         },
       },
     ]);
-    expect(
-      await normalSigningRuntime.getSigningGrantBudget(walletSessionFixture().signingGrantId),
-    ).toMatchObject({
-      walletId: WALLET_ID,
-      bindings: {
-        kind: 'ed25519_only',
-        ed25519: {
-          thresholdSessionId: walletSessionFixture().thresholdSessionId,
-          participantIds: PARTICIPANT_IDS,
-        },
+    expect(walletBudgetGrantProvisioner.calls).toEqual([
+      {
+        walletId: WALLET_ID,
+        signingGrantId: walletSessionFixture().signingGrantId,
+        relyingPartyId: RP_ID,
+        authorizedSigners: [
+          {
+            curve: 'ed25519',
+            threshold_session_id: walletSessionFixture().thresholdSessionId,
+            signing_worker_id: SIGNING_WORKER_ID,
+          },
+        ],
+        initialSignatureUses: walletSessionFixture().remainingUses,
+        expiresAtMs: walletSessionFixture().expiresAtMs,
+        issuerIdempotencyKey: `sync-account:${walletSessionFixture().signingGrantId}`,
       },
-    });
+    ]);
     expect(await response.json()).toMatchObject({
       ok: true,
       verified: true,

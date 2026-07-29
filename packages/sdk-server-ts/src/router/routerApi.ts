@@ -252,6 +252,10 @@ export interface RouterApiEmailOtpExportPolicyAdapter {
   ): Promise<RouterApiEmailOtpExportPolicyDecision> | RouterApiEmailOtpExportPolicyDecision;
 }
 
+export interface RouterAbNormalSigningRouterProxy {
+  fetch(request: Request): Promise<Response>;
+}
+
 export interface RouterApiOptions {
   healthz?: boolean;
   readyz?: boolean;
@@ -324,6 +328,8 @@ export interface RouterApiOptions {
    * Router A/B normal-signing requests.
    */
   routerAbNormalSigningAdmission?: RouterAbNormalSigningAdmissionAdapter | null;
+  /** Public normal-signing transport to the stateless MPC Router. */
+  routerAbNormalSigningRouterProxy?: RouterAbNormalSigningRouterProxy | null;
   /** Strict Router A/B owner for ECDSA export, recovery, and activation refresh. */
   routerAbEcdsaStrictPostRegistration?: RouterAbEcdsaStrictPostRegistrationPort | null;
   /** Local product runtime used to restore an authenticated Ed25519 Yao capability. */
