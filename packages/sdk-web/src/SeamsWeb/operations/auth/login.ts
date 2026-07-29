@@ -3669,6 +3669,7 @@ export async function getWalletSession(
   const capabilityProjection = buildWalletSessionCapabilityProjection({
     subjectSet: readResolution.subjectSet,
     availableLanes,
+    reusableWalletSession,
     configuredEcdsaTargets: listConfiguredThresholdEcdsaPublicationTargets(
       context.configs.network.chains,
     ).map((target) => target.chainTarget),
@@ -4657,22 +4658,32 @@ type ExactAvailableSigningLane =
   | ConcreteAvailableEd25519SigningLane
   | ConcreteAvailableEcdsaSigningLane;
 
-function invalidCapabilityLane(
-  reason: Extract<WalletSessionCapabilityLaneReadiness, { kind: 'invalid' }>['reason'],
-): Extract<WalletSessionCapabilityLaneReadiness, { kind: 'invalid' }> {
+function failedCapabilityLane(
+  reason: Extract<WalletSessionCapabilityLaneReadiness, { kind: 'failed' }>['reason'],
+): Extract<WalletSessionCapabilityLaneReadiness, { kind: 'failed' }> {
   return {
-    kind: 'invalid',
+    kind: 'failed',
     reason,
   };
 }
 
-function unavailableCapabilityLane(): Extract<
+function persistenceUnavailableCapabilityLane(): Extract<
   WalletSessionCapabilityLaneReadiness,
-  { kind: 'unavailable' }
+  { kind: 'failed' }
 > {
   return {
-    kind: 'unavailable',
+    kind: 'failed',
     reason: 'persistence_unavailable',
+  };
+}
+
+function supersededCapabilityLane(): Extract<
+  WalletSessionCapabilityLaneReadiness,
+  { kind: 'superseded' }
+> {
+  return {
+    kind: 'superseded',
+    replacement: 're_resolve_current_capability',
   };
 }
 
@@ -4681,12 +4692,15 @@ function parseExactAvailableLaneReadiness(
 ): WalletSessionCapabilityLaneReadiness {
   switch (lane.state) {
     case 'ready':
+      return { kind: 'ready' };
     case 'restorable':
+      return { kind: 'pending', resume: 'restore_material' };
     case 'deferred':
-      return { kind: lane.state };
+      return { kind: 'pending', resume: 'resolve_deferred_state' };
     case 'expired':
+      return { kind: 'authorization_required', requirement: 'wallet_session_expired' };
     case 'exhausted':
-      return { kind: 'deferred' };
+      return { kind: 'authorization_required', requirement: 'wallet_session_exhausted' };
   }
   throw new Error('[SeamsWeb] unsupported capability lane readiness');
 }
@@ -4694,7 +4708,7 @@ function parseExactAvailableLaneReadiness(
 function invalidLaneReasonForCurve(
   snapshot: AvailableSigningLanes,
   curve: 'ed25519' | 'ecdsa',
-): Extract<WalletSessionCapabilityLaneReadiness, { kind: 'invalid' }>['reason'] | null {
+): Extract<WalletSessionCapabilityLaneReadiness, { kind: 'failed' }>['reason'] | null {
   const diagnostic = snapshot.diagnostics?.invalidLanes.find(
     (candidate) => candidate.curve === curve,
   );
@@ -4708,7 +4722,7 @@ function invalidLaneReasonForCurve(
 function invalidEcdsaLaneReasonForTarget(
   snapshot: AvailableSigningLanes,
   chainTarget: ThresholdEcdsaChainTarget,
-): Extract<WalletSessionCapabilityLaneReadiness, { kind: 'invalid' }>['reason'] | null {
+): Extract<WalletSessionCapabilityLaneReadiness, { kind: 'failed' }>['reason'] | null {
   const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
   const diagnostic = snapshot.diagnostics?.invalidLanes.find(
     (candidate) =>
@@ -4747,12 +4761,20 @@ function ecdsaSubjectMatchesLane(
 function nearCapabilityReadiness(args: {
   readonly subject: Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }>;
   readonly availableLanes: ExactWalletSessionAvailableLanesRead;
+  readonly superseded: boolean;
 }): WalletSessionCapabilityReadiness {
+  if (args.superseded) {
+    return {
+      kind: 'near_ed25519',
+      subject: args.subject,
+      lane: supersededCapabilityLane(),
+    };
+  }
   if (args.availableLanes.kind === 'unavailable') {
     return {
       kind: 'near_ed25519',
       subject: args.subject,
-      lane: unavailableCapabilityLane(),
+      lane: persistenceUnavailableCapabilityLane(),
     };
   }
   const snapshot = args.availableLanes.lanes;
@@ -4760,7 +4782,7 @@ function nearCapabilityReadiness(args: {
     return {
       kind: 'near_ed25519',
       subject: args.subject,
-      lane: invalidCapabilityLane('identity_mismatch'),
+      lane: failedCapabilityLane('identity_mismatch'),
     };
   }
   const invalidReason = invalidLaneReasonForCurve(snapshot, 'ed25519');
@@ -4768,7 +4790,7 @@ function nearCapabilityReadiness(args: {
     return {
       kind: 'near_ed25519',
       subject: args.subject,
-      lane: invalidCapabilityLane(invalidReason),
+      lane: failedCapabilityLane(invalidReason),
     };
   }
   const lane = snapshot.lanes.ed25519.near;
@@ -4776,7 +4798,7 @@ function nearCapabilityReadiness(args: {
     return {
       kind: 'near_ed25519',
       subject: args.subject,
-      lane: { kind: 'missing' },
+      lane: failedCapabilityLane('missing'),
     };
   }
   return {
@@ -4784,7 +4806,7 @@ function nearCapabilityReadiness(args: {
     subject: args.subject,
     lane: nearSubjectMatchesLane(args.subject, lane)
       ? parseExactAvailableLaneReadiness(lane)
-      : invalidCapabilityLane('identity_mismatch'),
+      : failedCapabilityLane('identity_mismatch'),
   };
 }
 
@@ -4792,18 +4814,20 @@ function ecdsaCapabilityLaneReadinessForTarget(args: {
   readonly subject: Extract<WalletUnlockSubject, { kind: 'evm_family_ecdsa_wallet' }>;
   readonly availableLanes: ExactWalletSessionAvailableLanesRead;
   readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly superseded: boolean;
 }): WalletSessionCapabilityLaneReadiness {
-  if (args.availableLanes.kind === 'unavailable') return unavailableCapabilityLane();
+  if (args.superseded) return supersededCapabilityLane();
+  if (args.availableLanes.kind === 'unavailable') return persistenceUnavailableCapabilityLane();
   const snapshot = args.availableLanes.lanes;
   if (String(snapshot.walletId) !== String(args.subject.walletId)) {
-    return invalidCapabilityLane('identity_mismatch');
+    return failedCapabilityLane('identity_mismatch');
   }
   const invalidReason = invalidEcdsaLaneReasonForTarget(snapshot, args.chainTarget);
-  if (invalidReason) return invalidCapabilityLane(invalidReason);
+  if (invalidReason) return failedCapabilityLane(invalidReason);
   const lane = ecdsaAvailableLaneForTarget(snapshot, args.chainTarget);
-  if (!isConcreteAvailableSigningLane(lane)) return { kind: 'missing' };
+  if (!isConcreteAvailableSigningLane(lane)) return failedCapabilityLane('missing');
   if (!ecdsaSubjectMatchesLane(args.subject, lane)) {
-    return invalidCapabilityLane('identity_mismatch');
+    return failedCapabilityLane('identity_mismatch');
   }
   // A canonical-capability lane with no authorization is auth-neutral: exact
   // material, nothing authorizing it. It carries `state: 'deferred'` because
@@ -4811,7 +4835,7 @@ function ecdsaCapabilityLaneReadinessForTarget(args: {
   // nothing had been attempted -- when in fact the material is ready and only
   // needs a same-method step-up.
   if (lane.source === 'canonical_capability' && !lane.authorization) {
-    return { kind: 'authorization_required' };
+    return { kind: 'authorization_required', requirement: 'same_method_step_up' };
   }
   return parseExactAvailableLaneReadiness(lane);
 }
@@ -4820,6 +4844,7 @@ function ecdsaCapabilityReadiness(args: {
   readonly subject: Extract<WalletUnlockSubject, { kind: 'evm_family_ecdsa_wallet' }>;
   readonly availableLanes: ExactWalletSessionAvailableLanesRead;
   readonly configuredTargets: readonly ThresholdEcdsaChainTarget[];
+  readonly superseded: boolean;
 }): WalletSessionCapabilityReadiness {
   const [firstTarget, ...remainingTargets] = args.configuredTargets;
   if (!firstTarget) {
@@ -4841,6 +4866,7 @@ function ecdsaCapabilityReadiness(args: {
             subject: args.subject,
             availableLanes: args.availableLanes,
             chainTarget: firstTarget,
+            superseded: args.superseded,
           }),
         },
         ...remainingTargets.map((chainTarget) => ({
@@ -4849,6 +4875,7 @@ function ecdsaCapabilityReadiness(args: {
             subject: args.subject,
             availableLanes: args.availableLanes,
             chainTarget,
+            superseded: args.superseded,
           }),
         })),
       ],
@@ -4859,6 +4886,7 @@ function ecdsaCapabilityReadiness(args: {
 function buildWalletSessionCapabilityProjection(args: {
   readonly subjectSet: WalletUnlockSubjectSet;
   readonly availableLanes: ExactWalletSessionAvailableLanesRead;
+  readonly reusableWalletSession: ReusableWalletSessionState;
   readonly configuredEcdsaTargets: readonly ThresholdEcdsaChainTarget[];
 }): Extract<WalletSessionCapabilityProjection, { kind: 'resolved' }> {
   const capabilities = args.subjectSet.subjects.map((subject) => {
@@ -4867,12 +4895,14 @@ function buildWalletSessionCapabilityProjection(args: {
         return nearCapabilityReadiness({
           subject,
           availableLanes: args.availableLanes,
+          superseded: args.reusableWalletSession.kind === 'superseded',
         });
       case 'evm_family_ecdsa_wallet':
         return ecdsaCapabilityReadiness({
           subject,
           availableLanes: args.availableLanes,
           configuredTargets: args.configuredEcdsaTargets,
+          superseded: args.reusableWalletSession.kind === 'superseded',
         });
     }
     return assertNeverLoginState(subject);

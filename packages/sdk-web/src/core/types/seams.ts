@@ -489,30 +489,46 @@ export type ReusableWalletSessionState =
 export type WalletSessionCapabilityLaneReadiness =
   | {
       readonly kind: 'ready';
+      readonly resume?: never;
+      readonly requirement?: never;
+      readonly replacement?: never;
       readonly reason?: never;
     }
   | {
-      readonly kind: 'restorable' | 'deferred';
+      readonly kind: 'pending';
+      readonly resume: 'restore_material' | 'resolve_deferred_state';
+      readonly requirement?: never;
+      readonly replacement?: never;
       readonly reason?: never;
     }
-  // Exact material exists and nothing authorizes it yet. Distinct from
-  // `deferred`, which means nothing has been attempted: this lane is one
-  // same-method step-up away from signing, and the UI can say so.
   | {
       readonly kind: 'authorization_required';
+      readonly requirement:
+        | 'same_method_step_up'
+        | 'wallet_session_expired'
+        | 'wallet_session_exhausted';
+      readonly resume?: never;
+      readonly replacement?: never;
       readonly reason?: never;
     }
   | {
-      readonly kind: 'missing';
+      readonly kind: 'superseded';
+      readonly replacement: 're_resolve_current_capability';
+      readonly resume?: never;
+      readonly requirement?: never;
       readonly reason?: never;
     }
   | {
-      readonly kind: 'unavailable';
-      readonly reason: 'persistence_unavailable';
-    }
-  | {
-      readonly kind: 'invalid';
-      readonly reason: 'malformed' | 'identity_mismatch' | 'ambiguous_lane';
+      readonly kind: 'failed';
+      readonly reason:
+        | 'missing'
+        | 'persistence_unavailable'
+        | 'malformed'
+        | 'identity_mismatch'
+        | 'ambiguous_lane';
+      readonly resume?: never;
+      readonly requirement?: never;
+      readonly replacement?: never;
     };
 
 export type WalletSessionCapabilityReadiness =

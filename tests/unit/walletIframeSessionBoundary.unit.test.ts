@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import type { WalletSession, WalletSessionCapabilityLaneReadiness } from '@/core/types/seams';
 import {
   exactSessionStateFromWalletSession,
   parseWalletIframeExactSessionState,
@@ -8,11 +9,31 @@ import {
   activeWalletSessionFixture,
   activeWalletSessionWithNonceDiagnosticsFixture,
   authorizationRequiredEcdsaWalletSessionFixture,
+  failedEcdsaWalletSessionFixture,
   invalidWalletSessionFixture,
   missingWalletSessionFixture,
+  readyEcdsaWalletSessionFixture,
   restorableEcdsaWalletSessionFixture,
+  supersededEcdsaWalletSessionFixture,
   unavailableWalletSessionFixture,
 } from './helpers/walletSessionReadProjection.fixtures';
+
+function ecdsaCapabilityOutcomeFromBoundary(
+  input: WalletSession,
+): WalletSessionCapabilityLaneReadiness['kind'] {
+  const parsed = parseWalletSessionFromBoundary(input, 'iframe-wallet');
+  if (parsed.capabilityProjection.kind !== 'resolved') {
+    throw new Error('Capability fixture must resolve at the iframe boundary');
+  }
+  const capability = parsed.capabilityProjection.capabilities[0];
+  if (capability.kind !== 'evm_family_ecdsa') {
+    throw new Error('Capability fixture must carry ECDSA readiness');
+  }
+  if (capability.targets.kind !== 'configured_targets') {
+    throw new Error('Capability fixture must carry one configured target');
+  }
+  return capability.targets.lanes[0].readiness.kind;
+}
 
 test.describe('wallet iframe Wallet Session boundary', () => {
   test('parses and reconstructs the requested active Wallet Session', () => {
@@ -83,7 +104,7 @@ test.describe('wallet iframe Wallet Session boundary', () => {
     if (capability.kind !== 'evm_family_ecdsa') return;
     expect(capability.targets).toMatchObject({
       kind: 'configured_targets',
-      lanes: [{ readiness: { kind: 'restorable' } }],
+      lanes: [{ readiness: { kind: 'pending', resume: 'restore_material' } }],
     });
   });
 
@@ -99,8 +120,34 @@ test.describe('wallet iframe Wallet Session boundary', () => {
     if (capability.kind !== 'evm_family_ecdsa') return;
     expect(capability.targets).toMatchObject({
       kind: 'configured_targets',
-      lanes: [{ readiness: { kind: 'authorization_required' } }],
+      lanes: [
+        {
+          readiness: {
+            kind: 'authorization_required',
+            requirement: 'same_method_step_up',
+          },
+        },
+      ],
     });
+  });
+
+  test('parses every capability preparation outcome at the iframe boundary', () => {
+    const inputs = [
+      readyEcdsaWalletSessionFixture({ walletId: 'iframe-wallet' }),
+      restorableEcdsaWalletSessionFixture({ walletId: 'iframe-wallet' }),
+      authorizationRequiredEcdsaWalletSessionFixture({ walletId: 'iframe-wallet' }),
+      supersededEcdsaWalletSessionFixture({ walletId: 'iframe-wallet' }),
+      failedEcdsaWalletSessionFixture({ walletId: 'iframe-wallet' }),
+    ];
+    const outcomes = inputs.map(ecdsaCapabilityOutcomeFromBoundary);
+
+    expect(outcomes).toEqual([
+      'ready',
+      'pending',
+      'authorization_required',
+      'superseded',
+      'failed',
+    ]);
   });
 
   test('preserves unavailable and invalid as distinct fail-closed exact states', () => {
