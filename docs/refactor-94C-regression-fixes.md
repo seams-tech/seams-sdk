@@ -411,7 +411,7 @@ No mixed-topology revision is deployed.
 
 ### Wave 3: Cutover And Delete
 
-- [ ] Run one optimized local Email OTP and one passkey registration.
+- [x] Run one optimized local Email OTP and one passkey registration.
 - [ ] Deploy one coherent staging revision and manually exercise registration,
       unlock/sign, recovery, and export.
 - [x] Confirm the existing timing summary reports zero DO intervals and a
@@ -483,6 +483,28 @@ This evidence accepts staging Email OTP registration latency only. The cold log
 also recorded an asynchronous `/wallets/register/near-provisioning` HTTP 400
 after wallet readiness; deferred NEAR readiness remains part of the open
 staging lifecycle validation above.
+
+### Staging Passkey Latency Evidence — 2026-07-29
+
+Two passkey registrations on the same staging revision established the
+passkey regression baseline:
+
+| Run | Observed wallet-ready time |
+| --- | ---: |
+| Cold | approximately 2–3 seconds |
+| Warm | under 1 second |
+
+These are manually observed bounds because the supplied console excerpt did
+not include the serialized timing-summary total. They are sufficient to guard
+the product-level regression: a future cold passkey registration above 3
+seconds or a warm registration above 1 second requires investigation.
+
+Canonical staging regression reference:
+
+- Email OTP: 2,565 ms cold; 1,189 ms warm.
+- Passkey: approximately 2–3 seconds cold; under 1 second warm.
+- Both methods return the ECDSA-ready wallet before asynchronous NEAR
+  provisioning completes.
 
 ## Performance Acceptance
 
