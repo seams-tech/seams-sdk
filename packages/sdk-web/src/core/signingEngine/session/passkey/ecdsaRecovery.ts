@@ -13,16 +13,6 @@ import {
   parseSigningSessionSealKeyVersion,
   type SigningSessionSealKeyVersion,
 } from '../keyMaterialBrands';
-import {
-} from '@/core/signingEngine/session/persistence/records';
-import { claimWarmSessionPrfFirst, type PasskeyWarmSessionRecoveryPorts } from './prfClaim';
-
-type PasskeySessionRestoreIdentity = {
-  touchConfirm: PasskeyWarmSessionRecoveryPorts;
-  walletId: string;
-  signingGrantId: string;
-  thresholdSessionId: string;
-};
 
 function shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(
   status: WarmSessionStatusResult,
@@ -41,13 +31,6 @@ function shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(
   }
 }
 
-export type PasskeyEcdsaPrfClaimArgs = PasskeySessionRestoreIdentity & {
-  chainTarget: ThresholdEcdsaChainTarget;
-  errorContext: string;
-  uses?: number;
-  consume?: boolean;
-};
-
 async function publishPasskeyEcdsaSealedRecordForWallet(args: {
   walletId: string;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -63,18 +46,6 @@ async function publishPasskeyEcdsaSealedRecordForWallet(args: {
     signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
     updatedAtMs,
-  });
-}
-
-export async function claimPasskeyEcdsaPrfFirst(args: PasskeyEcdsaPrfClaimArgs): Promise<string> {
-  return await claimWarmSessionPrfFirst({
-    touchConfirm: args.touchConfirm,
-    thresholdSessionId: args.thresholdSessionId,
-    errorContext: args.errorContext,
-    uses: args.uses,
-    ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
-    curve: 'ecdsa',
-    chainTarget: args.chainTarget,
   });
 }
 

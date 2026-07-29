@@ -6,7 +6,6 @@ import { listExactSealedSessionsForWallet } from '@/core/signingEngine/session/p
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import type {
   DurableSealedSessionPort,
-  VolatileWarmMaterialPort,
 } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import {
   assertEd25519YaoRecoveryDescriptorContinuity,
@@ -41,11 +40,6 @@ import {
 } from '@shared/utils/sessionTokens';
 import { walletSessionFailureErrorFromPayload } from '../lifecycle/walletSessionFailure';
 
-type PasskeyEd25519WarmRecoveryPorts = Pick<
-  DurableSealedSessionPort & VolatileWarmMaterialPort,
-  'rehydrateWarmSessionMaterial' | 'claimWarmSessionMaterial'
->;
-
 export type PasskeyEd25519RecordRuntimePorts = {
   readonly listExactSealedSessionsForWallet: typeof listExactSealedSessionsForWallet;
   readonly nowMs: () => number;
@@ -63,20 +57,6 @@ export type PasskeyEd25519YaoWarmRecoveryUnavailableReason =
   | 'sealed_session_expired'
   | 'sealed_session_exhausted'
   | 'wallet_session_expired';
-
-export type PasskeyEd25519YaoLocalPrfRestoreResultV1 =
-  | {
-      readonly kind: 'ready';
-      readonly record: CurrentEd25519SealedSessionRecord;
-      readonly prfFirstB64u: string;
-    }
-  | {
-      readonly kind: 'unavailable';
-      readonly reason: Exclude<
-        PasskeyEd25519YaoWarmRecoveryUnavailableReason,
-        'wallet_session_expired'
-      >;
-    };
 
 export type PasskeyEd25519YaoExportContextV1 = {
   readonly kind: 'passkey_ed25519_yao_export_context_v1';
@@ -97,16 +77,6 @@ export type PasskeyEd25519YaoExportContextResolutionV1 =
 
 type WarmRecoveryRecordResult =
   | { readonly kind: 'ready'; readonly record: CurrentEd25519SealedSessionRecord }
-  | {
-      readonly kind: 'unavailable';
-      readonly reason: Exclude<
-        PasskeyEd25519YaoWarmRecoveryUnavailableReason,
-        'wallet_session_expired'
-      >;
-    };
-
-type WarmRecoveryPrfResult =
-  | { readonly kind: 'ready'; readonly prfFirstB64u: string }
   | {
       readonly kind: 'unavailable';
       readonly reason: Exclude<
@@ -246,60 +216,6 @@ function passkeyWalletSessionJwt(restore: CurrentEd25519RestoreMetadata): string
     throw new Error('passkey Ed25519 warm recovery requires a JWT Wallet Session');
   }
   return requireString(restore.walletSessionJwt, 'ed25519Restore.walletSessionJwt');
-}
-
-async function restoreAndClaimWarmRecoveryPrf(args: {
-  readonly record: CurrentEd25519SealedSessionRecord;
-  readonly ports: PasskeyEd25519WarmRecoveryPorts;
-}): Promise<WarmRecoveryPrfResult> {
-  const record = args.record;
-  const thresholdSessionId = record.thresholdSessionIds.ed25519;
-  const shamirPrimeB64u = requireString(record.shamirPrimeB64u, 'shamirPrimeB64u');
-  const rehydrated = await args.ports.rehydrateWarmSessionMaterial({
-    sessionId: thresholdSessionId,
-    sealedSecretB64u: record.sealedSecretB64u,
-    signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(record.keyVersion),
-    expiresAtMs: record.expiresAtMs,
-    remainingUses: Math.max(1_000_000, record.remainingUses),
-    transport: {
-      curve: 'ed25519',
-      authMethod: 'passkey',
-      walletId: record.walletId,
-      relayerUrl: record.relayerUrl,
-      signingGrantId: record.signingGrantId,
-      walletSessionJwt: passkeyWalletSessionJwt(record.ed25519Restore),
-      signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(record.keyVersion),
-      shamirPrimeB64u,
-    },
-  });
-  if (!rehydrated.ok) {
-    const walletSessionFailure = walletSessionFailureErrorFromPayload({
-      code: rehydrated.code,
-      message: rehydrated.message,
-    });
-    if (walletSessionFailure) throw walletSessionFailure;
-    const unavailable = unavailableReasonForWarmMaterialCode(rehydrated.code);
-    if (unavailable) return { kind: 'unavailable', reason: unavailable };
-    throw new Error(
-      `[SigningEngine][near] Ed25519 sealed-session restore failed (${rehydrated.code}): ${rehydrated.message}`,
-    );
-  }
-  const claimed = await args.ports.claimWarmSessionMaterial({
-    purpose: { curve: 'ed25519', thresholdSessionId },
-    uses: 1,
-    consume: false,
-  });
-  if (!claimed.ok) {
-    const unavailable = unavailableReasonForWarmMaterialCode(claimed.code);
-    if (unavailable) return { kind: 'unavailable', reason: unavailable };
-    throw new Error(
-      `[SigningEngine][near] Ed25519 warm PRF claim failed (${claimed.code}): ${claimed.message}`,
-    );
-  }
-  return {
-    kind: 'ready',
-    prfFirstB64u: requireString(claimed.prfFirstB64u, 'claimed PRF.first'),
-  };
 }
 
 function warmRecoveryBootstrapRequest(
@@ -475,27 +391,6 @@ async function parseWarmRecoveryDescriptor(args: {
       routerAbNormalSigning,
     },
     capability,
-  };
-}
-
-export async function restorePasskeyEd25519YaoLocalPrfV1(input: {
-  readonly subject: PasskeyEd25519WarmRecoverySubject;
-  readonly ports: PasskeyEd25519WarmRecoveryPorts;
-}): Promise<PasskeyEd25519YaoLocalPrfRestoreResultV1> {
-  const exactRecord = await resolveExactWarmRecoveryRecord(input.subject, {
-    listExactSealedSessionsForWallet,
-    nowMs: Date.now,
-  });
-  if (exactRecord.kind === 'unavailable') return exactRecord;
-  const prf = await restoreAndClaimWarmRecoveryPrf({
-    record: exactRecord.record,
-    ports: input.ports,
-  });
-  if (prf.kind === 'unavailable') return prf;
-  return {
-    kind: 'ready',
-    record: exactRecord.record,
-    prfFirstB64u: prf.prfFirstB64u,
   };
 }
 
