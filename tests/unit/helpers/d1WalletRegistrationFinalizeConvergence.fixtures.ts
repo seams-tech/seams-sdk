@@ -84,6 +84,10 @@ import { buildEd25519YaoCapabilityFixture } from '../../helpers/ed25519YaoCapabi
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../../helpers/sqliteD1';
 import { applySignerMigrations } from './cloudflareD1RouterApiAuthService.fixtures';
 import { StaticWalletSessionAdapter } from './routerAbEd25519YaoRegistrationBridge.fixtures';
+import type {
+  RouterAbWalletBudgetGrantProvisionInputV1,
+  RouterAbWalletBudgetGrantProvisionerV1,
+} from '../../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 
 const TEST_SCOPE = {
   namespace: 'registration-finalize-convergence',
@@ -693,7 +697,10 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
   }
 }
 
-class FailureInjectingNormalSigningRuntime extends RouterAbNormalSigningRuntime {
+class FailureInjectingNormalSigningRuntime
+  extends RouterAbNormalSigningRuntime
+  implements RouterAbWalletBudgetGrantProvisionerV1
+{
   private loseProvisionResponse = false;
 
   constructor() {
@@ -712,6 +719,22 @@ class FailureInjectingNormalSigningRuntime extends RouterAbNormalSigningRuntime 
 
   armProvisionResponseLoss(): void {
     this.loseProvisionResponse = true;
+  }
+
+  async provisionGrant(input: RouterAbWalletBudgetGrantProvisionInputV1) {
+    const result = {
+      ok: true as const,
+      signingGrantId: input.signingGrantId,
+      remainingUses: input.initialSignatureUses,
+      reservedUses: 0,
+      availableUses: input.initialSignatureUses,
+      expiresAtMs: input.expiresAtMs,
+    };
+    if (this.loseProvisionResponse) {
+      this.loseProvisionResponse = false;
+      throw new Error('simulated normal-signing provision response loss');
+    }
+    return result;
   }
 
   override async provisionRouterAbEd25519YaoNormalSigningSession(
@@ -1055,6 +1078,7 @@ async function createFinalizeConvergenceHarnessForMode(
     ...TEST_SCOPE,
     thresholdStore,
     routerAbSigningRuntimes: createSigningRuntimeBundle(normalSigning),
+    walletBudgetGrantProvisioner: normalSigning,
     ed25519YaoProductRegistration: yao.runtime,
     ecdsaStrictRegistration: new UnusedEcdsaStrictRegistration(),
     ...(mode.kind === 'sponsored'

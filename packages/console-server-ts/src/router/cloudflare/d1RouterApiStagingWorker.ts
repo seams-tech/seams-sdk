@@ -7,6 +7,7 @@ import {
 import { resolveSponsoredExecutionPricingFromEnv } from '@seams-internal/console-server/sponsorship/pricing';
 import { requireStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
 import { createCloudflareRouter } from '@seams/sdk-server/cloud-host';
+import { createRouterAbPrivateD1WalletBudgetGrantProvisionerV1 } from '@seams/sdk-server/cloud-host';
 import { withCors } from '@seams/sdk-server/cloud-host';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import { createAppSessionConsoleAuthAdapter } from '../consoleAppSessionAuth';
@@ -361,6 +362,15 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
       'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS',
     ),
     thresholdStore: thresholdStoreConfig,
+    walletBudgetGrantProvisioner:
+      createRouterAbPrivateD1WalletBudgetGrantProvisionerV1({
+        routerBaseUrl: ROUTER_AB_MPC_ROUTER_ORIGIN,
+        internalServiceAuthSecret: requireEnvString(
+          env,
+          'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
+        ),
+        fetchImpl: createRouterAbServiceBindingFetch(env),
+      }),
     ed25519YaoProductRegistration: yaoRuntime,
     ecdsaStrictRegistration,
   });
@@ -373,6 +383,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     session,
     sessionCookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
     routerAbPublicKeyset: requireStagingRouterAbPublicKeyset(env),
+    routerAbNormalSigningRouterProxy: env.MPC_ROUTER,
     routerAbEcdsaStrictPostRegistration: ecdsaStrictPostRegistration,
     readyCheck: createRouterApiReadyCheck(env),
     signingSessionSeal: stagingSigningSessionSealOptions(env, thresholdStoreConfig),

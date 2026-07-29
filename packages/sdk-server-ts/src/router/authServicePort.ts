@@ -31,6 +31,7 @@ import type {
 import type { RecoverySessionRecord, RecoverySessionStatus } from '../core/RecoverySessionStore';
 import type { RouterAbNormalSigningRuntime } from '../core/routerAbSigning/RouterAbNormalSigningRuntime';
 import type { RouterAbEcdsaPresignRuntime } from '../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
+import type { RouterAbWalletBudgetGrantProvisionerV1 } from './routerAbPrivateSigningWorker';
 import type {
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
@@ -1029,6 +1030,7 @@ export type GoogleEmailOtpRegistrationCandidateWalletValidationResult =
 
 export interface RouterAbWalletSigningRuntimeService {
   getRouterAbNormalSigningRuntime(): RouterAbNormalSigningRuntime | null;
+  getWalletBudgetGrantProvisioner?(): RouterAbWalletBudgetGrantProvisionerV1 | null;
 }
 
 export interface RouterAbSigningRuntimeService extends RouterAbWalletSigningRuntimeService {

@@ -54,6 +54,47 @@ const PRIVATE_ECDSA_DERIVATION_SIGNING_PREPARE_PATH =
   '/router-ab/signing-worker/ecdsa-derivation/sign/prepare';
 const PRIVATE_ECDSA_DERIVATION_SIGNING_FINALIZE_PATH =
   '/router-ab/signing-worker/ecdsa-derivation/sign';
+const PRIVATE_ROUTER_WALLET_BUDGET_PUT_GRANT_PATH =
+  '/router-ab/router/wallet-budget/put-grant';
+
+export type RouterAbWalletBudgetSignerBindingV1 = {
+  readonly curve: 'ed25519' | 'ecdsa';
+  readonly threshold_session_id: string;
+  readonly signing_worker_id: string;
+};
+
+export type RouterAbWalletBudgetGrantProvisionInputV1 = {
+  readonly signingGrantId: string;
+  readonly walletId: string;
+  readonly relyingPartyId: string;
+  readonly authorizedSigners: readonly RouterAbWalletBudgetSignerBindingV1[];
+  readonly initialSignatureUses: number;
+  readonly expiresAtMs: number;
+  readonly issuerIdempotencyKey: string;
+};
+
+export type RouterAbWalletBudgetGrantProvisionResultV1 =
+  | {
+      readonly ok: true;
+      readonly signingGrantId: string;
+      readonly remainingUses: number;
+      readonly reservedUses: number;
+      readonly availableUses: number;
+      readonly expiresAtMs: number;
+    }
+  | { readonly ok: false; readonly code: string; readonly message: string };
+
+export interface RouterAbWalletBudgetGrantProvisionerV1 {
+  provisionGrant(
+    input: RouterAbWalletBudgetGrantProvisionInputV1,
+  ): Promise<RouterAbWalletBudgetGrantProvisionResultV1>;
+}
+
+export type RouterAbWalletBudgetGrantTransportV1 = {
+  readonly routerBaseUrl: string;
+  readonly internalServiceAuthSecret: string;
+  readonly fetchImpl?: typeof fetch;
+};
 
 export type RouterAbEd25519PrivateSigningPath =
   | typeof PRIVATE_ED25519_SIGNING_PREPARE_PATH
@@ -123,6 +164,32 @@ export type RouterAbNormalSigningRouteAdmission =
       ok: false;
       error: RouterAbSigningWorkerJsonError;
     };
+
+type RouterAbEd25519WalletSessionValidationSuccess = Extract<
+  Awaited<ReturnType<typeof validateRouterAbEd25519WalletSessionTokenInputs>>,
+  { readonly ok: true }
+>;
+
+type RouterAbEcdsaWalletSessionValidationSuccess = Extract<
+  Awaited<ReturnType<typeof validateRouterAbEcdsaDerivationWalletSessionInputs>>,
+  { readonly ok: true }
+>;
+
+export type RouterAbEd25519NormalSigningAuthorizationResult =
+  | {
+      readonly ok: true;
+      readonly validated: RouterAbEd25519WalletSessionValidationSuccess;
+      readonly admission: Extract<RouterAbNormalSigningRouteAdmission, { readonly ok: true }>;
+    }
+  | { readonly ok: false; readonly result: RouterAbJsonRouteResult };
+
+export type RouterAbEcdsaNormalSigningAuthorizationResult =
+  | {
+      readonly ok: true;
+      readonly validated: RouterAbEcdsaWalletSessionValidationSuccess;
+      readonly admission: Extract<RouterAbNormalSigningRouteAdmission, { readonly ok: true }>;
+    }
+  | { readonly ok: false; readonly result: RouterAbJsonRouteResult };
 
 export type RouterAbNormalSigningAdmissionFailureCode =
   | 'project_policy_rejected'
@@ -1165,21 +1232,19 @@ export async function buildRouterAbEcdsaDerivationPrivateSigningWorkerBody(input
   };
 }
 
-export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
+export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
   body: Record<string, unknown>;
   rawBody: unknown;
   headers: Record<string, string | string[] | undefined>;
   session: SessionAdapter | null | undefined;
-  runtime: RouterAbNormalSigningRouteRuntime | null | undefined;
   admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
-  privatePath: RouterAbEd25519PrivateSigningPath;
   phase: RouterAbEd25519NormalSigningRoutePhase;
-}): Promise<RouterAbJsonRouteResult> {
+}): Promise<RouterAbEd25519NormalSigningAuthorizationResult> {
   const invalidSessionKind = rejectRouterAbCookieSessionKind(
     input.rawBody,
     'Router A/B Ed25519 normal-signing requires sessionKind=jwt',
   );
-  if (invalidSessionKind) return invalidSessionKind;
+  if (invalidSessionKind) return { ok: false, result: invalidSessionKind };
 
   const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
     body: input.rawBody,
@@ -1188,8 +1253,11 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
   });
   if (!validated.ok) {
     return {
-      status: routerAbWalletSessionValidationStatus(validated.code),
-      body: { ok: false, code: validated.code, message: validated.message },
+      ok: false,
+      result: {
+        status: routerAbWalletSessionValidationStatus(validated.code),
+        body: { ok: false, code: validated.code, message: validated.message },
+      },
     };
   }
 
@@ -1199,18 +1267,9 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
     body: input.body,
   });
   if (!admission.ok) {
-    return { status: admission.error.status, body: admission.error.body };
-  }
-
-  const runtime = input.runtime;
-  if (!runtime) {
     return {
-      status: 501,
-      body: {
-        ok: false,
-        code: 'not_configured',
-        message: 'Router A/B normal-signing runtime is not configured',
-      },
+      ok: false,
+      result: { status: admission.error.status, body: admission.error.body },
     };
   }
 
@@ -1224,11 +1283,43 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
   });
   if (!admissionDecision.ok) {
     return {
-      status: admissionDecision.status,
+      ok: false,
+      result: {
+        status: admissionDecision.status,
+        body: {
+          ok: false,
+          code: admissionDecision.code,
+          message: admissionDecision.message,
+        },
+      },
+    };
+  }
+
+  return { ok: true, validated, admission };
+}
+
+export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
+  body: Record<string, unknown>;
+  rawBody: unknown;
+  headers: Record<string, string | string[] | undefined>;
+  session: SessionAdapter | null | undefined;
+  runtime: RouterAbNormalSigningRouteRuntime | null | undefined;
+  admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
+  privatePath: RouterAbEd25519PrivateSigningPath;
+  phase: RouterAbEd25519NormalSigningRoutePhase;
+}): Promise<RouterAbJsonRouteResult> {
+  const authorization = await authorizeRouterAbEd25519NormalSigningRoute(input);
+  if (!authorization.ok) return authorization.result;
+  const { validated, admission } = authorization;
+
+  const runtime = input.runtime;
+  if (!runtime) {
+    return {
+      status: 501,
       body: {
         ok: false,
-        code: admissionDecision.code,
-        message: admissionDecision.message,
+        code: 'not_configured',
+        message: 'Router A/B normal-signing runtime is not configured',
       },
     };
   }
@@ -1597,21 +1688,19 @@ export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(inpu
   };
 }
 
-export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input: {
+export async function authorizeRouterAbEcdsaDerivationNormalSigningRoute(input: {
   body: Record<string, unknown>;
   rawBody: unknown;
   headers: Record<string, string | string[] | undefined>;
   session: SessionAdapter | null | undefined;
-  runtime: RouterAbNormalSigningRouteRuntime | null | undefined;
   admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
-  privatePath: RouterAbEcdsaDerivationPrivateSigningPath;
   phase: 'prepare' | 'finalize';
-}): Promise<RouterAbJsonRouteResult> {
+}): Promise<RouterAbEcdsaNormalSigningAuthorizationResult> {
   const invalidSessionKind = rejectRouterAbCookieSessionKind(
     input.rawBody,
     'Router A/B ECDSA derivation normal-signing requires sessionKind=jwt',
   );
-  if (invalidSessionKind) return invalidSessionKind;
+  if (invalidSessionKind) return { ok: false, result: invalidSessionKind };
 
   const validated = await validateRouterAbEcdsaDerivationWalletSessionInputs({
     body: input.rawBody,
@@ -1620,8 +1709,11 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
   });
   if (!validated.ok) {
     return {
-      status: routerAbWalletSessionValidationStatus(validated.code),
-      body: validated,
+      ok: false,
+      result: {
+        status: routerAbWalletSessionValidationStatus(validated.code),
+        body: validated,
+      },
     };
   }
 
@@ -1638,18 +1730,9 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
           body: input.body,
         });
   if (!admission.ok) {
-    return { status: admission.error.status, body: admission.error.body };
-  }
-
-  const runtime = input.runtime;
-  if (!runtime) {
     return {
-      status: 501,
-      body: {
-        ok: false,
-        code: 'not_configured',
-        message: 'Router A/B SigningWorker private HTTP target is not configured',
-      },
+      ok: false,
+      result: { status: admission.error.status, body: admission.error.body },
     };
   }
 
@@ -1663,11 +1746,43 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
   });
   if (!admissionDecision.ok) {
     return {
-      status: admissionDecision.status,
+      ok: false,
+      result: {
+        status: admissionDecision.status,
+        body: {
+          ok: false,
+          code: admissionDecision.code,
+          message: admissionDecision.message,
+        },
+      },
+    };
+  }
+
+  return { ok: true, validated, admission };
+}
+
+export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input: {
+  body: Record<string, unknown>;
+  rawBody: unknown;
+  headers: Record<string, string | string[] | undefined>;
+  session: SessionAdapter | null | undefined;
+  runtime: RouterAbNormalSigningRouteRuntime | null | undefined;
+  admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
+  privatePath: RouterAbEcdsaDerivationPrivateSigningPath;
+  phase: 'prepare' | 'finalize';
+}): Promise<RouterAbJsonRouteResult> {
+  const authorization = await authorizeRouterAbEcdsaDerivationNormalSigningRoute(input);
+  if (!authorization.ok) return authorization.result;
+  const { validated, admission } = authorization;
+
+  const runtime = input.runtime;
+  if (!runtime) {
+    return {
+      status: 501,
       body: {
         ok: false,
-        code: admissionDecision.code,
-        message: admissionDecision.message,
+        code: 'not_configured',
+        message: 'Router A/B SigningWorker private HTTP target is not configured',
       },
     };
   }
@@ -1918,4 +2033,120 @@ export async function postRouterAbSigningWorkerJson(input: {
   }
 
   return { ok: true, body: response.json };
+}
+
+function walletBudgetGrantString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function walletBudgetGrantPositiveInteger(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function walletBudgetGrantNonNegativeInteger(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function walletBudgetGrantResponseRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function parseRouterAbWalletBudgetGrantProvisionResponseV1(
+  value: unknown,
+): RouterAbWalletBudgetGrantProvisionResultV1 {
+  const record = walletBudgetGrantResponseRecord(value);
+  const signingGrantId = walletBudgetGrantString(record?.signing_grant_id);
+  const remainingUses = walletBudgetGrantNonNegativeInteger(record?.committed_remaining_uses);
+  const reservedUses = walletBudgetGrantNonNegativeInteger(record?.reserved_uses);
+  const availableUses = walletBudgetGrantNonNegativeInteger(record?.available_uses);
+  const expiresAtMs = walletBudgetGrantPositiveInteger(record?.expires_at_ms);
+  if (
+    !signingGrantId ||
+    remainingUses === null ||
+    reservedUses === null ||
+    availableUses === null ||
+    expiresAtMs === null ||
+    availableUses !== Math.max(0, remainingUses - reservedUses)
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_router_response',
+      message: 'Router returned an invalid SigningWorker wallet-budget projection',
+    };
+  }
+  return {
+    ok: true,
+    signingGrantId,
+    remainingUses,
+    reservedUses,
+    availableUses,
+    expiresAtMs,
+  };
+}
+
+function routerAbWalletBudgetGrantUrl(config: RouterAbWalletBudgetGrantTransportV1): string {
+  const base = config.routerBaseUrl.trim().replace(/\/+$/, '');
+  if (!base) throw new Error('Router wallet-budget transport requires routerBaseUrl');
+  return `${base}${PRIVATE_ROUTER_WALLET_BUDGET_PUT_GRANT_PATH}`;
+}
+
+class RouterAbPrivateD1WalletBudgetGrantProvisionerV1 implements RouterAbWalletBudgetGrantProvisionerV1 {
+  constructor(private readonly config: RouterAbWalletBudgetGrantTransportV1) {}
+
+  async provisionGrant(
+    input: RouterAbWalletBudgetGrantProvisionInputV1,
+  ): Promise<RouterAbWalletBudgetGrantProvisionResultV1> {
+    const fetchImpl = resolveRouterAbSigningWorkerFetch(this.config.fetchImpl);
+    if (!fetchImpl) {
+      return { ok: false, code: 'internal', message: 'fetch is not available in this runtime' };
+    }
+    const response = await postRouterAbInternalServiceJson({
+      url: routerAbWalletBudgetGrantUrl(this.config),
+      body: {
+        signing_grant_id: input.signingGrantId,
+        wallet_id: input.walletId,
+        rp_id: input.relyingPartyId,
+        authorized_signers: input.authorizedSigners,
+        initial_signature_uses: input.initialSignatureUses,
+        expires_at_ms: input.expiresAtMs,
+        issuer_jwt_id: input.issuerIdempotencyKey,
+        now_unix_ms: Date.now(),
+      },
+      authSecret: this.config.internalServiceAuthSecret,
+      fetchImpl,
+    });
+    if (!response.ok) {
+      return {
+        ok: false,
+        code: response.code,
+        message:
+          response.code === 'http_error'
+            ? response.bodyText || `Router wallet-budget grant returned HTTP ${response.status}`
+            : response.message,
+      };
+    }
+    const parsed = parseRouterAbWalletBudgetGrantProvisionResponseV1(response.json);
+    if (!parsed.ok) return parsed;
+    if (
+      parsed.signingGrantId !== input.signingGrantId ||
+      parsed.expiresAtMs !== input.expiresAtMs
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_router_response',
+        message: 'Router wallet-budget projection does not match the requested grant',
+      };
+    }
+    return parsed;
+  }
+}
+
+export function createRouterAbPrivateD1WalletBudgetGrantProvisionerV1(
+  config: RouterAbWalletBudgetGrantTransportV1,
+): RouterAbWalletBudgetGrantProvisionerV1 {
+  return new RouterAbPrivateD1WalletBudgetGrantProvisionerV1(config);
 }
