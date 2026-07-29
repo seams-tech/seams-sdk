@@ -1117,6 +1117,7 @@ export class CloudflareD1WalletAddSignerService {
         kind: 'router_ab_ecdsa_normal_signing_session_v1',
         walletId: bootstrap.walletId,
         evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
+        keyHandle: bootstrap.keyHandle,
         relayerKeyId: bootstrap.relayerKeyId,
         thresholdSessionId: bootstrap.thresholdSessionId,
         signingGrantId: bootstrap.signingGrantId,

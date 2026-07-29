@@ -7,7 +7,9 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import { parseWalletId, parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { parseEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import type { ThresholdEd25519AuthorityScope } from '../types';
+import { parseEcdsaKeyHandle } from '../keyMaterialBrands';
 import type { ThresholdEd25519KeyStore } from '../ThresholdService/stores/KeyStore';
 import type {
   Ed25519WalletSessionStore,
@@ -256,12 +258,19 @@ export class RouterAbLocalSigningSeedRuntime {
 
     try {
       const ttlMs = Math.max(1, Math.floor(thresholdExpiresAtMs - Date.now()));
+      const keyHandle = parseEcdsaKeyHandle(
+        await deriveThresholdEcdsaKeyHandle({
+          ecdsaThresholdKeyId,
+          signingRootId,
+          signingRootVersion,
+        }),
+      );
       const walletBudget = await this.normalSigningRuntime.ensureSigningGrantBudget({
         signingGrantId,
         curve: 'ecdsa',
         thresholdSessionId,
         userId: walletId.value,
-        evmFamilySigningKeySlotId: evmFamilySigningKeySlotId.value,
+        keyHandle,
         participantIds,
         ttlMs,
         remainingUses,
@@ -274,7 +283,7 @@ export class RouterAbLocalSigningSeedRuntime {
           expiresAtMs: thresholdExpiresAtMs,
           relayerKeyId,
           walletId: walletId.value,
-          evmFamilySigningKeySlotId: evmFamilySigningKeySlotId.value,
+          keyHandle,
           signingRootId,
           signingRootVersion,
           walletKeyVersion,

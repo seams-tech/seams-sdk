@@ -27,6 +27,7 @@ import {
 } from './CloudflareDurableObjectStore';
 import { readNonDurableObjectThresholdStoreKind } from './StoreConfig';
 import { secureRandomIdFragment } from '../secureRandomId';
+import type { EcdsaKeyHandle } from '../../keyMaterialBrands';
 
 export type Ed25519WalletSessionRecord = {
   expiresAtMs: number;
@@ -43,7 +44,7 @@ type EcdsaWalletSessionRecordCore = {
   expiresAtMs: number;
   relayerKeyId: string;
   walletId: string;
-  evmFamilySigningKeySlotId: string;
+  keyHandle: EcdsaKeyHandle;
   participantIds: number[];
 };
 
@@ -66,7 +67,7 @@ export type WalletSigningBudgetEd25519Binding = {
 
 export type WalletSigningBudgetEcdsaBinding = {
   thresholdSessionId: string;
-  evmFamilySigningKeySlotId: string;
+  keyHandle: EcdsaKeyHandle;
   participantIds: number[];
 };
 

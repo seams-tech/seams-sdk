@@ -73,15 +73,14 @@ function normalizeSessionRecord(
   };
   switch (input.curve) {
     case 'ecdsa': {
-      if (!('evmFamilySigningKeySlotId' in raw)) return null;
+      if (!('keyHandle' in raw)) return null;
       const userId = String(raw.walletId || '').trim();
-      const evmFamilySigningKeySlotId = String(raw.evmFamilySigningKeySlotId || '').trim();
-      if (!userId || !evmFamilySigningKeySlotId) return null;
+      if (!userId) return null;
       return {
         ...base,
         curve: 'ecdsa',
         userId,
-        evmFamilySigningKeySlotId,
+        keyHandle: raw.keyHandle,
       };
     }
     case 'ed25519': {

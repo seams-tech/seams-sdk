@@ -12,11 +12,16 @@ import type {
 import { walletSigningBudgetSessionId } from '../../packages/sdk-server-ts/src/core/ThresholdService/walletSigningBudget';
 import { createSigningSessionSealPolicyFromWalletSessionStores } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/policy/sessionPolicy';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import { parseEcdsaKeyHandle } from '../../packages/sdk-server-ts/src/core/keyMaterialBrands';
 
 function webAuthnRpId(value: string) {
   const parsed = parseWebAuthnRpId(value);
   if (!parsed.ok) throw new Error('invalid rpId fixture');
   return parsed.value;
+}
+
+function ecdsaKeyHandle(value: string) {
+  return parseEcdsaKeyHandle(value);
 }
 
 function makeStatus(input: {
@@ -48,7 +53,7 @@ function makeStatus(input: {
 
 function makeEcdsaStatus(input: {
   userId: string;
-  evmFamilySigningKeySlotId: string;
+  keyHandle: string;
   relayerKeyId: string;
   participantIds: number[];
   expiresAtMs: number;
@@ -57,7 +62,7 @@ function makeEcdsaStatus(input: {
   return {
     record: {
       walletId: input.userId,
-      evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+      keyHandle: ecdsaKeyHandle(input.keyHandle),
       relayerKeyId: input.relayerKeyId,
       participantIds: input.participantIds,
       expiresAtMs: input.expiresAtMs,
@@ -286,7 +291,7 @@ test.describe('signing session seal session policy', () => {
           sessions: {
             [thresholdSessionId]: makeEcdsaStatus({
               userId: 'alice',
-              evmFamilySigningKeySlotId: 'wallet-key-ecdsa.example',
+              keyHandle: 'ecdsa-key-handle.example',
               relayerKeyId: 'relayer-ecdsa',
               participantIds: [3, 4],
               expiresAtMs: 222_000,
@@ -327,7 +332,7 @@ test.describe('signing session seal session policy', () => {
       userId: 'alice',
       expiresAtMs: 222_000,
       relayerKeyId: 'relayer-ecdsa',
-      evmFamilySigningKeySlotId: 'wallet-key-ecdsa.example',
+      keyHandle: ecdsaKeyHandle('ecdsa-key-handle.example'),
       participantIds: [3, 4],
     });
   });
@@ -355,7 +360,7 @@ test.describe('signing session seal session policy', () => {
           sessions: {
             [thresholdSessionId]: makeEcdsaStatus({
               userId: 'alice',
-              evmFamilySigningKeySlotId: 'wallet-key-ecdsa.example',
+              keyHandle: 'ecdsa-key-handle.example',
               relayerKeyId: 'relayer-ecdsa',
               participantIds: [3, 4],
               expiresAtMs: 222_000,
@@ -403,7 +408,7 @@ test.describe('signing session seal session policy', () => {
         expiresAtMs: 222_000,
         remainingUses: 9,
         relayerKeyId: 'relayer-ecdsa',
-        evmFamilySigningKeySlotId: 'wallet-key-ecdsa.example',
+        keyHandle: ecdsaKeyHandle('ecdsa-key-handle.example'),
         participantIds: [3, 4],
       },
     ]);
@@ -495,7 +500,7 @@ test.describe('signing session seal session policy', () => {
             ecdsa: [
               {
                 thresholdSessionId: 'threshold-session-shared-ecdsa',
-                evmFamilySigningKeySlotId: 'evm-family-shared-slot',
+                keyHandle: ecdsaKeyHandle('ecdsa-key-handle-shared'),
                 participantIds: [1, 2, 3],
               },
             ],
@@ -550,7 +555,7 @@ test.describe('signing session seal session policy', () => {
           sessions: {
             [thresholdSessionId]: makeEcdsaStatus({
               userId: 'alice',
-              evmFamilySigningKeySlotId: 'wallet-key-ecdsa.example',
+              keyHandle: 'ecdsa-key-handle.example',
               relayerKeyId: 'relayer-ecdsa',
               participantIds: [3, 4],
               expiresAtMs: 222_000,

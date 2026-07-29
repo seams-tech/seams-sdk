@@ -63,6 +63,7 @@ import {
   type SeamsSessionId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import { parseEcdsaKeyHandle, type EcdsaKeyHandle } from '../keyMaterialBrands';
 
 export type ThresholdValidationOk = { ok: true };
 export type ThresholdValidationErr = { ok: false; code: string; message: string };
@@ -1277,7 +1278,7 @@ type ParsedEcdsaWalletSessionRecordCore = {
   expiresAtMs: number;
   relayerKeyId: string;
   walletId: string;
-  evmFamilySigningKeySlotId: string;
+  keyHandle: EcdsaKeyHandle;
   participantIds: number[];
 };
 
@@ -1294,24 +1295,28 @@ export type ParsedEcdsaWalletSessionRecord = ParsedEcdsaWalletSessionRecordCore 
 
 export function parseEcdsaWalletSessionRecord(raw: unknown): ParsedEcdsaWalletSessionRecord | null {
   if (!isObject(raw)) return null;
+  if ('evmFamilySigningKeySlotId' in raw) return null;
   const expiresAtMs = raw.expiresAtMs;
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const walletId = toOptionalString(raw.walletId);
-  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    raw.evmFamilySigningKeySlotId,
-  );
+  let keyHandle: EcdsaKeyHandle;
+  try {
+    keyHandle = parseEcdsaKeyHandle(raw.keyHandle);
+  } catch {
+    return null;
+  }
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   ];
   const signingRootMetadata = parseOptionalThresholdEcdsaSigningRootMetadataFields(raw);
   if (!signingRootMetadata.ok) return null;
   if (!isValidNumber(expiresAtMs)) return null;
-  if (!relayerKeyId || !walletId || !evmFamilySigningKeySlotId) return null;
+  if (!relayerKeyId || !walletId) return null;
   const core: ParsedEcdsaWalletSessionRecordCore = {
     expiresAtMs,
     relayerKeyId,
     walletId,
-    evmFamilySigningKeySlotId,
+    keyHandle,
     participantIds,
   };
   if (!signingRootMetadata.value) return core;
@@ -1326,7 +1331,7 @@ export type ParsedWalletSigningBudgetEd25519Binding = {
 
 export type ParsedWalletSigningBudgetEcdsaBinding = {
   thresholdSessionId: string;
-  evmFamilySigningKeySlotId: string;
+  keyHandle: EcdsaKeyHandle;
   participantIds: number[];
 };
 
@@ -1374,13 +1379,17 @@ function parseWalletSigningBudgetEcdsaBinding(
   raw: unknown,
 ): ParsedWalletSigningBudgetEcdsaBinding | null {
   if (!isObject(raw)) return null;
+  if ('evmFamilySigningKeySlotId' in raw) return null;
   const thresholdSessionId = toOptionalString(raw.thresholdSessionId);
-  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    raw.evmFamilySigningKeySlotId,
-  );
+  let keyHandle: EcdsaKeyHandle;
+  try {
+    keyHandle = parseEcdsaKeyHandle(raw.keyHandle);
+  } catch {
+    return null;
+  }
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
-  if (!thresholdSessionId || !evmFamilySigningKeySlotId || !participantIds) return null;
-  return { thresholdSessionId, evmFamilySigningKeySlotId, participantIds };
+  if (!thresholdSessionId || !participantIds) return null;
+  return { thresholdSessionId, keyHandle, participantIds };
 }
 
 function walletSigningBudgetParticipantIdsMatch(
@@ -1402,13 +1411,13 @@ function parseWalletSigningBudgetEcdsaBindings(
   if (!first) return null;
   const additionalBindings: ParsedWalletSigningBudgetEcdsaBinding[] = [];
   const thresholdSessionIds = new Set<string>([first.thresholdSessionId]);
-  const sharedKeySlotId = first.evmFamilySigningKeySlotId;
+  const sharedKeyHandle = first.keyHandle;
   const sharedParticipantIds = first.participantIds;
   for (const candidate of raw.slice(1)) {
     const binding = parseWalletSigningBudgetEcdsaBinding(candidate);
     if (!binding || thresholdSessionIds.has(binding.thresholdSessionId)) return null;
     if (
-      binding.evmFamilySigningKeySlotId !== sharedKeySlotId ||
+      binding.keyHandle !== sharedKeyHandle ||
       !walletSigningBudgetParticipantIdsMatch(binding.participantIds, sharedParticipantIds)
     ) {
       return null;
