@@ -1911,10 +1911,11 @@ export class CloudflareD1WalletRegistrationService {
       const branches = registrationIntentSignerBranches(intent);
       if (!branches.ok) return walletRegistrationSetupError(branches.code, branches.message);
       const ecdsaBranch = branches.value.evmFamilyEcdsa;
-      if (!ecdsaBranch) {
+      const nearEd25519Branch = branches.value.nearEd25519;
+      if (!ecdsaBranch && !nearEd25519Branch) {
         return walletRegistrationSetupError(
           'invalid_body',
-          'registration setup requires an ECDSA signer branch',
+          'registration signer branch is required',
         );
       }
       /* A mixed plan is stored whole — the plan is what the ceremony agreed
@@ -1929,16 +1930,16 @@ export class CloudflareD1WalletRegistrationService {
       if (!preparedContext.ok) {
         return walletRegistrationSetupError(preparedContext.code, preparedContext.message);
       }
-      if (!runtimePolicyScope) {
+      if (ecdsaBranch && !runtimePolicyScope) {
         return walletRegistrationSetupError(
           'invalid_body',
           'ECDSA registration requires an exact runtime policy scope',
         );
       }
-      const chainTargets = registrationPreparedContextEcdsaChainTargets(
-        preparedContext.preparedContext,
-      );
-      if (!chainTargets) {
+      const chainTargets = ecdsaBranch
+        ? registrationPreparedContextEcdsaChainTargets(preparedContext.preparedContext)
+        : null;
+      if (ecdsaBranch && !chainTargets) {
         return walletRegistrationSetupError('invalid_body', 'ECDSA chain targets are required');
       }
 
@@ -1946,26 +1947,31 @@ export class CloudflareD1WalletRegistrationService {
       const expiresAtMs = walletRegistrationSetupExpiresAtMs(nowMs);
       const { registrationCeremonyId, registrationPreparationId } = walletRegistrationSetupIds();
 
-      /* ECDSA only. The plan's Ed25519 branch, if any, is admitted by respond
-         once the proof binds its authority scope. */
-      const ecdsaPrepared = await buildD1EvmFamilyEcdsaRegistrationPrepare({
-        registrationPurpose: 'wallet_registration',
-        registrationCeremonyId,
-        registrationPreparationId: registrationPreparationIdFromString(registrationPreparationId),
-        walletId: wallet.walletId,
-        signingRootId,
-        signingRootVersion,
-        chainTargets,
-        participantIds: [...ecdsaBranch.participantIds],
-        strictRegistration: this.ecdsaStrictRegistration,
-        runtimePolicyScope,
-      });
-      if (!ecdsaPrepared.ok) {
+      /* ECDSA preparation only, and only when the plan has an ECDSA branch.
+         An Ed25519-only plan has nothing to prepare before the proof: its Yao
+         admission binds the authority scope, so respond derives it. */
+      const ecdsaPrepared =
+        ecdsaBranch && chainTargets && runtimePolicyScope
+          ? await buildD1EvmFamilyEcdsaRegistrationPrepare({
+              registrationPurpose: 'wallet_registration',
+              registrationCeremonyId,
+              registrationPreparationId:
+                registrationPreparationIdFromString(registrationPreparationId),
+              walletId: wallet.walletId,
+              signingRootId,
+              signingRootVersion,
+              chainTargets,
+              participantIds: [...ecdsaBranch.participantIds],
+              strictRegistration: this.ecdsaStrictRegistration,
+              runtimePolicyScope,
+            })
+          : null;
+      if (ecdsaPrepared && !ecdsaPrepared.ok) {
         return walletRegistrationSetupError(ecdsaPrepared.code, ecdsaPrepared.message);
       }
 
       const storedBranches: StoredWalletRegistrationSignerBranch[] = [];
-      storedBranches.push(
+      if (ecdsaPrepared?.ok && ecdsaBranch) storedBranches.push(
         buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch({
           branchKey: ecdsaBranch.branchKey,
           ecdsa: {
@@ -2009,13 +2015,22 @@ export class CloudflareD1WalletRegistrationService {
         expectedOrigin: input.expectedOrigin,
       });
       finishD1RegistrationRouteTiming(timing, total);
-      return {
-        ok: true,
+      const success = {
+        ok: true as const,
         registrationCeremonyId,
         walletId: String(wallet.walletId),
         registrationIntentDigestB64u: digestB64u,
         intent,
         signedSetup,
+      };
+      /* The plan decides the shape. An Ed25519-only setup carries no `ecdsa`
+         member at all, so a client cannot read one that was never prepared. */
+      if (!ecdsaPrepared?.ok || !ecdsaBranch) {
+        return { ...success, kind: 'near_ed25519' };
+      }
+      return {
+        ...success,
+        kind: nearEd25519Branch ? 'near_ed25519_and_evm_family_ecdsa' : 'evm_family_ecdsa',
         ecdsa: {
           kind: ecdsaPrepared.ecdsa.kind,
           chainTargets: ecdsaPrepared.ecdsa.chainTargets,
