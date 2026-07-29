@@ -80,6 +80,18 @@ import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { buildEcdsaRoleLocalPublicFacts } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
+import {
+  buildCanonicalEvmFamilyEcdsaSigningCapability,
+  type CanonicalEvmFamilyEcdsaSigningCapability,
+} from '@/core/signingEngine/flows/signEvmFamily/ecdsaSigningCapability';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+  type WalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import { routerAbEcdsaRegistrationPendingFinalizationFixture } from './routerAbEcdsaRegistrationPendingFinalization.fixtures';
 
 const DIGEST_B64U = base64UrlEncode(new Uint8Array(32).fill(12));
@@ -135,9 +147,11 @@ function fixtureStateBlob(label: string): string {
   return base64UrlEncode(new TextEncoder().encode(label));
 }
 
-export function ecdsaCapabilityActivationFixture(): EcdsaCapabilityActivationFixture {
+export function ecdsaCapabilityActivationFixture(args?: {
+  authority?: WalletAuthAuthorityRef;
+}): EcdsaCapabilityActivationFixture {
   const walletId = walletIdFromString('ecdsa-manifest-fixture-wallet');
-  const authority: WalletAuthAuthorityRef = {
+  const authority: WalletAuthAuthorityRef = args?.authority ?? {
     kind: 'wallet_auth_authority_ref',
     walletId,
     authorityDigest: unwrap(parseWalletAuthorityBindingDigest('authority-fixture')),
@@ -329,6 +343,61 @@ export function ecdsaCapabilityActivationLookupFixture(): Extract<
   return activeLookupFromFixture(ecdsaCapabilityActivationFixture());
 }
 
+export async function canonicalEvmFamilyEcdsaSigningCapabilityFixture(
+  factor: 'passkey' | 'email_otp',
+): Promise<{
+  readonly authority: WalletAuthAuthority;
+  readonly capability: CanonicalEvmFamilyEcdsaSigningCapability;
+  readonly manifest: ActiveEcdsaCapabilityManifest;
+}> {
+  const walletId = walletIdFromString('ecdsa-manifest-fixture-wallet');
+  const authority =
+    factor === 'passkey'
+      ? buildPasskeyWalletAuthAuthority({
+          walletId,
+          rpId: 'example.localhost',
+          credentialIdB64u: 'credential-passkey-fixture',
+        })
+      : buildEmailOtpWalletAuthAuthority({
+          walletId,
+          provider: 'google',
+          providerUserId: `google:${String(walletId)}`,
+          emailHashHex: 'email-hash',
+        });
+  const authorityRef = await walletAuthAuthorityRef({ authority });
+  const lookup = activeLookupFromFixture(
+    ecdsaCapabilityActivationFixture({ authority: authorityRef }),
+  );
+  const manifest = lookup.manifest;
+  const material = buildPersistedEcdsaRoleLocalMaterial({
+    authority: manifest.signer.authority,
+    materialActivation: manifest.durableMaterial.materialActivation,
+    publicFacts: manifest.durableMaterial.roleLocalPublicFacts,
+  });
+  return {
+    authority,
+    manifest,
+    capability: await buildCanonicalEvmFamilyEcdsaSigningCapability({
+      authority,
+      manifest,
+      material,
+    }),
+  };
+}
+
+export function ecdsaWalletSessionRefFixture(
+  manifest: ActiveEcdsaCapabilityManifest,
+): WalletSessionRef {
+  return walletSessionRefFixture(manifest.signer.walletId);
+}
+
+export function walletSessionRefFixture(walletId: unknown): WalletSessionRef {
+  return {
+    walletId: walletIdFromString(String(walletId)),
+    walletSessionUserId: 'ecdsa-fixture-wallet-session-user',
+  };
+}
+
 export function ecdsaCapabilityHydrationLookupFixture(): EcdsaCapabilityHydrationLookupFixture {
   const replacement = ecdsaCapabilityReplacementFixture();
   const activePrior = activeLookupFromFixture(replacement.prior);
@@ -402,8 +471,7 @@ function buildEcdsaCapabilityReplacementFixture(
       signingRootVersion: priorSigner.signingRootVersion,
     }),
     activationId: unwrap(parseMpcMaterialActivationId('ecdsa-activation-replacement-fixture')),
-    evmFamilySigningKeySlotId:
-      prior.prepareInput.activationBinding.evmFamilySigningKeySlotId,
+    evmFamilySigningKeySlotId: prior.prepareInput.activationBinding.evmFamilySigningKeySlotId,
     roleLocalBinding,
     bindingDigest: parseEcdsaRoleLocalBindingDigest(REPLACEMENT_DIGEST_B64U),
     durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef('ecdsa-material-replacement-fixture'),
@@ -520,10 +588,7 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
     parseWalletSessionId(args.walletSessionId || 'ecdsa-fixture-wallet-session'),
     'walletSessionId',
   );
-  const quotaId = requireFixtureId(
-    parseMpcWalletSigningQuotaId('ecdsa-fixture-quota'),
-    'quotaId',
-  );
+  const quotaId = requireFixtureId(parseMpcWalletSigningQuotaId('ecdsa-fixture-quota'), 'quotaId');
   const expiresAtMs = args.expiresAtMs ?? 1_900_000_000_000;
   const remainingUses = args.remainingUses ?? 5;
   return {
@@ -554,10 +619,7 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
   };
 }
 
-function requireFixtureId<T>(
-  result: { ok: true; value: T } | { ok: false },
-  label: string,
-): T {
+function requireFixtureId<T>(result: { ok: true; value: T } | { ok: false }, label: string): T {
   if (!result.ok) throw new Error(`[fixture] invalid ${label}`);
   return result.value;
 }

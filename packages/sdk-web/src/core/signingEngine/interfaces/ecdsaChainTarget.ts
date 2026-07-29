@@ -40,16 +40,6 @@ export type NearCommandSubject = {
   nearAccount: NearAccountRef;
 };
 
-export type ThresholdEcdsaSessionRecordKey = {
-  walletId: WalletId;
-  keyHandle: string;
-  authMethod: 'email_otp' | 'passkey';
-  curve: 'ecdsa';
-  chainTarget: ThresholdEcdsaChainTarget;
-  signingGrantId: string;
-  thresholdSessionId: string;
-};
-
 type BoundaryEcdsaChainFamily = 'evm' | 'tempo';
 
 function nonEmptyString(value: unknown): string | null {
@@ -251,27 +241,4 @@ export function thresholdEcdsaChainTargetFromNetwork(args: {
     });
   }
   throw new Error(`[threshold-ecdsa] ${args.network} is not an ECDSA chain target`);
-}
-
-function laneKeyPart(value: unknown): string {
-  return encodeURIComponent(requireNonEmptyString(value, 'ECDSA lane key part'));
-}
-
-export function thresholdEcdsaLaneKey(lane: ThresholdEcdsaSessionRecordKey): string {
-  return [
-    laneKeyPart(lane.walletId),
-    laneKeyPart(lane.keyHandle),
-    laneKeyPart(lane.authMethod),
-    'ecdsa',
-    laneKeyPart(thresholdEcdsaChainTargetKey(lane.chainTarget)),
-    laneKeyPart(lane.signingGrantId),
-    laneKeyPart(lane.thresholdSessionId),
-  ].join(':');
-}
-
-export function thresholdEcdsaSessionRecordKeysEqual(
-  left: ThresholdEcdsaSessionRecordKey,
-  right: ThresholdEcdsaSessionRecordKey,
-): boolean {
-  return thresholdEcdsaLaneKey(left) === thresholdEcdsaLaneKey(right);
 }

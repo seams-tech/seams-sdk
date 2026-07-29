@@ -2,7 +2,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { WorkerOperationContext } from '../../../workerManager/executeWorkerOperation';
 import { updateExactSealedSessionPolicy } from '../../../session/persistence/sealedSessionStore';
 import type {
-  ReadyEcdsaSignerSession,
+  HydratedEcdsaSignerMaterial,
   ThresholdEcdsaRoleLocalWorkerShare,
 } from '../../../session/identity/evmFamilyEcdsaIdentity';
 import {
@@ -23,18 +23,14 @@ import type { RouterAbEcdsaDerivationClientSigningMaterialSource } from '../../.
 
 type EcdsaSessionChain = 'tempo' | 'evm';
 
-export type SignableReadyEcdsaSignerSession = ReadyEcdsaSignerSession & {
-  clientShare: ReadyEcdsaSignerSession['clientShare'];
-};
-
 export type LoadedRouterAbEcdsaDerivationSigningMaterialSource = {
-  signerSession: SignableReadyEcdsaSignerSession;
+  signerSession: HydratedEcdsaSignerMaterial;
   clientSigningMaterial: RouterAbEcdsaDerivationClientSigningMaterialSource;
   cleanupAfterSign: (args: { singleUseEmailOtpSession: boolean }) => Promise<void>;
 };
 
 function readySignerSessionEmailOtpWorkerShareChain(
-  signerSession: SignableReadyEcdsaSignerSession,
+  signerSession: HydratedEcdsaSignerMaterial,
 ): EcdsaSessionChain | null {
   switch (signerSession.clientShare.kind) {
     case 'role_local_worker_share':
@@ -104,10 +100,10 @@ async function ensureRoleLocalSigningMaterialLoaded(args: {
 }
 
 export async function loadRouterAbEcdsaDerivationSigningMaterialSource(args: {
-  signerSession: ReadyEcdsaSignerSession;
+  signerSession: HydratedEcdsaSignerMaterial;
   workerCtx: WorkerOperationContext;
 }): Promise<LoadedRouterAbEcdsaDerivationSigningMaterialSource> {
-  const signerSession: SignableReadyEcdsaSignerSession = args.signerSession;
+  const signerSession = args.signerSession;
   const emailOtpWorkerShareSessionId =
     signerSession.clientShare.kind === 'email_otp_worker_share'
       ? signerSession.clientShare.handle.sessionId
@@ -133,7 +129,7 @@ export async function loadRouterAbEcdsaDerivationSigningMaterialSource(args: {
           emailOtpWorkerShareExhausted =
             initialized.remainingUses <= 0 || initialized.expiresAtMs <= Date.now();
           await updateEmailOtpSealedRecordPolicyAfterEcdsaClaim({
-            thresholdSessionId: String(signerSession.session.thresholdSessionId),
+            thresholdSessionId: String(signerSession.thresholdSessionId),
             chainTarget: signerSession.clientShare.handle.laneIdentity.chainTarget,
             remainingUses: initialized.remainingUses,
             expiresAtMs: initialized.expiresAtMs,

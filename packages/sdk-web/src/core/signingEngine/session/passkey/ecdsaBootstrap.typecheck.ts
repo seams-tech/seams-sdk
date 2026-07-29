@@ -11,7 +11,7 @@ import type {
   EvmFamilyEcdsaKeyIdentity,
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
-import type { PersistedEcdsaRoleLocalMaterial } from '../persistence/records';
+import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { EcdsaBootstrapRequest } from './ecdsaBootstrap';
 
 declare const walletId: WalletId;

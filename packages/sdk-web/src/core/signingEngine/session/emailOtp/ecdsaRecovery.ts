@@ -52,6 +52,8 @@ import {
 } from './ecdsaLogin';
 import type { ThresholdEcdsaActivationRequest } from '../passkey/ecdsaSessionProvision';
 import type { ResolvedEmailOtpExistingEcdsaKey } from './ecdsaPublication';
+import { resolveActiveEcdsaCapabilityRuntime } from '../material/activeEcdsaCapabilityRuntime';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 
 export type EmailOtpThresholdEcdsaRehydrateResult = {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
@@ -298,6 +300,20 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   if (sealedRecord.remainingUses <= 0) {
     throw new Error('Email OTP sealed refresh exhausted sealed record');
   }
+  const expectedMaterialActivation = sealedRecord.roleLocalMaterialRef.materialActivation;
+  const currentBeforeRehydrate = await resolveActiveEcdsaCapabilityRuntime({
+    walletId: toWalletId(sealedRecord.walletId),
+    chainTarget: restoreSource.chainTarget,
+  });
+  if (
+    currentBeforeRehydrate.kind !== 'resolved' ||
+    !mpcMaterialActivationRefsEqual(
+      currentBeforeRehydrate.runtime.materialActivation,
+      expectedMaterialActivation,
+    )
+  ) {
+    throw new Error('Email OTP sealed refresh material activation was superseded');
+  }
   const restored = await requestRehydrateEmailOtpEcdsaWarmSessionMaterial({
     workerCtx,
     sealedSecretB64u: sealedRecord.sealedSecretB64u,
@@ -356,6 +372,19 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   });
   if (!bound.ok) {
     throw new Error(bound.message || bound.code || 'Email OTP sealed refresh binding failed');
+  }
+  const currentBeforeCommit = await resolveActiveEcdsaCapabilityRuntime({
+    walletId: toWalletId(sealedRecord.walletId),
+    chainTarget: restoreSource.chainTarget,
+  });
+  if (
+    currentBeforeCommit.kind !== 'resolved' ||
+    !mpcMaterialActivationRefsEqual(
+      currentBeforeCommit.runtime.materialActivation,
+      expectedMaterialActivation,
+    )
+  ) {
+    throw new Error('Email OTP sealed refresh material activation was superseded');
   }
   const committed = await args.commitEvmFamilyThresholdEcdsaSessions({
     walletId: toWalletId(sealedRecord.walletId),

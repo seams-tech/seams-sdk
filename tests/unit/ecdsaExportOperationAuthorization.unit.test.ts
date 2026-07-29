@@ -23,6 +23,7 @@ import {
   parseWalletSessionId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { WALLET_SESSION_AUTHORIZATION_RECORD_VERSION } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSigningCapability';
 import {
   buildMpcMaterialActivationRefFixture,
   buildWalletAuthAuthorityRefFixture,
@@ -70,10 +71,35 @@ function buildExportLane(walletSessionSuffix: string): ExactEcdsaExportLane {
     parseWalletSessionId(`export-wallet-session:${walletSessionSuffix}`),
   );
   const quotaId = requireId(parseMpcWalletSigningQuotaId(`export-quota:${walletSessionSuffix}`));
+  const authorization = {
+    kind: 'active_reusable_wallet_session_authorization',
+    projection: {
+      recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
+      walletId,
+      authorizationSessionId: requireId(
+        parseSeamsSessionId(`export-authorization-session:${walletSessionSuffix}`),
+      ),
+      walletSessionId,
+      quotaId,
+      authMethod: 'passkey',
+      authority: buildWalletAuthAuthorityRefFixture({ walletId: WALLET_ID }),
+      expiresAtMs: Date.now() + 60 * 60_000,
+      status: 'active',
+      walletSessionJwt: 'export-wallet-session-jwt' as never,
+    },
+    status: {
+      walletSessionId,
+      quotaId,
+      status: 'active',
+      remainingUses: 5,
+      expiresAtMs: Date.now() + 60 * 60_000,
+    },
+  } satisfies ActiveEvmFamilyWalletSessionAuthorization;
   return {
     curve: 'ecdsa',
     key,
     publicFacts,
+    authorization,
     laneIdentity: exactEcdsaSigningLaneIdentity({
       signer: buildEvmFamilyEcdsaSignerBinding({
         walletId,
@@ -86,30 +112,6 @@ function buildExportLane(walletSessionSuffix: string): ExactEcdsaExportLane {
         kind: 'passkey',
         rpId: toRpId('localhost'),
         credentialIdB64u: 'export-credential',
-      },
-      authorization: {
-        kind: 'active_reusable_wallet_session_authorization',
-        projection: {
-          recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
-          walletId,
-          authorizationSessionId: requireId(
-            parseSeamsSessionId(`export-authorization-session:${walletSessionSuffix}`),
-          ),
-          walletSessionId,
-          quotaId,
-          authMethod: 'passkey',
-          authority: buildWalletAuthAuthorityRefFixture({ walletId: WALLET_ID }),
-          expiresAtMs: Date.now() + 60 * 60_000,
-          status: 'active',
-          walletSessionJwt: 'export-wallet-session-jwt' as never,
-        },
-        status: {
-          walletSessionId,
-          quotaId,
-          status: 'active',
-          remainingUses: 5,
-          expiresAtMs: Date.now() + 60 * 60_000,
-        },
       },
     }),
     session: {

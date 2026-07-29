@@ -2,10 +2,7 @@ import type { SigningSessionStatus } from '@/core/types/seams';
 import type { EmailOtpSessionRefreshResult } from '../emailOtp/appSessionJwtCache';
 import type { PositiveRemainingUses } from '../budget/policy';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  MpcWalletSigningQuotaId,
-  WalletSessionId,
-} from '@shared/authorization/capabilityKinds';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
   exactSigningLaneCurve,
   exactSigningLaneIdentityKey,
@@ -141,9 +138,8 @@ export type StepUpFreshnessAuthority =
       quotaId?: never;
     }
   | {
-      kind: 'ecdsa_wallet_session';
-      walletSessionId: WalletSessionId;
-      quotaId: MpcWalletSigningQuotaId;
+      kind: 'ecdsa_material_activation';
+      materialActivation: MpcMaterialActivationRef;
       signingGrantId?: never;
       thresholdSessionIds?: never;
     };
@@ -197,9 +193,8 @@ function validateBase(input: StepUpFreshnessBaseInput): {
     laneIdentityKey,
     authority: isExactEcdsaSigningLaneIdentity(input.laneIdentity)
       ? {
-          kind: 'ecdsa_wallet_session',
-          walletSessionId: input.laneIdentity.authorization.projection.walletSessionId,
-          quotaId: input.laneIdentity.authorization.projection.quotaId,
+          kind: 'ecdsa_material_activation',
+          materialActivation: input.laneIdentity.signer.materialActivation,
         }
       : {
           kind: 'ed25519_threshold_session',

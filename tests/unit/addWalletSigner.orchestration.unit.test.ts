@@ -15,7 +15,6 @@ import {
 import { UserVerificationPolicy } from '../../packages/sdk-web/src/core/types/authenticatorOptions';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
-  clearAllThresholdEcdsaSessionRecords,
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import { emailOtpRecoveryCodeBackupRepository } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups';
 import {
@@ -1030,7 +1029,6 @@ function createContext(captures: Record<string, unknown>): any {
     registrationEvents(captures)?.push('emailOtpEnrollmentMaterialResolved');
     return material;
   };
-  const thresholdEcdsaSessionStore = { recordsByLane: new Map() };
   const emailOtpYaoWorkerContext = new EmailOtpEd25519YaoWorkerContextCapture(captures);
   const ecdsaRegistrationBootstrap = {
     preparePasskeyClientBootstrap: prepareWalletRegistrationEcdsaPreparedClientBootstrap,
@@ -1072,7 +1070,6 @@ function createContext(captures: Record<string, unknown>): any {
             signerSlot: 1,
           }),
         },
-        sessionStore: thresholdEcdsaSessionStore,
         warmSessions: { hydrateSigningSession },
         persistActivePasskeyEcdsaReauthAnchor: async (input: unknown) => {
           captures.persistedActivePasskeyEcdsaReauthAnchor = input;
@@ -1805,7 +1802,6 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
 }
 
 async function withMockedIndexedDb<T>(run: () => Promise<T>): Promise<T> {
-  clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
   clearAllStoredThresholdEd25519SessionRecords();
   const indexedDB = IndexedDBManager as unknown as Record<string, unknown>;
   const originalListProfileAuthenticators = indexedDB.listProfileAuthenticators;
@@ -1834,7 +1830,6 @@ async function withMockedIndexedDb<T>(run: () => Promise<T>): Promise<T> {
     indexedDB.resolveProfileAccountContext = originalResolveProfileAccountContext;
     (IndexedDBManager as any).getKeyMaterial = originalGetKeyMaterial;
     (IndexedDBManager as any).storeKeyMaterial = originalStoreKeyMaterial;
-    clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
     clearAllStoredThresholdEd25519SessionRecords();
   }
 }

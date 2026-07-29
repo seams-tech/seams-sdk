@@ -158,7 +158,10 @@ async function invalidateAuthoritativeNearWalletSessionExpiry(args: {
 }): Promise<void> {
   if (args.failure?.kind !== 'expired') return;
   const state = requireAuthoritativeExpiredWalletSessionAuthorizationBoundary({
-    identity: exactEd25519SigningLaneIdentityFromSelectedLane(args.lane),
+    source: {
+      kind: 'ed25519',
+      laneIdentity: exactEd25519SigningLaneIdentityFromSelectedLane(args.lane),
+    },
     expiresAtMs: args.expiresAtMs,
     detectedAtMs: Date.now(),
   });

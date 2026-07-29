@@ -91,6 +91,40 @@ const passkeyLane: ConcreteAvailableEcdsaSigningLane = {
 };
 void passkeyLane;
 
+const canonicalAuthorizationRequiredLane: ConcreteAvailableEcdsaSigningLane = {
+  key,
+  materialActivation,
+  publicFacts,
+  auth: passkeyAuth,
+  resolvedKey,
+  curve: 'ecdsa',
+  chainTarget,
+  state: 'deferred',
+  source: 'canonical_capability',
+};
+void canonicalAuthorizationRequiredLane;
+
+// @ts-expect-error canonical ECDSA availability never carries session aliases.
+const invalidCanonicalLaneWithSessionAlias: ConcreteAvailableEcdsaSigningLane = {
+  ...canonicalAuthorizationRequiredLane,
+  thresholdSessionId: 'threshold-session-legacy',
+};
+void invalidCanonicalLaneWithSessionAlias;
+
+// @ts-expect-error canonical ECDSA availability never carries grant aliases.
+const invalidCanonicalLaneWithGrantAlias: ConcreteAvailableEcdsaSigningLane = {
+  ...canonicalAuthorizationRequiredLane,
+  signingGrantId: 'signing-grant-legacy',
+};
+void invalidCanonicalLaneWithGrantAlias;
+
+// @ts-expect-error authorization-required canonical material is always deferred.
+const invalidReadyCanonicalLaneWithoutAuthorization: ConcreteAvailableEcdsaSigningLane = {
+  ...canonicalAuthorizationRequiredLane,
+  state: 'ready',
+};
+void invalidReadyCanonicalLaneWithoutAuthorization;
+
 const availableSigningLanesInput: ReadAvailableSigningLanesInput = {
   walletId: key.walletId,
   ecdsaChainTargets: [chainTarget],
@@ -113,10 +147,22 @@ const passkeyLaneIdentity: EcdsaAvailableLaneIdentityInput = {
   resolvedKey,
   curve: 'ecdsa',
   chainTarget,
-  signingGrantId: 'signing-grant-1',
-  thresholdSessionId: 'threshold-session-1',
 };
 void passkeyLaneIdentity;
+
+const invalidLaneIdentityWithSessionAlias: EcdsaAvailableLaneIdentityInput = {
+  ...passkeyLaneIdentity,
+  // @ts-expect-error ECDSA availability identity is independent of authorization sessions.
+  thresholdSessionId: 'threshold-session-legacy',
+};
+void invalidLaneIdentityWithSessionAlias;
+
+const invalidLaneIdentityWithGrantAlias: EcdsaAvailableLaneIdentityInput = {
+  ...passkeyLaneIdentity,
+  // @ts-expect-error ECDSA availability identity is independent of grants.
+  signingGrantId: 'signing-grant-legacy',
+};
+void invalidLaneIdentityWithGrantAlias;
 
 const invalidPasskeyLaneWithSubjectId: ConcreteAvailableEcdsaSigningLane = {
   ...passkeyLane,
@@ -164,12 +210,11 @@ void passkeyLaneWithEmailOtpResolvedKey;
 // @ts-expect-error passkey availability identity keys require resolved auth binding.
 const passkeyLaneIdentityMissingResolvedKey: EcdsaAvailableLaneIdentityInput = {
   key,
+  materialActivation,
   publicFacts,
   auth: passkeyAuth,
   curve: 'ecdsa',
   chainTarget,
-  signingGrantId: 'signing-grant-1',
-  thresholdSessionId: 'threshold-session-1',
 };
 void passkeyLaneIdentityMissingResolvedKey;
 

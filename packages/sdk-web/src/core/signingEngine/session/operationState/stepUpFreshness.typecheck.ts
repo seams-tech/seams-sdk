@@ -19,7 +19,6 @@ import {
   type FreshStepUpRequired,
 } from './stepUpFreshness';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 
 const walletId = toWalletId('wallet.testnet');
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
@@ -35,7 +34,6 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
 });
 declare const materialActivation: MpcMaterialActivationRef;
-declare const authorization: ActiveEvmFamilyWalletSessionAuthorization;
 const laneIdentity = exactEcdsaSigningLaneIdentity({
   signer: buildEvmFamilyEcdsaSignerBinding({
     walletId,
@@ -48,7 +46,6 @@ const laneIdentity = exactEcdsaSigningLaneIdentity({
     kind: 'email_otp',
     providerSubjectId: 'google:subject-1',
   },
-  authorization,
 });
 
 const satisfied = buildFreshStepUpSatisfied({

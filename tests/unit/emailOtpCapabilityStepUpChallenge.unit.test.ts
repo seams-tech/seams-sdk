@@ -4,15 +4,12 @@ import {
   emailOtpEcdsaCapabilityStepUpAuthority,
   type EmailOtpEcdsaChallengeAuthority,
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
-import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
-import type { CanonicalEvmFamilyEcdsaSigningCapability } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSigningCapability';
-import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
+import { resolveEvmFamilyTransactionStepUp } from '@/core/signingEngine/flows/signEvmFamily/authPlanning';
+import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
-  buildEmailOtpWalletAuthAuthority,
-  buildPasskeyWalletAuthAuthority,
-  type WalletAuthAuthority,
-} from '@shared/utils/walletAuthAuthority';
-import { ecdsaCapabilityActivationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
+  canonicalEvmFamilyEcdsaSigningCapabilityFixture,
+  ecdsaWalletSessionRefFixture,
+} from './helpers/ecdsaCapabilityManifest.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 // Auth-neutral Email OTP material has no warm signing lane and no reauth
@@ -23,45 +20,21 @@ import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef
 
 const OPERATION_FINGERPRINT = 'sha256:capability-step-up-operation-1';
 
-function capabilityFor(factor: 'passkey' | 'email_otp'): {
-  capability: CanonicalEvmFamilyEcdsaSigningCapability;
-  manifest: ActiveEcdsaCapabilityManifest;
-  authority: WalletAuthAuthority;
-} {
-  const manifest = ecdsaCapabilityActivationLookupFixture().manifest;
-  const walletId = String(manifest.signer.walletId);
-  const authority =
-    factor === 'email_otp'
-      ? buildEmailOtpWalletAuthAuthority({
-          walletId,
-          provider: 'google',
-          providerUserId: `google:${walletId}`,
-          emailHashHex: 'email-hash',
-        })
-      : buildPasskeyWalletAuthAuthority({
-          walletId,
-          rpId: 'example.localhost',
-          credentialIdB64u: 'credential-passkey-fixture',
-        });
+async function capabilityFor(factor: 'passkey' | 'email_otp') {
+  return await canonicalEvmFamilyEcdsaSigningCapabilityFixture(factor);
+}
+
+function deliveredChallenge() {
   return {
-    manifest,
-    authority,
-    capability: {
-      kind: 'canonical_evm_family_ecdsa_signing_capability',
-      authority,
-      manifest,
-      material: buildPersistedEcdsaRoleLocalMaterial({
-        authority: manifest.signer.authority,
-        materialActivation: manifest.durableMaterial.materialActivation,
-        publicFacts: manifest.durableMaterial.roleLocalPublicFacts,
-      }),
-    } as CanonicalEvmFamilyEcdsaSigningCapability,
+    challengeId: 'capability-step-up-challenge',
+    emailHint: 'a***@x.test',
+    delivery: { kind: 'provider' as const, status: 'sent' as const, emailHint: 'a***@x.test' },
   };
 }
 
 test.describe('Email OTP capability step-up challenge', () => {
   test('mints a challenge bound to the capability and the exact operation', async () => {
-    const { capability, manifest } = capabilityFor('email_otp');
+    const { capability, manifest } = await capabilityFor('email_otp');
     const stepUpAuthority = emailOtpEcdsaCapabilityStepUpAuthority({
       capability,
       materialActivation: manifest.activation.materialActivation,
@@ -71,18 +44,14 @@ test.describe('Email OTP capability step-up challenge', () => {
     const seen: EmailOtpEcdsaChallengeAuthority[] = [];
     const bridge = createEmailOtpEcdsaTransactionSigningBridge({
       walletId: String(manifest.signer.walletId),
-      walletSession: { walletId: String(manifest.signer.walletId) } as never,
+      walletSession: ecdsaWalletSessionRefFixture(manifest),
       chain: 'evm',
       authority: stepUpAuthority,
       requestEmailOtpTransactionSigningChallenge: async (args) => {
         seen.push(args.authority);
         // The full production challenge shape: `delivery` is required, and the
         // bridge derives the demo-code hint from it after the mint.
-        return {
-          challengeId: 'capability-step-up-challenge',
-          emailHint: 'a***@x.test',
-          delivery: { kind: 'provider', status: 'sent', emailHint: 'a***@x.test' },
-        } as never;
+        return deliveredChallenge();
       },
     });
 
@@ -103,8 +72,8 @@ test.describe('Email OTP capability step-up challenge', () => {
     expect(crossed.operationFingerprint).toBe(OPERATION_FINGERPRINT);
   });
 
-  test('rejects a caller-supplied authority that disagrees with the capability', () => {
-    const { capability, manifest } = capabilityFor('email_otp');
+  test('rejects a caller-supplied authority that disagrees with the capability', async () => {
+    const { capability, manifest } = await capabilityFor('email_otp');
     const otherWalletAuthority = buildEmailOtpWalletAuthAuthority({
       walletId: String(manifest.signer.walletId),
       provider: 'google',
@@ -123,8 +92,8 @@ test.describe('Email OTP capability step-up challenge', () => {
     ).toThrow('does not match the selected capability');
   });
 
-  test('rejects a capability whose factor is not Email OTP', () => {
-    const { capability, manifest } = capabilityFor('passkey');
+  test('rejects a capability whose factor is not Email OTP', async () => {
+    const { capability, manifest } = await capabilityFor('passkey');
 
     expect(() =>
       emailOtpEcdsaCapabilityStepUpAuthority({
@@ -135,8 +104,8 @@ test.describe('Email OTP capability step-up challenge', () => {
     ).toThrow('requires an Email OTP capability authority');
   });
 
-  test('rejects material the selected capability does not name', () => {
-    const { capability, manifest } = capabilityFor('email_otp');
+  test('rejects material the selected capability does not name', async () => {
+    const { capability, manifest } = await capabilityFor('email_otp');
 
     expect(() =>
       emailOtpEcdsaCapabilityStepUpAuthority({
@@ -150,8 +119,8 @@ test.describe('Email OTP capability step-up challenge', () => {
     ).toThrow('material activation does not match the selected capability');
   });
 
-  test('requires an operation fingerprint to bind the challenge to', () => {
-    const { capability, manifest } = capabilityFor('email_otp');
+  test('requires an operation fingerprint to bind the challenge to', async () => {
+    const { capability, manifest } = await capabilityFor('email_otp');
 
     expect(() =>
       emailOtpEcdsaCapabilityStepUpAuthority({
@@ -160,5 +129,60 @@ test.describe('Email OTP capability step-up challenge', () => {
         operationFingerprint: '   ',
       }),
     ).toThrow('requires an operation fingerprint');
+  });
+
+  test('uses a Passkey capability when the account primary method is Email OTP', async () => {
+    const { capability, manifest } = await capabilityFor('passkey');
+    const result = await resolveEvmFamilyTransactionStepUp({
+      deps: {},
+      confirmedDeps: {},
+      walletSession: ecdsaWalletSessionRefFixture(manifest),
+      chain: 'evm',
+      chainTarget: manifest.signer.scope.targetMemberships[0],
+      accountAuth: {
+        primaryAuthMethod: 'email_otp',
+        linkedAuthMethods: ['email_otp', 'passkey'],
+      },
+      senderSignatureAlgorithm: 'secp256k1',
+      ecdsaAuthorization: 'operation_step_up',
+      capability,
+      materialActivation: manifest.activation.materialActivation,
+      operationFingerprint: OPERATION_FINGERPRINT,
+    });
+
+    expect(result.signingAuthPlan).toEqual({ kind: 'passkeyReauth', method: 'passkey' });
+    expect(result.emailOtpSigning).toBeUndefined();
+  });
+
+  test('uses an Email OTP capability when the account primary method is Passkey', async () => {
+    const { capability, manifest } = await capabilityFor('email_otp');
+    const seen: EmailOtpEcdsaChallengeAuthority[] = [];
+    const result = await resolveEvmFamilyTransactionStepUp({
+      deps: {},
+      confirmedDeps: {
+        requestEmailOtpTransactionSigningChallenge: async (args) => {
+          seen.push(args.authority);
+          return deliveredChallenge();
+        },
+      },
+      walletSession: ecdsaWalletSessionRefFixture(manifest),
+      chain: 'evm',
+      chainTarget: manifest.signer.scope.targetMemberships[0],
+      accountAuth: {
+        primaryAuthMethod: 'passkey',
+        linkedAuthMethods: ['passkey', 'email_otp'],
+      },
+      senderSignatureAlgorithm: 'secp256k1',
+      ecdsaAuthorization: 'operation_step_up',
+      capability,
+      materialActivation: manifest.activation.materialActivation,
+      operationFingerprint: OPERATION_FINGERPRINT,
+    });
+
+    expect(result.signingAuthPlan).toEqual({ kind: 'emailOtpReauth', method: 'email_otp' });
+    expect(result.emailOtpSigning).toBeDefined();
+    await result.emailOtpSigning!.prepare();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.kind).toBe('capability_step_up');
   });
 });

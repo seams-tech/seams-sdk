@@ -8,10 +8,14 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa
 import { resolveThresholdEcdsaKeyIdFromKeyRef } from '../identity/evmFamilyEcdsaIdentity';
 import type { WarmSessionEcdsaCapabilityState } from './types';
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 
 export type EcdsaWarmCapabilityReader = {
   getEcdsaCapabilityForLane: (
-    lane: ExactEcdsaSigningLaneIdentity,
+    args: {
+      lane: ExactEcdsaSigningLaneIdentity;
+      authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    },
   ) => Promise<WarmSessionEcdsaCapabilityState | null>;
 };
 
@@ -73,6 +77,7 @@ export async function assertWarmThresholdEcdsaCapabilityReady(
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     lane: ExactEcdsaSigningLaneIdentity;
+    authorization: ActiveEvmFamilyWalletSessionAuthorization;
   },
 ): Promise<WarmSessionEcdsaCapabilityState> {
   const authorizationSessionId = String(
@@ -86,7 +91,7 @@ export async function assertWarmThresholdEcdsaCapabilityReady(
     );
   }
   if (
-    String(args.lane.authorization.projection.authorizationSessionId) !==
+    String(args.authorization.projection.authorizationSessionId) !==
     authorizationSessionId
   ) {
     throw new Error(
@@ -95,7 +100,10 @@ export async function assertWarmThresholdEcdsaCapabilityReady(
       )} (${thresholdEcdsaChainTargetKey(args.chainTarget)})`,
     );
   }
-  const capability = await reader.getEcdsaCapabilityForLane(args.lane);
+  const capability = await reader.getEcdsaCapabilityForLane({
+    lane: args.lane,
+    authorization: args.authorization,
+  });
   return requireExactBootstrapCapability({
     walletId: args.walletId,
     chainTarget: args.chainTarget,

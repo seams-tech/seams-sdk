@@ -17,6 +17,13 @@ import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { EcdsaCapabilityManifestLookup } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import { resolveEcdsaCapabilityHydration } from './ecdsaCapabilityHydration';
 import {
+  resolveNearEd25519YaoCapabilityHydrationV1,
+  type NearEd25519YaoPublicLocatorObservationV1,
+  type NearEd25519YaoRuntimeObservationV1,
+  type NearEd25519YaoSealedMaterialObservationV1,
+  type NearEd25519YaoUnlockSourceObservationV1,
+} from './nearEd25519YaoMaterialActivation';
+import {
   buildBlockedMpcCapabilityHydrationPlan,
   buildMpcCapabilityPublicReauthAnchor,
   buildReauthorizePublicAnchorHydrationPlan,
@@ -41,6 +48,10 @@ declare const registeredPublicKeyBinding: MpcRegisteredPublicKeyBindingRef;
 declare const walletId: WalletId;
 declare const authorityDigest: WalletAuthorityBindingDigest;
 declare const ecdsaLookup: EcdsaCapabilityManifestLookup;
+declare const nearPublicLocator: NearEd25519YaoPublicLocatorObservationV1;
+declare const nearSealedMaterial: NearEd25519YaoSealedMaterialObservationV1;
+declare const nearRuntime: NearEd25519YaoRuntimeObservationV1;
+declare const nearUnlockSource: NearEd25519YaoUnlockSourceObservationV1;
 
 // @ts-expect-error Restorable material is constructed only by protocol hydration adapters.
 const rawRestorableMaterial: RestorableMpcMaterialRef = 'raw-material-ref';
@@ -103,6 +114,31 @@ resolveEcdsaCapabilityHydration({
   entryPoint: 'post_page_refresh',
   lookup: ecdsaLookup,
   runtime: { kind: 'absent' },
+});
+
+resolveEcdsaCapabilityHydration({
+  // @ts-expect-error Diagnostic provenance cannot enter the ECDSA hydration decision.
+  provenance: { entryPoint: 'post_registration' },
+  lookup: ecdsaLookup,
+  runtime: { kind: 'absent' },
+});
+
+resolveNearEd25519YaoCapabilityHydrationV1({
+  // @ts-expect-error Hydration decisions cannot vary by registration, unlock, or refresh provenance.
+  entryPoint: 'post_wallet_unlock',
+  publicLocator: nearPublicLocator,
+  sealed: nearSealedMaterial,
+  runtime: nearRuntime,
+  unlockSource: nearUnlockSource,
+});
+
+resolveNearEd25519YaoCapabilityHydrationV1({
+  // @ts-expect-error Diagnostic provenance cannot enter the Near hydration decision.
+  provenance: { entryPoint: 'post_page_refresh' },
+  publicLocator: nearPublicLocator,
+  sealed: nearSealedMaterial,
+  runtime: nearRuntime,
+  unlockSource: nearUnlockSource,
 });
 
 // @ts-expect-error Blocked plans can only be constructed by their branch builder.

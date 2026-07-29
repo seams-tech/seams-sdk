@@ -47,10 +47,6 @@ import {
   type DeleteDurableSealedSessionCommand,
 } from './durableSealedSessionCommands';
 import {
-  clearStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
-  clearStoredThresholdEcdsaSessionRecordsForWalletKeyHandle,
-} from './records';
-import {
   parseEcdsaRoleLocalPersistedMaterialRef,
   type EcdsaRoleLocalPersistedMaterialRef,
 } from '../keyMaterialBrands';
@@ -2420,38 +2416,12 @@ export async function deleteDurableSealedSessionRecord(
         updatedAtMs: Date.now(),
       }),
     );
-    clearStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
-      thresholdSessionId: command.durableRecord.thresholdSessionId,
-      chainTarget: command.durableRecord.chainTarget,
-    });
     return;
   }
   const options: DeleteExactSealedSessionOptions = command.preserveResolvedIdentity
     ? { deleteResolvedIdentity: false }
     : { deleteResolvedIdentity: true, resolvedIdentityDeleteReason: 'durable_record_deleted' };
   await deleteExactSealedSession(command.durableRecord.thresholdSessionId, filter, options);
-  if (command.durableRecord.curve !== 'ecdsa') return;
-
-  clearStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
-    thresholdSessionId: command.durableRecord.thresholdSessionId,
-    chainTarget: command.durableRecord.chainTarget,
-  });
-
-  const keyHandleInvalidatesAllSessions =
-    command.deleteReason === 'account_removed' ||
-    command.deleteReason === 'device_removed' ||
-    command.deleteReason === 'invalid_persisted_record' ||
-    command.deleteReason === 'migration_rejected' ||
-    command.deleteReason === 'trusted_persisted_delete';
-  if (!keyHandleInvalidatesAllSessions) return;
-  if (!existingRecord || existingRecord.curve !== 'ecdsa') return;
-  const walletId = normalizeOptionalNonEmptyString(existingRecord.walletId);
-  const keyHandle = normalizeOptionalNonEmptyString(existingRecord.ecdsaRestore?.keyHandle);
-  if (!walletId || !keyHandle) return;
-  clearStoredThresholdEcdsaSessionRecordsForWalletKeyHandle({
-    walletId,
-    keyHandle,
-  });
 }
 
 async function readExactSealedSessionOrNull(

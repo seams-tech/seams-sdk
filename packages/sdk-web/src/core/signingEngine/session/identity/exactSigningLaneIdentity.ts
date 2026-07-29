@@ -35,8 +35,6 @@ import {
 } from './evmFamilyEcdsaIdentity';
 import type { SigningLaneAuthBinding } from './signingLaneAuthBinding';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
-import { parseWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   SigningSessionIds,
   type ThresholdEcdsaSessionId,
@@ -72,7 +70,6 @@ export type ExactEcdsaSigningLaneIdentity = {
   readonly kind: 'exact_signing_lane';
   readonly signer: EvmFamilyEcdsaSignerBinding;
   readonly auth: SigningLaneAuthBinding;
-  readonly authorization: ActiveEvmFamilyWalletSessionAuthorization;
 };
 
 export type ExactSigningLaneIdentity =
@@ -101,7 +98,6 @@ export type ExactEd25519SigningLaneIdentityInput = {
 export type ExactEcdsaSigningLaneIdentityInput = {
   signer: EvmFamilyEcdsaSignerBinding;
   auth: SigningLaneAuthBinding;
-  authorization: ActiveEvmFamilyWalletSessionAuthorization;
 };
 
 export type NearEd25519SignerBoundaryFields = {
@@ -208,41 +204,6 @@ function parseExactLaneMaterialActivation(value: unknown): MpcMaterialActivation
     throw new Error(parsed.error.message);
   }
   return parsed.value;
-}
-
-function parseActiveEvmFamilyWalletSessionAuthorization(
-  value: unknown,
-): ActiveEvmFamilyWalletSessionAuthorization {
-  const authorization = requireRecord(value, 'ECDSA Wallet Session authorization');
-  if (authorization.kind !== 'active_reusable_wallet_session_authorization') {
-    throw new Error('[SigningSession] expected active reusable Wallet Session authorization');
-  }
-  const projection = parseWalletSessionAuthorizationProjection(authorization.projection);
-  const status = requireRecord(authorization.status, 'ECDSA Wallet Session status');
-  if (
-    !projection ||
-    projection.status !== 'active' ||
-    status.status !== 'active' ||
-    status.walletSessionId !== projection.walletSessionId ||
-    status.quotaId !== projection.quotaId ||
-    !Number.isSafeInteger(status.remainingUses) ||
-    Number(status.remainingUses) <= 0 ||
-    !Number.isSafeInteger(status.expiresAtMs) ||
-    Number(status.expiresAtMs) !== projection.expiresAtMs
-  ) {
-    throw new Error('[SigningSession] invalid active reusable Wallet Session authorization');
-  }
-  return {
-    kind: 'active_reusable_wallet_session_authorization',
-    projection,
-    status: {
-      status: 'active',
-      walletSessionId: projection.walletSessionId,
-      quotaId: projection.quotaId,
-      remainingUses: Number(status.remainingUses),
-      expiresAtMs: projection.expiresAtMs,
-    },
-  };
 }
 
 function nearAccountBindingForIdentity(args: {
@@ -381,11 +342,6 @@ type CanonicalEcdsaSigningLaneIdentity = {
         };
       };
   auth: CanonicalSigningLaneAuthBinding;
-  authorization: {
-    walletSessionId: string;
-    quotaId: string;
-    authorityDigest: string;
-  };
 };
 
 function canonicalChainTarget(target: ThresholdEcdsaChainTarget): Extract<
@@ -467,11 +423,6 @@ function canonicalExactSigningLaneIdentity(identity: ExactSigningLaneIdentity):
       kind: 'exact_signing_lane',
       signer: canonicalSigner(identity.signer),
       auth: canonicalAuthBinding(identity.auth),
-      authorization: {
-        walletSessionId: String(identity.authorization.projection.walletSessionId),
-        quotaId: String(identity.authorization.projection.quotaId),
-        authorityDigest: String(identity.authorization.projection.authority.authorityDigest),
-      },
     };
   }
   return {
@@ -519,7 +470,6 @@ export function exactEcdsaSigningLaneIdentity(
     kind: 'exact_signing_lane',
     signer: lane.signer,
     auth: lane.auth,
-    authorization: lane.authorization,
   };
 }
 
@@ -539,13 +489,9 @@ export function exactSigningLaneIdentity(
         thresholdSessionId: lane.thresholdSessionId,
       });
     case 'evm_family_ecdsa_signer':
-      if (!('authorization' in lane)) {
-        throw new Error('[SigningSession] ECDSA exact lane requires Wallet Session authorization');
-      }
       return exactEcdsaSigningLaneIdentity({
         signer,
         auth: lane.auth,
-        authorization: lane.authorization,
       });
     default:
       return assertNeverExactLane(signer);
@@ -603,6 +549,7 @@ export function parseExactSigningLaneIdentity(value: unknown): ExactSigningLaneI
       'accountId',
       'subjectId',
       'authMethod',
+      'authorization',
     ],
     'nested',
   );
@@ -623,7 +570,6 @@ export function parseExactSigningLaneIdentity(value: unknown): ExactSigningLaneI
       return exactEcdsaSigningLaneIdentity({
         signer: parseEvmFamilyEcdsaSignerBinding(signerRecord),
         auth,
-        authorization: parseActiveEvmFamilyWalletSessionAuthorization(lane.authorization),
       });
     default:
       throw new Error('[SigningSession] exact signing lane signer kind is unsupported');
@@ -729,41 +675,6 @@ export function evmFamilyProtocolProjectionFromExactLane(
     chainTarget: signer.chainTarget,
     keyHandle: signer.keyHandle,
     key: signer.key,
-  };
-}
-
-export function displaySummaryFromExactLane(identity: ExactSigningLaneIdentity): {
-  walletId: WalletId;
-  curve: ExactSigningLaneCurve;
-  signerKind: ExactSigningLaneIdentity['signer']['kind'];
-} & (
-  | {
-      curve: 'ed25519';
-      signingGrantId: SigningGrantId;
-      thresholdSessionId: ThresholdSessionId;
-      walletSessionId?: never;
-    }
-  | {
-      curve: 'ecdsa';
-      walletSessionId: ActiveEvmFamilyWalletSessionAuthorization['projection']['walletSessionId'];
-      signingGrantId?: never;
-      thresholdSessionId?: never;
-    }
-) {
-  if (isExactEcdsaSigningLaneIdentity(identity)) {
-    return {
-      walletId: exactSigningLaneWalletId(identity),
-      curve: 'ecdsa',
-      walletSessionId: identity.authorization.projection.walletSessionId,
-      signerKind: identity.signer.kind,
-    };
-  }
-  return {
-    walletId: exactSigningLaneWalletId(identity),
-    curve: 'ed25519',
-    signingGrantId: identity.signingGrantId,
-    thresholdSessionId: identity.thresholdSessionId,
-    signerKind: identity.signer.kind,
   };
 }
 

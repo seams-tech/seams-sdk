@@ -51,7 +51,6 @@ import type {
 } from '../identity/exactSigningLaneIdentity';
 
 import {
-  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
 } from '../routerAbSigningWalletSession';
 
@@ -735,7 +734,7 @@ export type EnsureWarmEcdsaProvisionPlanReadyArgs =
       plan: Extract<
         EcdsaSessionProvisionPlan,
         {
-          kind: 'wallet_session_ecdsa_reconnect' | 'passkey_ecdsa_session_provision';
+          kind: 'passkey_ecdsa_session_provision';
         }
       >;
       capability: WarmSessionEcdsaCapabilityState;
@@ -812,13 +811,17 @@ export type WarmSessionCapabilityReader = {
     thresholdSessionId: string,
   ) => Promise<WarmSessionEd25519CapabilityState | null>;
   getEcdsaCapabilityForLane: (
-    lane: ExactEcdsaSigningLaneIdentity,
+    args: {
+      lane: ExactEcdsaSigningLaneIdentity;
+      authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    },
   ) => Promise<WarmSessionEcdsaCapabilityState | null>;
   // Lane-qualified, and async because canonical resolution reads persistence.
   // There is deliberately no threshold-session-id entry point: that id indexes
   // runtime state and must never select material.
   resolveEcdsaSealTransportForLane: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
+    authorization: ActiveEvmFamilyWalletSessionAuthorization;
   }) => Promise<ThresholdSessionSealTransportAuthMaterial | null>;
 };
 

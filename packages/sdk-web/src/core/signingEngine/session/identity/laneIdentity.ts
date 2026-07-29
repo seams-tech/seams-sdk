@@ -426,7 +426,6 @@ export function selectedEcdsaLane(input: SelectedEcdsaLaneInput): SelectedEcdsaL
       materialActivation: input.materialActivation,
     }),
     auth: input.auth,
-    authorization: input.authorization,
   });
   return {
     kind: 'selected_lane',
@@ -497,8 +496,17 @@ type BaseEcdsaLaneCandidate = CommonLaneCandidate & {
   resolvedKey?: ResolvedEvmFamilyEcdsaKey;
   keyHandle: EvmFamilyEcdsaKeyHandle;
   chainTarget: ThresholdEcdsaChainTarget;
-  authorization: ActiveEvmFamilyWalletSessionAuthorization;
-};
+} & (
+  | {
+      authorizationState: 'authorized';
+      authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    }
+  | {
+      authorizationState: 'authorization_required';
+      authorization?: never;
+      state: 'deferred';
+    }
+);
 
 export type EcdsaLaneCandidate =
   | (BaseEcdsaLaneCandidate & {
@@ -509,6 +517,16 @@ export type EcdsaLaneCandidate =
       source: Exclude<LaneCandidateSource, 'evm_family_shared_key'>;
       sourceChainTarget?: never;
     });
+
+export type AuthorizedEcdsaLaneCandidate = Extract<
+  EcdsaLaneCandidate,
+  { authorizationState: 'authorized' }
+>;
+
+export type AuthorizationRequiredEcdsaLaneCandidate = Extract<
+  EcdsaLaneCandidate,
+  { authorizationState: 'authorization_required' }
+>;
 
 export type LaneCandidate = Ed25519LaneCandidate | EcdsaLaneCandidate;
 

@@ -22,7 +22,7 @@ import {
 } from './postRegistrationSessionActivation';
 import { bytesToHex } from '../../chains/evm/bytes';
 import { secureRandomId } from '@shared/utils/secureRandomId';
-import type { PersistedEcdsaRoleLocalMaterial } from '../../session/persistence/records';
+import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecdsaRoleLocalMaterialResolver';
 import { computeEcdsaDerivationRoleLocalRelayerKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type {
   MpcWalletSigningQuotaId,

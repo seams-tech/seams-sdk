@@ -8,6 +8,7 @@ import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from './ecdsaSigningCapability';
 import {
   requireAuthoritativeExpiredWalletSessionAuthorizationBoundary,
   type ExpiredWalletSessionAuthorizationState,
@@ -29,6 +30,7 @@ export type EvmFamilyWalletSessionExpiryCandidate =
   | {
       readonly kind: 'exact_ecdsa_lane';
       readonly identity: ExactEcdsaSigningLaneIdentity;
+      readonly authorization: ActiveEvmFamilyWalletSessionAuthorization;
       readonly expiresAtMs: unknown;
     }
   | {
@@ -57,7 +59,11 @@ export function resolveEvmFamilyWalletSessionExpiryContext(args: {
   return {
     kind: 'authoritative_expiry',
     state: requireAuthoritativeExpiredWalletSessionAuthorizationBoundary({
-      identity: args.candidate.identity,
+      source: {
+        kind: 'ecdsa',
+        laneIdentity: args.candidate.identity,
+        authorization: args.candidate.authorization,
+      },
       expiresAtMs: args.candidate.expiresAtMs,
       detectedAtMs: args.detectedAtMs,
     }),

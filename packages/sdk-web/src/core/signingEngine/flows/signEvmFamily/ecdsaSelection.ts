@@ -9,7 +9,10 @@ import {
   type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
-import type { EcdsaLaneCandidate } from '../../session/identity/laneIdentity';
+import type {
+  AuthorizedEcdsaLaneCandidate,
+  EcdsaLaneCandidate,
+} from '../../session/identity/laneIdentity';
 import { laneCandidateAuthMethod } from '../../session/identity/laneIdentity';
 import {
   buildEvmTransactionSigningLane,
@@ -323,7 +326,7 @@ function emailOtpReauthRequiredSelection(
 }
 
 export function resolvedEvmFamilyEcdsaSigningLaneFromCandidate(
-  candidate: EcdsaLaneCandidate,
+  candidate: AuthorizedEcdsaLaneCandidate,
 ): ResolvedEvmFamilyEcdsaSigningLane {
   const buildLane =
     candidate.chainTarget.kind === 'tempo'
@@ -359,7 +362,7 @@ export function resolvedEvmFamilyEcdsaSigningLaneFromCandidate(
 }
 
 function emailOtpAuthorityLaneFromCandidate(args: {
-  candidate: EcdsaLaneCandidate;
+  candidate: AuthorizedEcdsaLaneCandidate;
   selectedLane: ResolvedEvmFamilyEcdsaSigningLane;
 }): ResolvedEvmFamilyEcdsaSigningLane {
   if (args.candidate.source !== 'evm_family_shared_key') return args.selectedLane;
@@ -371,7 +374,7 @@ function emailOtpAuthorityLaneFromCandidate(args: {
 }
 
 function laneCandidateDiagnosticsBase(
-  candidate: EcdsaLaneCandidate,
+  candidate: AuthorizedEcdsaLaneCandidate,
 ): EcdsaSelectionLaneCandidateDiagnosticsBase {
   return {
     authMethod: ecdsaLaneCandidateAuthMethod(candidate),
@@ -386,7 +389,7 @@ function laneCandidateDiagnosticsBase(
 }
 
 function summarizeLaneCandidate(
-  candidate: EcdsaLaneCandidate,
+  candidate: AuthorizedEcdsaLaneCandidate,
 ): EcdsaSelectionDiagnostics['selectedLaneCandidate'] {
   const base = laneCandidateDiagnosticsBase(candidate);
   switch (candidate.source) {
@@ -410,26 +413,6 @@ function summarizeLaneCandidate(
 // Canonical candidate facts for an already-resolved lane. The lane identity
 // carries the exact signer binding and active authorization, so no record is
 // consulted; this replaces every record-derived candidate construction.
-function ecdsaLaneCandidateFromResolvedLane(
-  lane: ResolvedEvmFamilyEcdsaSigningLane,
-): EcdsaLaneCandidate {
-  const signer = requireEvmFamilyEcdsaSignerForSelection(lane, 'ECDSA lane candidate');
-  return {
-    kind: 'lane_candidate',
-    walletId: signer.walletId,
-    key: signer.key,
-    materialActivation: signer.materialActivation,
-    keyHandle: signer.keyHandle,
-    auth: lane.auth,
-    authorization: lane.authorization,
-    curve: 'ecdsa',
-    chain: lane.chainFamily,
-    state: 'ready',
-    source: 'canonical_capability',
-    chainTarget: signer.chainTarget,
-  };
-}
-
 function requireEvmFamilyEcdsaSignerForSelection(
   lane: ResolvedEvmFamilyEcdsaSigningLane,
   context: string,
@@ -487,7 +470,7 @@ export type EcdsaPublicReauthLane<A extends WalletAuthAuthority = WalletAuthAuth
 export type EmailOtpEcdsaPublicReauthLane = EcdsaPublicReauthLane<EmailOtpWalletAuthAuthority>;
 export type PasskeyEcdsaPublicReauthLane = EcdsaPublicReauthLane<PasskeyWalletAuthAuthority>;
 
-type PasskeyEcdsaLaneCandidate = EcdsaLaneCandidate & {
+type PasskeyEcdsaLaneCandidate = AuthorizedEcdsaLaneCandidate & {
   auth: Extract<EcdsaLaneCandidate['auth'], { kind: 'passkey' }>;
 };
 
@@ -517,7 +500,7 @@ function readyPasskeyEcdsaCommittedLane(args: {
 }
 
 function requirePasskeyEcdsaLaneCandidate(
-  candidate: EcdsaLaneCandidate,
+  candidate: AuthorizedEcdsaLaneCandidate,
 ): PasskeyEcdsaLaneCandidate {
   if (candidate.auth.kind !== 'passkey') {
     throw new Error('[SigningEngine][ecdsa] passkey committed lane requires passkey candidate');
@@ -537,7 +520,7 @@ function requirePasskeyEcdsaLaneCandidate(
 function assertEcdsaCommittedLaneAuthorityMatchesWallet(args: {
   authority: WalletAuthAuthority;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  candidate: EcdsaLaneCandidate;
+  candidate: AuthorizedEcdsaLaneCandidate;
   context: string;
 }): void {
   const authorityWalletId = String(args.authority.walletId);
@@ -553,7 +536,7 @@ function assertEcdsaCommittedLaneAuthorityMatchesWallet(args: {
 }
 
 function buildEcdsaSelectionDiagnostics(args: {
-  candidate: EcdsaLaneCandidate;
+  candidate: AuthorizedEcdsaLaneCandidate;
 }): EcdsaSelectionDiagnostics {
   return { selectedLaneCandidate: summarizeLaneCandidate(args.candidate) };
 }
@@ -572,7 +555,7 @@ function selectAuthMethodForWalletAuth(args: {
 
 function commitPasskeyEcdsaLaneForSelection(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  candidate: EcdsaLaneCandidate;
+  candidate: AuthorizedEcdsaLaneCandidate;
 }): PasskeyEcdsaCommittedLane {
   const candidate = requirePasskeyEcdsaLaneCandidate(args.candidate);
   const authority = buildPasskeyWalletAuthAuthority({
@@ -596,7 +579,7 @@ function commitPasskeyEcdsaLaneForSelection(args: {
 async function resolveEmailOtpAuthorityForSelection(args: {
   deps: EvmFamilyEcdsaSigningSelectionDeps;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  candidate: EcdsaLaneCandidate;
+  candidate: AuthorizedEcdsaLaneCandidate;
 }): Promise<EmailOtpSelectionAuthority | null> {
   const exactLane = exactEcdsaSigningLaneIdentityFromSelectedLane(args.lane);
   const laneAuthority = await args.deps.resolveDurableEmailOtpEcdsaSigningSessionAuthority({
@@ -619,7 +602,7 @@ async function resolveEmailOtpAuthorityForSelection(args: {
 function requireEmailOtpSelectionAuthority(args: {
   authority: EmailOtpSelectionAuthority | null;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  candidate: EcdsaLaneCandidate;
+  candidate: AuthorizedEcdsaLaneCandidate;
 }): EmailOtpSelectionAuthority {
   if (args.authority) return args.authority;
   logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA signing-session authority missing', {
@@ -632,7 +615,7 @@ function requireEmailOtpSelectionAuthority(args: {
 function requireEmailOtpEcdsaSigningSessionAuthLane(args: {
   authority: EmailOtpSelectionAuthority;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  candidate: EcdsaLaneCandidate;
+  candidate: AuthorizedEcdsaLaneCandidate;
 }): Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }> {
   const authLane = args.authority.laneAuthority.authLane;
   if (
@@ -654,7 +637,7 @@ function requireEmailOtpEcdsaSigningSessionAuthLane(args: {
 function requireEmailOtpCommittedLaneForReady(args: {
   committedLane: EmailOtpEcdsaCommittedLane | null;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  candidate: EcdsaLaneCandidate;
+  candidate: AuthorizedEcdsaLaneCandidate;
 }): EmailOtpEcdsaCommittedLane {
   if (args.committedLane) return args.committedLane;
   logEvmFamilyEcdsaLaneDiagnostic('Email OTP ECDSA committed lane missing for ready signing', {
@@ -667,7 +650,7 @@ function requireEmailOtpCommittedLaneForReady(args: {
 function requirePasskeyCommittedLaneForReady(args: {
   committedLane: PasskeyEcdsaCommittedLane | null;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  candidate: EcdsaLaneCandidate;
+  candidate: AuthorizedEcdsaLaneCandidate;
 }): PasskeyEcdsaCommittedLane {
   if (args.committedLane) return args.committedLane;
   logEvmFamilyEcdsaLaneDiagnostic('passkey ECDSA committed lane missing for ready signing', {
@@ -680,7 +663,7 @@ function requirePasskeyCommittedLaneForReady(args: {
 function commitEmailOtpEcdsaLaneForSelection(args: {
   authority: EmailOtpSelectionAuthority;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  candidate: EcdsaLaneCandidate;
+  candidate: AuthorizedEcdsaLaneCandidate;
 }): EmailOtpEcdsaCommittedLane {
   const authLane = requireEmailOtpEcdsaSigningSessionAuthLane({
     authority: args.authority,
@@ -727,7 +710,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
-  laneCandidate: EcdsaLaneCandidate;
+  laneCandidate: AuthorizedEcdsaLaneCandidate;
   reauth: EcdsaSelectionReauthInput;
 }): Promise<EvmFamilyEcdsaSigningSelectionResult> {
   const lane = resolvedEvmFamilyEcdsaSigningLaneFromCandidate(args.laneCandidate);

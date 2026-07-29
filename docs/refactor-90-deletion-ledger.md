@@ -36,18 +36,18 @@ family. Unit 3a deletes the remaining authorization/session/quota record types,
 public APIs, runtime maps, and fixtures after Unit 2 supplies their narrow
 replacement.
 
-- `ThresholdEcdsaSessionRecordCore`
-- `NormalizedThresholdEcdsaSessionRecordShared`
-- `NormalizedThresholdEcdsaSessionRecord`
-- `ThresholdEcdsaSessionRecord`
-- `ReadyPasskeyEcdsaSessionRecord`
-- `EmailOtpEcdsaSessionRecord`
-- `OperationUsableThresholdEcdsaSessionRecord`
-- `buildOperationUsableThresholdEcdsaSessionRecord`
-- `PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY`, Passkey material ranking, and
-  newest-record selection
-- `recordsByLane` and module-level record maps as persistence or selection
-  authority (a runtime registry may keep manifest-keyed hot observations)
+- ~~`ThresholdEcdsaSessionRecordCore`~~
+- ~~`NormalizedThresholdEcdsaSessionRecordShared`~~
+- ~~`NormalizedThresholdEcdsaSessionRecord`~~
+- ~~`ThresholdEcdsaSessionRecord`~~
+- ~~`ReadyPasskeyEcdsaSessionRecord`~~
+- ~~`EmailOtpEcdsaSessionRecord`~~
+- ~~`OperationUsableThresholdEcdsaSessionRecord`~~
+- ~~`buildOperationUsableThresholdEcdsaSessionRecord`~~
+- ~~`PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY`, Passkey material ranking, and
+  newest-record selection~~
+- ~~`recordsByLane` and module-level record maps as persistence or selection
+  authority~~ (manifest-keyed hot observations remain independent)
 - ECDSA `restorable` as a core lifecycle label (use the hydration outcomes)
 - authority/lifecycle inference from `source`, provider identity, optional
   field presence, record timestamps, or diagnostics
@@ -432,6 +432,18 @@ Deleting the type ahead of those cutovers breaks all 54 files at once with no
 intermediate green state. The entry-point cutover must land first; the
 reference count then collapses and the deletion becomes mechanical with zero
 production references reachable.
+
+### 6e completion
+
+The canonical entry-point cutovers removed the final live consumers. The
+production composite family, its public APIs, stores, parsers, readers,
+writers, reconnect paths, and identity adapters are now deleted. A direct scan
+of `packages/sdk-web/src` returns zero matches for
+`ThresholdEcdsaSessionRecord*` and `ThresholdEcdsaStoredCapabilityRecord`;
+SDK-web type-checks cleanly. Composite-record builders, stores, imports, and
+mocks are also removed from the test tree; retained Email OTP coordinator
+coverage now enters through canonical manifest, authorization, and sealed-runtime
+fixtures.
 
 ### Prerequisite discovered while opening 4a: the unit suite collects nothing
 

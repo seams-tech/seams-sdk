@@ -7,6 +7,10 @@ import { buildEd25519PasskeySigningLane } from '@/core/signingEngine/session/ope
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { toAccountId } from '@/core/types/accountIds';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import {
+  parseWalletSessionId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import { seedExpiredWalletSessionAuthorizationState } from './helpers/sealedSigningSession.fixtures';
 
 const WALLET_ID = toWalletId('refactor-92-invalidation-wallet');
@@ -37,26 +41,31 @@ const EXPIRED_STATE = seedExpiredWalletSessionAuthorizationState({
   detectedAtMs: 1_001,
 });
 
+function fixtureWalletSessionId(value: string): WalletSessionId {
+  const parsed = parseWalletSessionId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+const WALLET_SESSION_ID = fixtureWalletSessionId('refactor-92-invalidation-wallet-session');
+
 async function clearVolatileWarmSessionMaterial(): Promise<void> {}
 
 async function clearEmailOtpWarmSessionMaterial(): Promise<void> {}
-
-function clearThresholdEcdsaSessionRecordForExactIdentity(): void {}
 
 test('Refactor 92 invalidation emits once for concurrent observations of one session', async () => {
   const invalidator = new ClientWalletSessionExpiryInvalidator({
     readiness: {
       touchConfirm: { clearVolatileWarmSessionMaterial },
       clearEmailOtpWarmSessionMaterial,
-      clearThresholdEcdsaSessionRecordForExactIdentity,
     },
     statusOverrides: new Map(),
   });
 
   const results = await Promise.all([
-    invalidator.invalidate(EXPIRED_STATE),
-    invalidator.invalidate(EXPIRED_STATE),
-    invalidator.invalidate(EXPIRED_STATE),
+    invalidator.invalidate({ state: EXPIRED_STATE, walletSessionId: WALLET_SESSION_ID }),
+    invalidator.invalidate({ state: EXPIRED_STATE, walletSessionId: WALLET_SESSION_ID }),
+    invalidator.invalidate({ state: EXPIRED_STATE, walletSessionId: WALLET_SESSION_ID }),
   ]);
 
   expect(results.filter((result) => result.kind === 'invalidated')).toHaveLength(1);
@@ -66,7 +75,7 @@ test('Refactor 92 invalidation emits once for concurrent observations of one ses
     event: {
       kind: 'wallet_session_expired',
       walletId: WALLET_ID,
-      walletSessionId: LANE.signingGrantId,
+      walletSessionId: WALLET_SESSION_ID,
       authMethod: SIGNER_AUTH_METHODS.passkey,
       expiresAtMs: 1_000,
       detectedAtMs: 1_001,

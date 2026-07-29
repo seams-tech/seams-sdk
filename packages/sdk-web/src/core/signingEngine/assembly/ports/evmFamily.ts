@@ -36,6 +36,7 @@ export function createEvmFamilySigningDeps(args: {
 }): EvmFamilySigningDeps {
   const { createArgs, signingSessionCoordinator, getEmailOtpWarmSessionStatus } = args;
   return {
+    resolveCanonicalEcdsaSigningCapability: createArgs.resolveCanonicalEcdsaSigningCapability,
     resolveAuthorizedEcdsaSigningCapability: createArgs.resolveAuthorizedEcdsaSigningCapability,
     ...(createArgs.resolveActiveEcdsaWalletSessionAuthorization
       ? {

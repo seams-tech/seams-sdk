@@ -203,6 +203,7 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
     key,
     materialActivation: buildMpcMaterialActivationRefFixture(
       `available-lane:${args.thresholdSessionId}`,
+      AVAILABLE_LANES_WALLET_ID,
     ),
     routerAbEcdsaDerivationNormalSigning: runtimeEcdsaRouterAbNormalSigningState({
       key,
@@ -220,11 +221,14 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
     }),
     curve: 'ecdsa',
     chainTarget: args.chainTarget,
-    authorization: availableLaneEcdsaAuthorization({
-      thresholdSessionId: args.thresholdSessionId,
-      remainingUses: args.remainingUses ?? 3,
-      expiresAtMs: args.expiresAtMs ?? AVAILABLE_LANES_EXPIRES_AT_MS,
-    }),
+    authorizationState: {
+      kind: 'authorized',
+      authorization: availableLaneEcdsaAuthorization({
+        thresholdSessionId: args.thresholdSessionId,
+        remainingUses: args.remainingUses ?? 3,
+        expiresAtMs: args.expiresAtMs ?? AVAILABLE_LANES_EXPIRES_AT_MS,
+      }),
+    },
     remainingUses: args.remainingUses ?? 3,
     expiresAtMs: args.expiresAtMs ?? AVAILABLE_LANES_EXPIRES_AT_MS,
     updatedAtMs: args.updatedAtMs ?? 700,
@@ -242,6 +246,32 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
           credentialIdB64u: AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID,
         },
       };
+}
+
+export function runtimeAuthorizationRequiredEcdsaAvailableLaneRecord(
+  args: Parameters<typeof runtimeEcdsaAvailableLaneRecord>[0],
+): AvailableSigningLanesRuntimeEcdsaRecord {
+  const authorized = runtimeEcdsaAvailableLaneRecord(args);
+  const base = {
+    key: authorized.key,
+    materialActivation: authorized.materialActivation,
+    verifiedPublicFacts: authorized.verifiedPublicFacts,
+    keyHandle: authorized.keyHandle,
+    curve: 'ecdsa' as const,
+    chainTarget: authorized.chainTarget,
+    authorizationState: { kind: 'authorization_required' as const },
+  };
+  if (authorized.auth.kind === 'email_otp') {
+    return {
+      ...base,
+      auth: authorized.auth,
+    };
+  }
+  return {
+    ...base,
+    auth: authorized.auth,
+    ...(authorized.resolvedKey ? { resolvedKey: authorized.resolvedKey } : {}),
+  };
 }
 
 export async function readAvailableLanesFixture(args: {
@@ -283,11 +313,15 @@ export async function readAvailableLanesFixture(args: {
         for (const record of records) {
           const advisoryKey = runtimeEcdsaRecordAdvisoryKey(record);
           if (!advisoryKey) continue;
+          if (record.authorizationState.kind !== 'authorized') {
+            advisories.set(advisoryKey, null);
+            continue;
+          }
           advisories.set(
             advisoryKey,
             args.warmEcdsaAdvisories?.get(advisoryKey) ||
               args.warmStatusAdvisories?.get(
-                String(record.authorization.projection.walletSessionId),
+                String(record.authorizationState.authorization.projection.walletSessionId),
               ) ||
               null,
           );

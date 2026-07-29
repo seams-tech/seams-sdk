@@ -49,13 +49,17 @@ test('Refactor 92 boundary parser classifies equality and elapsed time as expire
   for (const expiresAtMs of [NOW_MS - 1, NOW_MS]) {
     expect(
       parseWalletSessionAuthorizationBoundary({
-        observation: { kind: 'found', identity: LANE.identity, expiresAtMs },
+        observation: {
+          kind: 'found',
+          source: { kind: 'ed25519', laneIdentity: LANE.identity },
+          expiresAtMs,
+        },
         nowMs: NOW_MS,
       }),
     ).toEqual({
       kind: 'expired',
       walletId: LANE.identity.signer.account.wallet.walletId,
-      walletSessionId: LANE.signingGrantId,
+      signingGrantId: LANE.signingGrantId,
       authMethod: 'passkey',
       laneIdentity: LANE.identity,
       expiresAtMs,
@@ -66,7 +70,11 @@ test('Refactor 92 boundary parser classifies equality and elapsed time as expire
 
 test('Refactor 92 boundary parser admits only a future expiry as active', () => {
   const state = parseWalletSessionAuthorizationBoundary({
-    observation: { kind: 'found', identity: LANE.identity, expiresAtMs: NOW_MS + 1 },
+    observation: {
+      kind: 'found',
+      source: { kind: 'ed25519', laneIdentity: LANE.identity },
+      expiresAtMs: NOW_MS + 1,
+    },
     nowMs: NOW_MS,
   });
   if (state.kind !== 'active') throw new Error('Expected active authorization state');
@@ -76,7 +84,10 @@ test('Refactor 92 boundary parser admits only a future expiry as active', () => 
 test('Refactor 92 boundary parser keeps missing, unavailable, and invalid distinct', () => {
   expect(
     parseWalletSessionAuthorizationBoundary({
-      observation: { kind: 'missing', identity: LANE.identity },
+      observation: {
+        kind: 'missing',
+        source: { kind: 'ed25519', laneIdentity: LANE.identity },
+      },
       nowMs: NOW_MS,
     }).kind,
   ).toBe('missing');
@@ -84,7 +95,7 @@ test('Refactor 92 boundary parser keeps missing, unavailable, and invalid distin
     parseWalletSessionAuthorizationBoundary({
       observation: {
         kind: 'unavailable',
-        identity: LANE.identity,
+        source: { kind: 'ed25519', laneIdentity: LANE.identity },
         reason: 'server_unavailable',
       },
       nowMs: NOW_MS,
@@ -92,7 +103,11 @@ test('Refactor 92 boundary parser keeps missing, unavailable, and invalid distin
   ).toEqual(expect.objectContaining({ kind: 'unavailable', reason: 'server_unavailable' }));
   expect(
     parseWalletSessionAuthorizationBoundary({
-      observation: { kind: 'found', identity: LANE.identity, expiresAtMs: 'invalid' },
+      observation: {
+        kind: 'found',
+        source: { kind: 'ed25519', laneIdentity: LANE.identity },
+        expiresAtMs: 'invalid',
+      },
       nowMs: NOW_MS,
     }),
   ).toEqual(expect.objectContaining({ kind: 'invalid', reason: 'malformed' }));

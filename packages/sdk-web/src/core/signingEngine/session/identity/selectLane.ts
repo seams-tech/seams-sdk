@@ -18,6 +18,8 @@ import {
   selectedEd25519Lane,
   laneCandidateAuthMethod,
   type EcdsaLaneCandidate,
+  type AuthorizationRequiredEcdsaLaneCandidate,
+  type AuthorizedEcdsaLaneCandidate,
   type Ed25519LaneCandidate,
   type LaneCandidate,
   type SelectedEcdsaLane,
@@ -106,6 +108,28 @@ type EvmFamilyEcdsaTransactionCandidate = TransactionCandidatePair<
   EcdsaLaneCandidate,
   EvmFamilyEcdsaAvailableLane
 >;
+
+export type EvmFamilyEcdsaMaterialCandidate = TransactionCandidatePair<
+  EcdsaLaneCandidate,
+  EvmFamilyEcdsaAvailableLane
+>;
+
+export type EvmFamilyEcdsaMaterialSelectionResult =
+  | {
+      ok: true;
+      kind: 'authorized';
+      lane: SelectedEcdsaLane;
+      candidate: AuthorizedEcdsaLaneCandidate;
+      availableLane: EvmFamilyEcdsaAvailableLane;
+    }
+  | {
+      ok: true;
+      kind: 'authorization_required';
+      lane?: never;
+      candidate: AuthorizationRequiredEcdsaLaneCandidate;
+      availableLane: EvmFamilyEcdsaAvailableLane;
+    }
+  | { ok: false; failure: TransactionLaneSelectionFailure };
 
 export type ConcreteTransactionCandidate =
   | NearEd25519TransactionSelectableLane
@@ -358,6 +382,9 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
       thresholdSessionId: candidate.thresholdSessionId,
     });
   }
+  if (candidate.authorizationState !== 'authorized') {
+    throw new Error('[SigningSessionSelectLane] ECDSA lane requires active authorization');
+  }
   return selectedEcdsaLane({
     key: candidate.key,
     materialActivation: candidate.materialActivation,
@@ -370,14 +397,14 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
 }
 
 function allowedAuthMethods(
-  candidates: readonly ConcreteTransactionCandidate[],
+  candidates: readonly { candidate: LaneCandidate }[],
 ): SigningAuthMethod[] {
   return [
     ...new Set(candidates.map((candidate) => laneCandidateAuthMethod(candidate.candidate))),
   ].sort();
 }
 
-function selectOnlyConcreteTransactionCandidate<TCandidate extends ConcreteTransactionCandidate>(
+function selectOnlyConcreteTransactionCandidate<TCandidate extends { candidate: LaneCandidate }>(
   candidates: readonly TCandidate[],
 ): TCandidate | null {
   switch (candidates.length) {
@@ -449,8 +476,34 @@ function nearEd25519CandidateMatchesIntent(
 function selectEvmFamilyEcdsaTransactionLane(
   input: SelectTransactionLaneInput & { intent: EvmFamilyEcdsaTransactionSigningIntent },
 ): TransactionLaneSelectionResult {
+  const selected = selectEvmFamilyEcdsaMaterialCandidate(input);
+  if (!selected.ok) return selected;
+  if (selected.kind === 'authorization_required') {
+    return {
+      ok: false,
+      failure: {
+        kind: 'no_candidate',
+        authMethod: laneCandidateAuthMethod(selected.candidate),
+      },
+    };
+  }
+  return {
+    ok: true,
+    lane: selected.lane,
+    candidate: selected.candidate,
+    availableLane: selected.availableLane,
+    selectionCandidate: {
+      candidate: selected.candidate,
+      availableLane: selected.availableLane,
+    },
+  };
+}
+
+export function selectEvmFamilyEcdsaMaterialCandidate(
+  input: SelectTransactionLaneInput & { intent: EvmFamilyEcdsaTransactionSigningIntent },
+): EvmFamilyEcdsaMaterialSelectionResult {
   const intent = input.intent;
-  const concreteCandidates = input.availableLanes
+  const candidates: EvmFamilyEcdsaMaterialCandidate[] = input.availableLanes
     ? ecdsaAvailableLaneCandidatesForTarget(input.availableLanes, intent.chainTarget)
         .filter(isConcreteEvmFamilyEcdsaLane)
         .map((availableLane) => ({
@@ -460,19 +513,48 @@ function selectEvmFamilyEcdsaTransactionLane(
             lane: availableLane,
           }),
         }))
-        .filter((entry): entry is EvmFamilyEcdsaTransactionCandidate => entry.candidate !== null)
+        .filter((entry): entry is EvmFamilyEcdsaMaterialCandidate => entry.candidate !== null)
     : [];
-  return selectConcreteTransactionCandidate({
-    intent,
-    candidates: concreteCandidates,
-    buildLane: (entry) =>
-      selectedEvmFamilyLaneFromCandidate({ intent, candidate: entry.candidate }),
-  });
+  const allowed = transactionCandidatesAllowedByAuthPolicy(intent, candidates);
+  if (!allowed.length) {
+    return {
+      ok: false,
+      failure:
+        intent.authSelectionPolicy.kind === 'any'
+          ? { kind: 'no_candidate' }
+          : { kind: 'no_candidate', authMethod: intent.authSelectionPolicy.authMethod },
+    };
+  }
+  const selected = selectOnlyConcreteTransactionCandidate(allowed);
+  if (!selected) {
+    return {
+      ok: false,
+      failure: {
+        kind: 'ambiguous_material',
+        allowedAuthMethods: allowedAuthMethods(allowed),
+      },
+    };
+  }
+  if (selected.candidate.authorizationState === 'authorization_required') {
+    return {
+      ok: true,
+      kind: 'authorization_required',
+      candidate: selected.candidate,
+      availableLane: selected.availableLane,
+    };
+  }
+  return {
+    ok: true,
+    kind: 'authorized',
+    lane: selectedEvmFamilyLaneFromCandidate({ intent, candidate: selected.candidate }),
+    candidate: selected.candidate,
+    availableLane: selected.availableLane,
+  };
 }
 
 function selectedEvmFamilyLaneFromCandidate(args: {
   intent: EvmFamilyEcdsaTransactionSigningIntent;
-  candidate: EcdsaLaneCandidate;
+  candidate: AuthorizedEcdsaLaneCandidate;
 }): SelectedEcdsaLane {
   if (!thresholdEcdsaChainTargetsEqual(args.candidate.chainTarget, args.intent.chainTarget)) {
     throw new Error('[SigningSessionSelectLane] ECDSA available lane target mismatch');
@@ -480,7 +562,9 @@ function selectedEvmFamilyLaneFromCandidate(args: {
   return selectedLaneFromCandidate(args.candidate) as SelectedEcdsaLane;
 }
 
-function transactionCandidatesAllowedByAuthPolicy<TCandidate extends ConcreteTransactionCandidate>(
+function transactionCandidatesAllowedByAuthPolicy<
+  TCandidate extends { candidate: LaneCandidate },
+>(
   intent: TransactionSigningIntent,
   candidates: readonly TCandidate[],
 ): readonly TCandidate[] {

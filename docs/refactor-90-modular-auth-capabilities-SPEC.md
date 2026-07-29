@@ -8,6 +8,7 @@ ECDSA state and persistence convergence: July 18, 2026
 Authorization and material identity separation: July 23, 2026
 Refactor 92 lifecycle reconciliation: July 23, 2026
 Refactor 93 Yao execution reconciliation: July 26, 2026
+Refactor 94C durable-owner reconciliation: July 28, 2026
 
 Status: planning.
 
@@ -25,12 +26,15 @@ owns the implemented reusable Wallet Session behavior. Refactor 90 may replace
 the underlying authorization and material representations only while preserving
 that behavior under `R90-INV-014`.
 
-Execution dependency: [Refactor 93](./refactor-93.md) owns the current
-Cloudflare Near Yao ceremony boundary: request-scoped Gateway persistence, one
-operation-specific MPC Router command, pair-bound role-local execution state,
-and atomic SigningWorker delivery. Refactor 90 composes capability
-authorization and client material lifecycle around that boundary. It does not
-duplicate Router ceremony state or restore deleted direct orchestration.
+Execution dependency: [Refactor 93](./refactor-93.md) owns the pair-bound
+Router/Deriver protocol, role-local one-use execution, and exact result replay.
+[Refactor 94C](./refactor-94C-regression-fixes.md) owns final Cloudflare
+placement: Gateway D1 owns product ceremonies and activation results, Deriver
+A/B private D1 owns role custody and one-use state, SigningWorker private D1
+owns activated material, delivery, sessions, budgets, and presign consumption,
+and Router owns no mutable storage. Refactor 90 composes capability
+authorization and client material lifecycle around those boundaries. It does
+not duplicate durable effects or restore deleted direct orchestration.
 
 ## Normative Invariant Index
 
@@ -68,9 +72,11 @@ invariant.
   public affine lease-token lifecycle.
 - **R90-INV-009 — Exact operation claim.** The stable operation fingerprint
   excludes rotating authorization, quota, session, and runtime identities. One
-  absent-claim transaction consumes the exact grant and applicable quota and
-  creates the claim and audit linkage. Operation descriptors and authorization
-  branches declare quota applicability. Warm signing through
+  absent-claim transaction at the durable effect owner validates the exact
+  logical grant or signed admitted policy, consumes the applicable quota, and
+  creates the claim and audit linkage. A standalone durable grant row is not
+  required. Operation descriptors and authorization branches declare quota
+  applicability. Warm signing through
   `reusable_wallet_session` consumes one wallet-quota use beside its grant.
   Signing through `operation_step_up` consumes only its one-operation grant.
   Key export declares no quota use in either branch. Quota exhaustion never
@@ -128,8 +134,9 @@ implementing commit SHA as the evidence.
   records once and expose only precise internal branches.
 - [ ] `R90-INV-002` — Near and ECDSA each have one durable material owner and one
   volatile runtime owner.
-- [ ] `R90-INV-003` — one type fixture excludes entry-point provenance from
-  resolver input; fourteen canonical-state cases cover both capabilities.
+- [x] `R90-INV-003` — one type fixture excludes entry-point provenance from
+  resolver input.
+- [ ] `R90-INV-003` — fourteen canonical-state cases cover both capabilities.
 - [x] `R90-INV-005` — ECDSA activation finalization atomically writes material,
   manifest, replacement retirement, and journal deletion.
 - [x] `R90-INV-006` — ECDSA journal types contain no runtime-publication,
@@ -2666,18 +2673,18 @@ promotion are independently idempotent and queryable by `recoveryId`
 reload reconciles it and cannot silently execute the abandoned parent operation
 (R90-INV-007).
 
-For Near, Refactor 93 implements those server effects without adding another
-client journal or ceremony-wide Router ledger. Request-scoped Gateway state
-maps `recoveryId` to the exact admitted ceremony. Acquisition submits one
-operation-specific MPC Router command; exact replay resolves through the
-canonical ceremony identity, input-pair digest, and role-local
-`Prepared | Running | Completed | Burned` state without repeating
-cryptographic evaluation. Promotion remains the separate client-verified
-recovery-promotion boundary. The Refactor 90 capability module consumes these
-typed receipts and never schedules Deriver A/B or SigningWorker directly. The
-request-scoped Gateway commits the exact operation grant and applicable quota
-claim before Router execution; the admitted authorization digest remains bound
-into Refactor 93's canonical input-pair digest, and exact replay spends neither
+For Near, the Refactor 93 pair-bound protocol and Refactor 94C owner map
+implement those server effects without another client journal or a mutable
+Router ledger. The owning Gateway or role operation row maps `recoveryId` to
+the exact admitted effect. Acquisition submits one operation-specific MPC
+Router command; exact replay resolves through the canonical ceremony identity,
+input-pair digest, and role-local `Prepared | Running | Completed | Burned`
+state without repeating cryptographic evaluation. Promotion remains the
+separate client-verified recovery-promotion boundary. The Refactor 90
+capability module consumes these typed receipts and never schedules Deriver
+A/B or SigningWorker directly. Ordinary-signing claims and applicable budgets
+commit in SigningWorker private D1 before execution; the admitted-policy and
+operation digests remain bound into exact replay, which spends neither
 resource again.
 
 After promotion, one IndexedDB transaction persists the replacement seal or
@@ -4600,9 +4607,10 @@ Signing-lane, sealed-session, recovery, export, and admission records reference
 authority from provider subjects or credential fields.
 
 The ECDSA server adapter owns registered capability authority and the current
-server generation. D1 and DO may divide durable registration facts from
-threshold-session coordination internally, but their verified activation receipt
-is one boundary result with this logical identity:
+server generation. Under Refactor 94C, Gateway D1 owns the product activation
+row and SigningWorker private D1 owns activated material and session effects;
+their correlation produces one verified activation boundary result with this
+logical identity:
 
 ```text
 mpc_ecdsa_capability_generations(

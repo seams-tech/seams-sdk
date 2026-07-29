@@ -39,6 +39,14 @@ export type AuthorizedEvmFamilyEcdsaSigningCapability = {
   readonly authorization: ActiveEvmFamilyWalletSessionAuthorization;
 };
 
+export type EvmFamilyEcdsaSigningCapabilityAvailability =
+  | AuthorizedEvmFamilyEcdsaSigningCapability
+  | {
+      readonly kind: 'authorization_required';
+      readonly capability: CanonicalEvmFamilyEcdsaSigningCapability;
+      readonly authorization?: never;
+    };
+
 export function authorizeEvmFamilyEcdsaSigningCapability(input: {
   readonly capability: CanonicalEvmFamilyEcdsaSigningCapability;
   readonly authorization: ActiveEvmFamilyWalletSessionAuthorization;

@@ -4,6 +4,7 @@ import type {
   ActiveReusableWalletSession,
   ActiveWalletSessionQuota,
   AuthorizationAuditEvent,
+  CapabilityGrantUse,
   CapabilityOperationClaim,
   CapabilityOperationResultRef,
   ClaimCapabilityOperationResult,
@@ -62,7 +63,11 @@ import type {
   ParseGrantEvidenceRequirementResult,
 } from './capabilityPolicy';
 import type { GrantEvidenceRequirement } from '@shared/authorization/capabilityKinds';
-import { buildCapabilityOperationEnvelope } from '@shared/authorization/operationFingerprint';
+import {
+  buildCapabilityOperationEnvelope,
+  computeCapabilityOperationFingerprintDigest,
+  type CapabilityOperationEnvelope,
+} from '@shared/authorization/operationFingerprint';
 import type { WalletId } from '@shared/utils/domainIds';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
@@ -131,6 +136,10 @@ export interface AuthorizationGrantPort {
 }
 
 export interface AuthorizationClaimPort {
+  readOperationUse(input: {
+    readonly tenantId: TenantId;
+    readonly operationFingerprintDigest: CapabilityOperationClaim['operationFingerprintDigest'];
+  }): Promise<CapabilityGrantUse | null>;
   claimOperation(claim: CapabilityOperationClaim): Promise<ClaimCapabilityOperationResult>;
   completeOperation(input: {
     readonly claim: CapabilityOperationClaim;
@@ -378,6 +387,9 @@ export class AuthorizationService {
   async claimOperationStepUpFromGrant(
     input: OperationStepUpClaimInput,
   ): Promise<ClaimCapabilityOperationResult> {
+    const operation = operationEnvelopeFromClaimInput(input);
+    const existing = await this.lookupOperationClaim(operation);
+    if (existing) return existing;
     const session = await this.ports.sessions.readActiveSession({
       tenantId: input.tenantId,
       sessionId: input.authorizationSessionId,
@@ -393,18 +405,6 @@ export class AuthorizationService {
     if (!grant || !operationStepUpGrantMatches(grant, input)) {
       return { kind: 'grant_mismatch' };
     }
-    const operation = buildCapabilityOperationEnvelope({
-      tenantId: input.tenantId,
-      principalId: input.principalId,
-      capabilityId: input.capabilityId,
-      operationId: input.operationId,
-      operation: input.operation,
-      digests: {
-        laneDigest: input.laneDigest,
-        intentDigest: input.intentDigest,
-        displayDigest: input.displayDigest,
-      },
-    });
     const claim = await buildCapabilityOperationClaim({
       tenantId: input.tenantId,
       useId: input.useId,
@@ -427,6 +427,9 @@ export class AuthorizationService {
   async claimReusableWalletSessionOperation(
     input: ReusableWalletSessionClaimInput,
   ): Promise<ReusableWalletSessionClaimOutcome> {
+    const operation = operationEnvelopeFromClaimInput(input);
+    const existing = await this.lookupOperationClaim(operation);
+    if (existing) return { claim: null, result: existing };
     const grant = await this.ports.grants.readGrantClaimSource({
       tenantId: input.tenantId,
       grantId: input.grantId,
@@ -434,18 +437,6 @@ export class AuthorizationService {
     if (!grant || !reusableWalletSessionGrantMatches(grant, input)) {
       return { claim: null, result: { kind: 'grant_mismatch' } };
     }
-    const operation = buildCapabilityOperationEnvelope({
-      tenantId: input.tenantId,
-      principalId: input.principalId,
-      capabilityId: input.capabilityId,
-      operationId: input.operationId,
-      operation: input.operation,
-      digests: {
-        laneDigest: input.laneDigest,
-        intentDigest: input.intentDigest,
-        displayDigest: input.displayDigest,
-      },
-    });
     const claim = await buildCapabilityOperationClaim({
       tenantId: input.tenantId,
       useId: input.useId,
@@ -468,6 +459,18 @@ export class AuthorizationService {
 
   async claimOperation(claim: CapabilityOperationClaim): Promise<ClaimCapabilityOperationResult> {
     return await this.ports.claims.claimOperation(claim);
+  }
+
+  async lookupOperationClaim(
+    operation: CapabilityOperationEnvelope,
+  ): Promise<ClaimCapabilityOperationResult | null> {
+    const operationFingerprintDigest = await computeCapabilityOperationFingerprintDigest(operation);
+    const use = await this.ports.claims.readOperationUse({
+      tenantId: operation.tenantId,
+      operationFingerprintDigest,
+    });
+    if (!use) return null;
+    return existingOperationClaimResult(use, operation);
   }
 
   async completeOperation(input: {
@@ -495,6 +498,45 @@ export class AuthorizationService {
     evidenceSet: VerifiedGrantEvidenceSet,
   ): GrantEvidenceRequirementEvaluation {
     return this.ports.policy.evaluateEvidenceRequirement(requirement, evidenceSet);
+  }
+}
+
+function operationEnvelopeFromClaimInput(
+  input: OperationStepUpClaimInput | ReusableWalletSessionClaimInput,
+): CapabilityOperationEnvelope {
+  return buildCapabilityOperationEnvelope({
+    tenantId: input.tenantId,
+    principalId: input.principalId,
+    capabilityId: input.capabilityId,
+    operationId: input.operationId,
+    operation: input.operation,
+    digests: {
+      laneDigest: input.laneDigest,
+      intentDigest: input.intentDigest,
+      displayDigest: input.displayDigest,
+    },
+  });
+}
+
+function existingOperationClaimResult(
+  use: CapabilityGrantUse,
+  operation: CapabilityOperationEnvelope,
+): ClaimCapabilityOperationResult {
+  if (
+    use.tenantId !== operation.tenantId ||
+    use.principalId !== operation.principalId ||
+    use.capabilityId !== operation.capabilityId ||
+    use.operationId !== operation.operationId ||
+    use.operation.capabilityKind !== operation.operation.capabilityKind ||
+    use.operation.operationKind !== operation.operation.operationKind
+  ) {
+    return { kind: 'grant_mismatch' };
+  }
+  switch (use.kind) {
+    case 'claimed':
+      return { kind: 'operation_in_progress', use };
+    case 'completed':
+      return { kind: 'replayed', use };
   }
 }
 

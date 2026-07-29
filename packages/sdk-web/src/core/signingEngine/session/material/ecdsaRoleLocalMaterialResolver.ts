@@ -96,7 +96,6 @@ export type LiveEcdsaRoleLocalMaterial = {
 };
 
 const liveMaterialsByExactIdentity = new Map<string, LiveEcdsaRoleLocalMaterial>();
-const runtimeValidatedMaterialKeys = new Set<string>();
 
 export function ecdsaRoleLocalActiveStateId(
   publicFacts: EcdsaRoleLocalPublicFacts,
@@ -343,17 +342,8 @@ export function forgetLiveEcdsaRoleLocalMaterial(
   }
 }
 
-export function markEcdsaRoleLocalRuntimeValidationKey(key: string): void {
-  runtimeValidatedMaterialKeys.add(key);
-}
-
-export function hasEcdsaRoleLocalRuntimeValidationKey(key: string): boolean {
-  return runtimeValidatedMaterialKeys.has(key);
-}
-
 export function clearEcdsaRoleLocalWorkerRuntimeState(): void {
   liveMaterialsByExactIdentity.clear();
-  runtimeValidatedMaterialKeys.clear();
 }
 
 export async function resolveEcdsaRoleLocalMaterial(input: {

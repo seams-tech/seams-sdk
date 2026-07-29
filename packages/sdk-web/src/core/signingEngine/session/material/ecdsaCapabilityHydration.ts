@@ -125,6 +125,7 @@ export type EcdsaCapabilityHydrationInput = {
   readonly lookup: EcdsaCapabilityHydrationLookup;
   readonly runtime: EcdsaCapabilityRuntimeObservation;
   readonly entryPoint?: never;
+  readonly provenance?: never;
 };
 
 export function resolveEcdsaCapabilityHydration(

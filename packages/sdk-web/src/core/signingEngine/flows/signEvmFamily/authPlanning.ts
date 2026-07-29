@@ -26,7 +26,10 @@ import {
   type EmailOtpEcdsaStepUpAuthority,
   type EvmFamilyEmailOtpTransactionSigningBridge,
 } from './emailOtpSigningSession';
-import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { CanonicalEvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
 import type {
@@ -222,6 +225,31 @@ export async function resolveEvmFamilyTransactionStepUp(
     signingAuthPlan: SigningAuthPlan;
     emailOtpAuthBridge?: EvmFamilyEmailOtpTransactionSigningBridge;
   }> {
+    if (args.ecdsaAuthorization === 'operation_step_up') {
+      if (isPasskeyWalletAuthAuthority(args.capability.authority)) {
+        return {
+          signingAuthPlan: {
+            kind: SigningAuthPlanKind.PasskeyReauth,
+            method: 'passkey',
+          },
+        };
+      }
+      if (isEmailOtpWalletAuthAuthority(args.capability.authority)) {
+        if (!emailOtpAuthBridge) {
+          throw new Error(
+            '[SigningEngine] Email OTP step-up authority is unavailable for the selected capability',
+          );
+        }
+        return {
+          signingAuthPlan: {
+            kind: SigningAuthPlanKind.EmailOtpReauth,
+            method: 'email_otp',
+          },
+          emailOtpAuthBridge,
+        };
+      }
+      args.capability.authority satisfies never;
+    }
     const linkedAuthMethods = Array.isArray(args.accountAuth.linkedAuthMethods)
       ? args.accountAuth.linkedAuthMethods
       : [];
@@ -242,14 +270,6 @@ export async function resolveEvmFamilyTransactionStepUp(
     }
     if (args.accountAuth.primaryAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
       if (!emailOtpAuthBridge) {
-        if (args.ecdsaAuthorization === 'operation_step_up') {
-          // The wallet's primary factor is Email OTP but the capability this
-          // operation selected is bound to a different one. Minting an OTP
-          // here would prove the wrong factor for this material.
-          throw new Error(
-            '[SigningEngine] Email OTP step-up authority does not match the selected capability',
-          );
-        }
         throw new Error('[SigningEngine] Email OTP transaction signing requires ECDSA lane state');
       }
       return {

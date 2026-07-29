@@ -19,11 +19,9 @@ import type {
 } from '../../session/availability/availableSigningLanes';
 import { isConcreteAvailableSigningLane } from '../../session/availability/availableSigningLanes';
 import {
-  deriveThresholdEcdsaRuntimeLaneKey,
   buildPersistedEcdsaRoleLocalMaterial,
-  requirePersistedEcdsaRoleLocalMaterial,
   type PersistedEcdsaRoleLocalMaterial,
-} from '../../session/persistence/records';
+} from '../../session/material/ecdsaRoleLocalMaterialResolver';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
@@ -42,6 +40,7 @@ import {
 } from '../../threshold/sessionPolicy';
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../signEvmFamily/ecdsaSigningCapability';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { buildEcdsaRoleLocalPublicFacts } from '@/core/platform';
 import { parseEcdsaRoleLocalPersistedMaterialRef } from '../../session/keyMaterialBrands';
@@ -86,6 +85,7 @@ export type ExactEcdsaExportSession =
 export type ExactEcdsaExportLane = {
   curve: 'ecdsa';
   laneIdentity: ExactEcdsaSigningLaneIdentity;
+  authorization: ActiveEvmFamilyWalletSessionAuthorization;
   key: EvmFamilyEcdsaKeyIdentity;
   publicFacts: VerifiedEcdsaPublicFacts;
   session: ExactEcdsaExportSession;
@@ -198,7 +198,7 @@ export function ecdsaExportOperationAuthorizationForLane(
   return {
     kind: 'reusable_wallet_session',
     walletSessionId: String(
-      exportLane.laneIdentity.authorization.projection.walletSessionId,
+      exportLane.authorization.projection.walletSessionId,
     ),
   };
 }
@@ -354,7 +354,7 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
     }
     const authority = resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime({
       runtime: resolution.runtime,
-      authorization: exportLane.laneIdentity.authorization.projection,
+      authorization: exportLane.authorization.projection,
     });
     if (authority.kind !== 'ready') {
       throw new Error(

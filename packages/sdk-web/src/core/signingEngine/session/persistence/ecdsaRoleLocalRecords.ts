@@ -13,7 +13,6 @@ import {
   toEcdsaDerivationThresholdKeyId,
   toEmailOtpAuthSubjectId,
 } from '../identity/emailOtpEcdsaDerivationIdentity';
-import { parseRawThresholdEcdsaSessionRecord, type ThresholdEcdsaSessionRecord } from './records';
 import type {
   CleanupMalformedEcdsaRoleLocalRecordInput,
   CredentialIdB64u,
@@ -23,7 +22,6 @@ import type {
   EcdsaRoleLocalRecordParseResult,
   EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
-  EcdsaRoleLocalSessionRecordState,
   LoadEcdsaRoleLocalReadyRecordInput,
 } from '@/core/platform/types';
 import type {
@@ -354,102 +352,6 @@ export function buildEcdsaRoleLocalReadyRecord(input: {
     publicFacts: parsePublicFacts(input.publicFacts),
     authMethod: input.authMethod,
   });
-}
-
-function thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
-  record: ThresholdEcdsaSessionRecord,
-): EcdsaRoleLocalReadyRecord {
-  if (!record.ecdsaRoleLocalReadyRecord) {
-    throw new Error('[platform][ecdsa-role-local] session record is missing role-local state');
-  }
-  return parseEcdsaRoleLocalReadyRecord(record.ecdsaRoleLocalReadyRecord);
-}
-
-export function readThresholdEcdsaSessionRecordRoleLocalReadyRecord(
-  record: ThresholdEcdsaSessionRecord,
-): EcdsaRoleLocalReadyRecord {
-  return thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
-}
-
-export function parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
-  input: unknown,
-): EcdsaRoleLocalReadyRecord {
-  return thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
-    parseRawThresholdEcdsaSessionRecord(input),
-  );
-}
-
-export function thresholdEcdsaRecordHasRoleLocalSigningMaterial(input: unknown): boolean {
-  const state = classifyThresholdEcdsaSessionRecordRoleLocalState({
-    record: input,
-    nowMs: Date.now(),
-  });
-  switch (state.kind) {
-    case 'ready_passkey_role_local_material_v1':
-    case 'ready_email_otp_role_local_material_v1':
-      return true;
-    case 'reauth_required_role_local_material_v1':
-    case 'cleanup_only_raw_role_local_record_v1':
-      return false;
-    default:
-      return assertNever(state);
-  }
-}
-
-export function classifyThresholdEcdsaSessionRecordRoleLocalState(args: {
-  record: unknown;
-  nowMs: number;
-}): EcdsaRoleLocalSessionRecordState {
-  let record: ThresholdEcdsaSessionRecord;
-  try {
-    record = parseRawThresholdEcdsaSessionRecord(args.record);
-  } catch (error) {
-    return {
-      kind: 'cleanup_only_raw_role_local_record_v1',
-      reason: 'malformed_record',
-      message:
-        error instanceof Error
-          ? error.message
-          : '[platform][ecdsa-role-local] malformed role-local record',
-    };
-  }
-
-  const authMethod = record.ecdsaRoleLocalAuthMethod;
-  const publicFacts = record.ecdsaRoleLocalPublicFacts;
-  const remainingUses = Math.floor(Number(record.remainingUses) || 0);
-  if (remainingUses <= 0) {
-    return {
-      kind: 'reauth_required_role_local_material_v1',
-      authMethod,
-      publicFacts,
-      reason: 'exhausted',
-    };
-  }
-  const expiresAtMs = Math.floor(Number(record.expiresAtMs) || 0);
-  if (expiresAtMs <= Math.floor(Number(args.nowMs) || 0)) {
-    return {
-      kind: 'reauth_required_role_local_material_v1',
-      authMethod,
-      publicFacts,
-      reason: 'expired',
-    };
-  }
-
-  if (authMethod.kind === 'passkey') {
-    return {
-      kind: 'ready_passkey_role_local_material_v1',
-      authMethod,
-      publicFacts,
-      materialActivation: record.materialActivation,
-    };
-  }
-
-  return {
-    kind: 'ready_email_otp_role_local_material_v1',
-    authMethod,
-    publicFacts,
-    materialActivation: record.materialActivation,
-  };
 }
 
 function cleanupInputFromLookup(args: {

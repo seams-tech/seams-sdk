@@ -22,6 +22,7 @@ import type {
   ExportEcdsaKeyWithPublicReauthAuthorizationArgs,
 } from '../../session/emailOtp/exportRecoveryRuntime';
 import type { PersistedAvailableSigningLanesDeps } from '../../session/availability/persistedAvailableSigningLanes';
+import type { EcdsaExportFlowDeps } from '../../flows/recovery/ecdsaExportFlow';
 
 export function createPrivateKeyExportRecoveryDeps(
   args: CreateSigningEnginePortsArgs,
@@ -41,6 +42,7 @@ export function createRecoveryPublicDeps(args: {
   seamsWebConfigs: CreateSigningEnginePortsArgs['seamsWebConfigs'];
   signerWorkerManager: CreateSigningEnginePortsArgs['signerWorkerManager'];
   getTheme: PrivateKeyExportRecoveryDeps['getTheme'];
+  withThresholdEcdsaSigningQueue: EcdsaExportFlowDeps['withThresholdEcdsaSigningQueue'];
   ecdsaSessions: RecoveryPublicEcdsaSessionStoreDeps;
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
   touchConfirm: UiConfirmRuntimeBridgePort;
@@ -93,8 +95,7 @@ export function createRecoveryPublicDeps(args: {
       readPersistedAvailableSigningLanesForTargets: (availableLanesArgs) =>
         readPersistedAvailableSigningLanesForTargets(
           {
-            listEcdsaSigningCapabilitiesForWallet:
-              args.listEcdsaSigningCapabilitiesForWallet,
+            listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
             statusReader: args.touchConfirm,
             getEmailOtpWarmSessionStatus,
             getWalletSigningBudgetStatus: args.getWalletSigningBudgetStatus,
@@ -122,6 +123,7 @@ export function createRecoveryPublicDeps(args: {
         args.provisionPasskeyEcdsaExplicitExportSession(request),
       resolvePasskeyEcdsaExportRouteAuth: args.resolvePasskeyEcdsaExportRouteAuth,
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
+      withThresholdEcdsaSigningQueue: args.withThresholdEcdsaSigningQueue,
     },
     ed25519Yao: {
       touchConfirm: args.touchConfirm,

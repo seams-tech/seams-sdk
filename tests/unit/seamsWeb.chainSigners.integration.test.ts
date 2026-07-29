@@ -433,7 +433,6 @@ test.describe('SeamsWeb chain signer modules', () => {
             getLastUser: async () => null,
             getUserBySignerSlot: async () => null,
             getWarmThresholdEd25519SessionStatus: async () => null,
-            listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
           },
         } as any,
         'alice.testnet',
@@ -550,7 +549,6 @@ test.describe('SeamsWeb chain signer modules', () => {
             getLastUser: async () => null,
             getUserBySignerSlot: async () => null,
             getWarmThresholdEd25519SessionStatus: async () => null,
-            listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
           },
         } as any,
         'alice.testnet',
@@ -559,107 +557,6 @@ test.describe('SeamsWeb chain signer modules', () => {
       expect(walletSession.login.thresholdEcdsaEthereumAddress).toBe(ownerAddress);
       expect(walletSession.login.thresholdEcdsaPublicKeyB64u).toBe(publicKeyB64u);
     } finally {
-      clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
-      clientDb.getProfileContinuitySnapshot = originalGetProfileContinuitySnapshot;
-      clientDb.listAccountSignersByProfile = originalListAccountSignersByProfile;
-    }
-  });
-
-  test('wallet session ignores conflicting threshold ECDSA record addresses without complete profile fallback', async () => {
-    const clientDb = IndexedDBManager as unknown as Record<string, unknown>;
-    const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
-    const originalGetProfileContinuitySnapshot = clientDb.getProfileContinuitySnapshot;
-    const originalListAccountSignersByProfile = clientDb.listAccountSignersByProfile;
-    const originalWarn = console.warn;
-    const ownerAddress = `0x${'aa'.repeat(20)}`;
-    const chainAccountAddress = `0x${'bb'.repeat(20)}`;
-
-    clientDb.resolveProfileAccountContext = async () => ({
-      profileId: 'profile-conflict',
-      accountRef: {
-        chainIdKey: 'near:testnet',
-        accountAddress: 'alice.testnet',
-      },
-    });
-    clientDb.getProfileContinuitySnapshot = async () => ({
-      profile: {
-        profileId: 'profile-conflict',
-        createdAt: 1,
-        updatedAt: 1,
-      },
-      chainAccounts: [
-        {
-          profileId: 'profile-conflict',
-          chainIdKey: 'evm:5042002',
-          accountAddress: chainAccountAddress,
-          accountModel: 'threshold-ecdsa',
-          status: 'active',
-          isPrimary: true,
-          createdAt: 1,
-          updatedAt: 1,
-        },
-      ],
-      accountSigners: [],
-    });
-    clientDb.listAccountSignersByProfile = async () => [
-      {
-        profileId: 'profile-conflict',
-        chainIdKey: 'evm:5042002',
-        accountAddress: chainAccountAddress,
-        signerId: ownerAddress,
-        signerSlot: 1,
-        signerType: 'threshold',
-        signerKind: 'threshold-ecdsa',
-        signerAuthMethod: 'passkey',
-        signerSource: 'passkey_registration',
-        status: 'active',
-        addedAt: 1,
-        updatedAt: 1,
-        metadata: {
-          ownerAddress,
-        },
-      },
-    ];
-    console.warn = (() => undefined) as typeof console.warn;
-
-    try {
-      const walletSession = await getWalletSession(
-        {
-          configs: {
-            network: {
-              chains: [
-                {
-                  network: 'arc-testnet',
-                  chainId: 5042002,
-                },
-              ],
-            },
-            signing: {
-              sessionDefaults: {
-                ttlMs: 60_000,
-                remainingUses: 3,
-              },
-            },
-          },
-          signingEngine: {
-            assertSealedRefreshStartupParity: async () => undefined,
-            getLastUser: async () => null,
-            getUserBySignerSlot: async () => null,
-            getWarmThresholdEd25519SessionStatus: async () => null,
-            listThresholdEcdsaSessionRecordsForWalletTarget: () =>
-              [
-                { source: 'login', ethereumAddress: `0x${'11'.repeat(20)}` },
-                { source: 'manual-bootstrap', ethereumAddress: `0x${'22'.repeat(20)}` },
-              ] as any,
-          },
-        } as any,
-        'alice.testnet',
-      );
-
-      expect(walletSession.login.thresholdEcdsaEthereumAddress).toBeNull();
-      expect(walletSession.login.thresholdEcdsaEthereumAddress).not.toBe(ownerAddress);
-    } finally {
-      console.warn = originalWarn;
       clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
       clientDb.getProfileContinuitySnapshot = originalGetProfileContinuitySnapshot;
       clientDb.listAccountSignersByProfile = originalListAccountSignersByProfile;

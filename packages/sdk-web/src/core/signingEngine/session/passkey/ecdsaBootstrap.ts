@@ -51,7 +51,7 @@ import type { PasskeyEcdsaReadyPersistInput } from '../warmCapabilities/persiste
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaBootstrapSignerAuth } from '../warmCapabilities/ecdsaBootstrapPersistence';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { PersistedEcdsaRoleLocalMaterial } from '../persistence/records';
+import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { persistActiveWalletSessionAuthorizationFromEcdsaBootstrap } from '../persistence/walletSessionAuthorizationProjection';
 

@@ -11,7 +11,6 @@ import {
 } from '@shared/utils/walletCapabilityBindings';
 import { SigningSessionIds } from '../operationState/types';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
@@ -61,7 +60,6 @@ const ecdsaKey = buildBaseEvmFamilyEcdsaKeyIdentity({
   thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
 });
 declare const materialActivation: MpcMaterialActivationRef;
-declare const authorization: ActiveEvmFamilyWalletSessionAuthorization;
 const passkeyAuth = {
   kind: 'passkey',
   rpId: toRpId('localhost'),
@@ -99,7 +97,6 @@ const ecdsaIdentity = exactEcdsaSigningLaneIdentity({
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
   }),
   auth: emailOtpAuth,
-  authorization,
 });
 const thresholdSessionIds: NonEmptyThresholdSessionIds =
   thresholdSessionIdsFromExactSigningLaneIdentity(ed25519Identity);
@@ -130,7 +127,6 @@ const invalidMixedBranch: ExactSigningLaneIdentity = {
   kind: 'exact_signing_lane',
   signer: ecdsaIdentity.signer,
   auth: passkeyAuth,
-  authorization,
   // @ts-expect-error exact ECDSA identity cannot carry Ed25519 accountId.
   accountId,
 };
@@ -207,11 +203,12 @@ function requireEd25519ThresholdSessionId(identity: ExactSigningLaneIdentity) {
 }
 void requireEd25519ThresholdSessionId(ed25519Identity);
 
-function requireEcdsaWalletSessionAuthorization(identity: ExactSigningLaneIdentity) {
-  if (!isExactEcdsaSigningLaneIdentity(identity)) return null;
-  return identity.authorization;
-}
-void requireEcdsaWalletSessionAuthorization(ecdsaIdentity);
+const invalidEcdsaWithAuthorization: ExactEcdsaSigningLaneIdentity = {
+  ...ecdsaIdentity,
+  // @ts-expect-error exact material identity cannot carry reusable authorization.
+  authorization: {},
+};
+void invalidEcdsaWithAuthorization;
 
 const keyWithSession: EvmFamilyEcdsaKeyIdentity = {
   ...ecdsaKey,

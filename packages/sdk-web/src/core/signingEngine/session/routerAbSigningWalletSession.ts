@@ -1,37 +1,13 @@
 import type { RouterAbWalletSessionCredential } from '@/core/rpcClients/relayer/routerAbNormalSigning';
-import type {
-  ThresholdEcdsaSessionRecord,
-  ThresholdEd25519SessionRecord,
-} from './persistence/records';
+import type { ThresholdEd25519SessionRecord } from './persistence/records';
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
-import {
-  routerAbEcdsaDerivationActiveStateId,
-  type RouterAbEcdsaDerivationNormalSigningStateV1,
-} from '@shared/utils/routerAbEcdsaDerivation';
-import type { EcdsaActiveStateId, RootShareEpoch } from '@shared/utils/domainIds';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { alphabetizeStringify } from '@shared/utils/digests';
-import { base64UrlEncode } from '@shared/utils/base64';
 import {
-  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
   decodeJwtPayloadRecord,
 } from '@shared/utils/sessionTokens';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from './warmCapabilities/routerAbEcdsaWalletSessionAuth';
-import {
-  buildPersistedEcdsaRoleLocalMaterial,
-  clearEcdsaRoleLocalWorkerRuntimeState,
-  getLiveEcdsaRoleLocalMaterialBinding,
-  hasEcdsaRoleLocalRuntimeValidationKey,
-  markEcdsaRoleLocalRuntimeValidationKey,
-  type ResolvedEcdsaRoleLocalSigningMaterial,
-} from './material/ecdsaRoleLocalMaterialResolver';
-import {
-  buildRouterAbEcdsaDerivationSigningMaterialRef,
-  type RouterAbEcdsaDerivationSigningMaterialRef,
-} from '../routerAb/ecdsaDerivation/signingMaterialRef';
+import { clearEcdsaRoleLocalWorkerRuntimeState } from './material/ecdsaRoleLocalMaterialResolver';
 
 export type RouterAbSigningWalletSessionAuth = {
   kind: 'wallet_session_jwt';
@@ -50,19 +26,6 @@ export type RouterAbEd25519SigningWalletSession = {
   signingRootId: string;
   signingRootVersion: string;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
-};
-
-export type RouterAbEcdsaDerivationSigningWalletSession = {
-  curve: 'ecdsa';
-  auth: RouterAbSigningWalletSessionAuth;
-  thresholdSessionId: string;
-  remainingUses: number;
-  expiresAtMs: number;
-  signingMaterial: RouterAbEcdsaDerivationSigningMaterialRef;
-  runtimePolicyScope: ThresholdRuntimePolicyScope;
-  routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
-  clientVerifyingShareB64u?: never;
-  clientSigningShare32?: never;
 };
 
 export type RouterAbSigningWalletSessionParseFailureReason =
@@ -108,37 +71,6 @@ export type RouterAbEd25519WalletSessionAuthorityResult =
   | { ok: true; value: RouterAbEd25519WalletSessionAuthority }
   | { ok: false; reason: RouterAbEd25519WalletSessionAuthorityFailureReason };
 
-export type RouterAbEcdsaDerivationWalletSessionCredentialFingerprint = {
-  kind: 'router_ab_ecdsa_derivation_wallet_session_credential_fingerprint_v1';
-  payloadKind: typeof ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND;
-  payloadDigestB64u: string;
-};
-
-export type EcdsaDerivationRuntimeMaterialValidationKey = {
-  kind: 'ecdsa_derivation_runtime_material_validation_key_v1';
-  materialHandle: string;
-  materialBindingDigest: string;
-  thresholdSessionId: string;
-  // No signing-grant component: the Wallet Session credential fingerprint
-  // already binds the exact authorization this material was validated under,
-  // and a grant is a distinct identity that the authorization boundary does
-  // not carry. Deriving one from the Wallet Session id would conflate them.
-  walletSessionCredentialFingerprint: RouterAbEcdsaDerivationWalletSessionCredentialFingerprint;
-  activeStateId: EcdsaActiveStateId;
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  activationEpoch: RootShareEpoch;
-  keyHandle: string;
-  chainTarget: ThresholdEcdsaSessionRecord['chainTarget'];
-  participantIds: readonly number[];
-  clientVerifier33B64u: string;
-  serverVerifier33B64u: string;
-  thresholdVerifier33B64u: string;
-  signingWorkerId: string;
-  expiresAtMs: number;
-};
-
 export type RouterAbEd25519PersistedSigningRecordState =
   | {
       kind: 'ready';
@@ -173,52 +105,6 @@ export type RouterAbEd25519PersistedSigningRecordState =
       value?: never;
     };
 
-export type RouterAbEcdsaDerivationPersistedSigningRecordState =
-  | {
-      kind: 'runtime_validated';
-      record: ThresholdEcdsaSessionRecord;
-      value: RouterAbEcdsaDerivationSigningWalletSession;
-      reason?: never;
-    }
-  | {
-      kind: 'restore_available';
-      record: ThresholdEcdsaSessionRecord;
-      reason: 'loaded_material_missing';
-      value?: never;
-    }
-  | {
-      kind: 'expired';
-      record: ThresholdEcdsaSessionRecord;
-      reason: 'expired';
-      expiresAtMs: number;
-      value?: never;
-    }
-  | {
-      kind: 'exhausted';
-      record: ThresholdEcdsaSessionRecord;
-      reason: 'exhausted';
-      remainingUses: number;
-      value?: never;
-    }
-  | {
-      kind: 'material_hint_unvalidated';
-      record: ThresholdEcdsaSessionRecord;
-      reason: 'worker_material_unvalidated';
-      value?: never;
-    }
-  | {
-      kind: 'non_signing';
-      record: ThresholdEcdsaSessionRecord;
-      reason: 'cookie_session';
-      value?: never;
-    }
-  | {
-      kind: 'invalid';
-      record: ThresholdEcdsaSessionRecord | null;
-      reason: RouterAbSigningWalletSessionParseFailureReason;
-      value?: never;
-    };
-
 function nonEmptyString(value: unknown): string {
   return String(value || '').trim();
 }
@@ -244,10 +130,6 @@ function inactiveSigningSessionState(args: {
   if (args.expiresAtMs <= args.nowMs) return { kind: 'expired', expiresAtMs: args.expiresAtMs };
   if (args.remainingUses <= 0) return { kind: 'exhausted', remainingUses: args.remainingUses };
   return null;
-}
-
-function sha256CanonicalB64uSync(input: unknown): string {
-  return base64UrlEncode(sha256(new TextEncoder().encode(alphabetizeStringify(input))));
 }
 
 function buildWalletSessionJwtAuth(jwtRaw: unknown): RouterAbSigningWalletSessionAuth | null {
@@ -343,193 +225,6 @@ export function parseRouterAbEd25519WalletSessionAuthorityFromRecord(
   };
 }
 
-function buildRouterAbEcdsaDerivationWalletSessionCredentialFingerprint(
-  walletSessionJwt: string,
-): RouterAbEcdsaDerivationWalletSessionCredentialFingerprint | null {
-  const payload = decodeJwtPayloadRecord(walletSessionJwt);
-  if (payload?.kind !== ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND) {
-    return null;
-  }
-  return {
-    kind: 'router_ab_ecdsa_derivation_wallet_session_credential_fingerprint_v1',
-    payloadKind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-    payloadDigestB64u: sha256CanonicalB64uSync(payload),
-  };
-}
-
-type EcdsaRuntimeMaterialIdentity = {
-  readonly materialHandle: string;
-  readonly materialBindingDigest: string;
-};
-
-function resolveEcdsaRuntimeMaterialIdentity(
-  record: ThresholdEcdsaSessionRecord,
-): EcdsaRuntimeMaterialIdentity | null {
-  try {
-    const persistedMaterial = buildPersistedEcdsaRoleLocalMaterial({
-      authority: record.authority,
-      materialActivation: record.materialActivation,
-      publicFacts: record.ecdsaRoleLocalPublicFacts,
-    });
-    const liveMaterial = getLiveEcdsaRoleLocalMaterialBinding(persistedMaterial);
-    if (!liveMaterial) return null;
-    return {
-      materialHandle: String(liveMaterial.liveHandle.materialHandle),
-      materialBindingDigest: String(liveMaterial.liveHandle.bindingDigest),
-    };
-  } catch {
-    return null;
-  }
-}
-
-type EcdsaRuntimeMaterialValidationContext = {
-  readonly materialIdentity: EcdsaRuntimeMaterialIdentity;
-  readonly keyHandle: string;
-  readonly chainTarget: ThresholdEcdsaSessionRecord['chainTarget'];
-  readonly participantIds: readonly number[];
-};
-
-function buildEcdsaDerivationRuntimeMaterialValidationKey(input: {
-  context: EcdsaRuntimeMaterialValidationContext;
-  session: RouterAbEcdsaDerivationSigningWalletSession;
-}): EcdsaDerivationRuntimeMaterialValidationKey | null {
-  const state = input.session.routerAbEcdsaDerivationNormalSigning;
-  const signingMaterial = input.session.signingMaterial;
-  const walletSessionCredentialFingerprint =
-    buildRouterAbEcdsaDerivationWalletSessionCredentialFingerprint(
-      input.session.auth.walletSessionJwt,
-    );
-  if (!walletSessionCredentialFingerprint) return null;
-  const activationEpoch = state.scope.activation_epoch;
-  const signingWorkerId = signingMaterial.signingWorkerId;
-  if (!input.context.keyHandle || !signingWorkerId) return null;
-  return {
-    kind: 'ecdsa_derivation_runtime_material_validation_key_v1',
-    materialHandle: input.context.materialIdentity.materialHandle,
-    materialBindingDigest: input.context.materialIdentity.materialBindingDigest,
-    thresholdSessionId: input.session.thresholdSessionId,
-    walletSessionCredentialFingerprint,
-    activeStateId: routerAbEcdsaDerivationActiveStateId(state),
-    ecdsaThresholdKeyId: signingMaterial.ecdsaThresholdKeyId,
-    signingRootId: signingMaterial.signingRootId,
-    signingRootVersion: signingMaterial.signingRootVersion,
-    activationEpoch,
-    keyHandle: input.context.keyHandle,
-    chainTarget: input.context.chainTarget,
-    participantIds: input.context.participantIds,
-    clientVerifier33B64u: signingMaterial.clientVerifier33B64u,
-    serverVerifier33B64u: signingMaterial.serverVerifier33B64u,
-    thresholdVerifier33B64u: signingMaterial.thresholdVerifier33B64u,
-    signingWorkerId,
-    expiresAtMs: input.session.expiresAtMs,
-  };
-}
-
-function runtimeMaterialValidationContextFromRecord(
-  record: ThresholdEcdsaSessionRecord,
-): EcdsaRuntimeMaterialValidationContext | null {
-  const materialIdentity = resolveEcdsaRuntimeMaterialIdentity(record);
-  const keyHandle = nonEmptyString(record.keyHandle);
-  if (!materialIdentity || !keyHandle) return null;
-  return {
-    materialIdentity,
-    keyHandle,
-    chainTarget: record.chainTarget,
-    participantIds: record.participantIds.map((participantId) => Number(participantId)),
-  };
-}
-
-function serializeEcdsaDerivationRuntimeMaterialValidationKey(
-  key: EcdsaDerivationRuntimeMaterialValidationKey,
-): string {
-  return alphabetizeStringify(key);
-}
-
-function hasRuntimeEcdsaDerivationMaterial(args: {
-  record: ThresholdEcdsaSessionRecord;
-  key: EcdsaDerivationRuntimeMaterialValidationKey;
-}): boolean {
-  const materialIdentity = resolveEcdsaRuntimeMaterialIdentity(args.record);
-  return (
-    materialIdentity !== null &&
-    materialIdentity.materialHandle === args.key.materialHandle &&
-    materialIdentity.materialBindingDigest === args.key.materialBindingDigest
-  );
-}
-
-export function markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(
-  record: ThresholdEcdsaSessionRecord | null | undefined,
-): boolean {
-  if (!record) return false;
-  const parsed = parseRouterAbEcdsaDerivationSigningWalletSessionFromRecord(record);
-  if (!parsed.ok) return false;
-  const context = runtimeMaterialValidationContextFromRecord(record);
-  if (!context) return false;
-  const key = buildEcdsaDerivationRuntimeMaterialValidationKey({
-    context,
-    session: parsed.value,
-  });
-  if (!key) return false;
-  if (!hasRuntimeEcdsaDerivationMaterial({ record, key })) return false;
-  markEcdsaRoleLocalRuntimeValidationKey(serializeEcdsaDerivationRuntimeMaterialValidationKey(key));
-  return true;
-}
-
-export function markResolvedEcdsaRoleLocalMaterialRuntimeValidated(input: {
-  readonly material: ResolvedEcdsaRoleLocalSigningMaterial;
-  readonly session: RouterAbEcdsaDerivationSigningWalletSession;
-  readonly keyHandle: string;
-  readonly chainTarget: ThresholdEcdsaSessionRecord['chainTarget'];
-  readonly participantIds: readonly number[];
-}): boolean {
-  const materialRef = input.material.materialRef;
-  const liveHandle = input.material.liveHandle;
-  if (
-    liveHandle.durableMaterialRef !== materialRef.durableMaterialRef ||
-    liveHandle.bindingDigest !== materialRef.bindingDigest
-  ) {
-    return false;
-  }
-  const keyHandle = nonEmptyString(input.keyHandle);
-  if (!keyHandle) return false;
-  const key = buildEcdsaDerivationRuntimeMaterialValidationKey({
-    context: {
-      materialIdentity: {
-        materialHandle: String(liveHandle.materialHandle),
-        materialBindingDigest: String(liveHandle.bindingDigest),
-      },
-      keyHandle,
-      chainTarget: input.chainTarget,
-      participantIds: input.participantIds.map((participantId) => Number(participantId)),
-    },
-    session: input.session,
-  });
-  if (!key) return false;
-  markEcdsaRoleLocalRuntimeValidationKey(serializeEcdsaDerivationRuntimeMaterialValidationKey(key));
-  return true;
-}
-
-export function isRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(
-  record: ThresholdEcdsaSessionRecord | null | undefined,
-): boolean {
-  if (!record) return false;
-  const parsed = parseRouterAbEcdsaDerivationSigningWalletSessionFromRecord(record);
-  if (!parsed.ok) return false;
-  const context = runtimeMaterialValidationContextFromRecord(record);
-  if (!context) return false;
-  const key = buildEcdsaDerivationRuntimeMaterialValidationKey({
-    context,
-    session: parsed.value,
-  });
-  return Boolean(
-    key &&
-    hasRuntimeEcdsaDerivationMaterial({ record, key }) &&
-    hasEcdsaRoleLocalRuntimeValidationKey(
-      serializeEcdsaDerivationRuntimeMaterialValidationKey(key),
-    ),
-  );
-}
-
 export function clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation(): void {
   clearEcdsaRoleLocalWorkerRuntimeState();
 }
@@ -568,55 +263,6 @@ export function resolveRouterAbEd25519SigningRootFromRecord(
   return {
     ok: true,
     value: {
-      signingRootId: derivedSigningRootId,
-      signingRootVersion: derivedSigningRootVersion,
-    },
-  };
-}
-
-function resolveRouterAbEcdsaDerivationSigningIdentityFromRecord(
-  record: Pick<
-    ThresholdEcdsaSessionRecord,
-    'ecdsaThresholdKeyId' | 'runtimePolicyScope' | 'signingRootId' | 'signingRootVersion'
-  >,
-): RouterAbSigningWalletSessionResult<{
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
-}> {
-  if (!record.runtimePolicyScope) {
-    return { ok: false, reason: 'missing_runtime_policy_scope' };
-  }
-  let derived: { signingRootId: string; signingRootVersion?: string };
-  try {
-    derived = signingRootScopeFromRuntimePolicyScope(record.runtimePolicyScope);
-  } catch {
-    return { ok: false, reason: 'missing_signing_root' };
-  }
-  const derivedSigningRootId = nonEmptyString(derived.signingRootId);
-  const derivedSigningRootVersion = nonEmptyString(derived.signingRootVersion);
-  if (!derivedSigningRootId || !derivedSigningRootVersion) {
-    return { ok: false, reason: 'missing_signing_root' };
-  }
-
-  const ecdsaThresholdKeyId = nonEmptyString(record.ecdsaThresholdKeyId);
-  if (!ecdsaThresholdKeyId) {
-    return { ok: false, reason: 'material_identity_mismatch' };
-  }
-
-  const persistedSigningRootId = nonEmptyString(record.signingRootId);
-  const persistedSigningRootVersion = nonEmptyString(record.signingRootVersion);
-  if (
-    (persistedSigningRootId && persistedSigningRootId !== derivedSigningRootId) ||
-    (persistedSigningRootVersion && persistedSigningRootVersion !== derivedSigningRootVersion)
-  ) {
-    return { ok: false, reason: 'signing_root_mismatch' };
-  }
-
-  return {
-    ok: true,
-    value: {
-      ecdsaThresholdKeyId,
       signingRootId: derivedSigningRootId,
       signingRootVersion: derivedSigningRootVersion,
     },
@@ -675,90 +321,6 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
   };
 }
 
-export function parseRouterAbEcdsaDerivationSigningWalletSessionFromRecord(
-  record: ThresholdEcdsaSessionRecord | null | undefined,
-  nowMs: number = currentActiveSessionNowMs(),
-): RouterAbSigningWalletSessionResult<RouterAbEcdsaDerivationSigningWalletSession> {
-  const operationNowMs = normalizeActiveSessionNowMs(nowMs);
-  if (operationNowMs == null) return { ok: false, reason: 'invalid_budget' };
-  if (!record) return { ok: false, reason: 'missing_record' };
-  if (record.thresholdSessionKind !== 'jwt') return { ok: false, reason: 'cookie_session' };
-  const resolvedAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
-  if (resolvedAuth.kind !== 'ready') {
-    return { ok: false, reason: resolvedAuth.reason };
-  }
-  const auth = buildWalletSessionJwtAuth(resolvedAuth.walletSessionJwt);
-  if (!auth) return { ok: false, reason: 'missing_wallet_session_jwt' };
-  const { thresholdSessionId, signingGrantId } = resolvedAuth.identity;
-  if (!record.runtimePolicyScope) return { ok: false, reason: 'missing_runtime_policy_scope' };
-  if (!record.routerAbEcdsaDerivationNormalSigning) {
-    return { ok: false, reason: 'missing_router_ab_state' };
-  }
-  const remainingUses = positiveInteger(record.remainingUses);
-  const expiresAtMs = positiveInteger(record.expiresAtMs);
-  if (
-    !Number.isSafeInteger(record.remainingUses) ||
-    !Number.isSafeInteger(record.expiresAtMs) ||
-    record.remainingUses < 0 ||
-    record.expiresAtMs <= 0
-  ) {
-    return { ok: false, reason: 'invalid_budget' };
-  }
-  const inactive = inactiveSigningSessionState({
-    remainingUses: Math.max(0, Math.floor(Number(record.remainingUses) || 0)),
-    expiresAtMs: Math.max(0, Math.floor(Number(record.expiresAtMs) || 0)),
-    nowMs: operationNowMs,
-  });
-  if (inactive?.kind === 'exhausted') return { ok: false, reason: 'exhausted' };
-  if (inactive?.kind === 'expired') return { ok: false, reason: 'expired' };
-  const identity = resolveRouterAbEcdsaDerivationSigningIdentityFromRecord(record);
-  if (!identity.ok) return identity;
-  let signingMaterial: RouterAbEcdsaDerivationSigningMaterialRef;
-  try {
-    signingMaterial = buildRouterAbEcdsaDerivationSigningMaterialRef({
-      routerAbState: record.routerAbEcdsaDerivationNormalSigning,
-    });
-  } catch {
-    return { ok: false, reason: 'invalid_router_ab_state' };
-  }
-  const clientVerifyingShareB64u = nonEmptyString(record.clientVerifyingShareB64u);
-  if (!clientVerifyingShareB64u) {
-    return { ok: false, reason: 'missing_client_verifying_share' };
-  }
-  if (clientVerifyingShareB64u !== signingMaterial.clientVerifier33B64u) {
-    return { ok: false, reason: 'material_identity_mismatch' };
-  }
-  if (identity.value.ecdsaThresholdKeyId !== signingMaterial.ecdsaThresholdKeyId) {
-    return { ok: false, reason: 'material_identity_mismatch' };
-  }
-  if (
-    identity.value.signingRootId !== signingMaterial.signingRootId ||
-    identity.value.signingRootVersion !== signingMaterial.signingRootVersion
-  ) {
-    return { ok: false, reason: 'signing_root_mismatch' };
-  }
-  if (!remainingUses || !expiresAtMs) return { ok: false, reason: 'invalid_budget' };
-  return {
-    ok: true,
-    value: {
-      curve: 'ecdsa',
-      auth,
-      thresholdSessionId,
-      remainingUses,
-      expiresAtMs,
-      signingMaterial,
-      runtimePolicyScope: record.runtimePolicyScope,
-      routerAbEcdsaDerivationNormalSigning: record.routerAbEcdsaDerivationNormalSigning,
-    },
-  };
-}
-
-export function buildActiveRouterAbEcdsaDerivationSigningWalletSessionFromRecord(args: {
-  record: ThresholdEcdsaSessionRecord | null | undefined;
-  nowMs: number;
-}): RouterAbSigningWalletSessionResult<RouterAbEcdsaDerivationSigningWalletSession> {
-  return parseRouterAbEcdsaDerivationSigningWalletSessionFromRecord(args.record, args.nowMs);
-}
 export function classifyRouterAbEd25519PersistedSigningRecord(
   record: ThresholdEd25519SessionRecord | null | undefined,
   nowMs: number = currentActiveSessionNowMs(),
@@ -814,81 +376,4 @@ export function classifyRouterAbEd25519PersistedSigningRecord(
     record,
     reason: parsed.reason,
   };
-}
-
-export function classifyRouterAbEcdsaDerivationPersistedSigningRecord(
-  record: ThresholdEcdsaSessionRecord | null | undefined,
-  nowMs: number = currentActiveSessionNowMs(),
-): RouterAbEcdsaDerivationPersistedSigningRecordState {
-  if (!record) {
-    return {
-      kind: 'invalid',
-      record: null,
-      reason: 'missing_record',
-    };
-  }
-  const operationNowMs = normalizeActiveSessionNowMs(nowMs);
-  if (operationNowMs == null) {
-    return {
-      kind: 'invalid',
-      record,
-      reason: 'invalid_budget',
-    };
-  }
-  const parsed = buildActiveRouterAbEcdsaDerivationSigningWalletSessionFromRecord({
-    record,
-    nowMs: operationNowMs,
-  });
-  if (parsed.ok) {
-    if (isRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)) {
-      return {
-        kind: 'runtime_validated',
-        record,
-        value: parsed.value,
-      };
-    }
-    return {
-      kind: 'restore_available',
-      record,
-      reason: 'loaded_material_missing',
-    };
-  }
-  if (parsed.reason === 'expired') {
-    return {
-      kind: 'expired',
-      record,
-      reason: 'expired',
-      expiresAtMs: Math.max(0, Math.floor(Number(record.expiresAtMs) || 0)),
-    };
-  }
-  if (parsed.reason === 'exhausted') {
-    return {
-      kind: 'exhausted',
-      record,
-      reason: 'exhausted',
-      remainingUses: Math.max(0, Math.floor(Number(record.remainingUses) || 0)),
-    };
-  }
-  if (parsed.reason === 'cookie_session') {
-    return {
-      kind: 'non_signing',
-      record,
-      reason: 'cookie_session',
-    };
-  }
-  return {
-    kind: 'invalid',
-    record,
-    reason: parsed.reason,
-  };
-}
-
-export function requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord(
-  record: ThresholdEcdsaSessionRecord | null | undefined,
-): RouterAbEcdsaDerivationSigningWalletSession {
-  const parsed = parseRouterAbEcdsaDerivationSigningWalletSessionFromRecord(record);
-  if (parsed.ok) return parsed.value;
-  throw new Error(
-    `[wallet-session] Router A/B ECDSA derivation signing Wallet Session is invalid: ${parsed.reason}`,
-  );
 }

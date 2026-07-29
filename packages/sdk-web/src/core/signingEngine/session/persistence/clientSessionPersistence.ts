@@ -3,29 +3,33 @@ import {
   type WalletSessionAuthorizationState,
 } from '../identity/clientSessionPersistenceState';
 import {
-  isExactEcdsaSigningLaneIdentity,
-  type ExactSigningLaneIdentity,
+  type ExactEcdsaSigningLaneIdentity,
+  type ExactEd25519SigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 import {
   getStoredThresholdEd25519SessionRecordForLane,
 } from './records';
 
-export type ReadClientWalletSessionAuthorizationRequest = {
-  readonly identity: ExactSigningLaneIdentity;
-  readonly nowMs: number;
-};
+export type ReadClientWalletSessionAuthorizationRequest =
+  | {
+      readonly kind: 'ed25519';
+      readonly laneIdentity: ExactEd25519SigningLaneIdentity;
+      readonly authorization?: never;
+      readonly nowMs: number;
+    }
+  | {
+      readonly kind: 'ecdsa';
+      readonly laneIdentity: ExactEcdsaSigningLaneIdentity;
+      readonly authorization: ActiveEvmFamilyWalletSessionAuthorization;
+      readonly nowMs: number;
+    };
 
 function readEd25519ClientWalletSessionAuthorization(
-  request: ReadClientWalletSessionAuthorizationRequest,
+  request: Extract<ReadClientWalletSessionAuthorizationRequest, { kind: 'ed25519' }>,
 ): WalletSessionAuthorizationState {
-  const identity = request.identity;
-  if (isExactEcdsaSigningLaneIdentity(identity)) {
-    return parseWalletSessionAuthorizationBoundary({
-      observation: { kind: 'invalid', identity, reason: 'authority_mismatch' },
-      nowMs: request.nowMs,
-    });
-  }
+  const identity = request.laneIdentity;
   const signer = identity.signer;
   const record = getStoredThresholdEd25519SessionRecordForLane({
     walletId: signer.account.wallet.walletId,
@@ -38,14 +42,17 @@ function readEd25519ClientWalletSessionAuthorization(
   });
   if (!record) {
     return parseWalletSessionAuthorizationBoundary({
-      observation: { kind: 'missing', identity },
+      observation: {
+        kind: 'missing',
+        source: { kind: 'ed25519', laneIdentity: identity },
+      },
       nowMs: request.nowMs,
     });
   }
   return parseWalletSessionAuthorizationBoundary({
     observation: {
       kind: 'found',
-      identity,
+      source: { kind: 'ed25519', laneIdentity: identity },
       expiresAtMs: record.expiresAtMs,
     },
     nowMs: request.nowMs,
@@ -53,20 +60,17 @@ function readEd25519ClientWalletSessionAuthorization(
 }
 
 function readEcdsaClientWalletSessionAuthorization(
-  request: ReadClientWalletSessionAuthorizationRequest,
+  request: Extract<ReadClientWalletSessionAuthorizationRequest, { kind: 'ecdsa' }>,
 ): WalletSessionAuthorizationState {
-  const identity = request.identity;
-  if (!isExactEcdsaSigningLaneIdentity(identity)) {
-    return parseWalletSessionAuthorizationBoundary({
-      observation: { kind: 'invalid', identity, reason: 'authority_mismatch' },
-      nowMs: request.nowMs,
-    });
-  }
   return parseWalletSessionAuthorizationBoundary({
     observation: {
       kind: 'found',
-      identity,
-      expiresAtMs: identity.authorization.status.expiresAtMs,
+      source: {
+        kind: 'ecdsa',
+        laneIdentity: request.laneIdentity,
+        authorization: request.authorization,
+      },
+      expiresAtMs: request.authorization.status.expiresAtMs,
     },
     nowMs: request.nowMs,
   });
@@ -75,14 +79,10 @@ function readEcdsaClientWalletSessionAuthorization(
 export function readClientWalletSessionAuthorization(
   request: ReadClientWalletSessionAuthorizationRequest,
 ): WalletSessionAuthorizationState {
-  switch (request.identity.signer.kind) {
-    case 'near_ed25519_signer':
+  switch (request.kind) {
+    case 'ed25519':
       return readEd25519ClientWalletSessionAuthorization(request);
-    case 'evm_family_ecdsa_signer':
+    case 'ecdsa':
       return readEcdsaClientWalletSessionAuthorization(request);
-    default: {
-      const exhaustive: never = request.identity.signer;
-      return exhaustive;
-    }
   }
 }
