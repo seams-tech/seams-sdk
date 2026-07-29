@@ -107,8 +107,12 @@ replacement.
 
 ## Phase 5 — role-local material identity
 
-- `evmFamilySigningKeySlotId` in runtime paths (audit first: delete, or rename
-  to `EvmFamilyEcdsaProvisioningReservationId` confined to
+- ~~`evmFamilySigningKeySlotId` in `EcdsaRoleLocalPublicFacts`, activation and
+  durable bindings, persistence keys, and sealing AAD~~ — deleted by
+  `e7c1168a0`; provisioning/wire consumers derive it from wallet plus signing
+  root/version.
+- `evmFamilySigningKeySlotId` in remaining runtime paths (audit first: delete,
+  or rename to `EvmFamilyEcdsaProvisioningReservationId` confined to
   registration/bootstrap). Forbidden in `ExactSigningLaneIdentity`,
   Wallet Session claims, Router A/B normal-signing scope,
   `EcdsaRoleLocalPublicFacts`, sealed recovery records, and remaining runtime
