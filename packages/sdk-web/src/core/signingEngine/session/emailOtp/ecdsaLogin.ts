@@ -16,9 +16,7 @@ import {
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
-import {
-  generateSigningGrantId,
-} from '@/core/signingEngine/threshold/sessionPolicy';
+import { generateSigningGrantId } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
@@ -126,6 +124,8 @@ import {
 } from './workerRequests';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
+import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
+import { parseThresholdEcdsaSessionId } from '@shared/utils/domainIds';
 
 export type EmailOtpThresholdEcdsaLoginTimingBucket =
   | 'emailOtpProofVerificationMs'
@@ -417,9 +417,7 @@ function buildEmailOtpEcdsaOnlySigningBudget(args: {
 }
 
 function buildAuthoritativeEmailOtpMixedWalletSigningBudget(args: {
-  bootstrap:
-    | EmailOtpEd25519YaoRecoveryBootstrapV1
-    | EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+  bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1 | EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
   expectedRemainingUses: number;
 }): EmailOtpMixedWalletSigningBudgetV1 {
   const session = args.bootstrap.session;
@@ -487,6 +485,18 @@ function requireEmailOtpUnlockSessionResponse(
     throw new Error('Email OTP unlock did not return its ECDSA Wallet Session');
   }
   return result.ecdsaSession;
+}
+
+function requireEmailOtpUnlockThresholdSessionId(value: string) {
+  const parsed = parseThresholdEcdsaSessionId(value);
+  if (!parsed.ok) throw new Error('Failed to create Email OTP threshold session identity');
+  return parsed.value;
+}
+
+function requireEmailOtpUnlockWalletSessionMintId(value: string) {
+  const parsed = parseReusableWalletSessionMintId(value);
+  if (!parsed.ok) throw new Error('Failed to create Email OTP Wallet Session mint identity');
+  return parsed.value;
 }
 
 function requireEmailOtpWalletSessionJwt(value: unknown): string {
@@ -648,16 +658,13 @@ function resolveEmailOtpPrimaryEcdsaSessionProvisioning(
     case 'preauthorized_wallet_unlock': {
       const policy = provisioning.request.session_policy;
       const session = provisioning.response.session;
-      if (
-        policy.threshold_session_id !== session.threshold_session_id ||
-        policy.signing_grant_id !== session.signing_grant_id
-      ) {
+      if (policy.threshold_session_id !== session.threshold_session_id) {
         throw new Error('Email OTP unlock returned a different prepared ECDSA session identity');
       }
       return {
         sessionIdentity: buildEcdsaSessionIdentity({
-          thresholdSessionId: policy.threshold_session_id,
-          signingGrantId: policy.signing_grant_id,
+          thresholdSessionId: session.threshold_session_id,
+          signingGrantId: session.signing_grant_id,
         }),
         authorization: {
           kind: 'preauthorized_wallet_unlock',
@@ -1146,28 +1153,26 @@ async function runEmailOtpEcdsaCapability(
       `device_link_required: local threshold ECDSA material is unavailable for ${chainTarget.kind}:${chainTarget.chainId}`,
     );
   }
-  const preparedUnlockSigningBudget =
+  const preparedUnlockSessionPolicy =
     operation === WALLET_EMAIL_OTP_UNLOCK_OPERATION
-      ? buildEmailOtpEcdsaOnlySigningBudget({
-          signingGrantId: generateSigningGrantId(),
-          ttlMs: args.ttlMs,
+      ? clampThresholdSessionPolicy({
+          ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
           remainingUses,
         })
       : null;
-  const preparedUnlockSessionIdentity = preparedUnlockSigningBudget
-    ? buildEcdsaSessionIdentity({
-        thresholdSessionId: generateSessionId('threshold-ecdsa-login'),
-        signingGrantId: preparedUnlockSigningBudget.signingGrantId,
-      })
+  const preparedUnlockThresholdSessionId = preparedUnlockSessionPolicy
+    ? requireEmailOtpUnlockThresholdSessionId(generateSessionId('threshold-ecdsa-login'))
     : null;
   const preparedUnlockSessionActivation =
-    preparedUnlockSigningBudget && preparedUnlockSessionIdentity
+    preparedUnlockSessionPolicy && preparedUnlockThresholdSessionId
       ? buildStrictEcdsaPostRegistrationSessionActivationRequest({
           publicCapability: existingKey.publicCapability,
-          thresholdSessionId: preparedUnlockSessionIdentity.thresholdSessionId,
-          signingGrantId: preparedUnlockSessionIdentity.signingGrantId,
-          ttlMs: preparedUnlockSigningBudget.ttlMs,
-          remainingUses: preparedUnlockSigningBudget.remainingUses,
+          thresholdSessionId: preparedUnlockThresholdSessionId,
+          walletSessionMintId: requireEmailOtpUnlockWalletSessionMintId(
+            generateSessionId('wallet-session-mint'),
+          ),
+          ttlMs: preparedUnlockSessionPolicy.ttlMs,
+          remainingUses: preparedUnlockSessionPolicy.remainingUses,
           runtimePolicyScope,
         })
       : null;
@@ -1219,8 +1224,7 @@ async function runEmailOtpEcdsaCapability(
           providerSubject: args.ed25519YaoRecovery.providerSubject,
           signerSlot: args.ed25519YaoRecovery.signerSlot,
           nearAccountId: args.ed25519YaoRecovery.nearAccountId,
-          expectedOperationalPublicKey:
-            args.ed25519YaoRecovery.expectedOperationalPublicKey,
+          expectedOperationalPublicKey: args.ed25519YaoRecovery.expectedOperationalPublicKey,
           expectedThresholdSessionId: args.ed25519YaoRecovery.expectedThresholdSessionId,
           remainingUses,
           ecdsaSessionActivation: requirePreparedEmailOtpUnlockSessionActivation(
@@ -1245,15 +1249,22 @@ async function runEmailOtpEcdsaCapability(
       });
     }
     addEmailOtpThresholdEcdsaLoginTiming(timings, 'emailOtpProofVerificationMs', timingStartedAtMs);
-    const signingBudget =
-      preparedUnlockSigningBudget ||
-      resolveEmailOtpLoginSigningBudget({
-        workerResult,
-        emailOtpAuthPolicy,
-        routePlan,
-        requestedTtlMs: args.ttlMs,
-        requestedRemainingUses: remainingUses,
-      });
+    const preparedUnlockSessionResponse = preparedUnlockSessionActivation
+      ? requireEmailOtpUnlockSessionResponse(workerResult)
+      : null;
+    const signingBudget = preparedUnlockSessionResponse
+      ? buildEmailOtpEcdsaOnlySigningBudget({
+          signingGrantId: preparedUnlockSessionResponse.session.signing_grant_id,
+          ttlMs: args.ttlMs,
+          remainingUses,
+        })
+      : resolveEmailOtpLoginSigningBudget({
+          workerResult,
+          emailOtpAuthPolicy,
+          routePlan,
+          requestedTtlMs: args.ttlMs,
+          requestedRemainingUses: remainingUses,
+        });
     const signingGrantId = signingBudget.signingGrantId;
     timingStartedAtMs = nowMs();
     if (operation === WALLET_EMAIL_OTP_EXPORT_OPERATION) {

@@ -47,9 +47,11 @@ import { secureRandomId } from '@shared/utils/secureRandomId';
 import { isObject } from '@shared/utils/validation';
 import {
   parseSigningGrantId,
+  parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
   type SigningGrantId,
 } from '@shared/utils/domainIds';
+import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
 import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import {
   buildPasskeyWalletAuthAuthority,
@@ -107,7 +109,6 @@ import {
   type ThresholdEcdsaSessionBootstrapResult,
 } from '@/core/signingEngine/threshold/ecdsa/activation';
 import { buildStrictEcdsaPostRegistrationSessionActivationRequest } from '@/core/signingEngine/threshold/ecdsa/postRegistrationSessionActivation';
-import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 import {
   parseThresholdRuntimePolicyScopeFromJwt,
   type EmailOtpEd25519SessionPolicyAuthority,
@@ -2508,16 +2509,18 @@ async function preparePasskeyExchangeEcdsaActivation(args: {
     chainTarget: target.chainTarget,
     targetEcdsaKey,
   });
-  const identity = buildEcdsaSessionIdentity({
-    thresholdSessionId: createThresholdLoginWarmSessionId('threshold-ecdsa-login'),
-    signingGrantId: createThresholdLoginWarmSessionId('wallet-ecdsa-login'),
-  });
+  const thresholdSessionId = requireThresholdLoginEcdsaSessionId(
+    createThresholdLoginWarmSessionId('threshold-ecdsa-login'),
+  );
+  const walletSessionMintId = requireThresholdLoginWalletSessionMintId(
+    createThresholdLoginWarmSessionId('wallet-session-mint'),
+  );
   return {
     targetKey,
     request: buildStrictEcdsaPostRegistrationSessionActivationRequest({
       publicCapability,
-      thresholdSessionId: identity.thresholdSessionId,
-      signingGrantId: identity.signingGrantId,
+      thresholdSessionId,
+      walletSessionMintId,
       ttlMs: args.ttlMs,
       remainingUses: args.remainingUses,
       runtimePolicyScope,
@@ -3049,8 +3052,7 @@ async function primeThresholdLoginWarmSigners(args: {
     ecdsaDerivationPasskeyPrfFirstB64u: '',
   };
   const sharedSigningGrantState: ThresholdLoginWarmSharedSigningGrantState = {
-    generatedSigningGrantId:
-      args.passkeyExchangeEcdsaActivation?.request.session_policy.signing_grant_id || '',
+    generatedSigningGrantId: '',
     generatedThresholdSessionId:
       args.passkeyExchangeEcdsaActivation?.request.session_policy.threshold_session_id || '',
   };
@@ -3364,13 +3366,24 @@ async function primeThresholdLoginWarmSigners(args: {
             chainTarget: target.chainTarget,
             targetEcdsaKey,
           });
-          const thresholdSessionId = resolveThresholdLoginWarmSharedThresholdSessionId({
-            sharedState: sharedSigningGrantState,
-          });
-          const signingGrantId = resolveThresholdLoginWarmSharedSigningGrantId({
-            ed25519State: warmState,
-            sharedState: sharedSigningGrantState,
-          });
+          const exchangeActivation = args.passkeyExchangeEcdsaActivation;
+          const matchingExchangeActivation =
+            exchangeActivation &&
+            !consumedPasskeyExchangeActivation &&
+            exchangeActivation.targetKey === thresholdEcdsaChainTargetKey(target.chainTarget)
+              ? exchangeActivation
+              : null;
+          const thresholdSessionId = matchingExchangeActivation
+            ? matchingExchangeActivation.response.session.threshold_session_id
+            : resolveThresholdLoginWarmSharedThresholdSessionId({
+                sharedState: sharedSigningGrantState,
+              });
+          const signingGrantId = matchingExchangeActivation
+            ? matchingExchangeActivation.response.session.signing_grant_id
+            : resolveThresholdLoginWarmSharedSigningGrantId({
+                ed25519State: warmState,
+                sharedState: sharedSigningGrantState,
+              });
           const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
             chainTarget: target.chainTarget,
             thresholdSessionId,
@@ -3417,12 +3430,7 @@ async function primeThresholdLoginWarmSigners(args: {
           )
             ? currentBootstrapIdentity.routeAuth
             : null;
-          const exchangeActivation = args.passkeyExchangeEcdsaActivation;
-          if (
-            exchangeActivation &&
-            !consumedPasskeyExchangeActivation &&
-            exchangeActivation.targetKey === thresholdEcdsaChainTargetKey(target.chainTarget)
-          ) {
+          if (matchingExchangeActivation) {
             if (!passkeyPrfFirstB64u || !passkeyCredentialIdB64u) {
               throw new Error(
                 '[login] passkey exchange ECDSA activation requires local PRF material',
@@ -3443,7 +3451,7 @@ async function primeThresholdLoginWarmSigners(args: {
                 existingRoleLocalMaterial,
                 passkeyPrfFirstB64u,
                 passkeyCredentialIdB64u,
-                sessionActivation: exchangeActivation.response,
+                sessionActivation: matchingExchangeActivation.response,
               },
             });
           }
@@ -3934,6 +3942,18 @@ function resolveThresholdLoginWarmupPlan(args: {
 
 function createThresholdLoginWarmSessionId(prefix: string): string {
   return secureRandomId(prefix, 32, 'threshold login warm session IDs');
+}
+
+function requireThresholdLoginEcdsaSessionId(value: string) {
+  const parsed = parseThresholdEcdsaSessionId(value);
+  if (!parsed.ok) throw new Error('[login] failed to create threshold ECDSA session identity');
+  return parsed.value;
+}
+
+function requireThresholdLoginWalletSessionMintId(value: string) {
+  const parsed = parseReusableWalletSessionMintId(value);
+  if (!parsed.ok) throw new Error('[login] failed to create reusable Wallet Session mint identity');
+  return parsed.value;
 }
 
 function requireLoginUnlockBudgetPolicy(

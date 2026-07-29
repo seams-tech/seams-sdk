@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { parseSessionExchangeRouteCommand } from '../../packages/sdk-server-ts/src/router/sessionExchangeRequestValidation';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
 
 const PASSKEY_ASSERTION = {
   id: 'credential-id',
@@ -28,12 +29,14 @@ function firstEcdsaSessionActivationRequest() {
   if (!bootstrap.session.runtimePolicyScope) {
     throw new Error('expected ECDSA runtime policy scope');
   }
+  const mintId = parseReusableWalletSessionMintId('wallet-session-mint-fixture');
+  if (!mintId.ok) throw new Error('expected valid Wallet Session mint fixture');
   return {
     kind: 'router_ab_ecdsa_post_registration_session_activation_v1',
     public_capability: binding.publicFacts.publicCapability,
     session_policy: {
       threshold_session_id: bootstrap.session.thresholdSessionId,
-      signing_grant_id: bootstrap.session.signingGrantId,
+      wallet_session_mint_id: mintId.value,
       ttl_ms: 120_000,
       remaining_uses: bootstrap.session.remainingUses,
       runtime_policy_scope: bootstrap.session.runtimePolicyScope,

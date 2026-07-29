@@ -1259,7 +1259,7 @@ export async function handleStrictEcdsaSessionActivation(
   let walletSessionId: WalletSessionId;
   let quotaId: MpcWalletSigningQuotaId;
   if (authorized.kind === 'issue_reusable_wallet_session') {
-    const mintId = parseReusableWalletSessionMintId(request.session_policy.signing_grant_id);
+    const mintId = parseReusableWalletSessionMintId(request.session_policy.wallet_session_mint_id);
     if (!mintId.ok) {
       return json(
         {
