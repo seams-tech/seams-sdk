@@ -2661,16 +2661,14 @@ type ActivateTerminalEcdsaPayload = Extract<
  * this arm — a pending wallet with no provisioning state would be
  * indistinguishable from one that never needed NEAR.
  */
-export type WalletRegistrationActivateEd25519PendingV2 = Omit<
-  Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'near_ed25519' }>,
-  'ed25519' | 'resolvedAccount' | 'accountProvisioning' | 'authorityScope'
+export type WalletRegistrationActivateEd25519PendingV2 = Extract<
+  WalletRegistrationFinalizeResponse,
+  { ok: true; kind: 'near_ed25519' }
 > & {
+  /* Required, not optional: a pending Ed25519-only wallet with no provisioning
+     state would be indistinguishable from one that never needed NEAR. */
   nearProvisioning: { status: 'near_pending' };
   ecdsa?: never;
-  ed25519?: never;
-  resolvedAccount?: never;
-  accountProvisioning?: never;
-  authorityScope?: never;
 };
 
 export type WalletRegistrationActivateResponseV2 =
@@ -2697,6 +2695,32 @@ function parseWalletRegistrationActivateResponseV2(
   const responseName = 'Wallet registration activate';
   const record = requireResponseRecord({ responseName, field: 'body', value });
   const { nearProvisioning, ...terminal } = record;
+  if (record.kind === 'near_ed25519') {
+    /* Ed25519-only: no ECDSA leg ran, so there is no activation payload and no
+       local session to build. The wallet exists but cannot sign until the
+       deferred completion installs its sole signer, which is why the pending
+       provisioning status is required rather than optional here. */
+    const provisioning = requireResponseRecord({
+      responseName,
+      field: 'nearProvisioning',
+      value: nearProvisioning,
+    });
+    requireExactResponseKeys(provisioning, ['status'], `${responseName} nearProvisioning`);
+    if (provisioning.status !== 'near_pending') {
+      throw new Error(`${responseName} Ed25519-only wallet must be pending NEAR provisioning`);
+    }
+    const finalizedEd25519 = parseWalletRegistrationFinalizeResponse({
+      value: terminal,
+      expectedKind: 'near_ed25519',
+    });
+    if (!finalizedEd25519.ok || finalizedEd25519.kind !== 'near_ed25519') {
+      throw new Error(`${responseName} did not return an Ed25519 wallet`);
+    }
+    return {
+      ...finalizedEd25519,
+      nearProvisioning: { status: 'near_pending' as const },
+    };
+  }
   const ecdsaRecord = requireResponseRecord({
     responseName,
     field: 'ecdsa',
