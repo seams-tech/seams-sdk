@@ -97,21 +97,14 @@ type ReadyEvmFamilyEcdsaSigningSelectionBase = {
   diagnostics: EcdsaSelectionDiagnostics;
 };
 
-export type ReadyEcdsaCommittedLane<A extends WalletAuthAuthority = WalletAuthAuthority> =
-  EcdsaCommittedLane<A>;
-
-export type ReadyEmailOtpEcdsaCommittedLane = ReadyEcdsaCommittedLane<EmailOtpWalletAuthAuthority>;
-
-export type ReadyPasskeyEcdsaCommittedLane = ReadyEcdsaCommittedLane<PasskeyWalletAuthAuthority>;
-
 export type ReadyEvmFamilyEcdsaSigningSelection =
   | (ReadyEvmFamilyEcdsaSigningSelectionBase & {
       authMethod: 'passkey';
-      committedLane: ReadyPasskeyEcdsaCommittedLane;
+      committedLane: PasskeyEcdsaCommittedLane;
     })
   | (ReadyEvmFamilyEcdsaSigningSelectionBase & {
       authMethod: 'email_otp';
-      committedLane: ReadyEmailOtpEcdsaCommittedLane;
+      committedLane: EmailOtpEcdsaCommittedLane;
     });
 
 type ReauthRequiredEvmFamilyEcdsaSigningSelectionBase = {
@@ -426,31 +419,6 @@ export type PasskeyEcdsaPublicReauthLane = EcdsaPublicReauthLane<PasskeyWalletAu
 type PasskeyEcdsaLaneCandidate = AuthorizedEcdsaLaneCandidate & {
   auth: Extract<EcdsaLaneCandidate['auth'], { kind: 'passkey' }>;
 };
-
-function readyEmailOtpEcdsaCommittedLane(args: {
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-  committedLane: EmailOtpEcdsaCommittedLane;
-}): ReadyEmailOtpEcdsaCommittedLane {
-  const common = {
-    lane: args.lane,
-    authLane: args.committedLane.authLane,
-    authorization: args.committedLane.authorization,
-    authority: args.committedLane.authority,
-  };
-  return {
-    ...common,
-  };
-}
-
-function readyPasskeyEcdsaCommittedLane(args: {
-  committedLane: PasskeyEcdsaCommittedLane;
-}): ReadyPasskeyEcdsaCommittedLane {
-  return {
-    lane: args.committedLane.lane,
-    authority: args.committedLane.authority,
-    authorization: args.committedLane.authorization,
-  };
-}
 
 function requirePasskeyEcdsaLaneCandidate(
   candidate: AuthorizedEcdsaLaneCandidate,
@@ -778,33 +746,27 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       lane,
       candidate: args.laneCandidate,
     });
-    const readyCommittedLane = readyEmailOtpEcdsaCommittedLane({
-      lane,
-      committedLane,
-    });
     return {
       kind: 'ready',
       accountAuth: selectedAccountAuth,
-      authMethod: ecdsaCommittedLaneAuthMethod(readyCommittedLane),
+      authMethod: ecdsaCommittedLaneAuthMethod(committedLane),
       lane,
-      committedLane: readyCommittedLane,
+      committedLane,
       diagnostics,
     };
   }
 
-  const readyCommittedLane = readyPasskeyEcdsaCommittedLane({
-    committedLane: requirePasskeyCommittedLaneForReady({
-      committedLane: committedPasskeyLane,
-      lane,
-      candidate: args.laneCandidate,
-    }),
+  const committedLane = requirePasskeyCommittedLaneForReady({
+    committedLane: committedPasskeyLane,
+    lane,
+    candidate: args.laneCandidate,
   });
   return {
     kind: 'ready',
     accountAuth: selectedAccountAuth,
-    authMethod: ecdsaCommittedLaneAuthMethod(readyCommittedLane),
+    authMethod: ecdsaCommittedLaneAuthMethod(committedLane),
     lane,
-    committedLane: readyCommittedLane,
+    committedLane,
     diagnostics,
   };
 }
