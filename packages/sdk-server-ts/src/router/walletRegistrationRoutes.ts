@@ -20,14 +20,10 @@ import type {
   WalletKeyFactsInventoryAuth,
 } from '../core/types';
 import type {
-  CancelRegistrationIntentRequest,
-  CancelRegistrationIntentResponse,
   CreateAddAuthMethodIntentRequest,
   CreateAddSignerIntentRequest,
   CreateAddAuthMethodIntentResponse,
   CreateAddSignerIntentResponse,
-  CreateRegistrationIntentRequest,
-  CreateRegistrationIntentResponse,
   WalletAddSignerFinalizeRequest,
   WalletAddSignerFinalizeResponse,
   WalletAddSignerEcdsaActivationRequest,
@@ -55,10 +51,7 @@ import type {
   EmailOtpWalletRegistrationFinalizeAuthMethod,
   WalletRegistrationEcdsaDerivationRespondRequest,
   WalletRegistrationEcdsaDerivationRespondResponse,
-  WalletRegistrationStartRequest,
-  WalletRegistrationStartResponse,
 } from '../core/registrationContracts';
-import { registrationPreparationIdFromString } from '../core/registrationContracts';
 import type { RootShareEpoch } from '@shared/utils/domainIds';
 import type { ThresholdEcdsaChainTarget } from '../core/thresholdEcdsaChainTarget';
 import {
@@ -106,23 +99,18 @@ import {
   normalizeAddAuthMethodInput,
   addSignerIntentGrantFromString,
   computeAddSignerIntentDigestB64u,
-  computeRegistrationIntentDigestB64u,
   findRegistrationSignerPlanEvmFamilyEcdsaBranch,
   findRegistrationSignerPlanNearEd25519Branch,
   normalizeEmailOtpRegistrationProof,
-  normalizeRegistrationAuthMethodInput,
   normalizeRegistrationSignerPlan,
   normalizeWalletAuthMethodTarget,
-  registrationIntentGrantFromString,
   registrationSignerSetSelectionFromPlan,
   walletIdFromString,
   type AddSignerIntentV1,
   type AddAuthMethodIntentV1,
   type AddSignerSelection,
-  type RegistrationIntentV1,
   type RegistrationSignerPlan,
   type RegistrationSignerSetSelection,
-  type RegisterWalletInput,
 } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { alphabetizeStringify } from '@shared/utils/digests';
@@ -725,79 +713,6 @@ function parseRegistrationSignerSet(raw: unknown): ParseResult<ParsedRegistratio
   };
 }
 
-function parseRegisterWalletInput(raw: unknown): ParseResult<RegisterWalletInput> {
-  if (!isPlainObject(raw)) {
-    return { ok: false, code: 'invalid_body', message: 'wallet is required' };
-  }
-  const kind = typeof raw.kind === 'string' ? raw.kind.trim() : '';
-  if (kind === 'server_allocated') {
-    if (Object.prototype.hasOwnProperty.call(raw, 'walletId')) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'server-allocated wallet input must not include walletId',
-      };
-    }
-    return { ok: true, value: { kind: 'server_allocated' } };
-  }
-  if (kind === 'provided') {
-    const walletId = walletIdFromString(String(raw.walletId || '').trim());
-    if (!walletId) {
-      return { ok: false, code: 'invalid_body', message: 'wallet.walletId is required' };
-    }
-    return {
-      ok: true,
-      value: {
-        kind: 'provided',
-        walletId,
-      },
-    };
-  }
-  return { ok: false, code: 'invalid_body', message: 'wallet.kind is invalid' };
-}
-
-function parseCreateRegistrationIntentRequest(
-  body: Record<string, unknown>,
-): ParseResult<CreateRegistrationIntentRequest> {
-  const wallet = parseRegisterWalletInput(body.wallet);
-  if (!wallet.ok) return wallet;
-  const authMethod = normalizeRegistrationAuthMethodInput(body.authMethod);
-  if (!authMethod) {
-    return { ok: false, code: 'invalid_body', message: 'authMethod is invalid' };
-  }
-  const signerSelection = parseRegistrationSignerSet(body.signerSelection);
-  if (!signerSelection.ok) return signerSelection;
-  return {
-    ok: true,
-    value: {
-      wallet: wallet.value,
-      authMethod,
-      signerSelection: signerSelection.value.selection,
-    },
-  };
-}
-
-function parseCancelRegistrationIntentRequest(
-  body: Record<string, unknown>,
-): ParseResult<CancelRegistrationIntentRequest> {
-  const registrationIntentGrant = String(body.registrationIntentGrant || '').trim();
-  const registrationIntentDigestB64u = String(body.registrationIntentDigestB64u || '').trim();
-  if (!registrationIntentGrant || !registrationIntentDigestB64u) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'registration intent grant and digest are required',
-    };
-  }
-  return {
-    ok: true,
-    value: {
-      registrationIntentGrant: registrationIntentGrantFromString(registrationIntentGrant),
-      registrationIntentDigestB64u,
-    },
-  };
-}
-
 function parseCreateAddSignerIntentRequest(
   body: Record<string, unknown>,
   walletId: string,
@@ -1168,141 +1083,6 @@ async function parseWalletAddSignerStartBody(
         },
       },
     },
-  };
-}
-
-async function parseWalletRegistrationStartBody(
-  body: Record<string, unknown>,
-): Promise<ParseResult<WalletRegistrationStartRequest>> {
-  const intent = isPlainObject(body.intent) ? body.intent : null;
-  if (!intent || intent.version !== 'registration_intent_v1') {
-    return { ok: false, code: 'invalid_body', message: 'registration intent is required' };
-  }
-  const rawRegistrationIntentGrant =
-    typeof body.registrationIntentGrant === 'string' ? body.registrationIntentGrant.trim() : '';
-  if (!rawRegistrationIntentGrant) {
-    return { ok: false, code: 'invalid_body', message: 'registration intent grant is required' };
-  }
-  const walletId = String(intent.walletId || '').trim();
-  if (!walletId) {
-    return { ok: false, code: 'invalid_body', message: 'registration walletId is required' };
-  }
-  const authMethod = normalizeRegistrationAuthMethodInput(intent.authMethod);
-  if (!authMethod) {
-    return { ok: false, code: 'invalid_body', message: 'registration authMethod is invalid' };
-  }
-  const signerSelection = parseRegistrationSignerSet(intent.signerSelection);
-  if (!signerSelection.ok) return signerSelection;
-  const nonceB64u = typeof intent.nonceB64u === 'string' ? intent.nonceB64u.trim() : '';
-  if (!nonceB64u) {
-    return { ok: false, code: 'invalid_body', message: 'registration intent is incomplete' };
-  }
-  const runtimePolicyScope = parseOptionalRuntimePolicyScope(intent.runtimePolicyScope);
-  if (!runtimePolicyScope.ok) return runtimePolicyScope;
-  const normalizedIntent: RegistrationIntentV1 = {
-    version: 'registration_intent_v1',
-    walletId: walletIdFromString(walletId),
-    authMethod,
-    signerSelection: signerSelection.value.selection,
-    ...(runtimePolicyScope.value ? { runtimePolicyScope: runtimePolicyScope.value } : {}),
-    nonceB64u,
-  };
-  const expectedDigest =
-    typeof body.registrationIntentDigestB64u === 'string'
-      ? body.registrationIntentDigestB64u.trim()
-      : '';
-  const computedDigest = await computeRegistrationIntentDigestB64u(normalizedIntent);
-  if (!expectedDigest || expectedDigest !== computedDigest) {
-    return { ok: false, code: 'invalid_body', message: 'registration intent digest mismatch' };
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(body, 'threshold_ed25519') ||
-    Object.prototype.hasOwnProperty.call(body, 'threshold_ecdsa_prepare') ||
-    Object.prototype.hasOwnProperty.call(body, 'auth')
-  ) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'fresh wallet registration does not accept session or legacy auth branches',
-    };
-  }
-  const registrationPreparationId =
-    typeof body.registrationPreparationId === 'string' ? body.registrationPreparationId.trim() : '';
-  if (registrationPreparationId) {
-    if (
-      Object.prototype.hasOwnProperty.call(body, 'webauthn_registration') ||
-      Object.prototype.hasOwnProperty.call(body, 'emailOtpRegistrationProof')
-    ) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'prepared wallet registration start does not accept authority proof fields',
-      };
-    }
-    return {
-      ok: true,
-      value: {
-        registrationIntentGrant: registrationIntentGrantFromString(rawRegistrationIntentGrant),
-        registrationIntentDigestB64u: expectedDigest,
-        intent: normalizedIntent,
-        registrationPreparationId: registrationPreparationIdFromString(registrationPreparationId),
-      },
-    };
-  }
-  if (Object.prototype.hasOwnProperty.call(body, 'webauthn_registration')) {
-    if (authMethod.kind !== 'passkey') {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'webauthn_registration requires a passkey registration intent',
-      };
-    }
-    return {
-      ok: true,
-      value: {
-        registrationIntentGrant: registrationIntentGrantFromString(rawRegistrationIntentGrant),
-        registrationIntentDigestB64u: expectedDigest,
-        intent: normalizedIntent,
-        authority: {
-          kind: 'passkey',
-          webauthnRegistration: body.webauthn_registration,
-        },
-      },
-    };
-  }
-  if (Object.prototype.hasOwnProperty.call(body, 'emailOtpRegistrationProof')) {
-    if (authMethod.kind !== 'email_otp') {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'emailOtpRegistrationProof requires an Email OTP registration intent',
-      };
-    }
-    const proof = normalizeEmailOtpRegistrationProof(body.emailOtpRegistrationProof);
-    if (!proof) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'emailOtpRegistrationProof is invalid',
-      };
-    }
-    return {
-      ok: true,
-      value: {
-        registrationIntentGrant: registrationIntentGrantFromString(rawRegistrationIntentGrant),
-        registrationIntentDigestB64u: expectedDigest,
-        intent: normalizedIntent,
-        authority: {
-          kind: 'email_otp',
-          emailOtpRegistrationProof: proof,
-        },
-      },
-    };
-  }
-  return {
-    ok: false,
-    code: 'invalid_body',
-    message: 'fresh wallet registration authority is required',
   };
 }
 
