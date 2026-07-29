@@ -1,6 +1,5 @@
 import type { EmailOtpEcdsaSealedRuntimePurpose } from './sealedRuntimePurpose';
 import type {
-  WarmSessionClaimResult,
   WarmSessionStatusResult,
 } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 
@@ -17,71 +16,6 @@ export async function readEmailOtpWarmSessionStatusOnly(args: {
     code: 'worker_error',
     message: error instanceof Error ? error.message : String(error || 'Email OTP worker error'),
   }));
-}
-
-export async function claimEmailOtpWarmSessionMaterial(args: {
-  sessionId: string;
-  uses?: number;
-  consume?: boolean;
-  claimWarmSessionMaterialFromWorker: (args: {
-    sessionId: string;
-    uses?: number;
-    consume?: boolean;
-  }) => Promise<WarmSessionClaimResult>;
-  ecdsaPurpose: EmailOtpEcdsaSealedRuntimePurpose | null;
-  tryRestoreEcdsaWarmSessionStatusFromSealedRecord: (
-    purpose: EmailOtpEcdsaSealedRuntimePurpose,
-  ) => Promise<WarmSessionStatusResult | null>;
-  recordSessionMaterialClaimed: (
-    purpose: EmailOtpEcdsaSealedRuntimePurpose,
-    result: WarmSessionClaimResult,
-  ) => Promise<void>;
-  recordSessionMaterialRestored: (
-    purpose: EmailOtpEcdsaSealedRuntimePurpose,
-    result: WarmSessionStatusResult,
-  ) => Promise<void>;
-}): Promise<WarmSessionClaimResult> {
-  const normalizedSessionId = String(args.sessionId || '').trim();
-  if (!normalizedSessionId) {
-    return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
-  }
-  try {
-    const result = await args.claimWarmSessionMaterialFromWorker({
-      sessionId: normalizedSessionId,
-      ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
-      ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
-    });
-    if (
-      !result.ok &&
-      result.code === 'not_found' &&
-      args.ecdsaPurpose
-    ) {
-      const restored = await args.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
-        args.ecdsaPurpose,
-      );
-      if (restored?.ok) {
-        const retry = await args.claimWarmSessionMaterialFromWorker({
-          sessionId: normalizedSessionId,
-          ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
-          ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
-        });
-        if (args.ecdsaPurpose) await args.recordSessionMaterialClaimed(args.ecdsaPurpose, retry);
-        return retry;
-      }
-      if (restored) {
-        if (args.ecdsaPurpose) await args.recordSessionMaterialRestored(args.ecdsaPurpose, restored);
-      }
-      return result;
-    }
-    if (args.ecdsaPurpose) await args.recordSessionMaterialClaimed(args.ecdsaPurpose, result);
-    return result;
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'worker_error',
-      message: error instanceof Error ? error.message : String(error || 'Email OTP worker error'),
-    };
-  }
 }
 
 export async function consumeEmailOtpWarmSessionUses(args: {

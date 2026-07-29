@@ -388,10 +388,6 @@ type EmailOtpWarmSessionStatusResult =
   | { ok: true; remainingUses: number; expiresAtMs: number }
   | { ok: false; code: string; message: string };
 
-type EmailOtpWarmSessionClaimResult =
-  | { ok: true; prfFirstB64u: string; remainingUses: number; expiresAtMs: number }
-  | { ok: false; code: string; message: string };
-
 type EmailOtpWarmSessionConsumeResult =
   | { ok: true; remainingUses: number; expiresAtMs: number }
   | { ok: false; code: string; message: string };
@@ -2029,52 +2025,6 @@ function bindEmailOtpEcdsaWarmSessionFromWorkerHandle(args: {
   } finally {
     zeroizeBytes(clientRootShare32);
   }
-}
-
-function claimEmailOtpWarmSessionMaterial(args: {
-  sessionId: string;
-  uses?: number;
-  consume?: boolean;
-}): EmailOtpWarmSessionClaimResult {
-  const sessionId = String(args.sessionId || '').trim();
-  const status = readEmailOtpWarmSessionStatus(sessionId);
-  if (!status.ok) return status;
-  const entry = emailOtpWarmSessions.get(sessionId);
-  if (!entry) {
-    return {
-      ok: false,
-      code: 'not_found',
-      message: 'Email OTP ECDSA warm-session material is not available',
-    };
-  }
-  const uses = Math.max(1, Math.floor(Number(args.uses) || 1));
-  if (entry.remainingUses < uses) {
-    return {
-      ok: false,
-      code: 'exhausted',
-      message: 'Email OTP warm-session material exhausted',
-    };
-  }
-  const prfFirstB64u = base64UrlEncode(entry.clientRootShare32);
-  const consume = args.consume !== false;
-  if (consume) {
-    entry.remainingUses -= uses;
-  }
-  const remainingUses = entry.remainingUses;
-  const expiresAtMs = entry.expiresAtMs;
-  if (consume) {
-    if (remainingUses <= 0) {
-      deleteEmailOtpWarmMaterial(sessionId);
-    } else {
-      emailOtpWarmSessions.set(sessionId, entry);
-    }
-  }
-  return {
-    ok: true,
-    prfFirstB64u,
-    remainingUses,
-    expiresAtMs,
-  };
 }
 
 function consumeEmailOtpWarmSessionUses(args: {
@@ -6559,18 +6509,6 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         type,
         payload: { sessionId: readString(payload.sessionId, 'sessionId') },
       };
-    case 'claimEmailOtpWarmSessionMaterial':
-      return {
-        id,
-        type,
-        payload: {
-          sessionId: readString(payload.sessionId, 'sessionId'),
-          ...(optionalWorkerPositiveInteger(payload.uses)
-            ? { uses: optionalWorkerPositiveInteger(payload.uses)! }
-            : {}),
-          ...(typeof payload.consume === 'boolean' ? { consume: payload.consume } : {}),
-        },
-      };
     case 'consumeEmailOtpWarmSessionUses':
       return {
         id,
@@ -7560,18 +7498,6 @@ self.addEventListener('message', async (event: MessageEvent) => {
           id: msg.id,
           ok: true,
           result: readEmailOtpWarmSessionStatus(msg.payload.sessionId),
-        });
-        return;
-      }
-      case 'claimEmailOtpWarmSessionMaterial': {
-        postToMainThread({
-          id: msg.id,
-          ok: true,
-          result: claimEmailOtpWarmSessionMaterial({
-            sessionId: readString(msg.payload.sessionId, 'sessionId'),
-            uses: msg.payload.uses,
-            consume: msg.payload.consume,
-          }),
         });
         return;
       }

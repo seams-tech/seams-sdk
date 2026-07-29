@@ -751,48 +751,6 @@ export type EnsureWarmEcdsaCapabilityReadyResult = {
   reconnected: boolean;
 };
 
-type ClaimWarmSessionPrfArgsBase = {
-  thresholdSessionId: string;
-  errorContext: string;
-  uses?: number;
-  consume?: boolean;
-};
-
-export type ThresholdOnlyWarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgsBase & {
-  kind: 'threshold_only_claim';
-  walletId?: never;
-  authMethod?: never;
-  signingGrantId?: never;
-  curve?: never;
-  chain?: never;
-  chainTarget?: never;
-};
-
-export type WalletScopedEd25519WarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgsBase & {
-  kind: 'wallet_scoped_ed25519_claim';
-  walletId: string;
-  authMethod: SignerAuthMethod;
-  signingGrantId: string;
-  curve: 'ed25519';
-  chain: 'near';
-  chainTarget?: never;
-};
-
-export type WalletScopedEcdsaWarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgsBase & {
-  kind: 'wallet_scoped_ecdsa_claim';
-  walletId: string;
-  authMethod: typeof SIGNER_AUTH_METHODS.passkey;
-  signingGrantId: string;
-  curve: 'ecdsa';
-  chain: 'near';
-  chainTarget: ThresholdEcdsaChainTarget;
-};
-
-export type ClaimWarmSessionPrfArgs =
-  | ThresholdOnlyWarmSessionPrfClaimArgs
-  | WalletScopedEd25519WarmSessionPrfClaimArgs
-  | WalletScopedEcdsaWarmSessionPrfClaimArgs;
-
 export type WarmSessionCapabilityReader = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
   getEd25519CapabilityForNearAccount: (
@@ -842,7 +800,6 @@ export type WarmSessionProvisioner = {
   ensureEcdsaCapabilityReady: (
     args: EnsureWarmEcdsaProvisionPlanReadyArgs,
   ) => Promise<EnsureWarmEcdsaCapabilityReadyResult>;
-  claimWarmSessionPrfFirstMaterial: (args: ClaimWarmSessionPrfArgs) => Promise<string>;
   ensureEcdsaPrfSealPersistedByThresholdSessionId: (args: {
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: string;
