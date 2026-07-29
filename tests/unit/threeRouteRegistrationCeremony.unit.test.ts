@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { runThreeRouteRegistrationCeremony } from '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration';
+import { buildFixtureRespondEd25519DeferredWork } from '../helpers/ed25519YaoAdmissionFixtures';
 
 /**
  * Refactor 94C. The three-route ceremony's ordering contract.
@@ -9,12 +10,9 @@ import { runThreeRouteRegistrationCeremony } from '../../packages/sdk-web/src/Se
  * the caller as soon as respond returns it, before activate runs, and is never
  * awaited.
  *
- * Only the ECDSA-only arm is covered here. Asserting the mixed arm's handoff
- * ordering requires a valid Yao admission receipt, whose parser demands a full
- * `{binding, keyset}` that no shared factory builds yet; tests/AGENTS.md wants
- * that constructed through the production builder rather than hand-written, so
- * the mixed ordering assertions wait on that factory rather than on a literal
- * that would encode a guessed shape.
+ * The mixed arm's admission records come from the shared factory, which builds
+ * them through the production parsers — hand-written literals were rejected
+ * three times over for shapes that had drifted.
  */
 
 const RELAYER = 'https://relay.example';
@@ -97,6 +95,66 @@ const FORWARDED_ECDSA = {
     },
   },
 };
+
+const MIXED_RESPOND = {
+  ok: true,
+  registrationCeremonyId: 'wrc_test',
+  kind: 'near_ed25519_and_evm_family_ecdsa',
+  ecdsa: FORWARDED_ECDSA,
+  ed25519: buildFixtureRespondEd25519DeferredWork({ lifecycleId: 'wrc_test' }),
+};
+
+test('a mixed plan hands off deferred NEAR work before activate is called', async () => {
+  /* If the handoff happened after activate, Yao would be serialized behind the
+     rest of registration — the exact coupling this refactor removes. */
+  const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
+  const callsAtHandoff: string[] = [];
+  try {
+    await runThreeRouteRegistrationCeremony(
+      ceremonyArgs({
+        onDeferredNearWork: () => callsAtHandoff.push(...routes.calls),
+      }),
+    ).catch(() => undefined);
+  } finally {
+    routes.restore();
+  }
+  /* Respond had returned; activate had not yet been called. */
+  expect(callsAtHandoff).toEqual(['respond']);
+  expect(routes.calls).toContain('activate');
+});
+
+test('the ceremony never awaits the deferred NEAR work it hands off', async () => {
+  /* The callback receives a handle, not a promise the ceremony waits on: work
+     that never completes must not stop activate from being called. */
+  const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
+  try {
+    await runThreeRouteRegistrationCeremony(
+      ceremonyArgs({
+        onDeferredNearWork: () => {
+          void new Promise<void>(() => {});
+        },
+      }),
+    ).catch(() => undefined);
+  } finally {
+    routes.restore();
+  }
+  expect(routes.calls).toContain('activate');
+});
+
+test('a mixed plan carries the deferred work through to the caller', async () => {
+  /* The handed-off work is what starts Yao, so it must arrive intact and
+     marked deferred — never as something already in progress. */
+  const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
+  let handed: unknown = null;
+  try {
+    await runThreeRouteRegistrationCeremony(
+      ceremonyArgs({ onDeferredNearWork: (work: unknown) => (handed = work) }),
+    ).catch(() => undefined);
+  } finally {
+    routes.restore();
+  }
+  expect(handed).toMatchObject({ status: 'deferred' });
+});
 
 test('an ECDSA-only plan hands off no deferred NEAR work', async () => {
   /* ECDSA-only registration must not create NEAR provisioning state at all. */
