@@ -3250,7 +3250,7 @@ async function runThreeRouteRegistrationCeremony(args: {
           kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
           ceremonyId,
           relayerKeyId: args.ecdsaPrepare.prepare.relayerKeyId,
-          activationReceipt: activated.activation,
+          activationReceipt: activated.ecdsa.activation,
         },
       ),
     });
@@ -3265,7 +3265,7 @@ async function runThreeRouteRegistrationCeremony(args: {
         clientBootstrap,
         bootstrap: parseWalletRegistrationEcdsaDerivationRespond({
           clientBootstrap,
-          serverBootstrap: activated.bootstrap,
+          serverBootstrap: activated.ecdsa.bootstrap,
           activationEpoch: finalized.publicCapability.activation_epoch,
         }),
         roleLocalMaterial: finalized.roleLocalMaterial,
@@ -4403,6 +4403,9 @@ async function registerEcdsaOrMixedWallet(
       }),
     );
     const ecdsaSession = ceremony.session;
+    /* Activate's response is the finalize terminal wallet plus the activation
+       payload the ceremony already consumed to build the local session, so it
+       is a subtype: downstream consumers read the wallet and ignore the rest. */
     const finalized = ceremony.activated;
     const emailOtpEnrollment = ceremony.activateEmailOtp.enrollment;
     const emailOtpBackupAck = ceremony.activateEmailOtp.backupAck;

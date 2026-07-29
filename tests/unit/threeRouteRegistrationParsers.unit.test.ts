@@ -117,6 +117,7 @@ test('activate rejects a nearProvisioning snapshot carrying more than a status',
         ok: true,
         kind: 'evm_family_ecdsa',
         walletId: 'w.testnet',
+        ecdsa: { walletKeys: [] },
         nearProvisioning: { status: 'pending', nearAccountId: 'leaked.testnet' },
       },
       () => activateWalletRegistration(ACTIVATE_ARGS),
@@ -131,6 +132,7 @@ test('activate rejects a nearProvisioning status other than pending', async () =
         ok: true,
         kind: 'evm_family_ecdsa',
         walletId: 'w.testnet',
+        ecdsa: { walletKeys: [] },
         nearProvisioning: { status: 'ready' },
       },
       () => activateWalletRegistration(ACTIVATE_ARGS),
@@ -139,14 +141,14 @@ test('activate rejects a nearProvisioning status other than pending', async () =
 });
 
 test('activate rejects a response missing the activation payload', async () => {
-  /* Activate absorbed derivation/activate as well as finalize, so its response
-     must carry both halves. Without `activation` and `bootstrap` the client
-     cannot build its ECDSA session, and the wallet would register server-side
-     while being unable to sign — so this fails at the boundary rather than
-     producing an unusable wallet. */
+  /* Activate absorbed derivation/activate as well as finalize, so `ecdsa`
+     carries the wallet keys *and* the activation payload. Without `activation`
+     and `bootstrap` the client cannot build its ECDSA session, and the wallet
+     would register server-side while being unable to sign — so this fails at
+     the boundary rather than producing an unusable wallet. */
   await expect(
     withStubbedFetch(
-      { ok: true, kind: 'evm_family_ecdsa', walletId: 'w.testnet' },
+      { ok: true, kind: 'evm_family_ecdsa', walletId: 'w.testnet', ecdsa: { walletKeys: [] } },
       () => activateWalletRegistration(ACTIVATE_ARGS),
     ),
   ).rejects.toThrow(/missing the activation payload/);

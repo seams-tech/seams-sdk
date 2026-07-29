@@ -2675,19 +2675,25 @@ export async function respondWalletRegistration(
  * session bootstrap; without them the wallet registers server-side and cannot
  * sign locally, which is the opposite of what this route exists to deliver.
  *
- * DEPENDENCY ON CLAUDE A: the frozen server contract currently derives this
- * from `EcdsaFinalizeSuccess` alone and omits both fields. Names and types here
- * are exactly the ones `derivation/activate` already returned — this is the
- * union, not a new shape. The strict parser below rejects a response missing
- * them, so the gap fails loudly at the boundary rather than silently producing
- * an unusable wallet.
+ * Both live inside `ecdsa` alongside the wallet keys, matching the server
+ * contract: one payload carrying everything the terminal leg produced. The
+ * strict parser rejects a response missing them, so a server that folded the
+ * legs without merging the payloads fails at the boundary rather than
+ * silently producing a wallet that cannot sign.
  */
+type ActivateTerminalEcdsaPayload = Extract<
+  WalletRegistrationFinalizeResponse,
+  { ok: true; kind: 'evm_family_ecdsa' }
+>['ecdsa'] & {
+  activation: RouterAbEcdsaRegistrationPublicActivationReceiptV1;
+  bootstrap: ThresholdEcdsaDerivationRoleLocalBootstrapValue;
+};
+
 export type WalletRegistrationActivateResponseV2 = Extract<
   WalletRegistrationFinalizeResponse,
   { ok: true; kind: 'evm_family_ecdsa' }
 > & {
-  activation: RouterAbEcdsaRegistrationPublicActivationReceiptV1;
-  bootstrap: ThresholdEcdsaDerivationRoleLocalBootstrapValue;
+  ecdsa: ActivateTerminalEcdsaPayload;
   nearProvisioning?: { status: 'pending' };
 };
 
@@ -2707,7 +2713,13 @@ function parseWalletRegistrationActivateResponseV2(
 ): WalletRegistrationActivateResponseV2 {
   const responseName = 'Wallet registration activate';
   const record = requireResponseRecord({ responseName, field: 'body', value });
-  const { nearProvisioning, activation, bootstrap, ...terminal } = record;
+  const { nearProvisioning, ...terminal } = record;
+  const ecdsaRecord = requireResponseRecord({
+    responseName,
+    field: 'ecdsa',
+    value: record.ecdsa,
+  });
+  const { activation, bootstrap, ...terminalEcdsa } = ecdsaRecord;
   /* Validate the snapshot before the terminal body, so a leaked NEAR
      identifier is reported as such rather than buried behind whatever the
      finalize parser objects to first. */
@@ -2730,7 +2742,7 @@ function parseWalletRegistrationActivateResponseV2(
     );
   }
   const finalized = parseWalletRegistrationFinalizeResponse({
-    value: terminal,
+    value: { ...terminal, ecdsa: terminalEcdsa },
     expectedKind: 'evm_family_ecdsa',
   });
   if (!finalized.ok || finalized.kind !== 'evm_family_ecdsa') {
@@ -2738,8 +2750,11 @@ function parseWalletRegistrationActivateResponseV2(
   }
   return {
     ...finalized,
-    activation: parseRouterAbEcdsaRegistrationPublicActivationReceiptV1(activation),
-    bootstrap: parseThresholdEcdsaDerivationRoleLocalBootstrapValue(bootstrap),
+    ecdsa: {
+      ...finalized.ecdsa,
+      activation: parseRouterAbEcdsaRegistrationPublicActivationReceiptV1(activation),
+      bootstrap: parseThresholdEcdsaDerivationRoleLocalBootstrapValue(bootstrap),
+    },
     ...(nearProvisioning === undefined ? {} : { nearProvisioning: { status: 'pending' as const } }),
   };
 }
