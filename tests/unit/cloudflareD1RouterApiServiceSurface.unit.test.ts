@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
-import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseOrgId,
+  parseProviderSubject,
+  parseWebAuthnRpId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
@@ -278,10 +282,13 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     });
     await expect(
       service.emailOtp.consumeEmailOtpGrant({
+        subject: {
+          kind: 'provider_identity',
+          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
+          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
+          walletId: walletIdFromString('email-wallet.testnet'),
+        },
         loginGrant: 'grant-valid',
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
         otpChannel: 'email_otp',
         sessionHash: 'session-hash-a',
         appSessionVersion: 'grant-session-v1',
@@ -293,10 +300,13 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     });
     await expect(
       service.emailOtp.consumeEmailOtpGrant({
+        subject: {
+          kind: 'provider_identity',
+          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
+          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
+          walletId: walletIdFromString('email-wallet.testnet'),
+        },
         loginGrant: 'grant-valid',
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
         otpChannel: 'email_otp',
         sessionHash: 'session-hash-a',
         appSessionVersion: 'grant-session-v1',
@@ -304,10 +314,13 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     ).resolves.toMatchObject({ ok: false, code: 'login_grant_invalid_or_expired' });
     await expect(
       service.emailOtp.consumeEmailOtpGrant({
+        subject: {
+          kind: 'provider_identity',
+          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
+          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
+          walletId: walletIdFromString('email-wallet.testnet'),
+        },
         loginGrant: 'grant-mismatch',
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
         otpChannel: 'email_otp',
         sessionHash: 'session-hash-a',
         appSessionVersion: 'wrong-session',
@@ -319,10 +332,13 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     });
     await expect(
       service.emailOtp.consumeEmailOtpGrant({
+        subject: {
+          kind: 'provider_identity',
+          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
+          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
+          walletId: walletIdFromString('email-wallet.testnet'),
+        },
         loginGrant: 'grant-mismatch',
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
         otpChannel: 'email_otp',
         sessionHash: 'session-hash-a',
         appSessionVersion: 'grant-session-v2',

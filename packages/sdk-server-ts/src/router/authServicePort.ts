@@ -11,7 +11,12 @@ import type {
   WalletRegistrationSetupInput,
 } from './cloudflare/d1WalletRegistrationSetup';
 import type { WalletEmailOtpAction } from '@shared/utils/emailOtpDomain';
-import type { WalletId, WebAuthnRpId } from '@shared/utils/domainIds';
+import type {
+  OrgId,
+  ProviderSubject,
+  WalletId,
+  WebAuthnRpId,
+} from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
@@ -115,6 +120,27 @@ export type RevokeWalletAuthMethodCommand = Readonly<
 export type FinalizeWalletAddAuthMethodCommand = Readonly<
   { subject: WalletAuthMethodManagementSubject } & WalletAddAuthMethodFinalizeRequest
 >;
+
+export type EmailOtpGrantSubject =
+  | Readonly<{
+      kind: 'authorization_session';
+      tenantId: TenantId;
+      principalId: PrincipalId;
+      walletId: WalletId;
+    }>
+  | Readonly<{
+      kind: 'provider_identity';
+      orgId: OrgId;
+      providerSubject: ProviderSubject;
+      walletId: WalletId;
+    }>;
+
+export type ConsumeEmailOtpGrantCommand = Readonly<{
+  subject: EmailOtpGrantSubject;
+  loginGrant: string;
+  otpChannel: EmailOtpChannel;
+  clientIp?: string;
+}>;
 import type {
   RouterAbEd25519YaoBudgetRefreshRequestV1,
   RouterAbEd25519YaoBudgetRefreshResponseV1,
@@ -503,14 +529,7 @@ export type RouterApiMethodTypes = {
     readonly result: CancelRegistrationIntentResponse;
   };
   consumeEmailOtpGrant: {
-    readonly input: {
-      readonly loginGrant?: unknown;
-      readonly userId?: unknown;
-      readonly walletId?: unknown;
-      readonly orgId?: unknown;
-      readonly otpChannel?: unknown;
-      readonly clientIp?: unknown;
-    };
+    readonly input: ConsumeEmailOtpGrantCommand;
     readonly result:
       | { readonly ok: true; readonly challengeId: string; readonly otpChannel: EmailOtpChannel }
       | RouterApiOkFailure;
