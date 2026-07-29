@@ -107,6 +107,9 @@ replacement.
 - ~~Wallet Session identity decoded from the bearer JWT during Near normal
   signing~~ — replaced by the correlated active authorization projection and
   branded `WalletSessionId` in `821167bf3`
+- ~~Ed25519 runtime-policy scope inferred from the app-session bearer JWT~~ —
+  the Wallet Session mint response now supplies the required scope explicitly
+  in `f75154e88`
 
 ## Phase 5 — role-local material identity
 
@@ -120,6 +123,9 @@ replacement.
   Wallet Session claims, Router A/B normal-signing scope,
   `EcdsaRoleLocalPublicFacts`, sealed recovery records, and remaining runtime
   identity surfaces.
+- ~~`evmFamilySigningKeySlotId` in ECDSA Wallet Session JWT binding facts and
+  normal-signing claims~~ — deleted by `4986d279f`; the value remains only on
+  the registration bootstrap request/response boundary in that path.
 - ~~`clientVerifyingShareB64u` inside `EcdsaRoleLocalMaterialBinding`, its
   digest, and material handle~~ — replaced by the strict
   `EcdsaClientVerifyingPublicKey33B64u` fact in `fcdf0ad3c`
@@ -301,8 +307,9 @@ ports, and the two-state recovery journal.
 - `Ed25519YaoExportFlowDeps.recoverPasskeyCapability` and the nested
   `emailOtp.resolveExportContext` callback bag
 - `exportEd25519YaoKeyWithFreshPasskey`, `exportEd25519YaoKeyWithFreshEmailOtp`
-- `ExactPasskeyEd25519SigningLaneIdentity`,
-  `ExactEmailOtpEd25519SigningLaneIdentity`
+- ~~`ExactPasskeyEd25519SigningLaneIdentity`,
+  `ExactEmailOtpEd25519SigningLaneIdentity`~~ — deleted by `a5fad3851`; export
+  narrows the canonical generic lane by its factor authority.
 - `EmailOtpEd25519YaoExportSubjectV1`, `EmailOtpEd25519YaoExportContextV1`,
   `EmailOtpEd25519YaoExportContextPorts`
 - `recoverExactPasskeyEd25519YaoCapabilityForExport`

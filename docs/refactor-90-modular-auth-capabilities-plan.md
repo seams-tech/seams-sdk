@@ -403,7 +403,7 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 
 - [x] Define narrow request-scoped ports for capability policy, session,
       evidence, grants, claims, and audit.
-- [ ] Keep Cloudflare, Node, local, and self-hosted adapters behind the same
+- [x] Keep Cloudflare, Node, local, and self-hosted adapters behind the same
       static port shapes.
 - [x] Use one statically composed module graph; add no runtime plugin registry,
       tenant-mutated route table, or deployment module-selection framework.
@@ -670,12 +670,16 @@ the replacement and legacy MPC paths must not ship together.
       client. The parent sends only the opaque code and nonce; the wallet origin
       redeems and stores its own JWT, and parent-posted bearer credentials are
       rejected.
-- [ ] Update Cloudflare, Node, local, and self-hosted call sites in the same
+- [x] Update Cloudflare, Node, local, and self-hosted call sites in the same
       cutover.
-- [ ] Preserve static host ports and request-scoped service bindings; apply the
+- [x] Preserve static host ports and request-scoped service bindings; apply the
       Refactor 94C owner map only inside the Cloudflare adapter.
-- [ ] Verify each host assembles the same statically composed capability
+- [x] Verify each host assembles the same statically composed capability
       modules and policies.
+      Cloudflare, Express/Node, local D1, and self-hosted assembly consume the
+      same `RouterApiServiceBag`; route handlers do not access D1 or claim and
+      session stores directly. The focused route-surface and self-host parity
+      suites pass 15/15.
 - [ ] Preserve one signed, admitted Gateway → Router command. Keep Router
       stateless; forbid ceremony-wide Router ledgers, tenant-wide Gateway
       runtime state, tenant runtime/cutover selectors, direct Deriver origins,
