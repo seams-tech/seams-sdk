@@ -247,6 +247,9 @@ export function createEvmClient(args: {
       throw error;
     }
 
+    if (response.status === 429) {
+      throw new Error('RPC throttled; retry shortly');
+    }
     if (!response.ok) {
       throw new Error(`RPC HTTP ${response.status}`);
     }
