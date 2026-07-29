@@ -569,9 +569,9 @@ function buildTargetConfiguration(targetName, suppliedValues) {
     deriverAWorkerName: production ? 'router-ab-deriver-a' : 'router-ab-deriver-a-staging',
     deriverBWorkerName: production ? 'router-ab-deriver-b' : 'router-ab-deriver-b-staging',
     signingWorkerName: production ? 'router-ab-signing-worker' : 'router-ab-signing-worker-staging',
-    consoleDatabaseName: production ? 'seams-console' : 'seams-console-staging',
+    consoleDatabaseName: production ? 'seams-console' : 'seams-console-staging-nrt',
     consoleDatabaseId,
-    signerDatabaseName: production ? 'seams-signer' : 'seams-signer-staging',
+    signerDatabaseName: production ? 'seams-signer' : 'seams-signer-staging-nrt',
     signerDatabaseId,
     deriverAPrivateDatabaseId,
     deriverBPrivateDatabaseId,
@@ -1239,14 +1239,14 @@ async function discoverCloudflareValues(targetName, suppliedValues, progressLogg
     suppliedValues,
     progressLogger,
     variableName: 'GATEWAY_CONSOLE_D1_DATABASE_ID',
-    databaseName: targetName === 'production' ? 'seams-console' : 'seams-console-staging',
+    databaseName: targetName === 'production' ? 'seams-console' : 'seams-console-staging-nrt',
   });
   ensureD1Database({
     targetName,
     suppliedValues,
     progressLogger,
     variableName: 'GATEWAY_SIGNER_D1_DATABASE_ID',
-    databaseName: targetName === 'production' ? 'seams-signer' : 'seams-signer-staging',
+    databaseName: targetName === 'production' ? 'seams-signer' : 'seams-signer-staging-nrt',
   });
   ensureD1Database({
     targetName,
