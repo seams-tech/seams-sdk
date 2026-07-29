@@ -6,7 +6,6 @@ import {
   type SealedSigningRootShare,
   type SigningRootShareResolver,
 } from '@server/core/ThresholdService/signingRootShareResolver';
-import { createThresholdEcdsaSigningStores } from '@server/core/ThresholdService/stores/EcdsaSigningStore';
 import {
   createEcdsaWalletSessionStore,
   createEd25519WalletSessionStore,
@@ -353,11 +352,6 @@ export function createRouterAbSigningRuntimesForUnitTests(input: {
     logger,
     isNode: true,
   });
-  const ecdsaSigningStores = createThresholdEcdsaSigningStores({
-    config: { kind: 'in-memory' },
-    logger,
-    isNode: true,
-  });
   const keyRecord = input.keyRecord ?? null;
   const parsedKeyRecord = parseThresholdEd25519KeyRecord(
     keyRecord
@@ -410,9 +404,7 @@ export function createRouterAbSigningRuntimesForUnitTests(input: {
   });
   const normalSigningConfig = parseRouterAbNormalSigningRuntimeConfig(config);
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({
-    logger,
     config: parseRouterAbEcdsaPresignRuntimeConfig(config),
-    ecdsaPoolFillSessionStore: ecdsaSigningStores.poolFillSessionStore,
     signingWorkerTransport: requireRouterAbConfiguredSigningWorkerPrivateTransport(
       normalSigningConfig.signingWorkerTransport,
     ),

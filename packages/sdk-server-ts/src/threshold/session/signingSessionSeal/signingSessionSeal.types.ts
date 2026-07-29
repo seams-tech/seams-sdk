@@ -239,10 +239,8 @@ export type SigningSessionSealAuditSink = (
 ) => Promise<void> | void;
 
 export interface CreateSigningSessionSealServiceOptions {
-  sessionPolicy: SigningSessionSealThresholdSessionPolicy;
   cipher: SigningSessionSealCipherAdapter;
   idempotency?: SigningSessionSealServiceIdempotencyOptions;
-  consumePolicy?: SigningSessionSealConsumePolicy;
   guard?: SigningSessionSealGuard;
   audit?: SigningSessionSealAuditSink;
   logger?: NormalizedLogger;

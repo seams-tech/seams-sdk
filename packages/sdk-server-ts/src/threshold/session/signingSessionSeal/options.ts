@@ -1,11 +1,7 @@
-import { createEcdsaWalletSessionStore } from '../../../core/ThresholdService';
-import { createEd25519WalletSessionStore } from '../../../core/ThresholdService';
-import { createWalletSigningBudgetSessionStore } from '../../../core/ThresholdService';
 import type { ThresholdStoreConfigInput } from '../../../core/types';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { createSigningSessionSealShamir3PassCipherAdapter } from './crypto/cipher';
 import { resolveSigningSessionSealIdempotencyFromEnv } from './idempotencyBackends';
-import { createSigningSessionSealPolicyFromWalletSessionStores } from './policy/sessionPolicy';
 import { createSigningSessionSealRoutesOptions } from './routesOptions';
 import {
   formatSigningSessionSealShamirPrimeB64uForWire,
@@ -22,7 +18,6 @@ export type CreateSigningSessionSealOptionsInput = {
   serverEncryptExponentB64u: string;
   serverDecryptExponentB64u: string;
   thresholdStoreConfig: ThresholdStoreConfigInput;
-  isNode?: boolean;
 };
 
 function createShamir3PassCipher(input: {
@@ -81,28 +76,7 @@ export function createSigningSessionSealOptions(input: CreateSigningSessionSealO
     signingSessionSealShamirPrimeB64u,
   );
 
-  const walletSessionStore = createEd25519WalletSessionStore({
-    config: input.thresholdStoreConfig,
-    logger: console,
-    isNode: input.isNode === true,
-  });
-  const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({
-    config: input.thresholdStoreConfig,
-    logger: console,
-    isNode: input.isNode === true,
-  });
-  const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({
-    config: input.thresholdStoreConfig,
-    logger: console,
-    isNode: input.isNode === true,
-  });
-
   return createSigningSessionSealRoutesOptions({
-    sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
-      ed25519Stores: [walletSessionStore],
-      ecdsaStores: [ecdsaWalletSessionStore],
-      walletBudgetStores: [walletBudgetSessionStore],
-    }),
     cipher: createShamir3PassCipher({
       signingSessionSealKeyVersion,
       shamirPrimeB64u: signingSessionSealShamirPrimeB64u,
