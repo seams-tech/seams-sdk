@@ -4,9 +4,9 @@ import type {
   EmailOtpChallengeAction,
   EmailOtpChallengeOperation,
 } from '../../core/EmailOtpStores';
-import type { SignerWasmModuleSupplier, ThresholdStoreConfigInput } from '../../core/types';
+import type { SignerWasmModuleSupplier } from '../../core/types';
 import { EMAIL_OTP_CODE_LENGTH } from '../../core/authService/emailOtpConfig';
-import type { RouterAbSigningRuntimeBundle } from '../../core/routerAbSigning/createRouterAbSigningRuntimes';
+import type { RouterAbEcdsaPresignRuntime } from '../../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAbEd25519YaoProductRegistration';
 import type { RouterAbEcdsaStrictRegistrationPort } from '../routerAbEcdsaStrictRegistration';
 import type { RouterAbWalletBudgetGrantProvisionerV1 } from '../routerAbPrivateSigningWorker';
@@ -93,8 +93,7 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly emailOtpRecoveryKeyAttemptRateLimitWindowMs?: number | string;
   readonly emailOtpGoogleRegistrationAttemptRateLimitMax?: number | string;
   readonly emailOtpGoogleRegistrationAttemptRateLimitWindowMs?: number | string;
-  readonly thresholdStore?: ThresholdStoreConfigInput | null;
-  readonly routerAbSigningRuntimes?: RouterAbSigningRuntimeBundle | null;
+  readonly routerAbEcdsaPresignRuntime?: RouterAbEcdsaPresignRuntime | null;
   readonly walletBudgetGrantProvisioner?: RouterAbWalletBudgetGrantProvisionerV1 | null;
   readonly ed25519YaoProductRegistration?: RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
   readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
@@ -187,8 +186,7 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
   | 'emailOtpRecoveryKeyAttemptRateLimitWindowMs'
   | 'emailOtpGoogleRegistrationAttemptRateLimitMax'
   | 'emailOtpGoogleRegistrationAttemptRateLimitWindowMs'
-  | 'thresholdStore'
-  | 'routerAbSigningRuntimes'
+  | 'routerAbEcdsaPresignRuntime'
 > & {
   readonly relayerAccount?: string;
   readonly relayerPublicKey?: string;
@@ -201,8 +199,7 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
   readonly accountIdDerivationSecret?: string;
   readonly emailOtp: EmailOtpRuntimeConfig;
   readonly emailOtpServerSeal: EmailOtpServerSealRuntimeConfig;
-  readonly thresholdStore?: ThresholdStoreConfigInput | null;
-  readonly routerAbSigningRuntimes?: RouterAbSigningRuntimeBundle | null;
+  readonly routerAbEcdsaPresignRuntime?: RouterAbEcdsaPresignRuntime | null;
 };
 
 export function requireD1RouterApiAuthScopeString(input: unknown, field: string): string {
@@ -259,8 +256,7 @@ export function normalizeD1RouterApiAuthOptions(
     accountIdDerivationSecret: toOptionalTrimmedString(input.accountIdDerivationSecret),
     emailOtp: normalizeEmailOtpConfig(input),
     emailOtpServerSeal: normalizeEmailOtpServerSealConfig(input),
-    thresholdStore: input.thresholdStore,
-    routerAbSigningRuntimes: input.routerAbSigningRuntimes,
+    routerAbEcdsaPresignRuntime: input.routerAbEcdsaPresignRuntime,
     walletBudgetGrantProvisioner: input.walletBudgetGrantProvisioner,
     ed25519YaoProductRegistration: input.ed25519YaoProductRegistration,
     ecdsaStrictRegistration: input.ecdsaStrictRegistration,

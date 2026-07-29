@@ -368,7 +368,7 @@ function d1DatabaseBinding(database) {
 
 function checkDurableObject(source, errors) {
   const blocks = arrayTableBodies(source, 'durable_objects.bindings');
-  checkRequiredDurableObject({
+  checkDeletedDurableObject({
     source,
     blocks,
     bindingName: 'THRESHOLD_STORE',

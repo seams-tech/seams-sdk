@@ -19,12 +19,8 @@ import type {
 } from '@seams/sdk-server/cloud-host';
 import { D1SigningRootSecretStore } from '@seams/sdk-server/cloud-host';
 import type { CfEnv, CfExecutionContext, FetchHandler } from '@seams/sdk-server/cloud-host';
-import { ThresholdStoreDurableObject } from '@seams/sdk-server/cloud-host';
-import type {
-  CloudflareDurableObjectNamespaceLike,
-  ThresholdStoreConfigInput,
-} from '@seams/sdk-server/cloud-host';
 import { createSigningSessionSealOptions } from '@seams/sdk-server/cloud-host';
+import { RouterAbEcdsaPresignRuntime } from '@seams/sdk-server/cloud-host';
 import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/cloud-host';
 import { createCloudflareRouter } from '@seams/sdk-server/cloud-host';
 import { createRouterAbPrivateD1WalletBudgetGrantProvisionerV1 } from '@seams/sdk-server/cloud-host';
@@ -104,12 +100,9 @@ import {
 } from '@seams/sdk-server/cloud-host';
 import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@seams/sdk-server/cloud-host';
 
-export { ThresholdStoreDurableObject };
-
 interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly CONSOLE_DB: D1DatabaseLike;
   readonly SIGNER_DB: D1DatabaseLike;
-  readonly THRESHOLD_STORE: CloudflareDurableObjectNamespaceLike;
   readonly SEAMS_TENANT_STORAGE_NAMESPACE?: string;
   readonly SEAMS_LOCAL_CONSOLE_USER_ID?: string;
   readonly SEAMS_LOCAL_CONSOLE_ORG_ID: string;
@@ -554,9 +547,6 @@ function localRouterAbCeremonyJwksResponse(env: LocalD1DevEnv): Response {
     },
   });
 }
-const LOCAL_ROUTER_AB_ED25519_SEED_PATH = '/router-ab/dev/ed25519/normal-signing/seed';
-const LOCAL_ROUTER_AB_ECDSA_DERIVATION_SEED_PATH =
-  '/router-ab/dev/ecdsa-derivation/normal-signing/seed';
 const LOCAL_SIGNING_ROOT_SECRET_SHARE_ENVELOPE_VERSION = 'local-d1-signing-root-share-v1';
 const LOCAL_SIGNING_ROOT_SECRET_SHARE_AUDIT_EVENT_ID = 'local-dev-signing-root-share-seed';
 const LOCAL_SIGNING_ROOT_SHARE_POLICY: ThresholdPrfPolicy = Object.freeze({
@@ -1143,7 +1133,6 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
     bindings: {
       consoleDatabase: env.CONSOLE_DB,
       signerMetadataDatabase: env.SIGNER_DB,
-      thresholdStore: env.THRESHOLD_STORE,
       kekProvider: localSigningRootKekProvider(env),
     },
     route: {
@@ -1186,7 +1175,6 @@ async function createLocalRouterApiHandler(
     bindings: {
       consoleDatabase: env.CONSOLE_DB,
       signerMetadataDatabase: env.SIGNER_DB,
-      thresholdStore: env.THRESHOLD_STORE,
       kekProvider: localSigningRootKekProvider(env),
     },
     route: {
@@ -1301,21 +1289,6 @@ async function handleLocalYaoRequestScoped(
   }
 }
 
-function localThresholdStoreConfig(env: LocalD1DevEnv): ThresholdStoreConfigInput {
-  return {
-    kind: 'cloudflare-do',
-    namespace: env.THRESHOLD_STORE,
-    THRESHOLD_PREFIX: localTenantStorageNamespace(env),
-    ROUTER_AB_NORMAL_SIGNING_WORKER_ID:
-      normalizeLocalString(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID) ||
-      'local-d1-threshold-signing-worker',
-    ROUTER_AB_SIGNING_WORKER_URL: ROUTER_AB_SIGNING_WORKER_ORIGIN,
-    ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: localRouterAbInternalServiceAuthSecret(env),
-    routerAbSigningWorkerFetch: createRouterAbServiceBindingFetch(env),
-    signingRootShareResolverAdapters: createLocalD1SigningRootShareResolverAdapters(env),
-  };
-}
-
 function localSigningSessionSealOptions(
   env: LocalD1DevEnv,
 ): SigningSessionSealRoutesOptions | undefined {
@@ -1326,9 +1299,33 @@ function localSigningSessionSealOptions(
     shamirPrimeB64u: seal.shamirPrimeB64u,
     serverEncryptExponentB64u: seal.serverEncryptExponentB64u,
     serverDecryptExponentB64u: seal.serverDecryptExponentB64u,
-    thresholdStoreConfig: localThresholdStoreConfig(env),
   });
 }
+
+function createLocalEcdsaPresignRuntime(env: LocalD1DevEnv): RouterAbEcdsaPresignRuntime {
+  return new RouterAbEcdsaPresignRuntime({
+    config: {
+      nodeRole: 'coordinator',
+      participantIds: {
+        clientParticipantId: 1,
+        relayerParticipantId: 2,
+        participantIds2p: [1, 2],
+      },
+    },
+    signingWorkerTransport: {
+      kind: 'configured',
+      signingWorkerBaseUrl: ROUTER_AB_SIGNING_WORKER_ORIGIN,
+      auth: {
+        kind: 'internal_service_auth_secret',
+        secret: localRouterAbInternalServiceAuthSecret(env),
+      },
+      fetchImpl: createRouterAbServiceBindingFetch(env),
+    },
+    ensureReady: readyLocalEcdsaPresignRuntime,
+  });
+}
+
+async function readyLocalEcdsaPresignRuntime(): Promise<void> {}
 
 function localD1RouterApiAuthServiceOptions(
   env: LocalD1DevEnv,
@@ -1373,7 +1370,7 @@ function localD1RouterApiAuthServiceOptions(
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX,
     emailOtpGoogleRegistrationAttemptRateLimitWindowMs:
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
-    thresholdStore: localThresholdStoreConfig(env),
+    routerAbEcdsaPresignRuntime: createLocalEcdsaPresignRuntime(env),
     walletBudgetGrantProvisioner:
       createRouterAbPrivateD1WalletBudgetGrantProvisionerV1({
         routerBaseUrl: ROUTER_AB_MPC_ROUTER_ORIGIN,
@@ -1738,136 +1735,9 @@ async function handleReady(env: LocalD1DevEnv): Promise<Response> {
     bindings: {
       console: 'CONSOLE_DB',
       signer: 'SIGNER_DB',
-      thresholdStore: 'THRESHOLD_STORE',
     },
     admission,
   });
-}
-
-async function handleLocalRouterAbEd25519Seed(
-  request: Request,
-  env: LocalD1DevEnv,
-): Promise<Response> {
-  if (request.method !== 'POST') {
-    return jsonResponse(
-      { ok: false, code: 'method_not_allowed', message: 'method not allowed' },
-      { status: 405 },
-    );
-  }
-  if (!hasLocalRouterAbInternalServiceAuth(request, env)) {
-    return jsonResponse(
-      {
-        ok: false,
-        code: 'unauthorized',
-        message: 'local Router A/B internal service-auth header is invalid',
-      },
-      { status: 401 },
-    );
-  }
-  const body = parseJsonObject(await request.text());
-  if (!body) {
-    return jsonResponse(
-      { ok: false, code: 'invalid_body', message: 'seed body must be a JSON object' },
-      { status: 400 },
-    );
-  }
-  if (body.recoveryExportCapable !== true) {
-    return jsonResponse(
-      {
-        ok: false,
-        code: 'invalid_body',
-        message: 'seed body recoveryExportCapable must be true',
-      },
-      { status: 400 },
-    );
-  }
-  const service = createLocalD1RouterApiAuthService(env);
-  const seedRuntime = service.thresholdRuntime.getRouterAbLocalSigningSeedRuntime();
-  if (!seedRuntime) {
-    return jsonResponse(
-      {
-        ok: false,
-        code: 'not_configured',
-        message: 'local Router A/B signing seed runtime is not configured',
-      },
-      { status: 501 },
-    );
-  }
-  const seeded = await seedRuntime.seedLocalRouterAbEd25519NormalSigningSession({
-    relayerKeyId: requireOptionalString(body.relayerKeyId, ''),
-    walletId: requireOptionalString(body.walletId, ''),
-    nearAccountId: requireOptionalString(body.nearAccountId, ''),
-    nearEd25519SigningKeyId: requireOptionalString(body.nearEd25519SigningKeyId, ''),
-    rpId: requireOptionalString(body.rpId, ''),
-    thresholdSessionId: requireOptionalString(body.thresholdSessionId, ''),
-    signingGrantId: requireOptionalString(body.signingGrantId, ''),
-    publicKey: requireOptionalString(body.publicKey, ''),
-    relayerSigningShareB64u: requireOptionalString(body.relayerSigningShareB64u, ''),
-    relayerVerifyingShareB64u: requireOptionalString(body.relayerVerifyingShareB64u, ''),
-    keyVersion: requireOptionalString(body.keyVersion, ''),
-    thresholdExpiresAtMs: Number(body.thresholdExpiresAtMs),
-    participantIds: Array.isArray(body.participantIds) ? body.participantIds.map(Number) : [],
-    remainingUses: Number(body.remainingUses),
-    recoveryExportCapable: true,
-  });
-  return jsonResponse(seeded, { status: seeded.ok ? 200 : seeded.code === 'internal' ? 500 : 400 });
-}
-
-async function handleLocalRouterAbEcdsaDerivationSeed(
-  request: Request,
-  env: LocalD1DevEnv,
-): Promise<Response> {
-  if (request.method !== 'POST') {
-    return jsonResponse(
-      { ok: false, code: 'method_not_allowed', message: 'method not allowed' },
-      { status: 405 },
-    );
-  }
-  if (!hasLocalRouterAbInternalServiceAuth(request, env)) {
-    return jsonResponse(
-      {
-        ok: false,
-        code: 'unauthorized',
-        message: 'local Router A/B internal service-auth header is invalid',
-      },
-      { status: 401 },
-    );
-  }
-  const body = parseJsonObject(await request.text());
-  if (!body) {
-    return jsonResponse(
-      { ok: false, code: 'invalid_body', message: 'seed body must be a JSON object' },
-      { status: 400 },
-    );
-  }
-  const service = createLocalD1RouterApiAuthService(env);
-  const seedRuntime = service.thresholdRuntime.getRouterAbLocalSigningSeedRuntime();
-  if (!seedRuntime) {
-    return jsonResponse(
-      {
-        ok: false,
-        code: 'not_configured',
-        message: 'local Router A/B signing seed runtime is not configured',
-      },
-      { status: 501 },
-    );
-  }
-  const seeded = await seedRuntime.seedLocalRouterAbEcdsaDerivationNormalSigningSession({
-    walletId: requireOptionalString(body.walletId, ''),
-    evmFamilySigningKeySlotId: requireOptionalString(body.evmFamilySigningKeySlotId, ''),
-    ecdsaThresholdKeyId: requireOptionalString(body.ecdsaThresholdKeyId, ''),
-    signingRootId: requireOptionalString(body.signingRootId, ''),
-    signingRootVersion: requireOptionalString(body.signingRootVersion, ''),
-    walletKeyVersion: requireOptionalString(body.walletKeyVersion, ''),
-    derivationVersion: Number(body.derivationVersion),
-    relayerKeyId: requireOptionalString(body.relayerKeyId, ''),
-    thresholdSessionId: requireOptionalString(body.thresholdSessionId, ''),
-    signingGrantId: requireOptionalString(body.signingGrantId, ''),
-    thresholdExpiresAtMs: Number(body.thresholdExpiresAtMs),
-    participantIds: Array.isArray(body.participantIds) ? body.participantIds.map(Number) : [],
-    remainingUses: Number(body.remainingUses),
-  });
-  return jsonResponse(seeded, { status: seeded.ok ? 200 : seeded.code === 'internal' ? 500 : 400 });
 }
 
 async function fetch(
@@ -1880,12 +1750,6 @@ async function fetch(
   if (url.pathname === '/readyz') return await handleReady(env);
   if (request.method === 'GET' && url.pathname === LOCAL_ROUTER_AB_CEREMONY_JWKS_PATH) {
     return localRouterAbCeremonyJwksResponse(env);
-  }
-  if (url.pathname === LOCAL_ROUTER_AB_ED25519_SEED_PATH) {
-    return await handleLocalRouterAbEd25519Seed(request, env);
-  }
-  if (url.pathname === LOCAL_ROUTER_AB_ECDSA_DERIVATION_SEED_PATH) {
-    return await handleLocalRouterAbEcdsaDerivationSeed(request, env);
   }
   if (isConsolePath(url.pathname)) {
     const handler = await localConsoleHandler(env);

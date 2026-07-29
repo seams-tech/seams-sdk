@@ -15,10 +15,6 @@ database_name = "seams-signer-staging"
 database_id = "<remote-signer-d1-database-id>"
 migrations_dir = "node_modules/@seams/sdk-server/migrations/d1-signer"
 
-[[durable_objects.bindings]]
-name = "THRESHOLD_STORE"
-class_name = "ThresholdStoreDurableObject"
-
 [[services]]
 binding = "SIGNING_WORKER"
 service = "router-ab-signing-worker-staging"
@@ -38,6 +34,10 @@ new_sqlite_classes = ["RouterApiRuntimeDurableObject"]
 [[migrations]]
 tag = "router-api-runtime-delete-v1"
 deleted_classes = ["RouterApiRuntimeDurableObject"]
+
+[[migrations]]
+tag = "threshold-store-delete-v1"
+deleted_classes = ["ThresholdStoreDurableObject"]
 
 [[secrets_store_secrets]]
 binding = "SIGNING_ROOT_KEK_STAGING_R1"

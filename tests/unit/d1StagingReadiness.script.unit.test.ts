@@ -169,7 +169,6 @@ test('D1 staging readiness check rejects the checked-in gateway placeholder temp
 test('D1 staging readiness check rejects signer bindings in console profile', async () => {
   const result = await checkConfig(validD1GatewayStagingConfig(), 'console');
   expectErrorContaining(result, 'console staging config must not reference SIGNER_DB');
-  expectErrorContaining(result, 'console staging config must not reference THRESHOLD_STORE');
   expectErrorContaining(
     result,
     'console staging config must not reference SIGNING_ROOT_KEK_PROVIDER',

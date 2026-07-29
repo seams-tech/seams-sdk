@@ -263,7 +263,6 @@ type RouterAbEcdsaPostRegistrationClientProofCall =
 
 export type ThresholdEcdsaDerivationRouteAuth =
   | AppOrWalletSessionAuth
-  | { kind: 'bootstrap_grant'; token: string }
   | { kind: 'publishable_key'; token: string };
 
 function requireNonEmptyString(value: unknown, field: string): string {

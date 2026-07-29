@@ -284,9 +284,7 @@ function passingManifests(dir: string): PassingEvidenceManifests {
             { binding: 'CONSOLE_DB', databaseId: 'd1-console-id' },
             { binding: 'SIGNER_DB', databaseId: 'd1-signer-id' },
           ],
-          durableObjects: [
-            { name: 'THRESHOLD_STORE', className: 'ThresholdStore' },
-          ],
+          durableObjects: [],
           secretsStoreSecrets: [
             {
               binding: 'SIGNING_ROOT_KEK_R1',
@@ -801,11 +799,6 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
     expectedError: /resource_inventory: resources\.consoleWorker\.d1Databases must not include signer-only binding SIGNER_DB/,
   },
   {
-    name: 'D1 staging evidence verifier rejects signer Durable Objects on the console Worker',
-    mutate: (m) => patchResourceWorker(m.resources, 'consoleWorker', { durableObjects: [{ name: 'THRESHOLD_STORE', className: 'ThresholdStore' }] }),
-    expectedError: /resource_inventory: resources\.consoleWorker\.durableObjects must not include signer-only binding THRESHOLD_STORE/,
-  },
-  {
     name: 'D1 staging evidence verifier rejects signer KEK bindings on the console Worker',
     mutate: (m) => patchResourceWorker(m.resources, 'consoleWorker', {
       secretsStoreSecrets: [{ binding: 'SIGNING_ROOT_KEK_R1', storeId: 'secret-store', secretName: 'kek-r1' }],
@@ -813,18 +806,10 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
     expectedError: /resource_inventory: resources\.consoleWorker\.secretsStoreSecrets must not include signer KEK binding SIGNING_ROOT_KEK_R1/,
   },
   {
-    name: 'D1 staging evidence verifier rejects gateway resource inventory without signer DO binding',
-    mutate: (m) => patchResourceWorker(m.resources, 'gatewayWorker', { durableObjects: [] }),
-    expectedError: /resource_inventory: resources\.gatewayWorker\.durableObjects missing THRESHOLD_STORE/,
-  },
-  {
     name: 'D1 staging evidence verifier rejects a retired Gateway runtime binding',
     mutate: (m) =>
       patchResourceWorker(m.resources, 'gatewayWorker', {
-        durableObjects: [
-          { name: 'THRESHOLD_STORE', className: 'ThresholdStore' },
-          { name: 'ROUTER_API_RUNTIME', className: 'RouterApiRuntimeDurableObject' },
-        ],
+        durableObjects: [{ name: 'ROUTER_API_RUNTIME', className: 'RouterApiRuntimeDurableObject' }],
       }),
     expectedError:
       /resource_inventory: resources\.gatewayWorker\.durableObjects includes unexpected binding ROUTER_API_RUNTIME/,
