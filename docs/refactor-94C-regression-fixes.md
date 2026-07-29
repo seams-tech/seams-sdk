@@ -356,14 +356,14 @@ No implementation on either lane may redefine the other lane's contract.
       non-blocking deferred Yao provisioning.
 - [x] Delete the dead `backend_proxy`/`bootstrapUrl` registration configuration
       and the client standalone-finalize path retired by the three-route flow.
-- [ ] Migrate Ed25519-only registration onto setup, authenticated respond, and
+- [x] Migrate Ed25519-only registration onto setup, authenticated respond, and
       activate-and-finalize. Return the wallet with durable pending NEAR state
       and finish its sole signer asynchronously through deferred Yao, just as
       mixed registration provisions NEAR asynchronously.
 - [x] Implement the Email OTP enrollment commit for Ed25519-only pending-wallet
       activation. The valid Email OTP plus Ed25519-only branch must never return
       `not_implemented`.
-- [ ] Make setup, authenticated respond, and activate-and-finalize the only
+- [x] Make setup, authenticated respond, and activate-and-finalize the only
       blocking registration routes.
 - [ ] Delete stored grants, wallet reservations and cleanup, quota counts,
       start/finalize journals, duplicate replay writes, and successful-path
@@ -402,9 +402,9 @@ command, dual read, legacy binding, or compatibility route ships.
 
 ### Wave 2: Integration
 
-- [ ] Merge the Codex contract, storage, and Worker commits into the 94C
+- [x] Merge the Codex contract, storage, and Worker commits into the 94C
       integration branch first; merge Claude's product commits second.
-- [ ] Resolve generated-binding and call-site conflicts without retaining the
+- [x] Resolve generated-binding and call-site conflicts without retaining the
       old topology or adding compatibility branches.
 - [ ] Prove registration and ordinary signing contain zero DO calls and
       registration contains exactly three blocking server routes.
