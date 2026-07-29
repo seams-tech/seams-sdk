@@ -148,11 +148,6 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
 // runtime now, so a lane's identity never changes underneath it and there is
 // nothing to update in place. It had no production callers.
 
-export function requireEvmFamilyEcdsaAuthMethod(
-  authMethod: EvmFamilyEcdsaAuthMethod | undefined,
-): EvmFamilyEcdsaAuthMethod {
-  if (!authMethod) {
-    throw new Error('[SigningEngine] ECDSA auth method is required for transaction auth planning');
-  }
-  return authMethod;
-}
+// `requireEvmFamilyEcdsaAuthMethod` is gone with its callers: the auth method
+// is no longer optional anywhere on the planning path, so there is nothing to
+// assert present.
