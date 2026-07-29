@@ -6,7 +6,8 @@ import {
   MAX_WALLET_SESSION_TTL_MS,
 } from '@seams/sdk/advanced';
 
-const DEFAULT_NEAR_RPC_URL = 'https://test.rpc.fastnear.com';
+const DEFAULT_NEAR_RPC_URL =
+  'https://test.rpc.fastnear.com,https://rpc.testnet.near.org';
 const DEFAULT_NEAR_EXPLORER_URL = 'https://testnet.nearblocks.io';
 const DEFAULT_DOCS_ORIGIN = 'https://docs.localhost';
 const DEFAULT_TEMPO_RPC_URL = 'https://rpc.moderato.tempo.xyz';
@@ -141,19 +142,24 @@ function resolveRouterAbConfig(
 const env = import.meta.env;
 const rpIdBase = toOptionalString(env.VITE_RP_ID_BASE) || currentBrowserHostname();
 const managedRegistration = resolveManagedRegistrationConfig(env);
+const relayerUrl = toOptionalString(env.VITE_RELAYER_URL);
 
 const docsOrigin = stripTrailingSlash(toTrimmedString(env.VITE_DOCS_ORIGIN)) || DEFAULT_DOCS_ORIGIN;
 const baseUrl = stripTrailingSlash(toTrimmedString(env.BASE_URL || '/')) || '/';
 const nearNetwork = env.VITE_NEAR_NETWORK === 'mainnet' ? 'mainnet' : 'testnet';
 const nearChainNetwork: 'near-mainnet' | 'near-testnet' =
   nearNetwork === 'mainnet' ? 'near-mainnet' : 'near-testnet';
-const nearRpcUrl = toTrimmedString(env.VITE_NEAR_RPC_URL) || DEFAULT_NEAR_RPC_URL;
+const directNearRpcUrl = toTrimmedString(env.VITE_NEAR_RPC_URL) || DEFAULT_NEAR_RPC_URL;
+const nearRpcUrl = relayerUrl
+  ? joinUrlPath(relayerUrl, '/chain-rpc/near')
+  : directNearRpcUrl;
 const nearExplorerUrl = toTrimmedString(env.VITE_NEAR_EXPLORER) || DEFAULT_NEAR_EXPLORER_URL;
 const tempoRpcUrl = toTrimmedString(env.VITE_TEMPO_RPC_URL) || DEFAULT_TEMPO_RPC_URL;
 const tempoExplorerUrl = toTrimmedString(env.VITE_TEMPO_EXPLORER) || DEFAULT_TEMPO_EXPLORER_URL;
 const tempoFeeToken = toTrimmedString(env.VITE_TEMPO_FEE_TOKEN) || DEFAULT_TEMPO_FEE_TOKEN;
 // Arc env keys stay Arc-branded because this demo config wires Arc testnet explicitly.
-const arcRpcUrl = toTrimmedString(env.VITE_ARC_RPC_URL) || DEFAULT_ARC_RPC_URL;
+const directArcRpcUrl = toTrimmedString(env.VITE_ARC_RPC_URL) || DEFAULT_ARC_RPC_URL;
+const arcRpcUrl = relayerUrl ? joinUrlPath(relayerUrl, '/chain-rpc/arc') : directArcRpcUrl;
 const arcExplorerUrl = toTrimmedString(env.VITE_ARC_EXPLORER) || DEFAULT_ARC_EXPLORER_URL;
 const signingSessionPersistenceMode = parseSigningSessionPersistenceMode(
   env.VITE_SIGNING_SESSION_PERSISTENCE_MODE,
@@ -182,7 +188,7 @@ const chains: NonNullable<SeamsConfigsInput['chains']> = [
 ];
 
 export const FRONTEND_CONFIG = Object.freeze({
-  relayerUrl: toOptionalString(env.VITE_RELAYER_URL),
+  relayerUrl,
   consoleBaseUrl: toOptionalString(env.VITE_CONSOLE_BASE_URL),
   managedRegistration,
   relayerAccountId: toOptionalString(env.VITE_RELAYER_ACCOUNT_ID),
