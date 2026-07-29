@@ -223,8 +223,8 @@ function buildPublishableKeyManagedSnippet(
     '  },',
     '});',
     '',
-    '// publishable_key is browser-safe but cannot call the relay directly.',
-    '// The managed broker validates origin/quota and returns a one-time bootstrap_token.',
+    '// publishable_key is browser-safe and is sent directly to the registration setup route.',
+    '// The relay validates its environment and allowed-origin binding.',
     `// Example allowed origin: ${allowedOrigin}`,
     `// Environment scope: ${envScope}`,
   ].join('\n');
@@ -857,12 +857,12 @@ export function ApiKeyManagementPage(): React.JSX.Element {
         <details className="dashboard-view__section" aria-label="Credential integration snippet">
           <summary>
             {revealedCredential.apiKey.kind === 'publishable_key'
-              ? 'Managed browser bootstrap snippet'
+              ? 'Browser registration snippet'
               : 'Server bootstrap snippet'}
           </summary>
           <p>
             {revealedCredential.apiKey.kind === 'publishable_key'
-              ? 'Use this publishable_key in browser-safe SDK config. A managed broker must exchange it for a one-time bootstrap_token before the relay is called.'
+              ? 'Use this publishable_key in browser-safe SDK config. Registration setup validates its environment and allowed-origin binding directly.'
               : 'Use this secret_key from your backend only. Do not store it in frontend config or browser bundles.'}
           </p>
           <pre className="dashboard-code-block">
