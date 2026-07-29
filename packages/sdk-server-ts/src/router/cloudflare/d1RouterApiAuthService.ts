@@ -1199,7 +1199,6 @@ function createCloudflareD1RouterApiAuthAssembly(
   });
   const registrationIntents = new CloudflareD1RegistrationIntentService({
     getRegistrationCeremonyIntentStore,
-    signerWallets: emailOtpEnrollments,
   });
   const emailOtpChallengeIssuer = new CloudflareD1EmailOtpChallengeIssuer({
     config: {

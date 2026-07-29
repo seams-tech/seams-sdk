@@ -8,10 +8,7 @@ import express, {
 import type { RouterApiServiceBag } from './authServicePort';
 import { createCloudflareRouter } from './cloudflare/createCloudflareRouter';
 import type { RouterApiOptions } from './routerApi';
-import {
-  attachRouterApiRouteSurface,
-  getRouterApiRouteSurface,
-} from './routerApiRouteSurface';
+import { attachRouterApiRouteSurface, getRouterApiRouteSurface } from './routerApiRouteSurface';
 
 export type {
   RouterApiOptions,
@@ -28,15 +25,6 @@ export type {
   RouterApiUsageMeterAction,
   RouterApiUsageMeterEvent,
   RouterApiUsageMeterAdapter,
-  RouterApiBootstrapGrantMode,
-  RouterApiBootstrapGrantFailureCode,
-  RouterApiBootstrapGrantClientContext,
-  RouterApiBootstrapGrantIssueRequest,
-  RouterApiBootstrapGrant,
-  RouterApiBootstrapGrantPaymentRequirement,
-  RouterApiBootstrapGrantIssueResult,
-  RouterApiBootstrapTokenRecord,
-  RouterApiBootstrapGrantBroker,
   RouterApiRuntimePolicyScope,
   RouterApiRuntimeSnapshotEnvelope,
   RouterApiRuntimeSnapshotConsumer,
@@ -80,11 +68,7 @@ export type {
   RouterApiRouteExtension,
   RouterApiRouteExtensionTransport,
 } from './routeExtensions';
-export type {
-  RouterApiModule,
-  RouterApiModuleKind,
-  RouterApiModuleOptions,
-} from './modules';
+export type { RouterApiModule, RouterApiModuleKind, RouterApiModuleOptions } from './modules';
 export { createRouterApiModule } from './modules';
 export type { RouteDefinition } from './routeDefinitions';
 export { defineRoute } from './routeDefinitions';

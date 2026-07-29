@@ -2236,14 +2236,24 @@ export async function createWalletAddAuthMethodIntent(args: {
   relayerUrl: string;
   walletId: WalletId;
   request: CreateAddAuthMethodIntentRequest;
+  auth: { publishableKey: string; environmentId: string };
   headers?: Record<string, string>;
 }): Promise<CreateAddAuthMethodIntentResponse> {
   const walletId = String(args.walletId || '').trim();
   if (!walletId) throw new Error('walletId is required for add-auth-method intent');
+  const publishableKey = String(args.auth.publishableKey || '').trim();
+  const environmentId = String(args.auth.environmentId || '').trim();
+  if (!publishableKey || !environmentId) {
+    throw new Error('add-auth-method intent requires a publishable key and environment id');
+  }
   return await postJson<CreateAddAuthMethodIntentResponse>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/intent`,
-    headers: args.headers,
+    headers: {
+      ...args.headers,
+      Authorization: `Bearer ${publishableKey}`,
+      [ROUTER_API_ENVIRONMENT_ID_HEADER]: environmentId,
+    },
     body: args.request,
   });
 }

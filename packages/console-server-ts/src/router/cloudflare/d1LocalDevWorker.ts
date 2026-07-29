@@ -1904,7 +1904,6 @@ async function fetch(
         '/sponsorships/evm/call',
         '/wallet-session/seal/apply-server-seal',
         '/wallet-session/seal/remove-server-seal',
-        '/v1/registration/bootstrap-grants',
       ],
     },
     { status: 200 },
