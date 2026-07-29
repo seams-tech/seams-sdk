@@ -648,7 +648,10 @@ test('Cloudflare D1 Router API auth service revokes wallet auth methods through 
 
     await expect(
       service.walletAuthMethods.revokeWalletAuthMethod({
-        walletId: walletIdValue,
+        subject: {
+          kind: 'wallet_auth_method_management',
+          walletId: walletIdValue,
+        },
         target: { kind: 'email_otp', email },
         auth: {
           kind: 'app_session',
@@ -684,7 +687,10 @@ test('Cloudflare D1 Router API auth service revokes wallet auth methods through 
 
     await expect(
       service.walletAuthMethods.revokeWalletAuthMethod({
-        walletId: walletIdValue,
+        subject: {
+          kind: 'wallet_auth_method_management',
+          walletId: walletIdValue,
+        },
         target: { kind: 'passkey', rpId: rpIdValue, credentialIdB64u: 'credential-a' },
         auth: {
           kind: 'app_session',
