@@ -7,18 +7,13 @@ import type {
   AddAuthMethodIntentV1,
   AddSignerIntentGrant,
   AddSignerIntentV1,
-  RegistrationIntentGrant,
   RegistrationIntentV1,
   WalletAddSignerStartResponse,
   WalletAddSignerFinalizeResponse,
-  WalletRegistrationEcdsaWalletKey,
-  WalletRegistrationFinalizeAuthMethod,
-  WalletRegistrationFinalizeResponse,
   WalletRegistrationStartResponse,
   WalletId,
 } from './registrationContracts';
 import type {
-  ServerAllocatedWalletId,
   RegistrationAuthority,
   RegistrationSignerPlanBranch,
   RegistrationSignerRequest,
@@ -27,12 +22,9 @@ import type {
 } from '@shared/utils/registrationIntent';
 import {
   addAuthMethodIntentGrantFromString,
-  createServerAllocatedWalletId,
   normalizeAddAuthMethodInput,
   normalizeRegistrationSignerPlan,
-  parseServerAllocatedWalletId,
   registrationSignerPlanFromSelection,
-  requireServerAllocatedWalletId,
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
 import {
@@ -73,7 +65,6 @@ import type {
 } from '@shared/utils/routerAbEd25519Yao';
 import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
-  RouterAbEcdsaDerivationActivationPrepareResultV1,
   RouterAbEcdsaRegistrationActivationReceiptV1,
   RouterAbEcdsaRegistrationRequestV1,
   RouterAbEcdsaStrictForwardedRegistrationResponseV1,
@@ -81,38 +72,6 @@ import type {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbEcdsaPendingActivationV1 } from '../router/routerAbEcdsaStrictRegistration';
 import type { WalletEd25519SignerRecord } from './WalletStore';
-
-export type StoredRegistrationIntent = {
-  kind: 'intent_allocated';
-  grant: RegistrationIntentGrant;
-  intent: RegistrationIntentV1;
-  digestB64u: string;
-  orgId: string;
-  signingRootId?: string;
-  signingRootVersion?: string;
-  expectedOrigin?: string;
-  expiresAtMs: number;
-  consumedAtMs?: never;
-  failedAtMs?: never;
-  failure?: never;
-};
-
-export type ConsumedRegistrationIntent = Omit<StoredRegistrationIntent, 'kind' | 'consumedAtMs'> & {
-  kind: 'intent_consumed';
-  consumedAtMs: number;
-};
-
-export type FailedRegistrationIntent = Omit<
-  StoredRegistrationIntent,
-  'kind' | 'failedAtMs' | 'failure'
-> & {
-  kind: 'intent_failed';
-  failedAtMs: number;
-  failure: {
-    code: string;
-    message: string;
-  };
-};
 
 export type StoredAddSignerIntent = {
   kind: 'add_signer_intent_allocated';
@@ -339,7 +298,6 @@ export type StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch =
     pendingActivation: RouterAbEcdsaPendingActivationV1;
     publicResponse: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
     publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
-    activation: RouterAbEcdsaDerivationActivationPrepareResultV1;
   };
 
 export type StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch = StoredEcdsaRegistrationBase & {
@@ -579,12 +537,10 @@ export type TerminalRegistrationCeremonyCancellationResult =
   | {
       kind: 'cancelled';
       ceremonyDeleted: true;
-      walletReservationReleased: boolean;
     }
   | {
       kind: 'not_found';
       ceremonyDeleted: false;
-      walletReservationReleased: false;
     };
 
 export function parseTerminalRegistrationCeremonyCancellationResult(
@@ -593,35 +549,17 @@ export function parseTerminalRegistrationCeremonyCancellationResult(
   if (!isRecord(value)) return null;
   switch (value.kind) {
     case 'cancelled':
-      return value.ceremonyDeleted === true && typeof value.walletReservationReleased === 'boolean'
-        ? {
-            kind: 'cancelled',
-            ceremonyDeleted: true,
-            walletReservationReleased: value.walletReservationReleased,
-          }
+      return value.ceremonyDeleted === true
+        ? { kind: 'cancelled', ceremonyDeleted: true }
         : null;
     case 'not_found':
-      return value.ceremonyDeleted === false && value.walletReservationReleased === false
-        ? {
-            kind: 'not_found',
-            ceremonyDeleted: false,
-            walletReservationReleased: false,
-          }
+      return value.ceremonyDeleted === false
+        ? { kind: 'not_found', ceremonyDeleted: false }
         : null;
     default:
       return null;
   }
 }
-
-export type StoredWalletRegistrationFinalizeReplay = {
-  kind: 'wallet_registration_finalize_replay_v1';
-  registrationCeremonyId: string;
-  idempotencyKey: string;
-  requestFingerprint: string;
-  response: Extract<WalletRegistrationFinalizeResponse, { ok: true }>;
-  createdAtMs: number;
-  expiresAtMs: number;
-};
 
 type StoredEcdsaAddSignerBase = Omit<WalletAddSignerEcdsaStartPayload, 'kind'> & {
   derivationKind: WalletAddSignerEcdsaStartPayload['kind'];
@@ -762,14 +700,6 @@ export type StoredWalletAddAuthMethodCeremony = {
 };
 
 export interface RegistrationCeremonyStore {
-  reserveServerAllocatedWalletId(input: {
-    walletId: ServerAllocatedWalletId;
-    expiresAtMs: number;
-  }): Promise<boolean>;
-  releaseServerAllocatedWalletId(input: { walletId: ServerAllocatedWalletId }): Promise<boolean>;
-  putIntent(intent: StoredRegistrationIntent): Promise<void>;
-  getIntent(grant: RegistrationIntentGrant): Promise<StoredRegistrationIntent | null>;
-  takeIntent(grant: RegistrationIntentGrant): Promise<ConsumedRegistrationIntent | null>;
   putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void>;
   getAddAuthMethodIntent(
     grant: AddAuthMethodIntentGrant,
@@ -788,11 +718,6 @@ export interface RegistrationCeremonyStore {
     registrationCeremonyId: string;
     walletId: WalletId;
   }): Promise<TerminalRegistrationCeremonyCancellationResult>;
-  putFinalizeReplay(replay: StoredWalletRegistrationFinalizeReplay): Promise<void>;
-  getFinalizeReplay(input: {
-    registrationCeremonyId: string;
-    idempotencyKey: string;
-  }): Promise<StoredWalletRegistrationFinalizeReplay | null>;
   putAddSignerFinalizeReplay(replay: StoredWalletAddSignerFinalizeReplay): Promise<void>;
   getAddSignerFinalizeReplay(input: {
     addSignerCeremonyId: string;
@@ -816,12 +741,9 @@ export interface RegistrationCeremonyStore {
 }
 
 export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStore {
-  private readonly serverAllocatedWalletReservations = new Map<string, number>();
-  private readonly intents = new Map<string, StoredRegistrationIntent>();
   private readonly addAuthMethodIntents = new Map<string, StoredAddAuthMethodIntent>();
   private readonly addSignerIntents = new Map<string, StoredAddSignerIntent>();
   private readonly ceremonies = new Map<string, StoredWalletRegistrationCeremony>();
-  private readonly finalizeReplays = new Map<string, StoredWalletRegistrationFinalizeReplay>();
   private readonly addSignerFinalizeReplays = new Map<
     string,
     StoredWalletAddSignerFinalizeReplay
@@ -832,52 +754,6 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
   >();
   private readonly addAuthMethodCeremonies = new Map<string, StoredWalletAddAuthMethodCeremony>();
   private readonly addSignerCeremonies = new Map<string, StoredWalletAddSignerCeremony>();
-
-  async reserveServerAllocatedWalletId(input: {
-    walletId: ServerAllocatedWalletId;
-    expiresAtMs: number;
-  }): Promise<boolean> {
-    this.pruneExpired();
-    const reservationId = serverAllocatedWalletReservationKey(input);
-    const expiresAtMs = Number(input.expiresAtMs);
-    if (!reservationId || !Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
-      return false;
-    }
-    if (this.serverAllocatedWalletReservations.has(reservationId)) return false;
-    this.serverAllocatedWalletReservations.set(reservationId, expiresAtMs);
-    return true;
-  }
-
-  async releaseServerAllocatedWalletId(input: {
-    walletId: ServerAllocatedWalletId;
-  }): Promise<boolean> {
-    this.pruneExpired();
-    const reservationId = serverAllocatedWalletReservationKey(input);
-    if (!reservationId) return false;
-    return this.serverAllocatedWalletReservations.delete(reservationId);
-  }
-
-  async putIntent(intent: StoredRegistrationIntent): Promise<void> {
-    this.pruneExpired();
-    this.intents.set(intent.grant, intent);
-  }
-
-  async getIntent(grant: RegistrationIntentGrant): Promise<StoredRegistrationIntent | null> {
-    this.pruneExpired();
-    const intent = this.intents.get(String(grant || '').trim()) || null;
-    if (!intent || intent.expiresAtMs <= Date.now()) return null;
-    return intent;
-  }
-
-  async takeIntent(grant: RegistrationIntentGrant): Promise<ConsumedRegistrationIntent | null> {
-    this.pruneExpired();
-    const key = String(grant || '').trim();
-    const intent = this.intents.get(key) || null;
-    if (!intent) return null;
-    this.intents.delete(key);
-    if (intent.expiresAtMs <= Date.now()) return null;
-    return { ...intent, kind: 'intent_consumed', consumedAtMs: Date.now() };
-  }
 
   async putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void> {
     this.pruneExpired();
@@ -969,44 +845,16 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
       return {
         kind: 'not_found',
         ceremonyDeleted: false,
-        walletReservationReleased: false,
       };
     }
     if (ceremony.intent.walletId !== input.walletId) {
       throw new Error('Terminal registration cancellation walletId mismatch');
     }
     this.ceremonies.delete(registrationCeremonyId);
-    const serverAllocatedWalletId = parseServerAllocatedWalletId(input.walletId);
     return {
       kind: 'cancelled',
       ceremonyDeleted: true,
-      walletReservationReleased: serverAllocatedWalletId.ok
-        ? this.serverAllocatedWalletReservations.delete(serverAllocatedWalletId.value)
-        : false,
     };
-  }
-
-  async putFinalizeReplay(replay: StoredWalletRegistrationFinalizeReplay): Promise<void> {
-    this.pruneExpired();
-    const parsed = parseStoredWalletRegistrationFinalizeReplay(replay);
-    if (!parsed) throw new Error('Invalid wallet registration finalize replay record');
-    this.finalizeReplays.set(finalizeReplayKey(parsed), parsed);
-  }
-
-  async getFinalizeReplay(input: {
-    registrationCeremonyId: string;
-    idempotencyKey: string;
-  }): Promise<StoredWalletRegistrationFinalizeReplay | null> {
-    this.pruneExpired();
-    const replay =
-      this.finalizeReplays.get(
-        finalizeReplayKey({
-          registrationCeremonyId: input.registrationCeremonyId,
-          idempotencyKey: input.idempotencyKey,
-        }),
-      ) || null;
-    if (!replay || replay.expiresAtMs <= Date.now()) return null;
-    return replay;
   }
 
   async putAddSignerFinalizeReplay(replay: StoredWalletAddSignerFinalizeReplay): Promise<void> {
@@ -1099,9 +947,6 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
 
   private pruneExpired(): void {
     const now = Date.now();
-    for (const [key, intent] of this.intents) {
-      if (intent.expiresAtMs <= now) this.intents.delete(key);
-    }
     for (const [key, intent] of this.addAuthMethodIntents) {
       if (intent.expiresAtMs <= now) this.addAuthMethodIntents.delete(key);
     }
@@ -1110,9 +955,6 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
     }
     for (const [key, ceremony] of this.ceremonies) {
       if (ceremony.expiresAtMs <= now) this.ceremonies.delete(key);
-    }
-    for (const [key, replay] of this.finalizeReplays) {
-      if (replay.expiresAtMs <= now) this.finalizeReplays.delete(key);
     }
     for (const [key, replay] of this.addSignerFinalizeReplays) {
       if (replay.expiresAtMs <= now) this.addSignerFinalizeReplays.delete(key);
@@ -1125,9 +967,6 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
     }
     for (const [key, ceremony] of this.addSignerCeremonies) {
       if (ceremony.expiresAtMs <= now) this.addSignerCeremonies.delete(key);
-    }
-    for (const [key, expiresAtMs] of this.serverAllocatedWalletReservations) {
-      if (expiresAtMs <= now) this.serverAllocatedWalletReservations.delete(key);
     }
   }
 }
@@ -1144,19 +983,6 @@ function trimString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function serverAllocatedWalletReservationKey(input: { walletId: ServerAllocatedWalletId }): string {
-  const walletId = trimString(input.walletId);
-  if (!walletId) return '';
-  return walletId;
-}
-
-function finalizeReplayKey(input: {
-  registrationCeremonyId: string;
-  idempotencyKey: string;
-}): string {
-  return `${trimString(input.registrationCeremonyId)}:${trimString(input.idempotencyKey)}`;
-}
-
 function addSignerFinalizeReplayKey(input: {
   addSignerCeremonyId: string;
   idempotencyKey: string;
@@ -1171,111 +997,6 @@ function parseJsonValue(value: unknown): unknown {
   } catch {
     return null;
   }
-}
-
-function parseWalletRegistrationFinalizeAuthMethod(
-  value: unknown,
-): WalletRegistrationFinalizeAuthMethod | null {
-  if (!isRecord(value)) return null;
-  switch (value.kind) {
-    case 'passkey': {
-      const credentialIdB64u = trimString(value.credentialIdB64u);
-      const credentialPublicKeyB64u = trimString(value.credentialPublicKeyB64u);
-      if (!credentialIdB64u || !credentialPublicKeyB64u) return null;
-      return {
-        kind: 'passkey',
-        credentialIdB64u,
-        credentialPublicKeyB64u,
-      };
-    }
-    case 'email_otp': {
-      const registrationAuthorityId = trimString(value.registrationAuthorityId);
-      if (!registrationAuthorityId) return null;
-      return {
-        kind: 'email_otp',
-        registrationAuthorityId,
-      };
-    }
-    default:
-      return null;
-  }
-}
-
-function parseFinalizeReplayResponse(
-  value: unknown,
-): Extract<WalletRegistrationFinalizeResponse, { ok: true }> | null {
-  if (!isRecord(value) || value.ok !== true || value.kind !== 'evm_family_ecdsa') return null;
-  const walletIdRaw = trimString(value.walletId);
-  const rpId = trimString(value.rpId);
-  const authMethod = parseWalletRegistrationFinalizeAuthMethod(value.authMethod);
-  const authority = parseWalletAuthAuthority(value.authority);
-  if (
-    !walletIdRaw ||
-    !authMethod ||
-    !authority ||
-    !isRecord(value.ecdsa) ||
-    !Array.isArray(value.ecdsa.walletKeys)
-  ) {
-    return null;
-  }
-  const walletId = walletIdFromString(walletIdRaw);
-  if (authority.walletId !== walletId) return null;
-  const walletKeys = value.ecdsa.walletKeys as WalletRegistrationEcdsaWalletKey[];
-  if (authMethod.kind === 'passkey') {
-    if (!rpId) return null;
-    return {
-      ok: true,
-      kind: 'evm_family_ecdsa',
-      walletId,
-      rpId,
-      authority,
-      authMethod,
-      ecdsa: { walletKeys },
-    };
-  }
-  if (rpId) return null;
-  return {
-    ok: true,
-    kind: 'evm_family_ecdsa',
-    walletId,
-    authority,
-    authMethod,
-    ecdsa: { walletKeys },
-  };
-}
-
-function parseStoredWalletRegistrationFinalizeReplay(
-  value: unknown,
-): StoredWalletRegistrationFinalizeReplay | null {
-  value = parseJsonValue(value);
-  if (!isRecord(value) || value.kind !== 'wallet_registration_finalize_replay_v1') return null;
-  const registrationCeremonyId = trimString(value.registrationCeremonyId);
-  const idempotencyKey = trimString(value.idempotencyKey);
-  const requestFingerprint = trimString(value.requestFingerprint);
-  const createdAtMs = Number(value.createdAtMs);
-  const expiresAtMs = Number(value.expiresAtMs);
-  const response = parseFinalizeReplayResponse(value.response);
-  if (
-    !registrationCeremonyId ||
-    !idempotencyKey ||
-    !requestFingerprint ||
-    !response ||
-    !Number.isSafeInteger(createdAtMs) ||
-    createdAtMs <= 0 ||
-    !Number.isSafeInteger(expiresAtMs) ||
-    expiresAtMs <= 0
-  ) {
-    return null;
-  }
-  return {
-    kind: 'wallet_registration_finalize_replay_v1',
-    registrationCeremonyId,
-    idempotencyKey,
-    requestFingerprint,
-    response,
-    createdAtMs,
-    expiresAtMs,
-  };
 }
 
 function isStoredWalletAddSignerFinalizeSuccess(
@@ -1383,18 +1104,6 @@ function parseStoredBytes32(value: unknown): number[] | null {
     bytes.push(byte);
   }
   return bytes;
-}
-
-function parseStoredRegistrationIntent(value: unknown): StoredRegistrationIntent | null {
-  value = parseJsonValue(value);
-  if (!isRecord(value)) return null;
-  if (value.kind !== 'intent_allocated') return null;
-  if (typeof value.grant !== 'string' || !value.grant.trim()) return null;
-  if (!isRecord(value.intent)) return null;
-  if (typeof value.digestB64u !== 'string' || !value.digestB64u.trim()) return null;
-  if (typeof value.orgId !== 'string') return null;
-  if (!Number.isFinite(Number(value.expiresAtMs))) return null;
-  return value as StoredRegistrationIntent;
 }
 
 export function parseStoredRegistrationSignerPlan(value: unknown): RegistrationSignerPlan | null {
@@ -1994,24 +1703,10 @@ type DoRequest =
   | { op: 'del'; key: string }
   | { op: 'getdel'; key: string }
   | {
-      op: 'registrationReserveWalletId';
-      key: string;
-      walletId: string;
-      expiresAtMs: number;
-    }
-  | {
       op: 'registrationCancelTerminal';
       ceremonyKey: string;
       registrationCeremonyId: string;
       walletId: string;
-      reservation:
-        | {
-            kind: 'server_allocated_wallet';
-            key: string;
-          }
-        | {
-            kind: 'none';
-          };
     }
   | {
       op: 'getdelIfRelatedMatches';
@@ -2102,95 +1797,16 @@ class CloudflareDurableObjectRegistrationCeremonyStore implements RegistrationCe
 
   private key(
     scope:
-      | 'intent'
-      | 'preparation'
       | 'add-auth-method-intent'
       | 'add-signer-intent'
       | 'ceremony'
-      | 'finalize-replay'
       | 'add-signer-finalize-replay'
       | 'add-signer-finalize-claim'
-      | 'server-allocated-wallet-reservation'
       | 'add-auth-method'
       | 'add-signer',
     id: string,
   ): string {
     return `${this.prefix}${scope}:${id}`;
-  }
-
-  async reserveServerAllocatedWalletId(input: {
-    walletId: ServerAllocatedWalletId;
-    expiresAtMs: number;
-  }): Promise<boolean> {
-    const walletId = trimString(input.walletId);
-    const expiresAtMs = Math.floor(Number(input.expiresAtMs));
-    if (!walletId || !Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
-      return false;
-    }
-    const response = await callDo<unknown>(this.stub, {
-      op: 'registrationReserveWalletId',
-      key: this.key(
-        'server-allocated-wallet-reservation',
-        serverAllocatedWalletReservationKey(input),
-      ),
-      walletId,
-      expiresAtMs,
-    });
-    return response.ok;
-  }
-
-  async releaseServerAllocatedWalletId(input: {
-    walletId: ServerAllocatedWalletId;
-  }): Promise<boolean> {
-    const walletId = trimString(input.walletId);
-    if (!walletId) return false;
-    const response = await callDo<boolean>(this.stub, {
-      op: 'del',
-      key: this.key(
-        'server-allocated-wallet-reservation',
-        serverAllocatedWalletReservationKey(input),
-      ),
-    });
-    return response.ok && response.value === true;
-  }
-
-  async putIntent(intent: StoredRegistrationIntent): Promise<void> {
-    const parsed = parseStoredRegistrationIntent(intent);
-    if (!parsed) throw new Error('Invalid registration intent record');
-    const ttlMs = Math.max(1, parsed.expiresAtMs - Date.now());
-    const response = await callDo<void>(this.stub, {
-      op: 'set',
-      key: this.key('intent', parsed.grant),
-      value: parsed,
-      ttlMs,
-    });
-    if (!response.ok) throw new Error(response.message);
-  }
-
-  async getIntent(grant: RegistrationIntentGrant): Promise<StoredRegistrationIntent | null> {
-    const key = trimString(grant);
-    if (!key) return null;
-    const response = await callDo<unknown | null>(this.stub, {
-      op: 'get',
-      key: this.key('intent', key),
-    });
-    if (!response.ok) return null;
-    const intent = parseStoredRegistrationIntent(response.value);
-    if (!intent || intent.expiresAtMs <= Date.now()) return null;
-    return intent;
-  }
-
-  async takeIntent(grant: RegistrationIntentGrant): Promise<ConsumedRegistrationIntent | null> {
-    const key = trimString(grant);
-    if (!key) return null;
-    const response = await callDo<unknown | null>(this.stub, {
-      op: 'getdel',
-      key: this.key('intent', key),
-    });
-    if (!response.ok) return null;
-    const intent = parseStoredRegistrationIntent(response.value);
-    if (!intent || intent.expiresAtMs <= Date.now()) return null;
-    return { ...intent, kind: 'intent_consumed', consumedAtMs: Date.now() };
   }
 
   async putAddSignerIntent(intent: StoredAddSignerIntent): Promise<void> {
@@ -2341,54 +1957,16 @@ class CloudflareDurableObjectRegistrationCeremonyStore implements RegistrationCe
     if (!registrationCeremonyId || !walletId) {
       throw new Error('Terminal registration cancellation requires ceremony and wallet IDs');
     }
-    const serverAllocatedWalletId = parseServerAllocatedWalletId(input.walletId);
     const response = await callDo<unknown>(this.stub, {
       op: 'registrationCancelTerminal',
       ceremonyKey: this.key('ceremony', registrationCeremonyId),
       registrationCeremonyId,
       walletId,
-      reservation: serverAllocatedWalletId.ok
-        ? {
-            kind: 'server_allocated_wallet',
-            key: this.key(
-              'server-allocated-wallet-reservation',
-              serverAllocatedWalletReservationKey({ walletId: serverAllocatedWalletId.value }),
-            ),
-          }
-        : { kind: 'none' },
     });
     if (!response.ok) throw new Error(response.message);
     const result = parseTerminalRegistrationCeremonyCancellationResult(response.value);
     if (!result) throw new Error('Terminal registration cancellation returned an invalid result');
     return result;
-  }
-
-  async putFinalizeReplay(replay: StoredWalletRegistrationFinalizeReplay): Promise<void> {
-    const parsed = parseStoredWalletRegistrationFinalizeReplay(replay);
-    if (!parsed) throw new Error('Invalid wallet registration finalize replay record');
-    const ttlMs = Math.max(1, parsed.expiresAtMs - Date.now());
-    const response = await callDo<void>(this.stub, {
-      op: 'set',
-      key: this.key('finalize-replay', finalizeReplayKey(parsed)),
-      value: parsed,
-      ttlMs,
-    });
-    if (!response.ok) throw new Error(response.message);
-  }
-
-  async getFinalizeReplay(input: {
-    registrationCeremonyId: string;
-    idempotencyKey: string;
-  }): Promise<StoredWalletRegistrationFinalizeReplay | null> {
-    if (!trimString(input.registrationCeremonyId) || !trimString(input.idempotencyKey)) return null;
-    const response = await callDo<unknown | null>(this.stub, {
-      op: 'get',
-      key: this.key('finalize-replay', finalizeReplayKey(input)),
-    });
-    if (!response.ok) return null;
-    const replay = parseStoredWalletRegistrationFinalizeReplay(response.value);
-    if (!replay || replay.expiresAtMs <= Date.now()) return null;
-    return replay;
   }
 
   async putAddSignerFinalizeReplay(replay: StoredWalletAddSignerFinalizeReplay): Promise<void> {
@@ -2598,8 +2176,4 @@ export function createRegistrationCeremonyStore(
     '[wallet-registration] Using in-memory registration ceremony store; configure Cloudflare Durable Object storage for durable registration ceremonies',
   );
   return new MemoryRegistrationCeremonyStore();
-}
-
-export function createWalletId(): ServerAllocatedWalletId {
-  return createServerAllocatedWalletId();
 }

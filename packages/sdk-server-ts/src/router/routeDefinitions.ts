@@ -97,6 +97,9 @@ const ROUTER_API_THRESHOLD_SESSION_SERVICES = [
   'thresholdRuntime',
   'session',
 ] as const satisfies readonly CoreRouteServiceKey[];
+const ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES = [
+  'session',
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES = [
   'thresholdRuntime',
   'webAuthn',
@@ -517,46 +520,6 @@ export function createRouterApiRouteDefinitions(
       { kind: 'none' },
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
-    apiCredentialRoute(
-      'wallet_registration_intent',
-      'POST',
-      '/wallets/register/intent',
-      'Create a wallet registration intent',
-      {
-        plane: 'api_credentials',
-        credentials: ['secret_key', 'bootstrap_token'],
-        scopes: ['accounts.create'],
-        environmentBinding: 'required',
-        originBinding: 'required',
-      },
-      { kind: 'none' },
-      ROUTER_API_WALLET_REGISTRATION_SERVICES,
-    ),
-    publicRoute(
-      'wallet_registration_intent_cancel',
-      'POST',
-      '/wallets/register/intent/cancel',
-      'Cancel an unconsumed wallet registration intent',
-      {
-        plane: 'public',
-        proof: 'intent_grant',
-        rationale:
-          'Intent cancellation is authorized by an unconsumed registration intent grant and digest.',
-      },
-      ROUTER_API_WALLET_REGISTRATION_SERVICES,
-    ),
-    publicRoute(
-      'wallet_registration_start',
-      'POST',
-      '/wallets/register/start',
-      'Start a wallet registration ceremony',
-      {
-        plane: 'public',
-        proof: 'webauthn',
-        rationale: 'Registration start is authorized by an intent grant and WebAuthn create proof.',
-      },
-      ROUTER_API_WALLET_REGISTRATION_SERVICES,
-    ),
     publicRoute(
       'wallet_registration_respond',
       'POST',
@@ -569,18 +532,6 @@ export function createRouterApiRouteDefinitions(
           'Registration respond is authorized by the signed setup payload and the registration authority proof.',
       },
       ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
-    ),
-    publicRoute(
-      'wallet_registration_ecdsa_derivation_respond',
-      'POST',
-      '/wallets/register/derivation/respond',
-      'Continue a wallet registration DERIVATION ceremony',
-      {
-        plane: 'public',
-        proof: 'threshold_protocol_state',
-        rationale: 'Registration DERIVATION respond is bound to an unexpired ceremony id.',
-      },
-      ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
       'wallet_registration_activate',
@@ -608,32 +559,6 @@ export function createRouterApiRouteDefinitions(
           'NEAR provisioning is bound to a signed setup payload and a completed Yao activation.',
       },
       ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
-    ),
-    publicRoute(
-      'wallet_registration_ecdsa_activation',
-      'POST',
-      '/wallets/register/derivation/activate',
-      'Activate one verified wallet ECDSA family registration',
-      {
-        plane: 'public',
-        proof: 'threshold_protocol_state',
-        rationale:
-          'Registration activation is bound to one unexpired server-retained Router ceremony.',
-      },
-      ROUTER_API_WALLET_REGISTRATION_SERVICES,
-    ),
-    publicRoute(
-      'wallet_registration_finalize',
-      'POST',
-      '/wallets/register/finalize',
-      'Finalize a wallet registration ceremony',
-      {
-        plane: 'public',
-        proof: 'threshold_protocol_state',
-        rationale: 'Registration finalize is bound to completed ceremony protocol state.',
-      },
-      ROUTER_API_WALLET_REGISTRATION_SERVICES,
-      { kind: 'event', action: 'wallet_created' },
     ),
     apiCredentialRoute(
       'wallet_add_signer_intent',
@@ -710,7 +635,7 @@ export function createRouterApiRouteDefinitions(
       'Create a wallet add-auth-method intent',
       {
         plane: 'api_credentials',
-        credentials: ['secret_key', 'bootstrap_token'],
+        credentials: ['publishable_key'],
         scopes: ['wallets.auth_methods.create'],
         environmentBinding: 'required',
         originBinding: 'required',
@@ -840,7 +765,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
       'Prepare Router A/B Ed25519 normal signing',
       'ed25519',
-      ROUTER_API_THRESHOLD_SESSION_SERVICES,
+      ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ed25519_sign_finalize',
@@ -848,7 +773,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
       'Finalize Router A/B Ed25519 normal signing',
       'ed25519',
-      ROUTER_API_THRESHOLD_SESSION_SERVICES,
+      ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
     publicRoute(
       'router_ab_ecdsa_derivation_healthz',
@@ -899,7 +824,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH,
       'Prepare Router A/B ECDSA derivation normal signing',
       'ecdsa',
-      ROUTER_API_THRESHOLD_SESSION_SERVICES,
+      ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ecdsa_derivation_sign_finalize',
@@ -907,7 +832,7 @@ export function createRouterApiRouteDefinitions(
       ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH,
       'Finalize Router A/B ECDSA derivation normal signing',
       'ecdsa',
-      ROUTER_API_THRESHOLD_SESSION_SERVICES,
+      ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ecdsa_derivation_presignature_pool_fill_init',

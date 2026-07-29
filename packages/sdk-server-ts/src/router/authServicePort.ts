@@ -34,8 +34,8 @@ import type {
   RecoveryExecutionStatus,
 } from '../core/RecoveryExecutionStore';
 import type { RecoverySessionRecord, RecoverySessionStatus } from '../core/RecoverySessionStore';
-import type { RouterAbNormalSigningRuntime } from '../core/routerAbSigning/RouterAbNormalSigningRuntime';
 import type { RouterAbEcdsaPresignRuntime } from '../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
+import type { RouterAbWalletBudgetGrantProvisionerV1 } from './routerAbPrivateSigningWorker';
 import type {
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
@@ -45,14 +45,10 @@ import type {
   WebAuthnAuthenticationCredential,
 } from '../core/types';
 import type {
-  CancelRegistrationIntentRequest,
-  CancelRegistrationIntentResponse,
   AddAuthMethodInput,
   AddSignerSelection,
   CreateAddAuthMethodIntentResponse,
   CreateAddSignerIntentResponse,
-  CreateRegistrationIntentRequest,
-  CreateRegistrationIntentResponse,
   WalletAddAuthMethodFinalizeRequest,
   WalletAddAuthMethodFinalizeResponse,
   WalletAddAuthMethodStartRequest,
@@ -61,27 +57,15 @@ import type {
   WalletAddSignerFinalizeResponse,
   WalletAddSignerEcdsaActivationRequest,
   WalletAddSignerEcdsaActivationResponse,
-  WalletAddSignerEcdsaActivationPrepareRequest,
-  WalletAddSignerEcdsaActivationPrepareResponse,
-  WalletAddSignerEcdsaActivationQueryRequest,
-  WalletAddSignerEcdsaActivationQueryResponse,
   WalletAddSignerEcdsaDerivationRespondRequest,
   WalletAddSignerEcdsaDerivationRespondResponse,
   WalletAddSignerStartRequest,
   WalletAddSignerStartResponse,
-  WalletRegistrationFinalizeRequest,
-  WalletRegistrationFinalizeResponse,
-  WalletRegistrationEcdsaActivationPrepareRequest,
-  WalletRegistrationEcdsaActivationPrepareResponse,
-  WalletRegistrationEcdsaActivationQueryRequest,
-  WalletRegistrationEcdsaActivationQueryResponse,
   WalletRegistrationEcdsaActivationRequest,
   WalletRegistrationEcdsaActivationResponse,
   WalletRegistrationEcdsaDerivationRespondRequest,
   WalletRegistrationEcdsaDerivationRespondResponse,
   WalletRegistrationEcdsaWalletKey,
-  WalletRegistrationStartRequest,
-  WalletRegistrationStartResponse,
   WalletRevokeAuthMethodRequest,
   WalletRevokeAuthMethodResponse,
 } from '../core/registrationContracts';
@@ -524,23 +508,6 @@ export type RouterApiMethodTypes = {
     };
     readonly result: CreateAddSignerIntentResponse;
   };
-  createRegistrationIntent: {
-    readonly input: {
-      readonly request: CreateRegistrationIntentRequest;
-      readonly orgId: string;
-      readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
-      readonly signingRootId?: string;
-      readonly signingRootVersion?: string;
-      readonly expectedOrigin?: string;
-    };
-    readonly result: CreateRegistrationIntentResponse;
-  };
-  cancelRegistrationIntent: {
-    readonly input: {
-      readonly request: CancelRegistrationIntentRequest;
-    };
-    readonly result: CancelRegistrationIntentResponse;
-  };
   consumeEmailOtpGrant: {
     readonly input: ConsumeEmailOtpGrantCommand;
     readonly result:
@@ -660,10 +627,6 @@ export type RouterApiMethodTypes = {
     readonly input: WalletAddSignerFinalizeRequest;
     readonly result: WalletAddSignerFinalizeResponse;
   };
-  finalizeWalletRegistration: {
-    readonly input: WalletRegistrationFinalizeRequest;
-    readonly result: WalletRegistrationFinalizeResponse;
-  };
   fundImplicitNearAccount: {
     readonly input: FundImplicitNearAccountRequest;
     readonly result: FundImplicitNearAccountResult;
@@ -717,10 +680,6 @@ export type RouterApiMethodTypes = {
           readonly code: 'invalid_args' | 'internal';
           readonly message: string;
         };
-  };
-  getRouterAbNormalSigningRuntime: {
-    readonly input: never;
-    readonly result: RouterAbNormalSigningRuntime | null;
   };
   isEmailOtpStrongAuthRequired: {
     readonly input: { readonly subject: EmailOtpStrongAuthSubject };
@@ -878,14 +837,6 @@ export type RouterApiMethodTypes = {
     readonly input: WalletAddSignerEcdsaActivationRequest;
     readonly result: WalletAddSignerEcdsaActivationResponse;
   };
-  prepareWalletAddSignerEcdsaActivation: {
-    readonly input: WalletAddSignerEcdsaActivationPrepareRequest;
-    readonly result: WalletAddSignerEcdsaActivationPrepareResponse;
-  };
-  queryWalletAddSignerEcdsaActivation: {
-    readonly input: WalletAddSignerEcdsaActivationQueryRequest;
-    readonly result: WalletAddSignerEcdsaActivationQueryResponse;
-  };
   getWalletAddSignerRuntimePolicyScope: {
     readonly input: { readonly addSignerCeremonyId: string };
     readonly result: ThresholdRuntimePolicyScope | null;
@@ -897,14 +848,6 @@ export type RouterApiMethodTypes = {
   activateWalletRegistrationEcdsa: {
     readonly input: WalletRegistrationEcdsaActivationRequest;
     readonly result: WalletRegistrationEcdsaActivationResponse;
-  };
-  prepareWalletRegistrationEcdsaActivation: {
-    readonly input: WalletRegistrationEcdsaActivationPrepareRequest;
-    readonly result: WalletRegistrationEcdsaActivationPrepareResponse;
-  };
-  queryWalletRegistrationEcdsaActivation: {
-    readonly input: WalletRegistrationEcdsaActivationQueryRequest;
-    readonly result: WalletRegistrationEcdsaActivationQueryResponse;
   };
   resolveGoogleEmailOtpSession: {
     readonly input: {
@@ -973,10 +916,6 @@ export type RouterApiMethodTypes = {
   startWalletAddSigner: {
     readonly input: WalletAddSignerStartRequest;
     readonly result: WalletAddSignerStartResponse;
-  };
-  startWalletRegistration: {
-    readonly input: WalletRegistrationStartRequest;
-    readonly result: WalletRegistrationStartResponse;
   };
   unlinkIdentity: {
     readonly input: { readonly userId: string; readonly subject: string };
@@ -1161,12 +1100,9 @@ export type GoogleEmailOtpRegistrationCandidateWalletValidationResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
-export interface RouterAbWalletSigningRuntimeService {
-  getRouterAbNormalSigningRuntime(): RouterAbNormalSigningRuntime | null;
-}
-
-export interface RouterAbSigningRuntimeService extends RouterAbWalletSigningRuntimeService {
+export interface RouterAbSigningRuntimeService {
   getRouterAbEcdsaPresignRuntime(): RouterAbEcdsaPresignRuntime | null;
+  getWalletBudgetGrantProvisioner?(): RouterAbWalletBudgetGrantProvisionerV1 | null;
 }
 
 export interface RouterApiEmailOtpChallengeService {
@@ -1185,17 +1121,6 @@ export interface RouterApiWalletRegistrationService {
   listWalletEcdsaKeyFactsInventory(
     input: RouterApiMethodTypes['listWalletEcdsaKeyFactsInventory']['input'],
   ): Promise<RouterApiMethodTypes['listWalletEcdsaKeyFactsInventory']['result']>;
-  createRegistrationIntent(input: {
-    request: CreateRegistrationIntentRequest;
-    orgId: string;
-    runtimePolicyScope?: ThresholdRuntimePolicyScope;
-    signingRootId?: string;
-    signingRootVersion?: string;
-    expectedOrigin?: string;
-  }): Promise<CreateRegistrationIntentResponse>;
-  cancelRegistrationIntent(input: {
-    request: CancelRegistrationIntentRequest;
-  }): Promise<CancelRegistrationIntentResponse>;
   setupWalletRegistration(
     input: WalletRegistrationSetupInput,
   ): Promise<WalletRegistrationSetupResponseV2>;
@@ -1210,30 +1135,6 @@ export interface RouterApiWalletRegistrationService {
   completeWalletRegistrationNearProvisioning(
     input: WalletRegistrationNearProvisioningInput,
   ): Promise<WalletRegistrationNearProvisioningResponseV2>;
-  startWalletRegistration(
-    input: WalletRegistrationStartRequest,
-    context?: { readonly userAgent?: string },
-  ): Promise<WalletRegistrationStartResponse>;
-  respondWalletRegistrationEcdsaDerivation(
-    input: WalletRegistrationEcdsaDerivationRespondRequest,
-    traceContext?: RouterAbTraceContextV1,
-  ): Promise<WalletRegistrationEcdsaDerivationRespondResponse>;
-  prepareWalletRegistrationEcdsaActivation(
-    input: WalletRegistrationEcdsaActivationPrepareRequest,
-  ): Promise<WalletRegistrationEcdsaActivationPrepareResponse>;
-  activateWalletRegistrationEcdsa(
-    input: WalletRegistrationEcdsaActivationRequest,
-    traceContext?: RouterAbTraceContextV1,
-  ): Promise<WalletRegistrationEcdsaActivationResponse>;
-  queryWalletRegistrationEcdsaActivation(
-    input: WalletRegistrationEcdsaActivationQueryRequest,
-  ): Promise<WalletRegistrationEcdsaActivationQueryResponse>;
-  getWalletRegistrationRuntimePolicyScope(
-    registrationCeremonyId: string,
-  ): Promise<ThresholdRuntimePolicyScope | undefined>;
-  finalizeWalletRegistration(
-    input: WalletRegistrationFinalizeRequest,
-  ): Promise<WalletRegistrationFinalizeResponse>;
   refreshEd25519YaoWalletSession(
     input: RouterAbEd25519YaoBudgetRefreshRequestV1,
   ): Promise<RouterAbEd25519YaoBudgetRefreshResponseV1>;
@@ -1308,15 +1209,9 @@ export interface RouterApiWalletAuthMethodService {
   respondWalletAddSignerEcdsaDerivation(
     input: WalletAddSignerEcdsaDerivationRespondRequest,
   ): Promise<WalletAddSignerEcdsaDerivationRespondResponse>;
-  prepareWalletAddSignerEcdsaActivation(
-    input: WalletAddSignerEcdsaActivationPrepareRequest,
-  ): Promise<WalletAddSignerEcdsaActivationPrepareResponse>;
   activateWalletAddSignerEcdsa(
     input: WalletAddSignerEcdsaActivationRequest,
   ): Promise<WalletAddSignerEcdsaActivationResponse>;
-  queryWalletAddSignerEcdsaActivation(
-    input: WalletAddSignerEcdsaActivationQueryRequest,
-  ): Promise<WalletAddSignerEcdsaActivationQueryResponse>;
   getWalletAddSignerRuntimePolicyScope(
     addSignerCeremonyId: string,
   ): Promise<ThresholdRuntimePolicyScope | null>;
@@ -1332,7 +1227,6 @@ export interface RouterApiWalletAuthMethodService {
 
 export interface RouterApiWalletRegistrationRouteService
   extends
-    RouterAbWalletSigningRuntimeService,
     RouterApiWalletRegistrationService,
     RouterApiWalletAuthMethodService,
     RouterApiWalletAuthVerificationService {
@@ -1602,7 +1496,6 @@ export function routerApiWalletRegistrationRouteService(
     ...service.walletRegistration,
     ...service.walletAuthMethods,
     getOrCreateAppSessionVersion: service.sessionVersions.getOrCreateAppSessionVersion,
-    getRouterAbNormalSigningRuntime: service.thresholdRuntime.getRouterAbNormalSigningRuntime,
     validateAppSessionVersion: service.sessionVersions.validateAppSessionVersion,
     verifyWebAuthnAuthenticationLite: service.webAuthn.verifyWebAuthnAuthenticationLite,
     fundImplicitNearAccount: service.nearFunding.fundImplicitNearAccount,

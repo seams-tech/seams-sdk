@@ -7,8 +7,6 @@ export type RouteMethod = 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
 
 export const ROUTE_SERVICE_KEYS = [
   'apiKeyAuth',
-  'bootstrapGrantBroker',
-  'bootstrapTokenVerifier',
   'emailOtp',
   'emailRecoveryAuth',
   'emailRecoveryExecution',

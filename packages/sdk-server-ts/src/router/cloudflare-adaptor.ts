@@ -1,13 +1,4 @@
 export type {
-  RouterApiBootstrapGrant,
-  RouterApiBootstrapGrantBroker,
-  RouterApiBootstrapGrantClientContext,
-  RouterApiBootstrapGrantFailureCode,
-  RouterApiBootstrapGrantIssueRequest,
-  RouterApiBootstrapGrantIssueResult,
-  RouterApiBootstrapGrantMode,
-  RouterApiBootstrapGrantPaymentRequirement,
-  RouterApiBootstrapTokenRecord,
   RouterApiKeyAuthAdapter,
   RouterApiKeyAuthFailureCode,
   RouterApiKeyAuthRequest,
@@ -40,15 +31,15 @@ export type {
   RouterAbNormalSigningAdmissionResult,
 } from './routerAbPrivateSigningWorker';
 export {
-  CloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
+  CloudflareD1RouterAbNormalSigningAdmissionStore,
   InMemoryRouterAbNormalSigningAdmissionStore,
-  createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
+  createCloudflareD1RouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
 } from './routerAbNormalSigningAdmissionCore';
 export type {
-  CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions,
+  CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
   InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAbuseProvider,
@@ -138,7 +129,6 @@ export type {
   D1DatabaseLike,
   D1DatabaseName,
   D1PreparedStatementLike,
-  DurableObjectBindingName,
   NamespaceId,
   OrgId,
   ResolveTenantStorageRouteInput,
@@ -172,10 +162,6 @@ export {
   resolveSourceIpFromExpressRequest,
   resolveSourceIpFromFetchHeaders,
 } from './routerApiKeyAuth';
-export {
-  RouterApiBootstrapGrantError,
-  parseRouterApiBootstrapGrantIssueBody,
-} from './bootstrapGrantBroker';
 export { createCloudflareRouter } from './cloudflare/createCloudflareRouter';
 export type { SelfHostedCloudflareSigningWorkerFactoryInput } from './cloudflare/createSelfHostedCloudflareSigningWorker';
 export {

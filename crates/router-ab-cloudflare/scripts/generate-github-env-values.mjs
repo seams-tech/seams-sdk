@@ -569,9 +569,9 @@ function buildTargetConfiguration(targetName, suppliedValues) {
     deriverAWorkerName: production ? 'router-ab-deriver-a' : 'router-ab-deriver-a-staging',
     deriverBWorkerName: production ? 'router-ab-deriver-b' : 'router-ab-deriver-b-staging',
     signingWorkerName: production ? 'router-ab-signing-worker' : 'router-ab-signing-worker-staging',
-    consoleDatabaseName: production ? 'seams-console' : 'seams-console-staging',
+    consoleDatabaseName: production ? 'seams-console' : 'seams-console-staging-nrt',
     consoleDatabaseId,
-    signerDatabaseName: production ? 'seams-signer' : 'seams-signer-staging',
+    signerDatabaseName: production ? 'seams-signer' : 'seams-signer-staging-nrt',
     signerDatabaseId,
     deriverAPrivateDatabaseId,
     deriverBPrivateDatabaseId,
@@ -793,9 +793,7 @@ function buildGatewayEnvironment(input) {
         SPONSORED_EVM_EXECUTORS_JSON: manual(`${input.target}-sponsored-evm-executors-json`),
         STRIPE_API_SK: manual(`${input.target}-stripe-secret-key`),
         STRIPE_WEBHOOK_SECRET: manual(`${input.target}-stripe-webhook-signing-secret`),
-        RESEND_API_KEY: manual(`${input.target}-resend-api-key`),
-        CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U:
-          input.generatedSecrets.consoleEmailInvitationSecret,
+        CONSOLE_INITIAL_OWNER_EMAIL: manual(`${input.target}-console-initial-owner-email`),
         SIGNING_ROOT_KEK_VALUE: input.generatedSecrets.signingRootKek,
         SIGNING_SESSION_SEAL_KEY_VERSION: signingSession.keyVersion,
         SIGNING_SESSION_SHAMIR_P_B64U: signingSession.shamirPrimeB64u,
@@ -1241,14 +1239,14 @@ async function discoverCloudflareValues(targetName, suppliedValues, progressLogg
     suppliedValues,
     progressLogger,
     variableName: 'GATEWAY_CONSOLE_D1_DATABASE_ID',
-    databaseName: targetName === 'production' ? 'seams-console' : 'seams-console-staging',
+    databaseName: targetName === 'production' ? 'seams-console' : 'seams-console-staging-nrt',
   });
   ensureD1Database({
     targetName,
     suppliedValues,
     progressLogger,
     variableName: 'GATEWAY_SIGNER_D1_DATABASE_ID',
-    databaseName: targetName === 'production' ? 'seams-signer' : 'seams-signer-staging',
+    databaseName: targetName === 'production' ? 'seams-signer' : 'seams-signer-staging-nrt',
   });
   ensureD1Database({
     targetName,

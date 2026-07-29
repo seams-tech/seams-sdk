@@ -10,9 +10,30 @@ import {
 
 const STRICT_WORKER_ROLES = Object.freeze([
   { role: 'router', port: 9100 },
-  { role: 'deriver-a', port: 9101 },
-  { role: 'deriver-b', port: 9102 },
-  { role: 'signing-worker', port: 9103 },
+  {
+    role: 'deriver-a',
+    port: 9101,
+    privateD1: {
+      databaseName: 'router-ab-deriver-a-private',
+      migrationsDirectory: 'deriver-a',
+    },
+  },
+  {
+    role: 'deriver-b',
+    port: 9102,
+    privateD1: {
+      databaseName: 'router-ab-deriver-b-private',
+      migrationsDirectory: 'deriver-b',
+    },
+  },
+  {
+    role: 'signing-worker',
+    port: 9103,
+    privateD1: {
+      databaseName: 'router-ab-signing-worker-private',
+      migrationsDirectory: 'signing-worker',
+    },
+  },
 ]);
 const X25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b656e04220420', 'hex');
 const X25519_SPKI_PREFIX = Buffer.from('302a300506032b656e032100', 'hex');
@@ -51,7 +72,7 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
   mkdirSync(outputRoot, { recursive: true });
 
   const configs = [];
-  for (const { role, port } of STRICT_WORKER_ROLES) {
+  for (const { role, port, privateD1 = null } of STRICT_WORKER_ROLES) {
     const sourcePath = path.join(
       repoRoot,
       'crates',
@@ -78,6 +99,13 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
       ceremonyJwksJson,
       privateD1Keys,
     });
+    if (privateD1) {
+      config = setPrivateD1MigrationsDirectory(
+        config,
+        repoRoot,
+        privateD1.migrationsDirectory,
+      );
+    }
     writeFileSync(outputPath, config);
     const secretPath = path.join(outputRoot, `.dev.vars.${role}`);
     writeFileSync(
@@ -99,6 +127,7 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
         url: `http://127.0.0.1:${port}`,
         configPath: outputPath,
         secretPath,
+        privateD1,
       }),
     );
   }
@@ -115,6 +144,22 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
     configs: Object.freeze(configs),
     localConsoleOrganizationId,
   });
+}
+
+function setPrivateD1MigrationsDirectory(source, repoRoot, migrationsDirectory) {
+  const expected = `migrations_dir = "migrations/${migrationsDirectory}"`;
+  const matches = source.split(/\r?\n/).filter((line) => line === expected).length;
+  if (matches !== 2) {
+    throw new Error(`strict local Wrangler config must define ${expected} twice`);
+  }
+  const absoluteDirectory = path.join(
+    repoRoot,
+    'crates',
+    'router-ab-cloudflare',
+    'migrations',
+    migrationsDirectory,
+  );
+  return source.replaceAll(expected, `migrations_dir = ${JSON.stringify(absoluteDirectory)}`);
 }
 
 function applyRoleVars(source, role, env) {

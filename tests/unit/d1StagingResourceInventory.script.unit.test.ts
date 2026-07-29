@@ -103,12 +103,7 @@ test('D1 staging resource inventory records config-derived resource IDs', async 
   ]);
   expect(plan.resources.consoleWorker.durableObjects).toEqual([]);
   expect(plan.resources.gatewayWorker.d1Databases).toHaveLength(2);
-  expect(plan.resources.gatewayWorker.durableObjects).toEqual([
-    {
-      name: 'THRESHOLD_STORE',
-      className: 'ThresholdStoreDurableObject',
-    },
-  ]);
+  expect(plan.resources.gatewayWorker.durableObjects).toEqual([]);
   expect(plan.resources.gatewayWorker.durableObjectMigrations).toEqual([
     {
       tag: 'threshold-store-sqlite-v1',
@@ -124,6 +119,11 @@ test('D1 staging resource inventory records config-derived resource IDs', async 
       tag: 'router-api-runtime-delete-v1',
       newSqliteClasses: [],
       deletedClasses: ['RouterApiRuntimeDurableObject'],
+    },
+    {
+      tag: 'threshold-store-delete-v1',
+      newSqliteClasses: [],
+      deletedClasses: ['ThresholdStoreDurableObject'],
     },
   ]);
   expect(plan.resources.gatewayWorker.secretsStoreSecrets).toEqual([

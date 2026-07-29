@@ -291,7 +291,7 @@ D1 databases and Durable Object namespaces:
 
 - `CONSOLE_DB`:
   - control: organizations, memberships, invitations, project access, account
-    settings, policy configs, approvals, API keys, and bootstrap tokens.
+    settings, policy configs, approvals, and API keys.
   - billing: accounts, ledger entries/postings, prepaid reservations, credit
     purchases, invoices, invoice line items, Stripe webhook records and
     post-processing outbox, sponsored calls, and spend caps.

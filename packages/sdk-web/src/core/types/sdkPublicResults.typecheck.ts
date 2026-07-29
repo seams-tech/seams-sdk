@@ -205,6 +205,24 @@ const mixedRegistrationPendingSuccess: RegistrationResult = {
 };
 void mixedRegistrationPendingSuccess;
 
+const nearOnlyRegistrationPendingSuccess: RegistrationResult = {
+  success: true,
+  kind: 'near_wallet_registered_pending',
+  walletId,
+  nearProvisioning: { status: 'pending' },
+};
+void nearOnlyRegistrationPendingSuccess;
+
+const invalidNearOnlyPendingWithSigningKey: RegistrationResult = {
+  success: true,
+  kind: 'near_wallet_registered_pending',
+  walletId,
+  nearProvisioning: { status: 'pending' },
+  // @ts-expect-error an Ed25519-only pending wallet has no signing key before Yao completes.
+  nearEd25519SigningKeyId,
+};
+void invalidNearOnlyPendingWithSigningKey;
+
 const invalidPendingRegistrationWithSigningKeyId: RegistrationResult = {
   success: true,
   kind: 'ecdsa_wallet_registered_near_pending',

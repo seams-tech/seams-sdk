@@ -24,8 +24,9 @@ function hydrateLoginStateFromRegistrationResult(args: {
   if (!result.success) return;
   const walletId = String(result.walletId || '').trim();
   if (!walletId) return;
-  const nearCapability = result.capabilities.find((capability) => capability.kind === 'near_ed25519');
-  const ecdsaCapability = result.capabilities.find(
+  const capabilities = result.capabilities ?? [];
+  const nearCapability = capabilities.find((capability) => capability.kind === 'near_ed25519');
+  const ecdsaCapability = capabilities.find(
     (capability) => capability.kind === 'evm_family_ecdsa',
   );
   args.setLoginState((previous) => ({

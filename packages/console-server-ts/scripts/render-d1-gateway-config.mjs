@@ -103,9 +103,6 @@ function buildConfig(deployment, packageRoot) {
         ),
       },
     ],
-    durable_objects: {
-      bindings: [{ name: 'THRESHOLD_STORE', class_name: 'ThresholdStoreDurableObject' }],
-    },
     services: [
       { binding: 'SIGNING_WORKER', service: deployment.serviceNames.signingWorker },
       { binding: 'MPC_ROUTER', service: deployment.serviceNames.mpcRouter },
@@ -122,6 +119,10 @@ function buildConfig(deployment, packageRoot) {
       {
         tag: 'router-api-runtime-delete-v1',
         deleted_classes: ['RouterApiRuntimeDurableObject'],
+      },
+      {
+        tag: 'threshold-store-delete-v1',
+        deleted_classes: ['ThresholdStoreDurableObject'],
       },
     ],
     observability: {

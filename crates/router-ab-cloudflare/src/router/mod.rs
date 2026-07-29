@@ -1249,6 +1249,7 @@ impl CloudflareRouterJwtVerifierV1 for CloudflareRouterEd25519JwksJwtVerifierV1 
         verifier: &CloudflareRouterJwtVerifierBindingV1,
         authorization: &CloudflareRouterBearerAuthorizationV1,
         request: &EcdsaThresholdPrfRequestV1,
+        request_policy_digest: PublicDigest32,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
     ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1> {
@@ -1268,6 +1269,7 @@ impl CloudflareRouterJwtVerifierV1 for CloudflareRouterEd25519JwksJwtVerifierV1 
         jwt.claims.validate_for_router_request(
             verifier,
             request,
+            request_policy_digest,
             now_unix_ms,
             trusted_source_digest,
         )
@@ -1411,6 +1413,9 @@ struct CloudflareRouterJwtClaimsPayloadV1 {
     router_ab_request_policy: Option<RouterRequestPolicyClaimsV1>,
     #[serde(rename = "routerAbNormalSigning", default)]
     router_ab_normal_signing: Option<CloudflareRouterJwtNormalSigningWalletSessionClaimsV1>,
+    #[serde(rename = "routerAbEcdsaDerivationNormalSigning", default)]
+    router_ab_ecdsa_derivation_normal_signing:
+        Option<CloudflareRouterJwtEcdsaDerivationNormalSigningClaimsV1>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1434,11 +1439,36 @@ impl CloudflareRouterJwtNormalSigningWalletSessionClaimsV1 {
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct CloudflareRouterJwtEcdsaDerivationNormalSigningClaimsV1 {
+    scope: CloudflareRouterJwtEcdsaDerivationNormalSigningScopeV1,
+}
+
+#[derive(Debug, Deserialize)]
+struct CloudflareRouterJwtEcdsaDerivationNormalSigningScopeV1 {
+    signing_worker: CloudflareRouterJwtEcdsaDerivationSigningWorkerV1,
+}
+
+#[derive(Debug, Deserialize)]
+struct CloudflareRouterJwtEcdsaDerivationSigningWorkerV1 {
+    server_id: String,
+}
+
+impl CloudflareRouterJwtEcdsaDerivationNormalSigningClaimsV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty(
+            "routerAbEcdsaDerivationNormalSigning.scope.signing_worker.server_id",
+            &self.scope.signing_worker.server_id,
+        )
+    }
+}
+
 impl CloudflareRouterJwtClaimsPayloadV1 {
     fn validate_for_router_request(
         self,
         verifier: &CloudflareRouterJwtVerifierBindingV1,
         request: &EcdsaThresholdPrfRequestV1,
+        request_policy_digest: PublicDigest32,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
     ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1> {
@@ -1457,7 +1487,7 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
                 "Router JWT request policy work kind does not match request",
             ));
         }
-        if request_policy.request_digest != request.router_replay_digest() {
+        if request_policy.request_digest != request_policy_digest {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::MalformedWirePayload,
                 "Router JWT request policy digest does not match request",
@@ -1519,13 +1549,38 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
                 ));
             }
         }
-        let normal_signing = self.router_ab_normal_signing.ok_or_else(|| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "Router Wallet Session requires routerAbNormalSigning",
-            )
-        })?;
-        normal_signing.validate()?;
+        let (authorization_level, signing_worker_id) =
+            match (
+                self.router_ab_normal_signing,
+                self.router_ab_ecdsa_derivation_normal_signing,
+            ) {
+                (Some(normal_signing), None) => {
+                    normal_signing.validate()?;
+                    (
+                        normal_signing.authorization_level,
+                        normal_signing.signing_worker_id,
+                    )
+                }
+                (None, Some(normal_signing)) => {
+                    normal_signing.validate()?;
+                    (
+                        "evm-family".to_owned(),
+                        normal_signing.scope.signing_worker.server_id,
+                    )
+                }
+                (None, None) => {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        "Router Wallet Session requires one normal-signing binding",
+                    ));
+                }
+                (Some(_), Some(_)) => {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        "Router Wallet Session contains conflicting normal-signing bindings",
+                    ));
+                }
+            };
         let session_id = select_router_jwt_session_id_v1(self.sid, self.session_id)?;
         let signing_grant_id = self.signing_grant_id.ok_or_else(|| {
             RouterAbProtocolError::new(
@@ -1541,8 +1596,8 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
             self.org_id,
             self.project_id,
             self.environment,
-            normal_signing.authorization_level,
-            normal_signing.signing_worker_id,
+            authorization_level,
+            signing_worker_id,
             trusted_source_digest,
             exp_ms,
         )
@@ -1637,6 +1692,7 @@ pub trait CloudflareRouterJwtVerifierV1 {
         verifier: &CloudflareRouterJwtVerifierBindingV1,
         authorization: &CloudflareRouterBearerAuthorizationV1,
         request: &EcdsaThresholdPrfRequestV1,
+        request_policy_digest: PublicDigest32,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
     ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1>;
@@ -1649,6 +1705,7 @@ pub struct CloudflareRouterJwtSessionProviderV1<Verifier> {
     authorization: CloudflareRouterBearerAuthorizationV1,
     now_unix_ms: u64,
     trusted_source_digest: PublicDigest32,
+    request_policy_digest: PublicDigest32,
     verifier: Verifier,
 }
 
@@ -1659,6 +1716,7 @@ impl<Verifier> CloudflareRouterJwtSessionProviderV1<Verifier> {
         authorization: CloudflareRouterBearerAuthorizationV1,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
+        request_policy_digest: PublicDigest32,
         verifier: Verifier,
     ) -> RouterAbProtocolResult<Self> {
         let provider = Self {
@@ -1666,6 +1724,7 @@ impl<Verifier> CloudflareRouterJwtSessionProviderV1<Verifier> {
             authorization,
             now_unix_ms,
             trusted_source_digest,
+            request_policy_digest,
             verifier,
         };
         provider.validate()?;
@@ -1693,6 +1752,7 @@ where
             &self.verifier_binding,
             &self.authorization,
             request,
+            self.request_policy_digest,
             self.now_unix_ms,
             self.trusted_source_digest,
         )?;

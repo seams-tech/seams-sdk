@@ -1,11 +1,7 @@
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation';
-import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from '../core/defaultConfigsServer';
 import type { ThresholdEd25519AuthorityScope } from '../core/types';
-import type {
-  CloudflareDurableObjectNamespaceLike,
-  CloudflareDurableObjectStubLike,
-} from '../core/types';
+import type { D1DatabaseLike, D1PreparedStatementLike, D1ResultLike } from '../storage/tenantRoute';
+import { isD1DatabaseLike } from '../storage/d1Sql';
 import type {
   RouterAbNormalSigningAdmissionAdapter,
   RouterAbNormalSigningAdmissionInput,
@@ -62,8 +58,6 @@ type RouterAbNormalSigningQuotaReservation = {
 };
 
 const ROUTER_AB_NORMAL_SIGNING_QUOTA_RESERVATION_TTL_MS = 5_000;
-const ROUTER_AB_NORMAL_SIGNING_ADMISSION_KEY_PREFIX_DEFAULT =
-  'router-ab-normal-signing-admission:';
 
 export class InMemoryRouterAbNormalSigningAdmissionStore implements RouterAbNormalSigningAdmissionStore {
   private readonly now: () => number;
@@ -148,96 +142,58 @@ export class InMemoryRouterAbNormalSigningAdmissionStore implements RouterAbNorm
   }
 }
 
-export type CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions = {
-  readonly namespace: CloudflareDurableObjectNamespaceLike;
+export type CloudflareD1RouterAbNormalSigningAdmissionStoreOptions = {
+  readonly database: D1DatabaseLike;
   readonly storageNamespace: string;
-  readonly objectNamePrefix?: string;
-  readonly keyPrefix?: string;
   readonly now?: () => number;
 };
 
-type AdmissionDoOk<T> = { ok: true; value: T };
-type AdmissionDoErr = { ok: false; code: string; message: string };
-type AdmissionDoResp<T> = AdmissionDoOk<T> | AdmissionDoErr;
-
-type AdmissionDoGetRequest = { op: 'get'; key: string };
-type AdmissionDoSetRequest = { op: 'set'; key: string; value: unknown; ttlMs?: number };
-type AdmissionDoDelRequest = { op: 'del'; key: string };
-type AdmissionDoReserveQuotaRequest = {
-  op: 'routerAbNormalSigningReserveQuota';
-  key: string;
-  requestId: string;
-  lifecycleId: string;
-  expiresAtMs: number;
-  nowMs: number;
-};
-type AdmissionDoRequest =
-  | AdmissionDoGetRequest
-  | AdmissionDoSetRequest
-  | AdmissionDoDelRequest
-  | AdmissionDoReserveQuotaRequest;
-
-type CloudflareDoProjectPolicyRecord = {
-  readonly kind: 'router_ab_normal_signing_project_policy_v1';
-  readonly decision: RouterAbNormalSigningProjectPolicyDecision;
-  readonly updatedAtMs: number;
+type CloudflareD1AdmissionDecisionRow = {
+  readonly decision?: unknown;
+  readonly retry_after_ms?: unknown;
 };
 
-type CloudflareDoAbuseRecord = {
-  readonly kind: 'router_ab_normal_signing_abuse_decision_v1';
-  readonly decision: RouterAbNormalSigningAbuseDecision;
-  readonly updatedAtMs: number;
+type CloudflareD1QuotaReservationRow = {
+  readonly request_id?: unknown;
+  readonly lifecycle_id?: unknown;
 };
 
-export class CloudflareDurableObjectRouterAbNormalSigningAdmissionStore
-  implements RouterAbNormalSigningAdmissionStore
-{
-  private readonly namespace: CloudflareDurableObjectNamespaceLike;
+const ROUTER_AB_NORMAL_SIGNING_ADMISSION_TABLE = 'router_ab_normal_signing_admission_records';
+
+export class CloudflareD1RouterAbNormalSigningAdmissionStore implements RouterAbNormalSigningAdmissionStore {
+  private readonly database: D1DatabaseLike;
   private readonly storageNamespace: string;
-  private readonly objectNamePrefix: string;
-  private readonly keyPrefix: string;
   private readonly now: () => number;
 
-  constructor(options: CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions) {
-    if (!isCloudflareDurableObjectNamespaceLike(options.namespace)) {
-      throw new Error('Router A/B normal-signing admission Durable Object namespace is required');
+  constructor(options: CloudflareD1RouterAbNormalSigningAdmissionStoreOptions) {
+    if (!isD1DatabaseLike(options.database)) {
+      throw new Error('Router A/B normal-signing admission D1 database is required');
     }
-    this.namespace = options.namespace;
+    this.database = options.database;
     this.storageNamespace = requireNonEmptyString('storageNamespace', options.storageNamespace);
-    this.objectNamePrefix = requireNonEmptyString(
-      'objectNamePrefix',
-      options.objectNamePrefix || THRESHOLD_DO_OBJECT_NAME_DEFAULT,
-    );
-    this.keyPrefix = normalizeAdmissionKeyPrefix(options.keyPrefix);
     this.now = options.now || Date.now;
   }
 
   async evaluateProjectPolicy(
     input: RouterAbNormalSigningAdmissionInput,
   ): Promise<RouterAbNormalSigningProjectPolicyDecision> {
-    const key = this.projectPolicyKey(input.runtimePolicyScope);
-    const response = await this.call<unknown | null>(key, { op: 'get', key });
-    if (!response.ok) throw new Error(response.message);
-    if (response.value === null || response.value === undefined) return { kind: 'allowed' };
-    const decision = parseCloudflareDoProjectPolicyRecord(response.value);
-    if (!decision) {
-      throw new Error('Router A/B normal-signing project-policy record is corrupt');
-    }
-    return decision;
+    const row = await this.readDecision(
+      input.runtimePolicyScope,
+      'project_policy',
+      runtimePolicyScopeKey(input.runtimePolicyScope),
+    );
+    return row === null ? { kind: 'allowed' } : parseProjectPolicyDecision(row);
   }
 
   async evaluateAbuse(
     input: RouterAbNormalSigningAdmissionInput,
   ): Promise<RouterAbNormalSigningAbuseDecision> {
-    const key = this.abuseKey(input);
-    const response = await this.call<unknown | null>(key, { op: 'get', key });
-    if (!response.ok) throw new Error(response.message);
-    if (response.value === null || response.value === undefined) return { kind: 'allowed' };
-    const decision = parseCloudflareDoAbuseRecord(response.value);
-    if (!decision) {
-      throw new Error('Router A/B normal-signing abuse record is corrupt');
-    }
-    return decision;
+    const row = await this.readDecision(
+      input.runtimePolicyScope,
+      'abuse',
+      abusePrincipalKey(input),
+    );
+    return row === null ? { kind: 'allowed' } : parseAbuseDecision(row);
   }
 
   async reserveQuota(
@@ -246,91 +202,220 @@ export class CloudflareDurableObjectRouterAbNormalSigningAdmissionStore
     const nowMs = this.now();
     const expiresAtMs = quotaReservationExpiresAtMs(input, nowMs);
     if (expiresAtMs <= nowMs) return { kind: 'short_window_saturated' };
-
-    const key = this.quotaKey(input);
-    const response = await this.call<unknown>(key, {
-      op: 'routerAbNormalSigningReserveQuota',
-      key,
-      requestId: input.requestId,
-      lifecycleId: normalSigningLifecycleId(input),
-      expiresAtMs,
-      nowMs,
-    });
-    if (!response.ok) throw new Error(response.message);
-    const decision = parseCloudflareDoQuotaDecision(response.value);
-    if (!decision) {
-      throw new Error('Router A/B normal-signing quota decision is corrupt');
+    const scope = input.runtimePolicyScope;
+    const lifecycleId = normalSigningLifecycleId(input);
+    const row = await this.database
+      .prepare(
+        `INSERT INTO ${ROUTER_AB_NORMAL_SIGNING_ADMISSION_TABLE} (
+           namespace, org_id, project_id, env_id, signing_root_version,
+           record_kind, record_key, request_id, lifecycle_id, expires_at_ms, updated_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, 'quota', ?6, ?7, ?8, ?9, ?10)
+         ON CONFLICT (
+           namespace, org_id, project_id, env_id, signing_root_version, record_kind, record_key
+         ) DO UPDATE SET
+           request_id = excluded.request_id,
+           lifecycle_id = excluded.lifecycle_id,
+           expires_at_ms = excluded.expires_at_ms,
+           updated_at_ms = excluded.updated_at_ms
+         WHERE ${ROUTER_AB_NORMAL_SIGNING_ADMISSION_TABLE}.expires_at_ms <= ?10
+         RETURNING request_id, lifecycle_id`,
+      )
+      .bind(
+        this.storageNamespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        scope.signingRootVersion,
+        quotaScopeKey(input),
+        input.requestId,
+        lifecycleId,
+        expiresAtMs,
+        nowMs,
+      )
+      .first<CloudflareD1QuotaReservationRow>();
+    if (row !== null) {
+      return { kind: 'accepted', requestId: input.requestId };
     }
-    return decision;
+
+    const existing = await this.readQuotaReservation(scope, quotaScopeKey(input));
+    if (existing === null) {
+      throw new Error('Router A/B normal-signing D1 quota reservation disappeared');
+    }
+    const requestId = requireNonEmptyString('request_id', existing.request_id);
+    const existingLifecycleId = requireNonEmptyString('lifecycle_id', existing.lifecycle_id);
+    if (requestId === input.requestId) {
+      return { kind: 'reuse_existing', requestId, existingLifecycleId };
+    }
+    return { kind: 'short_window_saturated' };
   }
 
   async setProjectPolicy(
     scope: RuntimePolicyScope,
     decision: RouterAbNormalSigningProjectPolicyDecision,
   ): Promise<void> {
-    const key = this.projectPolicyKey(scope);
-    const response = await this.call<boolean>(key, {
-      op: 'set',
-      key,
-      value: createCloudflareDoProjectPolicyRecord(decision, this.now()),
-    });
-    if (!response.ok) throw new Error(response.message);
+    const normalized = normalizeProjectPolicyDecision(decision);
+    await this.putDecision(
+      scope,
+      'project_policy',
+      runtimePolicyScopeKey(scope),
+      normalized.kind,
+      normalized.kind === 'rejected' ? normalized.retryAfterMs : null,
+    );
   }
 
   async clearProjectPolicy(scope: RuntimePolicyScope): Promise<void> {
-    const key = this.projectPolicyKey(scope);
-    const response = await this.call<boolean>(key, { op: 'del', key });
-    if (!response.ok) throw new Error(response.message);
+    await this.deleteRecord(scope, 'project_policy', runtimePolicyScopeKey(scope));
   }
 
   async setAbuseDecision(
     input: RouterAbNormalSigningAdmissionInput,
     decision: RouterAbNormalSigningAbuseDecision,
   ): Promise<void> {
-    const key = this.abuseKey(input);
-    const response = await this.call<boolean>(key, {
-      op: 'set',
-      key,
-      value: createCloudflareDoAbuseRecord(decision, this.now()),
-    });
-    if (!response.ok) throw new Error(response.message);
+    const normalized = normalizeAbuseDecision(decision);
+    await this.putDecision(
+      input.runtimePolicyScope,
+      'abuse',
+      abusePrincipalKey(input),
+      normalized.kind,
+      normalized.kind === 'allowed' ? null : normalized.retryAfterMs,
+    );
   }
 
   async clearAbuseDecision(input: RouterAbNormalSigningAdmissionInput): Promise<void> {
-    const key = this.abuseKey(input);
-    const response = await this.call<boolean>(key, { op: 'del', key });
-    if (!response.ok) throw new Error(response.message);
+    await this.deleteRecord(input.runtimePolicyScope, 'abuse', abusePrincipalKey(input));
   }
 
-  private projectPolicyKey(scope: RuntimePolicyScope): string {
-    return this.storageKey('project-policy', runtimePolicyScopeKey(scope));
-  }
-
-  private abuseKey(input: RouterAbNormalSigningAdmissionInput): string {
-    return this.storageKey('abuse', abusePrincipalKey(input));
-  }
-
-  private quotaKey(input: RouterAbNormalSigningAdmissionInput): string {
-    return this.storageKey('quota', quotaScopeKey(input));
-  }
-
-  private storageKey(category: string, scope: string): string {
-    return `${this.keyPrefix}namespace:${this.storageNamespace}:${category}:${scope}`;
-  }
-
-  private stubForKey(key: string): CloudflareDurableObjectStubLike {
-    return resolveAdmissionDoStub({
-      namespace: this.namespace,
-      objectName: normalSigningAdmissionObjectName(this.objectNamePrefix, {
-        storageNamespace: this.storageNamespace,
+  private async readDecision(
+    scope: RuntimePolicyScope,
+    kind: 'project_policy' | 'abuse',
+    key: string,
+  ): Promise<CloudflareD1AdmissionDecisionRow | null> {
+    return await this.database
+      .prepare(
+        `SELECT decision, retry_after_ms
+           FROM ${ROUTER_AB_NORMAL_SIGNING_ADMISSION_TABLE}
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND signing_root_version = ?5
+            AND record_kind = ?6
+            AND record_key = ?7`,
+      )
+      .bind(
+        this.storageNamespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        scope.signingRootVersion,
+        kind,
         key,
-      }),
-    });
+      )
+      .first<CloudflareD1AdmissionDecisionRow>();
   }
 
-  private async call<T>(key: string, request: AdmissionDoRequest): Promise<AdmissionDoResp<T>> {
-    return await callAdmissionDo<T>(this.stubForKey(key), request);
+  private async readQuotaReservation(
+    scope: RuntimePolicyScope,
+    key: string,
+  ): Promise<CloudflareD1QuotaReservationRow | null> {
+    return await this.database
+      .prepare(
+        `SELECT request_id, lifecycle_id
+           FROM ${ROUTER_AB_NORMAL_SIGNING_ADMISSION_TABLE}
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND signing_root_version = ?5
+            AND record_kind = 'quota'
+            AND record_key = ?6`,
+      )
+      .bind(
+        this.storageNamespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        scope.signingRootVersion,
+        key,
+      )
+      .first<CloudflareD1QuotaReservationRow>();
   }
+
+  private async putDecision(
+    scope: RuntimePolicyScope,
+    kind: 'project_policy' | 'abuse',
+    key: string,
+    decision: string,
+    retryAfterMs: number | null,
+  ): Promise<void> {
+    await requireSuccessfulD1Write(
+      this.database
+        .prepare(
+          `INSERT INTO ${ROUTER_AB_NORMAL_SIGNING_ADMISSION_TABLE} (
+             namespace, org_id, project_id, env_id, signing_root_version,
+             record_kind, record_key, decision, retry_after_ms, updated_at_ms
+           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+           ON CONFLICT (
+             namespace, org_id, project_id, env_id, signing_root_version, record_kind, record_key
+           ) DO UPDATE SET
+             decision = excluded.decision,
+             retry_after_ms = excluded.retry_after_ms,
+             updated_at_ms = excluded.updated_at_ms`,
+        )
+        .bind(
+          this.storageNamespace,
+          scope.orgId,
+          scope.projectId,
+          scope.envId,
+          scope.signingRootVersion,
+          kind,
+          key,
+          decision,
+          retryAfterMs,
+          this.now(),
+        ),
+    );
+  }
+
+  private async deleteRecord(
+    scope: RuntimePolicyScope,
+    kind: 'project_policy' | 'abuse',
+    key: string,
+  ): Promise<void> {
+    await requireSuccessfulD1Write(
+      this.database
+        .prepare(
+          `DELETE FROM ${ROUTER_AB_NORMAL_SIGNING_ADMISSION_TABLE}
+            WHERE namespace = ?1
+              AND org_id = ?2
+              AND project_id = ?3
+              AND env_id = ?4
+              AND signing_root_version = ?5
+              AND record_kind = ?6
+              AND record_key = ?7`,
+        )
+        .bind(
+          this.storageNamespace,
+          scope.orgId,
+          scope.projectId,
+          scope.envId,
+          scope.signingRootVersion,
+          kind,
+          key,
+        ),
+    );
+  }
+}
+
+async function requireSuccessfulD1Write(statement: D1PreparedStatementLike): Promise<void> {
+  const result = await statement.run();
+  if (!isSuccessfulD1Result(result)) {
+    throw new Error('Router A/B normal-signing admission D1 write failed');
+  }
+}
+
+function isSuccessfulD1Result(result: D1ResultLike): boolean {
+  return result.success === true;
 }
 
 export function createRouterAbNormalSigningAdmissionAdapter(
@@ -425,164 +510,10 @@ export function createInMemoryRouterAbNormalSigningAdmissionAdapter(
   };
 }
 
-export function createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore(
-  options: CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions,
-): CloudflareDurableObjectRouterAbNormalSigningAdmissionStore {
-  return new CloudflareDurableObjectRouterAbNormalSigningAdmissionStore(options);
-}
-
-function isCloudflareDurableObjectNamespaceLike(
-  value: unknown,
-): value is CloudflareDurableObjectNamespaceLike {
-  return (
-    isPlainObject(value) &&
-    typeof value.idFromName === 'function' &&
-    typeof value.get === 'function'
-  );
-}
-
-function normalizeAdmissionKeyPrefix(value: unknown): string {
-  const prefix = toOptionalTrimmedString(value);
-  if (!prefix) return ROUTER_AB_NORMAL_SIGNING_ADMISSION_KEY_PREFIX_DEFAULT;
-  return prefix.endsWith(':') ? prefix : `${prefix}:`;
-}
-
-function normalSigningAdmissionObjectName(
-  objectNamePrefix: string,
-  input: { readonly storageNamespace: string; readonly key: string },
-): string {
-  return [
-    objectNamePrefix,
-    'namespace',
-    encodeURIComponent(input.storageNamespace),
-    'router-ab-admission',
-    fnv1a32Hex(input.key),
-  ].join(':');
-}
-
-function fnv1a32Hex(input: string): string {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < input.length; index += 1) {
-    hash ^= input.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0');
-}
-
-function resolveAdmissionDoStub(input: {
-  readonly namespace: CloudflareDurableObjectNamespaceLike;
-  readonly objectName: string;
-}): CloudflareDurableObjectStubLike {
-  const id = input.namespace.idFromName(input.objectName);
-  return input.namespace.get(id);
-}
-
-async function callAdmissionDo<T>(
-  stub: CloudflareDurableObjectStubLike,
-  request: AdmissionDoRequest,
-): Promise<AdmissionDoResp<T>> {
-  const response = await stub.fetch('https://threshold-store.invalid/', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`Router A/B normal-signing admission DO HTTP ${response.status}: ${text}`);
-  }
-  let parsed: unknown;
-  try {
-    parsed = text ? JSON.parse(text) : null;
-  } catch {
-    throw new Error(
-      `Router A/B normal-signing admission DO returned non-JSON response: ${text.slice(0, 200)}`,
-    );
-  }
-  if (!isPlainObject(parsed)) {
-    throw new Error('Router A/B normal-signing admission DO returned invalid JSON shape');
-  }
-  if (parsed.ok === true) return parsed as AdmissionDoOk<T>;
-  const code = toOptionalTrimmedString(parsed.code) || 'internal';
-  const message =
-    toOptionalTrimmedString(parsed.message) ||
-    'Router A/B normal-signing admission Durable Object error';
-  return { ok: false, code, message };
-}
-
-function createCloudflareDoProjectPolicyRecord(
-  decision: RouterAbNormalSigningProjectPolicyDecision,
-  updatedAtMs: number,
-): CloudflareDoProjectPolicyRecord {
-  return {
-    kind: 'router_ab_normal_signing_project_policy_v1',
-    decision: normalizeProjectPolicyDecision(decision),
-    updatedAtMs: requirePositiveInteger('updatedAtMs', updatedAtMs),
-  };
-}
-
-function createCloudflareDoAbuseRecord(
-  decision: RouterAbNormalSigningAbuseDecision,
-  updatedAtMs: number,
-): CloudflareDoAbuseRecord {
-  return {
-    kind: 'router_ab_normal_signing_abuse_decision_v1',
-    decision: normalizeAbuseDecision(decision),
-    updatedAtMs: requirePositiveInteger('updatedAtMs', updatedAtMs),
-  };
-}
-
-function parseCloudflareDoProjectPolicyRecord(
-  raw: unknown,
-): RouterAbNormalSigningProjectPolicyDecision | null {
-  if (!isPlainObject(raw)) return null;
-  if (raw.kind !== 'router_ab_normal_signing_project_policy_v1') return null;
-  const updatedAtMs = requireOptionalSafePositiveInteger(raw.updatedAtMs);
-  if (updatedAtMs === null) return null;
-  return parseProjectPolicyDecisionValue(raw.decision);
-}
-
-function parseCloudflareDoAbuseRecord(raw: unknown): RouterAbNormalSigningAbuseDecision | null {
-  if (!isPlainObject(raw)) return null;
-  if (raw.kind !== 'router_ab_normal_signing_abuse_decision_v1') return null;
-  const updatedAtMs = requireOptionalSafePositiveInteger(raw.updatedAtMs);
-  if (updatedAtMs === null) return null;
-  return parseAbuseDecisionValue(raw.decision);
-}
-
-function parseCloudflareDoQuotaDecision(
-  raw: unknown,
-): RouterAbNormalSigningQuotaDecision | null {
-  if (!isPlainObject(raw)) return null;
-  const kind = toOptionalTrimmedString(raw.kind);
-  switch (kind) {
-    case 'accepted':
-      return parseQuotaAcceptedDecision(raw);
-    case 'reuse_existing':
-      return parseQuotaReuseDecision(raw);
-    case 'short_window_saturated':
-      return { kind: 'short_window_saturated' };
-    case 'signer_queue_saturated':
-      return { kind: 'signer_queue_saturated' };
-    default:
-      return null;
-  }
-}
-
-function parseQuotaAcceptedDecision(
-  raw: Record<string, unknown>,
-): RouterAbNormalSigningQuotaDecision | null {
-  const requestId = toOptionalTrimmedString(raw.requestId);
-  return requestId ? { kind: 'accepted', requestId } : null;
-}
-
-function parseQuotaReuseDecision(
-  raw: Record<string, unknown>,
-): RouterAbNormalSigningQuotaDecision | null {
-  const requestId = toOptionalTrimmedString(raw.requestId);
-  const existingLifecycleId = toOptionalTrimmedString(raw.existingLifecycleId);
-  return requestId && existingLifecycleId
-    ? { kind: 'reuse_existing', requestId, existingLifecycleId }
-    : null;
+export function createCloudflareD1RouterAbNormalSigningAdmissionStore(
+  options: CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
+): CloudflareD1RouterAbNormalSigningAdmissionStore {
+  return new CloudflareD1RouterAbNormalSigningAdmissionStore(options);
 }
 
 function normalizeProjectPolicyDecision(
@@ -620,50 +551,6 @@ function normalizeAbuseDecision(
     default:
       return assertNever(decision);
   }
-}
-
-function parseProjectPolicyDecisionValue(
-  raw: unknown,
-): RouterAbNormalSigningProjectPolicyDecision | null {
-  if (!isPlainObject(raw)) return null;
-  const kind = toOptionalTrimmedString(raw.kind);
-  switch (kind) {
-    case 'allowed':
-      return { kind: 'allowed' };
-    case 'rejected': {
-      const retryAfterMs = requireOptionalSafePositiveInteger(raw.retryAfterMs);
-      return retryAfterMs === null ? null : { kind: 'rejected', retryAfterMs };
-    }
-    default:
-      return null;
-  }
-}
-
-function parseAbuseDecisionValue(raw: unknown): RouterAbNormalSigningAbuseDecision | null {
-  if (!isPlainObject(raw)) return null;
-  const kind = toOptionalTrimmedString(raw.kind);
-  switch (kind) {
-    case 'allowed':
-      return { kind: 'allowed' };
-    case 'rate_limited': {
-      const retryAfterMs = requireOptionalSafePositiveInteger(raw.retryAfterMs);
-      return retryAfterMs === null ? null : { kind: 'rate_limited', retryAfterMs };
-    }
-    case 'rejected': {
-      const retryAfterMs = requireOptionalSafePositiveInteger(raw.retryAfterMs);
-      return retryAfterMs === null ? null : { kind: 'rejected', retryAfterMs };
-    }
-    default:
-      return null;
-  }
-}
-
-function requireOptionalSafePositiveInteger(value: unknown): number | null {
-  const numeric = typeof value === 'bigint' ? Number(value) : value;
-  if (typeof numeric === 'number' && Number.isSafeInteger(numeric) && numeric > 0) {
-    return numeric;
-  }
-  return null;
 }
 
 function admissionFailure(

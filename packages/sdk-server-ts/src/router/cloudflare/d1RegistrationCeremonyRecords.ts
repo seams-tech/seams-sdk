@@ -12,7 +12,6 @@ import {
   nearEd25519SigningKeyIdFromString,
   requireServerAllocatedWalletId,
   registrationEvmFamilyEcdsaBranchKey,
-  registrationIntentGrantFromString,
   registrationNearEd25519BranchKey,
   registrationSignerBranchKeyFromString,
   registrationSignerSetSelectionFromPlan,
@@ -113,14 +112,12 @@ import {
   type StoredWalletRegistrationSignerSetState,
   StoredAddAuthMethodIntent,
   StoredAddSignerIntent,
-  StoredRegistrationIntent,
   StoredWalletAddAuthMethodCeremony,
   StoredWalletAddSignerCeremony,
   StoredWalletAddSignerFinalizeReplay,
   StoredWalletAddSignerFinalizeRequest,
   StoredWalletRegistrationCeremony,
   StoredWalletRegistrationCeremonyAuthorityState,
-  StoredWalletRegistrationFinalizeReplay,
 } from '../../core/RegistrationCeremonyStore';
 import {
   thresholdEcdsaChainTargetKey,
@@ -294,28 +291,6 @@ export function parseWalletIdForIntent(raw: unknown): WalletId | null {
   }
 }
 
-export function parseD1StoredRegistrationIntent(raw: unknown): StoredRegistrationIntent | null {
-  const record = toRecordValue(raw);
-  if (!record || record.kind !== 'intent_allocated') return null;
-  const grant = registrationIntentGrantFromString(toOptionalTrimmedString(record.grant) || '');
-  const intent = parseD1RegistrationIntent(record.intent);
-  const digestB64u = toOptionalTrimmedString(record.digestB64u);
-  const orgId = toOptionalTrimmedString(record.orgId);
-  const signingRootId = toOptionalTrimmedString(record.signingRootId);
-  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
-  const expiresAtMs = safeInteger(record.expiresAtMs);
-  if (!grant || !intent || !digestB64u || !orgId || expiresAtMs === null) return null;
-  return {
-    kind: 'intent_allocated',
-    grant,
-    intent,
-    digestB64u,
-    orgId,
-    expiresAtMs,
-    ...intentScopeMetadata(record),
-  };
-}
-
 export function parseD1RegistrationIntent(raw: unknown): RegistrationIntentV1 | null {
   const record = toRecordValue(raw);
   if (!record || record.version !== 'registration_intent_v1') return null;
@@ -427,40 +402,6 @@ function parseD1WalletRegistrationCeremonyAuthorityState(
     default:
       return null;
   }
-}
-
-export function parseD1StoredWalletRegistrationFinalizeReplay(
-  raw: unknown,
-): StoredWalletRegistrationFinalizeReplay | null {
-  const record = toRecordValue(raw);
-  if (!record || record.kind !== 'wallet_registration_finalize_replay_v1') return null;
-  const registrationCeremonyId = toOptionalTrimmedString(record.registrationCeremonyId);
-  const idempotencyKey = toOptionalTrimmedString(record.idempotencyKey);
-  const requestFingerprint = toOptionalTrimmedString(record.requestFingerprint);
-  const response = parseD1WalletRegistrationFinalizeReplayResponse(record.response);
-  const createdAtMs = safeInteger(record.createdAtMs);
-  const expiresAtMs = safeInteger(record.expiresAtMs);
-  if (
-    !registrationCeremonyId ||
-    !idempotencyKey ||
-    !requestFingerprint ||
-    !response ||
-    createdAtMs === null ||
-    createdAtMs <= 0 ||
-    expiresAtMs === null ||
-    expiresAtMs <= 0
-  ) {
-    return null;
-  }
-  return {
-    kind: 'wallet_registration_finalize_replay_v1',
-    registrationCeremonyId,
-    idempotencyKey,
-    requestFingerprint,
-    response,
-    createdAtMs,
-    expiresAtMs,
-  };
 }
 
 export function parseD1StoredWalletAddSignerFinalizeReplay(
@@ -641,30 +582,10 @@ function parseWalletRegistrationRouteTimingName(
   raw: unknown,
 ): WalletRegistrationRouteDiagnostics['entries'][number]['name'] | null {
   switch (raw) {
-    case 'registrationIntentLoadMs':
-    case 'registrationIntentDigestMs':
-    case 'registrationIntentConsumeMs':
-    case 'registrationAttemptGateMs':
-    case 'registrationPreparationPersistMs':
-    case 'registrationPreparationLoadMs':
-    case 'registrationPreparationConsumeMs':
-    case 'registrationPreparationScopeCheckMs':
-    case 'registrationAuthorityVerifyMs':
-    case 'registrationEcdsaPrepareMs':
-    case 'registrationCeremonyPersistMs':
-    case 'registerPrepareTotalMs':
-    case 'registerStartTotalMs':
-    case 'registrationEcdsaRespondMs':
-    case 'registrationFinalizeReplayLoadMs':
     case 'registrationCeremonyLoadMs':
     case 'registrationEcdsaBootstrapVerifyMs':
-    case 'sponsoredNearAccountCreateMs':
-    case 'registrationKeygenMs':
     case 'registrationEmailOtpEnrollmentPlanMs':
-    case 'relaySessionMintMs':
-    case 'relayGoogleEmailOtpActivationPlanMs':
     case 'relayPersistenceMs':
-    case 'registrationFinalizeReplayCacheMs':
     case 'registerFinalizeTotalMs':
       return raw;
     default:
@@ -1143,7 +1064,6 @@ function parseD1StoredEvmFamilyEcdsaActivationClaimedBranch(
         record.publicResponse,
       ),
       publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
-      activation: parseRouterAbEcdsaDerivationActivationPrepareResultV1(record.activation),
     };
   } catch {
     return null;

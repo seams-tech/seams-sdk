@@ -119,6 +119,7 @@ use paths::{
     cloudflare_signing_worker_normal_signing_service_url,
     cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_service_url,
     cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_url,
+    cloudflare_signing_worker_wallet_budget_service_url_v1,
 };
 pub use trace_context::CloudflareTraceIdV1;
 #[cfg(feature = "workers-rs")]
@@ -4093,6 +4094,7 @@ pub fn derive_cloudflare_router_trusted_admission_from_worker_jwt_v1<Verifier>(
     runtime: &CloudflareRouterWorkerRuntimeV1,
     now_unix_ms: u64,
     request: &EcdsaThresholdPrfRequestV1,
+    request_policy_digest: PublicDigest32,
     authorization: CloudflareRouterBearerAuthorizationV1,
     trusted_source_digest: PublicDigest32,
     verifier: Verifier,
@@ -4105,6 +4107,7 @@ where
         authorization,
         now_unix_ms,
         trusted_source_digest,
+        request_policy_digest,
         verifier,
     )?;
     let metadata = session.verify_public_request_session(request)?;
@@ -4344,6 +4347,7 @@ where
         runtime,
         now_unix_ms,
         &public_request,
+        request.request_digest()?,
         authorization,
         trusted_source_digest,
         verifier,
@@ -4475,6 +4479,7 @@ where
         authorization,
         now_unix_ms,
         trusted_source_digest,
+        request.pending.registration.request_digest()?,
         verifier,
     )?;
     session.verify_public_request_session(&public_request)?;
@@ -4552,6 +4557,7 @@ where
         runtime,
         now_unix_ms,
         &public_request,
+        request.request_digest()?,
         authorization,
         trusted_source_digest,
         verifier,
@@ -4667,6 +4673,7 @@ where
         runtime,
         now_unix_ms,
         &public_request,
+        request.request_digest()?,
         authorization,
         trusted_source_digest,
         verifier,
@@ -4737,6 +4744,7 @@ where
         runtime,
         now_unix_ms,
         &public_request,
+        request.request_digest()?,
         authorization,
         trusted_source_digest,
         verifier,
@@ -5587,7 +5595,7 @@ async fn execute_cloudflare_signing_worker_wallet_budget_service_call_v1(
     let response: CloudflareSigningWorkerWalletBudgetResponseV1 = post_service_json(
         env,
         &peer.binding_name,
-        CLOUDFLARE_SIGNING_WORKER_WALLET_BUDGET_PATH_V1,
+        cloudflare_signing_worker_wallet_budget_service_url_v1(peer)?,
         "SigningWorker wallet budget request",
         request,
     )

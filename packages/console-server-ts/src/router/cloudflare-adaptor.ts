@@ -5,7 +5,6 @@ export * from '../audit';
 export * from '../auditExports';
 export * from '../billing';
 export * from '../billingPrepaidReservations';
-export * from '../bootstrapTokens';
 export * from '../enterpriseIsolation';
 export * from '../keyExports';
 export * from '../observability';
@@ -42,7 +41,6 @@ export type {
   D1DatabaseLike,
   D1DatabaseName,
   D1PreparedStatementLike,
-  DurableObjectBindingName,
   NamespaceId,
   OrgId,
   ResolveTenantStorageRouteInput,
@@ -81,10 +79,6 @@ export {
   resolveSourceIpFromExpressRequest,
   resolveSourceIpFromFetchHeaders,
 } from '@seams/sdk-server/cloud-host';
-export {
-  RouterApiBootstrapGrantError,
-  parseRouterApiBootstrapGrantIssueBody,
-} from '@seams/sdk-server/cloud-host';
 
 export type { ConsoleRouterOptions } from './console';
 export type {
@@ -92,13 +86,6 @@ export type {
   ConsoleSsoProvisioningOptions,
 } from './consoleAppSessionAuth';
 export { createAppSessionConsoleAuthAdapter } from './consoleAppSessionAuth';
-export type {
-  RouterApiBootstrapGrantBrokerOptions,
-  RouterApiBootstrapGrantQuotaPolicy,
-  RouterApiBootstrapGrantRateLimitPolicy,
-} from './bootstrapGrantBroker';
-export { createRouterApiBootstrapGrantBroker } from './bootstrapGrantBroker';
-export { createRouterApiBootstrapTokenVerifier } from './bootstrapTokenVerifier';
 export {
   createRouterApiBillingUsageMeterAdapter,
   createRouterApiKeyAuthAdapter,

@@ -97,6 +97,47 @@ const PRIVATE_ECDSA_DERIVATION_SIGNING_PREPARE_PATH =
   '/router-ab/signing-worker/ecdsa-derivation/sign/prepare';
 const PRIVATE_ECDSA_DERIVATION_SIGNING_FINALIZE_PATH =
   '/router-ab/signing-worker/ecdsa-derivation/sign';
+const PRIVATE_ROUTER_WALLET_BUDGET_PUT_GRANT_PATH =
+  '/router-ab/router/wallet-budget/put-grant';
+
+export type RouterAbWalletBudgetSignerBindingV1 = {
+  readonly curve: 'ed25519' | 'ecdsa';
+  readonly threshold_session_id: string;
+  readonly signing_worker_id: string;
+};
+
+export type RouterAbWalletBudgetGrantProvisionInputV1 = {
+  readonly signingGrantId: string;
+  readonly walletId: string;
+  readonly relyingPartyId: string;
+  readonly authorizedSigners: readonly RouterAbWalletBudgetSignerBindingV1[];
+  readonly initialSignatureUses: number;
+  readonly expiresAtMs: number;
+  readonly issuerIdempotencyKey: string;
+};
+
+export type RouterAbWalletBudgetGrantProvisionResultV1 =
+  | {
+      readonly ok: true;
+      readonly signingGrantId: string;
+      readonly remainingUses: number;
+      readonly reservedUses: number;
+      readonly availableUses: number;
+      readonly expiresAtMs: number;
+    }
+  | { readonly ok: false; readonly code: string; readonly message: string };
+
+export interface RouterAbWalletBudgetGrantProvisionerV1 {
+  provisionGrant(
+    input: RouterAbWalletBudgetGrantProvisionInputV1,
+  ): Promise<RouterAbWalletBudgetGrantProvisionResultV1>;
+}
+
+export type RouterAbWalletBudgetGrantTransportV1 = {
+  readonly routerBaseUrl: string;
+  readonly internalServiceAuthSecret: string;
+  readonly fetchImpl?: typeof fetch;
+};
 
 export type RouterAbEd25519PrivateSigningPath =
   | typeof PRIVATE_ED25519_SIGNING_PREPARE_PATH
@@ -179,6 +220,36 @@ export type RouterAbNormalSigningRouteAdmission =
 type RouterAbEcdsaNormalSigningRouteAdmission =
   | AcceptedEcdsaRouteAdmission
   | RejectedRouteAdmission;
+
+type RouterAbEd25519WalletSessionValidationSuccess = Extract<
+  Awaited<ReturnType<typeof validateRouterAbEd25519WalletSessionTokenInputs>>,
+  { readonly ok: true }
+>;
+
+type RouterAbEcdsaWalletSessionValidationSuccess = Extract<
+  Awaited<ReturnType<typeof validateRouterAbEcdsaDerivationWalletSessionInputs>>,
+  { readonly ok: true }
+>;
+
+export type RouterAbEd25519NormalSigningAuthorizationResult =
+  | {
+      readonly ok: true;
+      readonly kind: 'reusable_wallet_session';
+      readonly validated: RouterAbEd25519WalletSessionValidationSuccess;
+      readonly admission: Extract<RouterAbNormalSigningRouteAdmission, { readonly ok: true }>;
+    }
+  | { readonly ok: true; readonly kind: 'operation_step_up' }
+  | { readonly ok: false; readonly result: RouterAbJsonRouteResult };
+
+export type RouterAbEcdsaNormalSigningAuthorizationResult =
+  | {
+      readonly ok: true;
+      readonly kind: 'reusable_wallet_session';
+      readonly validated: RouterAbEcdsaWalletSessionValidationSuccess;
+      readonly admission: Extract<RouterAbNormalSigningRouteAdmission, { readonly ok: true }>;
+    }
+  | { readonly ok: true; readonly kind: 'operation_step_up' }
+  | { readonly ok: false; readonly result: RouterAbJsonRouteResult };
 
 export type RouterAbNormalSigningAdmissionFailureCode =
   | 'project_policy_rejected'
@@ -1578,13 +1649,11 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
   readonly body: Record<string, unknown>;
   readonly headers: Record<string, string | string[] | undefined>;
   readonly session: SessionAdapter | null | undefined;
-  readonly runtime: RouterAbNormalSigningRouteRuntime | null | undefined;
   readonly authorizationClaims: RouterApiAuthorizationClaimService | null | undefined;
   readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
-  readonly privatePath: RouterAbEd25519PrivateSigningPath;
   readonly phase: RouterAbEd25519NormalSigningRoutePhase;
   readonly scope: RouterAbEd25519NormalSigningScopeV2;
-}): Promise<RouterAbJsonRouteResult> {
+}): Promise<RouterAbJsonRouteResult | null> {
   if (input.scope.authorization.kind !== 'operation_step_up') {
     return routerAbStepUpError(400, 'invalid_body', 'Operation step-up authority is required');
   }
@@ -1609,23 +1678,6 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
       'Router A/B Ed25519 step-up request is expired',
     );
   }
-  const runtime = input.runtime;
-  if (!runtime) {
-    return routerAbStepUpError(
-      501,
-      'not_configured',
-      'Router A/B normal-signing runtime is not configured',
-    );
-  }
-  const signingWorker = runtime.getSigningWorkerPrivateTransport();
-  if (signingWorker.kind === 'unconfigured') {
-    return routerAbStepUpError(
-      501,
-      'not_configured',
-      'Router A/B SigningWorker private HTTP target is not configured',
-    );
-  }
-
   let privateBody: RouterAbEd25519PrivateSigningWorkerBody;
   try {
     privateBody =
@@ -1726,33 +1778,8 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
     const claimFailure = routerAbOperationStepUpClaimFailure(claimResult, useId);
     if (claimFailure) return claimFailure;
 
-    if (claimResult.kind === 'claimed') {
-      const replay = await runtime.reservePrepareReplay({
-        curve: 'ed25519',
-        authorizationIdentity: {
-          kind: 'operation_step_up',
-          materialActivationId: input.scope.material_activation.activation_id,
-        },
-        requestId: input.scope.request_id,
-        expiresAtMs,
-      });
-      if (!replay.ok) {
-        return {
-          status: replay.status,
-          body: { ok: false, code: replay.code, message: replay.message },
-        };
-      }
-    }
   }
-
-  const forwarded = await postRouterAbSigningWorkerJson({
-    config: signingWorker,
-    path: input.privatePath,
-    body: privateBody,
-  });
-  return forwarded.ok
-    ? { status: 200, body: forwarded.body }
-    : { status: forwarded.status, body: forwarded.body };
+  return null;
 }
 
 export async function authenticateRouterAbOperationStepUpAppSessionIdentity(input: {
@@ -1996,49 +2023,51 @@ function routerAbStepUpError(
   return { status, body: { ok: false, code, message } };
 }
 
-export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
+export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
   body: Record<string, unknown>;
   rawBody: unknown;
   headers: Record<string, string | string[] | undefined>;
   session: SessionAdapter | null | undefined;
-  runtime: RouterAbNormalSigningRouteRuntime | null | undefined;
   authorizationClaims: RouterApiAuthorizationClaimService | null | undefined;
   authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
-  privatePath: RouterAbEd25519PrivateSigningPath;
   phase: RouterAbEd25519NormalSigningRoutePhase;
-}): Promise<RouterAbJsonRouteResult> {
+}): Promise<RouterAbEd25519NormalSigningAuthorizationResult> {
   const invalidSessionKind = rejectRouterAbCookieSessionKind(
     input.rawBody,
     'Router A/B Ed25519 normal-signing requires sessionKind=jwt',
   );
-  if (invalidSessionKind) return invalidSessionKind;
+  if (invalidSessionKind) return { ok: false, result: invalidSessionKind };
 
   let scope: RouterAbEd25519NormalSigningScopeV2;
   try {
     scope = requirePrivateSigningScope(input.body.scope);
   } catch {
     return {
-      status: 400,
-      body: {
-        ok: false,
-        code: 'invalid_body',
-        message: 'Router A/B Ed25519 normal-signing scope is required',
+      ok: false,
+      result: {
+        status: 400,
+        body: {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Router A/B Ed25519 normal-signing scope is required',
+        },
       },
     };
   }
   if (scope.authorization.kind === 'operation_step_up') {
-    return await handleRouterAbEd25519OperationStepUpRoute({
-      body: input.body,
-      headers: input.headers,
-      session: input.session,
-      runtime: input.runtime,
-      authorizationClaims: input.authorizationClaims,
-      authorizationSessions: input.authorizationSessions,
-      privatePath: input.privatePath,
-      phase: input.phase,
-      scope,
-    });
+    const failure = await handleRouterAbEd25519OperationStepUpRoute({
+        body: input.body,
+        headers: input.headers,
+        session: input.session,
+        authorizationClaims: input.authorizationClaims,
+        authorizationSessions: input.authorizationSessions,
+        phase: input.phase,
+        scope,
+      });
+    return failure
+      ? { ok: false, result: failure }
+      : { ok: true, kind: 'operation_step_up' };
   }
 
   const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
@@ -2048,8 +2077,11 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
   });
   if (!validated.ok) {
     return {
-      status: routerAbWalletSessionValidationStatus(validated.code),
-      body: { ok: false, code: validated.code, message: validated.message },
+      ok: false,
+      result: {
+        status: routerAbWalletSessionValidationStatus(validated.code),
+        body: { ok: false, code: validated.code, message: validated.message },
+      },
     };
   }
 
@@ -2059,18 +2091,9 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
     body: input.body,
   });
   if (!admission.ok) {
-    return { status: admission.error.status, body: admission.error.body };
-  }
-
-  const runtime = input.runtime;
-  if (!runtime) {
     return {
-      status: 501,
-      body: {
-        ok: false,
-        code: 'not_configured',
-        message: 'Router A/B normal-signing runtime is not configured',
-      },
+      ok: false,
+      result: { status: admission.error.status, body: admission.error.body },
     };
   }
 
@@ -2084,11 +2107,48 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
   });
   if (!admissionDecision.ok) {
     return {
-      status: admissionDecision.status,
+      ok: false,
+      result: {
+        status: admissionDecision.status,
+        body: {
+          ok: false,
+          code: admissionDecision.code,
+          message: admissionDecision.message,
+        },
+      },
+    };
+  }
+
+  return { ok: true, kind: 'reusable_wallet_session', validated, admission };
+}
+
+export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
+  body: Record<string, unknown>;
+  rawBody: unknown;
+  headers: Record<string, string | string[] | undefined>;
+  session: SessionAdapter | null | undefined;
+  runtime: RouterAbNormalSigningRouteRuntime | null | undefined;
+  authorizationClaims: RouterApiAuthorizationClaimService | null | undefined;
+  authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
+  admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
+  privatePath: RouterAbEd25519PrivateSigningPath;
+  phase: RouterAbEd25519NormalSigningRoutePhase;
+}): Promise<RouterAbJsonRouteResult> {
+  const authorization = await authorizeRouterAbEd25519NormalSigningRoute(input);
+  if (!authorization.ok) return authorization.result;
+  if (authorization.kind === 'operation_step_up') {
+    return routerAbStepUpError(500, 'internal', 'Operation step-up must execute through the MPC router');
+  }
+  const { validated, admission } = authorization;
+
+  const runtime = input.runtime;
+  if (!runtime) {
+    return {
+      status: 501,
       body: {
         ok: false,
-        code: admissionDecision.code,
-        message: admissionDecision.message,
+        code: 'not_configured',
+        message: 'Router A/B normal-signing runtime is not configured',
       },
     };
   }
@@ -2863,13 +2923,11 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
   readonly body: Record<string, unknown>;
   readonly headers: Record<string, string | string[] | undefined>;
   readonly session: SessionAdapter | null | undefined;
-  readonly runtime: RouterAbNormalSigningRouteRuntime | null | undefined;
   readonly authorizationClaims: RouterApiAuthorizationClaimService | null | undefined;
   readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   readonly admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
-  readonly privatePath: RouterAbEcdsaDerivationPrivateSigningPath;
   readonly phase: 'prepare' | 'finalize';
-}): Promise<RouterAbJsonRouteResult> {
+}): Promise<RouterAbJsonRouteResult | null> {
   let request: RouterAbEcdsaOperationStepUpRequest;
   let materialActivationId: MpcMaterialActivationId;
   try {
@@ -2897,11 +2955,11 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
     sessionExpiresAtMs: authenticated.expiresAtMs,
   });
   if (identityFailure) return identityFailure;
-  if (!input.runtime || !input.admissionAdapter) {
+  if (!input.admissionAdapter) {
     return routerAbStepUpError(
       501,
       'not_configured',
-      'Router A/B ECDSA operation step-up runtime is not configured',
+      'Router A/B ECDSA operation step-up admission is not configured',
     );
   }
   const admission = await input.admissionAdapter.evaluate({
@@ -2926,28 +2984,6 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
       body: { ok: false, code: admission.code, message: admission.message },
     };
   }
-  const signingWorker = input.runtime.getSigningWorkerPrivateTransport();
-  if (signingWorker.kind === 'unconfigured') {
-    return routerAbStepUpError(
-      501,
-      'not_configured',
-      'Router A/B SigningWorker private HTTP target is not configured',
-    );
-  }
-  let privateBody: RouterAbEcdsaDerivationPrivateSigningWorkerBody;
-  try {
-    privateBody = await buildRouterAbEcdsaDerivationPrivateSigningWorkerBody({
-      phase: input.phase,
-      body: input.body,
-      authorization: {
-        kind: 'operation_step_up',
-        session: authenticated.session,
-      },
-      headers: input.headers,
-    });
-  } catch (error: unknown) {
-    return routerAbStepUpError(400, 'invalid_body', errorMessage(error));
-  }
   if (input.phase === 'prepare') {
     const prepareRequest = parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body);
     const claimFailure = await claimRouterAbEcdsaOperationStepUp({
@@ -2963,49 +2999,25 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
       authenticated,
     });
     if (claimFailure) return claimFailure;
-    const replay = await input.runtime.reservePrepareReplay({
-      curve: 'ecdsa',
-      authorizationIdentity: {
-        kind: 'operation_step_up',
-        materialActivationId,
-      },
-      requestId: request.request_id,
-      expiresAtMs: request.expires_at_ms,
-    });
-    if (!replay.ok) {
-      return {
-        status: replay.status,
-        body: { ok: false, code: replay.code, message: replay.message },
-      };
-    }
   }
-  const forwarded = await postRouterAbSigningWorkerJson({
-    config: signingWorker,
-    path: input.privatePath,
-    body: privateBody,
-  });
-  return forwarded.ok
-    ? { status: 200, body: forwarded.body }
-    : { status: forwarded.status, body: forwarded.body };
+  return null;
 }
 
-export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input: {
+export async function authorizeRouterAbEcdsaDerivationNormalSigningRoute(input: {
   body: Record<string, unknown>;
   rawBody: unknown;
   headers: Record<string, string | string[] | undefined>;
   session: SessionAdapter | null | undefined;
-  runtime: RouterAbNormalSigningRouteRuntime | null | undefined;
   authorizationClaims: RouterApiAuthorizationClaimService | null | undefined;
   authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
-  privatePath: RouterAbEcdsaDerivationPrivateSigningPath;
   phase: 'prepare' | 'finalize';
-}): Promise<RouterAbJsonRouteResult> {
+}): Promise<RouterAbEcdsaNormalSigningAuthorizationResult> {
   const invalidSessionKind = rejectRouterAbCookieSessionKind(
     input.rawBody,
     'Router A/B ECDSA derivation normal-signing requires sessionKind=jwt',
   );
-  if (invalidSessionKind) return invalidSessionKind;
+  if (invalidSessionKind) return { ok: false, result: invalidSessionKind };
 
   let requestedAuthorizationKind: RouterAbNormalSigningAuthorizationWire['kind'];
   try {
@@ -3014,20 +3026,21 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
       body: input.body,
     }).authorization.kind;
   } catch (error: unknown) {
-    return routerAbStepUpError(400, 'invalid_body', errorMessage(error));
+    return { ok: false, result: routerAbStepUpError(400, 'invalid_body', errorMessage(error)) };
   }
   if (requestedAuthorizationKind === 'operation_step_up') {
-    return handleRouterAbEcdsaOperationStepUpRoute({
-      body: input.body,
-      headers: input.headers,
-      session: input.session,
-      runtime: input.runtime,
-      authorizationClaims: input.authorizationClaims,
-      authorizationSessions: input.authorizationSessions,
-      admissionAdapter: input.admissionAdapter,
-      privatePath: input.privatePath,
-      phase: input.phase,
-    });
+    const failure = await handleRouterAbEcdsaOperationStepUpRoute({
+        body: input.body,
+        headers: input.headers,
+        session: input.session,
+        authorizationClaims: input.authorizationClaims,
+        authorizationSessions: input.authorizationSessions,
+        admissionAdapter: input.admissionAdapter,
+        phase: input.phase,
+      });
+    return failure
+      ? { ok: false, result: failure }
+      : { ok: true, kind: 'operation_step_up' };
   }
 
   const validated = await validateRouterAbEcdsaDerivationWalletSessionInputs({
@@ -3037,8 +3050,11 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
   });
   if (!validated.ok) {
     return {
-      status: routerAbWalletSessionValidationStatus(validated.code),
-      body: validated,
+      ok: false,
+      result: {
+        status: routerAbWalletSessionValidationStatus(validated.code),
+        body: validated,
+      },
     };
   }
 
@@ -3055,18 +3071,9 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
           body: input.body,
         });
   if (!admission.ok) {
-    return { status: admission.error.status, body: admission.error.body };
-  }
-
-  const runtime = input.runtime;
-  if (!runtime) {
     return {
-      status: 501,
-      body: {
-        ok: false,
-        code: 'not_configured',
-        message: 'Router A/B SigningWorker private HTTP target is not configured',
-      },
+      ok: false,
+      result: { status: admission.error.status, body: admission.error.body },
     };
   }
 
@@ -3080,11 +3087,48 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
   });
   if (!admissionDecision.ok) {
     return {
-      status: admissionDecision.status,
+      ok: false,
+      result: {
+        status: admissionDecision.status,
+        body: {
+          ok: false,
+          code: admissionDecision.code,
+          message: admissionDecision.message,
+        },
+      },
+    };
+  }
+
+  return { ok: true, kind: 'reusable_wallet_session', validated, admission };
+}
+
+export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input: {
+  body: Record<string, unknown>;
+  rawBody: unknown;
+  headers: Record<string, string | string[] | undefined>;
+  session: SessionAdapter | null | undefined;
+  runtime: RouterAbNormalSigningRouteRuntime | null | undefined;
+  authorizationClaims: RouterApiAuthorizationClaimService | null | undefined;
+  authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
+  admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
+  privatePath: RouterAbEcdsaDerivationPrivateSigningPath;
+  phase: 'prepare' | 'finalize';
+}): Promise<RouterAbJsonRouteResult> {
+  const authorization = await authorizeRouterAbEcdsaDerivationNormalSigningRoute(input);
+  if (!authorization.ok) return authorization.result;
+  if (authorization.kind === 'operation_step_up') {
+    return routerAbStepUpError(500, 'internal', 'Operation step-up must execute through the MPC router');
+  }
+  const { validated, admission } = authorization;
+
+  const runtime = input.runtime;
+  if (!runtime) {
+    return {
+      status: 501,
       body: {
         ok: false,
-        code: admissionDecision.code,
-        message: admissionDecision.message,
+        code: 'not_configured',
+        message: 'Router A/B SigningWorker private HTTP target is not configured',
       },
     };
   }
@@ -3217,4 +3261,120 @@ export async function postRouterAbSigningWorkerJson(input: {
   }
 
   return { ok: true, body: response.json };
+}
+
+function walletBudgetGrantString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function walletBudgetGrantPositiveInteger(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function walletBudgetGrantNonNegativeInteger(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function walletBudgetGrantResponseRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function parseRouterAbWalletBudgetGrantProvisionResponseV1(
+  value: unknown,
+): RouterAbWalletBudgetGrantProvisionResultV1 {
+  const record = walletBudgetGrantResponseRecord(value);
+  const signingGrantId = walletBudgetGrantString(record?.signing_grant_id);
+  const remainingUses = walletBudgetGrantNonNegativeInteger(record?.committed_remaining_uses);
+  const reservedUses = walletBudgetGrantNonNegativeInteger(record?.reserved_uses);
+  const availableUses = walletBudgetGrantNonNegativeInteger(record?.available_uses);
+  const expiresAtMs = walletBudgetGrantPositiveInteger(record?.expires_at_ms);
+  if (
+    !signingGrantId ||
+    remainingUses === null ||
+    reservedUses === null ||
+    availableUses === null ||
+    expiresAtMs === null ||
+    availableUses !== Math.max(0, remainingUses - reservedUses)
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_router_response',
+      message: 'Router returned an invalid SigningWorker wallet-budget projection',
+    };
+  }
+  return {
+    ok: true,
+    signingGrantId,
+    remainingUses,
+    reservedUses,
+    availableUses,
+    expiresAtMs,
+  };
+}
+
+function routerAbWalletBudgetGrantUrl(config: RouterAbWalletBudgetGrantTransportV1): string {
+  const base = config.routerBaseUrl.trim().replace(/\/+$/, '');
+  if (!base) throw new Error('Router wallet-budget transport requires routerBaseUrl');
+  return `${base}${PRIVATE_ROUTER_WALLET_BUDGET_PUT_GRANT_PATH}`;
+}
+
+class RouterAbPrivateD1WalletBudgetGrantProvisionerV1 implements RouterAbWalletBudgetGrantProvisionerV1 {
+  constructor(private readonly config: RouterAbWalletBudgetGrantTransportV1) {}
+
+  async provisionGrant(
+    input: RouterAbWalletBudgetGrantProvisionInputV1,
+  ): Promise<RouterAbWalletBudgetGrantProvisionResultV1> {
+    const fetchImpl = resolveRouterAbSigningWorkerFetch(this.config.fetchImpl);
+    if (!fetchImpl) {
+      return { ok: false, code: 'internal', message: 'fetch is not available in this runtime' };
+    }
+    const response = await postRouterAbInternalServiceJson({
+      url: routerAbWalletBudgetGrantUrl(this.config),
+      body: {
+        signing_grant_id: input.signingGrantId,
+        wallet_id: input.walletId,
+        rp_id: input.relyingPartyId,
+        authorized_signers: input.authorizedSigners,
+        initial_signature_uses: input.initialSignatureUses,
+        expires_at_ms: input.expiresAtMs,
+        issuer_jwt_id: input.issuerIdempotencyKey,
+        now_unix_ms: Date.now(),
+      },
+      authSecret: this.config.internalServiceAuthSecret,
+      fetchImpl,
+    });
+    if (!response.ok) {
+      return {
+        ok: false,
+        code: response.code,
+        message:
+          response.code === 'http_error'
+            ? response.bodyText || `Router wallet-budget grant returned HTTP ${response.status}`
+            : response.message,
+      };
+    }
+    const parsed = parseRouterAbWalletBudgetGrantProvisionResponseV1(response.json);
+    if (!parsed.ok) return parsed;
+    if (
+      parsed.signingGrantId !== input.signingGrantId ||
+      parsed.expiresAtMs !== input.expiresAtMs
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_router_response',
+        message: 'Router wallet-budget projection does not match the requested grant',
+      };
+    }
+    return parsed;
+  }
+}
+
+export function createRouterAbPrivateD1WalletBudgetGrantProvisionerV1(
+  config: RouterAbWalletBudgetGrantTransportV1,
+): RouterAbWalletBudgetGrantProvisionerV1 {
+  return new RouterAbPrivateD1WalletBudgetGrantProvisionerV1(config);
 }

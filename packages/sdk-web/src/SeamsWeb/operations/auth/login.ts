@@ -3042,7 +3042,7 @@ async function primeThresholdLoginWarmSigners(args: {
     runtimePolicyScope: null,
     ecdsaDerivationPasskeyPrfFirstB64u: '',
   };
-  const sharedSigningGrantState: ThresholdLoginWarmSharedSigningGrantState = {
+  const ecdsaSigningGrantState: ThresholdLoginWarmEcdsaSigningGrantState = {
     generatedSigningGrantId: '',
     generatedThresholdSessionId:
       args.passkeyExchangeEcdsaActivation?.request.session_policy.threshold_session_id || '',
@@ -3361,14 +3361,13 @@ async function primeThresholdLoginWarmSigners(args: {
               : null;
           const thresholdSessionId = matchingExchangeActivation
             ? matchingExchangeActivation.response.session.threshold_session_id
-            : resolveThresholdLoginWarmSharedThresholdSessionId({
-                sharedState: sharedSigningGrantState,
+            : resolveThresholdLoginWarmEcdsaThresholdSessionId({
+                sharedState: ecdsaSigningGrantState,
               });
           const signingGrantId = matchingExchangeActivation
             ? matchingExchangeActivation.response.session.signing_grant_id
-            : resolveThresholdLoginWarmSharedSigningGrantId({
-                ed25519State: warmState,
-                sharedState: sharedSigningGrantState,
+            : resolveThresholdLoginWarmEcdsaSigningGrantId({
+                sharedState: ecdsaSigningGrantState,
               });
           const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
             chainTarget: target.chainTarget,
@@ -3972,13 +3971,13 @@ function createThresholdEd25519DeviceLinkRequiredError(): Error & {
   return error;
 }
 
-type ThresholdLoginWarmSharedSigningGrantState = {
+type ThresholdLoginWarmEcdsaSigningGrantState = {
   generatedSigningGrantId: string;
   generatedThresholdSessionId: string;
 };
 
-function resolveThresholdLoginWarmSharedThresholdSessionId(input: {
-  sharedState: ThresholdLoginWarmSharedSigningGrantState;
+function resolveThresholdLoginWarmEcdsaThresholdSessionId(input: {
+  sharedState: ThresholdLoginWarmEcdsaSigningGrantState;
 }): string {
   const current = String(input.sharedState.generatedThresholdSessionId || '').trim();
   if (current) return current;
@@ -3987,12 +3986,9 @@ function resolveThresholdLoginWarmSharedThresholdSessionId(input: {
   return generated;
 }
 
-function resolveThresholdLoginWarmSharedSigningGrantId(input: {
-  ed25519State: ThresholdLoginWarmEd25519State;
-  sharedState: ThresholdLoginWarmSharedSigningGrantState;
+function resolveThresholdLoginWarmEcdsaSigningGrantId(input: {
+  sharedState: ThresholdLoginWarmEcdsaSigningGrantState;
 }): string {
-  const sharedSigningGrantId = String(input.ed25519State.signingGrantId || '').trim();
-  if (sharedSigningGrantId) return sharedSigningGrantId;
   const generatedSigningGrantId = String(input.sharedState.generatedSigningGrantId || '').trim();
   if (generatedSigningGrantId) return generatedSigningGrantId;
   const nextSigningGrantId = createThresholdLoginWarmSessionId('wallet-ecdsa-login');

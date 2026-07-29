@@ -218,13 +218,13 @@ export {
   type NearPublicKeyStore,
 } from './core/NearPublicKeyStore';
 export {
-  CloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
+  CloudflareD1RouterAbNormalSigningAdmissionStore,
   InMemoryRouterAbNormalSigningAdmissionStore,
-  createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
+  createCloudflareD1RouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
-  type CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions,
+  type CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
   type InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   type RouterAbNormalSigningAbuseDecision,
   type RouterAbNormalSigningAbuseProvider,

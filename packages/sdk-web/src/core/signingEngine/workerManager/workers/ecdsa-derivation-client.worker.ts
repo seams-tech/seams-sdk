@@ -563,6 +563,7 @@ function createRouterAbEcdsaRegistrationCeremony(
       kind: 'router_ab_ecdsa_registration_ceremony_created_v1',
       ceremonyId,
       registrationRequest,
+      registrationRequestDigestB64u: registrationBinding.requestDigestB64u,
     };
   } catch (error: unknown) {
     ceremony.close();
@@ -1066,12 +1067,13 @@ function createRouterAbEcdsaPostRegistrationCeremony(
           kind: 'router_ab_ecdsa_explicit_export_ceremony_created_v1',
           ceremonyId,
           request: exportRequest,
+          requestDigestB64u: ceremony.explicit_export_request_digest_b64u(),
         };
         active = {
           kind: 'explicit_export',
           ceremony,
           request: exportRequest,
-          requestDigestB64u: ceremony.explicit_export_request_digest_b64u(),
+          requestDigestB64u: result.requestDigestB64u,
         };
         break;
       }

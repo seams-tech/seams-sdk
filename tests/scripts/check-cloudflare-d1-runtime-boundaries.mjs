@@ -304,10 +304,6 @@ const staleD1ApiKeyDocPatterns = [
         message: 'describes an unimplemented console-prefixed API-key auth-event table',
     },
     {
-        pattern: /\bconsole_bootstrap_tokens\b/,
-        message: 'uses the old console-prefixed bootstrap_tokens table name',
-    },
-    {
         pattern: /\bconsole_onboarding_runs\b/,
         message: 'describes an unimplemented console-prefixed onboarding table',
     },
@@ -634,7 +630,6 @@ const activeRouterApiTextPaths = [
     'tests/unit/cloudflareD1ConsoleServices.unit.test.ts',
     'tests/unit/cloudflareD1RouterApiEmailOtp.unit.test.ts',
     'tests/unit/cloudflareD1RouterApiOidc.unit.test.ts',
-    'tests/unit/cloudflareD1RouterApiRegistrationCeremony.unit.test.ts',
     'tests/unit/cloudflareD1RouterApiServiceSurface.unit.test.ts',
     'tests/unit/cloudflareD1RouterApiWalletAuthMethods.unit.test.ts',
     'tests/unit/helpers/cloudflareD1RouterApiAuthService.fixtures.ts',
@@ -650,7 +645,6 @@ const staleRouterApiRenameTokens = [
     'RelayRouterOptions',
     'RelayApiKey',
     'RelayPublishableKey',
-    'RelayBootstrapGrant',
     'RelayRouteSurface',
     'RelayRouteExtension',
     'RelayRouterModule',
@@ -659,13 +653,11 @@ const staleRouterApiRenameTokens = [
     'CloudflareRelayAuthService',
     'createRelayRouter',
     'createRelayApiKeyAuthAdapter',
-    'createRelayBootstrapGrantBroker',
     'd1RelayStagingWorker',
     'sdkRelayExtension',
     'Cloudflare D1 relay auth service',
     'Cloudflare D1 relay registration intents',
     'Cloudflare D1 relay thresholdStore',
-    'D1 relay bootstrapGrantTokenTtlMs',
     'D1 relay storage options',
     'relay API-key',
     'relay API key',
@@ -727,7 +719,6 @@ const staleRouterApiRenameTokens = [
     'RELAY_BASE_URL',
     'RELAY_API_KEY_AUTH_ENABLED',
     'relay app sessions',
-    '[relay][bootstrap-grants]',
     '[relay][webhooks]',
     '[relay][signed-delegate]',
     'relay][signed-delegate',
@@ -959,7 +950,6 @@ const forbiddenRouterApiAuthServiceMountPatterns = [
     },
 ];
 const deletedAuthServiceRouterApiHarnessPaths = [
-    'tests/relayer/bootstrap-grants.test.ts',
     'tests/relayer/cloudflare-router.test.ts',
     'tests/relayer/console-api-key-kinds.test.ts',
     'tests/relayer/email-otp.authservice.test.ts',
@@ -2232,7 +2222,7 @@ test('schema and dashboard backend docs describe D1 tenant-scoped tables', () =>
     const violations = sourcePatternViolationsForFiles([dbSchemaDocPath, dashboardBackendImplementationDocPath], staleD1SchemaDocPatterns);
     expect(violations, violations.join('\n')).toEqual([]);
 });
-test('API-key docs describe current D1 credential and bootstrap-token tables', () => {
+test('API-key docs describe current D1 credential tables', () => {
     const violations = sourcePatternViolations(apiKeysDocPath, staleD1ApiKeyDocPatterns);
     expect(violations, violations.join('\n')).toEqual([]);
 });

@@ -30,6 +30,10 @@ import type {
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
 import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
 import type {
+  RouterAbWalletBudgetGrantProvisionerV1,
+  RouterAbWalletBudgetGrantProvisionInputV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
+import type {
   RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1,
   RouterAbEd25519YaoEmailOtpRecoverySessionResponseV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoWalletSession';
@@ -52,7 +56,6 @@ import {
   insertWalletAuthMethod,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 import {
-  createRouterAbSigningRuntimesForUnitTests,
   FixtureRouterAbEcdsaStrictRegistrationPort,
 } from '../helpers/routerAbSigningRuntimeTestUtils';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
@@ -494,23 +497,39 @@ function createRecoveryService(input: {
   readonly namespace: string;
   readonly runtime: RouterAbEd25519YaoProductRegistrationRuntimeV1;
 }) {
-  const threshold = createRouterAbSigningRuntimesForUnitTests({
-    config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: SIGNING_WORKER_ID },
-  });
+  const walletBudgetGrantProvisioner = new RecordingWalletBudgetGrantProvisioner();
   const service = createCloudflareD1RouterApiAuthService({
     database: input.database,
     namespace: input.namespace,
     orgId: ORG_ID,
     projectId: PROJECT_ID,
     envId: ENV_ID,
-    routerAbSigningRuntimes: threshold.runtimes,
+    walletBudgetGrantProvisioner,
     ed25519YaoProductRegistration: input.runtime,
     ecdsaStrictRegistration: new FixtureRouterAbEcdsaStrictRegistrationPort(),
   });
   return {
     service,
-    routerAbNormalSigningRuntime: threshold.routerAbNormalSigningRuntime,
+    walletBudgetGrantProvisioner,
   };
+}
+
+class RecordingWalletBudgetGrantProvisioner
+  implements RouterAbWalletBudgetGrantProvisionerV1
+{
+  readonly calls: RouterAbWalletBudgetGrantProvisionInputV1[] = [];
+
+  async provisionGrant(input: RouterAbWalletBudgetGrantProvisionInputV1) {
+    this.calls.push(input);
+    return {
+      ok: true as const,
+      signingGrantId: input.signingGrantId,
+      remainingUses: input.initialSignatureUses,
+      reservedUses: 0,
+      availableUses: input.initialSignatureUses,
+      expiresAtMs: input.expiresAtMs,
+    };
+  }
 }
 
 test('parses exact-local and missing-material Email OTP Ed25519 session intents', () => {
@@ -700,15 +719,20 @@ test('D1 recovery issues the authoritative mixed-wallet signing grant', async ()
       remainingUses: REQUESTED_REMAINING_USES,
     });
     expect(runtime.mintCalls[0]).not.toHaveProperty('signingGrantId');
-    await expect(
-      fixture.routerAbNormalSigningRuntime.getSigningGrantBudget('fresh-signing-grant-1'),
-    ).resolves.toMatchObject({
-      walletId: WALLET_ID,
-      bindings: {
-        kind: 'ed25519_only',
-        ed25519: { participantIds: PARTICIPANT_IDS },
-      },
-    });
+    expect(fixture.walletBudgetGrantProvisioner.calls).toEqual([
+      expect.objectContaining({
+        walletId: WALLET_ID,
+        signingGrantId: 'fresh-signing-grant-1',
+        authorizedSigners: [
+          {
+            curve: 'ed25519',
+            threshold_session_id: THRESHOLD_SESSION_ID,
+            signing_worker_id: SIGNING_WORKER_ID,
+          },
+        ],
+        initialSignatureUses: REQUESTED_REMAINING_USES,
+      }),
+    ]);
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
@@ -739,9 +763,7 @@ test('D1 recovery fails closed when the exact active capability is missing', asy
       message: 'capability is unavailable',
     });
     expect(runtime.mintCalls).toHaveLength(0);
-    await expect(
-      fixture.routerAbNormalSigningRuntime.getSigningGrantBudget('fresh-signing-grant-1'),
-    ).resolves.toBeNull();
+    expect(fixture.walletBudgetGrantProvisioner.calls).toEqual([]);
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
@@ -771,9 +793,7 @@ test('D1 recovery rejects active-capability wallet substitution before minting',
       message: 'Active Ed25519 Yao capability does not match the registered signer',
     });
     expect(runtime.mintCalls).toHaveLength(0);
-    await expect(
-      fixture.routerAbNormalSigningRuntime.getSigningGrantBudget('fresh-signing-grant-1'),
-    ).resolves.toBeNull();
+    expect(fixture.walletBudgetGrantProvisioner.calls).toEqual([]);
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }

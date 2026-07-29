@@ -8,9 +8,11 @@ import type { RouterAbEcdsaVerifiedClientActivationFactsV1 } from '@shared/utils
 import type {
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationStartRequest,
+  WalletRegistrationAuthorityInput,
   WalletRegistrationStartResponse,
   WalletRegistrationFinalizeRequest,
   WalletRegistrationFinalizeResponse,
+  WalletRegistrationFinalizeRouteSuccess,
   WalletRegistrationEcdsaActivationResponse,
 } from './registrationContracts';
 
@@ -45,7 +47,6 @@ export type SignedSetupPayloadB64u = string & { readonly [signedSetupPayloadBran
 
 /* Reused pieces, named once so route shapes below stay readable. Indexed
    access keeps them bound to the canonical definitions. */
-type SetupAuthorityProof = WalletRegistrationStartRequest['authority'];
 type SetupEd25519Work = Extract<WalletRegistrationStartResponse, { kind: 'near_ed25519' }> extends {
   ed25519: infer T;
 }
@@ -135,27 +136,46 @@ export type WalletRegistrationSetupResponseV2 =
 type WalletRegistrationRespondRequestBaseV2 = {
   registrationCeremonyId: string;
   signedSetup: SignedSetupPayloadB64u;
-  authority: SetupAuthorityProof;
 };
+
+type WalletRegistrationRespondAuthorityProofV2 =
+  | {
+      webauthn_registration: Extract<
+        WalletRegistrationAuthorityInput,
+        { kind: 'passkey' }
+      >['webauthnRegistration'];
+      emailOtpRegistrationProof?: never;
+    }
+  | {
+      emailOtpRegistrationProof: Extract<
+        WalletRegistrationAuthorityInput,
+        { kind: 'email_otp' }
+      >['emailOtpRegistrationProof'];
+      webauthn_registration?: never;
+    };
 
 export type RespondEcdsaRegistrationWorkV2 = {
   kind: 'router_ab_ecdsa_registration_v1';
   strictRegistration: unknown; // RouterAbEcdsaRegistrationRequestV1; bound at the parser
+  /** Canonical Router request digest produced by the client ceremony WASM. */
+  requestDigestB64u: string;
 };
 
-export type WalletRegistrationRespondRequestV2 =
-  | (WalletRegistrationRespondRequestBaseV2 & {
+export type WalletRegistrationRespondRequestV2 = WalletRegistrationRespondAuthorityProofV2 &
+  (
+    | (WalletRegistrationRespondRequestBaseV2 & {
       kind: 'evm_family_ecdsa';
       ecdsa: RespondEcdsaRegistrationWorkV2;
     })
-  | (WalletRegistrationRespondRequestBaseV2 & {
+    | (WalletRegistrationRespondRequestBaseV2 & {
       kind: 'near_ed25519_and_evm_family_ecdsa';
       ecdsa: RespondEcdsaRegistrationWorkV2;
     })
-  | (WalletRegistrationRespondRequestBaseV2 & {
+    | (WalletRegistrationRespondRequestBaseV2 & {
       kind: 'near_ed25519';
       ecdsa?: never;
-    });
+    })
+  );
 
 /**
  * What respond returns for the ceremony's signer plan.
@@ -290,6 +310,8 @@ type Ed25519FinalizeSuccess = Extract<
   { ok: true; kind: 'near_ed25519' }
 >;
 
+type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
+
 /**
  * Activate's Ed25519-only terminal result: a wallet that exists and cannot
  * yet sign.
@@ -302,7 +324,7 @@ type Ed25519FinalizeSuccess = Extract<
  * not exist yet. The wallet becomes signable when deferred Yao reaches
  * `near_ready`.
  */
-export type WalletRegistrationActivateEd25519PendingV2 = Omit<
+export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
   Ed25519FinalizeSuccess,
   'ed25519' | 'resolvedAccount' | 'accountProvisioning' | 'authorityScope'
 > & {
@@ -315,12 +337,33 @@ export type WalletRegistrationActivateEd25519PendingV2 = Omit<
 };
 
 export type WalletRegistrationActivateResponseV2 =
-  | (Omit<EcdsaFinalizeSuccess, 'ecdsa'> & {
+  | (DistributiveOmit<EcdsaFinalizeSuccess, 'ecdsa'> & {
       ecdsa: ActivateEcdsaTerminalPayload;
       /** Mixed plans: deferred NEAR snapshot; never identifiers before readiness. */
       nearProvisioning?: { status: 'near_pending' };
     })
   | WalletRegistrationActivateEd25519PendingV2
+  | WalletRegistrationRouteErrorV2;
+
+type ActivateSuccessV2 = Exclude<
+  WalletRegistrationActivateResponseV2,
+  WalletRegistrationRouteErrorV2
+>;
+
+type ActivatePasskeyRouteAuth = Pick<
+  Extract<WalletRegistrationFinalizeRouteSuccess, { authMethod: { kind: 'passkey' } }>,
+  'authMethod' | 'rpId' | 'appSessionJwt'
+>;
+
+type ActivateEmailOtpRouteAuth = Pick<
+  Extract<WalletRegistrationFinalizeRouteSuccess, { authMethod: { kind: 'email_otp' } }>,
+  'authMethod' | 'rpId' | 'appSessionJwt'
+>;
+
+/** Public activate response after the route mints the Email OTP app session. */
+export type WalletRegistrationActivateRouteResponseV2 =
+  | (ActivateSuccessV2 & ActivatePasskeyRouteAuth)
+  | (ActivateSuccessV2 & ActivateEmailOtpRouteAuth)
   | WalletRegistrationRouteErrorV2;
 
 /**

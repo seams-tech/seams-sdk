@@ -24,9 +24,9 @@ import {
   publishNearProvisioningState,
   runSingleFlightNearProvisioning,
 } from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
+import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntimeScope';
 import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { createRegistrationFlowEvent, RegistrationEventPhase } from '@/core/types/sdkSentEvents';
-import { createManagedRegistrationFlowGrant } from '@/SeamsWeb/operations/registration/createAccountRouterApiServer';
 import type {
   RegistrationSigningSurface,
   RegistrationWebContext,
@@ -806,22 +806,6 @@ function registrationTimingSignerSetHasBranch(
   branch: RegistrationTimingSignerBranch,
 ): boolean {
   return signerSet.branches.includes(branch);
-}
-
-type ManagedRegistrationFlowGrantAuthority = Parameters<
-  typeof createManagedRegistrationFlowGrant
->[0]['authority'];
-
-function registrationBootstrapGrantAuthority(input: {
-  authMethod: RegistrationAuthMethodInput;
-  operation: string;
-}): ManagedRegistrationFlowGrantAuthority {
-  if (input.authMethod.kind !== 'passkey') return { kind: 'wallet_auth' };
-  const rpId = String(input.authMethod.rpId || '').trim();
-  if (!rpId) {
-    throw new Error(`${input.operation} requires configured rpId for managed registration grant`);
-  }
-  return { kind: 'passkey_rp', rpId };
 }
 
 function requiredRegistrationRpId(input: {
@@ -5995,16 +5979,20 @@ export async function addWalletSigner(
   try {
     const relayerUrl = String(context.configs.network.relayer.url || '').trim();
     if (!relayerUrl) throw new Error('addWalletSigner requires relayer.url');
-    const managedGrant = await createManagedRegistrationFlowGrant({
-      context,
-      identity: { kind: 'wallet', walletId: String(walletId) },
-      authority: { kind: 'passkey_rp', rpId },
-    });
+    const managedRuntimeScope = resolveManagedRuntimeScopeBootstrap(context.configs);
+    if (!managedRuntimeScope) {
+      throw new Error(
+        'addWalletSigner requires registration.publishableKey and registration.projectEnvironmentId',
+      );
+    }
     const intentResponse = await createWalletAddSignerIntent({
       relayerUrl,
       walletId,
       request: { walletId, rpId, signerSelection },
-      headers: { Authorization: `Bearer ${managedGrant.token}` },
+      auth: {
+        publishableKey: managedRuntimeScope.publishableKey,
+        environmentId: managedRuntimeScope.projectEnvironmentId,
+      },
     });
     const localDigestB64u = await computeAddSignerIntentDigest(intentResponse.intent);
     if (localDigestB64u !== intentResponse.addSignerIntentDigestB64u) {

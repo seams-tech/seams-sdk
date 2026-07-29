@@ -43,10 +43,8 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   authenticateRouterAbOperationStepUpAppSessionIdentity,
+  authorizeRouterAbEcdsaDerivationNormalSigningRoute,
   claimRouterAbEcdsaOperationStepUp,
-  handleRouterAbEcdsaDerivationNormalSigningRouteCore,
-  ROUTER_AB_ECDSA_DERIVATION_PRIVATE_SIGNING_PATHS,
-  type RouterAbEcdsaDerivationPrivateSigningPath,
 } from '../../routerAbPrivateSigningWorker';
 import {
   parseRouterAbEcdsaDerivationPoolFillInitRouteRequest,
@@ -116,6 +114,7 @@ import {
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import { hashEmailOtpAppSessionClaims } from '../../emailOtpSessionRouteHelpers';
+import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
 
 const NOT_IMPLEMENTED = {
   ok: false,
@@ -135,22 +134,25 @@ function requireAuthorizationValue<T>(
 async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
   ctx: CloudflareRouterApiContext;
   body: Record<string, unknown>;
-  privatePath: RouterAbEcdsaDerivationPrivateSigningPath;
   phase: 'prepare' | 'finalize';
 }): Promise<Response> {
-  const result = await handleRouterAbEcdsaDerivationNormalSigningRouteCore({
+  const authorization = await authorizeRouterAbEcdsaDerivationNormalSigningRoute({
     body: input.body,
     rawBody: input.body,
     headers: Object.fromEntries(input.ctx.request.headers.entries()),
     session: input.ctx.opts.session,
-    runtime: input.ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime(),
     authorizationClaims: input.ctx.service.authorizationClaims,
     authorizationSessions: input.ctx.service.authorizationSessions,
     admissionAdapter: input.ctx.opts.routerAbNormalSigningAdmission,
-    privatePath: input.privatePath,
     phase: input.phase,
   });
-  return json(result.body, { status: result.status });
+  if (!authorization.ok) {
+    return json(authorization.result.body, { status: authorization.result.status });
+  }
+  return await proxyNormalSigningRequestToMpcRouter({
+    request: input.ctx.request,
+    proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+  });
 }
 
 async function issueEcdsaOperationStepUpGrant(input: {
@@ -672,6 +674,7 @@ type StrictEcdsaPostRegistrationRequest =
   | {
       readonly kind: 'export';
       readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+      readonly requestDigestB64u: string;
     }
   | {
       readonly kind: 'recovery';
@@ -788,11 +791,25 @@ function parseStrictEcdsaPostRegistrationRequest(
   body: unknown,
 ): StrictEcdsaPostRegistrationRequest {
   switch (pathname) {
-    case ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH:
+    case ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH: {
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        throw new Error('Strict ECDSA export body must be an object');
+      }
+      const record = body as Record<string, unknown>;
+      const keys = Object.keys(record).sort();
+      if (keys.length !== 2 || keys[0] !== 'request' || keys[1] !== 'requestDigestB64u') {
+        throw new Error('Strict ECDSA export body fields are invalid');
+      }
+      const requestDigestB64u = String(record.requestDigestB64u || '').trim();
+      if (!/^[A-Za-z0-9_-]{43}$/.test(requestDigestB64u)) {
+        throw new Error('Strict ECDSA export request digest must contain 32 base64url bytes');
+      }
       return {
         kind: 'export',
-        request: parseRouterAbEcdsaDerivationExplicitExportRequestV1(body),
+        request: parseRouterAbEcdsaDerivationExplicitExportRequestV1(record.request),
+        requestDigestB64u,
       };
+    }
     case ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH:
       return {
         kind: 'recovery',
@@ -972,6 +989,7 @@ async function handleStrictEcdsaPostRegistrationRoute(input: {
       }
       const result = await input.port.explicitExport({
         request: parsed.request,
+        requestDigestB64u: parsed.requestDigestB64u,
         authority: exportAuthorization.authority,
       });
       if (!result.ok) return strictPostRegistrationFailureResponse(result);
@@ -1575,7 +1593,7 @@ export async function handleThresholdEcdsa(
     return null;
   }
 
-  const bodyUnknown = await readJson(ctx.request);
+  const bodyUnknown = await readJson(ctx.request.clone());
   if (pathname === ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH) {
     let request: RouterAbEcdsaOperationStepUpGrantRequestV1Wire;
     try {
@@ -1619,7 +1637,6 @@ export async function handleThresholdEcdsa(
     return handleRouterAbEcdsaDerivationNormalSigningRoute({
       ctx,
       body,
-      privatePath: ROUTER_AB_ECDSA_DERIVATION_PRIVATE_SIGNING_PATHS.prepare,
       phase: 'prepare',
     });
   }
@@ -1628,7 +1645,6 @@ export async function handleThresholdEcdsa(
     return handleRouterAbEcdsaDerivationNormalSigningRoute({
       ctx,
       body,
-      privatePath: ROUTER_AB_ECDSA_DERIVATION_PRIVATE_SIGNING_PATHS.finalize,
       phase: 'finalize',
     });
   }

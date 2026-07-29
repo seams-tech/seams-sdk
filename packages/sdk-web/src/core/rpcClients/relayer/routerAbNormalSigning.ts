@@ -197,9 +197,12 @@ export type RouterAbNormalSigningFinalizeRequestV2Wire =
     });
 
 export type RouterAbNormalSigningBudgetStatusV1Wire = {
+  remaining_uses: number;
   committed_remaining_uses: number;
   reserved_uses: number;
   available_uses: number;
+  projection_version: number;
+  expires_at_ms: number;
 };
 
 type RouterAbNormalSigningPrepareResponseV1BaseWire = {
@@ -246,6 +249,7 @@ export type RouterAbNormalSigningResponseV1Wire = {
   signature_scheme: 'ed25519_v1';
   signature: RouterAbCanonicalWireBytesV1Wire;
   signed_at_ms: number;
+  budget_status: RouterAbNormalSigningBudgetStatusV1Wire;
 };
 
 export type RouterAbEd25519NormalSigningAdmissionMaterialV2Wire = {
@@ -734,12 +738,18 @@ function parseBudgetStatus(value: unknown, label: string): RouterAbNormalSigning
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
   if (!record) throw new Error(`${label} must be an object`);
   return {
+    remaining_uses: requireNonNegativeInteger(record.remaining_uses, `${label}.remaining_uses`),
     committed_remaining_uses: requireNonNegativeInteger(
       record.committed_remaining_uses,
       `${label}.committed_remaining_uses`,
     ),
     reserved_uses: requireNonNegativeInteger(record.reserved_uses, `${label}.reserved_uses`),
     available_uses: requireNonNegativeInteger(record.available_uses, `${label}.available_uses`),
+    projection_version: requirePositiveInteger(
+      record.projection_version,
+      `${label}.projection_version`,
+    ),
+    expires_at_ms: requirePositiveInteger(record.expires_at_ms, `${label}.expires_at_ms`),
   };
 }
 
@@ -822,6 +832,7 @@ function parseNormalSigningResponse(value: unknown): RouterAbNormalSigningRespon
     signature_scheme: 'ed25519_v1',
     signature: parseCanonicalWireBytes(record.signature, 'signature'),
     signed_at_ms: requirePositiveInteger(record.signed_at_ms, 'signed_at_ms'),
+    budget_status: parseBudgetStatus(record.budget_status, 'budget_status'),
   };
 }
 

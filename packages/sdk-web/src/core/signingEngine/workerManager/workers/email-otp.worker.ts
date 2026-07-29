@@ -2320,7 +2320,7 @@ function buildEmailOtpEd25519YaoExactLocalSessionBootstrap(args: {
       lifecycleId: binding.lifecycleId,
       rootShareEpoch: binding.rootShareEpoch,
       accountId: binding.walletId,
-      walletSessionId: session.thresholdSessionId,
+      walletSessionId: session.walletSessionId,
       signerSetId: binding.signerSetId,
       signingWorkerId: binding.signingWorkerId,
     },
@@ -3490,7 +3490,7 @@ function assertEmailOtpEd25519YaoLocalMaterialSessionContinuity(args: {
     session.routerAbNormalSigning.signingWorkerId !== binding.signingWorkerId ||
     capability.lifecycle.lifecycleId !== binding.lifecycleId ||
     capability.lifecycle.rootShareEpoch !== binding.rootShareEpoch ||
-    capability.lifecycle.walletSessionId !== args.expectedThresholdSessionId ||
+    capability.lifecycle.walletSessionId !== session.walletSessionId ||
     capability.lifecycle.signerSetId !== binding.signerSetId ||
     capability.lifecycle.signingWorkerId !== binding.signingWorkerId ||
     capability.stateEpoch.toString(10) !== binding.stateEpoch ||

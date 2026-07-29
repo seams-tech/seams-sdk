@@ -231,6 +231,7 @@ try {
   assertProductionWorkerBinariesReady();
   assertBrowserEcdsaClientReady();
   await assertProductionWorkerPortsAvailable();
+  applyPrivateD1Migrations();
   if (options.mode === 'multiplex' && displayMode === 'logs') {
     console.log('Multiplex mode requires a TTY; using interleaved logs.');
   }
@@ -766,6 +767,32 @@ function startProductionWorkers() {
       appendLine(pane, `spawn error: ${error.message}`);
       if (!shutdownStarted) shutdown(1);
     });
+  }
+}
+
+function applyPrivateD1Migrations() {
+  for (const config of strictRuntime.configs) {
+    if (!config.privateD1) continue;
+    const persistPath = join(strictPersistPath, config.role);
+    mkdirSync(persistPath, { recursive: true });
+    console.log(`Applying local ${config.role} private-D1 migrations...`);
+    run(
+      'pnpm',
+      [
+        'exec',
+        'wrangler',
+        'd1',
+        'migrations',
+        'apply',
+        config.privateD1.databaseName,
+        '--local',
+        '--persist-to',
+        persistPath,
+        '--config',
+        config.configPath,
+      ],
+      { ...process.env, CI: 'true' },
+    );
   }
 }
 

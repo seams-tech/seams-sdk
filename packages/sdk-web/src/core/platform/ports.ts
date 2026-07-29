@@ -309,11 +309,6 @@ export type EcdsaBootstrapRouteAuth =
       token?: never;
     }
   | {
-      kind: 'bootstrap_grant';
-      token: string;
-      jwt?: never;
-    }
-  | {
       kind: 'publishable_key';
       token: string;
       jwt?: never;

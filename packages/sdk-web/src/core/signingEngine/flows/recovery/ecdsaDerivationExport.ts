@@ -120,11 +120,13 @@ function randomB64u32(): string {
 async function forwardExplicitEcdsaExport(args: {
   readonly relayerUrl: string;
   readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+  readonly requestDigestB64u: string;
   readonly sessionAuth: EcdsaExplicitExportSessionAuth;
 }) {
   if (args.sessionAuth.kind === 'app_session') {
     return await routerAbEcdsaExplicitExport(args.relayerUrl, {
       request: args.request,
+      requestDigestB64u: args.requestDigestB64u,
       auth: args.sessionAuth,
     });
   }
@@ -396,6 +398,7 @@ async function executeEcdsaDerivationExport(
     const forwarded = await forwardExplicitEcdsaExport({
       relayerUrl: material.relayerUrl,
       request: created.request,
+      requestDigestB64u: created.requestDigestB64u,
       sessionAuth: material.operationAuthorization.sessionAuth,
     });
     if (!forwarded.ok) {
