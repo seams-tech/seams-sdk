@@ -22,6 +22,8 @@ export type CreateRouterAbEcdsaRegistrationCeremonyResultV1 = {
   readonly kind: 'router_ab_ecdsa_registration_ceremony_created_v1';
   readonly ceremonyId: string;
   readonly registrationRequest: RouterAbEcdsaRegistrationRequestV1;
+  /** Canonical full-envelope digest verified again by Router policy. */
+  readonly registrationRequestDigestB64u: string;
 };
 
 export type VerifyRouterAbEcdsaRegistrationClientProofsRequestV1 = {

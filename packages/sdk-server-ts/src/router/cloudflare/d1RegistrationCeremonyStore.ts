@@ -2,7 +2,6 @@ import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation
 import {
   StoredAddAuthMethodIntent,
   StoredAddSignerIntent,
-  StoredRegistrationIntent,
   StoredWalletAddAuthMethodCeremony,
   StoredWalletAddSignerCeremony,
   StoredWalletAddSignerFinalizeReplay,
@@ -16,7 +15,6 @@ import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import {
   parseD1StoredAddAuthMethodIntent,
   parseD1StoredAddSignerIntent,
-  parseD1StoredRegistrationIntent,
   parseD1StoredWalletAddAuthMethodCeremony,
   parseD1StoredWalletAddSignerCeremony,
   parseD1StoredWalletAddSignerFinalizeReplay,
@@ -28,7 +26,6 @@ import {
 } from './d1RegistrationCeremonyRecordStore';
 
 type RegistrationCeremonyIntentScope =
-  | 'intent'
   | 'ceremony'
   | 'add-signer-finalize-replay'
   | 'add-signer-finalize-claim'
@@ -38,7 +35,6 @@ type RegistrationCeremonyIntentScope =
   | 'add-signer';
 
 type RegistrationIntentPutInput =
-  | StoredRegistrationIntent
   | StoredWalletRegistrationCeremony
   | StoredWalletAddSignerFinalizeReplay
   | StoredAddSignerIntent
@@ -63,33 +59,6 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
 
   constructor(input: RegistrationCeremonyIntentStoreConfig) {
     this.storage = new D1RegistrationCeremonyRecordStore(input);
-  }
-
-  async putIntent(intent: StoredRegistrationIntent): Promise<void> {
-    await this.put({
-      scope: 'intent',
-      id: intent.grant,
-      record: intent,
-      expiresAtMs: intent.expiresAtMs,
-    });
-  }
-
-  async getIntent(grant: string): Promise<StoredRegistrationIntent | null> {
-    const id = toOptionalTrimmedString(grant);
-    if (!id) return null;
-    const value = await this.get('intent', id);
-    const intent = parseD1StoredRegistrationIntent(value);
-    if (!intent || intent.expiresAtMs <= Date.now()) return null;
-    return intent;
-  }
-
-  async takeIntent(grant: string): Promise<StoredRegistrationIntent | null> {
-    const id = toOptionalTrimmedString(grant);
-    if (!id) return null;
-    const value = await this.getDel('intent', id);
-    const intent = parseD1StoredRegistrationIntent(value);
-    if (!intent || intent.expiresAtMs <= Date.now()) return null;
-    return intent;
   }
 
   async putCeremony(ceremony: StoredWalletRegistrationCeremony): Promise<void> {

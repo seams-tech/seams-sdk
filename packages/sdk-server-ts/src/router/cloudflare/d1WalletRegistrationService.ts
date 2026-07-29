@@ -91,7 +91,6 @@ import {
   type StoredWalletRegistrationSignerBranch,
   type StoredWalletRegistrationPreparedContext,
   type StoredRegistrationAuthority,
-  type StoredRegistrationIntent,
   type StoredWalletRegistrationCeremony,
   type StoredWalletRegistrationCeremonyAuthorityState,
   verifiedRegistrationCeremonyAuthority,
@@ -119,9 +118,7 @@ import {
   type WalletRegistrationNearProvisioningInput,
 } from './d1WalletRegistrationSetup';
 import {
-  computeWalletRegistrationRespondDigestB64u,
   computeWalletRegistrationSetupDigestB64u,
-  mintInternalRouterPolicyJwt,
   verifySignedWalletRegistrationSetup,
   verifyWalletRegistrationSetupClaims,
 } from '../walletRegistrationSetupPayload';
@@ -133,7 +130,6 @@ import {
   parseD1RegistrationIntent,
   parseD1RegistrationAuthority,
   parseD1RuntimePolicyScope,
-  parseD1StoredRegistrationIntent,
   parseD1StoredWalletRegistrationCeremony,
   buildRegistrationIntent,
   createD1ServerAllocatedWalletId,
@@ -244,6 +240,7 @@ function recordValue(value: unknown): Record<string, unknown> | null {
 }
 
 const D1_WALLET_REGISTRATION_OPERATION_RESUME_AFTER_MS = 30_000;
+const WALLET_REGISTRATION_ROUTER_POLICY_VERSION = 'wallet-registration-v1';
 
 type D1RegistrationEd25519SigningBudgetPlan =
   | { readonly kind: 'generated_registration_signing_budget' }
@@ -895,9 +892,17 @@ function postRegistrationProofResponse(
 function postRegistrationProofMatchesRequest(input: EcdsaPostRegistrationProofInput): boolean {
   const response = postRegistrationProofResponse(input);
   return (
-    response.lifecycle.lifecycle_id === input.request.lifecycle.lifecycle_id &&
     response.bundles.signerA.transcriptDigestB64u === response.bundles.signerB.transcriptDigestB64u
   );
+}
+
+function postRegistrationRequestId(input: EcdsaPostRegistrationProofInput): string {
+  switch (input.operation) {
+    case 'recovery':
+      return input.request.recovery_nonce;
+    case 'refresh':
+      return input.request.refresh_nonce;
+  }
 }
 
 function pendingEcdsaSessionActivationRecord(input: {
@@ -910,8 +915,8 @@ function pendingEcdsaSessionActivationRecord(input: {
   const base = {
     version: 'wallet_ecdsa_pending_session_activation_v1',
     walletId: input.walletId,
-    lifecycleId: response.lifecycle.lifecycle_id,
-    requestId: response.replay.request_id,
+    lifecycleId: input.proof.request.lifecycle.lifecycle_id,
+    requestId: postRegistrationRequestId(input.proof),
     publicCapability: input.publicCapability,
     createdAtMs: input.nowMs,
     expiresAtMs: input.proof.request.expires_at_ms,
@@ -1854,6 +1859,10 @@ export class CloudflareD1WalletRegistrationService {
       if (!verifiedSetup.ok) {
         return { ok: false, code: verifiedSetup.code, message: verifiedSetup.message };
       }
+      const registrationBearerToken = toOptionalTrimmedString(input.signedSetup);
+      if (!registrationBearerToken) {
+        return { ok: false, code: 'invalid_body', message: 'signedSetup is required' };
+      }
 
       const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
       const planNearEd25519 = registrationSignerBranchesFromPlan(ceremony.signerPlan).nearEd25519;
@@ -1879,6 +1888,7 @@ export class CloudflareD1WalletRegistrationService {
           ceremony,
           branch: planNearEd25519,
           authorityInput: input.authority,
+          registrationBearerToken,
           expectedOrigin,
           ...(input.userAgent ? { userAgent: input.userAgent } : {}),
         });
@@ -1955,35 +1965,28 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
 
-      const respondDigestB64u = await computeWalletRegistrationRespondDigestB64u({
-        registrationCeremonyId: ceremony.registrationCeremonyId,
-        setupDigestB64u,
-        strictRegistrationBindingJson,
-        authorityDigestB64u: ceremony.digestB64u,
-      });
-      /* Per concrete Router call, never client-visible. */
-      await mintInternalRouterPolicyJwt(input.minter, {
-        registrationCeremonyId: ceremony.registrationCeremonyId,
-        operation: 'wallet_registration_respond',
-        requestDigestB64u: respondDigestB64u,
-        signingRootId: toOptionalTrimmedString(ceremony.signingRootId) || '',
-        signingRootVersion: toOptionalTrimmedString(ceremony.signingRootVersion) || '',
-        expiresAtMs: ceremony.expiresAtMs,
-      });
-
       /* Both Router calls are authority-bound and independent of each other. */
       const routerStartedAtMs = Date.now();
       const nearEd25519Branch = registrationSignerBranchesFromPlan(ceremony.signerPlan).nearEd25519;
       const [strictResult, ed25519Admission] = await Promise.all([
         this.ecdsaStrictRegistration.register({
           request: strictRegistration,
+          requestPolicy: {
+            policyVersion: WALLET_REGISTRATION_ROUTER_POLICY_VERSION,
+            requestDigestB64u: input.ecdsa.requestDigestB64u,
+          },
           authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
           traceContext,
           onServerTiming: (header) => mergeRouterServerTiming(serverTiming, header),
           onHeaderPresence: (presence) =>
             serverTiming.push([`ecdsa_role_timing_${presence.serverTiming}`, 1]),
         }),
-        this.admitRespondEd25519Branch({ ceremony, branch: nearEd25519Branch, authority }),
+        this.admitRespondEd25519Branch({
+          ceremony,
+          branch: nearEd25519Branch,
+          authority,
+          registrationBearerToken,
+        }),
       ]);
       mark('respond_router', routerStartedAtMs);
       if (!strictResult.ok) {
@@ -2288,6 +2291,7 @@ export class CloudflareD1WalletRegistrationService {
     readonly ceremony: StoredWalletRegistrationCeremony;
     readonly branch: RegistrationNearEd25519SignerPlan;
     readonly authorityInput: WalletRegistrationAuthorityInput;
+    readonly registrationBearerToken: string;
     readonly expectedOrigin: string;
     readonly userAgent?: string;
   }): Promise<WalletRegistrationRespondResponseV2> {
@@ -2328,6 +2332,7 @@ export class CloudflareD1WalletRegistrationService {
       ceremony,
       branch: input.branch,
       authority,
+      registrationBearerToken: input.registrationBearerToken,
     });
     if (!admitted.ok) return { ok: false, code: admitted.code, message: admitted.message };
     if (!admitted.branch || !admitted.deferred) {
@@ -2361,6 +2366,7 @@ export class CloudflareD1WalletRegistrationService {
     readonly ceremony: StoredWalletRegistrationCeremony;
     readonly branch: RegistrationNearEd25519SignerPlan | null;
     readonly authority: StoredRegistrationAuthority;
+    readonly registrationBearerToken: string;
   }): Promise<
     | {
         readonly ok: true;
@@ -2390,7 +2396,7 @@ export class CloudflareD1WalletRegistrationService {
     const admitted = await yaoRuntime.bindAndAdmitVerifiedRegistration({
       kind: 'verified_registration_intent',
       registrationIntentGrant: registrationIntentGrantFromString(
-        input.ceremony.registrationCeremonyId,
+        input.registrationBearerToken,
       ),
       intent: input.ceremony.intent,
       admissionRequest,
@@ -2467,15 +2473,6 @@ export class CloudflareD1WalletRegistrationService {
           }),
         ),
       );
-      await mintInternalRouterPolicyJwt(input.minter, {
-        registrationCeremonyId: claims.registrationCeremonyId,
-        operation: 'wallet_registration_activate',
-        requestDigestB64u: activateDigestB64u,
-        signingRootId: claims.signingRootId,
-        signingRootVersion: claims.signingRootVersion,
-        expiresAtMs: claims.expiresAtMs,
-      });
-
       const run = await runRouterAbEd25519YaoRegistrationSideEffectV1(this.activateSideEffects, {
         kind: 'prepared_resumable',
         operation: 'registration_activate',
@@ -2747,6 +2744,10 @@ export class CloudflareD1WalletRegistrationService {
       const activated = await this.ecdsaStrictRegistration.activate({
         pendingActivation: ecdsaBranch.pendingActivation,
         clientActivation: ecdsaBranch.publicFacts,
+        requestPolicy: {
+          policyVersion: WALLET_REGISTRATION_ROUTER_POLICY_VERSION,
+          requestDigestB64u: ecdsaBranch.publicFacts.registrationRequestDigestB64u,
+        },
         authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
         traceContext,
         onServerTiming: (header) => mergeRouterServerTiming(serverTiming, header),

@@ -7,7 +7,6 @@ import type {
   AddAuthMethodIntentV1,
   AddSignerIntentGrant,
   AddSignerIntentV1,
-  RegistrationIntentGrant,
   RegistrationIntentV1,
   WalletAddSignerStartResponse,
   WalletAddSignerFinalizeResponse,
@@ -73,38 +72,6 @@ import type {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbEcdsaPendingActivationV1 } from '../router/routerAbEcdsaStrictRegistration';
 import type { WalletEd25519SignerRecord } from './WalletStore';
-
-export type StoredRegistrationIntent = {
-  kind: 'intent_allocated';
-  grant: RegistrationIntentGrant;
-  intent: RegistrationIntentV1;
-  digestB64u: string;
-  orgId: string;
-  signingRootId?: string;
-  signingRootVersion?: string;
-  expectedOrigin?: string;
-  expiresAtMs: number;
-  consumedAtMs?: never;
-  failedAtMs?: never;
-  failure?: never;
-};
-
-export type ConsumedRegistrationIntent = Omit<StoredRegistrationIntent, 'kind' | 'consumedAtMs'> & {
-  kind: 'intent_consumed';
-  consumedAtMs: number;
-};
-
-export type FailedRegistrationIntent = Omit<
-  StoredRegistrationIntent,
-  'kind' | 'failedAtMs' | 'failure'
-> & {
-  kind: 'intent_failed';
-  failedAtMs: number;
-  failure: {
-    code: string;
-    message: string;
-  };
-};
 
 export type StoredAddSignerIntent = {
   kind: 'add_signer_intent_allocated';
@@ -733,9 +700,6 @@ export type StoredWalletAddAuthMethodCeremony = {
 };
 
 export interface RegistrationCeremonyStore {
-  putIntent(intent: StoredRegistrationIntent): Promise<void>;
-  getIntent(grant: RegistrationIntentGrant): Promise<StoredRegistrationIntent | null>;
-  takeIntent(grant: RegistrationIntentGrant): Promise<ConsumedRegistrationIntent | null>;
   putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void>;
   getAddAuthMethodIntent(
     grant: AddAuthMethodIntentGrant,
@@ -777,7 +741,6 @@ export interface RegistrationCeremonyStore {
 }
 
 export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStore {
-  private readonly intents = new Map<string, StoredRegistrationIntent>();
   private readonly addAuthMethodIntents = new Map<string, StoredAddAuthMethodIntent>();
   private readonly addSignerIntents = new Map<string, StoredAddSignerIntent>();
   private readonly ceremonies = new Map<string, StoredWalletRegistrationCeremony>();
@@ -791,28 +754,6 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
   >();
   private readonly addAuthMethodCeremonies = new Map<string, StoredWalletAddAuthMethodCeremony>();
   private readonly addSignerCeremonies = new Map<string, StoredWalletAddSignerCeremony>();
-
-  async putIntent(intent: StoredRegistrationIntent): Promise<void> {
-    this.pruneExpired();
-    this.intents.set(intent.grant, intent);
-  }
-
-  async getIntent(grant: RegistrationIntentGrant): Promise<StoredRegistrationIntent | null> {
-    this.pruneExpired();
-    const intent = this.intents.get(String(grant || '').trim()) || null;
-    if (!intent || intent.expiresAtMs <= Date.now()) return null;
-    return intent;
-  }
-
-  async takeIntent(grant: RegistrationIntentGrant): Promise<ConsumedRegistrationIntent | null> {
-    this.pruneExpired();
-    const key = String(grant || '').trim();
-    const intent = this.intents.get(key) || null;
-    if (!intent) return null;
-    this.intents.delete(key);
-    if (intent.expiresAtMs <= Date.now()) return null;
-    return { ...intent, kind: 'intent_consumed', consumedAtMs: Date.now() };
-  }
 
   async putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void> {
     this.pruneExpired();
@@ -1006,9 +947,6 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
 
   private pruneExpired(): void {
     const now = Date.now();
-    for (const [key, intent] of this.intents) {
-      if (intent.expiresAtMs <= now) this.intents.delete(key);
-    }
     for (const [key, intent] of this.addAuthMethodIntents) {
       if (intent.expiresAtMs <= now) this.addAuthMethodIntents.delete(key);
     }
@@ -1166,18 +1104,6 @@ function parseStoredBytes32(value: unknown): number[] | null {
     bytes.push(byte);
   }
   return bytes;
-}
-
-function parseStoredRegistrationIntent(value: unknown): StoredRegistrationIntent | null {
-  value = parseJsonValue(value);
-  if (!isRecord(value)) return null;
-  if (value.kind !== 'intent_allocated') return null;
-  if (typeof value.grant !== 'string' || !value.grant.trim()) return null;
-  if (!isRecord(value.intent)) return null;
-  if (typeof value.digestB64u !== 'string' || !value.digestB64u.trim()) return null;
-  if (typeof value.orgId !== 'string') return null;
-  if (!Number.isFinite(Number(value.expiresAtMs))) return null;
-  return value as StoredRegistrationIntent;
 }
 
 export function parseStoredRegistrationSignerPlan(value: unknown): RegistrationSignerPlan | null {
@@ -1871,8 +1797,6 @@ class CloudflareDurableObjectRegistrationCeremonyStore implements RegistrationCe
 
   private key(
     scope:
-      | 'intent'
-      | 'preparation'
       | 'add-auth-method-intent'
       | 'add-signer-intent'
       | 'ceremony'
@@ -1883,45 +1807,6 @@ class CloudflareDurableObjectRegistrationCeremonyStore implements RegistrationCe
     id: string,
   ): string {
     return `${this.prefix}${scope}:${id}`;
-  }
-
-  async putIntent(intent: StoredRegistrationIntent): Promise<void> {
-    const parsed = parseStoredRegistrationIntent(intent);
-    if (!parsed) throw new Error('Invalid registration intent record');
-    const ttlMs = Math.max(1, parsed.expiresAtMs - Date.now());
-    const response = await callDo<void>(this.stub, {
-      op: 'set',
-      key: this.key('intent', parsed.grant),
-      value: parsed,
-      ttlMs,
-    });
-    if (!response.ok) throw new Error(response.message);
-  }
-
-  async getIntent(grant: RegistrationIntentGrant): Promise<StoredRegistrationIntent | null> {
-    const key = trimString(grant);
-    if (!key) return null;
-    const response = await callDo<unknown | null>(this.stub, {
-      op: 'get',
-      key: this.key('intent', key),
-    });
-    if (!response.ok) return null;
-    const intent = parseStoredRegistrationIntent(response.value);
-    if (!intent || intent.expiresAtMs <= Date.now()) return null;
-    return intent;
-  }
-
-  async takeIntent(grant: RegistrationIntentGrant): Promise<ConsumedRegistrationIntent | null> {
-    const key = trimString(grant);
-    if (!key) return null;
-    const response = await callDo<unknown | null>(this.stub, {
-      op: 'getdel',
-      key: this.key('intent', key),
-    });
-    if (!response.ok) return null;
-    const intent = parseStoredRegistrationIntent(response.value);
-    if (!intent || intent.expiresAtMs <= Date.now()) return null;
-    return { ...intent, kind: 'intent_consumed', consumedAtMs: Date.now() };
   }
 
   async putAddSignerIntent(intent: StoredAddSignerIntent): Promise<void> {

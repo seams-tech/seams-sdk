@@ -438,12 +438,16 @@ test('Ed25519-only setup skips ECDSA preparation entirely', async () => {
  * one runtime serve a freshly generated ceremony — which is what makes a real
  * Ed25519-only path testable rather than only its error branches.
  */
-function derivingYaoRuntime() {
+function derivingYaoRuntime(capture?: { registrationBearerToken: string | null }) {
   let delegate: Awaited<ReturnType<typeof createActivatedFinalizeYaoRuntimeFixture>> | null = null;
   const runtime = {
     kind: 'router_ab_ed25519_yao_product_registration_runtime_v1' as const,
     signingWorkerId: 'signing-worker-ed25519',
-    async bindAndAdmitVerifiedRegistration(input: { admissionRequest: never }) {
+    async bindAndAdmitVerifiedRegistration(input: {
+      admissionRequest: never;
+      registrationIntentGrant: unknown;
+    }) {
+      if (capture) capture.registrationBearerToken = String(input.registrationIntentGrant);
       /* The fixture admits and executes during construction, so its receipt
          is already the admitted one — re-admitting would collide with itself. */
       delegate = await createActivatedFinalizeYaoRuntimeFixture({
@@ -476,11 +480,12 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-ed25519' },
     });
     const signer = fakeGatewaySigner();
+    const yaoCredential = { registrationBearerToken: null as string | null };
     const service = createCloudflareD1RouterApiAuthService({
       database: database as never,
       ...ED_SCOPE,
       routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
-      ed25519YaoProductRegistration: derivingYaoRuntime(),
+      ed25519YaoProductRegistration: derivingYaoRuntime(yaoCredential),
       ecdsaStrictRegistration: new CountingStrictRegistrationPort(),
       thresholdStore: {
         kind: 'cloudflare-do',
@@ -519,6 +524,9 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       minter: signer,
     } as never);
     if (!responded.ok) throw new Error(`respond: ${responded.code}: ${responded.message}`);
+    /* Execute uses signedSetup as its Bearer credential, so admission must be
+       bound to those exact bytes rather than the ceremony id it replaced. */
+    expect(yaoCredential.registrationBearerToken).toBe(setup.signedSetup);
     /* Deferred, not blocking — the client starts Yao and moves on. */
     expect(responded.ed25519).toMatchObject({ status: 'deferred' });
     expect('ecdsa' in responded).toBe(false);

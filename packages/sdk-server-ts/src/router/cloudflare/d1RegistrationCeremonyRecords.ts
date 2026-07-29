@@ -12,7 +12,6 @@ import {
   nearEd25519SigningKeyIdFromString,
   requireServerAllocatedWalletId,
   registrationEvmFamilyEcdsaBranchKey,
-  registrationIntentGrantFromString,
   registrationNearEd25519BranchKey,
   registrationSignerBranchKeyFromString,
   registrationSignerSetSelectionFromPlan,
@@ -112,7 +111,6 @@ import {
   type StoredWalletRegistrationSignerSetState,
   StoredAddAuthMethodIntent,
   StoredAddSignerIntent,
-  StoredRegistrationIntent,
   StoredWalletAddAuthMethodCeremony,
   StoredWalletAddSignerCeremony,
   StoredWalletAddSignerFinalizeReplay,
@@ -290,28 +288,6 @@ export function parseWalletIdForIntent(raw: unknown): WalletId | null {
   } catch {
     return null;
   }
-}
-
-export function parseD1StoredRegistrationIntent(raw: unknown): StoredRegistrationIntent | null {
-  const record = toRecordValue(raw);
-  if (!record || record.kind !== 'intent_allocated') return null;
-  const grant = registrationIntentGrantFromString(toOptionalTrimmedString(record.grant) || '');
-  const intent = parseD1RegistrationIntent(record.intent);
-  const digestB64u = toOptionalTrimmedString(record.digestB64u);
-  const orgId = toOptionalTrimmedString(record.orgId);
-  const signingRootId = toOptionalTrimmedString(record.signingRootId);
-  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
-  const expiresAtMs = safeInteger(record.expiresAtMs);
-  if (!grant || !intent || !digestB64u || !orgId || expiresAtMs === null) return null;
-  return {
-    kind: 'intent_allocated',
-    grant,
-    intent,
-    digestB64u,
-    orgId,
-    expiresAtMs,
-    ...intentScopeMetadata(record),
-  };
 }
 
 export function parseD1RegistrationIntent(raw: unknown): RegistrationIntentV1 | null {

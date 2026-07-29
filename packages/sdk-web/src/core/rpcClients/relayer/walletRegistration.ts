@@ -332,9 +332,7 @@ export type WalletRegistrationRouteTimingName =
 
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
-  route:
-    | 'wallets_register_setup'
-    | 'wallets_register_finalize';
+  route: 'wallets_register_setup' | 'wallets_register_finalize';
   entries: {
     name: WalletRegistrationRouteTimingName;
     durationMs: number;
@@ -391,18 +389,25 @@ export type WalletRegistrationStartResponse = WalletRegistrationStartResponseBas
  * authority scope; the client then starts that work asynchronously and never
  * awaits it for wallet readiness.
  */
-export type WalletRegistrationSetupResponseV2 =
-  | {
-      ok: true;
-      registrationCeremonyId: string;
-      walletId: string;
-      registrationIntentDigestB64u: string;
-      intent: RegistrationIntentV1;
-      signedSetup: string;
-      ecdsa: WalletRegistrationEcdsaPreparePayload;
-    }
-  | { ok: false; code: string; message: string; retryAfterMs?: number };
+type WalletRegistrationSetupSuccessV2 = {
+  ok: true;
+  registrationCeremonyId: string;
+  walletId: string;
+  registrationIntentDigestB64u: string;
+  intent: RegistrationIntentV1;
+  signedSetup: string;
+};
 
+export type WalletRegistrationSetupResponseV2 =
+  | (WalletRegistrationSetupSuccessV2 & {
+      kind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa';
+      ecdsa: WalletRegistrationEcdsaPreparePayload;
+    })
+  | (WalletRegistrationSetupSuccessV2 & {
+      kind: 'near_ed25519';
+      ecdsa?: never;
+    })
+  | { ok: false; code: string; message: string; retryAfterMs?: number };
 
 function requireExactResponseKeys(
   record: Record<string, unknown>,
@@ -2182,7 +2187,6 @@ function walletRegistrationStartAuthorityBody(
   }
 }
 
-
 /**
  * Refactor 94C route 2. Authenticated respond: the proof the client just
  * collected against setup's challenge travels with the ECDSA registration
@@ -2351,31 +2355,41 @@ function parseWalletRegistrationRespondEd25519DeferredWork(
   };
 }
 
+type RespondWalletRegistrationArgs = {
+  relayerUrl: string;
+  headers?: Record<string, string>;
+  registrationCeremonyId: string;
+  /** Opaque; echoed exactly as setup returned it. */
+  signedSetup: string;
+  onServerTiming?: (header: string | null) => void;
+} & WalletRegistrationStartAuthority &
+  (
+    | {
+        signerPlan: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa';
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_v1';
+          strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+          requestDigestB64u: string;
+        };
+      }
+    | {
+        signerPlan: 'near_ed25519';
+        ecdsa?: never;
+      }
+  );
+
 export async function respondWalletRegistration(
-  args: {
-    relayerUrl: string;
-    headers?: Record<string, string>;
-    registrationCeremonyId: string;
-    /** Opaque; echoed exactly as setup returned it. */
-    signedSetup: string;
-    /* Absent for an Ed25519-only plan: no ECDSA ceremony was created, so there
-       is no registration request to forward. Modelled as optional rather than
-       cast away at the call site. */
-    ecdsa?: {
-      kind: 'router_ab_ecdsa_registration_v1';
-      strictRegistration: RouterAbEcdsaRegistrationRequestV1;
-    };
-    onServerTiming?: (header: string | null) => void;
-  } & WalletRegistrationStartAuthority,
+  args: RespondWalletRegistrationArgs,
 ): Promise<WalletRegistrationRespondResponseV2> {
   const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: WALLET_REGISTRATION_RESPOND_PATH,
     headers: args.headers,
     body: {
+      kind: args.signerPlan,
       registrationCeremonyId: args.registrationCeremonyId,
       signedSetup: args.signedSetup,
-      authority: walletRegistrationStartAuthorityBody(args),
+      ...walletRegistrationStartAuthorityBody(args),
       ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
     },
     ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
@@ -2476,7 +2490,16 @@ function parseWalletRegistrationActivateResponseV2(
     }
     assertExactResponseKeys(
       terminal,
-      ['ok', 'walletId', 'authority', 'registrationDiagnostics', 'rpId', 'authMethod', 'appSessionJwt', 'kind'],
+      [
+        'ok',
+        'walletId',
+        'authority',
+        'registrationDiagnostics',
+        'rpId',
+        'authMethod',
+        'appSessionJwt',
+        'kind',
+      ],
       responseName,
     );
     if (terminal.ok !== true || terminal.kind !== 'near_ed25519') {
@@ -2569,27 +2592,49 @@ function parseWalletRegistrationActivateResponseV2(
   };
 }
 
-export async function activateWalletRegistration(args: {
+type ActivateWalletRegistrationArgs = {
   relayerUrl: string;
   headers?: Record<string, string>;
   registrationCeremonyId: string;
   signedSetup: string;
   idempotencyKey: string;
-  /* Absent for an Ed25519-only plan: nothing was verified in the browser
-     because no ECDSA proof bundles were produced. */
-  ecdsa?: {
-    clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
-    expectedKeyHandles?: string[];
-  };
-  emailOtpEnrollment?: WalletRegistrationEmailOtpEnrollmentMaterial;
-  emailOtpBackupAck?: WalletRegistrationEmailOtpBackupAck;
   onServerTiming?: (header: string | null) => void;
-}): Promise<WalletRegistrationActivateResponseV2> {
+} & (
+  | {
+      authMethod: 'passkey';
+      emailOtpEnrollment?: never;
+      emailOtpBackupAck?: never;
+    }
+  | {
+      authMethod: 'email_otp';
+      emailOtpEnrollment: WalletRegistrationEmailOtpEnrollmentMaterial;
+      emailOtpBackupAck: WalletRegistrationEmailOtpBackupAck;
+    }
+) &
+  (
+    | {
+        signerPlan: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa';
+        ecdsa: {
+          clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+          expectedKeyHandles?: string[];
+        };
+      }
+    | {
+        signerPlan: 'near_ed25519';
+        ecdsa?: never;
+      }
+  );
+
+export async function activateWalletRegistration(
+  args: ActivateWalletRegistrationArgs,
+): Promise<WalletRegistrationActivateResponseV2> {
   const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: WALLET_REGISTRATION_ACTIVATE_PATH,
     headers: args.headers,
     body: {
+      kind: args.signerPlan,
+      authMethod: args.authMethod,
       registrationCeremonyId: args.registrationCeremonyId,
       signedSetup: args.signedSetup,
       idempotencyKey: args.idempotencyKey,
@@ -3311,6 +3356,7 @@ export async function respondWalletAddSignerEcdsa(args: {
   ecdsa: {
     kind: 'router_ab_ecdsa_registration_v1';
     strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+    requestDigestB64u: string;
   };
 }): Promise<WalletAddSignerEcdsaRespondResponse> {
   const walletId = String(args.walletId || '').trim();
