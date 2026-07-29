@@ -56,7 +56,6 @@ import {
 } from '../operationState/types';
 import {
   normalizeThresholdRuntimePolicyScope,
-  parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
 } from '../../threshold/sessionPolicy';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
@@ -159,7 +158,6 @@ const inMemoryEd25519LaneBySessionId = new Map<string, string>();
 
 function normalizeStoredRuntimePolicyScope(
   obj: Record<string, unknown>,
-  jwt?: string,
 ): ThresholdRuntimePolicyScope | undefined {
   if (Object.prototype.hasOwnProperty.call(obj, 'runtimeSnapshotScope')) {
     throw new Error('Invalid threshold session record: stale runtimeSnapshotScope');
@@ -171,7 +169,7 @@ function normalizeStoredRuntimePolicyScope(
     }
     return runtimePolicyScope;
   }
-  return parseThresholdRuntimePolicyScopeFromJwt(jwt);
+  return undefined;
 }
 
 function normalizeEmailOtpAuthContext(
