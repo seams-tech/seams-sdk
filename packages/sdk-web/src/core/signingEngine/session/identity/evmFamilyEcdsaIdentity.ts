@@ -218,15 +218,13 @@ export type WalletSessionJwtTransportAuth = {
   walletSessionJwt: VerifiedWalletSessionJwt;
 };
 
-export type EcdsaWalletSessionTransportAuth = WalletSessionJwtTransportAuth;
-
 export type ThresholdEcdsaSignerTransport = {
   kind: 'threshold_ecdsa_signer_transport';
   relayerUrl: string;
   relayerKeyId: string;
   signingMaterial: RouterAbEcdsaDerivationSigningMaterialRef;
   relayerVerifyingShareB64u?: string;
-  auth: EcdsaWalletSessionTransportAuth;
+  auth: WalletSessionJwtTransportAuth;
   ecdsaThresholdKeyId?: never;
   signingRootId?: never;
   signingRootVersion?: never;
@@ -250,12 +248,10 @@ export type KnownReadyThresholdEcdsaSessionPolicy = {
   expiresAtMs: number;
 };
 
-export type ReadyThresholdEcdsaSessionPolicy = KnownReadyThresholdEcdsaSessionPolicy;
-
 export type ReadyThresholdEcdsaSession = {
   kind: 'ready_threshold_ecdsa_session';
   thresholdSessionId: ThresholdEcdsaSessionId;
-  policy: ReadyThresholdEcdsaSessionPolicy;
+  policy: KnownReadyThresholdEcdsaSessionPolicy;
   walletSessionAuth?: never;
 };
 
@@ -398,7 +394,7 @@ export type EvmFamilyEcdsaSessionLane = {
   source: ThresholdEcdsaSessionStoreSource;
   thresholdSessionId: ThresholdEcdsaSessionId;
   signingGrantId: SigningGrantId;
-  walletSessionAuth: EcdsaWalletSessionTransportAuth;
+  walletSessionAuth: WalletSessionJwtTransportAuth;
   remainingUses: number;
   expiresAtMs: number;
   ecdsaThresholdKeyId?: never;
@@ -549,7 +545,7 @@ export type BuildReadyEcdsaSignerSessionInput = {
   keyRef: ThresholdEcdsaSecp256k1KeyRef;
   materialActivation: MpcMaterialActivationRef;
   publicFacts: VerifiedEcdsaPublicFacts;
-  sessionPolicy: ReadyThresholdEcdsaSessionPolicy;
+  sessionPolicy: KnownReadyThresholdEcdsaSessionPolicy;
   walletSessionJwt: unknown;
 };
 
@@ -1083,10 +1079,10 @@ export function buildEcdsaWalletSessionTransportAuth(input: {
 }): WalletSessionJwtTransportAuth;
 export function buildEcdsaWalletSessionTransportAuth(
   input: BuildEcdsaWalletSessionTransportAuthInput,
-): EcdsaWalletSessionTransportAuth;
+): WalletSessionJwtTransportAuth;
 export function buildEcdsaWalletSessionTransportAuth(
   input: BuildEcdsaWalletSessionTransportAuthInput,
-): EcdsaWalletSessionTransportAuth {
+): WalletSessionJwtTransportAuth {
   return {
     kind: 'wallet_session_jwt',
     walletSessionJwt: requiredString(
@@ -1224,7 +1220,7 @@ export function buildKnownReadyThresholdEcdsaSessionPolicy(args: {
 
 export function buildReadyThresholdEcdsaSession(args: {
   thresholdSessionId: unknown;
-  policy: ReadyThresholdEcdsaSessionPolicy;
+  policy: KnownReadyThresholdEcdsaSessionPolicy;
 }): ReadyThresholdEcdsaSession {
   return {
     kind: 'ready_threshold_ecdsa_session',
