@@ -9,6 +9,7 @@ import {
   fixtureRouterAbEcdsaActivationFacts,
   SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort,
 } from '../helpers/routerAbSigningRuntimeTestUtils';
+import { createActivatedFinalizeYaoRuntimeFixture } from './helpers/d1WalletRegistrationFinalizeConvergence.fixtures';
 import {
   applySignerMigrations,
   createWebAuthnRegistrationCredential,
@@ -385,17 +386,121 @@ test('Ed25519-only setup skips ECDSA preparation entirely', async () => {
   }
 });
 
-/*
- * Not yet covered here: Ed25519-only respond and activate.
+/**
+ * A Yao runtime that admits whatever ceremony arrives.
  *
- * Both need a Yao product-registration runtime that admits an arbitrary
- * ceremony. `createActivatedFinalizeYaoRuntimeFixture` wires in cleanly but
- * mints its receipt against its own fixed wallet and ceremony ids, so a
- * freshly generated setup fails admission with a scope mismatch — the fixture
- * proves the plumbing, not the branch.
- *
- * Covering these needs a runtime that derives its receipt binding from the
- * incoming admission request. Asserting the mismatch error instead would test
- * the fixture, so the cases are deliberately absent rather than
- * present-and-misleading.
+ * The convergence fixture mints against its own fixed ids, so it can only
+ * satisfy its own ceremony. The receipt binding mirrors the admission request
+ * scope, so building the fixture lazily from the first incoming request lets
+ * one runtime serve a freshly generated ceremony — which is what makes a real
+ * Ed25519-only path testable rather than only its error branches.
  */
+function derivingYaoRuntime() {
+  let delegate: Awaited<ReturnType<typeof createActivatedFinalizeYaoRuntimeFixture>> | null = null;
+  const runtime = {
+    kind: 'router_ab_ed25519_yao_product_registration_runtime_v1' as const,
+    signingWorkerId: 'signing-worker-ed25519',
+    async bindAndAdmitVerifiedRegistration(input: { admissionRequest: never }) {
+      /* The fixture admits and executes during construction, so its receipt
+         is already the admitted one — re-admitting would collide with itself. */
+      delegate = await createActivatedFinalizeYaoRuntimeFixture({
+        admissionRequest: input.admissionRequest,
+      });
+      return { ok: true as const, value: delegate.admissionReceipt };
+    },
+    async consumeActivated(request: never) {
+      if (!delegate) throw new Error('consumeActivated before admission');
+      return await delegate.runtime.consumeActivated(request);
+    },
+  };
+  return new Proxy(runtime, {
+    get(target, prop, receiver) {
+      if (prop in target) return Reflect.get(target, prop, receiver);
+      /* Everything else (capability install/resolve, session minting) is the
+         delegate's once it exists. */
+      const current = delegate?.runtime as Record<string | symbol, unknown> | undefined;
+      const value = current?.[prop];
+      return typeof value === 'function' ? value.bind(current) : value;
+    },
+  });
+}
+
+test('Ed25519-only registers end to end: pending wallet now, signer when Yao resolves', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
+      config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-ed25519' },
+    });
+    const signer = fakeGatewaySigner();
+    const service = createCloudflareD1RouterApiAuthService({
+      database: database as never,
+      ...ED_SCOPE,
+      routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
+      ed25519YaoProductRegistration: derivingYaoRuntime(),
+      ecdsaStrictRegistration: new CountingStrictRegistrationPort(),
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: new RecordingDurableObjectNamespace(),
+        THRESHOLD_PREFIX: 'registration-ed25519-e2e',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-ed25519',
+      },
+    } as never);
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.com'));
+
+    const setup = await service.walletRegistration.setupWalletRegistration({
+      request: { signerSelection: ED25519_ONLY_PLAN, authMethod: { kind: 'passkey', rpId } },
+      orgId: ED_SCOPE.orgId,
+      expectedOrigin: 'https://app.example.com',
+      signer,
+      signingRootId: `${ED_SCOPE.projectId}:${ED_SCOPE.envId}`,
+      signingRootVersion: 'root-ed25519-v1',
+    } as never);
+    if (!setup.ok) throw new Error(`setup: ${setup.code}: ${setup.message}`);
+    expect(setup.kind).toBe('near_ed25519');
+    expect('ecdsa' in setup).toBe(false);
+
+    const responded = await service.walletRegistration.respondWalletRegistration({
+      registrationCeremonyId: setup.registrationCeremonyId,
+      signedSetup: setup.signedSetup,
+      planKind: 'near_ed25519',
+      authority: {
+        kind: 'passkey',
+        webauthnRegistration: await createWebAuthnRegistrationCredential({
+          rpId,
+          challengeB64u: setup.registrationIntentDigestB64u,
+          origin: 'https://app.example.com',
+        }),
+      },
+      verifier: signer,
+      minter: signer,
+    } as never);
+    if (!responded.ok) throw new Error(`respond: ${responded.code}: ${responded.message}`);
+    /* Deferred, not blocking — the client starts Yao and moves on. */
+    expect(responded.ed25519).toMatchObject({ status: 'deferred' });
+    expect('ecdsa' in responded).toBe(false);
+
+    const activateRequest = {
+      registrationCeremonyId: setup.registrationCeremonyId,
+      signedSetup: setup.signedSetup,
+      idempotencyKey: 'ed25519-e2e-activate',
+      planKind: 'near_ed25519',
+      verifier: signer,
+      minter: signer,
+    };
+    /* Yao has not resolved. Activate must still return a wallet. */
+    const activated =
+      await service.walletRegistration.activateWalletRegistration(activateRequest as never);
+    if (!activated.ok) throw new Error(`activate: ${activated.code}: ${activated.message}`);
+    expect(activated.nearProvisioning).toEqual({ status: 'near_pending' });
+    expect('ecdsa' in activated).toBe(false);
+    expect('resolvedAccount' in activated).toBe(false);
+
+    /* Exact replay returns the same pending terminal. */
+    const replayed =
+      await service.walletRegistration.activateWalletRegistration(activateRequest as never);
+    expect(replayed).toEqual(activated);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});

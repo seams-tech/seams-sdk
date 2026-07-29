@@ -569,6 +569,19 @@ function parseWalletRegistrationFinalizeSideEffectRecord(
 function parseD1WalletRegistrationActivateTerminalResponse(
   raw: unknown,
 ): WalletRegistrationActivateResponseV2 | null {
+  /* The Ed25519-only pending terminal is not a finalize response: it has no
+     signer, resolved account, or key identity, because none exist yet. It
+     round-trips as itself, so a pending replay returns what was stored rather
+     than a degraded parse. */
+  if (
+    isRecordValue(raw) &&
+    raw.ok === true &&
+    raw.kind === 'near_ed25519' &&
+    isRecordValue(raw.nearProvisioning) &&
+    raw.nearProvisioning.status === 'near_pending'
+  ) {
+    return raw as unknown as WalletRegistrationActivateResponseV2;
+  }
   const commit = parseD1WalletRegistrationFinalizeTerminalResponse(raw);
   if (!commit) return null;
   if (!commit.ok) return commit;
