@@ -26,11 +26,31 @@ import {
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import type { NearProvisioningState } from '@/core/types/seams';
 
 function formatExportKeyErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   const message = String(error || '').trim();
   return message || 'Key export is unavailable for this wallet.';
+}
+
+async function resolveNearAccountIdForExport(input: {
+  readonly walletId: string;
+  readonly sessionNearAccountId: string | null | undefined;
+  readonly getNearProvisioningState: (args: {
+    walletId: string;
+  }) => Promise<NearProvisioningState | null>;
+}): Promise<string> {
+  if (input.sessionNearAccountId) return input.sessionNearAccountId;
+  const state = await input.getNearProvisioningState({ walletId: input.walletId });
+  if (state?.status === 'near_ready') return state.nearAccountId;
+  if (state?.status === 'near_pending' || state?.status === 'near_provisioning') {
+    throw new Error('NEAR signer provisioning is still in progress. Try again shortly.');
+  }
+  if (state?.status === 'near_failed_retryable') {
+    throw new Error(`NEAR signer provisioning must be retried (${state.errorCode}).`);
+  }
+  throw new Error('Ed25519 export requires an active NEAR signer.');
 }
 
 function resolveDefaultPortalTarget(
@@ -209,10 +229,12 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       setExportLoadingChain(chain);
       try {
         if (chain === 'near') {
-          if (!nearAccountId) {
-            throw new Error('Ed25519 export requires an active NEAR account.');
-          }
-          const nearAccount = nearAccountRefFromAccountId(nearAccountId);
+          const exportNearAccountId = await resolveNearAccountIdForExport({
+            walletId,
+            sessionNearAccountId: nearAccountId,
+            getNearProvisioningState: seams.registration.getNearProvisioningState,
+          });
+          const nearAccount = nearAccountRefFromAccountId(exportNearAccountId);
           const resolvedLane = await seams.keys.resolveExactKeyExportLane({
             kind: 'ed25519',
             walletSession,

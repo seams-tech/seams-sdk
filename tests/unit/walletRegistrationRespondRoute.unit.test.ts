@@ -34,6 +34,7 @@ const SCOPE = {
   projectId: 'project-respond',
   envId: 'env-respond',
 };
+const REQUEST_DIGEST_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 /* Each signer stands for a distinct deployment key, so its tokens must not
    collide with another instance's — otherwise a cross-ceremony test would
@@ -65,8 +66,10 @@ function fakeGatewaySigner() {
 /** Counts Router register calls so a replay that skips the Router is visible. */
 class CountingStrictRegistrationPort extends SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort {
   registerCalls = 0;
+  requestPolicies: unknown[] = [];
   override async register(input: never): Promise<never> {
     this.registerCalls += 1;
+    this.requestPolicies.push((input as { requestPolicy: unknown }).requestPolicy);
     return (await super.register(input as never)) as never;
   }
 }
@@ -133,9 +136,9 @@ async function setupCeremony(
       strictRegistration: buildFixtureRouterAbEcdsaStrictRegistrationRequest(
         setup.ecdsa.strictRegistration,
       ),
+      requestDigestB64u: REQUEST_DIGEST_B64U,
     },
     verifier: signer,
-    minter: signer,
   };
   return { service, signer, setup, respondRequest };
 }
@@ -234,24 +237,27 @@ test('respond refuses a signedSetup minted for a different ceremony', async () =
   }
 });
 
-test('respond mints an internal Router policy JWT bound to the respond digest', async () => {
+test('respond forwards request-bound Router policy inputs to the strict registration port', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
     const strictRegistration = new CountingStrictRegistrationPort();
     const { service, signer, respondRequest } = await setupCeremony(database, strictRegistration);
 
-    expect(signer.mintedPolicyJwts()).toHaveLength(0);
     const responded = await service.walletRegistration.respondWalletRegistration(
       respondRequest as never,
     );
     if (!responded.ok) throw new Error(`${responded.code}: ${responded.message}`);
 
-    const policy = signer.mintedPolicyJwts();
-    expect(policy).toHaveLength(1);
-    expect(policy[0]).toMatchObject({ operation: 'wallet_registration_respond' });
-    expect(String(policy[0]?.requestDigestB64u || '')).toBeTruthy();
-    /* Policy never crosses the public wire; the response carries no token. */
+    expect(strictRegistration.requestPolicies).toEqual([
+      {
+        policyVersion: 'wallet-registration-v1',
+        requestDigestB64u: REQUEST_DIGEST_B64U,
+      },
+    ]);
+    /* The obsolete route-level policy mint is gone. The strict forwarder owns
+       the only JWT that reaches Router. */
+    expect(signer.mintedPolicyJwts()).toHaveLength(0);
     expect(JSON.stringify(responded)).not.toContain('router_policy_v1');
   } finally {
     cleanupTemporaryD1Database(tempDir);

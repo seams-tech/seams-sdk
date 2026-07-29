@@ -266,7 +266,6 @@ type RouterAbEcdsaPostRegistrationClientProofCall =
 
 export type ThresholdEcdsaDerivationRouteAuth =
   | AppOrWalletSessionAuth
-  | { kind: 'bootstrap_grant'; token: string }
   | { kind: 'publishable_key'; token: string };
 
 function requireNonEmptyString(value: unknown, field: string): string {
@@ -578,6 +577,7 @@ export async function routerAbEcdsaExplicitExport(
   relayServerUrl: string,
   input: {
     readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+    readonly requestDigestB64u: string;
     readonly auth: ThresholdEcdsaDerivationRouteAuth;
   },
 ): Promise<
@@ -590,7 +590,10 @@ export async function routerAbEcdsaExplicitExport(
       `${base}${ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH}`,
       buildRelayRequestInit({
         auth: input.auth,
-        body: input.request,
+        body: {
+          request: input.request,
+          requestDigestB64u: input.requestDigestB64u,
+        },
       }),
     );
     const json = await parseRelayJson<unknown>(response);

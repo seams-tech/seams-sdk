@@ -1058,6 +1058,7 @@ impl CloudflareRouterJwtVerifierV1 for StaticJwtVerifier {
         verifier: &CloudflareRouterJwtVerifierBindingV1,
         authorization: &CloudflareRouterBearerAuthorizationV1,
         request: &EcdsaThresholdPrfRequestV1,
+        _request_policy_digest: PublicDigest32,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
     ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1> {
@@ -3004,6 +3005,7 @@ fn router_ed25519_jwks_jwt_verifier_accepts_bound_claims() {
             &router_admission_bindings().jwt,
             &authorization,
             &ecdsa_threshold_prf_request(2_000),
+            ecdsa_threshold_prf_request(2_000).router_replay_digest(),
             1_000,
             digest(0x91),
         )
@@ -3013,6 +3015,34 @@ fn router_ed25519_jwks_jwt_verifier_accepts_bound_claims() {
     assert_eq!(claims.session_id, "session-1");
     assert_eq!(claims.account_id, "account.near");
     assert_eq!(claims.trusted_source_digest, digest(0x91));
+}
+
+#[test]
+fn router_jwt_policy_binds_the_public_route_digest() {
+    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
+    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
+    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
+        .expect("ed25519 jwks verifier");
+    let route_digest = digest(0x67);
+    let mut claims = valid_router_jwt_claims();
+    claims["routerAbRequestPolicy"]["requestDigest"] =
+        serde_json::to_value(route_digest).expect("route digest json");
+    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
+    let authorization = CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
+        "Bearer {token}"
+    ))
+    .expect("authorization");
+
+    verifier
+        .verify_public_request_jwt(
+            &router_admission_bindings().jwt,
+            &authorization,
+            &ecdsa_threshold_prf_request(2_000),
+            route_digest,
+            1_000,
+            digest(0x91),
+        )
+        .expect("route-bound claims");
 }
 
 #[test]
@@ -3037,6 +3067,7 @@ fn router_ed25519_jwks_jwt_verifier_rejects_bad_signature() {
             &router_admission_bindings().jwt,
             &authorization,
             &ecdsa_threshold_prf_request(2_000),
+            ecdsa_threshold_prf_request(2_000).router_replay_digest(),
             1_000,
             digest(0x91),
         )
@@ -3064,6 +3095,7 @@ fn router_ed25519_jwks_jwt_verifier_rejects_expired_token() {
             &router_admission_bindings().jwt,
             &authorization,
             &ecdsa_threshold_prf_request(2_000),
+            ecdsa_threshold_prf_request(2_000).router_replay_digest(),
             1_000,
             digest(0x91),
         )
@@ -3091,6 +3123,7 @@ fn router_ed25519_jwks_jwt_verifier_rejects_request_scope_mismatch() {
             &router_admission_bindings().jwt,
             &authorization,
             &ecdsa_threshold_prf_request(2_000),
+            ecdsa_threshold_prf_request(2_000).router_replay_digest(),
             1_000,
             digest(0x91),
         )
@@ -3607,6 +3640,7 @@ fn router_jwt_session_provider_feeds_composite_admission() {
         .expect("authorization"),
         1_000,
         digest(0x90),
+        request.router_replay_digest(),
         StaticJwtVerifier::new(verified_jwt_claims("session-1", "account.near")),
     )
     .expect("jwt session provider");

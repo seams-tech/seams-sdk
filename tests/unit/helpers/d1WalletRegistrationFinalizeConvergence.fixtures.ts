@@ -84,6 +84,10 @@ import { buildEd25519YaoCapabilityFixture } from '../../helpers/ed25519YaoCapabi
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../../helpers/sqliteD1';
 import { applySignerMigrations } from './cloudflareD1RouterApiAuthService.fixtures';
 import { StaticWalletSessionAdapter } from './routerAbEd25519YaoRegistrationBridge.fixtures';
+import type {
+  RouterAbWalletBudgetGrantProvisionInputV1,
+  RouterAbWalletBudgetGrantProvisionerV1,
+} from '../../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 
 const TEST_SCOPE = {
   namespace: 'registration-finalize-convergence',
@@ -117,7 +121,6 @@ export type FinalizeConvergenceFault =
   | 'normal_signing_response_loss'
   | 'wallet_commit_response_loss'
   | 'capability_install_response_loss'
-  | 'finalize_replay_response_loss'
   | 'ceremony_delete_response_loss'
   | 'finalize_claim_response_loss'
   | 'finalize_completion_response_loss';
@@ -419,7 +422,6 @@ class ResponseLossD1Database implements D1DatabaseLike {
   private loseWalletCommitResponse = false;
   private loseFinalizeClaimResponse = false;
   private loseFinalizeCompletionResponse = false;
-  private loseRegistrationReplayResponse = false;
   private loseCeremonyDeleteResponse = false;
 
   constructor(readonly delegate: D1DatabaseLike) {}
@@ -434,10 +436,6 @@ class ResponseLossD1Database implements D1DatabaseLike {
 
   armFinalizeCompletionResponseLoss(): void {
     this.loseFinalizeCompletionResponse = true;
-  }
-
-  armRegistrationReplayResponseLoss(): void {
-    this.loseRegistrationReplayResponse = true;
   }
 
   armCeremonyDeleteResponseLoss(): void {
@@ -468,14 +466,6 @@ class ResponseLossD1Database implements D1DatabaseLike {
   loseRunResponse(query: string, values: readonly unknown[]): void {
     const registrationScope = String(values[4] || '');
     const registrationRecordId = String(values[5] || '');
-    if (
-      this.loseRegistrationReplayResponse &&
-      registrationScope === 'finalize-replay' &&
-      registrationRecordId.includes(REGISTRATION_CEREMONY_ID)
-    ) {
-      this.loseRegistrationReplayResponse = false;
-      throw new Error('simulated finalize replay response loss');
-    }
     if (
       this.loseCeremonyDeleteResponse &&
       registrationScope === 'ceremony' &&
@@ -715,7 +705,10 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
   }
 }
 
-class FailureInjectingNormalSigningRuntime extends RouterAbNormalSigningRuntime {
+class FailureInjectingNormalSigningRuntime
+  extends RouterAbNormalSigningRuntime
+  implements RouterAbWalletBudgetGrantProvisionerV1
+{
   private loseProvisionResponse = false;
 
   constructor() {
@@ -734,6 +727,22 @@ class FailureInjectingNormalSigningRuntime extends RouterAbNormalSigningRuntime 
 
   armProvisionResponseLoss(): void {
     this.loseProvisionResponse = true;
+  }
+
+  async provisionGrant(input: RouterAbWalletBudgetGrantProvisionInputV1) {
+    const result = {
+      ok: true as const,
+      signingGrantId: input.signingGrantId,
+      remainingUses: input.initialSignatureUses,
+      reservedUses: 0,
+      availableUses: input.initialSignatureUses,
+      expiresAtMs: input.expiresAtMs,
+    };
+    if (this.loseProvisionResponse) {
+      this.loseProvisionResponse = false;
+      throw new Error('simulated normal-signing provision response loss');
+    }
+    return result;
   }
 
   override async provisionRouterAbEd25519YaoNormalSigningSession(
@@ -1077,6 +1086,7 @@ async function createFinalizeConvergenceHarnessForMode(
     ...TEST_SCOPE,
     thresholdStore,
     routerAbSigningRuntimes: createSigningRuntimeBundle(normalSigning),
+    walletBudgetGrantProvisioner: normalSigning,
     ed25519YaoProductRegistration: yao.runtime,
     ecdsaStrictRegistration: new UnusedEcdsaStrictRegistration(),
     ...(mode.kind === 'sponsored'
@@ -1146,9 +1156,6 @@ async function createFinalizeConvergenceHarnessForMode(
           return;
         case 'wallet_commit_response_loss':
           database.armBatchResponseLoss();
-          return;
-        case 'finalize_replay_response_loss':
-          database.armRegistrationReplayResponseLoss();
           return;
         case 'ceremony_delete_response_loss':
           database.armCeremonyDeleteResponseLoss();

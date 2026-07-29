@@ -19,7 +19,10 @@ import type {
 } from './threeRouteRegistrationContracts';
 
 declare const signedSetup: WalletRegistrationRespondRequestV2['signedSetup'];
-declare const authority: WalletRegistrationRespondRequestV2['authority'];
+declare const webauthnRegistration: Extract<
+  WalletRegistrationRespondRequestV2,
+  { webauthn_registration: unknown }
+>['webauthn_registration'];
 declare const idempotencyKey: WalletRegistrationActivateRequestV2['idempotencyKey'];
 /* Pre-typed so the fixtures below fail on the property that should be
    rejected, not on an incidental mismatch inside a nested literal. */
@@ -32,7 +35,11 @@ declare const emailOtpBackupAck: NonNullable<
   Extract<WalletRegistrationActivateRequestV2, { authMethod: 'email_otp' }>['emailOtpBackupAck']
 >;
 
-const RESPOND_BASE = { registrationCeremonyId: 'wrc_1', signedSetup, authority } as const;
+const RESPOND_BASE = {
+  registrationCeremonyId: 'wrc_1',
+  signedSetup,
+  webauthn_registration: webauthnRegistration,
+} as const;
 const ACTIVATE_BASE = { registrationCeremonyId: 'wrc_1', signedSetup, idempotencyKey } as const;
 
 /* --- valid shapes compile --- */

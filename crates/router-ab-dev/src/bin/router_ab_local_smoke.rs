@@ -240,7 +240,6 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
 ) -> Result<RouterAbEcdsaDerivationSmokeResult, Box<dyn std::error::Error>> {
     let signing_worker_identity = signing_worker_identity_from_root(root)?;
     let fixture = local_router_ab_ecdsa_derivation_fixture(signing_worker_identity)?;
-    seed_local_ecdsa_wallet_session(&urls.router, &fixture)?;
     let authorization =
         local_smoke_router_ab_ecdsa_derivation_wallet_session_authorization_v1(&fixture)?;
     let pool_put = LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 {
@@ -651,48 +650,8 @@ fn local_smoke_run_id() -> Result<String, Box<dyn std::error::Error>> {
     Ok(format!("{}-{millis}", std::process::id()))
 }
 
-fn seed_local_ecdsa_wallet_session(
-    router_url: &str,
-    fixture: &LocalRouterAbEcdsaDerivationFixture,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let seed = json!({
-        "walletId": fixture.scope.wallet_id,
-        "evmFamilySigningKeySlotId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
-        "ecdsaThresholdKeyId": fixture.scope.ecdsa_threshold_key_id,
-        "signingRootId": fixture.scope.signing_root_id,
-        "signingRootVersion": fixture.scope.signing_root_version,
-        "walletKeyVersion": "v1",
-        "derivationVersion": 1,
-        "relayerKeyId": fixture.scope.ecdsa_threshold_key_id,
-        "thresholdSessionId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_SESSION_ID,
-        "signingGrantId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_GRANT_ID,
-        "thresholdExpiresAtMs": LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS,
-        "participantIds": [1, 2],
-        "remainingUses": LOCAL_SMOKE_WALLET_SESSION_REMAINING_USES
-    });
-    let internal_auth = local_router_ab_internal_service_auth_secret_v1();
-    let (status, body) = post_json_to_path_with_headers(
-        router_url,
-        LOCAL_ROUTER_AB_ECDSA_DERIVATION_SEED_PATH,
-        &seed,
-        &[(
-            LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
-            internal_auth.as_str(),
-        )],
-    )?;
-    if status != 200 {
-        return Err(format!(
-            "local Router A/B ECDSA derivation Router seed expected HTTP 200, received {status}: {body}"
-        )
-        .into());
-    }
-    Ok(())
-}
-
 const LOCAL_SMOKE_JWT_SECRET: &[u8] =
     b"seams-local-d1-relay-session-secret-change-before-shared-dev";
-const LOCAL_ROUTER_AB_ECDSA_DERIVATION_SEED_PATH: &str =
-    "/router-ab/dev/ecdsa-derivation/normal-signing/seed";
 const LOCAL_SMOKE_JWT_ISSUER: &str = "seams-local-d1-relay";
 const LOCAL_SMOKE_JWT_AUDIENCE: &str = "seams-local-d1";
 const LOCAL_SMOKE_JWT_IAT: u64 = 1_700_000_000;

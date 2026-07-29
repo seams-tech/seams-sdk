@@ -8,6 +8,7 @@ import { useNearClient } from '../hooks/useNearClient';
 import { useAccountInput } from '../hooks/useAccountInput';
 import { useEagerPrewarm } from './useEagerPrewarm';
 import { useLoginStateRefresher } from './useLoginStateRefresher';
+import { useNearProvisioningStateRefresh } from './useNearProvisioningStateRefresh';
 import { useSeamsContextValue } from './useSeamsContextValue';
 import { useWalletIframeLifecycle } from './useWalletIframeLifecycle';
 import { getOrCreateSeamsManager } from './seamsManagerSingleton';
@@ -114,6 +115,13 @@ export const SeamsContextProvider: React.FC<SeamsContextProviderProps> = ({
     seams,
     setLoginState,
     setInputUsername,
+  });
+
+  useNearProvisioningStateRefresh({
+    seams,
+    currentWalletId: loginState.walletId,
+    refreshLoginState,
+    refreshAccountData,
   });
 
   /* This effect is a sync channel for the provider's own theme input, not an

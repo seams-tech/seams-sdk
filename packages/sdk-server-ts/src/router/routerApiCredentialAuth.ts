@@ -1,4 +1,3 @@
-import { computeRegistrationBootstrapRequestHashSha256 } from '@shared/utils/registrationBootstrapHash';
 import {
   enforceRoutePolicy,
   type RoutePolicyResolutionResult,
@@ -8,104 +7,12 @@ import {
   extractRouterApiEnvironmentId,
 } from './routerApiKeyAuth';
 import type {
-  RouterApiAuthenticatedPublishableCredential,
   RouterApiKeyAuthAdapter,
-  RouterApiBootstrapGrantBroker,
-  RouterApiBootstrapTokenVerifier,
   RouterApiPublishableKeyAuthAdapter,
 } from './routerApi';
 import type { HeaderRecord } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 
-const ROUTER_API_BOOTSTRAP_TOKEN_PREFIX = 'tbt_v1_';
-
-function isRouterApiBootstrapTokenCandidate(credential: string): boolean {
-  const token = String(credential || '').trim();
-  if (!token.startsWith(ROUTER_API_BOOTSTRAP_TOKEN_PREFIX)) return false;
-  const encodedParts = token.slice(ROUTER_API_BOOTSTRAP_TOKEN_PREFIX.length).split('.');
-  return encodedParts.length === 3 && encodedParts.every((part) => String(part || '').trim());
-}
-
-function inferEnvIdFromEnvironmentId(input: {
-  projectId?: unknown;
-  environmentId?: unknown;
-}): string | undefined {
-  const projectId = String(input.projectId || '').trim();
-  const environmentId = String(input.environmentId || '').trim();
-  if (!environmentId) return undefined;
-  if (projectId) {
-    for (const separator of [':', '-']) {
-      const prefix = `${projectId}${separator}`;
-      if (environmentId.startsWith(prefix)) {
-        const envId = environmentId.slice(prefix.length).trim();
-        if (envId) return envId;
-      }
-    }
-  }
-  const colonIndex = environmentId.lastIndexOf(':');
-  if (colonIndex >= 0 && colonIndex < environmentId.length - 1) {
-    return environmentId.slice(colonIndex + 1).trim() || undefined;
-  }
-  return undefined;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-function readTrimmedString(record: Record<string, unknown>, field: string): string {
-  const value = record[field];
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function isNearEd25519SignerValue(value: unknown): boolean {
-  return asRecord(value)?.kind === 'near_ed25519';
-}
-
-function extractSponsoredRequestedAccountId(
-  signerSelection: Record<string, unknown>,
-): string {
-  const signers = Array.isArray(signerSelection.signers) ? signerSelection.signers : [];
-  const currentEd25519 = signers.find(isNearEd25519SignerValue);
-  const ed25519 = asRecord(currentEd25519);
-  if (!ed25519) return '';
-  const accountProvisioning = asRecord(ed25519.accountProvisioning);
-  if (!accountProvisioning) return '';
-  if (readTrimmedString(accountProvisioning, 'kind') !== 'sponsored_named_account') return '';
-  return readTrimmedString(accountProvisioning, 'requestedAccountId');
-}
-
-function extractProvidedWalletId(body: Record<string, unknown>): string {
-  const wallet = asRecord(body.wallet);
-  if (!wallet || readTrimmedString(wallet, 'kind') !== 'provided') return '';
-  return readTrimmedString(wallet, 'walletId');
-}
-
-function extractRegistrationBootstrapRequestedRpId(body: Record<string, unknown>): string {
-  const authMethod = asRecord(body.authMethod);
-  return (
-    readTrimmedString(body, 'rp_id') ||
-    readTrimmedString(body, 'rpId') ||
-    (authMethod ? readTrimmedString(authMethod, 'rpId') : '')
-  );
-}
-
-function extractRegistrationBootstrapRequestedAccountId(body: unknown): string {
-  const bodyRecord = asRecord(body);
-  if (!bodyRecord) return '';
-  const signerSelection = asRecord(bodyRecord.signerSelection);
-  const sponsoredRequestedAccountId = signerSelection
-    ? extractSponsoredRequestedAccountId(signerSelection)
-    : '';
-  if (sponsoredRequestedAccountId) return sponsoredRequestedAccountId;
-  return (
-    extractProvidedWalletId(bodyRecord) ||
-    readTrimmedString(bodyRecord, 'newAccountId') ||
-    readTrimmedString(bodyRecord, 'new_account_id') ||
-    readTrimmedString(bodyRecord, 'walletId')
-  );
-}
 
 interface ResolvePublishableKeyApiCredentialAuthInput {
   environmentId?: string | null;
@@ -119,24 +26,6 @@ interface ResolvePublishableKeyApiCredentialAuthInput {
   routeAuthNotConfiguredMessage: string;
 }
 
-interface ResolveBootstrapGrantApiCredentialAuthInput {
-  body: unknown;
-  broker: RouterApiBootstrapGrantBroker;
-  headers: HeaderRecord;
-  origin?: string;
-  onAuthenticated(credential: RouterApiAuthenticatedPublishableCredential): void;
-  route: RouteDefinition;
-}
-
-interface ResolveRegistrationBootstrapApiCredentialAuthInput {
-  apiKeyAuth?: RouterApiKeyAuthAdapter | null;
-  body: unknown;
-  bootstrapTokenVerifier?: RouterApiBootstrapTokenVerifier | null;
-  headers: HeaderRecord;
-  origin?: string;
-  route: RouteDefinition;
-  sourceIp?: string;
-}
 
 interface ResolveSecretKeyApiCredentialAuthInput {
   apiKeyAuth?: RouterApiKeyAuthAdapter | null;
@@ -218,194 +107,6 @@ export async function resolvePublishableKeyApiCredentialAuth(
   };
 }
 
-export async function resolveBootstrapGrantApiCredentialAuth(
-  input: ResolveBootstrapGrantApiCredentialAuthInput,
-): Promise<RoutePolicyResolutionResult> {
-  if (input.route.auth.plane !== 'api_credentials') {
-    return routeAuthNotConfigured('Bootstrap grants require API credential auth policy');
-  }
-
-  const publishableKey = extractBearerCredential(input.headers);
-  if (!publishableKey) {
-    return {
-      ok: false,
-      status: 401,
-      code: 'unauthorized',
-      message: 'publishable_key_missing: Missing publishable key',
-    };
-  }
-
-  const origin = String(input.origin || '').trim();
-  if (!origin) {
-    return {
-      ok: false,
-      status: 403,
-      code: 'forbidden',
-      message:
-        'publishable_key_origin_blocked: Origin header is required and must be a valid exact origin',
-    };
-  }
-
-  const environmentId =
-    input.body && typeof input.body === 'object' && !Array.isArray(input.body)
-      ? String((input.body as { environmentId?: unknown }).environmentId || '').trim() || undefined
-      : undefined;
-  const authResult = await input.broker.authenticatePublishableKey({
-    publishableKey,
-    origin,
-    ...(environmentId ? { environmentId } : {}),
-  });
-  if (!authResult.ok) {
-    return {
-      ok: false,
-      status: authResult.status,
-      code: authResult.status === 403 ? 'forbidden' : 'unauthorized',
-      message: `${authResult.code}: ${authResult.message}`,
-    };
-  }
-
-  input.onAuthenticated(authResult.credential);
-  return {
-    ok: true,
-    principal: {
-      kind: 'api_credentials',
-      credentialType: 'publishable_key',
-      principal: {
-        apiKeyId: authResult.credential.apiKeyId,
-        orgId: authResult.credential.orgId,
-        environmentId: authResult.credential.environmentId,
-        scopes: [],
-      },
-    },
-  };
-}
-
-export async function resolveRegistrationBootstrapApiCredentialAuth(
-  input: ResolveRegistrationBootstrapApiCredentialAuthInput,
-): Promise<RoutePolicyResolutionResult> {
-  if (input.route.auth.plane !== 'api_credentials') {
-    return routeAuthNotConfigured('Registration bootstrap requires API credential auth policy');
-  }
-
-  const { apiKeyAuth, bootstrapTokenVerifier } = input;
-  if (!apiKeyAuth && !bootstrapTokenVerifier) {
-    return routeAuthNotConfigured('Router API credential auth is not configured for this route');
-  }
-
-  const credential = extractBearerCredential(input.headers);
-  if (!credential) {
-    if (bootstrapTokenVerifier && !apiKeyAuth) {
-      return {
-        ok: false,
-        status: 401,
-        code: 'unauthorized',
-        message: 'bootstrap_token_missing: Missing bootstrap token',
-      };
-    }
-    return {
-      ok: false,
-      status: 401,
-      code: 'unauthorized',
-      message: 'secret_key_missing: Missing secret key',
-    };
-  }
-
-  const bootstrapTokenCandidate =
-    bootstrapTokenVerifier?.isBootstrapToken(credential) ||
-    isRouterApiBootstrapTokenCandidate(credential);
-  if (bootstrapTokenCandidate) {
-    if (!bootstrapTokenVerifier) {
-      return {
-        ok: false,
-        status: 401,
-        code: 'unauthorized',
-        message: 'bootstrap_token_invalid: Invalid bootstrap token',
-      };
-    }
-    const tokenRecord = await bootstrapTokenVerifier.peekTokenRecord(credential);
-    if (!tokenRecord) {
-      return {
-        ok: false,
-        status: 401,
-        code: 'unauthorized',
-        message: 'bootstrap_token_invalid: Invalid bootstrap token',
-      };
-    }
-    const requestHashSha256 = tokenRecord.requestHashSha256
-      ? await computeRegistrationBootstrapRequestHashSha256(
-          input.body && typeof input.body === 'object' && !Array.isArray(input.body)
-            ? input.body
-            : {},
-        )
-      : undefined;
-    const redeemResult = await bootstrapTokenVerifier.redeemToken({
-      token: credential,
-      origin: String(input.origin || '').trim(),
-      method: input.route.method,
-      path: input.route.path,
-      requestHashSha256,
-    });
-    if (!redeemResult.ok) {
-      return {
-        ok: false,
-        status: redeemResult.status,
-        code: redeemResult.status === 403 ? 'forbidden' : 'unauthorized',
-        message: `${redeemResult.code}: ${redeemResult.message}`,
-      };
-    }
-    const bodyRecord = asRecord(input.body) || {};
-    const requestedAccountId = extractRegistrationBootstrapRequestedAccountId(bodyRecord);
-    const requestedRpId = extractRegistrationBootstrapRequestedRpId(bodyRecord);
-    if (
-      (redeemResult.record.newAccountId &&
-        redeemResult.record.newAccountId !== requestedAccountId) ||
-      (redeemResult.record.rpId && redeemResult.record.rpId !== requestedRpId)
-    ) {
-      return {
-        ok: false,
-        status: 409,
-        code: 'unauthorized',
-        message: 'bootstrap_token_request_mismatch: Bootstrap token is not valid for this request payload',
-      };
-    }
-    const envId = inferEnvIdFromEnvironmentId({
-      projectId: redeemResult.record.projectId,
-      environmentId: redeemResult.record.environmentId,
-    });
-    return {
-      ok: true,
-      principal: {
-        kind: 'api_credentials',
-        credentialType: 'bootstrap_token',
-        principal: {
-          apiKeyId: redeemResult.record.publishableKeyId,
-          orgId: redeemResult.record.orgId,
-          projectId: redeemResult.record.projectId,
-          environmentId: redeemResult.record.environmentId,
-          ...(envId ? { envId } : {}),
-          scopes: [...(input.route.auth.scopes || [])],
-        },
-      },
-    };
-  }
-
-  if (!apiKeyAuth) {
-    return {
-      ok: false,
-      status: 401,
-      code: 'unauthorized',
-      message: 'secret_key_invalid: Invalid secret key',
-    };
-  }
-
-  return await resolveSecretKeyApiCredentialAuth({
-    apiKeyAuth,
-    headers: input.headers,
-    route: input.route,
-    sourceIp: input.sourceIp,
-    routeAuthNotConfiguredMessage: 'Router API credential auth is not configured for this route',
-  });
-}
 
 export async function resolveSecretKeyApiCredentialAuth(
   input: ResolveSecretKeyApiCredentialAuthInput,
@@ -429,14 +130,6 @@ export async function resolveSecretKeyApiCredentialAuth(
     };
   }
 
-  if (isRouterApiBootstrapTokenCandidate(credential)) {
-    return {
-      ok: false,
-      status: 401,
-      code: 'unauthorized',
-      message: 'secret_key_invalid: Invalid secret key',
-    };
-  }
 
   const environmentId = extractRouterApiEnvironmentId(input.headers);
   const authResult = await apiKeyAuth.authenticate({

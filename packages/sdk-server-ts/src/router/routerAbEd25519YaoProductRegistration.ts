@@ -71,8 +71,7 @@ import {
 import { isPlainObject } from '@shared/utils/validation';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
-  MAX_WALLET_SESSION_REMAINING_USES,
-  MAX_WALLET_SESSION_TTL_MS,
+  DEFAULT_WALLET_SESSION_TTL_MS,
 } from '@shared/threshold/sessionPolicy';
 
 export type RouterAbEd25519YaoWalletSessionMintResultV1 =
@@ -101,8 +100,8 @@ export type RouterAbEd25519YaoWalletSessionMintInputV1 =
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'same_identity_budget_refresh_v1';
-      readonly signingGrantId: string;
-      readonly expiresAtMs: number;
+      readonly signingGrantId?: never;
+      readonly expiresAtMs?: never;
       readonly remainingUses: number;
     });
 
@@ -376,34 +375,6 @@ function assertNeverWalletSessionMintInput(value: never): never {
   throw new Error(`Unexpected Ed25519 Yao Wallet Session mint kind: ${String(value)}`);
 }
 
-function requireInheritedWalletSessionTerms(args: {
-  readonly signingGrantId: string;
-  readonly expiresAtMs: number;
-  readonly remainingUses: number;
-  readonly nowMs: number;
-}): RouterAbEd25519YaoWalletSessionTermsV1 {
-  const signingGrantId = args.signingGrantId.trim();
-  if (!signingGrantId) throw new Error('Inherited Wallet Session signingGrantId is required');
-  if (!Number.isSafeInteger(args.expiresAtMs) || args.expiresAtMs <= args.nowMs) {
-    throw new Error('Inherited Wallet Session expiresAtMs must be a future safe integer');
-  }
-  if (args.expiresAtMs - args.nowMs > MAX_WALLET_SESSION_TTL_MS) {
-    throw new Error('Inherited Wallet Session exceeds the maximum TTL');
-  }
-  if (
-    !Number.isSafeInteger(args.remainingUses) ||
-    args.remainingUses <= 0 ||
-    args.remainingUses > MAX_WALLET_SESSION_REMAINING_USES
-  ) {
-    throw new Error('Inherited Wallet Session remainingUses is outside the allowed range');
-  }
-  return {
-    signingGrantId,
-    expiresAtMs: args.expiresAtMs,
-    remainingUses: args.remainingUses,
-  };
-}
-
 async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
   input: RouterAbEd25519YaoWalletSessionMintInputV1,
 ): Promise<RouterAbEd25519YaoWalletSessionTermsV1> {
@@ -422,12 +393,14 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
         ),
       };
     case 'same_identity_budget_refresh_v1':
-      return requireInheritedWalletSessionTerms({
-        signingGrantId: input.signingGrantId,
-        expiresAtMs: input.expiresAtMs,
-        remainingUses: input.remainingUses,
-        nowMs,
-      });
+      return {
+        signingGrantId: `wss_${secureRandomBase64Url(24)}`,
+        expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
+        remainingUses: Math.min(
+          DEFAULT_WALLET_SESSION_REMAINING_USES,
+          Math.max(1, Math.floor(input.remainingUses)),
+        ),
+      };
     default:
       return assertNeverWalletSessionMintInput(input);
   }

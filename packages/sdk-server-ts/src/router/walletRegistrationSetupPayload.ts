@@ -23,6 +23,10 @@ import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { RegistrationIntentV1 } from '@shared/utils/registrationIntent';
+import {
+  normalizeRuntimePolicyScope,
+  type RuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
 import type { SignedSetupPayloadB64u } from '../core/threeRouteRegistrationContracts';
 
 /* Minting and verification are separate capabilities on purpose: setup only
@@ -49,6 +53,15 @@ export type WalletRegistrationSetupClaimsV1 = {
   readonly orgId: string;
   readonly signingRootId: string;
   readonly signingRootVersion: string;
+  readonly policy:
+    | {
+        readonly kind: 'runtime_policy_scope';
+        readonly scope: RuntimePolicyScope;
+      }
+    | {
+        readonly kind: 'signing_root_only';
+        readonly scope?: never;
+      };
   /** Canonical digest of setup's own request bytes. */
   readonly setupDigestB64u: string;
   readonly expiresAtMs: number;
@@ -85,62 +98,6 @@ export async function computeWalletRegistrationSetupDigestB64u(input: {
       }),
     ),
   );
-}
-
-/**
- * Respond's own canonical request digest.
- *
- * Separate from setup's by construction — different version tag, different
- * bytes — so a `signedSetup` minted for setup cannot satisfy respond and an
- * idempotency row from one route can never collide with the other's.
- */
-export async function computeWalletRegistrationRespondDigestB64u(input: {
-  readonly registrationCeremonyId: string;
-  readonly setupDigestB64u: string;
-  readonly strictRegistrationBindingJson: string;
-  readonly authorityDigestB64u: string;
-}): Promise<string> {
-  return base64UrlEncode(
-    await sha256BytesUtf8(
-      alphabetizeStringify({
-        version: 'wallet_registration_respond_digest_v1',
-        registrationCeremonyId: input.registrationCeremonyId,
-        setupDigestB64u: input.setupDigestB64u,
-        strictRegistrationBindingJson: input.strictRegistrationBindingJson,
-        authorityDigestB64u: input.authorityDigestB64u,
-      }),
-    ),
-  );
-}
-
-/**
- * Mints the internal Gateway→Router policy JWT for one concrete Router call.
- *
- * Policy never crosses the public wire: this token is minted per call, bound
- * to that call's canonical digest, and never returned to the client — so a
- * client cannot replay a policy token across operations, and the Router
- * performs no policy or JWKS lookup of its own.
- */
-export async function mintInternalRouterPolicyJwt(
-  signer: WalletRegistrationSetupMinter,
-  input: {
-    readonly registrationCeremonyId: string;
-    readonly operation: 'wallet_registration_respond' | 'wallet_registration_activate';
-    readonly requestDigestB64u: string;
-    readonly signingRootId: string;
-    readonly signingRootVersion: string;
-    readonly expiresAtMs: number;
-  },
-): Promise<string> {
-  return await signer.signJwt(input.registrationCeremonyId, {
-    kind: 'router_policy_v1',
-    operation: input.operation,
-    registrationCeremonyId: input.registrationCeremonyId,
-    requestDigestB64u: input.requestDigestB64u,
-    signingRootId: input.signingRootId,
-    signingRootVersion: input.signingRootVersion,
-    expiresAtMs: input.expiresAtMs,
-  });
 }
 
 export async function mintSignedWalletRegistrationSetup(
@@ -236,6 +193,7 @@ export function parseWalletRegistrationSetupClaims(
   const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
   const setupDigestB64u = toOptionalTrimmedString(record.setupDigestB64u);
   const expiresAtMs = Number(record.expiresAtMs);
+  const policy = parseWalletRegistrationSetupPolicy(record.policy);
   if (
     !registrationCeremonyId ||
     !walletId ||
@@ -243,6 +201,7 @@ export function parseWalletRegistrationSetupClaims(
     !signingRootId ||
     !signingRootVersion ||
     !setupDigestB64u ||
+    !policy ||
     !Number.isSafeInteger(expiresAtMs)
   ) {
     return null;
@@ -254,7 +213,30 @@ export function parseWalletRegistrationSetupClaims(
     orgId,
     signingRootId,
     signingRootVersion,
+    policy,
     setupDigestB64u,
     expiresAtMs,
   };
+}
+
+function parseWalletRegistrationSetupPolicy(
+  value: unknown,
+): WalletRegistrationSetupClaimsV1['policy'] | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  switch (record.kind) {
+    case 'runtime_policy_scope':
+      try {
+        return {
+          kind: 'runtime_policy_scope',
+          scope: normalizeRuntimePolicyScope(record.scope),
+        };
+      } catch {
+        return null;
+      }
+    case 'signing_root_only':
+      return record.scope === undefined ? { kind: 'signing_root_only' } : null;
+    default:
+      return null;
+  }
 }

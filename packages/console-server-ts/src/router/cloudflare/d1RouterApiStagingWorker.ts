@@ -1,4 +1,3 @@
-import type { CloudflareDurableObjectNamespaceLike } from '@seams/sdk-server/cloud-host';
 import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
 import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
@@ -7,6 +6,7 @@ import {
 import { resolveSponsoredExecutionPricingFromEnv } from '@seams-internal/console-server/sponsorship/pricing';
 import { requireStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
 import { createCloudflareRouter } from '@seams/sdk-server/cloud-host';
+import { createRouterAbPrivateD1WalletBudgetGrantProvisionerV1 } from '@seams/sdk-server/cloud-host';
 import { withCors } from '@seams/sdk-server/cloud-host';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import { createAppSessionConsoleAuthAdapter } from '../consoleAppSessionAuth';
@@ -17,8 +17,8 @@ import {
 import type { CloudflareD1EmailOtpServerSealConfig } from '@seams/sdk-server/cloud-host';
 import { createCloudflareD1RouterApiAuthService } from '@seams/sdk-server/cloud-host';
 import { loadCloudflareSignerWasmModule } from './d1SignerWasm';
-import type { ThresholdStoreConfigInput } from '@seams/sdk-server/cloud-host';
 import { createSigningSessionSealOptions } from '@seams/sdk-server/cloud-host';
+import { RouterAbEcdsaPresignRuntime } from '@seams/sdk-server/cloud-host';
 import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/cloud-host';
 import type {
   CloudflareD1OidcExchangeConfig,
@@ -30,7 +30,6 @@ import type {
   FetchHandler,
   ScheduledHandler,
 } from '@seams/sdk-server/cloud-host';
-import { ThresholdStoreDurableObject } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
   type RouterAbEd25519YaoGatewaySpanV1,
@@ -52,7 +51,7 @@ import {
 } from '@seams/sdk-server/cloud-host';
 import {
   createCloudflareSecretsStoreKekProviderFromEnv,
-  createHmacSessionAdapterFromEnv,
+  createEd25519SessionAdapter,
   readCsvList,
   readEnvString,
   requireEnvString,
@@ -91,8 +90,6 @@ import {
 import { createCloudflareCron } from './cron';
 import type { RouterApiCloudflareConsoleWorkerEnv } from './cloudflareConsole.types';
 
-export { ThresholdStoreDurableObject };
-
 interface CloudflareD1RouterApiStagingEnv
   extends
     CloudflareD1StagingSecretEnv,
@@ -101,7 +98,6 @@ interface CloudflareD1RouterApiStagingEnv
     RouterApiCloudflareConsoleWorkerEnv {
   readonly CONSOLE_DB: D1DatabaseLike;
   readonly SIGNER_DB: D1DatabaseLike;
-  readonly THRESHOLD_STORE: CloudflareDurableObjectNamespaceLike;
   readonly SEAMS_TENANT_STORAGE_NAMESPACE?: string;
   readonly SEAMS_STAGING_ORG_ID?: string;
   readonly SEAMS_STAGING_PROJECT_ID?: string;
@@ -210,6 +206,7 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'router_ab_yao_versioned_json_records',
   'router_ab_yao_versioned_json_cas_guard',
   'router_ab_yao_capability_replacements',
+  'router_ab_normal_signing_admission_records',
   'registration_ceremony_records',
   'registration_ceremony_cas_guard',
 ]);
@@ -263,7 +260,6 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     bindings: {
       consoleDatabase: env.CONSOLE_DB,
       signerMetadataDatabase: env.SIGNER_DB,
-      thresholdStore: env.THRESHOLD_STORE,
       kekProvider: createCloudflareSecretsStoreKekProviderFromEnv(env),
     },
     route: {
@@ -278,14 +274,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
       sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
     },
   });
-  const thresholdStoreConfig = stagingThresholdStoreConfig(env, scope.namespace);
-  const session = createHmacSessionAdapterFromEnv({
-    env,
-    secretName: 'RELAY_SESSION_HMAC_SECRET',
-    cookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
-    issuer: readEnvString(env, 'RELAY_SESSION_ISSUER'),
-    audience: readEnvString(env, 'RELAY_SESSION_AUDIENCE'),
-  });
+  const session = stagingSessionAdapter(env);
   const yaoRuntime = createStagingYaoRequestScopedRuntime(env, session);
   const ecdsaCeremonyTokenIssuer = createStagingEcdsaCeremonyTokenIssuer(env);
   const ecdsaStrictRegistration = createRouterAbEcdsaStrictRegistrationPort({
@@ -360,7 +349,16 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
       env,
       'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS',
     ),
-    thresholdStore: thresholdStoreConfig,
+    routerAbEcdsaPresignRuntime: createStagingEcdsaPresignRuntime(env),
+    walletBudgetGrantProvisioner:
+      createRouterAbPrivateD1WalletBudgetGrantProvisionerV1({
+        routerBaseUrl: ROUTER_AB_MPC_ROUTER_ORIGIN,
+        internalServiceAuthSecret: requireEnvString(
+          env,
+          'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
+        ),
+        fetchImpl: createRouterAbServiceBindingFetch(env),
+      }),
     ed25519YaoProductRegistration: yaoRuntime,
     ecdsaStrictRegistration,
   });
@@ -373,9 +371,10 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     session,
     sessionCookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
     routerAbPublicKeyset: requireStagingRouterAbPublicKeyset(env),
+    routerAbNormalSigningRouterProxy: env.MPC_ROUTER,
     routerAbEcdsaStrictPostRegistration: ecdsaStrictPostRegistration,
     readyCheck: createRouterApiReadyCheck(env),
-    signingSessionSeal: stagingSigningSessionSealOptions(env, thresholdStoreConfig),
+    signingSessionSeal: stagingSigningSessionSealOptions(env),
     routerAbEd25519YaoProduct: yaoRuntime,
   });
   const consoleAuth = createAppSessionConsoleAuthAdapter({
@@ -432,17 +431,21 @@ function requireStagingRouterAbPublicKeyset(
 function createStagingEcdsaCeremonyTokenIssuer(
   env: CloudflareD1RouterApiStagingEnv,
 ): RouterAbEcdsaCeremonyTokenIssuer {
+  return createRouterAbEcdsaEd25519CeremonyTokenIssuer({
+    issuer: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_ISSUER'),
+    audience: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_AUDIENCE'),
+    keyId: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_KEY_ID'),
+    privateJwk: requireStagingEcdsaCeremonyPrivateJwk(env),
+  });
+}
+
+function requireStagingEcdsaCeremonyPrivateJwk(env: CloudflareD1RouterApiStagingEnv) {
   const privateJwkSource = requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK');
   const privateJwk = parseRouterAbEcdsaEd25519PrivateJwk(parseJsonObject(privateJwkSource));
   if (!privateJwk) {
     throw new Error('ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK must be an Ed25519 private JWK');
   }
-  return createRouterAbEcdsaEd25519CeremonyTokenIssuer({
-    issuer: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_ISSUER'),
-    audience: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_AUDIENCE'),
-    keyId: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_KEY_ID'),
-    privateJwk,
-  });
+  return privateJwk;
 }
 
 function requireStagingEcdsaRegistrationTopology(
@@ -469,27 +472,8 @@ function routerAbCeremonyJwksResponse(env: CloudflareD1RouterApiStagingEnv): Res
   });
 }
 
-function stagingThresholdStoreConfig(
-  env: CloudflareD1RouterApiStagingEnv,
-  namespace: string,
-): ThresholdStoreConfigInput {
-  return {
-    kind: 'cloudflare-do',
-    namespace: env.THRESHOLD_STORE,
-    THRESHOLD_PREFIX: namespace,
-    ROUTER_AB_NORMAL_SIGNING_WORKER_ID: requireEnvString(env, 'ROUTER_AB_NORMAL_SIGNING_WORKER_ID'),
-    ROUTER_AB_SIGNING_WORKER_URL: ROUTER_AB_SIGNING_WORKER_ORIGIN,
-    ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: requireEnvString(
-      env,
-      'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
-    ),
-    routerAbSigningWorkerFetch: createRouterAbServiceBindingFetch(env),
-  };
-}
-
 function stagingSigningSessionSealOptions(
   env: CloudflareD1RouterApiStagingEnv,
-  thresholdStoreConfig: ThresholdStoreConfigInput,
 ): SigningSessionSealRoutesOptions | undefined {
   const seal = stagingEmailOtpServerSealConfig(env);
   if (!seal) return undefined;
@@ -498,9 +482,35 @@ function stagingSigningSessionSealOptions(
     shamirPrimeB64u: seal.shamirPrimeB64u,
     serverEncryptExponentB64u: seal.serverEncryptExponentB64u,
     serverDecryptExponentB64u: seal.serverDecryptExponentB64u,
-    thresholdStoreConfig,
   });
 }
+
+function createStagingEcdsaPresignRuntime(
+  env: CloudflareD1RouterApiStagingEnv,
+): RouterAbEcdsaPresignRuntime {
+  return new RouterAbEcdsaPresignRuntime({
+    config: {
+      nodeRole: 'coordinator',
+      participantIds: {
+        clientParticipantId: 1,
+        relayerParticipantId: 2,
+        participantIds2p: [1, 2],
+      },
+    },
+    signingWorkerTransport: {
+      kind: 'configured',
+      signingWorkerBaseUrl: ROUTER_AB_SIGNING_WORKER_ORIGIN,
+      auth: {
+        kind: 'internal_service_auth_secret',
+        secret: requireEnvString(env, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET'),
+      },
+      fetchImpl: createRouterAbServiceBindingFetch(env),
+    },
+    ensureReady: readyStagingEcdsaPresignRuntime,
+  });
+}
+
+async function readyStagingEcdsaPresignRuntime(): Promise<void> {}
 
 function createRouterApiReadyCheck(env: CloudflareD1RouterApiStagingEnv): () => Promise<void> {
   const check = new RouterApiStagingReadyCheck(env);
@@ -521,7 +531,6 @@ class RouterApiStagingReadyCheck {
       label: 'SIGNER_DB',
       tables: RELAY_SIGNER_READY_TABLES,
     });
-    this.env.THRESHOLD_STORE.idFromName('seams-d1-relay-staging-readyz');
   }
 }
 
@@ -874,12 +883,12 @@ export function createStagingExportRequestScopedDependencies(
 }
 
 function stagingSessionAdapter(env: CloudflareD1RouterApiStagingEnv) {
-  return createHmacSessionAdapterFromEnv({
-    env,
-    secretName: 'RELAY_SESSION_HMAC_SECRET',
+  return createEd25519SessionAdapter({
+    privateJwk: requireStagingEcdsaCeremonyPrivateJwk(env),
+    keyId: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_KEY_ID'),
     cookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
-    issuer: readEnvString(env, 'RELAY_SESSION_ISSUER'),
-    audience: readEnvString(env, 'RELAY_SESSION_AUDIENCE'),
+    issuer: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_ISSUER'),
+    audience: requireEnvString(env, 'ROUTER_AB_CEREMONY_JWT_AUDIENCE'),
   });
 }
 

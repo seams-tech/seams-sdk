@@ -142,8 +142,8 @@ const requiredResourceInventoryCheckIds = Object.freeze([
   'router_api_worker_deployment_status',
 ]);
 const signerOnlyConsoleD1Bindings = Object.freeze(['SIGNER_DB']);
-const signerOnlyConsoleDurableObjectBindings = Object.freeze(['THRESHOLD_STORE']);
-const requiredGatewayDurableObjectBindings = Object.freeze(['THRESHOLD_STORE']);
+const signerOnlyConsoleDurableObjectBindings = Object.freeze([]);
+const requiredGatewayDurableObjectBindings = Object.freeze([]);
 const requiredMigrationTargetActionPairs = Object.freeze([
   'console:list_before',
   'console:apply',

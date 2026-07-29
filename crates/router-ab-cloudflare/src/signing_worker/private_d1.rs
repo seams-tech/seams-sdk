@@ -237,8 +237,14 @@ impl SigningWorkerWalletBudgetRecordV1 {
                 "wallet budget committed remaining uses exceeds initial uses",
             ));
         }
-        for signer in &self.authorized_signers {
+        for (index, signer) in self.authorized_signers.iter().enumerate() {
             signer.validate()?;
+            if self.authorized_signers[..index].contains(signer) {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "wallet budget authorized_signers contains a duplicate binding",
+                ));
+            }
         }
         for reservation in self.reservations.values() {
             reservation.validate()?;
@@ -246,26 +252,55 @@ impl SigningWorkerWalletBudgetRecordV1 {
         require_positive_ms("wallet budget expires_at_ms", self.expires_at_ms)
     }
 
-    fn validate_matches_put_request(
-        &self,
+    fn converge_put_request(
+        &mut self,
         request: &CloudflareRouterWalletBudgetPutGrantRequestV1,
     ) -> RouterAbProtocolResult<()> {
         self.validate()?;
         request.validate()?;
-        if self.signing_grant_id == request.signing_grant_id
-            && self.wallet_id == request.wallet_id
-            && self.rp_id == request.rp_id
-            && self.issuer_jwt_id == request.issuer_jwt_id
-            && self.authorized_signers == request.authorized_signers
-            && self.initial_signature_uses == request.initial_signature_uses
-            && self.expires_at_ms == request.expires_at_ms
+        if self.signing_grant_id != request.signing_grant_id
+            || self.wallet_id != request.wallet_id
+            || self.rp_id != request.rp_id
+            || self.issuer_jwt_id != request.issuer_jwt_id
+            || self.initial_signature_uses != request.initial_signature_uses
+            || self.expires_at_ms != request.expires_at_ms
         {
-            return Ok(());
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "wallet budget grant id is already stored for different material",
+            ));
         }
-        Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::ReplayedLocalRequest,
-            "wallet budget grant id is already stored for different material",
-        ))
+
+        for (index, signer) in request.authorized_signers.iter().enumerate() {
+            if request.authorized_signers[..index].contains(signer) {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "wallet budget authorized_signers contains a duplicate binding",
+                ));
+            }
+        }
+        if self
+            .authorized_signers
+            .iter()
+            .any(|signer| !request.authorized_signers.contains(signer))
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "wallet budget grant update cannot remove an authorized signer",
+            ));
+        }
+
+        let additional_signers = request
+            .authorized_signers
+            .iter()
+            .filter(|signer| !self.authorized_signers.contains(signer))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !additional_signers.is_empty() {
+            self.authorized_signers.extend(additional_signers);
+            self.projection_version = self.projection_version.saturating_add(1);
+        }
+        self.validate()
     }
 
     fn clean_expired_reservations(&mut self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
@@ -697,7 +732,7 @@ fn apply_signing_worker_wallet_budget_request_v1(
     let before = record.clone();
     let response = match request {
         CloudflareSigningWorkerWalletBudgetRequestV1::PutGrant { request } => {
-            record.validate_matches_put_request(request)?;
+            record.converge_put_request(request)?;
             CloudflareSigningWorkerWalletBudgetResponseV1::GrantPut {
                 status: record.status_at(request.now_unix_ms)?,
             }
@@ -1740,6 +1775,15 @@ mod tests {
         }
     }
 
+    fn ecdsa_wallet_budget_signer_v1() -> CloudflareRouterWalletBudgetSignerBindingV1 {
+        CloudflareRouterWalletBudgetSignerBindingV1::new(
+            CloudflareRouterWalletBudgetCurveV1::RouterAbEcdsaDerivation,
+            "threshold-ecdsa-1",
+            "signing-worker-ecdsa-1",
+        )
+        .expect("ECDSA signer binding")
+    }
+
     #[test]
     fn schema_has_one_authority_and_consume_once_round1() {
         assert!(SIGNING_WORKER_PRIVATE_D1_SCHEMA_V1
@@ -1756,6 +1800,123 @@ mod tests {
             SIGNING_WORKER_PRIVATE_D1_SCHEMA_V1.contains("authorization_key TEXT NOT NULL UNIQUE")
         );
         assert!(!SIGNING_WORKER_PRIVATE_D1_SCHEMA_V1.contains("durable"));
+    }
+
+    #[test]
+    fn wallet_budget_put_exact_replay_is_unchanged() {
+        let request = wallet_budget_put_request_v1();
+        let record = SigningWorkerWalletBudgetRecordV1::from_put_request(&request)
+            .expect("initial wallet budget");
+        let expected = record.clone();
+        let put = CloudflareSigningWorkerWalletBudgetRequestV1::PutGrant { request };
+
+        let (replayed, _, changed) =
+            apply_signing_worker_wallet_budget_request_v1(Some(record), &put)
+                .expect("exact replay");
+
+        assert!(!changed);
+        assert_eq!(replayed, expected);
+    }
+
+    #[test]
+    fn wallet_budget_put_adds_signer_without_resetting_consumption_state() {
+        let request = wallet_budget_put_request_v1();
+        let record = SigningWorkerWalletBudgetRecordV1::from_put_request(&request)
+            .expect("initial wallet budget");
+        let reserve_request = wallet_budget_reserve_request_v1();
+        let reserve = CloudflareSigningWorkerWalletBudgetRequestV1::Reserve {
+            request: reserve_request.clone(),
+        };
+        let (reserved, response, _) =
+            apply_signing_worker_wallet_budget_request_v1(Some(record), &reserve)
+                .expect("reserve use");
+        let CloudflareSigningWorkerWalletBudgetResponseV1::Reserved { reservation_id, .. } =
+            response
+        else {
+            panic!("reserve response branch");
+        };
+        let commit = CloudflareSigningWorkerWalletBudgetRequestV1::Commit {
+            identity: CloudflareRouterWalletBudgetReservationIdentityV1::new(
+                "grant-1",
+                reservation_id,
+                "signing-worker-1",
+                "operation-1",
+                reserve_request.request_digest,
+                1_200,
+            )
+            .expect("reservation identity"),
+        };
+        let (committed, _, _) =
+            apply_signing_worker_wallet_budget_request_v1(Some(reserved), &commit)
+                .expect("commit use");
+        let expected_remaining_uses = committed.committed_remaining_uses;
+        let expected_reservations = committed.reservations.clone();
+        let expected_operations = committed.committed_operations.clone();
+        let expected_projection_version = committed.projection_version;
+        let mut additive = request;
+        additive
+            .authorized_signers
+            .push(ecdsa_wallet_budget_signer_v1());
+        additive.now_unix_ms = 1_300;
+        let put = CloudflareSigningWorkerWalletBudgetRequestV1::PutGrant { request: additive };
+
+        let (merged, _, changed) =
+            apply_signing_worker_wallet_budget_request_v1(Some(committed), &put)
+                .expect("add signer binding");
+
+        assert!(changed);
+        assert_eq!(merged.authorized_signers.len(), 2);
+        assert!(merged
+            .authorized_signers
+            .contains(&ecdsa_wallet_budget_signer_v1()));
+        assert_eq!(merged.committed_remaining_uses, expected_remaining_uses);
+        assert_eq!(merged.reservations, expected_reservations);
+        assert_eq!(merged.committed_operations, expected_operations);
+        assert_eq!(
+            merged.projection_version,
+            expected_projection_version.saturating_add(1)
+        );
+    }
+
+    #[test]
+    fn wallet_budget_put_rejects_conflicting_immutable_identity() {
+        let request = wallet_budget_put_request_v1();
+        let record = SigningWorkerWalletBudgetRecordV1::from_put_request(&request)
+            .expect("initial wallet budget");
+        let mut conflicting = request;
+        conflicting.wallet_id = "wallet-2".to_owned();
+        let put = CloudflareSigningWorkerWalletBudgetRequestV1::PutGrant {
+            request: conflicting,
+        };
+
+        let error = apply_signing_worker_wallet_budget_request_v1(Some(record), &put)
+            .expect_err("conflicting grant identity must fail");
+
+        assert_eq!(
+            error.code(),
+            RouterAbProtocolErrorCode::ReplayedLocalRequest
+        );
+    }
+
+    #[test]
+    fn wallet_budget_put_rejects_removing_an_authorized_signer() {
+        let mut additive = wallet_budget_put_request_v1();
+        additive
+            .authorized_signers
+            .push(ecdsa_wallet_budget_signer_v1());
+        let record = SigningWorkerWalletBudgetRecordV1::from_put_request(&additive)
+            .expect("mixed wallet budget");
+        let put = CloudflareSigningWorkerWalletBudgetRequestV1::PutGrant {
+            request: wallet_budget_put_request_v1(),
+        };
+
+        let error = apply_signing_worker_wallet_budget_request_v1(Some(record), &put)
+            .expect_err("removing signer binding must fail");
+
+        assert_eq!(
+            error.code(),
+            RouterAbProtocolErrorCode::ReplayedLocalRequest
+        );
     }
 
     #[test]

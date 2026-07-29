@@ -12,6 +12,10 @@ import {
   SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort,
 } from '../helpers/routerAbSigningRuntimeTestUtils';
 import { createActivatedFinalizeYaoRuntimeFixture } from './helpers/d1WalletRegistrationFinalizeConvergence.fixtures';
+import type {
+  RouterAbWalletBudgetGrantProvisionInputV1,
+  RouterAbWalletBudgetGrantProvisionerV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import {
   applySignerMigrations,
   makeRecoveryWrappedEnrollmentEscrows,
@@ -79,19 +83,38 @@ class CountingStrictRegistrationPort extends SuccessfulFixtureRouterAbEcdsaStric
   }
 }
 
+class RecordingPrivateD1BudgetProvisioner implements RouterAbWalletBudgetGrantProvisionerV1 {
+  readonly requests: RouterAbWalletBudgetGrantProvisionInputV1[] = [];
+
+  async provisionGrant(input: RouterAbWalletBudgetGrantProvisionInputV1) {
+    this.requests.push(input);
+    return {
+      ok: true as const,
+      signingGrantId: input.signingGrantId,
+      remainingUses: input.initialSignatureUses,
+      reservedUses: 0,
+      availableUses: input.initialSignatureUses,
+      expiresAtMs: input.expiresAtMs,
+    };
+  }
+}
+
 /** Drives a ceremony through setup and respond, ready to activate. */
 async function respondedCeremony(database: unknown, strictRegistration: unknown) {
   const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
     config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-activate' },
   });
+  const thresholdStore = new RecordingDurableObjectNamespace();
+  const budgetProvisioner = new RecordingPrivateD1BudgetProvisioner();
   const service = createCloudflareD1RouterApiAuthService({
     database: database as never,
     ...SCOPE,
     routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
+    walletBudgetGrantProvisioner: budgetProvisioner,
     ecdsaStrictRegistration: strictRegistration,
     thresholdStore: {
       kind: 'cloudflare-do',
-      namespace: new RecordingDurableObjectNamespace(),
+      namespace: thresholdStore,
       THRESHOLD_PREFIX: 'registration-activate-test',
       ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-activate',
     },
@@ -153,7 +176,7 @@ async function respondedCeremony(database: unknown, strictRegistration: unknown)
     verifier: signer,
     minter: signer,
   };
-  return { service, signer, setup, activateRequest };
+  return { service, signer, setup, activateRequest, budgetProvisioner, thresholdStore };
 }
 
 test('a conflicting activate retry is refused before any custody effect', async () => {
@@ -196,7 +219,8 @@ test('an identical activate retry returns the stored terminal bytes without repe
   try {
     await applySignerMigrations(database);
     const strictRegistration = new CountingStrictRegistrationPort();
-    const { service, activateRequest } = await respondedCeremony(database, strictRegistration);
+    const { service, activateRequest, budgetProvisioner, thresholdStore } =
+      await respondedCeremony(database, strictRegistration);
 
     const first = await service.walletRegistration.activateWalletRegistration(
       activateRequest as never,
@@ -223,6 +247,15 @@ test('an identical activate retry returns the stored terminal bytes without repe
     expect(first.ecdsa.activation).toBeTruthy();
     expect(first.ecdsa.bootstrap).toBeTruthy();
     expect(replayed.ok && replayed.ecdsa.activation).toBeTruthy();
+    expect(budgetProvisioner.requests).toHaveLength(1);
+    expect(budgetProvisioner.requests[0]?.authorizedSigners).toEqual([
+      {
+        curve: 'ecdsa',
+        threshold_session_id: first.ecdsa.bootstrap.thresholdSessionId,
+        signing_worker_id: 'signing-worker-unit-fixture',
+      },
+    ]);
+    expect(thresholdStore.objectNames).toEqual([]);
     expect(replayed.ok && replayed.ecdsa.bootstrap).toBeTruthy();
   } finally {
     cleanupTemporaryD1Database(tempDir);
@@ -408,12 +441,16 @@ test('Ed25519-only setup skips ECDSA preparation entirely', async () => {
  * one runtime serve a freshly generated ceremony — which is what makes a real
  * Ed25519-only path testable rather than only its error branches.
  */
-function derivingYaoRuntime() {
+function derivingYaoRuntime(capture?: { registrationBearerToken: string | null }) {
   let delegate: Awaited<ReturnType<typeof createActivatedFinalizeYaoRuntimeFixture>> | null = null;
   const runtime = {
     kind: 'router_ab_ed25519_yao_product_registration_runtime_v1' as const,
     signingWorkerId: 'signing-worker-ed25519',
-    async bindAndAdmitVerifiedRegistration(input: { admissionRequest: never }) {
+    async bindAndAdmitVerifiedRegistration(input: {
+      admissionRequest: never;
+      registrationIntentGrant: unknown;
+    }) {
+      if (capture) capture.registrationBearerToken = String(input.registrationIntentGrant);
       /* The fixture admits and executes during construction, so its receipt
          is already the admitted one — re-admitting would collide with itself. */
       delegate = await createActivatedFinalizeYaoRuntimeFixture({
@@ -446,11 +483,12 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-ed25519' },
     });
     const signer = fakeGatewaySigner();
+    const yaoCredential = { registrationBearerToken: null as string | null };
     const service = createCloudflareD1RouterApiAuthService({
       database: database as never,
       ...ED_SCOPE,
       routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
-      ed25519YaoProductRegistration: derivingYaoRuntime(),
+      ed25519YaoProductRegistration: derivingYaoRuntime(yaoCredential),
       ecdsaStrictRegistration: new CountingStrictRegistrationPort(),
       thresholdStore: {
         kind: 'cloudflare-do',
@@ -489,6 +527,9 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       minter: signer,
     } as never);
     if (!responded.ok) throw new Error(`respond: ${responded.code}: ${responded.message}`);
+    /* Execute uses signedSetup as its Bearer credential, so admission must be
+       bound to those exact bytes rather than the ceremony id it replaced. */
+    expect(yaoCredential.registrationBearerToken).toBe(setup.signedSetup);
     /* Deferred, not blocking — the client starts Yao and moves on. */
     expect(responded.ed25519).toMatchObject({ status: 'deferred' });
     expect('ecdsa' in responded).toBe(false);
@@ -609,6 +650,7 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
     if (!responded.ok) throw new Error(`respond: ${responded.code}: ${responded.message}`);
     expect(responded.ed25519).toMatchObject({ status: 'deferred' });
 
+    const recoveryCodesIssuedAtMs = Date.now();
     const activateRequest = {
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
@@ -620,6 +662,7 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
           userId: providerSubject,
           enrollmentId: `enrollment-${setup.walletId}`,
           enrollmentSealKeyVersion: 'seal-v1',
+          issuedAtMs: recoveryCodesIssuedAtMs,
         }),
         enrollmentSealKeyVersion: 'seal-v1',
         clientUnlockPublicKeyB64u: unlockPublicKeyB64u,
@@ -628,7 +671,7 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
       },
       emailOtpBackupAck: {
         kind: 'email_otp_recovery_code_backup_ack_v1',
-        recoveryCodesIssuedAtMs: Date.now(),
+        recoveryCodesIssuedAtMs,
         backupActionKind: 'download',
         acknowledgedAtMs: Date.now(),
         idempotencyKey: 'ed25519-otp-backup-ack',

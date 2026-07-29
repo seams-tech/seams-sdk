@@ -10,7 +10,6 @@ import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrat
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
   requireParsedDomainId,
-  ThrowingDurableObjectNamespace,
   utf8Bytes,
   sha256,
   hexBytes,
@@ -567,48 +566,6 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         },
       ],
     });
-    await expect(
-      service.thresholdRuntime.listThresholdEcdsaKeyIdentityTargetsForUser({
-        userId: scope.userId,
-        rpId: 'example.com',
-        keyTargets: [
-          {
-            keyHandle: 'ecdsa-key-handle-a',
-            chainTarget: { namespace: 'eip155', reference: '1' },
-          },
-        ],
-      }),
-    ).resolves.toEqual({
-      records: [],
-      diagnostics: {
-        userId: scope.userId,
-        inputCount: 1,
-        returnedCount: 0,
-        ecdsaBootstrapExportRuntimePresent: false,
-        rejected: { ecdsa_bootstrap_export_runtime_missing: 1 },
-      },
-    });
-    await expect(
-      service.thresholdRuntime.listWalletEcdsaKeyFactsInventory({
-        walletId: scope.userId,
-        rpId: 'example.com',
-        keyTargets: [
-          {
-            keyHandle: 'ecdsa-key-handle-a',
-            chainTarget: { namespace: 'eip155', reference: '1' },
-          },
-        ],
-      }),
-    ).resolves.toEqual({
-      records: [],
-      diagnostics: {
-        userId: scope.userId,
-        inputCount: 1,
-        returnedCount: 0,
-        ecdsaBootstrapExportRuntimePresent: false,
-        rejected: { ecdsa_bootstrap_export_runtime_missing: 1 },
-      },
-    });
     expect(service.router.getConfiguredRelayerAccount()).toBe('relay.local');
     await expect(service.router.getRelayerAccount()).resolves.toEqual({
       accountId: 'relay.local',
@@ -752,7 +709,7 @@ test('Cloudflare D1 Router API auth service revokes wallet auth methods through 
   }
 });
 
-test('Cloudflare D1 Router API auth service wires Router A/B runtimes from Durable Object config', async () => {
+test('Cloudflare D1 Router API auth service has no Gateway-owned signing runtime by default', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     const withoutThreshold = createCloudflareD1RouterApiAuthService({
@@ -764,32 +721,7 @@ test('Cloudflare D1 Router API auth service wires Router A/B runtimes from Durab
       relayerAccount: 'relay.local',
       relayerPublicKey: 'relay-public-key',
     });
-    expect(withoutThreshold.thresholdRuntime.getRouterAbNormalSigningRuntime()).toBeNull();
     expect(withoutThreshold.thresholdRuntime.getRouterAbEcdsaPresignRuntime()).toBeNull();
-
-    const withThreshold = createCloudflareD1RouterApiAuthService({
-      database,
-      namespace: 'seams-local-test',
-      orgId: 'org-a',
-      projectId: 'project-a',
-      envId: 'env-a',
-      relayerAccount: 'relay.local',
-      relayerPublicKey: 'relay-public-key',
-      thresholdStore: {
-        kind: 'cloudflare-do',
-        namespace: new ThrowingDurableObjectNamespace(),
-        THRESHOLD_PREFIX: 'seams-local-test',
-        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
-      },
-    });
-    const normalSigningRuntime =
-      withThreshold.thresholdRuntime.getRouterAbNormalSigningRuntime();
-    const bootstrapExportRuntime =
-      withThreshold.thresholdRuntime.getRouterAbEcdsaBootstrapExportRuntime();
-    const presignRuntime = withThreshold.thresholdRuntime.getRouterAbEcdsaPresignRuntime();
-    expect(bootstrapExportRuntime).toBeNull();
-    expect(presignRuntime).not.toBeNull();
-    expect(normalSigningRuntime?.getSigningWorkerId()).toBe('test-threshold-signing-worker');
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

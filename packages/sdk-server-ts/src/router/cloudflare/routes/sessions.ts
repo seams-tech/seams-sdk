@@ -52,6 +52,7 @@ import {
   emailOtpFailureAuditPayload,
   emailOtpAppSessionClaimsForSubject,
   hashEmailOtpAppSessionClaims,
+  hashEmailOtpSigningSessionClaims,
 } from '../../emailOtpSessionRouteHelpers';
 import {
   parseSessionExchangeRouteCommand,
@@ -59,9 +60,10 @@ import {
 } from '../../sessionExchangeRequestValidation';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
-  parseWalletSigningBudgetStatusRequest,
-  type ParseWalletSigningBudgetStatusResult,
-} from '../../signingBudgetStatus';
+  parseRouterAbEcdsaDerivationWalletSessionClaims,
+  parseRouterAbEd25519WalletSessionClaims,
+} from '../../../core/ThresholdService/validation';
+import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
 import { parseGoogleProviderSubject, parseVerifiedGoogleEmail } from '@shared/utils/domainIds';
 import { parseWalletUnlockEd25519YaoRequest } from '../../walletUnlockEd25519YaoRequestValidation';
 import {
@@ -97,11 +99,6 @@ import {
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 
 const HOSTED_WALLET_SESSION_EXCHANGE_TTL_MS = 60_000;
-
-type VerifiedSigningBudgetStatus = Extract<
-  ParseWalletSigningBudgetStatusResult,
-  { ok: true }
->['walletBudgetStatus'];
 
 function walletUnlockContextWithoutEd25519Intent(
   body: unknown,
@@ -367,31 +364,82 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRouterApiCon
       sessionHash: string;
       thresholdSessionId: string;
       signingGrantId: string;
-      walletBudgetStatus: VerifiedSigningBudgetStatus;
     }
   | { ok: false; response: Response }
 > {
-  const validated = await parseWalletSigningBudgetStatusRequest({
-    headers: headersToRecord(ctx.request.headers),
-    session: ctx.opts.session,
-    sessionPolicy: ctx.opts.signingSessionSeal?.sessionPolicy,
-  });
-  if (!validated.ok) {
+  const session = ctx.opts.session;
+  if (!session) {
     return {
       ok: false,
-      response: json(validated.body, { status: validated.status }),
+      response: json(
+        { authenticated: false, code: 'sessions_disabled', message: 'Sessions are not configured' },
+        { status: 501 },
+      ),
     };
   }
-  const { request } = validated;
+  let parsed: Awaited<ReturnType<typeof session.parse>>;
+  try {
+    parsed = await session.parse(headersToRecord(ctx.request.headers));
+  } catch {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'wallet_session_unavailable',
+          message: 'Wallet Session status is unavailable',
+        },
+        { status: 503 },
+      ),
+    };
+  }
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      response: json(
+        { authenticated: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+        { status: 401 },
+      ),
+    };
+  }
+  const claims = parsed.claims;
+  const walletSession =
+    parseRouterAbEcdsaDerivationWalletSessionClaims(claims) ||
+    parseRouterAbEd25519WalletSessionClaims(claims);
+  if (!walletSession) {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'wallet_session_claims_invalid',
+          message: 'Wallet Session claims are invalid',
+        },
+        { status: 401 },
+      ),
+    };
+  }
+  if (walletSession.thresholdExpiresAtMs <= Date.now()) {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'wallet_session_expired',
+          message: 'Wallet Session expired',
+        },
+        { status: 401 },
+      ),
+    };
+  }
   return {
     ok: true,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    sessionHash: validated.sessionHash,
-    thresholdSessionId: request.thresholdSessionId,
-    signingGrantId: request.signingGrantId,
-    walletBudgetStatus: validated.walletBudgetStatus,
+    claims,
+    userId: walletSession.walletId,
+    appSessionVersion: `signing-session:${walletSession.kind}:${walletSession.signingGrantId}:${walletSession.thresholdSessionId}`,
+    sessionHash: await hashEmailOtpSigningSessionClaims(claims),
+    thresholdSessionId: walletSession.thresholdSessionId,
+    signingGrantId: walletSession.signingGrantId,
   };
 }
 
@@ -1525,49 +1573,10 @@ export async function handleSigningBudgetStatus(
   ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/router-ab/wallet-budget/status') return null;
-  try {
-    const validated = await readAndValidateEmailOtpSigningSession(ctx);
-    if (!validated.ok) return validated.response;
-    const committedRemainingUses = Math.max(
-      0,
-      Math.floor(Number(validated.walletBudgetStatus.committedRemainingUses) || 0),
-    );
-    const reservedUses = Math.max(
-      0,
-      Math.floor(Number(validated.walletBudgetStatus.reservedUses) || 0),
-    );
-    const availableUses = Math.max(
-      0,
-      Math.floor(Number(validated.walletBudgetStatus.availableUses) || 0),
-    );
-    return json(
-      {
-        ok: true,
-        signingGrantId: validated.signingGrantId,
-        thresholdSessionId: validated.thresholdSessionId,
-        status: availableUses > 0 ? 'active' : 'exhausted',
-        committedRemainingUses,
-        reservedUses,
-        availableUses,
-        remainingUses: availableUses,
-        expiresAtMs: validated.walletBudgetStatus.expiresAtMs,
-        projectionVersion: [
-          'wallet-budget',
-          validated.signingGrantId,
-          validated.walletBudgetStatus.expiresAtMs,
-          committedRemainingUses,
-          reservedUses,
-          availableUses,
-        ].join(':'),
-      },
-      { status: 200 },
-    );
-  } catch (e: any) {
-    return json(
-      { ok: false, code: 'internal', message: e?.message || 'Internal error' },
-      { status: 500 },
-    );
-  }
+  return await proxyNormalSigningRequestToMpcRouter({
+    request: ctx.request,
+    proxy: ctx.opts.routerAbNormalSigningRouterProxy,
+  });
 }
 
 function parseReusableWalletSessionStatusBody(body: unknown): {

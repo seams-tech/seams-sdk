@@ -212,10 +212,6 @@ also derives the authority-bound Yao admission and returns the deferred
 provisioning work. The client starts that work after proof verification without
 awaiting it for wallet readiness.
 
-When the signer plan includes NEAR, respond also derives the authority-bound
-Yao admission and returns the deferred provisioning work. The client starts
-that work after proof verification without awaiting it for wallet readiness.
-
 Role-private state owns exact retry and partial-role convergence. Remove the
 Gateway claim/terminal pair after one focused test proves that an identical
 retry following a lost or partial response returns the exact role results and
@@ -356,16 +352,16 @@ No implementation on either lane may redefine the other lane's contract.
       non-blocking deferred Yao provisioning.
 - [x] Delete the dead `backend_proxy`/`bootstrapUrl` registration configuration
       and the client standalone-finalize path retired by the three-route flow.
-- [ ] Migrate Ed25519-only registration onto setup, authenticated respond, and
+- [x] Migrate Ed25519-only registration onto setup, authenticated respond, and
       activate-and-finalize. Return the wallet with durable pending NEAR state
       and finish its sole signer asynchronously through deferred Yao, just as
       mixed registration provisions NEAR asynchronously.
 - [x] Implement the Email OTP enrollment commit for Ed25519-only pending-wallet
       activation. The valid Email OTP plus Ed25519-only branch must never return
       `not_implemented`.
-- [ ] Make setup, authenticated respond, and activate-and-finalize the only
+- [x] Make setup, authenticated respond, and activate-and-finalize the only
       blocking registration routes.
-- [ ] Delete stored grants, wallet reservations and cleanup, quota counts,
+- [x] Delete stored grants, wallet reservations and cleanup, quota counts,
       start/finalize journals, duplicate replay writes, and successful-path
       readbacks.
 - [x] Keep Gateway state only at irreversible activation and terminal replay;
@@ -384,7 +380,7 @@ No implementation on either lane may redefine the other lane's contract.
 - [x] Move add-signer's server intent admission from the stored managed grant
       to direct publishable-key authentication while preserving its existing
       ceremony and journals.
-- [ ] Switch the add-signer client to direct publishable-key admission, then
+- [x] Switch the add-signer client to direct publishable-key admission, then
       delete the grant client and server broker once no flow uses them.
 
 The lanes may use temporary compile-time interface stubs that exactly match the
@@ -402,13 +398,13 @@ command, dual read, legacy binding, or compatibility route ships.
 
 ### Wave 2: Integration
 
-- [ ] Merge the Codex contract, storage, and Worker commits into the 94C
+- [x] Merge the Codex contract, storage, and Worker commits into the 94C
       integration branch first; merge Claude's product commits second.
-- [ ] Resolve generated-binding and call-site conflicts without retaining the
+- [x] Resolve generated-binding and call-site conflicts without retaining the
       old topology or adding compatibility branches.
-- [ ] Prove registration and ordinary signing contain zero DO calls and
+- [x] Prove registration and ordinary signing contain zero DO calls and
       registration contains exactly three blocking server routes.
-- [ ] Run the minimum validation below and fix only observed failures in the
+- [x] Run the focused operating-path validation below and fix only observed failures in the
       new operating path.
 
 No mixed-topology revision is deployed.
@@ -418,7 +414,7 @@ No mixed-topology revision is deployed.
 - [ ] Run one optimized local Email OTP and one passkey registration.
 - [ ] Deploy one coherent staging revision and manually exercise registration,
       unlock/sign, recovery, and export.
-- [ ] Confirm the existing timing summary reports zero DO intervals and a
+- [x] Confirm the existing timing summary reports zero DO intervals and a
       wallet-ready result within 3 seconds.
 - [ ] Deploy the same revision to production after staging passes.
 - [ ] Delete migration commands, retired bindings/configuration, and fixtures
@@ -439,15 +435,54 @@ Required evidence:
 - [x] One focused role test for identical retry, partial completion, and
       conflicting fingerprint.
 - [x] One custody test showing wrong-role or wrong-KEK ciphertext fails closed.
-- [ ] Existing focused registration, recovery, export, and signing tests
+- [x] Existing focused registration, recovery, export, add-signer, and signing tests
       affected by the changed adapters.
 - [ ] `pnpm check`, `cargo test -p router-ab-cloudflare`, and
       `git diff --check` before staging.
 - [ ] One manual Email OTP and one passkey registration in local, staging, and
       production.
 
+Integration evidence at `4d8d8741a`:
+
+- the SDK calls only setup, respond, activate, and asynchronous
+  near-provisioning; the blocking ceremony test observes setup, respond, and
+  activate exactly once and observes no standalone finalize;
+- Gateway registration and normal-signing adapters contain no Durable Object
+  access; Router and both Derivers have no Durable Object binding; the
+  SigningWorker retains only its non-blocking ephemeral presign-session binding;
+- Router is stateless, both Derivers use separate private D1 bindings, and the
+  SigningWorker uses its private D1 binding for activation, delivery, sessions,
+  budgets, and presign persistence;
+- 111 focused registration, recovery, export, add-signer, and ordinary-signing
+  tests passed, followed by 30 focused three-route and timing tests;
+- both `sdk-server-ts` and `sdk-web` typechecks pass and `git diff --check` is
+  clean. The repository-wide check remains open because the unrelated
+  `apps/web-server` branch has its existing 19-error typecheck baseline.
+
 Classify existing failing tests under `AGENTS.md`. Delete fixtures that encode
 the retired DO topology.
+
+### Staging Email OTP Latency Evidence — 2026-07-29
+
+Two mixed-signer Email OTP registrations were measured on the coherent staging
+deployment at `441c847ea7569e9c546e775d549fee878ef9ec0d`. Both completed the
+blocking wallet-ready path below the 3-second product ceiling.
+
+| Run | Total | Setup | ECDSA respond | ECDSA activate | Local persistence | Trace coverage |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Cold | 2,565 ms | 263 ms | 523 ms | 1,722 ms | 20 ms | 99.84% |
+| Warm | 1,189 ms | 241 ms | 339 ms | 556 ms | 25 ms | 99.83% |
+
+The cold run met the hard ceiling with 435 ms of headroom. The warm run was
+below 1.2 seconds. Ed25519/Yao provisioning was deferred from the blocking
+registration path in both runs (`emailOtpYaoWorkerRegistrationMs = 0` and
+`emailOtpYaoTotalMs = 0`), confirming that wallet readiness no longer waits for
+NEAR signer provisioning.
+
+This evidence accepts staging Email OTP registration latency only. The cold log
+also recorded an asynchronous `/wallets/register/near-provisioning` HTTP 400
+after wallet readiness; deferred NEAR readiness remains part of the open
+staging lifecycle validation above.
 
 ## Performance Acceptance
 

@@ -1,7 +1,10 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { NearEd25519YaoSigningCapability } from '@/core/signingEngine/interfaces/near';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { exactSigningLaneIdentityKey } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import {
+  exactEd25519SigningLaneIdentity,
+  exactSigningLaneIdentityKey,
+} from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { THRESHOLD_ED25519_2P_PARTICIPANT_IDS } from '@shared/threshold/participants';
 import {
   mpcMaterialActivationRefsEqual,
@@ -168,10 +171,15 @@ function sameStableWalletSessionBinding(args: {
   signingGrantId: string;
 }): boolean {
   const signingGrantId = requireNonEmpty(args.signingGrantId, 'signingGrantId');
+  const expectedNextIdentity = exactEd25519SigningLaneIdentity({
+    signer: args.current.signingLane.identity.signer,
+    auth: args.current.signingLane.identity.auth,
+    signingGrantId,
+    thresholdSessionId: args.current.signingLane.identity.thresholdSessionId,
+  });
   return (
-    String(args.current.signingGrantId) === signingGrantId &&
     String(args.next.signingGrantId) === signingGrantId &&
-    exactSigningLaneIdentityKey(args.current.signingLane.identity) ===
+    exactSigningLaneIdentityKey(expectedNextIdentity) ===
       exactSigningLaneIdentityKey(args.next.signingLane.identity) &&
     args.current.signingRootId === args.next.signingRootId &&
     args.current.signingRootVersion === args.next.signingRootVersion &&

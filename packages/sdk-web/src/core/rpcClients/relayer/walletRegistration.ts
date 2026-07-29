@@ -2168,14 +2168,22 @@ export async function createWalletAddSignerIntent(args: {
   relayerUrl: string;
   walletId: WalletId;
   request: CreateAddSignerIntentRequest;
-  headers?: Record<string, string>;
+  auth: { publishableKey: string; environmentId: string };
 }): Promise<CreateAddSignerIntentResponse> {
   const walletId = String(args.walletId || '').trim();
   if (!walletId) throw new Error('walletId is required for add-signer intent');
+  const publishableKey = String(args.auth.publishableKey || '').trim();
+  const environmentId = String(args.auth.environmentId || '').trim();
+  if (!publishableKey || !environmentId) {
+    throw new Error('add-signer intent requires a publishable key and environment id');
+  }
   return await postJson<CreateAddSignerIntentResponse>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/signers/intent`,
-    headers: args.headers,
+    headers: {
+      Authorization: `Bearer ${publishableKey}`,
+      [ROUTER_API_ENVIRONMENT_ID_HEADER]: environmentId,
+    },
     body: args.request,
   });
 }
