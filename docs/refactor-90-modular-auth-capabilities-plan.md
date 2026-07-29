@@ -612,15 +612,16 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Replace generic wire `session_id` and `active_state_session_id` fields
       with the discriminated authorization branch and exact activation reference;
       update the unreleased protocol schema and transcript vectors together.
-- [ ] Commit the Near operation claim and applicable reusable-session budget at
+- [x] Commit the Near operation claim and applicable reusable-session budget at
       the durable effect owner before execution. Cloudflare uses SigningWorker
       private D1 under Refactor 94C; bind the admitted-policy and operation
       digests into exact replay without crypto reevaluation or repeated
       resource consumption.
 
-  Refactor 94C now provides the SigningWorker private-D1 terminal-response
-  store. The remaining work is to claim and charge before the effect, then wire
-  exact terminal-response persistence and replay through that owner.
+  SigningWorker private D1 now claims and charges before the effect and owns
+  exact terminal-response persistence and replay. The forwarded reusable claim
+  excludes attempt-local time; SigningWorker supplies its local claim time so
+  retries retain one stable effect digest.
 
   Review gate: operation step-up must reach this owner and consume its one-use
   grant; post-claim failures must become replayable terminal outcomes; the

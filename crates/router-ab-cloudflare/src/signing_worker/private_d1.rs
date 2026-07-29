@@ -969,9 +969,7 @@ pub async fn claim_cloudflare_signing_worker_near_effect_v1(
     match &request.effect_claim {
         CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession { budget } => {
             let cipher = SigningWorkerPrivateD1CipherV1::from_env(env)?;
-            let mut claim_identity = budget.clone();
-            claim_identity.now_unix_ms = claimed_at_ms;
-            claim_identity.validate()?;
+            let claim_identity = budget.budget_identity_at(claimed_at_ms)?;
             claim_reusable_wallet_session_near_effect_v1(
                 &session,
                 &cipher,
