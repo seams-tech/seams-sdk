@@ -88,18 +88,36 @@ export type WalletRegistrationSetupRequestV2 = {
  * setup request or response at all. Respond derives it, authority-bound, for
  * both methods.
  */
+type WalletRegistrationSetupSuccessBase = {
+  ok: true;
+  registrationCeremonyId: string;
+  walletId: string;
+  /** The WebAuthn create challenge; the client signs exactly this. */
+  registrationIntentDigestB64u: string;
+  intent: WalletRegistrationStartRequest['intent'];
+  /** Opaque; echoed verbatim on routes 2 and 3. */
+  signedSetup: SignedSetupPayloadB64u;
+};
+
+/**
+ * Setup's shape follows the signer plan, exhaustively.
+ *
+ * An Ed25519-only wallet has no ECDSA branch to prepare, so `ecdsa` is not an
+ * optional field that happens to be absent — the arm types it `never`, and a
+ * caller that reads it fails to compile. Yao work is still absent from both
+ * arms: it binds the authority scope, which no proof has established yet.
+ */
 export type WalletRegistrationSetupResponseV2 =
-  | {
-      ok: true;
-      registrationCeremonyId: string;
-      walletId: string;
-      /** The WebAuthn create challenge; the client signs exactly this. */
-      registrationIntentDigestB64u: string;
-      intent: WalletRegistrationStartRequest['intent'];
-      /** Opaque; echoed verbatim on routes 2 and 3. */
-      signedSetup: SignedSetupPayloadB64u;
+  | (WalletRegistrationSetupSuccessBase & {
+      kind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa';
       ecdsa: WalletRegistrationEcdsaPreparePayload;
-    }
+    })
+  | (WalletRegistrationSetupSuccessBase & {
+      /* Nothing to prepare before the proof: the ceremony and its challenge
+         are the whole of setup's work for this plan. */
+      kind: 'near_ed25519';
+      ecdsa?: never;
+    })
   | WalletRegistrationRouteErrorV2;
 
 /** Route 2 — authenticated respond; wire-stable while Gateway bookkeeping is removed. */
@@ -137,12 +155,32 @@ export type WalletRegistrationRespondSignerPlanV2 =
       ecdsa: RespondEcdsaProofBundles;
       /** Authority-bound admission, derived here because the proof now exists. */
       ed25519: RespondEd25519DeferredWorkV2;
+    }
+  | {
+      /**
+       * Ed25519-only: no ECDSA leg ran, so there is no proof bundle — `ecdsa`
+       * is `never`, not an empty object.
+       *
+       * The admission is `blocking`, not `deferred`. On a mixed plan the
+       * wallet is already usable on ECDSA, so Yao can settle in the
+       * background; here Yao *is* the wallet, and the client must complete the
+       * ceremony before activate has anything to persist.
+       */
+      kind: 'near_ed25519';
+      ecdsa?: never;
+      ed25519: RespondEd25519BlockingWorkV2;
     };
 
 /** Exact A/B role bundles, unchanged from the derivation respond leg. */
 export type RespondEcdsaProofBundles = {
   kind: 'router_ab_ecdsa_registration_forwarded_v1';
   strictResult: unknown; // RouterAbEcdsaStrictForwardedRegistrationResponseV1; bound at the parser
+};
+
+export type RespondEd25519BlockingWorkV2 = {
+  status: 'blocking';
+  admissionRequest: RespondEd25519DeferredWorkV2['admissionRequest'];
+  admissionReceipt: RespondEd25519DeferredWorkV2['admissionReceipt'];
 };
 
 export type RespondEd25519DeferredWorkV2 = {
@@ -181,10 +219,21 @@ type ActivateEcdsaTerminalPayload = EcdsaFinalizeSuccess['ecdsa'] & {
   bootstrap: EcdsaActivationSuccess['ecdsa']['bootstrap'];
 };
 
+type Ed25519FinalizeSuccess = Extract<
+  WalletRegistrationFinalizeResponse,
+  { ok: true; kind: 'near_ed25519' }
+>;
+
 export type WalletRegistrationActivateResponseV2 =
   | (Omit<EcdsaFinalizeSuccess, 'ecdsa'> & {
       ecdsa: ActivateEcdsaTerminalPayload;
       /** Mixed plans: deferred NEAR snapshot; never identifiers before readiness. */
       nearProvisioning?: { status: 'pending' };
     })
+  /**
+   * Ed25519-only: activate consumes the Yao activation the client completed
+   * and persists the signer and wallet. The NEAR account is resolved here
+   * rather than pending, because for this plan there is nothing left to defer.
+   */
+  | (Ed25519FinalizeSuccess & { nearProvisioning?: never })
   | WalletRegistrationRouteErrorV2;
