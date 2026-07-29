@@ -6,9 +6,7 @@ import type {
   WalletId as EcdsaWalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  ProvisionWarmEd25519CapabilityResult,
-} from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ProvisionWarmEd25519CapabilityResult } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
@@ -19,9 +17,7 @@ import type {
 } from '@/core/signingEngine/session/public';
 import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
-import type {
-  ThresholdEd25519SessionRecord,
-} from '@/core/signingEngine/session/persistence/records';
+import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type { ReusableWalletSessionState } from '@/core/types/seams';
 import type {
   NearSignIntentRequest,
@@ -105,8 +101,6 @@ import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEng
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
 import type { EmailOtpAppSessionBinding } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 import type {
-  EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
-  EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult,
   EnrollEmailOtpInternalArgs,
   EnrollEmailOtpInternalResult,
   LoginWithEmailOtpEcdsaCapabilityInternalArgs,
@@ -317,9 +311,7 @@ export interface SigningSessionSurface {
     sessionId: string;
     transport?: WarmSessionSealTransportInput;
   }): Promise<WarmSessionSealAndPersistResult>;
-  readReusableWalletSessionState(
-    walletId: WalletId | string,
-  ): Promise<ReusableWalletSessionState>;
+  readReusableWalletSessionState(walletId: WalletId | string): Promise<ReusableWalletSessionState>;
   discoverPersistedSessionsForWallet(
     args: DiscoverPersistedSessionsForWalletInput,
   ): Promise<DiscoverPersistedSessionsForWalletResult>;
@@ -479,9 +471,6 @@ export interface EmailOtpSigningSessionSurface {
   rotateEmailOtpRecoveryCodesInternal(
     args: RotateEmailOtpRecoveryCodesInternalArgs,
   ): Promise<RotateEmailOtpRecoveryCodesInternalResult>;
-  enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(
-    args: EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
-  ): Promise<EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult>;
 }
 
 export interface KeyExportSigningSurface {

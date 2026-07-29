@@ -24,9 +24,7 @@ import type {
   GoogleEmailOtpSessionExchangeResult,
   DemoEmailOtpCodeResponse,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
-import type {
-  ProvisionWarmEd25519CapabilityResult,
-} from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ProvisionWarmEd25519CapabilityResult } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
@@ -122,8 +120,6 @@ import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey
 import type { ConnectEd25519SessionArgs } from '@/core/signingEngine/session/passkey/public';
 import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type {
-  EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
-  EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult,
   EnrollEmailOtpInternalArgs,
   EnrollEmailOtpInternalResult,
   LoginWithEmailOtpEcdsaCapabilityInternalArgs,
@@ -461,17 +457,6 @@ export type EmailOtpEcdsaCapabilityResult = {
   ];
 };
 
-export type EmailOtpEcdsaEnrollmentCapabilityArgs = Omit<EmailOtpEcdsaCapabilityArgs, 'onEvent'> & {
-  clientSecret32?: Uint8Array;
-  onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
-};
-
-export type EmailOtpEcdsaEnrollmentCapabilityResult = {
-  enrollment: EmailOtpEnrollmentResult | EmailOtpBackedUpEnrollmentResult;
-  bootstrap: PublicThresholdEcdsaSessionBootstrapResult;
-  authorization: ActiveWalletSessionAuthorizationProjection;
-};
-
 export type GoogleEmailOtpWalletAuthRequestedMode = 'register' | 'login';
 export type GoogleEmailOtpWalletAuthResolvedMode = 'register' | 'login';
 export type GoogleEmailOtpWalletAuthDelivery = EmailOtpChallengeDelivery;
@@ -757,9 +742,6 @@ export interface RegistrationCapability {
     clientSecret32?: Uint8Array;
     onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpEnrollmentResult | EmailOtpBackedUpEnrollmentResult>;
-  enrollAndLoginWithEmailOtpEcdsaCapability(
-    args: EmailOtpEcdsaEnrollmentCapabilityArgs,
-  ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult>;
 }
 
 export interface NearSignerCapability {

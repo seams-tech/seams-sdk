@@ -28,8 +28,6 @@ import type {
   EmailOtpThresholdEcdsaLoginResult,
   LoginEmailOtpEcdsaCapabilityArgs,
 } from '../../session/emailOtp/ecdsaLogin';
-import type { EnrollAndLoginEmailOtpEcdsaCapabilityArgs } from '../../session/emailOtp/ecdsaEnrollment';
-import type { EmailOtpThresholdEcdsaEnrollmentResult } from '../../session/emailOtp/ecdsaEnrollment';
 import {
   resolveEmailOtpAuthLane,
   type EmailOtpRoutePlan,
@@ -67,8 +65,7 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   >;
 };
 
-export type LoginWithEmailOtpEcdsaCapabilityInternalResult =
-  EmailOtpThresholdEcdsaLoginResult;
+export type LoginWithEmailOtpEcdsaCapabilityInternalResult = EmailOtpThresholdEcdsaLoginResult;
 
 export type EnrollEmailOtpInternalArgs = {
   walletId: WalletId;
@@ -85,30 +82,6 @@ export type RotateEmailOtpRecoveryCodesInternalArgs = {
   walletId: WalletId;
   relayUrl?: string;
   appSessionJwt?: string;
-};
-
-export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs = {
-  walletSession: WalletSessionRef;
-  subjectId?: never;
-  chainTarget: ThresholdEcdsaChainTarget;
-  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
-  otpCode: string;
-  relayUrl?: string;
-  challengeId?: string;
-  shamirPrimeB64u?: string;
-  appSessionJwt?: string;
-  routeAuth?: AppOrWalletSessionAuth;
-  participantIds?: number[];
-  keyHandle?: string;
-  sessionKind?: 'jwt';
-  ttlMs?: number;
-  remainingUses?: number;
-  clientSecret32?: Uint8Array;
-  otpChannel?: WalletEmailOtpChannel;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  registrationAttemptId?: string;
-  emailHashHex: string;
-  onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
 };
 
 export type EnrollEmailOtpInternalResult = Awaited<ReturnType<typeof enrollEmailOtpWallet>>;
@@ -146,9 +119,6 @@ export type PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult = Awaite
   ReturnType<typeof prepareEmailOtpRegistrationEnrollmentMaterial>
 >;
 
-export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult =
-  EmailOtpThresholdEcdsaEnrollmentResult;
-
 export type EmailOtpPublicDeps = {
   relayerUrl: string;
   shamirPrimeB64u: string;
@@ -160,9 +130,6 @@ export type EmailOtpPublicDeps = {
     loginWithEcdsaCapabilityInternal: (
       args: LoginEmailOtpEcdsaCapabilityArgs,
     ) => Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult>;
-    enrollAndLoginWithEcdsaCapabilityInternal: (
-      args: EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
-    ) => Promise<EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult>;
   };
 };
 
@@ -219,31 +186,6 @@ function emailOtpEcdsaLoginCoreArgsFromBoundary(
     ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
     ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
-    ...(args.onProgress ? { onProgress: args.onProgress } : {}),
-  };
-}
-
-function emailOtpEcdsaEnrollmentCoreArgsFromBoundary(
-  args: EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
-): EnrollAndLoginEmailOtpEcdsaCapabilityArgs {
-  return {
-    walletSession: args.walletSession,
-    chainTarget: args.chainTarget,
-    otpCode: args.otpCode,
-    routePlan: buildEmailOtpEcdsaFreshRoutePlanFromBoundary(args, 'registration'),
-    emailHashHex: args.emailHashHex,
-    ...(args.emailOtpAuthPolicy ? { emailOtpAuthPolicy: args.emailOtpAuthPolicy } : {}),
-    ...(args.relayUrl ? { relayUrl: args.relayUrl } : {}),
-    ...(args.challengeId ? { challengeId: args.challengeId } : {}),
-    ...(args.shamirPrimeB64u ? { shamirPrimeB64u: args.shamirPrimeB64u } : {}),
-    ...(args.participantIds ? { participantIds: args.participantIds } : {}),
-    ...(args.keyHandle ? { keyHandle: args.keyHandle } : {}),
-    ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
-    ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),
-    ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
-    ...(args.otpChannel ? { otpChannel: args.otpChannel } : {}),
-    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
-    ...(args.registrationAttemptId ? { registrationAttemptId: args.registrationAttemptId } : {}),
     ...(args.onProgress ? { onProgress: args.onProgress } : {}),
   };
 }
@@ -417,13 +359,4 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterialInternal(
     ed25519YaoFactor: emailOtpRegistrationEd25519YaoFactorRequestFromBoundary(args),
     ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
   });
-}
-
-export async function enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(
-  deps: EmailOtpPublicDeps,
-  args: EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
-): Promise<EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult> {
-  return await deps.emailOtpSessions.enrollAndLoginWithEcdsaCapabilityInternal(
-    emailOtpEcdsaEnrollmentCoreArgsFromBoundary(args),
-  );
 }

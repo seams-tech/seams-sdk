@@ -72,14 +72,6 @@ function loginRoutePlanFromAppSessionJwt(jwt: string): EmailOtpRoutePlan {
   };
 }
 
-function registrationRoutePlanFromAppSessionJwt(jwt: string): EmailOtpRoutePlan {
-  return {
-    routeFamily: 'registration',
-    authLane: { kind: 'app_session', jwt },
-    operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
-  };
-}
-
 function ecdsaRestoreInput(args: {
   chainTarget: ReturnType<typeof thresholdEcdsaChainTargetFromChainFamily>;
   authMethod?: 'email_otp' | 'passkey';
@@ -1369,74 +1361,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     ).toBe(false);
   });
 
-  test('Email OTP registration bootstrap uses the committed registration route plan', async () => {
-    const { coordinator, workerCalls } = createCoordinator();
-    const runtimePolicyScope = {
-      orgId: 'org',
-      projectId: 'proj',
-      envId: 'dev',
-      signingRootVersion: 'v1',
-    };
-    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
-
-    await coordinator.enrollAndLoginWithEcdsaCapabilityInternal({
-      walletSession: TEST_WALLET_SESSION,
-      chainTarget: TEMPO_CHAIN_TARGET,
-      challengeId: 'challenge-1',
-      otpCode: '123456',
-      emailHashHex: 'email-hash',
-      routePlan: registrationRoutePlanFromAppSessionJwt(jwt),
-      participantIds: [1, 3],
-      registrationAttemptId: 'registration-attempt-1',
-    });
-
-    expect(workerCalls.at(-2)).toMatchObject({
-      kind: 'emailOtp',
-      request: {
-        type: 'enrollEmailOtpWallet',
-        payload: {
-          routePlan: {
-            routeFamily: 'registration',
-            authLane: { kind: 'app_session', jwt },
-            operation: 'wallet_unlock',
-          },
-        },
-      },
-    });
-    expect(workerCalls.at(-1)).toMatchObject({
-      kind: 'emailOtp',
-      request: {
-        type: 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
-        payload: {
-          routeAuth: { kind: 'app_session', jwt },
-        },
-      },
-    });
-  });
-
-  test('registers an Email OTP ECDSA capability', async () => {
-    const { coordinator } = createCoordinator();
-    const runtimePolicyScope = {
-      orgId: 'org',
-      projectId: 'proj',
-      envId: 'dev',
-      signingRootVersion: 'v1',
-    };
-    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
-    const result = await coordinator.enrollAndLoginWithEcdsaCapabilityInternal({
-      walletSession: TEST_WALLET_SESSION,
-      chainTarget: TEMPO_CHAIN_TARGET,
-      challengeId: 'challenge-1',
-      otpCode: '123456',
-      emailHashHex: 'email-hash',
-      routePlan: registrationRoutePlanFromAppSessionJwt(jwt),
-      participantIds: [1, 3],
-      registrationAttemptId: 'registration-attempt-1',
-    });
-
-    expect(result.bootstrap.thresholdEcdsaKeyRef.keyHandle).toBe('key-handle-ecdsa');
-  });
-
   test('persists sealed Email OTP signing-session refresh only for session-retained ECDSA login', async () => {
     const { coordinator, workerCalls, sealedRecordWrites } = createCoordinator({
       configs: {
@@ -2035,28 +1959,4 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     ).toHaveLength(0);
   });
 
-  test('enrolls an Email OTP ECDSA capability', async () => {
-    const { coordinator, ecdsaCommitCalls } = createCoordinator();
-    const runtimePolicyScope = {
-      orgId: 'org',
-      projectId: 'proj',
-      envId: 'dev',
-      signingRootVersion: 'v1',
-    };
-    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
-    const result = await coordinator.enrollAndLoginWithEcdsaCapabilityInternal({
-      walletSession: TEST_WALLET_SESSION,
-      chainTarget: TEMPO_CHAIN_TARGET,
-      challengeId: 'challenge-1',
-      otpCode: '123456',
-      emailHashHex: 'email-hash',
-      routePlan: registrationRoutePlanFromAppSessionJwt(jwt),
-      clientSecret32: new Uint8Array(32).fill(7),
-      registrationAttemptId: 'registration-attempt-1',
-    });
-
-    expect(result.enrollment.thresholdEcdsaClientVerifyingShareB64u).toBe('verifying-share');
-    expect(ecdsaCommitCalls).toHaveLength(2);
-    expect(ecdsaCommitCalls.map((call) => call.chainTarget.kind).sort()).toEqual(['evm', 'tempo']);
-  });
 });

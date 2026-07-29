@@ -21,11 +21,6 @@ import {
   type LoginEmailOtpEcdsaPublicReauthCapabilityForSigningArgs,
   type PrepareEmailOtpEcdsaExportCapabilityArgs,
 } from './ecdsaLogin';
-import {
-  enrollAndLoginWithEmailOtpEcdsaCapability,
-  type EmailOtpThresholdEcdsaEnrollmentResult,
-  type EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
-} from './ecdsaEnrollment';
 
 export class EmailOtpEcdsaLifecycleRuntime {
   constructor(
@@ -91,23 +86,6 @@ export class EmailOtpEcdsaLifecycleRuntime {
         this.ports.provisionEmailOtpEcdsaExplicitExportSession,
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
       requireShamirPrimeB64u: () => this.ports.runtimeConfig.requireShamirPrimeB64u(),
-      rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
-      publicationPorts: this.ports.publicationPorts(),
-    });
-  }
-
-  async enrollAndLoginWithEcdsaCapabilityInternal(
-    args: EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
-  ): Promise<EmailOtpThresholdEcdsaEnrollmentResult> {
-    return await enrollAndLoginWithEmailOtpEcdsaCapability(args, {
-      configs: this.ports.configs,
-      getSignerWorkerContext: this.ports.getSignerWorkerContext,
-      requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
-      requireShamirPrimeB64u: () => this.ports.runtimeConfig.requireShamirPrimeB64u(),
-      requireRpId: (operation) => this.ports.runtimeConfig.requireRpId(operation),
-      provisionThresholdEcdsaSession: this.ports.provisionThresholdEcdsaSession,
-      provisionEmailOtpEcdsaExplicitExportSession:
-        this.ports.provisionEmailOtpEcdsaExplicitExportSession,
       rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
       publicationPorts: this.ports.publicationPorts(),
     });

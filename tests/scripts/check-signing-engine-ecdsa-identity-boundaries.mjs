@@ -369,7 +369,6 @@ function checkBrowserSigningSurfaceDoesNotDeriveEcdsaSubjectFromAccounts() {
     'requestEmailOtpSigningSessionChallenge',
     'refreshEmailOtpSigningSession',
     'loginWithEmailOtpEcdsaCapabilityInternal',
-    'enrollAndLoginWithEmailOtpEcdsaCapabilityInternal',
   ];
   const offenders = [];
 

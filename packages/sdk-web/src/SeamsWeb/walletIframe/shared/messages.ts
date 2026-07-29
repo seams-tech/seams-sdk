@@ -85,7 +85,6 @@ export type ParentToChildType =
   | 'PM_ENROLL_EMAIL_OTP'
   | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
-  | 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS'
   | 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES'
   | 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES'
@@ -499,8 +498,6 @@ export interface PMRefreshEmailOtpSigningSessionPayload {
   remainingUses?: number;
 }
 
-export type PMEmailOtpEcdsaEnrollmentCapabilityPayload = PMEmailOtpEcdsaCapabilityPayload;
-
 export interface PMPrefillRouterAbEcdsaDerivationPresignaturePoolPayload {
   walletSession: WalletSessionRef;
   options: {
@@ -581,10 +578,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PING'>
   | RpcEnvelope<'PM_SET_CONFIG', PMSetConfigPayload>
   | RpcEnvelope<'PM_CANCEL', PMCancelPayload>
-  | RpcEnvelope<
-      'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION',
-      PMRedeemHostedWalletSeamsSessionPayload
-    >
+  | RpcEnvelope<'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION', PMRedeemHostedWalletSeamsSessionPayload>
   | RpcEnvelope<'PM_REGISTER_WALLET', PMRegisterWalletPayload>
   | RpcEnvelope<'PM_ADD_WALLET_SIGNER', PMAddWalletSignerPayload>
   | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', PMBootstrapThresholdEcdsaSessionPayload>
@@ -617,10 +611,6 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_ENROLL_EMAIL_OTP', PMEnrollEmailOtpPayload>
   | RpcEnvelope<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY', PMEmailOtpEcdsaCapabilityPayload>
   | RpcEnvelope<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION', PMRefreshEmailOtpSigningSessionPayload>
-  | RpcEnvelope<
-      'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
-      PMEmailOtpEcdsaEnrollmentCapabilityPayload
-    >
   | RpcEnvelope<'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS', PMGetEmailOtpRecoveryCodeStatusPayload>
   | RpcEnvelope<'PM_SHOW_EMAIL_OTP_RECOVERY_CODES', PMShowEmailOtpRecoveryCodesPayload>
   | RpcEnvelope<'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES', PMRotateEmailOtpRecoveryCodesPayload>

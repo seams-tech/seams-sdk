@@ -135,8 +135,6 @@ import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import * as registrationPublic from '@/core/signingEngine/flows/registration/public';
 import {
   type EmailOtpPublicDeps,
-  type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
-  type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult,
   type LoginWithEmailOtpEcdsaCapabilityInternalArgs,
   type LoginWithEmailOtpEcdsaCapabilityInternalResult,
   type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
@@ -148,9 +146,7 @@ import { createManagerAssembly } from '@/core/signingEngine/assembly/createManag
 import { verifySealedRefreshStartupParity } from '@/core/rpcClients/relayer/sealedRefreshCapabilities';
 import { isRetryableSealedRefreshCapabilityFetchError } from '@/core/signingEngine/session/warmCapabilities/sealedRefreshParity';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
-import type {
-  ProvisionWarmEd25519CapabilityResult,
-} from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ProvisionWarmEd25519CapabilityResult } from '@/core/signingEngine/session/warmCapabilities/types';
 import {
   resolveEmailOtpEd25519YaoColdRecoveryV1,
   type LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
@@ -168,9 +164,7 @@ import type {
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
-import {
-  readExactSealedSession,
-} from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import { readExactSealedSession } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   recoverEmailOtpEd25519YaoFromSealedSessionV1,
   resolveEmailOtpEd25519YaoExportContextV1,
@@ -1140,10 +1134,9 @@ export class BrowserSigningSurface {
       authPolicy: this.seamsWebConfigs.signing.emailOtp.authPolicy,
       ports: {
         readExactSealedSession,
-        readActiveWalletSessionAuthorization:
-          walletSessionAuthorizations.readActiveForWallet.bind(
-            walletSessionAuthorizations,
-          ),
+        readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
+          walletSessionAuthorizations,
+        ),
         workerContext: this.signerWorkerManager.getContext(),
         resolveActiveCapability:
           this.enginePorts.ed25519YaoActiveClients.resolveForWalletAccount.bind(
@@ -1205,10 +1198,9 @@ export class BrowserSigningSurface {
       relayerUrl,
       ports: {
         readExactSealedSession,
-        readActiveWalletSessionAuthorization:
-          walletSessionAuthorizations.readActiveForWallet.bind(
-            walletSessionAuthorizations,
-          ),
+        readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
+          walletSessionAuthorizations,
+        ),
         fetch: fetchWithGlobalThis,
       },
     });
@@ -1409,10 +1401,7 @@ export class BrowserSigningSurface {
   getWalletNearProvisioningState(
     walletId: Parameters<typeof registrationPublic.getWalletNearProvisioningState>[1],
   ): ReturnType<typeof registrationPublic.getWalletNearProvisioningState> {
-    return registrationPublic.getWalletNearProvisioningState(
-      this.registrationPublicDeps,
-      walletId,
-    );
+    return registrationPublic.getWalletNearProvisioningState(this.registrationPublicDeps, walletId);
   }
 
   storeAuthenticator(
@@ -1898,17 +1887,6 @@ export class BrowserSigningSurface {
       args,
     );
   }
-
-  async enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(
-    args: EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
-  ): Promise<EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult> {
-    return await emailOtpPublic.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(
-      this.emailOtpPublicDeps,
-      args,
-    );
-  }
-
-
 
   getWarmThresholdEd25519SessionStatus(
     nearAccountId: AccountId | string,

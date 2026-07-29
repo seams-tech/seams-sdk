@@ -88,8 +88,6 @@ import type {
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
-  EmailOtpEcdsaEnrollmentCapabilityArgs,
-  EmailOtpEcdsaEnrollmentCapabilityResult,
   EvmSignerCapability,
   KeyExportCapability,
   NearSignerCapability,
@@ -124,9 +122,7 @@ import {
   assertWalletRuntimePostconditions,
   type WalletRuntimeInventory,
 } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
-import {
-  type ThresholdEd25519SessionRecord,
-} from '@/core/signingEngine/session/persistence/records';
+import { type ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from '@/core/signingEngine/session/emailOtp/persistedSnapshot';
 import type { LoginWithEmailOtpEd25519YaoCapabilityInternalArgs } from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
@@ -782,8 +778,6 @@ export class SeamsWeb {
         requestEmailOtpEnrollmentChallenge: async (args) =>
           await this.requestEmailOtpEnrollmentChallengeDomain(args),
         enrollEmailOtp: async (args) => await this.enrollEmailOtpDomain(args),
-        enrollAndLoginWithEmailOtpEcdsaCapability: async (args) =>
-          await this.enrollAndLoginWithEmailOtpEcdsaCapabilityDomain(args),
       },
       recovery: {
         getEmailOtpRecoveryCodeStatus: async (args) =>
@@ -2305,180 +2299,6 @@ export class SeamsWeb {
         walletId,
         authMethod: 'email_otp',
         requestId: args.challengeId,
-        error: e,
-      });
-      throw e;
-    }
-  }
-
-  private async enrollAndLoginWithEmailOtpEcdsaCapabilityDomain(
-    args: EmailOtpEcdsaEnrollmentCapabilityArgs,
-  ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult> {
-    const walletId = args.walletSession.walletId;
-    const flowId = this.emailOtpRegistrationFlowId(walletId, args.challengeId);
-    const chainTarget = requireConcreteEcdsaChainTarget(
-      args.chainTarget,
-      'Email OTP ECDSA enrollment',
-    );
-    this.emitEmailOtpRegistrationEvent(args.onEvent, {
-      flowId,
-      walletId,
-      authMethod: 'email_otp',
-      phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_STARTED,
-      status: 'running',
-      interaction: { kind: 'otp_input', overlay: 'none' },
-      ...(args.challengeId ? { requestId: args.challengeId } : {}),
-    });
-    try {
-      if (this.walletIframe.shouldUseWalletIframe()) {
-        if (args.clientSecret32) {
-          throw new Error(
-            '[SeamsWeb] Wallet iframe Email OTP enrollment owns client secret generation; clientSecret32 is not accepted from the app origin.',
-          );
-        }
-        const router = await this.walletIframe.requireRouter(walletId);
-        const iframeArgs = { ...args, chainTarget };
-        delete iframeArgs.clientSecret32;
-        delete iframeArgs.onEvent;
-        const result = await router.enrollAndLoginWithEmailOtpEcdsaCapability(iframeArgs);
-        this.emitEmailOtpRegistrationEvent(args.onEvent, {
-          flowId,
-          walletId,
-          authMethod: 'email_otp',
-          phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
-          status: 'succeeded',
-          interaction: { kind: 'otp_input', overlay: 'hide' },
-          ...(args.challengeId ? { requestId: args.challengeId } : {}),
-          data: { otpChannel: result.enrollment.otpChannel },
-        });
-        this.emitEmailOtpRegistrationEvent(args.onEvent, {
-          flowId,
-          walletId,
-          authMethod: 'email_otp',
-          phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
-          status: 'running',
-          ...(args.challengeId ? { requestId: args.challengeId } : {}),
-        });
-        this.emitEmailOtpRegistrationEvent(args.onEvent, {
-          flowId,
-          walletId,
-          authMethod: 'email_otp',
-          phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED,
-          status: 'succeeded',
-          ...(args.challengeId ? { requestId: args.challengeId } : {}),
-          data: { otpChannel: result.enrollment.otpChannel },
-        });
-        this.emitEmailOtpRegistrationEvent(args.onEvent, {
-          flowId,
-          walletId,
-          authMethod: 'email_otp',
-          phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED,
-          status: 'running',
-          ...(args.challengeId ? { requestId: args.challengeId } : {}),
-          data: { chainTarget },
-        });
-        this.emitEmailOtpRegistrationEvent(args.onEvent, {
-          flowId,
-          walletId,
-          authMethod: 'email_otp',
-          phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED,
-          status: 'succeeded',
-          ...(args.challengeId ? { requestId: args.challengeId } : {}),
-          data: { chainTarget },
-        });
-        this.emitEmailOtpRegistrationEvent(args.onEvent, {
-          flowId,
-          walletId,
-          authMethod: 'email_otp',
-          phase: RegistrationEventPhase.STEP_11_COMPLETED,
-          status: 'succeeded',
-          ...(args.challengeId ? { requestId: args.challengeId } : {}),
-        });
-        return result;
-      }
-      const workerProgressPhases = new Set<RegistrationEventPhase>();
-      const markWorkerProgress = (progress: EmailOtpWorkerProgressEvent) => {
-        const phase = this.emitEmailOtpRegistrationWorkerProgress(args.onEvent, {
-          flowId,
-          walletId,
-          challengeId: args.challengeId,
-          chainTarget,
-          progress,
-        });
-        if (phase) workerProgressPhases.add(phase);
-      };
-      const emitIfWorkerProgressMissing = (input: CreateRegistrationFlowEventInput) => {
-        if (workerProgressPhases.has(input.phase)) return;
-        this.emitEmailOtpRegistrationEvent(args.onEvent, input);
-      };
-      const emailHashHex = await this.emailOtpEmailHashHex(args.emailOtpAuthorityEmail);
-      const result = await this.signingEngine.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal({
-        ...args,
-        chainTarget,
-        emailHashHex,
-        onProgress: markWorkerProgress,
-      });
-      emitIfWorkerProgressMissing({
-        flowId,
-        walletId,
-        authMethod: 'email_otp',
-        phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
-        status: 'succeeded',
-        interaction: { kind: 'otp_input', overlay: 'hide' },
-        ...(args.challengeId ? { requestId: args.challengeId } : {}),
-        data: { otpChannel: result.enrollment.otpChannel },
-      });
-      emitIfWorkerProgressMissing({
-        flowId,
-        walletId,
-        authMethod: 'email_otp',
-        phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
-        status: 'running',
-        ...(args.challengeId ? { requestId: args.challengeId } : {}),
-      });
-      emitIfWorkerProgressMissing({
-        flowId,
-        walletId,
-        authMethod: 'email_otp',
-        phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED,
-        status: 'succeeded',
-        ...(args.challengeId ? { requestId: args.challengeId } : {}),
-        data: { otpChannel: result.enrollment.otpChannel },
-      });
-      emitIfWorkerProgressMissing({
-        flowId,
-        walletId,
-        authMethod: 'email_otp',
-        phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED,
-        status: 'running',
-        ...(args.challengeId ? { requestId: args.challengeId } : {}),
-        data: { chainTarget },
-      });
-      emitIfWorkerProgressMissing({
-        flowId,
-        walletId,
-        authMethod: 'email_otp',
-        phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED,
-        status: 'succeeded',
-        ...(args.challengeId ? { requestId: args.challengeId } : {}),
-        data: { chainTarget },
-      });
-      this.emitEmailOtpRegistrationEvent(args.onEvent, {
-        flowId,
-        walletId,
-        authMethod: 'email_otp',
-        phase: RegistrationEventPhase.STEP_11_COMPLETED,
-        status: 'succeeded',
-        ...(args.challengeId ? { requestId: args.challengeId } : {}),
-      });
-      return result;
-    } catch (error: unknown) {
-      const e = toError(error);
-      this.emitEmailOtpRegistrationFailure(args.onEvent, {
-        flowId,
-        walletId,
-        authMethod: 'email_otp',
-        ...(args.challengeId ? { requestId: args.challengeId } : {}),
         error: e,
       });
       throw e;

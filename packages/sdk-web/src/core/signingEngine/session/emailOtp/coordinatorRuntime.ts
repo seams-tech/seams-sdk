@@ -30,10 +30,6 @@ import {
 } from './ecdsaLogin';
 import type { EmailOtpEcdsaPublicReauthLane } from '../../flows/signEvmFamily/ecdsaSelection';
 import type { EmailOtpEcdsaPublicReauthExportAuthority } from '../../flows/recovery/ecdsaExportMaterial';
-import {
-  type EmailOtpThresholdEcdsaEnrollmentResult,
-  type EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
-} from './ecdsaEnrollment';
 import { EmailOtpEcdsaLifecycleRuntime } from './ecdsaLifecycleRuntime';
 import {
   EmailOtpExportRecoveryRuntime,
@@ -58,10 +54,6 @@ export type {
   EmailOtpThresholdEcdsaLoginResult,
   LoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaLogin';
-export type {
-  EmailOtpThresholdEcdsaEnrollmentResult,
-  EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
-} from './ecdsaEnrollment';
 export type {
   EmailOtpCoordinatorRuntimePorts,
   EmailOtpEcdsaSessionPorts,
@@ -92,8 +84,7 @@ export class EmailOtpWalletSessionRuntime {
       configs: deps.configs,
       getSignerWorkerContext: deps.getSignerWorkerContext,
       commitEvmFamilyThresholdEcdsaSessions: deps.commitEvmFamilyThresholdEcdsaSessions,
-      listActiveEcdsaCapabilityManifestsForWallet:
-        deps.listActiveEcdsaCapabilityManifestsForWallet,
+      listActiveEcdsaCapabilityManifestsForWallet: deps.listActiveEcdsaCapabilityManifestsForWallet,
       writeExactSealedSession: deps.writeExactSealedSession,
       readExactSealedSession: deps.readExactSealedSession,
       clearEcdsaRestoreCaches: () => this.clearEcdsaRestoreCaches(),
@@ -340,11 +331,5 @@ export class EmailOtpWalletSessionRuntime {
     args: LoginEmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpThresholdEcdsaLoginResult> {
     return await this.ecdsaLifecycleRuntime.loginWithEcdsaCapabilityInternal(args);
-  }
-
-  async enrollAndLoginWithEcdsaCapabilityInternal(
-    args: EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
-  ): Promise<EmailOtpThresholdEcdsaEnrollmentResult> {
-    return await this.ecdsaLifecycleRuntime.enrollAndLoginWithEcdsaCapabilityInternal(args);
   }
 }

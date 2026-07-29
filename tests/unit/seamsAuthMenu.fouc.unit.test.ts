@@ -3165,11 +3165,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
           'loginWithEmailOtpEcdsaCapability',
           'beginGoogleEmailOtpWalletAuth',
         ];
-        const registrationMethodNames = [
-          'requestEmailOtpEnrollmentChallenge',
-          'enrollEmailOtp',
-          'enrollAndLoginWithEmailOtpEcdsaCapability',
-        ];
+        const registrationMethodNames = ['requestEmailOtpEnrollmentChallenge', 'enrollEmailOtp'];
 
         function Probe() {
           const { seams } = useSeams();
@@ -3223,7 +3219,6 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
       registration: {
         requestEmailOtpEnrollmentChallenge: 'function',
         enrollEmailOtp: 'function',
-        enrollAndLoginWithEmailOtpEcdsaCapability: 'function',
       },
     });
   });

@@ -8,10 +8,6 @@ export type {
   LoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaLogin';
 export type {
-  EmailOtpThresholdEcdsaEnrollmentResult,
-  EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
-} from './ecdsaEnrollment';
-export type {
   EmailOtpCoordinatorRuntimePorts,
   EmailOtpEcdsaSessionPorts,
   EmailOtpSealedSessionStorePorts,
@@ -98,7 +94,9 @@ export class EmailOtpWalletSessionCoordinator {
   }
 
   async requestPublicReauthTransactionSigningChallenge(
-    args: Parameters<EmailOtpWalletSessionRuntime['requestPublicReauthTransactionSigningChallenge']>[0],
+    args: Parameters<
+      EmailOtpWalletSessionRuntime['requestPublicReauthTransactionSigningChallenge']
+    >[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['requestPublicReauthTransactionSigningChallenge']> {
     return await this.runtime.requestPublicReauthTransactionSigningChallenge(args);
   }
@@ -122,7 +120,9 @@ export class EmailOtpWalletSessionCoordinator {
   }
 
   exportEcdsaKeyWithPublicReauthAuthorization(
-    args: Parameters<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithPublicReauthAuthorization']>[0],
+    args: Parameters<
+      EmailOtpWalletSessionRuntime['exportEcdsaKeyWithPublicReauthAuthorization']
+    >[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['exportEcdsaKeyWithPublicReauthAuthorization']> {
     return this.runtime.exportEcdsaKeyWithPublicReauthAuthorization(args);
   }
@@ -140,7 +140,9 @@ export class EmailOtpWalletSessionCoordinator {
   }
 
   loginWithEcdsaPublicReauthCapabilityForSigning(
-    args: Parameters<EmailOtpWalletSessionRuntime['loginWithEcdsaPublicReauthCapabilityForSigning']>[0],
+    args: Parameters<
+      EmailOtpWalletSessionRuntime['loginWithEcdsaPublicReauthCapabilityForSigning']
+    >[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['loginWithEcdsaPublicReauthCapabilityForSigning']> {
     return this.runtime.loginWithEcdsaPublicReauthCapabilityForSigning(args);
   }
@@ -149,11 +151,5 @@ export class EmailOtpWalletSessionCoordinator {
     args: Parameters<EmailOtpWalletSessionRuntime['loginWithEcdsaCapabilityInternal']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['loginWithEcdsaCapabilityInternal']> {
     return this.runtime.loginWithEcdsaCapabilityInternal(args);
-  }
-
-  enrollAndLoginWithEcdsaCapabilityInternal(
-    args: Parameters<EmailOtpWalletSessionRuntime['enrollAndLoginWithEcdsaCapabilityInternal']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['enrollAndLoginWithEcdsaCapabilityInternal']> {
-    return this.runtime.enrollAndLoginWithEcdsaCapabilityInternal(args);
   }
 }

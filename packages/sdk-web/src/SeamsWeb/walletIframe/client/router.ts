@@ -140,8 +140,6 @@ import type {
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
-  EmailOtpEcdsaEnrollmentCapabilityArgs,
-  EmailOtpEcdsaEnrollmentCapabilityResult,
   EmailOtpBackedUpEnrollmentResult,
   EmailOtpEnrollmentResult,
   EmailOtpRecoveryCodeRotationResult,
@@ -540,7 +538,10 @@ function parseHostedWalletExchangeDelivery(
     throw new Error('session exchange returned the wrong delivery kind');
   }
   const appOrigin = requireNonEmptyBoundaryString(delivery.appOrigin, 'delivery.appOrigin');
-  const walletOrigin = requireNonEmptyBoundaryString(delivery.walletOrigin, 'delivery.walletOrigin');
+  const walletOrigin = requireNonEmptyBoundaryString(
+    delivery.walletOrigin,
+    'delivery.walletOrigin',
+  );
   if (appOrigin !== expected.appOrigin || walletOrigin !== expected.walletOrigin) {
     throw new Error('session exchange delivery origin binding does not match the iframe');
   }
@@ -646,8 +647,7 @@ function hostedWalletRegistrationTransport(
               kind: 'email_otp',
               proofKind: 'google_sso_registration',
               email: authMethod.email,
-              googleEmailOtpRegistrationAttemptId:
-                authMethod.googleEmailOtpRegistrationAttemptId,
+              googleEmailOtpRegistrationAttemptId: authMethod.googleEmailOtpRegistrationAttemptId,
               googleEmailOtpRegistrationOfferId: authMethod.googleEmailOtpRegistrationOfferId,
               googleEmailOtpRegistrationCandidateId:
                 authMethod.googleEmailOtpRegistrationCandidateId,
@@ -698,7 +698,6 @@ function createTerminalProgressForRequest(args: {
     'PM_REGISTER_WALLET',
     'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE',
     'PM_ENROLL_EMAIL_OTP',
-    'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
   ]);
   const unlockRequests = new Set<ParentToChildEnvelope['type']>([
     'PM_UNLOCK',
@@ -1210,9 +1209,7 @@ export class WalletIframeRouter {
     return this.state.ready;
   }
 
-  async initializeHostedWalletSeamsSession(
-    source: HostedWalletSeamsSessionSource,
-  ): Promise<void> {
+  async initializeHostedWalletSeamsSession(source: HostedWalletSeamsSessionSource): Promise<void> {
     await this.init(source);
     await this.ensureHostedWalletSeamsSession(source);
   }
@@ -1550,10 +1547,7 @@ export class WalletIframeRouter {
   async registerWallet(
     payload: Parameters<RegistrationCapability['registerWallet']>[0],
   ): Promise<RegistrationResult> {
-    const transport = hostedWalletRegistrationTransport(
-      payload.authMethod,
-      this.opts.relayer?.url,
-    );
+    const transport = hostedWalletRegistrationTransport(payload.authMethod, this.opts.relayer?.url);
     await this.ensureHostedWalletSeamsSession(transport.sessionSource);
     const confirmationConfig = payload.options?.confirmationConfig;
     if (confirmationConfig) {
@@ -2055,34 +2049,6 @@ export class WalletIframeRouter {
       },
     );
     return res.result;
-  }
-
-  async enrollAndLoginWithEmailOtpEcdsaCapability(
-    payload: Omit<EmailOtpEcdsaEnrollmentCapabilityArgs, 'clientSecret32'>,
-  ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult> {
-    const { onEvent, appSessionJwt, ...wirePayload } = payload;
-    await this.ensureHostedWalletSeamsSession(
-      hostedWalletSeamsSessionSource({ relayUrl: payload.relayUrl, appSessionJwt }),
-    );
-    const res = await this.post<EmailOtpEcdsaEnrollmentCapabilityResult>(
-      {
-        type: 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
-        payload: wirePayload,
-        options: {
-          onProgress: this.wrapOnEvent(
-            onEvent,
-            (ev): ev is RegistrationFlowEvent | UnlockFlowEvent =>
-              isRegistrationFlowEvent(ev) || isUnlockFlowEvent(ev),
-          ),
-        },
-      },
-      {
-        timeoutMs: WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS,
-        progressTimeoutExtensionFactor: 1,
-      },
-    );
-    await this.refreshExactSessionAndEmitLoginStatus();
-    return sanitizeEmailOtpIframeResult(res.result);
   }
 
   async checkLoginStatus(): Promise<PostResult<WalletIframeLoginStatusSnapshot>> {
