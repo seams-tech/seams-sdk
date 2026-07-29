@@ -15,9 +15,7 @@ export type SigningBudgetStatusRejected = {
   message: string;
 };
 
-export type SigningBudgetStatusResult =
-  | SigningBudgetStatusActive
-  | SigningBudgetStatusRejected;
+export type SigningBudgetStatusResult = SigningBudgetStatusActive | SigningBudgetStatusRejected;
 
 export function installBrowserSigningBudgetStatusReader(): () => void {
   return () => {
@@ -55,10 +53,7 @@ export function installBrowserSigningBudgetStatusReader(): () => void {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${jwt}`,
         },
-        body: JSON.stringify({
-          signingGrantId,
-          thresholdSessionId,
-        }),
+        body: '{}',
       });
       const json = await response.json().catch(() => null);
       const code = normalizeText(json?.code) || (response.ok ? 'invalid_response' : 'http_error');

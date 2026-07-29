@@ -59,7 +59,6 @@ import {
 } from '../../sessionExchangeRequestValidation';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
-  parseWalletSigningBudgetStatusExpectations,
   parseWalletSigningBudgetStatusRequest,
   type ParseWalletSigningBudgetStatusResult,
 } from '../../signingBudgetStatus';
@@ -1527,47 +1526,8 @@ export async function handleSigningBudgetStatus(
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/router-ab/wallet-budget/status') return null;
   try {
-    const { signingGrantId: expectedSigningGrantId, thresholdSessionId } =
-      parseWalletSigningBudgetStatusExpectations(await readJson(ctx.request));
-    const expectedThresholdSessionId = thresholdSessionId || '';
     const validated = await readAndValidateEmailOtpSigningSession(ctx);
-    if (!validated.ok) {
-      if (expectedSigningGrantId && validated.response.status === 401) {
-        return json(
-          {
-            ok: true,
-            signingGrantId: expectedSigningGrantId,
-            ...(expectedThresholdSessionId
-              ? { thresholdSessionId: expectedThresholdSessionId }
-              : {}),
-            status: 'not_found',
-            statusCode: 'unauthorized',
-          },
-          { status: 200 },
-        );
-      }
-      return validated.response;
-    }
-    if (expectedSigningGrantId && expectedSigningGrantId !== validated.signingGrantId) {
-      return json(
-        {
-          ok: false,
-          code: 'wallet_signing_session_mismatch',
-          message: 'Signing grant status token does not match requested wallet session',
-        },
-        { status: 403 },
-      );
-    }
-    if (expectedThresholdSessionId && expectedThresholdSessionId !== validated.thresholdSessionId) {
-      return json(
-        {
-          ok: false,
-          code: 'threshold_session_mismatch',
-          message: 'Signing grant status token does not match requested threshold session',
-        },
-        { status: 403 },
-      );
-    }
+    if (!validated.ok) return validated.response;
     const committedRemainingUses = Math.max(
       0,
       Math.floor(Number(validated.walletBudgetStatus.committedRemainingUses) || 0),

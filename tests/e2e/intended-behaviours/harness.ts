@@ -500,8 +500,6 @@ type CapturedWalletBudgetStatusRequest = {
   authorization: string;
   contentType: string;
   body: string;
-  signingGrantId: string;
-  thresholdSessionId: string;
 };
 
 type AuthoritativeWalletBudgetReplay =
@@ -1674,11 +1672,7 @@ export class IntendedBehaviourHarness {
         `Authoritative wallet budget status returned HTTP ${response.status()}: ${responseText}`,
       );
     }
-    return parseAuthoritativeWalletBudgetStatus({
-      responseText,
-      expectedSigningGrantId: captured.signingGrantId,
-      expectedThresholdSessionId: captured.thresholdSessionId,
-    });
+    return parseAuthoritativeWalletBudgetStatus({ responseText });
   }
 
   private handleResponse(response: Response): void {
@@ -3849,19 +3843,10 @@ function captureWalletBudgetStatusRequest(
   const body = request.postData();
   if (!authorization.startsWith('Bearer ') || !body) return null;
 
-  let signingGrantId: string;
-  let thresholdSessionId: string;
   try {
     const parsed: unknown = JSON.parse(body);
     const requestBody = requireRecord(parsed, 'wallet budget status request body');
-    signingGrantId = requireString(
-      requestBody.signingGrantId,
-      'wallet budget status request signingGrantId',
-    );
-    thresholdSessionId = requireString(
-      requestBody.thresholdSessionId,
-      'wallet budget status request thresholdSessionId',
-    );
+    if (Object.keys(requestBody).length !== 0) return null;
   } catch {
     return null;
   }
@@ -3871,15 +3856,11 @@ function captureWalletBudgetStatusRequest(
     authorization,
     contentType,
     body,
-    signingGrantId,
-    thresholdSessionId,
   };
 }
 
 function parseAuthoritativeWalletBudgetStatus(args: {
   responseText: string;
-  expectedSigningGrantId: string;
-  expectedThresholdSessionId: string;
 }): AuthoritativeWalletBudgetReplay {
   let raw: unknown;
   try {
@@ -3899,14 +3880,6 @@ function parseAuthoritativeWalletBudgetStatus(args: {
     response.thresholdSessionId,
     'authoritative wallet budget status thresholdSessionId',
   );
-  if (signingGrantId !== args.expectedSigningGrantId) {
-    throw new Error('Authoritative wallet budget status signingGrantId does not match the request');
-  }
-  if (thresholdSessionId !== args.expectedThresholdSessionId) {
-    throw new Error(
-      'Authoritative wallet budget status thresholdSessionId does not match the request',
-    );
-  }
   if (response.status === 'active') return { kind: 'active' };
   if (response.status !== 'exhausted') {
     throw new Error(
