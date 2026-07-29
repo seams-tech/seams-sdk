@@ -179,7 +179,7 @@ work is tracked in five units.
 | **2. Shared authorization core**                   | Phases 7–14, including Phase 8 SDK selection             | Atomic claim core complete; effect-owner response replay awaits Refactor 94C | Closed capability vocabulary plus DB-backed session → evidence → grant → claim → audit flow.                       |
 | **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | Core operating paths and production record deletion complete; acceptance and residual cleanup open | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
 | **3b. Vault proving vertical**                     | Phase 16                                                 | Complete                                      | [Satyr vault plan Phase 6](./satyr-secrets-vault.md) proves one real vault operation.                              |
-| **4. UI + provisioning**                           | Phases 22–23                                             | Started; typed expiry complete                | Typed lifecycle events and provisioning use the canonical capability model.                                        |
+| **4. UI + provisioning**                           | Phases 22–23                                             | Provisioning and typed lifecycle implementation complete; cleanup and Refactor 92 acceptance open | Typed lifecycle events and provisioning use the canonical capability model.                                        |
 
 Units 3a and 3b may be implemented in parallel after Unit 2 interfaces
 stabilize. Unit 3b does not block development of the MPC cutover. Supported
@@ -266,8 +266,10 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
       union.
 - [x] Make registration, unlock, and refresh enter the protocol-local resolver
       for each capability and return the shared outcome union.
-- [ ] Delete JWT-presence, optional-ID, and authentication-method lane
-      inference.
+- [x] Delete authentication-method inference from canonical ECDSA lane
+      selection.
+- [ ] Delete remaining JWT-presence and optional-ID inference from core
+      transitions.
 - [x] Add boundary and lifecycle tests for missing, mixed, stale, and exact
       subjects.
 
@@ -281,8 +283,9 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
       and Near resolver input.
 - [x] Cover the seven canonical states for each capability: live,
       sealed-active, retired, missing, corrupt, conflicting, and unavailable.
-- [ ] Delete protocol-specific derivation and duplicate readiness helpers after
-      their callers move.
+- [x] Delete duplicate readiness helpers after the shared path is active.
+- [ ] Delete remaining protocol-specific derivation helpers after their last
+      caller moves to the shared path.
 - [x] Verify there is one hydration decision for Passkey and Email OTP.
 - [x] Prove routine Passkey/OTP local rehydration makes zero Deriver A/B calls.
 - [x] Fail closed for missing, mismatched, corrupt, conflicting, or unavailable
