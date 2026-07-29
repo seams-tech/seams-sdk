@@ -1,0 +1,82 @@
+import {
+  nearEd25519YaoMaterialActivationFromPublicFacts,
+  nearEd25519YaoRuntimeRef,
+} from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
+import {
+  buildMpcCapabilityPublicReauthAnchor,
+} from '@/core/signingEngine/session/material/mpcCapabilityHydration';
+import { buildRestorableMpcMaterialRefInternal } from '@/core/signingEngine/session/material/restorableMpcMaterialRef.internal';
+import {
+  parseMpcReauthorizationPolicyRef,
+  parseMpcRegisteredPublicKeyBindingRef,
+  type DomainIdParseResult,
+} from '@shared/utils/domainIds';
+import {
+  parseWalletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+
+function unwrap<T>(result: DomainIdParseResult<T>): T {
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
+
+function authorityFixture(): WalletAuthAuthorityRef {
+  const authority = parseWalletAuthAuthorityRef({
+    kind: 'wallet_auth_authority_ref',
+    walletId: 'wallet-near-hydration',
+    authorityDigest: 'authority-near-hydration',
+  });
+  if (!authority) throw new Error('Near hydration authority fixture is invalid');
+  return authority;
+}
+
+export function nearEd25519YaoCapabilityHydrationFixture() {
+  const authority = authorityFixture();
+  const materialActivation = nearEd25519YaoMaterialActivationFromPublicFacts({
+    activationId: 'material-activation-near-hydration',
+    activeCapabilityBinding: new Uint8Array(32).fill(3),
+    walletId: 'wallet-near-hydration',
+    registeredPublicKey: new Uint8Array(32).fill(7),
+    lifecycleId: 'material-lifecycle-near-hydration',
+    signingWorkerId: 'signing-worker-near-hydration',
+  });
+  const publicLocator = {
+    kind: 'available' as const,
+    walletId: 'wallet-near-hydration',
+    nearAccountId: 'wallet-near-hydration.testnet',
+    signerSlot: 1,
+    materialActivation,
+    authority,
+  };
+  const sealed = {
+    kind: 'available' as const,
+    authority,
+    materialActivation,
+    sealedMaterial: buildRestorableMpcMaterialRefInternal('sealed-near-active-client'),
+  };
+  return {
+    authority,
+    materialActivation,
+    publicLocator,
+    sealed,
+    runtime: {
+      kind: 'live' as const,
+      runtime: nearEd25519YaoRuntimeRef(materialActivation),
+      materialActivation,
+    },
+    publicReauthAnchor: buildMpcCapabilityPublicReauthAnchor({
+      capability: materialActivation.capability,
+      materialOwner: materialActivation.materialOwner,
+      authority,
+      keyBinding: materialActivation.keyBinding,
+      lifecycleBinding: materialActivation.lifecycleBinding,
+      reauthorizationPolicy: unwrap(
+        parseMpcReauthorizationPolicyRef('near-ed25519-yao-reauthorization'),
+      ),
+      registeredPublicKeyBinding: unwrap(
+        parseMpcRegisteredPublicKeyBindingRef('near-ed25519-yao-public-key'),
+      ),
+    }),
+  };
+}
