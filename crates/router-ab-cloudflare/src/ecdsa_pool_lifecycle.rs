@@ -80,7 +80,7 @@ pub enum CloudflareSigningWorkerEcdsaPoolConsumeDecisionV1 {
     Burned(CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1),
 }
 
-/// Atomic mutation accepted by the SigningWorker Durable Object adapter.
+/// Atomic mutation accepted by SigningWorker-private D1.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "operation")]
 pub enum CloudflareSigningWorkerEcdsaPoolCommandV1 {
@@ -246,7 +246,7 @@ impl CloudflareSigningWorkerEcdsaPoolCommandV1 {
         }
     }
 
-    /// Returns the complete scope used to derive the Durable Object storage key.
+    /// Returns the complete scope used to derive the private-D1 record key.
     pub const fn scope(&self) -> &RouterAbEcdsaDerivationNormalSigningScopeV1 {
         match self {
             Self::PutAvailable { material } => &material.scope,
@@ -259,7 +259,7 @@ impl CloudflareSigningWorkerEcdsaPoolCommandV1 {
         }
     }
 
-    /// Returns the pair identifier used to derive the Durable Object storage key.
+    /// Returns the pair identifier used to derive the private-D1 record key.
     pub fn server_presignature_id(&self) -> &str {
         match self {
             Self::PutAvailable { material } => &material.server_presignature_id,
@@ -291,7 +291,7 @@ impl CloudflareSigningWorkerEcdsaPoolCommandV1 {
     }
 }
 
-/// Result of one atomic SigningWorker Durable Object pool mutation.
+/// Result of one atomic SigningWorker-private D1 pool mutation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "outcome")]
 pub enum CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1 {
@@ -309,7 +309,7 @@ pub enum CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1 {
     },
     /// Material was atomically consumed for one online attempt.
     Consumed {
-        /// Material-free absorbing record persisted by the Durable Object.
+        /// Material-free absorbing record persisted by private D1.
         record: CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1,
         /// One-use material returned only to the caller of this mutation.
         material: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
@@ -359,7 +359,7 @@ impl CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1 {
         ))
     }
 
-    /// Returns the replacement record that the Durable Object must persist atomically.
+    /// Returns the replacement record that private D1 must persist atomically.
     pub const fn record(&self) -> &CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1 {
         match self {
             Self::Available { record, .. }

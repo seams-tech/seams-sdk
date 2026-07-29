@@ -45,10 +45,18 @@ export function buildEd25519YaoCapabilityFixture(input: {
   readonly participantIds: readonly [number, number];
   readonly runtimePolicyScope: RuntimePolicyScope;
   readonly seed: number;
+  /**
+   * Overrides the synthetic lifecycle id. A fixture that must satisfy a real
+   * admission request has to carry that request's lifecycle id, because the
+   * receipt binding mirrors the request scope and the runtime compares them.
+   */
+  readonly lifecycleId?: string;
+  /** Overrides the derived signer-set id, for the same reason. */
+  readonly signerSetId?: string;
 }): Ed25519YaoCapabilityFixture {
   const signingRootId = `${input.runtimePolicyScope.projectId}:${input.runtimePolicyScope.envId}`;
-  const lifecycleId = `registration-fixture-${input.seed}`;
-  const signerSetId = String(registrationNearEd25519BranchKey(input.signerSlot));
+  const lifecycleId = input.lifecycleId ?? `registration-fixture-${input.seed}`;
+  const signerSetId = input.signerSetId ?? String(registrationNearEd25519BranchKey(input.signerSlot));
   const admissionRequest = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1({
     scope: {
       lifecycle_id: lifecycleId,

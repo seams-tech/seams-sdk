@@ -21,6 +21,7 @@ export type {
   RouterAbEd25519YaoPrimitiveRequestKindV1,
   RouterAbEd25519YaoProtocolIdV1,
   RouterAbEd25519YaoPublicDigestV1,
+  RouterAbRequestPolicyClaimsV1,
   RouterAbEd25519YaoSessionIdV1,
   RouterAbEd25519YaoStableKeyContextBindingV1,
   RouterAbEd25519YaoWorkKindV1,

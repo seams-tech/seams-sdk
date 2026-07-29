@@ -910,8 +910,9 @@ function createCoordinator(overrides?: {
       .map(toSealedRecordReadback);
   const baseConfigs = {
     registration: {
-      mode: 'backend_proxy',
-      bootstrapUrl: 'https://relay.example/registration/bootstrap',
+      mode: 'managed',
+      projectEnvironmentId: 'env_test',
+      publishableKey: 'pk_test',
     },
     network: {
       relayer: { url: 'https://relay.example' },

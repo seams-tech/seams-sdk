@@ -1,5 +1,8 @@
 use core::{fmt, future::Future};
-use std::{cell::Cell, time::Duration};
+use std::time::Duration;
+
+#[path = "ed25519_yao_role_d1.rs"]
+mod role_d1;
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use futures::future::{select, Either};
@@ -27,21 +30,20 @@ use router_ab_ed25519_yao::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use worker::{Context, Delay, Env, Method, Request, Response, State, WebSocketPair};
+use worker::{Context, Delay, Env, Request, Response, WebSocketPair};
 use zeroize::Zeroize;
 
 use crate::{
     decode_cloudflare_signer_envelope_hpke_private_key_secret_v1,
-    execute_cloudflare_durable_object_call_v1, load_cloudflare_root_share_wire_secret_v1,
-    parse_cloudflare_trace_id_from_request_v1, set_cloudflare_trace_id_header_v1,
+    load_cloudflare_root_share_wire_secret_v1, parse_cloudflare_trace_id_from_request_v1,
     CloudflareDeriverAWorkerRuntimeV1, CloudflareDeriverBWorkerRuntimeV1,
-    CloudflareDurableObjectResponseV1, CloudflareEd25519YaoCircuitV1,
-    CloudflareEd25519YaoPairExecuteRequestV1, CloudflareEd25519YaoPairExecuteResponseV1,
-    CloudflareEd25519YaoPairLookupRequestV1, CloudflareEd25519YaoPairPrepareRequestV1,
-    CloudflareEd25519YaoPairStartRequestV1, CloudflareEd25519YaoPairStatusResponseV1,
-    CloudflareEd25519YaoWebSocketBindingV1, CloudflareEd25519YaoWebSocketTransportV1,
-    CloudflareHpkeGetrandomRngV1, CloudflareSignerPeerVerifyingKeySetV1, CloudflareTraceIdV1,
-    CloudflareWorkerRoleV1, EXECUTION_ID_HEADER, START_ACCEPTANCE_HEADER,
+    CloudflareEd25519YaoCircuitV1, CloudflareEd25519YaoPairExecuteRequestV1,
+    CloudflareEd25519YaoPairExecuteResponseV1, CloudflareEd25519YaoPairLookupRequestV1,
+    CloudflareEd25519YaoPairPrepareRequestV1, CloudflareEd25519YaoPairStartRequestV1,
+    CloudflareEd25519YaoPairStatusResponseV1, CloudflareEd25519YaoWebSocketBindingV1,
+    CloudflareEd25519YaoWebSocketTransportV1, CloudflareHpkeGetrandomRngV1,
+    CloudflareSignerPeerVerifyingKeySetV1, CloudflareTraceIdV1, CloudflareWorkerRoleV1,
+    EXECUTION_ID_HEADER, START_ACCEPTANCE_HEADER,
 };
 
 pub const CLOUDFLARE_DERIVER_B_ED25519_YAO_DUPLEX_PATH: &str =
@@ -61,10 +63,6 @@ pub const CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH: &str =
 pub const CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/burn-pair";
 
-const DERIVER_A_YAO_SESSION_DO_BINDING: &str = "DERIVER_A_YAO_SESSION_DO";
-const DERIVER_A_YAO_SESSION_DO_URL: &str = "https://deriver-a-yao-session.internal/execute";
-const DERIVER_B_YAO_SESSION_DO_BINDING: &str = "DERIVER_B_YAO_SESSION_DO";
-const DERIVER_B_YAO_SESSION_DO_URL: &str = "https://deriver-b-yao-session.internal/command";
 const PAIR_SESSION_RECORD_STORAGE_KEY: &str = "pair-session-record-v1";
 const YAO_CEREMONY_TIMEOUT: Duration = Duration::from_secs(15);
 const YAO_PREPARED_INPUT_LIFETIME_MS: u64 = 60_000;
@@ -84,20 +82,6 @@ struct RoleSpanEventV1 {
     operation: &'static str,
     outcome: &'static str,
     duration_ms: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    trace_id: Option<String>,
-}
-
-#[derive(Serialize)]
-struct RoleInstanceSpanEventV1 {
-    event: &'static str,
-    span: &'static str,
-    role: &'static str,
-    operation: &'static str,
-    outcome: &'static str,
-    duration_ms: u64,
-    instance_disposition: &'static str,
-    instance_request_sequence: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     trace_id: Option<String>,
 }
@@ -127,31 +111,6 @@ fn emit_role_span_v1(
 
 fn role_span_started_at_ms() -> u64 {
     cloudflare_yao_now_unix_ms().unwrap_or_default()
-}
-
-fn emit_role_instance_span_v1(
-    trace_id: RoleTraceContextV1,
-    span: &'static str,
-    role: &'static str,
-    operation: &'static str,
-    request_sequence: &Cell<u64>,
-) {
-    let sequence = request_sequence.get().saturating_add(1);
-    request_sequence.set(sequence);
-    let event = RoleInstanceSpanEventV1 {
-        event: ROLE_SPAN_EVENT_V1,
-        span,
-        role,
-        operation,
-        outcome: "success",
-        duration_ms: 0,
-        instance_disposition: if sequence == 1 { "new" } else { "reused" },
-        instance_request_sequence: sequence,
-        trace_id: trace_id.map(CloudflareTraceIdV1::as_hex),
-    };
-    if let Ok(serialized) = serde_json::to_string(&event) {
-        worker::console_log!("{serialized}");
-    }
 }
 
 /// Pair-bound role state used by the Router-owned lifecycle.
@@ -276,7 +235,7 @@ fn yao_execution_id() -> worker::Result<[u8; 32]> {
 }
 
 async fn expire_prepared_pair_if_current(
-    storage: &worker::Storage,
+    storage: &role_d1::RolePairD1StorageV1,
     pair_digest: [u8; 32],
     input_digest: [u8; 32],
     now_ms: u64,
@@ -334,7 +293,7 @@ async fn expire_prepared_pair_if_current(
 }
 
 async fn burn_running_pair_if_expired(
-    storage: &worker::Storage,
+    storage: &role_d1::RolePairD1StorageV1,
     pair_digest: [u8; 32],
     input_digest: [u8; 32],
     execution_id: [u8; 32],
@@ -509,16 +468,6 @@ enum DeriverAYaoSessionCommandV1 {
 }
 
 impl DeriverAYaoSessionCommandV1 {
-    fn operation(&self) -> &'static str {
-        match self {
-            Self::PreparePair { .. } => "prepare_pair",
-            Self::StartPair { .. } => "start_pair",
-            Self::CompletePair { .. } => "complete_pair",
-            Self::ReadPairStatus { .. } => "read_pair_status",
-            Self::BurnPair { .. } => "burn_pair",
-        }
-    }
-
     fn validate(&self) -> RouterAbProtocolResult<()> {
         match self {
             Self::PreparePair {
@@ -904,38 +853,19 @@ pub(crate) fn verify_role_start_acceptance_v1(
         .map_err(|_| invalid_lifecycle("start acceptance signature is invalid"))
 }
 
-#[worker::durable_object(fetch)]
-pub struct RouterAbDeriverAYaoSessionDurableObject {
-    state: State,
+struct DeriverAYaoSessionD1V1 {
     env: Env,
-    request_sequence: Cell<u64>,
 }
 
-impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
-    fn new(state: State, env: Env) -> Self {
-        Self {
-            state,
-            env,
-            request_sequence: Cell::new(0),
-        }
+impl DeriverAYaoSessionD1V1 {
+    fn new(env: Env) -> Self {
+        Self { env }
     }
 
-    async fn fetch(&self, mut request: Request) -> worker::Result<Response> {
-        if request.method() != Method::Post {
-            return Response::error("method not allowed", 405);
-        }
-        let trace_id = parse_role_trace_context(&request)?;
-        let command = request.json::<DeriverAYaoSessionCommandV1>().await?;
-        if let Err(error) = command.validate() {
-            return Response::error(error.message(), 400);
-        }
-        emit_role_instance_span_v1(
-            trace_id,
-            "deriver_a.session_do.instance",
-            "deriver_a",
-            command.operation(),
-            &self.request_sequence,
-        );
+    async fn execute(&self, command: DeriverAYaoSessionCommandV1) -> worker::Result<Response> {
+        command
+            .validate()
+            .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         match command {
             DeriverAYaoSessionCommandV1::PreparePair { .. } => {
                 self.handle_prepare_pair(command).await
@@ -956,13 +886,13 @@ impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
     }
 }
 
-impl RouterAbDeriverAYaoSessionDurableObject {
+impl DeriverAYaoSessionD1V1 {
     async fn handle_read_pair_status(
         &self,
         session: [u8; 32],
         pair_digest: [u8; 32],
     ) -> worker::Result<Response> {
-        let storage = self.state.storage();
+        let storage = role_d1::RolePairD1StorageV1::from_env(&self.env, session)?;
         let Some(record) = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
             .await?
@@ -1060,7 +990,7 @@ impl RouterAbDeriverAYaoSessionDurableObject {
         session: [u8; 32],
         pair_digest: [u8; 32],
     ) -> worker::Result<Response> {
-        let storage = self.state.storage();
+        let storage = role_d1::RolePairD1StorageV1::from_env(&self.env, session)?;
         let Some(record) = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
             .await?
@@ -1167,7 +1097,7 @@ impl RouterAbDeriverAYaoSessionDurableObject {
     }
 }
 
-impl RouterAbDeriverAYaoSessionDurableObject {
+impl DeriverAYaoSessionD1V1 {
     async fn handle_prepare_pair(
         &self,
         command: DeriverAYaoSessionCommandV1,
@@ -1187,7 +1117,7 @@ impl RouterAbDeriverAYaoSessionDurableObject {
         let (pair_digest, input_digest) = request
             .validate_for_role(Ed25519YaoDeriverRoleV1::DeriverA, expected_kind)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
-        let storage = self.state.storage();
+        let storage = role_d1::RolePairD1StorageV1::from_env(&self.env, request.input.session())?;
         let now_unix_ms = cloudflare_yao_now_unix_ms()?;
         if let Some(existing) = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
@@ -1261,6 +1191,16 @@ impl RouterAbDeriverAYaoSessionDurableObject {
         )
         .await
         .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        storage.bind_creation_scope(
+            &request.pair_binding.binding().lifecycle.signer_set_id,
+            request
+                .pair_binding
+                .binding()
+                .lifecycle
+                .root_share_epoch
+                .as_str(),
+            root_metadata_digest,
+        )?;
         let prepared_at_ms = cloudflare_yao_now_unix_ms()?;
         if let Some(existing) = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
@@ -1387,7 +1327,8 @@ impl RouterAbDeriverAYaoSessionDurableObject {
         }
         let pair_digest = request.pair_binding.pair_digest().bytes;
         let input_digest = request.pair_binding.deriver_a_input_digest().bytes;
-        let storage = self.state.storage();
+        let storage =
+            role_d1::RolePairD1StorageV1::from_env(&self.env, request.pair_binding.session())?;
         let Some(PairYaoSessionRecordV1::Prepared {
             pair_digest: stored_pair,
             input_digest: stored_input,
@@ -1499,7 +1440,7 @@ impl RouterAbDeriverAYaoSessionDurableObject {
         };
         let session = execution.session();
         let expected_execution = execution.clone();
-        let storage = self.state.storage();
+        let storage = role_d1::RolePairD1StorageV1::from_env(&self.env, session)?;
         storage
             .transaction(move |transaction| async move {
                 let current = match transaction
@@ -1556,43 +1497,24 @@ impl RouterAbDeriverAYaoSessionDurableObject {
     }
 }
 
-#[worker::durable_object(fetch)]
-pub struct RouterAbDeriverBYaoSessionDurableObject {
-    state: State,
+struct DeriverBYaoSessionD1V1 {
     env: Env,
-    request_sequence: Cell<u64>,
 }
 
-impl worker::DurableObject for RouterAbDeriverBYaoSessionDurableObject {
-    fn new(state: State, env: Env) -> Self {
-        Self {
-            state,
-            env,
-            request_sequence: Cell::new(0),
-        }
+impl DeriverBYaoSessionD1V1 {
+    fn new(env: Env) -> Self {
+        Self { env }
     }
 
-    async fn fetch(&self, mut request: Request) -> worker::Result<Response> {
-        if request.method() != Method::Post {
-            return Response::error("method not allowed", 405);
-        }
-        let trace_id = parse_role_trace_context(&request)?;
-        let command = request.json::<DeriverBYaoSessionCommandV1>().await?;
-        if let Err(error) = command.validate() {
-            return Response::error(error.message(), 400);
-        }
-        emit_role_instance_span_v1(
-            trace_id,
-            "deriver_b.session_do.instance",
-            "deriver_b",
-            command.operation(),
-            &self.request_sequence,
-        );
+    async fn execute(&self, command: DeriverBYaoSessionCommandV1) -> worker::Result<Response> {
+        command
+            .validate()
+            .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         self.handle_pair_command(command).await
     }
 }
 
-impl RouterAbDeriverBYaoSessionDurableObject {
+impl DeriverBYaoSessionD1V1 {
     async fn handle_pair_command(
         &self,
         command: DeriverBYaoSessionCommandV1,
@@ -1639,7 +1561,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
         let (pair_digest, input_digest) = request
             .validate_for_role(Ed25519YaoDeriverRoleV1::DeriverB, expected_kind)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
-        let storage = self.state.storage();
+        let storage = role_d1::RolePairD1StorageV1::from_env(&self.env, request.input.session())?;
         let now_unix_ms = cloudflare_yao_now_unix_ms()?;
         if let Some(existing) = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
@@ -1709,6 +1631,16 @@ impl RouterAbDeriverBYaoSessionDurableObject {
         )
         .await
         .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        storage.bind_creation_scope(
+            &request.pair_binding.binding().lifecycle.signer_set_id,
+            request
+                .pair_binding
+                .binding()
+                .lifecycle
+                .root_share_epoch
+                .as_str(),
+            root_metadata_digest,
+        )?;
         let prepared_at_ms = cloudflare_yao_now_unix_ms()?;
         if let Some(existing) = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
@@ -1831,7 +1763,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
         {
             return Response::error("Deriver A readiness receipt does not match pair", 409);
         }
-        let storage = self.state.storage();
+        let storage = role_d1::RolePairD1StorageV1::from_env(&self.env, session)?;
         let Some(record) = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
             .await?
@@ -1948,7 +1880,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
         execution: Ed25519YaoRoleExecutionV1,
     ) -> worker::Result<Response> {
         let session = execution.session();
-        let storage = self.state.storage();
+        let storage = role_d1::RolePairD1StorageV1::from_env(&self.env, session)?;
         let record = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
             .await?
@@ -2050,7 +1982,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
         session: [u8; 32],
         pair_digest: [u8; 32],
     ) -> worker::Result<Response> {
-        let storage = self.state.storage();
+        let storage = role_d1::RolePairD1StorageV1::from_env(&self.env, session)?;
         let record = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
             .await?
@@ -2150,7 +2082,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
         session: [u8; 32],
         pair_digest: [u8; 32],
     ) -> worker::Result<Response> {
-        let storage = self.state.storage();
+        let storage = role_d1::RolePairD1StorageV1::from_env(&self.env, session)?;
         let Some(record) = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
             .await?
@@ -3097,35 +3029,19 @@ async fn execute_deriver_b_session_command(
 ) -> RouterAbProtocolResult<DeriverBYaoSessionResponseV1> {
     command.validate()?;
     let operation = command.operation();
-    let namespace = env
-        .durable_object(DERIVER_B_YAO_SESSION_DO_BINDING)
-        .map_err(|_| {
-            invalid_lifecycle("Deriver B Yao session Durable Object binding is missing")
-        })?;
-    let stub = namespace
-        .get_by_name(&encode_hex(command.session()))
-        .map_err(|_| invalid_lifecycle("Deriver B Yao session Durable Object lookup failed"))?;
-    let body = serde_json::to_string(&command)
-        .map_err(|_| invalid_lifecycle("Deriver B Yao session command encoding failed"))?;
-    let mut init = worker::RequestInit::new();
-    init.with_method(Method::Post)
-        .with_body(Some(worker::wasm_bindgen::JsValue::from_str(&body)));
-    let request = Request::new_with_init(DERIVER_B_YAO_SESSION_DO_URL, &init)
-        .map_err(|_| invalid_lifecycle("Deriver B Yao session request construction failed"))?;
-    if let Some(trace_id) = trace_id {
-        set_cloudflare_trace_id_header_v1(request.headers(), trace_id)?;
-    }
     let started_at_ms = role_span_started_at_ms();
-    let response_result = stub
-        .fetch_with_request(request)
+    let response_result = DeriverBYaoSessionD1V1::new(env.clone())
+        .execute(command)
         .await
-        .map_err(|_| invalid_lifecycle("Deriver B Yao session Durable Object request failed"));
+        .map_err(|error| {
+            invalid_lifecycle(format!("Deriver B Yao session D1 command failed: {error}"))
+        });
     let mut response = match response_result {
         Ok(response) => response,
         Err(error) => {
             emit_role_span_v1(
                 trace_id,
-                "deriver_b.session_do",
+                "deriver_b.session_d1",
                 "deriver_b",
                 operation,
                 started_at_ms,
@@ -3138,7 +3054,7 @@ async fn execute_deriver_b_session_command(
         let status = response.status_code();
         emit_role_span_v1(
             trace_id,
-            "deriver_b.session_do",
+            "deriver_b.session_d1",
             "deriver_b",
             operation,
             started_at_ms,
@@ -3149,7 +3065,7 @@ async fn execute_deriver_b_session_command(
             .await
             .unwrap_or_else(|_| "response body unavailable".to_owned());
         return Err(invalid_lifecycle(format!(
-            "Deriver B Yao session Durable Object rejected the command with HTTP {status}: {message}"
+            "Deriver B Yao session D1 command was rejected with HTTP {status}: {message}"
         )));
     }
     let result = response
@@ -3158,7 +3074,7 @@ async fn execute_deriver_b_session_command(
         .map_err(|_| invalid_lifecycle("Deriver B Yao session response is malformed"));
     emit_role_span_v1(
         trace_id,
-        "deriver_b.session_do",
+        "deriver_b.session_d1",
         "deriver_b",
         operation,
         started_at_ms,
@@ -3260,40 +3176,15 @@ async fn execute_deriver_a_pair_command(
     trace_id: RoleTraceContextV1,
 ) -> RouterAbProtocolResult<Response> {
     command.validate()?;
-    let session = match &command {
-        DeriverAYaoSessionCommandV1::PreparePair { input, .. } => input.session(),
-        DeriverAYaoSessionCommandV1::StartPair { pair_binding, .. } => pair_binding.session(),
-        DeriverAYaoSessionCommandV1::CompletePair { execution, .. } => execution.session(),
-        DeriverAYaoSessionCommandV1::ReadPairStatus { session, .. }
-        | DeriverAYaoSessionCommandV1::BurnPair { session, .. } => *session,
-    };
-    let namespace = env
-        .durable_object(DERIVER_A_YAO_SESSION_DO_BINDING)
-        .map_err(|_| {
-            invalid_lifecycle("Deriver A Yao session Durable Object binding is missing")
-        })?;
-    let stub = namespace
-        .get_by_name(&encode_hex(session))
-        .map_err(|_| invalid_lifecycle("Deriver A Yao session Durable Object lookup failed"))?;
-    let body = serde_json::to_string(&command)
-        .map_err(|_| invalid_lifecycle("Deriver A pair command encoding failed"))?;
-    let mut init = worker::RequestInit::new();
-    init.with_method(Method::Post)
-        .with_body(Some(worker::wasm_bindgen::JsValue::from_str(&body)));
-    let request = Request::new_with_init(DERIVER_A_YAO_SESSION_DO_URL, &init)
-        .map_err(|_| invalid_lifecycle("Deriver A pair request construction failed"))?;
-    if let Some(trace_id) = trace_id {
-        set_cloudflare_trace_id_header_v1(request.headers(), trace_id)?;
-    }
     let started_at_ms = role_span_started_at_ms();
-    let mut response = stub
-        .fetch_with_request(request)
+    let mut response = DeriverAYaoSessionD1V1::new(env.clone())
+        .execute(command)
         .await
-        .map_err(|_| invalid_lifecycle("Deriver A pair Durable Object request failed"))?;
+        .map_err(|error| invalid_lifecycle(format!("Deriver A pair D1 command failed: {error}")))?;
     if !(200..=299).contains(&response.status_code()) {
         emit_role_span_v1(
             trace_id,
-            "deriver_a.session_do",
+            "deriver_a.session_d1",
             "deriver_a",
             "pair",
             started_at_ms,
@@ -3304,13 +3195,13 @@ async fn execute_deriver_a_pair_command(
             .await
             .unwrap_or_else(|_| "response body unavailable".to_owned());
         return Err(invalid_lifecycle(format!(
-            "Deriver A pair Durable Object rejected the command with HTTP {}: {message}",
+            "Deriver A pair D1 command was rejected with HTTP {}: {message}",
             response.status_code()
         )));
     }
     emit_role_span_v1(
         trace_id,
-        "deriver_a.session_do",
+        "deriver_a.session_d1",
         "deriver_a",
         "pair",
         started_at_ms,
@@ -3325,15 +3216,16 @@ async fn load_deriver_a_yao_root_metadata_digest(
     lifecycle: &LifecycleScopeV1,
 ) -> RouterAbProtocolResult<[u8; 32]> {
     lifecycle.validate()?;
-    let metadata_call = runtime.root_share_startup_metadata_call(
+    let metadata = runtime.root_share_wire_secret().startup_metadata(
         lifecycle.signer_set_id.clone(),
+        runtime.peer_signing_key().key_epoch.clone(),
         lifecycle.root_share_epoch.clone(),
     )?;
     load_yao_root_metadata_digest(
         env,
         CloudflareWorkerRoleV1::DeriverA,
         runtime.root_share_wire_secret(),
-        metadata_call,
+        metadata,
     )
     .await
 }
@@ -3345,8 +3237,9 @@ async fn load_deriver_a_yao_root_with_metadata_digest(
     trace_id: RoleTraceContextV1,
 ) -> RouterAbProtocolResult<([u8; 32], [u8; 32])> {
     lifecycle.validate()?;
-    let metadata_call = runtime.root_share_startup_metadata_call(
+    let metadata = runtime.root_share_wire_secret().startup_metadata(
         lifecycle.signer_set_id.clone(),
+        runtime.peer_signing_key().key_epoch.clone(),
         lifecycle.root_share_epoch.clone(),
     )?;
     let started_at_ms = role_span_started_at_ms();
@@ -3354,7 +3247,7 @@ async fn load_deriver_a_yao_root_with_metadata_digest(
         env,
         CloudflareWorkerRoleV1::DeriverA,
         runtime.root_share_wire_secret(),
-        metadata_call,
+        metadata,
         b"deriver-a",
     )
     .await;
@@ -3362,7 +3255,7 @@ async fn load_deriver_a_yao_root_with_metadata_digest(
         trace_id,
         "deriver_a.root_share",
         "deriver_a",
-        "durable_object",
+        "worker_secret",
         started_at_ms,
         if result.is_ok() { "success" } else { "failure" },
     );
@@ -3375,15 +3268,16 @@ async fn load_deriver_b_yao_root_metadata_digest(
     lifecycle: &LifecycleScopeV1,
 ) -> RouterAbProtocolResult<[u8; 32]> {
     lifecycle.validate()?;
-    let metadata_call = runtime.root_share_startup_metadata_call(
+    let metadata = runtime.root_share_wire_secret().startup_metadata(
         lifecycle.signer_set_id.clone(),
+        runtime.peer_signing_key().key_epoch.clone(),
         lifecycle.root_share_epoch.clone(),
     )?;
     load_yao_root_metadata_digest(
         env,
         CloudflareWorkerRoleV1::DeriverB,
         runtime.root_share_wire_secret(),
-        metadata_call,
+        metadata,
     )
     .await
 }
@@ -3395,8 +3289,9 @@ async fn load_deriver_b_yao_root_with_metadata_digest(
     trace_id: RoleTraceContextV1,
 ) -> RouterAbProtocolResult<([u8; 32], [u8; 32])> {
     lifecycle.validate()?;
-    let metadata_call = runtime.root_share_startup_metadata_call(
+    let metadata = runtime.root_share_wire_secret().startup_metadata(
         lifecycle.signer_set_id.clone(),
+        runtime.peer_signing_key().key_epoch.clone(),
         lifecycle.root_share_epoch.clone(),
     )?;
     let started_at_ms = role_span_started_at_ms();
@@ -3404,7 +3299,7 @@ async fn load_deriver_b_yao_root_with_metadata_digest(
         env,
         CloudflareWorkerRoleV1::DeriverB,
         runtime.root_share_wire_secret(),
-        metadata_call,
+        metadata,
         b"deriver-b",
     )
     .await;
@@ -3412,7 +3307,7 @@ async fn load_deriver_b_yao_root_with_metadata_digest(
         trace_id,
         "deriver_b.root_share",
         "deriver_b",
-        "durable_object",
+        "worker_secret",
         started_at_ms,
         if result.is_ok() { "success" } else { "failure" },
     );
@@ -3423,14 +3318,8 @@ async fn load_yao_root_metadata_digest(
     env: &Env,
     worker_role: CloudflareWorkerRoleV1,
     root_share_secret: &crate::CloudflareRootShareWireSecretBindingV1,
-    metadata_call: crate::CloudflareDurableObjectCallV1,
+    metadata: crate::CloudflareRootShareStartupMetadataV1,
 ) -> RouterAbProtocolResult<[u8; 32]> {
-    let response = execute_cloudflare_durable_object_call_v1(env, &metadata_call).await?;
-    let CloudflareDurableObjectResponseV1::RootShareStartupMetadata { metadata } = response else {
-        return Err(invalid_lifecycle(
-            "root-share metadata initialization returned the wrong response",
-        ));
-    };
     load_cloudflare_root_share_wire_secret_v1(env, worker_role, root_share_secret, &metadata)?;
     root_metadata_digest_v1(&metadata)
 }
@@ -3439,15 +3328,9 @@ async fn load_yao_root_with_metadata_digest(
     env: &Env,
     worker_role: CloudflareWorkerRoleV1,
     root_share_secret: &crate::CloudflareRootShareWireSecretBindingV1,
-    metadata_call: crate::CloudflareDurableObjectCallV1,
+    metadata: crate::CloudflareRootShareStartupMetadataV1,
     role_label: &[u8],
 ) -> RouterAbProtocolResult<([u8; 32], [u8; 32])> {
-    let response = execute_cloudflare_durable_object_call_v1(env, &metadata_call).await?;
-    let CloudflareDurableObjectResponseV1::RootShareStartupMetadata { metadata } = response else {
-        return Err(invalid_lifecycle(
-            "root-share metadata initialization returned the wrong response",
-        ));
-    };
     let root_metadata_digest = root_metadata_digest_v1(&metadata)?;
     let wire =
         load_cloudflare_root_share_wire_secret_v1(env, worker_role, root_share_secret, &metadata)?;
@@ -3507,11 +3390,6 @@ where
         .json::<T>()
         .await
         .map_err(|_| invalid_lifecycle("Ed25519 Yao request JSON is malformed"))
-}
-
-fn parse_role_trace_context(request: &Request) -> worker::Result<RoleTraceContextV1> {
-    parse_cloudflare_trace_id_from_request_v1(request)
-        .map_err(|error| worker::Error::RustError(error.message().to_owned()))
 }
 
 fn json_response<T>(value: &T) -> RouterAbProtocolResult<Response>
@@ -3595,16 +3473,6 @@ fn yao_input_digest(input: &Ed25519YaoEncryptedInputV1) -> [u8; 32] {
     hasher.update((input.ciphertext().len() as u64).to_be_bytes());
     hasher.update(input.ciphertext());
     hasher.finalize().into()
-}
-
-fn encode_hex(bytes: [u8; 32]) -> String {
-    const ALPHABET: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(64);
-    for byte in bytes {
-        output.push(char::from(ALPHABET[usize::from(byte >> 4)]));
-        output.push(char::from(ALPHABET[usize::from(byte & 0x0f)]));
-    }
-    output
 }
 
 fn decode_hex_32(value: &str) -> RouterAbProtocolResult<[u8; 32]> {

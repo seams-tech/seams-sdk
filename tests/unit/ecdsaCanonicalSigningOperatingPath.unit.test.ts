@@ -22,15 +22,19 @@ import {
 } from './helpers/sealedSigningSession.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
-// The canonical normal-signing operating path, end to end at the hydration
-// boundary: manifest plus exact sealed runtime resolve the material, the worker
-// rehydrates it, and the returned signer material is bound to that exact
-// activation. Both factors run the same path -- only the sealed record's auth
-// binding differs -- which is the point of an auth-neutral candidate.
+// The canonical normal-signing path at its two boundaries -- hydration and
+// operation step-up. Manifest plus exact sealed runtime resolve the material,
+// the worker rehydrates it, the step-up binds the canonical challenge, and the
+// grant comes back attached to the signing material. Both factors run the same
+// path -- only the sealed record's auth binding differs -- which is the point
+// of an auth-neutral candidate.
 //
-// The worker is stubbed at `requestWorkerOperation`, the same seam the deleted
-// record-backed rehydration coverage used. Everything above it is production
-// code.
+// Scope, precisely: the worker is stubbed at `requestWorkerOperation` (the
+// same seam the deleted record-backed rehydration coverage used) and the
+// relayer at `fetch`; a few carriers whose contents these boundaries never
+// read are `as never` stand-ins. Confirmation UI and the actual digest
+// signature are NOT exercised here -- the literal signed bytes are E2E
+// coverage, not this file's claim.
 
 type Factor = 'passkey' | 'email_otp';
 

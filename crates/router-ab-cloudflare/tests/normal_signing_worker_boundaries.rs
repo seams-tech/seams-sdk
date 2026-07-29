@@ -86,10 +86,10 @@ fn signing_worker_normal_signing_loads_active_material_before_handler() {
         "handle_cloudflare_signing_worker_normal_signing_private_fetch_v1",
     );
     let state_lookup = body
-        .find("active_signing_worker_state_get_call")
+        .find("active_signing_worker_state_get_request")
         .expect("normal signing must load active SigningWorker state");
     let material_lookup = body
-        .find("signing_worker_output_material_get_call")
+        .find("signing_worker_output_material_get_request")
         .expect("normal signing must load active SigningWorker material");
     let handler_call = body
         .find("handle_cloudflare_signing_worker_normal_signing_finalize_private_request_v2")
@@ -407,79 +407,6 @@ fn strict_signing_worker_entrypoint_routes_normal_signing() {
         assert!(
             body.contains(required),
             "strict SigningWorker entrypoint must route through `{required}`"
-        );
-    }
-}
-
-#[test]
-fn signing_worker_yao_lifecycle_is_exact_and_commits_normal_signing_state_atomically() {
-    let yao_source = read_src_file("ed25519_yao_signing_worker.rs");
-    for required_state in ["RegistrationStaged", "Active", "RecoveryStaged"] {
-        assert!(
-            yao_source.contains(required_state),
-            "Signing Worker Yao lifecycle must model `{required_state}` explicitly"
-        );
-    }
-    for required_route in [
-        "/router-ab/signing-worker/ed25519-yao/activation/packages",
-        "/router-ab/signing-worker/ed25519-yao/recovery/promote",
-    ] {
-        assert!(
-            yao_source.contains(required_route),
-            "Signing Worker Yao lifecycle must expose `{required_route}`"
-        );
-    }
-    assert!(
-        !yao_source.contains("/router-ab/signing-worker/ed25519-yao/refresh/"),
-        "Signing Worker Yao activation must not retain a compatibility refresh route"
-    );
-    for persistence_boundary in [
-        "#[serde(rename = \"registration_pending\")]",
-        "LegacyRegistrationPending",
-        "#[serde(rename = \"recovery_pending\")]",
-        "LegacyRecoveryPending",
-    ] {
-        assert!(
-            yao_source.contains(persistence_boundary),
-            "Signing Worker Yao deployment must decode in-flight persisted state via `{persistence_boundary}`"
-        );
-    }
-    assert!(
-        yao_source.contains("same_active_signing_worker_state_ignoring_timestamp"),
-        "Signing Worker Yao activation retries must accept the canonical persisted timestamp"
-    );
-
-    let durable_object_source = read_src_file("durable_object.rs");
-    for required in [
-        "CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_OUTPUT_ACTIVATE_DO_PATH",
-        "put_multiple_raw(writes)",
-        "set_durable_object_put_multiple_value(",
-        "verify committed material",
-        "verify committed active state",
-        "active-signing-worker",
-    ] {
-        assert!(
-            durable_object_source.contains(required),
-            "Signing Worker Yao output persistence must contain `{required}`"
-        );
-    }
-    assert!(
-        !durable_object_source.contains("put_multiple(writes)"),
-        "Signing Worker Yao output persistence must not serialize a Rust map into Durable Object putMultiple"
-    );
-
-    let wrangler = fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("wrangler.signing-worker.toml"),
-    )
-    .expect("Signing Worker Wrangler config should read");
-    for required in [
-        "SIGNING_WORKER_ED25519_YAO_DO",
-        "RouterAbSigningWorkerEd25519YaoDurableObject",
-        "router_ab_signing_worker_v2",
-    ] {
-        assert!(
-            wrangler.contains(required),
-            "Signing Worker deployment must configure `{required}`"
         );
     }
 }

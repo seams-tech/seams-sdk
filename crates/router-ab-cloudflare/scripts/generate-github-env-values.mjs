@@ -521,6 +521,27 @@ function buildTargetConfiguration(targetName, suppliedValues) {
       `${targetName}-gateway`,
       'GATEWAY_SIGNER_D1_DATABASE_ID',
     ) || manual(`${targetName}-signer-d1-database-id`);
+  const deriverAPrivateDatabaseId =
+    readSuppliedValue(
+      suppliedValues,
+      targetName,
+      `${targetName}-deriver-a`,
+      'ROUTER_AB_DERIVER_A_PRIVATE_D1_ID',
+    ) || manual(`${targetName}-deriver-a-private-d1-database-id`);
+  const deriverBPrivateDatabaseId =
+    readSuppliedValue(
+      suppliedValues,
+      targetName,
+      `${targetName}-deriver-b`,
+      'ROUTER_AB_DERIVER_B_PRIVATE_D1_ID',
+    ) || manual(`${targetName}-deriver-b-private-d1-database-id`);
+  const signingWorkerPrivateDatabaseId =
+    readSuppliedValue(
+      suppliedValues,
+      targetName,
+      `${targetName}-signing-worker`,
+      'ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID',
+    ) || manual(`${targetName}-signing-worker-private-d1-database-id`);
   const secretsStoreId =
     readSuppliedValue(
       suppliedValues,
@@ -552,6 +573,9 @@ function buildTargetConfiguration(targetName, suppliedValues) {
     consoleDatabaseId,
     signerDatabaseName: production ? 'seams-signer' : 'seams-signer-staging',
     signerDatabaseId,
+    deriverAPrivateDatabaseId,
+    deriverBPrivateDatabaseId,
+    signingWorkerPrivateDatabaseId,
     secretsStoreId,
     signingRootKekId: `signing-root-kek-${targetName}-r1`,
     ceremonyJwtKeyId: `router-ab-ceremony-${targetName}-r1`,
@@ -935,11 +959,17 @@ function buildDeriverAEnvironment(input) {
   secrets.DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY =
     input.deployment.secrets.DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY;
   secrets.DERIVER_A_PEER_SIGNING_KEY = input.deployment.secrets.DERIVER_A_PEER_SIGNING_KEY;
+  secrets.DERIVER_A_ROLE_PRIVATE_D1_KEK = input.deployment.secrets.DERIVER_A_ROLE_PRIVATE_D1_KEK;
   return [
     environmentName,
     {
       purpose: 'Deriver A Worker',
       variables: {
+        ROUTER_AB_DERIVER_A_PRIVATE_D1_ID: input.configuration.deriverAPrivateDatabaseId,
+        ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY:
+          variables.ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION:
+          variables.ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION,
         ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:
           variables.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
         ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX:
@@ -966,11 +996,17 @@ function buildDeriverBEnvironment(input) {
   secrets.DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY =
     input.deployment.secrets.DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY;
   secrets.DERIVER_B_PEER_SIGNING_KEY = input.deployment.secrets.DERIVER_B_PEER_SIGNING_KEY;
+  secrets.DERIVER_B_ROLE_PRIVATE_D1_KEK = input.deployment.secrets.DERIVER_B_ROLE_PRIVATE_D1_KEK;
   return [
     environmentName,
     {
       purpose: 'Deriver B Worker',
       variables: {
+        ROUTER_AB_DERIVER_B_PRIVATE_D1_ID: input.configuration.deriverBPrivateDatabaseId,
+        ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY:
+          variables.ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION:
+          variables.ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION,
         ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:
           variables.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
         ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX:
@@ -993,11 +1029,17 @@ function buildSigningWorkerEnvironment(input) {
   );
   secrets.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY =
     input.deployment.secrets.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY;
+  secrets.SIGNING_WORKER_PRIVATE_D1_KEK = input.deployment.secrets.SIGNING_WORKER_PRIVATE_D1_KEK;
   return [
     environmentName,
     {
       purpose: 'SigningWorker Worker',
       variables: {
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID: input.configuration.signingWorkerPrivateDatabaseId,
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY:
+          input.deployment.variables.ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY,
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_VERSION:
+          input.deployment.variables.ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_VERSION,
         ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:
           input.deployment.variables.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
       },
@@ -1208,6 +1250,42 @@ async function discoverCloudflareValues(targetName, suppliedValues, progressLogg
     variableName: 'GATEWAY_SIGNER_D1_DATABASE_ID',
     databaseName: targetName === 'production' ? 'seams-signer' : 'seams-signer-staging',
   });
+  ensureD1Database({
+    targetName,
+    suppliedValues,
+    progressLogger,
+    environmentName: `${targetName}-deriver-a`,
+    variableName: 'ROUTER_AB_DERIVER_A_PRIVATE_D1_ID',
+    databaseName:
+      targetName === 'production'
+        ? 'router-ab-deriver-a-private'
+        : 'router-ab-deriver-a-staging-private',
+    locationHint: 'apac',
+  });
+  ensureD1Database({
+    targetName,
+    suppliedValues,
+    progressLogger,
+    environmentName: `${targetName}-deriver-b`,
+    variableName: 'ROUTER_AB_DERIVER_B_PRIVATE_D1_ID',
+    databaseName:
+      targetName === 'production'
+        ? 'router-ab-deriver-b-private'
+        : 'router-ab-deriver-b-staging-private',
+    locationHint: 'apac',
+  });
+  ensureD1Database({
+    targetName,
+    suppliedValues,
+    progressLogger,
+    environmentName: `${targetName}-signing-worker`,
+    variableName: 'ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID',
+    databaseName:
+      targetName === 'production'
+        ? 'router-ab-signing-worker-private'
+        : 'router-ab-signing-worker-staging-private',
+    locationHint: 'apac',
+  });
   ensurePagesProjects(targetName, suppliedValues, progressLogger);
   ensureSecretsStore(targetName, suppliedValues, progressLogger);
   await discoverWorkersDevOrigin(targetName, suppliedValues, accountId, progressLogger);
@@ -1289,7 +1367,7 @@ function ensureD1Database(input) {
   const existing = readSuppliedValue(
     input.suppliedValues,
     input.targetName,
-    `${input.targetName}-gateway`,
+    input.environmentName || `${input.targetName}-gateway`,
     input.variableName,
   );
   if (existing) {
@@ -1297,7 +1375,9 @@ function ensureD1Database(input) {
   }
   let database = runWranglerJson(['d1', 'info', input.databaseName, '--json']);
   if (!database.ok || typeof database.value.uuid !== 'string') {
-    const created = runWrangler(['d1', 'create', input.databaseName]);
+    const createArguments = ['d1', 'create', input.databaseName];
+    if (input.locationHint) createArguments.push('--location', input.locationHint);
+    const created = runWrangler(createArguments);
     if (created.status !== 0) {
       throw new Error(formatWranglerFailure(`create D1 database ${input.databaseName}`, created));
     }
@@ -1722,10 +1802,7 @@ function validateWorkflowCoverage(outputDocument) {
 }
 
 function readDeploymentWorkflow(targetName, lane) {
-  return readFileSync(
-    join(repoRoot, `.github/workflows/deploy-${targetName}-${lane}.yml`),
-    'utf8',
-  );
+  return readFileSync(join(repoRoot, `.github/workflows/deploy-${targetName}-${lane}.yml`), 'utf8');
 }
 
 function extractWorkflowJob(workflowSource, jobName) {

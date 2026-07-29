@@ -104,66 +104,44 @@ function resolveRegistrationNearAccountProvisioning(
   }
 }
 
+/**
+ * Registration is managed-only. `/wallets/register/setup` authenticates with a
+ * publishable key alone, so the credential must reach the browser; the former
+ * backend-proxied mode had no way to supply one, and its `bootstrapUrl` only
+ * ever pointed at the deleted intent route.
+ */
 function resolveRegistrationConfig(args: {
   overrides: SeamsConfigsInput;
   defaults: SeamsConfigsReadonly;
-  relayerUrl: string;
 }): SeamsConfigsReadonly['registration'] {
-  const registrationOverrides = args.overrides.registration;
-  const registrationDefaults = args.defaults.registration;
-  const managedOverrides =
-    registrationOverrides && registrationOverrides.mode === 'managed'
-      ? registrationOverrides
-      : null;
-  const managedDefaults = registrationDefaults.mode === 'managed' ? registrationDefaults : null;
-  const backendProxyOverrides =
-    registrationOverrides && registrationOverrides.mode !== 'managed'
-      ? registrationOverrides
-      : null;
-  const backendProxyDefaults =
-    registrationDefaults.mode === 'backend_proxy' ? registrationDefaults : null;
-  const mode =
-    registrationOverrides?.mode ?? registrationDefaults.mode ?? ('backend_proxy' as const);
-  const nearAccountProvisioning = resolveRegistrationNearAccountProvisioning(
-    registrationOverrides?.nearAccountProvisioning ?? registrationDefaults.nearAccountProvisioning,
-  );
-
-  if (mode === 'managed') {
-    const projectEnvironmentId =
-      toTrimmedString(managedOverrides?.projectEnvironmentId) ||
-      toTrimmedString(managedDefaults?.projectEnvironmentId);
-    const publishableKey =
-      toTrimmedString(managedOverrides?.publishableKey) ||
-      toTrimmedString(managedDefaults?.publishableKey);
-    const paymentMode = managedOverrides?.paymentMode ?? managedDefaults?.paymentMode ?? 'disabled';
+  const overrides = args.overrides.registration;
+  const defaults = args.defaults.registration;
+  const projectEnvironmentId =
+    toTrimmedString(overrides?.projectEnvironmentId) ||
+    toTrimmedString(defaults.projectEnvironmentId);
+  const publishableKey =
+    toTrimmedString(overrides?.publishableKey) || toTrimmedString(defaults.publishableKey);
+  /* Declaring registration config and leaving it incomplete is a mistake worth
+     reporting at build time. Declaring none is not: an app that only signs for
+     an already-registered wallet never registers, and registration credentials
+     are not a precondition for the rest of the SDK. That case fails where it
+     is actually wrong — at the registration call. */
+  if (overrides !== undefined) {
     if (!projectEnvironmentId) {
       throw new Error('[configPresets] Missing required config: registration.projectEnvironmentId');
     }
     if (!publishableKey) {
       throw new Error('[configPresets] Missing required config: registration.publishableKey');
     }
-    return {
-      mode: 'managed',
-      projectEnvironmentId,
-      publishableKey,
-      paymentMode,
-      nearAccountProvisioning,
-    };
-  }
-
-  const bootstrapUrl =
-    toTrimmedString(backendProxyOverrides?.registrationBootstrapUrl) ||
-    toTrimmedString(backendProxyDefaults?.bootstrapUrl) ||
-    joinUrlPath(args.relayerUrl, '/wallets/register/intent');
-  if (!bootstrapUrl) {
-    throw new Error(
-      '[configPresets] Missing required config: registration.registrationBootstrapUrl',
-    );
   }
   return {
-    mode: 'backend_proxy',
-    bootstrapUrl,
-    nearAccountProvisioning,
+    mode: 'managed',
+    projectEnvironmentId,
+    publishableKey,
+    paymentMode: overrides?.paymentMode ?? defaults.paymentMode ?? 'disabled',
+    nearAccountProvisioning: resolveRegistrationNearAccountProvisioning(
+      overrides?.nearAccountProvisioning ?? defaults.nearAccountProvisioning,
+    ),
   };
 }
 
@@ -341,11 +319,7 @@ export function buildConfigsFromDefaults(args: {
     throw new HostedWalletOriginRequiredError();
   }
 
-  const registration = resolveRegistrationConfig({
-    overrides,
-    defaults,
-    relayerUrl,
-  });
+  const registration = resolveRegistrationConfig({ overrides, defaults });
   return {
     network: {
       chains,
