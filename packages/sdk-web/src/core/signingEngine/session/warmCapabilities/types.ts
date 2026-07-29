@@ -697,7 +697,7 @@ export type ProvisionWarmEd25519CapabilitySuccessResult = {
   signingGrantId: string;
   expiresAtMs: number;
   remainingUses: number;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
   jwt: string;
   ecdsaDerivationPasskeyPrfFirstB64u?: string;
 };

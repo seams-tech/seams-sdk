@@ -174,14 +174,13 @@ export async function provisionThresholdEd25519Session(
   const remainingUses = Number(connected.remainingUses);
   const jwt = String(connected.jwt || '').trim();
   const prfFirstB64u = String(connected.ecdsaDerivationPasskeyPrfFirstB64u || '').trim();
-  const runtimePolicyScope = connected.runtimePolicyScope || args.runtimePolicyScope;
+  const runtimePolicyScope = connected.runtimePolicyScope;
   if (
     !resolvedSessionId ||
     !signingGrantId ||
     !Number.isFinite(expiresAtMs) ||
     !Number.isFinite(remainingUses) ||
-    !jwt ||
-    !runtimePolicyScope
+    !jwt
   ) {
     return {
       ok: false,
@@ -283,7 +282,7 @@ export async function provisionThresholdEd25519Session(
     signingGrantId,
     expiresAtMs,
     remainingUses,
-    ...(connected.runtimePolicyScope ? { runtimePolicyScope: connected.runtimePolicyScope } : {}),
+    runtimePolicyScope,
     jwt,
     ...(connected.ecdsaDerivationPasskeyPrfFirstB64u
       ? { ecdsaDerivationPasskeyPrfFirstB64u: connected.ecdsaDerivationPasskeyPrfFirstB64u }

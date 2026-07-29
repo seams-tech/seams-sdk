@@ -3229,7 +3229,7 @@ async function primeThresholdLoginWarmSigners(args: {
         warmState.jwt = connectedJwt;
         warmState.expiresAtMs = Math.floor(Number(connected.expiresAtMs) || 0);
         warmState.remainingUses = Math.floor(Number(connected.remainingUses) || 0);
-        warmState.runtimePolicyScope = connected.runtimePolicyScope || null;
+        warmState.runtimePolicyScope = connected.runtimePolicyScope;
         warmState.ecdsaDerivationPasskeyPrfFirstB64u = connectedEcdsaDerivationPasskeyPrfFirstB64u;
         if (args.ecdsaContextResolution.kind === 'resolve_after_ed25519') {
           activeCanonicalEcdsaContext =
