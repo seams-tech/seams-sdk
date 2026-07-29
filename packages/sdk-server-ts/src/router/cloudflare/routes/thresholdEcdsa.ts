@@ -156,6 +156,7 @@ type StrictEcdsaPostRegistrationRequest =
   | {
       readonly kind: 'export';
       readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+      readonly requestDigestB64u: string;
     }
   | {
       readonly kind: 'recovery';
@@ -271,11 +272,25 @@ function parseStrictEcdsaPostRegistrationRequest(
   body: unknown,
 ): StrictEcdsaPostRegistrationRequest {
   switch (pathname) {
-    case ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH:
+    case ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH: {
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        throw new Error('Strict ECDSA export body must be an object');
+      }
+      const record = body as Record<string, unknown>;
+      const keys = Object.keys(record).sort();
+      if (keys.length !== 2 || keys[0] !== 'request' || keys[1] !== 'requestDigestB64u') {
+        throw new Error('Strict ECDSA export body fields are invalid');
+      }
+      const requestDigestB64u = String(record.requestDigestB64u || '').trim();
+      if (!/^[A-Za-z0-9_-]{43}$/.test(requestDigestB64u)) {
+        throw new Error('Strict ECDSA export request digest must contain 32 base64url bytes');
+      }
       return {
         kind: 'export',
-        request: parseRouterAbEcdsaDerivationExplicitExportRequestV1(body),
+        request: parseRouterAbEcdsaDerivationExplicitExportRequestV1(record.request),
+        requestDigestB64u,
       };
+    }
     case ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH:
       return {
         kind: 'recovery',
@@ -450,6 +465,7 @@ async function handleStrictEcdsaPostRegistrationRoute(input: {
       }
       const result = await input.port.explicitExport({
         request: parsed.request,
+        requestDigestB64u: parsed.requestDigestB64u,
         authority: exportAuthority,
       });
       if (!result.ok) return strictPostRegistrationFailureResponse(result);

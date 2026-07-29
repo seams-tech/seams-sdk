@@ -85,6 +85,16 @@ export type RouterAbEcdsaRegistrationRequestPolicyV1 = {
   readonly requestDigestB64u: string;
 };
 
+type RouterAbRequestPolicyClaimsInputV1 = {
+  readonly policyVersion: string;
+  readonly workKind:
+    | 'registration_prepare'
+    | 'key_export'
+    | 'recovery'
+    | 'server_share_refresh';
+  readonly requestDigest: { readonly bytes: readonly number[] };
+};
+
 /**
  * Receives the Router's raw `Server-Timing` header, when it sent one
  * (Refactor 94B Phase 0). Diagnostics only: the Router's spans never reach the
@@ -156,6 +166,7 @@ export interface RouterAbEcdsaStrictPostRegistrationPort {
   topology(): RouterAbEcdsaStrictRegistrationTopology;
   explicitExport(input: {
     readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+    readonly requestDigestB64u: string;
     readonly authority: RouterAbEcdsaStrictExportAuthority;
   }): Promise<RouterAbEcdsaStrictExportResult>;
   recover(input: {
@@ -194,13 +205,9 @@ export type RouterAbEcdsaEd25519PrivateJwk = JsonWebKey & {
 
 export interface RouterAbEcdsaCeremonyTokenIssuer {
   issue(claims: RouterAbEcdsaCeremonyTokenClaims): Promise<string>;
-  issueRegistration(
+  issueRequest(
     claims: RouterAbEcdsaCeremonyTokenClaims,
-    requestPolicy: {
-      readonly policyVersion: string;
-      readonly workKind: 'registration_prepare';
-      readonly requestDigest: { readonly bytes: readonly number[] };
-    },
+    requestPolicy: RouterAbRequestPolicyClaimsInputV1,
   ): Promise<string>;
   publicJwks(): { readonly keys: readonly JsonWebKey[] };
 }
@@ -223,6 +230,8 @@ const STRICT_ECDSA_ACTIVATION_PATH = '/router-ab/ecdsa-derivation/activate';
 const STRICT_ECDSA_EXPORT_PATH = '/router-ab/ecdsa-derivation/export';
 const STRICT_ECDSA_RECOVERY_PATH = '/router-ab/ecdsa-derivation/recover';
 const STRICT_ECDSA_REFRESH_PATH = '/router-ab/ecdsa-derivation/refresh';
+const STRICT_ECDSA_POST_REGISTRATION_POLICY_VERSION =
+  'router-ab-ecdsa-post-registration-request-policy-v1';
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 
 class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort {
@@ -321,7 +330,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
         retryable: false,
       };
     }
-    const token = await this.config.tokenIssuer.issueRegistration(
+    const token = await this.config.tokenIssuer.issueRequest(
       ceremonyTokenClaimsForAuthority(input.authority, this.config.tokenScope),
       requestPolicy,
     );
@@ -378,12 +387,14 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
 
   async explicitExport(input: {
     readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+    readonly requestDigestB64u: string;
     readonly authority: RouterAbEcdsaStrictExportAuthority;
   }): Promise<RouterAbEcdsaStrictExportResult> {
     const forwarded = await this.forwardRaw({
       kind: 'explicit_export',
       path: STRICT_ECDSA_EXPORT_PATH,
       request: parseRouterAbEcdsaDerivationExplicitExportRequestV1(input.request),
+      requestDigestB64u: input.requestDigestB64u,
       authority: input.authority,
     });
     if (!forwarded.ok) return forwarded;
@@ -477,6 +488,7 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
           readonly kind: 'explicit_export';
           readonly path: string;
           readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+          readonly requestDigestB64u: string;
           readonly authority: RouterAbEcdsaStrictExportAuthority;
         }
       | {
@@ -490,9 +502,18 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
   ): Promise<{ readonly ok: true; readonly value: unknown } | RouterAbEcdsaStrictFailure> {
     const authorityFailure = validatePostRegistrationAuthorityBinding(input);
     if (authorityFailure) return authorityFailure;
-    const token = await this.config.tokenIssuer.issue(
-      ceremonyTokenClaimsForAuthority(input.authority, this.config.tokenScope),
-    );
+    const token =
+      input.kind === 'explicit_export'
+        ? await this.config.tokenIssuer.issueRequest(
+            ceremonyTokenClaimsForAuthority(input.authority, this.config.tokenScope),
+            postRegistrationRequestPolicy({
+              workKind: 'key_export',
+              requestDigestB64u: input.requestDigestB64u,
+            }),
+          )
+        : await this.config.tokenIssuer.issue(
+            ceremonyTokenClaimsForAuthority(input.authority, this.config.tokenScope),
+          );
     const response = await this.config.router.fetch(
       new Request(`https://router.router-ab.internal${input.path}`, {
         method: 'POST',
@@ -703,6 +724,21 @@ function parseRegistrationRequestPolicy(
   };
 }
 
+function postRegistrationRequestPolicy(input: {
+  readonly workKind: 'key_export' | 'recovery' | 'server_share_refresh';
+  readonly requestDigestB64u: string;
+}): RouterAbRequestPolicyClaimsInputV1 {
+  const requestDigestB64u = base64UrlString(input.requestDigestB64u, 32);
+  if (!requestDigestB64u) {
+    throw new Error('Strict ECDSA post-registration request digest is invalid');
+  }
+  return {
+    policyVersion: STRICT_ECDSA_POST_REGISTRATION_POLICY_VERSION,
+    workKind: input.workKind,
+    requestDigest: { bytes: Array.from(decodeBase64Url(requestDigestB64u)) },
+  };
+}
+
 function validateRegistrationAuthorityBinding(input: {
   readonly request: RouterAbEcdsaRegistrationRequestV1;
   readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
@@ -801,24 +837,16 @@ class Ed25519CeremonyTokenIssuer implements RouterAbEcdsaCeremonyTokenIssuer {
     return await this.issueClaims(claims, null);
   }
 
-  async issueRegistration(
+  async issueRequest(
     claims: RouterAbEcdsaCeremonyTokenClaims,
-    requestPolicy: {
-      readonly policyVersion: string;
-      readonly workKind: 'registration_prepare';
-      readonly requestDigest: { readonly bytes: readonly number[] };
-    },
+    requestPolicy: RouterAbRequestPolicyClaimsInputV1,
   ): Promise<string> {
     return await this.issueClaims(claims, requestPolicy);
   }
 
   private async issueClaims(
     claims: RouterAbEcdsaCeremonyTokenClaims,
-    requestPolicy: {
-      readonly policyVersion: string;
-      readonly workKind: 'registration_prepare';
-      readonly requestDigest: { readonly bytes: readonly number[] };
-    } | null,
+    requestPolicy: RouterAbRequestPolicyClaimsInputV1 | null,
   ): Promise<string> {
     validateCeremonyTokenClaims(claims);
     const nowSec = Math.floor(Date.now() / 1000);
