@@ -550,7 +550,7 @@ the replacement and legacy MPC paths must not ship together.
       capability facts, while Email OTP registration/unlock resolves existing
       role-local material from active manifests instead of the write-dead
       composite session store.
-- [ ] Use the five preparation outcomes exhaustively:
+- [x] Use the five preparation outcomes exhaustively:
       `ready | pending | authorization_required | superseded | failed`.
 - [x] Treat exact-material supersession during signing as a typed retryable
       re-resolution and preserve it as distinct from terminal signing failure.
