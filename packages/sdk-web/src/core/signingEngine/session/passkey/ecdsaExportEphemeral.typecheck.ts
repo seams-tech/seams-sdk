@@ -9,7 +9,7 @@ import type {
   ThresholdEcdsaPasskeyExportActivationRequest,
 } from './ecdsaSessionProvision';
 import type {
-  EmailOtpEcdsaExactBootstrapRequest,
+  EmailOtpEcdsaBootstrapRequest,
   EmailOtpEcdsaExplicitExportBootstrapRequest,
   EmailOtpEcdsaExplicitExportBootstrapResult,
 } from './ecdsaBootstrap';
@@ -27,7 +27,7 @@ declare const explicitExportRequest: ThresholdEcdsaPasskeyExportActivationReques
 declare const emailOtpExplicitExportResult: EmailOtpEcdsaExplicitExportBootstrapResult;
 declare const emailOtpExplicitExportRequest: ThresholdEcdsaEmailOtpExportActivationRequest;
 declare const emailOtpTransactionRequest: ThresholdEcdsaEmailOtpActivationRequest;
-declare const emailOtpExactBootstrapRequest: EmailOtpEcdsaExactBootstrapRequest;
+declare const emailOtpExactBootstrapRequest: EmailOtpEcdsaBootstrapRequest;
 declare const emailOtpActivationRequest: ActivateEcdsaSessionRequest;
 
 // @ts-expect-error Ephemeral export material cannot become a transaction bootstrap result.
