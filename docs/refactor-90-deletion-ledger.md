@@ -249,7 +249,10 @@ ports, and the two-state recovery journal.
 - `PasskeyEcdsaCommittedLane`, `EmailOtpEcdsaCommittedLane`, their ready
   aliases and method-specific builders
 - ~~`EmailOtpEcdsaCommittedLaneStateError`~~ — deleted by `4962087ca`
-- `EvmFamilyEcdsaAuthMethod`
+- ~~`EvmFamilyEcdsaAuthMethod` and its committed-lane method dispatch~~ —
+  deleted by `1f1d5bb11`; the required authority factor is the discriminant
+- ~~the redundant `Ready*EcdsaCommittedLane` aliases and copy-builders~~ —
+  deleted by `ed1db6664`
 - Passkey source-priority and material-selection types
 - the Email OTP ECDSA authority resolver
 - method-specific reauth and restore assembly ports

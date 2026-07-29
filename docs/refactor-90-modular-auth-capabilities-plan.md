@@ -325,7 +325,7 @@ removes.
       legacy material writes.
 - [x] Reject and clear pre-cutover development records at the persistence
       boundary; add no dual-schema core reader, alias, or fallback.
-- [ ] Prove persisted hydration → worker bind → sign through the shared path
+- [x] Prove persisted hydration → worker bind → sign through the shared path
       using the current worker-open request fixture.
 
 ### 1D. Slim material references
