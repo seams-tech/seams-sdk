@@ -4,13 +4,11 @@ Status: architecture plan
 
 Related plan:
 
-- [Cloudflare-Native Centaur Fork Plan](./centaur-cloud-fork.md)
 - [Refactor 90 Modular Auth And Capability Plan](./refactor-90-modular-auth-capabilities-plan.md)
 
 ## Objective
 
-Design the first-party secrets vault for the Cloudflare-native Satyr platform
-and the adjacent Centaur cloud fork plan.
+Design the first-party secrets vault for the Cloudflare-native Satyr platform.
 The vault should let merchant operators store credentials, delegate controlled
 use to agents, and route privileged calls through trusted Worker-side egress
 handlers without giving agents reusable plaintext secrets by default.
@@ -1428,8 +1426,6 @@ landing as a parallel subsystem.
 | Server assembly | `apps/web-server/src/consoleConfig.ts` and server bootstrap seed console data. | Seed minimal Refactor 90 vault fixtures first; add direct/delegate memberships, service-account grant-request scopes, and full vault policies in follow-on work. |
 | Examples | `examples/self-host-cloudflare-worker` and `examples/relay-cloudflare-worker` are signing/relay focused. | Add a vault-only Cloudflare Worker example with no MPC bundle, plus a full-platform example with optional MPC evidence. |
 | Tests | `tests/relayer/*`, `tests/e2e/dashboard*.test.ts`, and `tests/unit/*guard*.test.ts` cover current console, router, and signing assumptions. | Phase 0 must list obsolete wallet-only expectations, delete redundant fixtures, and add type/runtime tests for vault-only tenants, grant replay, tenant isolation, and no-MPC imports. |
-| Rust Cloudflare router | `crates/router-ab-cloudflare/*` owns existing project-policy and normal-signing Cloudflare concepts. | Inventory only for v1 unless Centaur chooses to reuse Rust router primitives for egress policy or Durable Object evaluation. |
-| Missing adjacent spec | `docs/seams-commerce-harness.md` is referenced by product discussion but is absent in the repo. | Restore the file, update the reference, or move commerce harness requirements into `docs/centaur-cloud-fork.md` before implementation starts. |
 
 ## Local Development
 
@@ -1584,7 +1580,6 @@ Security tests:
 
 ## References
 
-- [Cloudflare-Native Centaur Fork Plan](./centaur-cloud-fork.md)
 - [Refactor 90 Modular Auth And Capability Plan](./refactor-90-modular-auth-capabilities-plan.md)
 - Cloudflare Workers: https://developers.cloudflare.com/workers/
 - Cloudflare Durable Objects: https://developers.cloudflare.com/durable-objects/
@@ -1593,4 +1588,4 @@ Security tests:
 - Cloudflare Queues: https://developers.cloudflare.com/queues/
 - Cloudflare Workflows: https://developers.cloudflare.com/workflows/
 - Cloudflare Secrets Store: https://developers.cloudflare.com/secrets-store/
-- Centaur upstream: https://github.com/paradigmxyz/centaur
+- Satyr upstream: https://github.com/seams-tech/satyr
