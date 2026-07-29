@@ -21,9 +21,14 @@ import type { EvmFamilyEcdsaSessionReaderDeps } from '../../interfaces/operation
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import {
   createEmailOtpEcdsaTransactionSigningBridge,
+  emailOtpEcdsaCapabilityStepUpAuthority,
+  type EmailOtpEcdsaChallengeAuthority,
   type EmailOtpEcdsaStepUpAuthority,
   type EvmFamilyEmailOtpTransactionSigningBridge,
 } from './emailOtpSigningSession';
+import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { CanonicalEvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
 import type {
   EmailOtpEcdsaCommittedLane,
   EmailOtpEcdsaPublicReauthLane,
@@ -43,17 +48,7 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
   requestEmailOtpTransactionSigningChallenge?: (args: {
     walletSession: WalletSessionRef;
     chain: EvmFamilyChain;
-    authority:
-      | {
-          kind: 'live_session';
-          authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
-          reauthLane?: never;
-        }
-      | {
-          kind: 'public_reauth_anchor';
-          reauthLane: EmailOtpEcdsaPublicReauthLane;
-          authLane?: never;
-        };
+    authority: EmailOtpEcdsaChallengeAuthority;
   }) => Promise<EmailOtpTransactionSigningChallenge>;
 };
 
@@ -95,16 +90,23 @@ export type ResolveEvmFamilyTransactionStepUpArgs =
   // Auth-neutral ECDSA material: the reusable-session planner never ran, so
   // there is no prepared threshold operation and no signing session plan to
   // derive a warm-session plan from. The operation is authorized directly on
-  // the capability's own factor.
+  // the capability's own factor, which is why the capability itself is
+  // required here -- it is the authority an Email OTP challenge is minted for.
   | (ResolveEvmFamilyTransactionStepUpBaseArgs & {
       senderSignatureAlgorithm: 'secp256k1';
       ecdsaAuthorization: 'operation_step_up';
       preparedOperation?: never;
+      capability: CanonicalEvmFamilyEcdsaSigningCapability;
+      materialActivation: MpcMaterialActivationRef;
+      operationFingerprint: string;
     })
   | (ResolveEvmFamilyTransactionStepUpBaseArgs & {
       senderSignatureAlgorithm: Exclude<EvmFamilySenderSignatureAlgorithm, 'secp256k1'>;
       ecdsaAuthorization?: never;
       preparedOperation?: never;
+      capability?: never;
+      materialActivation?: never;
+      operationFingerprint?: never;
     });
 
 export async function resolveEvmFamilyTransactionStepUp(
@@ -136,12 +138,25 @@ export async function resolveEvmFamilyTransactionStepUp(
   const preparedEcdsaLane = reusableSessionEcdsaOperation?.lane;
   const preparedSelection = preparedEcdsaMetadata?.selection;
   const confirmedEmailOtpDeps = args.confirmedDeps;
+  // Auth-neutral material has no lane and no selection to read an authority
+  // from. The capability is the authority, and it is validated against the
+  // exact material activation before any challenge is minted.
+  const capabilityStepUpAuthority =
+    args.ecdsaAuthorization === 'operation_step_up' &&
+    isEmailOtpWalletAuthAuthority(args.capability.authority)
+      ? emailOtpEcdsaCapabilityStepUpAuthority({
+          capability: args.capability,
+          materialActivation: args.materialActivation,
+          operationFingerprint: args.operationFingerprint,
+        })
+      : undefined;
   const emailOtpAuthority =
-    preparedEcdsaLane &&
+    capabilityStepUpAuthority ??
+    (preparedEcdsaLane &&
     signingLaneAuthMethod(preparedEcdsaLane.auth) === SIGNER_AUTH_METHODS.emailOtp &&
     preparedSelection?.authMethod === SIGNER_AUTH_METHODS.emailOtp
       ? emailOtpStepUpAuthority(preparedSelection)
-      : undefined;
+      : undefined);
   const emailOtpAuthBridge = emailOtpAuthority
     ? createEmailOtpEcdsaTransactionSigningBridge({
         walletId,
@@ -228,12 +243,11 @@ export async function resolveEvmFamilyTransactionStepUp(
     if (args.accountAuth.primaryAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
       if (!emailOtpAuthBridge) {
         if (args.ecdsaAuthorization === 'operation_step_up') {
-          // The Email OTP challenge is still requested through a warm-session
-          // or public-reauth authority, neither of which an auth-neutral
-          // candidate has. Passkey material reaches operation step-up; Email
-          // OTP material needs a capability-bound challenge authority first.
+          // The wallet's primary factor is Email OTP but the capability this
+          // operation selected is bound to a different one. Minting an OTP
+          // here would prove the wrong factor for this material.
           throw new Error(
-            '[SigningEngine] Email OTP operation step-up requires a capability-bound challenge authority',
+            '[SigningEngine] Email OTP step-up authority does not match the selected capability',
           );
         }
         throw new Error('[SigningEngine] Email OTP transaction signing requires ECDSA lane state');

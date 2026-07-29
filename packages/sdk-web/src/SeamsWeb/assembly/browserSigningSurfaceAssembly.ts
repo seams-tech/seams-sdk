@@ -32,7 +32,13 @@ import {
   buildCanonicalEvmFamilyEcdsaSigningCapability,
   type ActiveEvmFamilyWalletSessionAuthorization,
   type AuthorizedEvmFamilyEcdsaSigningCapability,
+  type CanonicalEvmFamilyEcdsaSigningCapability,
+  type EvmFamilyEcdsaSigningCapabilityAvailability,
 } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSigningCapability';
+import {
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import { listEcdsaSealedSessionsForWallet } from '@/core/signingEngine/session/persistence/sealedSessionStore';
@@ -199,6 +205,55 @@ export function createBrowserActiveEcdsaWalletSessionAuthorizationResolver(
   };
 }
 
+async function getBrowserCanonicalEcdsaSigningCapability(
+  input: Parameters<
+    Parameters<typeof createSigningEnginePorts>[0]['resolveCanonicalEcdsaSigningCapability']
+  >[0],
+): Promise<CanonicalEvmFamilyEcdsaSigningCapability> {
+  const walletId = toWalletId(input.walletId);
+  const subjects = await ecdsaCapabilityManifestStore.listActiveWalletCapabilitySubjects(walletId);
+  if (subjects.kind !== 'resolved') {
+    throw new Error(`ECDSA capability subjects are ${subjects.kind}`);
+  }
+  const matches = subjects.subjects.filter(
+    (subject) => subject.capability === input.materialActivation.capability,
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? 'ECDSA capability manifest is missing'
+        : 'ECDSA capability manifest is ambiguous',
+    );
+  }
+  const manifestLookup = await ecdsaCapabilityManifestStore.lookup(matches[0]);
+  if (manifestLookup.kind !== 'active') {
+    throw new Error(`ECDSA capability manifest is ${manifestLookup.kind}`);
+  }
+  const manifest = manifestLookup.manifest;
+  if (
+    manifest.signer.walletId !== walletId ||
+    !mpcMaterialActivationRefsEqual(
+      manifest.activation.materialActivation,
+      input.materialActivation,
+    ) ||
+    !manifest.signer.scope.targetMemberships.some(
+      (target) =>
+        thresholdEcdsaChainTargetKey(target) === thresholdEcdsaChainTargetKey(input.chainTarget),
+    )
+  ) {
+    throw new Error('ECDSA capability manifest does not match the requested signer');
+  }
+  return await buildCanonicalEvmFamilyEcdsaSigningCapability({
+    authority: await resolveExactWalletAuthAuthority(manifest.signer.authority),
+    manifest,
+    material: buildPersistedEcdsaRoleLocalMaterial({
+      authority: manifest.signer.authority,
+      materialActivation: manifest.activation.materialActivation,
+      publicFacts: manifest.durableMaterial.roleLocalPublicFacts,
+    }),
+  });
+}
+
 async function getBrowserEcdsaSigningCapability(
   args: BrowserEcdsaCapabilityReaderContext,
   input: Parameters<
@@ -213,37 +268,8 @@ async function getBrowserEcdsaSigningCapability(
     throw new Error(resolution.reason);
   }
   const browserAuthorization = resolution.authorization;
-  const projection = browserAuthorization.projection;
-  const manifestLookup = await ecdsaCapabilityManifestStore.lookup({
-    capability: input.materialActivation.capability,
-    authority: projection.authority,
-  });
-  if (manifestLookup.kind !== 'active') {
-    throw new Error(`ECDSA capability manifest is ${manifestLookup.kind}`);
-  }
-  const manifest = manifestLookup.manifest;
-  if (
-    !mpcMaterialActivationRefsEqual(
-      manifest.activation.materialActivation,
-      input.materialActivation,
-    ) ||
-    !manifest.signer.scope.targetMemberships.some(
-      (target) =>
-        thresholdEcdsaChainTargetKey(target) === thresholdEcdsaChainTargetKey(input.chainTarget),
-    )
-  ) {
-    throw new Error('ECDSA capability manifest does not match the requested signer');
-  }
   return authorizeEvmFamilyEcdsaSigningCapability({
-    capability: await buildCanonicalEvmFamilyEcdsaSigningCapability({
-      authority: await resolveExactWalletAuthAuthority(projection.authority),
-      manifest,
-      material: buildPersistedEcdsaRoleLocalMaterial({
-        authority: manifest.signer.authority,
-        materialActivation: manifest.activation.materialActivation,
-        publicFacts: manifest.durableMaterial.roleLocalPublicFacts,
-      }),
-    }),
+    capability: await getBrowserCanonicalEcdsaSigningCapability(input),
     authorization: browserAuthorization,
   });
 }
@@ -255,11 +281,15 @@ export async function listBrowserEcdsaSigningCapabilitiesForWallet(
     chainTargets: readonly ThresholdEcdsaChainTarget[];
     authMethod?: 'email_otp' | 'passkey';
   },
-): Promise<readonly AuthorizedEvmFamilyEcdsaSigningCapability[]> {
+): Promise<readonly EvmFamilyEcdsaSigningCapabilityAvailability[]> {
   const walletId = toWalletId(input.walletId);
   const subjects = await ecdsaCapabilityManifestStore.listActiveWalletCapabilitySubjects(walletId);
   if (subjects.kind !== 'resolved') return [];
-  const capabilities: AuthorizedEvmFamilyEcdsaSigningCapability[] = [];
+  const authorizationResolution = await resolveBrowserActiveEcdsaWalletSessionAuthorization(
+    args,
+    walletId,
+  );
+  const capabilities: EvmFamilyEcdsaSigningCapabilityAvailability[] = [];
   for (const subject of subjects.subjects) {
     const lookup = await ecdsaCapabilityManifestStore.lookup(subject);
     if (lookup.kind !== 'active') continue;
@@ -274,15 +304,40 @@ export async function listBrowserEcdsaSigningCapabilitiesForWallet(
     ) {
       continue;
     }
-    const capability = await getBrowserEcdsaSigningCapability(args, {
+    const matchingTarget = input.chainTargets.find((target) =>
+      manifest.signer.scope.targetMemberships.some(
+        (membership) =>
+          thresholdEcdsaChainTargetKey(target) === thresholdEcdsaChainTargetKey(membership),
+      ),
+    );
+    if (!matchingTarget) continue;
+    const capability = await getBrowserCanonicalEcdsaSigningCapability({
       walletId,
-      chainTarget: manifest.signer.scope.targetMemberships[0],
+      chainTarget: matchingTarget,
       materialActivation: manifest.activation.materialActivation,
     });
-    if (input.authMethod && capability.authorization.projection.authMethod !== input.authMethod) {
+    const capabilityAuthMethod = isPasskeyWalletAuthAuthority(capability.authority)
+      ? 'passkey'
+      : isEmailOtpWalletAuthAuthority(capability.authority)
+        ? 'email_otp'
+        : null;
+    if (!capabilityAuthMethod || (input.authMethod && capabilityAuthMethod !== input.authMethod)) {
       continue;
     }
-    capabilities.push(capability);
+    if (
+      authorizationResolution.kind === 'active' &&
+      authorizationResolution.authorization.projection.authority.authorityDigest ===
+        capability.manifest.signer.authority.authorityDigest
+    ) {
+      capabilities.push(
+        authorizeEvmFamilyEcdsaSigningCapability({
+          capability,
+          authorization: authorizationResolution.authorization,
+        }),
+      );
+      continue;
+    }
+    capabilities.push({ kind: 'authorization_required', capability });
   }
   return capabilities;
 }
@@ -316,6 +371,15 @@ async function requestEmailOtpEcdsaStepUpChallenge(args: {
         authLane: args.authority.authLane,
       });
     case 'public_reauth_anchor':
+      return await args.coordinator.requestPublicReauthTransactionSigningChallenge({
+        walletSession: args.walletSession,
+        chain: args.chain,
+      });
+    case 'capability_step_up':
+      // Auth-neutral material has no warm signing lane to mint against, so the
+      // challenge is minted against the wallet's own app session. The mailbox
+      // is the capability's: the authority was already checked against the
+      // selected capability before it got here.
       return await args.coordinator.requestPublicReauthTransactionSigningChallenge({
         walletSession: args.walletSession,
         chain: args.chain,
@@ -458,6 +522,8 @@ export function createBrowserSigningSurfaceEnginePorts(
         },
         statusArgs,
       ),
+    resolveCanonicalEcdsaSigningCapability: (input) =>
+      getBrowserCanonicalEcdsaSigningCapability(input),
     resolveAuthorizedEcdsaSigningCapability: (input) => getBrowserEcdsaSigningCapability(args, input),
     resolveActiveEcdsaWalletSessionAuthorization:
       createBrowserActiveEcdsaWalletSessionAuthorizationResolver(args),
@@ -554,9 +620,10 @@ export function createBrowserSigningSurfaceEnginePorts(
           touchConfirm: args.touchConfirm,
           persistEcdsaRoleLocalReadyRecord:
             args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-          resolveSealTransport: ({ lane }) =>
+          resolveSealTransport: ({ lane, authorization }) =>
             args.warmSigning.capabilityReader.resolveEcdsaSealTransportForLane({
               lane,
+              authorization,
             }),
         },
         provisionArgs,
