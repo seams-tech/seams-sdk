@@ -2475,6 +2475,15 @@ export class CloudflareD1WalletRegistrationService {
       if (!ecdsaBranch && !planNearEd25519) {
         return { ok: false, code: 'invalid_state', message: 'a signer branch is required' };
       }
+      /* The client's declared plan must match what the ceremony recorded. */
+      const ceremonyIsEd25519Only = !ecdsaBranch && Boolean(planNearEd25519);
+      if ((input.planKind === 'near_ed25519') !== ceremonyIsEd25519Only) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'respond signer plan does not match the registration ceremony',
+        };
+      }
       if (!ecdsaBranch && planNearEd25519) {
         /* Ed25519-only: no ECDSA leg to run. Verify the proof, establish the
            authority, and hand back the authority-bound Yao admission as
@@ -2492,15 +2501,22 @@ export class CloudflareD1WalletRegistrationService {
       if (!ecdsaBranch) {
         return { ok: false, code: 'invalid_state', message: 'ECDSA branch is required' };
       }
-      const strictRegistrationBindingJson = routerAbEcdsaStrictRegistrationRequestBindingJson(
-        input.ecdsa.strictRegistration,
-      );
+      if (!input.ecdsa) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'strict Router A/B ECDSA registration request is required',
+        };
+      }
+      const strictRegistration = input.ecdsa.strictRegistration;
+      const strictRegistrationBindingJson =
+        routerAbEcdsaStrictRegistrationRequestBindingJson(strictRegistration);
       /* Exact replay: the terminal branch already holds this request's result,
          so return the stored bundles rather than calling the Router again. */
       if (ecdsaBranch.kind === 'evm_family_ecdsa_pending_activation') {
         if (
           alphabetizeStringify(ecdsaBranch.registrationRequest) !==
-          alphabetizeStringify(input.ecdsa.strictRegistration)
+          alphabetizeStringify(strictRegistration)
         ) {
           return {
             ok: false,
@@ -2575,7 +2591,7 @@ export class CloudflareD1WalletRegistrationService {
       const nearEd25519Branch = registrationSignerBranchesFromPlan(ceremony.signerPlan).nearEd25519;
       const [strictResult, ed25519Admission] = await Promise.all([
         this.ecdsaStrictRegistration.register({
-          request: input.ecdsa.strictRegistration,
+          request: strictRegistration,
           authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
           traceContext,
           onServerTiming: (header) => mergeRouterServerTiming(serverTiming, header),
@@ -2608,7 +2624,7 @@ export class CloudflareD1WalletRegistrationService {
           prepare: ecdsaBranch.prepare,
           strictRegistration: ecdsaBranch.strictRegistration,
           strictRegistrationBindingJson: ecdsaBranch.strictRegistrationBindingJson,
-          registrationRequest: input.ecdsa.strictRegistration,
+          registrationRequest: strictRegistration,
           pendingActivation: strictResult.value.pendingActivation,
           publicResponse: strictResult.value.publicResponse,
         },
@@ -2642,7 +2658,7 @@ export class CloudflareD1WalletRegistrationService {
           !reconciled ||
           reconciledBranch?.kind !== 'evm_family_ecdsa_pending_activation' ||
           alphabetizeStringify(reconciledBranch.registrationRequest) !==
-            alphabetizeStringify(input.ecdsa.strictRegistration)
+            alphabetizeStringify(strictRegistration)
         ) {
           throw error;
         }
@@ -3065,6 +3081,13 @@ export class CloudflareD1WalletRegistrationService {
        call instead of serializing behind it. */
     if (!registrationSignerBranchesFromPlan(ceremony.signerPlan).evmFamilyEcdsa) {
       return await this.commitEd25519PendingWallet({ ceremony, authority: ceremonyAuthority });
+    }
+    if (!context.input.ecdsa) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'browser-verified clientActivation is required for this signer plan',
+      };
     }
     const activated = await this.activateWalletRegistrationEcdsa(
       {
