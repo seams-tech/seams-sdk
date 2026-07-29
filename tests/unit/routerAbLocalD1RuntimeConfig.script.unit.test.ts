@@ -271,6 +271,21 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   expect(signingWorkerConfig).toMatch(
     /SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY = "x25519:[0-9a-f]{64}"/u,
   );
+  expect(runtime.configs[3].privateD1).toEqual({
+    databaseName: 'router-ab-signing-worker-private',
+    migrationsDirectory: 'signing-worker',
+  });
+  expect(signingWorkerConfig).toContain(
+    `migrations_dir = ${JSON.stringify(
+      path.join(
+        repoRoot(),
+        'crates',
+        'router-ab-cloudflare',
+        'migrations',
+        'signing-worker',
+      ),
+    )}`,
+  );
   for (const config of runtime.configs) {
     expect(statSync(config.secretPath).mode & 0o777).toBe(0o600);
   }

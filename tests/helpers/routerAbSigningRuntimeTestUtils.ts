@@ -175,8 +175,6 @@ export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements Rou
         publicResponse: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1({
           result: 'forwarded',
           response: {
-            replay: { request_id: request.replay_nonce, reserved: true },
-            lifecycle: { lifecycle_id: request.lifecycle.lifecycle_id, stored: true },
             bundles: { signerA: bundle, signerB: bundle },
           },
         }),
