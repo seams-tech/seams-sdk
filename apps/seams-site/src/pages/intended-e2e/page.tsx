@@ -829,16 +829,30 @@ class IntendedPageController {
         session: registration,
         ecdsaTargetKeys,
       });
-      const summary: EmailOtpRegistrationResultSummary = {
-        kind: registration.kind,
-        initialWalletId: registration.initialWalletId,
-        walletId: registration.walletId,
-        nearAccountId: registration.nearAccountId,
-        operationalPublicKey: registration.operationalPublicKey,
-        signingSessionStatus: registration.signingSessionStatus,
-        remainingUses: registration.remainingUses,
-        ...ecdsa,
-      };
+      /* Branch on the arm rather than copying members out: deferred NEAR means
+         the result carries either a resolved identity or a provisioning
+         status, never both, and flattening the two into one object loses
+         exactly that guarantee. NEAR identity is read only on the ready arm. */
+      const summary: EmailOtpRegistrationResultSummary = registration.nearProvisioning
+        ? {
+            kind: registration.kind,
+            initialWalletId: registration.initialWalletId,
+            walletId: registration.walletId,
+            nearProvisioning: registration.nearProvisioning,
+            signingSessionStatus: registration.signingSessionStatus,
+            remainingUses: registration.remainingUses,
+            ...ecdsa,
+          }
+        : {
+            kind: registration.kind,
+            initialWalletId: registration.initialWalletId,
+            walletId: registration.walletId,
+            nearAccountId: registration.nearAccountId,
+            operationalPublicKey: registration.operationalPublicKey,
+            signingSessionStatus: registration.signingSessionStatus,
+            remainingUses: registration.remainingUses,
+            ...ecdsa,
+          };
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
       this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
