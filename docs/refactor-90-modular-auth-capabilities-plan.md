@@ -748,7 +748,7 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 
 ### Typed UI lifecycle
 
-- [ ] Make React, Lit, iframe, and direct SDK adapters render
+- [x] Make React, Lit, iframe, and direct SDK adapters render
       `ready | pending | authorization_required | superseded | failed`
       exhaustively.
 - [x] Discard and re-resolve stale state on `superseded` across the direct SDK,
