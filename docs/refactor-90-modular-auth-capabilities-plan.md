@@ -47,13 +47,47 @@ Refactor 90 builds on behavior already established by:
   conversions;
 - [Refactor 92](./refactor-92-session-expiry-handling.md): the signing-session
   lifecycle, which is frozen for this refactor;
-- [Refactor 93](./refactor-93.md): request-scoped server routing and gateway
-  ownership;
+- [Refactor 93](./refactor-93.md): pair-bound Router/Deriver execution and exact
+  role-result replay;
+- [Refactor 94C](./refactor-94C-regression-fixes.md): the final Cloudflare
+  durable-owner map and zero-Durable-Object topology;
 - [Email OTP local rehydration](./refactor-patch-2-email-otp-local-rehydration.md):
   the current local-material recovery boundary.
 
 Refactor 90 must preserve those behaviors. It replaces temporary shapes and
 duplicated transitions without reopening their product semantics.
+
+### Refactor 94C reconciliation boundary
+
+[Refactor 94C](./refactor-94C-regression-fixes.md) is a follow-on
+topology change that may supersede Refactor 93 placement decisions while this
+branch is in flight. Future merges from `dev` must preserve Refactor 90's domain
+contracts and accept Refactor 94C's final durable-owner placement.
+
+Known conflicts:
+
+- Refactor 93 placed operation admission at the request-scoped Gateway.
+  Refactor 94C moves ordinary-signing claims, session budgets, and presignature
+  consumption to SigningWorker private D1. Preserve the stable operation
+  fingerprint, exact replay, atomic claim, and single-consumption semantics at
+  that owner.
+- Refactor 90 models activation as idempotent and queryable by activation
+  correlation. Refactor 94C folds standalone prepare/finalize routes into its
+  three blocking registration routes. Preserve prepared coordinates, exact
+  replay, crash reconciliation, and queryable completion even if the route
+  shape changes.
+- Refactor 94C removes redundant server journals and standalone managed-grant
+  rows. It must not remove the logical `CapabilityGrantId`, signed admitted
+  policy, operation claim, or the client IndexedDB two-state activation journal
+  used to resolve server uncertainty.
+- Refactor 94C's stateless compute Workers may use private D1-owned durable
+  effects. Do not restore DO/Gateway state merely to satisfy Refactor 93-era
+  call sites during conflict resolution.
+
+Merge rule: keep the Refactor 90 capability, authorization, activation,
+fingerprint, replay, and typed-result interfaces; take Refactor 94C's storage
+and routing ownership; delete the superseded owner in the same merge. Update
+the affected Unit 2 and Unit 3a checkboxes before marking either unit complete.
 
 ## Goal
 
@@ -141,9 +175,9 @@ work is tracked in five units.
 
 | Unit                                               | Consolidates                                             | Dependency                                    | Result                                                                                                             |
 | -------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **1. Canonical hydration + canonical ECDSA state** | Foundations A/B, Phases 4–5, ECDSA identity work from 18 | Implementation complete; exit validation open | Exact subjects, protocol-local resolvers with shared outcomes, required ECDSA state, and slim material references. |
-| **2. Shared authorization core**                   | Phases 7–14, including Phase 8 SDK selection             | Operating core complete; cleanup gate open    | Closed capability vocabulary plus DB-backed session → evidence → grant → claim → audit flow.                       |
-| **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | Structural ECDSA signing/provisioning/export cutover implemented; operating-path validation and final deletion open | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
+| **1. Canonical hydration + canonical ECDSA state** | Foundations A/B, Phases 4–5, ECDSA identity work from 18 | Implementation complete; remaining state/crash acceptance open | Exact subjects, protocol-local resolvers with shared outcomes, required ECDSA state, and slim material references. |
+| **2. Shared authorization core**                   | Phases 7–14, including Phase 8 SDK selection             | Atomic claim core complete; effect-owner response replay awaits Refactor 94C | Closed capability vocabulary plus DB-backed session → evidence → grant → claim → audit flow.                       |
+| **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | Core operating paths and production record deletion complete; acceptance and residual cleanup open | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
 | **3b. Vault proving vertical**                     | Phase 16                                                 | Complete                                      | [Satyr vault plan Phase 6](./satyr-secrets-vault.md) proves one real vault operation.                              |
 | **4. UI + provisioning**                           | Phases 22–23                                             | Started; typed expiry complete                | Typed lifecycle events and provisioning use the canonical capability model.                                        |
 
@@ -190,7 +224,9 @@ SPEC and Satyr plan are amended together.
 - [x] Phase 3: AuthService mechanical module split.
 - [x] Refactor 91 auth-domain cutover is treated as current behavior.
 - [x] Refactor 92 signing-session lifecycle is frozen.
-- [x] Refactor 93 request-scoped gateway ownership is the server baseline.
+- [x] Refactor 93 pair-bound role execution and exact replay are retained.
+- [ ] Refactor 94C replaces the Cloudflare Gateway/DO ownership baseline before
+      Refactor 90 release.
 
 ## External Acceptance Gates
 
@@ -204,8 +240,9 @@ parallel compatibility paths.
 - [ ] Refactor 91 intended-behavior acceptance passes against a healthy site.
 - [ ] Refactor 92 network traces prove expiry never invokes Yao recovery or
       device linking.
-- [ ] Refactor 93 hosted recovery and latency acceptance passes before Near
-      release.
+- [ ] Refactor 93 hosted recovery behavior remains correct on the Refactor 94C
+      topology before Near release.
+- [ ] Refactor 94C zero-DO registration and ordinary-signing acceptance passes.
 - [ ] Run the intended-behavior suite against a healthy local or deployed site.
 - [ ] Complete required Yao production gates before claiming Yao production
       readiness.
@@ -227,7 +264,7 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
 - [x] NEAR session state survives without an inferred signing lane.
 - [x] Replace combined optional wallet-unlock bags with an exhaustive subject
       union.
-- [ ] Make registration, unlock, and refresh enter the protocol-local resolver
+- [x] Make registration, unlock, and refresh enter the protocol-local resolver
       for each capability and return the shared outcome union.
 - [ ] Delete JWT-presence, optional-ID, and authentication-method lane
       inference.
@@ -240,9 +277,10 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
 - [x] Add branch-specific builders and type fixtures that reject invalid
       combinations.
 - [x] Normalize ECDSA observations once into the shared hydration input.
-- [ ] Prove entry-point provenance is absent from resolver input, then cover the
-      seven canonical states for each capability: live, sealed-active, retired,
-      missing, corrupt, conflicting, and unavailable.
+- [x] Prove registration, unlock, and refresh provenance is absent from ECDSA
+      and Near resolver input.
+- [ ] Cover the seven canonical states for each capability: live,
+      sealed-active, retired, missing, corrupt, conflicting, and unavailable.
 - [ ] Delete protocol-specific derivation and duplicate readiness helpers after
       their callers move.
 - [x] Verify there is one hydration decision for Passkey and Email OTP.
@@ -268,7 +306,8 @@ removes.
       `server_activation_committed`.
 - [x] Make server activation idempotent and queryable by journal correlation.
 - [x] Prove finalized encrypted material survives worker termination and a
-      fresh worker rehydrates the same durable material reference.
+      fresh worker rehydrates the same durable material reference using the
+      current worker-open request fixture.
 - [x] Implement selector-scoped store/worker reconciliation for prepared and
       server-committed journals; prepared remains pending and committed reuses
       the canonical atomic finalizer.
@@ -286,7 +325,8 @@ removes.
       legacy material writes.
 - [x] Reject and clear pre-cutover development records at the persistence
       boundary; add no dual-schema core reader, alias, or fallback.
-- [x] Prove persisted hydration → worker bind → sign through the shared path.
+- [ ] Prove persisted hydration → worker bind → sign through the shared path
+      using the current worker-open request fixture.
 
 ### 1D. Slim material references
 
@@ -309,8 +349,10 @@ removes.
 
 - [ ] Every deletion-ledger entry assigned to Unit 1 is closed; ownership
       corrections are recorded before implementation.
-- [ ] One type fixture proves registration, unlock, and refresh provenance cannot
-      affect resolver input; fourteen state cases cover both capabilities.
+- [x] Type fixtures prove registration, unlock, and refresh provenance cannot
+      affect ECDSA or Near resolver input.
+- [ ] Fourteen state cases cover the seven canonical states for both
+      capabilities.
 - [x] Required-field and invalid-state type fixtures pass.
 - [ ] IndexedDB crash tests prove atomic activation finalization.
 - [ ] Focused intended-behavior tests preserve refresh allowance and exact
@@ -326,9 +368,10 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 - [x] Refactor 91 supplies the closed capability, operation, evidence, signer
       auth, and wallet-authority vocabularies with boundary parsers and type
       fixtures.
-- [x] Refactor 93 supplies the static shared route graph and request-scoped
-      `MPC_ROUTER` ownership used by Cloudflare, Node, local, and self-hosted
-      execution.
+- [x] Refactor 93 supplies the pair-bound Router/Deriver protocol and exact
+      role-result replay used by every host.
+- [ ] Refactor 94C supplies Cloudflare's final Gateway D1, role-private D1, and
+      SigningWorker private-D1 ownership behind the shared host ports.
 - [x] The existing app-session exchange and provider-verification boundary is
       the transport entry point to extend.
 - [x] Existing D1 CAS batches and Wallet Session budget tests provide the
@@ -358,16 +401,18 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
       static port shapes.
 - [x] Use one statically composed module graph; add no runtime plugin registry,
       tenant-mutated route table, or deployment module-selection framework.
-- [x] Preserve Refactor 93 gateway ownership and `MPC_ROUTER` request-scoped
-      binding.
+- [ ] Preserve the request-scoped `MPC_ROUTER` service-binding contract while
+      applying Refactor 94C's Cloudflare durable-owner map; keep Router
+      stateless.
 - [x] Reject tenant-runtime service locators and direct infrastructure roles in
       domain handlers.
 
 ### Authorization data model
 
-- [x] Persist precise records for session exchange codes, authorization
-      sessions, factor evidence, capability instances/bindings, operation
-      grants, operation claims, and audit events.
+- [x] Define precise records for session exchange codes, authorization
+      sessions, factor evidence, capability instances/bindings, logical
+      operation grants, operation claims, and audit events. A host may carry an
+      admitted grant as a signed payload instead of a standalone durable row.
 - [x] Implement opaque native session exchange bound to tenant, principal,
       audience/origin, and the minimum required device fact.
 - [x] Keep session transport and management authorization separate from
@@ -495,10 +540,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Remove the composite session record from
       `ReadyEvmFamilyEcdsaMaterial` and delete the record-backed ready-material
       and export helpers that depended on it.
-- [x] Construct the Passkey committed lane from its exact Passkey binding and
-      active authorization; selection no longer depends on record-backed or
-      pre-hydrated material state.
-- [ ] Demonstrate Passkey and Email OTP normal signing through canonical
+- [x] Construct the Passkey committed material lane from its exact Passkey
+      binding; selection no longer depends on record-backed or pre-hydrated
+      material state.
+- [x] Demonstrate Passkey and Email OTP normal signing through canonical
       hydration and worker binding using current shared factories.
 - [x] Move the remaining registration and explicit-unlock entry points to
       capability-owned state: Passkey unlock plans from active signer and
@@ -507,10 +552,17 @@ the replacement and legacy MPC paths must not ship together.
       composite session store.
 - [ ] Use the five preparation outcomes exhaustively:
       `ready | pending | authorization_required | superseded | failed`.
-- [ ] Serialize recovery, signing, refresh, and export material use per exact
-      material owner; keep user interaction outside the queue, check
-      generation/fence before use and commit, fail stale fences, and allow
-      different owners to progress independently.
+- [x] Treat exact-material supersession during signing as a typed retryable
+      re-resolution and preserve it as distinct from terminal signing failure.
+- [x] Serialize normal signing per exact material owner after user interaction;
+      re-resolve canonical material inside the queue and allow different owners
+      to progress independently.
+- [x] Serialize export by exact material owner after user interaction; re-resolve
+      the canonical manifest and sealed runtime after the queue wait and reject
+      a superseded activation before provisioning or worker export.
+- [x] Add canonical activation re-resolution immediately before recovery and
+      refresh worker use and commit. Keep their existing secure-owner lease and
+      worker singleflight; add no duplicate client queue.
 - [x] Bind live worker material to the exact material activation.
 - [x] Give a server-side expiry race at most one retry after same-method
       step-up.
@@ -520,29 +572,67 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Preserve the three-use reusable-session budget across refresh.
 - [x] Keep expiry, exhaustion, missing, unavailable, and invalid as distinct
       typed states.
-- [ ] Look up an existing operation claim before fresh authorization or
+- [x] Look up an existing operation claim before fresh authorization or
       recovery; reuse its outcome without another grant/quota use.
-- [ ] For an absent claim, atomically validate lifecycle, consume the exact
+- [x] For an absent claim, atomically validate lifecycle, consume the exact
       grant and applicable quota, create the claim, and link its audit event.
 - [x] Require reusable-session authority to carry
       `WalletSessionId + CapabilityGrantId`; require step-up authority to carry
       `CapabilityGrantId` and forbid `WalletSessionId`.
 - [x] Require both authorization branches to carry the independent exact
       `MpcMaterialActivationRef`.
+- [x] Separate hydrated ECDSA signer material from execution authorization;
+      prepare step-up from neutral material and attach the reusable-session or
+      one-operation grant only in the ready execution envelope.
+- [x] Resolve the canonical ECDSA capability and reusable Wallet Session
+      authorization independently; hydrate canonical material even when the
+      reusable authorization is absent.
+- [x] Key canonical ECDSA availability identity by exact material activation;
+      forbid `signingGrantId` and `thresholdSessionId` on canonical availability
+      records and their type fixtures.
+- [x] Carry export authorization beside the exact export material lane instead
+      of reading it from material identity.
+- [x] Require warm-capability and seal-transport consumers to receive their
+      reusable authorization explicitly.
+- [x] Key ECDSA step-up freshness authority by exact material activation rather
+      than Wallet Session or quota identity.
+- [x] Let canonical preparation discovery select an exact material lane without
+      requiring an active reusable Wallet Session. Preserve exact activation,
+      target, and factor as `authorization_required` without constructing a
+      `SelectedEcdsaLane`.
+- [x] When reusable authorization is absent, derive the operation-step-up
+      method from the capability authority and carry that prepared method into
+      confirmation; active reusable authorization retains the warm-session path.
+- [x] Carry the selected `authorization_required` material into operation
+      preparation and attach a same-method single-operation grant as a separate
+      execution proof. Do not mint or reread a reusable Wallet Session.
+- [x] Remove reusable authorization from `ExactEcdsaSigningLaneIdentity` and
+      require persistence, expiry, warm-capability, seal, and export consumers
+      to receive authorization through their explicit operation carrier.
 - [x] Replace generic wire `session_id` and `active_state_session_id` fields
       with the discriminated authorization branch and exact activation reference;
       update the unreleased protocol schema and transcript vectors together.
-- [ ] Commit Near grant/quota admission at the request-scoped Gateway before
-      the Router effect; bind its digest into Refactor 93 exact replay without
-      crypto reevaluation or repeated resource consumption.
+- [ ] Commit the Near operation claim and applicable reusable-session budget at
+      the durable effect owner before execution. Cloudflare uses SigningWorker
+      private D1 under Refactor 94C; bind the admitted-policy and operation
+      digests into exact replay without crypto reevaluation or repeated
+      resource consumption.
+
+  Blocked on Refactor 94C's SigningWorker private-D1 result store. The current
+  authorization row persists only a result digest and synthetic storage
+  reference; it cannot redeliver the prior response yet.
 - [ ] Add execution leases or delivery reconciliation only for a demonstrated
       operation that outlives its request or transfers between workers.
 
 ### Worker, WASM, and bundle boundary
 
+- [x] Delete the unread ECDSA runtime-validation registry and its
+      JWT/expiry-derived material key; retain canonical manifest/runtime
+      correlation and role-local resolver validation.
 - [ ] Keep live secret material owned by the worker or WASM boundary.
 - [ ] Preserve the Refactor 93 rule that `SigningWorker` receives the exact A/B
-      package pair atomically.
+      package pair atomically and the Refactor 94C rule that its activation,
+      delivery, session, budget, and presign effects live in private D1.
 - [ ] Keep generic confirmation free of MPC material; preserve Email OTP
       KEK/secret, Near root/client, and ECDSA derivation/presign/online-signing
       custody in their secure owners.
@@ -562,13 +652,14 @@ the replacement and legacy MPC paths must not ship together.
       those claims into `SeamsSession` is forbidden.
 - [ ] Update Cloudflare, Node, local, and self-hosted call sites in the same
       cutover.
-- [ ] Preserve static host ports and Refactor 93 request-scoped gateways.
+- [ ] Preserve static host ports and request-scoped service bindings; apply the
+      Refactor 94C owner map only inside the Cloudflare adapter.
 - [ ] Verify each host assembles the same statically composed capability
       modules and policies.
-- [ ] Preserve one admitted Gateway → Router command; forbid ceremony-wide
-      Router ledgers, tenant-wide Gateway state, tenant runtime/cutover
-      selectors, direct Deriver origins, direct Gateway role calls, and
-      Gateway-owned SigningWorker delivery.
+- [ ] Preserve one signed, admitted Gateway → Router command. Keep Router
+      stateless; forbid ceremony-wide Router ledgers, tenant-wide Gateway
+      runtime state, tenant runtime/cutover selectors, direct Deriver origins,
+      direct Gateway role calls, and Gateway-owned SigningWorker delivery.
 - [ ] Remove obsolete route handlers, service locators, and direct host-role
       access with their last caller.
 
@@ -584,15 +675,20 @@ the replacement and legacy MPC paths must not ship together.
       updating still-valid tests through current shared factories; require a
       successful non-empty Playwright unit test listing before normal-signing
       work proceeds.
-- [ ] Delete the complete `ThresholdEcdsaSessionRecord*` family, public APIs,
-      runtime maps, and fixtures after Unit 2 supplies the narrow
-      authorization/session/quota projection and this cutover removes the final
-      reader.
-- [ ] Delete `active_state_session_id`, generic wire session aliases, and
-      remaining authorization/material-scope aliases owned by this cutover.
+- [x] Delete the complete production `ThresholdEcdsaSessionRecord*` family,
+      public APIs, runtime maps, readers, writers, parsers, and adapters after
+      Unit 2 supplies the narrow authorization/session/quota projection.
+- [x] Remove legacy-only composite-record fixtures and move retained Email OTP
+      coordinator setup to canonical manifest, authorization, and sealed-runtime
+      factories.
+- [x] Delete `active_state_session_id` from production types and wire shapes.
+- [ ] Delete remaining generic wire session aliases and
+      authorization/material-scope aliases owned by this cutover.
 - [ ] Delete legacy recovery microstates and compensation branches.
 - [ ] Delete duplicate signing-lane selectors, auth-method fallbacks, direct
       protocol dispatch, and superseded export coordinators.
+- [x] Delete the dead in-place ECDSA lane-identity updater, its record-era unit
+      test, and the source-range guard whose remaining subject it owned.
 - [ ] Delete obsolete tests, handwritten records, mocks, guards, and fixtures
       that encode pre-cutover behavior.
 
@@ -645,7 +741,8 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 - [ ] Make React, Lit, iframe, and direct SDK adapters render
       `ready | pending | authorization_required | superseded | failed`
       exhaustively.
-- [ ] Discard and re-resolve stale state on `superseded`.
+- [x] Discard and re-resolve stale state on `superseded` across the direct SDK,
+      React, iframe, and demo-wallet projections without locking the wallet.
 - [x] Terminate confirmation immediately on the typed expiry result.
 - [x] Wait for secure-origin initialization and consume typed state/events.
 - [x] Stop inferring unlocked state from optional IDs, JWT presence, or auth
@@ -773,6 +870,7 @@ unit-owned validation after reconciliation before continuing.
 - [Refactor 91](./refactor-91.md)
 - [Refactor 92](./refactor-92-session-expiry-handling.md)
 - [Refactor 93](./refactor-93.md)
+- [Refactor 94C](./refactor-94C-regression-fixes.md)
 - [Refactor 82B authority typing](./refactor-82B.md)
 - [Ed25519 Yao implementation plan](./router-ab/ed25519-yao/implementation-plan.md)
 - [Satyr Secrets Vault](./satyr-secrets-vault.md)

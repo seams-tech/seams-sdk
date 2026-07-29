@@ -94,6 +94,15 @@ export type NearEd25519YaoUnlockSourceObservationV1 =
       readonly kind: 'unavailable';
     };
 
+export type NearEd25519YaoCapabilityHydrationInputV1 = {
+  readonly publicLocator: NearEd25519YaoPublicLocatorObservationV1;
+  readonly sealed: NearEd25519YaoSealedMaterialObservationV1;
+  readonly runtime: NearEd25519YaoRuntimeObservationV1;
+  readonly unlockSource: NearEd25519YaoUnlockSourceObservationV1;
+  readonly entryPoint?: never;
+  readonly provenance?: never;
+};
+
 export function nearEd25519YaoRuntimeRef(
   materialActivation: MpcMaterialActivationRef,
 ): MpcCapabilityRuntimeRef {
@@ -123,12 +132,9 @@ function blockedNearHydration(
       });
 }
 
-export function resolveNearEd25519YaoCapabilityHydrationV1(input: {
-  readonly publicLocator: NearEd25519YaoPublicLocatorObservationV1;
-  readonly sealed: NearEd25519YaoSealedMaterialObservationV1;
-  readonly runtime: NearEd25519YaoRuntimeObservationV1;
-  readonly unlockSource: NearEd25519YaoUnlockSourceObservationV1;
-}): MpcCapabilityHydrationPlan {
+export function resolveNearEd25519YaoCapabilityHydrationV1(
+  input: NearEd25519YaoCapabilityHydrationInputV1,
+): MpcCapabilityHydrationPlan {
   switch (input.publicLocator.kind) {
     case 'missing':
       return buildBlockedMpcCapabilityHydrationPlan({

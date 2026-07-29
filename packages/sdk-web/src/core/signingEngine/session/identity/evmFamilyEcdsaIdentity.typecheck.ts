@@ -1,4 +1,3 @@
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type {
   ThresholdEcdsaBackendBinding,
   ThresholdEcdsaDerivationRoleLocalClientState,
@@ -27,6 +26,7 @@ import {
   type EvmFamilyEcdsaSessionLane,
   type EvmFamilyEcdsaSessionLanePolicy,
   type EvmFamilyEcdsaWalletKey,
+  type HydratedEcdsaSignerMaterial,
   type DurableEvmFamilyEcdsaPublicFactsRecord,
   type EmailOtpEcdsaAuthBinding,
   type EcdsaWalletSessionTransportAuth,
@@ -634,5 +634,21 @@ const invalidSignerSessionWithSubjectId: ReadyEcdsaSignerSession = {
   subjectId: 'wallet-alice',
 };
 void invalidSignerSessionWithSubjectId;
+
+declare const hydratedSignerMaterial: HydratedEcdsaSignerMaterial;
+
+const invalidHydratedMaterialWithCredential = {
+  ...hydratedSignerMaterial,
+  // @ts-expect-error hydrated material cannot carry an authorization credential.
+  credential: { kind: 'jwt', walletSessionJwt: 'wallet-session-jwt' },
+} satisfies HydratedEcdsaSignerMaterial;
+void invalidHydratedMaterialWithCredential;
+
+const invalidHydratedMaterialWithAuthorization = {
+  ...hydratedSignerMaterial,
+  // @ts-expect-error hydrated material cannot carry reusable or step-up authority.
+  authorization: { kind: 'reusable_wallet_session', wallet_session_id: 'wallet-session' },
+} satisfies HydratedEcdsaSignerMaterial;
+void invalidHydratedMaterialWithAuthorization;
 
 export {};

@@ -103,6 +103,7 @@ import type {
   VerifiedFactorEvidenceSetInput,
   VerifiedSessionEvidenceSetInput,
 } from '../authorization/factorEvidence';
+import type { CapabilityOperationEnvelope } from '@shared/authorization/operationFingerprint';
 import type {
   IssueReusableWalletSessionInput,
   IssuedReusableWalletSession,
@@ -1450,6 +1451,9 @@ export interface RouterApiAuthorizationClaimService {
     readonly evidenceSet: VerifiedGrantEvidenceSet;
     readonly grant: ActiveCapabilityGrant;
   }): Promise<void>;
+  lookupOperationClaim(
+    operation: CapabilityOperationEnvelope,
+  ): Promise<ClaimCapabilityOperationResult | null>;
   claimOperationStepUpFromGrant(
     input: OperationStepUpClaimInput,
   ): Promise<ClaimCapabilityOperationResult>;

@@ -51,9 +51,10 @@ export function createBrowserStepUpRuntime(args: {
           touchConfirm: args.baseTouchConfirm,
           persistEcdsaRoleLocalReadyRecord:
             args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-          resolveSealTransport: ({ lane }) =>
+          resolveSealTransport: ({ lane, authorization }) =>
             args.getWarmSigning().capabilityReader.resolveEcdsaSealTransportForLane({
               lane,
+              authorization,
             }),
         },
         request,

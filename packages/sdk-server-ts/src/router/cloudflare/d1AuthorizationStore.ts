@@ -764,10 +764,10 @@ export class CloudflareD1AuthorizationStore
   }
 
   async claimOperation(claim: CapabilityOperationClaim): Promise<ClaimCapabilityOperationResult> {
-    const existing = await this.readUseByFingerprint(
-      claim.tenantId,
-      claim.operationFingerprintDigest,
-    );
+    const existing = await this.readOperationUse({
+      tenantId: claim.tenantId,
+      operationFingerprintDigest: claim.operationFingerprintDigest,
+    });
     if (existing) return replayResult(existing, claim);
 
     const authorization = claimAuthorizationColumns(claim);
@@ -830,15 +830,18 @@ export class CloudflareD1AuthorizationStore
         .run();
       requireOneChangedRow(result, 'capability operation claim');
     } catch {
-      const raced = await this.readUseByFingerprint(
-        claim.tenantId,
-        claim.operationFingerprintDigest,
-      );
+      const raced = await this.readOperationUse({
+        tenantId: claim.tenantId,
+        operationFingerprintDigest: claim.operationFingerprintDigest,
+      });
       if (raced) return replayResult(raced, claim);
       return await this.classifyRejectedClaim(claim);
     }
 
-    const use = await this.readUseByFingerprint(claim.tenantId, claim.operationFingerprintDigest);
+    const use = await this.readOperationUse({
+      tenantId: claim.tenantId,
+      operationFingerprintDigest: claim.operationFingerprintDigest,
+    });
     if (!use || use.kind !== 'claimed') {
       throw new Error('committed capability operation claim could not be read back');
     }
@@ -851,10 +854,10 @@ export class CloudflareD1AuthorizationStore
     readonly resultRef: CapabilityOperationResultRef;
     readonly completedAtMs: number;
   }): Promise<CompleteCapabilityOperationResult> {
-    const current = await this.readUseByFingerprint(
-      input.claim.tenantId,
-      input.claim.operationFingerprintDigest,
-    );
+    const current = await this.readOperationUse({
+      tenantId: input.claim.tenantId,
+      operationFingerprintDigest: input.claim.operationFingerprintDigest,
+    });
     if (!current) return { kind: 'claim_missing' };
     if (current.useId !== input.claim.useId || current.grantId !== input.claim.grantId) {
       return { kind: 'claim_mismatch' };
@@ -889,17 +892,17 @@ export class CloudflareD1AuthorizationStore
       )
       .run();
     if (d1ChangedRows(update) !== 1) {
-      const raced = await this.readUseByFingerprint(
-        input.claim.tenantId,
-        input.claim.operationFingerprintDigest,
-      );
+      const raced = await this.readOperationUse({
+        tenantId: input.claim.tenantId,
+        operationFingerprintDigest: input.claim.operationFingerprintDigest,
+      });
       if (raced?.kind === 'completed') return { kind: 'already_completed', use: raced };
       return raced ? { kind: 'claim_mismatch' } : { kind: 'claim_missing' };
     }
-    const completed = await this.readUseByFingerprint(
-      input.claim.tenantId,
-      input.claim.operationFingerprintDigest,
-    );
+    const completed = await this.readOperationUse({
+      tenantId: input.claim.tenantId,
+      operationFingerprintDigest: input.claim.operationFingerprintDigest,
+    });
     if (!completed || completed.kind !== 'completed') {
       throw new Error('completed capability operation could not be read back');
     }
@@ -924,10 +927,10 @@ export class CloudflareD1AuthorizationStore
     return row ? parseAuditEventRow(row) : null;
   }
 
-  private async readUseByFingerprint(
-    tenantId: CapabilityOperationClaim['tenantId'],
-    fingerprint: CapabilityOperationFingerprintDigest,
-  ): Promise<CapabilityGrantUse | null> {
+  async readOperationUse(input: {
+    readonly tenantId: CapabilityOperationClaim['tenantId'];
+    readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
+  }): Promise<CapabilityGrantUse | null> {
     const row = await this.database
       .prepare(
         `SELECT *
@@ -937,7 +940,7 @@ export class CloudflareD1AuthorizationStore
             AND operation_fingerprint_digest = ?
           LIMIT 1`,
       )
-      .bind(this.namespace, tenantId, fingerprint)
+      .bind(this.namespace, input.tenantId, input.operationFingerprintDigest)
       .first<D1Row>();
     return row ? parseCapabilityGrantUseRow(row) : null;
   }

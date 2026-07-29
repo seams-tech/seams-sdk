@@ -21,7 +21,7 @@ function requireBootstrapAuthorizationId<T>(
   if (!result.ok) throw new Error('ecdsa bootstrap fixture authorization id is invalid');
   return result.value;
 }
-import type { EcdsaRoleLocalReadyRecord } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/ecdsaRoleLocalRecords';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
@@ -304,6 +304,11 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     }),
     authMethod: roleLocalAuthMethod,
   });
+  const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+    durableMaterialRef: `role-local:${sessionId}`,
+    bindingDigest: ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+    materialOwner: args.nearAccountId,
+  });
   const walletSessionJwt =
     sessionKind === 'jwt'
       ? toFixtureWalletSessionJwt(String(args.walletSessionJwt || `jwt:${sessionId}`).trim(), {
@@ -353,6 +358,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
                   `role-local:${sessionId}`,
                 ),
               },
+              roleLocalMaterialRef,
               publicFacts: ecdsaRoleLocalReadyRecord.publicFacts,
               authMethod: ecdsaRoleLocalReadyRecord.authMethod,
             },

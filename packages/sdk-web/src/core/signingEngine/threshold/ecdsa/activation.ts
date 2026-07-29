@@ -75,7 +75,7 @@ import type {
   SeamsSessionId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { PersistedEcdsaRoleLocalMaterial } from '../../session/persistence/records';
+import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecdsaRoleLocalMaterialResolver';
 import type { ExistingEcdsaRoleLocalActivation } from './postRegistrationSessionActivation';
 
 export type ThresholdEcdsaEvmChainTarget = EvmEip155ChainTarget;

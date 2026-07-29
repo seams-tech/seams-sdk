@@ -376,14 +376,10 @@ describeChecks('Email OTP operation split guard', () => {
     expect(authPlanning).not.toContain('reauthAuthLane');
     expect(authPlanning).not.toContain('signingSessionRecord');
     expect(emailOtpSigningBridge).toContain('committedLane: EmailOtpEcdsaCommittedLane');
-    expect(emailOtpSigningBridge).not.toContain(
-      'signingSessionRecord: ThresholdEcdsaSessionRecord',
-    );
     expect(emailOtpSigningBridge).not.toContain('reauthAuthLane');
     expect(emailOtpSigningBridge).not.toContain('resolveEmailOtpSigningSessionAuthLane');
     expect(ecdsaSigningInput).toContain('committedLane: EmailOtpEcdsaCommittedLane');
     expect(ecdsaSigningInput).not.toContain('committedLane?: EmailOtpEcdsaCommittedLane');
-    expect(ecdsaSigningInput).not.toContain('record?: ThresholdEcdsaSessionRecord');
     expect(ecdsaSigningInput).not.toContain('authLane?: EmailOtpAuthLane');
     expect(ecdsaLogin).not.toContain('EmailOtpEcdsaLoginReconnectInput');
     expect(ecdsaLogin).not.toContain('resolveEmailOtpEcdsaSigningInput');

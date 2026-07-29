@@ -338,7 +338,6 @@ function checkEvmPostSignFinalizationCommandsLiveUnderFlows() {
   for (const marker of [
     'thresholdEcdsaRecord?:',
     'thresholdEcdsaKeyRef?:',
-    'ThresholdEcdsaSessionRecord',
     'ThresholdEcdsaSecp256k1KeyRef',
     'warmRecord',
     'emailOtpReauthRecord',
@@ -728,7 +727,6 @@ function checkSigningExecutionBoundariesAvoidCandidatesAndRawRecords() {
     'availableLane',
     'selectedLaneCandidate',
     'ThresholdEd25519SessionRecord',
-    'ThresholdEcdsaSessionRecord',
     'warmRecord',
     'emailOtpReauthRecord',
     'warmKeyRef',
@@ -749,7 +747,6 @@ function checkSigningExecutionBoundariesAvoidCandidatesAndRawRecords() {
 
 function checkDeletedDuplicateLaneNamesStayDeleted() {
   const removedDuplicateNames = [
-    'ConcreteThresholdEcdsaSessionRecord',
     'EcdsaLaneIdentity',
     'ThresholdEcdsaRuntimeLane',
     'ThresholdEd25519SessionLane',
@@ -807,7 +804,6 @@ function checkThresholdProtocolEntrypointsTakeProtocolMaterial() {
     'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/poolFillRoutes.ts',
   ];
   const broadShapeMarkers = [
-    'ThresholdEcdsaSessionRecord',
     'ThresholdEd25519SessionRecord',
     'SigningSessionPlanningLane',
     'SelectedSigningSessionPlanningLane',

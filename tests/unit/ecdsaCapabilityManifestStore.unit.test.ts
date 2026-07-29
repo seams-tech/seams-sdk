@@ -1085,8 +1085,9 @@ test.describe('canonical ECDSA capability manifest store', () => {
             id: requestId,
             type: 70_015,
             payload: {
-              kind: 'rehydrate_ecdsa_role_local_signing_material_v1',
-              materialRef,
+              kind: 'open_ecdsa_role_local_signing_material_v1',
+              authority: finalized.manifest.signer.authority,
+              materialActivation: materialRef.materialActivation,
             },
           });
         });
@@ -1156,8 +1157,9 @@ test.describe('canonical ECDSA capability manifest store', () => {
             id: requestId,
             type: 70_015,
             payload: {
-              kind: 'rehydrate_ecdsa_role_local_signing_material_v1',
-              materialRef,
+              kind: 'open_ecdsa_role_local_signing_material_v1',
+              authority: finalized.manifest.signer.authority,
+              materialActivation: materialRef.materialActivation,
             },
           });
         });
@@ -1186,13 +1188,11 @@ test.describe('canonical ECDSA capability manifest store', () => {
             id: requestId,
             type: 70_015,
             payload: {
-              kind: 'rehydrate_ecdsa_role_local_signing_material_v1',
-              materialRef: {
-                ...materialRef,
-                materialActivation: {
-                  ...materialRef.materialActivation,
-                  signingWorker: `${materialRef.materialActivation.signingWorker}:mismatch`,
-                },
+              kind: 'open_ecdsa_role_local_signing_material_v1',
+              authority: finalized.manifest.signer.authority,
+              materialActivation: {
+                ...materialRef.materialActivation,
+                signingWorker: `${materialRef.materialActivation.signingWorker}:mismatch`,
               },
             },
           });
@@ -1249,8 +1249,9 @@ test.describe('canonical ECDSA capability manifest store', () => {
             id: requestId,
             type: 70_015,
             payload: {
-              kind: 'rehydrate_ecdsa_role_local_signing_material_v1',
-              materialRef,
+              kind: 'open_ecdsa_role_local_signing_material_v1',
+              authority: finalized.manifest.signer.authority,
+              materialActivation: materialRef.materialActivation,
             },
           });
         });
@@ -1283,7 +1284,7 @@ test.describe('canonical ECDSA capability manifest store', () => {
     expect(result.second.type).toBe(70_115);
     expect(result.second.payload).toEqual(result.first.payload);
     expect(result.second.payload).toMatchObject({
-      kind: 'ecdsa_role_local_signing_material_rehydrated_v1',
+      kind: 'ecdsa_role_local_signing_material_opened_v1',
       liveHandle: {
         kind: 'ecdsa_role_local_worker_handle_v1',
         materialHandle: fixture.prepareInput.activationBinding.durableMaterialRef,

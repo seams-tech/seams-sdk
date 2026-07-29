@@ -138,12 +138,7 @@ function isPasskeyResolvedEcdsaKey(
   return value.authBinding.kind === 'passkey_ecdsa_auth_binding';
 }
 
-type ConcreteAvailableEcdsaSigningLaneSource =
-  | {
-      source: 'canonical_capability';
-      sourceChainTarget?: never;
-      publicReauthAuthority?: never;
-    }
+type NonCanonicalAvailableEcdsaSigningLaneSource =
   | {
       source?: 'runtime_session_record';
       sourceChainTarget?: never;
@@ -160,22 +155,50 @@ type ConcreteAvailableEcdsaSigningLaneSource =
       publicReauthAuthority?: never;
     };
 
-export type ConcreteAvailableEcdsaSigningLane = {
+type ConcreteAvailableEcdsaSigningLaneBase = {
   key: EvmFamilyEcdsaKeyIdentity;
   materialActivation: MpcMaterialActivationRef;
   publicFacts: VerifiedEcdsaPublicFacts;
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
   state: AvailableSigningLaneState;
-  authorization?: ActiveEvmFamilyWalletSessionAuthorization;
-  signingGrantId?: string;
-  thresholdSessionId?: string;
-  remainingUses?: number;
-  expiresAtMs?: number;
   policyHint?: AvailableSigningLanePolicyHint;
   updatedAtMs?: number;
-} & ConcreteAvailableEcdsaSigningLaneSource &
-  ConcreteAvailableEcdsaSigningLaneAuth;
+} & ConcreteAvailableEcdsaSigningLaneAuth;
+
+type CanonicalAvailableEcdsaSigningLane = ConcreteAvailableEcdsaSigningLaneBase &
+  {
+    source: 'canonical_capability';
+    sourceChainTarget?: never;
+    publicReauthAuthority?: never;
+    signingGrantId?: never;
+    thresholdSessionId?: never;
+  } & (
+    | {
+        authorization: ActiveEvmFamilyWalletSessionAuthorization;
+        remainingUses: number;
+        expiresAtMs: number;
+      }
+    | {
+        authorization?: never;
+        state: 'deferred';
+        remainingUses?: never;
+        expiresAtMs?: never;
+      }
+  );
+
+type NonCanonicalAvailableEcdsaSigningLane = ConcreteAvailableEcdsaSigningLaneBase &
+  NonCanonicalAvailableEcdsaSigningLaneSource & {
+    authorization?: ActiveEvmFamilyWalletSessionAuthorization;
+    signingGrantId?: string;
+    thresholdSessionId?: string;
+    remainingUses?: number;
+    expiresAtMs?: number;
+  };
+
+export type ConcreteAvailableEcdsaSigningLane =
+  | CanonicalAvailableEcdsaSigningLane
+  | NonCanonicalAvailableEcdsaSigningLane;
 
 export type AvailableEcdsaSigningLane =
   | MissingAvailableEcdsaSigningLane
@@ -397,17 +420,14 @@ export function runtimeEcdsaRecordAdvisoryKey(
 ): string | null {
   const walletId = String(record.key.walletId || '').trim();
   const keyHandle = String(record.keyHandle || '').trim();
-  const walletSessionId = String(record.authorization.projection.walletSessionId || '').trim();
-  const quotaId = String(record.authorization.projection.quotaId || '').trim();
-  if (!walletId || !keyHandle || !walletSessionId || !quotaId) return null;
+  if (!walletId || !keyHandle) return null;
   return [
     encodeURIComponent(walletId),
     encodeURIComponent(keyHandle),
     encodeURIComponent(signingLaneAuthMethod(record.auth)),
     'ecdsa',
     encodeURIComponent(thresholdEcdsaChainTargetKey(record.chainTarget)),
-    encodeURIComponent(walletSessionId),
-    encodeURIComponent(quotaId),
+    encodeURIComponent(materialActivationKey(record.materialActivation)),
   ].join(':');
 }
 
@@ -432,7 +452,15 @@ export type AvailableSigningLanesRuntimeEcdsaRecord = {
   verifiedPublicFacts: VerifiedEcdsaPublicFacts;
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
-  authorization: ActiveEvmFamilyWalletSessionAuthorization;
+  authorizationState:
+    | {
+        kind: 'authorized';
+        authorization: ActiveEvmFamilyWalletSessionAuthorization;
+      }
+    | {
+        kind: 'authorization_required';
+        authorization?: never;
+      };
 } & AvailableSigningLanesRuntimeEcdsaAuthRecord &
   AvailableSigningLanesRuntimeEcdsaPublicFactsRecord;
 
@@ -653,7 +681,6 @@ export function isConcreteAvailableSigningLane(
     if (!thresholdSessionId || !signingGrantId) return false;
     return lane.auth.kind === 'email_otp' || lane.auth.kind === 'passkey';
   }
-  if (lane.source === 'canonical_capability' && !lane.authorization) return false;
   if (
     lane.source !== 'canonical_capability' &&
     (!String(lane.thresholdSessionId || '').trim() || !String(lane.signingGrantId || '').trim())
@@ -754,7 +781,7 @@ export function ecdsaLaneCandidateFromAvailableLane(args: {
   if (!isConcreteAvailableSigningLane(args.lane) || args.lane.curve !== 'ecdsa') {
     return null;
   }
-  if (args.lane.source !== 'canonical_capability' || !args.lane.authorization) return null;
+  if (args.lane.source !== 'canonical_capability') return null;
   const state = laneCandidateStateFromAvailableLaneState(args.lane.state);
   if (!state) return null;
   const authMethod = signingLaneAuthMethod(args.lane.auth);
@@ -770,12 +797,21 @@ export function ecdsaLaneCandidateFromAvailableLane(args: {
     ...(authMethod === 'passkey' ? { resolvedKey: args.lane.resolvedKey } : {}),
     keyHandle: args.lane.publicFacts.keyHandle,
     chainTarget: args.lane.chainTarget,
-    authorization: args.lane.authorization,
-    state,
   } as const;
+  if (!args.lane.authorization) {
+    return {
+      ...base,
+      source: 'canonical_capability',
+      authorizationState: 'authorization_required',
+      state: 'deferred',
+    };
+  }
   return {
     ...base,
     source: 'canonical_capability',
+    authorizationState: 'authorized',
+    authorization: args.lane.authorization,
+    state,
   };
 }
 
@@ -834,11 +870,8 @@ type EcdsaAvailableLaneIdentityBase = Pick<
   | 'authorization'
 >;
 
-export type EcdsaAvailableLaneIdentityInput = EcdsaAvailableLaneIdentityBase & {
-  signingGrantId?: string;
-  thresholdSessionId?: string;
-} &
-  ConcreteAvailableEcdsaSigningLaneAuth;
+export type EcdsaAvailableLaneIdentityInput =
+  EcdsaAvailableLaneIdentityBase & ConcreteAvailableEcdsaSigningLaneAuth;
 
 export function ecdsaAvailableLaneIdentityKey(
   lane: EcdsaAvailableLaneIdentityInput | MissingAvailableEcdsaSigningLane | null | undefined,
@@ -851,19 +884,13 @@ export function ecdsaAvailableLaneIdentityKey(
   const authKey = ecdsaAvailableLaneAuthKey(lane.auth);
   if (!authMethod || !authKey) return null;
   try {
-    const authorizationKey = lane.authorization
-      ? [
-          lane.authorization.projection.walletSessionId,
-          lane.authorization.projection.quotaId,
-        ].join(':')
-      : [lane.signingGrantId, lane.thresholdSessionId].map(String).join(':');
     return [
       authMethod,
       'ecdsa',
       thresholdEcdsaChainTargetKey(lane.chainTarget),
       authKey,
       deriveAvailableEcdsaLaneFingerprint(lane),
-      authorizationKey,
+      materialActivationKey(lane.materialActivation),
     ].join(':');
   } catch {
     return null;
@@ -1089,6 +1116,7 @@ export function buildReauthAnchorIdentityFromEcdsaLaneCandidate(args: {
   candidate: EcdsaLaneCandidate;
 }): ReauthAnchorIdentity | null {
   if (args.candidate.state !== 'expired' && args.candidate.state !== 'exhausted') return null;
+  if (args.candidate.authorizationState !== 'authorized') return null;
   const walletId = toWalletId(args.walletId);
   if (String(args.candidate.walletId) !== String(walletId)) {
     throw new Error('[SigningEngine][ecdsa] reauth candidate wallet mismatch');
@@ -1173,8 +1201,8 @@ function ecdsaCandidateRecordVersion(candidate: EcdsaLaneCandidate): string {
   return [
     candidate.curve,
     candidate.source || 'unknown',
-    String(candidate.authorization.projection.walletSessionId),
-    String(candidate.authorization.projection.quotaId),
+    materialActivationKey(candidate.materialActivation),
+    candidate.authorizationState,
   ].join(':');
 }
 
@@ -1199,6 +1227,9 @@ function sourceStateFromEcdsaLaneCandidate(
   candidate: EcdsaLaneCandidate,
   freshness: FreshStepUpRequired,
 ): ReauthAnchorSourceState {
+  if (candidate.authorizationState !== 'authorized') {
+    throw new Error('[SigningSession] ECDSA reauth source requires active authorization');
+  }
   const authMethod = signingLaneAuthMethod(candidate.auth);
   const authState = reauthAnchorSourceStateForSignerAuthMethod(authMethod);
   const remainingUses =
@@ -1365,7 +1396,9 @@ export function buildRuntimeEcdsaAvailableLaneIdentityInput(args: {
       resolvedKey,
       curve: 'ecdsa',
       chainTarget: args.record.chainTarget,
-      authorization: args.record.authorization,
+      ...(args.record.authorizationState.kind === 'authorized'
+        ? { authorization: args.record.authorizationState.authorization }
+        : {}),
     };
   }
   return {
@@ -1375,7 +1408,9 @@ export function buildRuntimeEcdsaAvailableLaneIdentityInput(args: {
     auth: args.record.auth,
     curve: 'ecdsa',
     chainTarget: args.record.chainTarget,
-    authorization: args.record.authorization,
+    ...(args.record.authorizationState.kind === 'authorized'
+      ? { authorization: args.record.authorizationState.authorization }
+      : {}),
   };
 }
 
@@ -1724,35 +1759,54 @@ async function runtimeRecordToEcdsaLane(args: {
     record: args.record,
     publicFacts: args.publicFacts,
   });
-  const remainingUses = args.record.authorization.status.remainingUses;
-  const expiresAtMs = args.record.authorization.status.expiresAtMs;
+  const authorization =
+    args.record.authorizationState.kind === 'authorized'
+      ? args.record.authorizationState.authorization
+      : null;
   const base = {
     key: args.record.key,
     materialActivation: args.record.materialActivation,
     publicFacts: args.publicFacts,
     curve: 'ecdsa',
     chainTarget: args.record.chainTarget,
-    state: 'ready',
     source: 'canonical_capability',
-    authorization: args.record.authorization,
-    remainingUses,
-    expiresAtMs,
   } as const;
   if (runtimeLaneIdentity.auth.kind === 'passkey') {
     const resolvedKey = runtimeLaneIdentity.resolvedKey;
     if (!resolvedKey) {
       throw new Error('[SigningSession] passkey ECDSA runtime lane is missing resolved key');
     }
-    return {
-      ...base,
-      auth: runtimeLaneIdentity.auth,
-      resolvedKey,
-    };
+    return authorization
+      ? {
+          ...base,
+          auth: runtimeLaneIdentity.auth,
+          resolvedKey,
+          state: 'ready',
+          authorization,
+          remainingUses: authorization.status.remainingUses,
+          expiresAtMs: authorization.status.expiresAtMs,
+        }
+      : {
+          ...base,
+          auth: runtimeLaneIdentity.auth,
+          resolvedKey,
+          state: 'deferred',
+        };
   }
-  return {
-    ...base,
-    auth: runtimeLaneIdentity.auth,
-  };
+  return authorization
+    ? {
+        ...base,
+        auth: runtimeLaneIdentity.auth,
+        state: 'ready',
+        authorization,
+        remainingUses: authorization.status.remainingUses,
+        expiresAtMs: authorization.status.expiresAtMs,
+      }
+    : {
+        ...base,
+        auth: runtimeLaneIdentity.auth,
+        state: 'deferred',
+      };
 }
 
 function runtimeRecordToEd25519Lane(args: {
@@ -1808,6 +1862,9 @@ function laneCandidateUpdatedAtMs(candidate: EcdsaLaneCandidate | Ed25519LaneCan
 function laneCandidateExpiry(
   candidate: EcdsaLaneCandidate | Ed25519LaneCandidate,
 ): StepUpExpiryState {
+  if (candidate.curve === 'ecdsa' && candidate.authorizationState !== 'authorized') {
+    return { kind: 'unavailable', reason: 'restored_record_has_no_expiry' };
+  }
   const expiresAtMs =
     candidate.curve === 'ecdsa'
       ? candidate.authorization.status.expiresAtMs
@@ -1829,10 +1886,6 @@ function laneCandidateStepUpReason(
     case 'restorable':
     case 'deferred':
       throw new Error('[SigningEngine] lane candidate does not require fresh auth');
-    default: {
-      const exhaustive: never = candidate.state;
-      return exhaustive;
-    }
   }
 }
 
@@ -2364,7 +2417,10 @@ function ecdsaCanonicalGroupConflicts(
 }
 
 function isEcdsaCanonicalFactOperationUsable(fact: EcdsaLaneRecordFact): boolean {
-  return fact.lane.state !== 'deferred';
+  return (
+    fact.lane.state !== 'deferred' ||
+    (fact.lane.source === 'canonical_capability' && !fact.lane.authorization)
+  );
 }
 
 function ecdsaCanonicalFactGeneration(fact: EcdsaLaneRecordFact): ServerIssuedGeneration | null {
@@ -2379,8 +2435,7 @@ function ecdsaCanonicalFactExactness(
 
 function ecdsaCanonicalStableTieBreakKey(lane: ConcreteAvailableEcdsaSigningLane): string {
   return [
-    lane.thresholdSessionId,
-    lane.signingGrantId,
+    materialActivationKey(lane.materialActivation),
     lane.source || 'runtime_session_record',
     thresholdEcdsaChainTargetKey(lane.chainTarget),
   ]

@@ -1422,6 +1422,9 @@ function createD1AuthorizationClaimRouteService(
     claimOperationStepUpFromGrant: assembly.authorizationService.claimOperationStepUpFromGrant.bind(
       assembly.authorizationService,
     ),
+    lookupOperationClaim: assembly.authorizationService.lookupOperationClaim.bind(
+      assembly.authorizationService,
+    ),
     claimReusableWalletSessionFromGrant:
       assembly.authorizationService.claimReusableWalletSessionFromGrant.bind(
         assembly.authorizationService,

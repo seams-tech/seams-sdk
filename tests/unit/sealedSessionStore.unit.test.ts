@@ -1,16 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
-import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
-import { makeThresholdEcdsaSessionStoreDeps } from './helpers/thresholdEcdsaSessionStoreDeps.fixtures';
 import { seedEmailOtpEcdsaSealedRestorePayload } from './helpers/sealedSigningSession.fixtures';
-import { upsertThresholdEcdsaSessionFromBootstrap } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
-import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  parseEcdsaRoleLocalBindingDigest,
-  parseEcdsaRoleLocalDurableMaterialRef,
-  parseEcdsaRoleLocalMaterialHandle,
-} from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
 import {
   buildEcdsaRoleLocalPersistedMaterialRefFixture,
   buildWalletAuthAuthorityRefFixture,
@@ -151,111 +142,6 @@ test.describe('signing session sealed store', () => {
         emailOtpEd25519Restore: EMAIL_OTP_ED25519_RESTORE,
       },
     );
-  });
-
-  test('preserves an expired active ECDSA anchor for the next unlock', async ({ page }) => {
-    const walletId = toWalletId('expired-anchor.testnet');
-    const chainTarget = testEcdsaChainTarget('tempo');
-    const store = makeThresholdEcdsaSessionStoreDeps({ exportArtifactsByLane: new Map() });
-    const fixtureBootstrap = createThresholdEcdsaBootstrapFixture({
-      nearAccountId: walletId,
-      chain: 'tempo',
-      expiresAtMs: Date.now() + 2_000,
-      remainingUses: 3,
-    });
-    const fixtureBinding = fixtureBootstrap.thresholdEcdsaKeyRef.backendBinding;
-    if (fixtureBinding?.materialKind !== 'role_local_ready_state_blob') {
-      throw new Error('expected role-local fixture');
-    }
-    const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef('role-local:expired-anchor');
-    const bindingDigest = parseEcdsaRoleLocalBindingDigest(
-      fixtureBinding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
-    );
-    const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
-      durableMaterialRef,
-      bindingDigest,
-    });
-    const bootstrap = {
-      ...fixtureBootstrap,
-      thresholdEcdsaKeyRef: {
-        ...fixtureBootstrap.thresholdEcdsaKeyRef,
-        backendBinding: {
-          materialKind: 'role_local_worker_handle' as const,
-          relayerKeyId: fixtureBinding.relayerKeyId,
-          clientVerifyingShareB64u: fixtureBinding.clientVerifyingShareB64u,
-          roleLocalMaterialHandle: {
-            kind: 'ecdsa_role_local_worker_handle_v1' as const,
-            materialHandle: parseEcdsaRoleLocalMaterialHandle('role-local:expired-anchor'),
-            bindingDigest,
-            durableMaterialRef,
-          },
-          roleLocalMaterialRef,
-          publicFacts: fixtureBinding.ecdsaRoleLocalReadyRecord.publicFacts,
-          authMethod: fixtureBinding.ecdsaRoleLocalReadyRecord.authMethod,
-        },
-      },
-    };
-    const runtimeRecord = upsertThresholdEcdsaSessionFromBootstrap(store, {
-      purpose: 'transaction_signing',
-      walletId,
-      authority: buildWalletAuthAuthorityRefFixture({
-        walletId,
-        label: 'expired-anchor',
-      }),
-      chainTarget,
-      bootstrap,
-      source: 'registration',
-    });
-    const persistedRecord = {
-      ...runtimeRecord,
-      roleLocalMaterialRef,
-      expiresAtMs: Date.now() + 2_000,
-      updatedAtMs: Date.now(),
-    };
-    expect(persistedRecord.roleLocalMaterialRef).toStrictEqual(roleLocalMaterialRef);
-    expect(persistedRecord.thresholdEcdsaPublicKeyB64u).toBeTruthy();
-    expect(persistedRecord.routerAbEcdsaDerivationNormalSigning).toBeTruthy();
-    expect(persistedRecord.ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/i);
-
-    const result = await page.evaluate(
-      async ({ paths, record, walletId: rawWalletId, chainTarget: rawChainTarget }) => {
-        const mod = await import(paths.sealedSessionStore);
-        await mod.clearAllSealedSessions();
-        await mod.persistActivePasskeyEcdsaReauthAnchor(record);
-        await new Promise((resolve) => setTimeout(resolve, 2_100));
-        const records = await mod.listEcdsaSealedSessionsForWallet({
-          walletId: rawWalletId,
-          filter: {
-            authMethod: 'passkey',
-            curve: 'ecdsa',
-          },
-        });
-        const matching = records.find(
-          (candidate: any) =>
-            candidate.ecdsaRestore?.chainTarget?.kind === rawChainTarget.kind &&
-            candidate.ecdsaRestore?.chainTarget?.chainId === rawChainTarget.chainId,
-        );
-        return matching
-          ? {
-              state: matching.state,
-              retirement: matching.retirement,
-              publicCapability: matching.ecdsaRestore.publicCapability,
-            }
-          : null;
-      },
-      {
-        paths: IMPORT_PATHS,
-        record: persistedRecord,
-        walletId,
-        chainTarget,
-      },
-    );
-
-    expect(result).toMatchObject({
-      state: 'expired',
-      retirement: 'expired',
-      publicCapability: runtimeRecord.ecdsaRoleLocalPublicFacts.publicCapability,
-    });
   });
 
   test('writes shamir3pass records to IndexedDB without persisting plaintext secret or JWT auth', async ({

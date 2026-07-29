@@ -3,7 +3,8 @@ import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget'
 import type { SigningGrantId } from '../operationState/types';
 import {
   exactSigningLaneWalletId,
-  isExactEcdsaSigningLaneIdentity,
+  type ExactEcdsaSigningLaneIdentity,
+  type ExactEd25519SigningLaneIdentity,
   type ExactSigningLaneIdentity,
 } from './exactSigningLaneIdentity';
 import { signingLaneAuthMethod } from './signingLaneAuthBinding';
@@ -11,6 +12,7 @@ import type {
   MpcWalletSigningQuotaId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 
 export type WalletSessionAuthorizationUnavailableReason =
   | 'network'
@@ -40,26 +42,39 @@ export type WalletSessionAuthorizationIdentity =
       readonly quotaId: MpcWalletSigningQuotaId;
     });
 
-export type WalletSessionAuthorizationObservation =
+export type WalletSessionAuthorizationIdentitySource =
+  | {
+      readonly kind: 'ed25519';
+      readonly laneIdentity: ExactEd25519SigningLaneIdentity;
+      readonly authorization?: never;
+    }
+  | {
+      readonly kind: 'ecdsa';
+      readonly laneIdentity: ExactEcdsaSigningLaneIdentity;
+      readonly authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    };
+
+type WalletSessionAuthorizationObservationKind =
   | {
       readonly kind: 'found';
-      readonly identity: ExactSigningLaneIdentity;
       readonly expiresAtMs: unknown;
     }
   | {
       readonly kind: 'missing';
-      readonly identity: ExactSigningLaneIdentity;
     }
   | {
       readonly kind: 'unavailable';
-      readonly identity: ExactSigningLaneIdentity;
       readonly reason: WalletSessionAuthorizationUnavailableReason;
     }
   | {
       readonly kind: 'invalid';
-      readonly identity: ExactSigningLaneIdentity;
       readonly reason: WalletSessionAuthorizationInvalidReason;
     };
+
+export type WalletSessionAuthorizationObservation =
+  WalletSessionAuthorizationObservationKind & {
+    readonly source: WalletSessionAuthorizationIdentitySource;
+  };
 
 type WalletSessionAuthorizationBase = WalletSessionAuthorizationIdentity & {
   readonly expiresAtMs: number;
@@ -96,31 +111,32 @@ export type WalletSessionAuthorizationState =
   | InvalidWalletSessionAuthorizationState;
 
 function authorizationIdentity(
-  laneIdentity: ExactSigningLaneIdentity,
+  source: WalletSessionAuthorizationIdentitySource,
 ): WalletSessionAuthorizationIdentity {
+  const laneIdentity = source.laneIdentity;
   const common = {
-    walletId: exactSigningLaneWalletId(laneIdentity),
-    authMethod: signingLaneAuthMethod(laneIdentity.auth),
-    laneIdentity,
+    walletId: exactSigningLaneWalletId(source.laneIdentity),
+    authMethod: signingLaneAuthMethod(source.laneIdentity.auth),
+    laneIdentity: source.laneIdentity,
   };
-  if (isExactEcdsaSigningLaneIdentity(laneIdentity)) {
+  if (source.kind === 'ecdsa') {
     return {
       ...common,
-      walletSessionId: laneIdentity.authorization.projection.walletSessionId,
-      quotaId: laneIdentity.authorization.projection.quotaId,
+      walletSessionId: source.authorization.projection.walletSessionId,
+      quotaId: source.authorization.projection.quotaId,
     };
   }
   return {
     ...common,
-    signingGrantId: laneIdentity.signingGrantId,
+    signingGrantId: source.laneIdentity.signingGrantId,
   };
 }
 
 function invalidAuthorization(args: {
-  readonly identity: ExactSigningLaneIdentity;
+  readonly source: WalletSessionAuthorizationIdentitySource;
   readonly reason: WalletSessionAuthorizationInvalidReason;
 }): InvalidWalletSessionAuthorizationState {
-  const identity = authorizationIdentity(args.identity);
+  const identity = authorizationIdentity(args.source);
   return {
     kind: 'invalid',
     ...identity,
@@ -135,7 +151,7 @@ function parseBoundaryTime(value: unknown): number | null {
 }
 
 export function requireAuthoritativeExpiredWalletSessionAuthorizationBoundary(args: {
-  readonly identity: ExactSigningLaneIdentity;
+  readonly source: WalletSessionAuthorizationIdentitySource;
   readonly expiresAtMs: unknown;
   readonly detectedAtMs: unknown;
 }): ExpiredWalletSessionAuthorizationState {
@@ -150,7 +166,7 @@ export function requireAuthoritativeExpiredWalletSessionAuthorizationBoundary(ar
   if (expiresAtMs > detectedAtMs) {
     throw new Error('Authoritative expired Wallet Session timeline is invalid');
   }
-  const identity = authorizationIdentity(args.identity);
+  const identity = authorizationIdentity(args.source);
   return {
     kind: 'expired',
     ...identity,
@@ -166,11 +182,11 @@ function parseFoundAuthorization(args: {
   const expiresAtMs = parseBoundaryTime(args.observation.expiresAtMs);
   if (expiresAtMs === null || expiresAtMs === 0) {
     return invalidAuthorization({
-      identity: args.observation.identity,
+      source: args.observation.source,
       reason: 'malformed',
     });
   }
-  const identity = authorizationIdentity(args.observation.identity);
+  const identity = authorizationIdentity(args.observation.source);
   if (expiresAtMs <= args.nowMs) {
     return {
       kind: 'expired',
@@ -193,7 +209,7 @@ export function parseWalletSessionAuthorizationBoundary(args: {
   const nowMs = parseBoundaryTime(args.nowMs);
   if (nowMs === null) {
     return invalidAuthorization({
-      identity: args.observation.identity,
+      source: args.observation.source,
       reason: 'malformed',
     });
   }
@@ -201,14 +217,14 @@ export function parseWalletSessionAuthorizationBoundary(args: {
     case 'found':
       return parseFoundAuthorization({ observation: args.observation, nowMs });
     case 'missing': {
-      const missingIdentity = authorizationIdentity(args.observation.identity);
+      const missingIdentity = authorizationIdentity(args.observation.source);
       return {
         kind: 'missing',
         ...missingIdentity,
       };
     }
     case 'unavailable': {
-      const unavailableIdentity = authorizationIdentity(args.observation.identity);
+      const unavailableIdentity = authorizationIdentity(args.observation.source);
       return {
         kind: 'unavailable',
         ...unavailableIdentity,
@@ -217,7 +233,7 @@ export function parseWalletSessionAuthorizationBoundary(args: {
     }
     case 'invalid':
       return invalidAuthorization({
-        identity: args.observation.identity,
+        source: args.observation.source,
         reason: args.observation.reason,
       });
     default: {

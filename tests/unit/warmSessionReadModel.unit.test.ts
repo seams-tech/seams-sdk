@@ -13,7 +13,6 @@ import {
 import {
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
-  createThresholdEcdsaStoreFixture,
 } from './helpers/signingSessionRecord.fixtures';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
@@ -141,8 +140,7 @@ test.describe('warmSessionReadModel', () => {
   // field, so there is no ECDSA auth material to resolve from a record and no
   // cross-curve fallback left to rule out.
   test('resolves Ed25519 auth material from its own record', () => {
-    const ecdsaStore = createThresholdEcdsaStoreFixture();
-    resetWarmSessionFixtureState(ecdsaStore);
+    resetWarmSessionFixtureState();
 
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'auth.testnet',
@@ -218,8 +216,7 @@ test.describe('warmSessionReadModel', () => {
   });
 
   test('derives auth_missing for cookie passkey Ed25519 state without Wallet Session auth', () => {
-    const ecdsaStore = createThresholdEcdsaStoreFixture();
-    resetWarmSessionFixtureState(ecdsaStore);
+    resetWarmSessionFixtureState();
 
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'cookie-record-backed.testnet',

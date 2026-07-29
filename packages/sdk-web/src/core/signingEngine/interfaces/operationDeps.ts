@@ -53,6 +53,7 @@ import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type {
   ActiveEvmFamilyWalletSessionAuthorization,
   AuthorizedEvmFamilyEcdsaSigningCapability,
+  CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../flows/signEvmFamily/ecdsaSigningCapability';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { EcdsaOperationStepUpSessionAuth } from '../threshold/ecdsa/operationStepUp';
@@ -185,6 +186,11 @@ export type EvmFamilyEcdsaSessionReaderDeps = {
 export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
   DurableEmailOtpEcdsaSigningSessionAuthorityResolver &
   EcdsaOperationStepUpSessionAuthResolver & {
+    resolveCanonicalEcdsaSigningCapability: (args: {
+      walletId: WalletId;
+      chainTarget: ThresholdEcdsaChainTarget;
+      materialActivation: MpcMaterialActivationRef;
+    }) => Promise<CanonicalEvmFamilyEcdsaSigningCapability>;
     resolveAuthorizedEcdsaSigningCapability: (args: {
       walletId: WalletId;
       chainTarget: ThresholdEcdsaChainTarget;

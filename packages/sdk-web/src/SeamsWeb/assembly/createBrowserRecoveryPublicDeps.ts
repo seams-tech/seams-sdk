@@ -19,6 +19,10 @@ import { resolvePasskeyEd25519WalletSessionRouteAuthV1 } from '@/core/signingEng
 import { readClientWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/clientSessionPersistence';
 import type { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import type { PersistedAvailableSigningLanesDeps } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
+import {
+  withThresholdEcdsaSigningQueue,
+  type ThresholdEcdsaSigningQueueByKey,
+} from '@/core/signingEngine/threshold/ecdsa/signingQueue';
 
 type BrowserWarmSession = Awaited<ReturnType<WarmSessionCapabilityReader['getWarmSession']>>;
 type BrowserWarmSessionAuth =
@@ -64,6 +68,7 @@ export function createBrowserRecoveryPublicDeps(args: {
   touchConfirm: UiConfirmRuntimeBridgePort;
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
+  thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
   getWalletSessionActivationDeps: () => WalletSessionActivationDeps;
   resolveActiveEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['resolveActiveCapability'];
   recoverPasskeyEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['recoverPasskeyCapability'];
@@ -77,6 +82,11 @@ export function createBrowserRecoveryPublicDeps(args: {
     seamsWebConfigs: args.seamsWebConfigs,
     signerWorkerManager: args.signerWorkerManager,
     getTheme: args.getTheme,
+    withThresholdEcdsaSigningQueue: (queueArgs) =>
+      withThresholdEcdsaSigningQueue({
+        queueByKey: args.thresholdEcdsaSigningQueueByKey,
+        ...queueArgs,
+      }),
     ecdsaSessions: args.warmSigning.ecdsaSessions,
     listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
     touchConfirm: args.touchConfirm,
@@ -89,9 +99,10 @@ export function createBrowserRecoveryPublicDeps(args: {
           touchConfirm: args.touchConfirm,
           persistEcdsaRoleLocalReadyRecord:
             args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-          resolveSealTransport: ({ lane }) =>
+          resolveSealTransport: ({ lane, authorization }) =>
             args.warmSigning.capabilityReader.resolveEcdsaSealTransportForLane({
               lane,
+              authorization,
             }),
         },
         provisionArgs,
@@ -112,11 +123,7 @@ export function createBrowserRecoveryPublicDeps(args: {
     resolvePasskeyEd25519YaoExportContext: args.resolvePasskeyEd25519YaoExportContext,
     resolveEmailOtpEd25519YaoExportContext: args.resolveEmailOtpEd25519YaoExportContext,
     sessionLifecycle: {
-      readAuthorization: (request) =>
-        readClientWalletSessionAuthorization({
-          identity: request.identity,
-          nowMs: request.nowMs,
-        }),
+      readAuthorization: (request) => readClientWalletSessionAuthorization(request),
       invalidateExpiredAuthorization: async (request) => {
         const result = await args.getSigningSessionCoordinator().invalidateExpiredWalletSession({
           state: request.state,

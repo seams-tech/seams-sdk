@@ -599,6 +599,36 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     throw new Error('Email OTP sealed refresh requires worker-owned warm material');
   }
   const emailOtpWorkerSessionId = readyPersistenceInput.material.workerSessionId;
+  const actualChainTarget = keyRef.chainTarget as ThresholdEcdsaChainTarget | undefined;
+  if (!actualChainTarget) {
+    throw new Error('Email OTP sealed refresh requires exact ECDSA chain target');
+  }
+  if (!thresholdEcdsaChainTargetsEqual(actualChainTarget, readyPersistenceInput.chainTarget)) {
+    throw new Error(
+      `Email OTP sealed refresh chain target drifted from ${thresholdEcdsaChainTargetKey(readyPersistenceInput.chainTarget)} to ${thresholdEcdsaChainTargetKey(actualChainTarget)}`,
+    );
+  }
+  const keyHandle = String(keyRef.keyHandle || '').trim();
+  if (!keyHandle) {
+    throw new Error('Email OTP sealed refresh requires exact ECDSA key handle');
+  }
+  const expectedMaterialActivation = roleLocalMaterialRef.materialActivation;
+  const currentBeforeSeal = await resolveEmailOtpExistingEcdsaKey({
+    walletId: args.walletId,
+    chainTarget: args.chainTarget,
+    runtimePolicyScope,
+    keyHandle,
+    listActiveEcdsaCapabilityManifestsForWallet: ports.listActiveEcdsaCapabilityManifestsForWallet,
+  });
+  if (
+    !currentBeforeSeal ||
+    !mpcMaterialActivationRefsEqual(
+      currentBeforeSeal.persistedRoleLocalMaterial.materialActivation,
+      expectedMaterialActivation,
+    )
+  ) {
+    throw new Error('Email OTP sealed refresh material activation was superseded');
+  }
 
   const sealStartedAtMs = nowMs();
   const sealed = await requestSealEmailOtpWarmSessionMaterial({
@@ -652,23 +682,26 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     expiresAtMs,
     remainingUses,
   };
-  const actualChainTarget = keyRef.chainTarget as ThresholdEcdsaChainTarget | undefined;
-  if (!actualChainTarget) {
-    throw new Error('Email OTP sealed refresh requires exact ECDSA chain target');
-  }
-  if (!thresholdEcdsaChainTargetsEqual(actualChainTarget, readyPersistenceInput.chainTarget)) {
-    throw new Error(
-      `Email OTP sealed refresh chain target drifted from ${thresholdEcdsaChainTargetKey(readyPersistenceInput.chainTarget)} to ${thresholdEcdsaChainTargetKey(actualChainTarget)}`,
-    );
-  }
-  const keyHandle = String(keyRef.keyHandle || '').trim();
-  if (!keyHandle) {
-    throw new Error('Email OTP sealed refresh requires exact ECDSA key handle');
-  }
   const persistenceStartedAtMs = nowMs();
   const authority = await walletAuthAuthorityRef({
     authority: args.emailOtpAuthContext.authority,
   });
+  const currentBeforeRegistration = await resolveEmailOtpExistingEcdsaKey({
+    walletId: args.walletId,
+    chainTarget: actualChainTarget,
+    runtimePolicyScope,
+    keyHandle,
+    listActiveEcdsaCapabilityManifestsForWallet: ports.listActiveEcdsaCapabilityManifestsForWallet,
+  });
+  if (
+    !currentBeforeRegistration ||
+    !mpcMaterialActivationRefsEqual(
+      currentBeforeRegistration.persistedRoleLocalMaterial.materialActivation,
+      expectedMaterialActivation,
+    )
+  ) {
+    throw new Error('Email OTP sealed refresh material activation was superseded');
+  }
   await ports.registerSigningSession({
     ...sealedRecordBase,
     ecdsaRestore: {

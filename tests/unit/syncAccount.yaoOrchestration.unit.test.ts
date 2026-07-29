@@ -380,10 +380,6 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
     throw new Error('persisted lane snapshot is outside the syncAccount fixture');
   }
 
-  listThresholdEcdsaSessionRecordsForWalletTarget(): [] {
-    return [];
-  }
-
   async setLastUser(
     walletId: Parameters<AccountSyncSigningSurface['setLastUser']>[0],
   ): Promise<void> {

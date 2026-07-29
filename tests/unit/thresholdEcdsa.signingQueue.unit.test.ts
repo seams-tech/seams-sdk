@@ -6,6 +6,7 @@ import {
   type ThresholdEcdsaSigningQueueByKey,
   withThresholdEcdsaSigningQueue,
 } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 function deferred<T = void>(): {
   promise: Promise<T>;
@@ -22,10 +23,11 @@ function deferred<T = void>(): {
 }
 
 test.describe('threshold ECDSA signing operation queue', () => {
-  test('accepts overlapping Tempo and Arc requests for one wallet in FIFO order', async () => {
+  test('accepts overlapping Tempo and Arc requests for one material activation in FIFO order', async () => {
     const queueByKey: ThresholdEcdsaSigningQueueByKey = new Map();
     const walletId = toWalletId('alice.testnet');
-    const queueKey = resolveThresholdEcdsaSigningQueueKey({ walletId });
+    const materialActivation = buildMpcMaterialActivationRefFixture('shared', walletId);
+    const queueKey = resolveThresholdEcdsaSigningQueueKey({ materialActivation });
     const blocker = deferred<void>();
     const order: string[] = [];
 
@@ -63,15 +65,25 @@ test.describe('threshold ECDSA signing operation queue', () => {
     expect(order).toEqual(['first:start', 'first:end', 'second:start', 'second:end']);
   });
 
-  test('allows concurrent requests for different wallets', async () => {
+  test('allows concurrent requests for different material activations', async () => {
     const queueByKey: ThresholdEcdsaSigningQueueByKey = new Map();
     const firstWalletId = toWalletId('alice.testnet');
-    const secondWalletId = toWalletId('bob.testnet');
+    const secondWalletId = firstWalletId;
+    const firstMaterialActivation = buildMpcMaterialActivationRefFixture(
+      'first',
+      firstWalletId,
+    );
+    const secondMaterialActivation = buildMpcMaterialActivationRefFixture(
+      'second',
+      secondWalletId,
+    );
     const blocker = deferred<void>();
 
     const first = withThresholdEcdsaSigningQueue({
       queueByKey,
-      queueKey: resolveThresholdEcdsaSigningQueueKey({ walletId: firstWalletId }),
+      queueKey: resolveThresholdEcdsaSigningQueueKey({
+        materialActivation: firstMaterialActivation,
+      }),
       walletId: firstWalletId,
       enabled: true,
       task: async () => {
@@ -84,7 +96,9 @@ test.describe('threshold ECDSA signing operation queue', () => {
     await expect(
       withThresholdEcdsaSigningQueue({
         queueByKey,
-        queueKey: resolveThresholdEcdsaSigningQueueKey({ walletId: secondWalletId }),
+        queueKey: resolveThresholdEcdsaSigningQueueKey({
+          materialActivation: secondMaterialActivation,
+        }),
         walletId: secondWalletId,
         enabled: true,
         task: async () => 'evm-ok',
@@ -249,16 +263,23 @@ test.describe('threshold ECDSA signing operation queue', () => {
 });
 
 test.describe('threshold ECDSA signing queue key resolver', () => {
-  test('binds every EVM-family chain to the wallet lifecycle queue', async () => {
+  test('binds every EVM-family chain to the exact material activation queue', async () => {
+    const materialActivation = buildMpcMaterialActivationRefFixture(
+      'resolver',
+      toWalletId('alice.testnet'),
+    );
     const key = resolveThresholdEcdsaSigningQueueKey({
-      walletId: toWalletId('alice.testnet'),
+      materialActivation,
     });
-    expect(key).toBe('wallet:alice.testnet:evm-family-ecdsa');
+    expect(key).toContain(encodeURIComponent(String(materialActivation.activationId)));
   });
 
-  test('derivation is deterministic for one wallet across concurrent chain requests', async () => {
+  test('derivation is deterministic for one material activation', async () => {
     const input = {
-      walletId: toWalletId('alice.testnet'),
+      materialActivation: buildMpcMaterialActivationRefFixture(
+        'deterministic',
+        toWalletId('alice.testnet'),
+      ),
     };
     const first = resolveThresholdEcdsaSigningQueueKey(input);
     const second = resolveThresholdEcdsaSigningQueueKey(input);

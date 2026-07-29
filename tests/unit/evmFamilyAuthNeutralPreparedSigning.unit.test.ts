@@ -21,6 +21,7 @@ import {
   runtimeAuthorizationRequiredEcdsaAvailableLaneRecord,
   runtimeEcdsaAvailableLaneRecord,
 } from './helpers/availableSigningLanes.fixtures';
+import { walletSessionRefFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 
 // The auth-required operating path: material selection recognizes an
 // auth-neutral candidate before the reusable-session planner runs, hands
@@ -33,15 +34,15 @@ import {
 
 const OPERATION_ID = SigningSessionIds.signingOperation('auth-neutral-operation-1');
 
-function prepareDeps(availableLanes: Awaited<ReturnType<typeof readAvailableLanesFixture>>) {
+function prepareDeps(
+  availableLanes: Awaited<ReturnType<typeof readAvailableLanesFixture>>,
+): PrepareEvmFamilyEcdsaSigningDeps {
   return {
     readAvailableSigningLanesForSigning: async () => availableLanes,
-  } as unknown as PrepareEvmFamilyEcdsaSigningDeps;
+  };
 }
 
-async function prepareForRecord(
-  record: ReturnType<typeof runtimeEcdsaAvailableLaneRecord>,
-) {
+async function prepareForRecord(record: ReturnType<typeof runtimeEcdsaAvailableLaneRecord>) {
   const availableLanes = await readAvailableLanesFixture({
     walletId: AVAILABLE_LANES_WALLET_ID,
     ecdsaChainTargets: [AVAILABLE_LANES_ECDSA_TARGET],
@@ -49,7 +50,7 @@ async function prepareForRecord(
   });
   return await prepareEvmFamilyEcdsaSigningSession({
     deps: prepareDeps(availableLanes),
-    walletSession: { walletId: AVAILABLE_LANES_WALLET_ID } as never,
+    walletSession: walletSessionRefFixture(AVAILABLE_LANES_WALLET_ID),
     signingTarget: AVAILABLE_LANES_ECDSA_TARGET,
     signingOperation: {
       operationId: OPERATION_ID,
@@ -137,7 +138,7 @@ test.describe('EVM-family auth-neutral prepared signing', () => {
     });
     const outcome = await prepareEvmFamilyEcdsaSigningSession({
       deps: prepareDeps(availableLanes),
-      walletSession: { walletId: AVAILABLE_LANES_WALLET_ID } as never,
+      walletSession: walletSessionRefFixture(AVAILABLE_LANES_WALLET_ID),
       signingTarget: AVAILABLE_LANES_ECDSA_TARGET,
       signingOperation: {
         operationId: OPERATION_ID,
@@ -177,7 +178,7 @@ test.describe('auth-neutral material escalates on its own factor', () => {
             },
           }
         : {}),
-    } as EvmFamilyThresholdEcdsaStepUpRuntime;
+    };
   }
 
   for (const factor of ['passkey', 'email_otp'] as const) {

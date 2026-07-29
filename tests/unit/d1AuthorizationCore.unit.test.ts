@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { AuthorizationService } from '../../packages/sdk-server-ts/src/authorization/service';
+import {
+  AuthorizationService,
+  type ReusableWalletSessionClaimInput,
+} from '../../packages/sdk-server-ts/src/authorization/service';
 import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1AuthorizationStore';
 import {
   applyD1MigrationFiles,
@@ -368,6 +371,61 @@ test.describe('D1 authorization core', () => {
     }
   });
 
+  test('returns an exact replay before reading current grant or quota state', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const service = createService(temporary.database, 'authorization-replay-first');
+      const fixture = await buildReusableAuthorizationCoreFixture();
+      await seedReusable(service, fixture);
+      await expect(service.claimOperation(fixture.claim)).resolves.toMatchObject({
+        kind: 'claimed',
+      });
+      await expect(
+        service.completeOperation({
+          claim: fixture.claim,
+          result: 'succeeded',
+          resultRef: fixture.resultRef,
+          completedAtMs: fixture.claim.claimedAtMs + 10,
+        }),
+      ).resolves.toMatchObject({ kind: 'completed' });
+
+      await temporary.database
+        .prepare(
+          `UPDATE capability_grants
+              SET principal_id = 'superseded-principal'
+            WHERE namespace = ?
+              AND tenant_id = ?
+              AND grant_id = ?`,
+        )
+        .bind('authorization-replay-first', fixture.claim.tenantId, fixture.claim.grantId)
+        .run();
+
+      await expect(
+        service.claimReusableWalletSessionOperation(
+          reusableWalletSessionClaimInput(fixture.claim),
+        ),
+      ).resolves.toMatchObject({
+        claim: null,
+        result: {
+          kind: 'replayed',
+          use: {
+            useId: fixture.claim.useId,
+            result: 'succeeded',
+            resultRef: fixture.resultRef,
+          },
+        },
+      });
+      await expect(
+        readRemainingUses(temporary.database, 'authorization_wallet_session_quotas'),
+      ).resolves.toBe(1);
+      await expect(rowCount(temporary.database, 'capability_grant_uses')).resolves.toBe(1);
+      await expect(rowCount(temporary.database, 'authorization_audit_events')).resolves.toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
   test('keeps exports quota-neutral and makes step-up single-operation', async () => {
     const exportDatabase = createTemporaryD1Database();
     try {
@@ -685,6 +743,30 @@ function createService(
     audit: store,
   });
   return Object.assign(service, { seedStore: store });
+}
+
+function reusableWalletSessionClaimInput(
+  claim: Awaited<ReturnType<typeof buildReusableAuthorizationCoreFixture>>['claim'],
+): ReusableWalletSessionClaimInput {
+  if (claim.authorization.kind !== 'reusable_wallet_session') {
+    throw new Error('reusable Wallet Session claim fixture is required');
+  }
+  return {
+    tenantId: claim.tenantId,
+    grantId: claim.grantId,
+    useId: claim.useId,
+    auditEventId: claim.auditEventId,
+    walletSessionId: claim.authorization.walletSessionId,
+    quotaId: claim.authorization.quotaId,
+    principalId: claim.operation.principalId,
+    capabilityId: claim.operation.capabilityId,
+    operationId: claim.operation.operationId,
+    operation: claim.operation.operation,
+    laneDigest: claim.operation.digests.laneDigest,
+    intentDigest: claim.operation.digests.intentDigest,
+    displayDigest: claim.operation.digests.displayDigest,
+    claimedAtMs: claim.claimedAtMs + 100,
+  };
 }
 
 async function seedReusable(

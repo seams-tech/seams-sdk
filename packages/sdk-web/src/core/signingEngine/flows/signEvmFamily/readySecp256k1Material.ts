@@ -3,10 +3,8 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import {
-  buildEcdsaWalletSessionTransportAuth,
-  buildKnownReadyThresholdEcdsaSessionPolicy,
-  buildReadyThresholdEcdsaSession,
-  type ReadyEcdsaSignerSession,
+  buildHydratedEcdsaSignerMaterial,
+  type HydratedEcdsaSignerMaterial,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   ecdsaRoleLocalPersistedMaterialSource,
@@ -15,10 +13,6 @@ import {
   type PersistedEcdsaRoleLocalMaterial,
   type ResolvedEcdsaRoleLocalSigningMaterial,
 } from '../../session/material/ecdsaRoleLocalMaterialResolver';
-import {
-  markResolvedEcdsaRoleLocalMaterialRuntimeValidated,
-  type RouterAbEcdsaDerivationSigningWalletSession,
-} from '../../session/routerAbSigningWalletSession';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { routerAbEcdsaDerivationActiveStateId } from '@shared/utils/routerAbEcdsaDerivation';
 import { buildRouterAbEcdsaDerivationSigningMaterialRef } from '../../routerAb/ecdsaDerivation/signingMaterialRef';
@@ -29,7 +23,11 @@ import {
   buildReadySecp256k1SigningMaterial,
   type ReadySecp256k1SigningMaterial,
 } from './signers/secp256k1';
-import type { AuthorizedEvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
+import type {
+  ActiveEvmFamilyWalletSessionAuthorization,
+  AuthorizedEvmFamilyEcdsaSigningCapability,
+  CanonicalEvmFamilyEcdsaSigningCapability,
+} from './ecdsaSigningCapability';
 
 type EcdsaSessionChain = 'tempo' | 'evm';
 
@@ -70,8 +68,25 @@ export type ReadySecp256k1SigningMaterialResolution =
         | 'authorization_expired'
         | 'authorization_exhausted'
         | 'device_link_required'
-        | 'material_corrupt'
-        | 'worker_binding_failed';
+        | 'material_corrupt';
+      readonly material?: never;
+    };
+
+export type HydratedSecp256k1SigningMaterialResolution =
+  | {
+      readonly kind: 'ready';
+      readonly material: HydratedEcdsaSignerMaterial;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly reason:
+        | 'material_activation_mismatch'
+        | 'chain_mismatch'
+        | 'runtime_correlation_mismatch'
+        | 'runtime_policy_scope_missing'
+        | 'device_link_required'
+        | 'material_corrupt';
       readonly material?: never;
     };
 
@@ -85,17 +100,16 @@ export type ReadySecp256k1SigningMaterialResolution =
  * credential here and nothing more: the facts it used to carry are owned by
  * the manifest and the sealed record, and correlating those two is what
  * `resolveExactEcdsaSealedRuntime` already did to produce this runtime. */
-export async function resolveReadySecp256k1SigningMaterial(args: {
-  authorized: AuthorizedEvmFamilyEcdsaSigningCapability;
+export async function resolveHydratedSecp256k1SigningMaterial(args: {
+  capability: CanonicalEvmFamilyEcdsaSigningCapability;
   runtime: ExactEcdsaSealedRuntime;
   requestLabel: unknown;
   materialActivation: MpcMaterialActivationRef;
   workerCtx: WorkerOperationContext;
-}): Promise<ReadySecp256k1SigningMaterialResolution> {
-  const capability = args.authorized.capability;
+}): Promise<HydratedSecp256k1SigningMaterialResolution> {
+  const capability = args.capability;
   const manifest = capability.manifest;
   const persistedMaterial = capability.material;
-  const projection = args.authorized.authorization.projection;
   const runtime = args.runtime;
   const roleLocalFacts = persistedMaterial.publicFacts;
 
@@ -129,20 +143,6 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
     return { kind: 'unavailable', reason: 'chain_mismatch' };
   }
 
-  // 3. Authorization classification over the runtime's own allowance, by the
-  //    shared Refactor 92 rule: expiry before exhaustion, and neither disturbs
-  //    the sealed material or its activation.
-  const runtimeState = laneCandidateStateFromRuntimePolicy({
-    remainingUses: runtime.remainingUses,
-    expiresAtMs: runtime.expiresAtMs,
-  });
-  if (runtimeState === 'expired') {
-    return { kind: 'unavailable', reason: 'authorization_expired' };
-  }
-  if (runtimeState === 'exhausted') {
-    return { kind: 'unavailable', reason: 'authorization_exhausted' };
-  }
-
   // The scope is persisted conditionally by the sealed store, but a signing
   // session cannot be built without it.
   const runtimePolicyScope = runtime.runtimePolicyScope;
@@ -169,7 +169,6 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
       return exhaustive;
     }
   }
-  const walletSessionJwt = projection.walletSessionJwt;
   // The sealed record owns the normal-signing state. It was cross-checked
   // against this manifest's facts during runtime correlation, which is where
   // that check belongs.
@@ -178,56 +177,14 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
   const signingMaterial = buildRouterAbEcdsaDerivationSigningMaterialRef({
     routerAbState: normalSigningState,
   });
-  const signingWalletSession: RouterAbEcdsaDerivationSigningWalletSession = {
-    curve: 'ecdsa',
-    auth: {
-      kind: 'wallet_session_jwt',
-      walletSessionJwt,
-      credential: {
-        kind: 'jwt',
-        walletSessionJwt,
-      },
-    },
-    thresholdSessionId,
-    remainingUses: runtime.remainingUses,
-    expiresAtMs: runtime.expiresAtMs,
-    signingMaterial,
-    runtimePolicyScope,
-    routerAbEcdsaDerivationNormalSigning: normalSigningState,
-  };
-  // 5. Worker and material-owner binding. This is the last gate before
-  //    ready_to_sign: hydrated material that cannot be bound to this exact
-  //    session is not signable, and is reported rather than thrown so callers
-  //    can plan step-up.
-  if (
-    !markResolvedEcdsaRoleLocalMaterialRuntimeValidated({
-      material: resolvedRoleLocalMaterial,
-      session: signingWalletSession,
-      keyHandle: roleLocalFacts.keyHandle,
-      chainTarget: roleLocalFacts.chainTarget,
-      participantIds: roleLocalFacts.participantIds,
-    })
-  ) {
-    return { kind: 'unavailable', reason: 'worker_binding_failed' };
-  }
-
-  const transportAuth = buildEcdsaWalletSessionTransportAuth({
-    kind: 'wallet_session_jwt',
-    walletSessionJwt,
-  });
-  const signerSession: ReadyEcdsaSignerSession = {
-    kind: 'ready_ecdsa_signer_session',
+  const signerSession = buildHydratedEcdsaSignerMaterial({
     walletId: manifest.signer.walletId,
     materialActivation: manifest.activation.materialActivation,
     publicFacts: manifest.signer.registeredPublicFacts,
     chainTarget: roleLocalFacts.chainTarget,
-    session: buildReadyThresholdEcdsaSession({
-      thresholdSessionId,
-      policy: buildKnownReadyThresholdEcdsaSessionPolicy({
-        remainingUses: runtime.remainingUses,
-        expiresAtMs: runtime.expiresAtMs,
-      }),
-    }),
+    thresholdSessionId,
+    remainingUses: runtime.remainingUses,
+    expiresAtMs: runtime.expiresAtMs,
     transport: {
       kind: 'threshold_ecdsa_signer_transport',
       relayerUrl: runtime.relayerUrl,
@@ -244,31 +201,72 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
       },
     },
     routerAbEcdsaDerivationNormalSigning: {
-      kind: 'router_ab_ecdsa_derivation_normal_signing_ready_v1',
+      kind: 'router_ab_ecdsa_derivation_normal_signing_hydrated_v1',
       state: normalSigningState,
-      credential: {
-        kind: 'jwt',
-        walletSessionJwt: transportAuth.walletSessionJwt,
-      },
       activeStateId: routerAbEcdsaDerivationActiveStateId(normalSigningState),
     },
-  };
+  });
 
   return {
     kind: 'ready',
-    material: buildReadySecp256k1SigningMaterial({
-      walletId: manifest.signer.walletId,
-      signerSession,
-      authorization: {
-        kind: 'reusable_wallet_session',
-        wallet_session_id: projection.walletSessionId,
-      },
-      credential: {
-        kind: 'jwt',
-        walletSessionJwt,
-      },
-      expiresAtMs: runtime.expiresAtMs,
-      singleUseEmailOtpSession: false,
+    material: signerSession,
+  };
+}
+
+export async function resolveReadySecp256k1SigningMaterial(args: {
+  authorized: AuthorizedEvmFamilyEcdsaSigningCapability;
+  runtime: ExactEcdsaSealedRuntime;
+  requestLabel: unknown;
+  materialActivation: MpcMaterialActivationRef;
+  workerCtx: WorkerOperationContext;
+}): Promise<ReadySecp256k1SigningMaterialResolution> {
+  const runtimeState = laneCandidateStateFromRuntimePolicy({
+    remainingUses: args.runtime.remainingUses,
+    expiresAtMs: args.runtime.expiresAtMs,
+  });
+  if (runtimeState === 'expired') {
+    return { kind: 'unavailable', reason: 'authorization_expired' };
+  }
+  if (runtimeState === 'exhausted') {
+    return { kind: 'unavailable', reason: 'authorization_exhausted' };
+  }
+  const hydrated = await resolveHydratedSecp256k1SigningMaterial({
+    capability: args.authorized.capability,
+    runtime: args.runtime,
+    requestLabel: args.requestLabel,
+    materialActivation: args.materialActivation,
+    workerCtx: args.workerCtx,
+  });
+  if (hydrated.kind === 'unavailable') return hydrated;
+  return {
+    kind: 'ready',
+    material: attachReusableEcdsaWalletSessionAuthorization({
+      material: hydrated.material,
+      authorization: args.authorized.authorization,
     }),
   };
+}
+
+export function attachReusableEcdsaWalletSessionAuthorization(args: {
+  material: HydratedEcdsaSignerMaterial;
+  authorization: ActiveEvmFamilyWalletSessionAuthorization;
+}): ReadySecp256k1SigningMaterial {
+  const projection = args.authorization.projection;
+  if (String(projection.walletId) !== String(args.material.walletId)) {
+    throw new Error('Reusable Wallet Session authorization wallet does not match hydrated material');
+  }
+  return buildReadySecp256k1SigningMaterial({
+    walletId: args.material.walletId,
+    signerSession: args.material,
+    authorization: {
+      kind: 'reusable_wallet_session',
+      wallet_session_id: projection.walletSessionId,
+    },
+    credential: {
+      kind: 'jwt',
+      walletSessionJwt: projection.walletSessionJwt,
+    },
+    expiresAtMs: args.authorization.status.expiresAtMs,
+    singleUseEmailOtpSession: false,
+  });
 }

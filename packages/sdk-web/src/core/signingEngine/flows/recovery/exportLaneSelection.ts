@@ -162,7 +162,6 @@ function exactEcdsaIdentityForExportLane(args: {
       materialActivation: args.lane.materialActivation,
     }),
     auth: args.lane.auth,
-    authorization: args.lane.authorization,
   });
 }
 
@@ -343,9 +342,13 @@ async function resolveEcdsaExportLane(
     lane: selected,
     chainTarget: sessionChainTarget,
   });
+  if (!selected.authorization) {
+    throw new Error('[SigningEngine][ecdsa-export] selected lane authorization is missing');
+  }
   return {
     curve: 'ecdsa',
     laneIdentity,
+    authorization: selected.authorization,
     key: selected.key,
     publicFacts: selected.publicFacts,
     session: exactEcdsaExportSessionFromAvailableLane({

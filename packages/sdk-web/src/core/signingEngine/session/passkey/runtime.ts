@@ -3,6 +3,7 @@ import {
   thresholdEcdsaChainTargetKey,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import type {
   WarmSessionSealPersister,
   WarmSessionStatusReader,
@@ -22,11 +23,13 @@ export type WarmSessionSealPersistPorts =
 export async function ensureEcdsaPrfSealPersisted(args: {
   touchConfirm: WarmSessionSealPersistPorts;
   lane: ExactEcdsaSigningLaneIdentity;
+  authorization: ActiveEvmFamilyWalletSessionAuthorization;
   required?: boolean;
   errorContext?: string;
   sealPersistInFlightBySessionId: Map<string, Promise<void>>;
   resolveSealTransport: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
+    authorization: ActiveEvmFamilyWalletSessionAuthorization;
   }) => Promise<ThresholdSessionSealTransportAuthMaterial | null>;
 }): Promise<void> {
   const materialActivationId = String(
@@ -40,6 +43,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
       const errorContext = String(args.errorContext || 'threshold session seal persistence').trim();
       const sealTransport = await args.resolveSealTransport({
         lane: args.lane,
+        authorization: args.authorization,
       });
       if (sealTransport && sealTransport.curve !== 'ecdsa') {
         throw new Error('[WarmSessionStore] ECDSA seal persistence received non-ECDSA transport');

@@ -44,13 +44,6 @@ import {
   buildRouterAbEcdsaDerivationSigningMaterialRef,
   type RouterAbEcdsaDerivationSigningMaterialRef,
 } from '../../routerAb/ecdsaDerivation/signingMaterialRef';
-import { thresholdEcdsaRecordHasRoleLocalSigningMaterial } from '../persistence/ecdsaRoleLocalRecords';
-import {
-  requirePersistedEcdsaRoleLocalMaterial,
-  type ThresholdEcdsaSessionRecord,
-} from '../persistence/records';
-import { getLiveEcdsaRoleLocalMaterialBinding } from '../material/ecdsaRoleLocalMaterialResolver';
-import { classifyRouterAbEcdsaDerivationPersistedSigningRecord } from '../routerAbSigningWalletSession';
 import type { ThresholdEcdsaSessionStoreSource } from './laneIdentity';
 import {
   thresholdEcdsaChainTargetKey,
@@ -311,6 +304,38 @@ export type ThresholdEcdsaSignerClientShare =
   | ThresholdEcdsaEmailOtpWorkerShare
   | ThresholdEcdsaRoleLocalWorkerShare;
 
+export type HydratedEcdsaSignerTransport = {
+  readonly kind: 'threshold_ecdsa_signer_transport';
+  readonly relayerUrl: string;
+  readonly relayerKeyId: string;
+  readonly signingMaterial: RouterAbEcdsaDerivationSigningMaterialRef;
+  readonly relayerVerifyingShareB64u: string;
+};
+
+export type HydratedRouterAbEcdsaDerivationNormalSigning = {
+  readonly kind: 'router_ab_ecdsa_derivation_normal_signing_hydrated_v1';
+  readonly state: RouterAbEcdsaDerivationNormalSigningStateV1;
+  readonly activeStateId: EcdsaActiveStateId;
+  readonly credential?: never;
+};
+
+export type HydratedEcdsaSignerMaterial = {
+  readonly kind: 'hydrated_ecdsa_signer_material';
+  readonly walletId: WalletId;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly publicFacts: VerifiedEcdsaPublicFacts;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly thresholdSessionId: ThresholdEcdsaSessionId;
+  readonly remainingUses: number;
+  readonly expiresAtMs: number;
+  readonly transport: HydratedEcdsaSignerTransport;
+  readonly clientShare: ThresholdEcdsaSignerClientShare;
+  readonly routerAbEcdsaDerivationNormalSigning: HydratedRouterAbEcdsaDerivationNormalSigning;
+  readonly authorization?: never;
+  readonly credential?: never;
+  readonly walletSessionJwt?: never;
+};
+
 export type ReadyRouterAbEcdsaDerivationNormalSigning = {
   kind: 'router_ab_ecdsa_derivation_normal_signing_ready_v1';
   state: RouterAbEcdsaDerivationNormalSigningStateV1;
@@ -532,6 +557,22 @@ export type BuildReadyEcdsaSignerSessionInput = {
   walletSessionJwt: unknown;
 };
 
+export type BuildHydratedEcdsaSignerMaterialInput = {
+  readonly walletId: WalletId;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly publicFacts: VerifiedEcdsaPublicFacts;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly thresholdSessionId: unknown;
+  readonly remainingUses: number;
+  readonly expiresAtMs: number;
+  readonly transport: HydratedEcdsaSignerTransport;
+  readonly clientShare: ThresholdEcdsaSignerClientShare;
+  readonly routerAbEcdsaDerivationNormalSigning: HydratedRouterAbEcdsaDerivationNormalSigning;
+  readonly authorization?: never;
+  readonly credential?: never;
+  readonly walletSessionJwt?: never;
+};
+
 export type DurableEvmFamilyEcdsaPublicFactsRecord = {
   ecdsaRestore: {
     keyHandle: unknown;
@@ -684,7 +725,7 @@ export function parseThresholdSigningRootBinding(input: {
 }
 
 export function resolveThresholdSigningRootBindingFromRecord(args: {
-  record: Pick<ThresholdEcdsaSessionRecord, 'signingRootId' | 'signingRootVersion'>;
+  record: { signingRootId: unknown; signingRootVersion: unknown };
 }): {
   signingRootId: SigningRootId;
   signingRootVersion: SigningRootVersion;
@@ -753,24 +794,6 @@ function ecdsaRoleLocalParticipantIds(
     Number(firstParticipantId),
     ...remainingParticipantIds.map((participantId) => Number(participantId)),
   ];
-}
-
-function authMethodForRecord(record: ThresholdEcdsaSessionRecord): EvmFamilyEcdsaAuthMethod {
-  const source = record.source;
-  switch (source) {
-    case SIGNER_AUTH_METHODS.emailOtp:
-      return SIGNER_AUTH_METHODS.emailOtp;
-    case 'login':
-    case 'registration':
-    case 'manual-bootstrap':
-      return SIGNER_AUTH_METHODS.passkey;
-    default:
-      return assertNeverThresholdEcdsaSessionStoreSource(source);
-  }
-}
-
-function assertNeverThresholdEcdsaSessionStoreSource(value: never): never {
-  throw new Error(`Unsupported threshold ECDSA session source: ${String(value)}`);
 }
 
 function mismatch<TKind extends EvmFamilyEcdsaIdentityMismatch['kind']>(
@@ -1184,10 +1207,6 @@ function buildThresholdEcdsaSignerClientShare(args: {
   }
 }
 
-function hasReadyThresholdEcdsaRecordClientShare(record: ThresholdEcdsaSessionRecord): boolean {
-  return thresholdEcdsaRecordHasRoleLocalSigningMaterial(record);
-}
-
 export function buildKnownReadyThresholdEcdsaSessionPolicy(args: {
   remainingUses: unknown;
   expiresAtMs: unknown;
@@ -1215,6 +1234,32 @@ export function buildReadyThresholdEcdsaSession(args: {
     kind: 'ready_threshold_ecdsa_session',
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId),
     policy: args.policy,
+  };
+}
+
+export function buildHydratedEcdsaSignerMaterial(
+  input: BuildHydratedEcdsaSignerMaterialInput,
+): HydratedEcdsaSignerMaterial {
+  const remainingUses = Math.floor(Number(input.remainingUses));
+  const expiresAtMs = Math.floor(Number(input.expiresAtMs));
+  if (!Number.isSafeInteger(remainingUses) || remainingUses < 0) {
+    throw new Error('[evm-family-ecdsa] hydrated material remainingUses is invalid');
+  }
+  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= 0) {
+    throw new Error('[evm-family-ecdsa] hydrated material expiresAtMs is invalid');
+  }
+  return {
+    kind: 'hydrated_ecdsa_signer_material',
+    walletId: input.walletId,
+    materialActivation: input.materialActivation,
+    publicFacts: input.publicFacts,
+    chainTarget: input.chainTarget,
+    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
+    remainingUses,
+    expiresAtMs,
+    transport: input.transport,
+    clientShare: input.clientShare,
+    routerAbEcdsaDerivationNormalSigning: input.routerAbEcdsaDerivationNormalSigning,
   };
 }
 
@@ -1302,62 +1347,6 @@ export function buildReadyEcdsaSignerSession(
   };
 }
 
-export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
-  record: ThresholdEcdsaSessionRecord;
-  exportArtifact?: ThresholdEcdsaCanonicalExportArtifact;
-}): ThresholdEcdsaSecp256k1KeyRef {
-  const record = args.record;
-  const backendBinding = buildThresholdEcdsaBackendBindingFromSessionRecord(record);
-  return {
-    type: 'threshold-ecdsa-secp256k1',
-    userId: String(record.walletId),
-    chainTarget: record.chainTarget,
-    relayerUrl: record.relayerUrl,
-    keyHandle: record.keyHandle,
-    ecdsaThresholdKeyId: resolveThresholdEcdsaKeyIdFromRecord({ record }),
-    backendBinding,
-    ...(args.exportArtifact ? { ecdsaDerivationExportArtifact: args.exportArtifact } : {}),
-    participantIds: record.participantIds,
-    thresholdSessionKind: record.thresholdSessionKind,
-    thresholdSessionId: record.thresholdSessionId,
-    signingGrantId: record.signingGrantId,
-    ...(record.thresholdEcdsaPublicKeyB64u
-      ? { thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u }
-      : {}),
-    ...(record.ethereumAddress ? { ethereumAddress: record.ethereumAddress } : {}),
-    ...(record.relayerVerifyingShareB64u
-      ? { relayerVerifyingShareB64u: record.relayerVerifyingShareB64u }
-      : {}),
-    ...(record.routerAbEcdsaDerivationNormalSigning
-      ? { routerAbEcdsaDerivationNormalSigning: record.routerAbEcdsaDerivationNormalSigning }
-      : {}),
-  };
-}
-
-function buildThresholdEcdsaBackendBindingFromSessionRecord(
-  record: ThresholdEcdsaSessionRecord,
-): ThresholdEcdsaBackendBinding {
-  const persistedMaterial = requirePersistedEcdsaRoleLocalMaterial(record);
-  const liveMaterial = getLiveEcdsaRoleLocalMaterialBinding(persistedMaterial);
-  if (liveMaterial) {
-    return {
-      materialKind: 'role_local_worker_handle',
-      relayerKeyId: record.relayerKeyId,
-      clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-      roleLocalMaterialHandle: liveMaterial.liveHandle,
-      roleLocalMaterialRef: liveMaterial.materialRef,
-      publicFacts: record.ecdsaRoleLocalPublicFacts,
-      authMethod: record.ecdsaRoleLocalAuthMethod,
-    };
-  }
-  return {
-    materialKind: 'role_local_durable_public_anchor',
-    relayerKeyId: record.relayerKeyId,
-    clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-    publicFacts: record.ecdsaRoleLocalPublicFacts,
-  };
-}
-
 export async function toVerifiedEcdsaPublicFactsFromServerRecord(
   record: EvmFamilyEcdsaPublicFactsRecord,
 ): Promise<VerifiedEcdsaPublicFacts> {
@@ -1366,17 +1355,6 @@ export async function toVerifiedEcdsaPublicFactsFromServerRecord(
     publicKeyB64u: record.thresholdEcdsaPublicKeyB64u,
     participantIds: record.participantIds,
     thresholdOwnerAddress: record.ethereumAddress,
-  });
-}
-
-export async function toVerifiedEcdsaPublicFactsFromRecord(args: {
-  record: ThresholdEcdsaSessionRecord;
-}): Promise<VerifiedEcdsaPublicFacts> {
-  return buildVerifiedEcdsaPublicFacts({
-    keyHandle: args.record.keyHandle,
-    publicKeyB64u: args.record.thresholdEcdsaPublicKeyB64u,
-    participantIds: args.record.participantIds,
-    thresholdOwnerAddress: args.record.ethereumAddress,
   });
 }
 
@@ -1395,25 +1373,6 @@ export async function toVerifiedEcdsaPublicFactsFromKeyRef(args: {
   });
 }
 
-export async function toVerifiedEcdsaPublicFactsFromPairedRecordAndKeyRef(args: {
-  record: ThresholdEcdsaSessionRecord;
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
-  context: string;
-}): Promise<VerifiedEcdsaPublicFacts> {
-  const recordFacts = await toVerifiedEcdsaPublicFactsFromRecord({
-    record: args.record,
-  });
-  const keyRefFacts = await toVerifiedEcdsaPublicFactsFromKeyRef({
-    keyRef: args.keyRef,
-  });
-  assertMatchingVerifiedEcdsaPublicFacts({
-    expected: recordFacts,
-    actual: keyRefFacts,
-    context: args.context,
-  });
-  return recordFacts;
-}
-
 export async function toVerifiedEcdsaPublicFactsFromDurableRecord(args: {
   record: DurableEvmFamilyEcdsaPublicFactsRecord;
 }): Promise<VerifiedEcdsaPublicFacts> {
@@ -1422,35 +1381,6 @@ export async function toVerifiedEcdsaPublicFactsFromDurableRecord(args: {
     publicKeyB64u: args.record.ecdsaRestore.thresholdEcdsaPublicKeyB64u,
     participantIds: args.record.ecdsaRestore.participantIds,
     thresholdOwnerAddress: args.record.ecdsaRestore.ethereumAddress,
-  });
-}
-
-export function buildEvmFamilyEcdsaKeyIdentityFromRecord(args: {
-  record: ThresholdEcdsaSessionRecord;
-  trustedOwnerAddress?: unknown;
-}): EvmFamilyEcdsaKeyIdentity {
-  const thresholdOwnerAddress = normalizeThresholdOwnerAddress(args.record.ethereumAddress);
-  const trustedOwnerAddress = String(args.trustedOwnerAddress ?? '').trim()
-    ? normalizeThresholdOwnerAddress(args.trustedOwnerAddress)
-    : null;
-  if (trustedOwnerAddress && thresholdOwnerAddress !== trustedOwnerAddress) {
-    throw new Error(
-      '[evm-family-ecdsa] persisted owner address mismatches trusted EVM-family key material',
-    );
-  }
-  const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
-    record: args.record,
-  });
-  const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromRecord({
-    record: args.record,
-  });
-  return buildBaseEvmFamilyEcdsaKeyIdentity({
-    walletId: args.record.walletId,
-    ecdsaThresholdKeyId,
-    signingRootId: signingRootBinding.signingRootId,
-    signingRootVersion: signingRootBinding.signingRootVersion,
-    participantIds: args.record.participantIds,
-    thresholdOwnerAddress,
   });
 }
 
@@ -1567,10 +1497,12 @@ export function deriveEvmFamilyKeyFingerprintFromPublicFacts(
 
 export function deriveEvmFamilyKeyFingerprintFromRecordPublicFacts(args: {
   walletId: unknown;
-  record: Pick<
-    ThresholdEcdsaSessionRecord,
-    'keyHandle' | 'thresholdEcdsaPublicKeyB64u' | 'participantIds' | 'ethereumAddress'
-  >;
+  record: {
+    keyHandle: unknown;
+    thresholdEcdsaPublicKeyB64u: unknown;
+    participantIds: unknown;
+    ethereumAddress: unknown;
+  };
 }): EvmFamilyKeyFingerprint {
   return deriveEvmFamilyKeyFingerprintFromPublicFacts({
     walletId: args.walletId,

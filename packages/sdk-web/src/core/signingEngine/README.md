@@ -131,9 +131,9 @@ sequenceDiagram
 - `WalletSigningBudgetReservation` (`session/budget/budget.ts`): budget
   reservation and spend identity that follows the selected lane through the
   finalization path.
-- `ThresholdEcdsaSessionRecord` / `ThresholdEd25519SessionRecord`
-  (`session/persistence/records.ts`): persistence records normalized at
-  storage boundaries.
+- `ThresholdEd25519SessionRecord` (`session/persistence/records.ts`): Ed25519
+  persistence records normalized at storage boundaries. ECDSA material and
+  authorization use the capability manifest and sealed-runtime boundaries.
 - `ThresholdEcdsaChainTarget` (`interfaces/ecdsaChainTarget.ts`): neutral EVM
   and Tempo chain target identity shared by session, prompt, threshold, and
   operation modules.

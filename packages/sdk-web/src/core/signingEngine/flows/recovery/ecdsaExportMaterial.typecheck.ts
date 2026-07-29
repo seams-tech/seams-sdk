@@ -1,5 +1,5 @@
 import type { VerifiedEcdsaPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
-import type { PersistedEcdsaRoleLocalMaterial } from '../../session/persistence/records';
+import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecdsaRoleLocalMaterialResolver';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';

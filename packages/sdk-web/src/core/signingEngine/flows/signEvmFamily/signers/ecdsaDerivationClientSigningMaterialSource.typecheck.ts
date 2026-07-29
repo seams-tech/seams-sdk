@@ -1,9 +1,7 @@
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
-import type { ReadyEcdsaSignerSession } from '../../../session/identity/evmFamilyEcdsaIdentity';
-import type { SignableReadyEcdsaSignerSession } from './ecdsaDerivationClientSigningMaterialSource';
+import type { HydratedEcdsaSignerMaterial } from '../../../session/identity/evmFamilyEcdsaIdentity';
 
-declare const readySignerSession: ReadyEcdsaSignerSession;
-declare const signableReadySignerSession: SignableReadyEcdsaSignerSession;
+declare const hydratedSignerMaterial: HydratedEcdsaSignerMaterial;
 declare const roleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
 
 type OldRoleLocalReadyStateBlobShare = {
@@ -13,9 +11,9 @@ type OldRoleLocalReadyStateBlobShare = {
 };
 
 const validSignableSessionWithLoadedClientShare = {
-  ...readySignerSession,
-  clientShare: signableReadySignerSession.clientShare,
-} satisfies SignableReadyEcdsaSignerSession;
+  ...hydratedSignerMaterial,
+  clientShare: hydratedSignerMaterial.clientShare,
+} satisfies HydratedEcdsaSignerMaterial;
 void validSignableSessionWithLoadedClientShare;
 
 const oldRoleLocalReadyStateBlobShare = {
@@ -25,7 +23,7 @@ const oldRoleLocalReadyStateBlobShare = {
 } satisfies OldRoleLocalReadyStateBlobShare;
 
 // @ts-expect-error final ECDSA signing requires worker-owned role-local material handles.
-const invalidSignableRawRoleLocalBlobShare: SignableReadyEcdsaSignerSession['clientShare'] =
+const invalidSignableRawRoleLocalBlobShare: HydratedEcdsaSignerMaterial['clientShare'] =
   oldRoleLocalReadyStateBlobShare;
 void invalidSignableRawRoleLocalBlobShare;
 

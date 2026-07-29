@@ -17,18 +17,14 @@ import {
   type FreshStepUpRequired,
 } from '../operationState/stepUpFreshness';
 import {
-} from '../budget/budget';
-import {
   emailOtpRefreshIdentity,
   type EmailOtpRefreshIdentity,
 } from '../emailOtp/appSessionJwtCache';
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import {
   SigningOperationIntent,
   SigningSessionIds,
 } from '../operationState/types';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 
 const walletId = toWalletId('wallet.testnet');
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
@@ -66,7 +62,6 @@ const invalidPublicKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({
 });
 void invalidPublicKeyIdentity;
 declare const materialActivation: MpcMaterialActivationRef;
-declare const authorization: ActiveEvmFamilyWalletSessionAuthorization;
 
 const laneIdentity = exactEcdsaSigningLaneIdentity({
   signer: buildEvmFamilyEcdsaSignerBinding({
@@ -80,7 +75,6 @@ const laneIdentity = exactEcdsaSigningLaneIdentity({
     kind: 'email_otp',
     providerSubjectId: 'google:subject-1',
   },
-  authorization,
 });
 
 const invalidExactIdentity: ExactEcdsaSigningLaneIdentity = {
@@ -132,11 +126,3 @@ const invalidRefreshIdentity: EmailOtpRefreshIdentity = {
   subjectId: 'wallet.testnet',
 };
 void invalidRefreshIdentity;
-
-declare const persistedEcdsaRecord: ThresholdEcdsaSessionRecord;
-const invalidPersistedEcdsaRecord: ThresholdEcdsaSessionRecord = {
-  ...persistedEcdsaRecord,
-  // @ts-expect-error persisted ECDSA session records reject subjectId.
-  subjectId: 'wallet.testnet',
-};
-void invalidPersistedEcdsaRecord;

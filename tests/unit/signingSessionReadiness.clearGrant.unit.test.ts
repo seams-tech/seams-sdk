@@ -1,12 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
-import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
-import {
-  buildEmailOtpAuthContextForWalletAuthMethod,
-  type ThresholdEcdsaEmailOtpAuthContext,
-} from '@/core/signingEngine/session/identity/laneIdentity';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import {
   clearSigningGrant,
@@ -15,15 +9,9 @@ import {
 import {
   buildThresholdEd25519SessionRecordKey,
   clearAllStoredThresholdEd25519SessionRecords,
-  clearAllThresholdEcdsaSessionRecords,
   clearStoredThresholdEd25519SessionRecordForLaneKey,
   getStoredThresholdEd25519SessionRecordForLane,
-  getThresholdEcdsaSessionRecordByKey,
-  toExactEcdsaSigningLaneIdentity,
-  type ThresholdEcdsaSessionRecord,
-  type ThresholdEcdsaSessionStoreDeps,
   upsertThresholdEd25519SessionFact,
-  upsertThresholdEcdsaSessionFromBootstrap,
 } from '@/core/signingEngine/session/persistence/records';
 
 const SPLIT_WALLET_ID = toWalletId('frost-clear-grant-k7p9m2');
@@ -37,12 +25,6 @@ const MISMATCH_NEAR_ACCOUNT_ID = toAccountId('target.testnet');
 const MISMATCH_NEAR_ED25519_SIGNING_KEY_ID = 'near-ed25519-clear-mismatch';
 const MISMATCH_SIGNING_GRANT_ID = 'grant-clear-mismatch';
 const MISMATCH_THRESHOLD_SESSION_ID = 'tsess-clear-mismatch';
-const ECDSA_WALLET_ID = toWalletId('frost-ecdsa-clear-k7p9m2');
-const ECDSA_CHAIN_TARGET = testEcdsaChainTarget('tempo');
-const PRIMARY_ECDSA_SIGNING_GRANT_ID = 'grant-clear-ecdsa-primary';
-const SIBLING_ECDSA_SIGNING_GRANT_ID = 'grant-clear-ecdsa-sibling';
-const PRIMARY_ECDSA_THRESHOLD_SESSION_ID = 'tsess-clear-ecdsa-primary';
-const SIBLING_ECDSA_THRESHOLD_SESSION_ID = 'tsess-clear-ecdsa-sibling';
 
 function ed25519RouterAbNormalSigning(signingWorkerId: string) {
   return {
@@ -134,53 +116,6 @@ function expectMismatchFixtureRecordPresent(): void {
     nearAccountId: MISMATCH_NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: MISMATCH_NEAR_ED25519_SIGNING_KEY_ID,
     signingGrantId: MISMATCH_SIGNING_GRANT_ID,
-  });
-}
-
-function createEcdsaStoreDeps(): ThresholdEcdsaSessionStoreDeps {
-  return {
-    recordsByLane: new Map(),
-    exportArtifactsByLane: new Map(),
-    now: () => 1_700_000_000_000,
-  };
-}
-
-function ecdsaEmailOtpAuthContext(): ThresholdEcdsaEmailOtpAuthContext {
-  return buildEmailOtpAuthContextForWalletAuthMethod({
-    policy: 'session',
-    walletId: ECDSA_WALLET_ID,
-    emailHashHex: '11'.repeat(32),
-    provider: 'email',
-    providerUserId: ECDSA_WALLET_ID,
-    retention: 'session',
-    reason: 'sign',
-  });
-}
-
-function seedEcdsaGrantRecord(
-  deps: ThresholdEcdsaSessionStoreDeps,
-  args: {
-    signingGrantId: string;
-    thresholdSessionId: string;
-  },
-): ThresholdEcdsaSessionRecord {
-  return upsertThresholdEcdsaSessionFromBootstrap(deps, {
-    walletId: ECDSA_WALLET_ID,
-    chainTarget: ECDSA_CHAIN_TARGET,
-    bootstrap: createThresholdEcdsaBootstrapFixture({
-      nearAccountId: String(ECDSA_WALLET_ID),
-      chain: 'tempo',
-      roleLocalAuthMethod: 'email_otp',
-      emailOtpAuthSubjectId: String(ECDSA_WALLET_ID),
-      keyHandle: 'ederivation-clear-ecdsa-shared',
-      ecdsaThresholdKeyId: 'ek-clear-ecdsa-shared',
-      sessionId: args.thresholdSessionId,
-      signingGrantId: args.signingGrantId,
-      remainingUses: 1,
-      expiresAtMs: Date.now() + 60_000,
-    }),
-    source: 'email_otp',
-    emailOtpAuthContext: ecdsaEmailOtpAuthContext(),
   });
 }
 

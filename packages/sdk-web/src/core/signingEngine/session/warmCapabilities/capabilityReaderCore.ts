@@ -95,13 +95,17 @@ export type WarmSessionCapabilityReaderCore = {
     thresholdSessionId: string,
   ) => Promise<WarmSessionEd25519CapabilityState | null>;
   getEcdsaCapabilityForLane: (
-    lane: ExactEcdsaSigningLaneIdentity,
+    args: {
+      lane: ExactEcdsaSigningLaneIdentity;
+      authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    },
   ) => Promise<WarmSessionEcdsaCapabilityState | null>;
   // Lane-qualified, and async because canonical resolution reads persistence.
   // There is deliberately no threshold-session-id entry point: that id indexes
   // runtime state and must never select material.
   resolveEcdsaSealTransportForLane: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
+    authorization: ActiveEvmFamilyWalletSessionAuthorization;
   }) => Promise<ThresholdSessionSealTransportAuthMaterial | null>;
 };
 
@@ -493,16 +497,19 @@ export function createWarmSessionCapabilityReaderCore(
    * the one this capability is read under -- re-resolving it for the wallet
    * could answer with a different Wallet Session than the caller holds. */
   async function getEcdsaCapabilityForLane(
-    lane: ExactEcdsaSigningLaneIdentity,
+    args: {
+      lane: ExactEcdsaSigningLaneIdentity;
+      authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    },
   ): Promise<WarmSessionEcdsaCapabilityState | null> {
     const resolution = await resolveActiveEcdsaCapabilityRuntime({
-      walletId: lane.signer.walletId,
-      chainTarget: lane.signer.chainTarget,
+      walletId: args.lane.signer.walletId,
+      chainTarget: args.lane.signer.chainTarget,
     });
     return buildEcdsaCapabilityState({
       resolution,
       prfClaim: ecdsaClaimForResolution(resolution),
-      authorization: lane.authorization,
+      authorization: args.authorization,
     });
   }
 
@@ -522,6 +529,7 @@ export function createWarmSessionCapabilityReaderCore(
    * session's transport seal; the two must not be interchanged. */
   async function resolveEcdsaSealTransportForLane(args: {
     lane: ExactEcdsaSigningLaneIdentity;
+    authorization: ActiveEvmFamilyWalletSessionAuthorization;
   }): Promise<ThresholdSessionSealTransportAuthMaterial | null> {
     const resolution = await resolveActiveEcdsaCapabilityRuntime({
       walletId: args.lane.signer.walletId,
@@ -531,7 +539,7 @@ export function createWarmSessionCapabilityReaderCore(
     const seal = ecdsaSealConfig();
     return resolveEcdsaSealTransport({
       runtime: resolution.runtime,
-      auth: args.lane.authorization,
+      auth: args.authorization,
       ...(seal.signingSessionSealKeyVersion
         ? { signingSessionSealKeyVersion: seal.signingSessionSealKeyVersion }
         : {}),

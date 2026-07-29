@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resolveHydratedSecp256k1SigningMaterial } from '@/core/signingEngine/flows/signEvmFamily/readySecp256k1Material';
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
-import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import { parseEcdsaRoleLocalWorkerHandle } from '@/core/signingEngine/session/keyMaterialBrands';
 import { EcdsaDerivationClientCustomResponseType } from '@/core/signingEngine/workerManager/workerTypes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
@@ -14,13 +13,9 @@ import {
 } from '@/core/signingEngine/flows/signEvmFamily/thresholdAdmission';
 import { computeRouterAbEcdsaOperationStepUpChallengeB64u } from '@shared/utils/routerAbEcdsaDerivation';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import {
-  buildEmailOtpWalletAuthAuthority,
-  buildPasskeyWalletAuthAuthority,
-  type WalletAuthAuthority,
-} from '@shared/utils/walletAuthAuthority';
+import { type WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { HydratedEcdsaSignerMaterial } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { ecdsaCapabilityActivationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
+import { canonicalEvmFamilyEcdsaSigningCapabilityFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import {
   buildEmailOtpEcdsaSealedRuntimeRecordFixture,
   buildPasskeyEcdsaSealedRuntimeRecordFixture,
@@ -39,42 +34,9 @@ import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef
 
 type Factor = 'passkey' | 'email_otp';
 
-function canonicalCapability(
-  manifest: ActiveEcdsaCapabilityManifest,
-): CanonicalEvmFamilyEcdsaSigningCapability {
-  return {
-    kind: 'canonical_evm_family_ecdsa_signing_capability',
-    authority: manifest.signer.authority,
-    manifest,
-    material: buildPersistedEcdsaRoleLocalMaterial({
-      authority: manifest.signer.authority,
-      materialActivation: manifest.durableMaterial.materialActivation,
-      publicFacts: manifest.durableMaterial.roleLocalPublicFacts,
-    }),
-  } as CanonicalEvmFamilyEcdsaSigningCapability;
-}
-
-/** The capability's own factor -- what a step-up must prove against. In
- * production this is `capability.authority`; the manifest fixture carries an
- * authority ref (a digest), so the full authority is rebuilt here from the same
- * wallet. */
-function capabilityAuthority(args: { walletId: string; factor: Factor }): WalletAuthAuthority {
-  return args.factor === 'passkey'
-    ? buildPasskeyWalletAuthAuthority({
-        walletId: args.walletId,
-        rpId: 'example.localhost',
-        credentialIdB64u: 'credential-passkey-fixture',
-      })
-    : buildEmailOtpWalletAuthAuthority({
-        walletId: args.walletId,
-        provider: 'google',
-        providerUserId: `google:${args.walletId}`,
-        emailHashHex: 'email-hash',
-      });
-}
-
-function sealedRuntimeFor(factor: Factor) {
-  const manifest = ecdsaCapabilityActivationLookupFixture().manifest;
+async function sealedRuntimeFor(factor: Factor) {
+  const fixture = await canonicalEvmFamilyEcdsaSigningCapabilityFixture(factor);
+  const { capability, manifest } = fixture;
   const record =
     factor === 'passkey'
       ? buildPasskeyEcdsaSealedRuntimeRecordFixture({ manifest })
@@ -88,7 +50,7 @@ function sealedRuntimeFor(factor: Factor) {
   if (resolution.kind !== 'resolved') {
     throw new Error(`${factor} sealed runtime did not resolve: ${resolution.reason}`);
   }
-  return { manifest, runtime: resolution.runtime };
+  return { authority: fixture.authority, capability, manifest, runtime: resolution.runtime };
 }
 
 /** Records every worker request so a test can assert the worker was never
@@ -126,12 +88,12 @@ function rehydratingWorker(args: {
 
 for (const factor of ['passkey', 'email_otp'] as const) {
   test(`canonical ${factor} normal signing reaches worker binding`, async () => {
-    const { manifest, runtime } = sealedRuntimeFor(factor);
+    const { capability, manifest, runtime } = await sealedRuntimeFor(factor);
     expect(runtime.authBinding.kind).toBe(factor);
 
     const requests: unknown[] = [];
     const resolution = await resolveHydratedSecp256k1SigningMaterial({
-      capability: canonicalCapability(manifest),
+      capability,
       runtime,
       requestLabel: runtime.chainTarget.kind,
       materialActivation: manifest.activation.materialActivation,
@@ -166,11 +128,11 @@ for (const factor of ['passkey', 'email_otp'] as const) {
 }
 
 test('activation mismatch fails before the worker is reached', async () => {
-  const { manifest, runtime } = sealedRuntimeFor('passkey');
+  const { capability, manifest, runtime } = await sealedRuntimeFor('passkey');
   const requests: unknown[] = [];
 
   const resolution = await resolveHydratedSecp256k1SigningMaterial({
-    capability: canonicalCapability(manifest),
+    capability,
     runtime,
     requestLabel: runtime.chainTarget.kind,
     // A different activation than the manifest names.
@@ -191,12 +153,12 @@ test('activation mismatch fails before the worker is reached', async () => {
 });
 
 test('a chain the runtime does not serve fails before the worker is reached', async () => {
-  const { manifest, runtime } = sealedRuntimeFor('email_otp');
+  const { capability, manifest, runtime } = await sealedRuntimeFor('email_otp');
   const requests: unknown[] = [];
   const otherChain = runtime.chainTarget.kind === 'evm' ? 'tempo' : 'evm';
 
   const resolution = await resolveHydratedSecp256k1SigningMaterial({
-    capability: canonicalCapability(manifest),
+    capability,
     runtime,
     requestLabel: otherChain,
     materialActivation: manifest.activation.materialActivation,
@@ -231,8 +193,7 @@ async function hydratedMaterialFor(factor: Factor): Promise<{
   capability: CanonicalEvmFamilyEcdsaSigningCapability;
   authority: WalletAuthAuthority;
 }> {
-  const { manifest, runtime } = sealedRuntimeFor(factor);
-  const capability = canonicalCapability(manifest);
+  const { authority, capability, manifest, runtime } = await sealedRuntimeFor(factor);
   const resolution = await resolveHydratedSecp256k1SigningMaterial({
     capability,
     runtime,
@@ -246,10 +207,7 @@ async function hydratedMaterialFor(factor: Factor): Promise<{
   return {
     material: resolution.material,
     capability,
-    authority: capabilityAuthority({
-      walletId: String(manifest.signer.walletId),
-      factor,
-    }),
+    authority,
   };
 }
 
