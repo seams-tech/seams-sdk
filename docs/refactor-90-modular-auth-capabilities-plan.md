@@ -370,7 +370,7 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
       fixtures.
 - [x] Refactor 93 supplies the pair-bound Router/Deriver protocol and exact
       role-result replay used by every host.
-- [ ] Refactor 94C supplies Cloudflare's final Gateway D1, role-private D1, and
+- [x] Refactor 94C supplies Cloudflare's final Gateway D1, role-private D1, and
       SigningWorker private-D1 ownership behind the shared host ports.
 - [x] The existing app-session exchange and provider-verification boundary is
       the transport entry point to extend.
@@ -641,7 +641,7 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the dead Email OTP registration-commit worker operation and reject
       non-positive or unsafe signer slots at the remaining persistence boundary.
 - [x] Keep live secret material owned by the worker or WASM boundary.
-- [ ] Preserve the Refactor 93 rule that `SigningWorker` receives the exact A/B
+- [x] Preserve the Refactor 93 rule that `SigningWorker` receives the exact A/B
       package pair atomically and the Refactor 94C rule that its activation,
       delivery, session, budget, and presign effects live in private D1.
 - [ ] Keep generic confirmation free of MPC material; preserve Email OTP
@@ -694,7 +694,7 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete `active_state_session_id` from production types and wire shapes.
 - [ ] Delete remaining generic wire session aliases and
       authorization/material-scope aliases owned by this cutover.
-- [ ] Delete legacy recovery microstates and compensation branches.
+- [x] Delete legacy recovery microstates and compensation branches.
 - [ ] Delete duplicate signing-lane selectors, auth-method fallbacks, direct
       protocol dispatch, and superseded export coordinators.
 - [x] Delete the dead in-place ECDSA lane-identity updater, its record-era unit
