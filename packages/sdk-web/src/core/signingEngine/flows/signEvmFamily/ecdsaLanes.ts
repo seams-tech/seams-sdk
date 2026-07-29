@@ -127,7 +127,7 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
     keyHandle: signer.keyHandle,
     walletId: signer.walletId,
     auth: identity.auth,
-    authorization: identity.authorization,
+    authorization: lane.authorization,
     chainTarget,
   });
 
@@ -142,41 +142,11 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
   };
 }
 
-export function updateResolvedEvmFamilyEcdsaSigningLaneIdentity(args: {
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-  chain: EvmFamilyChain;
-  context: string;
-  diagnostics?: Record<string, unknown>;
-}): ResolvedEvmFamilyEcdsaSigningLane {
-  const lane = requireResolvedEvmFamilyEcdsaSigningLane({
-    lane: args.lane,
-    chain: args.chain,
-    context: args.context,
-    diagnostics: args.diagnostics,
-  });
-  const signer = requireEvmFamilyEcdsaSigner(
-    lane.identity,
-    `${args.context} updated ECDSA lane`,
-  );
-  const updatedSelectedLane = selectedEcdsaLane({
-    key: signer.key,
-    materialActivation: signer.materialActivation,
-    keyHandle: signer.keyHandle,
-    walletId: signer.walletId,
-    auth: lane.auth,
-    authorization: lane.authorization,
-    chainTarget: signer.chainTarget,
-  });
-  return {
-    ...lane,
-    ...updatedSelectedLane,
-    key: signer.key,
-    keyHandle: signer.keyHandle,
-    chainTarget: signer.chainTarget,
-    keyKind: 'threshold_ecdsa_secp256k1',
-    chainFamily: signer.chainTarget.kind,
-  };
-}
+// `updateResolvedEvmFamilyEcdsaSigningLaneIdentity` is gone. It re-derived a
+// resolved lane after a record refresh rewrote its session identity -- a
+// lifecycle Refactor 90 deletes. Material is selected by manifest and sealed
+// runtime now, so a lane's identity never changes underneath it and there is
+// nothing to update in place. It had no production callers.
 
 export function requireEvmFamilyEcdsaAuthMethod(
   authMethod: EvmFamilyEcdsaAuthMethod | undefined,
