@@ -1,5 +1,6 @@
 import type {
   WalletRegistrationNearProvisioningResponseV2,
+  WalletRegistrationActivateRouteResponseV2,
   WalletRegistrationActivateResponseV2,
   WalletRegistrationRespondResponseV2,
   WalletRegistrationSetupResponseV2,
@@ -208,6 +209,16 @@ type EmailOtpWalletRegistrationFinalizeSuccess = Extract<
   { authMethod: EmailOtpWalletRegistrationFinalizeAuthMethod }
 >;
 
+type WalletRegistrationActivateSuccessV2 = Extract<
+  WalletRegistrationActivateResponseV2,
+  { ok: true }
+>;
+
+type EmailOtpWalletRegistrationActivateSuccessV2 = Extract<
+  WalletRegistrationActivateSuccessV2,
+  { authMethod: EmailOtpWalletRegistrationFinalizeAuthMethod }
+>;
+
 function assertNeverWalletRegistrationFinalizeKind(value: never): never {
   throw new Error(`Unsupported wallet registration finalize kind: ${String(value)}`);
 }
@@ -221,6 +232,12 @@ function isPasskeyWalletRegistrationFinalizeSuccess(
 function isEmailOtpWalletRegistrationFinalizeSuccess(
   result: WalletRegistrationFinalizeSuccess,
 ): result is EmailOtpWalletRegistrationFinalizeSuccess {
+  return result.authMethod.kind === 'email_otp';
+}
+
+function isEmailOtpWalletRegistrationActivateSuccessV2(
+  result: WalletRegistrationActivateSuccessV2,
+): result is EmailOtpWalletRegistrationActivateSuccessV2 {
   return result.authMethod.kind === 'email_otp';
 }
 
@@ -2058,7 +2075,7 @@ function parseRegistrationRequestDigestB64u(raw: unknown): string | null {
  */
 export async function handleRouterApiWalletRegistrationActivate(
   input: RouterApiWalletRegistrationInput,
-): Promise<RouteResponse<WalletRegistrationActivateResponseV2 | RouteErrorBody>> {
+): Promise<RouteResponse<WalletRegistrationActivateRouteResponseV2 | RouteErrorBody>> {
   const traceContext = parseRegistrationTraceContext(input.headers);
   if (!traceContext.ok) return routeError(400, 'invalid_trace_id', traceContext.message);
   if (!isPlainObject(input.body)) {
@@ -2111,7 +2128,29 @@ export async function handleRouterApiWalletRegistrationActivate(
     traceContext.value ?? undefined,
   );
   if (!result.ok) return routeJson(400, result);
-  if ('ecdsa' in result && result.ecdsa) {
+  let routeResult: WalletRegistrationActivateRouteResponseV2;
+  if (isEmailOtpWalletRegistrationActivateSuccessV2(result)) {
+    if (!isEmailOtpWalletAuthAuthority(result.authority)) {
+      return routeError(500, 'internal', 'Email OTP registration returned a different authority');
+    }
+    const appSessionVersion = await input.services.walletRegistration.getOrCreateAppSessionVersion({
+      userId: result.authority.factor.providerUserId,
+    });
+    if (!appSessionVersion.ok) {
+      return routeError(500, 'internal', appSessionVersion.message);
+    }
+    const appSessionJwt = await session.signJwt(result.authority.factor.providerUserId, {
+      kind: 'app_session_v1',
+      appSessionVersion: appSessionVersion.appSessionVersion,
+      provider: result.authority.factor.provider,
+      providerSubject: result.authority.factor.providerUserId,
+      walletId: result.walletId,
+    });
+    routeResult = { ...result, appSessionJwt };
+  } else {
+    routeResult = result;
+  }
+  if ('ecdsa' in routeResult && routeResult.ecdsa) {
     const verifiedSetup = await verifyWalletRegistrationSetupClaims(session, signedSetup, {
       registrationCeremonyId,
       nowMs: Date.now(),
@@ -2132,14 +2171,14 @@ export async function handleRouterApiWalletRegistrationActivate(
     }
     const signingError = await attachEcdsaWalletSessionJwt(
       input,
-      result.ecdsa.bootstrap,
-      result.ecdsa.activation.ecdsa_activation.signing_worker.server_id,
-      result.ecdsa.activation.ecdsa_activation.activation_epoch,
+      routeResult.ecdsa.bootstrap,
+      routeResult.ecdsa.activation.ecdsa_activation.signing_worker.server_id,
+      routeResult.ecdsa.activation.ecdsa_activation.activation_epoch,
       verifiedSetup.claims.policy.scope,
     );
     if (signingError) return signingError;
   }
-  return routeJson(200, result);
+  return routeJson(200, routeResult);
 }
 
 /**
