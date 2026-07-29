@@ -232,18 +232,15 @@ export async function discoverPersistedSessionsForWalletCommand(
 
   let records;
   try {
-    const authMethods = input.authMethod ? [input.authMethod] : (['email_otp', 'passkey'] as const);
     const listed = await Promise.all(
-      authMethods.flatMap((authMethod) => {
-        return input.ecdsaChainTargets.map((chainTarget) =>
-          ports.listExactSealedSessionsForWallet({
-            walletId,
-            authMethod,
-            curve: 'ecdsa' as const,
-            chainTarget,
-          }),
-        );
-      }),
+      input.ecdsaChainTargets.map((chainTarget) =>
+        ports.listExactSealedSessionsForWallet({
+          walletId,
+          authMethod: input.authMethod,
+          curve: 'ecdsa',
+          chainTarget,
+        }),
+      ),
     );
     records = listed.flat();
   } catch (error) {

@@ -77,7 +77,7 @@ export type RestorePersistedSessionWorkItem = {
 type DiscoverPersistedSessionsForWalletBase = {
   walletId: string;
   ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
-  authMethod?: 'email_otp' | 'passkey';
+  authMethod: 'email_otp' | 'passkey';
   maxRecords?: number;
 };
 

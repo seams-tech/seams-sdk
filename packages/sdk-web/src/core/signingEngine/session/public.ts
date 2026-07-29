@@ -16,7 +16,7 @@ import type {
   DiscoverPersistedSessionsForWalletInput,
   DiscoverPersistedSessionsForWalletResult,
 } from './sealedRecovery/sealedRecovery.types';
-import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
+import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 
 const EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT: DiscoverPersistedSessionsForWalletResult =
   {
@@ -48,56 +48,31 @@ export type SessionPublicDeps = {
   };
 };
 
-function mergeDiscoverPersistedSessionsForWalletResults(
-  results: readonly DiscoverPersistedSessionsForWalletResult[],
-): DiscoverPersistedSessionsForWalletResult {
-  return results.reduce<DiscoverPersistedSessionsForWalletResult>(
-    (acc, result) => ({
-      listed: acc.listed + result.listed,
-      discovered: acc.discovered + result.discovered,
-      truncated: acc.truncated + result.truncated,
-    }),
-    EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT,
-  );
-}
-
 export async function discoverPersistedSessionsForWallet(
   deps: SessionPublicDeps,
   args: DiscoverPersistedSessionsForWalletInput,
 ): Promise<DiscoverPersistedSessionsForWalletResult> {
   const walletId = toWalletId(args.walletId);
-
-  const authMethods: readonly SignerAuthMethod[] = args.authMethod
-    ? [args.authMethod]
-    : [SIGNER_AUTH_METHODS.emailOtp, SIGNER_AUTH_METHODS.passkey];
-  const results = await Promise.all(
-    authMethods.map(async (authMethod) => {
-      switch (authMethod) {
-        case SIGNER_AUTH_METHODS.emailOtp:
-          return await deps.discovery.emailOtp({
-            ...args,
-            walletId,
-            authMethod,
-          });
-        case SIGNER_AUTH_METHODS.passkey:
-          return (
-            (await deps.discovery.passkey?.({
-              ...args,
-              walletId,
-              authMethod,
-            })) ?? EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT
-          );
-        default:
-          return assertNeverSignerAuthMethod(authMethod);
-      }
-    }),
-  );
-
-  return mergeDiscoverPersistedSessionsForWalletResults(results);
-}
-
-function assertNeverSignerAuthMethod(value: never): never {
-  throw new Error(`Unsupported signer auth method: ${String(value)}`);
+  switch (args.authMethod) {
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return await deps.discovery.emailOtp({
+        ...args,
+        walletId,
+        authMethod: SIGNER_AUTH_METHODS.emailOtp,
+      });
+    case SIGNER_AUTH_METHODS.passkey:
+      return (
+        (await deps.discovery.passkey?.({
+          ...args,
+          walletId,
+          authMethod: SIGNER_AUTH_METHODS.passkey,
+        })) ??
+        EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT
+      );
+    default:
+      args.authMethod satisfies never;
+      throw new Error('Unsupported signer auth method');
+  }
 }
 
 export async function readPersistedAvailableSigningLanes(
