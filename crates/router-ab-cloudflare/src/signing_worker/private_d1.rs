@@ -249,7 +249,8 @@ impl SigningWorkerWalletBudgetRecordV1 {
             || self.rp_id != request.rp_id
             || self.issuer_jwt_id != request.issuer_jwt_id
             || self.initial_signature_uses != request.initial_signature_uses
-            || self.expires_at_ms != request.expires_at_ms
+            || self.expires_at_ms > request.expires_at_ms
+            || self.expires_at_ms <= request.now_unix_ms
         {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::ReplayedLocalRequest,
@@ -1615,6 +1616,7 @@ mod tests {
             .authorized_signers
             .push(ecdsa_wallet_budget_signer_v1());
         additive.now_unix_ms = 1_300;
+        additive.expires_at_ms = 10_250;
         let put = CloudflareSigningWorkerWalletBudgetRequestV1::PutGrant { request: additive };
 
         let (merged, _, changed) =
@@ -1629,6 +1631,7 @@ mod tests {
         assert_eq!(merged.committed_remaining_uses, expected_remaining_uses);
         assert_eq!(merged.reservations, expected_reservations);
         assert_eq!(merged.committed_operations, expected_operations);
+        assert_eq!(merged.expires_at_ms, 10_000);
         assert_eq!(
             merged.projection_version,
             expected_projection_version.saturating_add(1)
