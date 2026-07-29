@@ -25,8 +25,7 @@ import {
 } from './keyExportFlow';
 import { deriveEvmFamilyKeyFingerprintFromPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
-  exportEd25519YaoKeyWithFreshEmailOtp,
-  exportEd25519YaoKeyWithFreshPasskey,
+  exportEd25519YaoKeyWithFreshAuthorization,
   type Ed25519YaoExportFlowDeps,
 } from './ed25519YaoExportFlow';
 import { SIGNING_SESSION_EXPIRY_DETECTION_SOURCES } from '@/core/types/sdkSentEvents';
@@ -271,7 +270,7 @@ async function exportEd25519KeypairWithFlowId(
   deps: ExportKeypairWithUIDeps,
   args: Extract<SigningEngineExportKeypairWithUIInput, { kind: 'ed25519' }> & { flowId: string },
 ): Promise<ExportKeypairResult> {
-  const exportArgs = {
+  return await exportEd25519YaoKeyWithFreshAuthorization(deps.ed25519Yao, {
     walletId: args.walletSession.walletId,
     nearAccountId: args.nearAccount.accountId,
     laneIdentity: args.laneIdentity,
@@ -281,15 +280,7 @@ async function exportEd25519KeypairWithFlowId(
     },
     flowId: args.flowId,
     onEvent: args.options.onEvent,
-  };
-  switch (args.laneIdentity.auth.kind) {
-    case 'passkey':
-      return await exportEd25519YaoKeyWithFreshPasskey(deps.ed25519Yao, exportArgs);
-    case 'email_otp':
-      return await exportEd25519YaoKeyWithFreshEmailOtp(deps.ed25519Yao, exportArgs);
-  }
-  args.laneIdentity.auth satisfies never;
-  throw new Error('[SigningEngine][ed25519-export] unsupported lane authorization method');
+  });
 }
 
 async function exportEd25519KeypairWithSessionLifecycle(

@@ -417,10 +417,19 @@ function emitEd25519ExportViewerLifecycle(
   });
 }
 
-export async function exportEd25519YaoKeyWithFreshPasskey(
+export async function exportEd25519YaoKeyWithFreshAuthorization(
   deps: Ed25519YaoExportFlowDeps,
   args: ExportEd25519YaoKeyArgs,
 ): Promise<{ accountId: string; exportedSchemes: Array<'ed25519'> }> {
+  switch (args.laneIdentity.auth.kind) {
+    case 'passkey':
+      break;
+    case 'email_otp':
+      return await exportEd25519YaoKeyWithFreshEmailOtp(deps, args);
+    default:
+      args.laneIdentity.auth satisfies never;
+      throw new Error('[SigningEngine][ed25519-export] unsupported lane authorization method');
+  }
   const contextResolution = resolveExactPasskeyExportContext(deps, args);
   const uiInitialization = deps.touchConfirm.initialize();
   const [resolved] = await Promise.all([contextResolution, uiInitialization]);
@@ -484,7 +493,7 @@ export async function exportEd25519YaoKeyWithFreshPasskey(
   return { accountId: String(args.nearAccountId), exportedSchemes: ['ed25519'] };
 }
 
-export async function exportEd25519YaoKeyWithFreshEmailOtp(
+async function exportEd25519YaoKeyWithFreshEmailOtp(
   deps: Ed25519YaoExportFlowDeps,
   args: ExportEd25519YaoKeyArgs,
 ): Promise<{ accountId: string; exportedSchemes: Array<'ed25519'> }> {

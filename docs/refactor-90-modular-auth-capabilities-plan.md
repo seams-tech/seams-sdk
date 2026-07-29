@@ -598,6 +598,9 @@ the replacement and legacy MPC paths must not ship together.
       records and their type fixtures.
 - [x] Carry export authorization beside the exact export material lane instead
       of reading it from material identity.
+- [x] Delete the redundant Passkey ECDSA export bootstrap identity after the
+      exact export lane owns material identity; retain only the relayer URL
+      required by the fresh-authorization operation.
 - [x] Require warm-capability and seal-transport consumers to receive their
       reusable authorization explicitly.
 - [x] Key ECDSA step-up freshness authority by exact material activation rather
@@ -711,6 +714,8 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete legacy recovery microstates and compensation branches.
 - [ ] Delete duplicate signing-lane selectors, auth-method fallbacks, direct
       protocol dispatch, and superseded export coordinators.
+- [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
+      and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
       duplicate two-slot committed-lane selector.
 - [x] Delete the dead in-place ECDSA lane-identity updater, its record-era unit

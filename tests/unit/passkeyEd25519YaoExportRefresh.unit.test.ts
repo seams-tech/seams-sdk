@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  exportEd25519YaoKeyWithFreshPasskey,
+  exportEd25519YaoKeyWithFreshAuthorization,
   type Ed25519YaoExportFlowDeps,
 } from '@/core/signingEngine/flows/recovery/ed25519YaoExportFlow';
 import type { NearEd25519YaoSigningCapability } from '@/core/signingEngine/interfaces/near';
@@ -289,7 +289,7 @@ test('page-refresh passkey export prompts from durable context without activatin
   clearAllStoredThresholdEd25519SessionRecords();
   try {
     const harness = new DurablePasskeyEd25519ExportRefreshHarness(CREDENTIAL_ID);
-    const result = await exportEd25519YaoKeyWithFreshPasskey(harness.deps(), {
+    const result = await exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
       laneIdentity: passkeyLaneIdentity(STALE_SIGNING_GRANT_ID),
@@ -314,7 +314,7 @@ test('page-refresh passkey export uses the Wallet Session issued by cold Yao rec
   try {
     const harness = new PasskeyEd25519ExportRefreshHarness(CREDENTIAL_ID);
     const selectedLane = passkeyLaneIdentity(STALE_SIGNING_GRANT_ID);
-    const result = await exportEd25519YaoKeyWithFreshPasskey(harness.deps(), {
+    const result = await exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
       laneIdentity: selectedLane,
@@ -343,7 +343,7 @@ test('page-refresh passkey export rejects recovered authenticator drift', async 
   try {
     const harness = new PasskeyEd25519ExportRefreshHarness('different-passkey-credential');
     await expect(
-      exportEd25519YaoKeyWithFreshPasskey(harness.deps(), {
+      exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
         walletId: WALLET_ID,
         nearAccountId: NEAR_ACCOUNT_ID,
         laneIdentity: passkeyLaneIdentity(STALE_SIGNING_GRANT_ID),
