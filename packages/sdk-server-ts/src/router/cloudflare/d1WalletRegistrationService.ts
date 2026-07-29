@@ -2828,6 +2828,10 @@ export class CloudflareD1WalletRegistrationService {
   private async commitEd25519PendingWallet(input: {
     readonly ceremony: StoredWalletRegistrationCeremony;
     readonly authority: StoredRegistrationAuthority;
+    readonly enrollment: Pick<
+      FinalizeWalletRegistrationInput,
+      'emailOtpEnrollment' | 'emailOtpBackupAck'
+    >;
   }): Promise<WalletRegistrationActivateResponseV2> {
     const now = Date.now();
     const ceremony = input.ceremony;
@@ -2845,12 +2849,39 @@ export class CloudflareD1WalletRegistrationService {
           now,
         });
         break;
-      case 'email_otp':
-        return {
-          ok: false,
-          code: 'not_implemented',
-          message: 'Email OTP Ed25519-only registration requires its enrollment commit plan',
-        };
+      case 'email_otp': {
+        /* Email OTP enrollment is recovery-critical and belongs to the same
+           transaction as the wallet — it is an authentication concern, not an
+           ECDSA one, so a pending Ed25519-only wallet enrolls exactly as a
+           signable one does. */
+        const enrollment = await this.emailOtpRegistrationEnrollmentFinalizer
+          .prepareRegistrationFinalize({
+            authority,
+            request: input.enrollment,
+            walletId: ceremony.intent.walletId,
+            orgId: ceremony.orgId,
+            nowMs: now,
+          });
+        if (!enrollment.ok) return enrollment;
+        if (!enrollment.persistence) {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'Email OTP registration is missing enrollment persistence state',
+          };
+        }
+        await this.walletRegistrationCommitStore.commit({
+          kind: 'email_otp_wallet_registration_commit_v1',
+          wallet,
+          walletSigners: [],
+          authority,
+          emailOtp: this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationCommitPlan(
+            enrollment.persistence,
+          ),
+          now,
+        });
+        break;
+      }
     }
     const authMethod = walletRegistrationFinalizeAuthMethodFromAuthority(authority);
     const base = {
@@ -3158,7 +3189,18 @@ export class CloudflareD1WalletRegistrationService {
        which is what lets the client overlap the Yao computation with this
        call instead of serializing behind it. */
     if (!registrationSignerBranchesFromPlan(ceremony.signerPlan).evmFamilyEcdsa) {
-      return await this.commitEd25519PendingWallet({ ceremony, authority: ceremonyAuthority });
+      return await this.commitEd25519PendingWallet({
+        ceremony,
+        authority: ceremonyAuthority,
+        enrollment: {
+          ...(context.input.emailOtpEnrollment
+            ? { emailOtpEnrollment: context.input.emailOtpEnrollment as never }
+            : {}),
+          ...(context.input.emailOtpBackupAck
+            ? { emailOtpBackupAck: context.input.emailOtpBackupAck as never }
+            : {}),
+        },
+      });
     }
     if (!context.input.ecdsa) {
       return {
