@@ -509,9 +509,12 @@ test('Cloudflare D1 Router API auth service rotates Email OTP recovery keys afte
     expect(counts).toEqual({ active: 10, consumed: 1, revoked: 1 });
     await expect(
       service.emailOtp.getEmailOtpRecoveryCodeStatus({
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
+        subject: {
+          kind: 'provider_identity',
+          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
+          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
+          walletId: requireParsedDomainId(parseWalletId('email-wallet.testnet')),
+        },
       }),
     ).resolves.toMatchObject({
       ok: true,

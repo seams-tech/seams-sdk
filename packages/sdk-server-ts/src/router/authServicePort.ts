@@ -121,25 +121,33 @@ export type FinalizeWalletAddAuthMethodCommand = Readonly<
   { subject: WalletAuthMethodManagementSubject } & WalletAddAuthMethodFinalizeRequest
 >;
 
+export type EmailOtpAuthorizationSessionSubject = Readonly<{
+  kind: 'authorization_session';
+  tenantId: TenantId;
+  principalId: PrincipalId;
+  walletId: WalletId;
+}>;
+
+export type EmailOtpProviderIdentitySubject = Readonly<{
+  kind: 'provider_identity';
+  orgId: OrgId;
+  providerSubject: ProviderSubject;
+  walletId: WalletId;
+}>;
+
 export type EmailOtpGrantSubject =
-  | Readonly<{
-      kind: 'authorization_session';
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      walletId: WalletId;
-    }>
-  | Readonly<{
-      kind: 'provider_identity';
-      orgId: OrgId;
-      providerSubject: ProviderSubject;
-      walletId: WalletId;
-    }>;
+  | EmailOtpAuthorizationSessionSubject
+  | EmailOtpProviderIdentitySubject;
 
 export type ConsumeEmailOtpGrantCommand = Readonly<{
   subject: EmailOtpGrantSubject;
   loginGrant: string;
   otpChannel: EmailOtpChannel;
   clientIp?: string;
+}>;
+
+export type GetEmailOtpRecoveryCodeStatusCommand = Readonly<{
+  subject: EmailOtpProviderIdentitySubject;
 }>;
 import type {
   RouterAbEd25519YaoBudgetRefreshRequestV1,
@@ -660,11 +668,7 @@ export type RouterApiMethodTypes = {
     readonly result: string;
   };
   getEmailOtpRecoveryCodeStatus: {
-    readonly input: {
-      readonly userId?: unknown;
-      readonly walletId?: unknown;
-      readonly orgId?: unknown;
-    };
+    readonly input: GetEmailOtpRecoveryCodeStatusCommand;
     readonly result:
       | {
           readonly ok: true;
