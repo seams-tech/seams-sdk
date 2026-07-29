@@ -715,6 +715,12 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
     ) -> RouterAbProtocolResult<()> {
         self.validate_at(now_unix_ms)?;
         request.validate_at(now_unix_ms)?;
+        if self.authorization_level != "near-ed25519" {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "Wallet Session does not authorize Ed25519 normal signing",
+            ));
+        }
         if self.expires_at_ms < request.expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidTimeRange,
@@ -750,6 +756,12 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
     ) -> RouterAbProtocolResult<()> {
         self.validate_at(now_unix_ms)?;
         request.validate_at(now_unix_ms)?;
+        if self.authorization_level != "near-ed25519" {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "Wallet Session does not authorize Ed25519 normal-signing finalize",
+            ));
+        }
         if self.expires_at_ms < request.expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidTimeRange,
@@ -785,6 +797,12 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
     ) -> RouterAbProtocolResult<()> {
         self.validate_at(now_unix_ms)?;
         request.validate_at(now_unix_ms)?;
+        if self.authorization_level != "evm-family" {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "Wallet Session does not authorize ECDSA normal signing",
+            ));
+        }
         if self.expires_at_ms < request.expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidTimeRange,
@@ -824,6 +842,12 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
     ) -> RouterAbProtocolResult<()> {
         self.validate_at(now_unix_ms)?;
         request.validate_at(now_unix_ms)?;
+        if self.authorization_level != "evm-family" {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "Wallet Session does not authorize ECDSA normal-signing finalize",
+            ));
+        }
         if self.expires_at_ms < request.expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidTimeRange,
@@ -1335,6 +1359,7 @@ impl CloudflareRouterCompactJwtV1 {
 
 #[derive(Debug, Deserialize)]
 struct CloudflareRouterJwtClaimsPayloadV1 {
+    kind: Option<String>,
     iss: String,
     sub: String,
     aud: CloudflareRouterJwtAudienceV1,
@@ -1360,18 +1385,12 @@ struct CloudflareRouterJwtClaimsPayloadV1 {
 
 #[derive(Debug, Deserialize)]
 struct CloudflareRouterJwtNormalSigningWalletSessionClaimsV1 {
-    #[serde(rename = "authorizationLevel")]
-    authorization_level: String,
     #[serde(rename = "signingWorkerId")]
     signing_worker_id: String,
 }
 
 impl CloudflareRouterJwtNormalSigningWalletSessionClaimsV1 {
     fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty(
-            "routerAbNormalSigning.authorizationLevel",
-            &self.authorization_level,
-        )?;
         require_non_empty(
             "routerAbNormalSigning.signingWorkerId",
             &self.signing_worker_id,
@@ -1489,38 +1508,46 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
                 ));
             }
         }
-        let (authorization_level, signing_worker_id) =
-            match (
-                self.router_ab_normal_signing,
-                self.router_ab_ecdsa_derivation_normal_signing,
-            ) {
-                (Some(normal_signing), None) => {
-                    normal_signing.validate()?;
-                    (
-                        normal_signing.authorization_level,
-                        normal_signing.signing_worker_id,
-                    )
-                }
-                (None, Some(normal_signing)) => {
-                    normal_signing.validate()?;
-                    (
-                        "evm-family".to_owned(),
-                        normal_signing.scope.signing_worker.server_id,
-                    )
-                }
-                (None, None) => {
+        let (authorization_level, signing_worker_id) = match (
+            self.router_ab_normal_signing,
+            self.router_ab_ecdsa_derivation_normal_signing,
+        ) {
+            (Some(normal_signing), None) => {
+                normal_signing.validate()?;
+                if self.kind.as_deref() != Some("router_ab_ed25519_wallet_session_v1") {
                     return Err(RouterAbProtocolError::new(
                         RouterAbProtocolErrorCode::MalformedWirePayload,
-                        "Router Wallet Session requires one normal-signing binding",
+                        "Router Wallet Session kind does not match Ed25519 normal signing",
                     ));
                 }
-                (Some(_), Some(_)) => {
+                ("near-ed25519".to_owned(), normal_signing.signing_worker_id)
+            }
+            (None, Some(normal_signing)) => {
+                normal_signing.validate()?;
+                if self.kind.as_deref() != Some("router_ab_ecdsa_derivation_wallet_session_v1") {
                     return Err(RouterAbProtocolError::new(
                         RouterAbProtocolErrorCode::MalformedWirePayload,
-                        "Router Wallet Session contains conflicting normal-signing bindings",
+                        "Router Wallet Session kind does not match ECDSA normal signing",
                     ));
                 }
-            };
+                (
+                    "evm-family".to_owned(),
+                    normal_signing.scope.signing_worker.server_id,
+                )
+            }
+            (None, None) => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "Router Wallet Session requires one normal-signing binding",
+                ));
+            }
+            (Some(_), Some(_)) => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "Router Wallet Session contains conflicting normal-signing bindings",
+                ));
+            }
+        };
         let session_id = select_router_jwt_session_id_v1(self.sid, self.session_id)?;
         let signing_grant_id = self.signing_grant_id.ok_or_else(|| {
             RouterAbProtocolError::new(
