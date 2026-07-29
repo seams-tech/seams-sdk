@@ -88,8 +88,8 @@ test('D1 staging fixture import builds a dry-run plan from readiness-clean confi
 
   expect(plan.mode).toBe('dry-run');
   expect(plan.commands).toHaveLength(2);
-  expect(plan.commands[0]).toContain('d1 execute seams-console-staging --remote --yes --file');
-  expect(plan.commands[1]).toContain('d1 execute seams-signer-staging --remote --yes --file');
+  expect(plan.commands[0]).toContain('d1 execute seams-console-staging-nrt --remote --yes --file');
+  expect(plan.commands[1]).toContain('d1 execute seams-signer-staging-nrt --remote --yes --file');
   expect(plan.fixtures).toEqual([
     expect.objectContaining({
       logicalName: 'console',
@@ -127,11 +127,11 @@ test('D1 staging fixture import remote mode records command evidence', async () 
 
   expect(result.manifest.executed).toHaveLength(2);
   expect(result.manifest.executed[0]).toMatchObject({
-    command: expect.stringContaining('d1 execute seams-console-staging --remote --yes --file'),
+    command: expect.stringContaining('d1 execute seams-console-staging-nrt --remote --yes --file'),
     status: 0,
   });
   expect(result.manifest.executed[1]).toMatchObject({
-    command: expect.stringContaining('d1 execute seams-signer-staging --remote --yes --file'),
+    command: expect.stringContaining('d1 execute seams-signer-staging-nrt --remote --yes --file'),
     status: 0,
   });
 });
@@ -147,7 +147,7 @@ test('D1 staging fixture import remote mode rejects failed D1 commands', async (
       mode: 'remote',
       commandRunner: failedCommandRunner,
     }),
-  ).toThrow(/Command failed: .*d1 execute seams-console-staging --remote --yes --file/);
+  ).toThrow(/Command failed: .*d1 execute seams-console-staging-nrt --remote --yes --file/);
 });
 
 test('D1 staging fixture import rejects cross-domain fixture SQL', async () => {

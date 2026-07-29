@@ -96,7 +96,7 @@ test('D1 staging resource inventory records config-derived resource IDs', async 
   expect(plan.resources.consoleWorker.d1Databases).toEqual([
     {
       binding: 'CONSOLE_DB',
-      databaseName: 'seams-console-staging',
+      databaseName: 'seams-console-staging-nrt',
       databaseId: '11111111-1111-4111-8111-111111111111',
       migrationsDir: 'migrations/d1-console',
     },

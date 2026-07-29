@@ -5,13 +5,13 @@ compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "CONSOLE_DB"
-database_name = "seams-console-staging"
+database_name = "seams-console-staging-nrt"
 database_id = "<remote-console-d1-database-id>"
 migrations_dir = "migrations/d1-console"
 
 [[d1_databases]]
 binding = "SIGNER_DB"
-database_name = "seams-signer-staging"
+database_name = "seams-signer-staging-nrt"
 database_id = "<remote-signer-d1-database-id>"
 migrations_dir = "node_modules/@seams/sdk-server/migrations/d1-signer"
 

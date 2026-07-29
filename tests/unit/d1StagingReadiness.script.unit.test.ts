@@ -137,7 +137,7 @@ test('D1 staging readiness check rejects unexpected D1 bindings', async () => {
 
 test('D1 staging readiness check rejects duplicate D1 bindings', async () => {
   const result = await checkConfig(
-    gatewayConfigWithD1Binding('CONSOLE_DB', 'seams-console-staging'),
+    gatewayConfigWithD1Binding('CONSOLE_DB', 'seams-console-staging-nrt'),
     'gateway',
   );
   expectErrorContaining(result, 'duplicate D1 binding CONSOLE_DB');
@@ -185,6 +185,6 @@ test('D1 staging readiness check rejects the local development Worker config', a
   expectErrorContaining(result, 'staging must not use the local D1 development Worker entrypoint');
   expectErrorContaining(result, 'SPONSORED_EVM_EXECUTORS_JSON must not be configured');
   expectErrorContaining(result, 'ACCOUNT_ID_DERIVATION_SECRET must not be configured');
-  expectErrorContaining(result, 'RELAY_SESSION_HMAC_SECRET must be declared');
+  expectErrorContaining(result, 'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK must be declared');
   expectErrorContaining(result, 'SIGNING_ROOT_KEK_PROVIDER must be cloudflare_secrets_store');
 });
