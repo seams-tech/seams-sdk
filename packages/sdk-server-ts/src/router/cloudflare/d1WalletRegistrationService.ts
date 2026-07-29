@@ -202,12 +202,9 @@ import {
   type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
 } from '../routerAbEd25519YaoRegistrationSideEffectBoundary';
 
-type StartWalletRegistrationInput = WalletRegistrationStartRequest;
 type RespondWalletRegistrationDerivationInput = WalletRegistrationEcdsaDerivationRespondRequest;
 type ActivateWalletRegistrationEcdsaInput = WalletRegistrationEcdsaActivationRequest;
 type FinalizeWalletRegistrationInput = WalletRegistrationFinalizeRequest;
-
-const WALLET_REGISTRATION_START_RESUME_AFTER_MS = 30_000;
 
 async function walletRegistrationFinalizeRequestFingerprint(
   request: FinalizeWalletRegistrationInput,
@@ -215,307 +212,40 @@ async function walletRegistrationFinalizeRequestFingerprint(
   return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(request)));
 }
 
-export type D1WalletRegistrationFinalizePreparedV1 = {
-  readonly kind: 'd1_wallet_registration_finalize_prepared_v1';
+export type D1WalletRegistrationOperationPreparedV1 = {
+  readonly kind: 'd1_wallet_registration_operation_prepared_v1';
 };
 
 /** The activate operation row stores activate's own merged terminal bytes. */
 export type D1WalletRegistrationActivateSideEffectStore =
   RouterAbEd25519YaoRegistrationSideEffectStoreV1<
     WalletRegistrationActivateResponseV2,
-    D1WalletRegistrationFinalizePreparedV1
+    D1WalletRegistrationOperationPreparedV1
   >;
 
 export type D1WalletRegistrationActivateSideEffectRecord =
   RouterAbEd25519YaoRegistrationSideEffectRecordV1<
     WalletRegistrationActivateResponseV2,
-    D1WalletRegistrationFinalizePreparedV1
+    D1WalletRegistrationOperationPreparedV1
   >;
 
-export type D1WalletRegistrationFinalizeSideEffectStore =
+export type D1WalletRegistrationNearProvisioningSideEffectStore =
   RouterAbEd25519YaoRegistrationSideEffectStoreV1<
     WalletRegistrationFinalizeResponse,
-    D1WalletRegistrationFinalizePreparedV1
+    D1WalletRegistrationOperationPreparedV1
   >;
 
-export type D1WalletRegistrationFinalizeSideEffectRecord =
+export type D1WalletRegistrationNearProvisioningSideEffectRecord =
   RouterAbEd25519YaoRegistrationSideEffectRecordV1<
     WalletRegistrationFinalizeResponse,
-    D1WalletRegistrationFinalizePreparedV1
-  >;
-
-export type D1WalletRegistrationStartPreparedV1 = {
-  readonly kind: 'd1_wallet_registration_start_prepared_v1';
-  readonly registrationCeremonyId: string;
-  readonly registrationPreparationId: string;
-  readonly expiresAtMs: number;
-  readonly storedIntent: StoredRegistrationIntent;
-  readonly authority: StoredRegistrationAuthority;
-};
-
-export type D1WalletRegistrationStartTerminalV1 =
-  | {
-      readonly kind: 'd1_wallet_registration_start_succeeded_v1';
-      readonly ceremony: StoredWalletRegistrationCeremony;
-      readonly response: Extract<WalletRegistrationStartResponse, { readonly ok: true }>;
-    }
-  | {
-      readonly kind: 'd1_wallet_registration_start_rejected_v1';
-      readonly response: Extract<WalletRegistrationStartResponse, { readonly ok: false }>;
-    };
-
-export type D1WalletRegistrationStartSideEffectStore =
-  RouterAbEd25519YaoRegistrationSideEffectStoreV1<
-    D1WalletRegistrationStartTerminalV1,
-    D1WalletRegistrationStartPreparedV1
-  >;
-
-export type D1WalletRegistrationStartSideEffectRecord =
-  RouterAbEd25519YaoRegistrationSideEffectRecordV1<
-    D1WalletRegistrationStartTerminalV1,
-    D1WalletRegistrationStartPreparedV1
+    D1WalletRegistrationOperationPreparedV1
   >;
 
 function recordValue(value: unknown): Record<string, unknown> | null {
   return isPlainObject(value) ? value : null;
 }
 
-function parseWalletRegistrationStartDiagnostics(
-  raw: unknown,
-): WalletRegistrationRouteDiagnostics | null {
-  const record = recordValue(raw);
-  if (
-    !record ||
-    record.kind !== 'wallet_registration_route_diagnostics_v1' ||
-    record.route !== 'wallets_register_start' ||
-    !Array.isArray(record.entries) ||
-    record.entries.length !== 1
-  ) {
-    return null;
-  }
-  const entry = recordValue(record.entries[0]);
-  if (
-    !entry ||
-    entry.name !== 'registerStartTotalMs' ||
-    typeof entry.durationMs !== 'number' ||
-    !Number.isSafeInteger(entry.durationMs) ||
-    entry.durationMs < 0
-  ) {
-    return null;
-  }
-  return {
-    kind: 'wallet_registration_route_diagnostics_v1',
-    route: 'wallets_register_start',
-    entries: [{ name: 'registerStartTotalMs', durationMs: entry.durationMs }],
-  };
-}
-
-function walletRegistrationStartResponseFromCeremony(
-  ceremony: StoredWalletRegistrationCeremony,
-  diagnostics?: WalletRegistrationRouteDiagnostics,
-): Extract<WalletRegistrationStartResponse, { readonly ok: true }> | null {
-  if (ceremony.signerState.kind !== 'signer_set_registration') return null;
-  const nearBranch = findStoredWalletRegistrationNearEd25519YaoBranch(ceremony.signerState);
-  const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
-  if (ecdsaBranch && ecdsaBranch.kind !== 'evm_family_ecdsa_prepared') return null;
-  const base = {
-    ok: true as const,
-    registrationCeremonyId: ceremony.registrationCeremonyId,
-    intent: ceremony.intent,
-    ...(diagnostics ? { registrationDiagnostics: diagnostics } : {}),
-  };
-  const ed25519 = nearBranch
-    ? {
-        admissionRequest: nearBranch.admissionRequest,
-        admissionReceipt: nearBranch.admissionReceipt,
-      }
-    : null;
-  const ecdsa = ecdsaBranch
-    ? {
-        kind: ecdsaBranch.derivationKind,
-        chainTargets: ecdsaBranch.chainTargets,
-        prepare: ecdsaBranch.prepare,
-        strictRegistration: ecdsaBranch.strictRegistration,
-      }
-    : null;
-  if (ed25519 && ecdsa) {
-    return { ...base, kind: 'near_ed25519_and_evm_family_ecdsa', ed25519, ecdsa };
-  }
-  if (ed25519) return { ...base, kind: 'near_ed25519', ed25519 };
-  if (ecdsa) return { ...base, kind: 'evm_family_ecdsa', ecdsa };
-  return null;
-}
-
-function parseWalletRegistrationStartPrepared(
-  raw: unknown,
-): D1WalletRegistrationStartPreparedV1 | null {
-  const record = recordValue(raw);
-  if (!record || record.kind !== 'd1_wallet_registration_start_prepared_v1') return null;
-  const registrationCeremonyId = toOptionalTrimmedString(record.registrationCeremonyId);
-  const registrationPreparationId = toOptionalTrimmedString(record.registrationPreparationId);
-  const expiresAtMs = record.expiresAtMs;
-  const storedIntent = parseD1StoredRegistrationIntent(record.storedIntent);
-  const authority = parseD1RegistrationAuthority(record.authority);
-  if (
-    !registrationCeremonyId ||
-    !registrationPreparationId ||
-    typeof expiresAtMs !== 'number' ||
-    !Number.isSafeInteger(expiresAtMs) ||
-    expiresAtMs <= 0 ||
-    !storedIntent ||
-    !authority
-  ) {
-    return null;
-  }
-  return {
-    kind: 'd1_wallet_registration_start_prepared_v1',
-    registrationCeremonyId,
-    registrationPreparationId,
-    expiresAtMs,
-    storedIntent,
-    authority,
-  };
-}
-
-function parseWalletRegistrationStartTerminal(
-  raw: unknown,
-): D1WalletRegistrationStartTerminalV1 | null {
-  const record = recordValue(raw);
-  if (!record) return null;
-  if (record.kind === 'd1_wallet_registration_start_rejected_v1') {
-    const response = recordValue(record.response);
-    const code = toOptionalTrimmedString(response?.code);
-    const message = toOptionalTrimmedString(response?.message);
-    return response?.ok === false && code && message
-      ? {
-          kind: 'd1_wallet_registration_start_rejected_v1',
-          response: { ok: false, code, message },
-        }
-      : null;
-  }
-  if (record.kind !== 'd1_wallet_registration_start_succeeded_v1') return null;
-  const ceremony = parseD1StoredWalletRegistrationCeremony(record.ceremony);
-  const response = recordValue(record.response);
-  const diagnostics = parseWalletRegistrationStartDiagnostics(response?.registrationDiagnostics);
-  if (!ceremony || !response || response.ok !== true || !diagnostics) return null;
-  const parsedResponse = walletRegistrationStartResponseFromCeremony(ceremony, diagnostics);
-  if (!parsedResponse || alphabetizeStringify(parsedResponse) !== alphabetizeStringify(response)) {
-    return null;
-  }
-  return {
-    kind: 'd1_wallet_registration_start_succeeded_v1',
-    ceremony,
-    response: parsedResponse,
-  };
-}
-
-export function parseD1WalletRegistrationStartSideEffectRecord(
-  raw: unknown,
-): D1WalletRegistrationStartSideEffectRecord | null {
-  return parseRouterAbEd25519YaoRegistrationSideEffectRecordV1(raw, {
-    operation: 'registration_start',
-    parsePrepared: parseWalletRegistrationStartPrepared,
-    parseResponse: parseWalletRegistrationStartTerminal,
-  });
-}
-
-async function walletRegistrationStartFingerprint(input: {
-  readonly request: StartWalletRegistrationInput;
-  readonly userAgent?: string;
-}): Promise<string> {
-  return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(input)));
-}
-
-async function walletRegistrationStartStableToken(grant: string, domain: string): Promise<string> {
-  return base64UrlEncode(await sha256BytesUtf8(`${domain}\u0000${grant}`));
-}
-
-async function buildD1WalletRegistrationStartPrepared(input: {
-  readonly storedIntent: StoredRegistrationIntent;
-  readonly authority: StoredRegistrationAuthority;
-}): Promise<D1WalletRegistrationStartPreparedV1> {
-  return {
-    kind: 'd1_wallet_registration_start_prepared_v1',
-    registrationCeremonyId: `wrc_${await walletRegistrationStartStableToken(
-      input.storedIntent.grant,
-      'wallet-registration-ceremony-v1',
-    )}`,
-    registrationPreparationId: `regprep_${await walletRegistrationStartStableToken(
-      input.storedIntent.grant,
-      'wallet-registration-preparation-v1',
-    )}`,
-    expiresAtMs: Math.min(input.storedIntent.expiresAtMs, Date.now() + 10 * 60_000),
-    storedIntent: input.storedIntent,
-    authority: input.authority,
-  };
-}
-
-async function returnD1WalletRegistrationStartPrepared(
-  prepared: D1WalletRegistrationStartPreparedV1,
-): Promise<D1WalletRegistrationStartPreparedV1> {
-  return prepared;
-}
-
-async function fingerprintD1WalletRegistrationStartPrepared(
-  prepared: D1WalletRegistrationStartPreparedV1,
-): Promise<string> {
-  return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared)));
-}
-
-async function rejectUnexpectedWalletRegistrationStartPreparation(): Promise<never> {
-  throw new Error('persisted registration start claim disappeared during reconciliation');
-}
-
-function rejectedWalletRegistrationStartTerminal(
-  code: string,
-  message: string,
-): D1WalletRegistrationStartTerminalV1 {
-  return {
-    kind: 'd1_wallet_registration_start_rejected_v1',
-    response: { ok: false, code, message },
-  };
-}
-
-function rejectedWalletRegistrationStartResult(input: {
-  readonly ok: false;
-  readonly code: string;
-  readonly message: string;
-}): D1WalletRegistrationStartTerminalV1 {
-  return rejectedWalletRegistrationStartTerminal(input.code, input.message);
-}
-
-function successfulWalletRegistrationStartTerminal(input: {
-  readonly ceremony: StoredWalletRegistrationCeremony;
-  readonly timing: D1RegistrationRouteTimingRecorder;
-  readonly total: D1RegistrationRouteTimingMark;
-}): D1WalletRegistrationStartTerminalV1 {
-  const response = walletRegistrationStartResponseFromCeremony(input.ceremony);
-  if (!response) throw new Error('registration start ceremony cannot produce a start response');
-  finishD1RegistrationRouteTiming(input.timing, input.total);
-  const diagnosed = withD1RegistrationStartDiagnostics(response, input.timing);
-  if (!diagnosed.ok) throw new Error('registration start success diagnostics are invalid');
-  return {
-    kind: 'd1_wallet_registration_start_succeeded_v1',
-    ceremony: input.ceremony,
-    response: diagnosed,
-  };
-}
-
-function assertNeverWalletRegistrationStartRun(value: never): never {
-  throw new Error(`Unhandled wallet registration start result: ${String(value)}`);
-}
-
-async function prepareD1WalletRegistrationFinalize(): Promise<D1WalletRegistrationFinalizePreparedV1> {
-  return { kind: 'd1_wallet_registration_finalize_prepared_v1' };
-}
-
-async function fingerprintD1WalletRegistrationFinalizePrepared(
-  prepared: D1WalletRegistrationFinalizePreparedV1,
-): Promise<string> {
-  return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared)));
-}
-
-const D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS = 30_000;
+const D1_WALLET_REGISTRATION_OPERATION_RESUME_AFTER_MS = 30_000;
 
 type D1RegistrationEd25519SigningBudgetPlan =
   | { readonly kind: 'generated_registration_signing_budget' }
@@ -1291,12 +1021,10 @@ export class CloudflareD1WalletRegistrationService {
   private readonly walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null;
   private readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
   private readonly getWalletStore: WalletStoreProvider;
-  private readonly startSideEffects: D1WalletRegistrationStartSideEffectStore;
-  private readonly finalizeSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
   /** The single Gateway operation row for activate-with-finalize (94C). */
   private readonly activateSideEffects: D1WalletRegistrationActivateSideEffectStore;
   /** Deferred NEAR provisioning's own operation row (94C). */
-  private readonly nearProvisioningSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
+  private readonly nearProvisioningSideEffects: D1WalletRegistrationNearProvisioningSideEffectStore;
   private readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
 
@@ -1308,10 +1036,8 @@ export class CloudflareD1WalletRegistrationService {
     readonly walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null;
     readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
     readonly getWalletStore: WalletStoreProvider;
-    readonly startSideEffects: D1WalletRegistrationStartSideEffectStore;
-    readonly finalizeSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
     readonly activateSideEffects: D1WalletRegistrationActivateSideEffectStore;
-    readonly nearProvisioningSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
+    readonly nearProvisioningSideEffects: D1WalletRegistrationNearProvisioningSideEffectStore;
     readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   }) {
@@ -1322,8 +1048,6 @@ export class CloudflareD1WalletRegistrationService {
     this.walletBudgetGrantProvisioner = input.walletBudgetGrantProvisioner;
     this.ecdsaStrictRegistration = input.ecdsaStrictRegistration;
     this.getWalletStore = input.getWalletStore;
-    this.startSideEffects = input.startSideEffects;
-    this.finalizeSideEffects = input.finalizeSideEffects;
     this.activateSideEffects = input.activateSideEffects;
     this.nearProvisioningSideEffects = input.nearProvisioningSideEffects;
     this.walletRegistrationCommitStore = input.walletRegistrationCommitStore;
@@ -2421,10 +2145,10 @@ export class CloudflareD1WalletRegistrationService {
           operation: 'near_provisioning',
           key: `near-provisioning:${input.registrationCeremonyId}:${input.idempotencyKey}`,
           requestFingerprint,
-          resumeAfterMs: D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS,
+          resumeAfterMs: D1_WALLET_REGISTRATION_OPERATION_RESUME_AFTER_MS,
           nowMs: Date.now,
           prepare: async () =>
-            ({ kind: 'd1_wallet_registration_finalize_prepared_v1' }) as const,
+            ({ kind: 'd1_wallet_registration_operation_prepared_v1' }) as const,
           derivePreparedArtifactFingerprint: async (prepared) =>
             base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared))),
           execute: this.commitDeferredEd25519Signer.bind(this, input),
@@ -2770,9 +2494,9 @@ export class CloudflareD1WalletRegistrationService {
         operation: 'registration_activate',
         key: `registration-activate:${claims.registrationCeremonyId}:${idempotencyKey}`,
         requestFingerprint: activateDigestB64u,
-        resumeAfterMs: D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS,
+        resumeAfterMs: D1_WALLET_REGISTRATION_OPERATION_RESUME_AFTER_MS,
         nowMs: Date.now,
-        prepare: async () => ({ kind: 'd1_wallet_registration_finalize_prepared_v1' }) as const,
+        prepare: async () => ({ kind: 'd1_wallet_registration_operation_prepared_v1' }) as const,
         derivePreparedArtifactFingerprint: async (prepared) =>
           base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared))),
         execute: this.executeWalletRegistrationActivation.bind(this, {

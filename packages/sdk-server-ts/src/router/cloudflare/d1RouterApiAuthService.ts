@@ -57,14 +57,11 @@ import { CloudflareD1WebAuthnAuthService } from './d1WebAuthnAuthService';
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
 import {
   CloudflareD1WalletRegistrationService,
-  parseD1WalletRegistrationStartSideEffectRecord,
-  type D1WalletRegistrationFinalizePreparedV1,
+  type D1WalletRegistrationOperationPreparedV1,
   type D1WalletRegistrationActivateSideEffectRecord,
   type D1WalletRegistrationActivateSideEffectStore,
-  type D1WalletRegistrationFinalizeSideEffectRecord,
-  type D1WalletRegistrationFinalizeSideEffectStore,
-  type D1WalletRegistrationStartSideEffectRecord,
-  type D1WalletRegistrationStartSideEffectStore,
+  type D1WalletRegistrationNearProvisioningSideEffectRecord,
+  type D1WalletRegistrationNearProvisioningSideEffectStore,
   type SponsoredNamedNearAccountCreationResult,
 } from './d1WalletRegistrationService';
 import { parseD1WalletRegistrationFinalizeTerminalResponse } from './d1RegistrationCeremonyRecords';
@@ -499,58 +496,12 @@ function parseSponsoredNearAccountSideEffectRecord(
   return null;
 }
 
-function parseWalletRegistrationFinalizePrepared(
+function parseWalletRegistrationOperationPrepared(
   raw: unknown,
-): D1WalletRegistrationFinalizePreparedV1 | null {
-  return isRecordValue(raw) && raw.kind === 'd1_wallet_registration_finalize_prepared_v1'
-    ? { kind: 'd1_wallet_registration_finalize_prepared_v1' }
+): D1WalletRegistrationOperationPreparedV1 | null {
+  return isRecordValue(raw) && raw.kind === 'd1_wallet_registration_operation_prepared_v1'
+    ? { kind: 'd1_wallet_registration_operation_prepared_v1' }
     : null;
-}
-
-function parseWalletRegistrationFinalizeSideEffectRecord(
-  raw: unknown,
-): D1WalletRegistrationFinalizeSideEffectRecord | null {
-  if (
-    !isRecordValue(raw) ||
-    raw.operation !== 'finalize' ||
-    !isNonNegativeSafeInteger(raw.claimedAtMs)
-  ) {
-    return null;
-  }
-  const requestFingerprint = parseSideEffectFingerprint(raw.requestFingerprint);
-  const preparedArtifactFingerprint = parseSideEffectFingerprint(raw.preparedArtifactFingerprint);
-  const prepared = parseWalletRegistrationFinalizePrepared(raw.prepared);
-  if (requestFingerprint === null || preparedArtifactFingerprint === null || prepared === null) {
-    return null;
-  }
-  if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
-    return {
-      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
-      operation: 'finalize',
-      requestFingerprint,
-      preparedArtifactFingerprint,
-      claimedAtMs: raw.claimedAtMs,
-      prepared,
-    };
-  }
-  if (
-    raw.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v1' ||
-    !isNonNegativeSafeInteger(raw.completedAtMs)
-  ) {
-    return null;
-  }
-  const response = parseD1WalletRegistrationFinalizeTerminalResponse(raw.response);
-  if (!response) return null;
-  return {
-    kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
-    operation: 'finalize',
-    requestFingerprint,
-    preparedArtifactFingerprint,
-    claimedAtMs: raw.claimedAtMs,
-    completedAtMs: raw.completedAtMs,
-    prepared,
-    response,
-  };
 }
 
 /**
@@ -622,7 +573,7 @@ function parseWalletRegistrationActivateSideEffectRecord(
   }
   const requestFingerprint = parseSideEffectFingerprint(raw.requestFingerprint);
   const preparedArtifactFingerprint = parseSideEffectFingerprint(raw.preparedArtifactFingerprint);
-  const prepared = parseWalletRegistrationFinalizePrepared(raw.prepared);
+  const prepared = parseWalletRegistrationOperationPrepared(raw.prepared);
   if (requestFingerprint === null || preparedArtifactFingerprint === null || prepared === null) {
     return null;
   }
@@ -663,7 +614,7 @@ function parseWalletRegistrationActivateSideEffectRecord(
  */
 function parseWalletRegistrationNearProvisioningSideEffectRecord(
   raw: unknown,
-): D1WalletRegistrationFinalizeSideEffectRecord | null {
+): D1WalletRegistrationNearProvisioningSideEffectRecord | null {
   if (
     !isRecordValue(raw) ||
     raw.operation !== 'near_provisioning' ||
@@ -673,7 +624,7 @@ function parseWalletRegistrationNearProvisioningSideEffectRecord(
   }
   const requestFingerprint = parseSideEffectFingerprint(raw.requestFingerprint);
   const preparedArtifactFingerprint = parseSideEffectFingerprint(raw.preparedArtifactFingerprint);
-  const prepared = parseWalletRegistrationFinalizePrepared(raw.prepared);
+  const prepared = parseWalletRegistrationOperationPrepared(raw.prepared);
   if (requestFingerprint === null || preparedArtifactFingerprint === null || prepared === null) {
     return null;
   }
@@ -835,23 +786,6 @@ function sponsoredNearAccountSideEffectStore(
   });
 }
 
-function walletRegistrationFinalizeSideEffectStore(
-  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
-): D1WalletRegistrationFinalizeSideEffectStore {
-  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationFinalizeSideEffectRecord>({
-    database: options.database,
-    scope: {
-      namespace: options.namespace,
-      orgId: options.orgId,
-      projectId: options.projectId,
-      envId: options.envId,
-    },
-    keyPrefix: 'wallet-registration-finalize:',
-    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
-    parse: parseWalletRegistrationFinalizeSideEffectRecord,
-  });
-}
-
 function walletRegistrationActivateSideEffectStore(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
 ): D1WalletRegistrationActivateSideEffectStore {
@@ -871,8 +805,8 @@ function walletRegistrationActivateSideEffectStore(
 
 function walletRegistrationNearProvisioningSideEffectStore(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
-): D1WalletRegistrationFinalizeSideEffectStore {
-  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationFinalizeSideEffectRecord>({
+): D1WalletRegistrationNearProvisioningSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationNearProvisioningSideEffectRecord>({
     database: options.database,
     scope: {
       namespace: options.namespace,
@@ -883,23 +817,6 @@ function walletRegistrationNearProvisioningSideEffectStore(
     keyPrefix: 'wallet-registration-near-provisioning:',
     encode: (value) => value as unknown as CloudflareVersionedJsonObject,
     parse: parseWalletRegistrationNearProvisioningSideEffectRecord,
-  });
-}
-
-function walletRegistrationStartSideEffectStore(
-  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
-): D1WalletRegistrationStartSideEffectStore {
-  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationStartSideEffectRecord>({
-    database: options.database,
-    scope: {
-      namespace: options.namespace,
-      orgId: options.orgId,
-      projectId: options.projectId,
-      envId: options.envId,
-    },
-    keyPrefix: 'wallet-registration-start:',
-    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
-    parse: parseD1WalletRegistrationStartSideEffectRecord,
   });
 }
 
@@ -1167,8 +1084,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     walletBudgetGrantProvisioner: options.walletBudgetGrantProvisioner || null,
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
-    startSideEffects: walletRegistrationStartSideEffectStore(options),
-    finalizeSideEffects: walletRegistrationFinalizeSideEffectStore(options),
     activateSideEffects: walletRegistrationActivateSideEffectStore(options),
     nearProvisioningSideEffects: walletRegistrationNearProvisioningSideEffectStore(options),
     walletRegistrationCommitStore,
