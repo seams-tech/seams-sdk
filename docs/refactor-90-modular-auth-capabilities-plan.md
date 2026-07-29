@@ -761,7 +761,7 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
       active.
 - [x] Lock on authoritative expiry, request step-up on exhaustion, and preserve
       the broader app identity session.
-- [ ] Ensure only explicit wallet unlock creates a reusable Wallet Session.
+- [x] Ensure only explicit wallet unlock creates a reusable Wallet Session.
       Move first ECDSA session activation inside verified wallet unlock, make
       the activation route Wallet-Session-only for additional targets, and
       delete the app-session/export path that can currently mint one.
@@ -777,7 +777,7 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
   - [x] Email OTP wallet-unlock verification performs the equivalent first
         activation and later-target reuse without exposing worker-owned secret
         material.
-- [ ] Keep step-up single-operation across signing and export surfaces.
+- [x] Keep step-up single-operation across signing and export surfaces.
 
 ### Provisioning
 
