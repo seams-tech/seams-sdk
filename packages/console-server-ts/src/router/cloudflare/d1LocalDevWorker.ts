@@ -1,5 +1,6 @@
 import type { RouterAbNormalSigningAdmissionInput } from '@seams/sdk-server/cloud-host';
 import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
+import { createCloudflareD1RouterAbNormalSigningAdmissionStore } from '@seams/sdk-server/cloud-host';
 import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from '../consoleAuth';
 import {
   createSigningRootSecretShareKekResolver,
@@ -21,7 +22,6 @@ import type { CfEnv, CfExecutionContext, FetchHandler } from '@seams/sdk-server/
 import { ThresholdStoreDurableObject } from '@seams/sdk-server/cloud-host';
 import type {
   CloudflareDurableObjectNamespaceLike,
-  CloudflareDurableObjectStubLike,
   ThresholdStoreConfigInput,
 } from '@seams/sdk-server/cloud-host';
 import { createSigningSessionSealOptions } from '@seams/sdk-server/cloud-host';
@@ -192,7 +192,7 @@ type ReadyD1SchemaResult = {
 };
 
 type ReadyAdmissionResult = {
-  readonly durableObject: 'configured';
+  readonly database: 'SIGNER_DB';
   readonly quotaReservation: 'accepted' | 'reuse_existing';
 };
 
@@ -200,10 +200,6 @@ type LocalD1SigningRootShareRequest = {
   readonly signingRootId: string;
   readonly signingRootVersion: string;
 };
-
-type AdmissionDoOk<T> = { readonly ok: true; readonly value: T };
-type AdmissionDoErr = { readonly ok: false; readonly code: string; readonly message: string };
-type AdmissionDoResp<T> = AdmissionDoOk<T> | AdmissionDoErr;
 
 const DEFAULT_LOCAL_CONSOLE_USER_ID = 'local-console-user';
 const DEFAULT_LOCAL_CONSOLE_PROJECT_ID = 'local-smoke-project';
@@ -663,6 +659,7 @@ const SIGNER_READY_TABLES = Object.freeze([
   'router_ab_yao_capability_replacements',
   'router_ab_yao_versioned_json_records',
   'router_ab_yao_versioned_json_cas_guard',
+  'router_ab_normal_signing_admission_records',
   'registration_ceremony_records',
   'registration_ceremony_cas_guard',
 ]);
@@ -1131,7 +1128,7 @@ function isRouterApiPath(pathname: string): boolean {
 
 async function assertLocalD1DoReady(env: LocalD1DevEnv): Promise<void> {
   await assertLocalD1Schemas(env);
-  await runD1DoAdmissionSmoke(env);
+  await runD1AdmissionSmoke(env);
 }
 
 function createLocalReadyCheck(env: LocalD1DevEnv): () => Promise<void> {
@@ -1543,98 +1540,32 @@ function localAdmissionInput(
   };
 }
 
-async function runD1DoAdmissionSmoke(env: LocalD1DevEnv): Promise<ReadyAdmissionResult> {
+async function runD1AdmissionSmoke(env: LocalD1DevEnv): Promise<ReadyAdmissionResult> {
   const nowMs = Date.now();
   const input = localAdmissionInput(env, nowMs);
-  const key = [
-    'router-ab-normal-signing-admission',
-    'namespace',
-    localTenantStorageNamespace(env),
-    'readyz',
-    input.runtimePolicyScope.orgId,
-    input.runtimePolicyScope.projectId,
-    input.runtimePolicyScope.envId,
-    input.walletId,
-    input.thresholdSessionId,
-    input.requestId,
-  ].join(':');
-  const response = await callAdmissionDo(env.THRESHOLD_STORE, {
-    key,
-    requestId: input.requestId,
-    lifecycleId: normalSigningLifecycleId(input),
-    expiresAtMs: input.expiresAtMs,
-    nowMs,
+  const store = createCloudflareD1RouterAbNormalSigningAdmissionStore({
+    database: env.SIGNER_DB,
+    storageNamespace: localTenantStorageNamespace(env),
+    now: () => nowMs,
   });
-  if (!response.ok) {
-    throw new Error(`local D1/DO admission smoke failed: ${response.code}`);
+  const result = await store.reserveQuota(input);
+  switch (result.kind) {
+    case 'accepted':
+    case 'reuse_existing':
+      return {
+        database: 'SIGNER_DB',
+        quotaReservation: result.kind,
+      };
+    case 'short_window_saturated':
+    case 'signer_queue_saturated':
+      throw new Error(`local D1 admission smoke failed: ${result.kind}`);
+    default:
+      return assertNeverAdmissionDecision(result);
   }
-  const quotaReservation = parseAdmissionQuotaReservation(response.value);
-  if (!quotaReservation) {
-    throw new Error('local D1/DO admission smoke returned an invalid quota decision');
-  }
-  return {
-    durableObject: 'configured',
-    quotaReservation,
-  };
 }
 
-async function callAdmissionDo(
-  namespace: CloudflareDurableObjectNamespaceLike,
-  input: {
-    readonly key: string;
-    readonly requestId: string;
-    readonly lifecycleId: string;
-    readonly expiresAtMs: number;
-    readonly nowMs: number;
-  },
-): Promise<AdmissionDoResp<unknown>> {
-  const stub = admissionSmokeStub(namespace);
-  const response = await stub.fetch('https://threshold-store.invalid/', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      op: 'routerAbNormalSigningReserveQuota',
-      key: input.key,
-      requestId: input.requestId,
-      lifecycleId: input.lifecycleId,
-      expiresAtMs: input.expiresAtMs,
-      nowMs: input.nowMs,
-    }),
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`local D1/DO admission smoke HTTP ${response.status}: ${text}`);
-  }
-  return parseAdmissionDoResponse(text);
-}
-
-function admissionSmokeStub(
-  namespace: CloudflareDurableObjectNamespaceLike,
-): CloudflareDurableObjectStubLike {
-  const id = namespace.idFromName('seams-local-readyz-router-ab-admission');
-  return namespace.get(id);
-}
-
-function parseAdmissionDoResponse(text: string): AdmissionDoResp<unknown> {
-  const parsed = parseJsonObject(text);
-  if (!parsed) {
-    throw new Error('local D1/DO admission smoke returned invalid JSON');
-  }
-  if (parsed.ok === true) {
-    return { ok: true, value: parsed.value };
-  }
-  return {
-    ok: false,
-    code: requireOptionalString(parsed.code, 'internal'),
-    message: requireOptionalString(parsed.message, 'local D1/DO admission smoke failed'),
-  };
-}
-
-function parseAdmissionQuotaReservation(value: unknown): 'accepted' | 'reuse_existing' | null {
-  if (!isRecord(value)) return null;
-  if (value.kind === 'accepted') return 'accepted';
-  if (value.kind === 'reuse_existing') return 'reuse_existing';
-  return null;
+function assertNeverAdmissionDecision(value: never): never {
+  throw new Error(`Unsupported local D1 admission decision: ${JSON.stringify(value)}`);
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
@@ -1788,37 +1719,9 @@ async function assertLocalD1Schemas(env: LocalD1DevEnv): Promise<ReadyD1SchemaRe
   return { consoleTables, signerTables };
 }
 
-function normalSigningLifecycleId(input: RouterAbNormalSigningAdmissionInput): string {
-  const authority = normalSigningAuthority(input);
-  const base = [
-    input.curve,
-    input.phase,
-    input.walletId,
-    authority,
-    input.thresholdSessionId,
-    input.signingGrantId,
-    input.requestId,
-    input.signingWorkerId,
-  ];
-  return input.curve === 'ecdsa' ? [...base, input.keyHandle].join(':') : base.join(':');
-}
-
-function normalSigningAuthority(input: RouterAbNormalSigningAdmissionInput): string {
-  switch (input.curve) {
-    case 'ed25519':
-      return input.authorityScope.kind === 'passkey_rp'
-        ? `passkey_rp:${input.authorityScope.rpId}`
-        : `${input.authorityScope.kind}:${input.authorityScope.provider}:${input.authorityScope.providerUserId}`;
-    case 'ecdsa':
-      return input.evmFamilySigningKeySlotId;
-  }
-  input satisfies never;
-  throw new Error('Unsupported local D1/DO admission smoke curve');
-}
-
 async function handleReady(env: LocalD1DevEnv): Promise<Response> {
   const schemas = await assertLocalD1Schemas(env);
-  const admission = await runD1DoAdmissionSmoke(env);
+  const admission = await runD1AdmissionSmoke(env);
   return jsonResponse({
     ok: true,
     backend: 'cloudflare_d1_do',

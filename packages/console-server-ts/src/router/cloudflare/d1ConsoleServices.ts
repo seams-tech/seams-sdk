@@ -111,7 +111,7 @@ import {
 } from '@seams-internal/console-server/router/routeExtensions';
 import type { RouterAbNormalSigningAdmissionAdapter } from '@seams/sdk-server/cloud-host';
 import {
-  createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
+  createCloudflareD1RouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
 } from '@seams/sdk-server/cloud-host';
 import type {
@@ -1161,8 +1161,8 @@ function createCloudflareD1RouterApiStorageOptions(input: {
   readonly webhooks: ConsoleWebhookService | null;
 }): CloudflareD1RouterApiStorageOptions {
   const { options } = input;
-  const admissionStore = createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore({
-    namespace: options.thresholdStore,
+  const admissionStore = createCloudflareD1RouterAbNormalSigningAdmissionStore({
+    database: options.signerMetadataDatabase,
     storageNamespace: options.namespace,
   });
   const sponsoredEvmCallConfig = options.sponsoredEvmCallConfig || null;

@@ -56,15 +56,15 @@ export type {
   RouterAbNormalSigningAdmissionResult,
 } from './routerAbPrivateSigningWorker';
 export {
-  CloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
+  CloudflareD1RouterAbNormalSigningAdmissionStore,
   InMemoryRouterAbNormalSigningAdmissionStore,
-  createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
+  createCloudflareD1RouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
 } from './routerAbNormalSigningAdmissionStore';
 export type {
-  CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions,
+  CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
   InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAbuseProvider,
