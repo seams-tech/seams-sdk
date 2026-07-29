@@ -20,7 +20,6 @@ import {
   restorePersistedSessionForSigningCommand,
 } from '@/core/signingEngine/session/sealedRecovery/restoreCoordinator';
 import type {
-  RestorePersistedSessionPurpose,
   DiscoverPersistedSessionsForWalletInput,
   DiscoverPersistedSessionsForWalletResult,
   RestorePersistedSessionForSigningInput,
