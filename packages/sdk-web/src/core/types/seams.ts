@@ -503,6 +503,13 @@ export type WalletSessionCapabilityLaneReadiness =
       readonly kind: 'restorable' | 'deferred';
       readonly reason?: never;
     }
+  // Exact material exists and nothing authorizes it yet. Distinct from
+  // `deferred`, which means nothing has been attempted: this lane is one
+  // same-method step-up away from signing, and the UI can say so.
+  | {
+      readonly kind: 'authorization_required';
+      readonly reason?: never;
+    }
   | {
       readonly kind: 'missing';
       readonly reason?: never;
