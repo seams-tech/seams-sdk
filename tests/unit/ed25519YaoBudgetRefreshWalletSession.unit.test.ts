@@ -2,6 +2,11 @@ import { expect, test } from '@playwright/test';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
 import type { Ed25519SessionPolicy } from '../../packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy';
+import type {
+  ThresholdCredentialStorePort,
+  ThresholdWebAuthnPromptPort,
+} from '../../packages/sdk-web/src/core/signingEngine/threshold/crypto/webauthn';
+import { connectEd25519Session } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/connectSession';
 import {
   buildThresholdEd25519WebAuthnPrfSecretSource,
   mintEd25519WalletSession,
@@ -17,6 +22,30 @@ type RefreshFetchCapture = {
 };
 
 let activeRefreshFetchCapture: RefreshFetchCapture | null = null;
+
+const unusedCredentialStore: ThresholdCredentialStorePort = {
+  async resolveProfileAccountContext() {
+    throw new Error('credential store must not be used with supplied authorization');
+  },
+  async listProfileAuthenticators() {
+    throw new Error('credential store must not be used with supplied authorization');
+  },
+  async listAccountSigners() {
+    throw new Error('credential store must not be used with supplied authorization');
+  },
+  async selectProfileAuthenticatorsForPrompt() {
+    throw new Error('credential store must not be used with supplied authorization');
+  },
+};
+
+const unusedTouchIdPrompt: ThresholdWebAuthnPromptPort = {
+  getRpId() {
+    return 'localhost';
+  },
+  async getAuthenticationCredentialsSerializedForChallengeB64u() {
+    throw new Error('Touch ID must not be used with supplied authorization');
+  },
+};
 
 async function refreshWalletSessionFetch(
   _input: RequestInfo | URL,
@@ -136,6 +165,59 @@ test('Yao budget refresh uses environment auth with a PRF-redacted WebAuthn asse
     expect(capture.body).toContain('"signature":"signature-b64u"');
     expect(capture.body).not.toContain(PRF_FIRST_B64U);
     expect(capture.body).toContain('"projectEnvironmentId":"env-refresh"');
+  } finally {
+    activeRefreshFetchCapture = null;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Ed25519 session connection rejects success without a runtime policy scope', async () => {
+  const originalFetch = globalThis.fetch;
+  const capture: RefreshFetchCapture = {
+    authorization: '',
+    body: '',
+    credentials: undefined,
+  };
+  activeRefreshFetchCapture = capture;
+  globalThis.fetch = refreshWalletSessionFetch;
+
+  try {
+    const authority = buildPasskeyWalletAuthAuthority({
+      walletId: 'refresh-wallet',
+      rpId: 'localhost',
+      credentialIdB64u: 'credential-id-b64u',
+    });
+    const result = await connectEd25519Session({
+      credentialStore: unusedCredentialStore,
+      touchIdPrompt: unusedTouchIdPrompt,
+      relayerUrl: 'https://relay.example.test',
+      relayerKeyId: 'ed25519:relayer-key',
+      walletId: 'refresh-wallet',
+      nearAccountId: 'refresh.testnet',
+      nearEd25519SigningKeyId: 'refresh.testnet',
+      authority: {
+        kind: 'passkey_ed25519_session_policy_authority',
+        authority,
+      },
+      participantIds: [1, 2],
+      routerAbNormalSigning: {
+        kind: 'router_ab_ed25519_normal_signing_v1',
+        signingWorkerId: 'local-signing-worker',
+      },
+      auth: {
+        kind: 'router_ab_ed25519_yao_budget_refresh_v1',
+        policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+          credential: refreshCredentialFixture(),
+          rpId: 'localhost',
+        }),
+      },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'invalid_response',
+      message: 'Threshold Ed25519 session mint returned incomplete lifecycle metadata',
+    });
   } finally {
     activeRefreshFetchCapture = null;
     globalThis.fetch = originalFetch;
