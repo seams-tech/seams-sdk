@@ -113,7 +113,6 @@ const WALLET_REGISTRATION_ACTIVATE_PATH = '/wallets/register/activate';
 const WALLET_REGISTRATION_NEAR_PROVISIONING_PATH = '/wallets/register/near-provisioning';
 /** Managed environment id header for Router API `api_credentials` auth. */
 const ROUTER_API_ENVIRONMENT_ID_HEADER = 'X-Seams-Environment-Id';
-const WALLET_REGISTRATION_INTENT_CANCEL_PATH = '/wallets/register/intent/cancel';
 const WALLET_REGISTRATION_PREPARE_PATH = '/wallets/register/prepare';
 const WALLET_REGISTRATION_FINALIZE_PATH = '/wallets/register/finalize';
 const WRANGLER_WORKER_RESTARTED_MID_REQUEST = 'Your worker restarted mid-request';
@@ -337,16 +336,6 @@ export type CreateRegistrationIntentRequest = {
   authMethod: RegistrationAuthMethodInput;
   signerSelection: RegistrationSignerSetRequest;
 };
-
-function createRegistrationIntentWireRequest(
-  request: CreateRegistrationIntentRequest,
-): CreateRegistrationIntentRequest {
-  return {
-    wallet: request.wallet,
-    authMethod: request.authMethod,
-    signerSelection: registrationSignerSetRequestSelection(request.signerSelection),
-  };
-}
 
 export type CreateRegistrationIntentResponse = {
   ok: true;
@@ -2344,36 +2333,6 @@ export async function setupWalletRegistration(args: {
   });
 }
 
-export async function createWalletRegistrationIntent(args: {
-  relayerUrl: string;
-  request: CreateRegistrationIntentRequest;
-  headers?: Record<string, string>;
-}): Promise<CreateRegistrationIntentResponse> {
-  return await postJson<CreateRegistrationIntentResponse>({
-    relayerUrl: args.relayerUrl,
-    path: '/wallets/register/intent',
-    body: createRegistrationIntentWireRequest(args.request),
-    headers: args.headers,
-  });
-}
-
-export async function cancelWalletRegistrationIntent(args: {
-  relayerUrl: string;
-  registrationIntentGrant: RegistrationIntentGrant;
-  registrationIntentDigestB64u: string;
-  headers?: Record<string, string>;
-}): Promise<CancelRegistrationIntentResponse> {
-  return await postJson<CancelRegistrationIntentResponse>({
-    relayerUrl: args.relayerUrl,
-    path: WALLET_REGISTRATION_INTENT_CANCEL_PATH,
-    body: {
-      registrationIntentGrant: args.registrationIntentGrant,
-      registrationIntentDigestB64u: args.registrationIntentDigestB64u,
-    },
-    headers: args.headers,
-  });
-}
-
 export async function createWalletAddSignerIntent(args: {
   relayerUrl: string;
   walletId: WalletId;
@@ -2415,29 +2374,6 @@ function walletRegistrationStartAuthorityBody(
     case 'email_otp':
       return { emailOtpRegistrationProof: authority.emailOtpRegistrationProof };
   }
-}
-
-export async function startWalletRegistration(
-  args: {
-    relayerUrl: string;
-    headers?: Record<string, string>;
-    registrationIntentGrant: RegistrationIntentGrant;
-    registrationIntentDigestB64u: string;
-    intent: RegistrationIntentV1;
-  } & WalletRegistrationStartAuthority,
-): Promise<WalletRegistrationStartResponse> {
-  const body = {
-    registrationIntentGrant: args.registrationIntentGrant,
-    registrationIntentDigestB64u: args.registrationIntentDigestB64u,
-    intent: args.intent,
-    ...walletRegistrationStartAuthorityBody(args),
-  };
-  return await postJson<WalletRegistrationStartResponse>({
-    relayerUrl: args.relayerUrl,
-    path: '/wallets/register/start',
-    headers: args.headers,
-    body,
-  });
 }
 
 export async function respondWalletRegistrationEcdsa(args: {
@@ -2909,27 +2845,6 @@ export type FinalizeWalletRegistrationArgs = FinalizeWalletRegistrationBaseArgs 
         ed25519?: never;
       }
   );
-
-export function buildWalletRegistrationFinalizeBody(args: FinalizeWalletRegistrationArgs): unknown {
-  const base = {
-    registrationCeremonyId: args.registrationCeremonyId,
-    idempotencyKey: args.idempotencyKey,
-    ...(args.emailOtpEnrollment ? { emailOtpEnrollment: args.emailOtpEnrollment } : {}),
-    ...(args.emailOtpBackupAck ? { emailOtpBackupAck: args.emailOtpBackupAck } : {}),
-  };
-  switch (args.kind) {
-    case 'near_ed25519':
-      return { ...base, kind: args.kind, ed25519: args.ed25519 };
-    case 'evm_family_ecdsa':
-      return { ...base, kind: args.kind, ecdsa: args.ecdsa };
-    default:
-      return assertNeverFinalizeWalletRegistrationArgs(args);
-  }
-}
-
-function assertNeverFinalizeWalletRegistrationArgs(value: never): never {
-  throw new Error(`Unsupported wallet registration finalize kind: ${String(value)}`);
-}
 
 function parseWalletRegistrationRouteTimingName(value: unknown): WalletRegistrationRouteTimingName {
   switch (value) {
@@ -3442,21 +3357,6 @@ export function parseWalletRegistrationFinalizeResponse(args: {
     default:
       throw new Error(`${responseName} response has invalid kind`);
   }
-}
-
-export async function finalizeWalletRegistration(
-  args: FinalizeWalletRegistrationArgs,
-): Promise<WalletRegistrationFinalizeResponse> {
-  const response = await postJson<unknown>({
-    relayerUrl: args.relayerUrl,
-    path: '/wallets/register/finalize',
-    headers: args.headers,
-    body: buildWalletRegistrationFinalizeBody(args),
-  });
-  return parseWalletRegistrationFinalizeResponse({
-    value: response,
-    expectedKind: args.kind,
-  });
 }
 
 function addSignerAuthHeaders(auth: AddSignerAuth): Record<string, string> | undefined {
