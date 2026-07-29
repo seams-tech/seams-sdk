@@ -7,7 +7,6 @@ import type {
   EmailOtpRegistrationProof,
   RegistrationAuthMethodInput,
   RegisterWalletInput,
-  RegistrationIntentGrant,
   RegistrationIntentV1,
   RegistrationNearAccountProvisioning,
   ResolvedRegistrationNearAccount,
@@ -113,8 +112,6 @@ const WALLET_REGISTRATION_ACTIVATE_PATH = '/wallets/register/activate';
 const WALLET_REGISTRATION_NEAR_PROVISIONING_PATH = '/wallets/register/near-provisioning';
 /** Managed environment id header for Router API `api_credentials` auth. */
 const ROUTER_API_ENVIRONMENT_ID_HEADER = 'X-Seams-Environment-Id';
-const WALLET_REGISTRATION_PREPARE_PATH = '/wallets/register/prepare';
-const WRANGLER_WORKER_RESTARTED_MID_REQUEST = 'Your worker restarted mid-request';
 
 function utf8Bytes(value: string): number {
   try {
@@ -189,31 +186,6 @@ async function readResponseText(response: Response): Promise<string> {
   }
 }
 
-function logWalletRegistrationRouteProgress(
-  stage: string,
-  details?: Record<string, unknown>,
-): void {
-  console.info('[wallet-registration][route] progress', { stage, ...(details || {}) });
-}
-
-function walletRegistrationPostMaxAttempts(path: string): number {
-  return path === WALLET_REGISTRATION_PREPARE_PATH ? 2 : 1;
-}
-
-function isWranglerWorkerRestartedMidRequestResponse(input: {
-  path: string;
-  status: number;
-  responseText: string;
-  attempt: number;
-}): boolean {
-  return (
-    input.path === WALLET_REGISTRATION_PREPARE_PATH &&
-    input.attempt === 0 &&
-    input.status === 503 &&
-    input.responseText.includes(WRANGLER_WORKER_RESTARTED_MID_REQUEST)
-  );
-}
-
 async function postJson<TResponse>(args: {
   relayerUrl: string;
   path: string;
@@ -228,58 +200,38 @@ async function postJson<TResponse>(args: {
 }): Promise<TResponse> {
   const startedAt = Date.now();
   const requestBody = JSON.stringify(args.body);
-  const maxAttempts = walletRegistrationPostMaxAttempts(args.path);
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const response = await fetch(
-      `${normalizeRelayerBaseUrl(args.relayerUrl, { trim: false })}${args.path}`,
-      buildRelayerJsonPostRequestInit({
-        headers: args.headers,
-        body: args.body,
-        bodyJson: requestBody,
-      }),
-    );
-    if (args.onServerTiming) {
-      try {
-        args.onServerTiming(response.headers.get('Server-Timing'));
-      } catch {
-        // Diagnostics must never change registration behavior.
-      }
+  const response = await fetch(
+    `${normalizeRelayerBaseUrl(args.relayerUrl, { trim: false })}${args.path}`,
+    buildRelayerJsonPostRequestInit({
+      headers: args.headers,
+      body: args.body,
+      bodyJson: requestBody,
+    }),
+  );
+  if (args.onServerTiming) {
+    try {
+      args.onServerTiming(response.headers.get('Server-Timing'));
+    } catch {
+      // Diagnostics must never change registration behavior.
     }
-    const responseText = await readResponseText(response);
-    const data = parseJsonText(responseText);
-    if (registrationBenchmarkDiagnosticsEnabled()) {
-      console.info(REGISTRATION_ROUTE_PAYLOAD_DIAGNOSTICS_LABEL, {
-        path: args.path,
-        status: response.status,
-        attempt,
-        requestBytes: utf8Bytes(requestBody),
-        requestSizeBreakdown: payloadSizeBreakdown(args.body),
-        responseBytes: utf8Bytes(responseText),
-        responseSizeBreakdown: payloadSizeBreakdown(data),
-        totalMs: Date.now() - startedAt,
-      });
-    }
-    if (
-      isWranglerWorkerRestartedMidRequestResponse({
-        path: args.path,
-        status: response.status,
-        responseText,
-        attempt,
-      })
-    ) {
-      logWalletRegistrationRouteProgress('prepare_worker_restart_retry', {
-        status: response.status,
-        responseBytes: utf8Bytes(responseText),
-        durationMs: Date.now() - startedAt,
-      });
-      continue;
-    }
-    if (!response.ok || data.ok === false) {
-      throw new Error(String(data.message || data.error || data.code || `HTTP ${response.status}`));
-    }
-    return data as TResponse;
   }
-  throw new Error('wallet registration request exhausted retry attempts');
+  const responseText = await readResponseText(response);
+  const data = parseJsonText(responseText);
+  if (registrationBenchmarkDiagnosticsEnabled()) {
+    console.info(REGISTRATION_ROUTE_PAYLOAD_DIAGNOSTICS_LABEL, {
+      path: args.path,
+      status: response.status,
+      requestBytes: utf8Bytes(requestBody),
+      requestSizeBreakdown: payloadSizeBreakdown(args.body),
+      responseBytes: utf8Bytes(responseText),
+      responseSizeBreakdown: payloadSizeBreakdown(data),
+      totalMs: Date.now() - startedAt,
+    });
+  }
+  if (!response.ok || data.ok === false) {
+    throw new Error(String(data.message || data.error || data.code || `HTTP ${response.status}`));
+  }
+  return data as TResponse;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -308,26 +260,6 @@ function requireResponseRecord(args: {
   }
   return args.value;
 }
-
-export type CreateRegistrationIntentRequest = {
-  wallet: RegisterWalletInput;
-  authMethod: RegistrationAuthMethodInput;
-  signerSelection: RegistrationSignerSetRequest;
-};
-
-export type CreateRegistrationIntentResponse = {
-  ok: true;
-  intent: RegistrationIntentV1;
-  registrationIntentDigestB64u: string;
-  registrationIntentGrant: RegistrationIntentGrant;
-  expiresAtMs: number;
-};
-
-export type CancelRegistrationIntentResponse = {
-  ok: true;
-  cancelled: boolean;
-  releasedServerAllocatedWalletId: boolean;
-};
 
 export type FundImplicitNearAccountForTestingResponse =
   | {
@@ -2167,8 +2099,8 @@ export async function setupWalletRegistration(args: {
   relayerUrl: string;
   request: {
     wallet?: RegisterWalletInput;
-    signerSelection: CreateRegistrationIntentRequest['signerSelection'];
-    authMethod: CreateRegistrationIntentRequest['authMethod'];
+    signerSelection: RegistrationSignerSetRequest;
+    authMethod: RegistrationAuthMethodInput;
   };
   /**
    * The route's auth plane is `api_credentials` with `publishable_key` only —
