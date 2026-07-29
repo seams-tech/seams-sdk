@@ -729,7 +729,10 @@ function thresholdIntentFromTransactionIntent(intent: TransactionSigningIntent):
   };
 }
 
-export function transactionReadinessFromThresholdOperation(
+// Module-internal: the only caller is `prepareTransactionSigningOperation`
+// above. Exporting it invited callers to derive transaction readiness outside
+// the one place that owns the threshold operation it reads from.
+function transactionReadinessFromThresholdOperation(
   operation: PreparedThresholdSigningOperation<SelectedSigningSessionPlanningLane, object>,
 ): TransactionReadiness {
   const status = operation.readiness.status;
