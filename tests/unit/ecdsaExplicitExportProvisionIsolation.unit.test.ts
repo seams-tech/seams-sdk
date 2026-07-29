@@ -94,7 +94,6 @@ test('dedicated ECDSA export provision keeps material auth-neutral and quota-neu
     materialActivation,
     normalSigningScope:
       bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning.scope,
-    evmFamilySigningKeySlotId: backendBinding.publicFacts.evmFamilySigningKeySlotId,
     keyHandle: backendBinding.publicFacts.keyHandle,
     relayerKeyId: backendBinding.relayerKeyId,
     participantIds: backendBinding.publicFacts.participantIds,

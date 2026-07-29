@@ -661,7 +661,6 @@ export type RouterAbEcdsaOperationStepUpPreparationV1Wire = {
   readonly material_activation: RouterAbMpcMaterialActivationRefWire;
   readonly normal_signing_scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
   readonly signing_worker_id: string;
-  readonly evm_family_signing_key_slot_id: string;
   readonly key_handle: string;
   readonly relayer_key_id: string;
   readonly participant_ids: readonly [number, number];
@@ -3275,7 +3274,6 @@ export function parseRouterAbEcdsaOperationStepUpPreparationV1(
     'material_activation',
     'normal_signing_scope',
     'signing_worker_id',
-    'evm_family_signing_key_slot_id',
     'key_handle',
     'relayer_key_id',
     'participant_ids',
@@ -3313,10 +3311,6 @@ export function parseRouterAbEcdsaOperationStepUpPreparationV1(
     signing_worker_id: requireAsciiNonEmptyString(
       operation.signing_worker_id,
       'operationStepUpGrantRequest.operation.signing_worker_id',
-    ),
-    evm_family_signing_key_slot_id: requireAsciiNonEmptyString(
-      operation.evm_family_signing_key_slot_id,
-      'operationStepUpGrantRequest.operation.evm_family_signing_key_slot_id',
     ),
     key_handle: requireAsciiNonEmptyString(
       operation.key_handle,

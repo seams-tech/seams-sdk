@@ -448,7 +448,7 @@ async function authorizeEcdsaPoolFillOperationStepUp(input: {
   readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
 }): Promise<RouterAbEcdsaPoolFillAuthorizationResult> {
   const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    input.operation.evm_family_signing_key_slot_id,
+    input.operation.material_activation.key_binding,
   );
   if (!evmFamilySigningKeySlotId || !validateEcdsaPoolFillOperationIdentity(input.operation)) {
     return {

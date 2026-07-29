@@ -94,7 +94,6 @@ export function buildEcdsaOperationStepUpPreparation(args: {
   readonly operationDigests: OperationDigestSet;
   readonly materialActivation: MpcMaterialActivationRef;
   readonly normalSigningScope: RouterAbEcdsaDerivationNormalSigningScopeV1;
-  readonly evmFamilySigningKeySlotId: string;
   readonly keyHandle: string;
   readonly relayerKeyId: string;
   readonly participantIds: readonly [number, number];
@@ -113,14 +112,12 @@ export function buildEcdsaOperationStepUpPreparation(args: {
   const normalSigningScope = parseRouterAbEcdsaDerivationNormalSigningScopeV1(
     args.normalSigningScope,
   );
-  const evmFamilySigningKeySlotId = String(args.evmFamilySigningKeySlotId || '').trim();
   const keyHandle = String(args.keyHandle || '').trim();
   const relayerKeyId = String(args.relayerKeyId || '').trim();
   const participantIds = args.participantIds;
   if (
     normalSigningScope.wallet_id !== walletId ||
     normalSigningScope.signing_worker.server_id !== materialActivation.signing_worker ||
-    !evmFamilySigningKeySlotId ||
     !keyHandle ||
     !relayerKeyId ||
     participantIds.length !== 2 ||
@@ -142,7 +139,6 @@ export function buildEcdsaOperationStepUpPreparation(args: {
     material_activation: materialActivation,
     normal_signing_scope: normalSigningScope,
     signing_worker_id: materialActivation.signing_worker,
-    evm_family_signing_key_slot_id: evmFamilySigningKeySlotId,
     key_handle: keyHandle,
     relayer_key_id: relayerKeyId,
     participant_ids: [participantIds[0], participantIds[1]],

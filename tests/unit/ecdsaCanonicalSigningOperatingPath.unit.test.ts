@@ -146,13 +146,12 @@ function stubGrantEndpoint(requests: unknown[]): () => void {
 for (const factor of ['passkey', 'email_otp'] as const) {
   test(`canonical ${factor} material authorizes one operation by step-up`, async () => {
     const { fixture, material } = await hydratedEcdsaSigningMaterialFixture(factor);
-    const { capability, authority } = fixture;
+    const { authority } = fixture;
 
     const prepared = await prepareEvmFamilyEcdsaOperationStepUp({
       operation: evmFamilyThresholdEcdsaOperationFixture({ operationId: OPERATION_ID }),
       operationDigests,
       material,
-      evmFamilySigningKeySlotId: capability.material.publicFacts.evmFamilySigningKeySlotId,
     });
 
     // The challenge the user approves is the canonical digest of this exact
@@ -196,13 +195,12 @@ for (const factor of ['passkey', 'email_otp'] as const) {
 
   test(`a ${factor} step-up cannot prove against the other factor's authority`, async () => {
     const { fixture, material } = await hydratedEcdsaSigningMaterialFixture(factor);
-    const { authority, capability } = fixture;
+    const { authority } = fixture;
     const otherFactor: EcdsaFixtureFactor = factor === 'passkey' ? 'email_otp' : 'passkey';
     const prepared = await prepareEvmFamilyEcdsaOperationStepUp({
       operation: evmFamilyThresholdEcdsaOperationFixture({ operationId: OPERATION_ID }),
       operationDigests,
       material,
-      evmFamilySigningKeySlotId: capability.material.publicFacts.evmFamilySigningKeySlotId,
     });
     const grantRequests: unknown[] = [];
     const restoreFetch = stubGrantEndpoint(grantRequests);
