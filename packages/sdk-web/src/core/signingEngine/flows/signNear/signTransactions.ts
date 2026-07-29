@@ -34,6 +34,7 @@ import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAc
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { resolveNearSigningMaterials } from './shared/signingMaterials';
 import type { ResolvedRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
+import { resolveActiveAuthorizedRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { buildNearTransactionSigningPayload } from '../../chains/near/payloads';
 import { SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR } from './shared/signingSessionAuthMode';
 import type { SelectedEd25519Lane } from '../../session/identity/laneIdentity';
@@ -283,6 +284,19 @@ function budgetStatusAuthFromWalletSessionState(
     relayerUrl,
     walletSessionJwt,
   };
+}
+
+async function requireActiveAuthorizedWalletSessionState(
+  state: ResolvedRouterAbEd25519WalletSessionState,
+) {
+  const authorized = await resolveActiveAuthorizedRouterAbEd25519WalletSessionState({
+    state,
+    nowMs: Date.now(),
+  });
+  if (!authorized) {
+    throw new Error('[SigningEngine][near] reusable Wallet Session authorization is unavailable');
+  }
+  return authorized;
 }
 
 function readinessFromPreparedBudgetIdentity(
@@ -952,30 +966,44 @@ export async function runNearTransactionWithActionsSigning({
       interaction: { kind: 'none', overlay: 'none' },
     });
     const routerAbNormalSigningResult =
-      await tryFinalizeRouterAbEd25519NearTransactionNormalSigning({
-        ctx,
-        thresholdSessionId: canonicalThresholdSessionId,
-        activeClient: yaoClient,
-        walletSessionState,
-        thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-        walletId: commandSubject.walletSession.walletId,
-        nearAccountId,
-        operationId: signingOperation.operationId,
-        operationFingerprint,
-        displayDigest: confirmation.intentDigest,
-        txSigningRequest,
-        transactionContext,
-        authorization:
-          stepUpAuthorization.kind === 'passkey'
-            ? {
-                kind: 'operation_step_up',
-                prepared: requirePreparedNearOperationStepUp(preparedOperationStepUp),
-                displayDigest: confirmation.intentDigest,
-                authority: stepUpAuthorization.plannedPasskeyOperationStepUp.authority,
-                credential: stepUpAuthorization.credential,
-              }
-            : { kind: 'reusable_wallet_session' },
-      });
+      stepUpAuthorization.kind === 'passkey'
+        ? await tryFinalizeRouterAbEd25519NearTransactionNormalSigning({
+            ctx,
+            thresholdSessionId: canonicalThresholdSessionId,
+            activeClient: yaoClient,
+            walletSessionState,
+            thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+            walletId: commandSubject.walletSession.walletId,
+            nearAccountId,
+            operationId: signingOperation.operationId,
+            operationFingerprint,
+            displayDigest: confirmation.intentDigest,
+            txSigningRequest,
+            transactionContext,
+            authorization: {
+              kind: 'operation_step_up',
+              prepared: requirePreparedNearOperationStepUp(preparedOperationStepUp),
+              displayDigest: confirmation.intentDigest,
+              authority: stepUpAuthorization.plannedPasskeyOperationStepUp.authority,
+              credential: stepUpAuthorization.credential,
+            },
+          })
+        : await tryFinalizeRouterAbEd25519NearTransactionNormalSigning({
+            ctx,
+            thresholdSessionId: canonicalThresholdSessionId,
+            activeClient: yaoClient,
+            walletSessionState:
+              await requireActiveAuthorizedWalletSessionState(walletSessionState),
+            thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+            walletId: commandSubject.walletSession.walletId,
+            nearAccountId,
+            operationId: signingOperation.operationId,
+            operationFingerprint,
+            displayDigest: confirmation.intentDigest,
+            txSigningRequest,
+            transactionContext,
+            authorization: { kind: 'reusable_wallet_session' },
+          });
     if (routerAbNormalSigningResult) {
       return routerAbNormalSigningResult.okResponse;
     }

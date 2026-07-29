@@ -34,6 +34,8 @@ import type { EmailOtpTransactionSigningChallenge } from '../session/emailOtp/pu
 import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 export type NearResolvedEd25519WalletSessionAuth = {
   kind: 'wallet_session_jwt';
   walletSessionJwt: string;
@@ -80,6 +82,12 @@ export type NearResolvedEd25519SigningSessionState = {
   signingWalletSession: RouterAbEd25519SigningWalletSession;
   sessionKind?: never;
 };
+
+export type NearAuthorizedEd25519SigningSessionState =
+  NearResolvedEd25519SigningSessionState & {
+    walletSessionId: WalletSessionId;
+    walletSessionAuthorization: ActiveWalletSessionAuthorizationProjection;
+  };
 
 export type NearEd25519YaoSigningCapability = {
   activeClient: RouterAbEd25519YaoActiveClientV1;

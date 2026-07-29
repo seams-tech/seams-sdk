@@ -11,6 +11,7 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import { computeThresholdEd25519Nep413SigningDigestWasm } from '../../chains/near/nearSignerWasm';
 import { resolveNearSigningMaterials } from './shared/signingMaterials';
+import { resolveActiveAuthorizedRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   buildNearSigningSessionAuthPlan,
   createNearSigningSessionCoordinator,
@@ -221,12 +222,20 @@ export async function signNep413Message({
       nonce: payload.nonce,
       ...(payload.state ? { state: payload.state } : {}),
     };
+    const authorizedWalletSessionState =
+      await resolveActiveAuthorizedRouterAbEd25519WalletSessionState({
+        state: preparedCapability.capability.walletSessionState,
+        nowMs: Date.now(),
+      });
+    if (!authorizedWalletSessionState) {
+      throw new Error('[SigningEngine][near] reusable Wallet Session authorization is unavailable');
+    }
     const routerAbNormalSigningResult = await tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning({
       ctx,
       thresholdSessionId: canonicalThresholdSessionId,
       signingSessionCoordinator,
       activeClient: preparedCapability.capability.activeClient,
-      walletSessionState: preparedCapability.capability.walletSessionState,
+      walletSessionState: authorizedWalletSessionState,
       walletId: commandSubject.walletSession.walletId,
       thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
       nearAccountId,

@@ -62,7 +62,10 @@ import {
   requireRouterAbEd25519NormalSigningReadyState,
   type RouterAbEd25519NormalSigningReadyState,
 } from '../../../session/warmCapabilities/routerAbWalletSessionCredential';
-import type { ResolvedRouterAbEd25519WalletSessionState } from '../../../session/warmCapabilities/routerAbEd25519WalletSessionState';
+import type {
+  AuthorizedRouterAbEd25519WalletSessionState,
+  ResolvedRouterAbEd25519WalletSessionState,
+} from '../../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { base58Decode } from '@shared/utils/base58';
 import { ensureEd25519Prefix } from '@shared/utils/validation';
@@ -82,9 +85,7 @@ import {
   parseCapabilityOperationId,
   parsePrincipalId,
   parseTenantId,
-  parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { PreparedNearOperationStepUp } from './operationStepUpPreparation';
 import { issueEd25519OperationStepUpGrant } from '@/core/signingEngine/threshold/ed25519/walletSession';
@@ -92,14 +93,6 @@ import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 const ROUTER_AB_NORMAL_SIGNING_REQUEST_TTL_MS = 120_000;
-
-function requireEd25519WalletSessionId(walletSessionJwt: string): string {
-  const parsed = parseWalletSessionId(decodeJwtPayloadRecord(walletSessionJwt)?.walletSessionId);
-  if (!parsed.ok) {
-    throw new Error('[SigningEngine][near] reusable Wallet Session id is required');
-  }
-  return parsed.value;
-}
 
 export type RouterAbEd25519SignatureOnlyIntentWire =
   | {
@@ -202,7 +195,7 @@ function routerAbNormalSigningExpiresAtMs(args: {
 function buildRouterAbNormalSigningScope(args: {
   thresholdSessionId: string;
   activeClient: RouterAbEd25519YaoActiveClientV1;
-  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
+  walletSessionState: AuthorizedRouterAbEd25519WalletSessionState;
   walletId: WalletId;
   operationId: SigningOperationId;
 }): RouterAbNormalSigningScopeV2Wire | null {
@@ -219,9 +212,7 @@ function buildRouterAbNormalSigningScope(args: {
     account_id: walletId,
     authorization: {
       kind: 'reusable_wallet_session',
-      wallet_session_id: requireEd25519WalletSessionId(
-        args.walletSessionState.signingWalletSession.auth.walletSessionJwt,
-      ),
+      wallet_session_id: args.walletSessionState.walletSessionId,
     },
     material_activation: {
       kind: 'mpc_material_activation_ref',
@@ -639,7 +630,7 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args:
   ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
   signingSessionCoordinator: SigningSessionCoordinator;
-  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
+  walletSessionState: AuthorizedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   walletId: WalletId;
   nearAccountId: string;
@@ -974,10 +965,9 @@ export async function prepareRouterAbEd25519NearTransactionOperationStepUp(args:
   };
 }
 
-export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(args: {
+type RouterAbEd25519NearTransactionNormalSigningBase = {
   ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
-  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   walletId: WalletId;
   nearAccountId: string;
@@ -987,16 +977,39 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(arg
   displayDigest: string;
   txSigningRequest: TransactionPayload;
   transactionContext: TransactionContext | undefined;
-  authorization:
-    | { kind: 'reusable_wallet_session' }
-    | {
-        kind: 'operation_step_up';
-        prepared: PreparedNearOperationStepUp;
-        displayDigest: string;
-        authority: PasskeyWalletAuthAuthority;
-        credential: WebAuthnAuthenticationCredential;
-      };
-}): Promise<RouterAbEd25519NearTransactionNormalSigningResult | null> {
+};
+
+type RouterAbEd25519NearTransactionNormalSigningArgs =
+  RouterAbEd25519NearTransactionNormalSigningBase &
+    (
+      | {
+          walletSessionState: AuthorizedRouterAbEd25519WalletSessionState;
+          authorization: { kind: 'reusable_wallet_session' };
+        }
+      | {
+          walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
+          authorization: {
+            kind: 'operation_step_up';
+            prepared: PreparedNearOperationStepUp;
+            displayDigest: string;
+            authority: PasskeyWalletAuthAuthority;
+            credential: WebAuthnAuthenticationCredential;
+          };
+        }
+    );
+
+function isRouterAbEd25519OperationStepUpSigning(
+  args: RouterAbEd25519NearTransactionNormalSigningArgs,
+): args is Extract<
+  RouterAbEd25519NearTransactionNormalSigningArgs,
+  { authorization: { kind: 'operation_step_up' } }
+> {
+  return args.authorization.kind === 'operation_step_up';
+}
+
+export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(
+  args: RouterAbEd25519NearTransactionNormalSigningArgs,
+): Promise<RouterAbEd25519NearTransactionNormalSigningResult | null> {
   const routerAbState = args.walletSessionState.routerAbNormalSigning;
   if (!routerAbState) {
     throw new Error('[SigningEngine][near] Router A/B Ed25519 normal-signing state is missing');
@@ -1007,8 +1020,9 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(arg
     );
   }
 
+  const operationStepUp = isRouterAbEd25519OperationStepUpSigning(args);
   const unsigned =
-    args.authorization.kind === 'operation_step_up'
+    operationStepUp
       ? {
           unsignedTransactionBorshB64u: args.authorization.prepared.unsignedTransactionBorshB64u,
           signingDigestB64u: args.authorization.prepared.signingDigestB64u,
@@ -1042,7 +1056,7 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(arg
   );
   let prepare: RouterAbNormalSigningPrepareRequestV2BuildResult;
   let credential: RouterAbEd25519NormalSigningCredential;
-  if (args.authorization.kind === 'operation_step_up') {
+  if (operationStepUp) {
     prepare = args.authorization.prepared.prepare;
     const issued = await issueEd25519OperationStepUpGrant({
       relayerUrl: args.walletSessionState.relayerUrl,
