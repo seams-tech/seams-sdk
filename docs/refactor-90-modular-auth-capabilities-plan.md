@@ -354,7 +354,7 @@ removes.
 - [ ] Fourteen state cases cover the seven canonical states for both
       capabilities.
 - [x] Required-field and invalid-state type fixtures pass.
-- [ ] IndexedDB crash tests prove atomic activation finalization.
+- [x] IndexedDB crash tests prove atomic activation finalization.
 - [ ] Focused intended-behavior tests preserve refresh allowance and exact
       material rehydration.
 
@@ -781,13 +781,13 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 
 ### Provisioning
 
-- [ ] Create registration/add-factor auth identity first, then provision each
+- [x] Create registration/add-factor auth identity first, then provision each
       capability independently through statically composed canonical owners.
-- [ ] Make partial capability results explicit and exhaustively handled.
+- [x] Make partial capability results explicit and exhaustively handled.
 - [x] Return exact per-capability results with no combined cross-curve record.
-- [ ] Use exact wallet, authorization-session, and material-activation
+- [x] Use exact wallet, authorization-session, and material-activation
       projections.
-- [ ] Delete Patch 2 tactical UI/provisioning bridges after their last caller
+- [x] Delete Patch 2 tactical UI/provisioning bridges after their last caller
       moves.
 - [ ] Delete obsolete loading heuristics, fallback lane selection, and
       pre-cutover fixtures in the same change.
@@ -796,10 +796,10 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 
 - [ ] Every deletion-ledger entry assigned to Unit 4 is closed; ownership
       corrections are recorded before implementation.
-- [ ] UI type fixtures reject incomplete lifecycle states.
+- [x] UI type fixtures reject incomplete lifecycle states.
 - [ ] Existing Refactor 92 contracts still prove expiry/exhaustion separation,
       refresh allowance, step-up behavior, and Passkey/OTP parity.
-- [ ] Registration and provisioning expose no partial legacy capability shape.
+- [x] Registration and provisioning expose no partial legacy capability shape.
 
 ## Final Conformance Gate
 

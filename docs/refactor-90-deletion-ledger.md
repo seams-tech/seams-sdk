@@ -53,6 +53,8 @@ replacement.
   field presence, record timestamps, or diagnostics
 - registration-only and unlock-only capability publication paths (both call the
   canonical activation commit port)
+- ~~the orphaned bootstrap-era `ecdsaCapabilityReadiness.ts` classifier~~ —
+  deleted by `18850e9d4`
 - obsolete IndexedDB ECDSA session records (reject and clear at the boundary;
   no dual-schema reader)
 - ~~`IndexedDbEcdsaRoleLocalSessionMaterialStore` and
@@ -321,6 +323,8 @@ ports, and the two-state recovery journal.
 - control-flow use of `getWarmThresholdEd25519SessionStatusForSession`
 - `resolveThresholdEd25519SessionIdForNearAccount`
 - the broad `resolveActiveEd25519YaoSigningCapability` port
+- ~~the production-dead `thresholdSigningSessionReadiness.ts` classifier and
+  its self-only unit test~~ — deleted by `18850e9d4`
 - `withThresholdEd25519CommitQueue`, `ThresholdEd25519CommitQueueByKey`,
   `resolveThresholdEd25519CommitQueueKey`
 - the `forceFreshAuth` and `retryingFreshAuth` planner booleans
