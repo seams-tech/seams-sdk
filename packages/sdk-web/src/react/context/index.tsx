@@ -120,6 +120,7 @@ export const SeamsContextProvider: React.FC<SeamsContextProviderProps> = ({
 
   useNearProvisioningStateRefresh({
     seams,
+    currentWalletId: loginState.walletId,
     refreshLoginState,
     refreshAccountData,
   });
