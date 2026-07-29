@@ -608,7 +608,24 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
     expect(started.intent).toEqual(intent.intent);
 
     const emailHashHex = hexBytes(await sha256(utf8Bytes(email)));
+    await expect(
+      service.walletAuthMethods.finalizeWalletAddAuthMethod({
+        subject: {
+          kind: 'wallet_auth_method_management',
+          walletId: walletIdFromString('different-wallet.testnet'),
+        },
+        addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'add-auth-method ceremony subject mismatch',
+    });
     const finalized = await service.walletAuthMethods.finalizeWalletAddAuthMethod({
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId,
+      },
       addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
     });
     expect(finalized).toEqual({
@@ -648,6 +665,10 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
     });
     await expect(
       service.walletAuthMethods.finalizeWalletAddAuthMethod({
+        subject: {
+          kind: 'wallet_auth_method_management',
+          walletId,
+        },
         addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
       }),
     ).resolves.toMatchObject({

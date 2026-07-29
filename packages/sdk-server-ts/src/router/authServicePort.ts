@@ -111,6 +111,10 @@ export type StartWalletAddAuthMethodCommand = Readonly<
 export type RevokeWalletAuthMethodCommand = Readonly<
   { subject: WalletAuthMethodManagementSubject } & Omit<WalletRevokeAuthMethodRequest, 'walletId'>
 >;
+
+export type FinalizeWalletAddAuthMethodCommand = Readonly<
+  { subject: WalletAuthMethodManagementSubject } & WalletAddAuthMethodFinalizeRequest
+>;
 import type {
   RouterAbEd25519YaoBudgetRefreshRequestV1,
   RouterAbEd25519YaoBudgetRefreshResponseV1,
@@ -617,7 +621,7 @@ export type RouterApiMethodTypes = {
     };
   };
   finalizeWalletAddAuthMethod: {
-    readonly input: WalletAddAuthMethodFinalizeRequest;
+    readonly input: FinalizeWalletAddAuthMethodCommand;
     readonly result: WalletAddAuthMethodFinalizeResponse;
   };
   finalizeWalletAddSigner: {
@@ -1268,7 +1272,7 @@ export interface RouterApiWalletAuthMethodService {
     expectedOrigin?: string;
   }): Promise<CreateAddSignerIntentResponse>;
   finalizeWalletAddAuthMethod(
-    input: WalletAddAuthMethodFinalizeRequest,
+    input: FinalizeWalletAddAuthMethodCommand,
   ): Promise<WalletAddAuthMethodFinalizeResponse>;
   finalizeWalletAddSigner(
     input: WalletAddSignerFinalizeRequest,

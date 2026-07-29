@@ -3225,9 +3225,19 @@ export async function handleRouterApiWalletAddAuthMethodFinalize(
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
+  const walletId = String(input.pathParams?.walletId || '').trim();
+  if (!walletId) {
+    return routeError(400, 'invalid_body', 'walletId is required');
+  }
   const request = parseWalletAddAuthMethodFinalizeRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.walletRegistration.finalizeWalletAddAuthMethod(request.value);
+  const result = await input.services.walletRegistration.finalizeWalletAddAuthMethod({
+    subject: {
+      kind: 'wallet_auth_method_management',
+      walletId: walletIdFromString(walletId),
+    },
+    ...request.value,
+  });
   return routeJson(result.ok ? 200 : 400, result, {
     usage: result.ok ? { walletId: result.walletId } : undefined,
   });
