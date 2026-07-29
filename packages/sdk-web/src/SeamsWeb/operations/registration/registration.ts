@@ -4144,7 +4144,9 @@ async function commitDeferredEd25519Registration(args: {
   }
 }
 
-async function runDeferredEd25519Provisioning(args: {
+/* Exported for tests: the persist-before-publish ordering below is the
+   lifecycle's core guarantee and is only observable by driving this runner. */
+export async function runDeferredEd25519Provisioning(args: {
   context: RegistrationWebContext;
   walletId: WalletId;
   commit: Parameters<typeof commitDeferredEd25519Registration>[0];
