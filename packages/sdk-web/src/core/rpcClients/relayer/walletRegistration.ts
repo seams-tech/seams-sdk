@@ -28,6 +28,7 @@ import {
 import {
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoBytes32V1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
@@ -107,9 +108,11 @@ const REGISTRATION_ROUTE_PAYLOAD_DIAGNOSTICS_LABEL = '[Registration] wallet rout
 const ROUTE_PAYLOAD_BREAKDOWN_MAX_DEPTH = 2;
 const ROUTE_PAYLOAD_BREAKDOWN_MAX_FIELDS = 64;
 const WALLET_REGISTRATION_SETUP_PATH = '/wallets/register/setup';
+const WALLET_REGISTRATION_RESPOND_PATH = '/wallets/register/respond';
+const WALLET_REGISTRATION_ACTIVATE_PATH = '/wallets/register/activate';
+const WALLET_REGISTRATION_NEAR_PROVISIONING_PATH = '/wallets/register/near-provisioning';
 /** Managed environment id header for Router API `api_credentials` auth. */
 const ROUTER_API_ENVIRONMENT_ID_HEADER = 'X-Seams-Environment-Id';
-const WALLET_REGISTRATION_INTENT_CANCEL_PATH = '/wallets/register/intent/cancel';
 const WALLET_REGISTRATION_PREPARE_PATH = '/wallets/register/prepare';
 const WALLET_REGISTRATION_FINALIZE_PATH = '/wallets/register/finalize';
 const WRANGLER_WORKER_RESTARTED_MID_REQUEST = 'Your worker restarted mid-request';
@@ -333,16 +336,6 @@ export type CreateRegistrationIntentRequest = {
   authMethod: RegistrationAuthMethodInput;
   signerSelection: RegistrationSignerSetRequest;
 };
-
-function createRegistrationIntentWireRequest(
-  request: CreateRegistrationIntentRequest,
-): CreateRegistrationIntentRequest {
-  return {
-    wallet: request.wallet,
-    authMethod: request.authMethod,
-    signerSelection: registrationSignerSetRequestSelection(request.signerSelection),
-  };
-}
 
 export type CreateRegistrationIntentResponse = {
   ok: true;
@@ -2340,36 +2333,6 @@ export async function setupWalletRegistration(args: {
   });
 }
 
-export async function createWalletRegistrationIntent(args: {
-  relayerUrl: string;
-  request: CreateRegistrationIntentRequest;
-  headers?: Record<string, string>;
-}): Promise<CreateRegistrationIntentResponse> {
-  return await postJson<CreateRegistrationIntentResponse>({
-    relayerUrl: args.relayerUrl,
-    path: '/wallets/register/intent',
-    body: createRegistrationIntentWireRequest(args.request),
-    headers: args.headers,
-  });
-}
-
-export async function cancelWalletRegistrationIntent(args: {
-  relayerUrl: string;
-  registrationIntentGrant: RegistrationIntentGrant;
-  registrationIntentDigestB64u: string;
-  headers?: Record<string, string>;
-}): Promise<CancelRegistrationIntentResponse> {
-  return await postJson<CancelRegistrationIntentResponse>({
-    relayerUrl: args.relayerUrl,
-    path: WALLET_REGISTRATION_INTENT_CANCEL_PATH,
-    body: {
-      registrationIntentGrant: args.registrationIntentGrant,
-      registrationIntentDigestB64u: args.registrationIntentDigestB64u,
-    },
-    headers: args.headers,
-  });
-}
-
 export async function createWalletAddSignerIntent(args: {
   relayerUrl: string;
   walletId: WalletId;
@@ -2411,29 +2374,6 @@ function walletRegistrationStartAuthorityBody(
     case 'email_otp':
       return { emailOtpRegistrationProof: authority.emailOtpRegistrationProof };
   }
-}
-
-export async function startWalletRegistration(
-  args: {
-    relayerUrl: string;
-    headers?: Record<string, string>;
-    registrationIntentGrant: RegistrationIntentGrant;
-    registrationIntentDigestB64u: string;
-    intent: RegistrationIntentV1;
-  } & WalletRegistrationStartAuthority,
-): Promise<WalletRegistrationStartResponse> {
-  const body = {
-    registrationIntentGrant: args.registrationIntentGrant,
-    registrationIntentDigestB64u: args.registrationIntentDigestB64u,
-    intent: args.intent,
-    ...walletRegistrationStartAuthorityBody(args),
-  };
-  return await postJson<WalletRegistrationStartResponse>({
-    relayerUrl: args.relayerUrl,
-    path: '/wallets/register/start',
-    headers: args.headers,
-    body,
-  });
 }
 
 export async function respondWalletRegistrationEcdsa(args: {
@@ -2482,6 +2422,431 @@ export async function activateWalletRegistrationEcdsa(args: {
   return parseWalletRegistrationEcdsaActivationResponse(response);
 }
 
+/**
+ * Refactor 94C route 2. Authenticated respond: the proof the client just
+ * collected against setup's challenge travels with the ECDSA registration
+ * request, so one round trip both establishes the verified authority and runs
+ * the Router leg.
+ *
+ * The result is a discriminated signer plan, not a bundle with an optional
+ * Ed25519 member. A mixed plan always carries deferred NEAR work; an
+ * ECDSA-only plan has no arm to omit. The NEAR work is `deferred` by
+ * construction — the caller starts it and must never await it to decide the
+ * wallet is usable.
+ */
+export type WalletRegistrationRespondEd25519DeferredWork = {
+  status: 'deferred';
+} & WalletRegistrationEd25519YaoStart;
+
+type WalletRegistrationRespondEcdsaBundles = {
+  kind: 'router_ab_ecdsa_registration_forwarded_v1';
+  strictResult: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
+};
+
+export type WalletRegistrationRespondResponseV2 =
+  | {
+      ok: true;
+      registrationCeremonyId: string;
+      kind: 'evm_family_ecdsa';
+      ecdsa: WalletRegistrationRespondEcdsaBundles;
+      ed25519?: never;
+    }
+  | {
+      ok: true;
+      registrationCeremonyId: string;
+      kind: 'near_ed25519_and_evm_family_ecdsa';
+      ecdsa: WalletRegistrationRespondEcdsaBundles;
+      ed25519: WalletRegistrationRespondEd25519DeferredWork;
+    }
+  | {
+      /* Ed25519-only: no ECDSA leg ran, so there are no proof bundles to
+         verify. The deferred work is still deferred — being the wallet's sole
+         signer is not a reason to block on it. */
+      ok: true;
+      registrationCeremonyId: string;
+      kind: 'near_ed25519';
+      ecdsa?: never;
+      ed25519: WalletRegistrationRespondEd25519DeferredWork;
+    };
+
+/**
+ * Strict boundary parser for route 2.
+ *
+ * `kind` selects which fields are legal, so the allowed-key set is computed
+ * from it: a mixed response missing its Ed25519 arm, or an ECDSA-only response
+ * carrying one, is rejected rather than silently narrowed. That is the point
+ * of the discriminated union — a wallet whose NEAR branch was requested but
+ * whose deferred work never arrived must fail loudly here, not register as
+ * ECDSA-only.
+ */
+function parseWalletRegistrationRespondResponseV2(
+  value: unknown,
+): WalletRegistrationRespondResponseV2 {
+  const responseName = 'Wallet registration respond';
+  const response = requireResponseRecord({ responseName, field: 'body', value });
+  if (response.ok !== true) {
+    throw new Error(`${responseName} response is not successful`);
+  }
+  const registrationCeremonyId = requireResponseString({
+    responseName,
+    field: 'registrationCeremonyId',
+    value: response.registrationCeremonyId,
+  });
+  /* Discriminate and check shape before parsing any nested payload. A wrong
+     plan shape should say so, not surface as a confusing failure from deep
+     inside the ECDSA bundle parser. */
+  const kind = response.kind;
+  if (
+    kind !== 'evm_family_ecdsa' &&
+    kind !== 'near_ed25519_and_evm_family_ecdsa' &&
+    kind !== 'near_ed25519'
+  ) {
+    throw new Error(`${responseName} response kind is invalid`);
+  }
+  const carriesEcdsa = kind !== 'near_ed25519';
+  const carriesEd25519 = kind !== 'evm_family_ecdsa';
+  requireExactResponseKeys(
+    response,
+    [
+      'ok',
+      'registrationCeremonyId',
+      'kind',
+      ...(carriesEcdsa ? ['ecdsa'] : []),
+      ...(carriesEd25519 ? ['ed25519'] : []),
+    ],
+    responseName,
+  );
+  if (carriesEd25519 && response.ed25519 === undefined) {
+    throw new Error(`${responseName} signer plan is missing its ed25519 deferred work`);
+  }
+  if (!carriesEcdsa) {
+    /* No ECDSA leg ran, so there is nothing to verify in the browser. */
+    return {
+      ok: true,
+      registrationCeremonyId,
+      kind: 'near_ed25519',
+      ed25519: parseWalletRegistrationRespondEd25519DeferredWork(response.ed25519),
+    };
+  }
+  const ecdsaRecord = requireResponseRecord({
+    responseName,
+    field: 'ecdsa',
+    value: response.ecdsa,
+  });
+  requireExactResponseKeys(ecdsaRecord, ['kind', 'strictResult'], `${responseName} ecdsa`);
+  if (ecdsaRecord.kind !== 'router_ab_ecdsa_registration_forwarded_v1') {
+    throw new Error(`${responseName} ecdsa kind is invalid`);
+  }
+  const ed25519 = carriesEd25519
+    ? parseWalletRegistrationRespondEd25519DeferredWork(response.ed25519)
+    : null;
+  const ecdsa: WalletRegistrationRespondEcdsaBundles = {
+    kind: 'router_ab_ecdsa_registration_forwarded_v1',
+    strictResult: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(ecdsaRecord.strictResult),
+  };
+  return ed25519
+    ? {
+        ok: true,
+        registrationCeremonyId,
+        kind: 'near_ed25519_and_evm_family_ecdsa',
+        ecdsa,
+        ed25519,
+      }
+    : { ok: true, registrationCeremonyId, kind: 'evm_family_ecdsa', ecdsa };
+}
+
+function parseWalletRegistrationRespondEd25519DeferredWork(
+  value: unknown,
+): WalletRegistrationRespondEd25519DeferredWork {
+  const responseName = 'Wallet registration respond ed25519';
+  const record = requireResponseRecord({ responseName, field: 'ed25519', value });
+  requireExactResponseKeys(
+    record,
+    ['status', 'admissionRequest', 'admissionReceipt'],
+    responseName,
+  );
+  /* `deferred` is the only legal status. Anything else would mean the server
+     believes this work is already running or complete, which no client is
+     entitled to assume about NEAR provisioning. */
+  if (record.status !== 'deferred') {
+    throw new Error(`${responseName} status is invalid`);
+  }
+  const admissionRequest = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(
+    record.admissionRequest,
+  );
+  if (!admissionRequest.ok) {
+    throw new Error(`${responseName} admissionRequest is invalid`);
+  }
+  const admissionReceipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+    record.admissionReceipt,
+  );
+  if (!admissionReceipt.ok) {
+    throw new Error(`${responseName} admissionReceipt is invalid`);
+  }
+  return {
+    status: 'deferred',
+    admissionRequest: admissionRequest.value,
+    admissionReceipt: admissionReceipt.value,
+  };
+}
+
+export async function respondWalletRegistration(
+  args: {
+    relayerUrl: string;
+    headers?: Record<string, string>;
+    registrationCeremonyId: string;
+    /** Opaque; echoed exactly as setup returned it. */
+    signedSetup: string;
+    /* Absent for an Ed25519-only plan: no ECDSA ceremony was created, so there
+       is no registration request to forward. Modelled as optional rather than
+       cast away at the call site. */
+    ecdsa?: {
+      kind: 'router_ab_ecdsa_registration_v1';
+      strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+    };
+    onServerTiming?: (header: string | null) => void;
+  } & WalletRegistrationStartAuthority,
+): Promise<WalletRegistrationRespondResponseV2> {
+  const response = await postJson<unknown>({
+    relayerUrl: args.relayerUrl,
+    path: WALLET_REGISTRATION_RESPOND_PATH,
+    headers: args.headers,
+    body: {
+      registrationCeremonyId: args.registrationCeremonyId,
+      signedSetup: args.signedSetup,
+      authority: walletRegistrationStartAuthorityBody(args),
+      ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
+    },
+    ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
+  });
+  return parseWalletRegistrationRespondResponseV2(response);
+}
+
+/**
+ * Refactor 94C route 3. Activate absorbs finalize: one call carries the
+ * browser-verified activation facts and the Email OTP enrollment material that
+ * used to ride a separate finalize request, and returns the terminal wallet.
+ *
+ * `nearProvisioning` is a snapshot only. It never carries NEAR identifiers
+ * before readiness — those appear once deferred provisioning reaches
+ * `near_ready`, never from this response.
+ */
+/**
+ * Activate absorbed two routes, so its response is the union of what both
+ * returned: the finalize terminal wallet *and* the activation payload the old
+ * `derivation/activate` returned.
+ *
+ * Both halves are load-bearing on the client. `activation` feeds
+ * `finalizeRouterAbEcdsaRegistrationActivation`, and `bootstrap` feeds the
+ * session bootstrap; without them the wallet registers server-side and cannot
+ * sign locally, which is the opposite of what this route exists to deliver.
+ *
+ * Both live inside `ecdsa` alongside the wallet keys, matching the server
+ * contract: one payload carrying everything the terminal leg produced. The
+ * strict parser rejects a response missing them, so a server that folded the
+ * legs without merging the payloads fails at the boundary rather than
+ * silently producing a wallet that cannot sign.
+ */
+type ActivateTerminalEcdsaPayload = Extract<
+  WalletRegistrationFinalizeResponse,
+  { ok: true; kind: 'evm_family_ecdsa' }
+>['ecdsa'] & {
+  activation: RouterAbEcdsaRegistrationPublicActivationReceiptV1;
+  bootstrap: ThresholdEcdsaDerivationRoleLocalBootstrapValue;
+};
+
+/**
+ * Ed25519-only activate returns a wallet that cannot sign yet: its sole signer
+ * arrives with the deferred Yao computation. `nearProvisioning` is required on
+ * this arm — a pending wallet with no provisioning state would be
+ * indistinguishable from one that never needed NEAR.
+ */
+export type WalletRegistrationActivateEd25519PendingV2 = Extract<
+  WalletRegistrationFinalizeResponse,
+  { ok: true; kind: 'near_ed25519' }
+> & {
+  /* Required, not optional: a pending Ed25519-only wallet with no provisioning
+     state would be indistinguishable from one that never needed NEAR. */
+  nearProvisioning: { status: 'near_pending' };
+  ecdsa?: never;
+};
+
+export type WalletRegistrationActivateResponseV2 =
+  | (Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'evm_family_ecdsa' }> & {
+      ecdsa: ActivateTerminalEcdsaPayload;
+      nearProvisioning?: { status: 'pending' };
+    })
+  | WalletRegistrationActivateEd25519PendingV2;
+
+/**
+ * Strict boundary parser for route 3.
+ *
+ * The terminal wallet body is exactly the finalize success this route
+ * absorbed, so it is parsed by the existing finalize parser rather than a
+ * second copy that could drift from it. Only `nearProvisioning` is new.
+ *
+ * That field is a status and nothing else: NEAR identifiers before readiness
+ * are precisely what the deferred lifecycle exists to prevent, so a payload
+ * carrying them here is rejected instead of passed through.
+ */
+function parseWalletRegistrationActivateResponseV2(
+  value: unknown,
+): WalletRegistrationActivateResponseV2 {
+  const responseName = 'Wallet registration activate';
+  const record = requireResponseRecord({ responseName, field: 'body', value });
+  const { nearProvisioning, ...terminal } = record;
+  if (record.kind === 'near_ed25519') {
+    /* Ed25519-only: no ECDSA leg ran, so there is no activation payload and no
+       local session to build. The wallet exists but cannot sign until the
+       deferred completion installs its sole signer, which is why the pending
+       provisioning status is required rather than optional here. */
+    const provisioning = requireResponseRecord({
+      responseName,
+      field: 'nearProvisioning',
+      value: nearProvisioning,
+    });
+    requireExactResponseKeys(provisioning, ['status'], `${responseName} nearProvisioning`);
+    if (provisioning.status !== 'near_pending') {
+      throw new Error(`${responseName} Ed25519-only wallet must be pending NEAR provisioning`);
+    }
+    const finalizedEd25519 = parseWalletRegistrationFinalizeResponse({
+      value: terminal,
+      expectedKind: 'near_ed25519',
+    });
+    if (!finalizedEd25519.ok || finalizedEd25519.kind !== 'near_ed25519') {
+      throw new Error(`${responseName} did not return an Ed25519 wallet`);
+    }
+    return {
+      ...finalizedEd25519,
+      nearProvisioning: { status: 'near_pending' as const },
+    };
+  }
+  const ecdsaRecord = requireResponseRecord({
+    responseName,
+    field: 'ecdsa',
+    value: record.ecdsa,
+  });
+  const { activation, bootstrap, ...terminalEcdsa } = ecdsaRecord;
+  /* Validate the snapshot before the terminal body, so a leaked NEAR
+     identifier is reported as such rather than buried behind whatever the
+     finalize parser objects to first. */
+  if (nearProvisioning !== undefined) {
+    const provisioning = requireResponseRecord({
+      responseName,
+      field: 'nearProvisioning',
+      value: nearProvisioning,
+    });
+    requireExactResponseKeys(provisioning, ['status'], `${responseName} nearProvisioning`);
+    if (provisioning.status !== 'pending') {
+      throw new Error(`${responseName} nearProvisioning status is invalid`);
+    }
+  }
+  /* Without these the wallet cannot sign locally, so their absence is a
+     failure of the route rather than an optional extra. */
+  if (activation === undefined || bootstrap === undefined) {
+    throw new Error(
+      `${responseName} is missing the activation payload the client needs to build its ECDSA session`,
+    );
+  }
+  const finalized = parseWalletRegistrationFinalizeResponse({
+    value: { ...terminal, ecdsa: terminalEcdsa },
+    expectedKind: 'evm_family_ecdsa',
+  });
+  if (!finalized.ok || finalized.kind !== 'evm_family_ecdsa') {
+    throw new Error(`${responseName} did not return an activated ECDSA wallet`);
+  }
+  return {
+    ...finalized,
+    ecdsa: {
+      ...finalized.ecdsa,
+      activation: parseRouterAbEcdsaRegistrationPublicActivationReceiptV1(activation),
+      bootstrap: parseThresholdEcdsaDerivationRoleLocalBootstrapValue(bootstrap),
+    },
+    ...(nearProvisioning === undefined ? {} : { nearProvisioning: { status: 'pending' as const } }),
+  };
+}
+
+export async function activateWalletRegistration(args: {
+  relayerUrl: string;
+  headers?: Record<string, string>;
+  registrationCeremonyId: string;
+  signedSetup: string;
+  idempotencyKey: string;
+  /* Absent for an Ed25519-only plan: nothing was verified in the browser
+     because no ECDSA proof bundles were produced. */
+  ecdsa?: {
+    clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+    expectedKeyHandles?: string[];
+  };
+  emailOtpEnrollment?: WalletRegistrationEmailOtpEnrollmentMaterial;
+  emailOtpBackupAck?: WalletRegistrationEmailOtpBackupAck;
+  onServerTiming?: (header: string | null) => void;
+}): Promise<WalletRegistrationActivateResponseV2> {
+  const response = await postJson<unknown>({
+    relayerUrl: args.relayerUrl,
+    path: WALLET_REGISTRATION_ACTIVATE_PATH,
+    headers: args.headers,
+    body: {
+      registrationCeremonyId: args.registrationCeremonyId,
+      signedSetup: args.signedSetup,
+      idempotencyKey: args.idempotencyKey,
+      ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
+      ...(args.emailOtpEnrollment ? { emailOtpEnrollment: args.emailOtpEnrollment } : {}),
+      ...(args.emailOtpBackupAck ? { emailOtpBackupAck: args.emailOtpBackupAck } : {}),
+    },
+    ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
+  });
+  return parseWalletRegistrationActivateResponseV2(response);
+}
+
+/**
+ * Refactor 94C route 4. The deferred NEAR completion, called once the Yao
+ * computation the client started after respond has finished.
+ *
+ * One completion path serves both plans: an Ed25519-only wallet installs its
+ * sole signer here, and a mixed wallet's NEAR arm lands here too. It carries
+ * its own idempotency key because it is a separate effect from activate's —
+ * sharing one would let a retry of this call replay activate's commit.
+ *
+ * A retryable failure leaves the pending wallet intact and the call
+ * repeatable, so the caller reports provisioning state rather than unwinding
+ * a wallet that already exists.
+ */
+export type WalletRegistrationNearProvisioningResponseV2 =
+  | (Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'near_ed25519' }> & {
+      nearProvisioning: { status: 'near_ready' };
+    })
+  | {
+      ok: false;
+      code: string;
+      message: string;
+      nearProvisioning?: { status: 'near_failed_retryable' };
+    };
+
+export async function completeWalletRegistrationNearProvisioning(args: {
+  relayerUrl: string;
+  headers?: Record<string, string>;
+  registrationCeremonyId: string;
+  signedSetup: string;
+  /** Distinct from activate's: a separate effect needs a separate key. */
+  idempotencyKey: string;
+  ed25519: { activationReference: WalletRegistrationEd25519YaoActivationReference };
+  onServerTiming?: (header: string | null) => void;
+}): Promise<WalletRegistrationNearProvisioningResponseV2> {
+  return await postJson<WalletRegistrationNearProvisioningResponseV2>({
+    relayerUrl: args.relayerUrl,
+    path: WALLET_REGISTRATION_NEAR_PROVISIONING_PATH,
+    headers: args.headers,
+    body: {
+      registrationCeremonyId: args.registrationCeremonyId,
+      signedSetup: args.signedSetup,
+      idempotencyKey: args.idempotencyKey,
+      ed25519: args.ed25519,
+    },
+    ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
+  });
+}
+
 type FinalizeWalletRegistrationBaseArgs = {
   relayerUrl: string;
   headers?: Record<string, string>;
@@ -2504,27 +2869,6 @@ export type FinalizeWalletRegistrationArgs = FinalizeWalletRegistrationBaseArgs 
         ed25519?: never;
       }
   );
-
-export function buildWalletRegistrationFinalizeBody(args: FinalizeWalletRegistrationArgs): unknown {
-  const base = {
-    registrationCeremonyId: args.registrationCeremonyId,
-    idempotencyKey: args.idempotencyKey,
-    ...(args.emailOtpEnrollment ? { emailOtpEnrollment: args.emailOtpEnrollment } : {}),
-    ...(args.emailOtpBackupAck ? { emailOtpBackupAck: args.emailOtpBackupAck } : {}),
-  };
-  switch (args.kind) {
-    case 'near_ed25519':
-      return { ...base, kind: args.kind, ed25519: args.ed25519 };
-    case 'evm_family_ecdsa':
-      return { ...base, kind: args.kind, ecdsa: args.ecdsa };
-    default:
-      return assertNeverFinalizeWalletRegistrationArgs(args);
-  }
-}
-
-function assertNeverFinalizeWalletRegistrationArgs(value: never): never {
-  throw new Error(`Unsupported wallet registration finalize kind: ${String(value)}`);
-}
 
 function parseWalletRegistrationRouteTimingName(value: unknown): WalletRegistrationRouteTimingName {
   switch (value) {
@@ -3037,21 +3381,6 @@ export function parseWalletRegistrationFinalizeResponse(args: {
     default:
       throw new Error(`${responseName} response has invalid kind`);
   }
-}
-
-export async function finalizeWalletRegistration(
-  args: FinalizeWalletRegistrationArgs,
-): Promise<WalletRegistrationFinalizeResponse> {
-  const response = await postJson<unknown>({
-    relayerUrl: args.relayerUrl,
-    path: '/wallets/register/finalize',
-    headers: args.headers,
-    body: buildWalletRegistrationFinalizeBody(args),
-  });
-  return parseWalletRegistrationFinalizeResponse({
-    value: response,
-    expectedKind: args.kind,
-  });
 }
 
 function addSignerAuthHeaders(auth: AddSignerAuth): Record<string, string> | undefined {

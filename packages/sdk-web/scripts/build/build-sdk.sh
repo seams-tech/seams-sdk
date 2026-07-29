@@ -106,6 +106,10 @@ print_success "SDK build directory cleaned"
 
 print_step "Building TypeScript..."
 if npx tsc -p tsconfig.build.json; then print_success "TypeScript compilation completed"; else print_error "TypeScript compilation failed"; exit 1; fi
+# Declarations are emitted with the internal `@/` alias intact; consumers do not
+# define it, and one that maps `@/` to its own src resolves against the wrong
+# tree and silently degrades SDK types to `any`.
+if node ./scripts/build/rewrite-declaration-aliases.mjs; then print_success "Declaration aliases rewritten"; else print_error "Declaration alias rewrite failed"; exit 1; fi
 
 print_step "Generating CSS variables from palette.json (w3a-components.css)..."
 if node "$SDK_ROOT/scripts/codegen/generate-w3a-components-css.mjs"; then print_success "w3a-components.css generated"; else print_error "Failed to generate w3a-components.css"; exit 1; fi

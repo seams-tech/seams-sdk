@@ -103,17 +103,13 @@ function joinUrlPath(baseUrl: string, path: string): string {
   return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`;
 }
 
-type ResolvedRegistrationTransport =
-  | {
-      mode: 'backend_proxy';
-    }
-  | {
-      mode: 'managed';
-      relayerUrl: string;
-      projectEnvironmentId: string;
-      publishableKey: string;
-      paymentMode?: string;
-    };
+type ResolvedRegistrationTransport = {
+  mode: 'managed';
+  relayerUrl: string;
+  projectEnvironmentId: string;
+  publishableKey: string;
+  paymentMode?: string;
+};
 
 type RegistrationTransportConfigContext = { configs: SeamsConfigsReadonly };
 
@@ -125,7 +121,7 @@ function resolveRegistrationTransport(
   };
   const registration = configs.registration;
   if (registration && typeof registration === 'object' && !Array.isArray(registration)) {
-    const mode = String((registration as { mode?: unknown }).mode || 'backend_proxy').trim();
+    const mode = String((registration as { mode?: unknown }).mode || 'managed').trim();
     if (mode === 'managed') {
       const relayerUrl = String(context.configs.network.relayer.url || '').trim();
       const projectEnvironmentId = String(
@@ -152,7 +148,7 @@ function resolveRegistrationTransport(
       };
     }
   }
-  return { mode: 'backend_proxy' };
+  throw new Error('Registration requires managed registration configuration');
 }
 
 function buildManagedClientContext(): { sdk: string; userAgentHint?: string } {
@@ -387,9 +383,6 @@ export async function createManagedRegistrationFlowGrant(args: {
   authority: ManagedRegistrationFlowGrantAuthority;
 }): Promise<ManagedRegistrationFlowGrant> {
   const registrationTransport = resolveRegistrationTransport(args.context);
-  if (registrationTransport.mode !== 'managed') {
-    throw new Error('Managed registration flow grants require managed registration transport');
-  }
   const grant = await requestManagedRegistrationFlowGrant({
     relayerUrl: registrationTransport.relayerUrl,
     publishableKey: registrationTransport.publishableKey,

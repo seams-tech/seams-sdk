@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { buildFixtureRespondEd25519DeferredWork } from '../helpers/ed25519YaoAdmissionFixtures';
 import {
   addWalletSigner,
   registerWallet,
@@ -1423,7 +1424,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         },
       });
     }
-    if (path === '/wallets/register/intent') {
+    if (path === '/wallets/register/setup') {
       captures.intentRequestBody = body;
       const selection = mockedRegistrationIntentSignerSelection(body.signerSelection);
       const walletId = mockedRegistrationWalletId(body);
@@ -1438,77 +1439,59 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
       const digest = await computeRegistrationIntentDigestB64u(intent);
       captures.intent = intent;
       captures.digest = digest;
+      /* Setup absorbed intent and start: it issues the challenge and prepares
+         the ECDSA branch. Ed25519 admission is authority-bound and belongs to
+         respond, so it is not produced here. */
+      const setupEcdsaSigner = mockedRegistrationEvmFamilyEcdsaSigner(selection);
       return jsonResponse({
         ok: true,
-        intent,
-        registrationIntentDigestB64u: digest,
-        registrationIntentGrant: 'registration-grant',
-        expiresAtMs: Date.now() + 60_000,
-      });
-    }
-    if (path === '/wallets/register/start') {
-      captures.startBody = body;
-      const ecdsaSigner = mockedRegistrationEvmFamilyEcdsaSigner(body.intent.signerSelection);
-      const ed25519Signer = mockedRegistrationNearEd25519Signer(body.intent.signerSelection);
-      if (ed25519Signer) {
-        const nearEd25519SigningKeyId = String(body.intent.walletId);
-        captures.nearEd25519SigningKeyId = nearEd25519SigningKeyId;
-        return jsonResponse({
-          ok: true,
-          registrationCeremonyId: 'registration-ceremony',
-          intent: body.intent,
-          kind: ecdsaSigner ? 'near_ed25519_and_evm_family_ecdsa' : 'near_ed25519',
-          ed25519: {
-            admissionRequest: {
-              scope: {
-                lifecycle_id: 'registration-ceremony',
-                root_share_epoch: RUNTIME_POLICY_SCOPE.signingRootVersion,
-                account_id: String(body.intent.walletId),
-                wallet_session_id: 'registration-ceremony',
-                signer_set_id: registrationNearEd25519BranchKey(ed25519Signer.signerSlot),
-                signing_worker_id: 'signing-worker-test',
-              },
-              application_binding: {
-                wallet_id: String(body.intent.walletId),
-                near_ed25519_signing_key_id: nearEd25519SigningKeyId,
-                signing_root_id: 'project_matrix:dev',
-                key_creation_signer_slot: ed25519Signer.signerSlot,
-              },
-              participant_ids: ed25519Signer.participantIds,
-            },
-          },
-          ...(ecdsaSigner
-            ? {
-          ecdsa: await mockedRegistrationEcdsaStart(body, ecdsaSigner).then((ecdsa) => {
-            captures.ecdsaPrepare = ecdsa.prepare;
-            return ecdsa;
-                }),
-              }
-            : {}),
-        });
-      }
-      return jsonResponse({
-        ok: true,
+        kind: setupEcdsaSigner
+          ? mockedRegistrationNearEd25519Signer(selection)
+            ? 'near_ed25519_and_evm_family_ecdsa'
+            : 'evm_family_ecdsa'
+          : 'near_ed25519',
         registrationCeremonyId: 'registration-ceremony',
-        intent: body.intent,
-        kind: 'evm_family_ecdsa',
-
-        ...(ecdsaSigner
+        walletId: String(walletId),
+        registrationIntentDigestB64u: digest,
+        intent,
+        signedSetup: 'signed-setup-token',
+        ...(setupEcdsaSigner
           ? {
-              ecdsa: await mockedRegistrationEcdsaStart(body, ecdsaSigner).then((ecdsa) => {
-                captures.ecdsaPrepare = ecdsa.prepare;
-                return ecdsa;
-              }),
+              ecdsa: await mockedRegistrationEcdsaStart({ intent }, setupEcdsaSigner).then(
+                (ecdsa) => {
+                  captures.ecdsaPrepare = ecdsa.prepare;
+                  return ecdsa;
+                },
+              ),
             }
           : {}),
       });
     }
-    if (path === '/wallets/register/derivation/respond') {
+    if (path === '/wallets/register/respond') {
       captures.respondBody = body;
+      const respondSelection = (captures.intent as { signerSelection?: unknown } | undefined)
+        ?.signerSelection;
+      const respondEd25519 = mockedRegistrationNearEd25519Signer(respondSelection as never);
+      const respondEcdsa = mockedRegistrationEvmFamilyEcdsaSigner(respondSelection as never);
+      /* Respond derives the authority-bound Yao admission — the proof exists
+         by this leg, which is why it lives here and not in setup. Built through
+         the shared factory so a shape change fails there, not here. */
+      const deferredEd25519 = respondEd25519
+        ? {
+            ed25519: buildFixtureRespondEd25519DeferredWork({
+              lifecycleId: 'registration-ceremony',
+              walletId: String((captures.intent as { walletId?: unknown } | undefined)?.walletId),
+              signerSetId: registrationNearEd25519BranchKey(respondEd25519.signerSlot),
+              signingWorkerId: 'signing-worker-test',
+            }),
+          }
+        : {};
       if (body.ecdsa?.strictRegistration) {
         return jsonResponse({
           ok: true,
           registrationCeremonyId: body.registrationCeremonyId,
+          kind: respondEd25519 ? 'near_ed25519_and_evm_family_ecdsa' : 'evm_family_ecdsa',
+          ...deferredEd25519,
           ecdsa: {
             kind: 'router_ab_ecdsa_registration_forwarded_v1',
             strictResult: {
@@ -1578,6 +1561,14 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
             return { chainTarget: entry.chainTarget, bootstrap };
           })
         : null;
+      if (!respondEcdsa) {
+        return jsonResponse({
+          ok: true,
+          registrationCeremonyId: body.registrationCeremonyId,
+          kind: 'near_ed25519',
+          ...deferredEd25519,
+        });
+      }
       return jsonResponse({
         ok: true,
         registrationCeremonyId: body.registrationCeremonyId,
@@ -1591,7 +1582,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
           : {}),
       });
     }
-    if (path === '/wallets/register/derivation/activate') {
+    if (path === '/wallets/register/activate') {
       const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
       const prepare = captures.ecdsaPrepare as Record<string, any>;
       let bootstrap = mockedEcdsaServerBootstrap(ecdsaFacts, prepare);
@@ -1604,17 +1595,38 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         bootstrap = patchRegistrationBootstrap(bootstrap);
       }
       bootstrap.jwt = sessionJwt;
-      return jsonResponse({
-        ok: true,
-        registrationCeremonyId: body.registrationCeremonyId,
-        ecdsa: {
-          kind: 'router_ab_ecdsa_registration_activated_v1',
-          activation: mockedEcdsaActivationReceipt(ecdsaFacts),
-          bootstrap,
-        },
-      });
+      /* Activate absorbed finalize, so it is the terminal commit these tests
+         track: recorded under the same capture the finalize route used, with
+         the plan kind the commit covers. */
+      const activateKind = mockedRegistrationEvmFamilyEcdsaSigner(
+        (captures.intent as any)?.signerSelection,
+      )
+        ? 'evm_family_ecdsa'
+        : 'near_ed25519';
+      captures.finalizeBody = { ...body, kind: activateKind };
+      const activateBodies = (captures.finalizeBodies as unknown[] | undefined) ?? [];
+      activateBodies.push({ ...body, kind: activateKind });
+      captures.finalizeBodies = activateBodies;
+      /* Activate absorbed finalize, so it answers with the terminal wallet and
+         the activation payload together — `ecdsa` carries the wallet keys the
+         commit produced plus the receipt and bootstrap the client needs to
+         bring the wallet online. */
+      const activateWalletId = String((captures.intent as any)?.walletId || WALLET_SUBJECT_ID);
+      const activateBody = await mockedEcdsaFinalizeResponse(captures, activateWalletId);
+      attachMockedEcdsaFinalizeWalletKeys(captures, activateWalletId, activateBody);
+      const activateEcdsa = (activateBody as Record<string, any>).ecdsa ?? {};
+      (activateBody as Record<string, any>).ecdsa = {
+        ...activateEcdsa,
+        activation: mockedEcdsaActivationReceipt(ecdsaFacts),
+        bootstrap,
+      };
+      if (mockedRegistrationNearEd25519Signer((captures.intent as any)?.signerSelection)) {
+        /* Mixed plans: the NEAR arm is still deferred at this point. */
+        (activateBody as Record<string, any>).nearProvisioning = { status: 'pending' };
+      }
+      return jsonResponse(activateBody);
     }
-    if (path === '/wallets/register/finalize') {
+    if (path === '/wallets/register/near-provisioning') {
       captures.finalizeBody = body;
       const finalizeBodies = (captures.finalizeBodies as unknown[] | undefined) ?? [];
       finalizeBodies.push(body);
@@ -1647,7 +1659,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
           walletId: responseWalletId,
           /* Refactor 94 Phase 4+5: finalize commits one branch per call, so the
              relayer answers with the branch the request asked for. */
-          kind: body.ecdsa ? 'evm_family_ecdsa' : 'near_ed25519',
+          kind: 'near_ed25519',
           authority: buildEmailOtpWalletAuthAuthority({
             walletId: responseWalletId,
             provider: 'google',
@@ -1723,16 +1735,12 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
             },
           },
         };
-        if (body.ecdsa) {
-          attachMockedEcdsaFinalizeWalletKeys(captures, responseWalletId, responseBody);
-        }
+        responseBody.nearProvisioning = { status: 'near_ready' };
         return jsonResponse(responseBody);
       }
-      const responseBody = await mockedEcdsaFinalizeResponse(captures, responseWalletId);
-      if (body.ecdsa) {
-        attachMockedEcdsaFinalizeWalletKeys(captures, responseWalletId, responseBody);
-      }
-      return jsonResponse(responseBody);
+      /* Only the deferred NEAR arm reaches this route now; the ECDSA terminal
+         wallet is activate's answer. */
+      return jsonResponse({ ok: false, message: 'near-provisioning requires ed25519 work' }, 400);
     }
     return jsonResponse({ ok: false, message: `unexpected path ${path}` }, 404);
   }) as typeof fetch;
@@ -1812,12 +1820,9 @@ test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
       (captures.intentRequestBody as any)?.signerSelection,
     );
     expectSingleRegistrationTouchIdPrompt(captures);
-    expect(captures.bootstrapGrantBody).toMatchObject({
-      authority: {
-        kind: 'passkey_rp',
-        rpId: RP_ID,
-      },
-    });
+    /* Setup authenticates with the publishable key directly, so registration
+       no longer mints a bootstrap grant to assert against. */
+    expect(fetchMock.paths).not.toContain('/v1/registration/bootstrap-grants');
   } finally {
     fetchMock.restore();
   }
@@ -1852,15 +1857,13 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
       success: true,
       thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
     });
+    /* Six requests became three. The bootstrap grant is gone with the stored
+       token it minted, and finalize is folded into activate. */
     expect(fetchMock.paths).toEqual([
-      '/v1/registration/bootstrap-grants',
-      '/wallets/register/intent',
-      '/wallets/register/start',
-      '/wallets/register/derivation/respond',
-      '/wallets/register/derivation/activate',
-      '/wallets/register/finalize',
+      '/wallets/register/setup',
+      '/wallets/register/respond',
+      '/wallets/register/activate',
     ]);
-    expect(captures.bootstrapGrantBody).not.toHaveProperty('newAccountId');
     expect(captures.registrationCredentialArgs).toMatchObject({
       walletId: WALLET_SUBJECT_ID,
       challengeB64u: captures.digest,
