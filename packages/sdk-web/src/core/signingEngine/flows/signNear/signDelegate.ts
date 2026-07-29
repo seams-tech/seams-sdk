@@ -26,6 +26,7 @@ import {
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { computeThresholdEd25519DelegateSigningDigestWasm } from '../../chains/near/nearSignerWasm';
 import { resolveNearSigningMaterials } from './shared/signingMaterials';
+import { resolveActiveAuthorizedRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { buildNearDelegateSigningPayloads } from '../../chains/near/payloads';
 import {
   buildNearSigningSessionAuthPlan,
@@ -349,12 +350,20 @@ export async function runNearDelegateActionSigning({
       kind: 'near_delegate_action_v1' as const,
       delegate: delegateIntent,
     };
+    const authorizedWalletSessionState =
+      await resolveActiveAuthorizedRouterAbEd25519WalletSessionState({
+        state: capability.walletSessionState,
+        nowMs: Date.now(),
+      });
+    if (!authorizedWalletSessionState) {
+      throw new Error('[SigningEngine][near] reusable Wallet Session authorization is unavailable');
+    }
     const routerAbNormalSigningResult = await tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning({
       ctx,
       thresholdSessionId: canonicalThresholdSessionId,
       signingSessionCoordinator,
       activeClient: capability.activeClient,
-      walletSessionState: capability.walletSessionState,
+      walletSessionState: authorizedWalletSessionState,
       walletId: commandSubject.walletSession.walletId,
       thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
       nearAccountId,

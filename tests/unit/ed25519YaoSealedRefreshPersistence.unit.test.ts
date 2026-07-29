@@ -5,10 +5,20 @@ import {
   type PasskeyEd25519YaoSessionPersistencePort,
 } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
-import { resolveRouterAbEd25519WalletSessionStateFromRecord } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
+import {
+  authorizeRouterAbEd25519WalletSessionState,
+  resolveRouterAbEd25519WalletSessionStateFromRecord,
+} from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { runtimeEd25519RouterAbNormalSigningState } from './helpers/availableSigningLanes.fixtures';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import type { WarmSessionSealAndPersistResult } from '@/core/types/secure-confirm-worker';
+import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseSeamsSessionId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 const WALLET_ID = 'wallet-ed25519-yao-sealed-refresh';
 const NEAR_ACCOUNT_ID = toAccountId('ed25519-yao-sealed-refresh.testnet');
@@ -56,6 +66,33 @@ function buildWalletSessionJwt(): string {
     }),
   ).toString('base64url');
   return `${header}.${payload}.fixture-signature`;
+}
+
+function buildPasskeyWalletSessionAuthorization(args: {
+  expiresAtMs: number;
+  walletSessionJwt?: string;
+}) {
+  const authorizationSessionId = parseSeamsSessionId('seams-session-ed25519-refresh');
+  const walletSessionId = parseWalletSessionId('wallet-session-ed25519-refresh');
+  const quotaId = parseMpcWalletSigningQuotaId('quota-ed25519-refresh');
+  const authority = parseWalletAuthAuthorityRef({
+    kind: 'wallet_auth_authority_ref',
+    walletId: WALLET_ID,
+    authorityDigest: 'authority-digest-ed25519-refresh',
+  });
+  if (!authorizationSessionId.ok || !walletSessionId.ok || !quotaId.ok || !authority) {
+    throw new Error('failed to build Ed25519 Wallet Session authorization fixture');
+  }
+  return buildActiveWalletSessionAuthorizationProjection({
+    walletId: authority.walletId,
+    authorizationSessionId: authorizationSessionId.value,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
+    walletSessionJwt: args.walletSessionJwt || buildWalletSessionJwt(),
+    authMethod: 'passkey',
+    authority,
+    expiresAtMs: args.expiresAtMs,
+  });
 }
 
 function buildPasskeyYaoWalletSession() {
@@ -117,6 +154,37 @@ test('persists and verifies a passkey Yao session seal for page refresh', async 
       walletSessionJwt: buildWalletSessionJwt(),
     },
   });
+});
+
+test('authorizes Ed25519 normal signing from the correlated Wallet Session projection', () => {
+  const fixture = buildPasskeyYaoWalletSession();
+  const authorization = buildPasskeyWalletSessionAuthorization({
+    expiresAtMs: fixture.expiresAtMs,
+  });
+
+  const authorized = authorizeRouterAbEd25519WalletSessionState({
+    state: fixture.session,
+    authorization,
+    nowMs: fixture.expiresAtMs - 1,
+  });
+
+  expect(authorized?.walletSessionId).toBe(authorization.walletSessionId);
+  expect(authorized?.walletSessionAuthorization).toBe(authorization);
+});
+
+test('rejects an Ed25519 Wallet Session projection with a different lifecycle', () => {
+  const fixture = buildPasskeyYaoWalletSession();
+  const authorization = buildPasskeyWalletSessionAuthorization({
+    expiresAtMs: fixture.expiresAtMs + 1,
+  });
+
+  expect(
+    authorizeRouterAbEd25519WalletSessionState({
+      state: fixture.session,
+      authorization,
+      nowMs: fixture.expiresAtMs - 1,
+    }),
+  ).toBeNull();
 });
 
 test('fails the lifecycle when the durable Yao session seal is unavailable', async () => {

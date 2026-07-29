@@ -9,7 +9,15 @@ import {
 } from '@/core/signingEngine/session/identity/laneIdentity';
 import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
-import type { NearResolvedEd25519SigningSessionState } from '@/core/signingEngine/interfaces/near';
+import type {
+  NearAuthorizedEd25519SigningSessionState,
+  NearResolvedEd25519SigningSessionState,
+} from '@/core/signingEngine/interfaces/near';
+import {
+  walletSessionAuthorizations,
+  type ActiveWalletSessionAuthorizationProjection,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
   parseRouterAbEd25519SigningWalletSessionFromRecord,
@@ -19,6 +27,48 @@ import {
 export type ResolvedRouterAbEd25519WalletSessionState = NearResolvedEd25519SigningSessionState & {
   signingWalletSession: RouterAbEd25519SigningWalletSession;
 };
+
+export type AuthorizedRouterAbEd25519WalletSessionState =
+  ResolvedRouterAbEd25519WalletSessionState & NearAuthorizedEd25519SigningSessionState;
+
+export function authorizeRouterAbEd25519WalletSessionState(args: {
+  state: ResolvedRouterAbEd25519WalletSessionState;
+  authorization: ActiveWalletSessionAuthorizationProjection;
+  nowMs: number;
+}): AuthorizedRouterAbEd25519WalletSessionState | null {
+  const state = args.state;
+  const authorization = args.authorization;
+  const walletId = state.signingLane.identity.signer.account.wallet.walletId;
+  if (
+    authorization.walletId !== walletId ||
+    authorization.authority.walletId !== walletId ||
+    authorization.authMethod !== signingLaneAuthMethod(state.signingLane.auth) ||
+    authorization.expiresAtMs <= args.nowMs ||
+    authorization.expiresAtMs !== state.signingWalletSession.expiresAtMs ||
+    authorization.walletSessionJwt !== state.walletSessionAuth.walletSessionJwt
+  ) {
+    return null;
+  }
+  return {
+    ...state,
+    walletSessionId: authorization.walletSessionId,
+    walletSessionAuthorization: authorization,
+  };
+}
+
+export async function resolveActiveAuthorizedRouterAbEd25519WalletSessionState(args: {
+  state: ResolvedRouterAbEd25519WalletSessionState;
+  nowMs: number;
+}): Promise<AuthorizedRouterAbEd25519WalletSessionState | null> {
+  const walletId = args.state.signingLane.identity.signer.account.wallet.walletId;
+  const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(walletId);
+  if (authorizationRead.kind !== 'found') return null;
+  return authorizeRouterAbEd25519WalletSessionState({
+    state: args.state,
+    authorization: authorizationRead.projection,
+    nowMs: args.nowMs,
+  });
+}
 
 function resolveEd25519PasskeyStorageSource(
   source: ThresholdEd25519SessionStoreSource | undefined,
