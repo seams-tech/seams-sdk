@@ -568,7 +568,6 @@ export type RouterAbEcdsaDerivationNormalSigningStateV1 = {
 
 export type RouterAbEcdsaDerivationWalletRegistrationJwtBindingFactsV1 = {
   walletId: string;
-  evmFamilySigningKeySlotId: string;
   keyHandle: string;
   relayerKeyId: string;
   ecdsaThresholdKeyId: string;
@@ -2844,11 +2843,6 @@ export function parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJ
     field: 'walletSessionJwt.walletId',
     expected: expected.walletId,
     actual: payload.walletId,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'walletSessionJwt.evmFamilySigningKeySlotId',
-    expected: expected.evmFamilySigningKeySlotId,
-    actual: payload.evmFamilySigningKeySlotId,
   });
   requireWalletRegistrationMatchingString({
     field: 'walletSessionJwt.keyScope',
