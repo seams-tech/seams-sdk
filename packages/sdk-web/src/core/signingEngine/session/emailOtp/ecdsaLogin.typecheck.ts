@@ -2,7 +2,7 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { EmailOtpEcdsaCommittedLane } from '../../flows/signEvmFamily/ecdsaSelection';
+import type { EcdsaCommittedLane } from '../../flows/signEvmFamily/ecdsaSelection';
 import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type {
   EmailOtpEcdsaTransactionStepUpInput,
@@ -12,7 +12,7 @@ import type {
 
 declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
-declare const committedLane: EmailOtpEcdsaCommittedLane;
+declare const committedLane: EcdsaCommittedLane;
 declare const routePlan: EmailOtpRoutePlan;
 
 const transactionStepUpWithCommittedLane: EmailOtpEcdsaTransactionStepUpInput = {

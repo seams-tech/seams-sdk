@@ -56,7 +56,7 @@ import {
 import {
   type EmailOtpEcdsaSigningSessionAuthority,
 } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
-import type { EmailOtpEcdsaCommittedLane, EmailOtpEcdsaPublicReauthLane } from './ecdsaSelection';
+import type { EcdsaCommittedLane, EmailOtpEcdsaPublicReauthLane } from './ecdsaSelection';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { demoEmailOtpCodeFromDelivery } from '../../session/emailOtp/challengeDelivery';
 
@@ -118,7 +118,7 @@ export type EmailOtpEcdsaCapabilityStepUpAuthority = {
 export type EmailOtpEcdsaStepUpAuthority =
   | {
       kind: 'live_session';
-      committedLane: EmailOtpEcdsaCommittedLane;
+      committedLane: EcdsaCommittedLane;
       reauthLane?: never;
       capabilityAuthority?: never;
       materialActivation?: never;
@@ -203,6 +203,12 @@ function emailOtpEcdsaChallengeAuthority(
 ): EmailOtpEcdsaChallengeAuthority {
   switch (authority.kind) {
     case 'live_session':
+      if (
+        authority.committedLane.authority.factor.kind !== 'email_otp' ||
+        !authority.committedLane.authLane
+      ) {
+        throw new Error('[SigningEngine][ecdsa] Email OTP challenge requires Email OTP authority');
+      }
       return {
         kind: 'live_session',
         authLane: authority.committedLane.authLane,

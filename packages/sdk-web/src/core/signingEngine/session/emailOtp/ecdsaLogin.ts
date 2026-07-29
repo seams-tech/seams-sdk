@@ -32,7 +32,7 @@ import type {
   EmailOtpWorkerSessionHandleOperation,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type {
-  EmailOtpEcdsaCommittedLane,
+  EcdsaCommittedLane,
   EmailOtpEcdsaPublicReauthLane,
 } from '../../flows/signEvmFamily/ecdsaSelection';
 import {
@@ -850,7 +850,7 @@ export type LoginEmailOtpEcdsaCapabilityForSigningArgs = {
   chainTarget: ThresholdEcdsaChainTarget;
   challengeId: string;
   otpCode: string;
-  committedLane: EmailOtpEcdsaCommittedLane;
+  committedLane: EcdsaCommittedLane;
   remainingUses: number;
   record?: never;
   routeAuth?: never;
@@ -874,7 +874,7 @@ export type EmailOtpEcdsaTransactionStepUpInput = {
   chainTarget: ThresholdEcdsaChainTarget;
   challengeId: string;
   otpCode: string;
-  committedLane: EmailOtpEcdsaCommittedLane;
+  committedLane: EcdsaCommittedLane;
   remainingUses: number;
   record?: never;
   routeAuth?: never;
@@ -912,8 +912,14 @@ function requireEmailOtpEcdsaSigningRefreshRuntimePolicyScope(args: {
 }
 
 function buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(
-  committedLane: EmailOtpEcdsaCommittedLane,
+  committedLane: EcdsaCommittedLane,
 ): EmailOtpEcdsaSigningRefreshFacts {
+  if (
+    committedLane.authority.factor.kind !== 'email_otp' ||
+    !committedLane.authLane
+  ) {
+    throw new Error('[SigningEngine][email-otp][ecdsa] committed lane requires Email OTP authority');
+  }
   return {
     // Exact lane signer binding, not a JWT-decoded authority structure.
     keyHandle: String(toEvmFamilyEcdsaKeyHandle(committedLane.lane.identity.signer.keyHandle)),
@@ -932,7 +938,7 @@ function buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(
 // Sealed-record authority is the only committed-lane form; the record-backed
 // refresh facts had no constructible input.
 function buildEmailOtpEcdsaSigningRefreshFacts(
-  committedLane: EmailOtpEcdsaCommittedLane,
+  committedLane: EcdsaCommittedLane,
 ): EmailOtpEcdsaSigningRefreshFacts {
   return buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(committedLane);
 }
