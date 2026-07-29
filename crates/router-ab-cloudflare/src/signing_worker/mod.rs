@@ -551,13 +551,75 @@ pub struct CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
 pub enum CloudflareSigningWorkerNormalSigningEffectClaimV1 {
     /// Reusable Wallet Session authority consumes its reserved wallet budget.
     ReusableWalletSession {
-        budget: CloudflareRouterWalletBudgetReservationIdentityV1,
+        budget: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1,
     },
     /// Operation step-up consumes only its one-operation grant.
     OperationStepUp {
         authorization_session_id: String,
         grant_id: String,
     },
+}
+
+/// Stable reusable Wallet Session reservation claim forwarded to SigningWorker.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareSigningWorkerReusableWalletSessionEffectClaimV1 {
+    pub signing_grant_id: String,
+    pub reservation_id: String,
+    pub signing_worker_id: String,
+    pub operation_id: String,
+    pub request_digest: PublicDigest32,
+}
+
+impl CloudflareSigningWorkerReusableWalletSessionEffectClaimV1 {
+    pub fn from_reservation_identity(
+        identity: &CloudflareRouterWalletBudgetReservationIdentityV1,
+    ) -> RouterAbProtocolResult<Self> {
+        identity.validate()?;
+        let claim = Self {
+            signing_grant_id: identity.signing_grant_id.clone(),
+            reservation_id: identity.reservation_id.clone(),
+            signing_worker_id: identity.signing_worker_id.clone(),
+            operation_id: identity.operation_id.clone(),
+            request_digest: identity.request_digest,
+        };
+        claim.validate()?;
+        Ok(claim)
+    }
+
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty(
+            "normal-signing effect claim signing_grant_id",
+            &self.signing_grant_id,
+        )?;
+        require_non_empty(
+            "normal-signing effect claim reservation_id",
+            &self.reservation_id,
+        )?;
+        require_non_empty(
+            "normal-signing effect claim signing_worker_id",
+            &self.signing_worker_id,
+        )?;
+        require_non_empty(
+            "normal-signing effect claim operation_id",
+            &self.operation_id,
+        )
+    }
+
+    pub fn budget_identity_at(
+        &self,
+        claimed_at_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareRouterWalletBudgetReservationIdentityV1> {
+        self.validate()?;
+        CloudflareRouterWalletBudgetReservationIdentityV1::new(
+            self.signing_grant_id.clone(),
+            self.reservation_id.clone(),
+            self.signing_worker_id.clone(),
+            self.operation_id.clone(),
+            self.request_digest,
+            claimed_at_ms,
+        )
+    }
 }
 
 /// Durable terminal result for one claimed normal-signing effect.

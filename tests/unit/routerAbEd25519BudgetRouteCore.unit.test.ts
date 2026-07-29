@@ -86,6 +86,8 @@ function walletSessionClaims(): Record<string, unknown> {
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
     thresholdSessionId,
     signingGrantId,
+    walletSessionId: thresholdSessionId,
+    quotaId: `near-ed25519:${walletId}`,
     relayerKeyId: 'near-relayer-key-1',
     authority: {
       walletId,
@@ -338,6 +340,31 @@ function finalizeBody(): Record<string, unknown> {
   };
 }
 
+function operationStepUpFinalizeBody(): Record<string, unknown> {
+  const body = finalizeBody();
+  body.scope = {
+    request_id: 'step-up-request-1',
+    account_id: walletId,
+    authorization: {
+      kind: 'operation_step_up',
+      grant_id: 'step-up-grant-1',
+    },
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'material-activation-1',
+      capability: 'capability-1',
+      material_owner: walletId,
+      key_binding: 'key-binding-1',
+      lifecycle_binding: 'lifecycle-1',
+      signing_worker: signingWorkerId,
+    },
+    signing_worker_id: signingWorkerId,
+  };
+  delete body.budget_reservation_id;
+  delete body.budget_operation_id;
+  return body;
+}
+
 function budgetFailure(): {
   ok: false;
   status: number;
@@ -472,7 +499,7 @@ async function okRouterAbEd25519SigningWorkerFetch(
         account_id: walletId,
         trusted_source_digest: {
           bytes: Array.from(
-            Buffer.from('zV9QyP4XJjcW9OEwvRRDDMyxGcdOmL7Uf9hB0oQD-PM', 'base64url'),
+            Buffer.from('9ZSAR5cMfLflaDmqH2-EQp72rfRldVYrpdbS9mCiJsY', 'base64url'),
           ),
         },
       },
@@ -486,6 +513,33 @@ async function okRouterAbEd25519SigningWorkerFetch(
       scope: routerAbScope('prepare-request-1'),
       expires_at_ms: expiresAtMs,
     });
+    expect(privateBody.admission_candidate).toMatchObject({
+      account_id: walletId,
+      subject_id: walletId,
+      authorization: {
+        kind: 'reusable_wallet_session',
+        wallet_session_id: thresholdSessionId,
+        grant_id: signingGrantId,
+      },
+      signing_worker_id: signingWorkerId,
+      request_id: 'prepare-request-1',
+      expires_at_ms: expiresAtMs,
+    });
+    expect(privateBody.admission_candidate).not.toHaveProperty('admitted_signing_digest');
+    expect(privateBody.effect_claim).toMatchObject({
+      kind: 'reusable_wallet_session',
+      budget: {
+        signing_grant_id: signingGrantId,
+        reservation_id: 'budget-reservation-1',
+        signing_worker_id: signingWorkerId,
+        operation_id: 'operation-1',
+        request_digest: { bytes: expect.arrayContaining([expect.any(Number)]) },
+      },
+    });
+    if (privateBody.effect_claim.kind !== 'reusable_wallet_session') {
+      throw new Error('finalize fixture must use reusable Wallet Session authority');
+    }
+    expect(privateBody.effect_claim.budget.request_digest.bytes).toHaveLength(32);
     expect(privateBody).not.toHaveProperty('kind');
   }
   return new Response(JSON.stringify({ ok: true, privatePath: path }), { status: 200 });
@@ -673,6 +727,92 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
     }
   });
 
+  test('operation-step-up finalize forwards one exact quota-neutral effect claim', async () => {
+    const fixture = await buildPasskeyAuthorizationSessionFixture({
+      tenantId: 'org-1',
+      principalId: 'principal-1',
+      sessionId: 'seams-session-1',
+      deviceId: 'device-1',
+      walletId,
+      credentialIdB64u: 'credential-1',
+      rpId: 'localhost',
+      origin: 'https://localhost',
+      expiresAtMs: expiresAtMs + 60_000,
+    });
+    const privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
+      phase: 'finalize',
+      body: operationStepUpFinalizeBody(),
+      authorization: {
+        kind: 'operation_step_up',
+        session: {
+          tenantId: fixture.session.tenantId,
+          principalId: fixture.session.principalId,
+          sessionId: fixture.session.sessionId,
+          walletId,
+          runtimePolicyScope: {
+            orgId: 'org-1',
+            projectId: 'project-1',
+            envId: 'env-1',
+            signingRootVersion: 'root-v1',
+          },
+        },
+      },
+      headers: { origin: 'https://localhost' },
+      effectClaim: {
+        kind: 'operation_step_up',
+        authorization_session_id: 'seams-session-1',
+        grant_id: 'step-up-grant-1',
+      },
+    });
+
+    expect(privateBody).toMatchObject({
+      admission_candidate: {
+        subject_id: 'principal-1',
+        authorization: {
+          kind: 'operation_step_up',
+          authorization_session_id: 'seams-session-1',
+          grant_id: 'step-up-grant-1',
+        },
+      },
+      effect_claim: {
+        kind: 'operation_step_up',
+        authorization_session_id: 'seams-session-1',
+        grant_id: 'step-up-grant-1',
+      },
+    });
+    expect(privateBody.admission_candidate).not.toHaveProperty('admitted_signing_digest');
+  });
+
+  test('reusable finalize envelope is byte-stable across edge retries', async () => {
+    const build = async (cfRay: string) =>
+      await buildRouterAbEd25519PrivateSigningWorkerBody({
+        phase: 'finalize',
+        body: finalizeBody(),
+        authorization: {
+          kind: 'reusable_wallet_session',
+          claims: parsedWalletSessionClaims(),
+        },
+        headers: {
+          'cf-connecting-ip': '203.0.113.10',
+          'cf-ray': cfRay,
+        },
+        effectClaim: {
+          kind: 'reusable_wallet_session',
+          budget: {
+            signing_grant_id: signingGrantId,
+            reservation_id: 'budget-reservation-1',
+            signing_worker_id: signingWorkerId,
+            operation_id: 'operation-1',
+            request_digest: { bytes: new Array(32).fill(9) },
+          },
+        },
+      });
+
+    expect(JSON.stringify(await build('edge-attempt-1'))).toBe(
+      JSON.stringify(await build('edge-attempt-2')),
+    );
+  });
+
   test('prepare rejects missing admission adapter before private SigningWorker forwarding', async () => {
     const harness = createNormalSigningRuntime();
     const fetchCalls: string[] = [];
@@ -825,6 +965,8 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
         expect.stringMatching(budgetDigestPattern),
       );
       expect(harness.validateCalls[0]?.requestDigest).toBe(harness.reserveCalls[0]?.requestDigest);
+      expect(harness.commitCalls).toEqual([]);
+      expect(harness.releaseCalls).toEqual([]);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -863,7 +1005,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
     }
   });
 
-  test('finalize private-worker failure releases the reservation without committing budget', async () => {
+  test('finalize private-worker failure leaves the atomic claim owned by SigningWorker', async () => {
     const harness = createNormalSigningRuntime();
     const fetchCalls: string[] = [];
     const originalFetch = globalThis.fetch;
@@ -901,15 +1043,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
         },
       ]);
       expect(harness.commitCalls).toEqual([]);
-      expect(harness.releaseCalls).toEqual([
-        {
-          curve: 'ed25519',
-          phase: 'finalize',
-          thresholdSessionId,
-          signingGrantId,
-          reservationId: 'budget-reservation-1',
-        },
-      ]);
+      expect(harness.releaseCalls).toEqual([]);
     } finally {
       globalThis.fetch = originalFetch;
     }

@@ -6155,7 +6155,9 @@ where
         admission,
         trusted_admission,
         CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
-            budget: budget_identity.clone(),
+            budget: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::from_reservation_identity(
+                &budget_identity,
+            )?,
         },
     )?;
     let response = match execute_cloudflare_signing_worker_normal_signing_finalize_service_call_v2(

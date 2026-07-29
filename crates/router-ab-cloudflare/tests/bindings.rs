@@ -128,7 +128,9 @@ use router_ab_cloudflare::{
     CloudflareSigningWorkerOutputActivationReceiptV1,
     CloudflareSigningWorkerPresignSessionBindingV1,
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
-    CloudflareSigningWorkerRecipientProofBundleActivationV1, CloudflareSigningWorkerRound1RecordV1,
+    CloudflareSigningWorkerRecipientProofBundleActivationV1,
+    CloudflareSigningWorkerReusableWalletSessionEffectClaimV1,
+    CloudflareSigningWorkerRound1RecordV1,
     CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1,
     CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1,
     CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1,
@@ -7364,15 +7366,18 @@ fn signing_worker_production_v2_finalize_signs_router_admitted_digest_from_round
         finalize_admission,
         trusted_admission,
         CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
-            budget: CloudflareRouterWalletBudgetReservationIdentityV1::new(
-                wallet_session.signing_grant_id,
-                "reservation-1",
-                wallet_session.signing_worker_id,
-                "operation-1",
-                PublicDigest32::new([0x44; 32]),
-                1_000,
+            budget: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::from_reservation_identity(
+                &CloudflareRouterWalletBudgetReservationIdentityV1::new(
+                    wallet_session.signing_grant_id,
+                    "reservation-1",
+                    wallet_session.signing_worker_id,
+                    "operation-1",
+                    PublicDigest32::new([0x44; 32]),
+                    1_000,
+                )
+                .expect("effect budget identity"),
             )
-            .expect("effect budget identity"),
+            .expect("stable effect budget claim"),
         },
     )
     .expect("admitted v2 finalize");
@@ -7510,15 +7515,19 @@ fn normal_signing_effect_digest_binds_policy_principal_capability_and_terminal_f
     )
     .expect("trusted admission");
     let effect_claim = CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
-        budget: CloudflareRouterWalletBudgetReservationIdentityV1::new(
-            wallet_session.signing_grant_id.clone(),
-            "reservation-1",
-            wallet_session.signing_worker_id.clone(),
-            "operation-1",
-            digest(0x44),
-            1_000,
-        )
-        .expect("budget identity"),
+        budget:
+            CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::from_reservation_identity(
+                &CloudflareRouterWalletBudgetReservationIdentityV1::new(
+                    wallet_session.signing_grant_id.clone(),
+                    "reservation-1",
+                    wallet_session.signing_worker_id.clone(),
+                    "operation-1",
+                    digest(0x44),
+                    1_000,
+                )
+                .expect("budget identity"),
+            )
+            .expect("stable effect budget claim"),
     };
     let admitted = CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::new(
         request.clone(),
@@ -7527,6 +7536,27 @@ fn normal_signing_effect_digest_binds_policy_principal_capability_and_terminal_f
         effect_claim.clone(),
     )
     .expect("admitted finalize");
+    let retry_claim =
+        CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::from_reservation_identity(
+            &CloudflareRouterWalletBudgetReservationIdentityV1::new(
+                wallet_session.signing_grant_id.clone(),
+                "reservation-1",
+                wallet_session.signing_worker_id.clone(),
+                "operation-1",
+                digest(0x44),
+                1_500,
+            )
+            .expect("retry budget identity"),
+        )
+        .expect("stable retry effect budget claim");
+    assert_eq!(
+        admitted.effect_claim,
+        CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
+            budget: retry_claim,
+        }
+    );
+    let effect_json = serde_json::to_value(&admitted.effect_claim).expect("effect claim JSON");
+    assert!(effect_json["budget"].get("now_unix_ms").is_none());
 
     let mut changed_admission = admission;
     changed_admission.org_id = "org-2".to_owned();
