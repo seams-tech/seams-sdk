@@ -361,9 +361,7 @@ type RegistrationTimingBucketValues = {
   registrationWarmupSignerWorkerPrewarmMs: number;
   registrationWarmupEmailOtpWorkerPrewarmMs: number;
   registrationWarmupEmailOtpYaoWasmInitMs: number;
-  managedRegistrationGrantMs: number;
-  registrationIntentMs: number;
-  registrationIntentDigestMs: number;
+  walletRegisterSetupMs: number;
   authProofMs: number;
   passkeyAuthConfirmationMs: number;
   passkeyAuthPrfExtractionMs: number;
@@ -802,30 +800,13 @@ function parseWalletRegistrationRouteTimingName(
   value: unknown,
 ): WalletRegistrationRouteTimingName | null {
   switch (value) {
-    case 'registrationIntentLoadMs':
-    case 'registrationIntentDigestMs':
-    case 'registrationIntentConsumeMs':
-    case 'registrationPreparationPersistMs':
-    case 'registrationPreparationLoadMs':
-    case 'registrationPreparationConsumeMs':
-    case 'registrationPreparationScopeCheckMs':
-    case 'registrationAuthorityVerifyMs':
-    case 'registrationEcdsaPrepareMs':
-    case 'registrationCeremonyPersistMs':
-    case 'registerPrepareTotalMs':
-    case 'registerStartTotalMs':
-    case 'registrationEcdsaRespondMs':
-    case 'registrationFinalizeReplayLoadMs':
     case 'registrationCeremonyLoadMs':
     case 'registrationEcdsaBootstrapVerifyMs':
-    case 'sponsoredNearAccountCreateMs':
-    case 'registrationKeygenMs':
     case 'registrationEmailOtpEnrollmentPlanMs':
-    case 'relaySessionMintMs':
-    case 'relayGoogleEmailOtpActivationPlanMs':
     case 'relayPersistenceMs':
-    case 'registrationFinalizeReplayCacheMs':
     case 'registerFinalizeTotalMs':
+    case 'registrationCeremonyInsertMs':
+    case 'registerSetupTotalMs':
       return value;
     default:
       return null;
@@ -837,8 +818,7 @@ function sanitizeWalletRegistrationRouteDiagnostics(
 ): WalletRegistrationRouteDiagnostics | null {
   if (!isObject(value) || value.kind !== 'wallet_registration_route_diagnostics_v1') return null;
   if (
-    value.route !== 'wallets_register_start' &&
-    value.route !== 'wallets_register_ecdsa_derivation_respond' &&
+    value.route !== 'wallets_register_setup' &&
     value.route !== 'wallets_register_finalize'
   ) {
     return null;
@@ -886,9 +866,7 @@ function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketVal
     registrationWarmupSignerWorkerPrewarmMs: 0,
     registrationWarmupEmailOtpWorkerPrewarmMs: 0,
     registrationWarmupEmailOtpYaoWasmInitMs: 0,
-    managedRegistrationGrantMs: 0,
-    registrationIntentMs: 0,
-    registrationIntentDigestMs: 0,
+    walletRegisterSetupMs: 0,
     authProofMs: 0,
     passkeyAuthConfirmationMs: 0,
     passkeyAuthPrfExtractionMs: 0,
@@ -1014,9 +992,7 @@ function copyRegistrationTimingBucketValues(
     registrationWarmupSignerWorkerPrewarmMs: buckets.registrationWarmupSignerWorkerPrewarmMs,
     registrationWarmupEmailOtpWorkerPrewarmMs: buckets.registrationWarmupEmailOtpWorkerPrewarmMs,
     registrationWarmupEmailOtpYaoWasmInitMs: buckets.registrationWarmupEmailOtpYaoWasmInitMs,
-    managedRegistrationGrantMs: buckets.managedRegistrationGrantMs,
-    registrationIntentMs: buckets.registrationIntentMs,
-    registrationIntentDigestMs: buckets.registrationIntentDigestMs,
+    walletRegisterSetupMs: buckets.walletRegisterSetupMs,
     authProofMs: buckets.authProofMs,
     passkeyAuthConfirmationMs: buckets.passkeyAuthConfirmationMs,
     passkeyAuthPrfExtractionMs: buckets.passkeyAuthPrfExtractionMs,
@@ -1322,9 +1298,7 @@ function buildRegistrationEcdsaTiming(input: {
 
 const REGISTRATION_CRITICAL_PATH_BUCKETS: readonly RegistrationTimingBucketName[] = [
   'registrationWarmupWaitMs',
-  'managedRegistrationGrantMs',
-  'registrationIntentMs',
-  'registrationIntentDigestMs',
+  'walletRegisterSetupMs',
   'authProofMs',
   'emailOtpEnrollmentMaterialMs',
   'emailOtpYaoEnrollmentMaterialWaitMs',
@@ -1442,9 +1416,7 @@ function buildRegistrationTimingBuckets(input: {
     registrationWarmupSignerWorkerPrewarmMs: buckets.registrationWarmupSignerWorkerPrewarmMs,
     registrationWarmupEmailOtpWorkerPrewarmMs: buckets.registrationWarmupEmailOtpWorkerPrewarmMs,
     registrationWarmupEmailOtpYaoWasmInitMs: buckets.registrationWarmupEmailOtpYaoWasmInitMs,
-    managedRegistrationGrantMs: buckets.managedRegistrationGrantMs,
-    registrationIntentMs: buckets.registrationIntentMs,
-    registrationIntentDigestMs: buckets.registrationIntentDigestMs,
+    walletRegisterSetupMs: buckets.walletRegisterSetupMs,
     authProofMs: buckets.authProofMs,
     passkeyAuthConfirmationMs: buckets.passkeyAuthConfirmationMs,
     passkeyAuthPrfExtractionMs: buckets.passkeyAuthPrfExtractionMs,
@@ -2895,7 +2867,7 @@ async function setupThreeRouteRegistration(args: {
     authMethod: args.authMethod,
     signerSelection: args.signerSelection,
   });
-  const setup = await args.recorder.measure('registrationIntentMs', () =>
+  const setup = await args.recorder.measure('walletRegisterSetupMs', () =>
     setupWalletRegistration({
       relayerUrl,
       request: {

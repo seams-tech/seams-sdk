@@ -322,37 +322,18 @@ export function registrationPreparationIdFromString(value: string): Registration
 }
 
 export type WalletRegistrationRouteTimingName =
-  | 'registrationIntentLoadMs'
-  | 'registrationIntentDigestMs'
-  | 'registrationIntentConsumeMs'
-  | 'registrationAttemptGateMs'
-  | 'registrationPreparationPersistMs'
-  | 'registrationPreparationLoadMs'
-  | 'registrationPreparationConsumeMs'
-  | 'registrationPreparationScopeCheckMs'
-  | 'registrationAuthorityVerifyMs'
-  | 'registrationEcdsaPrepareMs'
-  | 'registrationCeremonyPersistMs'
-  | 'registerPrepareTotalMs'
-  | 'registerStartTotalMs'
-  | 'registrationEcdsaRespondMs'
-  | 'registrationFinalizeReplayLoadMs'
   | 'registrationCeremonyLoadMs'
   | 'registrationEcdsaBootstrapVerifyMs'
-  | 'sponsoredNearAccountCreateMs'
-  | 'registrationKeygenMs'
   | 'registrationEmailOtpEnrollmentPlanMs'
-  | 'relaySessionMintMs'
-  | 'relayGoogleEmailOtpActivationPlanMs'
   | 'relayPersistenceMs'
-  | 'registrationFinalizeReplayCacheMs'
-  | 'registerFinalizeTotalMs';
+  | 'registerFinalizeTotalMs'
+  | 'registrationCeremonyInsertMs'
+  | 'registerSetupTotalMs';
 
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
   route:
-    | 'wallets_register_start'
-    | 'wallets_register_ecdsa_derivation_respond'
+    | 'wallets_register_setup'
     | 'wallets_register_finalize';
   entries: {
     name: WalletRegistrationRouteTimingName;
@@ -2694,31 +2675,13 @@ export type FinalizeWalletRegistrationArgs = FinalizeWalletRegistrationBaseArgs 
 
 function parseWalletRegistrationRouteTimingName(value: unknown): WalletRegistrationRouteTimingName {
   switch (value) {
-    case 'registrationIntentLoadMs':
-    case 'registrationIntentDigestMs':
-    case 'registrationIntentConsumeMs':
-    case 'registrationAttemptGateMs':
-    case 'registrationPreparationPersistMs':
-    case 'registrationPreparationLoadMs':
-    case 'registrationPreparationConsumeMs':
-    case 'registrationPreparationScopeCheckMs':
-    case 'registrationAuthorityVerifyMs':
-    case 'registrationEcdsaPrepareMs':
-    case 'registrationCeremonyPersistMs':
-    case 'registerPrepareTotalMs':
-    case 'registerStartTotalMs':
-    case 'registrationEcdsaRespondMs':
-    case 'registrationFinalizeReplayLoadMs':
     case 'registrationCeremonyLoadMs':
     case 'registrationEcdsaBootstrapVerifyMs':
-    case 'sponsoredNearAccountCreateMs':
-    case 'registrationKeygenMs':
     case 'registrationEmailOtpEnrollmentPlanMs':
-    case 'relaySessionMintMs':
-    case 'relayGoogleEmailOtpActivationPlanMs':
     case 'relayPersistenceMs':
-    case 'registrationFinalizeReplayCacheMs':
     case 'registerFinalizeTotalMs':
+    case 'registrationCeremonyInsertMs':
+    case 'registerSetupTotalMs':
       return value;
     default:
       throw new Error('Wallet registration finalize response has invalid diagnostics timing name');
