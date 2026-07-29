@@ -412,23 +412,6 @@ export type RouterApiMethodTypes = {
     };
     readonly result: CreateAddSignerIntentResponse;
   };
-  createRegistrationIntent: {
-    readonly input: {
-      readonly request: CreateRegistrationIntentRequest;
-      readonly orgId: string;
-      readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
-      readonly signingRootId?: string;
-      readonly signingRootVersion?: string;
-      readonly expectedOrigin?: string;
-    };
-    readonly result: CreateRegistrationIntentResponse;
-  };
-  cancelRegistrationIntent: {
-    readonly input: {
-      readonly request: CancelRegistrationIntentRequest;
-    };
-    readonly result: CancelRegistrationIntentResponse;
-  };
   consumeEmailOtpGrant: {
     readonly input: {
       readonly loginGrant?: unknown;
@@ -1068,17 +1051,6 @@ export interface RouterApiWalletRegistrationService {
   listWalletEcdsaKeyFactsInventory(
     input: RouterApiMethodTypes['listWalletEcdsaKeyFactsInventory']['input'],
   ): Promise<RouterApiMethodTypes['listWalletEcdsaKeyFactsInventory']['result']>;
-  createRegistrationIntent(input: {
-    request: CreateRegistrationIntentRequest;
-    orgId: string;
-    runtimePolicyScope?: ThresholdRuntimePolicyScope;
-    signingRootId?: string;
-    signingRootVersion?: string;
-    expectedOrigin?: string;
-  }): Promise<CreateRegistrationIntentResponse>;
-  cancelRegistrationIntent(input: {
-    request: CancelRegistrationIntentRequest;
-  }): Promise<CancelRegistrationIntentResponse>;
   setupWalletRegistration(
     input: WalletRegistrationSetupInput,
   ): Promise<WalletRegistrationSetupResponseV2>;
@@ -1093,24 +1065,6 @@ export interface RouterApiWalletRegistrationService {
   completeWalletRegistrationNearProvisioning(
     input: WalletRegistrationNearProvisioningInput,
   ): Promise<WalletRegistrationNearProvisioningResponseV2>;
-  startWalletRegistration(
-    input: WalletRegistrationStartRequest,
-    context?: { readonly userAgent?: string },
-  ): Promise<WalletRegistrationStartResponse>;
-  respondWalletRegistrationEcdsaDerivation(
-    input: WalletRegistrationEcdsaDerivationRespondRequest,
-    traceContext?: RouterAbTraceContextV1,
-  ): Promise<WalletRegistrationEcdsaDerivationRespondResponse>;
-  activateWalletRegistrationEcdsa(
-    input: WalletRegistrationEcdsaActivationRequest,
-    traceContext?: RouterAbTraceContextV1,
-  ): Promise<WalletRegistrationEcdsaActivationResponse>;
-  getWalletRegistrationRuntimePolicyScope(
-    registrationCeremonyId: string,
-  ): Promise<ThresholdRuntimePolicyScope | undefined>;
-  finalizeWalletRegistration(
-    input: WalletRegistrationFinalizeRequest,
-  ): Promise<WalletRegistrationFinalizeResponse>;
   refreshEd25519YaoWalletSession(
     input: RouterAbEd25519YaoBudgetRefreshRequestV1,
   ): Promise<RouterAbEd25519YaoBudgetRefreshResponseV1>;

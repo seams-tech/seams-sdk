@@ -2681,29 +2681,14 @@ function buildStrictRegistrationClientBootstrap(args: {
   };
 }
 
-type StrictEcdsaFamilyCeremonyRoute =
-  | {
-      kind: 'registration';
-      registrationCeremonyId: string;
-      walletId?: never;
-      addSignerCeremonyId?: never;
-    }
-  | {
-      kind: 'add_signer';
-      walletId: WalletId;
-      addSignerCeremonyId: string;
-      registrationCeremonyId?: never;
-    };
+type StrictEcdsaFamilyCeremonyRoute = {
+  kind: 'add_signer';
+  walletId: WalletId;
+  addSignerCeremonyId: string;
+};
 
 function strictEcdsaFamilyCeremonyId(route: StrictEcdsaFamilyCeremonyRoute): string {
-  switch (route.kind) {
-    case 'registration':
-      return route.registrationCeremonyId;
-    case 'add_signer':
-      return route.addSignerCeremonyId;
-    default:
-      return assertNever(route);
-  }
+  return route.addSignerCeremonyId;
 }
 
 async function forwardStrictEcdsaFamilyRegistration(args: {
@@ -2715,59 +2700,30 @@ async function forwardStrictEcdsaFamilyRegistration(args: {
   >['registrationRequest'];
   onServerTiming?: (header: string | null) => void;
 }) {
-  switch (args.route.kind) {
-    case 'registration':
-      return await respondWalletRegistrationEcdsa({
-        relayerUrl: args.relayerUrl,
-        headers: registrationRouteHeaders(args.traceContext),
-        registrationCeremonyId: args.route.registrationCeremonyId,
-        ecdsa: {
-          kind: 'router_ab_ecdsa_registration_v1',
-          strictRegistration: args.strictRegistration,
-        },
-        ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
-      });
-    case 'add_signer':
-      return await respondWalletAddSignerEcdsa({
-        relayerUrl: args.relayerUrl,
-        walletId: args.route.walletId,
-        addSignerCeremonyId: args.route.addSignerCeremonyId,
-        ecdsa: {
-          kind: 'router_ab_ecdsa_registration_v1',
-          strictRegistration: args.strictRegistration,
-        },
-      });
-    default:
-      return assertNever(args.route);
-  }
+  return await respondWalletAddSignerEcdsa({
+    relayerUrl: args.relayerUrl,
+    walletId: args.route.walletId,
+    addSignerCeremonyId: args.route.addSignerCeremonyId,
+    ecdsa: {
+      kind: 'router_ab_ecdsa_registration_v1',
+      strictRegistration: args.strictRegistration,
+    },
+  });
 }
 
 async function activateStrictEcdsaFamilyRegistration(args: {
   relayerUrl: string;
   route: StrictEcdsaFamilyCeremonyRoute;
   traceContext?: RouterAbTraceContextV1;
-  publicFacts: Parameters<typeof activateWalletRegistrationEcdsa>[0]['publicFacts'];
+  publicFacts: Parameters<typeof activateWalletAddSignerEcdsa>[0]['publicFacts'];
   onServerTiming?: (header: string | null) => void;
 }) {
-  switch (args.route.kind) {
-    case 'registration':
-      return await activateWalletRegistrationEcdsa({
-        relayerUrl: args.relayerUrl,
-        headers: registrationRouteHeaders(args.traceContext),
-        registrationCeremonyId: args.route.registrationCeremonyId,
-        publicFacts: args.publicFacts,
-        ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
-      });
-    case 'add_signer':
-      return await activateWalletAddSignerEcdsa({
-        relayerUrl: args.relayerUrl,
-        walletId: args.route.walletId,
-        addSignerCeremonyId: args.route.addSignerCeremonyId,
-        publicFacts: args.publicFacts,
-      });
-    default:
-      return assertNever(args.route);
-  }
+  return await activateWalletAddSignerEcdsa({
+    relayerUrl: args.relayerUrl,
+    walletId: args.route.walletId,
+    addSignerCeremonyId: args.route.addSignerCeremonyId,
+    publicFacts: args.publicFacts,
+  });
 }
 
 type StrictEcdsaCeremonyTimingBucket =
