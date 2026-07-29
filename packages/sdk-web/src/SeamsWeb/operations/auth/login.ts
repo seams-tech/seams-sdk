@@ -110,7 +110,6 @@ import {
 } from '@/core/signingEngine/threshold/ecdsa/activation';
 import { buildStrictEcdsaPostRegistrationSessionActivationRequest } from '@/core/signingEngine/threshold/ecdsa/postRegistrationSessionActivation';
 import {
-  parseThresholdRuntimePolicyScopeFromJwt,
   type EmailOtpEd25519SessionPolicyAuthority,
   type Ed25519SessionPolicyAuthority,
   type PasskeyEd25519SessionPolicyAuthority,
@@ -216,8 +215,8 @@ import { resolveRouterAbEd25519WalletSessionStateFromRecord } from '@/core/signi
 import { reconcileCanonicalEcdsaActivationWasm } from '@/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm';
 import {
   resolveWalletUnlockSubjectSet,
-  resolveWalletSessionReadResolution,
-  type WalletSessionReadResolution,
+  resolveWalletCapabilitySubjectResolution,
+  type WalletCapabilitySubjectResolution,
   type WalletUnlockSubject,
   type WalletUnlockSubjectSet,
 } from './walletUnlockSubject';
@@ -2573,6 +2572,7 @@ function resolveLoginThresholdEcdsaBootstrapKey(args: {
 }): {
   keyHandle: string;
   key: EvmFamilyEcdsaKeyIdentity;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
 } {
   const bootstrap = args.bootstrap;
   const keyRef = bootstrap.thresholdEcdsaKeyRef;
@@ -2580,9 +2580,7 @@ function resolveLoginThresholdEcdsaBootstrapKey(args: {
   if (!keyHandle) {
     throw new Error('[login] threshold ECDSA bootstrap missing keyHandle');
   }
-  const runtimePolicyScope =
-    bootstrap.session.runtimePolicyScope ||
-    parseThresholdRuntimePolicyScopeFromJwt(String(bootstrap.session.jwt || '').trim());
+  const runtimePolicyScope = bootstrap.session.runtimePolicyScope;
   if (!runtimePolicyScope) {
     throw new Error('[login] threshold ECDSA bootstrap requires runtimePolicyScope');
   }
@@ -2594,6 +2592,7 @@ function resolveLoginThresholdEcdsaBootstrapKey(args: {
   });
   return {
     keyHandle,
+    runtimePolicyScope,
     key: buildBaseEvmFamilyEcdsaKeyIdentity({
       walletId: args.walletId,
       ecdsaThresholdKeyId,
@@ -3282,16 +3281,11 @@ async function primeThresholdLoginWarmSigners(args: {
             key: resolved.key,
             publicCapability: publicCapabilityFromThresholdEcdsaBootstrap(input.bootstrap),
           });
-          const runtimePolicyScope =
-            input.bootstrap.session.runtimePolicyScope ||
-            parseThresholdRuntimePolicyScopeFromJwt(
-              String(input.bootstrap.session.jwt || '').trim(),
-            );
           activeCanonicalEcdsaContext = mergeCanonicalThresholdEcdsaWarmSessionContexts(
             activeCanonicalEcdsaContext,
             {
               ecdsaKeys: [warmKey],
-              ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+              runtimePolicyScope: resolved.runtimePolicyScope,
             },
           );
           completeActiveContextFromConfiguredTargets('login first-bootstrapped ECDSA key');
@@ -3580,7 +3574,7 @@ export async function getWalletSession(
   context: WalletSessionWebContext,
   walletId?: WalletId | string,
 ): Promise<WalletSession> {
-  let readResolution = await resolveWalletSessionReadResolution(walletId);
+  let readResolution = await resolveWalletCapabilitySubjectResolution(walletId);
   let didReconcileEcdsaActivation = false;
   if (readResolution.kind === 'no_session_request') return buildAnonymousWalletSession();
   if (readResolution.kind === 'no_session_for_wallet') {
@@ -3599,7 +3593,7 @@ export async function getWalletSession(
         selectors: journalSelectors.selectors,
       });
       if (reconciliation.didFinalize) {
-        readResolution = await resolveWalletSessionReadResolution(readResolution.walletId);
+        readResolution = await resolveWalletCapabilitySubjectResolution(readResolution.walletId);
       }
       if (readResolution.kind === 'no_session_for_wallet' && reconciliation.kind !== 'settled') {
         return await buildCapabilityUnresolvableWalletSession({
@@ -4973,7 +4967,7 @@ async function resolveWalletSessionAppIdentityForWallet(
 
 async function resolveWalletSessionAppIdentity(
   context: WalletSessionWebContext,
-  readResolution: Extract<WalletSessionReadResolution, { kind: 'resolved' }>,
+  readResolution: Extract<WalletCapabilitySubjectResolution, { kind: 'resolved' }>,
 ): Promise<Extract<WalletSessionAppIdentity, { kind: 'resolved' }>> {
   const resolvedWalletId = readResolution.walletId;
   const nearSubject = selectNearEd25519WalletSubject(readResolution.subjectSet);

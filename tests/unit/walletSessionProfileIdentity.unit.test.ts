@@ -266,7 +266,7 @@ test.describe('wallet session profile identity restore', () => {
           },
         };
 
-        const resolution = await subjectMod.resolveWalletSessionReadResolution();
+        const resolution = await subjectMod.resolveWalletCapabilitySubjectResolution();
         const session = await loginMod.getWalletSession(context);
 
         return {
@@ -396,7 +396,7 @@ test.describe('wallet session profile identity restore', () => {
           },
         };
 
-        const resolution = await subjectMod.resolveWalletSessionReadResolution();
+        const resolution = await subjectMod.resolveWalletCapabilitySubjectResolution();
         const session = await loginMod.getWalletSession(context);
 
         return {
@@ -494,7 +494,7 @@ test.describe('wallet session profile identity restore', () => {
               getNonceCoordinator: () => ({ getDiagnostics: () => null }),
             },
           };
-          const resolution = await subjectMod.resolveWalletSessionReadResolution(walletId);
+          const resolution = await subjectMod.resolveWalletCapabilitySubjectResolution(walletId);
           const session = await loginMod.getWalletSession(context, walletId);
 
           return {

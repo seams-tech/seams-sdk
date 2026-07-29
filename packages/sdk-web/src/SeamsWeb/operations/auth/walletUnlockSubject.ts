@@ -60,7 +60,7 @@ export type WalletIdentityResolveFailure =
   | WalletUnlockCapabilitySubjectResolutionFailure
   | 'invalid_wallet_profile';
 
-export type WalletSessionReadResolution =
+export type WalletCapabilitySubjectResolution =
   | {
       kind: 'no_session_request';
       walletId?: never;
@@ -569,9 +569,9 @@ export async function resolveNearEd25519WalletUnlockSubject(
   return selectNearEd25519WalletUnlockSubject(resolution.subjectSet);
 }
 
-export async function resolveWalletSessionReadResolution(
+export async function resolveWalletCapabilitySubjectResolution(
   walletId?: WalletId | string,
-): Promise<WalletSessionReadResolution> {
+): Promise<WalletCapabilitySubjectResolution> {
   const target = await resolveWalletSessionReadTarget(walletId);
   if (target.kind === 'none') return { kind: 'no_session_request' };
 
