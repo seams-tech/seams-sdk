@@ -1,25 +1,18 @@
 import { expect, test } from '@playwright/test';
 import { resolveHydratedSecp256k1SigningMaterial } from '@/core/signingEngine/flows/signEvmFamily/readySecp256k1Material';
-import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
-import { parseEcdsaRoleLocalWorkerHandle } from '@/core/signingEngine/session/keyMaterialBrands';
-import { EcdsaDerivationClientCustomResponseType } from '@/core/signingEngine/workerManager/workerTypes';
-import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { CanonicalEvmFamilyEcdsaSigningCapability } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSigningCapability';
-import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import {
   authorizeEvmFamilyEcdsaOperationStepUp,
   prepareEvmFamilyEcdsaOperationStepUp,
 } from '@/core/signingEngine/flows/signEvmFamily/thresholdAdmission';
 import { computeRouterAbEcdsaOperationStepUpChallengeB64u } from '@shared/utils/routerAbEcdsaDerivation';
-import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import { type WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { HydratedEcdsaSignerMaterial } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { canonicalEvmFamilyEcdsaSigningCapabilityFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import {
-  buildEmailOtpEcdsaSealedRuntimeRecordFixture,
-  buildPasskeyEcdsaSealedRuntimeRecordFixture,
-} from './helpers/sealedSigningSession.fixtures';
+  canonicalEcdsaSealedRuntimeFixture,
+  ecdsaOperationDigestSetFixture,
+  ecdsaOperationStepUpAuthorizationFixture,
+  evmFamilyThresholdEcdsaOperationFixture,
+  hydratedEcdsaSigningMaterialFixture,
+  type EcdsaFixtureFactor,
+} from './helpers/ecdsaOperationStepUp.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 // The canonical normal-signing path at its two boundaries -- hydration and
@@ -31,77 +24,22 @@ import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef
 //
 // Scope, precisely: the worker is stubbed at `requestWorkerOperation` (the
 // same seam the deleted record-backed rehydration coverage used) and the
-// relayer at `fetch`; a few carriers whose contents these boundaries never
-// read are `as never` stand-ins. Confirmation UI and the actual digest
-// signature are NOT exercised here -- the literal signed bytes are E2E
+// relayer at `fetch`. Confirmation UI and the actual digest signature are not
+// exercised here -- the literal signed bytes are E2E
 // coverage, not this file's claim.
-
-type Factor = 'passkey' | 'email_otp';
-
-async function sealedRuntimeFor(factor: Factor) {
-  const fixture = await canonicalEvmFamilyEcdsaSigningCapabilityFixture(factor);
-  const { capability, manifest } = fixture;
-  const record =
-    factor === 'passkey'
-      ? buildPasskeyEcdsaSealedRuntimeRecordFixture({ manifest })
-      : buildEmailOtpEcdsaSealedRuntimeRecordFixture({ manifest });
-  const resolution = resolveExactEcdsaSealedRuntime({
-    manifest,
-    walletId: toWalletId(String(manifest.signer.walletId)),
-    chainTarget: record.ecdsaRestore.chainTarget,
-    sealedRecords: [record],
-  });
-  if (resolution.kind !== 'resolved') {
-    throw new Error(`${factor} sealed runtime did not resolve: ${resolution.reason}`);
-  }
-  return { authority: fixture.authority, capability, manifest, runtime: resolution.runtime };
-}
-
-/** Records every worker request so a test can assert the worker was never
- * reached when an earlier gate should have failed closed. */
-function rehydratingWorker(args: {
-  manifest: ActiveEcdsaCapabilityManifest;
-  requests: unknown[];
-}): WorkerOperationContext {
-  const durable = args.manifest.durableMaterial;
-  return {
-    requestWorkerOperation: async (request) => {
-      args.requests.push(request);
-      return {
-        type: EcdsaDerivationClientCustomResponseType.RehydrateEcdsaRoleLocalSigningMaterialSuccess,
-        payload: {
-          kind: 'ecdsa_role_local_signing_material_opened_v1',
-          ok: true,
-          liveHandle: parseEcdsaRoleLocalWorkerHandle({
-            kind: 'ecdsa_role_local_worker_handle_v1',
-            materialHandle: `${String(durable.durableMaterialRef)}:live`,
-            bindingDigest: String(durable.bindingDigest),
-            durableMaterialRef: durable.durableMaterialRef,
-          }),
-          materialRef: {
-            kind: 'ecdsa_role_local_persisted_material_ref_v1',
-            durableMaterialRef: durable.durableMaterialRef,
-            bindingDigest: durable.bindingDigest,
-            materialActivation: durable.materialActivation,
-          },
-        },
-      } as never;
-    },
-  } as WorkerOperationContext;
-}
 
 for (const factor of ['passkey', 'email_otp'] as const) {
   test(`canonical ${factor} normal signing reaches worker binding`, async () => {
-    const { capability, manifest, runtime } = await sealedRuntimeFor(factor);
+    const { fixture, runtime, worker } = await canonicalEcdsaSealedRuntimeFixture(factor);
+    const { capability, manifest } = fixture;
     expect(runtime.authBinding.kind).toBe(factor);
 
-    const requests: unknown[] = [];
     const resolution = await resolveHydratedSecp256k1SigningMaterial({
       capability,
       runtime,
       requestLabel: runtime.chainTarget.kind,
       materialActivation: manifest.activation.materialActivation,
-      workerCtx: rehydratingWorker({ manifest, requests }),
+      workerCtx: worker,
     });
 
     if (resolution.kind !== 'ready') {
@@ -110,7 +48,7 @@ for (const factor of ['passkey', 'email_otp'] as const) {
 
     // The worker was actually reached, and the material it returned is bound to
     // the exact activation the manifest names.
-    expect(requests.length).toBeGreaterThan(0);
+    expect(worker.requests.length).toBeGreaterThan(0);
     expect(resolution.material.kind).toBe('hydrated_ecdsa_signer_material');
     expect(String(resolution.material.materialActivation.activationId)).toBe(
       String(manifest.activation.materialActivation.activationId),
@@ -132,8 +70,8 @@ for (const factor of ['passkey', 'email_otp'] as const) {
 }
 
 test('activation mismatch fails before the worker is reached', async () => {
-  const { capability, manifest, runtime } = await sealedRuntimeFor('passkey');
-  const requests: unknown[] = [];
+  const { fixture, runtime, worker } = await canonicalEcdsaSealedRuntimeFixture('passkey');
+  const { capability, manifest } = fixture;
 
   const resolution = await resolveHydratedSecp256k1SigningMaterial({
     capability,
@@ -144,7 +82,7 @@ test('activation mismatch fails before the worker is reached', async () => {
       'operating-path-other-activation',
       String(manifest.signer.walletId),
     ),
-    workerCtx: rehydratingWorker({ manifest, requests }),
+    workerCtx: worker,
   });
 
   expect(resolution).toMatchObject({
@@ -153,12 +91,12 @@ test('activation mismatch fails before the worker is reached', async () => {
   });
   // The gate is before hydration: no worker request was issued, so no material
   // was opened for an activation the manifest does not name.
-  expect(requests).toHaveLength(0);
+  expect(worker.requests).toHaveLength(0);
 });
 
 test('a chain the runtime does not serve fails before the worker is reached', async () => {
-  const { capability, manifest, runtime } = await sealedRuntimeFor('email_otp');
-  const requests: unknown[] = [];
+  const { fixture, runtime, worker } = await canonicalEcdsaSealedRuntimeFixture('email_otp');
+  const { capability, manifest } = fixture;
   const otherChain = runtime.chainTarget.kind === 'evm' ? 'tempo' : 'evm';
 
   const resolution = await resolveHydratedSecp256k1SigningMaterial({
@@ -166,11 +104,11 @@ test('a chain the runtime does not serve fails before the worker is reached', as
     runtime,
     requestLabel: otherChain,
     materialActivation: manifest.activation.materialActivation,
-    workerCtx: rehydratingWorker({ manifest, requests }),
+    workerCtx: worker,
   });
 
   expect(resolution).toMatchObject({ kind: 'unavailable', reason: 'chain_mismatch' });
-  expect(requests).toHaveLength(0);
+  expect(worker.requests).toHaveLength(0);
 });
 
 // The rest of the operating path: the material hydrated above is what the
@@ -181,97 +119,37 @@ test('a chain the runtime does not serve fails before the worker is reached', as
 
 const OPERATION_ID = 'operating-path-operation-1';
 const GRANT_ID = 'operating-path-grant-1';
-
-function b64u(seed: number, length: number): string {
-  return Buffer.from(new Uint8Array(length).fill(seed)).toString('base64url');
-}
-
-const operationDigests = {
-  laneDigest: parseDigestB64u(b64u(11, 32)),
-  intentDigest: parseDigestB64u(b64u(12, 32)),
-  displayDigest: parseDigestB64u(b64u(13, 32)),
-};
-
-async function hydratedMaterialFor(factor: Factor): Promise<{
-  material: HydratedEcdsaSignerMaterial;
-  capability: CanonicalEvmFamilyEcdsaSigningCapability;
-  authority: WalletAuthAuthority;
-}> {
-  const { authority, capability, manifest, runtime } = await sealedRuntimeFor(factor);
-  const resolution = await resolveHydratedSecp256k1SigningMaterial({
-    capability,
-    runtime,
-    requestLabel: runtime.chainTarget.kind,
-    materialActivation: manifest.activation.materialActivation,
-    workerCtx: rehydratingWorker({ manifest, requests: [] }),
-  });
-  if (resolution.kind !== 'ready') {
-    throw new Error(`${factor} hydration was unavailable: ${resolution.reason}`);
-  }
-  return {
-    material: resolution.material,
-    capability,
-    authority,
-  };
-}
+const operationDigests = ecdsaOperationDigestSetFixture();
 
 /** Stands in for the relayer's operation step-up grant endpoint. Records every
  * request so a test can assert exactly one grant was issued. */
 function stubGrantEndpoint(requests: unknown[]): () => void {
   const original = globalThis.fetch;
-  globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
+  globalThis.fetch = async (_input, init) => {
     requests.push(JSON.parse(String(init?.body || '{}')));
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({
+    return new Response(
+      JSON.stringify({
         ok: true,
         kind: 'operation_step_up',
         authorization: { kind: 'operation_step_up', grant_id: GRANT_ID },
         authorization_session_id: 'operating-path-auth-session-1',
         expires_at_ms: Date.now() + 5 * 60_000,
       }),
-    };
-  }) as unknown as typeof fetch;
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  };
   return () => {
     globalThis.fetch = original;
   };
 }
 
-function stepUpAuthorizationFor(factor: Factor) {
-  return factor === 'passkey'
-    ? ({
-        kind: 'passkey' as const,
-        signingAuthPlan: { kind: 'passkeyReauth' as const, method: 'passkey' as const },
-        credential: {
-          id: 'credential-passkey-fixture',
-          rawId: 'raw-id',
-          type: 'public-key',
-          authenticatorAttachment: 'platform',
-          response: {
-            clientDataJSON: 'client-data',
-            authenticatorData: 'authenticator-data',
-            signature: 'signature',
-          },
-        },
-      } as never)
-    : ({
-        kind: 'email_otp' as const,
-        signingAuthPlan: { kind: 'emailOtpReauth' as const, method: 'email_otp' as const },
-        challengeId: 'operating-path-otp-challenge',
-        otpCode: '123456',
-      } as never);
-}
-
 for (const factor of ['passkey', 'email_otp'] as const) {
   test(`canonical ${factor} material authorizes one operation by step-up`, async () => {
-    const { material, capability, authority } = await hydratedMaterialFor(factor);
+    const { fixture, material } = await hydratedEcdsaSigningMaterialFixture(factor);
+    const { capability, authority } = fixture;
 
     const prepared = await prepareEvmFamilyEcdsaOperationStepUp({
-      operation: {
-        intent: { operationId: OPERATION_ID } as never,
-        authPlan: { kind: 'passkeyReauth', method: 'passkey' } as never,
-      },
+      operation: evmFamilyThresholdEcdsaOperationFixture({ operationId: OPERATION_ID }),
       operationDigests,
       material,
       evmFamilySigningKeySlotId: capability.material.publicFacts.evmFamilySigningKeySlotId,
@@ -295,7 +173,7 @@ for (const factor of ['passkey', 'email_otp'] as const) {
         relayerUrl: 'https://relayer.example.test',
         sessionAuth: { kind: 'app_session_cookie' },
         authority,
-        authorization: stepUpAuthorizationFor(factor),
+        authorization: ecdsaOperationStepUpAuthorizationFixture(factor),
         prepared,
         material,
       });
@@ -317,8 +195,15 @@ for (const factor of ['passkey', 'email_otp'] as const) {
   });
 
   test(`a ${factor} step-up cannot prove against the other factor's authority`, async () => {
-    const { material, authority } = await hydratedMaterialFor(factor);
-    const otherFactor: Factor = factor === 'passkey' ? 'email_otp' : 'passkey';
+    const { fixture, material } = await hydratedEcdsaSigningMaterialFixture(factor);
+    const { authority, capability } = fixture;
+    const otherFactor: EcdsaFixtureFactor = factor === 'passkey' ? 'email_otp' : 'passkey';
+    const prepared = await prepareEvmFamilyEcdsaOperationStepUp({
+      operation: evmFamilyThresholdEcdsaOperationFixture({ operationId: OPERATION_ID }),
+      operationDigests,
+      material,
+      evmFamilySigningKeySlotId: capability.material.publicFacts.evmFamilySigningKeySlotId,
+    });
     const grantRequests: unknown[] = [];
     const restoreFetch = stubGrantEndpoint(grantRequests);
     try {
@@ -328,11 +213,8 @@ for (const factor of ['passkey', 'email_otp'] as const) {
           sessionAuth: { kind: 'app_session_cookie' },
           authority,
           // The proof is built for the wrong factor for this capability.
-          authorization: stepUpAuthorizationFor(otherFactor),
-          prepared: {
-            operation: {} as never,
-            challengeB64u: 'unused',
-          },
+          authorization: ecdsaOperationStepUpAuthorizationFixture(otherFactor),
+          prepared,
           material,
         }),
       ).rejects.toThrow(/exact (passkey|Email OTP) authority/);

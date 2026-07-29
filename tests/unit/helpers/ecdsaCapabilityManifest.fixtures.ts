@@ -41,8 +41,7 @@ import {
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSigningCapability';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import {
-  WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
-  type ActiveWalletSessionAuthorizationProjection,
+  buildActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseMpcWalletSigningQuotaId,
@@ -50,6 +49,7 @@ import {
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   parseCorrelationId,
   parseDigestB64u,
@@ -149,6 +149,7 @@ function fixtureStateBlob(label: string): string {
 
 export function ecdsaCapabilityActivationFixture(args?: {
   authority?: WalletAuthAuthorityRef;
+  manifestRevision?: number;
 }): EcdsaCapabilityActivationFixture {
   const walletId = walletIdFromString('ecdsa-manifest-fixture-wallet');
   const authority: WalletAuthAuthorityRef = args?.authority ?? {
@@ -167,7 +168,7 @@ export function ecdsaCapabilityActivationFixture(args?: {
   const activationBinding = buildEcdsaActivationBinding({
     targetManifest: buildEcdsaManifestIdentity({
       manifestId: parseEcdsaCapabilityManifestId('ecdsa-manifest-fixture'),
-      manifestRevision: parseEcdsaCapabilityManifestRevision(1),
+      manifestRevision: parseEcdsaCapabilityManifestRevision(args?.manifestRevision ?? 1),
     }),
     signer: buildPreparedEvmFamilySigner({
       capability: unwrap(parseCapabilityInstanceRef('ecdsa-capability-fixture')),
@@ -336,11 +337,14 @@ function activeLookupFromFixture(
  * harmless for lookup and selection tests, but production refuses to prepare an
  * operation step-up against a manifest whose scope and activation disagree on
  * the signing worker. */
-export function ecdsaCapabilityActivationLookupFixture(): Extract<
+export function ecdsaCapabilityActivationLookupFixture(args?: {
+  authority?: WalletAuthAuthorityRef;
+  manifestRevision?: number;
+}): Extract<
   EcdsaCapabilityManifestLookup,
   { readonly kind: 'active' }
 > {
-  return activeLookupFromFixture(ecdsaCapabilityActivationFixture());
+  return activeLookupFromFixture(ecdsaCapabilityActivationFixture(args));
 }
 
 export async function canonicalEvmFamilyEcdsaSigningCapabilityFixture(
@@ -574,6 +578,7 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
   walletId?: ActiveEcdsaCapabilityManifest['signer']['walletId'];
   authority?: ActiveEcdsaCapabilityManifest['signer']['authority'];
   walletSessionId?: string;
+  quotaId?: string;
   walletSessionJwt?: string;
   expiresAtMs?: number;
   remainingUses?: number;
@@ -588,14 +593,29 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
     parseWalletSessionId(args.walletSessionId || 'ecdsa-fixture-wallet-session'),
     'walletSessionId',
   );
-  const quotaId = requireFixtureId(parseMpcWalletSigningQuotaId('ecdsa-fixture-quota'), 'quotaId');
+  const quotaId = requireFixtureId(
+    parseMpcWalletSigningQuotaId(args.quotaId || 'ecdsa-fixture-quota'),
+    'quotaId',
+  );
   const expiresAtMs = args.expiresAtMs ?? 1_900_000_000_000;
   const remainingUses = args.remainingUses ?? 5;
+  const walletSessionJwt =
+    args.walletSessionJwt ??
+    [
+      base64UrlEncode(new TextEncoder().encode(JSON.stringify({ alg: 'none', typ: 'JWT' }))),
+      base64UrlEncode(
+        new TextEncoder().encode(
+          JSON.stringify({
+            kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+            sub: String(walletId),
+          }),
+        ),
+      ),
+      'fixture',
+    ].join('.');
   return {
     kind: 'active_reusable_wallet_session_authorization',
-    projection: {
-      recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
-      status: 'active',
+    projection: buildActiveWalletSessionAuthorizationProjection({
       walletId: signer.walletId,
       authorizationSessionId: requireFixtureId(
         parseSeamsSessionId('ecdsa-fixture-authorization-session'),
@@ -606,9 +626,8 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
       authMethod: 'passkey',
       authority: signer.authority,
       expiresAtMs,
-      walletSessionJwt: (args.walletSessionJwt ??
-        'fixture-wallet-session-jwt') as ActiveWalletSessionAuthorizationProjection['walletSessionJwt'],
-    },
+      walletSessionJwt,
+    }),
     status: {
       walletSessionId,
       quotaId,

@@ -125,6 +125,10 @@ export type EcdsaSigningMaterialSource =
  * distinct from an activation mismatch caused by asking for the wrong material. */
 export type SupersededEcdsaSigningMaterial = {
   kind: 'superseded';
+  supersessionKind:
+    | 'material_activation_replaced'
+    | 'capability_authority_replaced'
+    | 'reusable_authorization_replaced';
   preparedMaterialActivation: MpcMaterialActivationRef;
   currentMaterialActivation: MpcMaterialActivationRef;
   material?: never;
@@ -139,7 +143,7 @@ export class EvmFamilyEcdsaMaterialSupersededError extends Error {
 
   constructor(superseded: SupersededEcdsaSigningMaterial) {
     super(
-      `[chains] threshold ECDSA material was superseded: prepared ${String(
+      `[chains] threshold ECDSA material was superseded (${superseded.supersessionKind}): prepared ${String(
         superseded.preparedMaterialActivation.activationId,
       )}, current ${String(superseded.currentMaterialActivation.activationId)}`,
     );
@@ -491,7 +495,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       if (plan.kind === 'unavailable') {
         throw new Error(`[chains] threshold ECDSA material is unavailable: ${plan.reason}`);
       }
-      recordBackedReadySecp256k1MaterialSource = plan;
+      ecdsaSigningMaterialSource = plan;
       const prepared = await thresholdEcdsaStepUpRuntime.operationStepUp.prepare({
         operation: activeThresholdEcdsaOperation,
         operationDigests,
@@ -522,7 +526,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   let intentPrepared: PreparedIntent | null = null;
   let intentHasSecp256k1Request = false;
   let signedResult: TResult | null = null;
-  let recordBackedReadySecp256k1MaterialSource: EcdsaSigningMaterialSource | null = null;
+  let ecdsaSigningMaterialSource: EcdsaSigningMaterialSource | null = null;
   // The exact operation step-up prepared BEFORE confirmation. Its canonical
   // digest is what the Passkey challenge signs and what the server recomputes
   // from the parsed preparation, so the object is built once and threaded
@@ -538,7 +542,10 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     operation: EvmFamilyThresholdEcdsaOperation,
     operationDigests: OperationDigestSet,
   ): Promise<ReadyEcdsaSigningMaterialSource> => {
-    if (!recordBackedReadySecp256k1MaterialSource && input.resolveEcdsaSigningMaterialPlan) {
+    // Re-resolve inside the exact-material queue after confirmation. The user
+    // may spend an arbitrary amount of time in the prompt, so the material and
+    // capability authority prepared above cannot be treated as current here.
+    if (input.resolveEcdsaSigningMaterialPlan) {
       const plan = await input.resolveEcdsaSigningMaterialPlan({
         requestLabel: signReq.label,
       });
@@ -546,7 +553,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         case 'material_from_step_up':
         case 'material_from_canonical_capability':
         case 'material_for_step_up':
-          recordBackedReadySecp256k1MaterialSource = plan;
+          ecdsaSigningMaterialSource = plan;
           break;
         case 'superseded':
           throw new EvmFamilyEcdsaMaterialSupersededError(plan);
@@ -554,7 +561,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
           throw new Error(`[chains] threshold ECDSA material is unavailable: ${plan.reason}`);
       }
     }
-    const source = recordBackedReadySecp256k1MaterialSource;
+    const source = ecdsaSigningMaterialSource;
     if (!source) {
       throw new Error('[chains] missing ready threshold ECDSA material for secp256k1 signing');
     }
@@ -597,17 +604,20 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   };
 
   const runShowConfirmationCommand = async (): Promise<void> => {
+    // Resolve the exact operation, canonical material, and operation-step-up
+    // preparation before any factor-specific side effect begins. In particular,
+    // an Email OTP challenge must never be issued for material that this
+    // preparation then discovers is superseded or unavailable.
+    intentPrepared = await intentPreparationTask;
+    intentHasSecp256k1Request = intentPrepared.intent.signRequests.some(
+      (signReq) => signReq.algorithm === 'secp256k1',
+    );
     emitProgress({
       phase: SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED,
       status: 'waiting_for_user',
       interaction: { kind: 'transaction_confirmation', overlay: 'show' },
     });
     input.onConfirmationDisplayed?.();
-    /* Deliberately NOT awaiting intentPreparationTask here: the confirmation
-       UI mounts with the PENDING placeholders in a loading state, and the
-       registered intent preparation streams the real digest/display model in
-       (see handleIntentDigestSigningFlow). Blocking here would gate the modal
-       on the nonce-reservation RPC and the intent-build worker round-trip. */
     const stepUp = await requireEvmFamilyStepUpAuth({
       thresholdEcdsaStepUp,
       hasThresholdEcdsaRequest,
@@ -629,14 +639,6 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         },
       });
     }
-    // The confirmation opens with the operation it authorizes already fixed:
-    // the intent, managed-nonce reservation, exact ECDSA material, and the
-    // operation step-up preparation all complete first, so the user approves
-    // the real digest and the Passkey challenge is bound to that preparation.
-    intentPrepared = await intentPreparationTask;
-    intentHasSecp256k1Request = intentPrepared.intent.signRequests.some(
-      (signReq) => signReq.algorithm === 'secp256k1',
-    );
     const confirmationRequestBase = {
       ctx: { touchConfirm: input.touchConfirm },
       sessionId,

@@ -43,6 +43,7 @@ import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/sessi
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import { listEcdsaSealedSessionsForWallet } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { signEvmFamily as signEvmFamilyOperation } from '@/core/signingEngine/flows/signEvmFamily/signEvmFamily';
+import { EvmFamilyEcdsaMaterialSupersededError } from '@/core/signingEngine/flows/signEvmFamily/signingFlow';
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import {
   withThresholdEcdsaSigningQueue,
@@ -68,7 +69,7 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { parseAppSessionJwt, mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import { parseAppSessionJwt } from '@shared/utils/domainIds';
 import { SIGNER_AUTH_METHODS, WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
   buildPasskeyWalletAuthAuthority,
@@ -205,6 +206,32 @@ export function createBrowserActiveEcdsaWalletSessionAuthorizationResolver(
   };
 }
 
+/** The wallet's current active manifest covering the requested target, if one
+ * exists. This is what a replacement race resolves against: the prepared
+ * capability's manifest is gone or retired, but the wallet still signs for the
+ * target -- through the replacement. */
+async function activeEcdsaReplacementManifestForTarget(args: {
+  walletId: ReturnType<typeof toWalletId>;
+  subjects: readonly Parameters<typeof ecdsaCapabilityManifestStore.lookup>[0][];
+  chainTarget: ThresholdEcdsaChainTarget;
+}): Promise<ActiveEcdsaCapabilityManifest | null> {
+  for (const subject of args.subjects) {
+    const lookup = await ecdsaCapabilityManifestStore.lookup(subject);
+    if (lookup.kind !== 'active') continue;
+    const manifest = lookup.manifest;
+    if (manifest.signer.walletId !== args.walletId) continue;
+    if (
+      manifest.signer.scope.targetMemberships.some(
+        (target) =>
+          thresholdEcdsaChainTargetKey(target) === thresholdEcdsaChainTargetKey(args.chainTarget),
+      )
+    ) {
+      return manifest;
+    }
+  }
+  return null;
+}
+
 async function getBrowserCanonicalEcdsaSigningCapability(
   input: Parameters<
     Parameters<typeof createSigningEnginePorts>[0]['resolveCanonicalEcdsaSigningCapability']
@@ -215,27 +242,54 @@ async function getBrowserCanonicalEcdsaSigningCapability(
   if (subjects.kind !== 'resolved') {
     throw new Error(`ECDSA capability subjects are ${subjects.kind}`);
   }
+  // Replacement race: preparation named a capability whose manifest has since
+  // been replaced. That surfaces here as either no active subject for the
+  // prepared capability ref, or a lookup that returns `retired`. Both are
+  // R90-INV-010 supersession, not a missing wallet: when a replacement
+  // covering the same target exists, throw the typed superseded error so
+  // `signEvmFamily` performs its one bounded re-resolution instead of
+  // reporting a terminal signing failure.
+  const throwSupersededByReplacement = async (
+    fallback: () => never,
+  ): Promise<never> => {
+    const replacement = await activeEcdsaReplacementManifestForTarget({
+      walletId,
+      subjects: subjects.subjects,
+      chainTarget: input.chainTarget,
+    });
+    if (replacement) {
+      throw new EvmFamilyEcdsaMaterialSupersededError({
+        kind: 'superseded',
+        supersessionKind: 'material_activation_replaced',
+        preparedMaterialActivation: input.materialActivation,
+        currentMaterialActivation: replacement.activation.materialActivation,
+      });
+    }
+    return fallback();
+  };
   const matches = subjects.subjects.filter(
     (subject) => subject.capability === input.materialActivation.capability,
   );
   if (matches.length !== 1) {
-    throw new Error(
-      matches.length === 0
-        ? 'ECDSA capability manifest is missing'
-        : 'ECDSA capability manifest is ambiguous',
-    );
+    if (matches.length === 0) {
+      await throwSupersededByReplacement(() => {
+        throw new Error('ECDSA capability manifest is missing');
+      });
+    }
+    throw new Error('ECDSA capability manifest is ambiguous');
   }
   const manifestLookup = await ecdsaCapabilityManifestStore.lookup(matches[0]);
+  if (manifestLookup.kind === 'retired') {
+    await throwSupersededByReplacement(() => {
+      throw new Error('ECDSA capability manifest is retired');
+    });
+  }
   if (manifestLookup.kind !== 'active') {
     throw new Error(`ECDSA capability manifest is ${manifestLookup.kind}`);
   }
   const manifest = manifestLookup.manifest;
   if (
     manifest.signer.walletId !== walletId ||
-    !mpcMaterialActivationRefsEqual(
-      manifest.activation.materialActivation,
-      input.materialActivation,
-    ) ||
     !manifest.signer.scope.targetMemberships.some(
       (target) =>
         thresholdEcdsaChainTargetKey(target) === thresholdEcdsaChainTargetKey(input.chainTarget),
@@ -243,6 +297,11 @@ async function getBrowserCanonicalEcdsaSigningCapability(
   ) {
     throw new Error('ECDSA capability manifest does not match the requested signer');
   }
+  // Return the current manifest for this capability even when preparation named
+  // an older activation. The signing runtime compares the two exact activation
+  // references and returns the typed `superseded` outcome, which owns the single
+  // canonical re-resolution. Throwing here would turn routine replacement into
+  // a terminal signing failure before that boundary can classify it.
   return await buildCanonicalEvmFamilyEcdsaSigningCapability({
     authority: await resolveExactWalletAuthAuthority(manifest.signer.authority),
     manifest,

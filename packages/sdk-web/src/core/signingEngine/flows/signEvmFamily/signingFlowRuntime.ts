@@ -40,6 +40,7 @@ import type {
   ActiveEvmFamilyWalletSessionAuthorization,
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from './ecdsaSigningCapability';
+import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsaCapabilityManifest';
 
 async function runSerializedEcdsaMaterialUse<T>(
   args: {
@@ -88,14 +89,81 @@ export function ecdsaSigningMaterialSupersession(args: {
   }
   return {
     kind: 'superseded',
+    supersessionKind: 'material_activation_replaced',
     preparedMaterialActivation: args.preparedMaterialActivation,
     currentMaterialActivation: args.currentMaterialActivation,
   };
 }
 
+export function ecdsaSigningCapabilitySupersession(args: {
+  preparedCapability: CanonicalEvmFamilyEcdsaSigningCapability;
+  currentManifest: ActiveEcdsaCapabilityManifest;
+}): SupersededEcdsaSigningMaterial | null {
+  const preparedManifest = args.preparedCapability.manifest;
+  const preparedActivation = preparedManifest.activation.materialActivation;
+  const currentActivation = args.currentManifest.activation.materialActivation;
+  const activationSupersession = ecdsaSigningMaterialSupersession({
+    preparedMaterialActivation: preparedActivation,
+    currentMaterialActivation: currentActivation,
+  });
+  if (activationSupersession) return activationSupersession;
+  const preparedSigner = preparedManifest.signer;
+  const currentSigner = args.currentManifest.signer;
+  if (
+    String(preparedManifest.identity.manifestId) ===
+      String(args.currentManifest.identity.manifestId) &&
+    Number(preparedManifest.identity.manifestRevision) ===
+      Number(args.currentManifest.identity.manifestRevision) &&
+    String(preparedSigner.capability) === String(currentSigner.capability) &&
+    String(preparedSigner.authority.walletId) === String(currentSigner.authority.walletId) &&
+    String(preparedSigner.authority.authorityDigest) ===
+      String(currentSigner.authority.authorityDigest)
+  ) {
+    return null;
+  }
+  return {
+    kind: 'superseded',
+    supersessionKind: 'capability_authority_replaced',
+    preparedMaterialActivation: preparedActivation,
+    currentMaterialActivation: currentActivation,
+  };
+}
+
+export function ecdsaSigningAuthorizationSupersession(args: {
+  preparedAuthorization: ActiveEvmFamilyWalletSessionAuthorization;
+  currentAuthorization: ActiveEvmFamilyWalletSessionAuthorization | null;
+  materialActivation: EvmFamilyEcdsaMaterialActivation;
+}): SupersededEcdsaSigningMaterial | null {
+  const prepared = args.preparedAuthorization.projection;
+  const currentAuthorization = args.currentAuthorization;
+  const current = currentAuthorization?.projection;
+  if (
+    currentAuthorization &&
+    current &&
+    String(current.walletId) === String(prepared.walletId) &&
+    String(current.walletSessionId) === String(prepared.walletSessionId) &&
+    String(current.authorizationSessionId) === String(prepared.authorizationSessionId) &&
+    String(current.quotaId) === String(prepared.quotaId) &&
+    String(currentAuthorization.status.walletSessionId) ===
+      String(args.preparedAuthorization.status.walletSessionId) &&
+    String(currentAuthorization.status.quotaId) ===
+      String(args.preparedAuthorization.status.quotaId) &&
+    String(current.authority.authorityDigest) === String(prepared.authority.authorityDigest)
+  ) {
+    return null;
+  }
+  return {
+    kind: 'superseded',
+    supersessionKind: 'reusable_authorization_replaced',
+    preparedMaterialActivation: args.materialActivation,
+    currentMaterialActivation: args.materialActivation,
+  };
+}
+
 async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   capability: CanonicalEvmFamilyEcdsaSigningCapability;
-  authorization: ActiveEvmFamilyWalletSessionAuthorization | null;
+  preparedAuthorization: ActiveEvmFamilyWalletSessionAuthorization | null;
+  currentAuthorization: ActiveEvmFamilyWalletSessionAuthorization | null;
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   requestLabel: unknown;
@@ -111,11 +179,19 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   if (runtimeResolution.kind !== 'resolved') {
     return { kind: 'unavailable', reason: 'runtime_correlation_mismatch' };
   }
-  const superseded = ecdsaSigningMaterialSupersession({
-    preparedMaterialActivation: args.materialActivation,
-    currentMaterialActivation: runtimeResolution.runtime.materialActivation,
+  const superseded = ecdsaSigningCapabilitySupersession({
+    preparedCapability: args.capability,
+    currentManifest: runtimeResolution.manifest,
   });
   if (superseded) return superseded;
+  if (args.preparedAuthorization) {
+    const authorizationSupersession = ecdsaSigningAuthorizationSupersession({
+      preparedAuthorization: args.preparedAuthorization,
+      currentAuthorization: args.currentAuthorization,
+      materialActivation: args.materialActivation,
+    });
+    if (authorizationSupersession) return authorizationSupersession;
+  }
   const resolution = await resolveHydratedSecp256k1SigningMaterial({
     capability: args.capability,
     runtime: runtimeResolution.runtime,
@@ -124,7 +200,7 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
     workerCtx: args.workerCtx,
   });
   if (resolution.kind === 'unavailable') return resolution;
-  if (!args.authorization) {
+  if (!args.preparedAuthorization) {
     return {
       kind: 'material_for_step_up',
       material: resolution.material,
@@ -132,9 +208,10 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   }
   return {
     kind: 'material_from_canonical_capability',
-    material: attachReusableEcdsaWalletSessionAuthorization({
-      material: resolution.material,
-      authorization: args.authorization,
+      material: attachReusableEcdsaWalletSessionAuthorization({
+        material: resolution.material,
+        capability: args.capability,
+        authorization: args.currentAuthorization ?? args.preparedAuthorization,
     }),
   };
 }
@@ -261,7 +338,12 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           resolveEcdsaSigningMaterialPlan: async ({ requestLabel }: { requestLabel: unknown }) =>
             await resolveEcdsaSigningMaterialHydrationPlan({
               capability,
-              authorization,
+              preparedAuthorization: authorization,
+              currentAuthorization: authorization
+                ? (await args.deps.resolveActiveEcdsaWalletSessionAuthorization?.(
+                    resolvedSigner.walletId,
+                  )) ?? null
+                : null,
               walletId: resolvedSigner.walletId,
               chainTarget: resolvedSigner.chainTarget,
               requestLabel,

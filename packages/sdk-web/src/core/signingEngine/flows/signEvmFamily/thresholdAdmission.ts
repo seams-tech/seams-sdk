@@ -88,8 +88,8 @@ export async function authorizeEvmFamilyEcdsaOperationStepUp(args: {
   const credential =
     args.sessionAuth.kind === 'app_session_jwt'
       ? {
-          kind: 'jwt' as const,
-          walletSessionJwt: args.sessionAuth.appSessionJwt,
+          kind: 'app_session_jwt' as const,
+          appSessionJwt: args.sessionAuth.appSessionJwt,
         }
       : { kind: 'app_session_cookie' as const };
   return buildReadySecp256k1SigningMaterial({
