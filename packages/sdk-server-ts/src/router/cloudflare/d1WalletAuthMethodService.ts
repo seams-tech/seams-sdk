@@ -39,7 +39,6 @@ import type {
   EmailOtpWalletRegistrationAuthorityInput,
   PasskeyWalletRegistrationAuthorityInput,
   WalletRegistrationAuthorityInput,
-  WalletRevokeAuthMethodRequest,
   WalletRevokeAuthMethodResponse,
 } from '../../core/registrationContracts';
 import { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVerifier';
@@ -70,12 +69,16 @@ import {
   type D1AddSignerExistingAuthResolution,
 } from './d1WalletAuthMethodBoundary';
 import type { CloudflareD1WebAuthnStore } from './d1WebAuthnStore';
+import type {
+  RevokeWalletAuthMethodCommand,
+  StartWalletAddAuthMethodCommand,
+} from '../authServicePort';
 
-type StartWalletAddAuthMethodInput = WalletAddAuthMethodStartRequest;
+type StartWalletAddAuthMethodInput = StartWalletAddAuthMethodCommand;
 type StartWalletAddAuthMethodResult = WalletAddAuthMethodStartResponse;
 type FinalizeWalletAddAuthMethodInput = WalletAddAuthMethodFinalizeRequest;
 type FinalizeWalletAddAuthMethodResult = WalletAddAuthMethodFinalizeResponse;
-type RevokeWalletAuthMethodInput = WalletRevokeAuthMethodRequest;
+type RevokeWalletAuthMethodInput = RevokeWalletAuthMethodCommand;
 type RevokeWalletAuthMethodResult = WalletRevokeAuthMethodResponse;
 type WalletAuthMethodError = {
   readonly ok: false;
@@ -166,7 +169,7 @@ export class CloudflareD1WalletAuthMethodService {
   ): Promise<StartWalletAddAuthMethodResult> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      const walletId = parseWalletIdForIntent(request.walletId);
+      const walletId = parseWalletIdForIntent(request.subject.walletId);
       if (!walletId) {
         return { ok: false, code: 'invalid_body', message: 'walletId is required' };
       }

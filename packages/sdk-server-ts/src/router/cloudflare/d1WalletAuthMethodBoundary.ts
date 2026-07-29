@@ -26,7 +26,6 @@ import type {
   WalletAddAuthMethodStartRequest,
   WalletAddSignerStartRequest,
   WalletRegistrationFinalizeAuthMethod,
-  WalletRevokeAuthMethodRequest,
   WalletRevokeAuthMethodResponse
 } from '../../core/registrationContracts';
 import type {
@@ -39,10 +38,11 @@ import {
   runtimePolicyScopeMatches,
 } from './d1RegistrationCeremonyRecords';
 import { parseJsonObject, toRecordValue } from './d1RouterApiAuthBoundary';
+import type { RevokeWalletAuthMethodCommand } from '../authServicePort';
 
 type StartWalletAddSignerInput = WalletAddSignerStartRequest;
 type StartWalletAddAuthMethodInput = WalletAddAuthMethodStartRequest;
-type RevokeWalletAuthMethodInput = WalletRevokeAuthMethodRequest;
+type RevokeWalletAuthMethodInput = RevokeWalletAuthMethodCommand;
 type RevokeWalletAuthMethodResult = WalletRevokeAuthMethodResponse;
 
 export type D1RevokeWalletAuthMethodTarget =
@@ -238,7 +238,7 @@ export function parseD1RevokeWalletAuthMethodInput(
   if (Object.prototype.hasOwnProperty.call(raw, 'rpId')) {
     return d1RevokeWalletAuthMethodInvalidBody('rpId belongs on passkey target or WebAuthn auth');
   }
-  const walletId = walletIdFromString(toOptionalTrimmedString(raw.walletId));
+  const walletId = walletIdFromString(toOptionalTrimmedString(input.subject.walletId));
   if (!walletId) return d1RevokeWalletAuthMethodInvalidBody('walletId is required');
   const target = parseD1RevokeWalletAuthMethodTarget(raw.target);
   if (!target) return d1RevokeWalletAuthMethodInvalidBody('target is required');

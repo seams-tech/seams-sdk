@@ -100,6 +100,17 @@ export type CreateAddSignerIntentCommand = Readonly<{
   subject: WalletSignerManagementSubject;
   signerSelection: AddSignerSelection;
 }>;
+
+export type StartWalletAddAuthMethodCommand = Readonly<
+  { subject: WalletAuthMethodManagementSubject } & Omit<
+    WalletAddAuthMethodStartRequest,
+    'walletId'
+  >
+>;
+
+export type RevokeWalletAuthMethodCommand = Readonly<
+  { subject: WalletAuthMethodManagementSubject } & Omit<WalletRevokeAuthMethodRequest, 'walletId'>
+>;
 import type {
   RouterAbEd25519YaoBudgetRefreshRequestV1,
   RouterAbEd25519YaoBudgetRefreshResponseV1,
@@ -888,7 +899,7 @@ export type RouterApiMethodTypes = {
     readonly result: string;
   };
   revokeWalletAuthMethod: {
-    readonly input: WalletRevokeAuthMethodRequest;
+    readonly input: RevokeWalletAuthMethodCommand;
     readonly result: WalletRevokeAuthMethodResponse;
   };
   rotateEmailOtpRecoveryKeys: {
@@ -924,7 +935,7 @@ export type RouterApiMethodTypes = {
         };
   };
   startWalletAddAuthMethod: {
-    readonly input: WalletAddAuthMethodStartRequest;
+    readonly input: StartWalletAddAuthMethodCommand;
     readonly result: WalletAddAuthMethodStartResponse;
   };
   startWalletAddSigner: {
@@ -1278,10 +1289,10 @@ export interface RouterApiWalletAuthMethodService {
     addSignerCeremonyId: string,
   ): Promise<ThresholdRuntimePolicyScope | null>;
   revokeWalletAuthMethod(
-    input: WalletRevokeAuthMethodRequest,
+    input: RevokeWalletAuthMethodCommand,
   ): Promise<WalletRevokeAuthMethodResponse>;
   startWalletAddAuthMethod(
-    input: WalletAddAuthMethodStartRequest,
+    input: StartWalletAddAuthMethodCommand,
     context?: { readonly userAgent?: string },
   ): Promise<WalletAddAuthMethodStartResponse>;
   startWalletAddSigner(input: WalletAddSignerStartRequest): Promise<WalletAddSignerStartResponse>;

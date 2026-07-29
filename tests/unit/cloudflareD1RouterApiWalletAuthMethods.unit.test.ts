@@ -571,7 +571,10 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
     if (!outbox.ok) throw new Error(outbox.message);
 
     const started = await service.walletAuthMethods.startWalletAddAuthMethod({
-      walletId,
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId,
+      },
       addAuthMethodIntentGrant: intent.addAuthMethodIntentGrant,
       addAuthMethodIntentDigestB64u: intent.addAuthMethodIntentDigestB64u,
       intent: intent.intent,

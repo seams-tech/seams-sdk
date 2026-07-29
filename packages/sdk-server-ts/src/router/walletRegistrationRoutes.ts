@@ -1248,7 +1248,7 @@ async function parseWalletRegistrationStartBody(
 async function parseWalletAddAuthMethodStartBody(
   body: Record<string, unknown>,
   walletId: string,
-): Promise<ParseResult<WalletAddAuthMethodStartRequest>> {
+): Promise<ParseResult<Omit<WalletAddAuthMethodStartRequest, 'walletId'>>> {
   const intent = isPlainObject(body.intent) ? body.intent : null;
   if (!intent || intent.version !== 'add_auth_method_intent_v1') {
     return { ok: false, code: 'invalid_body', message: 'add-auth-method intent is required' };
@@ -1418,7 +1418,6 @@ async function parseWalletAddAuthMethodStartBody(
   return {
     ok: true,
     value: {
-      walletId: walletIdFromString(walletId),
       addAuthMethodIntentGrant: addAuthMethodIntentGrantFromString(rawGrant),
       addAuthMethodIntentDigestB64u: expectedDigest,
       intent: normalizedIntent,
@@ -2187,7 +2186,7 @@ function parseWalletAddAuthMethodFinalizeRequest(
 async function parseWalletRevokeAuthMethodRequest(
   body: Record<string, unknown>,
   walletId: string,
-): Promise<ParseResult<WalletRevokeAuthMethodRequest>> {
+): Promise<ParseResult<Omit<WalletRevokeAuthMethodRequest, 'walletId'>>> {
   if (Object.prototype.hasOwnProperty.call(body, 'rpId')) {
     return {
       ok: false,
@@ -2301,7 +2300,6 @@ async function parseWalletRevokeAuthMethodRequest(
   return {
     ok: true,
     value: {
-      walletId: walletIdFromString(walletId),
       auth: existingAuth,
       target,
     },
@@ -3209,7 +3207,13 @@ export async function handleRouterApiWalletAddAuthMethodStart(
     }
   }
   const result = await input.services.walletRegistration.startWalletAddAuthMethod(
-    parsedBody.value,
+    {
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId: walletIdFromString(walletId),
+      },
+      ...parsedBody.value,
+    },
     { userAgent: registrationUserAgentFromHeaders(input.headers) },
   );
   return routeJson(result.ok ? 200 : 400, result);
@@ -3282,7 +3286,13 @@ export async function handleRouterApiWalletRevokeAuthMethod(
       return routeError(401, 'unauthorized', sessionVersion.message);
     }
   }
-  const result = await input.services.walletRegistration.revokeWalletAuthMethod(parsedBody.value);
+  const result = await input.services.walletRegistration.revokeWalletAuthMethod({
+    subject: {
+      kind: 'wallet_auth_method_management',
+      walletId: walletIdFromString(walletId),
+    },
+    ...parsedBody.value,
+  });
   return routeJson(result.ok ? 200 : 400, result, {
     usage: result.ok ? { walletId: result.walletId } : undefined,
   });

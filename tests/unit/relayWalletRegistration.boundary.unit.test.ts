@@ -1015,7 +1015,10 @@ test.describe('wallet registration route boundaries', () => {
       webauthn_authentication: credential,
     });
     expect(serviceRequest).toMatchObject({
-      walletId: 'wallet_alice',
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId: 'wallet_alice',
+      },
       addSignerIntentDigestB64u: digest,
       auth: {
         kind: 'webauthn_assertion',
@@ -1194,7 +1197,10 @@ test.describe('wallet registration route boundaries', () => {
 
     expect(response.status).toBe(200);
     expect(serviceRequest).toMatchObject({
-      walletId: 'wallet_alice',
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId: 'wallet_alice',
+      },
       auth: {
         kind: 'app_session',
         policy: {
@@ -1553,7 +1559,10 @@ test.describe('wallet registration route boundaries', () => {
       webauthn_authentication: credential,
     });
     expect(serviceRequest).toMatchObject({
-      walletId: 'wallet_alice',
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId: 'wallet_alice',
+      },
       addAuthMethodIntentDigestB64u: digest,
       intent: {
         authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
@@ -1627,7 +1636,10 @@ test.describe('wallet registration route boundaries', () => {
 
     expect(response.status).toBe(200);
     expect(serviceRequest).toMatchObject({
-      walletId: 'wallet_alice',
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId: 'wallet_alice',
+      },
       intent: {
         authMethod: { kind: 'email_otp', email: 'alice@example.test' },
       },
@@ -1768,7 +1780,10 @@ test.describe('wallet registration route boundaries', () => {
 
     expect(response.status).toBe(200);
     expect(revokeRequest).toEqual({
-      walletId: 'wallet_alice',
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId: 'wallet_alice',
+      },
       auth: {
         kind: 'app_session',
         policy: {
