@@ -39,7 +39,6 @@ import {
 } from '@shared/utils/ecdsaCapabilityActivation';
 import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform/ecdsaRoleLocalRecords';
-import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { ParticipantId, VerifiedEcdsaPublicFacts } from '../identity/evmFamilyEcdsaIdentity';
 import type {
   EcdsaClientVerifyingPublicKey33B64u,
@@ -307,7 +306,6 @@ class EcdsaActivationBindingProof extends EcdsaCapabilityManifestProof {
   readonly targetManifest: EcdsaManifestIdentity;
   readonly signer: PreparedEvmFamilySigner;
   readonly activationId: MpcMaterialActivationId;
-  readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
   readonly bindingDigest: EcdsaRoleLocalBindingDigest;
   readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
@@ -316,7 +314,6 @@ class EcdsaActivationBindingProof extends EcdsaCapabilityManifestProof {
     readonly targetManifest: EcdsaManifestIdentity;
     readonly signer: PreparedEvmFamilySigner;
     readonly activationId: MpcMaterialActivationId;
-    readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
     readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
     readonly bindingDigest: EcdsaRoleLocalBindingDigest;
     readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
@@ -325,7 +322,6 @@ class EcdsaActivationBindingProof extends EcdsaCapabilityManifestProof {
     this.targetManifest = fields.targetManifest;
     this.signer = fields.signer;
     this.activationId = fields.activationId;
-    this.evmFamilySigningKeySlotId = fields.evmFamilySigningKeySlotId;
     this.roleLocalBinding = fields.roleLocalBinding;
     this.bindingDigest = fields.bindingDigest;
     this.durableMaterialRef = fields.durableMaterialRef;
@@ -755,7 +751,6 @@ export function buildEcdsaActivationBinding(
     readonly targetManifest: EcdsaManifestIdentity;
     readonly signer: PreparedEvmFamilySigner;
     readonly activationId: MpcMaterialActivationId;
-    readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
     readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
     readonly bindingDigest: EcdsaRoleLocalBindingDigest;
     readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
@@ -892,7 +887,6 @@ export function buildDurableEcdsaMaterialBinding(input: {
   const binding = input.activationBinding;
   if (
     facts.walletId !== binding.signer.walletId ||
-    facts.evmFamilySigningKeySlotId !== binding.evmFamilySigningKeySlotId ||
     facts.keyHandle !== binding.roleLocalBinding.keyHandle ||
     facts.ecdsaThresholdKeyId !== binding.roleLocalBinding.ecdsaThresholdKeyId ||
     facts.signingRootId !== binding.signer.signingRootId ||

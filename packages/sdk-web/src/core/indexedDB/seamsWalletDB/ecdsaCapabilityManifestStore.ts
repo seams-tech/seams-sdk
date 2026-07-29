@@ -42,7 +42,6 @@ import {
   parseSdkEcdsaDerivationSigningRootId,
   parseSdkEcdsaDerivationSigningRootVersion,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   parseWalletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
@@ -572,7 +571,6 @@ function activationBindingAadProjection(binding: EcdsaActivationBinding) {
       signing_root_version: binding.signer.signingRootVersion,
     },
     activation_id: binding.activationId,
-    evm_family_signing_key_slot_id: binding.evmFamilySigningKeySlotId,
     role_local_binding: binding.roleLocalBinding,
     binding_digest: binding.bindingDigest,
     durable_material_ref: binding.durableMaterialRef,
@@ -593,7 +591,6 @@ function activeManifestBindingAadProjection(manifest: ActiveEcdsaCapabilityManif
       signing_root_version: manifest.signer.signingRootVersion,
     },
     activation_id: manifest.durableMaterial.materialActivation.activationId,
-    evm_family_signing_key_slot_id: manifest.durableMaterial.roleLocalPublicFacts.evmFamilySigningKeySlotId,
     role_local_binding: manifest.durableMaterial.roleLocalBinding,
     binding_digest: manifest.durableMaterial.bindingDigest,
     durable_material_ref: manifest.durableMaterial.durableMaterialRef,
@@ -907,7 +904,6 @@ function parseActivationBinding(value: unknown): EcdsaActivationBinding {
     'targetManifest',
     'signer',
     'activationId',
-    'evmFamilySigningKeySlotId',
     'roleLocalBinding',
     'bindingDigest',
     'durableMaterialRef',
@@ -919,10 +915,6 @@ function parseActivationBinding(value: unknown): EcdsaActivationBinding {
     targetManifest: parseManifestIdentity(record.targetManifest),
     signer: parsePreparedSigner(record.signer),
     activationId: unwrapDomainId(parseMpcMaterialActivationId(record.activationId)),
-    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
-      record.evmFamilySigningKeySlotId,
-      'ECDSA activation binding evmFamilySigningKeySlotId',
-    ),
     roleLocalBinding: parseRoleLocalBinding(record.roleLocalBinding),
     bindingDigest: parseEcdsaRoleLocalBindingDigest(record.bindingDigest),
     durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(record.durableMaterialRef),

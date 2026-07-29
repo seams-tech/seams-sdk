@@ -819,7 +819,6 @@ async function activateEcdsaSessionByPurpose(
     bootstrap.bootstrapKind === 'strict_post_registration'
       ? buildEcdsaRoleLocalPublicFacts({
           walletId,
-          evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
           chainTarget,
           keyHandle,
           ecdsaThresholdKeyId,

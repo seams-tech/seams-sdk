@@ -282,7 +282,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     stateBlob: FIXTURE_ROLE_LOCAL_STATE_BLOB,
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId(args.nearAccountId),
-      evmFamilySigningKeySlotId,
       chainTarget,
       keyHandle,
       ecdsaThresholdKeyId,

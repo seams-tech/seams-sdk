@@ -4591,7 +4591,6 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     };
     const publicFacts = buildEcdsaRoleLocalPublicFacts({
       walletId,
-      evmFamilySigningKeySlotId,
       chainTarget,
       keyHandle: value.keyHandle,
       ecdsaThresholdKeyId: value.ecdsaThresholdKeyId,

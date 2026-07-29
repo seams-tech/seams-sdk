@@ -942,7 +942,6 @@ async function finalizeRouterAbEcdsaRegistrationActivation(
   const [chainTarget] = activationBinding.signer.scope.targetMemberships;
   const roleLocalPublicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: activationBinding.signer.walletId,
-    evmFamilySigningKeySlotId: activationBinding.evmFamilySigningKeySlotId,
     chainTarget,
     keyHandle: activationBinding.roleLocalBinding.keyHandle,
     ecdsaThresholdKeyId: activationBinding.roleLocalBinding.ecdsaThresholdKeyId,

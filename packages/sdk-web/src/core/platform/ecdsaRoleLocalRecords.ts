@@ -6,7 +6,6 @@ import type {
   SigningRootVersion,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { MpcMaterialActivationRef, WalletId } from '@shared/utils/domainIds';
-import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { PlatformResult } from './http';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 
@@ -60,7 +59,6 @@ export type EcdsaRoleLocalReadyStateBlob = {
 
 export type EcdsaRoleLocalPublicFacts = {
   walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
@@ -197,7 +195,6 @@ export type EcdsaRoleLocalRecordParseResult =
 
 export type LoadEcdsaRoleLocalReadyRecordInput = {
   walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;

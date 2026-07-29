@@ -456,7 +456,6 @@ broadSpreadMixedReadyRecord satisfies EcdsaRoleLocalReadyRecord;
 
 const validEcdsaLoadInput = {
   walletId: toWalletId('wallet_alice'),
-  evmFamilySigningKeySlotId,
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
   keyHandle: 'key-handle',
   ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId('ederivation-key'),

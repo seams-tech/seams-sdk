@@ -339,7 +339,6 @@ export async function buildInitialEcdsaCapabilityActivationPlan(
     targetManifest: freshManifestIdentity(),
     signer,
     activationId: freshActivationId(),
-    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
     roleLocalBinding,
     bindingDigest: parseEcdsaRoleLocalBindingDigest(input.bindingDigest),
     durableMaterialRef: freshDurableMaterialRef(),

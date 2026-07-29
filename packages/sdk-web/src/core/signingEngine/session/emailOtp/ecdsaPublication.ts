@@ -37,6 +37,7 @@ import {
 } from '../identity/evmFamilyEcdsaIdentity';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { buildEcdsaRoleLocalPublicFacts } from '../persistence/ecdsaRoleLocalRecords';
 import {
   buildPersistedEcdsaRoleLocalMaterial,
@@ -227,7 +228,6 @@ export function projectEmailOtpExistingEcdsaKeyToChainTarget(args: {
   const sourceFacts = args.existingKey.persistedRoleLocalMaterial.publicFacts;
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: sourceFacts.walletId,
-    evmFamilySigningKeySlotId: sourceFacts.evmFamilySigningKeySlotId,
     chainTarget: args.chainTarget,
     keyHandle: sourceFacts.keyHandle,
     ecdsaThresholdKeyId: sourceFacts.ecdsaThresholdKeyId,
@@ -249,7 +249,7 @@ export function projectEmailOtpExistingEcdsaKeyToChainTarget(args: {
     publicCapability: publicFacts.publicCapability,
     walletKey: buildEvmFamilyEcdsaWalletKey({
       walletId: publicFacts.walletId,
-      evmFamilySigningKeySlotId: publicFacts.evmFamilySigningKeySlotId,
+      evmFamilySigningKeySlotId: args.existingKey.walletKey.evmFamilySigningKeySlotId,
       keyHandle: publicFacts.keyHandle,
       chainTarget: args.chainTarget,
       ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
@@ -273,7 +273,11 @@ function manifestEmailOtpEcdsaCandidate(
   const publicFacts = manifest.durableMaterial.roleLocalPublicFacts;
   const walletKey = buildEvmFamilyEcdsaWalletKey({
     walletId: publicFacts.walletId,
-    evmFamilySigningKeySlotId: publicFacts.evmFamilySigningKeySlotId,
+    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+      walletId: publicFacts.walletId,
+      signingRootId: publicFacts.signingRootId,
+      signingRootVersion: publicFacts.signingRootVersion,
+    }),
     keyHandle: publicFacts.keyHandle,
     chainTarget: publicFacts.chainTarget,
     ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
@@ -314,8 +318,6 @@ export async function resolveEmailOtpExistingEcdsaKey(args: {
       return (
         manifest.signer.walletId === args.walletId &&
         (!requestedKeyHandle || String(publicFacts.keyHandle).trim() === requestedKeyHandle) &&
-        String(publicFacts.evmFamilySigningKeySlotId).trim() ===
-          identity.evmFamilySigningKeySlotId &&
         String(publicFacts.signingRootId).trim() === identity.signingRootId &&
         String(publicFacts.signingRootVersion || 'default').trim() ===
           identity.signingRootVersion

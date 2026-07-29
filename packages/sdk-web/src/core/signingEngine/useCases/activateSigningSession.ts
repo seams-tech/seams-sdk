@@ -1,5 +1,6 @@
 import type { ClockPort } from '@/core/platform';
 import { thresholdEcdsaChainTargetsEqual } from '../interfaces/ecdsaChainTarget';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   assertNeverUseCase,
   useCaseFailure,
@@ -243,9 +244,14 @@ function validateEcdsaRecordMatchesInput(args: {
   material: Extract<SigningSessionActivationMaterial, { kind: 'ecdsa_session' }>;
 }): ActivateSigningSessionFailure | null {
   const facts = args.material.record.publicFacts;
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId: facts.walletId,
+    signingRootId: facts.signingRootId,
+    signingRootVersion: facts.signingRootVersion,
+  });
   if (
     !sameString(facts.walletId, args.input.walletId) ||
-    !sameString(facts.evmFamilySigningKeySlotId, args.input.evmFamilySigningKeySlotId)
+    !sameString(evmFamilySigningKeySlotId, args.input.evmFamilySigningKeySlotId)
   ) {
     return failure({
       code: 'material_branch_mismatch',

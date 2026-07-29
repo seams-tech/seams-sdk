@@ -150,7 +150,6 @@ import type {
 import { buildEcdsaRoleLocalPublicFacts } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
-  deriveEvmFamilySigningKeySlotId,
   buildEvmFamilyEcdsaSessionLanePolicy,
   evmFamilyEcdsaWalletKeyToIdentity,
   resolveThresholdEcdsaKeyIdFromRecord,
@@ -2698,11 +2697,6 @@ function persistedRoleLocalMaterialFromDurableAvailableLane(args: {
   const publicIdentity = publicCapability.public_identity;
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: args.walletId,
-    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-      walletId: args.walletId,
-      signingRootId: restore.signingRootId,
-      signingRootVersion: restore.signingRootVersion,
-    }),
     chainTarget: args.chainTarget,
     keyHandle: args.keyHandle,
     ecdsaThresholdKeyId: restore.ecdsaThresholdKeyId,
