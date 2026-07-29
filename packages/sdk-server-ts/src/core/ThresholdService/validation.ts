@@ -1483,7 +1483,7 @@ export type ParsedRouterAbEcdsaDerivationPoolFillSessionDestination = {
 export type ParsedRouterAbEcdsaDerivationPoolFillSessionRecord = {
   expiresAtMs: number;
   walletId: string;
-  evmFamilySigningKeySlotId: string;
+  keyHandle: EcdsaKeyHandle;
   relayerKeyId: string;
   presignPoolKey: string;
   poolFill: ParsedRouterAbEcdsaDerivationPoolFillSessionDestination;
@@ -1529,11 +1529,15 @@ export function parseRouterAbEcdsaDerivationPoolFillSessionRecord(
   raw: unknown,
 ): ParsedRouterAbEcdsaDerivationPoolFillSessionRecord | null {
   if (!isObject(raw)) return null;
+  if ('evmFamilySigningKeySlotId' in raw) return null;
   const expiresAtMs = raw.expiresAtMs;
   const walletId = toOptionalString(raw.walletId);
-  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    raw.evmFamilySigningKeySlotId,
-  );
+  let keyHandle: EcdsaKeyHandle;
+  try {
+    keyHandle = parseEcdsaKeyHandle(raw.keyHandle);
+  } catch {
+    return null;
+  }
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const presignPoolKey = toOptionalString(raw.presignPoolKey);
   const ownerInstanceId = toOptionalString(raw.ownerInstanceId);
@@ -1568,7 +1572,6 @@ export function parseRouterAbEcdsaDerivationPoolFillSessionRecord(
   );
   if (
     !walletId ||
-    !evmFamilySigningKeySlotId ||
     !relayerKeyId ||
     !presignPoolKey ||
     !poolFill ||
@@ -1591,7 +1594,7 @@ export function parseRouterAbEcdsaDerivationPoolFillSessionRecord(
   return {
     expiresAtMs,
     walletId,
-    evmFamilySigningKeySlotId,
+    keyHandle,
     relayerKeyId,
     presignPoolKey,
     poolFill,

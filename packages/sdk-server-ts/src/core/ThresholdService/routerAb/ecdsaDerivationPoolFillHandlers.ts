@@ -1,7 +1,6 @@
 import type { NormalizedLogger } from '../../logger';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import { parseEvmFamilySigningKeySlotIdOrNull } from '@shared/signing-lanes';
 import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
 import {
   parseRouterAbEcdsaDerivationNormalSigningScopeV1,
@@ -62,21 +61,17 @@ type RouterAbEcdsaDerivationPoolFillInitClaims = Pick<
   | 'participantIds'
   | 'thresholdExpiresAtMs'
   | 'routerAbEcdsaDerivationNormalSigning'
-> & { readonly evmFamilySigningKeySlotId: string };
+>;
 
 type RouterAbEcdsaDerivationPoolFillStepClaims = Pick<
   ThresholdEcdsaSessionClaims,
   | 'walletId'
   | 'relayerKeyId'
+  | 'keyHandle'
   | 'participantIds'
   | 'thresholdExpiresAtMs'
   | 'routerAbEcdsaDerivationNormalSigning'
-> & { readonly evmFamilySigningKeySlotId: string };
-
-function parseEvmFamilySigningKeySlotString(value: unknown): string | null {
-  const parsed = parseEvmFamilySigningKeySlotIdOrNull(value);
-  return parsed ? String(parsed) : null;
-}
+>;
 const ECDSA_PRESIGN_POOL_KEY_VERSION = 'v2';
 
 function presignPoolKeyPart(value: unknown, fieldName: string): string {
@@ -358,7 +353,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
     keySelector: ThresholdEcdsaRoleLocalKeyRecordSelector;
     poolFill: RouterAbEcdsaDerivationSigningWorkerPoolFillDestination;
     walletId: string;
-    evmFamilySigningKeySlotId: string;
+    keyHandle: EcdsaKeyHandle;
     relayerKeyId: string;
     signingRoot: Pick<ThresholdEcdsaSigningRootMetadata, 'signingRootId' | 'signingRootVersion'>;
   }): Promise<RouterAbEcdsaDerivationPoolFillInitResponse> {
@@ -443,7 +438,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
       const record: RouterAbEcdsaDerivationPoolFillSessionRecord = {
         expiresAtMs,
         walletId: input.walletId,
-        evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+        keyHandle: input.keyHandle,
         relayerKeyId: input.relayerKeyId,
         presignPoolKey,
         poolFill: input.poolFill,
@@ -569,7 +564,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
       event: input.event,
       presignSessionId: input.presignSessionId,
       walletId: record?.walletId || null,
-      evmFamilySigningKeySlotId: record?.evmFamilySigningKeySlotId || null,
+      keyHandle: record?.keyHandle || null,
       relayerKeyId: record?.relayerKeyId || null,
       ecdsaThresholdKeyId: null,
       presignPoolKey: record?.presignPoolKey || null,
@@ -607,8 +602,17 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
         message: 'Missing walletId in Wallet Session token',
       };
     const tokenRelayerKeyId = toOptionalTrimmedString(claims?.relayerKeyId);
-    const tokenWalletKeyId = parseEvmFamilySigningKeySlotString(claims?.evmFamilySigningKeySlotId);
-    if (!tokenRelayerKeyId || !tokenWalletKeyId) {
+    let tokenKeyHandle: EcdsaKeyHandle;
+    try {
+      tokenKeyHandle = parseEcdsaKeyHandle(claims?.keyHandle);
+    } catch {
+      return {
+        ok: false,
+        code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
+        message: 'Invalid Wallet Session token claims',
+      };
+    }
+    if (!tokenRelayerKeyId) {
       return {
         ok: false,
         code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
@@ -628,7 +632,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
       keySelector,
       poolFill,
       walletId,
-      evmFamilySigningKeySlotId: tokenWalletKeyId,
+      keyHandle: tokenKeyHandle,
       relayerKeyId: tokenRelayerKeyId,
       signingRoot: tokenSigningRoot,
     });
@@ -679,11 +683,20 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
 
       const claims = input.claims;
       const tokenUserId = toOptionalTrimmedString(claims.walletId);
-      const tokenWalletKeyId = parseEvmFamilySigningKeySlotString(
-        claims.evmFamilySigningKeySlotId,
-      );
+      let tokenKeyHandle: EcdsaKeyHandle;
+      try {
+        tokenKeyHandle = parseEcdsaKeyHandle(claims.keyHandle);
+      } catch {
+        await this.poolFillSessionStore.deleteSession(presignSessionId);
+        perf.resultCode = WALLET_SESSION_FAILURE_CODES.claimsInvalid;
+        return {
+          ok: false,
+          code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
+          message: 'Invalid Wallet Session token claims',
+        };
+      }
       const tokenParticipantIds = normalizeThresholdEd25519ParticipantIds(claims.participantIds);
-      if (!tokenUserId || !tokenWalletKeyId || !tokenParticipantIds) {
+      if (!tokenUserId || !tokenParticipantIds) {
         await this.poolFillSessionStore.deleteSession(presignSessionId);
         this.emitPresignSecurityEvent({
           event: 'presign_scope_mismatch',
@@ -701,7 +714,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
       }
       if (
         tokenUserId !== record.walletId ||
-        tokenWalletKeyId !== record.evmFamilySigningKeySlotId ||
+        tokenKeyHandle !== record.keyHandle ||
         !sameParticipantIds(tokenParticipantIds, record.participantIds)
       ) {
         await this.poolFillSessionStore.deleteSession(presignSessionId);
