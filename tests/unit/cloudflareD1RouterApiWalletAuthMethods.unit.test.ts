@@ -538,8 +538,11 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
       expectedOrigin: 'https://app.example',
-      request: {
-        walletId,
+      command: {
+        subject: {
+          kind: 'wallet_auth_method_management',
+          walletId,
+        },
         authMethod: { kind: 'email_otp', email },
       },
     });

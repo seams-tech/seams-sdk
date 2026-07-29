@@ -11,7 +11,7 @@ import type {
   WalletRegistrationSetupInput,
 } from './cloudflare/d1WalletRegistrationSetup';
 import type { WalletEmailOtpAction } from '@shared/utils/emailOtpDomain';
-import type { WebAuthnRpId } from '@shared/utils/domainIds';
+import type { WalletId, WebAuthnRpId } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
@@ -42,7 +42,7 @@ import type {
 import type {
   CancelRegistrationIntentRequest,
   CancelRegistrationIntentResponse,
-  CreateAddAuthMethodIntentRequest,
+  AddAuthMethodInput,
   CreateAddAuthMethodIntentResponse,
   CreateAddSignerIntentRequest,
   CreateAddSignerIntentResponse,
@@ -80,6 +80,16 @@ import type {
   WalletRevokeAuthMethodRequest,
   WalletRevokeAuthMethodResponse,
 } from '../core/registrationContracts';
+
+export type WalletAuthMethodManagementSubject = Readonly<{
+  kind: 'wallet_auth_method_management';
+  walletId: WalletId;
+}>;
+
+export type CreateAddAuthMethodIntentCommand = Readonly<{
+  subject: WalletAuthMethodManagementSubject;
+  authMethod: AddAuthMethodInput;
+}>;
 import type {
   RouterAbEd25519YaoBudgetRefreshRequestV1,
   RouterAbEd25519YaoBudgetRefreshResponseV1,
@@ -430,7 +440,7 @@ export type RouterApiMethodTypes = {
   };
   createAddAuthMethodIntent: {
     readonly input: {
-      readonly request: CreateAddAuthMethodIntentRequest;
+      readonly command: CreateAddAuthMethodIntentCommand;
       readonly orgId: string;
       readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
       readonly signingRootId?: string;
@@ -1221,7 +1231,7 @@ export interface RouterApiWalletAuthVerificationService {
 
 export interface RouterApiWalletAuthMethodService {
   createAddAuthMethodIntent(input: {
-    request: CreateAddAuthMethodIntentRequest;
+    command: CreateAddAuthMethodIntentCommand;
     orgId: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     signingRootId?: string;
