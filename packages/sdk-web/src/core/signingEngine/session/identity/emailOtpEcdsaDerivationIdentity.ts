@@ -1,7 +1,5 @@
 import type {
   EcdsaThresholdKeyId,
-  EvmFamilyEcdsaSessionLanePolicy,
-  SessionBootstrapKeyContext,
   SigningRootId,
   SigningRootVersion,
   ThresholdEcdsaSessionId,
@@ -43,30 +41,9 @@ export type EmailOtpExistingKeyBootstrap = {
   lanePolicy?: never;
 };
 
-export type SessionBootstrap = {
-  operation: 'session_bootstrap';
-  keyHandle: string;
-  keyContext: SessionBootstrapKeyContext;
-  lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
-  ecdsaThresholdKeyId?: never;
-  key?: never;
-  walletSessionUserId?: never;
-  subjectId?: never;
-  rpId?: never;
-  chainTarget?: never;
-  participantIds?: never;
-  sessionKind?: never;
-  sessionId?: never;
-  signingGrantId?: never;
-  runtimePolicyScope?: never;
-  ttlMs?: never;
-  remainingUses?: never;
-};
-
 export type EmailOtpDerivationBootstrapLifecycle =
   | EmailOtpRegistrationBootstrap
-  | EmailOtpExistingKeyBootstrap
-  | SessionBootstrap;
+  | EmailOtpExistingKeyBootstrap;
 
 function requiredEmailOtpDerivationString(value: unknown, field: string): string {
   const normalized = String(value ?? '').trim();
