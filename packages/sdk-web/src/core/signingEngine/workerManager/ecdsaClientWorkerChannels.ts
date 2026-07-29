@@ -178,17 +178,6 @@ export type FinalizeRouterAbEcdsaExplicitExportResultV1 = {
   readonly output32B64u?: never;
 };
 
-export type VerifyRouterAbEcdsaRefreshClientProofsRequestV1 = {
-  readonly kind: 'verify_router_ab_ecdsa_refresh_client_proofs_v1';
-  readonly ceremonyId: string;
-  readonly clientProofFinalization: RouterAbEcdsaClientProofFinalizationV1;
-};
-
-export type VerifyRouterAbEcdsaRefreshClientProofsResultV1 = {
-  readonly kind: 'router_ab_ecdsa_refresh_client_proofs_verified_v1';
-  readonly ceremonyId: string;
-};
-
 export type CloseRouterAbEcdsaPostRegistrationCeremonyRequestV1 = {
   readonly kind: 'close_router_ab_ecdsa_post_registration_ceremony_v1';
   readonly ceremonyId: string;

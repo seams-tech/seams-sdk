@@ -42,8 +42,6 @@ import {
   type FinalizeRouterAbEcdsaExplicitExportResultV1,
   type RehydrateEcdsaRoleLocalSigningMaterialRequestV1,
   type RehydrateEcdsaRoleLocalSigningMaterialResultV1,
-  type VerifyRouterAbEcdsaRefreshClientProofsRequestV1,
-  type VerifyRouterAbEcdsaRefreshClientProofsResultV1,
 } from '../ecdsaClientWorkerChannels';
 import type {
   CloseRouterAbEcdsaRegistrationCeremonyRequestV1,
@@ -1235,43 +1233,6 @@ async function finalizeRouterAbEcdsaExplicitExport(
   }
 }
 
-function verifyRouterAbEcdsaRefreshClientProofs(
-  request: VerifyRouterAbEcdsaRefreshClientProofsRequestV1,
-): VerifyRouterAbEcdsaRefreshClientProofsResultV1 {
-  const ceremonyId = requireCeremonyId(request.ceremonyId);
-  if (request.kind !== 'verify_router_ab_ecdsa_refresh_client_proofs_v1') {
-    throw new Error('Router A/B ECDSA refresh proof command kind is invalid');
-  }
-  const active = requireRouterAbEcdsaPostRegistrationCeremony(ceremonyId);
-  if (active.kind !== 'activation_refresh') {
-    throw new Error('Router A/B ECDSA refresh proofs require an active refresh request');
-  }
-  try {
-    const output = requireRecordPayload(
-      JSON.parse(
-        active.ceremony.finalize_encrypted_proof_bundles(
-          JSON.stringify(request.clientProofFinalization),
-        ),
-      ),
-    );
-    requireExactKeys(
-      output,
-      ['kind', 'output32B64u'],
-      'Router A/B ECDSA refresh proof verification',
-    );
-    if (output.kind !== 'router_ab_ecdsa_prf_output_v1') {
-      throw new Error('Router A/B ECDSA refresh proof output kind is invalid');
-    }
-    readNonEmptyString(output, 'output32B64u');
-    return {
-      kind: 'router_ab_ecdsa_refresh_client_proofs_verified_v1',
-      ceremonyId,
-    };
-  } finally {
-    closeRouterAbEcdsaPostRegistrationCeremonyState(ceremonyId, active);
-  }
-}
-
 function closeRouterAbEcdsaPostRegistrationCeremony(
   request: CloseRouterAbEcdsaPostRegistrationCeremonyRequestV1,
 ): CloseRouterAbEcdsaPostRegistrationCeremonyResultV1 {
@@ -1693,7 +1654,6 @@ async function initializeEcdsaDerivationOperationWasm(
     case EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaPostRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaExplicitExport:
-    case EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRefreshClientProofs:
       await initializeEcdsaDerivationClientWasm();
       return;
     case EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRegistrationClientProofs:
@@ -1790,13 +1750,6 @@ async function executeEcdsaDerivationRequest(
         type: EcdsaDerivationClientCustomResponseType.FinalizeRouterAbEcdsaExplicitExportSuccess,
         payload: await finalizeRouterAbEcdsaExplicitExport(
           payload as FinalizeRouterAbEcdsaExplicitExportRequestV1,
-        ),
-      };
-    case EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRefreshClientProofs:
-      return {
-        type: EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaRefreshClientProofsSuccess,
-        payload: verifyRouterAbEcdsaRefreshClientProofs(
-          payload as VerifyRouterAbEcdsaRefreshClientProofsRequestV1,
         ),
       };
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaPostRegistrationCeremony:

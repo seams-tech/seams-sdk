@@ -34,8 +34,6 @@ import type {
   FinalizeRouterAbEcdsaExplicitExportRequestV1,
   FinalizeRouterAbEcdsaExplicitExportResultV1,
   RehydrateEcdsaRoleLocalSigningMaterialResultV1,
-  VerifyRouterAbEcdsaRefreshClientProofsRequestV1,
-  VerifyRouterAbEcdsaRefreshClientProofsResultV1,
 } from '../../workerManager/ecdsaClientWorkerChannels';
 import {
   parseEcdsaRoleLocalPersistedMaterialRef,
@@ -477,27 +475,6 @@ export async function closeRouterAbEcdsaPostRegistrationCeremonyWasm(input: {
     EcdsaDerivationClientCustomResponseType.CloseRouterAbEcdsaPostRegistrationCeremonySuccess
   ) {
     throw new Error('Router A/B ECDSA post-registration ceremony close failed');
-  }
-  return response.payload;
-}
-
-export async function verifyRouterAbEcdsaRefreshClientProofsWasm(input: {
-  command: VerifyRouterAbEcdsaRefreshClientProofsRequestV1;
-  workerCtx: WorkerOperationContext;
-}): Promise<VerifyRouterAbEcdsaRefreshClientProofsResultV1> {
-  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
-    workerCtx: input.workerCtx,
-    request: {
-      type: EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRefreshClientProofs,
-      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
-      payload: input.command,
-    },
-  });
-  if (
-    response.type !==
-    EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaRefreshClientProofsSuccess
-  ) {
-    throw new Error('Router A/B ECDSA refresh client proof verification failed');
   }
   return response.payload;
 }
