@@ -2,7 +2,6 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import { thresholdEcdsaChainTargetFromRequest } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   normalizeThresholdRuntimePolicyScope,
-  parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
   type ThresholdSessionKind,
 } from '@/core/signingEngine/threshold/sessionPolicy';
@@ -127,7 +126,7 @@ type EcdsaSealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   participantIds: readonly number[];
   relayerUrl: string;
   relayerKeyId: string;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
   routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
@@ -352,17 +351,6 @@ function hasRawLegacySealedRecoveryIdentity(record: RawSigningSessionSealedStore
   );
 }
 
-function resolveRuntimePolicyScope(args: {
-  rawRuntimePolicyScope: unknown;
-  rawWalletSessionJwt: unknown;
-}): ThresholdRuntimePolicyScope | undefined {
-  const explicit = normalizeThresholdRuntimePolicyScope(args.rawRuntimePolicyScope);
-  if (explicit) return explicit;
-  const walletSessionJwt = normalizeNonEmptyString(args.rawWalletSessionJwt);
-  if (!walletSessionJwt) return undefined;
-  return parseThresholdRuntimePolicyScopeFromJwt(walletSessionJwt);
-}
-
 function safeSummary(record: RawSigningSessionSealedStoreRecord): Record<string, unknown> {
   const thresholdSessionIds = normalizeThresholdSessionIds(record);
   return {
@@ -430,10 +418,7 @@ export function normalizeSealedRecoveryRecord(
 
   const thresholdSessionId = normalizeNonEmptyString(thresholdSessionIds.ecdsa);
   const restore = ecdsaRestore;
-  const runtimePolicyScope = resolveRuntimePolicyScope({
-    rawRuntimePolicyScope: restore?.runtimePolicyScope,
-    rawWalletSessionJwt: restore?.walletSessionJwt,
-  });
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(restore?.runtimePolicyScope);
   const signingRootBinding = resolveSigningRootBinding({
     runtimePolicyScope,
     rawSigningRootId: restore?.signingRootId,
@@ -501,6 +486,7 @@ export function normalizeSealedRecoveryRecord(
     !keyHandle ||
     !ethereumAddress ||
     !thresholdEcdsaPublicKeyB64u ||
+    !runtimePolicyScope ||
     !routerAbEcdsaDerivationNormalSigning ||
     !publicCapability ||
     !participantIds.length ||
@@ -576,7 +562,7 @@ export function normalizeSealedRecoveryRecord(
           relayerUrl,
           relayerKeyId,
           ...walletSessionAuth,
-          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+          runtimePolicyScope,
           routerAbEcdsaDerivationNormalSigning,
           publicCapability,
           clientVerifyingShareB64u: passkeyClientVerifyingShareB64u!,
@@ -614,7 +600,7 @@ export function normalizeSealedRecoveryRecord(
           relayerUrl,
           relayerKeyId,
           ...walletSessionAuth,
-          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+          runtimePolicyScope,
           routerAbEcdsaDerivationNormalSigning,
           publicCapability,
           ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
