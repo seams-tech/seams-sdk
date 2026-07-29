@@ -144,53 +144,6 @@ export type EvmFamilyEcdsaSigningSelectionResult =
   | ReadyEvmFamilyEcdsaSigningSelection
   | ReauthRequiredEvmFamilyEcdsaSigningSelection;
 
-export type EmailOtpEcdsaCommittedLaneStateFailure =
-  | {
-      kind: 'authority_missing';
-    }
-  | {
-      kind: 'authority_not_ecdsa_signing_session';
-    }
-  | {
-      kind: 'committed_lane_missing_for_ready';
-    };
-
-export class EmailOtpEcdsaCommittedLaneStateError extends Error {
-  readonly kind = 'email_otp_ecdsa_committed_lane_state_error';
-  readonly failure: EmailOtpEcdsaCommittedLaneStateFailure;
-
-  constructor(failure: EmailOtpEcdsaCommittedLaneStateFailure) {
-    super(emailOtpEcdsaCommittedLaneStateFailureMessage(failure));
-    this.name = 'EmailOtpEcdsaCommittedLaneStateError';
-    this.failure = failure;
-    Object.setPrototypeOf(this, EmailOtpEcdsaCommittedLaneStateError.prototype);
-  }
-}
-
-function assertNeverEmailOtpEcdsaCommittedLaneFailure(value: never): never {
-  throw new Error(`[SigningEngine][ecdsa] unknown Email OTP committed-lane failure: ${value}`);
-}
-
-function emailOtpEcdsaCommittedLaneStateFailureMessage(
-  failure: EmailOtpEcdsaCommittedLaneStateFailure,
-): string {
-  switch (failure.kind) {
-    case 'authority_missing':
-      return 'Email OTP ECDSA committed lane is missing wallet-session authority; unlock wallet again';
-    case 'authority_not_ecdsa_signing_session':
-      return 'Email OTP ECDSA committed lane authority is not an ECDSA signing session; unlock wallet again';
-    case 'committed_lane_missing_for_ready':
-      return 'Email OTP ECDSA committed lane is unavailable for ready signing; unlock wallet again';
-  }
-  return assertNeverEmailOtpEcdsaCommittedLaneFailure(failure);
-}
-
-function throwEmailOtpEcdsaCommittedLaneStateError(
-  failure: EmailOtpEcdsaCommittedLaneStateFailure,
-): never {
-  throw new EmailOtpEcdsaCommittedLaneStateError(failure);
-}
-
 function walletAuthWithSelectedPrimary(
   accountAuth: AccountAuthMetadata,
   authMethod: EvmFamilyEcdsaAuthMethod,
@@ -609,7 +562,9 @@ function requireEmailOtpSelectionAuthority(args: {
     lane: summarizeEvmFamilyEcdsaLane(args.lane),
     candidate: summarizeLaneCandidate(args.candidate),
   });
-  throwEmailOtpEcdsaCommittedLaneStateError({ kind: 'authority_missing' });
+  throw new Error(
+    'Email OTP ECDSA committed lane is missing wallet-session authority; unlock wallet again',
+  );
 }
 
 function requireEmailOtpEcdsaSigningSessionAuthLane(args: {
@@ -631,7 +586,9 @@ function requireEmailOtpEcdsaSigningSessionAuthLane(args: {
     lane: summarizeEvmFamilyEcdsaLane(args.lane),
     candidate: summarizeLaneCandidate(args.candidate),
   });
-  throwEmailOtpEcdsaCommittedLaneStateError({ kind: 'authority_not_ecdsa_signing_session' });
+  throw new Error(
+    'Email OTP ECDSA committed lane authority is not an ECDSA signing session; unlock wallet again',
+  );
 }
 
 function requireEmailOtpCommittedLaneForReady(args: {
@@ -644,7 +601,9 @@ function requireEmailOtpCommittedLaneForReady(args: {
     lane: summarizeEvmFamilyEcdsaLane(args.lane),
     candidate: summarizeLaneCandidate(args.candidate),
   });
-  throwEmailOtpEcdsaCommittedLaneStateError({ kind: 'committed_lane_missing_for_ready' });
+  throw new Error(
+    'Email OTP ECDSA committed lane is unavailable for ready signing; unlock wallet again',
+  );
 }
 
 function requirePasskeyCommittedLaneForReady(args: {
