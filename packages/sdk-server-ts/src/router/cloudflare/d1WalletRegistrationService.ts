@@ -1193,6 +1193,12 @@ export class CloudflareD1WalletRegistrationService {
         walletKey,
         publicCapability: input.public_capability,
       });
+      const activeThresholdSessionId = buildRouterAbEcdsaDerivationActiveStateIdV1({
+        ecdsaThresholdKeyId: walletKey.ecdsaThresholdKeyId,
+        signingRootId: walletKey.signingRootId,
+        signingRootVersion: walletKey.signingRootVersion,
+        activationEpoch: normalSigning.scope.activation_epoch,
+      });
       const expiresAtMs = nowMs + input.session_policy.ttl_ms;
       const budgetProvisioner = this.walletBudgetGrantProvisioner;
       if (!budgetProvisioner) {
@@ -1208,7 +1214,7 @@ export class CloudflareD1WalletRegistrationService {
         relyingPartyId: `wallet-session:${walletId}`,
         authorizedSigners: [
           ecdsaRegistrationWalletBudgetSigner({
-            thresholdSessionId: input.session_policy.threshold_session_id,
+            thresholdSessionId: activeThresholdSessionId,
             signingWorkerId: normalSigning.scope.signing_worker.server_id,
           }),
         ],
@@ -1230,7 +1236,7 @@ export class CloudflareD1WalletRegistrationService {
         ok: true,
         walletKey,
         session: {
-          thresholdSessionId: input.session_policy.threshold_session_id,
+          thresholdSessionId: activeThresholdSessionId,
           signingGrantId: input.session_policy.signing_grant_id,
           expiresAtMs: provisioned.expiresAtMs,
           remainingUses: provisioned.remainingUses,
