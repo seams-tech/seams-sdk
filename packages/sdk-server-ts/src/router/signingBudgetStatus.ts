@@ -80,11 +80,6 @@ export type ParseWalletSigningBudgetStatusResult =
       };
     };
 
-export type WalletSigningBudgetStatusExpectations = {
-  signingGrantId: string;
-  thresholdSessionId: string | null;
-};
-
 const BUDGET_STATUS_FAILURE_STATUS = {
   sessions_disabled: 501,
   wallet_session_missing: walletSessionFailureStatus('wallet_session_missing'),
@@ -97,18 +92,6 @@ const BUDGET_STATUS_FAILURE_STATUS = {
 } as const;
 
 type WalletSigningBudgetStatusFailureCode = 'sessions_disabled' | WalletSessionFailureCode;
-
-export function parseWalletSigningBudgetStatusExpectations(
-  body: unknown,
-): WalletSigningBudgetStatusExpectations {
-  const record = (body || {}) as Record<string, unknown>;
-  const signingGrantId = String(record.signingGrantId || '').trim();
-  const thresholdSessionId = String(record.thresholdSessionId || '').trim() || null;
-  return {
-    signingGrantId,
-    thresholdSessionId,
-  };
-}
 
 function sameParticipants(expected: readonly number[], actual: unknown): boolean {
   if (!Array.isArray(actual) || actual.length !== expected.length) return false;

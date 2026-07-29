@@ -7,9 +7,7 @@ import {
   type SigningSessionBudgetStatusCheck,
   type WalletBudgetOwner,
 } from './budget';
-import {
-  type ThresholdEcdsaChainTarget,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { type ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
 import { budgetUnknownSigningSessionStatus } from './budgetProjection';
 
@@ -85,9 +83,7 @@ export async function getWalletSigningBudgetAvailableStatus(
 ): Promise<SigningSessionStatus | null> {
   const signingGrantId = String(args.signingGrantId || '').trim();
   if (!signingGrantId) return null;
-  return await deps
-    .getAvailableStatus({ ...args, signingGrantId })
-    .catch(() => null);
+  return await deps.getAvailableStatus({ ...args, signingGrantId }).catch(() => null);
 }
 
 export async function readTrustedWalletSigningBudgetStatus(
@@ -228,11 +224,7 @@ function parseTrustedBudgetStatusPayload(args: {
     record.reservedUses ?? record.inFlightReservedUses ?? 0,
   );
   const availableUses = parseNonNegativeSafeInteger(record.availableUses ?? record.remainingUses);
-  if (
-    committedRemainingUses === null ||
-    inFlightReservedUses === null ||
-    availableUses === null
-  ) {
+  if (committedRemainingUses === null || inFlightReservedUses === null || availableUses === null) {
     return null;
   }
   const projectionVersion = String(record.projectionVersion || '').trim();
@@ -297,12 +289,7 @@ async function fetchTrustedWalletSigningBudgetStatusOnce(args: {
         Authorization: `Bearer ${args.auth.walletSessionJwt}`,
       },
       credentials: 'omit',
-      body: JSON.stringify({
-        signingGrantId: args.signingGrantId,
-        thresholdSessionId: args.auth.thresholdSessionId,
-        ...(args.auth.curve ? { curve: args.auth.curve } : {}),
-        ...(args.auth.chainTarget ? { chainTarget: args.auth.chainTarget } : {}),
-      }),
+      body: '{}',
     },
   );
   const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
