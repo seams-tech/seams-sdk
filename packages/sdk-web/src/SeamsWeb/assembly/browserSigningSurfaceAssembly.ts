@@ -9,6 +9,7 @@ import {
 import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableSigningLanesForSigningOperation } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
 import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetStatusOperation } from '@/core/signingEngine/session/budget/budgetStatusReader';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
+import type { BrowserSealedSigningSessionStorePorts } from './createBrowserSigningStores';
 import {
   markThresholdEd25519EmailOtpSessionConsumedForWallet as markThresholdEd25519EmailOtpSessionConsumedForWalletOperation,
 } from '@/core/signingEngine/session/persistence/records';
@@ -41,7 +42,6 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
-import { listEcdsaSealedSessionsForWallet } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { signEvmFamily as signEvmFamilyOperation } from '@/core/signingEngine/flows/signEvmFamily/signEvmFamily';
 import { EvmFamilyEcdsaMaterialSupersededError } from '@/core/signingEngine/flows/signEvmFamily/signingFlow';
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
@@ -94,11 +94,12 @@ const ecdsaCapabilityManifestStore = new IndexedDbEcdsaCapabilityManifestStore()
 
 type BrowserEcdsaCapabilityReaderContext = Pick<
   BrowserSigningSurfaceEnginePortsArgs,
-  'seamsWebConfigs' | 'emailOtpSessions'
+  'seamsWebConfigs' | 'emailOtpSessions' | 'sealedSigningSessionStore'
 >;
 
 async function resolveExactWalletAuthAuthority(
   authorityRef: WalletAuthAuthorityRef,
+  sealedSigningSessionStore: BrowserSealedSigningSessionStorePorts,
 ): Promise<WalletAuthAuthority> {
   const authMethods = await IndexedDBManager.listWalletAuthMethodsForWallet(
     authorityRef.walletId,
@@ -119,7 +120,7 @@ async function resolveExactWalletAuthAuthority(
     const candidateRef = await walletAuthAuthorityRef({ authority });
     if (candidateRef.authorityDigest === authorityRef.authorityDigest) return authority;
   }
-  const sealedRecords = await listEcdsaSealedSessionsForWallet({
+  const sealedRecords = await sealedSigningSessionStore.listEcdsaSealedSessionsForWallet({
     walletId: authorityRef.walletId,
     filter: { curve: 'ecdsa', authMethod: WALLET_AUTH_METHODS.emailOtp },
   });
@@ -233,6 +234,7 @@ async function activeEcdsaReplacementManifestForTarget(args: {
 }
 
 async function getBrowserCanonicalEcdsaSigningCapability(
+  args: BrowserEcdsaCapabilityReaderContext,
   input: Parameters<
     Parameters<typeof createSigningEnginePorts>[0]['resolveCanonicalEcdsaSigningCapability']
   >[0],
@@ -303,7 +305,10 @@ async function getBrowserCanonicalEcdsaSigningCapability(
   // canonical re-resolution. Throwing here would turn routine replacement into
   // a terminal signing failure before that boundary can classify it.
   return await buildCanonicalEvmFamilyEcdsaSigningCapability({
-    authority: await resolveExactWalletAuthAuthority(manifest.signer.authority),
+    authority: await resolveExactWalletAuthAuthority(
+      manifest.signer.authority,
+      args.sealedSigningSessionStore,
+    ),
     manifest,
     material: buildPersistedEcdsaRoleLocalMaterial({
       authority: manifest.signer.authority,
@@ -328,7 +333,7 @@ async function getBrowserEcdsaSigningCapability(
   }
   const browserAuthorization = resolution.authorization;
   return authorizeEvmFamilyEcdsaSigningCapability({
-    capability: await getBrowserCanonicalEcdsaSigningCapability(input),
+    capability: await getBrowserCanonicalEcdsaSigningCapability(args, input),
     authorization: browserAuthorization,
   });
 }
@@ -370,7 +375,7 @@ export async function listBrowserEcdsaSigningCapabilitiesForWallet(
       ),
     );
     if (!matchingTarget) continue;
-    const capability = await getBrowserCanonicalEcdsaSigningCapability({
+    const capability = await getBrowserCanonicalEcdsaSigningCapability(args, {
       walletId,
       chainTarget: matchingTarget,
       materialActivation: manifest.activation.materialActivation,
@@ -532,6 +537,7 @@ export type BrowserSigningSurfaceEnginePortsArgs = {
   signerWorkerManager: SignerWorkerManager;
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
   warmSigning: WarmSigningPorts;
+  sealedSigningSessionStore: BrowserSealedSigningSessionStorePorts;
   ecdsaBootstrapStore: ThresholdEcdsaBootstrapStorePort;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
@@ -582,7 +588,7 @@ export function createBrowserSigningSurfaceEnginePorts(
         statusArgs,
       ),
     resolveCanonicalEcdsaSigningCapability: (input) =>
-      getBrowserCanonicalEcdsaSigningCapability(input),
+      getBrowserCanonicalEcdsaSigningCapability(args, input),
     resolveAuthorizedEcdsaSigningCapability: (input) => getBrowserEcdsaSigningCapability(args, input),
     resolveActiveEcdsaWalletSessionAuthorization:
       createBrowserActiveEcdsaWalletSessionAuthorizationResolver(args),

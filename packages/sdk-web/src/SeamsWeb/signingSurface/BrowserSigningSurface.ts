@@ -502,6 +502,7 @@ export class BrowserSigningSurface {
         createBrowserActiveEcdsaWalletSessionAuthorizationResolver({
           seamsWebConfigs: this.seamsWebConfigs,
           emailOtpSessions: this.emailOtpSessions,
+          sealedSigningSessionStore: deps.sealedSigningSessionStore,
         }),
     });
     this.sessionPublicDeps = createSessionPublicDeps({
@@ -513,6 +514,7 @@ export class BrowserSigningSurface {
           {
             seamsWebConfigs: this.seamsWebConfigs,
             emailOtpSessions: this.emailOtpSessions,
+            sealedSigningSessionStore: deps.sealedSigningSessionStore,
           },
           input,
         ),
@@ -549,6 +551,7 @@ export class BrowserSigningSurface {
           {
             seamsWebConfigs: this.seamsWebConfigs,
             emailOtpSessions: this.emailOtpSessions,
+            sealedSigningSessionStore: deps.sealedSigningSessionStore,
           },
           input,
         ),
@@ -567,6 +570,7 @@ export class BrowserSigningSurface {
       signerWorkerManager: this.signerWorkerManager,
       emailOtpSessions: this.emailOtpSessions,
       warmSigning: this.warmSigning,
+      sealedSigningSessionStore: deps.sealedSigningSessionStore,
       ecdsaBootstrapStore: this.ecdsaBootstrapStore,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
       thresholdEcdsaSigningQueueByKey: this.thresholdEcdsaSigningQueueByKey,
