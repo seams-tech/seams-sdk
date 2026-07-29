@@ -703,6 +703,18 @@ function admissionAuthorityScope(input: RouterAbNormalSigningAdmissionInput): st
   throw new Error('Unsupported Router A/B normal-signing curve');
 }
 
+function admissionAuthorizationIdentityKey(input: RouterAbNormalSigningAdmissionInput): string {
+  if (input.curve === 'ed25519') return input.thresholdSessionId;
+  switch (input.authorizationIdentity.kind) {
+    case 'reusable_wallet_session':
+      return `wallet_session:${input.authorizationIdentity.walletSessionId}`;
+    case 'operation_step_up':
+      return `material_activation:${input.authorizationIdentity.materialActivationId}`;
+  }
+  input.authorizationIdentity satisfies never;
+  throw new Error('Unsupported Router A/B normal-signing authorization identity');
+}
+
 export function abusePrincipalKey(input: RouterAbNormalSigningAdmissionInput): string {
   return [
     runtimePolicyScopeKey(input.runtimePolicyScope),
@@ -719,7 +731,7 @@ export function quotaScopeKey(input: RouterAbNormalSigningAdmissionInput): strin
     admissionAuthorityScope(input),
     input.curve,
     input.phase,
-    input.thresholdSessionId,
+    admissionAuthorizationIdentityKey(input),
     input.signingGrantId,
     input.requestId,
     input.signingWorkerId,
@@ -743,7 +755,7 @@ export function normalSigningLifecycleId(input: RouterAbNormalSigningAdmissionIn
     input.phase,
     input.walletId,
     admissionAuthorityScope(input),
-    input.thresholdSessionId,
+    admissionAuthorizationIdentityKey(input),
     input.signingGrantId,
     input.requestId,
     input.signingWorkerId,

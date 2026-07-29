@@ -165,6 +165,17 @@ class AllowLocalSigningAdmission implements RouterAbNormalSigningAdmissionAdapte
   }
 }
 
+function replayAuthorizationIdentity(
+  input: RouterAbNormalSigningPrepareReplayReservationInput,
+): string {
+  switch (input.authorizationIdentity.kind) {
+    case 'reusable_wallet_session':
+      return `reusable_wallet_session:${input.authorizationIdentity.walletSessionId}`;
+    case 'operation_step_up':
+      return `operation_step_up:${input.authorizationIdentity.materialActivationId}`;
+  }
+}
+
 class LocalWalletSessionAdapter implements SessionAdapter {
   constructor(private readonly claims: Readonly<Record<string, unknown>>) {}
 
@@ -207,7 +218,7 @@ class LocalNormalSigningRuntime implements RouterAbNormalSigningRouteRuntime {
   async reservePrepareReplay(
     input: RouterAbNormalSigningPrepareReplayReservationInput,
   ): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }> {
-    const key = `${input.curve}:prepare:${input.thresholdSessionId}:${input.requestId}`;
+    const key = `${input.curve}:prepare:${replayAuthorizationIdentity(input)}:${input.requestId}`;
     if (this.replayRequestIds.has(key)) {
       return {
         ok: false,

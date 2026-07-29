@@ -10,6 +10,7 @@ import type {
   CloudflareDurableObjectStubLike,
 } from '../../packages/sdk-server-ts/src/core/types';
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
+import { parseMpcMaterialActivationId } from '@shared/utils/domainIds';
 
 const BASE_EXPIRES_AT_MS = 10_000;
 
@@ -95,6 +96,12 @@ function settleStorageTransaction<T>(promise: Promise<T>): Promise<void> {
 
 function noop(): void {}
 
+function materialActivationId(value: string) {
+  const parsed = parseMpcMaterialActivationId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
 function createMemoryDurableObjectNamespace(): CloudflareDurableObjectNamespaceLike {
   return new MemoryDurableObjectNamespace();
 }
@@ -137,7 +144,10 @@ function ecdsaAdmissionInput(
     phase: 'prepare',
     walletId: 'alice.testnet',
     evmFamilySigningKeySlotId: 'evm-family-signing-key-slot-1',
-    thresholdSessionId: 'ecdsa-session-1',
+    authorizationIdentity: {
+      kind: 'reusable_wallet_session',
+      walletSessionId: 'ecdsa-session-1',
+    },
     signingGrantId: 'signing-grant-1',
     requestId: 'ecdsa-request-1',
     expiresAtMs: BASE_EXPIRES_AT_MS,
@@ -262,7 +272,7 @@ test.describe('Router A/B normal-signing admission store', () => {
       kind: 'reuse_existing',
       requestId: input.requestId,
       existingLifecycleId:
-        'ecdsa:prepare:alice.testnet:evm-family-signing-key-slot-1:ecdsa-session-1:signing-grant-1:ecdsa-request-1:signing-worker-a:ecdsa-key-handle-1',
+        'ecdsa:prepare:alice.testnet:evm-family-signing-key-slot-1:wallet_session:ecdsa-session-1:signing-grant-1:ecdsa-request-1:signing-worker-a:ecdsa-key-handle-1',
     });
 
     nowMs = 6_001;
@@ -280,6 +290,27 @@ test.describe('Router A/B normal-signing admission store', () => {
 
     await expect(adapter.evaluate(ed25519AdmissionInput())).resolves.toEqual({ ok: true });
     await expect(adapter.evaluate(ecdsaAdmissionInput())).resolves.toEqual({ ok: true });
+  });
+
+  test('keeps reusable sessions and operation material activations separate', async () => {
+    const nowMs = 1_000;
+    const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
+    const sharedId = 'shared-runtime-identity';
+    const reusable = ecdsaAdmissionInput({
+      authorizationIdentity: {
+        kind: 'reusable_wallet_session',
+        walletSessionId: sharedId,
+      },
+    });
+    const stepUp = ecdsaAdmissionInput({
+      authorizationIdentity: {
+        kind: 'operation_step_up',
+        materialActivationId: materialActivationId(sharedId),
+      },
+    });
+
+    await expect(store.reserveQuota(reusable)).resolves.toMatchObject({ kind: 'accepted' });
+    await expect(store.reserveQuota(stepUp)).resolves.toMatchObject({ kind: 'accepted' });
   });
 
   test('maps project policy rejection before quota reservation', async () => {

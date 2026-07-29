@@ -1,4 +1,5 @@
 import type {
+  RouterAbNormalSigningAuthorizationIdentity,
   RouterAbNormalSigningBudgetFinalizeInput,
   RouterAbSigningWorkerPrivateTransport,
 } from '../core/routerAbSigning/RouterAbNormalSigningRuntime';
@@ -79,6 +80,10 @@ import { buildCapabilityOperationEnvelope } from '@shared/authorization/operatio
 import { buildActiveCapabilityGrant } from '../authorization/domain';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  parseMpcMaterialActivationId,
+  type MpcMaterialActivationId,
+} from '@shared/utils/domainIds';
 
 const ED25519_SIGNING_INTENT_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/intent/v2';
 const ED25519_SIGNING_PAYLOAD_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/payload/v2';
@@ -201,7 +206,7 @@ export type RouterAbNormalSigningAdmissionInput =
       phase: 'prepare' | 'finalize';
       walletId: string;
       evmFamilySigningKeySlotId: string;
-      thresholdSessionId: string;
+      authorizationIdentity: RouterAbNormalSigningAuthorizationIdentity;
       signingGrantId: string;
       requestId: string;
       expiresAtMs: number;
@@ -279,7 +284,10 @@ export async function evaluateRouterAbNormalSigningAdmission(
     phase: input.phase,
     walletId: input.walletSessionAuth.userId,
     evmFamilySigningKeySlotId: input.walletSessionAuth.evmFamilySigningKeySlotId,
-    thresholdSessionId: input.walletSessionAuth.thresholdSessionId,
+    authorizationIdentity: {
+      kind: 'reusable_wallet_session',
+      walletSessionId: input.walletSessionAuth.thresholdSessionId,
+    },
     signingGrantId: input.walletSessionAuth.signingGrantId,
     requestId: input.admission.requestId,
     expiresAtMs: input.admission.expiresAtMs,
@@ -304,7 +312,7 @@ type RouterAbEd25519NormalSigningAuthorizationV2 =
 
 type RouterAbMpcMaterialActivationRefV1 = {
   readonly kind: 'mpc_material_activation_ref';
-  readonly activation_id: string;
+  readonly activation_id: MpcMaterialActivationId;
   readonly capability: string;
   readonly material_owner: string;
   readonly key_binding: string;
@@ -927,10 +935,7 @@ function requirePrivateSigningMaterialActivation(
   }
   return {
     kind: 'mpc_material_activation_ref',
-    activation_id: requirePrivateSigningString(
-      activation.activation_id,
-      'scope.material_activation.activation_id',
-    ),
+    activation_id: requireMpcMaterialActivationId(activation.activation_id),
     capability: requirePrivateSigningString(
       activation.capability,
       'scope.material_activation.capability',
@@ -952,6 +957,12 @@ function requirePrivateSigningMaterialActivation(
       'scope.material_activation.signing_worker',
     ),
   };
+}
+
+function requireMpcMaterialActivationId(value: unknown): MpcMaterialActivationId {
+  const parsed = parseMpcMaterialActivationId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
 }
 
 function requirePrivateSigningScope(value: unknown): RouterAbEd25519NormalSigningScopeV2 {
@@ -1707,7 +1718,10 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
     if (claimResult.kind === 'claimed') {
       const replay = await runtime.reservePrepareReplay({
         curve: 'ed25519',
-        thresholdSessionId: input.scope.material_activation.activation_id,
+        authorizationIdentity: {
+          kind: 'operation_step_up',
+          materialActivationId: input.scope.material_activation.activation_id,
+        },
         requestId: input.scope.request_id,
         expiresAtMs,
       });
@@ -2107,7 +2121,10 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
   if (input.phase === 'prepare') {
     const replay = await runtime.reservePrepareReplay({
       curve: 'ed25519',
-      thresholdSessionId: validated.walletSessionAuth.thresholdSessionId,
+      authorizationIdentity: {
+        kind: 'reusable_wallet_session',
+        walletSessionId: validated.walletSessionAuth.thresholdSessionId,
+      },
       requestId: admission.requestId,
       expiresAtMs: admission.expiresAtMs,
     });
@@ -2837,8 +2854,12 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
   readonly phase: 'prepare' | 'finalize';
 }): Promise<RouterAbJsonRouteResult> {
   let request: RouterAbEcdsaOperationStepUpRequest;
+  let materialActivationId: MpcMaterialActivationId;
   try {
     request = parseRouterAbEcdsaOperationStepUpRequest(input);
+    materialActivationId = requireMpcMaterialActivationId(
+      request.material_activation.activation_id,
+    );
   } catch (error: unknown) {
     return routerAbStepUpError(400, 'invalid_body', errorMessage(error));
   }
@@ -2871,7 +2892,10 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
     phase: input.phase,
     walletId: authenticated.session.walletId,
     evmFamilySigningKeySlotId: request.material_activation.key_binding,
-    thresholdSessionId: request.material_activation.activation_id,
+    authorizationIdentity: {
+      kind: 'operation_step_up',
+      materialActivationId,
+    },
     signingGrantId: request.authorization.grant_id,
     requestId: request.request_id,
     expiresAtMs: request.expires_at_ms,
@@ -2924,7 +2948,10 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
     if (claimFailure) return claimFailure;
     const replay = await input.runtime.reservePrepareReplay({
       curve: 'ecdsa',
-      thresholdSessionId: request.material_activation.activation_id,
+      authorizationIdentity: {
+        kind: 'operation_step_up',
+        materialActivationId,
+      },
       requestId: request.request_id,
       expiresAtMs: request.expires_at_ms,
     });
@@ -3086,7 +3113,10 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
     prepareClaim = claimed.claim;
     const replay = await runtime.reservePrepareReplay({
       curve: 'ecdsa',
-      thresholdSessionId: validated.walletSessionAuth.thresholdSessionId,
+      authorizationIdentity: {
+        kind: 'reusable_wallet_session',
+        walletSessionId: validated.walletSessionAuth.thresholdSessionId,
+      },
       requestId: admission.requestId,
       expiresAtMs: admission.expiresAtMs,
     });
