@@ -15,8 +15,6 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { type EvmFamilyEcdsaKeyIdentity } from '../../session/identity/evmFamilyEcdsaIdentity';
-import type { EvmFamilyEcdsaAuthMethod } from '../../session/identity/evmFamilyEcdsaIdentity';
-export type { EvmFamilyEcdsaAuthMethod } from '../../session/identity/evmFamilyEcdsaIdentity';
 import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
 
 export type ResolvedEvmFamilyEcdsaSigningLane = EcdsaTransactionSigningLane & {
@@ -147,7 +145,3 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
 // lifecycle Refactor 90 deletes. Material is selected by manifest and sealed
 // runtime now, so a lane's identity never changes underneath it and there is
 // nothing to update in place. It had no production callers.
-
-// `requireEvmFamilyEcdsaAuthMethod` is gone with its callers: the auth method
-// is no longer optional anywhere on the planning path, so there is nothing to
-// assert present.

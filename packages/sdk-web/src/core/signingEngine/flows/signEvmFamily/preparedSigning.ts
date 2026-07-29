@@ -68,16 +68,15 @@ import {
 import {
   requireResolvedEvmFamilyEcdsaSigningLane,
   summarizeEvmFamilyEcdsaLane,
-  type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import {
-  ecdsaCommittedLaneAuthMethod,
   resolveEvmFamilyEcdsaSigningSelection,
   type EvmFamilyEcdsaSigningSelectionDeps,
   type ReadyEvmFamilyEcdsaSigningSelection,
   type ReauthRequiredEvmFamilyEcdsaSigningSelection,
 } from './ecdsaSelection';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { EvmFamilyPreConfirmSigningDeps } from './authPlanning';
 import { resolveEvmFamilyTransactionWalletAuth } from './accountAuth';
 import type { EvmFamilySigningTarget } from './types';
@@ -112,7 +111,7 @@ export function buildEvmFamilyTransactionSigningIntent(args: {
 }
 
 export function resolveEvmFamilyTransactionAuthSelectionPolicy(args: {
-  candidateAuthMethod?: EvmFamilyEcdsaAuthMethod;
+  candidateAuthMethod?: WalletAuthAuthority['factor']['kind'];
 }): TransactionAuthSelectionPolicy {
   return args.candidateAuthMethod
     ? { kind: 'account_class', authMethod: args.candidateAuthMethod }
@@ -122,8 +121,8 @@ export function resolveEvmFamilyTransactionAuthSelectionPolicy(args: {
 function singleConcreteAuthMethodForEcdsaTarget(args: {
   availableLanes: AvailableSigningLanes;
   signingTarget: EvmFamilySigningTarget;
-}): EvmFamilyEcdsaAuthMethod | undefined {
-  const authMethods = new Set<EvmFamilyEcdsaAuthMethod>();
+}): WalletAuthAuthority['factor']['kind'] | undefined {
+  const authMethods = new Set<WalletAuthAuthority['factor']['kind']>();
   for (const lane of ecdsaAvailableLaneCandidatesForTarget(
     args.availableLanes,
     args.signingTarget,
@@ -236,7 +235,7 @@ function assertSelectionMatchesLaneCandidate(args: {
 }): void {
   const candidate = args.candidate;
   const candidateAuthMethod = laneCandidateAuthMethod(candidate);
-  const committedAuthMethod = ecdsaCommittedLaneAuthMethod(args.selection.committedLane);
+  const committedAuthMethod = args.selection.committedLane.authority.factor.kind;
   if (candidateAuthMethod !== committedAuthMethod) {
     throw new Error(
       `[SigningEngine][ecdsa] prepared auth method ${candidateAuthMethod} did not match committed lane auth method ${committedAuthMethod}`,
@@ -343,7 +342,7 @@ function readinessFromSelection(
 
 type PreparedEvmFamilyEcdsaMetadata = {
   accountAuth: AccountAuthMetadata;
-  authMethod: EvmFamilyEcdsaAuthMethod;
+  authMethod: WalletAuthAuthority['factor']['kind'];
   source: ThresholdEcdsaSessionStoreSource;
   selection: ReadyEvmFamilyEcdsaSigningSelection | ReauthRequiredEvmFamilyEcdsaSigningSelection;
   materialBinding: {
@@ -389,7 +388,7 @@ function assertPreparedMaterialBindingMatchesOperation(args: {
 export type AuthorizedEvmFamilyEcdsaSigningSession = {
   kind: 'authorized';
   accountAuth: AccountAuthMetadata;
-  authMethod: EvmFamilyEcdsaAuthMethod;
+  authMethod: WalletAuthAuthority['factor']['kind'];
   source: ThresholdEcdsaSessionStoreSource;
   selection: ReadyEvmFamilyEcdsaSigningSelection | ReauthRequiredEvmFamilyEcdsaSigningSelection;
   availableLanesGeneration: number;
@@ -411,7 +410,7 @@ export type AuthorizedEvmFamilyEcdsaSigningSession = {
  * capability's own factor and the grant is attached after confirmation. */
 export type AuthorizationRequiredEvmFamilyEcdsaSigningSession = {
   kind: 'authorization_required';
-  authMethod: EvmFamilyEcdsaAuthMethod;
+  authMethod: WalletAuthAuthority['factor']['kind'];
   availableLanesGeneration: number;
   identity: ExactEcdsaSigningLaneIdentity;
   candidate: AuthorizationRequiredEcdsaLaneCandidate;

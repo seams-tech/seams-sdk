@@ -81,9 +81,9 @@ import { throwIfEvmFamilySigningCancelled } from './errors';
 import {
   requireResolvedEvmFamilyEcdsaSigningLane,
   summarizeEvmFamilyEcdsaLane,
-  type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { EmailOtpEcdsaCommittedLane } from './ecdsaSelection';
 import { resolveEvmFamilyTransactionWalletAuth } from './accountAuth';
 import {
@@ -317,7 +317,7 @@ async function signEvmFamilyAttempt(
 
   let accountAuth: AccountAuthMetadata | undefined;
   let ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane | undefined;
-  let selectedEcdsaAuthMethod: EvmFamilyEcdsaAuthMethod | undefined;
+  let selectedEcdsaAuthMethod: WalletAuthAuthority['factor']['kind'] | undefined;
   let preparedEcdsaSigningSession: PreparedEvmFamilyEcdsaSigningSession | undefined;
   const ecdsaAttemptDiagnostics: Record<string, unknown> = {
     walletId,
