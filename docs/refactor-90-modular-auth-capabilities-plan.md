@@ -268,8 +268,9 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
       for each capability and return the shared outcome union.
 - [x] Delete authentication-method inference from canonical ECDSA lane
       selection.
-- [ ] Delete remaining JWT-presence and optional-ID inference from core
-      transitions.
+- [x] Delete JWT-payload inference from normal signing and worker orchestration;
+      retain token decoding only in boundary parsers.
+- [ ] Delete remaining optional-ID inference from core transitions.
 - [x] Add boundary and lifecycle tests for missing, mixed, stale, and exact
       subjects.
 
@@ -656,6 +657,8 @@ the replacement and legacy MPC paths must not ship together.
       exports.
 - [x] Delete the zero-caller Router A/B ECDSA refresh-client-proof worker
       operation across its wrapper, channel, type map, and worker dispatch.
+- [x] Delete the unreachable Email OTP `session_bootstrap` worker branch and
+      require registration-attempt identity as an explicit worker input.
 - [ ] Preserve existing import/export and bundle guards.
 - [ ] Split no worker or bundle without measured evidence.
 - [ ] Verify generic orchestration cannot import secret-bearing worker
