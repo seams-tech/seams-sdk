@@ -22,6 +22,12 @@ import {
 } from '@shared/utils/normalize';
 import { ensureEd25519Prefix, isObject, requireTrimmedString } from '@shared/utils/validation';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
+import {
+  parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+  type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 
 export async function fetchNonceBlockHashAndHeight({
   nearClient,
@@ -212,17 +218,66 @@ export async function checkNearAccountExistsBestEffort(
   return false;
 }
 
+export type OidcSessionExchangeInput = {
+  type: 'oidc_jwt';
+  token: string;
+  ecdsaSessionActivation?: never;
+};
+
+type PasskeySessionExchangeInputCore = {
+  type: 'passkey_assertion';
+  challengeId: string;
+  webauthn_authentication: WebAuthnAuthenticationCredential;
+  expected_origin?: string;
+};
+
+export type PasskeySessionExchangeInputWithoutEcdsaActivation = PasskeySessionExchangeInputCore & {
+  ecdsaSessionActivation?: never;
+};
+
+export type PasskeySessionExchangeInputWithEcdsaActivation = PasskeySessionExchangeInputCore & {
+  ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+};
+
 export type SessionExchangeInput =
-  | {
-      type: 'oidc_jwt';
-      token: string;
-    }
-  | {
-      type: 'passkey_assertion';
-      challengeId: string;
-      webauthn_authentication: WebAuthnAuthenticationCredential;
-      expected_origin?: string;
-    };
+  | OidcSessionExchangeInput
+  | PasskeySessionExchangeInputWithoutEcdsaActivation
+  | PasskeySessionExchangeInputWithEcdsaActivation;
+
+type SessionExchangeFailure = {
+  success: false;
+  jwt?: never;
+  sessionUserId?: never;
+  sessionExpiresAt?: never;
+  ecdsaSession?: never;
+  error: string;
+};
+
+type SessionExchangeSuccessCore = {
+  success: true;
+  jwt?: string;
+  sessionUserId?: string;
+  sessionExpiresAt?: string;
+  error?: never;
+};
+
+export type SessionExchangeSuccessWithoutEcdsaActivation = SessionExchangeSuccessCore & {
+  ecdsaSession?: never;
+};
+
+export type SessionExchangeSuccessWithEcdsaActivation = SessionExchangeSuccessCore & {
+  ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+};
+
+export type SessionExchangeResult =
+  | SessionExchangeFailure
+  | SessionExchangeSuccessWithoutEcdsaActivation
+  | SessionExchangeSuccessWithEcdsaActivation;
+
+export type SessionExchangeResultFor<Input extends SessionExchangeInput> =
+  Input extends PasskeySessionExchangeInputWithEcdsaActivation
+    ? SessionExchangeFailure | SessionExchangeSuccessWithEcdsaActivation
+    : SessionExchangeFailure | SessionExchangeSuccessWithoutEcdsaActivation;
 
 export type SessionExchangeRuntimeScope =
   | {
@@ -285,19 +340,20 @@ function assertNeverSessionExchangeRuntimeScope(value: never): never {
   throw new Error(`Unsupported session exchange runtime scope: ${JSON.stringify(value)}`);
 }
 
+export function exchangeSession<Input extends SessionExchangeInput>(
+  relayServerUrl: string,
+  routePath: string,
+  sessionKind: 'jwt' | 'cookie',
+  input: Input,
+  runtimeScope: SessionExchangeRuntimeScope,
+): Promise<SessionExchangeResultFor<Input>>;
 export async function exchangeSession(
   relayServerUrl: string,
   routePath: string,
   sessionKind: 'jwt' | 'cookie',
   input: SessionExchangeInput,
   runtimeScope: SessionExchangeRuntimeScope,
-): Promise<{
-  success: boolean;
-  jwt?: string;
-  sessionUserId?: string;
-  sessionExpiresAt?: string;
-  error?: string;
-}> {
+): Promise<SessionExchangeResult> {
   try {
     const exchangeType = String(input?.type || '')
       .trim()
@@ -332,6 +388,14 @@ export async function exchangeSession(
           webauthnAuthentication as WebAuthnAuthenticationCredential,
         ),
         ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
+        ...(input.ecdsaSessionActivation
+          ? {
+              ecdsa_session_activation:
+                parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
+                  input.ecdsaSessionActivation,
+                ),
+            }
+          : {}),
       };
     } else {
       throw new Error('Unsupported exchange.type');
@@ -379,6 +443,28 @@ export async function exchangeSession(
         ? String(sessionObj.expiresAt)
         : undefined;
     const jwt = typeof data.jwt === 'string' ? data.jwt : undefined;
+    const requestedEcdsaActivation =
+      input.type === 'passkey_assertion' && input.ecdsaSessionActivation !== undefined;
+    let ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | undefined;
+    if (requestedEcdsaActivation) {
+      if (data.ecdsaSession === undefined) {
+        throw new Error('Session exchange omitted the requested ECDSA Wallet Session activation');
+      }
+      ecdsaSession = parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
+        data.ecdsaSession,
+      );
+    } else if (data.ecdsaSession !== undefined) {
+      throw new Error('Session exchange returned an unrequested ECDSA Wallet Session activation');
+    }
+    if (ecdsaSession) {
+      return {
+        success: true,
+        ...(sessionUserId ? { sessionUserId } : {}),
+        ...(sessionExpiresAt ? { sessionExpiresAt } : {}),
+        ...(jwt ? { jwt } : {}),
+        ecdsaSession,
+      };
+    }
     return {
       success: true,
       ...(sessionUserId ? { sessionUserId } : {}),

@@ -14,6 +14,17 @@ import {
   type HostedWalletSeamsSessionExchangeNonce,
   type SessionOrigin,
 } from '../authorization/domain';
+import {
+  parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+
+export type PasskeySessionExchangeEcdsaActivation =
+  | { kind: 'no_ecdsa_activation' }
+  | {
+      kind: 'activate_first_ecdsa_wallet_session';
+      request: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+    };
 
 export type SessionExchangeRouteCommand =
   | {
@@ -30,6 +41,7 @@ export type SessionExchangeRouteCommand =
       sessionKind: 'jwt' | 'cookie';
       challengeId: string;
       webauthnAuthentication: WebAuthnAuthenticationCredential;
+      ecdsaActivation: PasskeySessionExchangeEcdsaActivation;
       expectedOrigin?: string;
       projectEnvironmentId?: string;
     }
@@ -70,6 +82,7 @@ const PASSKEY_EXCHANGE_KEYS = [
   'challengeId',
   'webauthn_authentication',
   'expected_origin',
+  'ecdsa_session_activation',
 ] as const;
 const HOSTED_WALLET_EXCHANGE_KEYS = ['type', 'wallet_origin'] as const;
 const HOSTED_WALLET_REDEEM_KEYS = ['type', 'exchange_code', 'nonce'] as const;
@@ -272,6 +285,25 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
     );
   }
   const expectedOrigin = toOptionalTrimmedString(exchange.expected_origin) || undefined;
+  let ecdsaActivation: PasskeySessionExchangeEcdsaActivation = {
+    kind: 'no_ecdsa_activation',
+  };
+  if (exchange.ecdsa_session_activation !== undefined) {
+    try {
+      ecdsaActivation = {
+        kind: 'activate_first_ecdsa_wallet_session',
+        request: parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
+          exchange.ecdsa_session_activation,
+        ),
+      };
+    } catch (error: unknown) {
+      return invalidSessionExchangeBody(
+        error instanceof Error ? error.message : 'ECDSA Wallet Session activation is invalid',
+        exchangeType,
+        sessionKind,
+      );
+    }
+  }
   return {
     ok: true,
     command: {
@@ -279,6 +311,7 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
       sessionKind,
       challengeId,
       webauthnAuthentication,
+      ecdsaActivation,
       ...(expectedOrigin ? { expectedOrigin } : {}),
       ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
     },

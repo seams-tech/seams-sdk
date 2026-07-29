@@ -15,8 +15,12 @@ import type {
 import { deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform/types';
-import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationPublicCapabilityV1,
+  RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
+  adoptStrictEcdsaPostRegistrationSession,
   activateStrictEcdsaPostRegistrationSession,
   type ExistingEcdsaRoleLocalActivation,
 } from './postRegistrationSessionActivation';
@@ -127,12 +131,8 @@ type BootstrapEcdsaRegistrationArgs = BootstrapEcdsaSessionBaseArgs &
     publicCapability?: never;
   };
 
-type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaSessionBaseArgs &
+type BootstrapEcdsaExactSessionArgsBase = BootstrapEcdsaSessionBaseArgs &
   BootstrapEcdsaSessionAuthArgs & {
-    bootstrapAuth: Extract<
-      ThresholdEcdsaDerivationRouteAuth,
-      { kind: 'wallet_session' }
-    >;
     keyHandle: EvmFamilyEcdsaKeyHandle;
     key: EvmFamilyEcdsaKeyIdentity;
     lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
@@ -143,6 +143,18 @@ type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaSessionBaseArgs &
     sessionId?: never;
     signingGrantId?: never;
   };
+
+type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaExactSessionArgsBase &
+  (
+    | {
+        bootstrapAuth: Extract<ThresholdEcdsaDerivationRouteAuth, { kind: 'wallet_session' }>;
+        sessionActivation?: never;
+      }
+    | {
+        sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        bootstrapAuth?: never;
+      }
+  );
 
 type BootstrapEcdsaSessionArgs = BootstrapEcdsaRegistrationArgs | BootstrapEcdsaExactSessionArgs;
 
@@ -256,9 +268,7 @@ async function bootstrapStrictExistingEcdsaSession(
   if (!runtimePolicyScope) {
     throw new Error('Strict ECDSA session activation requires runtimePolicyScope');
   }
-  const strict = await activateStrictEcdsaPostRegistrationSession({
-    relayerUrl: args.relayerUrl,
-    routeAuth: args.bootstrapAuth,
+  const strictInput = {
     workerCtx: args.workerCtx,
     publicCapability: args.publicCapability,
     persistedRoleLocalMaterial: args.existingRoleLocalMaterial,
@@ -268,7 +278,17 @@ async function bootstrapStrictExistingEcdsaSession(
     ttlMs: args.lanePolicy.ttlMs,
     remainingUses: args.lanePolicy.remainingUses,
     runtimePolicyScope,
-  });
+  };
+  const strict = args.sessionActivation
+    ? await adoptStrictEcdsaPostRegistrationSession({
+        ...strictInput,
+        sessionActivation: args.sessionActivation,
+      })
+    : await activateStrictEcdsaPostRegistrationSession({
+        ...strictInput,
+        relayerUrl: args.relayerUrl,
+        routeAuth: args.bootstrapAuth,
+      });
   const capability = strict.sessionActivation.public_capability;
   const publicIdentity = capability.public_identity;
   const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({

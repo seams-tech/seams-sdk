@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { exchangeSession } from '@/core/rpcClients/near/rpcCalls';
+import {
+  parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 
 type CapturedFetch = {
   url: string;
@@ -13,6 +18,52 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+function ecdsaSessionActivationFixture() {
+  const bootstrap = createThresholdEcdsaBootstrapFixture({
+    nearAccountId: 'carol.testnet',
+    chain: 'evm',
+    sessionId: 'passkey-exchange-session',
+  });
+  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  if (!binding || binding.materialKind !== 'role_local_worker_handle') {
+    throw new Error('expected passkey ECDSA role-local fixture');
+  }
+  const runtimePolicyScope = bootstrap.session.runtimePolicyScope;
+  const walletSessionJwt = bootstrap.session.jwt;
+  const normalSigning = bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning;
+  if (!runtimePolicyScope || !walletSessionJwt || !normalSigning) {
+    throw new Error('expected complete ECDSA Wallet Session fixture');
+  }
+  return {
+    request: parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1({
+      kind: 'router_ab_ecdsa_post_registration_session_activation_v1',
+      public_capability: binding.publicFacts.publicCapability,
+      session_policy: {
+        threshold_session_id: bootstrap.session.thresholdSessionId,
+        signing_grant_id: bootstrap.session.signingGrantId,
+        ttl_ms: 120_000,
+        remaining_uses: bootstrap.session.remainingUses,
+        runtime_policy_scope: runtimePolicyScope,
+      },
+    }),
+    response: parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1({
+      kind: 'router_ab_ecdsa_post_registration_session_activated_v1',
+      public_capability: binding.publicFacts.publicCapability,
+      session: {
+        authorization_session_id: bootstrap.session.authorizationSessionId,
+        threshold_session_id: bootstrap.session.thresholdSessionId,
+        signing_grant_id: bootstrap.session.signingGrantId,
+        wallet_session_id: bootstrap.session.walletSessionId,
+        quota_id: bootstrap.session.quotaId,
+        expires_at_ms: bootstrap.session.expiresAtMs,
+        remaining_uses: bootstrap.session.remainingUses,
+        wallet_session_jwt: walletSessionJwt,
+      },
+      normal_signing: normalSigning,
+    }),
+  };
 }
 
 test.describe('exchangeSession', () => {
@@ -192,6 +243,82 @@ test.describe('exchangeSession', () => {
         ((credential.response || {}) as Record<string, unknown>).clientExtensionResults,
       ).toBeNull();
       expect(captured[0]!.init?.credentials).toBe('include');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('correlates a passkey exchange with its requested first ECDSA Wallet Session', async () => {
+    const originalFetch = globalThis.fetch;
+    const captured: CapturedFetch[] = [];
+    const activation = ecdsaSessionActivationFixture();
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        captured.push({ url: String(input), init });
+        return jsonResponse({
+          ok: true,
+          session: { kind: 'app_session_v1', userId: 'carol.testnet' },
+          ecdsaSession: activation.response,
+        });
+      }) as typeof fetch;
+
+      const result = await exchangeSession(
+        'https://relay.example',
+        '/session/exchange',
+        'jwt',
+        {
+          type: 'passkey_assertion',
+          challengeId: 'challenge-passkey-activation-1',
+          webauthn_authentication: sampleWebauthnCredential as any,
+          ecdsaSessionActivation: activation.request,
+        },
+        UNSCOPED_SESSION_EXCHANGE,
+      );
+
+      expect(result.success).toBe(true);
+      if (!result.success) throw new Error(result.error);
+      expect(result.ecdsaSession).toEqual(activation.response);
+      const body = JSON.parse(String(captured[0]!.init?.body || '{}')) as Record<string, unknown>;
+      expect((body.exchange as Record<string, unknown>).ecdsa_session_activation).toEqual(
+        activation.request,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('fails closed when a requested ECDSA Wallet Session result is absent or malformed', async () => {
+    const originalFetch = globalThis.fetch;
+    const activation = ecdsaSessionActivationFixture();
+    try {
+      for (const ecdsaSession of [undefined, { kind: 'wrong_kind' }]) {
+        globalThis.fetch = (async () =>
+          jsonResponse({
+            ok: true,
+            session: { kind: 'app_session_v1', userId: 'carol.testnet' },
+            ...(ecdsaSession === undefined ? {} : { ecdsaSession }),
+          })) as typeof fetch;
+
+        const result = await exchangeSession(
+          'https://relay.example',
+          '/session/exchange',
+          'jwt',
+          {
+            type: 'passkey_assertion',
+            challengeId: 'challenge-passkey-activation-2',
+            webauthn_authentication: sampleWebauthnCredential as any,
+            ecdsaSessionActivation: activation.request,
+          },
+          UNSCOPED_SESSION_EXCHANGE,
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain(
+          ecdsaSession === undefined
+            ? 'omitted the requested ECDSA Wallet Session activation'
+            : 'postRegistrationSessionActivated.kind is invalid',
+        );
+      }
     } finally {
       globalThis.fetch = originalFetch;
     }

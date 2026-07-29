@@ -213,9 +213,7 @@ function sealedRestoreFailureFromError(args: {
   };
 }
 
-function sealedRestoreFailureCodeFromError(
-  error: unknown,
-): ReuseWarmEcdsaBootstrapFailure['code'] {
+function sealedRestoreFailureCodeFromError(error: unknown): ReuseWarmEcdsaBootstrapFailure['code'] {
   const walletSessionFailure = walletSessionFailureFromError(error);
   if (walletSessionFailure) {
     switch (walletSessionFailure.kind) {
@@ -328,6 +326,7 @@ export async function bootstrapWarmEcdsaCapabilityResult(
       };
     }
     case 'passkey_fresh_ecdsa_bootstrap':
+    case 'passkey_exchange_ecdsa_bootstrap':
     case 'wallet_session_reconnect_ecdsa_bootstrap':
     case 'email_otp_ecdsa_bootstrap':
       return {
