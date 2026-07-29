@@ -235,7 +235,10 @@ type WalletRegistrationActivateAuthWorkV2 =
   | {
       authMethod: 'email_otp';
       emailOtpEnrollment: NonNullable<FinalizeRequestBase['emailOtpEnrollment']>;
-      emailOtpBackupAck?: FinalizeRequestBase['emailOtpBackupAck'];
+      /* Required, not optional: the commit refuses enrollment without the
+         backup acknowledgement, because issuing recovery codes the user never
+         confirmed saving is how an account becomes unrecoverable. */
+      emailOtpBackupAck: NonNullable<FinalizeRequestBase['emailOtpBackupAck']>;
     };
 
 type WalletRegistrationActivateRequestBaseV2 = {
