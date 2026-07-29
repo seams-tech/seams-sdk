@@ -212,10 +212,6 @@ also derives the authority-bound Yao admission and returns the deferred
 provisioning work. The client starts that work after proof verification without
 awaiting it for wallet readiness.
 
-When the signer plan includes NEAR, respond also derives the authority-bound
-Yao admission and returns the deferred provisioning work. The client starts
-that work after proof verification without awaiting it for wallet readiness.
-
 Role-private state owns exact retry and partial-role convergence. Remove the
 Gateway claim/terminal pair after one focused test proves that an identical
 retry following a lost or partial response returns the exact role results and
@@ -406,9 +402,9 @@ command, dual read, legacy binding, or compatibility route ships.
       integration branch first; merge Claude's product commits second.
 - [x] Resolve generated-binding and call-site conflicts without retaining the
       old topology or adding compatibility branches.
-- [ ] Prove registration and ordinary signing contain zero DO calls and
+- [x] Prove registration and ordinary signing contain zero DO calls and
       registration contains exactly three blocking server routes.
-- [ ] Run the minimum validation below and fix only observed failures in the
+- [x] Run the focused operating-path validation below and fix only observed failures in the
       new operating path.
 
 No mixed-topology revision is deployed.
@@ -439,12 +435,29 @@ Required evidence:
 - [x] One focused role test for identical retry, partial completion, and
       conflicting fingerprint.
 - [x] One custody test showing wrong-role or wrong-KEK ciphertext fails closed.
-- [ ] Existing focused registration, recovery, export, and signing tests
+- [x] Existing focused registration, recovery, export, add-signer, and signing tests
       affected by the changed adapters.
 - [ ] `pnpm check`, `cargo test -p router-ab-cloudflare`, and
       `git diff --check` before staging.
 - [ ] One manual Email OTP and one passkey registration in local, staging, and
       production.
+
+Integration evidence at `4d8d8741a`:
+
+- the SDK calls only setup, respond, activate, and asynchronous
+  near-provisioning; the blocking ceremony test observes setup, respond, and
+  activate exactly once and observes no standalone finalize;
+- Gateway registration and normal-signing adapters contain no Durable Object
+  access; Router and both Derivers have no Durable Object binding; the
+  SigningWorker retains only its non-blocking ephemeral presign-session binding;
+- Router is stateless, both Derivers use separate private D1 bindings, and the
+  SigningWorker uses its private D1 binding for activation, delivery, sessions,
+  budgets, and presign persistence;
+- 111 focused registration, recovery, export, add-signer, and ordinary-signing
+  tests passed, followed by 30 focused three-route and timing tests;
+- both `sdk-server-ts` and `sdk-web` typechecks pass and `git diff --check` is
+  clean. The repository-wide check remains open because the unrelated
+  `apps/web-server` branch has its existing 19-error typecheck baseline.
 
 Classify existing failing tests under `AGENTS.md`. Delete fixtures that encode
 the retired DO topology.
