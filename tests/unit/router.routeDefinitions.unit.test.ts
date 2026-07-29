@@ -98,7 +98,7 @@ test.describe('route definition scaffolding', () => {
     expect(walletAddAuthMethodIntent).toBeTruthy();
     expect(walletAddAuthMethodIntent?.auth).toMatchObject({
       plane: 'api_credentials',
-      credentials: ['secret_key', 'bootstrap_token'],
+      credentials: ['publishable_key'],
       scopes: ['wallets.auth_methods.create'],
     });
     expect(walletAddAuthMethodIntent?.metering).toEqual({ kind: 'none' });
