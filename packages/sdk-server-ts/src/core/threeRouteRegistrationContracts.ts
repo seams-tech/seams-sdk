@@ -161,26 +161,21 @@ export type WalletRegistrationRespondSignerPlanV2 =
        * Ed25519-only: no ECDSA leg ran, so there is no proof bundle — `ecdsa`
        * is `never`, not an empty object.
        *
-       * The admission is `blocking`, not `deferred`. On a mixed plan the
-       * wallet is already usable on ECDSA, so Yao can settle in the
-       * background; here Yao *is* the wallet, and the client must complete the
-       * ceremony before activate has anything to persist.
+       * The admission is deferred, exactly as on a mixed plan. Yao being the
+       * wallet's sole signer is not a reason to block on it: the client starts
+       * the computation and calls activate without awaiting it, and the wallet
+       * exists in `near_pending` until Yao produces its signer. There is
+       * deliberately no second, blocking Yao lifecycle.
        */
       kind: 'near_ed25519';
       ecdsa?: never;
-      ed25519: RespondEd25519BlockingWorkV2;
+      ed25519: RespondEd25519DeferredWorkV2;
     };
 
 /** Exact A/B role bundles, unchanged from the derivation respond leg. */
 export type RespondEcdsaProofBundles = {
   kind: 'router_ab_ecdsa_registration_forwarded_v1';
   strictResult: unknown; // RouterAbEcdsaStrictForwardedRegistrationResponseV1; bound at the parser
-};
-
-export type RespondEd25519BlockingWorkV2 = {
-  status: 'blocking';
-  admissionRequest: RespondEd25519DeferredWorkV2['admissionRequest'];
-  admissionReceipt: RespondEd25519DeferredWorkV2['admissionReceipt'];
 };
 
 export type RespondEd25519DeferredWorkV2 = {
@@ -224,16 +219,35 @@ type Ed25519FinalizeSuccess = Extract<
   { ok: true; kind: 'near_ed25519' }
 >;
 
+/**
+ * Activate's Ed25519-only terminal result: a wallet that exists and cannot
+ * yet sign.
+ *
+ * Activate does not wait for Yao. It persists the wallet, profile, and
+ * authentication state plus the `near_pending` provisioning record, and that
+ * pending response is the stored terminal — an exact retry returns it
+ * unchanged. Every field that only completed Yao can produce is `never`, so a
+ * caller cannot read a signer, a resolved account, or a key identity that does
+ * not exist yet. The wallet becomes signable when deferred Yao reaches
+ * `near_ready`.
+ */
+export type WalletRegistrationActivateEd25519PendingV2 = Omit<
+  Ed25519FinalizeSuccess,
+  'ed25519' | 'resolvedAccount' | 'accountProvisioning' | 'authorityScope'
+> & {
+  nearProvisioning: { status: 'near_pending' };
+  ed25519?: never;
+  resolvedAccount?: never;
+  accountProvisioning?: never;
+  authorityScope?: never;
+  ecdsa?: never;
+};
+
 export type WalletRegistrationActivateResponseV2 =
   | (Omit<EcdsaFinalizeSuccess, 'ecdsa'> & {
       ecdsa: ActivateEcdsaTerminalPayload;
       /** Mixed plans: deferred NEAR snapshot; never identifiers before readiness. */
-      nearProvisioning?: { status: 'pending' };
+      nearProvisioning?: { status: 'near_pending' };
     })
-  /**
-   * Ed25519-only: activate consumes the Yao activation the client completed
-   * and persists the signer and wallet. The NEAR account is resolved here
-   * rather than pending, because for this plan there is nothing left to defer.
-   */
-  | (Ed25519FinalizeSuccess & { nearProvisioning?: never })
+  | WalletRegistrationActivateEd25519PendingV2
   | WalletRegistrationRouteErrorV2;

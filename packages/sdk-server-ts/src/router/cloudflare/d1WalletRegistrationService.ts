@@ -1,3 +1,4 @@
+import type { WalletRegistrationAuthorityInput } from '../../core/registrationContracts';
 import {
   computeRegistrationIntentDigestB64u,
   findRegistrationSignerPlanEvmFamilyEcdsaBranch,
@@ -2468,6 +2469,24 @@ export class CloudflareD1WalletRegistrationService {
       }
 
       const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
+      const planNearEd25519 = registrationSignerBranchesFromPlan(ceremony.signerPlan).nearEd25519;
+      if (!ecdsaBranch && !planNearEd25519) {
+        return { ok: false, code: 'invalid_state', message: 'a signer branch is required' };
+      }
+      if (!ecdsaBranch && planNearEd25519) {
+        /* Ed25519-only: no ECDSA leg to run. Verify the proof, establish the
+           authority, and hand back the authority-bound Yao admission as
+           deferred work — the client starts the computation and calls activate
+           without awaiting it. */
+        return await this.respondEd25519OnlyRegistration({
+          snapshot,
+          ceremony,
+          branch: planNearEd25519,
+          authorityInput: input.authority,
+          expectedOrigin,
+          ...(input.userAgent ? { userAgent: input.userAgent } : {}),
+        });
+      }
       if (!ecdsaBranch) {
         return { ok: false, code: 'invalid_state', message: 'ECDSA branch is required' };
       }
@@ -2647,6 +2666,80 @@ export class CloudflareD1WalletRegistrationService {
         message: errorMessage(error) || 'Failed to respond to wallet registration ceremony',
       };
     }
+  }
+
+  /**
+   * Ed25519-only respond. The wallet's sole signer is Yao, and that is
+   * deliberately not a reason to block: the admission is returned as deferred
+   * work exactly as on a mixed plan, and the wallet lives in `near_pending`
+   * until the computation completes.
+   */
+  private async respondEd25519OnlyRegistration(input: {
+    readonly snapshot: { readonly ceremony: StoredWalletRegistrationCeremony; readonly version: number };
+    readonly ceremony: StoredWalletRegistrationCeremony;
+    readonly branch: RegistrationNearEd25519SignerPlan;
+    readonly authorityInput: WalletRegistrationAuthorityInput;
+    readonly expectedOrigin: string;
+    readonly userAgent?: string;
+  }): Promise<WalletRegistrationRespondResponseV2> {
+    const ceremony = input.ceremony;
+    /* Exact replay: the admission already exists, so return it rather than
+       admitting a second time. */
+    const stored = storedRespondEd25519DeferredWork(ceremony.signerState);
+    if (stored) {
+      return {
+        ok: true,
+        registrationCeremonyId: ceremony.registrationCeremonyId,
+        kind: 'near_ed25519',
+        ed25519: stored,
+      };
+    }
+    const verifiedAuthority = await this.walletAuthMethods.verifyRegistrationAuthorityForIntent({
+      orgId: ceremony.orgId,
+      authority: input.authorityInput,
+      expectedDigestB64u: ceremony.digestB64u,
+      expectedOrigin: input.expectedOrigin,
+      intent: ceremony.intent,
+      verificationOperationId: ceremony.registrationCeremonyId,
+      verificationReceiptExpiresAtMs: ceremony.expiresAtMs,
+      ...(input.userAgent ? { userAgent: input.userAgent } : {}),
+    });
+    if (!verifiedAuthority.ok) {
+      return { ok: false, code: verifiedAuthority.code, message: verifiedAuthority.message };
+    }
+    const authority = verifiedAuthority.authority;
+    if (authority.walletId !== ceremony.intent.walletId) {
+      return {
+        ok: false,
+        code: 'scope_mismatch',
+        message: 'registration authority walletId does not match the ceremony',
+      };
+    }
+    const admitted = await this.admitRespondEd25519Branch({
+      ceremony,
+      branch: input.branch,
+      authority,
+    });
+    if (!admitted.ok) return { ok: false, code: admitted.code, message: admitted.message };
+    if (!admitted.branch || !admitted.deferred) {
+      return { ok: false, code: 'internal', message: 'Ed25519 admission produced no branch' };
+    }
+    /* One write, as on the ECDSA path: the verified authority and the admitted
+       branch commit together. */
+    await this.getRegistrationCeremonyIntentStore().commitEcdsaClaim({
+      expected: input.snapshot,
+      next: {
+        ...ceremony,
+        authorityState: { kind: 'verified', authority },
+        signerState: { kind: 'signer_set_registration', branches: [admitted.branch] },
+      },
+    });
+    return {
+      ok: true,
+      registrationCeremonyId: ceremony.registrationCeremonyId,
+      kind: 'near_ed25519',
+      ed25519: admitted.deferred,
+    };
   }
 
   /**
