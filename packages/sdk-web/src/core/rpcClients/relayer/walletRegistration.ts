@@ -2337,14 +2337,24 @@ export async function createWalletAddSignerIntent(args: {
   relayerUrl: string;
   walletId: WalletId;
   request: CreateAddSignerIntentRequest;
+  auth: { publishableKey: string; environmentId: string };
   headers?: Record<string, string>;
 }): Promise<CreateAddSignerIntentResponse> {
   const walletId = String(args.walletId || '').trim();
   if (!walletId) throw new Error('walletId is required for add-signer intent');
+  const publishableKey = String(args.auth.publishableKey || '').trim();
+  const environmentId = String(args.auth.environmentId || '').trim();
+  if (!publishableKey || !environmentId) {
+    throw new Error('add-signer intent requires a publishable key and environment id');
+  }
   return await postJson<CreateAddSignerIntentResponse>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/signers/intent`,
-    headers: args.headers,
+    headers: {
+      ...args.headers,
+      Authorization: `Bearer ${publishableKey}`,
+      [ROUTER_API_ENVIRONMENT_ID_HEADER]: environmentId,
+    },
     body: args.request,
   });
 }
@@ -2661,20 +2671,24 @@ type ActivateTerminalEcdsaPayload = Extract<
  * this arm — a pending wallet with no provisioning state would be
  * indistinguishable from one that never needed NEAR.
  */
-export type WalletRegistrationActivateEd25519PendingV2 = Extract<
-  WalletRegistrationFinalizeResponse,
-  { ok: true; kind: 'near_ed25519' }
+export type WalletRegistrationActivateEd25519PendingV2 = Omit<
+  Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'near_ed25519' }>,
+  'ed25519' | 'resolvedAccount' | 'accountProvisioning' | 'authorityScope'
 > & {
   /* Required, not optional: a pending Ed25519-only wallet with no provisioning
      state would be indistinguishable from one that never needed NEAR. */
   nearProvisioning: { status: 'near_pending' };
+  ed25519?: never;
+  resolvedAccount?: never;
+  accountProvisioning?: never;
+  authorityScope?: never;
   ecdsa?: never;
 };
 
 export type WalletRegistrationActivateResponseV2 =
   | (Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'evm_family_ecdsa' }> & {
       ecdsa: ActivateTerminalEcdsaPayload;
-      nearProvisioning?: { status: 'pending' };
+      nearProvisioning?: { status: 'near_pending' };
     })
   | WalletRegistrationActivateEd25519PendingV2;
 
@@ -2709,13 +2723,49 @@ function parseWalletRegistrationActivateResponseV2(
     if (provisioning.status !== 'near_pending') {
       throw new Error(`${responseName} Ed25519-only wallet must be pending NEAR provisioning`);
     }
-    const finalizedEd25519 = parseWalletRegistrationFinalizeResponse({
-      value: terminal,
-      expectedKind: 'near_ed25519',
-    });
-    if (!finalizedEd25519.ok || finalizedEd25519.kind !== 'near_ed25519') {
+    assertExactResponseKeys(
+      terminal,
+      ['ok', 'walletId', 'authority', 'registrationDiagnostics', 'rpId', 'authMethod', 'appSessionJwt', 'kind'],
+      responseName,
+    );
+    if (terminal.ok !== true || terminal.kind !== 'near_ed25519') {
       throw new Error(`${responseName} did not return an Ed25519 wallet`);
     }
+    const walletId = walletIdFromString(
+      requireResponseString({ responseName, field: 'walletId', value: terminal.walletId }),
+    );
+    const authority = parseWalletRegistrationFinalizeAuthority(terminal.authority);
+    const authorityBranch = parseWalletRegistrationFinalizeAuthorityBranch({
+      response: terminal,
+      walletId,
+      authority,
+    });
+    const registrationDiagnostics =
+      terminal.registrationDiagnostics === undefined
+        ? undefined
+        : parseWalletRegistrationFinalizeDiagnostics(terminal.registrationDiagnostics);
+    const finalizedEd25519: WalletRegistrationActivateEd25519PendingV2 =
+      authorityBranch.kind === 'passkey'
+        ? {
+            ok: true,
+            kind: 'near_ed25519',
+            walletId,
+            authority,
+            ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
+            rpId: authorityBranch.rpId,
+            authMethod: authorityBranch.authMethod,
+            nearProvisioning: { status: 'near_pending' },
+          }
+        : {
+            ok: true,
+            kind: 'near_ed25519',
+            walletId,
+            authority,
+            ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
+            authMethod: authorityBranch.authMethod,
+            appSessionJwt: authorityBranch.appSessionJwt,
+            nearProvisioning: { status: 'near_pending' },
+          };
     return {
       ...finalizedEd25519,
       nearProvisioning: { status: 'near_pending' as const },
@@ -2737,7 +2787,7 @@ function parseWalletRegistrationActivateResponseV2(
       value: nearProvisioning,
     });
     requireExactResponseKeys(provisioning, ['status'], `${responseName} nearProvisioning`);
-    if (provisioning.status !== 'pending') {
+    if (provisioning.status !== 'near_pending') {
       throw new Error(`${responseName} nearProvisioning status is invalid`);
     }
   }
@@ -2762,7 +2812,9 @@ function parseWalletRegistrationActivateResponseV2(
       activation: parseRouterAbEcdsaRegistrationPublicActivationReceiptV1(activation),
       bootstrap: parseThresholdEcdsaDerivationRoleLocalBootstrapValue(bootstrap),
     },
-    ...(nearProvisioning === undefined ? {} : { nearProvisioning: { status: 'pending' as const } }),
+    ...(nearProvisioning === undefined
+      ? {}
+      : { nearProvisioning: { status: 'near_pending' as const } }),
   };
 }
 
