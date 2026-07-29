@@ -187,7 +187,8 @@ One Gateway request:
 - chooses the generated wallet name;
 - inserts the canonical ceremony with its wallet UNIQUE constraint;
 - returns the signed setup payload;
-- starts safe ECDSA preparation during the user prompt.
+- starts safe ECDSA preparation during the user prompt when the signer plan
+  includes ECDSA.
 
 Preparation creates no custody commitment, consumes no factor, and enters no
 irreversible state.
@@ -203,11 +204,13 @@ One Gateway request:
 - verifies the passkey or Email OTP proof;
 - verifies the setup signature locally and mints request-bound Router policy
   claims after the authenticated respond body is complete;
-- returns the exact A/B proof bundles for browser verification.
+- returns the exact A/B proof bundles for browser verification when the signer
+  plan includes ECDSA.
 
-When the signer plan includes NEAR, respond also derives the authority-bound
-Yao admission and returns the deferred provisioning work. The client starts
-that work after proof verification without awaiting it for wallet readiness.
+When the signer plan includes NEAR, including an Ed25519-only plan, respond
+also derives the authority-bound Yao admission and returns the deferred
+provisioning work. The client starts that work after proof verification without
+awaiting it for wallet readiness.
 
 Role-private state owns exact retry and partial-role convergence. Remove the
 Gateway claim/terminal pair after one focused test proves that an identical
@@ -216,7 +219,8 @@ a conflicting fingerprint fails before execution.
 
 ### 3. Activate And Finalize
 
-After browser proof verification, one Gateway request:
+After browser proof verification for ECDSA plans, or directly after authenticated
+respond for an Ed25519-only plan, one Gateway request:
 
 - claims the irreversible activation;
 - invokes Router and SigningWorker;
@@ -224,6 +228,10 @@ After browser proof verification, one Gateway request:
   authentication, and credential records;
 - stores the exact terminal response in the operation row;
 - returns the wallet-ready result.
+
+An Ed25519-only result is wallet-ready with durable `near_pending` state and no
+ECDSA signer. Its deferred Yao completion installs the sole NEAR signer and
+transitions the wallet to `near_ready`; registration does not await that work.
 
 The standalone finalize route and its journals are deleted. Authentication
 enrollment and recovery-critical records remain blocking. Notifications,
@@ -323,18 +331,57 @@ No implementation on either lane may redefine the other lane's contract.
 
 #### Claude: Three-Route Product Flow
 
-- [ ] Implement setup, authenticated respond, and activate-and-finalize as the
-      only blocking registration routes against the frozen internal interfaces.
+- [x] Add the compile-checked three-route wire contract, typed deferred
+      ceremony authority, `/wallets/register/setup` route and service, one-row
+      setup persistence, signed setup payload, focused setup tests, and the SDK
+      setup RPC client.
+- [x] Finish the canonical setup contract: only ECDSA may be prepared before
+      proof, when the signer plan includes it, with direct publishable-key
+      admission and no stored bootstrap grant or compatibility fallback.
+- [x] Implement authenticated respond against the frozen internal interfaces,
+      including proof verification, the `awaiting_proof` to `verified`
+      transition, request-bound Router policy, ECDSA respond, and deferred
+      authority-bound Yao work.
+- [x] Implement activate-and-finalize against the frozen internal interfaces,
+      with one irreversible activation claim and exact terminal replay.
+- [x] Implement asynchronous `/near-provisioning` completion on one operation
+      row with exact replay, with no legacy finalize journal or replay-cache
+      pair beneath it.
+- [x] Wire the SDK ECDSA and mixed registration paths to setup, authenticated
+      respond, browser proof verification, activate-and-finalize, and
+      non-blocking deferred Yao provisioning.
+- [x] Delete the dead `backend_proxy`/`bootstrapUrl` registration configuration
+      and the client standalone-finalize path retired by the three-route flow.
+- [ ] Migrate Ed25519-only registration onto setup, authenticated respond, and
+      activate-and-finalize. Return the wallet with durable pending NEAR state
+      and finish its sole signer asynchronously through deferred Yao, just as
+      mixed registration provisions NEAR asynchronously.
+- [x] Implement the Email OTP enrollment commit for Ed25519-only pending-wallet
+      activation. The valid Email OTP plus Ed25519-only branch must never return
+      `not_implemented`.
+- [ ] Make setup, authenticated respond, and activate-and-finalize the only
+      blocking registration routes.
 - [ ] Delete stored grants, wallet reservations and cleanup, quota counts,
       start/finalize journals, duplicate replay writes, and successful-path
       readbacks.
-- [ ] Keep Gateway state only at irreversible activation and terminal replay;
+- [x] Keep Gateway state only at irreversible activation and terminal replay;
       remove Gateway respond bookkeeping after its deterministic retry test.
-- [ ] Add ECDSA WASM prompt-time prewarm, response hydration, background
-      refresh, typed passkey-seal pending state, and deferred local-only NEAR
-      provisioning.
-- [ ] Adapt recovery, export, and ordinary signing to the new interfaces while
-      preserving their public behavior.
+- [x] Add ECDSA WASM prompt-time prewarm.
+- [x] Hydrate React state from the registration response and move redundant
+      refreshes into the background.
+- [x] Represent passkey warm-session sealing as a typed pending state and make
+      sealed-record restore await it.
+- [x] Move NEAR/Yao provisioning outside the blocking ECDSA registration path,
+      with durable pending/provisioning/ready/retryable-failure lifecycle state
+      and focused lifecycle/replay coverage.
+- [x] Audit recovery, export, add-signer, and ordinary signing against the new
+      interfaces. Recovery, export, and ordinary signing have no dependency on
+      the registration records being deleted.
+- [x] Move add-signer's server intent admission from the stored managed grant
+      to direct publishable-key authentication while preserving its existing
+      ceremony and journals.
+- [ ] Switch the add-signer client to direct publishable-key admission, then
+      delete the grant client and server broker once no flow uses them.
 
 The lanes may use temporary compile-time interface stubs that exactly match the
 checkpoint. Delete those stubs during integration.
