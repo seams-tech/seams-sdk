@@ -31,6 +31,7 @@ import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/uti
 import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation';
 import { type EcdsaDerivationServerBootstrapResponse } from '../../core/types';
 import {
+  buildRouterAbEcdsaDerivationActiveStateIdV1,
   buildRouterAbEcdsaDerivationPublicCapabilityV1,
   parseRouterAbEcdsaDerivationNormalSigningStateV1,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
@@ -857,7 +858,12 @@ export async function buildActivatedEcdsaFamilyBootstrap(input: {
     ethereumAddress,
     relayerVerifyingShareB64u: identity.server_public_key33_b64u,
     participantIds: [...exactEcdsaParticipantPair(prepare.participantIds)],
-    thresholdSessionId: prepare.thresholdSessionId,
+    thresholdSessionId: buildRouterAbEcdsaDerivationActiveStateIdV1({
+      ecdsaThresholdKeyId: prepare.ecdsaThresholdKeyId,
+      signingRootId: prepare.signingRootId,
+      signingRootVersion: prepare.signingRootVersion,
+      activationEpoch: input.activation.ecdsa_activation.activation_epoch,
+    }),
     activationEpoch: input.activation.ecdsa_activation.activation_epoch,
     signingGrantId: prepare.signingGrantId,
     expiresAtMs,
