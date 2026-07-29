@@ -2,7 +2,6 @@ import type { WarmSessionStatusBatchResult } from '../../types/secure-confirm-wo
 import type {
   UiConfirmRuntimeBridgePort,
   ClearVolatileWarmSessionMaterialCommand,
-  WarmSessionClaimResult,
   WarmSessionStatusResult,
 } from './uiConfirm.types';
 
@@ -29,13 +28,8 @@ export type WarmSessionStatusOnlyReaderPort = {
   bootstrapEcdsaSession?: never;
 };
 
-type WarmSessionClaimArgs = Parameters<
-  UiConfirmRuntimeBridgePort['claimWarmSessionMaterial']
->[0];
-
 type SecondaryWarmSessionPort = {
   readWarmSessionStatusOnly: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  claimWarmSessionMaterial: (args: WarmSessionClaimArgs) => Promise<WarmSessionClaimResult>;
   clearVolatileWarmSessionMaterial: (
     command: ClearVolatileWarmSessionMaterialCommand,
   ) => Promise<void>;
@@ -46,10 +40,6 @@ type SecondaryWarmSessionStatusOnlyPort = {
 };
 
 function shouldReadPrimaryWarmSessionStatus(result: WarmSessionStatusResult): boolean {
-  return !result.ok && (result.code === 'not_found' || result.code === 'worker_error');
-}
-
-function shouldClaimPrimaryWarmSession(result: WarmSessionClaimResult): boolean {
   return !result.ok && (result.code === 'not_found' || result.code === 'worker_error');
 }
 
@@ -102,14 +92,6 @@ export function createWarmSessionAwareUiConfirm(args: {
     };
   };
 
-  const claimWarmSessionMaterial = async (
-    claimArgs: WarmSessionClaimArgs,
-  ): Promise<WarmSessionClaimResult> => {
-    const secondaryClaim = await secondary.claimWarmSessionMaterial(claimArgs);
-    if (!shouldClaimPrimaryWarmSession(secondaryClaim)) return secondaryClaim;
-    return await base.claimWarmSessionMaterial(claimArgs);
-  };
-
   const clearVolatileWarmSessionMaterial = async (
     command: ClearVolatileWarmSessionMaterialCommand,
   ): Promise<void> => {
@@ -123,7 +105,6 @@ export function createWarmSessionAwareUiConfirm(args: {
     get: (target, prop, receiver) => {
       if (prop === 'getWarmSessionStatus') return getWarmSessionStatus;
       if (prop === 'getWarmSessionStatuses') return getWarmSessionStatuses;
-      if (prop === 'claimWarmSessionMaterial') return claimWarmSessionMaterial;
       if (prop === 'clearVolatileWarmSessionMaterial') return clearVolatileWarmSessionMaterial;
       const value = Reflect.get(target, prop, receiver);
       return typeof value === 'function' ? value.bind(target) : value;

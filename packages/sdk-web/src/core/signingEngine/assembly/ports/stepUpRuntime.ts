@@ -76,7 +76,6 @@ export function createStepUpRuntime(args: {
     secondary: {
       readWarmSessionStatusOnly: (sessionId) =>
         emailOtpSessions.readWarmSessionStatusOnly(sessionId),
-      claimWarmSessionMaterial: (claimArgs) => emailOtpSessions.claimWarmSessionMaterial(claimArgs),
       clearVolatileWarmSessionMaterial: (command) =>
         emailOtpSessions.clearVolatileWarmSessionMaterial(command.scope.sessionId),
     },
