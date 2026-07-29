@@ -33,7 +33,6 @@ import {
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { CanonicalEvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
 import type {
-  EmailOtpEcdsaCommittedLane,
   EmailOtpEcdsaPublicReauthLane,
   ReadyEvmFamilyEcdsaSigningSelection,
   ReauthRequiredEvmFamilyEcdsaSigningSelection,
@@ -56,15 +55,34 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
 };
 
 function emailOtpStepUpAuthority(
-  selection: Extract<
-    ReadyEvmFamilyEcdsaSigningSelection | ReauthRequiredEvmFamilyEcdsaSigningSelection,
-    { authMethod: 'email_otp' }
-  >,
+  selection:
+    | ReadyEvmFamilyEcdsaSigningSelection
+    | Extract<ReauthRequiredEvmFamilyEcdsaSigningSelection, { authMethod: 'email_otp' }>,
 ): EmailOtpEcdsaStepUpAuthority {
   if (selection.kind === 'ready') {
+    if (!isEmailOtpWalletAuthAuthority(selection.committedLane.authority)) {
+      throw new Error('[SigningEngine][ecdsa] Email OTP step-up requires Email OTP authority');
+    }
     return { kind: 'live_session', committedLane: selection.committedLane };
   }
   return { kind: 'public_reauth_anchor', reauthLane: selection.reauthLane };
+}
+
+function emailOtpStepUpAuthorityForSelection(
+  selection:
+    | ReadyEvmFamilyEcdsaSigningSelection
+    | ReauthRequiredEvmFamilyEcdsaSigningSelection
+    | undefined,
+): EmailOtpEcdsaStepUpAuthority | undefined {
+  if (!selection) return undefined;
+  if (selection.kind === 'ready') {
+    return isEmailOtpWalletAuthAuthority(selection.committedLane.authority)
+      ? emailOtpStepUpAuthority(selection)
+      : undefined;
+  }
+  return selection.authMethod === SIGNER_AUTH_METHODS.emailOtp
+    ? emailOtpStepUpAuthority(selection)
+    : undefined;
 }
 
 export type EvmFamilyConfirmedSigningDeps = EvmFamilyConfirmedEmailOtpDeps;
@@ -156,9 +174,8 @@ export async function resolveEvmFamilyTransactionStepUp(
   const emailOtpAuthority =
     capabilityStepUpAuthority ??
     (preparedEcdsaLane &&
-    signingLaneAuthMethod(preparedEcdsaLane.auth) === SIGNER_AUTH_METHODS.emailOtp &&
-    preparedSelection?.authMethod === SIGNER_AUTH_METHODS.emailOtp
-      ? emailOtpStepUpAuthority(preparedSelection)
+    signingLaneAuthMethod(preparedEcdsaLane.auth) === SIGNER_AUTH_METHODS.emailOtp
+      ? emailOtpStepUpAuthorityForSelection(preparedSelection)
       : undefined);
   const emailOtpAuthBridge = emailOtpAuthority
     ? createEmailOtpEcdsaTransactionSigningBridge({

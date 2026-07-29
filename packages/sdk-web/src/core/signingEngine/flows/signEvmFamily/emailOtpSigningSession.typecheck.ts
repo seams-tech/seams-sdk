@@ -9,7 +9,7 @@ import type {
   EmailOtpEcdsaStepUpAuthority,
 } from './emailOtpSigningSession';
 import type {
-  EmailOtpEcdsaCommittedLane,
+  EcdsaCommittedLane,
   EmailOtpEcdsaPublicReauthLane,
 } from './ecdsaSelection';
 import type { EmailOtpPublicDeps } from './emailOtpPublic';
@@ -22,7 +22,7 @@ declare const walletId: WalletId;
 declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const ecdsaAuthLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
-declare const committedLane: EmailOtpEcdsaCommittedLane;
+declare const committedLane: EcdsaCommittedLane;
 declare const publicReauthLane: EmailOtpEcdsaPublicReauthLane;
 
 const publicStepUpAuthority: EmailOtpEcdsaStepUpAuthority = {

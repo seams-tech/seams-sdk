@@ -84,7 +84,6 @@ import {
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { EmailOtpEcdsaCommittedLane } from './ecdsaSelection';
 import { resolveEvmFamilyTransactionWalletAuth } from './accountAuth';
 import {
   resolveEvmFamilyTransactionStepUp,
