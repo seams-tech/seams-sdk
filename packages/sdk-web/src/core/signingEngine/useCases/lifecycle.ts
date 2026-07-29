@@ -518,63 +518,6 @@ export type SigningSessionSealWriteInput =
       remainingUses: WarmSessionRemainingUses;
     };
 
-export type ActivateSigningSessionInput = {
-  walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  rpId: RpId;
-  auth: SigningSessionActivationAuth;
-  material: NonEmptyReadonlyArray<SigningSessionActivationMaterial>;
-};
-
-export type ActivateSigningSessionSuccess = {
-  ok: true;
-  sealedWrites: readonly SigningSessionSealWriteInput[];
-  activatedMaterials: readonly SigningSessionActivationMaterial[];
-  code?: never;
-  message?: never;
-  retryable?: never;
-};
-
-export type ActivateSigningSessionFailureCode =
-  | 'auth_branch_mismatch'
-  | 'material_branch_mismatch'
-  | 'session_expired'
-  | 'seal_failed'
-  | 'storage_failed'
-  | 'relayer_failed'
-  | 'invalid_state';
-
-export type ActivateSigningSessionResult =
-  | ActivateSigningSessionSuccess
-  | UseCaseFailure<ActivateSigningSessionFailureCode>;
-
-export type ActivateSigningSessionLifecycleState =
-  | ({ kind: 'received_input' } & ActivateSigningSessionInput)
-  | {
-      kind: 'validating_material';
-      walletId: WalletId;
-      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-      rpId: RpId;
-      auth: SigningSessionActivationAuth;
-      material: NonEmptyReadonlyArray<SigningSessionActivationMaterial>;
-    }
-  | {
-      kind: 'writing_seals';
-      walletId: WalletId;
-      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-      rpId: RpId;
-      sealWrites: NonEmptyReadonlyArray<SigningSessionSealWriteInput>;
-    }
-  | {
-      kind: 'activated';
-      result: ActivateSigningSessionSuccess;
-      failed?: never;
-    }
-  | ({
-      kind: 'failed';
-      result?: never;
-    } & UseCaseFailure<ActivateSigningSessionFailureCode>);
-
 export type SignEvmFamilyAuthPolicy =
   | { kind: 'warm_session_only'; auth?: never }
   | {
@@ -926,7 +869,6 @@ export type RestorePersistedSessionsLifecycleState =
 export type EcdsaProvisioningStateKind = EcdsaProvisioningState['kind'];
 export type RegisterWalletLifecycleStateKind = RegisterWalletLifecycleState['kind'];
 export type UnlockWalletLifecycleStateKind = UnlockWalletLifecycleState['kind'];
-export type ActivateSigningSessionLifecycleStateKind = ActivateSigningSessionLifecycleState['kind'];
 export type SignEvmFamilyLifecycleStateKind = SignEvmFamilyLifecycleState['kind'];
 export type SignNearLifecycleStateKind = SignNearLifecycleState['kind'];
 export type RestorePersistedSessionsLifecycleStateKind =
@@ -962,14 +904,6 @@ export const unlockWalletAllowedTransitions = {
   ready: [],
   failed: [],
 } as const satisfies LifecycleTransitionTable<UnlockWalletLifecycleStateKind>;
-
-export const activateSigningSessionAllowedTransitions = {
-  received_input: ['validating_material', 'failed'],
-  validating_material: ['writing_seals', 'failed'],
-  writing_seals: ['activated', 'failed'],
-  activated: [],
-  failed: [],
-} as const satisfies LifecycleTransitionTable<ActivateSigningSessionLifecycleStateKind>;
 
 export const signEvmFamilyAllowedTransitions = {
   received_input: ['resolving_ready_lane', 'failed'],
@@ -1009,9 +943,6 @@ export type RegisterWalletTransition = LifecycleTransitionFromTable<
 export type UnlockWalletTransition = LifecycleTransitionFromTable<
   typeof unlockWalletAllowedTransitions
 >;
-export type ActivateSigningSessionTransition = LifecycleTransitionFromTable<
-  typeof activateSigningSessionAllowedTransitions
->;
 export type SignEvmFamilyTransition = LifecycleTransitionFromTable<
   typeof signEvmFamilyAllowedTransitions
 >;
@@ -1032,10 +963,6 @@ export const unlockWalletTerminalStates = [
   'ready',
   'failed',
 ] as const satisfies readonly UnlockWalletLifecycleStateKind[];
-export const activateSigningSessionTerminalStates = [
-  'activated',
-  'failed',
-] as const satisfies readonly ActivateSigningSessionLifecycleStateKind[];
 export const signEvmFamilyTerminalStates = [
   'signed',
   'failed',
@@ -1071,12 +998,6 @@ export const unlockWalletRetryableFailureCodes = [
   'relayer_failed',
   'storage_cleanup_failed',
 ] as const satisfies readonly UnlockWalletFailureCode[];
-
-export const activateSigningSessionRetryableFailureCodes = [
-  'seal_failed',
-  'storage_failed',
-  'relayer_failed',
-] as const satisfies readonly ActivateSigningSessionFailureCode[];
 
 export const signEvmFamilyRetryableFailureCodes = [
   'relayer_failed',
