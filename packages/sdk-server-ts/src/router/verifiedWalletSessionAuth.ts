@@ -17,7 +17,6 @@ type BaseVerifiedWalletSessionAuth = {
 
 export type VerifiedEcdsaWalletSessionAuth = BaseVerifiedWalletSessionAuth & {
   curve: 'ecdsa';
-  evmFamilySigningKeySlotId: string;
   keyHandle: string;
   rpId?: never;
   ed25519RelayerKeyId?: never;
@@ -30,7 +29,6 @@ export type VerifiedEd25519WalletSessionAuth = BaseVerifiedWalletSessionAuth & {
   ed25519RelayerKeyId: string;
   rpId?: never;
   keyHandle?: never;
-  evmFamilySigningKeySlotId?: never;
   ecdsaThresholdKeyId?: never;
 };
 
@@ -47,7 +45,6 @@ export function buildVerifiedEcdsaWalletSessionAuth(
     thresholdSessionId: claims.thresholdSessionId,
     signingGrantId: claims.signingGrantId,
     userId: claims.walletId,
-    evmFamilySigningKeySlotId: claims.evmFamilySigningKeySlotId,
     relayerKeyId: claims.relayerKeyId,
     participantIds: claims.participantIds,
     expiresAtMs: Math.floor(Number(claims.thresholdExpiresAtMs) || 0),

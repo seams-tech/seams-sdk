@@ -215,6 +215,9 @@ function makeEcdsaClaims(overrides: Record<string, unknown> = {}): Record<string
     kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     thresholdSessionId: 'threshold-session-ecdsa',
     signingGrantId: 'signing-grant-ecdsa',
+    authorizationSessionId: 'authorization-session-ecdsa',
+    walletSessionId: 'wallet-session-ecdsa',
+    quotaId: 'wallet-quota-ecdsa',
     keyScope: 'evm-family',
     subjectId: 'wallet-ecdsa',
     chainTarget: {
@@ -225,7 +228,6 @@ function makeEcdsaClaims(overrides: Record<string, unknown> = {}): Record<string
     },
     keyHandle: 'ederivation-key-1',
     relayerKeyId: 'ecdsa-relayer-1',
-    evmFamilySigningKeySlotId: ECDSA_SIGNING_KEY_SLOT_ID,
     thresholdExpiresAtMs: Date.now() + 60_000,
     participantIds: [1, 2],
     routerAbEcdsaDerivationNormalSigning: {

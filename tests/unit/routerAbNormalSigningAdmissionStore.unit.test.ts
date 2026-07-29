@@ -143,7 +143,7 @@ function ecdsaAdmissionInput(
     curve: 'ecdsa',
     phase: 'prepare',
     walletId: 'alice.testnet',
-    evmFamilySigningKeySlotId: 'evm-family-signing-key-slot-1',
+    materialActivationId: materialActivationId('ecdsa-material-activation-1'),
     authorizationIdentity: {
       kind: 'reusable_wallet_session',
       walletSessionId: 'ecdsa-session-1',
@@ -272,7 +272,7 @@ test.describe('Router A/B normal-signing admission store', () => {
       kind: 'reuse_existing',
       requestId: input.requestId,
       existingLifecycleId:
-        'ecdsa:prepare:alice.testnet:evm-family-signing-key-slot-1:wallet_session:ecdsa-session-1:signing-grant-1:ecdsa-request-1:signing-worker-a:ecdsa-key-handle-1',
+        'ecdsa:prepare:alice.testnet:material_activation:ecdsa-material-activation-1:wallet_session:ecdsa-session-1:signing-grant-1:ecdsa-request-1:signing-worker-a:ecdsa-key-handle-1',
     });
 
     nowMs = 6_001;

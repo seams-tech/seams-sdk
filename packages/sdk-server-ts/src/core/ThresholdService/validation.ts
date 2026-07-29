@@ -1901,7 +1901,6 @@ export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaim
   keyScope: 'evm-family';
   keyHandle: string;
   relayerKeyId: string;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   runtimePolicyScope?: RuntimePolicyScope;
   thresholdExpiresAtMs: number;
   participantIds: number[];
@@ -1923,6 +1922,7 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
   expectedKind: Kind,
 ): EcdsaWalletSessionClaimsForKind<Kind> | null {
   if (!isObject(raw)) return null;
+  if ('evmFamilySigningKeySlotId' in raw) return null;
   const kind = toOptionalString(raw.kind);
   if (kind !== expectedKind) return null;
   const sub = toOptionalString(raw.sub);
@@ -1941,9 +1941,6 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
   const keyScope = toOptionalString((raw as { keyScope?: unknown }).keyScope);
   const keyHandle = toOptionalString((raw as { keyHandle?: unknown }).keyHandle);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    (raw as { evmFamilySigningKeySlotId?: unknown }).evmFamilySigningKeySlotId,
-  );
   if (
     !sub ||
     !walletId ||
@@ -1955,8 +1952,7 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     !quotaId.ok ||
     keyScope !== 'evm-family' ||
     !keyHandle ||
-    !relayerKeyId ||
-    !evmFamilySigningKeySlotId
+    !relayerKeyId
   )
     return null;
   const thresholdExpiresAtMs = (raw as { thresholdExpiresAtMs?: unknown }).thresholdExpiresAtMs;
@@ -1977,7 +1973,6 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     keyScope,
     keyHandle,
     relayerKeyId,
-    evmFamilySigningKeySlotId,
     thresholdExpiresAtMs,
     participantIds,
   };
