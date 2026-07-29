@@ -1595,6 +1595,18 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         bootstrap = patchRegistrationBootstrap(bootstrap);
       }
       bootstrap.jwt = sessionJwt;
+      /* Activate absorbed finalize, so it is the terminal commit these tests
+         track: recorded under the same capture the finalize route used, with
+         the plan kind the commit covers. */
+      const activateKind = mockedRegistrationEvmFamilyEcdsaSigner(
+        (captures.intent as any)?.signerSelection,
+      )
+        ? 'evm_family_ecdsa'
+        : 'near_ed25519';
+      captures.finalizeBody = { ...body, kind: activateKind };
+      const activateBodies = (captures.finalizeBodies as unknown[] | undefined) ?? [];
+      activateBodies.push({ ...body, kind: activateKind });
+      captures.finalizeBodies = activateBodies;
       /* Activate absorbed finalize, so it answers with the terminal wallet and
          the activation payload together — `ecdsa` carries the wallet keys the
          commit produced plus the receipt and bootstrap the client needs to
@@ -1808,12 +1820,9 @@ test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
       (captures.intentRequestBody as any)?.signerSelection,
     );
     expectSingleRegistrationTouchIdPrompt(captures);
-    expect(captures.bootstrapGrantBody).toMatchObject({
-      authority: {
-        kind: 'passkey_rp',
-        rpId: RP_ID,
-      },
-    });
+    /* Setup authenticates with the publishable key directly, so registration
+       no longer mints a bootstrap grant to assert against. */
+    expect(fetchMock.paths).not.toContain('/v1/registration/bootstrap-grants');
   } finally {
     fetchMock.restore();
   }
@@ -1848,15 +1857,13 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
       success: true,
       thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
     });
+    /* Six requests became three. The bootstrap grant is gone with the stored
+       token it minted, and finalize is folded into activate. */
     expect(fetchMock.paths).toEqual([
-      '/v1/registration/bootstrap-grants',
-      '/wallets/register/intent',
-      '/wallets/register/start',
-      '/wallets/register/derivation/respond',
-      '/wallets/register/derivation/activate',
-      '/wallets/register/finalize',
+      '/wallets/register/setup',
+      '/wallets/register/respond',
+      '/wallets/register/activate',
     ]);
-    expect(captures.bootstrapGrantBody).not.toHaveProperty('newAccountId');
     expect(captures.registrationCredentialArgs).toMatchObject({
       walletId: WALLET_SUBJECT_ID,
       challengeB64u: captures.digest,
