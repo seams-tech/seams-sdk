@@ -390,8 +390,6 @@ async function prepareExplicitEcdsaExportOperation(args: {
     },
     materialActivation: args.persistedMaterial.materialActivation,
     normalSigningScope: resolved.runtime.normalSigning.scope,
-    evmFamilySigningKeySlotId:
-      args.persistedMaterial.publicFacts.evmFamilySigningKeySlotId,
     keyHandle: args.persistedMaterial.publicFacts.keyHandle,
     relayerKeyId: resolved.runtime.relayerKeyId,
     participantIds: [Number(participantIds[0]), Number(participantIds[1])],

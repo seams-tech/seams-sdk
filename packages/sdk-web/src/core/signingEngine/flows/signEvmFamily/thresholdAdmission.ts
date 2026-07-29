@@ -16,10 +16,7 @@ import {
   type EcdsaOperationStepUpSessionAuth,
   type PreparedEcdsaOperationStepUp,
 } from '../../threshold/ecdsa/operationStepUp';
-import type {
-  EvmFamilySigningKeySlotId,
-  HydratedEcdsaSignerMaterial,
-} from '../../session/identity/evmFamilyEcdsaIdentity';
+import type { HydratedEcdsaSignerMaterial } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   buildReadySecp256k1SigningMaterial,
   type ReadySecp256k1SigningMaterial,
@@ -41,7 +38,6 @@ export async function prepareEvmFamilyEcdsaOperationStepUp(args: {
   readonly operation: EvmFamilyThresholdEcdsaOperation;
   readonly operationDigests: OperationDigestSet;
   readonly material: HydratedEcdsaSignerMaterial;
-  readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
 }): Promise<PreparedEcdsaOperationStepUp> {
   const signerSession = args.material;
   const participantIds = signerSession.publicFacts.participantIds;
@@ -57,7 +53,6 @@ export async function prepareEvmFamilyEcdsaOperationStepUp(args: {
     operationDigests: args.operationDigests,
     materialActivation: signerSession.materialActivation,
     normalSigningScope: signerSession.routerAbEcdsaDerivationNormalSigning.state.scope,
-    evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
     keyHandle: signerSession.publicFacts.keyHandle,
     relayerKeyId: signerSession.transport.relayerKeyId,
     participantIds: [Number(participantIds[0]), Number(participantIds[1])],

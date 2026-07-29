@@ -299,8 +299,6 @@ export async function createEvmFamilySigningFlowRuntime(args: {
                 operation,
                 operationDigests,
                 material,
-                evmFamilySigningKeySlotId:
-                  capability.material.publicFacts.evmFamilySigningKeySlotId,
               }),
             authorize: async ({ authorization, prepared, material }) => {
               args.onAuthSideEffectStarted?.(

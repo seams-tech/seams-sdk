@@ -73,7 +73,6 @@ function preparationArgs() {
     },
     materialActivation,
     normalSigningScope,
-    evmFamilySigningKeySlotId: 'slot-1',
     keyHandle: 'key-handle-1',
     relayerKeyId: 'relayer-key-1',
     participantIds: [1, 2] as const,

@@ -238,8 +238,6 @@ test.describe('auth-neutral material escalates on its own factor', () => {
       },
       operationDigests: ecdsaOperationDigestSetFixture(),
       material,
-      evmFamilySigningKeySlotId:
-        fixture.capability.material.publicFacts.evmFamilySigningKeySlotId,
     });
     expect(operationStepUp.operation.operation_id).toBe(OPERATION_ID);
     expect(prepared.intent.operationId).toBe(OPERATION_ID);
