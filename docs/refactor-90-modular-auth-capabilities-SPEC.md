@@ -136,7 +136,10 @@ implementing commit SHA as the evidence.
   volatile runtime owner.
 - [x] `R90-INV-003` — one type fixture excludes entry-point provenance from
   resolver input.
-- [ ] `R90-INV-003` — fourteen canonical-state cases cover both capabilities.
+- [x] `R90-INV-003` — fourteen canonical-state cases cover both capabilities.
+  (ECDSA canonical outcomes are covered by `ecdsaCapabilityHydration`; Near's
+  matching seven-state matrix uses the shared canonical fixture. Commits
+  `6ecdc5d5c`, `fd50aa7b5`.)
 - [x] `R90-INV-005` — ECDSA activation finalization atomically writes material,
   manifest, replacement retirement, and journal deletion.
 - [x] `R90-INV-006` — ECDSA journal types contain no runtime-publication,

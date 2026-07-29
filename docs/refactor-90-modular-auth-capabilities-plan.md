@@ -279,7 +279,7 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
 - [x] Normalize ECDSA observations once into the shared hydration input.
 - [x] Prove registration, unlock, and refresh provenance is absent from ECDSA
       and Near resolver input.
-- [ ] Cover the seven canonical states for each capability: live,
+- [x] Cover the seven canonical states for each capability: live,
       sealed-active, retired, missing, corrupt, conflicting, and unavailable.
 - [ ] Delete protocol-specific derivation and duplicate readiness helpers after
       their callers move.
@@ -351,7 +351,7 @@ removes.
       corrections are recorded before implementation.
 - [x] Type fixtures prove registration, unlock, and refresh provenance cannot
       affect ECDSA or Near resolver input.
-- [ ] Fourteen state cases cover the seven canonical states for both
+- [x] Fourteen state cases cover the seven canonical states for both
       capabilities.
 - [x] Required-field and invalid-state type fixtures pass.
 - [x] IndexedDB crash tests prove atomic activation finalization.

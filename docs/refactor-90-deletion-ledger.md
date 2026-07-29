@@ -168,6 +168,10 @@ discriminated `MpcOperationAuthorizationRef`.
 - `active_state_session_id`
 - ambiguous normal-signing `session_id` fields that represent authorization;
   the replacement wire field is the discriminated `authorization` branch
+- ~~`evm_family_signing_key_slot_id` duplicated beside
+  `material_activation.key_binding` on operation-step-up preparations~~ —
+  deleted by `f6d3390e4`; the server derives the provisioning lookup key from
+  the exact activation at its boundary
 - unconditional `authorizationSessionId: SeamsSessionId | WalletSessionId` on
   MPC operation scopes; reusable-session authorization carries
   `WalletSessionId` plus `CapabilityGrantId`, while operation step-up carries
@@ -244,7 +248,7 @@ ports, and the two-state recovery journal.
 
 - `PasskeyEcdsaCommittedLane`, `EmailOtpEcdsaCommittedLane`, their ready
   aliases and method-specific builders
-- `EmailOtpEcdsaCommittedLaneStateError`
+- ~~`EmailOtpEcdsaCommittedLaneStateError`~~ — deleted by `4962087ca`
 - `EvmFamilyEcdsaAuthMethod`
 - Passkey source-priority and material-selection types
 - the Email OTP ECDSA authority resolver
