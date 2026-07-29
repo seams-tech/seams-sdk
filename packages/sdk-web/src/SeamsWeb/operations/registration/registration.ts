@@ -85,7 +85,6 @@ import type { EmailOtpRegistrationProof } from '@shared/utils/registrationIntent
 import {
   setupWalletRegistration,
   activateWalletAddSignerEcdsa,
-  activateWalletRegistrationEcdsa,
   createWalletAddSignerIntent,
   finalizeWalletAddSigner,
   isEmailOtpWalletRegistrationFinalizeResponse,
@@ -94,7 +93,6 @@ import {
   completeWalletRegistrationNearProvisioning,
   respondWalletAddSignerEcdsa,
   respondWalletRegistration,
-  respondWalletRegistrationEcdsa,
   startWalletAddSigner,
   type RegistrationPreparationId,
   type WalletRegistrationActivateResponseV2,
@@ -107,7 +105,6 @@ import {
   type WalletRegistrationEd25519YaoActivationReference,
   type WalletRegistrationEmailOtpBackupAck,
   type WalletRegistrationFinalizeResponse,
-  type WalletRegistrationEcdsaRespondResponse,
   type WalletRegistrationEcdsaPreparePayload,
   type WalletRegistrationStartResponse,
   type WalletRegistrationRouteDiagnostics,

@@ -104,7 +104,6 @@ import {
   createRouterApiBillingUsageMeterAdapter,
   createRouterApiPublishableKeyAuthAdapter,
 } from '@seams-internal/console-server/router/routerApiKeyAuth';
-import { createRouterApiBootstrapGrantBroker } from '@seams-internal/console-server/router/bootstrapGrantBroker';
 import { createRouterApiBootstrapTokenVerifier } from '@seams-internal/console-server/router/bootstrapTokenVerifier';
 import {
   createConsoleRouterApiRouteExtensions,
@@ -1169,20 +1168,6 @@ function createCloudflareD1RouterApiStorageOptions(input: {
   const sponsoredEvmCallConfig = options.sponsoredEvmCallConfig || null;
   const apiKeyAuth = createRouterApiKeyAuthAdapter(input.apiKeys);
   const publishableKeyAuth = createRouterApiPublishableKeyAuthAdapter(input.apiKeys);
-  const bootstrapGrantBroker = createRouterApiBootstrapGrantBroker({
-    apiKeys: input.apiKeys,
-    tokenStore: input.bootstrapTokens,
-    orgProjectEnv: input.orgProjectEnv,
-    tokenTtlMs: options.bootstrapGrantTokenTtlMs,
-    rateLimitsByBucket: {
-      default: { windowMs: 60_000, maxIssued: 60 },
-      default_web_v1: { windowMs: 60_000, maxIssued: 60 },
-    },
-    quotasByBucket: {
-      default: { maxIssued: 1_000 },
-      free_registrations_v1: { maxIssued: 100_000 },
-    },
-  });
   const bootstrapTokenVerifier = createRouterApiBootstrapTokenVerifier(input.bootstrapTokens);
   return {
     apiKeyAuth,
@@ -1195,7 +1180,6 @@ function createCloudflareD1RouterApiStorageOptions(input: {
     orgProjectEnv: input.orgProjectEnv,
     routeExtensions: createConsoleRouterApiRouteExtensions({
       apiKeyAuth,
-      bootstrapGrantBroker,
       ...(sponsoredEvmCallConfig
         ? {
             sponsoredEvmCall: {
