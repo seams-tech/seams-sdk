@@ -353,3 +353,20 @@ test('the setup route definition accepts a publishable key and nothing else', as
   expect(setup.auth.environmentBinding).toBe('required');
   expect(setup.auth.originBinding).toBe('required');
 });
+
+test('add-signer intent accepts a publishable key and nothing else', async () => {
+  const { createRouterApiRouteDefinitions } = await import(
+    '../../packages/sdk-server-ts/src/router/routeDefinitions'
+  );
+  const routes = createRouterApiRouteDefinitions({});
+  const addSigner = routes.find((route) => route.id === 'wallet_add_signer_intent');
+  if (!addSigner) throw new Error('Expected the add-signer intent route definition');
+  if (addSigner.auth.plane !== 'api_credentials') {
+    throw new Error('Expected add-signer intent on the api_credentials plane');
+  }
+  /* Only the admission credential moved; the ceremony and its journals are
+     deliberately unchanged. */
+  expect(addSigner.auth.credentials).toEqual(['publishable_key']);
+  expect(addSigner.auth.environmentBinding).toBe('required');
+  expect(addSigner.auth.originBinding).toBe('required');
+});

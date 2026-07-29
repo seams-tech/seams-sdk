@@ -2366,6 +2366,14 @@ export async function handleRouterApiWalletAddSignerIntent(
       'Origin header is required and must be a valid exact origin',
     );
   }
+  const publishableKeyAuth = input.services.publishableKeyAuth;
+  if (!publishableKeyAuth) {
+    return routeError(
+      500,
+      'route_auth_not_configured',
+      'wallet add-signer intent requires publishable key auth on this server',
+    );
+  }
   const resolved = await enforceRoutePolicy({
     headers: input.headers,
     logger: input.logger,
@@ -2375,14 +2383,16 @@ export async function handleRouterApiWalletAddSignerIntent(
     sourceIp: input.sourceIp,
     resolvers: {
       apiCredentials: async () =>
-        await resolveRegistrationBootstrapApiCredentialAuth({
-          apiKeyAuth: input.services.apiKeyAuth,
-          body: input.body as Record<string, unknown>,
-          bootstrapTokenVerifier: input.services.bootstrapTokenVerifier,
+        await resolvePublishableKeyApiCredentialAuth({
+          environmentId: extractRouterApiEnvironmentId(input.headers) || undefined,
           headers: input.headers,
+          missingEnvironmentMessage: 'Environment header is required for add-signer intent',
+          missingOriginMessage: 'Origin header is required and must be a valid exact origin',
+          missingPublishableKeyMessage: 'Missing publishable key',
           origin,
+          publishableKeyAuth,
           route: input.route,
-          sourceIp: input.sourceIp,
+          routeAuthNotConfiguredMessage: 'Add-signer intent requires API credential auth policy',
         }),
     },
   });

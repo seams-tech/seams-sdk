@@ -642,7 +642,10 @@ export function createRouterApiRouteDefinitions(
       'Create a wallet add-signer intent',
       {
         plane: 'api_credentials',
-        credentials: ['secret_key', 'bootstrap_token'],
+        /* 94C: publishable key only, as registration setup already is. The
+           add-signer ceremony and its journals are unchanged — only the
+           admission credential moves off the stored managed grant. */
+        credentials: ['publishable_key'],
         scopes: ['wallets.signers.create'],
         environmentBinding: 'required',
         originBinding: 'required',
