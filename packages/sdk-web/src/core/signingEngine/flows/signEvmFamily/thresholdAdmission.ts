@@ -52,6 +52,7 @@ export async function prepareEvmFamilyEcdsaOperationStepUp(args: {
   const expiresAtMs = Date.now() + 5 * 60_000;
   return await prepareEcdsaOperationStepUp({
     walletId: signerSession.walletId,
+    operationKind: 'evm.sign_transaction',
     operationId,
     operationDigests: args.operationDigests,
     materialActivation: signerSession.materialActivation,

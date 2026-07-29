@@ -13,6 +13,7 @@ import {
   routerAbMpcMaterialActivationRefToWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
+import type { EvmEcdsaMpcOperationKind } from '@shared/authorization/capabilityKinds';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { AppSessionJwt } from '@shared/utils/domainIds';
 
@@ -88,6 +89,7 @@ function operationStepUpEndpoint(relayerUrl: string): string {
 
 export function buildEcdsaOperationStepUpPreparation(args: {
   readonly walletId: string;
+  readonly operationKind: EvmEcdsaMpcOperationKind;
   readonly operationId: string;
   readonly operationDigests: OperationDigestSet;
   readonly materialActivation: MpcMaterialActivationRef;
@@ -130,6 +132,7 @@ export function buildEcdsaOperationStepUpPreparation(args: {
   }
   return {
     wallet_id: walletId,
+    operation_kind: args.operationKind,
     operation_id: operationId,
     operation_digests: {
       lane_digest_b64u: args.operationDigests.laneDigest,

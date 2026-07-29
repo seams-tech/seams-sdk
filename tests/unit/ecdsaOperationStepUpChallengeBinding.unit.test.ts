@@ -63,6 +63,7 @@ const normalSigningScope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
 function preparationArgs() {
   return {
     walletId: WALLET_ID,
+    operationKind: 'evm.sign_transaction' as const,
     operationId: 'operation-1',
     operationDigests: {
       laneDigest: digest(11),
@@ -111,6 +112,13 @@ test.describe('ECDSA operation step-up challenge binding', () => {
       operationId: 'operation-2',
     });
     expect(changedOperationId.challengeB64u).not.toBe(baseline.challengeB64u);
+
+    const changedOperationKind = await prepareEcdsaOperationStepUp({
+      ...preparationArgs(),
+      operationKind: 'evm.export_key',
+    });
+    expect(changedOperationKind.operation.operation_kind).toBe('evm.export_key');
+    expect(changedOperationKind.challengeB64u).not.toBe(baseline.challengeB64u);
   });
 
   test('one prepared operation yields one stable challenge', async () => {
