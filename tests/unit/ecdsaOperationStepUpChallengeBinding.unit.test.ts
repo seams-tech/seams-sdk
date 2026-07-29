@@ -5,6 +5,7 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ecdsa/operationStepUp';
 import {
   computeRouterAbEcdsaOperationStepUpChallengeB64u,
+  parseRouterAbEcdsaDerivationExplicitExportRequestV1,
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
@@ -80,6 +81,57 @@ function preparationArgs() {
   };
 }
 
+function explicitExportRequest(operationKind: 'evm.export_key' | 'evm.sign_transaction') {
+  const operation = buildEcdsaOperationStepUpPreparation({
+    ...preparationArgs(),
+    operationKind,
+  });
+  const server = normalSigningScope.signing_worker;
+  const publicDigest = { bytes: new Array<number>(32).fill(1) };
+  return {
+    context: normalSigningScope.context,
+    lifecycle: {
+      lifecycle_id: 'export-lifecycle-1',
+      work_kind: 'key_export',
+      primitive_request_kind: 'export',
+      root_share_epoch: normalSigningScope.activation_epoch,
+      account_id: WALLET_ID,
+      session_id: 'threshold-session-1',
+      signer_set_id: 'signer-set-1',
+      selected_server_id: server.server_id,
+    },
+    public_identity: normalSigningScope.public_identity,
+    signer_set: {
+      signer_set_id: 'signer-set-1',
+      policy: 'all_2',
+      signer_a: { role: 'signer_a', signer_id: 'signer-a', key_epoch: 'epoch-a' },
+      signer_b: { role: 'signer_b', signer_id: 'signer-b', key_epoch: 'epoch-b' },
+      selected_server: server,
+    },
+    router_id: 'router-1',
+    client_id: WALLET_ID,
+    client_ephemeral_public_key: `x25519:${'a'.repeat(64)}`,
+    authorization: { kind: 'operation_step_up', grant_id: 'grant-1' },
+    operation,
+    material_activation_id: String(materialActivation.activationId),
+    export_authorization_digest_b64u: b64u(21, 32),
+    export_nonce: 'export-nonce-1',
+    expires_at_ms: operation.expires_at_ms,
+    deriver_a_export_envelope: {
+      recipient_role: 'signer_a',
+      header_digest: publicDigest,
+      aad_digest: publicDigest,
+      ciphertext: { bytes: [1] },
+    },
+    deriver_b_export_envelope: {
+      recipient_role: 'signer_b',
+      header_digest: publicDigest,
+      aad_digest: publicDigest,
+      ciphertext: { bytes: [2] },
+    },
+  };
+}
+
 test.describe('ECDSA operation step-up challenge binding', () => {
   test('prepared challenge equals the digest the server derives from the same operation', async () => {
     const prepared = await prepareEcdsaOperationStepUp(preparationArgs());
@@ -90,6 +142,7 @@ test.describe('ECDSA operation step-up challenge binding', () => {
       prepared.operation,
     );
 
+    expect(prepared.operation.operation_kind).toBe('evm.sign_transaction');
     expect(prepared.challengeB64u).toBe(serverExpected);
     expect(prepared.challengeB64u.length).toBeGreaterThan(0);
   });
@@ -126,5 +179,25 @@ test.describe('ECDSA operation step-up challenge binding', () => {
     const first = await computeRouterAbEcdsaOperationStepUpChallengeB64u(operation);
     const second = await computeRouterAbEcdsaOperationStepUpChallengeB64u(operation);
     expect(first).toBe(second);
+  });
+
+  test('explicit export requires an export preparation only on the step-up branch', () => {
+    const stepUp = explicitExportRequest('evm.export_key');
+    const parsed = parseRouterAbEcdsaDerivationExplicitExportRequestV1(stepUp);
+    expect(parsed.authorization.kind).toBe('operation_step_up');
+    expect(parsed.operation?.operation_kind).toBe('evm.export_key');
+
+    const { operation: _missing, ...withoutOperation } = stepUp;
+    expect(() => parseRouterAbEcdsaDerivationExplicitExportRequestV1(withoutOperation)).toThrow();
+
+    expect(() =>
+      parseRouterAbEcdsaDerivationExplicitExportRequestV1({
+        ...stepUp,
+        authorization: {
+          kind: 'reusable_wallet_session',
+          wallet_session_id: 'wallet-session-1',
+        },
+      }),
+    ).toThrow();
   });
 });
