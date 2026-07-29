@@ -58,10 +58,12 @@ export type EvmFamilyEcdsaSignerBinding = {
   readonly materialActivation: MpcMaterialActivationRef;
 };
 
-export type ExactEd25519SigningLaneIdentity = {
+export type ExactEd25519SigningLaneIdentity<
+  A extends SigningLaneAuthBinding = SigningLaneAuthBinding,
+> = {
   readonly kind: 'exact_signing_lane';
   readonly signer: NearEd25519SignerBinding;
-  readonly auth: SigningLaneAuthBinding;
+  readonly auth: A;
   readonly signingGrantId: SigningGrantId;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
 };
@@ -88,9 +90,11 @@ type ExactEcdsaSigningLaneIdentityCarrier = {
   readonly identity: ExactEcdsaSigningLaneIdentity;
 };
 
-export type ExactEd25519SigningLaneIdentityInput = {
+export type ExactEd25519SigningLaneIdentityInput<
+  A extends SigningLaneAuthBinding = SigningLaneAuthBinding,
+> = {
   signer: NearEd25519SignerBinding;
-  auth: SigningLaneAuthBinding;
+  auth: A;
   signingGrantId: unknown;
   thresholdSessionId: unknown;
 };
@@ -451,9 +455,9 @@ export function exactSigningLaneIdentityKey(
   ) as ExactSigningLaneIdentityKey;
 }
 
-export function exactEd25519SigningLaneIdentity(
-  lane: ExactEd25519SigningLaneIdentityInput,
-): ExactEd25519SigningLaneIdentity {
+export function exactEd25519SigningLaneIdentity<A extends SigningLaneAuthBinding>(
+  lane: ExactEd25519SigningLaneIdentityInput<A>,
+): ExactEd25519SigningLaneIdentity<A> {
   return {
     kind: 'exact_signing_lane',
     signer: lane.signer,

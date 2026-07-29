@@ -47,10 +47,10 @@ export type Ed25519YaoExportFlowDeps = {
     scope: Ed25519YaoActiveClientLookupScopeV1,
   ) => NearEd25519YaoSigningCapability | null;
   recoverPasskeyCapability: (
-    laneIdentity: ExactPasskeyEd25519SigningLaneIdentity,
+    laneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>,
   ) => Promise<NearEd25519YaoSigningCapability>;
   resolvePasskeyExportContext: (
-    laneIdentity: ExactPasskeyEd25519SigningLaneIdentity,
+    laneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>,
   ) => Promise<PasskeyEd25519YaoExportContextResolutionV1>;
   emailOtp: {
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
@@ -101,25 +101,31 @@ function safeStateEpoch(value: bigint): number {
 }
 
 type ResolvedPasskeyEd25519YaoExportContext = {
-  laneIdentity: ExactPasskeyEd25519SigningLaneIdentity;
+  laneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
   relayerUrl: string;
   walletSessionJwt: string;
   capability: RouterAbEd25519YaoExportWorkerPayloadV1['capability'];
 };
 
-type ExactPasskeyEd25519SigningLaneIdentity = ExactEd25519SigningLaneIdentity & {
-  auth: Extract<ExactEd25519SigningLaneIdentity['auth'], { kind: 'passkey' }>;
-};
+type PasskeyEd25519LaneAuth = Extract<
+  ExactEd25519SigningLaneIdentity['auth'],
+  { kind: 'passkey' }
+>;
+
+type EmailOtpEd25519LaneAuth = Extract<
+  ExactEd25519SigningLaneIdentity['auth'],
+  { kind: 'email_otp' }
+>;
 
 function isExactPasskeyEd25519SigningLaneIdentity(
   laneIdentity: ExactEd25519SigningLaneIdentity,
-): laneIdentity is ExactPasskeyEd25519SigningLaneIdentity {
+): laneIdentity is ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth> {
   return laneIdentity.auth.kind === 'passkey';
 }
 
 function requirePasskeyExportLaneIdentity(
   args: ExportEd25519YaoKeyArgs,
-): ExactPasskeyEd25519SigningLaneIdentity {
+): ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth> {
   if (!isExactPasskeyEd25519SigningLaneIdentity(args.laneIdentity)) {
     throw new Error('[SigningEngine][ed25519-export] export requires a passkey Yao lane');
   }
@@ -132,19 +138,15 @@ function requirePasskeyExportLaneIdentity(
   return args.laneIdentity;
 }
 
-type ExactEmailOtpEd25519SigningLaneIdentity = ExactEd25519SigningLaneIdentity & {
-  auth: Extract<ExactEd25519SigningLaneIdentity['auth'], { kind: 'email_otp' }>;
-};
-
 function isExactEmailOtpEd25519SigningLaneIdentity(
   laneIdentity: ExactEd25519SigningLaneIdentity,
-): laneIdentity is ExactEmailOtpEd25519SigningLaneIdentity {
+): laneIdentity is ExactEd25519SigningLaneIdentity<EmailOtpEd25519LaneAuth> {
   return laneIdentity.auth.kind === 'email_otp';
 }
 
 function requireEmailOtpExportLaneIdentity(
   args: ExportEd25519YaoKeyArgs,
-): ExactEmailOtpEd25519SigningLaneIdentity {
+): ExactEd25519SigningLaneIdentity<EmailOtpEd25519LaneAuth> {
   if (!isExactEmailOtpEd25519SigningLaneIdentity(args.laneIdentity)) {
     throw new Error('[SigningEngine][ed25519-export] export requires an Email OTP Yao lane');
   }
@@ -167,8 +169,8 @@ function activeCapabilityLookupScope(
 }
 
 function passkeyExportStableIdentityMatches(args: {
-  selected: ExactPasskeyEd25519SigningLaneIdentity;
-  current: ExactPasskeyEd25519SigningLaneIdentity;
+  selected: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
+  current: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
 }): boolean {
   const selectedSigner = args.selected.signer;
   const currentSigner = args.current.signer;
@@ -188,7 +190,7 @@ function passkeyExportStableIdentityMatches(args: {
 
 function resolvePasskeyExportContextFromActiveCapability(args: {
   capability: NearEd25519YaoSigningCapability;
-  selectedLaneIdentity: ExactPasskeyEd25519SigningLaneIdentity;
+  selectedLaneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
 }): ResolvedPasskeyEd25519YaoExportContext {
   const { capability } = args;
   if (capability.activeClient.status().kind !== 'active') {
@@ -227,7 +229,7 @@ function resolvePasskeyExportContextFromActiveCapability(args: {
 
 function passkeyLaneIdentityFromExportContext(
   context: PasskeyEd25519YaoExportContextV1,
-): ExactPasskeyEd25519SigningLaneIdentity {
+): ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth> {
   const descriptor = context.descriptor;
   const laneIdentity = exactEd25519SigningLaneIdentity({
     signer: nearEd25519SignerBindingFromBoundaryFields({
@@ -256,7 +258,7 @@ function passkeyLaneIdentityFromExportContext(
 
 function requireDurablePasskeyExportContext(args: {
   context: PasskeyEd25519YaoExportContextV1;
-  selectedLaneIdentity: ExactPasskeyEd25519SigningLaneIdentity;
+  selectedLaneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
 }): ResolvedPasskeyEd25519YaoExportContext {
   const currentLaneIdentity = passkeyLaneIdentityFromExportContext(args.context);
   if (
@@ -328,7 +330,7 @@ async function resolveExactEmailOtpExportContext(
   args: ExportEd25519YaoKeyArgs,
 ): Promise<{
   context: EmailOtpEd25519YaoExportContextV1;
-  laneIdentity: ExactEmailOtpEd25519SigningLaneIdentity;
+  laneIdentity: ExactEd25519SigningLaneIdentity<EmailOtpEd25519LaneAuth>;
 }> {
   const laneIdentity = requireEmailOtpExportLaneIdentity(args);
   const context = await deps.emailOtp.resolveExportContext({
