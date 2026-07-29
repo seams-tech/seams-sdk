@@ -414,7 +414,7 @@ No mixed-topology revision is deployed.
 - [ ] Run one optimized local Email OTP and one passkey registration.
 - [ ] Deploy one coherent staging revision and manually exercise registration,
       unlock/sign, recovery, and export.
-- [ ] Confirm the existing timing summary reports zero DO intervals and a
+- [x] Confirm the existing timing summary reports zero DO intervals and a
       wallet-ready result within 3 seconds.
 - [ ] Deploy the same revision to production after staging passes.
 - [ ] Delete migration commands, retired bindings/configuration, and fixtures
@@ -461,6 +461,28 @@ Integration evidence at `4d8d8741a`:
 
 Classify existing failing tests under `AGENTS.md`. Delete fixtures that encode
 the retired DO topology.
+
+### Staging Email OTP Latency Evidence — 2026-07-29
+
+Two mixed-signer Email OTP registrations were measured on the coherent staging
+deployment at `441c847ea7569e9c546e775d549fee878ef9ec0d`. Both completed the
+blocking wallet-ready path below the 3-second product ceiling.
+
+| Run | Total | Setup | ECDSA respond | ECDSA activate | Local persistence | Trace coverage |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Cold | 2,565 ms | 263 ms | 523 ms | 1,722 ms | 20 ms | 99.84% |
+| Warm | 1,189 ms | 241 ms | 339 ms | 556 ms | 25 ms | 99.83% |
+
+The cold run met the hard ceiling with 435 ms of headroom. The warm run was
+below 1.2 seconds. Ed25519/Yao provisioning was deferred from the blocking
+registration path in both runs (`emailOtpYaoWorkerRegistrationMs = 0` and
+`emailOtpYaoTotalMs = 0`), confirming that wallet readiness no longer waits for
+NEAR signer provisioning.
+
+This evidence accepts staging Email OTP registration latency only. The cold log
+also recorded an asynchronous `/wallets/register/near-provisioning` HTTP 400
+after wallet readiness; deferred NEAR readiness remains part of the open
+staging lifecycle validation above.
 
 ## Performance Acceptance
 
