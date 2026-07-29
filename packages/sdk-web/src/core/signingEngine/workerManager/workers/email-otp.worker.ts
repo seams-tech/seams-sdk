@@ -1249,14 +1249,6 @@ function assertEmailOtpChallengeAction(args: {
   }
 }
 
-function googleEmailOtpRegistrationAttemptIdFromRoutePlan(plan: EmailOtpRoutePlan): string {
-  if (plan.routeFamily !== 'registration') return '';
-  const auth = routePlanSessionAuth(plan);
-  if (auth?.kind !== 'app_session') return '';
-  const payload = decodeJwtPayloadRecord(auth.jwt);
-  return normalizeOptionalTrimmedString(payload?.googleEmailOtpRegistrationAttemptId);
-}
-
 function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTransport | null {
   const transport = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
   if (!transport) return null;
@@ -3944,9 +3936,9 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
       'Email OTP enrollment did not persist device-local enc_s(S)',
     );
     if (!args.skipServerFinalize) {
-      const googleEmailOtpRegistrationAttemptId =
-        readOptionalString(args.googleEmailOtpRegistrationAttemptId) ||
-        googleEmailOtpRegistrationAttemptIdFromRoutePlan(args.routePlan);
+      const googleEmailOtpRegistrationAttemptId = readOptionalString(
+        args.googleEmailOtpRegistrationAttemptId,
+      );
       await postEmailOtpJson({
         relayUrl,
         route: emailOtpRoutePath(args.routePlan, 'finalize'),
