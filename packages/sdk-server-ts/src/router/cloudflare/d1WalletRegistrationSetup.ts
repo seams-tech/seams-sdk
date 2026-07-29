@@ -87,7 +87,10 @@ export type WalletRegistrationRespondInput = {
   readonly registrationCeremonyId: string;
   readonly signedSetup: unknown;
   readonly authority: WalletRegistrationAuthorityInput;
-  readonly ecdsa: {
+  /** Checked against the plan the ceremony recorded before anything runs. */
+  readonly planKind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa' | 'near_ed25519';
+  /** Absent exactly when the plan is Ed25519-only. */
+  readonly ecdsa?: {
     readonly kind: 'router_ab_ecdsa_registration_v1';
     readonly strictRegistration: RouterAbEcdsaRegistrationRequestV1;
   };
@@ -110,7 +113,9 @@ export type WalletRegistrationActivateInput = {
    * request, so the client has nothing to cross-check against and asking it
    * to supply one would be theatre.
    */
-  readonly ecdsa: {
+  readonly planKind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa' | 'near_ed25519';
+  /** Absent exactly when the plan is Ed25519-only. */
+  readonly ecdsa?: {
     readonly clientActivation: unknown;
   };
   readonly emailOtpEnrollment?: unknown;

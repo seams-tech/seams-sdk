@@ -2554,7 +2554,8 @@ function parseWalletRegistrationRespondRequest(
   registrationCeremonyId: string;
   signedSetup: string;
   authority: WalletRegistrationAuthorityInput;
-  ecdsa: {
+  planKind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa' | 'near_ed25519';
+  ecdsa?: {
     kind: 'router_ab_ecdsa_registration_v1';
     strictRegistration: RouterAbEcdsaRegistrationRequestV1;
   };
@@ -2569,6 +2570,24 @@ function parseWalletRegistrationRespondRequest(
   const signedSetup = String(body.signedSetup || '').trim();
   if (!signedSetup) {
     return { ok: false, code: 'invalid_body', message: 'signedSetup is required' };
+  }
+  /* The signer-plan discriminant. The service checks it against the plan the
+     ceremony actually recorded, so a caller cannot drive an Ed25519-only
+     ceremony down the ECDSA arm or the reverse. */
+  const planKind = String(body.kind || '').trim();
+  if (
+    planKind !== 'evm_family_ecdsa' &&
+    planKind !== 'near_ed25519_and_evm_family_ecdsa' &&
+    planKind !== 'near_ed25519'
+  ) {
+    return { ok: false, code: 'invalid_body', message: 'kind must name the signer plan' };
+  }
+  if (planKind === 'near_ed25519' && body.ecdsa !== undefined) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'an Ed25519-only respond carries no ECDSA registration',
+    };
   }
   /* Exactly one proof branch; the auth method the ceremony recorded decides
      which one is admissible, and the service rejects a mismatch. */
@@ -2590,6 +2609,12 @@ function parseWalletRegistrationRespondRequest(
       return { ok: false, code: 'invalid_body', message: 'emailOtpRegistrationProof is invalid' };
     }
     authority = { kind: 'email_otp', emailOtpRegistrationProof: proof };
+  }
+  if (planKind === 'near_ed25519') {
+    return {
+      ok: true,
+      value: { registrationCeremonyId, signedSetup, authority, planKind },
+    };
   }
   const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
   if (!ecdsa || ecdsa.kind !== 'router_ab_ecdsa_registration_v1') {
@@ -2615,6 +2640,7 @@ function parseWalletRegistrationRespondRequest(
       registrationCeremonyId,
       signedSetup,
       authority,
+      planKind,
       ecdsa: { kind: 'router_ab_ecdsa_registration_v1', strictRegistration },
     },
   };
@@ -2645,9 +2671,24 @@ export async function handleRouterApiWalletRegistrationActivate(
   if (!signedSetup) return routeError(400, 'invalid_body', 'signedSetup is required');
   const idempotencyKey = String(body.idempotencyKey || '').trim();
   if (!idempotencyKey) return routeError(400, 'invalid_body', 'idempotencyKey is required');
+  const planKind = String(body.kind || '').trim();
+  if (
+    planKind !== 'evm_family_ecdsa' &&
+    planKind !== 'near_ed25519_and_evm_family_ecdsa' &&
+    planKind !== 'near_ed25519'
+  ) {
+    return routeError(400, 'invalid_body', 'kind must name the signer plan');
+  }
+  const ed25519Only = planKind === 'near_ed25519';
+  if (ed25519Only && body.ecdsa !== undefined) {
+    return routeError(
+      400,
+      'invalid_body',
+      'an Ed25519-only activate carries no ECDSA activation',
+    );
+  }
   const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
-  if (!ecdsa) return routeError(400, 'invalid_body', 'ecdsa is required');
-  if (!isPlainObject(ecdsa.clientActivation)) {
+  if (!ed25519Only && (!ecdsa || !isPlainObject(ecdsa.clientActivation))) {
     return routeError(400, 'invalid_body', 'browser-verified clientActivation is required');
   }
   const result = await input.services.walletRegistration.activateWalletRegistration(
@@ -2655,7 +2696,8 @@ export async function handleRouterApiWalletRegistrationActivate(
       registrationCeremonyId,
       signedSetup,
       idempotencyKey,
-      ecdsa: { clientActivation: ecdsa.clientActivation },
+      planKind,
+      ...(ecdsa ? { ecdsa: { clientActivation: ecdsa.clientActivation } } : {}),
       ...(body.emailOtpEnrollment ? { emailOtpEnrollment: body.emailOtpEnrollment } : {}),
       ...(body.emailOtpBackupAck ? { emailOtpBackupAck: body.emailOtpBackupAck } : {}),
       verifier: session,
