@@ -155,17 +155,30 @@ export type RouterAbNormalSigningRouteRuntime = Pick<
   | 'releaseBudgetForIdentity'
 >;
 
+type AcceptedRouteAdmission = {
+  ok: true;
+  thresholdSessionId: string;
+  requestId: string;
+  expiresAtMs: number;
+};
+
+type AcceptedEcdsaRouteAdmission = AcceptedRouteAdmission & {
+  readonly materialActivationId: MpcMaterialActivationId;
+};
+
+type RejectedRouteAdmission = {
+  ok: false;
+  error: RouterAbSigningWorkerJsonError;
+};
+
 export type RouterAbNormalSigningRouteAdmission =
-  | {
-      ok: true;
-      thresholdSessionId: string;
-      requestId: string;
-      expiresAtMs: number;
-    }
-  | {
-      ok: false;
-      error: RouterAbSigningWorkerJsonError;
-    };
+  | AcceptedRouteAdmission
+  | AcceptedEcdsaRouteAdmission
+  | RejectedRouteAdmission;
+
+type RouterAbEcdsaNormalSigningRouteAdmission =
+  | AcceptedEcdsaRouteAdmission
+  | RejectedRouteAdmission;
 
 export type RouterAbNormalSigningAdmissionFailureCode =
   | 'project_policy_rejected'
@@ -205,7 +218,7 @@ export type RouterAbNormalSigningAdmissionInput =
       curve: 'ecdsa';
       phase: 'prepare' | 'finalize';
       walletId: string;
-      evmFamilySigningKeySlotId: string;
+      materialActivationId: MpcMaterialActivationId;
       authorizationIdentity: RouterAbNormalSigningAuthorizationIdentity;
       signingGrantId: string;
       requestId: string;
@@ -220,8 +233,6 @@ export interface RouterAbNormalSigningAdmissionAdapter {
     input: RouterAbNormalSigningAdmissionInput,
   ): Promise<RouterAbNormalSigningAdmissionResult>;
 }
-
-type AcceptedRouteAdmission = Extract<RouterAbNormalSigningRouteAdmission, { ok: true }>;
 
 export type RouterAbNormalSigningAdmissionEvaluationInput =
   | {
@@ -238,7 +249,7 @@ export type RouterAbNormalSigningAdmissionEvaluationInput =
       phase: 'prepare' | 'finalize';
       claims: RouterAbEcdsaDerivationWalletSessionClaims;
       walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
-      admission: AcceptedRouteAdmission;
+      admission: AcceptedEcdsaRouteAdmission;
     };
 
 export async function evaluateRouterAbNormalSigningAdmission(
@@ -283,7 +294,7 @@ export async function evaluateRouterAbNormalSigningAdmission(
     curve: 'ecdsa',
     phase: input.phase,
     walletId: input.walletSessionAuth.userId,
-    evmFamilySigningKeySlotId: input.walletSessionAuth.evmFamilySigningKeySlotId,
+    materialActivationId: input.admission.materialActivationId,
     authorizationIdentity: {
       kind: 'reusable_wallet_session',
       walletSessionId: input.walletSessionAuth.thresholdSessionId,
@@ -2395,7 +2406,7 @@ export function validateRouterAbEcdsaDerivationNormalSigningPrepareRequest(input
   claims: RouterAbEcdsaDerivationWalletSessionClaims;
   walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
   body: Record<string, unknown>;
-}): RouterAbNormalSigningRouteAdmission {
+}): RouterAbEcdsaNormalSigningRouteAdmission {
   const normalSigning = input.claims.routerAbEcdsaDerivationNormalSigning;
   if (!normalSigning) {
     return {
@@ -2450,6 +2461,9 @@ export function validateRouterAbEcdsaDerivationNormalSigningPrepareRequest(input
     thresholdSessionId: input.walletSessionAuth.thresholdSessionId,
     requestId: request.request_id,
     expiresAtMs: request.expires_at_ms,
+    materialActivationId: requireMpcMaterialActivationId(
+      request.material_activation.activation_id,
+    ),
   };
 }
 
@@ -2457,7 +2471,7 @@ export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(inpu
   claims: RouterAbEcdsaDerivationWalletSessionClaims;
   walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
   body: Record<string, unknown>;
-}): RouterAbNormalSigningRouteAdmission {
+}): RouterAbEcdsaNormalSigningRouteAdmission {
   const normalSigning = input.claims.routerAbEcdsaDerivationNormalSigning;
   if (!normalSigning) {
     return {
@@ -2514,6 +2528,9 @@ export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(inpu
     thresholdSessionId: input.walletSessionAuth.thresholdSessionId,
     requestId: request.request_id,
     expiresAtMs: request.expires_at_ms,
+    materialActivationId: requireMpcMaterialActivationId(
+      request.material_activation.activation_id,
+    ),
   };
 }
 
@@ -2891,7 +2908,7 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
     curve: 'ecdsa',
     phase: input.phase,
     walletId: authenticated.session.walletId,
-    evmFamilySigningKeySlotId: request.material_activation.key_binding,
+    materialActivationId,
     authorizationIdentity: {
       kind: 'operation_step_up',
       materialActivationId,

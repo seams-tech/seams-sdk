@@ -63,6 +63,9 @@ function baseEd25519Claims() {
     nearEd25519SigningKeyId: 'alice.testnet',
     thresholdSessionId: 'threshold-session-1',
     signingGrantId: 'signing-grant-1',
+    authorizationSessionId: 'authorization-session-1',
+    walletSessionId: 'wallet-session-1',
+    quotaId: 'wallet-quota-1',
     relayerKeyId: 'relayer-key-1',
     thresholdExpiresAtMs: Date.now() + 60 * 60 * 1000,
     participantIds: [1, 2],
@@ -80,10 +83,12 @@ function baseEcdsaClaims() {
     nearEd25519SigningKeyId: 'alice.testnet',
     thresholdSessionId: 'threshold-session-1',
     signingGrantId: 'signing-grant-1',
+    authorizationSessionId: 'authorization-session-1',
+    walletSessionId: 'wallet-session-1',
+    quotaId: 'wallet-quota-1',
     relayerKeyId: 'relayer-key-1',
     thresholdExpiresAtMs: Date.now() + 60 * 60 * 1000,
     participantIds: [1, 2],
-    evmFamilySigningKeySlotId,
     keyScope: 'evm-family',
     keyHandle: 'ederivation-key-test',
   };
@@ -309,6 +314,12 @@ test.describe('Router A/B Wallet Session token claims', () => {
     expect(parseRouterAbEcdsaDerivationWalletSessionClaims(routerAbEcdsaClaims())?.keyHandle).toBe(
       'ederivation-key-test',
     );
+    expect(
+      parseRouterAbEcdsaDerivationWalletSessionClaims({
+        ...routerAbEcdsaClaims(),
+        evmFamilySigningKeySlotId,
+      }),
+    ).toBeNull();
   });
 
   test('Router A/B route validators reject missing Wallet Session bearer auth', async () => {
@@ -419,10 +430,12 @@ test.describe('Router A/B Wallet Session token claims', () => {
       signRouterAbEcdsaDerivationWalletSessionJwt({
         session,
         userId: 'alice.testnet',
-        evmFamilySigningKeySlotId: ecdsaBootstrap.evmFamilySigningKeySlotId,
         relayerKeyId: ecdsaBootstrap.relayerKeyId,
         sessionInfo: {
           sessionKind: 'jwt',
+          authorizationSessionId: 'authorization-session-1',
+          walletSessionId: 'wallet-session-1',
+          quotaId: 'wallet-quota-1',
           thresholdSessionId: ecdsaBootstrap.thresholdSessionId,
           signingGrantId: ecdsaBootstrap.signingGrantId,
           expiresAtMs: ecdsaBootstrap.expiresAtMs,
@@ -471,10 +484,12 @@ test.describe('Router A/B Wallet Session token claims', () => {
       signRouterAbEcdsaDerivationWalletSessionJwt({
         session,
         userId: 'alice.testnet',
-        evmFamilySigningKeySlotId: 'wallet-key-alice-testnet',
         relayerKeyId: 'ecdsa-relayer-key-1',
         sessionInfo: {
           sessionKind: 'jwt',
+          authorizationSessionId: 'authorization-session-1',
+          walletSessionId: 'wallet-session-1',
+          quotaId: 'wallet-quota-1',
           thresholdSessionId: 'threshold-ecdsa-session',
           signingGrantId: 'signing-grant-ecdsa',
           expiresAtMs: Date.now() + 60_000,
@@ -509,7 +524,6 @@ test.describe('Router A/B Wallet Session token claims', () => {
       signRouterAbEcdsaDerivationWalletSessionJwt({
         session,
         userId: 'alice.testnet',
-        evmFamilySigningKeySlotId: ecdsaBootstrap.evmFamilySigningKeySlotId,
         relayerKeyId: ecdsaBootstrap.relayerKeyId,
         sessionInfo: issuerBindingOnlySessionInfo,
         requireJwtErrorMessage: 'jwt required',

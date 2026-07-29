@@ -56,24 +56,22 @@ type ParseResult<T> = ParseOk<T> | ParseErr;
 type RouterAbEcdsaDerivationPoolFillInitClaims = Pick<
   ThresholdEcdsaSessionClaims,
   | 'walletId'
-  | 'evmFamilySigningKeySlotId'
   | 'relayerKeyId'
   | 'keyHandle'
   | 'runtimePolicyScope'
   | 'participantIds'
   | 'thresholdExpiresAtMs'
   | 'routerAbEcdsaDerivationNormalSigning'
->;
+> & { readonly evmFamilySigningKeySlotId: string };
 
 type RouterAbEcdsaDerivationPoolFillStepClaims = Pick<
   ThresholdEcdsaSessionClaims,
   | 'walletId'
-  | 'evmFamilySigningKeySlotId'
   | 'relayerKeyId'
   | 'participantIds'
   | 'thresholdExpiresAtMs'
   | 'routerAbEcdsaDerivationNormalSigning'
->;
+> & { readonly evmFamilySigningKeySlotId: string };
 
 function parseEvmFamilySigningKeySlotString(value: unknown): string | null {
   const parsed = parseEvmFamilySigningKeySlotIdOrNull(value);

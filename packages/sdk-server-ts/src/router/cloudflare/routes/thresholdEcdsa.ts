@@ -116,7 +116,10 @@ import {
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import { hashEmailOtpAppSessionClaims } from '../../emailOtpSessionRouteHelpers';
-import { parseEvmFamilySigningKeySlotIdOrNull } from '@shared/signing-lanes';
+import {
+  deriveEvmFamilySigningKeySlotId,
+  parseEvmFamilySigningKeySlotIdOrNull,
+} from '@shared/signing-lanes';
 
 const NOT_IMPLEMENTED = {
   ok: false,
@@ -408,14 +411,13 @@ async function issueEcdsaOperationStepUpGrant(input: {
 type RouterAbEcdsaPoolFillClaims = Pick<
   ThresholdEcdsaSessionClaims,
   | 'walletId'
-  | 'evmFamilySigningKeySlotId'
   | 'relayerKeyId'
   | 'keyHandle'
   | 'runtimePolicyScope'
   | 'participantIds'
   | 'thresholdExpiresAtMs'
   | 'routerAbEcdsaDerivationNormalSigning'
->;
+> & { readonly evmFamilySigningKeySlotId: string };
 
 type RouterAbEcdsaPoolFillAuthorizationResult =
   | {
@@ -550,7 +552,18 @@ async function authorizeEcdsaPoolFill(input: {
           },
         };
       }
-      return { ok: true, claims: validated.claims };
+      const scope = validated.claims.routerAbEcdsaDerivationNormalSigning.scope;
+      return {
+        ok: true,
+        claims: {
+          ...validated.claims,
+          evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+            walletId: validated.claims.walletId,
+            signingRootId: scope.signing_root_id,
+            signingRootVersion: scope.signing_root_version,
+          }),
+        },
+      };
     }
     case 'operation_step_up': {
       const operation = input.request.operation;
@@ -1473,7 +1486,6 @@ export async function handleStrictEcdsaSessionActivation(
   const signed = await signRouterAbEcdsaDerivationWalletSessionJwt({
     session: input.ctx.opts.session,
     userId: walletKey.walletId,
-    evmFamilySigningKeySlotId: walletKey.evmFamilySigningKeySlotId,
     relayerKeyId: walletKey.relayerKeyId,
     sessionInfo: {
       sessionKind: 'jwt',

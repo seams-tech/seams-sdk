@@ -697,7 +697,7 @@ function admissionAuthorityScope(input: RouterAbNormalSigningAdmissionInput): st
     case 'ed25519':
       return ed25519AdmissionAuthorityScopeKey(input.authorityScope);
     case 'ecdsa':
-      return input.evmFamilySigningKeySlotId;
+      return `material_activation:${input.materialActivationId}`;
   }
   input satisfies never;
   throw new Error('Unsupported Router A/B normal-signing curve');

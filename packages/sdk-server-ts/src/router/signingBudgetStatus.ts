@@ -121,10 +121,7 @@ function statusMatchesAuthScope(
 ): boolean {
   switch (auth.curve) {
     case 'ecdsa':
-      return (
-        status.curve === 'ecdsa' &&
-        status.evmFamilySigningKeySlotId === auth.evmFamilySigningKeySlotId
-      );
+      return status.curve === 'ecdsa';
     case 'ed25519':
       return (
         status.curve === 'ed25519' &&
@@ -185,7 +182,6 @@ function walletBudgetMatches(
       for (const binding of status.bindings.ecdsa) {
         if (
           binding.thresholdSessionId === auth.thresholdSessionId &&
-          binding.evmFamilySigningKeySlotId === auth.evmFamilySigningKeySlotId &&
           sameParticipants(auth.participantIds, binding.participantIds)
         ) {
           return true;

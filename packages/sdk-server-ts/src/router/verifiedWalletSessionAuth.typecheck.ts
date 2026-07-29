@@ -17,7 +17,6 @@ const ecdsaAuth = {
   thresholdSessionId: 'threshold-session-ecdsa',
   signingGrantId: 'signing-grant-ecdsa',
   userId: 'wallet-ecdsa',
-  evmFamilySigningKeySlotId: 'wallet-key-example-localhost',
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
@@ -52,7 +51,6 @@ const invalidMissingSigningGrant = {
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
   userId: 'wallet-ecdsa',
-  evmFamilySigningKeySlotId: 'wallet-key-example-localhost',
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
@@ -67,7 +65,6 @@ const invalidEcdsaWithEd25519OnlyField = {
   thresholdSessionId: 'threshold-session-ecdsa',
   signingGrantId: 'signing-grant-ecdsa',
   userId: 'wallet-ecdsa',
-  evmFamilySigningKeySlotId: 'wallet-key-example-localhost',
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
@@ -76,6 +73,21 @@ const invalidEcdsaWithEd25519OnlyField = {
   ed25519RelayerKeyId: 'ed25519-relayer',
 } satisfies VerifiedEcdsaWalletSessionAuth;
 void invalidEcdsaWithEd25519OnlyField;
+
+const invalidEcdsaWithSigningSlot = {
+  kind: 'wallet_session',
+  curve: 'ecdsa',
+  thresholdSessionId: 'threshold-session-ecdsa',
+  signingGrantId: 'signing-grant-ecdsa',
+  userId: 'wallet-ecdsa',
+  relayerKeyId: 'ecdsa-relayer',
+  participantIds: [1, 2] as const,
+  expiresAtMs: Date.now() + 60_000,
+  keyHandle: 'ederivation-key-1',
+  // @ts-expect-error Wallet Session authorization must not carry material slot identity.
+  evmFamilySigningKeySlotId: 'wallet-key-example-localhost',
+} satisfies VerifiedEcdsaWalletSessionAuth;
+void invalidEcdsaWithSigningSlot;
 
 const invalidEd25519WithEcdsaOnlyField = {
   kind: 'wallet_session',

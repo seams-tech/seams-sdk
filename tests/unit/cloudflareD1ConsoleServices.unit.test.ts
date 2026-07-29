@@ -605,7 +605,6 @@ async function bootstrapLocalPoolFillEcdsaSession(input: {
   const signed = await signRouterAbEcdsaDerivationWalletSessionJwt({
     session,
     userId: walletId,
-    evmFamilySigningKeySlotId,
     relayerKeyId,
     sessionInfo: {
       sessionKind: 'jwt',

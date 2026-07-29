@@ -17,7 +17,6 @@ import type {
 } from './routerApi';
 import { extractBearerCredential } from './routerApiKeyAuth';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { parseEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
@@ -245,7 +244,6 @@ export type RouterAbEd25519WalletSessionJwtSessionInfo =
   RouterAbEd25519WalletSessionJwtSigningInput['sessionInfo'];
 
 export type RouterAbEcdsaDerivationWalletSessionJwtSigningInput = RouterAbWalletSessionJwtSigningInput & {
-  evmFamilySigningKeySlotId: unknown;
   sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
     sessionKind: 'jwt';
     authorizationSessionId: unknown;
@@ -628,7 +626,6 @@ type RouterAbEd25519WalletSessionClaimsBuildInput = {
 type RouterAbEcdsaDerivationWalletSessionClaimsBuildInput = {
   base: NormalizedRouterAbWalletSessionSigningBase;
   authorizationSessionId: SeamsSessionId;
-  evmFamilySigningKeySlotId: string;
   keyHandle: string;
   runtimePolicyScope?: RuntimePolicyScope;
   binding: {
@@ -661,12 +658,6 @@ function buildRouterAbEd25519WalletSessionClaims(
   };
 }
 
-function requireEvmFamilySigningKeySlotId(value: unknown) {
-  const parsed = parseEvmFamilySigningKeySlotId(value);
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
-}
-
 function buildRouterAbEcdsaDerivationWalletSessionClaims(
   input: RouterAbEcdsaDerivationWalletSessionClaimsBuildInput,
 ): RouterAbEcdsaDerivationWalletSessionClaims {
@@ -682,9 +673,6 @@ function buildRouterAbEcdsaDerivationWalletSessionClaims(
     keyScope: 'evm-family',
     keyHandle: input.keyHandle,
     relayerKeyId: input.base.relayerKeyId,
-    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
-      input.evmFamilySigningKeySlotId,
-    ),
     routerAbEcdsaDerivationNormalSigning: input.binding.normalSigning,
     participantIds: input.base.participantIds,
     thresholdExpiresAtMs: input.base.thresholdExpiresAtMs,
@@ -770,15 +758,6 @@ export async function signRouterAbEcdsaDerivationWalletSessionJwt(
   if (!base.ok) return base;
   const binding = rejectInvalidRouterAbEcdsaDerivationBinding(args);
   if (!binding.ok) return binding;
-  const evmFamilySigningKeySlotId = String(args.evmFamilySigningKeySlotId || '').trim();
-  if (!evmFamilySigningKeySlotId) {
-    return {
-      ok: false,
-      status: 500,
-      code: 'internal',
-      message: args.invalidPayloadErrorMessage,
-    };
-  }
   const runtimePolicyScope = parseOptionalRuntimePolicyScope(
     args.sessionInfo.runtimePolicyScope,
     args.invalidPayloadErrorMessage,
@@ -807,7 +786,6 @@ export async function signRouterAbEcdsaDerivationWalletSessionJwt(
   const claims = buildRouterAbEcdsaDerivationWalletSessionClaims({
     base: base.value,
     authorizationSessionId: authorizationSessionId.value,
-    evmFamilySigningKeySlotId,
     keyHandle,
     runtimePolicyScope: runtimePolicyScope.value,
     binding,
