@@ -509,6 +509,22 @@ export type RegistrationResult =
     }
   | {
       success: true;
+      kind: 'near_wallet_registered_pending';
+      walletId: WalletId;
+      nearProvisioning: RegistrationNearProvisioningState;
+      thresholdEcdsaEthereumAddress?: never;
+      thresholdEcdsaPublicKeyB64u?: never;
+      accountProvisioning?: never;
+      resolvedAccount?: never;
+      nearEd25519SigningKeyId?: never;
+      operationalPublicKey?: never;
+      nearAccountId?: never;
+      transactionId?: never;
+      error?: never;
+      errorCode?: never;
+    }
+  | {
+      success: true;
       kind: 'near_ed25519_signer_added';
       walletId: WalletId;
       nearEd25519SigningKeyId: NearEd25519SigningKeyId;
