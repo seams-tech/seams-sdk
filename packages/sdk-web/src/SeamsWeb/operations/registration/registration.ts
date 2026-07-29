@@ -94,6 +94,7 @@ import {
   isEmailOtpWalletRegistrationFinalizeResponse,
   parseWalletRegistrationEcdsaDerivationRespond,
   activateWalletRegistration,
+  completeWalletRegistrationNearProvisioning,
   respondWalletAddSignerEcdsa,
   respondWalletRegistration,
   respondWalletRegistrationEcdsa,
@@ -5057,16 +5058,15 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       'wallet-registration-finalize',
     );
     const registrationTiming = new RegistrationTimingRecorder(performance.now());
-    const prepared = await resolvePasskeyRegistrationReady({
+    const prepared = await setupThreeRouteRegistration({
       context,
       authMethod: args.authMethod,
       wallet: args.wallet,
       signerSelection: args.signerSelection,
       recorder: registrationTiming,
     });
-    const { relayerUrl, intentResponse } = prepared;
-    const intent = requirePasskeyRegistrationIntent(intentResponse.intent);
-    activeIntent = activeWalletRegistrationIntentFromReady(prepared);
+    const { relayerUrl, setup } = prepared;
+    const intent = requirePasskeyRegistrationIntent(setup.intent);
     const eventAccountId = registrationEventAccountId(String(intent.walletId));
     emitRegistrationEvent(options.onEvent, eventAccountId, {
       authMethod: 'passkey',
@@ -5078,7 +5078,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       context,
       walletId: intent.walletId,
       signerSlot: args.ed25519Selection.signerSlot,
-      registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
+      registrationIntentDigestB64u: setup.registrationIntentDigestB64u,
       options,
       confirmationConfigOverride: {
         uiMode: 'modal',
@@ -5093,38 +5093,37 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       status: 'succeeded',
       interaction: { kind: 'passkey_create', overlay: 'hide' },
     });
-    const started = await startWalletRegistration({
+    const responded = await respondWalletRegistration({
       relayerUrl,
-      registrationIntentGrant: intentResponse.registrationIntentGrant,
-      registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
-      intent,
+      registrationCeremonyId: setup.registrationCeremonyId,
+      signedSetup: setup.signedSetup,
       headers: registrationRouteHeaders(traceContext),
       kind: 'passkey',
       webauthnRegistration: passkeyAuthority.webauthnRegistration,
     });
-    if (started.kind !== 'near_ed25519') {
-      throw new Error('Wallet registration start returned a different signer branch');
+    if (responded.kind !== 'near_ed25519') {
+      throw new Error('Ed25519-only registration respond returned a different signer branch');
     }
     const yao = await registerVerifiedPasskeyEd25519YaoV1({
       kind: 'verified_passkey_ed25519_yao_registration_input_v1',
       verifiedIntent: {
         kind: 'verified_passkey_registration_intent_v1',
         intent,
-        registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
-        registrationBearerToken: String(intentResponse.registrationIntentGrant),
-        registrationCeremonyId: started.registrationCeremonyId,
+        registrationIntentDigestB64u: setup.registrationIntentDigestB64u,
+        registrationBearerToken: String(setup.signedSetup),
+        registrationCeremonyId: setup.registrationCeremonyId,
       },
       verifiedAuthority: {
         kind: 'verified_passkey_registration_authority_v1',
         walletId: intent.walletId,
-        registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
+        registrationIntentDigestB64u: setup.registrationIntentDigestB64u,
         credentialIdB64u: String(
           passkeyAuthority.credential.rawId || passkeyAuthority.credential.id || '',
         ).trim(),
         ownedPasskeyPrfFirst: base64UrlDecode(passkeyAuthority.prfFirstB64u),
       },
-      admissionRequest: started.ed25519.admissionRequest,
-      admissionReceipt: started.ed25519.admissionReceipt,
+      admissionRequest: responded.ed25519.admissionRequest,
+      admissionReceipt: responded.ed25519.admissionReceipt,
       httpTransport: {
         kind: 'passkey_ed25519_yao_http_transport_v1',
         routerOrigin: new URL(relayerUrl).origin,
@@ -5134,18 +5133,36 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
     });
     if (!yao.ok) throw new Error(yao.message);
     const pending = yao.registration;
+    /* Activate before the Yao computation is awaited. The wallet becomes
+       durable in `near_pending` with no signer yet; being that signer's only
+       source is not a reason to hold registration open, and the completion
+       route installs it once the computation finishes. */
+    const activated = await activateWalletRegistration({
+      relayerUrl,
+      registrationCeremonyId: setup.registrationCeremonyId,
+      signedSetup: setup.signedSetup,
+      headers: registrationRouteHeaders(traceContext),
+      idempotencyKey: finalizeIdempotencyKey,
+    });
+    if (activated.kind !== 'near_ed25519' || activated.nearProvisioning?.status !== 'near_pending') {
+      throw new Error('Ed25519-only activate did not return a wallet pending NEAR provisioning');
+    }
     try {
       const clientPublicKey = pending.publicKey();
-      const finalized = await finalizeWalletRegistration({
+      /* Route 4 — its own idempotency key: a separate effect from activate's,
+         and sharing one would let a retry replay activate's commit. */
+      const finalized = await completeWalletRegistrationNearProvisioning({
         relayerUrl,
-        registrationCeremonyId: started.registrationCeremonyId,
+        registrationCeremonyId: setup.registrationCeremonyId,
+        signedSetup: setup.signedSetup,
         headers: registrationRouteHeaders(traceContext),
-        idempotencyKey: finalizeIdempotencyKey,
-        kind: 'near_ed25519',
+        idempotencyKey: createRegistrationOperationIdempotencyKey(
+          'wallet-registration-near-provisioning',
+        ),
         ed25519: { activationReference: pending.activationReference() },
       });
-      if (finalized.kind !== 'near_ed25519') {
-        throw new Error('Wallet registration finalize returned a different signer branch');
+      if (!finalized.ok || finalized.kind !== 'near_ed25519') {
+        throw new Error('Deferred NEAR provisioning returned a different signer branch');
       }
       const finalizedPasskey = requireEd25519YaoRegistrationPublicResultMatches({
         clientPublicKey,
