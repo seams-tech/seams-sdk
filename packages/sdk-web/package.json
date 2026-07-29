@@ -131,7 +131,8 @@
     "size:lite": "node ./scripts/reports/report-lite-bundle-sizes.mjs",
     "size:lite:check": "node ./scripts/reports/report-lite-bundle-sizes.mjs --check",
     "evidence:yaos-ab:local-artifacts": "node ./scripts/reports/report-yaos-ab-local-artifacts.mjs ../../docs/evidence/yaos-ab-phase14b-local-artifacts-v1.json",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "check:declarations-external": "node ./scripts/checks/check-declarations-resolve-externally.mjs"
   },
   "keywords": [
     "seams",
