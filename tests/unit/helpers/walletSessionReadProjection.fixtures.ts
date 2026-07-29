@@ -226,13 +226,40 @@ export function invalidWalletSessionFixture(
 export function restorableEcdsaWalletSessionFixture(
   input: ReusableWalletSessionFixtureInput = {},
 ): WalletSession {
-  return ecdsaWalletSessionFixture(input, { kind: 'restorable' });
+  return ecdsaWalletSessionFixture(input, {
+    kind: 'pending',
+    resume: 'restore_material',
+  });
+}
+
+export function readyEcdsaWalletSessionFixture(
+  input: ReusableWalletSessionFixtureInput = {},
+): WalletSession {
+  return ecdsaWalletSessionFixture(input, { kind: 'ready' });
 }
 
 export function authorizationRequiredEcdsaWalletSessionFixture(
   input: ReusableWalletSessionFixtureInput = {},
 ): WalletSession {
-  return ecdsaWalletSessionFixture(input, { kind: 'authorization_required' });
+  return ecdsaWalletSessionFixture(input, {
+    kind: 'authorization_required',
+    requirement: 'same_method_step_up',
+  });
+}
+
+export function supersededEcdsaWalletSessionFixture(
+  input: ReusableWalletSessionFixtureInput = {},
+): WalletSession {
+  return ecdsaWalletSessionFixture(input, {
+    kind: 'superseded',
+    replacement: 're_resolve_current_capability',
+  });
+}
+
+export function failedEcdsaWalletSessionFixture(
+  input: ReusableWalletSessionFixtureInput = {},
+): WalletSession {
+  return ecdsaWalletSessionFixture(input, { kind: 'failed', reason: 'missing' });
 }
 
 function ecdsaWalletSessionFixture(

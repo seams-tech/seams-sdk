@@ -596,21 +596,46 @@ function parseWalletSessionCapabilityLaneReadiness(
   const record = requireRecord(value, 'Wallet Session capability lane readiness');
   switch (record.kind) {
     case 'ready':
-    case 'restorable':
-    case 'deferred':
+      return { kind: 'ready' };
+    case 'pending':
+      return { kind: 'pending', resume: requireCapabilityLaneResume(record.resume) };
     case 'authorization_required':
-      return { kind: record.kind };
-    case 'missing':
-      return { kind: 'missing' };
-    case 'unavailable':
-      if (record.reason !== 'persistence_unavailable') {
-        throw new Error('Unavailable capability lane reason is invalid');
+      return {
+        kind: 'authorization_required',
+        requirement: requireCapabilityLaneAuthorizationRequirement(record.requirement),
+      };
+    case 'superseded':
+      if (record.replacement !== 're_resolve_current_capability') {
+        throw new Error('Superseded capability lane replacement is invalid');
       }
-      return { kind: 'unavailable', reason: record.reason };
-    case 'invalid':
-      return { kind: 'invalid', reason: requireInvalidCapabilityLaneReason(record.reason) };
+      return { kind: 'superseded', replacement: record.replacement };
+    case 'failed':
+      return { kind: 'failed', reason: requireFailedCapabilityLaneReason(record.reason) };
     default:
       throw new Error('Wallet Session capability lane readiness kind is invalid');
+  }
+}
+
+function requireCapabilityLaneResume(
+  value: unknown,
+): Extract<WalletSessionCapabilityLaneReadiness, { kind: 'pending' }>['resume'] {
+  if (value === 'restore_material' || value === 'resolve_deferred_state') return value;
+  throw new Error('Pending capability lane resume action is invalid');
+}
+
+function requireCapabilityLaneAuthorizationRequirement(
+  value: unknown,
+): Extract<
+  WalletSessionCapabilityLaneReadiness,
+  { kind: 'authorization_required' }
+>['requirement'] {
+  switch (value) {
+    case 'same_method_step_up':
+    case 'wallet_session_expired':
+    case 'wallet_session_exhausted':
+      return value;
+    default:
+      throw new Error('Capability lane authorization requirement is invalid');
   }
 }
 
@@ -1146,16 +1171,18 @@ function requireInvalidWalletSessionReason(
   }
 }
 
-function requireInvalidCapabilityLaneReason(
+function requireFailedCapabilityLaneReason(
   value: unknown,
-): Extract<WalletSessionCapabilityLaneReadiness, { kind: 'invalid' }>['reason'] {
+): Extract<WalletSessionCapabilityLaneReadiness, { kind: 'failed' }>['reason'] {
   switch (value) {
+    case 'missing':
+    case 'persistence_unavailable':
     case 'malformed':
     case 'identity_mismatch':
     case 'ambiguous_lane':
       return value;
     default:
-      throw new Error('Invalid capability lane reason is invalid');
+      throw new Error('Failed capability lane reason is invalid');
   }
 }
 
