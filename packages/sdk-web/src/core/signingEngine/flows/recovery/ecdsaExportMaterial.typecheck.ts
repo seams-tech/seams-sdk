@@ -10,7 +10,6 @@ import type {
   ExactEcdsaExportSession,
   FreshEmailOtpEcdsaExportMaterial,
   FreshPasskeyEcdsaExportMaterial,
-  PasskeyEcdsaExportBootstrapContext,
 } from './ecdsaExportMaterial';
 
 declare const chainTarget: ThresholdEcdsaChainTarget;
@@ -20,7 +19,7 @@ declare const signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
 declare const publicReauthAuthority: EmailOtpEcdsaPublicReauthExportAuthority;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
-declare const passkeyBootstrap: PasskeyEcdsaExportBootstrapContext;
+declare const relayerUrl: string;
 declare const currentExactExportSession: Extract<
   ExactEcdsaExportSession,
   { state: 'ready' | 'restorable' | 'deferred' }
@@ -103,11 +102,11 @@ const freshPasskeyExportMaterial: FreshPasskeyEcdsaExportMaterial = {
   runtimePolicyScope,
   publicCapability,
   existingRoleLocalMaterial,
-  bootstrap: passkeyBootstrap,
+  relayerUrl,
 };
 
-// @ts-expect-error fresh passkey export requires normalized bootstrap metadata.
-const freshPasskeyExportWithoutBootstrap: FreshPasskeyEcdsaExportMaterial = {
+// @ts-expect-error fresh passkey export requires exact relayer transport.
+const freshPasskeyExportWithoutRelayer: FreshPasskeyEcdsaExportMaterial = {
   kind: 'fresh_passkey_needs_authorization',
   chainTarget,
   publicFacts,
@@ -115,7 +114,7 @@ const freshPasskeyExportWithoutBootstrap: FreshPasskeyEcdsaExportMaterial = {
   publicCapability,
   existingRoleLocalMaterial,
 };
-void freshPasskeyExportWithoutBootstrap;
+void freshPasskeyExportWithoutRelayer;
 
 const freshPasskeyExportWithRuntimeRecord: FreshPasskeyEcdsaExportMaterial = {
   ...freshPasskeyExportMaterial,

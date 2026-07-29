@@ -5,7 +5,6 @@ import type {
 } from '@shared/utils/walletAuthAuthority';
 import {
   assertMatchingVerifiedEcdsaPublicFacts,
-  deriveEvmFamilySigningKeySlotId,
   deriveEvmFamilyKeyFingerprintFromPublicFacts,
   toVerifiedEcdsaPublicFactsFromDurableRecord,
   type EvmFamilyEcdsaKeyIdentity,
@@ -24,7 +23,6 @@ import {
 } from '../../session/material/ecdsaRoleLocalMaterialResolver';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
 import {
   listExactSealedSessionsForWallet,
   type CurrentEcdsaSealedSessionRecord,
@@ -147,18 +145,7 @@ export type FreshPasskeyEcdsaExportMaterial = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
-  bootstrap: PasskeyEcdsaExportBootstrapContext;
-};
-
-export type PasskeyEcdsaExportBootstrapContext = {
-  source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
   relayerUrl: string;
-  relayerKeyId: string;
-  ecdsaThresholdKeyId: string;
-  evmFamilySigningKeySlotId: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  participantIds: readonly number[];
 };
 
 export type EcdsaExportMaterial =
@@ -252,50 +239,6 @@ function requirePasskeyEcdsaExportField(value: unknown, label: string): string {
     throw new Error(`[SigningEngine][ecdsa-export] passkey export requires ${label}`);
   }
   return normalized;
-}
-
-function requirePasskeyEcdsaExportParticipants(
-  participantIds: readonly number[],
-): readonly number[] {
-  if (
-    participantIds.length === 0 ||
-    participantIds.some(
-      (participantId) => !Number.isSafeInteger(participantId) || participantId < 1,
-    )
-  ) {
-    throw new Error('[SigningEngine][ecdsa-export] passkey export participants are invalid');
-  }
-  return [...participantIds];
-}
-
-function passkeyEcdsaExportBootstrapFromSealedRecord(
-  record: CurrentEcdsaSealedSessionRecord,
-  exportLane: ExactEcdsaExportLane,
-): PasskeyEcdsaExportBootstrapContext {
-  const restore = record.ecdsaRestore;
-  if (restore.source === 'email_otp') {
-    throw new Error('[SigningEngine][ecdsa-export] durable passkey export source is invalid');
-  }
-  return {
-    source: restore.source,
-    relayerUrl: requirePasskeyEcdsaExportField(record.relayerUrl, 'relayerUrl'),
-    relayerKeyId: requirePasskeyEcdsaExportField(restore.relayerKeyId, 'relayerKeyId'),
-    ecdsaThresholdKeyId: requirePasskeyEcdsaExportField(
-      restore.ecdsaThresholdKeyId || exportLane.key.ecdsaThresholdKeyId,
-      'ecdsaThresholdKeyId',
-    ),
-    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-      walletId: exportLane.key.walletId,
-      signingRootId: restore.signingRootId,
-      signingRootVersion: restore.signingRootVersion,
-    }),
-    signingRootId: requirePasskeyEcdsaExportField(restore.signingRootId, 'signingRootId'),
-    signingRootVersion: requirePasskeyEcdsaExportField(
-      restore.signingRootVersion,
-      'signingRootVersion',
-    ),
-    participantIds: requirePasskeyEcdsaExportParticipants(restore.participantIds),
-  };
 }
 
 function emailOtpPublicReauthAuthorityForExportLane(
@@ -480,26 +423,7 @@ export async function resolveEcdsaExportMaterialForLane(
         publicCapability: restore.publicCapability,
       }),
     }),
-    bootstrap: {
-      source: restore.source,
-      relayerUrl: requirePasskeyEcdsaExportField(relayerUrl, 'relayerUrl'),
-      relayerKeyId: requirePasskeyEcdsaExportField(restore.relayerKeyId, 'relayerKeyId'),
-      ecdsaThresholdKeyId: requirePasskeyEcdsaExportField(
-        restore.ecdsaThresholdKeyId || exportLane.key.ecdsaThresholdKeyId,
-        'ecdsaThresholdKeyId',
-      ),
-      evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-        walletId: exportLane.key.walletId,
-        signingRootId: restore.signingRootId,
-        signingRootVersion: restore.signingRootVersion,
-      }),
-      signingRootId: requirePasskeyEcdsaExportField(restore.signingRootId, 'signingRootId'),
-      signingRootVersion: requirePasskeyEcdsaExportField(
-        restore.signingRootVersion,
-        'signingRootVersion',
-      ),
-      participantIds: requirePasskeyEcdsaExportParticipants(restore.participantIds),
-    },
+    relayerUrl: requirePasskeyEcdsaExportField(relayerUrl, 'relayerUrl'),
   };
 }
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../interfaces/signing';
