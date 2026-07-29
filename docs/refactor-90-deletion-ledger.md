@@ -104,6 +104,9 @@ replacement.
 - ~~the missing-`ClientUserData.authMethod` → Passkey fallback during NEAR
   unlock~~ — deleted by `4f51048c5`; malformed stored projections now fail
   before a prompt
+- ~~Wallet Session identity decoded from the bearer JWT during Near normal
+  signing~~ — replaced by the correlated active authorization projection and
+  branded `WalletSessionId` in `821167bf3`
 
 ## Phase 5 — role-local material identity
 
@@ -392,6 +395,8 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   `UiConfirmManager` factor branches, and adapter wrappers
 - ~~zero-caller Router A/B ECDSA refresh-client-proof worker operation~~ —
   deleted end to end by `4d0a1d8af`
+- ~~unreachable Email OTP `session_bootstrap` worker branch and its JWT-derived
+  relayer identity~~ — deleted by `1ee23703b`
 
 ## Phase 27 — final sweep
 
