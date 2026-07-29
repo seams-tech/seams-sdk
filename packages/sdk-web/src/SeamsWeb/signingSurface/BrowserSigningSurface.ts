@@ -1731,6 +1731,12 @@ export class BrowserSigningSurface {
         'Email OTP Ed25519 Yao login requires an exact persisted authorization session',
       );
     }
+    const runtimePolicyScope = authorizationRecord.runtimePolicyScope;
+    if (!runtimePolicyScope) {
+      throw new Error(
+        'Email OTP Ed25519 Yao login requires an exact persisted runtime policy scope',
+      );
+    }
     return prepareColdEmailOtpEd25519YaoRecoveryV1({
       identity: resolved.identity,
       authorizationSessionId: authorizationRecord.thresholdSessionId,
@@ -1740,6 +1746,7 @@ export class BrowserSigningSurface {
       emailHashHex: args.emailHashHex,
       rpId: this.getRpId(),
       relayerUrl: this.seamsWebConfigs.network.relayer?.url || '',
+      runtimePolicyScope,
       authPolicy: this.seamsWebConfigs.signing.emailOtp.authPolicy,
       remainingUses: args.remainingUses,
       resolveActiveCapability:

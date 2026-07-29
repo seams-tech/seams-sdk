@@ -40,7 +40,7 @@ import {
   emailOtpAuthContextEmailHashHex,
   emailOtpAuthContextProviderUserId,
 } from '../identity/laneIdentity';
-import { parseThresholdRuntimePolicyScopeFromJwt } from '../../threshold/sessionPolicy';
+import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '../material/nearEd25519YaoMaterialActivation';
 import {
   mpcMaterialActivationRefsEqual,
@@ -74,6 +74,7 @@ export type PreparedColdEmailOtpEd25519YaoRecoveryV1 = {
   emailHashHex: string;
   rpId: string;
   relayerUrl: string;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
   authPolicy: EmailOtpAuthPolicy;
   remainingUses: number;
   previous: NearEd25519YaoSigningCapability | null;
@@ -426,6 +427,7 @@ export function prepareColdEmailOtpEd25519YaoRecoveryV1(args: {
   emailHashHex: string;
   rpId: string;
   relayerUrl: string;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
   authPolicy: EmailOtpAuthPolicy;
   remainingUses: number;
   resolveActiveCapability: (
@@ -447,6 +449,7 @@ export function prepareColdEmailOtpEd25519YaoRecoveryV1(args: {
     emailHashHex: requireNonEmpty(args.emailHashHex, 'emailHashHex'),
     rpId: requireNonEmpty(args.rpId, 'rpId'),
     relayerUrl: requireNonEmpty(args.relayerUrl, 'relayerUrl'),
+    runtimePolicyScope: args.runtimePolicyScope,
     authPolicy: args.authPolicy,
     remainingUses: requirePositiveInteger(args.remainingUses, 'remainingUses'),
     previous,
@@ -680,10 +683,7 @@ export async function recoverColdEmailOtpEd25519CapabilityForLoginV1(args: {
   ) => Promise<Ed25519YaoActiveClientIdentityV1>;
 }): Promise<EmailOtpEd25519YaoBudgetRecoveryResult> {
   const appSessionJwt = requireNonEmpty(args.appSessionJwt, 'appSessionJwt');
-  const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(appSessionJwt);
-  if (!runtimePolicyScope) {
-    throw new Error('Email OTP Ed25519 Yao cold recovery requires runtime policy scope');
-  }
+  const runtimePolicyScope = args.prepared.runtimePolicyScope;
   const unlocked = await unlockEmailOtpEd25519YaoSession({
     walletSession: {
       walletId: args.prepared.identity.walletId,
@@ -817,6 +817,10 @@ export async function rehydrateEmailOtpEd25519CapabilityForSigningV1(args: {
   if (args.record.source !== 'email_otp' || !emailOtpAuthContext) {
     throw new Error('Email OTP Ed25519 Yao recovery requires Email OTP session authority');
   }
+  const runtimePolicyScope = args.record.runtimePolicyScope;
+  if (!runtimePolicyScope) {
+    throw new Error('Email OTP Ed25519 Yao recovery requires runtime policy scope');
+  }
   const prepared = prepareColdEmailOtpEd25519YaoRecoveryV1({
     identity,
     authorizationSessionId: thresholdSessionId,
@@ -826,6 +830,7 @@ export async function rehydrateEmailOtpEd25519CapabilityForSigningV1(args: {
     emailHashHex: emailOtpAuthContextEmailHashHex(emailOtpAuthContext),
     rpId: args.record.rpId,
     relayerUrl: args.record.relayerUrl,
+    runtimePolicyScope,
     authPolicy: emailOtpAuthContext.policy,
     remainingUses: args.remainingUses,
     resolveActiveCapability: args.resolveActiveCapability,

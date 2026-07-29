@@ -648,6 +648,7 @@ export async function recoverEmailOtpEd25519YaoFromSealedSessionV1(input: {
     emailHashHex: emailOtp.emailHashHex,
     rpId: input.rpId,
     relayerUrl: input.relayerUrl,
+    runtimePolicyScope: session.runtimePolicyScope,
     authPolicy: input.authPolicy,
     remainingUses: record.remainingUses,
     resolveActiveCapability: input.ports.resolveActiveCapability,
