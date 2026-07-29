@@ -2803,12 +2803,6 @@ function registrationChainTargetListsMatch(
   return true;
 }
 
-function registrationEcdsaExpectedKeyHandles(session: RegistrationEcdsaSession): string[] {
-  const keyHandle = String(session.bootstrap.keyHandle || '').trim();
-  if (!keyHandle) throw new Error('Registration ECDSA session is missing keyHandle');
-  return [keyHandle];
-}
-
 async function closeStrictEcdsaRegistrationCeremony(args: {
   context: RegistrationWebContext;
   ceremonyId: string;
@@ -3892,41 +3886,6 @@ async function claimRegistrationYao(
   }
 }
 
-async function finalizeEcdsaOrMixedRegistration(args: {
-  relayerUrl: string;
-  registrationCeremonyId: string;
-  headers: Record<string, string> | undefined;
-  idempotencyKey: RegistrationFinalizeIdempotencyKey;
-  expectedKeyHandles: string[];
-  emailOtpEnrollment: WalletRegistrationEmailOtpEnrollmentMaterial | null;
-  emailOtpBackupAck: WalletRegistrationEmailOtpBackupAck | null;
-}): Promise<WalletRegistrationFinalizeResponse> {
-  const optionalEmailMaterial = {
-    ...(args.emailOtpEnrollment ? { emailOtpEnrollment: args.emailOtpEnrollment } : {}),
-    ...(args.emailOtpBackupAck ? { emailOtpBackupAck: args.emailOtpBackupAck } : {}),
-  };
-  /* Refactor 94 Phase 4+5. Registration success means ECDSA-ready, so this
-     always finalizes the ECDSA branch alone. On a mixed plan the ceremony
-     stays open and the Ed25519 branch is finalized separately once the Yao
-     ceremony settles, which is what takes the ~2 s Yao wait off registration.
-     Email OTP enrollment belongs to this first commit. */
-  return await finalizeWalletRegistration({
-    relayerUrl: args.relayerUrl,
-    registrationCeremonyId: args.registrationCeremonyId,
-    headers: args.headers,
-    idempotencyKey: args.idempotencyKey,
-    kind: 'evm_family_ecdsa',
-    ecdsa: { expectedKeyHandles: args.expectedKeyHandles },
-    ...optionalEmailMaterial,
-  });
-}
-
-/**
- * Finalizes the deferred Ed25519 branch against the still-open registration
- * ceremony. Carries its own idempotency key: the server derives the
- * side-effect key from `{ceremonyId, idempotencyKey}`, so reusing the ECDSA
- * call's key would replay that response instead of committing this branch.
- */
 async function finalizeDeferredEd25519Registration(args: {
   relayerUrl: string;
   registrationCeremonyId: string;
