@@ -55,8 +55,6 @@ import type {
   FinalizeRouterAbEcdsaExplicitExportResultV1,
   RehydrateEcdsaRoleLocalSigningMaterialRequestV1,
   RehydrateEcdsaRoleLocalSigningMaterialResultV1,
-  VerifyRouterAbEcdsaRefreshClientProofsRequestV1,
-  VerifyRouterAbEcdsaRefreshClientProofsResultV1,
 } from '@/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 import type {
   CloseRouterAbEcdsaRegistrationCeremonyRequestV1,
@@ -1207,7 +1205,6 @@ export const EcdsaDerivationClientCustomRequestType = {
   CreateRouterAbEcdsaPostRegistrationCeremony: 70_009,
   FinalizeRouterAbEcdsaExplicitExport: 70_010,
   CloseRouterAbEcdsaPostRegistrationCeremony: 70_011,
-  VerifyRouterAbEcdsaRefreshClientProofs: 70_014,
   StoreThresholdEcdsaRoleLocalSigningMaterial: 70_004,
   RehydrateEcdsaRoleLocalSigningMaterial: 70_015,
   PersistInitialCanonicalEcdsaActivation: 70_016,
@@ -1229,7 +1226,6 @@ export const EcdsaDerivationClientCustomResponseType = {
   CreateRouterAbEcdsaPostRegistrationCeremonySuccess: 70_109,
   FinalizeRouterAbEcdsaExplicitExportSuccess: 70_110,
   CloseRouterAbEcdsaPostRegistrationCeremonySuccess: 70_111,
-  VerifyRouterAbEcdsaRefreshClientProofsSuccess: 70_114,
   StoreThresholdEcdsaRoleLocalSigningMaterialSuccess: 70_104,
   RehydrateEcdsaRoleLocalSigningMaterialSuccess: 70_115,
   PersistInitialCanonicalEcdsaActivationSuccess: 70_116,
@@ -1522,14 +1518,6 @@ type EcdsaDerivationClientCustomOperationMap = {
       diagnostics?: WorkerResponseDiagnostics;
     };
   };
-  [EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRefreshClientProofs]: {
-    payload: VerifyRouterAbEcdsaRefreshClientProofsRequestV1;
-    result: {
-      type: typeof EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaRefreshClientProofsSuccess;
-      payload: VerifyRouterAbEcdsaRefreshClientProofsResultV1;
-      diagnostics?: WorkerResponseDiagnostics;
-    };
-  };
   [EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap]: {
     payload: WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest;
     result: {
@@ -1679,7 +1667,6 @@ export type EcdsaDerivationRoleLocalMaterialOperationType =
   | typeof EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaPostRegistrationCeremony
   | typeof EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaExplicitExport
   | typeof EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaPostRegistrationCeremony
-  | typeof EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRefreshClientProofs
   | typeof EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
   | typeof EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap
   | typeof EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact
