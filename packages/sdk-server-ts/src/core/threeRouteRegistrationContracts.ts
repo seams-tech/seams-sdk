@@ -10,6 +10,7 @@ import type {
   WalletRegistrationStartResponse,
   WalletRegistrationFinalizeRequest,
   WalletRegistrationFinalizeResponse,
+  WalletRegistrationFinalizeRouteSuccess,
   WalletRegistrationEcdsaActivationResponse,
 } from './registrationContracts';
 
@@ -306,6 +307,8 @@ type Ed25519FinalizeSuccess = Extract<
   { ok: true; kind: 'near_ed25519' }
 >;
 
+type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
+
 /**
  * Activate's Ed25519-only terminal result: a wallet that exists and cannot
  * yet sign.
@@ -318,7 +321,7 @@ type Ed25519FinalizeSuccess = Extract<
  * not exist yet. The wallet becomes signable when deferred Yao reaches
  * `near_ready`.
  */
-export type WalletRegistrationActivateEd25519PendingV2 = Omit<
+export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
   Ed25519FinalizeSuccess,
   'ed25519' | 'resolvedAccount' | 'accountProvisioning' | 'authorityScope'
 > & {
@@ -331,12 +334,33 @@ export type WalletRegistrationActivateEd25519PendingV2 = Omit<
 };
 
 export type WalletRegistrationActivateResponseV2 =
-  | (Omit<EcdsaFinalizeSuccess, 'ecdsa'> & {
+  | (DistributiveOmit<EcdsaFinalizeSuccess, 'ecdsa'> & {
       ecdsa: ActivateEcdsaTerminalPayload;
       /** Mixed plans: deferred NEAR snapshot; never identifiers before readiness. */
       nearProvisioning?: { status: 'near_pending' };
     })
   | WalletRegistrationActivateEd25519PendingV2
+  | WalletRegistrationRouteErrorV2;
+
+type ActivateSuccessV2 = Exclude<
+  WalletRegistrationActivateResponseV2,
+  WalletRegistrationRouteErrorV2
+>;
+
+type ActivatePasskeyRouteAuth = Pick<
+  Extract<WalletRegistrationFinalizeRouteSuccess, { authMethod: { kind: 'passkey' } }>,
+  'authMethod' | 'rpId' | 'appSessionJwt'
+>;
+
+type ActivateEmailOtpRouteAuth = Pick<
+  Extract<WalletRegistrationFinalizeRouteSuccess, { authMethod: { kind: 'email_otp' } }>,
+  'authMethod' | 'rpId' | 'appSessionJwt'
+>;
+
+/** Public activate response after the route mints the Email OTP app session. */
+export type WalletRegistrationActivateRouteResponseV2 =
+  | (ActivateSuccessV2 & ActivatePasskeyRouteAuth)
+  | (ActivateSuccessV2 & ActivateEmailOtpRouteAuth)
   | WalletRegistrationRouteErrorV2;
 
 /**

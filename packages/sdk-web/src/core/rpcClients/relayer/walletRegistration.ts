@@ -2430,13 +2430,15 @@ type ActivateTerminalEcdsaPayload = Extract<
   bootstrap: ThresholdEcdsaDerivationRoleLocalBootstrapValue;
 };
 
+type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
+
 /**
  * Ed25519-only activate returns a wallet that cannot sign yet: its sole signer
  * arrives with the deferred Yao computation. `nearProvisioning` is required on
  * this arm — a pending wallet with no provisioning state would be
  * indistinguishable from one that never needed NEAR.
  */
-export type WalletRegistrationActivateEd25519PendingV2 = Omit<
+export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
   Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'near_ed25519' }>,
   'ed25519' | 'resolvedAccount' | 'accountProvisioning' | 'authorityScope'
 > & {
