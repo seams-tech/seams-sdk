@@ -104,6 +104,7 @@ export function parseGatewayDeploymentConfig(source, expectedTarget) {
   const origins = parseOrigins(root.origins);
   const signingRoot = parseSigningRoot(root.signingRoot);
   const session = parseSession(root.session);
+  const signingSessionSeal = parseSigningSessionSeal(root.signingSessionSeal);
   const routerAb = parseRouterAb(root.routerAb, serviceNames);
   const optional = parseOptionalConfig(root.optional);
 
@@ -117,6 +118,7 @@ export function parseGatewayDeploymentConfig(source, expectedTarget) {
     origins,
     signingRoot,
     session,
+    signingSessionSeal,
     routerAb,
     optional,
     serviceNames,
@@ -133,6 +135,7 @@ function gatewayDeploymentConfigKeys() {
     'origins',
     'signingRoot',
     'session',
+    'signingSessionSeal',
     'routerAb',
     'optional',
   ];
@@ -341,6 +344,34 @@ function parseSession(value) {
   requireExactKeys(session, ['issuer'], 'session');
   return {
     issuer: requireString(session.issuer, 'session.issuer'),
+  };
+}
+
+function parseSigningSessionSeal(value) {
+  const seal = requireObject(value, 'signingSessionSeal');
+  requireExactKeys(
+    seal,
+    ['algorithm', 'groupId', 'currentKeyVersion', 'acceptedWarmKeyVersions'],
+    'signingSessionSeal',
+  );
+  requireExactString(seal.algorithm, 'shamir3pass-v2', 'signingSessionSeal.algorithm');
+  requireExactString(seal.groupId, 'rfc2409-group2', 'signingSessionSeal.groupId');
+  const currentKeyVersion = requireString(
+    seal.currentKeyVersion,
+    'signingSessionSeal.currentKeyVersion',
+  );
+  const acceptedWarmKeyVersions = parseStringArray(
+    seal.acceptedWarmKeyVersions,
+    'signingSessionSeal.acceptedWarmKeyVersions',
+  );
+  if (!acceptedWarmKeyVersions.includes(currentKeyVersion)) {
+    throw new Error('signingSessionSeal.acceptedWarmKeyVersions must include currentKeyVersion');
+  }
+  return {
+    algorithm: 'shamir3pass-v2',
+    groupId: 'rfc2409-group2',
+    currentKeyVersion,
+    acceptedWarmKeyVersions,
   };
 }
 
@@ -706,6 +737,17 @@ function parseOriginArray(value, path) {
   }
   const origins = value.map((entry, index) => requireHttpsOrigin(entry, `${path}[${index}]`));
   return [...new Set(origins)];
+}
+
+function parseStringArray(value, path) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${path} must be a non-empty array`);
+  }
+  const entries = value.map((entry, index) => requireString(entry, `${path}[${index}]`));
+  if (new Set(entries).size !== entries.length) {
+    throw new Error(`${path} must not contain duplicates`);
+  }
+  return entries;
 }
 
 function parseJsonObject(source, path) {

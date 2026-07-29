@@ -15,7 +15,7 @@ void restorePasskeyEcdsaSealedRecordForWallet({
   record: rawRecord,
   purpose,
   transport,
-  shamirPrimeB64u: 'prime',
+  groupId: 'prime',
   rehydrateWarmSessionMaterial: async () => status,
   deletePersistedRecord: async () => undefined,
   recordSessionMaterialRestored: async () => undefined,

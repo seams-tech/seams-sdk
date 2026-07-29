@@ -21,7 +21,7 @@ export async function enrollEmailOtpWalletWithRoutePlan(args: {
   userId: string;
   challengeId?: string;
   otpCode: string;
-  shamirPrimeB64u: string;
+  groupId: string;
   routePlan: EmailOtpRoutePlan;
   workerCtx: WorkerOperationContext;
   googleEmailOtpRegistrationAttemptId?: string;
@@ -49,7 +49,7 @@ export async function enrollEmailOtpWalletWithRoutePlan(args: {
           userId: String(args.userId).trim(),
           ...(args.challengeId ? { challengeId: args.challengeId } : {}),
           otpCode: args.otpCode,
-          shamirPrimeB64u: args.shamirPrimeB64u,
+          groupId: args.groupId,
           routePlan: args.routePlan,
           ...(args.googleEmailOtpRegistrationAttemptId
             ? { googleEmailOtpRegistrationAttemptId: args.googleEmailOtpRegistrationAttemptId }

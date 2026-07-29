@@ -162,8 +162,6 @@ const arcExplorerUrl = toTrimmedString(env.VITE_ARC_EXPLORER) || DEFAULT_ARC_EXP
 const signingSessionPersistenceMode = parseSigningSessionPersistenceMode(
   env.VITE_SIGNING_SESSION_PERSISTENCE_MODE,
 );
-const signingSessionSealKeyVersion = toOptionalString(env.VITE_SIGNING_SESSION_SEAL_KEY_VERSION);
-const signingSessionSealShamirPrimeB64u = toOptionalString(env.VITE_SIGNING_SESSION_SHAMIR_P_B64U);
 const routerAb = resolveRouterAbConfig(env, managedRegistration);
 const chains: NonNullable<SeamsConfigsInput['chains']> = [
   {
@@ -222,8 +220,6 @@ export const FRONTEND_CONFIG = Object.freeze({
     }),
   },
   signingSessionPersistenceMode,
-  signingSessionSealKeyVersion,
-  signingSessionSealShamirPrimeB64u,
   routerAb,
   enableIntendedE2E: parseBooleanFlag(env.VITE_ENABLE_INTENDED_E2E, env.DEV === true),
   dashboardFlags: {

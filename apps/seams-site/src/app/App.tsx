@@ -88,8 +88,6 @@ export const App: React.FC = () => {
   const { theme, setTheme } = useSiteTheme();
   const pathname = usePathname();
   const signingSessionPersistenceMode = FRONTEND_CONFIG.signingSessionPersistenceMode;
-  const signingSessionSealShamirPrimeB64u = FRONTEND_CONFIG.signingSessionSealShamirPrimeB64u;
-  const signingSessionSealKeyVersion = FRONTEND_CONFIG.signingSessionSealKeyVersion;
 
   const VitepressStateSync: React.FC = () => {
     useBodyLoginStateBridge();
@@ -155,18 +153,6 @@ export const App: React.FC = () => {
           remainingUses: FRONTEND_CONFIG.signingSessionDefaults.remainingUses,
         },
         signingSessionPersistenceMode,
-        ...(signingSessionPersistenceMode === 'sealed_refresh_v1'
-          ? {
-              signingSessionSeal: {
-                ...(signingSessionSealKeyVersion
-                  ? { keyVersion: signingSessionSealKeyVersion }
-                  : {}),
-                ...(signingSessionSealShamirPrimeB64u
-                  ? { shamirPrimeB64u: signingSessionSealShamirPrimeB64u }
-                  : {}),
-              },
-            }
-          : {}),
         ...(FRONTEND_CONFIG.routerAb ? { routerAb: FRONTEND_CONFIG.routerAb } : {}),
         ...(FRONTEND_CONFIG.enableIntendedE2E
           ? { routerAbEcdsaDerivationPresignaturePool: INTENDED_E2E_ECDSA_PRESIGNATURE_POOL }

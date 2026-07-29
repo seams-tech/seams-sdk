@@ -1,4 +1,5 @@
 import type { RuntimePorts } from '@/core/platform';
+import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableSigningLanesForSigningOperation } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
 import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetStatusOperation } from '@/core/signingEngine/session/budget/budgetStatusReader';
@@ -64,7 +65,7 @@ type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 type EmailOtpEd25519RecoveryRequest = Omit<
   Parameters<typeof rehydrateEmailOtpEd25519CapabilityForSigningV1>[0],
   | 'workerContext'
-  | 'shamirPrimeB64u'
+  | 'groupId'
   | 'resolveActiveCapability'
   | 'activateCapability'
   | 'expectedOperationalPublicKey'
@@ -163,7 +164,7 @@ async function rehydrateEmailOtpEd25519CapabilityForSigning(args: {
     remainingUses: args.request.remainingUses,
     expectedOperationalPublicKey: user.operationalPublicKey,
     workerContext: args.assembly.signerWorkerManager.getContext(),
-    shamirPrimeB64u: args.assembly.seamsWebConfigs.signing.sessionSeal.shamirPrimeB64u,
+    groupId: SIGNING_SESSION_SEAL_GROUP_ID,
     resolveActiveCapability: (identity) =>
       args.assembly.getEnginePorts().ed25519YaoActiveClients.resolve(identity),
     activateCapability: (capability) =>

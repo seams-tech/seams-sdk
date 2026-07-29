@@ -126,8 +126,6 @@ function buildFrontendEnvironment(targetName, target) {
     'VITE_NEAR_RPC_URL',
     'VITE_NEAR_EXPLORER',
     'VITE_SIGNING_SESSION_PERSISTENCE_MODE',
-    'VITE_SIGNING_SESSION_SEAL_KEY_VERSION',
-    'VITE_SIGNING_SESSION_SHAMIR_P_B64U',
   ];
   if (targetName === 'production' && !String(environment.VITE_NEAR_NETWORK || '').trim()) {
     throw new Error('VITE_NEAR_NETWORK is required for production frontend builds');

@@ -43,7 +43,13 @@ import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
 } from '../../../packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm';
-import { createSigningSessionSealShamir3PassBigIntRuntime } from '../../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/cipher';
+import { ensureSigningSessionSealShamir3PassWasm } from '../../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/shamir3PassWasm';
+import {
+  shamir3pass_add_lock,
+  shamir3pass_destroy_lock_key_handle,
+  shamir3pass_generate_lock_key_handle,
+  shamir3pass_remove_lock,
+} from '../../../wasm/shamir3pass_runtime/pkg/shamir3pass_runtime.js';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -58,11 +64,9 @@ export type TestEcdsaRelayerPublicKey =
   EcdsaDerivationServerBootstrapResponse['publicIdentity']['relayerPublicKey33B64u'];
 
 export const EMAIL_OTP_SERVER_SEAL_KEY_VERSION = 'kek-s-email-otp-test';
-export const EMAIL_OTP_SHAMIR_PRIME_B64U = encodePositiveBigIntB64u(257n);
-export const EMAIL_OTP_SERVER_ENCRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(3n);
-export const EMAIL_OTP_SERVER_DECRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(171n);
-export const EMAIL_OTP_CLIENT_ENCRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(5n);
-export const EMAIL_OTP_CLIENT_DECRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(205n);
+export const EMAIL_OTP_SERVER_SEAL_ROOT_SECRET_B64U = Buffer.alloc(32, 0x42).toString(
+  'base64url',
+);
 
 export type WebAuthnAssertionFixture = {
   readonly credentialIdB64u: string;
@@ -686,36 +690,26 @@ export function encodePositiveBigIntB64u(value: bigint): string {
   return base64UrlEncode(Uint8Array.from(bytesReversed));
 }
 
-export function addEmailOtpClientSeal(ciphertextB64u: string): string {
-  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
-  return String(
-    runtime.addServerSeal({
-      ciphertextB64u,
-      exponentB64u: EMAIL_OTP_CLIENT_ENCRYPT_EXPONENT_B64U,
-      shamirPrimeB64u: EMAIL_OTP_SHAMIR_PRIME_B64U,
-    }),
-  );
+class EmailOtpClientSealFixture {
+  constructor(private readonly handle: number) {}
+
+  addLock(ciphertextB64u: string): string {
+    return shamir3pass_add_lock(this.handle, ciphertextB64u);
+  }
+
+  removeLock(ciphertextB64u: string): string {
+    return shamir3pass_remove_lock(this.handle, ciphertextB64u);
+  }
+
+  destroy(): void {
+    shamir3pass_destroy_lock_key_handle(this.handle);
+  }
 }
 
-export function removeEmailOtpClientSeal(ciphertextB64u: string): string {
-  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
-  return String(
-    runtime.removeServerSeal({
-      ciphertextB64u,
-      exponentB64u: EMAIL_OTP_CLIENT_DECRYPT_EXPONENT_B64U,
-      shamirPrimeB64u: EMAIL_OTP_SHAMIR_PRIME_B64U,
-    }),
-  );
-}
-
-export function addEmailOtpServerSeal(ciphertextB64u: string): string {
-  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
-  return String(
-    runtime.addServerSeal({
-      ciphertextB64u,
-      exponentB64u: EMAIL_OTP_SERVER_ENCRYPT_EXPONENT_B64U,
-      shamirPrimeB64u: EMAIL_OTP_SHAMIR_PRIME_B64U,
-    }),
+export async function createEmailOtpClientSealFixture(): Promise<EmailOtpClientSealFixture> {
+  await ensureSigningSessionSealShamir3PassWasm();
+  return new EmailOtpClientSealFixture(
+    shamir3pass_generate_lock_key_handle('rfc2409-group2'),
   );
 }
 

@@ -22,6 +22,7 @@ import {
   type EmailOtpEd25519YaoPublicationPorts,
 } from './ed25519YaoPublication';
 import type { ThresholdEd25519SessionRecord } from '../persistence/records';
+import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 
 export class EmailOtpSealedSessionRegistry {
   constructor(
@@ -93,7 +94,7 @@ export class EmailOtpSealedSessionRegistry {
         runtimePolicyScope: args.runtimePolicyScope,
         emailOtpAuthContext: args.emailOtpAuthContext,
         relayerUrl: this.ports.configs.network.relayer?.url || '',
-        shamirPrimeB64u: this.ports.configs.signing.sessionSeal?.shamirPrimeB64u || '',
+        groupId: SIGNING_SESSION_SEAL_GROUP_ID,
       },
       this.ecdsaPublicationPorts(),
     );

@@ -2,18 +2,18 @@ import init, {
   init_shamir3pass_runtime,
   shamir3pass_add_lock,
   shamir3pass_add_lock_bytes,
-  shamir3pass_generate_client_lock_keys,
+  shamir3pass_destroy_lock_key_handle,
+  shamir3pass_generate_lock_key_handle,
   shamir3pass_remove_lock,
   shamir3pass_remove_lock_to_bytes,
 } from '../../../../../../../wasm/shamir3pass_runtime/pkg/shamir3pass_runtime.js';
 import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { errorMessage } from '@shared/utils/errors';
-import { secureRandomId } from '@shared/utils/secureRandomId';
 import { WorkerControlMessage } from '../workerTypes';
 
 type Shamir3PassWorkerRequest =
   | { id: string; type: 'warmup'; payload?: never }
-  | { id: string; type: 'createClientKeyHandle'; payload: { shamirPrimeB64u: unknown } }
+  | { id: string; type: 'createClientKeyHandle'; payload: { groupId: unknown } }
   | { id: string; type: 'destroyClientKeyHandle'; payload: { keyHandle: unknown } }
   | {
       id: string;
@@ -55,15 +55,6 @@ type WorkerErrorPayload = {
 
 const wasmUrl = resolveWasmUrl('shamir3pass_runtime_bg.wasm', 'Shamir3Pass Runtime');
 let wasmInitPromise: Promise<void> | null = null;
-let keyHandleCounter = 0;
-const keypairsByHandle = new Map<
-  string,
-  {
-    shamirPrimeB64u: string;
-    clientEncryptExponentB64u: string;
-    clientDecryptExponentB64u: string;
-  }
->();
 
 function asWorkerErrorPayload(err: unknown): WorkerErrorPayload {
   if (err && typeof err === 'object') {
@@ -97,26 +88,12 @@ function asBytes(value: unknown, label: string): Uint8Array {
   throw new Error(`${label} must be an ArrayBuffer or TypedArray`);
 }
 
-function nextKeyHandle(): string {
-  keyHandleCounter += 1;
-  return `${secureRandomId('shamir3pass-key', 32, 'Shamir 3-pass key handles')}-${keyHandleCounter}`;
-}
-
-function requireKeyHandle(value: unknown): string {
-  return asNonEmptyString(value, 'keyHandle');
-}
-
-function getStoredKeypair(keyHandleRaw: unknown): {
-  shamirPrimeB64u: string;
-  clientEncryptExponentB64u: string;
-  clientDecryptExponentB64u: string;
-} {
-  const keyHandle = requireKeyHandle(keyHandleRaw);
-  const stored = keypairsByHandle.get(keyHandle);
-  if (!stored) {
-    throw new Error('Unknown Shamir3Pass key handle');
+function requireKeyHandle(value: unknown): number {
+  const parsed = Number(asNonEmptyString(value, 'keyHandle'));
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error('keyHandle must identify an active Shamir 3-pass key');
   }
-  return stored;
+  return parsed;
 }
 
 function postToMainThread(message: unknown, transfer?: Transferable[]): void {
@@ -157,53 +134,32 @@ self.addEventListener('message', async (event: MessageEvent) => {
         return;
       }
       case 'createClientKeyHandle': {
-        const shamirPrimeB64u = asNonEmptyString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u');
-        const result = shamir3pass_generate_client_lock_keys(shamirPrimeB64u) as {
-          shamirPrimeB64u: string;
-          clientEncryptExponentB64u: string;
-          clientDecryptExponentB64u: string;
-        };
-        const keyHandle = nextKeyHandle();
-        keypairsByHandle.set(keyHandle, {
-          shamirPrimeB64u: asNonEmptyString(result.shamirPrimeB64u, 'shamirPrimeB64u'),
-          clientEncryptExponentB64u: asNonEmptyString(
-            result.clientEncryptExponentB64u,
-            'clientEncryptExponentB64u',
-          ),
-          clientDecryptExponentB64u: asNonEmptyString(
-            result.clientDecryptExponentB64u,
-            'clientDecryptExponentB64u',
-          ),
-        });
-        postToMainThread({ id: msg.id, ok: true, result: { keyHandle } });
+        const groupId = asNonEmptyString(msg.payload.groupId, 'groupId');
+        const keyHandle = shamir3pass_generate_lock_key_handle(groupId);
+        postToMainThread({ id: msg.id, ok: true, result: { keyHandle: String(keyHandle) } });
         return;
       }
       case 'destroyClientKeyHandle': {
         const keyHandle = requireKeyHandle(msg.payload.keyHandle);
-        keypairsByHandle.delete(keyHandle);
-        postToMainThread({ id: msg.id, ok: true, result: true });
+        postToMainThread({
+          id: msg.id,
+          ok: true,
+          result: shamir3pass_destroy_lock_key_handle(keyHandle),
+        });
         return;
       }
       case 'addClientSealWithKeyHandle': {
-        const stored = getStoredKeypair(msg.payload.keyHandle);
+        const keyHandle = requireKeyHandle(msg.payload.keyHandle);
         const ciphertextB64u = asNonEmptyString(msg.payload.ciphertextB64u, 'ciphertextB64u');
-        const result = shamir3pass_add_lock(
-          ciphertextB64u,
-          stored.clientEncryptExponentB64u,
-          stored.shamirPrimeB64u,
-        );
+        const result = shamir3pass_add_lock(keyHandle, ciphertextB64u);
         postToMainThread({ id: msg.id, ok: true, result });
         return;
       }
       case 'addClientSealBytesWithKeyHandle': {
-        const stored = getStoredKeypair(msg.payload.keyHandle);
+        const keyHandle = requireKeyHandle(msg.payload.keyHandle);
         const ciphertext = asBytes(msg.payload.ciphertext, 'ciphertext');
         try {
-          const result = shamir3pass_add_lock_bytes(
-            ciphertext,
-            stored.clientEncryptExponentB64u,
-            stored.shamirPrimeB64u,
-          );
+          const result = shamir3pass_add_lock_bytes(keyHandle, ciphertext);
           postToMainThread({ id: msg.id, ok: true, result });
         } finally {
           ciphertext.fill(0);
@@ -211,24 +167,16 @@ self.addEventListener('message', async (event: MessageEvent) => {
         return;
       }
       case 'removeClientSealWithKeyHandle': {
-        const stored = getStoredKeypair(msg.payload.keyHandle);
+        const keyHandle = requireKeyHandle(msg.payload.keyHandle);
         const ciphertextB64u = asNonEmptyString(msg.payload.ciphertextB64u, 'ciphertextB64u');
-        const result = shamir3pass_remove_lock(
-          ciphertextB64u,
-          stored.clientDecryptExponentB64u,
-          stored.shamirPrimeB64u,
-        );
+        const result = shamir3pass_remove_lock(keyHandle, ciphertextB64u);
         postToMainThread({ id: msg.id, ok: true, result });
         return;
       }
       case 'removeClientSealWithKeyHandleToBytes': {
-        const stored = getStoredKeypair(msg.payload.keyHandle);
+        const keyHandle = requireKeyHandle(msg.payload.keyHandle);
         const ciphertextB64u = asNonEmptyString(msg.payload.ciphertextB64u, 'ciphertextB64u');
-        const out = shamir3pass_remove_lock_to_bytes(
-          ciphertextB64u,
-          stored.clientDecryptExponentB64u,
-          stored.shamirPrimeB64u,
-        );
+        const out = shamir3pass_remove_lock_to_bytes(keyHandle, ciphertextB64u);
         const outBuffer = out.slice().buffer;
         out.fill(0);
         postToMainThread({ id: msg.id, ok: true, result: outBuffer }, [outBuffer]);

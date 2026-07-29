@@ -112,7 +112,7 @@ export type FinalizeWalletRegistrationEcdsaSessionsDeps = {
   warmSessions: Pick<WarmSessionHydrationService, 'hydrateSigningSession'>;
   signingSessionSeal: {
     signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-    shamirPrimeB64u?: string;
+    groupId?: string;
   };
 };
 
@@ -313,8 +313,8 @@ async function hydratePasskeyRegistrationSession(args: {
           signingSessionSealKeyVersion: args.deps.signingSessionSeal.signingSessionSealKeyVersion,
         }
       : {}),
-    ...(args.deps.signingSessionSeal.shamirPrimeB64u
-      ? { shamirPrimeB64u: args.deps.signingSessionSeal.shamirPrimeB64u }
+    ...(args.deps.signingSessionSeal.groupId
+      ? { groupId: args.deps.signingSessionSeal.groupId }
       : {}),
   };
   await args.deps.warmSessions.hydrateSigningSession({

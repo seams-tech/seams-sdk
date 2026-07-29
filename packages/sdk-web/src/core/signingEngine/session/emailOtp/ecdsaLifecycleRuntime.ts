@@ -74,7 +74,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
       provisionEmailOtpEcdsaExplicitExportSession:
         this.ports.provisionEmailOtpEcdsaExplicitExportSession,
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
-      requireShamirPrimeB64u: () => this.ports.runtimeConfig.requireShamirPrimeB64u(),
+      requireSigningSessionSealGroupId: () => this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
       rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
       publicationPorts: this.ports.publicationPorts(),
     });
@@ -90,7 +90,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
       provisionEmailOtpEcdsaExplicitExportSession:
         this.ports.provisionEmailOtpEcdsaExplicitExportSession,
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
-      requireShamirPrimeB64u: () => this.ports.runtimeConfig.requireShamirPrimeB64u(),
+      requireSigningSessionSealGroupId: () => this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
       rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
       publicationPorts: this.ports.publicationPorts(),
     });
@@ -103,7 +103,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
       configs: this.ports.configs,
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
-      requireShamirPrimeB64u: () => this.ports.runtimeConfig.requireShamirPrimeB64u(),
+      requireSigningSessionSealGroupId: () => this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
       requireRpId: (operation) => this.ports.runtimeConfig.requireRpId(operation),
       provisionThresholdEcdsaSession: this.ports.provisionThresholdEcdsaSession,
       provisionEmailOtpEcdsaExplicitExportSession:

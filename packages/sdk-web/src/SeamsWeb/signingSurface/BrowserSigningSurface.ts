@@ -1,4 +1,5 @@
 import type { DurableRecordStore, RuntimePorts } from '@/core/platform';
+import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
@@ -466,7 +467,7 @@ export class BrowserSigningSurface {
     this.emailOtpPublicDeps = {
       ecdsaSessions: this.warmSigning.ecdsaSessions,
       relayerUrl: this.seamsWebConfigs.network.relayer?.url || '',
-      shamirPrimeB64u: this.seamsWebConfigs.signing.sessionSeal?.shamirPrimeB64u || '',
+      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
       getSignerWorkerContext: () =>
         this.enginePorts.walletSessionActivationDeps.getSignerWorkerContext(),
       emailOtpSessions: this.emailOtpSessions,
@@ -1206,7 +1207,10 @@ export class BrowserSigningSurface {
         persistActivePasskeyEcdsaReauthAnchor,
         persistEmailOtpEcdsaRegistrationReauthAnchor,
         warmSessions: this.signingRuntime.services.warmSessions,
-        signingSessionSeal: this.seamsWebConfigs.signing.sessionSeal,
+        signingSessionSeal:
+          this.seamsWebConfigs.signing.sessionSeal.mode === 'sealed_refresh_v1'
+            ? { groupId: SIGNING_SESSION_SEAL_GROUP_ID }
+            : {},
       },
       input,
     );
@@ -1472,7 +1476,7 @@ export class BrowserSigningSurface {
       challengeId: args.challengeId,
       otpCode: args.otpCode,
       appSessionJwt: args.appSessionJwt,
-      shamirPrimeB64u: this.seamsWebConfigs.signing.sessionSeal.shamirPrimeB64u,
+      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
       workerContext: this.signerWorkerManager.getContext(),
       activateCapability: this.enginePorts.ed25519YaoActiveClients.activate.bind(
         this.enginePorts.ed25519YaoActiveClients,
@@ -1523,7 +1527,7 @@ export class BrowserSigningSurface {
     otpCode: string;
     relayUrl?: string;
     challengeId?: string;
-    shamirPrimeB64u?: string;
+    groupId?: string;
     appSessionJwt?: string;
     clientSecret32?: Uint8Array;
     otpChannel?: WalletEmailOtpChannel;

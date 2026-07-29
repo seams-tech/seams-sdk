@@ -53,7 +53,7 @@ export type SessionPublicDeps = {
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   signingSessionSeal?: {
     keyVersion?: string;
-    shamirPrimeB64u?: string;
+    groupId?: string;
   };
   discovery: {
     emailOtp: (

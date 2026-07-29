@@ -31,8 +31,6 @@ type Refactor93StagingLiveConfig = {
   readonly projectEnvironmentId: string;
   readonly publishableKey: string;
   readonly signingSessionPersistenceMode: string;
-  readonly signingSessionSealKeyVersion: string;
-  readonly signingSessionShamirPrimeB64u: string;
 };
 
 export type Refactor93StagingConfig = Refactor93StagingCheckConfig | Refactor93StagingLiveConfig;
@@ -56,14 +54,6 @@ export function parseRefactor93StagingConfig(
     signingSessionPersistenceMode: requireEnvironmentValue(
       environment,
       'VITE_SIGNING_SESSION_PERSISTENCE_MODE',
-    ),
-    signingSessionSealKeyVersion: requireEnvironmentValue(
-      environment,
-      'VITE_SIGNING_SESSION_SEAL_KEY_VERSION',
-    ),
-    signingSessionShamirPrimeB64u: requireEnvironmentValue(
-      environment,
-      'VITE_SIGNING_SESSION_SHAMIR_P_B64U',
     ),
   };
 }
@@ -167,8 +157,6 @@ function localSiteEnvironment(config: Refactor93StagingLiveConfig): Record<strin
     VITE_SEAMS_PROJECT_ENVIRONMENT_ID: config.projectEnvironmentId,
     VITE_SEAMS_PUBLISHABLE_KEY: config.publishableKey,
     VITE_SIGNING_SESSION_PERSISTENCE_MODE: config.signingSessionPersistenceMode,
-    VITE_SIGNING_SESSION_SEAL_KEY_VERSION: config.signingSessionSealKeyVersion,
-    VITE_SIGNING_SESSION_SHAMIR_P_B64U: config.signingSessionShamirPrimeB64u,
     VITE_ENABLE_INTENDED_E2E: '1',
     VITE_CACHE_DIR: REFACTOR93_STAGING_RUNTIME_PATHS.viteCache,
   };

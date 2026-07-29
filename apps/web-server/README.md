@@ -177,28 +177,16 @@ When enabled, this example mounts:
 
 - `POST /wallet-session/seal/apply`
 - `POST /wallet-session/seal/remove`
-- `GET /.well-known/webauthn` response includes `capabilities.signingSessionSeal` so sealed-refresh clients can enforce startup parity (`mode`, `keyVersion`, `shamirPrimeB64u`)
+- `GET /.well-known/webauthn` publishes the public protocol and current key version.
 
-Provide all signing-session seal key-material values to mount the routes:
+The backend derives its Shamir lock key from one random 32-byte secret:
 
-- `SIGNING_SESSION_SEAL_KEY_VERSION`
-- `SIGNING_SESSION_SHAMIR_P_B64U`
-- `SIGNING_SESSION_SEAL_E_S_B64U`
-- `SIGNING_SESSION_SEAL_D_S_B64U`
+- `SIGNING_SESSION_SEAL_ROOT_SECRET_B64U` (secret)
+- `SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION` (deployment config)
+- `SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS` (comma-separated deployment config)
 
-Generate matching server/client values:
-
-```bash
-# from repo root
-pnpm signing-session-seal:keygen
-```
-
-The command prints:
-
-- server env values: `SIGNING_SESSION_SHAMIR_P_B64U`, `SIGNING_SESSION_SEAL_E_S_B64U`, `SIGNING_SESSION_SEAL_D_S_B64U`, `SIGNING_SESSION_SEAL_KEY_VERSION`
-- client env values: `VITE_SIGNING_SESSION_PERSISTENCE_MODE`, `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`, `VITE_SIGNING_SESSION_SHAMIR_P_B64U`
-
-Keep the printed client values aligned with Router API `SIGNING_SESSION_*` values. Sealed-refresh clients fail closed on mismatch.
+The frontend only selects `VITE_SIGNING_SESSION_PERSISTENCE_MODE=sealed_refresh_v1`. It
+learns the public protocol and active key version from the backend capability response.
 
 ## Router A/B Normal Signing
 
@@ -303,12 +291,10 @@ ROUTER_API_KEY_AUTH_ENABLED=1
 # Active environment metadata supplies signingRootVersion=default for the local fixture.
 # Do not configure a process-wide signing root on the Router API for hosted multi-project flows.
 
-# Optional signing-session seal/unseal routes for refresh rehydrate.
-# SIGNING_SESSION_SEAL_KEY_VERSION=kek-s-2026-02
-# Generate values with: pnpm signing-session-seal:keygen
-# SIGNING_SESSION_SHAMIR_P_B64U=...
-# SIGNING_SESSION_SEAL_E_S_B64U=...
-# SIGNING_SESSION_SEAL_D_S_B64U=...
+# Optional signing-session seal/unseal routes.
+# SIGNING_SESSION_SEAL_ROOT_SECRET_B64U=<base64url-encoded random 32 bytes>
+# SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION=signing-session-seal-local-r2
+# SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS=signing-session-seal-local-r2
 # SIGNING_SESSION_SEAL_RATE_LIMIT_KIND=in-memory
 # SIGNING_SESSION_SEAL_RATE_LIMIT=30
 # SIGNING_SESSION_SEAL_RATE_LIMIT_WINDOW_MS=60000

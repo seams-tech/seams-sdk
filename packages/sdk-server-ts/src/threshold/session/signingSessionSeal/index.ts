@@ -1,9 +1,8 @@
 export type {
   CreateSigningSessionSealCipherAdapterOptions,
   CreateSigningSessionSealShamir3PassCipherAdapterOptions,
-  SigningSessionSealShamir3PassKeyMaterial,
+  SigningSessionSealShamir3PassRootConfig,
   SigningSessionSealShamir3PassRuntime,
-  SigningSessionSealShamir3PassRuntimeInput,
 } from './crypto/cipher';
 export type {
   CreateSigningSessionSealServiceOptions,
@@ -68,13 +67,13 @@ export {
   createSigningSessionSealCipherAdapter,
   createPassthroughSigningSessionSealCipherAdapter,
   createSigningSessionSealShamir3PassCipherAdapter,
-  createSigningSessionSealShamir3PassBigIntRuntime,
+  encodeSigningSessionSealServerLockContext,
 } from './crypto/cipher';
 export { createSigningSessionSealService } from './service';
 export { createInMemorySigningSessionSealIdempotencyStore } from './idempotency';
 export { createSigningSessionSealAuditLogger } from './observability/audit';
 export { createSigningSessionSealRoutesOptions } from './routesOptions';
-export { createSigningSessionSealOptions } from './options';
+export { createSigningSessionSealOptions, parseSigningSessionSealRootConfig } from './options';
 export {
   createInMemorySigningSessionSealRateLimiter,
   createSigningSessionSealRateLimitGuard,

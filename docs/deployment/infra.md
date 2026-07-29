@@ -165,8 +165,6 @@ cross-run artifact inputs.
 | `VITE_ARC_RPC_URL`                                       | Pages build       | Optional Arc RPC URL.                                                          |
 | `VITE_ARC_EXPLORER`                                      | Pages build       | Optional Arc explorer URL.                                                     |
 | `VITE_SIGNING_SESSION_PERSISTENCE_MODE`                  | Pages build       | Set when enabling sealed-refresh client flows.                                 |
-| `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`                  | Pages build       | Must match the active Gateway seal key version when sealed-refresh is enabled. |
-| `VITE_SIGNING_SESSION_SHAMIR_P_B64U`                     | Pages build       | Public Shamir prime value for sealed-refresh clients.                          |
 | `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`                | Pages build       | Exact SigningWorker id bound into Router A/B warm signing sessions.            |
 | `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED`                  | Pages build       | Optional dashboard route gate.                                                 |
 
@@ -176,6 +174,10 @@ identity, session settings, and optional integration configuration. The
 deployment target parser validates this document once and the renderer emits
 the individual Worker bindings expected by the runtime. Tenant identifiers are
 configuration only; deployment creates no tenant rows.
+
+The browser discovers the public signing-session seal protocol from the
+Gateway capability response. Shamir key rotation does not require Pages build
+variables or a frontend rebuild.
 
 Refactor 93 uses partitioned D1 and the MPC Router immediately. Gateway
 configuration has no Yao family cutoff or drain variables. Remove any retired

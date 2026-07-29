@@ -163,10 +163,9 @@ function normalizeThresholdStoreConfig(
     toOptionalTrimmedString(c.ROUTER_AB_SIGNING_WORKER_URL) ||
     toOptionalTrimmedString(c.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET) ||
     typeof c.routerAbSigningWorkerFetch === 'function' ||
-    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_KEY_VERSION) ||
-    toOptionalTrimmedString(c.SIGNING_SESSION_SHAMIR_P_B64U) ||
-    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_E_S_B64U) ||
-    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_D_S_B64U) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_ROOT_SECRET_B64U) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_KIND) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN) ||

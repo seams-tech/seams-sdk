@@ -112,7 +112,7 @@ export type EmailOtpEcdsaRestoreSource =
       participantIds: readonly number[];
       sessionKind: 'jwt';
       signingSessionSealKeyVersion: string;
-      signingSessionSealShamirPrimeB64u: string;
+      signingSessionSealGroupId: string;
       runtimePolicyScope?: EmailOtpEcdsaSealedRecoveryRecord['runtimePolicyScope'];
     }
   | {
@@ -131,7 +131,7 @@ export type EmailOtpEcdsaRestoreSource =
       participantIds: readonly number[];
       sessionKind: 'jwt';
       signingSessionSealKeyVersion: string;
-      signingSessionSealShamirPrimeB64u: string;
+      signingSessionSealGroupId: string;
       runtimePolicyScope?: ThresholdEcdsaSessionRecord['runtimePolicyScope'];
     };
 
@@ -219,16 +219,16 @@ function requireEmailOtpEcdsaSealedTransportSource(
   sealedRecord: EmailOtpEcdsaSealedRecoveryRecord,
 ): {
   signingSessionSealKeyVersion: string;
-  signingSessionSealShamirPrimeB64u: string;
+  signingSessionSealGroupId: string;
 } {
   const signingSessionSealKeyVersion = String(sealedRecord.keyVersion || '').trim();
-  const signingSessionSealShamirPrimeB64u = String(sealedRecord.shamirPrimeB64u || '').trim();
-  if (!signingSessionSealKeyVersion || !signingSessionSealShamirPrimeB64u) {
+  const signingSessionSealGroupId = String(sealedRecord.groupId || '').trim();
+  if (!signingSessionSealKeyVersion || !signingSessionSealGroupId) {
     throw new Error('Email OTP sealed refresh is missing normalized seal transport metadata');
   }
   return {
     signingSessionSealKeyVersion,
-    signingSessionSealShamirPrimeB64u,
+    signingSessionSealGroupId,
   };
 }
 
@@ -320,8 +320,8 @@ function verifyEmailOtpEcdsaCurrentRecordMatchesSealedRecord(args: {
     throw new Error('Email OTP sealed refresh seal key version mismatch');
   }
   if (
-    ecdsaRecord.signingSessionSealShamirPrimeB64u &&
-    ecdsaRecord.signingSessionSealShamirPrimeB64u !== sealedRecord.shamirPrimeB64u
+    ecdsaRecord.signingSessionSealGroupId &&
+    ecdsaRecord.signingSessionSealGroupId !== sealedRecord.groupId
   ) {
     throw new Error('Email OTP sealed refresh Shamir prime mismatch');
   }
@@ -464,7 +464,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
       signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
         restoreSource.signingSessionSealKeyVersion,
       ),
-      shamirPrimeB64u: restoreSource.signingSessionSealShamirPrimeB64u,
+      groupId: restoreSource.signingSessionSealGroupId,
     },
     restore: {
       sessionId: restoreSource.thresholdSessionId,
