@@ -1,4 +1,5 @@
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -28,11 +29,23 @@ import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/
 import {
   EcdsaDerivationClientCustomRequestType,
   EcdsaDerivationClientCustomResponseType,
+  EcdsaOnlineClientRequestType,
+  EcdsaOnlineClientResponseType,
+  EcdsaPresignClientRequestType,
+  EcdsaPresignClientResponseType,
   type SignerWorkerKind,
   type SignerWorkerOperationRequest,
   type SignerWorkerOperationResult,
   type SignerWorkerOperationType,
 } from '@/core/signingEngine/workerManager/workerTypes';
+import {
+  routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1,
+  routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1,
+  parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+  parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+  type RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire,
+  type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
   canonicalEvmFamilyEcdsaSigningCapabilityFixture,
 } from './ecdsaCapabilityManifest.fixtures';
@@ -48,8 +61,20 @@ type EcdsaSigningCapabilityFixture = Awaited<
 
 type RecordedWorkerOperation = {
   kind: SignerWorkerKind;
-  request: { type: number };
+  request: { type: number | string; payload?: unknown };
 };
+
+const PRESIGNATURE_BIG_R_33 = Uint8Array.from(
+  Buffer.from('03f28773c2d975288bc7d1d205c3748651b075fbc6610e58cddeeddf8f19405aa8', 'hex'),
+);
+
+function requestPayload(args: RecordedWorkerOperation): Record<string, unknown> {
+  const payload = args.request.payload;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error(`[fixture] worker operation ${String(args.request.type)} requires a payload`);
+  }
+  return payload as Record<string, unknown>;
+}
 
 export class RecordingEcdsaRehydrationWorker implements WorkerOperationContext {
   readonly requests: RecordedWorkerOperation[] = [];
@@ -64,33 +89,85 @@ export class RecordingEcdsaRehydrationWorker implements WorkerOperationContext {
     request: SignerWorkerOperationRequest<K, T>;
   }): Promise<SignerWorkerOperationResult<K, T>>;
   async requestWorkerOperation(args: RecordedWorkerOperation): Promise<unknown> {
-    if (args.kind !== 'ecdsaDerivationClient') {
-      throw new Error(`[fixture] unexpected worker kind ${args.kind}`);
-    }
-    if (args.request.type !== EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial) {
-      throw new Error(`[fixture] unexpected worker operation ${args.request.type}`);
-    }
     this.requests.push(args);
-    const durable = this.manifest.durableMaterial;
-    return {
-      type: EcdsaDerivationClientCustomResponseType.RehydrateEcdsaRoleLocalSigningMaterialSuccess,
-      payload: {
-        kind: 'ecdsa_role_local_signing_material_opened_v1',
-        ok: true,
-        liveHandle: parseEcdsaRoleLocalWorkerHandle({
-          kind: 'ecdsa_role_local_worker_handle_v1',
-          materialHandle: `${String(durable.durableMaterialRef)}:live`,
-          bindingDigest: String(durable.bindingDigest),
-          durableMaterialRef: durable.durableMaterialRef,
-        }),
-        materialRef: {
-          kind: 'ecdsa_role_local_persisted_material_ref_v1',
-          durableMaterialRef: durable.durableMaterialRef,
-          bindingDigest: durable.bindingDigest,
-          materialActivation: durable.materialActivation,
+    if (
+      args.kind === 'ecdsaDerivationClient' &&
+      args.request.type ===
+        EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial
+    ) {
+      const durable = this.manifest.durableMaterial;
+      return {
+        type: EcdsaDerivationClientCustomResponseType.RehydrateEcdsaRoleLocalSigningMaterialSuccess,
+        payload: {
+          kind: 'ecdsa_role_local_signing_material_opened_v1',
+          ok: true,
+          liveHandle: parseEcdsaRoleLocalWorkerHandle({
+            kind: 'ecdsa_role_local_worker_handle_v1',
+            materialHandle: `${String(durable.durableMaterialRef)}:live`,
+            bindingDigest: String(durable.bindingDigest),
+            durableMaterialRef: durable.durableMaterialRef,
+          }),
+          materialRef: {
+            kind: 'ecdsa_role_local_persisted_material_ref_v1',
+            durableMaterialRef: durable.durableMaterialRef,
+            bindingDigest: durable.bindingDigest,
+            materialActivation: durable.materialActivation,
+          },
         },
-      },
-    };
+      };
+    }
+    if (
+      args.kind === 'ecdsaPresignClient' &&
+      args.request.type === EcdsaPresignClientRequestType.ListAvailable
+    ) {
+      return {
+        type: EcdsaPresignClientResponseType.ListAvailableSuccess,
+        payload: [
+          {
+            presignatureId: 'operating-path-presignature',
+            materialHandle: `${String(this.manifest.durableMaterial.durableMaterialRef)}:presignature`,
+            bigR33: PRESIGNATURE_BIG_R_33.slice().buffer,
+            createdAtMs: Date.now() - 1_000,
+            expiresAtMs: Date.now() + 10 * 60_000,
+          },
+        ],
+      };
+    }
+    if (
+      args.kind === 'ecdsaPresignClient' &&
+      (args.request.type === EcdsaPresignClientRequestType.Reserve ||
+        args.request.type === EcdsaPresignClientRequestType.Commit)
+    ) {
+      return {
+        type:
+          args.request.type === EcdsaPresignClientRequestType.Reserve
+            ? EcdsaPresignClientResponseType.ReserveSuccess
+            : EcdsaPresignClientResponseType.CommitSuccess,
+        payload: {
+          kind: 'ecdsa_client_presignature_lifecycle_advanced_v1',
+          materialHandle: String(requestPayload(args).materialHandle),
+        },
+      };
+    }
+    if (
+      args.kind === 'ecdsaOnlineClient' &&
+      args.request.type === EcdsaOnlineClientRequestType.ComputeSignatureShare
+    ) {
+      return {
+        type: EcdsaOnlineClientResponseType.ComputeSignatureShareSuccess,
+        payload: new Uint8Array(32).fill(17).buffer,
+      };
+    }
+    if (args.kind === 'evmCrypto' && args.request.type === 'validateSecp256k1PublicKey33') {
+      return requestPayload(args).publicKey33;
+    }
+    if (
+      args.kind === 'evmCrypto' &&
+      args.request.type === 'verifySecp256k1RecoverableSignatureAgainstPublicKey33'
+    ) {
+      return requestPayload(args).publicKey33;
+    }
+    throw new Error(`[fixture] unexpected ${args.kind} worker operation ${String(args.request.type)}`);
   }
 }
 
@@ -143,6 +220,76 @@ export function ecdsaOperationDigestSetFixture(): OperationDigestSet {
     laneDigest: parseDigestB64u(Buffer.from(new Uint8Array(32).fill(11)).toString('base64url')),
     intentDigest: parseDigestB64u(Buffer.from(new Uint8Array(32).fill(12)).toString('base64url')),
     displayDigest: parseDigestB64u(Buffer.from(new Uint8Array(32).fill(13)).toString('base64url')),
+  };
+}
+
+export type RecordedEcdsaNormalSigningRequest =
+  | {
+      readonly kind: 'prepare';
+      readonly request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire;
+    }
+  | {
+      readonly kind: 'finalize';
+      readonly request: RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire;
+    };
+
+export function installEcdsaNormalSigningEndpointFixture(): {
+  readonly requests: RecordedEcdsaNormalSigningRequest[];
+  readonly signature65: Uint8Array;
+  readonly restore: () => void;
+} {
+  const originalFetch = globalThis.fetch;
+  const requests: RecordedEcdsaNormalSigningRequest[] = [];
+  const signature65 = new Uint8Array(65).fill(16);
+  signature65[64] = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const rawRequest = JSON.parse(String(init?.body || '{}')) as unknown;
+    if (url.endsWith('/router-ab/ecdsa-derivation/sign/prepare')) {
+      const request = parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(rawRequest);
+      requests.push({ kind: 'prepare', request });
+      return new Response(
+        JSON.stringify({
+          scope: request.scope,
+          request_id: request.request_id,
+          request_digest: await routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1(request),
+          signing_digest: { bytes: Array.from(base64UrlDecode(request.signing_digest_b64u)) },
+          server_presignature_id: request.client_presignature_id,
+          server_big_r33_b64u: base64UrlEncode(PRESIGNATURE_BIG_R_33),
+          signing_worker_rerandomization_contribution32_b64u: base64UrlEncode(
+            new Uint8Array(32).fill(14),
+          ),
+          signature_scheme: 'ecdsa_secp256k1_recoverable_v1',
+          prepared_at_ms: Date.now(),
+          expires_at_ms: request.expires_at_ms,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    if (url.endsWith('/router-ab/ecdsa-derivation/sign')) {
+      const request = parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1(rawRequest);
+      requests.push({ kind: 'finalize', request });
+      return new Response(
+        JSON.stringify({
+          scope: request.scope,
+          request_id: request.request_id,
+          request_digest:
+            await routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1(request),
+          signing_digest: { bytes: Array.from(base64UrlDecode(request.signing_digest_b64u)) },
+          signature_scheme: 'ecdsa_secp256k1_recoverable_v1',
+          signature65_b64u: base64UrlEncode(signature65),
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    throw new Error(`[fixture] unexpected ECDSA signing endpoint ${url}`);
+  };
+  return {
+    requests,
+    signature65,
+    restore: () => {
+      globalThis.fetch = originalFetch;
+    },
   };
 }
 
