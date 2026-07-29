@@ -198,3 +198,33 @@ test('the ceremony calls respond and activate exactly once each, and no finalize
   expect(routes.calls.filter((c) => c === 'respond')).toHaveLength(1);
   expect(routes.calls.filter((c) => c === 'other')).toHaveLength(0);
 });
+
+test('the ceremony consumes the collected authority and never asks for another', async () => {
+  /* Exactly one passkey prompt: the proof is collected once against setup's
+     challenge and passed in. If a later change moved collection inside the
+     ceremony — to re-prompt on a retry, say — the user would see a second
+     Touch ID, so any authority-collecting hook reached from here fails. */
+  const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
+  const engine = stubSigningEngine() as Record<string, unknown>;
+  let authorityRequests = 0;
+  for (const hook of [
+    'collectPasskeyRegistrationAuthority',
+    'createPasskeyCredential',
+    'signRegistrationChallenge',
+  ]) {
+    engine[hook] = async () => {
+      authorityRequests += 1;
+      return {};
+    };
+  }
+  try {
+    await runThreeRouteRegistrationCeremony(
+      ceremonyArgs({ context: { signingEngine: engine } }),
+    ).catch(() => undefined);
+  } finally {
+    routes.restore();
+  }
+  expect(authorityRequests).toBe(0);
+  /* And the one proof it was given rode exactly one respond call. */
+  expect(routes.calls.filter((c) => c === 'respond')).toHaveLength(1);
+});
