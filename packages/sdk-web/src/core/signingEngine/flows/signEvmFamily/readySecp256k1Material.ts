@@ -28,6 +28,7 @@ import type {
   AuthorizedEvmFamilyEcdsaSigningCapability,
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from './ecdsaSigningCapability';
+import { authorizeEvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
 
 type EcdsaSessionChain = 'tempo' | 'evm';
 
@@ -242,6 +243,7 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
     kind: 'ready',
     material: attachReusableEcdsaWalletSessionAuthorization({
       material: hydrated.material,
+      capability: args.authorized.capability,
       authorization: args.authorized.authorization,
     }),
   };
@@ -249,9 +251,14 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
 
 export function attachReusableEcdsaWalletSessionAuthorization(args: {
   material: HydratedEcdsaSignerMaterial;
+  capability: CanonicalEvmFamilyEcdsaSigningCapability;
   authorization: ActiveEvmFamilyWalletSessionAuthorization;
 }): ReadySecp256k1SigningMaterial {
-  const projection = args.authorization.projection;
+  const authorized = authorizeEvmFamilyEcdsaSigningCapability({
+    capability: args.capability,
+    authorization: args.authorization,
+  });
+  const projection = authorized.authorization.projection;
   if (String(projection.walletId) !== String(args.material.walletId)) {
     throw new Error('Reusable Wallet Session authorization wallet does not match hydrated material');
   }
@@ -263,10 +270,10 @@ export function attachReusableEcdsaWalletSessionAuthorization(args: {
       wallet_session_id: projection.walletSessionId,
     },
     credential: {
-      kind: 'jwt',
+      kind: 'reusable_wallet_session_jwt',
       walletSessionJwt: projection.walletSessionJwt,
     },
-    expiresAtMs: args.authorization.status.expiresAtMs,
+    expiresAtMs: authorized.authorization.status.expiresAtMs,
     singleUseEmailOtpSession: false,
   });
 }

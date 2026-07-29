@@ -494,7 +494,38 @@ async function signEvmFamilyAttempt(
     args.request.senderSignatureAlgorithm === 'secp256k1'
       ? getPreparedEcdsaSigningSession()
       : undefined;
-  const authPlanningResult =
+  // R90-INV-010: a superseded preparation is discarded whole and current
+  // canonical state resolved again — once. Shared by the execute-phase retry
+  // ladder below and the pre-execute wrap, because capability resolution
+  // during auth planning and runtime creation can hit the replacement race
+  // before the executor's catch exists.
+  const reResolveSupersededPreparation = async (
+    error: unknown,
+  ): Promise<TempoSignedResult | EvmSignedResult | null> => {
+    if (!isEvmFamilyEcdsaMaterialSupersededError(error)) return null;
+    if (attempt.reResolvedAfterSupersession) return null;
+    emitSigningSessionFlowTrace('evm-family', {
+      stage: 'ecdsa_attempt.material_superseded',
+      walletId,
+      chain: requestChain,
+      chainTarget: requestChainTarget,
+      supersessionKind: error.superseded.supersessionKind,
+      preparedMaterialActivationId: String(
+        error.superseded.preparedMaterialActivation.activationId,
+      ),
+      currentMaterialActivationId: String(
+        error.superseded.currentMaterialActivation.activationId,
+      ),
+    });
+    return await signEvmFamilyAttempt(deps, args, {
+      admissionRetryState: { kind: 'initial_admission' },
+      operationIds,
+      signingSessionCoordinator,
+      reResolvedAfterSupersession: true,
+      ...(attempt.retryingFreshAuth ? { retryingFreshAuth: true } : {}),
+    });
+  };
+  const resolveAuthPlanningResult = async () =>
     args.request.senderSignatureAlgorithm === 'secp256k1'
       ? await (async () => {
           const prepared = getPreparedEcdsaSigningSession();
@@ -538,29 +569,46 @@ async function signEvmFamilyAttempt(
           chainTarget: signingTarget,
           senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
         });
-  const { signingAuthPlan, signingSessionPlan, emailOtpSigning } = authPlanningResult;
-  const emailOtpSigningForFlow = emailOtpSigning
-    ? {
-        prepare: emailOtpSigning.prepare,
-        ...(emailOtpSigning.resend ? { resend: emailOtpSigning.resend } : {}),
-      }
-    : undefined;
-  const { flowArgs } = await createEvmFamilySigningFlowRuntime({
-    deps,
-    walletSession: args.walletSession,
-    request: args.request,
-    chainTarget: requestChainTarget,
-    senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
-    ...(signingSessionPlan ? { signingSessionPlan } : {}),
-    signingOperation: createTransactionSigningOperation(),
-    onSigningOperationTransition: emitEvmFamilySigningOperationTrace,
-    ...(emailOtpSigningForFlow ? { emailOtpSigningForFlow } : {}),
-    confirmationConfigOverride: args.confirmationConfigOverride,
-    shouldAbort: args.shouldAbort,
-    onEvent: args.onEvent,
-    onAuthSideEffectStarted: markFreshAuthRetrySideEffect,
-    getEcdsaSigningLaneIdentity,
-  });
+  // Auth planning and runtime creation both resolve the canonical capability,
+  // so the replacement race can surface here — before the executor's retry
+  // ladder exists. Route the typed superseded error to the same bounded
+  // re-resolution instead of letting it escape as a terminal failure.
+  const prepareFlowForExecution = async () => {
+    const authPlanningResult = await resolveAuthPlanningResult();
+    const { signingAuthPlan, signingSessionPlan, emailOtpSigning } = authPlanningResult;
+    const emailOtpSigningForFlow = emailOtpSigning
+      ? {
+          prepare: emailOtpSigning.prepare,
+          ...(emailOtpSigning.resend ? { resend: emailOtpSigning.resend } : {}),
+        }
+      : undefined;
+    const { flowArgs } = await createEvmFamilySigningFlowRuntime({
+      deps,
+      walletSession: args.walletSession,
+      request: args.request,
+      chainTarget: requestChainTarget,
+      senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
+      ...(signingSessionPlan ? { signingSessionPlan } : {}),
+      signingOperation: createTransactionSigningOperation(),
+      onSigningOperationTransition: emitEvmFamilySigningOperationTrace,
+      ...(emailOtpSigningForFlow ? { emailOtpSigningForFlow } : {}),
+      confirmationConfigOverride: args.confirmationConfigOverride,
+      shouldAbort: args.shouldAbort,
+      onEvent: args.onEvent,
+      onAuthSideEffectStarted: markFreshAuthRetrySideEffect,
+      getEcdsaSigningLaneIdentity,
+    });
+    return { signingAuthPlan, signingSessionPlan, emailOtpSigning, flowArgs };
+  };
+  let preparedFlow: Awaited<ReturnType<typeof prepareFlowForExecution>>;
+  try {
+    preparedFlow = await prepareFlowForExecution();
+  } catch (error) {
+    const reResolved = await reResolveSupersededPreparation(error);
+    if (reResolved) return reResolved;
+    throw error;
+  }
+  const { signingAuthPlan, signingSessionPlan, emailOtpSigning, flowArgs } = preparedFlow;
 
   let freshAuthRetryHandledFinalization = false;
   const retryWithFreshWalletSessionAuth = async (
@@ -606,28 +654,12 @@ async function signEvmFamilyAttempt(
     // it is handled before the fresh-auth ladder and prompts the user for
     // nothing.
     if (isEvmFamilyEcdsaMaterialSupersededError(error)) {
-      if (attempt.reResolvedAfterSupersession) return null;
-      emitSigningSessionFlowTrace('evm-family', {
-        stage: 'ecdsa_attempt.material_superseded',
-        walletId,
-        chain: requestChain,
-        chainTarget: requestChainTarget,
-        preparedMaterialActivationId: String(
-          error.superseded.preparedMaterialActivation.activationId,
-        ),
-        currentMaterialActivationId: String(
-          error.superseded.currentMaterialActivation.activationId,
-        ),
-      });
-      const result = await signEvmFamilyAttempt(deps, args, {
-        admissionRetryState: { kind: 'initial_admission' },
-        operationIds,
-        signingSessionCoordinator,
-        reResolvedAfterSupersession: true,
-        ...(attempt.retryingFreshAuth ? { retryingFreshAuth: true } : {}),
-      });
-      freshAuthRetryHandledFinalization = true;
-      return result;
+      const reResolved = await reResolveSupersededPreparation(error);
+      if (reResolved) {
+        freshAuthRetryHandledFinalization = true;
+        return reResolved;
+      }
+      return null;
     }
     const walletSessionRetry = await retryWithFreshWalletSessionAuth(error);
     if (walletSessionRetry) return walletSessionRetry;

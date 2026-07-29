@@ -154,16 +154,9 @@ function emailOtpEcdsaSealedFixtureParts(
  * sealed record's `walletId` for current-record classification.
  */
 export function seedEmailOtpEcdsaSealedRestorePayload(
-  args: { walletId?: string } & Partial<EmailOtpEcdsaSealedRestorePayload> = {},
+  args: { walletId?: string } = {},
 ): EmailOtpEcdsaSealedRestorePayload {
-  const { walletId, ...overrides } = args;
-  // Cast: spreading Partial overrides over the sessionKind-discriminated restore
-  // union defeats TS narrowing; the base payload is always the jwt/email_otp arm
-  // and overrides only vary the fields a test exercises.
-  return {
-    ...emailOtpEcdsaSealedFixtureParts({ walletId }).restore,
-    ...overrides,
-  } as EmailOtpEcdsaSealedRestorePayload;
+  return emailOtpEcdsaSealedFixtureParts(args).restore;
 }
 
 /**

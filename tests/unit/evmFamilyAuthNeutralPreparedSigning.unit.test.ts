@@ -13,7 +13,7 @@ import { prepareEvmFamilyEcdsaOperationStepUp } from '@/core/signingEngine/flows
 import { SigningOperationIntent } from '@/core/signingEngine/session/operationState/types';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { laneCandidateAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
-import type { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
+import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import {
   AVAILABLE_LANES_ECDSA_TARGET,
   AVAILABLE_LANES_WALLET_ID,
@@ -22,6 +22,10 @@ import {
   runtimeEcdsaAvailableLaneRecord,
 } from './helpers/availableSigningLanes.fixtures';
 import { walletSessionRefFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
+import {
+  ecdsaOperationDigestSetFixture,
+  hydratedEcdsaSigningMaterialFixture,
+} from './helpers/ecdsaOperationStepUp.fixtures';
 
 // The auth-required operating path: material selection recognizes an
 // auth-neutral candidate before the reusable-session planner runs, hands
@@ -59,7 +63,7 @@ async function prepareForRecord(record: ReturnType<typeof runtimeEcdsaAvailableL
     diagnostics: {},
     // Never consulted on the auth-required path: reaching it would mean the
     // reusable-session planner ran for material nothing authorizes.
-    signingSessionCoordinator: null as unknown as SigningSessionCoordinator,
+    signingSessionCoordinator: new SigningSessionCoordinator({}),
   });
 }
 
@@ -145,7 +149,7 @@ test.describe('EVM-family auth-neutral prepared signing', () => {
         intent: SigningOperationIntent.TransactionSign,
       },
       diagnostics: {},
-      signingSessionCoordinator: null as unknown as SigningSessionCoordinator,
+      signingSessionCoordinator: new SigningSessionCoordinator({}),
     }).then(
       (prepared) => prepared.kind,
       // Without a coordinator the reusable-session planner cannot complete --
@@ -226,22 +230,18 @@ test.describe('auth-neutral material escalates on its own factor', () => {
       throw new Error('expected an authorization-required prepared session');
     }
 
-    // Preparation reads the operation id off the intent the prepared session
-    // carries. Without it, `prepareEcdsaOperationStepUp` binds an empty id and
-    // normal signing rejects the operation later.
-    await expect(
-      prepareEvmFamilyEcdsaOperationStepUp({
-        operation: {
-          intent: prepared.intent,
-          authPlan: { kind: 'passkeyReauth', method: 'passkey' },
-        },
-        operationDigests: {} as never,
-        // One participant: the guard above operation-id use, so this proves the
-        // id survived preparation rather than that hydration succeeded.
-        material: { publicFacts: { participantIds: [1] } } as never,
-        evmFamilySigningKeySlotId: 'slot-1' as never,
-      }),
-    ).rejects.toThrow('exactly two participants');
+    const { fixture, material } = await hydratedEcdsaSigningMaterialFixture('passkey');
+    const operationStepUp = await prepareEvmFamilyEcdsaOperationStepUp({
+      operation: {
+        intent: prepared.intent,
+        authPlan: { kind: 'passkeyReauth', method: 'passkey' },
+      },
+      operationDigests: ecdsaOperationDigestSetFixture(),
+      material,
+      evmFamilySigningKeySlotId:
+        fixture.capability.material.publicFacts.evmFamilySigningKeySlotId,
+    });
+    expect(operationStepUp.operation.operation_id).toBe(OPERATION_ID);
     expect(prepared.intent.operationId).toBe(OPERATION_ID);
   });
 });
