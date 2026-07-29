@@ -229,7 +229,7 @@ async function forwardJsonRpcRequest(args: {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: args.body,
-        redirect: 'error',
+        redirect: 'manual',
       });
     } catch {
       if (hasFallback) continue;
@@ -242,9 +242,20 @@ async function forwardJsonRpcRequest(args: {
       );
     }
 
-    if ((response.status === 429 || response.status >= 500) && hasFallback) {
+    const redirected = response.status >= 300 && response.status < 400;
+    if ((redirected || response.status === 429 || response.status >= 500) && hasFallback) {
       await response.body?.cancel();
       continue;
+    }
+    if (redirected) {
+      await response.body?.cancel();
+      return rpcErrorResponse(
+        args.request,
+        args.corsOrigins,
+        args.rpcRequest.id,
+        502,
+        'RPC unavailable; retry shortly',
+      );
     }
     if (response.status === 429) {
       await response.body?.cancel();

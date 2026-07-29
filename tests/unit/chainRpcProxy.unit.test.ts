@@ -21,9 +21,11 @@ function rpcRequest(pathname: string, method: string): Request {
 
 test('NEAR proxy falls back from a throttled FastNear response and owns CORS', async () => {
   const upstreams: string[] = [];
-  const fetchImpl: typeof fetch = async (input) => {
+  const redirectModes: Array<RequestRedirect | undefined> = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
     const url = String(input);
     upstreams.push(url);
+    redirectModes.push(init?.redirect);
     if (url === 'https://test.rpc.fastnear.com/') {
       return new Response('rate limited', { status: 429 });
     }
@@ -48,6 +50,25 @@ test('NEAR proxy falls back from a throttled FastNear response and owns CORS', a
     'https://test.rpc.fastnear.com/',
     'https://rpc.testnet.near.org/',
   ]);
+  expect(redirectModes).toEqual(['manual', 'manual']);
+});
+
+test('proxy rejects upstream redirects instead of following outside the allowlist', async () => {
+  const fetchImpl: typeof fetch = async () =>
+    new Response(null, {
+      status: 302,
+      headers: { location: 'https://attacker.example/rpc' },
+    });
+  const response = await handleChainRpcProxyRequest(
+    rpcRequest(ARC_BROWSER_RPC_PROXY_PATH, 'eth_call'),
+    {
+      corsOrigins: [STAGING_ORIGIN],
+      fetchImpl,
+    },
+  );
+
+  expect(response?.status).toBe(502);
+  expect(response?.headers.get('location')).toBeNull();
 });
 
 test('Arc proxy rejects methods outside the product RPC allowlist', async () => {
