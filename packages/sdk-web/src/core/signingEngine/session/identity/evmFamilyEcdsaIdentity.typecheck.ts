@@ -19,7 +19,7 @@ import {
   deriveBaseEcdsaSubjectIdFromWalletId,
   toThresholdOwnerAddress,
   type BaseEcdsaSubjectId,
-  type EcdsaKeyFacts,
+  type EvmFamilyEcdsaWalletKeyFacts,
   type EcdsaWalletSignerRecord,
   type EvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
@@ -208,7 +208,7 @@ const invalidWalletKeyWithDuplicateThresholdKeyId: EvmFamilyEcdsaWalletKey = {
 };
 void invalidWalletKeyWithDuplicateThresholdKeyId;
 
-const ecdsaKeyFacts: EcdsaKeyFacts = walletKey.keyFacts;
+const ecdsaKeyFacts: EvmFamilyEcdsaWalletKeyFacts = walletKey.keyFacts;
 void ecdsaKeyFacts;
 
 const ecdsaWalletSignerRecord: EcdsaWalletSignerRecord = {
