@@ -357,9 +357,12 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
       relayerUrl: restoreSource.relayerUrl,
       emailOtpAuthContext: restoreSource.emailOtpAuthContext,
       emailOtpWorkerSessionHandle,
-      walletSessionRouteAuth: {
-        kind: 'wallet_session',
-        jwt: restoreSource.walletSessionJwt,
+      authorization: {
+        kind: 'route_authorized',
+        routeAuth: {
+          kind: 'wallet_session',
+          jwt: restoreSource.walletSessionJwt,
+        },
       },
     }),
   );

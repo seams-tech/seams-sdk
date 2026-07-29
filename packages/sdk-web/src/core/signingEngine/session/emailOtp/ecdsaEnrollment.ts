@@ -53,6 +53,8 @@ import {
   DEFAULT_THRESHOLD_SESSION_POLICY,
   clampThresholdSessionPolicy,
 } from '../../threshold/sessionPolicy';
+import { buildEcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPlan';
+import { generateSessionId } from '../passkey/prfCache';
 
 export type EmailOtpThresholdEcdsaEnrollmentResult = {
   enrollment: EmailOtpEnrollmentResult;
@@ -311,7 +313,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
       publicationChainTargets,
       runtimePolicyScope: registrationInput.runtimePolicyScope,
       relayerUrl: relayUrl,
-      signingGrantId,
       ttlMs: clampThresholdSessionPolicy({
         ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
         remainingUses,
@@ -319,7 +320,14 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
       remainingUses,
       emailOtpAuthContext,
       clientRootShareHandle: enrollment.clientRootShareHandle,
-      walletSessionRouteAuth: registrationInput.routeAuth,
+      primarySession: {
+        kind: 'route_authorized',
+        sessionIdentity: buildEcdsaSessionIdentity({
+          thresholdSessionId: generateSessionId('threshold-ecdsa-registration'),
+          signingGrantId,
+        }),
+        routeAuth: registrationInput.routeAuth,
+      },
       ports: {
         configs: ports.configs,
         getSignerWorkerContext: ports.getSignerWorkerContext,

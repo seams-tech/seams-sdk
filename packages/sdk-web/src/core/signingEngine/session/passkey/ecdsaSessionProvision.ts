@@ -57,7 +57,10 @@ import type {
   ThresholdSessionKind,
 } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaBackendBinding } from '../../interfaces/signing';
-import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationPublicCapabilityV1,
+  RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
@@ -143,17 +146,29 @@ export type ThresholdEcdsaPasskeyExportActivationRequest = ThresholdEcdsaActivat
   emailOtpAuthContext?: never;
 };
 
-export type ThresholdEcdsaEmailOtpActivationRequest = ThresholdEcdsaActivationRequestCommon & {
+type ThresholdEcdsaEmailOtpActivationRequestBase = ThresholdEcdsaActivationRequestCommon & {
   kind: 'email_otp_ecdsa_activation';
   purpose: 'transaction_signing';
   sessionIdentity: EcdsaSessionIdentity;
   sessionKind: 'jwt';
   emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-  walletSessionRouteAuth: AppOrWalletSessionAuth;
   passkeyPrfFirstB64u?: never;
   webauthnAuthentication?: never;
 };
+
+export type ThresholdEcdsaEmailOtpActivationRequest =
+  ThresholdEcdsaEmailOtpActivationRequestBase &
+    (
+      | {
+          walletSessionRouteAuth: AppOrWalletSessionAuth;
+          preauthorizedSessionActivation?: never;
+        }
+      | {
+          preauthorizedSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+          walletSessionRouteAuth?: never;
+        }
+    );
 
 export type ThresholdEcdsaEmailOtpExportActivationRequest = Omit<
   ThresholdEcdsaEmailOtpActivationRequest,
@@ -200,6 +215,14 @@ type BuildEmailOtpSessionBootstrapEcdsaActivationArgs =
     passkeyPrfFirstB64u?: never;
     webauthnAuthentication?: never;
   };
+
+type BuildEmailOtpPreauthorizedSessionBootstrapEcdsaActivationArgs = Omit<
+  BuildEmailOtpSessionBootstrapEcdsaActivationArgs,
+  'walletSessionRouteAuth'
+> & {
+  preauthorizedSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+  walletSessionRouteAuth?: never;
+};
 
 type BuildEmailOtpPerOperationReauthEcdsaActivationArgs =
   BuildThresholdEcdsaActivationRequestCommon & {
@@ -273,6 +296,7 @@ export function buildPasskeyRegistrationEcdsaActivation(
 function buildEmailOtpEcdsaActivationRequest(
   args:
     | BuildEmailOtpSessionBootstrapEcdsaActivationArgs
+    | BuildEmailOtpPreauthorizedSessionBootstrapEcdsaActivationArgs
     | BuildEmailOtpPerOperationReauthEcdsaActivationArgs,
 ): ThresholdEcdsaEmailOtpActivationRequest {
   const request: ThresholdEcdsaEmailOtpActivationRequest = {
@@ -290,7 +314,9 @@ function buildEmailOtpEcdsaActivationRequest(
     runtimePolicy: args.runtimePolicy,
     emailOtpWorkerSessionHandle: args.emailOtpWorkerSessionHandle,
     emailOtpAuthContext: args.emailOtpAuthContext,
-    walletSessionRouteAuth: args.walletSessionRouteAuth,
+    ...('preauthorizedSessionActivation' in args
+      ? { preauthorizedSessionActivation: args.preauthorizedSessionActivation }
+      : { walletSessionRouteAuth: args.walletSessionRouteAuth }),
   };
   return applyOptionalActivationFields(request, args);
 }
@@ -313,6 +339,17 @@ export function buildEmailOtpSessionBootstrapEcdsaActivation(
     context: args.emailOtpAuthContext,
     expected: 'session',
     label: 'session bootstrap',
+  });
+  return buildEmailOtpEcdsaActivationRequest(args);
+}
+
+export function buildEmailOtpPreauthorizedSessionBootstrapEcdsaActivation(
+  args: BuildEmailOtpPreauthorizedSessionBootstrapEcdsaActivationArgs,
+): ThresholdEcdsaEmailOtpActivationRequest {
+  assertEmailOtpActivationRetention({
+    context: args.emailOtpAuthContext,
+    expected: 'session',
+    label: 'preauthorized session bootstrap',
   });
   return buildEmailOtpEcdsaActivationRequest(args);
 }
@@ -469,9 +506,8 @@ function toBootstrapEcdsaSessionRequest(
         },
         command.request,
       );
-    case 'email_otp_existing_session_activation':
-      return applyCommonActivationRequestFields(
-        {
+    case 'email_otp_existing_session_activation': {
+      const common = {
           kind: 'email_otp_ecdsa_bootstrap',
           keyHandle: command.request.walletKey.keyHandle,
           key: evmFamilyEcdsaWalletKeyToIdentity(command.request.walletKey),
@@ -482,10 +518,17 @@ function toBootstrapEcdsaSessionRequest(
           relayerUrl: command.request.relayerUrl,
           emailOtpWorkerSessionHandle: command.request.emailOtpWorkerSessionHandle,
           emailOtpAuthContext: command.request.emailOtpAuthContext,
-          routeAuth: command.request.walletSessionRouteAuth,
-        },
-        command.request,
-      );
+        } as const;
+      return command.request.preauthorizedSessionActivation
+        ? applyCommonActivationRequestFields(
+            { ...common, sessionActivation: command.request.preauthorizedSessionActivation },
+            command.request,
+          )
+        : applyCommonActivationRequestFields(
+            { ...common, routeAuth: command.request.walletSessionRouteAuth },
+            command.request,
+          );
+    }
   }
   command satisfies never;
   throw new Error('[SigningEngine][ecdsa] unsupported activation request');

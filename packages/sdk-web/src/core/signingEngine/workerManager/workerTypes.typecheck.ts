@@ -42,6 +42,7 @@ import type {
 import type { RouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { RouterAbEcdsaPostRegistrationSessionActivationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
 
 declare const rootShareEpoch: RootShareEpoch;
 declare const chainTarget: ThresholdEcdsaChainTarget;
@@ -67,6 +68,7 @@ declare const finalizedAuthority: FinalizeRouterAbEcdsaRegistrationActivationRes
 declare const finalizedPublicFacts: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicFacts'];
 declare const finalizedPublicCapability: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicCapability'];
 declare const roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
+declare const ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
 
 const persistInitialCanonicalEcdsaActivationRequest: EcdsaDerivationRoleLocalMaterialOperationRequest<
   typeof EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation
@@ -312,6 +314,46 @@ type EmailOtpEcdsaWalletUnlockMaterial = Extract<
   EmailOtpWalletUnlockPayload['material'],
   { kind: 'ecdsa' }
 >;
+
+const emailOtpEcdsaExplicitUnlockMaterial: EmailOtpEcdsaWalletUnlockMaterial = {
+  kind: 'ecdsa',
+  ecdsaClientRootHandleBinding: {
+    evmFamilySigningKeySlotId: 'evm-family-slot',
+    authSubjectId: 'provider-subject',
+    operation: 'wallet_unlock',
+    chainTarget,
+  },
+  runtimePolicyScope,
+  ecdsaSessionActivation,
+};
+void emailOtpEcdsaExplicitUnlockMaterial;
+
+// @ts-expect-error signing step-up cannot mint a reusable ECDSA Wallet Session.
+const emailOtpSigningStepUpWithActivation: EmailOtpEcdsaWalletUnlockMaterial = {
+  kind: 'ecdsa',
+  ecdsaClientRootHandleBinding: {
+    evmFamilySigningKeySlotId: 'evm-family-slot',
+    authSubjectId: 'provider-subject',
+    operation: 'sign',
+    chainTarget,
+  },
+  runtimePolicyScope,
+  ecdsaSessionActivation,
+};
+void emailOtpSigningStepUpWithActivation;
+
+// @ts-expect-error explicit unlock must carry its exact first-session activation.
+const emailOtpUnlockWithoutActivation: EmailOtpEcdsaWalletUnlockMaterial = {
+  kind: 'ecdsa',
+  ecdsaClientRootHandleBinding: {
+    evmFamilySigningKeySlotId: 'evm-family-slot',
+    authSubjectId: 'provider-subject',
+    operation: 'wallet_unlock',
+    chainTarget,
+  },
+  runtimePolicyScope,
+};
+void emailOtpUnlockWithoutActivation;
 type EmailOtpEd25519YaoWalletUnlockMaterial = Extract<
   EmailOtpWalletUnlockPayload['material'],
   { kind: 'ed25519_yao_recovery' }
