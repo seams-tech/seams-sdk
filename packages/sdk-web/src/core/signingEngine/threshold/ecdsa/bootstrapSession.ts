@@ -33,6 +33,7 @@ import type {
   SeamsSessionId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
 
 type BootstrapEcdsaSessionBaseArgs = {
   credentialStore: ThresholdCredentialStorePort;
@@ -274,7 +275,6 @@ async function bootstrapStrictExistingEcdsaSession(
     persistedRoleLocalMaterial: args.existingRoleLocalMaterial,
     walletId: String(args.key.walletId),
     thresholdSessionId: args.lanePolicy.thresholdSessionId,
-    signingGrantId: args.lanePolicy.signingGrantId,
     ttlMs: args.lanePolicy.ttlMs,
     remainingUses: args.lanePolicy.remainingUses,
     runtimePolicyScope,
@@ -286,6 +286,7 @@ async function bootstrapStrictExistingEcdsaSession(
       })
     : await activateStrictEcdsaPostRegistrationSession({
         ...strictInput,
+        walletSessionMintId: requireFreshReusableWalletSessionMintId(),
         relayerUrl: args.relayerUrl,
         routeAuth: args.bootstrapAuth,
       });
@@ -344,6 +345,14 @@ async function bootstrapStrictExistingEcdsaSession(
         ...common,
         secretSourceKind: 'email_otp',
       };
+}
+
+function requireFreshReusableWalletSessionMintId() {
+  const parsed = parseReusableWalletSessionMintId(
+    secureRandomId('wallet-session-mint', 32, 'reusable Wallet Session mint IDs'),
+  );
+  if (!parsed.ok) throw new Error('Failed to create reusable Wallet Session mint identity');
+  return parsed.value;
 }
 
 export async function bootstrapEcdsaSession(

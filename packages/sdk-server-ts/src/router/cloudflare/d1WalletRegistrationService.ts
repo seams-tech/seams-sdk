@@ -26,6 +26,7 @@ import {
   type RegistrationAuthMethodInput,
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import { parseSigningGrantId, type SigningGrantId } from '@shared/utils/domainIds';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
@@ -482,6 +483,26 @@ async function walletRegistrationStartFingerprint(input: {
 
 async function walletRegistrationStartStableToken(grant: string, domain: string): Promise<string> {
   return base64UrlEncode(await sha256BytesUtf8(`${domain}\u0000${grant}`));
+}
+
+export async function deriveEcdsaPostRegistrationSigningGrantId(input: {
+  readonly mintId: ReusableWalletSessionMintId;
+  readonly walletId: WalletId;
+  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+}): Promise<SigningGrantId> {
+  const digest = base64UrlEncode(
+    await sha256BytesUtf8(
+      alphabetizeStringify({
+        version: 'ecdsa-post-registration-signing-grant/v1',
+        mintId: input.mintId,
+        walletId: input.walletId,
+        publicCapability: input.publicCapability,
+      }),
+    ),
+  );
+  const parsed = parseSigningGrantId(`ecdsa-grant_${digest}`);
+  if (!parsed.ok) throw new Error('Failed to derive ECDSA signing grant identity');
+  return parsed.value;
 }
 
 async function buildD1WalletRegistrationStartPrepared(input: {
@@ -1425,6 +1446,11 @@ export class CloudflareD1WalletRegistrationService {
         walletKey,
         publicCapability: input.public_capability,
       });
+      const signingGrantId = await deriveEcdsaPostRegistrationSigningGrantId({
+        mintId: requireReusableWalletSessionMintId(input.session_policy.wallet_session_mint_id),
+        walletId,
+        publicCapability: input.public_capability,
+      });
       const expiresAtMs = nowMs + input.session_policy.ttl_ms;
       const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
       if (!normalSigningRuntime) {
@@ -1440,7 +1466,7 @@ export class CloudflareD1WalletRegistrationService {
         evmFamilySigningKeySlotId: walletKey.evmFamilySigningKeySlotId,
         relayerKeyId: walletKey.relayerKeyId,
         thresholdSessionId: input.session_policy.threshold_session_id,
-        signingGrantId: input.session_policy.signing_grant_id,
+        signingGrantId,
         signingRootId: walletKey.signingRootId,
         signingRootVersion: walletKey.signingRootVersion,
         participantIds: walletKey.participantIds,
@@ -1459,7 +1485,7 @@ export class CloudflareD1WalletRegistrationService {
         walletKey,
         session: {
           thresholdSessionId: provisioned.thresholdSessionId,
-          signingGrantId: input.session_policy.signing_grant_id,
+          signingGrantId: provisioned.signingGrantId,
           expiresAtMs: provisioned.expiresAtMs,
           remainingUses: provisioned.remainingUses,
         },
@@ -1830,10 +1856,7 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
       const issuedAtMs = Date.now();
-      const reusableRemainingUses = Math.min(
-        DEFAULT_WALLET_SESSION_REMAINING_USES,
-        remainingUses,
-      );
+      const reusableRemainingUses = Math.min(DEFAULT_WALLET_SESSION_REMAINING_USES, remainingUses);
       const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
       const reusableWalletSession = await this.authorizationService.issueReusableWalletSession({
         tenantId: this.authorizationTenantId,
@@ -1928,10 +1951,7 @@ export class CloudflareD1WalletRegistrationService {
         runtimePolicyScope?.signingRootVersion ||
         'default';
       if (!signingRootId) {
-        return walletRegistrationSetupError(
-          'invalid_body',
-          'registration requires a signing root',
-        );
+        return walletRegistrationSetupError('invalid_body', 'registration requires a signing root');
       }
 
       const intent = buildRegistrationIntent({
@@ -2004,20 +2024,21 @@ export class CloudflareD1WalletRegistrationService {
       }
 
       const storedBranches: StoredWalletRegistrationSignerBranch[] = [];
-      if (ecdsaPrepared?.ok && ecdsaBranch) storedBranches.push(
-        buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch({
-          branchKey: ecdsaBranch.branchKey,
-          ecdsa: {
-            kind: ecdsaPrepared.ecdsa.kind,
-            chainTargets: ecdsaPrepared.ecdsa.chainTargets,
-            prepare: ecdsaPrepared.ecdsa.prepare,
-            strictRegistration: ecdsaPrepared.ecdsa.strictRegistration,
-            strictRegistrationBindingJson: routerAbEcdsaStrictRegistrationFactsBindingJson(
-              ecdsaPrepared.ecdsa.strictRegistration,
-            ),
-          },
-        }),
-      );
+      if (ecdsaPrepared?.ok && ecdsaBranch)
+        storedBranches.push(
+          buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch({
+            branchKey: ecdsaBranch.branchKey,
+            ecdsa: {
+              kind: ecdsaPrepared.ecdsa.kind,
+              chainTargets: ecdsaPrepared.ecdsa.chainTargets,
+              prepare: ecdsaPrepared.ecdsa.prepare,
+              strictRegistration: ecdsaPrepared.ecdsa.strictRegistration,
+              strictRegistrationBindingJson: routerAbEcdsaStrictRegistrationFactsBindingJson(
+                ecdsaPrepared.ecdsa.strictRegistration,
+              ),
+            },
+          }),
+        );
 
       const ceremony: StoredWalletRegistrationCeremony = {
         registrationCeremonyId,
@@ -2400,10 +2421,9 @@ export class CloudflareD1WalletRegistrationService {
             chainTargets: ecdsaPrepared.ecdsa.chainTargets,
             prepare: ecdsaPrepared.ecdsa.prepare,
             strictRegistration: ecdsaPrepared.ecdsa.strictRegistration,
-            strictRegistrationBindingJson:
-              routerAbEcdsaStrictRegistrationFactsBindingJson(
-                ecdsaPrepared.ecdsa.strictRegistration,
-              ),
+            strictRegistrationBindingJson: routerAbEcdsaStrictRegistrationFactsBindingJson(
+              ecdsaPrepared.ecdsa.strictRegistration,
+            ),
           },
         }),
       );
@@ -2751,10 +2771,14 @@ export class CloudflareD1WalletRegistrationService {
     input: WalletRegistrationNearProvisioningInput,
   ): Promise<WalletRegistrationNearProvisioningResponseV2> {
     try {
-      const verified = await verifyWalletRegistrationSetupClaims(input.verifier, input.signedSetup, {
-        registrationCeremonyId: input.registrationCeremonyId,
-        nowMs: Date.now(),
-      });
+      const verified = await verifyWalletRegistrationSetupClaims(
+        input.verifier,
+        input.signedSetup,
+        {
+          registrationCeremonyId: input.registrationCeremonyId,
+          nowMs: Date.now(),
+        },
+      );
       if (!verified.ok) {
         return { ok: false, code: verified.code, message: verified.message };
       }
@@ -2782,8 +2806,7 @@ export class CloudflareD1WalletRegistrationService {
           requestFingerprint,
           resumeAfterMs: D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS,
           nowMs: Date.now,
-          prepare: async () =>
-            ({ kind: 'd1_wallet_registration_finalize_prepared_v1' }) as const,
+          prepare: async () => ({ kind: 'd1_wallet_registration_finalize_prepared_v1' }) as const,
           derivePreparedArtifactFingerprint: async (prepared) =>
             base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared))),
           execute: this.commitDeferredEd25519Signer.bind(this, input),
@@ -2880,8 +2903,8 @@ export class CloudflareD1WalletRegistrationService {
            transaction as the wallet — it is an authentication concern, not an
            ECDSA one, so a pending Ed25519-only wallet enrolls exactly as a
            signable one does. */
-        const enrollment = await this.emailOtpRegistrationEnrollmentFinalizer
-          .prepareRegistrationFinalize({
+        const enrollment =
+          await this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationFinalize({
             authority,
             request: input.enrollment,
             walletId: ceremony.intent.walletId,
@@ -2919,9 +2942,7 @@ export class CloudflareD1WalletRegistrationService {
       nearProvisioning: { status: 'near_pending' as const },
     };
     return (
-      authMethod.kind === 'passkey'
-        ? { ...base, rpId: finalizePasskeyRpId(authority) }
-        : base
+      authMethod.kind === 'passkey' ? { ...base, rpId: finalizePasskeyRpId(authority) } : base
     ) as WalletRegistrationActivateResponseV2;
   }
 
@@ -2932,7 +2953,10 @@ export class CloudflareD1WalletRegistrationService {
    * until the computation completes.
    */
   private async respondEd25519OnlyRegistration(input: {
-    readonly snapshot: { readonly ceremony: StoredWalletRegistrationCeremony; readonly version: number };
+    readonly snapshot: {
+      readonly ceremony: StoredWalletRegistrationCeremony;
+      readonly version: number;
+    };
     readonly ceremony: StoredWalletRegistrationCeremony;
     readonly branch: RegistrationNearEd25519SignerPlan;
     readonly authorityInput: WalletRegistrationAuthorityInput;
@@ -3186,14 +3210,12 @@ export class CloudflareD1WalletRegistrationService {
    * persistence, as one unit inside the operation row. The commit is told the
    * operation row owns idempotency, so it maintains no replay cache of its own.
    */
-  private async executeWalletRegistrationActivation(
-    context: {
-      readonly registrationCeremonyId: string;
-      readonly idempotencyKey: string;
-      readonly input: WalletRegistrationActivateInput;
-      readonly traceContext?: RouterAbTraceContextV1;
-    },
-  ): Promise<WalletRegistrationActivateResponseV2> {
+  private async executeWalletRegistrationActivation(context: {
+    readonly registrationCeremonyId: string;
+    readonly idempotencyKey: string;
+    readonly input: WalletRegistrationActivateInput;
+    readonly traceContext?: RouterAbTraceContextV1;
+  }): Promise<WalletRegistrationActivateResponseV2> {
     /* Fresh execution only — the ceremony still exists here. Activation
        persists wallet identity, so the proof must already be bound. */
     const ceremony = await this.getRegistrationCeremonyIntentStore().getCeremony(
@@ -3331,8 +3353,9 @@ export class CloudflareD1WalletRegistrationService {
     };
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      const strictRegistrationBindingJson =
-        routerAbEcdsaStrictRegistrationRequestBindingJson(request.ecdsa.strictRegistration);
+      const strictRegistrationBindingJson = routerAbEcdsaStrictRegistrationRequestBindingJson(
+        request.ecdsa.strictRegistration,
+      );
       const claimStartedAtMs = Date.now();
       let claimed = await store.claimEcdsaRespond({
         registrationCeremonyId: request.registrationCeremonyId,
@@ -3358,9 +3381,7 @@ export class CloudflareD1WalletRegistrationService {
             message: 'signer-set registration state is required',
           };
         }
-        const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(
-          ceremony.signerState,
-        );
+        const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
         if (ecdsaBranch?.kind === 'evm_family_ecdsa_pending_activation') {
           if (
             alphabetizeStringify(ecdsaBranch.registrationRequest) !==
@@ -3408,9 +3429,7 @@ export class CloudflareD1WalletRegistrationService {
       if (ceremony.signerState.kind !== 'signer_set_registration') {
         throw new Error('Claimed ECDSA registration ceremony has an invalid signer state');
       }
-      const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(
-        ceremony.signerState,
-      );
+      const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
       if (!ecdsaBranch || ecdsaBranch.kind !== 'evm_family_ecdsa_response_claimed') {
         throw new Error('Claimed ECDSA registration branch is invalid');
       }
@@ -3596,9 +3615,7 @@ export class CloudflareD1WalletRegistrationService {
             message: 'signer-set registration state is required',
           };
         }
-        const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(
-          ceremony.signerState,
-        );
+        const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
         if (ecdsaBranch?.kind === 'evm_family_ecdsa_activated') {
           if (
             alphabetizeStringify(ecdsaBranch.publicFacts) !==
@@ -3649,9 +3666,7 @@ export class CloudflareD1WalletRegistrationService {
       if (ceremony.signerState.kind !== 'signer_set_registration') {
         throw new Error('Claimed ECDSA activation ceremony has an invalid signer state');
       }
-      const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(
-        ceremony.signerState,
-      );
+      const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
       if (!ecdsaBranch || ecdsaBranch.kind !== 'evm_family_ecdsa_activation_claimed') {
         throw new Error('Claimed ECDSA activation branch is invalid');
       }
@@ -4248,7 +4263,8 @@ export class CloudflareD1WalletRegistrationService {
       const finalizeNearEd25519 = request.kind === 'near_ed25519' ? requestedNearEd25519 : null;
       /* True when this ECDSA finalize is step one of two, so the ceremony must
          survive for the Ed25519 finalize to resume from. */
-      const ed25519FinalizePending = finalizeEvmFamilyEcdsa !== null && requestedNearEd25519 !== null;
+      const ed25519FinalizePending =
+        finalizeEvmFamilyEcdsa !== null && requestedNearEd25519 !== null;
       const ecdsaWalletKeys: WalletRegistrationEcdsaWalletKey[] = [];
       let activatedEcdsaBranch: StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch | null = null;
       if (finalizeEvmFamilyEcdsa) {

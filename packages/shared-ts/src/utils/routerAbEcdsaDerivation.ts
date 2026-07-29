@@ -38,9 +38,11 @@ import {
 } from './routerAbNormalSigningIdentity';
 import {
   parseMpcWalletSigningQuotaId,
+  parseReusableWalletSessionMintId,
   parseSeamsSessionId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
+  type ReusableWalletSessionMintId,
   type SeamsSessionId,
   type WalletSessionId,
 } from '../authorization/capabilityKinds';
@@ -366,7 +368,7 @@ export type RouterAbEcdsaDerivationPublicCapabilityV1 = {
 
 export type RouterAbEcdsaPostRegistrationSessionPolicyV1 = {
   threshold_session_id: ThresholdEcdsaSessionId;
-  signing_grant_id: SigningGrantId;
+  wallet_session_mint_id: ReusableWalletSessionMintId;
   ttl_ms: number;
   remaining_uses: number;
   runtime_policy_scope: RuntimePolicyScope;
@@ -796,10 +798,7 @@ function requireWalletSessionId(value: unknown, label: string): WalletSessionId 
   return parsed.value;
 }
 
-function requireMpcWalletSigningQuotaId(
-  value: unknown,
-  label: string,
-): MpcWalletSigningQuotaId {
+function requireMpcWalletSigningQuotaId(value: unknown, label: string): MpcWalletSigningQuotaId {
   const parsed = parseMpcWalletSigningQuotaId(value);
   if (!parsed.ok) throw new Error(`${label} is invalid`);
   return parsed.value;
@@ -1953,7 +1952,7 @@ function parsePostRegistrationSessionPolicy(
   const record = requireRecord(value, label);
   requireExactKeys(record, label, [
     'threshold_session_id',
-    'signing_grant_id',
+    'wallet_session_mint_id',
     'ttl_ms',
     'remaining_uses',
     'runtime_policy_scope',
@@ -1963,11 +1962,23 @@ function parsePostRegistrationSessionPolicy(
       record.threshold_session_id,
       `${label}.threshold_session_id`,
     ),
-    signing_grant_id: requireSigningGrantId(record.signing_grant_id, `${label}.signing_grant_id`),
+    wallet_session_mint_id: requireReusableWalletSessionMintId(
+      record.wallet_session_mint_id,
+      `${label}.wallet_session_mint_id`,
+    ),
     ttl_ms: requirePositiveCounter(record.ttl_ms, `${label}.ttl_ms`),
     remaining_uses: requirePositiveCounter(record.remaining_uses, `${label}.remaining_uses`),
     runtime_policy_scope: normalizeRuntimePolicyScope(record.runtime_policy_scope),
   };
+}
+
+function requireReusableWalletSessionMintId(
+  value: unknown,
+  label: string,
+): ReusableWalletSessionMintId {
+  const parsed = parseReusableWalletSessionMintId(value);
+  if (!parsed.ok) throw new Error(`${label} is invalid`);
+  return parsed.value;
 }
 
 function publicIdentitiesMatch(
@@ -2057,10 +2068,7 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
         sessionRecord.wallet_session_id,
         `${label}.session.wallet_session_id`,
       ),
-      quota_id: requireMpcWalletSigningQuotaId(
-        sessionRecord.quota_id,
-        `${label}.session.quota_id`,
-      ),
+      quota_id: requireMpcWalletSigningQuotaId(sessionRecord.quota_id, `${label}.session.quota_id`),
       expires_at_ms: requirePositiveUnixMs(
         sessionRecord.expires_at_ms,
         `${label}.session.expires_at_ms`,
@@ -3109,10 +3117,7 @@ function parseRouterAbEcdsaOperationStepUpWebAuthnCredentialV1(
     'response',
     'clientExtensionResults',
   ]);
-  const response = requireRecord(
-    credential.response,
-    'webauthn_authentication.response',
-  );
+  const response = requireRecord(credential.response, 'webauthn_authentication.response');
   requireExactKeys(response, 'webauthn_authentication.response', [
     'clientDataJSON',
     'authenticatorData',
@@ -3161,19 +3166,13 @@ export function parseRouterAbEcdsaOperationStepUpGrantRequestV1(
   value: unknown,
 ): RouterAbEcdsaOperationStepUpGrantRequestV1Wire {
   const request = requireRecord(value, 'operationStepUpGrantRequest');
-  requireExactKeys(request, 'operationStepUpGrantRequest', [
-    'kind',
-    'operation',
-    'proof',
-  ]);
+  requireExactKeys(request, 'operationStepUpGrantRequest', ['kind', 'operation', 'proof']);
   if (request.kind !== 'router_ab_ecdsa_operation_step_up_grant_v1') {
     throw new Error(
       'operationStepUpGrantRequest.kind must be router_ab_ecdsa_operation_step_up_grant_v1',
     );
   }
-  const operation = parseRouterAbEcdsaOperationStepUpPreparationV1(
-    request.operation,
-  );
+  const operation = parseRouterAbEcdsaOperationStepUpPreparationV1(request.operation);
   const proof = requireRecord(request.proof, 'operationStepUpGrantRequest.proof');
   const authority = parseWalletAuthAuthority(proof.authority);
   let parsedProof: RouterAbEcdsaOperationStepUpProofV1Wire;
@@ -3258,47 +3257,42 @@ export function parseRouterAbEcdsaOperationStepUpPreparationV1(
   }
   return {
     wallet_id: requireAsciiNonEmptyString(
-        operation.wallet_id,
-        'operationStepUpGrantRequest.operation.wallet_id',
-      ),
-      operation_id: requireAsciiNonEmptyString(
-        operation.operation_id,
-        'operationStepUpGrantRequest.operation.operation_id',
-      ),
-      operation_digests: parseRouterAbEcdsaDerivationOperationDigestsV1(
-        operation.operation_digests,
-        'operationStepUpGrantRequest.operation.operation_digests',
-      ),
-      material_activation: parseRouterAbMpcMaterialActivationRef(
-        operation.material_activation,
-      ),
-      normal_signing_scope: parseRouterAbEcdsaDerivationNormalSigningScopeV1(
-        operation.normal_signing_scope,
-      ),
-      signing_worker_id: requireAsciiNonEmptyString(
-        operation.signing_worker_id,
-        'operationStepUpGrantRequest.operation.signing_worker_id',
-      ),
-      evm_family_signing_key_slot_id: requireAsciiNonEmptyString(
-        operation.evm_family_signing_key_slot_id,
-        'operationStepUpGrantRequest.operation.evm_family_signing_key_slot_id',
-      ),
-      key_handle: requireAsciiNonEmptyString(
-        operation.key_handle,
-        'operationStepUpGrantRequest.operation.key_handle',
-      ),
-      relayer_key_id: requireAsciiNonEmptyString(
-        operation.relayer_key_id,
-        'operationStepUpGrantRequest.operation.relayer_key_id',
-      ),
-      participant_ids: [
-        Number(operation.participant_ids[0]),
-        Number(operation.participant_ids[1]),
-      ],
-      expires_at_ms: requirePositiveUnixMs(
-        operation.expires_at_ms,
-        'operationStepUpGrantRequest.operation.expires_at_ms',
-      ),
+      operation.wallet_id,
+      'operationStepUpGrantRequest.operation.wallet_id',
+    ),
+    operation_id: requireAsciiNonEmptyString(
+      operation.operation_id,
+      'operationStepUpGrantRequest.operation.operation_id',
+    ),
+    operation_digests: parseRouterAbEcdsaDerivationOperationDigestsV1(
+      operation.operation_digests,
+      'operationStepUpGrantRequest.operation.operation_digests',
+    ),
+    material_activation: parseRouterAbMpcMaterialActivationRef(operation.material_activation),
+    normal_signing_scope: parseRouterAbEcdsaDerivationNormalSigningScopeV1(
+      operation.normal_signing_scope,
+    ),
+    signing_worker_id: requireAsciiNonEmptyString(
+      operation.signing_worker_id,
+      'operationStepUpGrantRequest.operation.signing_worker_id',
+    ),
+    evm_family_signing_key_slot_id: requireAsciiNonEmptyString(
+      operation.evm_family_signing_key_slot_id,
+      'operationStepUpGrantRequest.operation.evm_family_signing_key_slot_id',
+    ),
+    key_handle: requireAsciiNonEmptyString(
+      operation.key_handle,
+      'operationStepUpGrantRequest.operation.key_handle',
+    ),
+    relayer_key_id: requireAsciiNonEmptyString(
+      operation.relayer_key_id,
+      'operationStepUpGrantRequest.operation.relayer_key_id',
+    ),
+    participant_ids: [Number(operation.participant_ids[0]), Number(operation.participant_ids[1])],
+    expires_at_ms: requirePositiveUnixMs(
+      operation.expires_at_ms,
+      'operationStepUpGrantRequest.operation.expires_at_ms',
+    ),
   };
 }
 

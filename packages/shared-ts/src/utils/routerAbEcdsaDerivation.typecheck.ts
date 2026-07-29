@@ -10,9 +10,11 @@ import type {
 } from './routerAbEcdsaDerivation';
 import type { RuntimePolicyScope } from '../threshold/signingRootScope';
 import type { CorrelationId } from './canonicalPrimitives';
+import type { ReusableWalletSessionMintId } from '../authorization/capabilityKinds';
 
 declare const signingGrantId: SigningGrantId;
 declare const thresholdSessionId: ThresholdEcdsaSessionId;
+declare const walletSessionMintId: ReusableWalletSessionMintId;
 declare const runtimePolicyScope: RuntimePolicyScope;
 declare const activationResponse: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
 declare const activationCorrelationId: CorrelationId;
@@ -21,7 +23,7 @@ declare const activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
 
 const sessionPolicy = {
   threshold_session_id: thresholdSessionId,
-  signing_grant_id: signingGrantId,
+  wallet_session_mint_id: walletSessionMintId,
   ttl_ms: 60_000,
   remaining_uses: 2,
   runtime_policy_scope: runtimePolicyScope,
@@ -30,8 +32,8 @@ void sessionPolicy;
 
 const invalidSessionPolicy = {
   threshold_session_id: thresholdSessionId,
-  // @ts-expect-error Raw strings must be parsed before entering protocol state.
-  signing_grant_id: 'grant-unparsed',
+  // @ts-expect-error Signing grants cannot be used as Wallet Session mint identities.
+  wallet_session_mint_id: signingGrantId,
   ttl_ms: 60_000,
   remaining_uses: 2,
   runtime_policy_scope: runtimePolicyScope,

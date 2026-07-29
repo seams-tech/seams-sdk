@@ -11,13 +11,12 @@ import {
 import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './ecdsaMaterialRef.fixtures';
 import {
   parseMpcWalletSigningQuotaId,
+  parseReusableWalletSessionMintId,
   parseSeamsSessionId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
-function requireBootstrapAuthorizationId<T>(
-  result: { ok: true; value: T } | { ok: false },
-): T {
+function requireBootstrapAuthorizationId<T>(result: { ok: true; value: T } | { ok: false }): T {
   if (!result.ok) throw new Error('ecdsa bootstrap fixture authorization id is invalid');
   return result.value;
 }
@@ -437,7 +436,9 @@ export function createEcdsaSessionActivationFixture(args: {
       public_capability: binding.publicFacts.publicCapability,
       session_policy: {
         threshold_session_id: bootstrap.session.thresholdSessionId,
-        signing_grant_id: bootstrap.session.signingGrantId,
+        wallet_session_mint_id: requireBootstrapAuthorizationId(
+          parseReusableWalletSessionMintId('wallet-session-mint-fixture'),
+        ),
         ttl_ms: Math.max(1, bootstrap.session.expiresAtMs - Date.now()),
         remaining_uses: bootstrap.session.remainingUses,
         runtime_policy_scope: runtimePolicyScope,
