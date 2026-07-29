@@ -1726,6 +1726,10 @@ test.describe('wallet registration route boundaries', () => {
 
     expect(response.status).toBe(200);
     expect(finalizeRequest).toEqual({
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId: 'wallet_alice',
+      },
       addAuthMethodCeremonyId: 'waac_1',
     });
   });

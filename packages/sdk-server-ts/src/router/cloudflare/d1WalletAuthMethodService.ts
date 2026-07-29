@@ -31,7 +31,6 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import type { WalletAuthMethodStore } from '../../core/d1WalletAuthMethodStore';
 import type {
-  WalletAddAuthMethodFinalizeRequest,
   WalletAddAuthMethodFinalizeResponse,
   WalletAddAuthMethodStartRequest,
   WalletAddAuthMethodStartResponse,
@@ -70,13 +69,14 @@ import {
 } from './d1WalletAuthMethodBoundary';
 import type { CloudflareD1WebAuthnStore } from './d1WebAuthnStore';
 import type {
+  FinalizeWalletAddAuthMethodCommand,
   RevokeWalletAuthMethodCommand,
   StartWalletAddAuthMethodCommand,
 } from '../authServicePort';
 
 type StartWalletAddAuthMethodInput = StartWalletAddAuthMethodCommand;
 type StartWalletAddAuthMethodResult = WalletAddAuthMethodStartResponse;
-type FinalizeWalletAddAuthMethodInput = WalletAddAuthMethodFinalizeRequest;
+type FinalizeWalletAddAuthMethodInput = FinalizeWalletAddAuthMethodCommand;
 type FinalizeWalletAddAuthMethodResult = WalletAddAuthMethodFinalizeResponse;
 type RevokeWalletAuthMethodInput = RevokeWalletAuthMethodCommand;
 type RevokeWalletAuthMethodResult = WalletRevokeAuthMethodResponse;
@@ -271,6 +271,14 @@ export class CloudflareD1WalletAuthMethodService {
       const ceremony = await store.getAddAuthMethodCeremony(request.addAuthMethodCeremonyId);
       if (!ceremony) {
         return { ok: false, code: 'not_found', message: 'add-auth-method ceremony not found' };
+      }
+      const walletId = parseWalletIdForIntent(request.subject.walletId);
+      if (!walletId || ceremony.intent.walletId !== walletId) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'add-auth-method ceremony subject mismatch',
+        };
       }
       const duplicate = await this.findDuplicateAuthority(ceremony.authority);
       if (duplicate) return duplicate;
