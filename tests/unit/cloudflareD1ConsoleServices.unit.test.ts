@@ -702,8 +702,10 @@ async function runLocalPoolFillRouteSmoke(input: {
   expect(['triples', 'triples_done', 'presign', 'done']).toContain(stringField(stepBody, 'stage'));
 }
 
-test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into relay options', async () => {
+test('Cloudflare D1 service bundle wires signer-D1 normal-signing admission into relay options', async () => {
   const database = new FakeD1Database();
+  const signer = createTemporaryD1Database();
+  await applyD1MigrationFiles(signer.database, listD1MigrationFiles('d1-signer'));
   const sponsorshipPricing = {
     async estimateSponsoredExecutionSpend() {
       return {
@@ -718,43 +720,47 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
       };
     },
   };
-  const bundle = await createCloudflareD1ConsoleServiceBundle({
-    bindings: {
-      consoleDatabase: database,
-      signerMetadataDatabase: database,
-      thresholdStore: new MemoryDurableObjectNamespace(),
-      kekProvider: createKekProvider(),
-    },
-    route: {
-      namespace: 'seams',
-    },
-    adapters: {
-      ensureSchema: false,
-      sponsorshipPricing,
-    },
-  });
+  try {
+    const bundle = await createCloudflareD1ConsoleServiceBundle({
+      bindings: {
+        consoleDatabase: database,
+        signerMetadataDatabase: signer.database,
+        thresholdStore: new MemoryDurableObjectNamespace(),
+        kekProvider: createKekProvider(),
+      },
+      route: {
+        namespace: 'seams',
+      },
+      adapters: {
+        ensureSchema: false,
+        sponsorshipPricing,
+      },
+    });
 
-  const admission = bundle.routerApiRouterOptions.routerAbNormalSigningAdmission;
-  const input = createAdmissionInput();
+    const admission = bundle.routerApiRouterOptions.routerAbNormalSigningAdmission;
+    const input = createAdmissionInput();
 
-  await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
-  await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
-  expect(bundle.sponsorshipPricing).toBe(sponsorshipPricing);
-  expect(bundle.routerApiRouterOptions).not.toHaveProperty('signedDelegate');
-  expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsorship');
-  expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsoredEvmCall');
-  expect(bundle.routerApiRouterOptions.orgProjectEnv).toBe(bundle.orgProjectEnv);
-  expect(bundle.routerApiRouterOptions).not.toHaveProperty('observabilityIngestion');
-  expect(typeof bundle.routerApiRouterOptions.apiKeyAuth.authenticate).toBe('function');
-  expect(typeof bundle.routerApiRouterOptions.publishableKeyAuth.authenticate).toBe('function');
-  expect(typeof bundle.routerApiRouterOptions.apiKeyUsageMeter.recordEvent).toBe('function');
-  expect(bundle.routerApiRouterOptions).not.toHaveProperty('wallets');
-  expect(bundle.routerApiRouterOptions.routeExtensions.length).toBeGreaterThan(0);
-  expect(
-    bundle.routerApiRouterOptions.routeExtensions
-      .flatMap((extension) => extension.routes)
-      .some((route) => route.id === 'sponsored_evm_call'),
-  ).toBe(false);
+    await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
+    await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
+    expect(bundle.sponsorshipPricing).toBe(sponsorshipPricing);
+    expect(bundle.routerApiRouterOptions).not.toHaveProperty('signedDelegate');
+    expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsorship');
+    expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsoredEvmCall');
+    expect(bundle.routerApiRouterOptions.orgProjectEnv).toBe(bundle.orgProjectEnv);
+    expect(bundle.routerApiRouterOptions).not.toHaveProperty('observabilityIngestion');
+    expect(typeof bundle.routerApiRouterOptions.apiKeyAuth.authenticate).toBe('function');
+    expect(typeof bundle.routerApiRouterOptions.publishableKeyAuth.authenticate).toBe('function');
+    expect(typeof bundle.routerApiRouterOptions.apiKeyUsageMeter.recordEvent).toBe('function');
+    expect(bundle.routerApiRouterOptions).not.toHaveProperty('wallets');
+    expect(bundle.routerApiRouterOptions.routeExtensions.length).toBeGreaterThan(0);
+    expect(
+      bundle.routerApiRouterOptions.routeExtensions
+        .flatMap((extension) => extension.routes)
+        .some((route) => route.id === 'sponsored_evm_call'),
+    ).toBe(false);
+  } finally {
+    cleanupTemporaryD1Database(signer.tempDir);
+  }
 });
 
 test('Cloudflare D1 console-only bundle omits signer custody bindings', async () => {
@@ -866,7 +872,7 @@ test('D1 Router API routes NEAR pricing around the EVM-only D1 pricing adapter',
   });
 });
 
-test('local D1 Worker ready smoke validates D1 tables and DO admission', async () => {
+test('local D1 Worker ready smoke validates D1 tables and signer-D1 admission', async () => {
   const database = new FakeD1Database();
   const response = await localD1DevWorker.fetch(
     new Request('http://127.0.0.1:8787/readyz'),
@@ -889,7 +895,7 @@ test('local D1 Worker ready smoke validates D1 tables and DO admission', async (
       signerTables: 21,
     },
     admission: {
-      durableObject: 'configured',
+      database: 'SIGNER_DB',
       quotaReservation: 'accepted',
     },
   });

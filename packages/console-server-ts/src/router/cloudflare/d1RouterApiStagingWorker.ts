@@ -209,6 +209,7 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'router_ab_yao_versioned_json_records',
   'router_ab_yao_versioned_json_cas_guard',
   'router_ab_yao_capability_replacements',
+  'router_ab_normal_signing_admission_records',
   'registration_ceremony_records',
   'registration_ceremony_cas_guard',
 ]);

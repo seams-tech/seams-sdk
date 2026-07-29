@@ -1,14 +1,14 @@
 export {
-  CloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
+  CloudflareD1RouterAbNormalSigningAdmissionStore,
   InMemoryRouterAbNormalSigningAdmissionStore,
-  createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
+  createCloudflareD1RouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
 } from './routerAbNormalSigningAdmissionCore';
 
 export type {
-  CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions,
+  CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
   InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAbuseProvider,
