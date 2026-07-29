@@ -1595,15 +1595,24 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         bootstrap = patchRegistrationBootstrap(bootstrap);
       }
       bootstrap.jwt = sessionJwt;
-      return jsonResponse({
-        ok: true,
-        registrationCeremonyId: body.registrationCeremonyId,
-        ecdsa: {
-          kind: 'router_ab_ecdsa_registration_activated_v1',
-          activation: mockedEcdsaActivationReceipt(ecdsaFacts),
-          bootstrap,
-        },
-      });
+      /* Activate absorbed finalize, so it answers with the terminal wallet and
+         the activation payload together — `ecdsa` carries the wallet keys the
+         commit produced plus the receipt and bootstrap the client needs to
+         bring the wallet online. */
+      const activateWalletId = String((captures.intent as any)?.walletId || WALLET_SUBJECT_ID);
+      const activateBody = await mockedEcdsaFinalizeResponse(captures, activateWalletId);
+      attachMockedEcdsaFinalizeWalletKeys(captures, activateWalletId, activateBody);
+      const activateEcdsa = (activateBody as Record<string, any>).ecdsa ?? {};
+      (activateBody as Record<string, any>).ecdsa = {
+        ...activateEcdsa,
+        activation: mockedEcdsaActivationReceipt(ecdsaFacts),
+        bootstrap,
+      };
+      if (mockedRegistrationNearEd25519Signer((captures.intent as any)?.signerSelection)) {
+        /* Mixed plans: the NEAR arm is still deferred at this point. */
+        (activateBody as Record<string, any>).nearProvisioning = { status: 'pending' };
+      }
+      return jsonResponse(activateBody);
     }
     if (path === '/wallets/register/near-provisioning') {
       captures.finalizeBody = body;
@@ -1638,7 +1647,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
           walletId: responseWalletId,
           /* Refactor 94 Phase 4+5: finalize commits one branch per call, so the
              relayer answers with the branch the request asked for. */
-          kind: body.ecdsa ? 'evm_family_ecdsa' : 'near_ed25519',
+          kind: 'near_ed25519',
           authority: buildEmailOtpWalletAuthAuthority({
             walletId: responseWalletId,
             provider: 'google',
@@ -1714,16 +1723,12 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
             },
           },
         };
-        if (body.ecdsa) {
-          attachMockedEcdsaFinalizeWalletKeys(captures, responseWalletId, responseBody);
-        }
+        responseBody.nearProvisioning = { status: 'near_ready' };
         return jsonResponse(responseBody);
       }
-      const responseBody = await mockedEcdsaFinalizeResponse(captures, responseWalletId);
-      if (body.ecdsa) {
-        attachMockedEcdsaFinalizeWalletKeys(captures, responseWalletId, responseBody);
-      }
-      return jsonResponse(responseBody);
+      /* Only the deferred NEAR arm reaches this route now; the ECDSA terminal
+         wallet is activate's answer. */
+      return jsonResponse({ ok: false, message: 'near-provisioning requires ed25519 work' }, 400);
     }
     return jsonResponse({ ok: false, message: `unexpected path ${path}` }, 404);
   }) as typeof fetch;
