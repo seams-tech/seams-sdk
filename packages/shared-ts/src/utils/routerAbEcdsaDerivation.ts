@@ -405,7 +405,7 @@ export type RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<Role extends 'signer_
   ciphertext: { bytes: number[] };
 };
 
-export type RouterAbEcdsaDerivationExplicitExportRequestV1 = {
+type RouterAbEcdsaDerivationExplicitExportRequestBaseV1 = {
   context: RouterAbEcdsaDerivationStableKeyContextV1;
   lifecycle: RouterAbEcdsaDerivationExportLifecycleScopeV1;
   public_identity: RouterAbEcdsaDerivationPublicIdentityV1;
@@ -416,7 +416,6 @@ export type RouterAbEcdsaDerivationExplicitExportRequestV1 = {
   // The discriminated operation authority and the exact material activation
   // this export binds. Session and grant identifiers never re-enter this
   // request outside the authorization branch.
-  authorization: RouterAbNormalSigningAuthorizationWire;
   material_activation_id: string;
   export_authorization_digest_b64u: string;
   export_nonce: string;
@@ -424,6 +423,22 @@ export type RouterAbEcdsaDerivationExplicitExportRequestV1 = {
   deriver_a_export_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_a'>;
   deriver_b_export_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_b'>;
 };
+
+export type RouterAbEcdsaDerivationExplicitExportRequestV1 =
+  | (RouterAbEcdsaDerivationExplicitExportRequestBaseV1 & {
+      authorization: Extract<
+        RouterAbNormalSigningAuthorizationWire,
+        { readonly kind: 'reusable_wallet_session' }
+      >;
+      operation?: never;
+    })
+  | (RouterAbEcdsaDerivationExplicitExportRequestBaseV1 & {
+      authorization: Extract<
+        RouterAbNormalSigningAuthorizationWire,
+        { readonly kind: 'operation_step_up' }
+      >;
+      operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+    });
 
 export type RouterAbEcdsaDerivationRecoveryRequestV1 = {
   context: RouterAbEcdsaDerivationStableKeyContextV1;
@@ -2156,7 +2171,8 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
 ): RouterAbEcdsaDerivationExplicitExportRequestV1 {
   const label = 'export';
   const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
+  const authorization = parseRouterAbNormalSigningAuthorization(record.authorization);
+  const commonKeys = [
     'context',
     'lifecycle',
     'public_identity',
@@ -2171,7 +2187,15 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
     'expires_at_ms',
     'deriver_a_export_envelope',
     'deriver_b_export_envelope',
-  ]);
+  ] as const;
+  switch (authorization.kind) {
+    case 'reusable_wallet_session':
+      requireExactKeys(record, label, commonKeys);
+      break;
+    case 'operation_step_up':
+      requireExactKeys(record, label, [...commonKeys, 'operation']);
+      break;
+  }
   const lifecycle = parsePostRegistrationLifecycleScope(
     record.lifecycle,
     `${label}.lifecycle`,
@@ -2180,7 +2204,7 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
   );
   const signerSet = parsePostRegistrationSignerSet(record.signer_set, `${label}.signer_set`);
   requirePostRegistrationBindings(label, lifecycle, signerSet);
-  return {
+  const parsed = {
     context: parseStableKeyContext(record.context),
     lifecycle,
     public_identity: parsePublicIdentity(record.public_identity),
@@ -2191,7 +2215,6 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
       record.client_ephemeral_public_key,
       `${label}.client_ephemeral_public_key`,
     ),
-    authorization: parseRouterAbNormalSigningAuthorization(record.authorization),
     material_activation_id: requireAsciiNonEmptyString(
       record.material_activation_id,
       `${label}.material_activation_id`,
@@ -2214,6 +2237,16 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
       'signer_b',
     ),
   };
+  switch (authorization.kind) {
+    case 'reusable_wallet_session':
+      return { ...parsed, authorization };
+    case 'operation_step_up':
+      return {
+        ...parsed,
+        authorization,
+        operation: parseRouterAbEcdsaOperationStepUpPreparationV1(record.operation),
+      };
+  }
 }
 
 export function parseRouterAbEcdsaDerivationRecoveryRequestV1(
