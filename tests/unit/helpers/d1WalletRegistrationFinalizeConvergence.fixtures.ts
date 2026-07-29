@@ -117,7 +117,6 @@ export type FinalizeConvergenceFault =
   | 'normal_signing_response_loss'
   | 'wallet_commit_response_loss'
   | 'capability_install_response_loss'
-  | 'finalize_replay_response_loss'
   | 'ceremony_delete_response_loss'
   | 'finalize_claim_response_loss'
   | 'finalize_completion_response_loss';
@@ -419,7 +418,6 @@ class ResponseLossD1Database implements D1DatabaseLike {
   private loseWalletCommitResponse = false;
   private loseFinalizeClaimResponse = false;
   private loseFinalizeCompletionResponse = false;
-  private loseRegistrationReplayResponse = false;
   private loseCeremonyDeleteResponse = false;
 
   constructor(readonly delegate: D1DatabaseLike) {}
@@ -434,10 +432,6 @@ class ResponseLossD1Database implements D1DatabaseLike {
 
   armFinalizeCompletionResponseLoss(): void {
     this.loseFinalizeCompletionResponse = true;
-  }
-
-  armRegistrationReplayResponseLoss(): void {
-    this.loseRegistrationReplayResponse = true;
   }
 
   armCeremonyDeleteResponseLoss(): void {
@@ -468,14 +462,6 @@ class ResponseLossD1Database implements D1DatabaseLike {
   loseRunResponse(query: string, values: readonly unknown[]): void {
     const registrationScope = String(values[4] || '');
     const registrationRecordId = String(values[5] || '');
-    if (
-      this.loseRegistrationReplayResponse &&
-      registrationScope === 'finalize-replay' &&
-      registrationRecordId.includes(REGISTRATION_CEREMONY_ID)
-    ) {
-      this.loseRegistrationReplayResponse = false;
-      throw new Error('simulated finalize replay response loss');
-    }
     if (
       this.loseCeremonyDeleteResponse &&
       registrationScope === 'ceremony' &&
@@ -1138,9 +1124,6 @@ async function createFinalizeConvergenceHarnessForMode(
           return;
         case 'wallet_commit_response_loss':
           database.armBatchResponseLoss();
-          return;
-        case 'finalize_replay_response_loss':
-          database.armRegistrationReplayResponseLoss();
           return;
         case 'ceremony_delete_response_loss':
           database.armCeremonyDeleteResponseLoss();

@@ -159,7 +159,6 @@ function addSignerInputFor(args: {
   origin?: string;
   apiKeyAuth?: Record<string, unknown>;
   orgProjectEnv?: Record<string, unknown>;
-  bootstrapTokenVerifier?: Record<string, unknown>;
 }) {
   return {
     body: args.body,
@@ -179,7 +178,6 @@ function addSignerInputFor(args: {
       session: args.session || {},
       apiKeyAuth: args.apiKeyAuth,
       orgProjectEnv: args.orgProjectEnv,
-      bootstrapTokenVerifier: args.bootstrapTokenVerifier,
       routerAbPublicKeyset: ROUTER_AB_PUBLIC_KEYSET,
     },
   } as unknown as Parameters<typeof handleRouterApiWalletAddSignerStart>[0];
@@ -196,7 +194,6 @@ function addAuthMethodInputFor(args: {
   session?: Record<string, unknown>;
   apiKeyAuth?: Record<string, unknown>;
   orgProjectEnv?: Record<string, unknown>;
-  bootstrapTokenVerifier?: Record<string, unknown>;
   walletId?: string;
   headers?: Record<string, string>;
   origin?: string;
@@ -219,7 +216,6 @@ function addAuthMethodInputFor(args: {
       session: args.session || {},
       apiKeyAuth: args.apiKeyAuth,
       orgProjectEnv: args.orgProjectEnv,
-      bootstrapTokenVerifier: args.bootstrapTokenVerifier,
     },
   } as unknown as Parameters<typeof handleRouterApiWalletAddAuthMethodStart>[0];
 }

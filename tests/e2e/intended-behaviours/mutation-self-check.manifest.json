@@ -3,27 +3,6 @@
   "instruction": "Run these one at a time on a scratch branch with a fresh SDK build and restarted site/router services, or with the CI-managed intended startup. Revert each seeded regression after confirming the intended contract fails with the expected compact trace.",
   "mutations": [
     {
-      "id": "email_otp_reroll_bootstrap_token_request_mismatch",
-      "contractFiles": ["email-otp.registration.contract.test.ts"],
-      "seededRegression": "Bind the Email OTP registration bootstrap token to the pre-reroll wallet id or request a second bootstrap token during reroll.",
-      "expectedFailureOracle": "bootstrap_token_request_mismatch",
-      "phase3bProof": {
-        "status": "detected",
-        "observedFailureOracle": "bootstrap_token_request_mismatch",
-        "observedAt": "2026-07-04",
-        "observedFailureCommand": "pnpm -C tests run ensure:intended-google-token && SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
-        "restoredValidationCommand": "pnpm -C tests run ensure:intended-google-token && SEAMS_INTENDED_SIGNING_SESSION_DEBUG=1 pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
-        "requiresFreshStartup": true,
-        "requiresEmailOtpGoogleIdToken": true,
-        "localCommand": "pnpm -C tests run ensure:intended-google-token && pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line",
-        "ciCommand": "pnpm -C tests run ensure:intended-google-token && pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts --reporter=line"
-      },
-      "requiredHarnessEvidence": [
-        "registerEmailOtpWallet",
-        "Email OTP registration did not reroll the initial wallet id"
-      ]
-    },
-    {
       "id": "first_post_step_up_transaction_failure",
       "contractFiles": [
         "passkey.registration.contract.test.ts",

@@ -20,8 +20,8 @@ import {
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 
 /**
- * Refactor 94C. `/wallets/register/setup` replaces the bootstrap grant, the
- * intent, and start with one request and one D1 write.
+ * Refactor 94C. `/wallets/register/setup` creates the registration ceremony
+ * with one request and one D1 write.
  *
  * The properties worth pinning are the ones the collapse is supposed to buy:
  * exactly one ceremony row written, the ceremony stored awaiting its proof
@@ -347,8 +347,6 @@ test('the setup route definition accepts a publishable key and nothing else', as
   if (setup.auth.plane !== 'api_credentials') {
     throw new Error('Expected the setup route on the api_credentials plane');
   }
-  /* A secret-key or bootstrap-token fallback here would reintroduce exactly
-     the credential the stored grant existed to carry. */
   expect(setup.auth.credentials).toEqual(['publishable_key']);
   expect(setup.auth.environmentBinding).toBe('required');
   expect(setup.auth.originBinding).toBe('required');

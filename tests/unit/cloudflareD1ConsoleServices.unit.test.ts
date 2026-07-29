@@ -743,14 +743,12 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
   expect(bundle.routerApiRouterOptions).not.toHaveProperty('signedDelegate');
   expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsorship');
   expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsoredEvmCall');
-  expect(bundle.routerApiRouterOptions.bootstrapTokenVerifier).toBeTruthy();
   expect(bundle.routerApiRouterOptions.orgProjectEnv).toBe(bundle.orgProjectEnv);
   expect(bundle.routerApiRouterOptions).not.toHaveProperty('observabilityIngestion');
   expect(typeof bundle.routerApiRouterOptions.apiKeyAuth.authenticate).toBe('function');
   expect(typeof bundle.routerApiRouterOptions.publishableKeyAuth.authenticate).toBe('function');
   expect(typeof bundle.routerApiRouterOptions.apiKeyUsageMeter.recordEvent).toBe('function');
   expect(bundle.routerApiRouterOptions).not.toHaveProperty('wallets');
-  expect(bundle.routerApiRouterOptions).not.toHaveProperty('bootstrapGrantBroker');
   expect(bundle.routerApiRouterOptions.routeExtensions.length).toBeGreaterThan(0);
   expect(
     bundle.routerApiRouterOptions.routeExtensions
@@ -775,7 +773,6 @@ test('Cloudflare D1 console-only bundle omits signer custody bindings', async ()
 
   expect(bundle).not.toHaveProperty('tenantStorageRouteResolver');
   expect(bundle).not.toHaveProperty('routerApiRouterOptions');
-  expect(bundle).not.toHaveProperty('bootstrapTokens');
   expect(bundle).not.toHaveProperty('spendCaps');
   expect(bundle.consoleRouterOptions).not.toHaveProperty('tenantStorageRouteResolver');
   expect(bundle.consoleRouterOptions).not.toHaveProperty('tenantStorageNamespace');
@@ -989,28 +986,6 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
   expect(signedDelegate.headers.get('Access-Control-Allow-Origin')).toBe(
     'http://127.0.0.1:8787',
   );
-
-  const bootstrapGrant = await localD1DevWorker.fetch(
-    new Request('http://127.0.0.1:8787/v1/registration/bootstrap-grants', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        origin: 'https://localhost:8443',
-      },
-      body: JSON.stringify({
-        environmentId: 'project_local:local',
-        authority: { kind: 'passkey_rp', rpId: 'localhost' },
-        flow: 'registration_v1',
-      }),
-    }),
-    env,
-    ctx,
-  );
-  expect(bootstrapGrant.status).toBe(401);
-  await expect(bootstrapGrant.json()).resolves.toMatchObject({
-    ok: false,
-    code: 'publishable_key_missing',
-  });
 
   const apiWallets = await localD1DevWorker.fetch(
     new Request('http://127.0.0.1:8787/v1/wallets', {

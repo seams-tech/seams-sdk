@@ -1410,20 +1410,6 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         },
       });
     }
-    if (path === '/v1/registration/bootstrap-grants') {
-      captures.bootstrapGrantBody = body;
-      return jsonResponse({
-        ok: true,
-        grant: {
-          token: 'bootstrap-grant',
-          orgId: RUNTIME_POLICY_SCOPE.orgId,
-          projectId: RUNTIME_POLICY_SCOPE.projectId,
-          envId: RUNTIME_POLICY_SCOPE.envId,
-          signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
-          expiresAt: new Date(Date.now() + 60_000).toISOString(),
-        },
-      });
-    }
     if (path === '/wallets/register/setup') {
       captures.intentRequestBody = body;
       const selection = mockedRegistrationIntentSignerSelection(body.signerSelection);
@@ -1850,9 +1836,6 @@ test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
       (captures.intentRequestBody as any)?.signerSelection,
     );
     expectSingleRegistrationTouchIdPrompt(captures);
-    /* Setup authenticates with the publishable key directly, so registration
-       no longer mints a bootstrap grant to assert against. */
-    expect(fetchMock.paths).not.toContain('/v1/registration/bootstrap-grants');
   } finally {
     fetchMock.restore();
   }
@@ -1887,8 +1870,7 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
       success: true,
       thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
     });
-    /* Six requests became three. The bootstrap grant is gone with the stored
-       token it minted, and finalize is folded into activate. */
+    /* Registration completes through the three-route protocol. */
     expect(fetchMock.paths).toEqual([
       '/wallets/register/setup',
       '/wallets/register/respond',
@@ -2939,19 +2921,6 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
     const path = url.pathname;
     paths.push(path);
     const body = init?.body ? JSON.parse(String(init.body)) : {};
-    if (path === '/v1/registration/bootstrap-grants') {
-      return jsonResponse({
-        ok: true,
-        grant: {
-          token: 'bootstrap-grant',
-          orgId: RUNTIME_POLICY_SCOPE.orgId,
-          projectId: RUNTIME_POLICY_SCOPE.projectId,
-          envId: RUNTIME_POLICY_SCOPE.envId,
-          signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
-          expiresAt: new Date(Date.now() + 60_000).toISOString(),
-        },
-      });
-    }
     if (path === `/wallets/${WALLET_SUBJECT_ID}/signers/intent`) {
       const intent = {
         version: 'add_signer_intent_v1' as const,

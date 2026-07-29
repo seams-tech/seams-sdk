@@ -1,44 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { RouterAbEcdsaRegistrationRequestV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
-import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 import { createRouterAbEcdsaStrictRegistrationPort } from '../../packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration';
 import { createRouterAbTraceContextV1 } from '../../packages/shared-ts/src/utils/routerAbTraceContext';
-
-class MemoryStorage {
-  readonly values = new Map<string, unknown>();
-  transactionCount = 0;
-
-  async get(key: string): Promise<unknown> {
-    return this.values.get(key) ?? null;
-  }
-
-  async put(key: string, value: unknown): Promise<void> {
-    this.values.set(key, value);
-  }
-
-  async delete(key: string): Promise<boolean> {
-    return this.values.delete(key);
-  }
-
-  async transaction<T>(operation: (storage: MemoryStorage) => Promise<T>): Promise<T> {
-    this.transactionCount += 1;
-    return await operation(this);
-  }
-}
-
-async function post(
-  durableObject: ThresholdStoreDurableObject,
-  body: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const response = await durableObject.fetch(
-    new Request('https://threshold-store.invalid/', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
-  );
-  return (await response.json()) as Record<string, unknown>;
-}
 
 async function configurationFailureFetch(): Promise<Response> {
   return new Response(
@@ -72,94 +35,6 @@ async function issueCeremonyToken(): Promise<string> {
 function emptyJwks(): { readonly keys: readonly JsonWebKey[] } {
   return { keys: [] };
 }
-
-test('terminal registration cancellation atomically releases its wallet reservation', async () => {
-  const storage = new MemoryStorage();
-  const durableObject = new ThresholdStoreDurableObject({ storage }, {});
-  const ceremonyKey = 'wallet-registration:ceremony:wrc_smoke';
-  const reservationKey =
-    'wallet-registration:server-allocated-wallet-reservation:frost-fjord-rgcmpa';
-  const walletId = 'frost-fjord-rgcmpa';
-  const expiresAtMs = Date.now() + 60_000;
-
-  await expect(
-    post(durableObject, {
-      op: 'registrationReserveWalletId',
-      key: reservationKey,
-      walletId,
-      expiresAtMs,
-    }),
-  ).resolves.toMatchObject({ ok: true });
-  await post(durableObject, {
-    op: 'set',
-    key: ceremonyKey,
-    value: {
-      registrationCeremonyId: 'wrc_smoke',
-      intent: { walletId },
-      expiresAtMs,
-    },
-  });
-
-  await expect(
-    post(durableObject, {
-      op: 'registrationCancelTerminal',
-      ceremonyKey,
-      registrationCeremonyId: 'wrc_smoke',
-      walletId: 'frost-fjord-zzzzzz',
-      reservation: { kind: 'server_allocated_wallet', key: reservationKey },
-    }),
-  ).resolves.toMatchObject({
-    ok: false,
-    code: 'registration_ceremony_identity_mismatch',
-  });
-  expect(storage.values.has(ceremonyKey)).toBe(true);
-  expect(storage.values.has(reservationKey)).toBe(true);
-
-  storage.values.set(reservationKey, {
-    kind: 'registration_wallet_reservation_v1',
-    walletId: 'frost-fjord-zzzzzz',
-    expiresAtMs,
-  });
-  await expect(
-    post(durableObject, {
-      op: 'registrationCancelTerminal',
-      ceremonyKey,
-      registrationCeremonyId: 'wrc_smoke',
-      walletId,
-      reservation: { kind: 'server_allocated_wallet', key: reservationKey },
-    }),
-  ).resolves.toMatchObject({
-    ok: false,
-    code: 'registration_wallet_reservation_identity_mismatch',
-  });
-  expect(storage.values.has(ceremonyKey)).toBe(true);
-  expect(storage.values.has(reservationKey)).toBe(true);
-  storage.values.set(reservationKey, {
-    kind: 'registration_wallet_reservation_v1',
-    walletId,
-    expiresAtMs,
-  });
-
-  await expect(
-    post(durableObject, {
-      op: 'registrationCancelTerminal',
-      ceremonyKey,
-      registrationCeremonyId: 'wrc_smoke',
-      walletId,
-      reservation: { kind: 'server_allocated_wallet', key: reservationKey },
-    }),
-  ).resolves.toEqual({
-    ok: true,
-    value: {
-      kind: 'cancelled',
-      ceremonyDeleted: true,
-      walletReservationReleased: true,
-    },
-  });
-  expect(storage.values.has(ceremonyKey)).toBe(false);
-  expect(storage.values.has(reservationKey)).toBe(false);
-  expect(storage.transactionCount).toBe(4);
-});
 
 test('coordinator configuration failures are terminal registration failures', async () => {
   const request = strictRegistrationRequest();

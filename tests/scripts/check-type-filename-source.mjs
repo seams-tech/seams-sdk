@@ -23,7 +23,6 @@ const allowedTypesTsFiles = new Set([
   'packages/console-server-ts/src/auditExports/types.ts',
   'packages/console-server-ts/src/billing/types.ts',
   'packages/console-server-ts/src/billingPrepaidReservations/types.ts',
-  'packages/console-server-ts/src/bootstrapTokens/types.ts',
   'packages/console-server-ts/src/enterpriseIsolation/types.ts',
   'packages/console-server-ts/src/gasSponsorship/types.ts',
   'packages/console-server-ts/src/keyExports/types.ts',
