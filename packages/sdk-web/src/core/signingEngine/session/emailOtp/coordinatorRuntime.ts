@@ -1,7 +1,4 @@
-import type {
-  WarmSessionClaimResult,
-  WarmSessionStatusResult,
-} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -201,14 +198,6 @@ export class EmailOtpWalletSessionRuntime {
 
   async readWarmSessionStatusOnly(sessionId: string): Promise<WarmSessionStatusResult> {
     return await this.warmSessionRuntime.readWarmSessionStatusOnly(sessionId);
-  }
-
-  async claimWarmSessionMaterial(args: {
-    purpose: WarmSessionLanePurpose;
-    uses?: number;
-    consume?: boolean;
-  }): Promise<WarmSessionClaimResult> {
-    return await this.warmSessionRuntime.claimWarmSessionMaterial(args);
   }
 
   async consumeWarmSessionUses(args: {

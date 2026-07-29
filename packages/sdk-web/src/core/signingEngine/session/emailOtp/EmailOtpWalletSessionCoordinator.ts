@@ -61,12 +61,6 @@ export class EmailOtpWalletSessionCoordinator {
     return this.runtime.readWarmSessionStatusOnly(sessionId);
   }
 
-  claimWarmSessionMaterial(
-    args: Parameters<EmailOtpWalletSessionRuntime['claimWarmSessionMaterial']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['claimWarmSessionMaterial']> {
-    return this.runtime.claimWarmSessionMaterial(args);
-  }
-
   consumeWarmSessionUses(
     args: Parameters<EmailOtpWalletSessionRuntime['consumeWarmSessionUses']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['consumeWarmSessionUses']> {
