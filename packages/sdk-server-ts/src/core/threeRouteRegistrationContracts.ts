@@ -6,6 +6,7 @@ import type {
 import type {
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationStartRequest,
+  WalletRegistrationAuthorityInput,
   WalletRegistrationStartResponse,
   WalletRegistrationFinalizeRequest,
   WalletRegistrationFinalizeResponse,
@@ -43,7 +44,6 @@ export type SignedSetupPayloadB64u = string & { readonly [signedSetupPayloadBran
 
 /* Reused pieces, named once so route shapes below stay readable. Indexed
    access keeps them bound to the canonical definitions. */
-type SetupAuthorityProof = WalletRegistrationStartRequest['authority'];
 type SetupEd25519Work = Extract<WalletRegistrationStartResponse, { kind: 'near_ed25519' }> extends {
   ed25519: infer T;
 }
@@ -133,27 +133,46 @@ export type WalletRegistrationSetupResponseV2 =
 type WalletRegistrationRespondRequestBaseV2 = {
   registrationCeremonyId: string;
   signedSetup: SignedSetupPayloadB64u;
-  authority: SetupAuthorityProof;
 };
+
+type WalletRegistrationRespondAuthorityProofV2 =
+  | {
+      webauthn_registration: Extract<
+        WalletRegistrationAuthorityInput,
+        { kind: 'passkey' }
+      >['webauthnRegistration'];
+      emailOtpRegistrationProof?: never;
+    }
+  | {
+      emailOtpRegistrationProof: Extract<
+        WalletRegistrationAuthorityInput,
+        { kind: 'email_otp' }
+      >['emailOtpRegistrationProof'];
+      webauthn_registration?: never;
+    };
 
 export type RespondEcdsaRegistrationWorkV2 = {
   kind: 'router_ab_ecdsa_registration_v1';
   strictRegistration: unknown; // RouterAbEcdsaRegistrationRequestV1; bound at the parser
+  /** Canonical Router request digest produced by the client ceremony WASM. */
+  requestDigestB64u: string;
 };
 
-export type WalletRegistrationRespondRequestV2 =
-  | (WalletRegistrationRespondRequestBaseV2 & {
+export type WalletRegistrationRespondRequestV2 = WalletRegistrationRespondAuthorityProofV2 &
+  (
+    | (WalletRegistrationRespondRequestBaseV2 & {
       kind: 'evm_family_ecdsa';
       ecdsa: RespondEcdsaRegistrationWorkV2;
     })
-  | (WalletRegistrationRespondRequestBaseV2 & {
+    | (WalletRegistrationRespondRequestBaseV2 & {
       kind: 'near_ed25519_and_evm_family_ecdsa';
       ecdsa: RespondEcdsaRegistrationWorkV2;
     })
-  | (WalletRegistrationRespondRequestBaseV2 & {
+    | (WalletRegistrationRespondRequestBaseV2 & {
       kind: 'near_ed25519';
       ecdsa?: never;
-    });
+    })
+  );
 
 /**
  * What respond returns for the ceremony's signer plan.

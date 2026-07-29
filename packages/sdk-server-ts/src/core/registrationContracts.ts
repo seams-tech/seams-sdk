@@ -346,6 +346,7 @@ export type WalletAddSignerEcdsaDerivationRespondRequest = {
   ecdsa: {
     kind: 'router_ab_ecdsa_registration_v1';
     strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+    requestDigestB64u: string;
   };
 };
 

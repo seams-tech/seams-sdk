@@ -80,6 +80,11 @@ export type RouterAbEcdsaStrictRegistrationTopology = {
   readonly deriverRecipientKeys: RouterAbEcdsaRegistrationRecipientKeysV1;
 };
 
+export type RouterAbEcdsaRegistrationRequestPolicyV1 = {
+  readonly policyVersion: string;
+  readonly requestDigestB64u: string;
+};
+
 /**
  * Receives the Router's raw `Server-Timing` header, when it sent one
  * (Refactor 94B Phase 0). Diagnostics only: the Router's spans never reach the
@@ -109,6 +114,7 @@ export interface RouterAbEcdsaStrictRegistrationPort {
   topology(): RouterAbEcdsaStrictRegistrationTopology;
   register(input: {
     readonly request: RouterAbEcdsaRegistrationRequestV1;
+    readonly requestPolicy: RouterAbEcdsaRegistrationRequestPolicyV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
     readonly traceContext?: RouterAbTraceContextV1;
     readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
@@ -117,6 +123,7 @@ export interface RouterAbEcdsaStrictRegistrationPort {
   activate(input: {
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+    readonly requestPolicy: RouterAbEcdsaRegistrationRequestPolicyV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
     readonly traceContext?: RouterAbTraceContextV1;
     readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
@@ -187,6 +194,14 @@ export type RouterAbEcdsaEd25519PrivateJwk = JsonWebKey & {
 
 export interface RouterAbEcdsaCeremonyTokenIssuer {
   issue(claims: RouterAbEcdsaCeremonyTokenClaims): Promise<string>;
+  issueRegistration(
+    claims: RouterAbEcdsaCeremonyTokenClaims,
+    requestPolicy: {
+      readonly policyVersion: string;
+      readonly workKind: 'registration_prepare';
+      readonly requestDigest: { readonly bytes: readonly number[] };
+    },
+  ): Promise<string>;
   publicJwks(): { readonly keys: readonly JsonWebKey[] };
 }
 
@@ -219,6 +234,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
 
   async register(input: {
     readonly request: RouterAbEcdsaRegistrationRequestV1;
+    readonly requestPolicy: RouterAbEcdsaRegistrationRequestPolicyV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
     readonly traceContext?: RouterAbTraceContextV1;
     readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
@@ -230,6 +246,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       kind: 'registration',
       path: STRICT_ECDSA_REGISTRATION_PATH,
       authority: input.authority,
+      requestPolicy: input.requestPolicy,
       request: input.request,
       traceContext: input.traceContext,
       onServerTiming: input.onServerTiming,
@@ -242,6 +259,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
   async activate(input: {
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+    readonly requestPolicy: RouterAbEcdsaRegistrationRequestPolicyV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
     readonly traceContext?: RouterAbTraceContextV1;
     readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
@@ -251,6 +269,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       kind: 'activation',
       path: STRICT_ECDSA_ACTIVATION_PATH,
       authority: input.authority,
+      requestPolicy: input.requestPolicy,
       pendingActivation: input.pendingActivation,
       clientActivation: input.clientActivation,
       traceContext: input.traceContext,
@@ -277,6 +296,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
     input: {
       readonly path: string;
       readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+      readonly requestPolicy: RouterAbEcdsaRegistrationRequestPolicyV1;
       readonly traceContext?: RouterAbTraceContextV1;
       readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
     readonly onHeaderPresence?: RouterAbEcdsaStrictHeaderPresenceSink;
@@ -292,8 +312,18 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
         }
     ),
   ): Promise<{ readonly ok: true; readonly value: unknown } | RouterAbEcdsaStrictFailure> {
-    const token = await this.config.tokenIssuer.issue(
+    const requestPolicy = parseRegistrationRequestPolicy(input.requestPolicy);
+    if (!requestPolicy) {
+      return {
+        ok: false,
+        code: 'strict_registration_request_policy_invalid',
+        message: 'Strict ECDSA registration request policy is invalid',
+        retryable: false,
+      };
+    }
+    const token = await this.config.tokenIssuer.issueRegistration(
       ceremonyTokenClaimsForAuthority(input.authority, this.config.tokenScope),
+      requestPolicy,
     );
     const headers: Record<string, string> = {
       authorization: `Bearer ${token}`,
@@ -656,6 +686,23 @@ function ceremonyTokenClaimsForAuthority(
   };
 }
 
+function parseRegistrationRequestPolicy(
+  policy: RouterAbEcdsaRegistrationRequestPolicyV1,
+): {
+  readonly policyVersion: string;
+  readonly workKind: 'registration_prepare';
+  readonly requestDigest: { readonly bytes: readonly number[] };
+} | null {
+  const policyVersion = nonEmptyString(policy.policyVersion);
+  const requestDigestB64u = base64UrlString(policy.requestDigestB64u, 32);
+  if (!policyVersion || !requestDigestB64u) return null;
+  return {
+    policyVersion,
+    workKind: 'registration_prepare',
+    requestDigest: { bytes: Array.from(decodeBase64Url(requestDigestB64u)) },
+  };
+}
+
 function validateRegistrationAuthorityBinding(input: {
   readonly request: RouterAbEcdsaRegistrationRequestV1;
   readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
@@ -751,6 +798,28 @@ class Ed25519CeremonyTokenIssuer implements RouterAbEcdsaCeremonyTokenIssuer {
   }
 
   async issue(claims: RouterAbEcdsaCeremonyTokenClaims): Promise<string> {
+    return await this.issueClaims(claims, null);
+  }
+
+  async issueRegistration(
+    claims: RouterAbEcdsaCeremonyTokenClaims,
+    requestPolicy: {
+      readonly policyVersion: string;
+      readonly workKind: 'registration_prepare';
+      readonly requestDigest: { readonly bytes: readonly number[] };
+    },
+  ): Promise<string> {
+    return await this.issueClaims(claims, requestPolicy);
+  }
+
+  private async issueClaims(
+    claims: RouterAbEcdsaCeremonyTokenClaims,
+    requestPolicy: {
+      readonly policyVersion: string;
+      readonly workKind: 'registration_prepare';
+      readonly requestDigest: { readonly bytes: readonly number[] };
+    } | null,
+  ): Promise<string> {
     validateCeremonyTokenClaims(claims);
     const nowSec = Math.floor(Date.now() / 1000);
     const header = encodeJsonBase64Url({
@@ -770,6 +839,7 @@ class Ed25519CeremonyTokenIssuer implements RouterAbEcdsaCeremonyTokenIssuer {
       project_id: claims.projectId,
       environment: claims.environment,
       account_id: claims.accountId,
+      ...(requestPolicy ? { routerAbRequestPolicy: requestPolicy } : {}),
     });
     const signingInput = `${header}.${payload}`;
     const signature = await crypto.subtle.sign(

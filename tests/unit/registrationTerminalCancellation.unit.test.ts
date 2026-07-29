@@ -32,6 +32,15 @@ async function issueCeremonyToken(): Promise<string> {
   return 'ceremony-token';
 }
 
+async function issueRegistrationCeremonyToken(): Promise<string> {
+  return 'registration-ceremony-token';
+}
+
+const REQUEST_POLICY = {
+  policyVersion: 'wallet-registration-v1',
+  requestDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+} as const;
+
 function emptyJwks(): { readonly keys: readonly JsonWebKey[] } {
   return { keys: [] };
 }
@@ -44,6 +53,7 @@ test('coordinator configuration failures are terminal registration failures', as
     },
     tokenIssuer: {
       issue: issueCeremonyToken,
+      issueRegistration: issueRegistrationCeremonyToken,
       publicJwks: emptyJwks,
     },
     tokenScope: {
@@ -72,6 +82,7 @@ test('coordinator configuration failures are terminal registration failures', as
   await expect(
     port.register({
       request,
+      requestPolicy: REQUEST_POLICY,
       authority: {
         subjectId: request.client_id,
         sessionId: request.lifecycle.session_id,
@@ -94,6 +105,7 @@ test('strict ECDSA registration forwards the opaque trace correlation header', a
     router,
     tokenIssuer: {
       issue: issueCeremonyToken,
+      issueRegistration: issueRegistrationCeremonyToken,
       publicJwks: emptyJwks,
     },
     tokenScope: {
@@ -122,6 +134,7 @@ test('strict ECDSA registration forwards the opaque trace correlation header', a
 
   await port.register({
     request,
+    requestPolicy: REQUEST_POLICY,
     authority: {
       subjectId: request.client_id,
       sessionId: request.lifecycle.session_id,
@@ -152,6 +165,7 @@ test('strict ECDSA registration reports header presence without its contents', a
 
     await port.register({
       request,
+      requestPolicy: REQUEST_POLICY,
       authority: {
         subjectId: request.client_id,
         sessionId: request.lifecycle.session_id,
@@ -183,7 +197,11 @@ function strictRegistrationPortForRequest(args: {
 }) {
   return createRouterAbEcdsaStrictRegistrationPort({
     router: args.router,
-    tokenIssuer: { issue: issueCeremonyToken, publicJwks: emptyJwks },
+    tokenIssuer: {
+      issue: issueCeremonyToken,
+      issueRegistration: issueRegistrationCeremonyToken,
+      publicJwks: emptyJwks,
+    },
     tokenScope: {
       orgId: 'org_abcdefgh1234',
       projectId: 'local-smoke-project',

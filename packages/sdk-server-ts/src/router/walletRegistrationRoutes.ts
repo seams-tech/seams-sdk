@@ -38,7 +38,6 @@ import type {
   WalletRevokeAuthMethodResponse,
   WalletAddAuthMethodStartRequest,
   WalletAddAuthMethodStartResponse,
-  WalletRegistrationFinalizeRequest,
   WalletRegistrationEcdsaActivationRequest,
   WalletRegistrationEcdsaActivationResponse,
   WalletRegistrationEcdsaFinalize,
@@ -81,6 +80,7 @@ import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
 import { routeError, routeJson } from './routeResponses';
 import { isPlainObject } from '@shared/utils/validation';
+import { base64UrlDecode } from '@shared/utils/encoders';
 import {
   parseRouterAbEcdsaRegistrationActivationRequestV1,
   parseRouterAbEcdsaRegistrationRequestV1,
@@ -125,6 +125,7 @@ import {
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
 import type { RouterAbEd25519YaoGatewaySpanV1 } from './routerAbEd25519YaoHttpRegistrationBackend';
+import { verifyWalletRegistrationSetupClaims } from './walletRegistrationSetupPayload';
 
 type RouterApiWalletRegistrationServices = {
   walletRegistration: RouterApiWalletRegistrationRouteService;
@@ -399,82 +400,12 @@ function requireWebAuthnRpId(
   };
 }
 
-const EMAIL_OTP_BACKUP_ACK_ALLOWED_FIELDS = [
-  'kind',
-  'offerId',
-  'candidateId',
-  'recoveryCodesIssuedAtMs',
-  'backupActionKind',
-  'acknowledgedAtMs',
-  'idempotencyKey',
-] as const;
-
-const EMAIL_OTP_BACKUP_ACK_FORBIDDEN_FIELDS = [
-  'recoveryKeys',
-  'recoveryCodes',
-  'appSessionJwt',
-  'otpCode',
-  'challengeId',
-  'walletId',
-  'webauthn',
-  'passkey',
-  'bootstrap',
-  'bootstrapMaterial',
-  'clientSecret32',
-] as const;
-
-const WALLET_REGISTRATION_FINALIZE_FORBIDDEN_FIELDS = [
-  'delivery',
-  'challengeId',
-  'otpCode',
-  'resend',
-  'walletId',
-  'webauthn',
-  'webauthnRegistration',
-  'webauthn_registration',
-  'authenticatorOptions',
-  'publicKey',
-  'passkey',
-  'passkeyPrfFirstB64u',
-] as const;
-
-const WALLET_REGISTRATION_FINALIZE_ALLOWED_FIELDS = [
-  'registrationCeremonyId',
-  'idempotencyKey',
-  'kind',
-  'ed25519',
-  'ecdsa',
-  'emailOtpEnrollment',
-  'emailOtpBackupAck',
-  'signerWork',
-] as const;
-
-const EMAIL_OTP_ENROLLMENT_ALLOWED_FIELDS = [
-  'recoveryWrappedEnrollmentEscrows',
-  'enrollmentSealKeyVersion',
-  'clientUnlockPublicKeyB64u',
-  'unlockKeyVersion',
-  'thresholdEcdsaClientVerifyingShareB64u',
-] as const;
-
-const EMAIL_OTP_ENROLLMENT_FORBIDDEN_FIELDS = [
-  ...WALLET_REGISTRATION_FINALIZE_FORBIDDEN_FIELDS,
-  'recoveryKeys',
-  'recoveryCodes',
-  'appSessionJwt',
-  'bootstrap',
-  'bootstrapMaterial',
-  'clientSecret32',
-  'registrationAuthorityId',
-] as const;
-
 const ECDSA_REGISTRATION_ECDSA_DERIVATION_RESPOND_FORBIDDEN_FIELDS = [
   'clientRootProof',
   'passkeyBootstrapAuthorization',
   'sessionKind',
 ] as const;
 
-const WALLET_REGISTRATION_FINALIZE_SIGNER_WORK_FIELDS = ['kind', 'ed25519', 'ecdsa'] as const;
 const WALLET_REGISTRATION_ED25519_FINALIZE_FIELDS = ['activationReference'] as const;
 const WALLET_REGISTRATION_YAO_ACTIVATION_REFERENCE_FIELDS = [
   'kind',
@@ -1325,90 +1256,6 @@ function parseWalletRegistrationEcdsaActivationRequest(
   }
 }
 
-function parseEmailOtpBackupAck(
-  value: unknown,
-): ParseResult<NonNullable<WalletRegistrationFinalizeRequest['emailOtpBackupAck']>> {
-  const ack = isPlainObject(value) ? value : null;
-  if (!ack) {
-    return { ok: false, code: 'invalid_body', message: 'emailOtpBackupAck must be an object' };
-  }
-  const forbiddenField = findOwnField(ack, EMAIL_OTP_BACKUP_ACK_FORBIDDEN_FIELDS);
-  if (forbiddenField) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: `emailOtpBackupAck.${forbiddenField} must not be included`,
-    };
-  }
-  const unknownField = findUnknownField(ack, EMAIL_OTP_BACKUP_ACK_ALLOWED_FIELDS);
-  if (unknownField) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: `emailOtpBackupAck.${unknownField} is not supported`,
-    };
-  }
-  if (ack.kind !== 'email_otp_recovery_code_backup_ack_v1') {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'emailOtpBackupAck.kind must be email_otp_recovery_code_backup_ack_v1',
-    };
-  }
-  const recoveryCodesIssuedAtMs = Number(ack.recoveryCodesIssuedAtMs);
-  if (!Number.isSafeInteger(recoveryCodesIssuedAtMs) || recoveryCodesIssuedAtMs <= 0) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'emailOtpBackupAck.recoveryCodesIssuedAtMs must be a positive integer timestamp',
-    };
-  }
-  const backupActionKind =
-    typeof ack.backupActionKind === 'string' ? ack.backupActionKind.trim() : '';
-  if (
-    backupActionKind !== 'download' &&
-    backupActionKind !== 'copy' &&
-    backupActionKind !== 'print' &&
-    backupActionKind !== 'manual'
-  ) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'emailOtpBackupAck.backupActionKind is invalid',
-    };
-  }
-  const acknowledgedAtMs = Number(ack.acknowledgedAtMs);
-  if (!Number.isSafeInteger(acknowledgedAtMs) || acknowledgedAtMs <= 0) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'emailOtpBackupAck.acknowledgedAtMs must be a positive integer timestamp',
-    };
-  }
-  const idempotencyKey = typeof ack.idempotencyKey === 'string' ? ack.idempotencyKey.trim() : '';
-  if (!idempotencyKey) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'emailOtpBackupAck.idempotencyKey is required',
-    };
-  }
-  const offerId = typeof ack.offerId === 'string' ? ack.offerId.trim() : '';
-  const candidateId = typeof ack.candidateId === 'string' ? ack.candidateId.trim() : '';
-  return {
-    ok: true,
-    value: {
-      kind: 'email_otp_recovery_code_backup_ack_v1',
-      ...(offerId ? { offerId } : {}),
-      ...(candidateId ? { candidateId } : {}),
-      recoveryCodesIssuedAtMs,
-      backupActionKind,
-      acknowledgedAtMs,
-      idempotencyKey,
-    },
-  };
-}
-
 function parseYaoSessionId(value: unknown): ParseResult<readonly number[]> {
   if (!Array.isArray(value) || value.length !== 32) {
     return {
@@ -1565,188 +1412,6 @@ function parseWalletRegistrationEcdsaFinalize(
   return { ok: true, value: { expectedKeyHandles: [expectedKeyHandle] } };
 }
 
-function parseWalletRegistrationFinalizeSignerWork(
-  raw: unknown,
-): ParseResult<WalletRegistrationFinalizeSignerWork> {
-  const signerWork = isPlainObject(raw) ? raw : null;
-  if (!signerWork) {
-    return { ok: false, code: 'invalid_body', message: 'signerWork is required' };
-  }
-  const unknownField = findUnknownField(
-    signerWork,
-    WALLET_REGISTRATION_FINALIZE_SIGNER_WORK_FIELDS,
-  );
-  if (unknownField) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: `${unknownField} is not supported for wallet registration finalize kind`,
-    };
-  }
-  switch (signerWork.kind) {
-    case 'near_ed25519': {
-      if (Object.hasOwn(signerWork, 'ecdsa')) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'near_ed25519 finalize cannot include ecdsa',
-        };
-      }
-      const ed25519 = parseWalletRegistrationEd25519Finalize(signerWork.ed25519);
-      if (!ed25519.ok) return ed25519;
-      return { ok: true, value: { kind: 'near_ed25519', ed25519: ed25519.value } };
-    }
-    case 'evm_family_ecdsa': {
-      if (Object.hasOwn(signerWork, 'ed25519')) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'evm_family_ecdsa finalize cannot include ed25519',
-        };
-      }
-      const ecdsa = parseWalletRegistrationEcdsaFinalize(signerWork.ecdsa);
-      if (!ecdsa.ok) return ecdsa;
-      return { ok: true, value: { kind: 'evm_family_ecdsa', ecdsa: ecdsa.value } };
-    }
-    default:
-      /* A wallet planned with both signers finalizes twice, one branch per
-         call, so a combined finalize kind is no longer accepted here. */
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'wallet registration finalize kind is invalid',
-      };
-  }
-}
-
-export function parseWalletRegistrationFinalizeRequest(
-  body: Record<string, unknown>,
-): ParseResult<WalletRegistrationFinalizeRequest> {
-  const registrationCeremonyId = trimRequiredString(
-    body,
-    'registrationCeremonyId',
-    'registrationCeremonyId is required',
-  );
-  if (!registrationCeremonyId.ok) return registrationCeremonyId;
-  const idempotencyKey = trimRequiredString(body, 'idempotencyKey', 'idempotencyKey is required');
-  if (!idempotencyKey.ok) return idempotencyKey;
-  const forbiddenTopLevelField = findOwnField(body, WALLET_REGISTRATION_FINALIZE_FORBIDDEN_FIELDS);
-  if (forbiddenTopLevelField) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: `${forbiddenTopLevelField} must not be included in wallet registration finalize`,
-    };
-  }
-  const unknownTopLevelField = findUnknownField(body, WALLET_REGISTRATION_FINALIZE_ALLOWED_FIELDS);
-  if (unknownTopLevelField) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: `${unknownTopLevelField} is not supported in wallet registration finalize`,
-    };
-  }
-  if (Object.hasOwn(body, 'signerWork')) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'wallet registration finalize signer inputs use the top-level kind discriminator',
-    };
-  }
-  const signerWork = parseWalletRegistrationFinalizeSignerWork({
-    kind: body.kind,
-    ...(Object.hasOwn(body, 'ed25519') ? { ed25519: body.ed25519 } : {}),
-    ...(Object.hasOwn(body, 'ecdsa') ? { ecdsa: body.ecdsa } : {}),
-  });
-  if (!signerWork.ok) return signerWork;
-  const value: WalletRegistrationFinalizeRequest = {
-    registrationCeremonyId: registrationCeremonyId.value,
-    idempotencyKey: idempotencyKey.value,
-    ...signerWork.value,
-  };
-  if (hasBranch(body, 'emailOtpEnrollment')) {
-    const enrollment = isPlainObject(body.emailOtpEnrollment) ? body.emailOtpEnrollment : null;
-    if (!enrollment) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'emailOtpEnrollment finalize input is invalid',
-      };
-    }
-    const forbiddenEnrollmentField = findOwnField(
-      enrollment,
-      EMAIL_OTP_ENROLLMENT_FORBIDDEN_FIELDS,
-    );
-    if (forbiddenEnrollmentField) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: `emailOtpEnrollment.${forbiddenEnrollmentField} must not be included`,
-      };
-    }
-    const unknownEnrollmentField = findUnknownField(
-      enrollment,
-      EMAIL_OTP_ENROLLMENT_ALLOWED_FIELDS,
-    );
-    if (unknownEnrollmentField) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: `emailOtpEnrollment.${unknownEnrollmentField} is not supported`,
-      };
-    }
-    if (!Array.isArray(enrollment.recoveryWrappedEnrollmentEscrows)) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'emailOtpEnrollment.recoveryWrappedEnrollmentEscrows must be an array',
-      };
-    }
-    const enrollmentSealKeyVersion = trimRequiredString(
-      enrollment,
-      'enrollmentSealKeyVersion',
-      'emailOtpEnrollment.enrollmentSealKeyVersion is required',
-    );
-    if (!enrollmentSealKeyVersion.ok) return enrollmentSealKeyVersion;
-    const clientUnlockPublicKeyB64u = trimRequiredString(
-      enrollment,
-      'clientUnlockPublicKeyB64u',
-      'emailOtpEnrollment.clientUnlockPublicKeyB64u is required',
-    );
-    if (!clientUnlockPublicKeyB64u.ok) return clientUnlockPublicKeyB64u;
-    const unlockKeyVersion = trimRequiredString(
-      enrollment,
-      'unlockKeyVersion',
-      'emailOtpEnrollment.unlockKeyVersion is required',
-    );
-    if (!unlockKeyVersion.ok) return unlockKeyVersion;
-    const thresholdEcdsaClientVerifyingShareB64u = trimRequiredString(
-      enrollment,
-      'thresholdEcdsaClientVerifyingShareB64u',
-      'emailOtpEnrollment.thresholdEcdsaClientVerifyingShareB64u is required',
-    );
-    if (!thresholdEcdsaClientVerifyingShareB64u.ok) {
-      return thresholdEcdsaClientVerifyingShareB64u;
-    }
-    value.emailOtpEnrollment = {
-      recoveryWrappedEnrollmentEscrows: enrollment.recoveryWrappedEnrollmentEscrows,
-      enrollmentSealKeyVersion: enrollmentSealKeyVersion.value,
-      clientUnlockPublicKeyB64u: clientUnlockPublicKeyB64u.value,
-      unlockKeyVersion: unlockKeyVersion.value,
-      thresholdEcdsaClientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u.value,
-    };
-  }
-  if (Object.prototype.hasOwnProperty.call(body, 'emailOtpBackupAck')) {
-    const ack = parseEmailOtpBackupAck(body.emailOtpBackupAck);
-    if (!ack.ok) return ack;
-    value.emailOtpBackupAck = ack.value;
-  }
-  return {
-    ok: true,
-    value,
-  };
-}
-
 function parseWalletAddSignerEcdsaDerivationRespondRequest(
   body: Record<string, unknown>,
 ): ParseResult<WalletAddSignerEcdsaDerivationRespondRequest> {
@@ -1772,7 +1437,11 @@ function parseWalletAddSignerEcdsaDerivationRespondRequest(
       message: 'strict Router A/B ECDSA add-signer request is required',
     };
   }
-  const unknownEcdsaField = findUnknownField(ecdsa, ['kind', 'strictRegistration']);
+  const unknownEcdsaField = findUnknownField(ecdsa, [
+    'kind',
+    'strictRegistration',
+    'requestDigestB64u',
+  ]);
   if (unknownEcdsaField) {
     return {
       ok: false,
@@ -1790,6 +1459,14 @@ function parseWalletAddSignerEcdsaDerivationRespondRequest(
       message: 'strict Router A/B ECDSA add-signer request is invalid',
     };
   }
+  const requestDigestB64u = parseRegistrationRequestDigestB64u(ecdsa.requestDigestB64u);
+  if (!requestDigestB64u) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'ECDSA add-signer requestDigestB64u must contain 32 base64url bytes',
+    };
+  }
   return {
     ok: true,
     value: {
@@ -1797,6 +1474,7 @@ function parseWalletAddSignerEcdsaDerivationRespondRequest(
       ecdsa: {
         kind: 'router_ab_ecdsa_registration_v1',
         strictRegistration,
+        requestDigestB64u,
       },
     },
   };
@@ -2239,7 +1917,6 @@ export async function handleRouterApiWalletRegistrationRespond(
     {
       ...parsed.value,
       verifier: session,
-      minter: session,
       ...(registrationUserAgentFromHeaders(input.headers)
         ? { userAgent: registrationUserAgentFromHeaders(input.headers) }
         : {}),
@@ -2264,6 +1941,7 @@ function parseWalletRegistrationRespondRequest(
   ecdsa?: {
     kind: 'router_ab_ecdsa_registration_v1';
     strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+    requestDigestB64u: string;
   };
 }> {
   if (!isPlainObject(body)) {
@@ -2340,6 +2018,14 @@ function parseWalletRegistrationRespondRequest(
       message: 'strict Router A/B ECDSA registration request is invalid',
     };
   }
+  const requestDigestB64u = parseRegistrationRequestDigestB64u(ecdsa.requestDigestB64u);
+  if (!requestDigestB64u) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'ECDSA registration requestDigestB64u must contain 32 base64url bytes',
+    };
+  }
   return {
     ok: true,
     value: {
@@ -2347,9 +2033,23 @@ function parseWalletRegistrationRespondRequest(
       signedSetup,
       authority,
       planKind,
-      ecdsa: { kind: 'router_ab_ecdsa_registration_v1', strictRegistration },
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_v1',
+        strictRegistration,
+        requestDigestB64u,
+      },
     },
   };
+}
+
+function parseRegistrationRequestDigestB64u(raw: unknown): string | null {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (!value || !/^[A-Za-z0-9_-]+$/u.test(value)) return null;
+  try {
+    return base64UrlDecode(value).byteLength === 32 ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -2407,11 +2107,39 @@ export async function handleRouterApiWalletRegistrationActivate(
       ...(body.emailOtpEnrollment ? { emailOtpEnrollment: body.emailOtpEnrollment } : {}),
       ...(body.emailOtpBackupAck ? { emailOtpBackupAck: body.emailOtpBackupAck } : {}),
       verifier: session,
-      minter: session,
     },
     traceContext.value ?? undefined,
   );
-  return routeJson(result.ok ? 200 : 400, result);
+  if (!result.ok) return routeJson(400, result);
+  if ('ecdsa' in result && result.ecdsa) {
+    const verifiedSetup = await verifyWalletRegistrationSetupClaims(session, signedSetup, {
+      registrationCeremonyId,
+      nowMs: Date.now(),
+    });
+    if (!verifiedSetup.ok) {
+      return routeJson(400, {
+        ok: false,
+        code: verifiedSetup.code,
+        message: verifiedSetup.message,
+      });
+    }
+    if (verifiedSetup.claims.policy.kind !== 'runtime_policy_scope') {
+      return routeError(
+        500,
+        'internal',
+        'ECDSA registration setup is missing its signed runtime policy scope',
+      );
+    }
+    const signingError = await attachEcdsaWalletSessionJwt(
+      input,
+      result.ecdsa.bootstrap,
+      result.ecdsa.activation.ecdsa_activation.signing_worker.server_id,
+      result.ecdsa.activation.ecdsa_activation.activation_epoch,
+      verifiedSetup.claims.policy.scope,
+    );
+    if (signingError) return signingError;
+  }
+  return routeJson(200, result);
 }
 
 /**

@@ -201,14 +201,6 @@ export type RouterAbEcdsaVerifiedClientActivationFactsV1 = {
 export type RouterAbEcdsaStrictForwardedRegistrationResponseV1 = {
   result: 'forwarded';
   response: {
-    replay: {
-      request_id: string;
-      reserved: true;
-    };
-    lifecycle: {
-      lifecycle_id: string;
-      stored: true;
-    };
     bundles: RouterAbEcdsaClientProofFinalizationV1['bundles'];
   };
 };
@@ -1249,34 +1241,11 @@ function parseRouterAbEcdsaStrictProofResponseV1(
   label: string,
 ): RouterAbEcdsaStrictForwardedProofResponseV1['response'] {
   const response = requireRecord(value, label);
-  requireExactKeys(response, label, ['replay', 'lifecycle', 'bundles']);
+  requireExactKeys(response, label, ['bundles']);
   const bundlesLabel = `${label}.bundles`;
   const bundles = requireRecord(response.bundles, bundlesLabel);
   requireExactKeys(bundles, bundlesLabel, ['signerA', 'signerB']);
-  const replayLabel = `${label}.replay`;
-  const replay = requireRecord(response.replay, replayLabel);
-  requireExactKeys(replay, replayLabel, ['request_id', 'reserved']);
-  if (replay.reserved !== true) {
-    throw new Error(`${replayLabel}.reserved must be true for a forwarded response`);
-  }
-  const lifecycleLabel = `${label}.lifecycle`;
-  const lifecycle = requireRecord(response.lifecycle, lifecycleLabel);
-  requireExactKeys(lifecycle, lifecycleLabel, ['lifecycle_id', 'stored']);
-  if (lifecycle.stored !== true) {
-    throw new Error(`${lifecycleLabel}.stored must be true for a forwarded response`);
-  }
   return {
-    replay: {
-      request_id: requireAsciiNonEmptyString(replay.request_id, `${replayLabel}.request_id`),
-      reserved: true,
-    },
-    lifecycle: {
-      lifecycle_id: requireAsciiNonEmptyString(
-        lifecycle.lifecycle_id,
-        `${lifecycleLabel}.lifecycle_id`,
-      ),
-      stored: true,
-    },
     bundles: {
       signerA: parseRouterAbEcdsaClientProofBundleV1(bundles.signerA, `${bundlesLabel}.signerA`),
       signerB: parseRouterAbEcdsaClientProofBundleV1(bundles.signerB, `${bundlesLabel}.signerB`),

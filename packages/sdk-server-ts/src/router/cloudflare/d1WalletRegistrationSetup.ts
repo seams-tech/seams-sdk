@@ -93,11 +93,10 @@ export type WalletRegistrationRespondInput = {
   readonly ecdsa?: {
     readonly kind: 'router_ab_ecdsa_registration_v1';
     readonly strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+    readonly requestDigestB64u: string;
   };
-  /** Verifies `signedSetup`; separate from the minter, which respond also needs. */
+  /** Verifies the opaque setup token before authority-bound work begins. */
   readonly verifier: WalletRegistrationSetupVerifier;
-  /** Mints the internal per-call Router policy JWT. */
-  readonly minter: WalletRegistrationSetupMinter;
   readonly userAgent?: string;
 };
 
@@ -121,7 +120,6 @@ export type WalletRegistrationActivateInput = {
   readonly emailOtpEnrollment?: unknown;
   readonly emailOtpBackupAck?: unknown;
   readonly verifier: WalletRegistrationSetupVerifier;
-  readonly minter: WalletRegistrationSetupMinter;
 };
 
 export type WalletRegistrationNearProvisioningInput = {
@@ -228,6 +226,7 @@ export async function buildWalletRegistrationSetupSignature(input: {
     orgId: input.ceremony.orgId,
     signingRootId,
     signingRootVersion,
+    policy: input.ceremony.preparedContext.runtimePolicy,
     setupDigestB64u,
     expiresAtMs: input.ceremony.expiresAtMs,
   });

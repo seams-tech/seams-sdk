@@ -122,6 +122,7 @@ const ADD_SIGNER_CEREMONY_TTL_MS = 10 * 60_000;
 const ADD_SIGNER_REPLAY_TTL_MS = 10 * 60_000;
 const WALLET_ADD_SIGNER_START_RESUME_AFTER_MS = 30_000;
 const WALLET_ADD_SIGNER_FINALIZE_RESUME_AFTER_MS = 30_000;
+const WALLET_ADD_SIGNER_ROUTER_POLICY_VERSION = 'wallet-add-signer-v1';
 
 export type D1WalletAddSignerStartPreparedV1 = {
   readonly kind: 'd1_wallet_add_signer_start_prepared_v1';
@@ -1016,6 +1017,10 @@ export class CloudflareD1WalletAddSignerService {
       }
       const registered = await this.ecdsaStrictRegistration.register({
         request: request.ecdsa.strictRegistration,
+        requestPolicy: {
+          policyVersion: WALLET_ADD_SIGNER_ROUTER_POLICY_VERSION,
+          requestDigestB64u: request.ecdsa.requestDigestB64u,
+        },
         authority: ecdsaStrictRegistrationAuthority(ceremony.signerState.strictRegistration),
       });
       if (!registered.ok) {
@@ -1102,6 +1107,10 @@ export class CloudflareD1WalletAddSignerService {
     const activated = await this.ecdsaStrictRegistration.activate({
       pendingActivation: state.pendingActivation,
       clientActivation: request.ecdsa.publicFacts,
+      requestPolicy: {
+        policyVersion: WALLET_ADD_SIGNER_ROUTER_POLICY_VERSION,
+        requestDigestB64u: request.ecdsa.publicFacts.registrationRequestDigestB64u,
+      },
       authority: ecdsaStrictRegistrationAuthority(state.strictRegistration),
     });
     if (!activated.ok) {

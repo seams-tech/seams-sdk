@@ -1310,6 +1310,7 @@ function createContext(captures: Record<string, unknown>): any {
           kind: 'router_ab_ecdsa_registration_ceremony_created_v1',
           ceremonyId: args.ceremonyId,
           registrationRequest: mockedEcdsaRegistrationRequest(args.registration),
+          registrationRequestDigestB64u: CONTEXT_BINDING_32_B64U,
         };
       },
       verifyRouterAbEcdsaRegistrationClientProofs: async (args: Record<string, any>) => ({
@@ -1483,8 +1484,6 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
             strictResult: {
               result: 'forwarded',
               response: {
-                replay: { request_id: 'request-ecdsa', reserved: true },
-                lifecycle: { lifecycle_id: 'wallet_registration', stored: true },
                 bundles: {
                   signerA: {
                     kind: 'recipient_proof_bundle',
@@ -3040,8 +3039,6 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
             strictResult: {
               result: 'forwarded',
               response: {
-                replay: { request_id: 'request-ecdsa', reserved: true },
-                lifecycle: { lifecycle_id: 'wallet_add_signer', stored: true },
                 bundles: {
                   signerA: {
                     kind: 'recipient_proof_bundle',

@@ -499,6 +499,7 @@ function createRouterAbEcdsaRegistrationCeremony(
       kind: 'router_ab_ecdsa_registration_ceremony_created_v1',
       ceremonyId,
       registrationRequest,
+      registrationRequestDigestB64u: registrationBinding.requestDigestB64u,
     };
   } catch (error: unknown) {
     ceremony.close();

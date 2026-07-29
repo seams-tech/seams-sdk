@@ -22,7 +22,7 @@ function stubbedRoutes(responses: Record<string, unknown>) {
   const calls: string[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
-    const url = String(typeof input === 'string' ? input : (input as Request).url ?? input);
+    const url = String(typeof input === 'string' ? input : ((input as Request).url ?? input));
     const route = url.includes('/respond')
       ? 'respond'
       : url.includes('/activate')
@@ -40,7 +40,10 @@ function stubbedRoutes(responses: Record<string, unknown>) {
 /** Minimal signing engine: the ceremony only sequences these. */
 function stubSigningEngine() {
   return {
-    createRouterAbEcdsaRegistrationCeremony: async () => ({ registrationRequest: {} }),
+    createRouterAbEcdsaRegistrationCeremony: async () => ({
+      registrationRequest: {},
+      registrationRequestDigestB64u: FIXTURE_DIGEST32_B64U,
+    }),
     verifyRouterAbEcdsaRegistrationClientProofs: async () => ({
       publicFacts: {},
       clientBootstrap: {},
@@ -60,6 +63,7 @@ function ceremonyArgs(overrides: Record<string, unknown> = {}) {
     relayerUrl: RELAYER,
     registrationCeremonyId: 'wrc_test',
     signedSetup: 'signed-setup',
+    signerPlan: 'near_ed25519_and_evm_family_ecdsa',
     ecdsaPrepare: {
       kind: 'evm_family_ecdsa_keygen',
       chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
@@ -89,8 +93,6 @@ const FORWARDED_ECDSA = {
   strictResult: {
     result: 'forwarded',
     response: {
-      replay: { request_id: 'fixture-replay-nonce', reserved: true },
-      lifecycle: { lifecycle_id: 'wrc_test', stored: true },
       bundles: { signerA: FIXTURE_BUNDLE, signerB: FIXTURE_BUNDLE },
     },
   },
