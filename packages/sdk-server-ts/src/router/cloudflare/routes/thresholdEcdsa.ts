@@ -314,10 +314,13 @@ async function issueEcdsaOperationStepUpGrant(input: {
         return json(verified, { status: verified.code === 'invalid_body' ? 400 : 401 });
       }
       const consumed = await input.ctx.service.emailOtp.consumeEmailOtpGrant({
+        subject: {
+          kind: 'authorization_session',
+          tenantId: authenticated.session.tenantId,
+          principalId: authenticated.session.principalId,
+          walletId: walletIdFromString(authenticated.session.walletId),
+        },
         loginGrant: verified.loginGrant,
-        userId: authenticated.session.principalId,
-        walletId: authenticated.session.walletId,
-        orgId: authenticated.session.tenantId,
         otpChannel: EMAIL_OTP_CHANNEL,
       });
       if (!consumed.ok) {

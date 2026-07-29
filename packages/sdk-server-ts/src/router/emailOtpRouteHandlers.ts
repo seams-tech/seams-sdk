@@ -1,6 +1,7 @@
 import { toOptionalRecordString } from '@shared/utils/validation';
+import { parseOrgId, parseProviderSubject, parseWalletId } from '@shared/utils/domainIds';
 import { EMAIL_OTP_CHANNEL, WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
-import type { RouterApiEmailOtpRouteService } from './authServicePort';
+import type { EmailOtpGrantSubject, RouterApiEmailOtpRouteService } from './authServicePort';
 import type { RouterApiOptions } from './routerApi';
 import {
   authorizeEmailOtpExportPolicy,
@@ -38,6 +39,23 @@ export type EmitEmailOtpRouteWebhook = (input: {
   userId: string;
   walletId?: string;
 }) => Promise<void>;
+
+function providerEmailOtpGrantSubject(input: {
+  readonly orgId: string;
+  readonly providerUserId: string;
+  readonly walletId: string;
+}): EmailOtpGrantSubject | null {
+  const orgId = parseOrgId(input.orgId);
+  const providerSubject = parseProviderSubject(input.providerUserId);
+  const walletId = parseWalletId(input.walletId);
+  if (!orgId.ok || !providerSubject.ok || !walletId.ok) return null;
+  return {
+    kind: 'provider_identity',
+    orgId: orgId.value,
+    providerSubject: providerSubject.value,
+    walletId: walletId.value,
+  };
+}
 
 async function requireEmailOtpEnrollmentMutationAuth(input: {
   service: RouterApiEmailOtpRouteService;
@@ -1315,11 +1333,17 @@ export async function handleEmailOtpLoginVerifyAndUnsealRoute(input: {
     userId: input.userId,
   });
   if (!providerUser.ok) return providerUser.response;
-  const grant = await input.service.consumeEmailOtpGrant({
-    loginGrant,
-    userId: providerUser.providerUserId,
-    walletId: sessionWalletId,
+  const subject = providerEmailOtpGrantSubject({
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    providerUserId: providerUser.providerUserId,
+    walletId: sessionWalletId,
+  });
+  if (!subject) {
+    return { status: 400, body: { ok: false, code: 'invalid_body', message: 'Invalid OTP subject' } };
+  }
+  const grant = await input.service.consumeEmailOtpGrant({
+    subject,
+    loginGrant,
     otpChannel: EMAIL_OTP_CHANNEL,
     clientIp: input.clientIp,
   });
@@ -1549,11 +1573,17 @@ export async function handleEmailOtpUnsealRoute(input: {
     userId: input.userId,
   });
   if (!providerUser.ok) return providerUser.response;
-  const grant = await input.service.consumeEmailOtpGrant({
-    loginGrant,
-    userId: providerUser.providerUserId,
-    walletId: sessionWalletId,
+  const subject = providerEmailOtpGrantSubject({
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    providerUserId: providerUser.providerUserId,
+    walletId: sessionWalletId,
+  });
+  if (!subject) {
+    return { status: 400, body: { ok: false, code: 'invalid_body', message: 'Invalid OTP subject' } };
+  }
+  const grant = await input.service.consumeEmailOtpGrant({
+    subject,
+    loginGrant,
     otpChannel: EMAIL_OTP_CHANNEL,
     clientIp: input.clientIp,
   });
@@ -1618,11 +1648,18 @@ export async function handleEmailOtpSigningSessionUnsealRoute(input: {
   });
   if (!email.ok) return { status: email.status, body: email.body };
 
-  const grant = await input.service.consumeEmailOtpGrant({
-    loginGrant,
-    userId: email.providerUserId,
-    walletId,
+  const subject = providerEmailOtpGrantSubject({
     orgId: email.orgId,
+    providerUserId: email.providerUserId,
+    walletId,
+  });
+  if (!subject) {
+    return { status: 400, body: { ok: false, code: 'invalid_body', message: 'Invalid OTP subject' } };
+  }
+
+  const grant = await input.service.consumeEmailOtpGrant({
+    subject,
+    loginGrant,
     otpChannel: EMAIL_OTP_CHANNEL,
     clientIp: input.clientIp,
   });

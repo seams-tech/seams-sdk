@@ -1010,13 +1010,18 @@ function normalizeGrantConsumptionInput(
   input: ConsumeEmailOtpGrantInput,
 ): ParseResult<NormalizedGrantConsumptionInput, ConsumeEmailOtpGrantResult> {
   const loginGrant = toOptionalTrimmedString(input.loginGrant);
-  const userId = toOptionalTrimmedString(input.userId);
-  const walletId = parseD1BoundaryWalletIdResult(input.walletId);
-  const orgId = toOptionalTrimmedString(input.orgId);
+  const walletId = parseD1BoundaryWalletIdResult(input.subject.walletId);
+  const userId =
+    input.subject.kind === 'authorization_session'
+      ? input.subject.principalId
+      : input.subject.providerSubject;
+  const orgId =
+    input.subject.kind === 'authorization_session'
+      ? input.subject.tenantId
+      : input.subject.orgId;
   const otpChannel = toOptionalTrimmedString(input.otpChannel);
   const clientIp = toOptionalTrimmedString(input.clientIp);
   if (!loginGrant) return invalidGrantConsumptionBody('Missing loginGrant');
-  if (!userId) return invalidGrantConsumptionBody('Missing userId');
   if (!walletId.ok) {
     return invalidGrantConsumptionBody(
       walletId.code === 'missing' ? 'Missing walletId' : 'Invalid walletId',
