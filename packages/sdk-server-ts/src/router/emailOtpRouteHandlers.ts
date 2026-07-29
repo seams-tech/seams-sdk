@@ -3,6 +3,7 @@ import { parseOrgId, parseProviderSubject, parseWalletId } from '@shared/utils/d
 import { EMAIL_OTP_CHANNEL, WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 import type {
   EmailOtpProviderIdentitySubject,
+  EmailOtpStrongAuthSubject,
   RouterApiEmailOtpRouteService,
 } from './authServicePort';
 import type { RouterApiOptions } from './routerApi';
@@ -60,6 +61,12 @@ function providerEmailOtpGrantSubject(input: {
   };
 }
 
+function emailOtpStrongAuthSubject(walletId: string): EmailOtpStrongAuthSubject | null {
+  const parsed = parseWalletId(walletId);
+  if (!parsed.ok) return null;
+  return { kind: 'email_otp_strong_auth', walletId: parsed.value };
+}
+
 async function requireEmailOtpEnrollmentMutationAuth(input: {
   service: RouterApiEmailOtpRouteService;
   claims: Record<string, unknown>;
@@ -67,8 +74,16 @@ async function requireEmailOtpEnrollmentMutationAuth(input: {
 }): Promise<EmailOtpRouteResponse | null> {
   if (isGoogleOidcEmailOtpSession(input.claims)) return null;
 
+  const subject = emailOtpStrongAuthSubject(input.walletId);
+  if (!subject) {
+    return {
+      status: 400,
+      body: { ok: false, code: 'invalid_body', message: 'Invalid walletId' },
+    };
+  }
+
   const strongAuthGate = await input.service.isEmailOtpStrongAuthRequired({
-    walletId: input.walletId,
+    subject,
   });
   if (!strongAuthGate.ok) {
     return { status: emailOtpStatusCode(strongAuthGate.code), body: strongAuthGate };
