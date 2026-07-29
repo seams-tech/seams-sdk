@@ -340,8 +340,10 @@ removes.
 - [x] Keep role-local material handles stable across Tempo and ARC for the same
       exact activated material.
 - [x] Remove raw share bytes and broad state objects from generic callers.
-- [ ] Delete `evmFamilySigningKeySlotId` from runtime paths or prove it is a
-      provisioning-only identifier outside material selection.
+- [x] Delete `evmFamilySigningKeySlotId` from role-local public facts,
+      activation/durable bindings, persistence keys, and sealing AAD.
+- [ ] Delete `evmFamilySigningKeySlotId` from remaining runtime paths or prove
+      it is a provisioning-only identifier outside material selection.
 - [x] Verify Tempo, EVM, and export consumers use the same durable material
       reference.
 - [x] Reject cross-chain mismatch before worker open or material use.
@@ -700,6 +702,8 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete legacy recovery microstates and compensation branches.
 - [ ] Delete duplicate signing-lane selectors, auth-method fallbacks, direct
       protocol dispatch, and superseded export coordinators.
+- [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
+      duplicate two-slot committed-lane selector.
 - [x] Delete the dead in-place ECDSA lane-identity updater, its record-era unit
       test, and the source-range guard whose remaining subject it owned.
 - [ ] Delete obsolete tests, handwritten records, mocks, guards, and fixtures
