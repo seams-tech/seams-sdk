@@ -5,10 +5,6 @@ import {
   type NearEd25519SigningKeyId,
 } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
-import {
-  decodeJwtPayloadRecord,
-  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-} from '@shared/utils/sessionTokens';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import type {
   EcdsaDurableLaneRecord,
@@ -17,10 +13,7 @@ import type {
   SigningSessionSealedStoreRecord,
 } from '../persistence/sealedSessionStore';
 import { buildEcdsaReauthAnchorPublicRestore } from '../persistence/sealedSessionStore';
-import {
-  normalizeSealedRecoveryRecord,
-  sealedRecoveryWalletSessionJwt,
-} from '../sealedRecovery/recoveryRecord';
+import { normalizeSealedRecoveryRecord } from '../sealedRecovery/recoveryRecord';
 import type {
   EmailOtpEcdsaSealedRecoveryRecord,
   PasskeyEcdsaSealedRecoveryRecord,
@@ -36,7 +29,6 @@ import {
   buildPasskeyEcdsaAuthBinding,
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildResolvedEvmFamilyEcdsaKey,
-  buildVerifiedEcdsaPublicFacts,
   deriveEvmFamilyKeyFingerprintFromPublicFacts,
   resolveThresholdEcdsaKeyIdFromRecord,
   toRpId,
@@ -846,8 +838,8 @@ function passkeyAuthFromResolvedEcdsaKey(
 
 function ecdsaRecoveryRecordAuthBinding(
   record: EmailOtpEcdsaSealedRecoveryRecord | PasskeyEcdsaSealedRecoveryRecord,
-): SigningLaneAuthBinding | null {
-  if (record.authMethod === 'passkey') {
+): SigningLaneAuthBinding {
+  if (record.source !== 'email_otp') {
     return {
       kind: 'passkey',
       rpId: toRpId(record.authority.verifier.rpId),
@@ -1281,82 +1273,12 @@ function ecdsaRecoveryRecordForDurableLane(
   return record;
 }
 
-type DurableEcdsaWalletSessionJwtClaims = {
-  walletId: string;
-  keyHandle: string;
-  thresholdSessionId: string;
-  signingGrantId: string;
-};
-
-function parseDurableEcdsaWalletSessionJwtClaims(
-  jwt: string,
-): DurableEcdsaWalletSessionJwtClaims | null {
-  const payload = decodeJwtPayloadRecord(jwt);
-  if (!payload || payload.kind !== ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND) {
-    return null;
-  }
-  if (String(payload.keyScope || '').trim() !== 'evm-family') return null;
-  const thresholdSessionId = String(payload.thresholdSessionId || '').trim();
-  const signingGrantId = String(payload.signingGrantId || '').trim();
-  const walletId = String(payload.walletId || '').trim();
-  const keyHandle = String(payload.keyHandle || '').trim();
-  if (!thresholdSessionId || !signingGrantId || !walletId || !keyHandle) return null;
-  return {
-    walletId,
-    keyHandle,
-    thresholdSessionId,
-    signingGrantId,
-  };
-}
-
-function durableEcdsaJwtMatchesRecord(args: {
-  recoveryRecord: EmailOtpEcdsaSealedRecoveryRecord | PasskeyEcdsaSealedRecoveryRecord;
-  thresholdSessionId: string;
-  signingGrantId: string;
-  expectedWalletId: string;
-  expectedKeyHandle: string;
-}): boolean {
-  const jwt = String(
-    sealedRecoveryWalletSessionJwt(args.recoveryRecord.walletSessionAuth) || '',
-  ).trim();
-  if (!jwt) return true;
-  const claims = parseDurableEcdsaWalletSessionJwtClaims(jwt);
-  if (!claims) return false;
-  if (claims.walletId !== args.expectedWalletId) return false;
-  if (claims.keyHandle !== args.expectedKeyHandle) return false;
-
-  return (
-    claims.thresholdSessionId === args.thresholdSessionId &&
-    claims.signingGrantId === args.signingGrantId
-  );
-}
-
-async function publicFactsFromAvailableEcdsaKey(args: {
-  key: EvmFamilyEcdsaKeyIdentity;
-  keyHandle?: EvmFamilyEcdsaKeyHandle;
-  verifiedPublicFacts?: VerifiedEcdsaPublicFacts;
-  thresholdEcdsaPublicKeyB64u: unknown;
-}): Promise<VerifiedEcdsaPublicFacts> {
-  if (args.verifiedPublicFacts) return args.verifiedPublicFacts;
-  const keyHandle = String(args.keyHandle || '').trim();
-  if (!keyHandle) {
-    throw new Error('missing runtime ECDSA keyHandle');
-  }
-  return buildVerifiedEcdsaPublicFacts({
-    keyHandle: args.keyHandle!,
-    publicKeyB64u: args.thresholdEcdsaPublicKeyB64u,
-    participantIds: args.key.participantIds,
-    thresholdOwnerAddress: args.key.thresholdOwnerAddress,
-  });
-}
-
 function concreteAvailableEcdsaAuthFields(args: {
   key: EvmFamilyEcdsaKeyIdentity;
-  auth?: SigningLaneAuthBinding;
+  auth: SigningLaneAuthBinding;
   publicFacts: VerifiedEcdsaPublicFacts;
-}): ConcreteAvailableEcdsaSigningLaneAuth | null {
-  if (args.auth?.kind === 'passkey') {
-    if (!args.auth || args.auth.kind !== 'passkey') return null;
+}): ConcreteAvailableEcdsaSigningLaneAuth {
+  if (args.auth.kind === 'passkey') {
     return {
       auth: args.auth,
       resolvedKey: buildResolvedEvmFamilyEcdsaKey({
@@ -1369,8 +1291,24 @@ function concreteAvailableEcdsaAuthFields(args: {
       }),
     };
   }
-  if (!args.auth || args.auth.kind !== 'email_otp') return null;
   return { auth: args.auth };
+}
+
+function verifiedPublicFactsFromRuntimeEcdsaRecord(
+  record: AvailableSigningLanesRuntimeEcdsaRecord,
+): VerifiedEcdsaPublicFacts | null {
+  const facts = record.verifiedPublicFacts;
+  if (record.keyHandle !== facts.keyHandle) return null;
+  if (record.key.thresholdOwnerAddress !== facts.thresholdOwnerAddress) return null;
+  if (
+    record.key.participantIds.length !== facts.participantIds.length ||
+    record.key.participantIds.some(
+      (participantId, index) => participantId !== facts.participantIds[index],
+    )
+  ) {
+    return null;
+  }
+  return facts;
 }
 
 export function buildRuntimeEcdsaAvailableLaneIdentityInput(args: {
@@ -1417,34 +1355,26 @@ export function buildRuntimeEcdsaAvailableLaneIdentityInput(args: {
 export async function runtimeEcdsaAvailableLaneIdentityKey(
   record: AvailableSigningLanesRuntimeEcdsaRecord,
 ): Promise<string | null> {
-  const publicFacts = await publicFactsFromAvailableEcdsaKey({
-    key: record.key,
-    keyHandle: record.keyHandle,
-    verifiedPublicFacts: record.verifiedPublicFacts,
-    thresholdEcdsaPublicKeyB64u: record.verifiedPublicFacts.publicKeyB64u,
-  });
+  const publicFacts = verifiedPublicFactsFromRuntimeEcdsaRecord(record);
+  if (!publicFacts) return null;
   return ecdsaAvailableLaneIdentityKey(
     buildRuntimeEcdsaAvailableLaneIdentityInput({ record, publicFacts }),
   );
 }
 
-function reauthAnchorAuthBinding(record: EcdsaReauthAnchorRecord): SigningLaneAuthBinding | null {
+function reauthAnchorAuthBinding(record: EcdsaReauthAnchorRecord): SigningLaneAuthBinding {
   const restore = record.ecdsaRestore;
-  switch (record.authMethod) {
-    case 'email_otp':
-      if (restore.source !== 'email_otp') return null;
-      return {
-        kind: 'email_otp',
-        providerSubjectId: restore.providerSubjectId,
-      };
-    case 'passkey':
-      if (restore.source === 'email_otp') return null;
-      return {
-        kind: 'passkey',
-        rpId: toRpId(restore.rpId),
-        credentialIdB64u: restore.credentialIdB64u,
-      };
+  if (restore.source === 'email_otp') {
+    return {
+      kind: 'email_otp',
+      providerSubjectId: restore.providerSubjectId,
+    };
   }
+  return {
+    kind: 'passkey',
+    rpId: toRpId(restore.rpId),
+    credentialIdB64u: restore.credentialIdB64u,
+  };
 }
 
 async function reauthAnchorToEcdsaLane(args: {
@@ -1460,7 +1390,6 @@ async function reauthAnchorToEcdsaLane(args: {
     return null;
   }
   const auth = reauthAnchorAuthBinding(record);
-  if (!auth) return null;
   let ecdsaThresholdKeyId: string;
   try {
     ecdsaThresholdKeyId = String(
@@ -1551,42 +1480,11 @@ async function recordToEcdsaLane(args: {
     return null;
   }
 
-  const thresholdSessionId = String(recoveryRecord.thresholdSessionId || '').trim();
-  const signingGrantId = String(recoveryRecord.signingGrantId || '').trim();
-  let ecdsaThresholdKeyId = '';
-  try {
-    ecdsaThresholdKeyId = String(
-      resolveThresholdEcdsaKeyIdFromRecord({
-        record: {
-          ecdsaThresholdKeyId: recoveryRecord.ecdsaThresholdKeyId,
-        },
-      }),
-    ).trim();
-  } catch {
-    ecdsaThresholdKeyId = '';
-  }
+  const thresholdSessionId = recoveryRecord.thresholdSessionId;
+  const signingGrantId = recoveryRecord.signingGrantId;
+  const ecdsaThresholdKeyId = recoveryRecord.ecdsaThresholdKeyId;
   const policyHint = durablePolicyHint(args.record);
-  const walletId = String(args.record.walletId || '').trim();
-  if (
-    !thresholdSessionId ||
-    !signingGrantId ||
-    !walletId ||
-    !recoveryRecord.keyHandle ||
-    !ecdsaThresholdKeyId
-  ) {
-    return null;
-  }
-  if (
-    !durableEcdsaJwtMatchesRecord({
-      recoveryRecord,
-      thresholdSessionId,
-      signingGrantId,
-      expectedWalletId: walletId,
-      expectedKeyHandle: String(recoveryRecord.keyHandle || '').trim(),
-    })
-  ) {
-    return null;
-  }
+  const walletId = recoveryRecord.walletId;
   let keyIdentity: ReturnType<typeof buildBaseEvmFamilyEcdsaKeyIdentity>;
   try {
     keyIdentity = buildBaseEvmFamilyEcdsaKeyIdentity({
@@ -1625,10 +1523,9 @@ async function recordToEcdsaLane(args: {
         : 'restorable';
   const authFields = concreteAvailableEcdsaAuthFields({
     key: keyIdentity,
-    auth: ecdsaRecoveryRecordAuthBinding(recoveryRecord) || undefined,
+    auth: ecdsaRecoveryRecordAuthBinding(recoveryRecord),
     publicFacts,
   });
-  if (!authFields) return null;
   if (!args.record.ecdsaRestore) return null;
   const publicReauthAuthority = buildEcdsaReauthAnchorPublicRestore(
     args.record.ecdsaRestore,
@@ -2941,26 +2838,17 @@ export async function readAvailableSigningLanes(
       });
       continue;
     }
-    let runtimePublicFacts: VerifiedEcdsaPublicFacts;
-    try {
-      runtimePublicFacts = await publicFactsFromAvailableEcdsaKey({
-        key: runtimeRecord.key,
-        keyHandle: runtimeRecord.keyHandle,
-        verifiedPublicFacts: runtimeRecord.verifiedPublicFacts,
-        thresholdEcdsaPublicKeyB64u: runtimeRecord.verifiedPublicFacts.publicKeyB64u,
-      });
-    } catch (error) {
+    const runtimePublicFacts = verifiedPublicFactsFromRuntimeEcdsaRecord(runtimeRecord);
+    if (!runtimePublicFacts) {
       invalidLanes.push({
         curve: 'ecdsa',
         source: 'runtime_session_record',
         reason: 'invalid_runtime_public_facts',
         authMethod: runtimeAuthMethod,
-        message: error instanceof Error ? error.message : String(error),
       });
       runtimeEcdsaDiscovery.push({
         result: 'rejected',
         reason: 'invalid_runtime_public_facts',
-        message: error instanceof Error ? error.message : String(error),
         record: runtimeRecord,
       });
       continue;
