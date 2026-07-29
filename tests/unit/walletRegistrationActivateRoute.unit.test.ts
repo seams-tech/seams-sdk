@@ -388,10 +388,14 @@ test('Ed25519-only setup skips ECDSA preparation entirely', async () => {
 /*
  * Not yet covered here: Ed25519-only respond and activate.
  *
- * Both need a configured Yao product-registration runtime, which this file's
- * harness does not build — respond stops at `not_configured` before reaching
- * the admission it is supposed to derive. Asserting that error would test the
- * harness, not the branch, so the cases are deliberately absent rather than
- * present-and-misleading. They need `createActivatedFinalizeYaoRuntimeFixture`
- * threaded through `createCloudflareD1RouterApiAuthService`.
+ * Both need a Yao product-registration runtime that admits an arbitrary
+ * ceremony. `createActivatedFinalizeYaoRuntimeFixture` wires in cleanly but
+ * mints its receipt against its own fixed wallet and ceremony ids, so a
+ * freshly generated setup fails admission with a scope mismatch — the fixture
+ * proves the plumbing, not the branch.
+ *
+ * Covering these needs a runtime that derives its receipt binding from the
+ * incoming admission request. Asserting the mismatch error instead would test
+ * the fixture, so the cases are deliberately absent rather than
+ * present-and-misleading.
  */
