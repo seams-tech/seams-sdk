@@ -38,6 +38,8 @@ import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
@@ -403,6 +405,59 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       ...(walletSessionJwt ? { jwt: walletSessionJwt } : {}),
       clientVerifyingShareB64u,
     },
+  };
+}
+
+export function createEcdsaSessionActivationFixture(args: {
+  walletId: string;
+  chain: ThresholdEcdsaActivationChain;
+  sessionId?: string;
+}) {
+  const bootstrap = createThresholdEcdsaBootstrapFixture({
+    nearAccountId: args.walletId,
+    chain: args.chain,
+    sessionId: args.sessionId,
+  });
+  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  const runtimePolicyScope = bootstrap.session.runtimePolicyScope;
+  const walletSessionJwt = bootstrap.session.jwt;
+  const normalSigning = bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning;
+  if (
+    !binding ||
+    binding.materialKind !== 'role_local_worker_handle' ||
+    !runtimePolicyScope ||
+    !walletSessionJwt ||
+    !normalSigning
+  ) {
+    throw new Error('ECDSA session activation fixture requires complete role-local material');
+  }
+  return {
+    request: parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1({
+      kind: 'router_ab_ecdsa_post_registration_session_activation_v1',
+      public_capability: binding.publicFacts.publicCapability,
+      session_policy: {
+        threshold_session_id: bootstrap.session.thresholdSessionId,
+        signing_grant_id: bootstrap.session.signingGrantId,
+        ttl_ms: Math.max(1, bootstrap.session.expiresAtMs - Date.now()),
+        remaining_uses: bootstrap.session.remainingUses,
+        runtime_policy_scope: runtimePolicyScope,
+      },
+    }),
+    response: parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1({
+      kind: 'router_ab_ecdsa_post_registration_session_activated_v1',
+      public_capability: binding.publicFacts.publicCapability,
+      session: {
+        authorization_session_id: bootstrap.session.authorizationSessionId,
+        threshold_session_id: bootstrap.session.thresholdSessionId,
+        signing_grant_id: bootstrap.session.signingGrantId,
+        wallet_session_id: bootstrap.session.walletSessionId,
+        quota_id: bootstrap.session.quotaId,
+        expires_at_ms: bootstrap.session.expiresAtMs,
+        remaining_uses: bootstrap.session.remainingUses,
+        wallet_session_jwt: walletSessionJwt,
+      },
+      normal_signing: normalSigning,
+    }),
   };
 }
 

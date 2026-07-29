@@ -20,7 +20,10 @@ import type {
   SignerWorkerOperationResult,
   SignerWorkerOperationType,
 } from '../../packages/sdk-web/src/core/signingEngine/workerManager/workerTypes';
-import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import {
+  createEcdsaSessionActivationFixture,
+  createThresholdEcdsaBootstrapFixture,
+} from './helpers/ecdsaBootstrap.fixtures';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation';
 import {
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
@@ -69,12 +72,17 @@ const RUNTIME_POLICY_SCOPE = {
   envId: 'test',
   signingRootVersion: 'root-v1',
 } as const;
-const ECDSA_HANDLE_BINDING: EmailOtpEcdsaSessionBootstrapHandleBinding = {
+const ECDSA_HANDLE_BINDING = {
   evmFamilySigningKeySlotId: 'evm-family-primary',
   authSubjectId: 'google:mixed-subject',
   operation: 'wallet_unlock',
   chainTarget: CHAIN_TARGET,
-};
+} as const satisfies EmailOtpEcdsaSessionBootstrapHandleBinding;
+const ECDSA_SESSION_ACTIVATION = createEcdsaSessionActivationFixture({
+  walletId: String(WALLET_ID),
+  chain: 'evm',
+  sessionId: 'mixed-email-otp-unlock-session',
+});
 const ECDSA_ROOT_HANDLE: EmailOtpEcdsaSessionBootstrapHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1',
   sessionId: 'ecdsa-root-session',
@@ -469,6 +477,7 @@ function mixedUnlockArgs(workerCtx: WorkerOperationContext) {
     nearAccountId: NEAR_ACCOUNT_ID,
     expectedOperationalPublicKey: 'ed25519:fixture-public-key',
     expectedThresholdSessionId: THRESHOLD_SESSION_ID,
+    ecdsaSessionActivation: ECDSA_SESSION_ACTIVATION.request,
   } as const;
 }
 
@@ -527,8 +536,10 @@ function exportHandleForRecord(
 test('mixed Email OTP unlock sends one coherent worker operation and returns both materials', async () => {
   const worker = new MixedUnlockWorkerFixture({
     kind: 'ecdsa_and_ed25519_yao_recovery',
+    operation: 'wallet_unlock',
     recovery: RECOVERY,
     clientRootShareHandle: ECDSA_ROOT_HANDLE,
+    ecdsaSession: ECDSA_SESSION_ACTIVATION.response,
     pendingFactorHandle: PENDING_FACTOR_HANDLE,
     ed25519YaoRecovery: ED25519_RECOVERY_BOOTSTRAP,
   });
@@ -556,6 +567,7 @@ test('mixed Email OTP unlock sends one coherent worker operation and returns bot
         nearAccountId: NEAR_ACCOUNT_ID,
         expectedOperationalPublicKey: 'ed25519:fixture-public-key',
         expectedThresholdSessionId: THRESHOLD_SESSION_ID,
+        ecdsaSessionActivation: ECDSA_SESSION_ACTIVATION.request,
         ed25519YaoRecovery: {
           kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
           signerSlot: 1,
@@ -576,8 +588,10 @@ test('mixed Email OTP unlock sends one coherent worker operation and returns bot
   expect(ed25519YaoRecovery).not.toHaveProperty('walletSessionJwt');
   expect(result).toEqual({
     kind: 'ecdsa_and_ed25519_yao_recovery',
+    operation: 'wallet_unlock',
     recovery: RECOVERY,
     clientRootShareHandle: ECDSA_ROOT_HANDLE,
+    ecdsaSession: ECDSA_SESSION_ACTIVATION.response,
     pendingFactorHandle: PENDING_FACTOR_HANDLE,
     ed25519YaoRecovery: ED25519_RECOVERY_BOOTSTRAP,
   });
@@ -586,6 +600,7 @@ test('mixed Email OTP unlock sends one coherent worker operation and returns bot
 test('mixed Email OTP unlock rejects a worker result from another material branch', async () => {
   const worker = new MixedUnlockWorkerFixture({
     kind: 'ecdsa',
+    operation: 'sign',
     recovery: RECOVERY,
     clientRootShareHandle: ECDSA_ROOT_HANDLE,
   });

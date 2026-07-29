@@ -210,24 +210,37 @@ export type WalletSessionReconnectEcdsaBootstrapRequest = EcdsaBootstrapExactReq
   emailOtpAuthContext?: never;
 };
 
-export type EmailOtpEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBase & {
+type EmailOtpEcdsaBootstrapRequestBase = EcdsaBootstrapExactRequestBase & {
   kind: 'email_otp_ecdsa_bootstrap';
   source: 'email_otp';
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
   passkeyPrfFirstB64u?: never;
   webauthnAuthentication?: never;
-  routeAuth?: AppOrWalletSessionAuth;
 };
+
+export type EmailOtpEcdsaBootstrapRequest = EmailOtpEcdsaBootstrapRequestBase &
+  (
+    | {
+        routeAuth?: AppOrWalletSessionAuth;
+        sessionActivation?: never;
+      }
+    | {
+        sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        routeAuth?: never;
+      }
+  );
 
 export type EmailOtpEcdsaExactBootstrapRequest = EmailOtpEcdsaBootstrapRequest;
 
 export type EmailOtpEcdsaExplicitExportBootstrapRequest = Omit<
-  EmailOtpEcdsaExactBootstrapRequest,
+  EmailOtpEcdsaBootstrapRequestBase,
   'emailOtpWorkerSessionHandle'
 > & {
   purpose: 'explicit_key_export';
   emailOtpWorkerSessionHandle: EmailOtpEcdsaExportWorkerIssuedSessionHandle;
+  routeAuth?: AppOrWalletSessionAuth;
+  sessionActivation?: never;
 };
 
 export type EmailOtpEcdsaExplicitExportBootstrapResult = {
@@ -501,10 +514,26 @@ function toActivateEcdsaSessionRequest(
       });
     }
     case 'email_otp_ecdsa_bootstrap': {
-      return exactSessionRequest(request, request.routeAuth, {
-        authKind: 'email_otp',
+      const auth = {
+        authKind: 'email_otp' as const,
         emailOtpWorkerSessionHandle: request.emailOtpWorkerSessionHandle,
-      });
+      };
+      return request.sessionActivation
+        ? {
+            kind: 'session_bootstrap',
+            purpose: 'transaction_signing',
+            relayerUrl,
+            keyHandle: toEvmFamilyEcdsaKeyHandle(request.keyHandle),
+            key: request.key,
+            lanePolicy: request.lanePolicy,
+            publicCapability: request.publicCapability,
+            existingRoleLocalMaterial: request.existingRoleLocalMaterial,
+            ...(request.requestId ? { requestId: request.requestId } : {}),
+            ...auth,
+            preauthorizedSessionActivation: request.sessionActivation,
+            runtimeScopeBootstrap: request.runtimeScopeBootstrap,
+          }
+        : exactSessionRequest(request, request.routeAuth, auth);
     }
   }
   request satisfies never;
