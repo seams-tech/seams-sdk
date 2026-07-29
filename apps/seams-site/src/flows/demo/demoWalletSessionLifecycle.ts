@@ -129,10 +129,14 @@ export class DemoWalletSessionLifecycleController {
           kind: 'lock_missing_session',
           identity: { walletId: state.walletId, reason: state.reason },
         };
+      // `superseded` is replaced, not lost: the wallet stays unlocked and the
+      // next read resolves current state. Locking here would log the user out
+      // of a wallet that is still theirs.
       case 'exhausted':
       case 'unavailable':
       case 'budget_unknown':
       case 'invalid':
+      case 'superseded':
         return PRESERVE_UNLOCKED_ACTION;
       default:
         return assertNeverUnavailableReason(state.reason);

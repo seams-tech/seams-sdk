@@ -17,11 +17,14 @@ export function isWalletSessionReadyForUi(args: {
         String(args.session.appIdentity.walletId) ===
         String(args.session.reusableWalletSession.walletId)
       );
+    // `superseded` is stale rather than usable: not ready for the UI now, and
+    // ready again once the caller re-resolves to current state.
     case 'not_requested':
     case 'expired':
     case 'missing':
     case 'unavailable':
     case 'invalid':
+    case 'superseded':
       return false;
   }
   args.session.reusableWalletSession satisfies never;

@@ -47,7 +47,11 @@ export function useLoginStateRefresher(args: {
               break;
             case 'wallet_unlocked_without_signing_session':
               switch (state.reason) {
+                // On `superseded` the wallet is still unlocked and only the
+                // reusable session was replaced. Keep the wallet and let this
+                // refresh resolve current state; logging out would be wrong.
                 case 'exhausted':
+                case 'superseded':
                   exactWalletId = state.walletId;
                   break;
                 case 'unavailable':
