@@ -19,6 +19,7 @@ import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef
 import { Secp256k1Engine } from '@/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
 import { clearAllRouterAbEcdsaDerivationClientPresignatures } from '@/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool';
 import {
+  EcdsaDerivationClientCustomRequestType,
   EcdsaOnlineClientRequestType,
   EcdsaPresignClientRequestType,
 } from '@/core/signingEngine/workerManager/workerTypes';
@@ -143,6 +144,15 @@ test('persisted ECDSA hydration binds the worker and signs the exact authorized 
   }
   expect(worker.requests).toEqual(
     expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'ecdsaDerivationClient',
+        request: expect.objectContaining({
+          type: EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial,
+          payload: expect.objectContaining({
+            materialActivation: fixture.manifest.activation.materialActivation,
+          }),
+        }),
+      }),
       expect.objectContaining({
         kind: 'ecdsaPresignClient',
         request: expect.objectContaining({ type: EcdsaPresignClientRequestType.ListAvailable }),
