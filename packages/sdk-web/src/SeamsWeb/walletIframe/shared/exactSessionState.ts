@@ -56,6 +56,10 @@ export type WalletIframeSessionUnavailableReason =
   | 'not_found'
   | 'unavailable'
   | 'budget_unknown'
+  // Replaced rather than broken: the host discards what it holds and reads
+  // current state again. Collapsing this into `invalid` sent a routine
+  // replacement down an error path.
+  | 'superseded'
   | 'invalid';
 
 export type WalletIframeExactSessionState =
@@ -147,6 +151,8 @@ export function exactSessionStateFromWalletSession(
     }
     case 'exhausted':
       return unavailableSession(walletId, 'exhausted');
+    case 'superseded':
+      return unavailableSession(walletId, 'superseded');
     case 'missing':
       return unavailableSession(walletId, 'not_found');
     case 'unavailable':
@@ -333,7 +339,7 @@ function parseReusableWalletSession(value: unknown): ReusableWalletSessionState 
     case 'active':
       return {
         kind: 'active',
-        ...parseReusableWalletSessionIdentity(record),
+        ...parseReusableWalletSessionIdentityWithExpiry(record),
         remainingUses: requirePositiveSafeInteger(record.remainingUses, 'remainingUses'),
       };
     case 'exhausted':
@@ -342,17 +348,23 @@ function parseReusableWalletSession(value: unknown): ReusableWalletSessionState 
       }
       return {
         kind: 'exhausted',
-        ...parseReusableWalletSessionIdentity(record),
+        ...parseReusableWalletSessionIdentityWithExpiry(record),
         remainingUses: 0,
       };
     case 'expired':
       return {
         kind: 'expired',
-        ...parseReusableWalletSessionIdentity(record),
+        ...parseReusableWalletSessionIdentityWithExpiry(record),
         detectedAtMs: requirePositiveSafeInteger(record.detectedAtMs, 'detectedAtMs'),
       };
     case 'missing':
       return { kind: 'missing', walletId: requireWalletId(record.walletId) };
+    case 'superseded':
+      return {
+        kind: 'superseded',
+        ...parseReusableWalletSessionIdentity(record),
+        detectedAtMs: requirePositiveSafeInteger(record.detectedAtMs, 'detectedAtMs'),
+      };
     case 'unavailable':
       if (record.reason !== 'persistence_unavailable') {
         throw new Error('Unavailable Wallet Session reason is invalid');
@@ -373,11 +385,14 @@ function parseReusableWalletSession(value: unknown): ReusableWalletSessionState 
   }
 }
 
+/** Who the session belongs to. Separate from its budget, because a superseded
+ * session still names its wallet and factor but no longer has an expiry that
+ * governs anything. */
 function parseReusableWalletSessionIdentity(
   record: Record<string, unknown>,
 ): Pick<
   Extract<ReusableWalletSessionState, { kind: 'active' }>,
-  'walletId' | 'walletSessionId' | 'authMethod' | 'expiresAtMs'
+  'walletId' | 'walletSessionId' | 'authMethod'
 > {
   const walletSessionId = parseWalletSessionId(record.walletSessionId);
   if (!walletSessionId.ok) throw new Error('Reusable Wallet Session ID is invalid');
@@ -388,6 +403,17 @@ function parseReusableWalletSessionIdentity(
     walletId: requireWalletId(record.walletId),
     walletSessionId: walletSessionId.value,
     authMethod: record.authMethod,
+  };
+}
+
+function parseReusableWalletSessionIdentityWithExpiry(
+  record: Record<string, unknown>,
+): Pick<
+  Extract<ReusableWalletSessionState, { kind: 'active' }>,
+  'walletId' | 'walletSessionId' | 'authMethod' | 'expiresAtMs'
+> {
+  return {
+    ...parseReusableWalletSessionIdentity(record),
     expiresAtMs: requirePositiveSafeInteger(record.expiresAtMs, 'expiresAtMs'),
   };
 }
@@ -1110,9 +1136,10 @@ function requireInvalidWalletSessionReason(
     case 'identity_mismatch':
     case 'ambiguous_wallet_session':
     case 'auth_method_mismatch':
-    case 'lifecycle_mismatch':
       return value;
     default:
+      // `lifecycle_mismatch` is gone: replacement crosses the boundary as the
+      // `superseded` kind, not as an invalid reason.
       throw new Error('Invalid Wallet Session reason is invalid');
   }
 }

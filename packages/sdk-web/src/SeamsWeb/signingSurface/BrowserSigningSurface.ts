@@ -532,6 +532,7 @@ export class BrowserSigningSurface {
       touchConfirm: this.touchConfirm,
       emailOtpSessions: this.emailOtpSessions,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
+      thresholdEcdsaSigningQueueByKey: this.thresholdEcdsaSigningQueueByKey,
       getWalletSessionActivationDeps: () => this.enginePorts.walletSessionActivationDeps,
       resolveActiveEd25519YaoCapability: (scope) =>
         this.enginePorts.ed25519YaoActiveClients.resolveForWalletAccount(scope),
@@ -791,10 +792,14 @@ export class BrowserSigningSurface {
             retiredAtMs: nowMs,
           }),
         );
+        // Replaced, not broken. The caller discards this session and resolves
+        // current state again; reporting `invalid` sent it to an error path.
         return {
-          kind: 'invalid',
+          kind: 'superseded',
           walletId: exactWalletId,
-          reason: 'lifecycle_mismatch',
+          walletSessionId: authorization.walletSessionId,
+          authMethod: authorization.authMethod,
+          detectedAtMs: nowMs,
         };
       case 'invalid':
         await walletSessionAuthorizations.write(

@@ -37,7 +37,10 @@ async function applyExactWalletIframeSessionState(args: {
       break;
     case 'wallet_unlocked_without_signing_session':
       switch (args.state.reason) {
+        // `superseded` is replaced, not broken: the wallet stays unlocked and
+        // the lifecycle continues against whatever current state resolves to.
         case 'exhausted':
+        case 'superseded':
           break;
         case 'unavailable':
         case 'budget_unknown':

@@ -452,6 +452,20 @@ export type ReusableWalletSessionState =
       readonly detectedAtMs?: never;
       readonly reason?: never;
     }
+  // R90-INV-010. The authority or lifecycle behind this session was replaced,
+  // so the session is stale rather than broken: discard it and resolve current
+  // state again. It carries no expiry or remaining uses because the replaced
+  // session's budget is no longer the one that governs.
+  | {
+      readonly kind: 'superseded';
+      readonly walletId: WalletId;
+      readonly walletSessionId: WalletSessionId;
+      readonly authMethod: WalletAuthMethod;
+      readonly detectedAtMs: number;
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+      readonly reason?: never;
+    }
   | {
       readonly kind: 'unavailable';
       readonly walletId: WalletId;
@@ -465,12 +479,14 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'invalid';
       readonly walletId: WalletId;
+      // `lifecycle_mismatch` is gone: replacement is `superseded`, which the
+      // caller re-resolves. Collapsing it here told adapters a routine
+      // replacement was a broken session.
       readonly reason:
         | 'malformed'
         | 'identity_mismatch'
         | 'ambiguous_wallet_session'
-        | 'auth_method_mismatch'
-        | 'lifecycle_mismatch';
+        | 'auth_method_mismatch';
       readonly walletSessionId?: never;
       readonly authMethod?: never;
       readonly remainingUses?: never;
