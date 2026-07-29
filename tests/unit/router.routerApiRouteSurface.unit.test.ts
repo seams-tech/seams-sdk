@@ -1,7 +1,11 @@
 import { expect, test } from '@playwright/test';
 import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/authServicePort';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
-import { createRouterApiRouter } from '../../packages/sdk-server-ts/src/router/express-adaptor';
+import {
+  createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1,
+  createRouterApiRouter,
+  type RouterAbEd25519YaoProductRegistrationPortsV1,
+} from '@seams/sdk-server/router/express';
 import { createRouterApiModule } from '../../packages/sdk-server-ts/src/router/modules';
 import type {
   RouterApiCloudflareRouteExtensionInput,
@@ -52,6 +56,24 @@ function makeRouterApiServiceBagFixture(): RouterApiServiceBag {
       return makeUnexpectedRouterApiServiceValue(`RouterApiServiceBag.${String(property)}`);
     },
   }) as RouterApiServiceBag;
+}
+
+function makeUnusedYaoHostPort<T extends object>(name: string): T {
+  return makeUnexpectedRouterApiServiceValue(name) as T;
+}
+
+function makeNodeYaoProductPorts(): RouterAbEd25519YaoProductRegistrationPortsV1 {
+  return {
+    signingWorkerId: 'node-signing-worker-1',
+    registrationService: makeUnusedYaoHostPort('registrationService'),
+    authorization: makeUnusedYaoHostPort('authorization'),
+    recoveryService: makeUnusedYaoHostPort('recoveryService'),
+    capabilities: makeUnusedYaoHostPort('capabilities'),
+    recoveryAuthorization: makeUnusedYaoHostPort('recoveryAuthorization'),
+    exportService: makeUnusedYaoHostPort('exportService'),
+    exportAuthorization: makeUnusedYaoHostPort('exportAuthorization'),
+    session: makeUnusedYaoHostPort('session'),
+  };
 }
 
 const ROUTER_AB_PUBLIC_KEYSET = parseRouterAbPublicKeysetV2({
@@ -168,6 +190,47 @@ const EMAIL_RECOVERY_EXECUTION_SERVICE = {
 };
 
 test.describe('Router API route surface wiring', () => {
+  test('Express public entrypoint composes the canonical Ed25519 Yao module and envelope', async () => {
+    const composition = createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1(
+      makeNodeYaoProductPorts(),
+    );
+    const surface = getRouterApiRouteSurface(
+      createRouterApiRouter(makeRouterApiServiceBagFixture(), {
+        modules: [composition.module],
+      }),
+    );
+    const routeIds = new Set((surface?.routeDefinitions || []).map((route) => route.id));
+    expect(
+      [
+        'router_ab_ed25519_yao_registration_admit',
+        'router_ab_ed25519_yao_registration_execute',
+        'router_ab_ed25519_yao_warm_recovery_bootstrap',
+        'router_ab_ed25519_yao_recovery_admit',
+        'router_ab_ed25519_yao_recovery_execute',
+        'router_ab_ed25519_yao_recovery_activate',
+        'router_ab_ed25519_yao_export_admit',
+        'router_ab_ed25519_yao_export_execute',
+      ].filter((routeId) => !routeIds.has(routeId)),
+    ).toEqual([]);
+
+    const registration = composition.module.routeExtensions[0];
+    const route = registration?.routes[0];
+    if (!registration || !route) throw new Error('missing Node Ed25519 Yao registration route');
+    const response = await registration.handleCloudflareRoute({
+      request: new Request(`https://node.example.test${route.path}`, { method: 'GET' }),
+      route,
+      pathname: route.path,
+      method: 'GET',
+      logger: makeUnusedYaoHostPort('logger'),
+    });
+    expect(response.status).toBe(405);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      code: 'method_not_allowed',
+      message: 'Method not allowed',
+    });
+  });
+
   test('Express adapter route surface matches canonical fetch router surface', async () => {
     const service = makeRouterApiServiceBagFixture();
     const options = {
