@@ -444,66 +444,21 @@ test('exact signing-lane authority wallet-scoped authority state uses WalletId, 
   }
   expect(violations, violations.join('\n')).toEqual([]);
 });
-test('exact signing-lane authority ECDSA authority ranges read signer binding instead of flat lane projections', () => {
-  const guardedRanges = [
-    {
-      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts',
-      start: 'export function requireResolvedEvmFamilyEcdsaSigningLane(args:',
-      end: 'export function updateResolvedEvmFamilyEcdsaSigningLaneIdentity(args:',
-    },
-    {
-      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts',
-      start: 'export function selectedEvmFamilyEcdsaLaneForMaterialIdentity(args:',
-      end: 'export function requireEvmFamilyEcdsaAuthMethod(',
-    },
-    {
-      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts',
-      start: 'function getSelectedEcdsaRecordLaneMismatchReason(args:',
-      end: '  return null;\n}',
-    },
-    {
-      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts',
-      start: 'export function buildEcdsaMaterialStateForResolvedLane(args:',
-      end: 'export function resolvedEcdsaMaterialInputFromOptionalRecord(args:',
-    },
-    {
-      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts',
-      start: 'export function materialIdentityMatchesResolvedLane(args:',
-      end: '  );\n}',
-    },
-    {
-      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts',
-      start: 'export async function ensureEvmFamilyThresholdEcdsaRecordReady(',
-      end: '  return refreshedRecord;\n}',
-    },
-    {
-      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts',
-      start: "if (args.senderSignatureAlgorithm !== 'secp256k1') return undefined;",
-      end: 'const passkeyBootstrapDigest32B64u =',
-    },
-    {
-      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
-      start: 'const restoreMaterialLaneSigner = requireEvmFamilyEcdsaSigner(',
-      end: 'const result = await args.deps.restorePersistedSessionForSigning({',
-    },
-  ];
-  const forbiddenPatterns = [
-    /\blane\.(walletId|keyHandle|chainTarget|key)\b/,
-    /\bargs\.lane\.(walletId|keyHandle|chainTarget|key)\b/,
-    /\btransactionLane\.(walletId|keyHandle|chainTarget|key)\b/,
-    /\bresolvedLane\.(walletId|keyHandle|chainTarget|key)\b/,
-  ];
-  const violations = [];
-  for (const range of guardedRanges) {
-    const source = sourceRangeBetween(readRepoSource(range.file), range.start, range.end);
-    for (const pattern of forbiddenPatterns) {
-      if (pattern.test(source)) {
-        violations.push(`${range.file}: ${range.start} contains ${pattern.source}`);
-      }
-    }
-  }
-  expect(violations, violations.join('\n')).toEqual([]);
-});
+// The "ECDSA authority ranges read signer binding instead of flat lane
+// projections" guard is retired. It pinned eight source ranges; seven named
+// files or functions Refactor 90 deleted (`ecdsaMaterialState.ts`,
+// `ecdsaReadiness.ts`, the record-refresh and restore-lane paths), and the
+// eighth ended at `updateResolvedEvmFamilyEcdsaSigningLaneIdentity`, which is
+// now gone too. `sourceRangeBetween` asserts its markers exist, so the guard
+// could not run at all.
+//
+// Its invariant is now structural rather than textual: a
+// `ResolvedEvmFamilyEcdsaSigningLane` takes `key`, `keyHandle` and
+// `chainTarget` from `requireEvmFamilyEcdsaSigner(lane.identity)`, and the flat
+// lane projections it forbade reading are exactly the fields the refactor
+// removed. Per docs/refactor-88B-clean-source-guards.md, retire the stale guard
+// rather than invent new markers to keep it alive.
+
 test('exact signing-lane authority Router A/B ECDSA derivation context artifacts do not reintroduce product or auth scope fields', () => {
   const guardedArtifacts = [
     'crates/router-ab-ecdsa-derivation/src/shared/context.rs',
