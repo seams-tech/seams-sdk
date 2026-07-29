@@ -5,15 +5,23 @@ import {
   prepareEvmFamilyEcdsaOperationStepUp,
 } from '@/core/signingEngine/flows/signEvmFamily/thresholdAdmission';
 import { computeRouterAbEcdsaOperationStepUpChallengeB64u } from '@shared/utils/routerAbEcdsaDerivation';
+import { base64UrlDecode } from '@shared/utils/base64';
 import {
   canonicalEcdsaSealedRuntimeFixture,
   ecdsaOperationDigestSetFixture,
   ecdsaOperationStepUpAuthorizationFixture,
   evmFamilyThresholdEcdsaOperationFixture,
   hydratedEcdsaSigningMaterialFixture,
+  installEcdsaNormalSigningEndpointFixture,
   type EcdsaFixtureFactor,
 } from './helpers/ecdsaOperationStepUp.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { Secp256k1Engine } from '@/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
+import { clearAllRouterAbEcdsaDerivationClientPresignatures } from '@/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool';
+import {
+  EcdsaOnlineClientRequestType,
+  EcdsaPresignClientRequestType,
+} from '@/core/signingEngine/workerManager/workerTypes';
 
 // The canonical normal-signing path at its two boundaries -- hydration and
 // operation step-up. Manifest plus exact sealed runtime resolve the material,
@@ -68,6 +76,92 @@ for (const factor of ['passkey', 'email_otp'] as const) {
     expect(resolution.material.walletSessionJwt).toBeUndefined();
   });
 }
+
+test('persisted ECDSA hydration binds the worker and signs the exact authorized operation', async () => {
+  clearAllRouterAbEcdsaDerivationClientPresignatures();
+  const { fixture, runtime, worker } = await canonicalEcdsaSealedRuntimeFixture('passkey');
+  const hydration = await resolveHydratedSecp256k1SigningMaterial({
+    capability: fixture.capability,
+    runtime,
+    requestLabel: runtime.chainTarget.kind,
+    materialActivation: fixture.manifest.activation.materialActivation,
+    workerCtx: worker,
+  });
+  if (hydration.kind !== 'ready') throw new Error(`hydration failed: ${hydration.reason}`);
+  const operation = evmFamilyThresholdEcdsaOperationFixture({ operationId: OPERATION_ID });
+  const prepared = await prepareEvmFamilyEcdsaOperationStepUp({
+    operation,
+    operationDigests,
+    material: hydration.material,
+  });
+  const grantRequests: unknown[] = [];
+  const restoreGrantFetch = stubGrantEndpoint(grantRequests);
+  let ready;
+  try {
+    ready = await authorizeEvmFamilyEcdsaOperationStepUp({
+      relayerUrl: 'https://relayer.example.test',
+      sessionAuth: { kind: 'app_session_cookie' },
+      authority: fixture.authority,
+      authorization: ecdsaOperationStepUpAuthorizationFixture('passkey'),
+      prepared,
+      material: hydration.material,
+    });
+  } finally {
+    restoreGrantFetch();
+  }
+
+  const endpoint = installEcdsaNormalSigningEndpointFixture();
+  try {
+    const signature = await new Secp256k1Engine({ workerCtx: worker }).signReady(
+      {
+        kind: 'digest',
+        algorithm: 'secp256k1',
+        digest32: base64UrlDecode(operationDigests.intentDigest),
+      },
+      ready,
+      operation,
+      operationDigests,
+    );
+    expect(signature).toEqual(endpoint.signature65);
+    expect(signature).toHaveLength(65);
+  } finally {
+    endpoint.restore();
+    clearAllRouterAbEcdsaDerivationClientPresignatures();
+  }
+
+  expect(endpoint.requests).toHaveLength(2);
+  for (const request of endpoint.requests) {
+    expect(request.request.operation_id).toBe(OPERATION_ID);
+    expect(request.request.material_activation.activation_id).toBe(
+      String(fixture.manifest.activation.materialActivation.activationId),
+    );
+    expect(request.request.operation_digests).toEqual({
+      lane_digest_b64u: operationDigests.laneDigest,
+      intent_digest_b64u: operationDigests.intentDigest,
+      display_digest_b64u: operationDigests.displayDigest,
+    });
+  }
+  expect(worker.requests).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'ecdsaPresignClient',
+        request: expect.objectContaining({ type: EcdsaPresignClientRequestType.ListAvailable }),
+      }),
+      expect.objectContaining({
+        kind: 'ecdsaOnlineClient',
+        request: expect.objectContaining({
+          type: EcdsaOnlineClientRequestType.ComputeSignatureShare,
+        }),
+      }),
+      expect.objectContaining({
+        kind: 'evmCrypto',
+        request: expect.objectContaining({
+          type: 'verifySecp256k1RecoverableSignatureAgainstPublicKey33',
+        }),
+      }),
+    ]),
+  );
+});
 
 test('activation mismatch fails before the worker is reached', async () => {
   const { fixture, runtime, worker } = await canonicalEcdsaSealedRuntimeFixture('passkey');
