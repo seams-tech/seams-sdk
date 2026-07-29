@@ -87,13 +87,15 @@ import type {
 } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
 import {
-  buildPersistedEcdsaRoleLocalMaterial,
   clearAllStoredThresholdEd25519SessionRecords,
   getStoredThresholdEd25519SessionRecordForAccount,
   getStoredThresholdEd25519SessionRecordForWallet,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
-  type PersistedEcdsaRoleLocalMaterial,
 } from '@/core/signingEngine/session/persistence/records';
+import {
+  buildPersistedEcdsaRoleLocalMaterial,
+  type PersistedEcdsaRoleLocalMaterial,
+} from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import { parseWarmEd25519SigningSessionAuthorizationFromRecord } from '@/core/signingEngine/session/warmCapabilities/ed25519Authorization';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
@@ -4514,8 +4516,7 @@ function parseExactAvailableLaneReadiness(
     case 'exhausted':
       return { kind: 'deferred' };
   }
-  lane.state satisfies never;
-  return invalidCapabilityLane('malformed');
+  throw new Error('[SeamsWeb] unsupported capability lane readiness');
 }
 
 function invalidLaneReasonForCurve(
@@ -4629,9 +4630,18 @@ function ecdsaCapabilityLaneReadinessForTarget(args: {
   if (invalidReason) return invalidCapabilityLane(invalidReason);
   const lane = ecdsaAvailableLaneForTarget(snapshot, args.chainTarget);
   if (!isConcreteAvailableSigningLane(lane)) return { kind: 'missing' };
-  return ecdsaSubjectMatchesLane(args.subject, lane)
-    ? parseExactAvailableLaneReadiness(lane)
-    : invalidCapabilityLane('identity_mismatch');
+  if (!ecdsaSubjectMatchesLane(args.subject, lane)) {
+    return invalidCapabilityLane('identity_mismatch');
+  }
+  // A canonical-capability lane with no authorization is auth-neutral: exact
+  // material, nothing authorizing it. It carries `state: 'deferred'` because
+  // no authorization has scheduled it, and reporting that verbatim told the UI
+  // nothing had been attempted -- when in fact the material is ready and only
+  // needs a same-method step-up.
+  if (lane.source === 'canonical_capability' && !lane.authorization) {
+    return { kind: 'authorization_required' };
+  }
+  return parseExactAvailableLaneReadiness(lane);
 }
 
 function ecdsaCapabilityReadiness(args: {
