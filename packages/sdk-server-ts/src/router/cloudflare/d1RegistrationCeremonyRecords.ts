@@ -1112,6 +1112,10 @@ function parseD1StoredEvmFamilyEcdsaActivationClaimedBranch(
         record.publicResponse,
       ),
       publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
+      /* Empty on rows written before ownership existed; owner checks treat
+         empty as never-matching, so legacy claims deny adoption rather than
+         allowing it. */
+      activationOwner: typeof record.activationOwner === 'string' ? record.activationOwner : '',
     };
   } catch {
     return null;
@@ -1139,6 +1143,7 @@ function parseD1StoredEvmFamilyEcdsaActivatedBranch(
       activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation),
       publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(record.publicCapability),
       bootstrap,
+      activationOwner: typeof record.activationOwner === 'string' ? record.activationOwner : '',
     };
   } catch {
     return null;
