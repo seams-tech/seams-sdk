@@ -2,7 +2,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
-import type { RestorePersistedEcdsaSessionPurpose } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
+import type { RestorePersistedSessionPurpose } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import {
   type PasskeyEcdsaSealedRecoveryRecord,
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
@@ -52,7 +52,7 @@ async function publishPasskeyEcdsaSealedRecordForWallet(args: {
 export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   walletId: string;
   record: PasskeyEcdsaSealedRecoveryRecord;
-  purpose: RestorePersistedEcdsaSessionPurpose & { authMethod: 'passkey' };
+  purpose: RestorePersistedSessionPurpose & { authMethod: 'passkey' };
   transport: WarmSessionSealTransportInput;
   shamirPrimeB64u: string;
   rehydrateWarmSessionMaterial: (args: {

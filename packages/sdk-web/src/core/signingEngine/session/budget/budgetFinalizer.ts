@@ -249,7 +249,7 @@ async function reserveWithLocalContentionRetry(
 
 export function inferSigningSessionBudgetZeroSpendReason(args: {
   error: unknown;
-  authMethod?: SigningAuthMethod;
+  authMethod: SigningAuthMethod;
 }): SigningSessionBudgetZeroSpendReason {
   const code = extractErrorCode(args.error);
   const message = extractErrorMessage(args.error).toLowerCase();

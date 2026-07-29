@@ -1,11 +1,11 @@
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
-import type { RestorePersistedEcdsaSessionPurpose } from '../sealedRecovery/sealedRecovery.types';
+import type { RestorePersistedSessionPurpose } from '../sealedRecovery/sealedRecovery.types';
 import type { RawSigningSessionSealedStoreRecord } from '../sealedRecovery/recoveryRecord';
 import { restorePasskeyEcdsaSealedRecordForWallet } from './ecdsaRecovery';
 
 declare const rawRecord: RawSigningSessionSealedStoreRecord;
-declare const purpose: RestorePersistedEcdsaSessionPurpose & { authMethod: 'passkey' };
+declare const purpose: RestorePersistedSessionPurpose & { authMethod: 'passkey' };
 declare const transport: WarmSessionSealTransportInput;
 declare const status: WarmSessionStatusResult;
 

@@ -20,7 +20,7 @@ import {
   restorePersistedSessionForSigningCommand,
 } from '@/core/signingEngine/session/sealedRecovery/restoreCoordinator';
 import type {
-  RestorePersistedEcdsaSessionPurpose,
+  RestorePersistedSessionPurpose,
   DiscoverPersistedSessionsForWalletInput,
   DiscoverPersistedSessionsForWalletResult,
   RestorePersistedSessionForSigningInput,
@@ -325,7 +325,7 @@ export class EmailOtpSealedRestoreOrchestrator {
   private async restoreEcdsaSealedRecordForWallet(args: {
     walletId: string;
     record: EmailOtpEcdsaSealedRecoveryRecord;
-    purpose: RestorePersistedEcdsaSessionPurpose;
+    purpose: RestorePersistedSessionPurpose;
   }): Promise<RestoreSealedRecordResult> {
     const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
     if (!thresholdSessionId) return 'deferred';
