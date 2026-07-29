@@ -1,5 +1,4 @@
 import type {
-  ActivateSigningSessionTransition,
   EcdsaProvisioningTransition,
   RegisterWalletAuth,
   RegisterWalletTransition,
@@ -426,13 +425,6 @@ const invalidRegisterTransition = {
 };
 // @ts-expect-error register-wallet ready state is terminal
 invalidRegisterTransition satisfies RegisterWalletTransition;
-
-const invalidActivationTransition = {
-  from: 'activated',
-  to: 'writing_seals',
-};
-// @ts-expect-error activated signing-session state is terminal
-invalidActivationTransition satisfies ActivateSigningSessionTransition;
 
 const invalidRestoreTransition = {
   from: 'ready',
