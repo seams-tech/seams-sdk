@@ -85,10 +85,10 @@ function joinUrlPath(baseUrl: string, path: string): string {
   return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`;
 }
 
-type ManagedRegistrationConfig = Extract<
-  NonNullable<SeamsConfigsInput['registration']>,
-  { mode: 'managed' }
->;
+/* Registration config is a single managed shape now, not a union, so there is
+   no arm to extract — and `Extract` against an optional `mode` yields `never`,
+   which made every managed config unassignable. */
+type ManagedRegistrationConfig = NonNullable<SeamsConfigsInput['registration']>;
 
 function resolveManagedRegistrationConfig(
   source: ImportMetaEnv,
