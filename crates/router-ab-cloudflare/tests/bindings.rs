@@ -88,6 +88,7 @@ use router_ab_cloudflare::{
     CloudflareRouterConfiguredAbuseProviderV1, CloudflareRouterConfiguredQuotaProviderV1,
     CloudflareRouterEd25519JwksJwtVerifierV1, CloudflareRouterJwtSessionProviderV1,
     CloudflareRouterJwtVerifierBindingV1, CloudflareRouterJwtVerifierV1,
+    CloudflareRouterNormalSigningAuthorizationV2,
     CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2,
     CloudflareRouterNormalSigningPrepareAdmissionCandidateV2,
     CloudflareRouterNormalSigningTrustedAdmissionV1,
@@ -96,10 +97,11 @@ use router_ab_cloudflare::{
     CloudflareRouterRecipientProofBundleResponseV1, CloudflareRouterTrustedAdmissionV1,
     CloudflareRouterTrustedRequestMetadataV1, CloudflareRouterVerifiedJwtClaimsV1,
     CloudflareRouterVerifiedSessionProviderV1, CloudflareRouterVerifiedSessionV1,
-    CloudflareRouterVerifiedWalletSessionV1, CloudflareRouterWalletSessionCredentialV1,
-    CloudflareRouterWalletSessionVerifierV1, CloudflareRouterWorkerRuntimeV1,
-    CloudflareSecretMaterial32V1, CloudflareServerOutputHpkeDecryptKeyBindingV1,
-    CloudflareServerOutputMaterialRecordV1, CloudflareSignerClientRecipientProofBundleResponseV1,
+    CloudflareRouterVerifiedWalletSessionV1, CloudflareRouterWalletBudgetReservationIdentityV1,
+    CloudflareRouterWalletSessionCredentialV1, CloudflareRouterWalletSessionVerifierV1,
+    CloudflareRouterWorkerRuntimeV1, CloudflareSecretMaterial32V1,
+    CloudflareServerOutputHpkeDecryptKeyBindingV1, CloudflareServerOutputMaterialRecordV1,
+    CloudflareSignerClientRecipientProofBundleResponseV1,
     CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1,
     CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1, CloudflareSignerEnvelopeHpkePublicKeySetV1,
     CloudflareSignerEnvelopeHpkePublicKeyV1, CloudflareSignerEnvelopeHpkeRotationPublicKeySetV1,
@@ -118,8 +120,11 @@ use router_ab_cloudflare::{
     CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1,
     CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
     CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    CloudflareSigningWorkerMaterializedNormalSigningFinalizeRequestV2,
     CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1,
     CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+    CloudflareSigningWorkerNormalSigningEffectClaimV1,
+    CloudflareSigningWorkerNormalSigningTerminalV1,
     CloudflareSigningWorkerOutputActivationReceiptV1,
     CloudflareSigningWorkerPresignSessionBindingV1,
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
@@ -159,20 +164,20 @@ use router_ab_core::{
     ActiveSigningWorkerStateV1, CanonicalWireBytesV1, Clock, Csprng, EcdsaThresholdPrfRequestV1,
     EncryptedPayloadV1, ExpensiveWorkGateContextV1, ExpensiveWorkGateDecisionV1,
     ExpensiveWorkKindV1, GateDeferReasonV1, GatePrincipalV1, GateRejectReasonV1, LifecycleScopeV1,
-    MpcPrfOutputRequestV1, MpcPrfSigningRootShareWireV1,
-    NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningScopeV1, OpenedShareKind,
-    PeerTransport, RecipientOutputEncryptionAlgorithmV1, RecipientProofBundleCiphertextV1,
-    RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
-    RoleEncryptedEnvelopeV1, RoleEnvelopeAadV1, RouterAbLifecycleStateV1,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterToSignerPayloadV1,
-    RouterTranscriptMetadataV1, ServerIdentityV1, SignerEnvelopeHpkePayloadV1, SignerIdentityV1,
-    SignerInputPlaintextV1, SignerInputQuorumPolicyV1, SignerKeyStore, SignerSetV1,
-    SigningRootShareStore, WireMessageKindV1, WireMessageV1,
-    MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN, SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1,
-    SIGNER_ENVELOPE_HPKE_TAG_LEN_V1,
+    MpcMaterialActivationRefV1, MpcPrfOutputRequestV1, MpcPrfSigningRootShareWireV1,
+    NormalSigningAuthorizationV1, NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+    NormalSigningScopeV1, OpenedShareKind, PeerTransport, RecipientOutputEncryptionAlgorithmV1,
+    RecipientProofBundleCiphertextV1, RecipientProofBundleEncryptionRequestV1,
+    RecipientProofBundleEncryptorV1, RoleEncryptedEnvelopeV1, RoleEnvelopeAadV1,
+    RouterAbLifecycleStateV1, RouterAbProtocolErrorCode, RouterAbProtocolResult,
+    RouterToSignerPayloadV1, RouterTranscriptMetadataV1, ServerIdentityV1,
+    SignerEnvelopeHpkePayloadV1, SignerIdentityV1, SignerInputPlaintextV1,
+    SignerInputQuorumPolicyV1, SignerKeyStore, SignerSetV1, SigningRootShareStore,
+    WireMessageKindV1, WireMessageV1, MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
+    SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1, SIGNER_ENVELOPE_HPKE_TAG_LEN_V1,
 };
 use router_ab_core::{
-    router_ab_ecdsa_derivation_active_state_session_id_v1,
+    router_ab_ecdsa_derivation_material_activation_id_v1,
     router_ab_ecdsa_rerandomization_client_commitment_v1, router_transcript_digest_v1,
     PublicDigest32, RequestKind, Role, RootShareEpoch,
     RouterAbEcdsaDerivationActivationRefreshRequestV1,
@@ -180,8 +185,8 @@ use router_ab_core::{
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1,
-    RouterAbEcdsaDerivationExplicitExportRequestV1, RouterAbEcdsaDerivationPublicIdentityV1,
-    RouterAbEcdsaDerivationRecoveryRequestV1,
+    RouterAbEcdsaDerivationExplicitExportRequestV1, RouterAbEcdsaDerivationOperationDigestsV1,
+    RouterAbEcdsaDerivationPublicIdentityV1, RouterAbEcdsaDerivationRecoveryRequestV1,
     RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     RouterAbEcdsaDerivationRegistrationPurposeV1, RouterAbEcdsaDerivationStableKeyContextV1,
     RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
@@ -259,8 +264,17 @@ fn normal_signing_scope_for_request_id(request_id: &str) -> NormalSigningScopeV1
     NormalSigningScopeV1::new(
         request_id,
         "account.near",
-        "session-1",
-        "session-1",
+        NormalSigningAuthorizationV1::reusable_wallet_session("session-1")
+            .expect("normal signing authorization"),
+        MpcMaterialActivationRefV1::new(
+            "session-1",
+            "ed25519-signing-capability-1",
+            "account.near",
+            "ed25519-public-key-1",
+            "ed25519-material-lifecycle-1",
+            "server-a",
+        )
+        .expect("normal signing material activation"),
         "server-a",
     )
     .expect("normal signing scope")
@@ -314,6 +328,7 @@ fn normal_signing_v2_prepare_request_for_id(
     RouterAbEd25519NormalSigningPrepareRequestV2::new(
         normal_signing_scope_for_request_id(request_id),
         expires_at_ms,
+        digest(0x91),
         intent,
         signing_payload,
     )
@@ -1078,14 +1093,14 @@ fn router_ab_ecdsa_derivation_context() -> RouterAbEcdsaDerivationStableKeyConte
         .expect("Router A/B ECDSA derivation context")
 }
 
-fn router_ab_ecdsa_derivation_active_state_session_id(epoch: &RootShareEpoch) -> String {
-    router_ab_ecdsa_derivation_active_state_session_id_v1(
+fn router_ab_ecdsa_derivation_material_activation_id(epoch: &RootShareEpoch) -> String {
+    router_ab_ecdsa_derivation_material_activation_id_v1(
         ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
         ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
         ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
         epoch.as_str(),
     )
-    .expect("Router A/B ECDSA derivation active-state session id")
+    .expect("Router A/B ECDSA derivation material activation id")
 }
 
 fn router_ab_ecdsa_derivation_lifecycle_scope_for(
@@ -1093,7 +1108,7 @@ fn router_ab_ecdsa_derivation_lifecycle_scope_for(
     work_kind: ExpensiveWorkKindV1,
     epoch: RootShareEpoch,
 ) -> LifecycleScopeV1 {
-    let session_id = router_ab_ecdsa_derivation_active_state_session_id(&epoch);
+    let session_id = router_ab_ecdsa_derivation_material_activation_id(&epoch);
     LifecycleScopeV1::new(
         lifecycle_id,
         work_kind,
@@ -1200,6 +1215,9 @@ fn router_ab_ecdsa_derivation_export_request_with_aad_bound_envelopes(
         router_id: "router-1".to_owned(),
         client_id: "client-1".to_owned(),
         client_ephemeral_public_key: "x25519:client-ephemeral-public-key".to_owned(),
+        authorization: NormalSigningAuthorizationV1::reusable_wallet_session("session-1")
+            .expect("export authorization"),
+        material_activation_id: "ecdsa-material-activation-1".to_owned(),
         export_authorization_digest_b64u: b64u(&[0x44; 32]),
         export_nonce: "ecdsa-export-nonce-1".to_owned(),
         expires_at_ms: 2_000,
@@ -1486,16 +1504,21 @@ fn router_ab_ecdsa_derivation_digest_signing_request(
     let scope =
         cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activation_receipt_v1(
             &receipt,
-            ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
             ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
         )
         .expect("Router A/B ECDSA derivation normal-signing scope");
+    let material_activation = router_ab_ecdsa_derivation_material_activation(&scope);
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
         scope,
         "router-ab-ecdsa-derivation-sign-request-1",
+        "router-ab-ecdsa-operation-1",
+        router_ab_ecdsa_derivation_operation_digests(),
+        NormalSigningAuthorizationV1::reusable_wallet_session("ecdsa-wallet-session-1")
+            .expect("ECDSA authorization"),
+        material_activation,
         "server-presignature-1",
         2_000,
         b64u(&[0x77; 32]),
@@ -1512,6 +1535,10 @@ fn router_ab_ecdsa_derivation_digest_signing_finalize_request(
     RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1::new(
         request.scope,
         request.request_id,
+        request.operation_id,
+        request.operation_digests,
+        request.authorization,
+        request.material_activation,
         request.expires_at_ms,
         request.signing_digest_b64u,
         request.client_presignature_id,
@@ -1521,12 +1548,34 @@ fn router_ab_ecdsa_derivation_digest_signing_finalize_request(
     .expect("Router A/B ECDSA derivation digest-signing finalize request")
 }
 
+fn router_ab_ecdsa_derivation_operation_digests() -> RouterAbEcdsaDerivationOperationDigestsV1 {
+    RouterAbEcdsaDerivationOperationDigestsV1 {
+        lane_digest_b64u: b64u(&[0x31; 32]),
+        intent_digest_b64u: b64u(&[0x77; 32]),
+        display_digest_b64u: b64u(&[0x33; 32]),
+    }
+}
+
+fn router_ab_ecdsa_derivation_material_activation(
+    scope: &router_ab_core::RouterAbEcdsaDerivationNormalSigningScopeV1,
+) -> MpcMaterialActivationRefV1 {
+    MpcMaterialActivationRefV1::new(
+        scope.material_activation_id().expect("activation id"),
+        "ecdsa-signing-capability-1",
+        scope.wallet_id.clone(),
+        ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
+        "ecdsa-material-lifecycle-1",
+        scope.signing_worker.server_id.clone(),
+    )
+    .expect("ECDSA material activation")
+}
+
 fn router_ab_ecdsa_derivation_trusted_admission(
     request: &RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
 ) -> CloudflareRouterNormalSigningTrustedAdmissionV1 {
     let active_session_id = request
         .scope
-        .active_state_session_id()
+        .material_activation_id()
         .expect("Router A/B ECDSA derivation active session id");
     CloudflareRouterNormalSigningTrustedAdmissionV1::new(
         CloudflareRouterNormalSigningTrustedMetadataV1::new(
@@ -1553,7 +1602,7 @@ fn router_ab_ecdsa_derivation_finalize_trusted_admission(
 ) -> CloudflareRouterNormalSigningTrustedAdmissionV1 {
     let active_session_id = request
         .scope
-        .active_state_session_id()
+        .material_activation_id()
         .expect("Router A/B ECDSA derivation finalize active session id");
     CloudflareRouterNormalSigningTrustedAdmissionV1::new(
         CloudflareRouterNormalSigningTrustedMetadataV1::new(
@@ -1580,7 +1629,7 @@ fn router_ab_ecdsa_derivation_wallet_session(
 ) -> CloudflareRouterVerifiedWalletSessionV1 {
     let active_session_id = request
         .scope
-        .active_state_session_id()
+        .material_activation_id()
         .expect("Router A/B ECDSA derivation Wallet Session active session id");
     CloudflareRouterVerifiedWalletSessionV1::new(
         "subject-1",
@@ -3347,7 +3396,12 @@ fn router_normal_signing_prepare_admission_v2_rejects_scope_and_digest_drift() {
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 
     let mut wrong_session = admission.clone();
-    wrong_session.threshold_session_id = "other-session".to_owned();
+    wrong_session.authorization =
+        CloudflareRouterNormalSigningAuthorizationV2::reusable_wallet_session(
+            "other-session",
+            wallet_session.signing_grant_id.clone(),
+        )
+        .expect("wrong prepare authorization");
     let err = wrong_session
         .validate_for_prepare_request(&request)
         .expect_err("prepare admission session drift must fail");
@@ -3402,7 +3456,12 @@ fn router_normal_signing_finalize_admission_v2_rejects_scope_and_digest_drift() 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 
     let mut wrong_session = admission.clone();
-    wrong_session.threshold_session_id = "other-session".to_owned();
+    wrong_session.authorization =
+        CloudflareRouterNormalSigningAuthorizationV2::reusable_wallet_session(
+            "other-session",
+            wallet_session.signing_grant_id.clone(),
+        )
+        .expect("wrong finalize authorization");
     let err = wrong_session
         .validate_for_finalize_request(&request)
         .expect_err("finalize admission session drift must fail");
@@ -5762,7 +5821,6 @@ fn router_ab_ecdsa_derivation_activation_refresh_receipt_preserves_identity_for_
     let scope =
         cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activation_receipt_v1(
             &receipt,
-            ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
             ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
@@ -5879,7 +5937,6 @@ fn router_ab_ecdsa_derivation_normal_signing_scope_binds_active_material_to_iden
     let scope =
         cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activation_receipt_v1(
             &receipt,
-            ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
             ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
@@ -5900,7 +5957,7 @@ fn router_ab_ecdsa_derivation_normal_signing_scope_binds_active_material_to_iden
 
     assert_eq!(
         active_state.session_id,
-        router_ab_ecdsa_derivation_active_state_session_id(&root_epoch())
+        router_ab_ecdsa_derivation_material_activation_id(&root_epoch())
     );
     assert_eq!(lookup.session_id, active_state.session_id);
     lookup
@@ -5964,7 +6021,7 @@ fn router_ab_ecdsa_derivation_wallet_session_builds_prepare_admission_candidate(
         admission.threshold_session_id,
         request
             .scope
-            .active_state_session_id()
+            .material_activation_id()
             .expect("Router A/B ECDSA derivation active session id")
     );
     assert_eq!(
@@ -6009,7 +6066,7 @@ fn router_ab_ecdsa_derivation_wallet_session_builds_finalize_admission_candidate
         admission.threshold_session_id,
         request
             .scope
-            .active_state_session_id()
+            .material_activation_id()
             .expect("Router A/B ECDSA derivation finalize active session id")
     );
     assert_eq!(
@@ -6087,7 +6144,6 @@ fn router_ab_ecdsa_derivation_normal_signing_request_materializes_from_active_st
     let scope =
         cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activation_receipt_v1(
             &receipt,
-            ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
             ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
@@ -6102,9 +6158,15 @@ fn router_ab_ecdsa_derivation_normal_signing_request_materializes_from_active_st
         TEST_ACTIVATED_AT_MS,
     )
     .expect("Router A/B ECDSA derivation active state");
+    let material_activation = router_ab_ecdsa_derivation_material_activation(&scope);
     let request = RouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
         scope,
         "router-ab-ecdsa-derivation-sign-request-1",
+        "router-ab-ecdsa-operation-1",
+        router_ab_ecdsa_derivation_operation_digests(),
+        NormalSigningAuthorizationV1::reusable_wallet_session("ecdsa-wallet-session-1")
+            .expect("ECDSA authorization"),
+        material_activation,
         "server-presignature-1",
         2_000,
         b64u(&[0x77; 32]),
@@ -6519,11 +6581,15 @@ fn router_ab_ecdsa_derivation_production_finalize_handler_returns_real_recoverab
     let entropy32 = [0x61; 32];
     let base_prepare_request = router_ab_ecdsa_derivation_digest_signing_request();
     let prepare_request = RouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
-        base_prepare_request.scope,
-        base_prepare_request.request_id,
+        base_prepare_request.scope.clone(),
+        base_prepare_request.request_id.clone(),
+        base_prepare_request.operation_id.clone(),
+        base_prepare_request.operation_digests.clone(),
+        base_prepare_request.authorization.clone(),
+        base_prepare_request.material_activation.clone(),
         "server-presignature-real-1",
         base_prepare_request.expires_at_ms,
-        base_prepare_request.signing_digest_b64u,
+        base_prepare_request.signing_digest_b64u.clone(),
         b64u(&router_ab_ecdsa_rerandomization_client_commitment_v1(
             client_rerandomization_contribution32,
         )),
@@ -6559,6 +6625,10 @@ fn router_ab_ecdsa_derivation_production_finalize_handler_returns_real_recoverab
     let finalize_request = RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1::new(
         prepare_request.scope.clone(),
         prepare_request.request_id.clone(),
+        prepare_request.operation_id.clone(),
+        prepare_request.operation_digests.clone(),
+        prepare_request.authorization.clone(),
+        prepare_request.material_activation.clone(),
         prepare_request.expires_at_ms,
         prepare_request.signing_digest_b64u.clone(),
         "server-presignature-real-1",
@@ -6634,7 +6704,6 @@ fn router_ab_ecdsa_derivation_normal_signing_request_rejects_active_state_drift(
     let scope =
         cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activation_receipt_v1(
             &receipt,
-            ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
             ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
@@ -6650,9 +6719,15 @@ fn router_ab_ecdsa_derivation_normal_signing_request_rejects_active_state_drift(
     )
     .expect("Router A/B ECDSA derivation active state");
     active_state.session_id = "different-ecdsa-key".to_owned();
+    let material_activation = router_ab_ecdsa_derivation_material_activation(&scope);
     let request = RouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
         scope,
         "router-ab-ecdsa-derivation-sign-request-1",
+        "router-ab-ecdsa-operation-1",
+        router_ab_ecdsa_derivation_operation_digests(),
+        NormalSigningAuthorizationV1::reusable_wallet_session("ecdsa-wallet-session-1")
+            .expect("ECDSA authorization"),
+        material_activation,
         "server-presignature-1",
         2_000,
         b64u(&[0x77; 32]),
@@ -6691,7 +6766,6 @@ fn router_ab_ecdsa_derivation_normal_signing_scope_rejects_public_identity_drift
     let mut scope =
         cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activation_receipt_v1(
             &receipt,
-            ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
             ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
@@ -7277,6 +7351,8 @@ fn signing_worker_production_v2_finalize_signs_router_admitted_digest_from_round
         active_signing_worker.clone(),
         "server-round1/sign-request-1",
         request.round1_binding_digest(),
+        request.intent_digest(),
+        request.signing_payload_digest(),
         material.admitted_signing_digest,
         server_round1,
         1_000,
@@ -7285,9 +7361,51 @@ fn signing_worker_production_v2_finalize_signs_router_admitted_digest_from_round
     .expect("server round1 record");
     let admitted = CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::new(
         request.clone(),
+        finalize_admission,
         trusted_admission,
+        CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
+            budget: CloudflareRouterWalletBudgetReservationIdentityV1::new(
+                wallet_session.signing_grant_id,
+                "reservation-1",
+                wallet_session.signing_worker_id,
+                "operation-1",
+                PublicDigest32::new([0x44; 32]),
+                1_000,
+            )
+            .expect("effect budget identity"),
+        },
     )
     .expect("admitted v2 finalize");
+
+    let mut intent_drift_record = server_round1_record.clone();
+    intent_drift_record.intent_digest = digest(0xa1);
+    let err = CloudflareSigningWorkerMaterializedNormalSigningFinalizeRequestV2::new(
+        admitted.clone(),
+        active_signing_worker.clone(),
+        material_record.clone(),
+        intent_drift_record,
+        1_500,
+    )
+    .expect_err("finalize intent must match the persisted prepare record");
+    assert_eq!(
+        err.code(),
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+    );
+
+    let mut payload_drift_record = server_round1_record.clone();
+    payload_drift_record.signing_payload_digest = digest(0xa2);
+    let err = CloudflareSigningWorkerMaterializedNormalSigningFinalizeRequestV2::new(
+        admitted.clone(),
+        active_signing_worker.clone(),
+        material_record.clone(),
+        payload_drift_record,
+        1_500,
+    )
+    .expect_err("finalize signing payload must match the persisted prepare record");
+    assert_eq!(
+        err.code(),
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+    );
 
     let response = handle_cloudflare_signing_worker_normal_signing_finalize_private_request_v2(
         &CloudflareEd25519YaoNormalSigningHandlerV1,
@@ -7317,6 +7435,187 @@ fn signing_worker_production_v2_finalize_signs_router_admitted_digest_from_round
             &Ed25519Signature::from_bytes(&signature),
         )
         .expect("production v2 handler signature verifies over admitted digest");
+}
+
+#[test]
+fn normal_signing_step_up_admission_derives_the_exact_one_use_claim() {
+    let mut request = normal_signing_v2_finalize_request(2_000);
+    request.scope.authorization =
+        NormalSigningAuthorizationV1::operation_step_up("operation-grant-1")
+            .expect("step-up scope authorization");
+    request.validate().expect("step-up finalize request");
+    let admission = CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2::new(
+        "org-1",
+        "project-1",
+        "dev",
+        request.scope.account_id.clone(),
+        "principal-1",
+        CloudflareRouterNormalSigningAuthorizationV2::operation_step_up(
+            "authorization-session-1",
+            "operation-grant-1",
+        )
+        .expect("step-up admission authorization"),
+        request.scope.signing_worker_id.clone(),
+        request.scope.request_id.clone(),
+        request.intent_digest(),
+        request.signing_payload_digest(),
+        request.round1_binding_digest(),
+        digest(0x90),
+        request.expires_at_ms,
+    )
+    .expect("step-up admission");
+    let trusted_admission = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
+        admission
+            .to_v1_trusted_metadata()
+            .expect("trusted metadata"),
+        ExpensiveWorkGateDecisionV1::accepted(request.scope.request_id.clone()).expect("accepted"),
+    )
+    .expect("trusted admission");
+    let admitted =
+        CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::operation_step_up(
+            request,
+            admission,
+            trusted_admission,
+        )
+        .expect("admitted step-up finalize");
+
+    assert_eq!(
+        admitted.effect_claim,
+        CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
+            authorization_session_id: "authorization-session-1".to_owned(),
+            grant_id: "operation-grant-1".to_owned(),
+        }
+    );
+    let operation_key = admitted.effect_operation_key().expect("operation key");
+    assert!(operation_key.contains("session-1"));
+    assert!(!operation_key.contains("operation-grant-1"));
+}
+
+#[test]
+fn normal_signing_effect_digest_binds_policy_principal_capability_and_terminal_failure() {
+    let request = normal_signing_v2_finalize_request(2_000);
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let admission =
+        CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2::from_finalize_request(
+            &wallet_session,
+            &request,
+            1_000,
+        )
+        .expect("finalize admission");
+    let trusted = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
+        admission
+            .to_v1_trusted_metadata()
+            .expect("trusted metadata"),
+        ExpensiveWorkGateDecisionV1::accepted("gate-request-1").expect("accepted"),
+    )
+    .expect("trusted admission");
+    let effect_claim = CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
+        budget: CloudflareRouterWalletBudgetReservationIdentityV1::new(
+            wallet_session.signing_grant_id.clone(),
+            "reservation-1",
+            wallet_session.signing_worker_id.clone(),
+            "operation-1",
+            digest(0x44),
+            1_000,
+        )
+        .expect("budget identity"),
+    };
+    let admitted = CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::new(
+        request.clone(),
+        admission.clone(),
+        trusted,
+        effect_claim.clone(),
+    )
+    .expect("admitted finalize");
+
+    let mut changed_admission = admission;
+    changed_admission.org_id = "org-2".to_owned();
+    changed_admission.subject_id = "principal-2".to_owned();
+    let changed_trusted = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
+        changed_admission
+            .to_v1_trusted_metadata()
+            .expect("changed trusted metadata"),
+        ExpensiveWorkGateDecisionV1::accepted("gate-request-1").expect("accepted"),
+    )
+    .expect("changed trusted admission");
+    let changed = CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::new(
+        request,
+        changed_admission,
+        changed_trusted,
+        effect_claim,
+    )
+    .expect("changed admitted finalize");
+    assert_eq!(
+        admitted.effect_operation_key().expect("operation key"),
+        changed
+            .effect_operation_key()
+            .expect("changed operation key")
+    );
+    assert_ne!(
+        admitted.effect_request_digest().expect("request digest"),
+        changed
+            .effect_request_digest()
+            .expect("changed request digest")
+    );
+
+    let mut changed_capability_request = admitted.request.clone();
+    changed_capability_request
+        .scope
+        .material_activation
+        .capability = "ed25519-signing-capability-2".to_owned();
+    changed_capability_request
+        .validate()
+        .expect("changed capability request");
+    let changed_capability_admission =
+        CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2::from_finalize_request(
+            &wallet_session,
+            &changed_capability_request,
+            1_000,
+        )
+        .expect("changed capability admission");
+    let changed_capability_trusted = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
+        changed_capability_admission
+            .to_v1_trusted_metadata()
+            .expect("changed capability metadata"),
+        ExpensiveWorkGateDecisionV1::accepted("gate-request-1").expect("accepted"),
+    )
+    .expect("changed capability trusted admission");
+    let changed_capability = CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::new(
+        changed_capability_request,
+        changed_capability_admission,
+        changed_capability_trusted,
+        admitted.effect_claim.clone(),
+    )
+    .expect("changed capability admitted finalize");
+    assert_eq!(
+        admitted.effect_operation_key().expect("operation key"),
+        changed_capability
+            .effect_operation_key()
+            .expect("changed capability operation key")
+    );
+    assert_ne!(
+        admitted.effect_request_digest().expect("request digest"),
+        changed_capability
+            .effect_request_digest()
+            .expect("changed capability request digest")
+    );
+
+    let terminal = CloudflareSigningWorkerNormalSigningTerminalV1::from_result(Err(
+        router_ab_core::RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MissingLocalBinding,
+            "round-1 material is missing",
+        ),
+    ));
+    terminal
+        .validate_for_request(&admitted)
+        .expect("terminal failure validates");
+    let round_trip: CloudflareSigningWorkerNormalSigningTerminalV1 =
+        serde_json::from_str(&serde_json::to_string(&terminal).expect("serialize terminal"))
+            .expect("deserialize terminal");
+    let error = round_trip
+        .into_result()
+        .expect_err("terminal failure replays as failure");
+    assert_eq!(error.code(), RouterAbProtocolErrorCode::MissingLocalBinding);
 }
 
 #[test]

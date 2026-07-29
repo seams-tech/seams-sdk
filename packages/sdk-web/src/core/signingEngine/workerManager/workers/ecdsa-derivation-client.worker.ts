@@ -1704,6 +1704,12 @@ async function initializeEcdsaDerivationOperationWasm(
         initializeEcdsaRegistrationClientWasm(),
       ]);
       return;
+    case EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto:
+      await Promise.all([
+        initializeEcdsaDerivationClientWasm(),
+        initializeEcdsaRegistrationClientWasm(),
+      ]);
+      return;
     case EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRegistrationActivation:
       await initializeEcdsaRegistrationClientWasm();
       return;
@@ -1833,6 +1839,8 @@ async function executeEcdsaDerivationRequest(
         type: EcdsaDerivationClientCustomResponseType.BuildThresholdEcdsaDerivationRoleLocalExportArtifactSuccess,
         payload: JSON.parse(build_ecdsa_role_local_export_artifact_v1(JSON.stringify(payload))),
       };
+    case EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto:
+      throw new Error('ECDSA registration crypto prewarm does not execute an operation');
   }
   requestType satisfies never;
   throw new Error(`Unsupported DERIVATION client request type: ${requestType}`);
@@ -1860,9 +1868,32 @@ function parseEcdsaDerivationOperationType(value: unknown): EcdsaDerivationWorke
   }
 }
 
+function isEcdsaRegistrationCryptoPrewarmRequest(value: unknown): boolean {
+  return (
+    Number((value as { type?: unknown })?.type) ===
+    EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto
+  );
+}
+
 async function handleEcdsaDerivationClientMessage(
   data: unknown,
 ): Promise<EcdsaDerivationWorkerCommandResult> {
+  if (isEcdsaRegistrationCryptoPrewarmRequest(data)) {
+    const prewarmStartedAt = nowMs();
+    await initializeEcdsaDerivationOperationWasm(
+      EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto,
+    );
+    const wasmInitWaitMs = roundMs(nowMs() - prewarmStartedAt);
+    return {
+      type: EcdsaDerivationClientCustomResponseType.PrewarmEcdsaRegistrationCryptoSuccess,
+      payload: {
+        kind: 'ecdsa_registration_crypto_prewarm_result_v1',
+        wasmInitMs: wasmInitWaitMs,
+      },
+      wasmInitWaitMs,
+      wasmCallMs: 0,
+    };
+  }
   const request = data as { type?: unknown; payload?: unknown };
   const requestType = request?.type;
   const payload = request?.payload;

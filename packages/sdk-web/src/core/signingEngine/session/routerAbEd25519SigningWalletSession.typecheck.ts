@@ -9,7 +9,7 @@ const auth = {
   kind: 'wallet_session_jwt',
   walletSessionJwt: 'wallet-session-jwt',
   credential: {
-    kind: 'jwt',
+    kind: 'wallet_session_jwt',
     walletSessionJwt: 'wallet-session-jwt',
   },
 } satisfies RouterAbSigningWalletSessionAuth;

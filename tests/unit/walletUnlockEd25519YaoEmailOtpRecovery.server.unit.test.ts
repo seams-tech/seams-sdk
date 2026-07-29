@@ -55,6 +55,8 @@ import {
   createRouterAbSigningRuntimesForUnitTests,
   FixtureRouterAbEcdsaStrictRegistrationPort,
 } from '../helpers/routerAbSigningRuntimeTestUtils';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import type { RouterAbEcdsaPostRegistrationSessionActivationResponseV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 
 const WALLET_ID = walletIdFromString('wallet-email-yao-1.testnet');
 const ORG_ID = 'org-email-yao';
@@ -307,6 +309,35 @@ class RecordingRouteRecoveryService {
       },
     };
   }
+}
+
+function ecdsaUnlockActivationFixture(): RouterAbEcdsaPostRegistrationSessionActivationResponseV1 {
+  const bootstrap = createThresholdEcdsaBootstrapFixture({
+    nearAccountId: String(WALLET_ID),
+    chain: 'evm',
+    sessionId: 'ecdsa-unlock-session',
+  });
+  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  if (!binding || binding.materialKind !== 'role_local_worker_handle') {
+    throw new Error('expected passkey ECDSA role-local fixture');
+  }
+  const normalSigning = bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning;
+  if (!normalSigning) throw new Error('expected ECDSA normal-signing fixture');
+  return {
+    kind: 'router_ab_ecdsa_post_registration_session_activated_v1',
+    public_capability: binding.publicFacts.publicCapability,
+    session: {
+      authorization_session_id: bootstrap.session.authorizationSessionId,
+      threshold_session_id: bootstrap.session.thresholdSessionId,
+      signing_grant_id: bootstrap.session.signingGrantId,
+      wallet_session_id: bootstrap.session.walletSessionId,
+      quota_id: bootstrap.session.quotaId,
+      expires_at_ms: bootstrap.session.expiresAtMs,
+      remaining_uses: bootstrap.session.remainingUses,
+      wallet_session_jwt: bootstrap.session.jwt,
+    },
+    normal_signing: normalSigning,
+  };
 }
 
 class RecordingRecoveryRuntime implements RouterAbEd25519YaoProductRegistrationRuntimeV1 {
@@ -567,6 +598,7 @@ test('verified missing-material recovery forwards the fresh subject without bear
       request,
       recoverWalletSession: recovery.recoverEd25519YaoEmailOtpWalletSession.bind(recovery),
     },
+    ecdsaSession: { kind: 'no_ecdsa_session' },
     emitRouterApiWebhook: ignoreRouterWebhook,
     emitEmailOtpWebhook: ignoreEmailOtpWebhook,
   });
@@ -584,6 +616,38 @@ test('verified missing-material recovery forwards the fresh subject without bear
           signingGrantId: 'fresh-signing-grant-route',
         },
       },
+    },
+  });
+});
+
+test('verified wallet unlock provisions the first ECDSA reusable session', async () => {
+  const activation = ecdsaUnlockActivationFixture();
+  let provisionCalls = 0;
+  const response = await handleWalletUnlockVerifyRoute({
+    body: unlockBodyFixture(),
+    service: new VerifiedEmailOtpUnlockService(),
+    ed25519YaoSession: { kind: 'email_otp_no_ed25519_session' },
+    ecdsaSession: {
+      kind: 'provision_first_ecdsa_session',
+      walletId: String(WALLET_ID),
+      provisionWalletSession: async () => {
+        provisionCalls += 1;
+        return { ok: true, activation };
+      },
+    },
+    emitRouterApiWebhook: ignoreRouterWebhook,
+    emitEmailOtpWebhook: ignoreEmailOtpWebhook,
+  });
+
+  expect(provisionCalls).toBe(1);
+  expect(response).toEqual({
+    status: 200,
+    body: {
+      ok: true,
+      unlocked: true,
+      unlockBackend: 'email_otp',
+      userId: String(WALLET_ID),
+      ecdsaSession: activation,
     },
   });
 });

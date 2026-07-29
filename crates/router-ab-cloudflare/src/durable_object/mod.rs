@@ -743,7 +743,7 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
         scope.validate()?;
         Self::new(
             scope.account_id.clone(),
-            scope.active_state_session_id.clone(),
+            scope.material_activation.activation_id.clone(),
             scope.signing_worker_id.clone(),
         )
     }
@@ -755,7 +755,7 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
         scope.validate()?;
         Self::new(
             scope.wallet_id.clone(),
-            scope.active_state_session_id()?,
+            scope.material_activation_id()?,
             scope.signing_worker.server_id.clone(),
         )
     }
@@ -938,6 +938,10 @@ pub struct CloudflareSigningWorkerRound1RecordV1 {
     pub server_round1_handle: String,
     /// Digest binding this nonce material to the exact normal-signing context.
     pub round1_binding_digest: PublicDigest32,
+    /// Router-admitted intent digest persisted during prepare.
+    pub intent_digest: PublicDigest32,
+    /// Router-admitted signing-payload digest persisted during prepare.
+    pub signing_payload_digest: PublicDigest32,
     /// Router-admitted digest that this nonce material may sign.
     pub admitted_signing_digest: PublicDigest32,
     /// Persisted round-1 nonce material and public commitments.
@@ -954,6 +958,8 @@ impl CloudflareSigningWorkerRound1RecordV1 {
         active_signing_worker_state: ActiveSigningWorkerStateV1,
         server_round1_handle: impl Into<String>,
         round1_binding_digest: PublicDigest32,
+        intent_digest: PublicDigest32,
+        signing_payload_digest: PublicDigest32,
         admitted_signing_digest: PublicDigest32,
         round1_state: CloudflareEd25519Round1StateV1,
         created_at_ms: u64,
@@ -963,6 +969,8 @@ impl CloudflareSigningWorkerRound1RecordV1 {
             active_signing_worker_state,
             server_round1_handle: server_round1_handle.into(),
             round1_binding_digest,
+            intent_digest,
+            signing_payload_digest,
             admitted_signing_digest,
             round1_state,
             created_at_ms,
@@ -1511,8 +1519,8 @@ impl CloudflareSigningWorkerPrivateD1RequestV1 {
                     "signing-worker-ecdsa-pool/{}/{}/{}/{}",
                     scope.wallet_id,
                     scope
-                        .active_state_session_id()
-                        .expect("validated ECDSA pool command has active session id"),
+                        .material_activation_id()
+                        .expect("validated ECDSA pool command has material activation id"),
                     scope.signing_worker.server_id,
                     command.server_presignature_id()
                 )

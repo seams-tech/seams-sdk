@@ -3,6 +3,8 @@ import type {
   RegistrationAuthMethodInput,
   RegistrationSignerSetSelection,
 } from '@shared/utils/registrationIntent';
+import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
+import type { RouterAbEcdsaVerifiedClientActivationFactsV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationStartRequest,
@@ -248,7 +250,8 @@ type WalletRegistrationActivateRequestBaseV2 = {
 };
 
 export type ActivateEcdsaWorkV2 = {
-  clientActivation: unknown; // RouterAbEcdsaVerifiedClientActivationFactsV1; bound at the parser
+  activationCorrelationId: CorrelationId;
+  clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
 };
 
 export type WalletRegistrationActivateRequestV2 = WalletRegistrationActivateRequestBaseV2 &

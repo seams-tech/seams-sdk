@@ -1089,6 +1089,7 @@ function strictPostRegistrationFailureResponse(
 async function authorizeStrictEcdsaSessionActivation(input: {
   readonly ctx: CloudflareRouterApiContext;
   readonly walletId: string;
+  readonly source: 'verified_wallet_unlock' | 'additional_wallet_target';
 }): Promise<
   | {
       readonly ok: true;
@@ -1121,6 +1122,9 @@ async function authorizeStrictEcdsaSessionActivation(input: {
   if (!resolvedClaims.ok) return resolvedClaims;
   const { appSessionClaims, ecdsaClaims, ed25519Claims } = resolvedClaims.claims;
   if (ecdsaClaims?.walletId === input.walletId) {
+    if (input.source === 'verified_wallet_unlock') {
+      return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
+    }
     const principalId = parsePrincipalId(ecdsaClaims.sub);
     if (!principalId.ok) {
       return {
@@ -1139,6 +1143,9 @@ async function authorizeStrictEcdsaSessionActivation(input: {
     };
   }
   if (ed25519Claims?.walletId === input.walletId) {
+    return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
+  }
+  if (input.source === 'additional_wallet_target') {
     return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
   }
   let appSessionAuthorized =
@@ -1193,9 +1200,10 @@ async function authorizeStrictEcdsaSessionActivation(input: {
   return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
 }
 
-async function handleStrictEcdsaSessionActivation(input: {
+export async function handleStrictEcdsaSessionActivation(input: {
   readonly ctx: CloudflareRouterApiContext;
   readonly body: unknown;
+  readonly source: 'verified_wallet_unlock' | 'additional_wallet_target';
 }): Promise<Response> {
   let request: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
   try {
@@ -1216,6 +1224,7 @@ async function handleStrictEcdsaSessionActivation(input: {
   const authorized = await authorizeStrictEcdsaSessionActivation({
     ctx: input.ctx,
     walletId: request.public_capability.client_id,
+    source: input.source,
   });
   if (!authorized.ok) {
     return json(authorized, {
@@ -1391,6 +1400,7 @@ export async function handleThresholdEcdsa(
     return handleStrictEcdsaSessionActivation({
       ctx,
       body: bodyUnknown,
+      source: 'additional_wallet_target',
     });
   }
   if (

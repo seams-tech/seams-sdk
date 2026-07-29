@@ -12,8 +12,14 @@ import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   handleWalletUnlockChallengeRoute,
   handleWalletUnlockVerifyRoute,
+  type WalletUnlockEcdsaSessionContext,
   type WalletUnlockEd25519YaoSessionContext,
 } from '../../walletUnlockRouteHandlers';
+import { handleStrictEcdsaSessionActivation } from './thresholdEcdsa';
+import {
+  parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
   routerApiEmailOtpRouteService,
   routerApiWalletUnlockRouteService,
@@ -104,6 +110,43 @@ function walletUnlockContextWithoutEd25519Intent(
     return { kind: 'email_otp_no_ed25519_session' };
   }
   return { kind: 'passkey_unlock' };
+}
+
+function walletUnlockEcdsaSessionContext(
+  ctx: CloudflareRouterApiContext,
+  body: unknown,
+): WalletUnlockEcdsaSessionContext {
+  if (!isPlainObject(body) || body.ecdsaSessionActivation === undefined) {
+    return { kind: 'no_ecdsa_session' };
+  }
+  const request = parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
+    body.ecdsaSessionActivation,
+  );
+  return {
+    kind: 'provision_first_ecdsa_session',
+    walletId: request.public_capability.client_id,
+    provisionWalletSession: async () => {
+      const response = await handleStrictEcdsaSessionActivation({
+        ctx,
+        body: request,
+        source: 'verified_wallet_unlock',
+      });
+      const responseBody: unknown = await response.json();
+      if (!response.ok) {
+        const failure = isPlainObject(responseBody) ? responseBody : {};
+        return {
+          ok: false,
+          status: response.status,
+          code: String(failure.code || 'ecdsa_session_activation_failed'),
+          message: String(failure.message || 'ECDSA Wallet Session activation failed'),
+        };
+      }
+      return {
+        ok: true,
+        activation: parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(responseBody),
+      };
+    },
+  };
 }
 
 async function emitSessionExchangeFailed(
@@ -1669,6 +1712,20 @@ export async function handleWalletUnlockVerify(
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/unlock/verify') return null;
   const body = await readJson(ctx.request);
+  let ecdsaSession: WalletUnlockEcdsaSessionContext;
+  try {
+    ecdsaSession = walletUnlockEcdsaSessionContext(ctx, body);
+  } catch (error: unknown) {
+    return json(
+      {
+        ok: false,
+        code: 'invalid_body',
+        message:
+          error instanceof Error ? error.message : 'ECDSA Wallet Session activation is invalid',
+      },
+      { status: 400 },
+    );
+  }
   const parsedSessionIntent = parseWalletUnlockEd25519YaoRequest(body);
   if (!parsedSessionIntent.ok) {
     return json(parsedSessionIntent.body, { status: parsedSessionIntent.status });
@@ -1724,6 +1781,7 @@ export async function handleWalletUnlockVerify(
     origin: String(ctx.request.headers.get('origin') || '').trim() || undefined,
     service: routerApiWalletUnlockRouteService(ctx.service),
     ed25519YaoSession,
+    ecdsaSession,
     emitRouterApiWebhook: async (event) => {
       await emitRouterApiWebhookEvent({
         logger: ctx.logger,

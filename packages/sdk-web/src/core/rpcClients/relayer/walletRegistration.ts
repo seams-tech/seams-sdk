@@ -24,16 +24,12 @@ import {
   type CanonicalEcdsaServerActivationRequest,
 } from '@shared/utils/ecdsaCapabilityActivation';
 import {
-  parseRootShareEpoch,
   parseSigningGrantId,
   parseWebAuthnRpId,
   type RootShareEpoch,
   type SigningGrantId,
 } from '@shared/utils/domainIds';
 import {
-  parseMpcWalletSigningQuotaId,
-  parseWalletSessionId,
-  type AuthorizationParseResult,
   type MpcWalletSigningQuotaId,
   type SeamsSessionId,
   type WalletSessionId,
@@ -60,7 +56,7 @@ import {
   parseRouterAbEcdsaRegistrationPublicActivationReceiptV1,
   parseRouterAbEcdsaRegistrationRequestFactsV1,
   parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
-  parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1,
+  requireRouterAbEcdsaDerivationNormalSigningStateV1,
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaRegistrationRequestFactsV1,
   type RouterAbEcdsaRegistrationRequestV1,
@@ -73,11 +69,6 @@ import {
   type RouterAbEcdsaDerivationActivationPrepareResultV1,
   type RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import {
-  computeSdkEcdsaDerivationApplicationBindingDigestB64u,
-  parseSdkEcdsaDerivationSigningRootId,
-  parseSdkEcdsaDerivationSigningRootVersion,
-} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { AccountId } from '@/core/types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import {
@@ -90,13 +81,9 @@ import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
   parseEcdsaThresholdKeyId,
-  type EcdsaRoleLocalPersistedMaterialRef,
-  type EcdsaRoleLocalWorkerHandle,
 } from '@/core/signingEngine/session/keyMaterialBrands';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import {
   normalizeThresholdRuntimePolicyScope,
   type Ed25519AuthorityScope,
@@ -107,12 +94,6 @@ import type {
   ThresholdEcdsaDerivationRoleLocalBootstrapValue,
 } from './thresholdEcdsa';
 import { parseThresholdEcdsaDerivationRoleLocalBootstrapValue } from './thresholdEcdsa';
-import {
-  buildEcdsaRoleLocalEmailOtpAuthMethod,
-  buildEcdsaRoleLocalPasskeyAuthMethod,
-  buildEcdsaRoleLocalPublicFacts,
-} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
-import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
 import {
   buildBearerAuthorizationHeader,
   buildRelayerJsonPostRequestInit,
@@ -337,15 +318,6 @@ function requireResponseString(args: {
     throw new Error(`${args.responseName} response missing ${args.field}`);
   }
   return value;
-}
-
-function requireAuthorizationId<T>(
-  result: AuthorizationParseResult<T>,
-  responseName: string,
-  field: string,
-): T {
-  if (!result.ok) throw new Error(`${responseName} response has invalid ${field}`);
-  return result.value;
 }
 
 function requireResponseRecord(args: {
@@ -976,7 +948,8 @@ export type WalletEd25519YaoSignerPublicResult = {
 };
 
 export type WalletRegistrationEd25519YaoPublicResult = WalletEd25519YaoSignerPublicResult & {
-  session: WalletRegistrationEd25519YaoBootstrapSession;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
 type WalletRegistrationFinalizeResponseBase = {
@@ -1599,116 +1572,6 @@ function parseWalletRegistrationEd25519AuthorityScope(
   }
 }
 
-function parseWalletAddSignerEd25519Session(
-  value: unknown,
-  responseName: string,
-): WalletRegistrationEd25519YaoBootstrapSession {
-  const session = requireResponseRecord({ responseName, field: 'ed25519.session', value });
-  assertExactResponseKeys(
-    session,
-    [
-      'sessionKind',
-      'walletSessionJwt',
-      'walletId',
-      'nearAccountId',
-      'nearEd25519SigningKeyId',
-      'authorityScope',
-      'thresholdSessionId',
-      'signingGrantId',
-      'expiresAtMs',
-      'participantIds',
-      'remainingUses',
-      'signingRootId',
-      'signingRootVersion',
-      'runtimePolicyScope',
-      'routerAbNormalSigning',
-    ],
-    responseName,
-  );
-  if (session.sessionKind !== 'jwt') {
-    throw new Error(`${responseName} response has invalid sessionKind`);
-  }
-  const authorityScope = parseWalletRegistrationEd25519AuthorityScope(
-    session.authorityScope,
-    responseName,
-  );
-  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
-  if (!runtimePolicyScope) {
-    throw new Error(`${responseName} response has invalid runtimePolicyScope`);
-  }
-  return {
-    sessionKind: 'jwt',
-    walletSessionJwt: requireResponseString({
-      responseName,
-      field: 'ed25519.session.walletSessionJwt',
-      value: session.walletSessionJwt,
-    }),
-    walletId: walletIdFromString(
-      requireResponseString({
-        responseName,
-        field: 'ed25519.session.walletId',
-        value: session.walletId,
-      }),
-    ),
-    nearAccountId: requireResponseString({
-      responseName,
-      field: 'ed25519.session.nearAccountId',
-      value: session.nearAccountId,
-    }),
-    nearEd25519SigningKeyId: requireResponseString({
-      responseName,
-      field: 'ed25519.session.nearEd25519SigningKeyId',
-      value: session.nearEd25519SigningKeyId,
-    }),
-    authorityScope,
-    thresholdSessionId: requireResponseString({
-      responseName,
-      field: 'ed25519.session.thresholdSessionId',
-      value: session.thresholdSessionId,
-    }),
-    signingGrantId: requireResponseString({
-      responseName,
-      field: 'ed25519.session.signingGrantId',
-      value: session.signingGrantId,
-    }),
-    walletSessionId: requireAuthorizationId(
-      parseWalletSessionId(session.walletSessionId),
-      responseName,
-      'ed25519.session.walletSessionId',
-    ),
-    quotaId: requireAuthorizationId(
-      parseMpcWalletSigningQuotaId(session.quotaId),
-      responseName,
-      'ed25519.session.quotaId',
-    ),
-    expiresAtMs: requireResponseSafeInteger({
-      responseName,
-      field: 'ed25519.session.expiresAtMs',
-      value: session.expiresAtMs,
-      minimum: 1,
-    }),
-    participantIds: requireResponseParticipantPair(session.participantIds, responseName),
-    remainingUses: requireResponseSafeInteger({
-      responseName,
-      field: 'ed25519.session.remainingUses',
-      value: session.remainingUses,
-      minimum: 0,
-    }),
-    signingRootId: requireResponseString({
-      responseName,
-      field: 'ed25519.session.signingRootId',
-      value: session.signingRootId,
-    }),
-    signingRootVersion: requireResponseString({
-      responseName,
-      field: 'ed25519.session.signingRootVersion',
-      value: session.signingRootVersion,
-    }),
-    runtimePolicyScope,
-    routerAbNormalSigning: requireRouterAbEd25519NormalSigningState(session.routerAbNormalSigning),
-  };
-}
-
 function parseWalletEd25519YaoSignerPublicResult(
   value: unknown,
   responseName: string,
@@ -1784,7 +1647,8 @@ function parseWalletRegistrationEd25519Result(
       'keyVersion',
       'recoveryExportCapable',
       'participantIds',
-      'session',
+      'runtimePolicyScope',
+      'routerAbNormalSigning',
     ],
     responseName,
   );
@@ -1801,9 +1665,16 @@ function parseWalletRegistrationEd25519Result(
     },
     responseName,
   );
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(ed25519.runtimePolicyScope);
+  if (!runtimePolicyScope) {
+    throw new Error(`${responseName} response has invalid ed25519.runtimePolicyScope`);
+  }
   return {
     ...publicResult,
-    session: parseWalletAddSignerEd25519Session(ed25519.session, responseName),
+    runtimePolicyScope,
+    routerAbNormalSigning: requireRouterAbEd25519NormalSigningState(
+      ed25519.routerAbNormalSigning,
+    ),
   };
 }
 
@@ -2080,14 +1951,6 @@ export type WalletRegistrationEcdsaDerivationRespondBootstrap = {
   ethereumAddress: string;
   relayerVerifyingShareB64u: string;
   participantIds: number[];
-  thresholdSessionId: string;
-  signingGrantId: SigningGrantId;
-  authorizationSessionId: SeamsSessionId;
-  walletSessionId: WalletSessionId;
-  quotaId: MpcWalletSigningQuotaId;
-  expiresAtMs: number;
-  remainingUses: number;
-  walletSessionJwt: string;
   routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
 
@@ -2127,35 +1990,6 @@ function requireMatchingParticipantIds(args: {
   return actual;
 }
 
-function requireMatchingPositiveSafeInteger(args: {
-  field: string;
-  expected: unknown;
-  actual: unknown;
-}): number {
-  const expected = Math.floor(Number(args.expected));
-  const actual = Math.floor(Number(args.actual));
-  if (
-    !Number.isSafeInteger(expected) ||
-    expected <= 0 ||
-    !Number.isSafeInteger(actual) ||
-    actual <= 0
-  ) {
-    throw new Error(`ECDSA registration bootstrap returned incomplete ${args.field}`);
-  }
-  if (expected !== actual) {
-    throw new Error(`ECDSA registration bootstrap ${args.field} mismatch`);
-  }
-  return actual;
-}
-
-function requireWalletRegistrationRootShareEpoch(value: unknown): RootShareEpoch {
-  const parsed = parseRootShareEpoch(value);
-  if (!parsed.ok) {
-    throw new Error('ECDSA registration bootstrap activationEpoch is invalid');
-  }
-  return parsed.value;
-}
-
 function requireWalletRegistrationSigningGrantId(value: unknown, label: string): SigningGrantId {
   const parsed = parseSigningGrantId(value);
   if (!parsed.ok) {
@@ -2191,69 +2025,20 @@ export function parseWalletRegistrationEcdsaDerivationRespond(args: {
     expected: clientBootstrap.evmFamilySigningKeySlotId,
     actual: serverBootstrap.evmFamilySigningKeySlotId,
   });
-  const thresholdSessionId = requireMatchingString({
-    field: 'thresholdSessionId',
-    expected: clientBootstrap.thresholdSessionId,
-    actual: serverBootstrap.thresholdSessionId,
-  });
   requireMatchingString({
     field: 'activationEpoch',
     expected: args.activationEpoch,
     actual: serverBootstrap.activationEpoch,
-  });
-  requireMatchingString({
-    field: 'signingGrantId',
-    expected: clientBootstrap.signingGrantId,
-    actual: serverBootstrap.signingGrantId,
-  });
-  const signingGrantId = serverBootstrap.signingGrantId;
-  const remainingUses = requireMatchingPositiveSafeInteger({
-    field: 'remainingUses',
-    expected: clientBootstrap.remainingUses,
-    actual: serverBootstrap.remainingUses,
   });
   const participantIds = requireMatchingParticipantIds({
     expected: clientBootstrap.participantIds,
     actual: serverBootstrap.participantIds,
   });
 
-  const walletSessionJwt = String(serverBootstrap.jwt || '').trim();
   const routerAbEcdsaDerivationNormalSigning =
-    parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1({
-      walletSessionJwt,
-      expected: {
-        walletId: String(serverBootstrap.walletId || '').trim(),
-        evmFamilySigningKeySlotId: String(serverBootstrap.evmFamilySigningKeySlotId || '').trim(),
-        keyHandle: String(serverBootstrap.keyHandle || '').trim(),
-        relayerKeyId: String(serverBootstrap.relayerKeyId || '').trim(),
-        ecdsaThresholdKeyId: String(serverBootstrap.ecdsaThresholdKeyId || '').trim(),
-        signingRootId: String(serverBootstrap.signingRootId || '').trim(),
-        signingRootVersion: String(serverBootstrap.signingRootVersion || '').trim(),
-        thresholdSessionId: String(serverBootstrap.thresholdSessionId || '').trim(),
-        activationEpoch: requireWalletRegistrationRootShareEpoch(args.activationEpoch),
-        signingGrantId,
-        expiresAtMs: Number(serverBootstrap.expiresAtMs),
-        participantIds: serverBootstrap.participantIds.map((participantId) =>
-          Math.floor(Number(participantId)),
-        ),
-        applicationBindingDigestB64u: String(
-          serverBootstrap.applicationBindingDigestB64u || '',
-        ).trim(),
-        contextBinding32B64u: String(serverBootstrap.contextBinding32B64u || '').trim(),
-        clientPublicKey33B64u: String(
-          serverBootstrap.publicIdentity.derivationClientSharePublicKey33B64u || '',
-        ).trim(),
-        serverPublicKey33B64u: String(
-          serverBootstrap.publicIdentity.relayerPublicKey33B64u || '',
-        ).trim(),
-        thresholdPublicKey33B64u: String(
-          serverBootstrap.publicIdentity.groupPublicKey33B64u || '',
-        ).trim(),
-        ethereumAddress: String(serverBootstrap.ethereumAddress || '').trim(),
-        clientShareRetryCounter: Math.floor(Number(serverBootstrap.clientShareRetryCounter)),
-        serverShareRetryCounter: Math.floor(Number(serverBootstrap.relayerShareRetryCounter)),
-      },
-    });
+    requireRouterAbEcdsaDerivationNormalSigningStateV1(
+      serverBootstrap.routerAbEcdsaDerivationNormalSigning,
+    );
   const ecdsaThresholdKeyId = String(serverBootstrap.ecdsaThresholdKeyId || '').trim();
   const keyHandle = String(serverBootstrap.keyHandle || '').trim();
   const signingRootId = String(serverBootstrap.signingRootId || '').trim();
@@ -2268,7 +2053,6 @@ export function parseWalletRegistrationEcdsaDerivationRespond(args: {
   const relayerKeyId = String(serverBootstrap.relayerKeyId || '').trim();
   const relayerVerifyingShareB64u = String(serverBootstrap.relayerVerifyingShareB64u || '').trim();
   const relayerShareRetryCounter = Math.floor(Number(serverBootstrap.relayerShareRetryCounter));
-  const expiresAtMs = Math.max(0, Math.floor(Number(serverBootstrap.expiresAtMs)));
   if (
     !walletId ||
     !evmFamilySigningKeySlotId ||
@@ -2283,15 +2067,10 @@ export function parseWalletRegistrationEcdsaDerivationRespond(args: {
     !relayerVerifyingShareB64u ||
     !Number.isSafeInteger(relayerShareRetryCounter) ||
     relayerShareRetryCounter < 0 ||
-    !thresholdSessionId ||
-    !signingGrantId ||
-    !walletSessionJwt ||
     !participantIds.length ||
     participantIds.some(
       (participantId) => !Number.isSafeInteger(participantId) || participantId <= 0,
-    ) ||
-    !Number.isFinite(remainingUses) ||
-    !Number.isFinite(expiresAtMs)
+    )
   ) {
     throw new Error('ECDSA registration bootstrap returned incomplete session material');
   }
@@ -2311,244 +2090,7 @@ export function parseWalletRegistrationEcdsaDerivationRespond(args: {
     ethereumAddress,
     relayerVerifyingShareB64u,
     participantIds,
-    thresholdSessionId,
-    signingGrantId,
-    authorizationSessionId: serverBootstrap.authorizationSessionId,
-    walletSessionId: serverBootstrap.walletSessionId,
-    quotaId: serverBootstrap.quotaId,
-    expiresAtMs,
-    remainingUses,
-    walletSessionJwt,
     routerAbEcdsaDerivationNormalSigning,
-  };
-}
-
-export async function buildWalletRegistrationEcdsaSessionBootstrap(args: {
-  walletId: string;
-  relayerUrl: string;
-  chainTarget: ThresholdEcdsaChainTarget;
-  keygenSessionId: string;
-  clientVerifyingShareB64u: string;
-  serverBootstrap: WalletRegistrationEcdsaDerivationRespondBootstrap;
-  walletKey: WalletRegistrationEcdsaWalletKey;
-  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
-  authMethod:
-    | { kind: 'passkey'; credentialIdB64u: string; rpId: string }
-    | { kind: 'email_otp'; providerUserId: string };
-  material: {
-    kind: 'worker_handle';
-    handle: EcdsaRoleLocalWorkerHandle;
-    materialRef: EcdsaRoleLocalPersistedMaterialRef;
-    publicFacts: EcdsaRoleLocalPublicFacts;
-  };
-}): Promise<ThresholdEcdsaSessionBootstrapResult> {
-  const serverBootstrap = args.serverBootstrap;
-  requireMatchingString({
-    field: 'walletId',
-    expected: args.walletId,
-    actual: serverBootstrap.walletId,
-  });
-  requireMatchingString({
-    field: 'walletKey.walletId',
-    expected: args.walletId,
-    actual: args.walletKey.walletId,
-  });
-  const evmFamilySigningKeySlotId = requireMatchingString({
-    field: 'evmFamilySigningKeySlotId',
-    expected: args.walletKey.evmFamilySigningKeySlotId,
-    actual: serverBootstrap.evmFamilySigningKeySlotId,
-  });
-  const keyHandle = requireMatchingString({
-    field: 'keyHandle',
-    expected: args.walletKey.keyHandle,
-    actual: serverBootstrap.keyHandle,
-  });
-  const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(
-    requireMatchingString({
-      field: 'ecdsaThresholdKeyId',
-      expected: args.walletKey.ecdsaThresholdKeyId,
-      actual: serverBootstrap.ecdsaThresholdKeyId,
-    }),
-  );
-  const signingRootId = requireMatchingString({
-    field: 'signingRootId',
-    expected: args.walletKey.signingRootId,
-    actual: serverBootstrap.signingRootId,
-  });
-  const signingRootVersion = requireMatchingString({
-    field: 'signingRootVersion',
-    expected: args.walletKey.signingRootVersion,
-    actual: serverBootstrap.signingRootVersion,
-  });
-  const thresholdEcdsaPublicKeyB64u = requireMatchingString({
-    field: 'thresholdEcdsaPublicKeyB64u',
-    expected: args.walletKey.thresholdEcdsaPublicKeyB64u,
-    actual: serverBootstrap.thresholdEcdsaPublicKeyB64u,
-  });
-  const ethereumAddress = requireMatchingString({
-    field: 'ethereumAddress',
-    expected: args.walletKey.thresholdOwnerAddress,
-    actual: serverBootstrap.ethereumAddress,
-  });
-  const relayerKeyId = requireMatchingString({
-    field: 'relayerKeyId',
-    expected: args.walletKey.relayerKeyId,
-    actual: serverBootstrap.relayerKeyId,
-  });
-  const relayerVerifyingShareB64u = requireMatchingString({
-    field: 'relayerVerifyingShareB64u',
-    expected: args.walletKey.relayerVerifyingShareB64u,
-    actual: serverBootstrap.relayerVerifyingShareB64u,
-  });
-  requireMatchingString({
-    field: 'chainTarget',
-    expected: thresholdEcdsaChainTargetKey(args.chainTarget),
-    actual: thresholdEcdsaChainTargetKey(args.walletKey.chainTarget),
-  });
-
-  const participantIds = requireMatchingParticipantIds({
-    expected: args.walletKey.participantIds,
-    actual: serverBootstrap.participantIds,
-  });
-  const walletSessionJwt = serverBootstrap.walletSessionJwt;
-  const routerAbEcdsaDerivationNormalSigning = serverBootstrap.routerAbEcdsaDerivationNormalSigning;
-  const thresholdSessionId = serverBootstrap.thresholdSessionId;
-  const signingGrantId = serverBootstrap.signingGrantId;
-  const remainingUses = serverBootstrap.remainingUses;
-  const expiresAtMs = serverBootstrap.expiresAtMs;
-  const expectedApplicationBindingDigestB64u =
-    await computeSdkEcdsaDerivationApplicationBindingDigestB64u({
-      walletId: toWalletId(args.walletId),
-      ecdsaThresholdKeyId,
-      signingRootId: parseSdkEcdsaDerivationSigningRootId(signingRootId),
-      signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(signingRootVersion),
-    });
-  const applicationBindingDigestB64u = requireMatchingString({
-    field: 'applicationBindingDigestB64u',
-    expected: expectedApplicationBindingDigestB64u,
-    actual: serverBootstrap.applicationBindingDigestB64u,
-  });
-  const publicFacts = buildEcdsaRoleLocalPublicFacts({
-    walletId: args.walletId,
-    evmFamilySigningKeySlotId,
-    chainTarget: args.chainTarget,
-    keyHandle,
-    ecdsaThresholdKeyId,
-    signingRootId,
-    signingRootVersion,
-    applicationBindingDigestB64u,
-    participantIds,
-    clientParticipantId: 1,
-    relayerParticipantId: 2,
-    contextBinding32B64u: serverBootstrap.contextBinding32B64u,
-    derivationClientSharePublicKey33B64u: args.clientVerifyingShareB64u,
-    relayerPublicKey33B64u: serverBootstrap.publicIdentity.relayerPublicKey33B64u,
-    groupPublicKey33B64u: serverBootstrap.publicIdentity.groupPublicKey33B64u,
-    ethereumAddress,
-    publicCapability: args.publicCapability,
-  });
-  const authMethod = buildWalletRegistrationEcdsaRoleLocalAuthMethod(args.authMethod);
-  const backendBinding = buildWalletRegistrationEcdsaBackendBinding({
-    material: args.material,
-    relayerKeyId,
-    clientVerifyingShareB64u: args.clientVerifyingShareB64u,
-    publicFacts,
-    authMethod,
-  });
-
-  const keyRef: ThresholdEcdsaSecp256k1KeyRef = {
-    type: 'threshold-ecdsa-secp256k1',
-    userId: args.walletId,
-    chainTarget: args.chainTarget,
-    relayerUrl: args.relayerUrl,
-    keyHandle,
-    ecdsaThresholdKeyId,
-    backendBinding,
-    participantIds,
-    thresholdEcdsaPublicKeyB64u,
-    ethereumAddress,
-    relayerVerifyingShareB64u,
-    routerAbEcdsaDerivationNormalSigning,
-    thresholdSessionKind: 'jwt',
-    walletSessionJwt,
-    thresholdSessionId,
-    signingGrantId,
-  };
-  return {
-    thresholdEcdsaKeyRef: keyRef,
-    ...(args.authMethod.kind === 'passkey'
-      ? { passkeyCredentialIdB64u: args.authMethod.credentialIdB64u }
-      : {}),
-    keygen: {
-      ok: true,
-      keygenSessionId: args.keygenSessionId,
-      evmFamilySigningKeySlotId,
-      keyHandle,
-      ecdsaThresholdKeyId,
-      clientVerifyingShareB64u: args.clientVerifyingShareB64u,
-      thresholdEcdsaPublicKeyB64u,
-      ethereumAddress,
-      relayerKeyId,
-      relayerVerifyingShareB64u,
-      participantIds,
-      chainId: args.chainTarget.chainId,
-    },
-    session: {
-      ok: true,
-      thresholdSessionId,
-      signingGrantId,
-      authorizationSessionId: serverBootstrap.authorizationSessionId,
-      walletSessionId: serverBootstrap.walletSessionId,
-      quotaId: serverBootstrap.quotaId,
-      expiresAtMs,
-      remainingUses,
-      jwt: walletSessionJwt,
-    },
-  };
-}
-
-function buildWalletRegistrationEcdsaRoleLocalAuthMethod(
-  authMethod:
-    | { kind: 'passkey'; credentialIdB64u: string; rpId: string }
-    | { kind: 'email_otp'; providerUserId: string },
-): ReturnType<
-  typeof buildEcdsaRoleLocalEmailOtpAuthMethod | typeof buildEcdsaRoleLocalPasskeyAuthMethod
-> {
-  switch (authMethod.kind) {
-    case 'passkey':
-      return buildEcdsaRoleLocalPasskeyAuthMethod({
-        credentialIdB64u: authMethod.credentialIdB64u,
-        rpId: authMethod.rpId,
-      });
-    case 'email_otp':
-      return buildEcdsaRoleLocalEmailOtpAuthMethod({
-        authSubjectId: authMethod.providerUserId,
-      });
-  }
-}
-
-function buildWalletRegistrationEcdsaBackendBinding(args: {
-  material: {
-    kind: 'worker_handle';
-    handle: EcdsaRoleLocalWorkerHandle;
-    materialRef: EcdsaRoleLocalPersistedMaterialRef;
-    publicFacts: EcdsaRoleLocalPublicFacts;
-  };
-  relayerKeyId: string;
-  clientVerifyingShareB64u: string;
-  publicFacts: EcdsaRoleLocalPublicFacts;
-  authMethod: ReturnType<
-    typeof buildEcdsaRoleLocalEmailOtpAuthMethod | typeof buildEcdsaRoleLocalPasskeyAuthMethod
-  >;
-}): NonNullable<ThresholdEcdsaSecp256k1KeyRef['backendBinding']> {
-  return {
-    materialKind: 'role_local_worker_handle',
-    relayerKeyId: args.relayerKeyId,
-    clientVerifyingShareB64u: args.clientVerifyingShareB64u,
-    roleLocalMaterialHandle: args.material.handle,
-    roleLocalMaterialRef: args.material.materialRef,
-    publicFacts: args.material.publicFacts,
-    authMethod: args.authMethod,
   };
 }
 
@@ -3136,6 +2678,7 @@ export async function activateWalletRegistration(args: {
   /* Absent for an Ed25519-only plan: nothing was verified in the browser
      because no ECDSA proof bundles were produced. */
   ecdsa?: {
+    activationCorrelationId: CorrelationId;
     clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     expectedKeyHandles?: string[];
   };
@@ -3587,11 +3130,7 @@ function parseWalletRegistrationFinalizeNearResult(args: {
   if (
     accountProvisioning.kind !== resolvedAccount.kind ||
     resolvedAccount.nearAccountId !== ed25519.nearAccountId ||
-    resolvedAccount.nearEd25519SigningKeyId !== ed25519.nearEd25519SigningKeyId ||
-    String(ed25519.session.walletId) !== String(args.walletId) ||
-    ed25519.session.nearAccountId !== ed25519.nearAccountId ||
-    ed25519.session.nearEd25519SigningKeyId !== ed25519.nearEd25519SigningKeyId ||
-    alphabetizeStringify(ed25519.session.authorityScope) !== alphabetizeStringify(authorityScope)
+    resolvedAccount.nearEd25519SigningKeyId !== ed25519.nearEd25519SigningKeyId
   ) {
     throw new Error(`${responseName} response has inconsistent Ed25519 identity`);
   }

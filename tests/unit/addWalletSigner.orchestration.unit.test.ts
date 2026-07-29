@@ -14,7 +14,6 @@ import {
 import { UserVerificationPolicy } from '../../packages/sdk-web/src/core/types/authenticatorOptions';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
-  clearAllThresholdEcdsaSessionRecords,
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import { emailOtpRecoveryCodeBackupRepository } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups';
 import {
@@ -835,7 +834,7 @@ class EmailOtpEd25519YaoWorkerContextCapture {
           },
         };
       }
-      case 'commitEmailOtpEd25519YaoRegistration': {
+      case 'persistEmailOtpEd25519YaoRegistrationMaterial': {
         this.captures.emailOtpYaoCommit = request.payload;
         registrationEvents(this.captures)?.push('emailOtpYaoCommitCalled');
         if (this.captures.failEmailOtpYaoSeal) {
@@ -1753,7 +1752,6 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
 }
 
 async function withMockedIndexedDb<T>(run: () => Promise<T>): Promise<T> {
-  clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
   clearAllStoredThresholdEd25519SessionRecords();
   const indexedDB = IndexedDBManager as unknown as Record<string, unknown>;
   const originalListProfileAuthenticators = indexedDB.listProfileAuthenticators;
@@ -1782,7 +1780,6 @@ async function withMockedIndexedDb<T>(run: () => Promise<T>): Promise<T> {
     indexedDB.resolveProfileAccountContext = originalResolveProfileAccountContext;
     (IndexedDBManager as any).getKeyMaterial = originalGetKeyMaterial;
     (IndexedDBManager as any).storeKeyMaterial = originalStoreKeyMaterial;
-    clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
     clearAllStoredThresholdEd25519SessionRecords();
   }
 }
@@ -2680,7 +2677,7 @@ test('registerWallet completes Email OTP Ed25519-only Yao registration atomicall
     expect(captures.emailOtpYaoWorkerOperations).toEqual([
       'bindEmailOtpEd25519YaoRoot',
       'startEmailOtpEd25519YaoRegistration',
-      'commitEmailOtpEd25519YaoRegistration',
+      'persistEmailOtpEd25519YaoRegistrationMaterial',
     ]);
     expect(captures.emailOtpYaoPrewarmCalls).toBe(1);
     expect(captures.emailOtpYaoStart).toMatchObject({

@@ -860,7 +860,8 @@ export type WalletEd25519YaoSignerPublicResult = {
 };
 
 export type WalletRegistrationEd25519YaoPublicResult = WalletEd25519YaoSignerPublicResult & {
-  session: WalletRegistrationEd25519YaoBootstrapSession;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
 type WalletRegistrationFinalizeResponseBase = {

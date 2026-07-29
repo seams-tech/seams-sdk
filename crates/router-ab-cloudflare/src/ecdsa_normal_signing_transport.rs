@@ -151,6 +151,7 @@ mod tests {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
     use futures::executor::block_on;
+    use router_ab_core::{MpcMaterialActivationRefV1, RouterAbEcdsaDerivationOperationDigestsV1};
 
     const COMPRESSED_SECP256K1_GENERATOR: [u8; 33] = [
         0x02, 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce, 0x87,
@@ -259,6 +260,11 @@ mod tests {
         RouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
             normal_signing_scope(),
             "normal-signing-request-1",
+            "operation-1",
+            operation_digests(),
+            NormalSigningAuthorizationV1::reusable_wallet_session("wallet-session-1")
+                .expect("authorization"),
+            material_activation(),
             "presignature-1",
             2_000,
             base64url(&[0x77; 32]),
@@ -275,6 +281,10 @@ mod tests {
         RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1::new(
             prepare.scope.clone(),
             prepare.request_id.clone(),
+            prepare.operation_id.clone(),
+            prepare.operation_digests.clone(),
+            prepare.authorization.clone(),
+            prepare.material_activation.clone(),
             prepare.expires_at_ms,
             prepare.signing_digest_b64u.clone(),
             prepare.client_presignature_id.clone(),
@@ -347,7 +357,6 @@ mod tests {
         )
         .expect("public identity");
         RouterAbEcdsaDerivationNormalSigningScopeV1::new(
-            "wallet-key-1",
             "wallet-1",
             "threshold-key-1",
             "signing-root-1",
@@ -359,6 +368,27 @@ mod tests {
             "root-epoch-7",
         )
         .expect("normal-signing scope")
+    }
+
+    fn operation_digests() -> RouterAbEcdsaDerivationOperationDigestsV1 {
+        RouterAbEcdsaDerivationOperationDigestsV1 {
+            lane_digest_b64u: base64url(&[0x31; 32]),
+            intent_digest_b64u: base64url(&[0x77; 32]),
+            display_digest_b64u: base64url(&[0x33; 32]),
+        }
+    }
+
+    fn material_activation() -> MpcMaterialActivationRefV1 {
+        let scope = normal_signing_scope();
+        MpcMaterialActivationRefV1::new(
+            scope.material_activation_id().expect("activation id"),
+            "ecdsa-signing-capability-1",
+            scope.wallet_id.clone(),
+            "threshold-key-1",
+            "ecdsa-material-lifecycle-1",
+            scope.signing_worker.server_id.clone(),
+        )
+        .expect("material activation")
     }
 
     fn base64url(bytes: &[u8]) -> String {

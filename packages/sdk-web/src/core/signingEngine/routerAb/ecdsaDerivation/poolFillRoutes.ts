@@ -47,13 +47,25 @@ function resolvePresignAuthHeaders(args: RouterAbEcdsaDerivationPoolFillAuth):
     } {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   switch (args.credential.kind) {
-    case 'jwt': {
+    case 'wallet_session_jwt': {
       const jwt = String(args.credential.walletSessionJwt || '').trim();
       if (!jwt) {
         return {
           ok: false,
           code: 'invalid_args',
           message: 'Missing session JWT for Router A/B ECDSA derivation presign pool fill',
+        };
+      }
+      headers.Authorization = `Bearer ${jwt}`;
+      return { ok: true, headers, credentials: 'omit' };
+    }
+    case 'app_session_jwt': {
+      const jwt = String(args.credential.appSessionJwt || '').trim();
+      if (!jwt) {
+        return {
+          ok: false,
+          code: 'invalid_args',
+          message: 'Missing app session JWT for Router A/B ECDSA derivation presign pool fill',
         };
       }
       headers.Authorization = `Bearer ${jwt}`;

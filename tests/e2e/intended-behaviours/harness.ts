@@ -2299,6 +2299,7 @@ function signingAuthExpectationForStage(
 ): SigningAuthExpectation {
   switch (stage) {
     case 'post_registration':
+      return flow.startsWith('passkey') ? 'passkey_step_up' : 'email_otp_step_up';
     case 'post_unlock':
     case 'after_refresh_recovery':
       return 'warm_session';

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { runThreeRouteRegistrationCeremony } from '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration';
 import { buildFixtureRespondEd25519DeferredWork } from '../helpers/ed25519YaoAdmissionFixtures';
+import { initialEcdsaCapabilityActivationFixture } from './helpers/initialEcdsaCapabilityActivation.fixtures';
 
 /**
  * Refactor 94C. The three-route ceremony's ordering contract.
@@ -38,12 +39,18 @@ function stubbedRoutes(responses: Record<string, unknown>) {
 }
 
 /** Minimal signing engine: the ceremony only sequences these. */
-function stubSigningEngine() {
+function stubSigningEngine(
+  activation: Awaited<ReturnType<typeof initialEcdsaCapabilityActivationFixture>>,
+) {
   return {
     createRouterAbEcdsaRegistrationCeremony: async () => ({ registrationRequest: {} }),
     verifyRouterAbEcdsaRegistrationClientProofs: async () => ({
-      publicFacts: {},
+      publicFacts: activation.clientActivation,
       clientBootstrap: {},
+    }),
+    persistInitialCanonicalEcdsaActivation: async () => ({
+      ok: true,
+      journalId: activation.input.journalId,
     }),
     finalizeRouterAbEcdsaRegistrationActivation: async () => ({
       roleLocalMaterial: {},
@@ -54,18 +61,27 @@ function stubSigningEngine() {
   };
 }
 
-function ceremonyArgs(overrides: Record<string, unknown> = {}) {
+async function ceremonyArgs(overrides: Record<string, unknown> = {}) {
+  const activation = await initialEcdsaCapabilityActivationFixture();
   return {
-    context: { signingEngine: stubSigningEngine() },
+    context: { signingEngine: stubSigningEngine(activation) },
     relayerUrl: RELAYER,
     registrationCeremonyId: 'wrc_test',
     signedSetup: 'signed-setup',
     ecdsaPrepare: {
       kind: 'evm_family_ecdsa_keygen',
       chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
-      prepare: { relayerKeyId: 'relayer-key' },
+      prepare: {
+        evmFamilySigningKeySlotId: activation.input.evmFamilySigningKeySlotId,
+        ecdsaThresholdKeyId: activation.input.ecdsaThresholdKeyId,
+        signingRootId: activation.input.signingRootId,
+        signingRootVersion: activation.input.signingRootVersion,
+        relayerKeyId: activation.input.relayerKeyId,
+        participantIds: activation.input.participantIds,
+      },
       strictRegistration: {},
     },
+    materialAuthority: activation.input.authority,
     authority: { kind: 'passkey', webauthnRegistration: {} },
     idempotencyKey: 'idem-1',
     resolveActivateEmailOtp: async () => ({ enrollment: null, backupAck: null }),
@@ -111,7 +127,7 @@ test('a mixed plan hands off deferred NEAR work before activate is called', asyn
   const callsAtHandoff: string[] = [];
   try {
     await runThreeRouteRegistrationCeremony(
-      ceremonyArgs({
+      await ceremonyArgs({
         onDeferredNearWork: () => callsAtHandoff.push(...routes.calls),
       }),
     ).catch(() => undefined);
@@ -129,7 +145,7 @@ test('the ceremony never awaits the deferred NEAR work it hands off', async () =
   const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
   try {
     await runThreeRouteRegistrationCeremony(
-      ceremonyArgs({
+      await ceremonyArgs({
         onDeferredNearWork: () => {
           void new Promise<void>(() => {});
         },
@@ -148,7 +164,7 @@ test('a mixed plan carries the deferred work through to the caller', async () =>
   let handed: unknown = null;
   try {
     await runThreeRouteRegistrationCeremony(
-      ceremonyArgs({ onDeferredNearWork: (work: unknown) => (handed = work) }),
+      await ceremonyArgs({ onDeferredNearWork: (work: unknown) => (handed = work) }),
     ).catch(() => undefined);
   } finally {
     routes.restore();
@@ -170,7 +186,7 @@ test('an ECDSA-only plan hands off no deferred NEAR work', async () => {
   let handoffs = 0;
   try {
     await runThreeRouteRegistrationCeremony(
-      ceremonyArgs({ onDeferredNearWork: () => (handoffs += 1) }),
+      await ceremonyArgs({ onDeferredNearWork: () => (handoffs += 1) }),
     ).catch(() => undefined);
   } finally {
     routes.restore();
@@ -191,7 +207,7 @@ test('the ceremony calls respond and activate exactly once each, and no finalize
     activate: { ok: false },
   });
   try {
-    await runThreeRouteRegistrationCeremony(ceremonyArgs()).catch(() => undefined);
+    await runThreeRouteRegistrationCeremony(await ceremonyArgs()).catch(() => undefined);
   } finally {
     routes.restore();
   }
@@ -205,7 +221,8 @@ test('the ceremony consumes the collected authority and never asks for another',
      ceremony — to re-prompt on a retry, say — the user would see a second
      Touch ID, so any authority-collecting hook reached from here fails. */
   const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
-  const engine = stubSigningEngine() as Record<string, unknown>;
+  const args = await ceremonyArgs();
+  const engine = args.context.signingEngine as Record<string, unknown>;
   let authorityRequests = 0;
   for (const hook of [
     'collectPasskeyRegistrationAuthority',
@@ -219,7 +236,7 @@ test('the ceremony consumes the collected authority and never asks for another',
   }
   try {
     await runThreeRouteRegistrationCeremony(
-      ceremonyArgs({ context: { signingEngine: engine } }),
+      { ...args, context: { signingEngine: engine } } as never,
     ).catch(() => undefined);
   } finally {
     routes.restore();

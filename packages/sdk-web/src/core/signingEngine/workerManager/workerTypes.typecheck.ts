@@ -323,8 +323,8 @@ type EmailOtpEd25519YaoExactLocalWalletUnlockMaterial = Extract<
 type EmailOtpYaoBindPayload = EmailOtpWorkerOperationMap['bindEmailOtpEd25519YaoRoot']['payload'];
 type EmailOtpYaoRootDisposalPayload =
   EmailOtpWorkerOperationMap['disposeEmailOtpEd25519YaoRoot']['payload'];
-type EmailOtpYaoCommitPayload =
-  EmailOtpWorkerOperationMap['commitEmailOtpEd25519YaoRegistration']['payload'];
+type EmailOtpYaoRegistrationMaterialPayload =
+  EmailOtpWorkerOperationMap['persistEmailOtpEd25519YaoRegistrationMaterial']['payload'];
 type EmailOtpYaoRecoveryPayload =
   EmailOtpWorkerOperationMap['recoverEmailOtpEd25519Yao']['payload'];
 type EmailOtpEcdsaRegistrationWarmMaterialCommitPayload =
@@ -613,7 +613,6 @@ emailOtpWalletUnlockPayloadWithoutRuntimeScope satisfies EmailOtpWalletUnlockPay
 declare const pendingFactorHandle: EmailOtpYaoBindPayload['pendingFactorHandle'];
 declare const emailOtpYaoRootScope: EmailOtpYaoBindPayload['scope'];
 declare const emailOtpYaoRootHandle: EmailOtpYaoRootDisposalPayload['rootHandle'];
-declare const emailOtpYaoWalletSessionState: EmailOtpYaoCommitPayload['walletSessionState'];
 declare const emailOtpYaoRecoveryAdmission: EmailOtpYaoRecoveryPayload['admissionRequest'];
 
 const emailOtpYaoRootDisposalPayload: EmailOtpYaoRootDisposalPayload = {
@@ -635,17 +634,22 @@ const emailOtpYaoBindPayloadWithCallerExpiry = {
 } satisfies EmailOtpYaoBindPayload;
 void emailOtpYaoBindPayloadWithCallerExpiry;
 
-const emailOtpYaoCommitPayload: EmailOtpYaoCommitPayload = {
+const emailOtpYaoRegistrationMaterialPayload: EmailOtpYaoRegistrationMaterialPayload = {
   pendingHandle: 'pending-registration',
-  walletSessionState: emailOtpYaoWalletSessionState,
+  walletId: 'wallet.testnet',
+  nearAccountId: 'wallet.testnet',
+  nearEd25519SigningKeyId: 'ed25519-key-1',
+  signerSlot: 1,
+  signingRootVersion: 'root-v1',
+  expectedOperationalPublicKey: 'ed25519:public-key',
 };
-void emailOtpYaoCommitPayload;
+void emailOtpYaoRegistrationMaterialPayload;
 
-// @ts-expect-error Registration commit requires the exact Wallet Session state.
-const emailOtpYaoCommitWithoutWalletSession: EmailOtpYaoCommitPayload = {
+// @ts-expect-error Registration material persistence requires the exact signer identity.
+const emailOtpYaoRegistrationMaterialWithoutSigner: EmailOtpYaoRegistrationMaterialPayload = {
   pendingHandle: 'pending-registration',
 };
-void emailOtpYaoCommitWithoutWalletSession;
+void emailOtpYaoRegistrationMaterialWithoutSigner;
 
 const emailOtpYaoRecoveryPayload: EmailOtpYaoRecoveryPayload = {
   rootHandle: emailOtpYaoRootHandle,

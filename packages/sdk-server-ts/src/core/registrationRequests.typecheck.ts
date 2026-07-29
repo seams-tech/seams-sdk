@@ -276,12 +276,12 @@ const invalidEd25519FinalizeSuccessWithEcdsa: WalletRegistrationFinalizeResponse
 };
 void invalidEd25519FinalizeSuccessWithEcdsa;
 
-const invalidEd25519SessionWithoutJwt = {
-  ...validEd25519FinalizeSuccess.ed25519.session,
-  // @ts-expect-error an activated Ed25519 signing session requires its Wallet Session JWT.
-  walletSessionJwt: undefined,
-} satisfies typeof validEd25519FinalizeSuccess.ed25519.session;
-void invalidEd25519SessionWithoutJwt;
+const invalidEd25519FinalizeSuccessWithSession = {
+  ...validEd25519FinalizeSuccess.ed25519,
+  // @ts-expect-error registration returns durable material facts and cannot mint a Wallet Session.
+  session: {},
+} satisfies typeof validEd25519FinalizeSuccess.ed25519;
+void invalidEd25519FinalizeSuccessWithSession;
 
 const invalidEcdsaFinalizeSuccessWithNearIdentity: WalletRegistrationFinalizeResponse = {
   ...validEcdsaFinalizeSuccess,

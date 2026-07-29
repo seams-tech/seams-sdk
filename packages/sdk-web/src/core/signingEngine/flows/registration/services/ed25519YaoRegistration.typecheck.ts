@@ -1,22 +1,42 @@
 import type {
   NearEd25519YaoSigningCapability,
-  NearResolvedEd25519SigningSessionState,
 } from '@/core/signingEngine/interfaces/near';
 import type { WasmRouterAbEd25519YaoActiveClientV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import {
   PendingProductEd25519YaoRegistrationV1,
   buildProductEd25519YaoRegistrationRequestV1,
+  type ProductEd25519YaoBrowserMaterialPersistencePortV1,
   type ProductEd25519YaoCapabilityActivationPortV1,
 } from './ed25519YaoRegistration';
 
 declare const pendingRegistration: PendingProductEd25519YaoRegistrationV1;
 void pendingRegistration.dispose();
 declare const activation: ProductEd25519YaoCapabilityActivationPortV1;
-declare const walletSessionState: NearResolvedEd25519SigningSessionState;
 declare const capability: NearEd25519YaoSigningCapability;
 declare const activeClient: WasmRouterAbEd25519YaoActiveClientV1;
+declare const browserPersistence: ProductEd25519YaoBrowserMaterialPersistencePortV1;
 
-pendingRegistration.commit({ activation, walletSessionState });
+pendingRegistration.persistRegistrationMaterial({
+  kind: 'browser_owned',
+  persistence: browserPersistence,
+});
+pendingRegistration.persistRegistrationMaterial({
+  kind: 'worker_owned',
+  walletId: 'wallet-1',
+  nearAccountId: 'account.near',
+  nearEd25519SigningKeyId: 'ed25519-key-1',
+  signerSlot: 1,
+  signingRootVersion: 'root-version-1',
+  expectedOperationalPublicKey: 'ed25519:public-key',
+});
+// @ts-expect-error worker-owned persistence requires the exact signer identity.
+pendingRegistration.persistRegistrationMaterial({ kind: 'worker_owned' });
+// @ts-expect-error browser-owned persistence cannot carry worker identity fields.
+pendingRegistration.persistRegistrationMaterial({
+  kind: 'browser_owned',
+  persistence: browserPersistence,
+  signerSlot: 1,
+});
 activation.activateVerifiedNearEd25519YaoSigningCapability(capability);
 // @ts-expect-error activation accepts a verified capability, not a raw active Client.
 activation.activateVerifiedNearEd25519YaoSigningCapability(activeClient);

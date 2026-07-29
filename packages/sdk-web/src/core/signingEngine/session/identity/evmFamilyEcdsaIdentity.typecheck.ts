@@ -640,7 +640,7 @@ declare const hydratedSignerMaterial: HydratedEcdsaSignerMaterial;
 const invalidHydratedMaterialWithCredential = {
   ...hydratedSignerMaterial,
   // @ts-expect-error hydrated material cannot carry an authorization credential.
-  credential: { kind: 'jwt', walletSessionJwt: 'wallet-session-jwt' },
+  credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
 } satisfies HydratedEcdsaSignerMaterial;
 void invalidHydratedMaterialWithCredential;
 

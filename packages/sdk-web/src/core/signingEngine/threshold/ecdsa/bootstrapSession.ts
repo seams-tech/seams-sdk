@@ -131,7 +131,7 @@ type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaSessionBaseArgs &
   BootstrapEcdsaSessionAuthArgs & {
     bootstrapAuth: Extract<
       ThresholdEcdsaDerivationRouteAuth,
-      { kind: 'app_session' | 'wallet_session' }
+      { kind: 'wallet_session' }
     >;
     keyHandle: EvmFamilyEcdsaKeyHandle;
     key: EvmFamilyEcdsaKeyIdentity;

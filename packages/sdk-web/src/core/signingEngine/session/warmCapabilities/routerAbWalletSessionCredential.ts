@@ -166,7 +166,7 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
     expiresAtMs,
     runtimePolicyScope,
     credential: {
-      kind: 'jwt',
+      kind: 'wallet_session_jwt',
       walletSessionJwt,
     },
   };

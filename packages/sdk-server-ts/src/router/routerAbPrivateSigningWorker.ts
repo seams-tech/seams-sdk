@@ -411,6 +411,31 @@ type RouterAbNormalSigningPrepareAdmissionCandidateV2 = {
   readonly expires_at_ms: number;
 };
 
+type RouterAbNormalSigningFinalizeAdmissionCandidateV2 = Omit<
+  RouterAbNormalSigningPrepareAdmissionCandidateV2,
+  'admitted_signing_digest' | 'round1_binding_digest'
+> & {
+  readonly round1_binding_digest: RouterAbPublicDigest32V1Wire;
+};
+
+type RouterAbNormalSigningEffectClaimV1 =
+  | {
+      readonly kind: 'reusable_wallet_session';
+      readonly budget: {
+        readonly signing_grant_id: string;
+        readonly reservation_id: string;
+        readonly signing_worker_id: string;
+        readonly operation_id: string;
+        readonly request_digest: RouterAbPublicDigest32V1Wire;
+        readonly now_unix_ms: number;
+      };
+    }
+  | {
+      readonly kind: 'operation_step_up';
+      readonly authorization_session_id: string;
+      readonly grant_id: string;
+    };
+
 type RouterAbEd25519PrivatePrepareSigningWorkerBody = {
   readonly scope: RouterAbEd25519NormalSigningScopeV2;
   readonly expires_at_ms: number;
@@ -420,7 +445,9 @@ type RouterAbEd25519PrivatePrepareSigningWorkerBody = {
 
 type RouterAbEd25519PrivateFinalizeSigningWorkerBody = {
   readonly request: Record<string, unknown>;
+  readonly admission_candidate: RouterAbNormalSigningFinalizeAdmissionCandidateV2;
   readonly trusted_admission: RouterAbNormalSigningTrustedAdmissionV1;
+  readonly effect_claim: RouterAbNormalSigningEffectClaimV1;
 };
 
 export type RouterAbEd25519PrivateSigningWorkerBody =
