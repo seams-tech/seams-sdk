@@ -219,6 +219,135 @@ async function exerciseReplacementActivation(input: {
   };
 }
 
+async function exerciseAtomicReplacementRollback(input: {
+  readonly storeModule: string;
+  readonly fixture: EcdsaCapabilityReplacementFixture;
+}) {
+  await new Promise<void>((resolve) => {
+    const request = indexedDB.deleteDatabase('seams_wallet');
+    request.onsuccess = () => resolve();
+    request.onerror = () => resolve();
+    request.onblocked = () => resolve();
+  });
+  const module = await import(input.storeModule);
+  const store = new module.IndexedDbEcdsaCapabilityManifestStore();
+  const priorPreparation = await store.prepareActivation(input.fixture.prior.prepareInput);
+  if (
+    priorPreparation.kind !== 'stored' ||
+    priorPreparation.journal.kind !== 'activation_prepared'
+  ) {
+    throw new Error(`prior preparation failed: ${priorPreparation.kind}`);
+  }
+  const priorCommit = await store.recordServerActivation({
+    preparedJournal: priorPreparation.journal,
+    serverCommit: input.fixture.prior.serverCommit,
+  });
+  if (priorCommit.kind !== 'stored' || priorCommit.journal.kind !== 'server_activation_committed') {
+    throw new Error(`prior server commit failed: ${priorCommit.kind}`);
+  }
+  const priorFinalization = await store.sealAndFinalizeActivation({
+    committedJournal: priorCommit.journal,
+    ...input.fixture.prior.sealInput,
+  });
+  if (priorFinalization.kind !== 'committed') {
+    throw new Error(`prior finalization failed: ${priorFinalization.kind}`);
+  }
+
+  const replacementPreparation = await store.prepareActivation(
+    input.fixture.replacement.prepareInput,
+  );
+  if (
+    replacementPreparation.kind !== 'stored' ||
+    replacementPreparation.journal.kind !== 'activation_prepared'
+  ) {
+    throw new Error(`replacement preparation failed: ${replacementPreparation.kind}`);
+  }
+  const replacementCommit = await store.recordServerActivation({
+    preparedJournal: replacementPreparation.journal,
+    serverCommit: input.fixture.replacement.serverCommit,
+  });
+  if (
+    replacementCommit.kind !== 'stored' ||
+    replacementCommit.journal.kind !== 'server_activation_committed'
+  ) {
+    throw new Error(`replacement server commit failed: ${replacementCommit.kind}`);
+  }
+
+  const replacementManifestId =
+    input.fixture.replacement.prepareInput.activationBinding.targetManifest.manifestId;
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('seams_wallet');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction('ecdsa_capability_manifests', 'readwrite');
+    transaction.objectStore('ecdsa_capability_manifests').add({
+      manifest_id: replacementManifestId,
+      injected_fault: 'duplicate_replacement_manifest',
+    });
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  db.close();
+
+  const replacementFinalization = await store.sealAndFinalizeActivation({
+    committedJournal: replacementCommit.journal,
+    ...input.fixture.replacement.sealInput,
+  });
+  const selector = {
+    capability: input.fixture.prior.prepareInput.activationBinding.signer.capability,
+    authority: input.fixture.prior.prepareInput.activationBinding.signer.authority,
+  };
+  const active = await store.lookup(selector);
+  const opened = await store.openActiveMaterial(selector);
+  const journal = await store.readActivationJournal(replacementCommit.journal.journalId);
+
+  const inspectionDb = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('seams_wallet');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const inspection = await new Promise<{
+    replacementMaterialPresent: boolean;
+    faultSentinelPresent: boolean;
+  }>((resolve, reject) => {
+    const transaction = inspectionDb.transaction(
+      ['ecdsa_role_local_material', 'ecdsa_capability_manifests'],
+      'readonly',
+    );
+    const replacementMaterial = transaction
+      .objectStore('ecdsa_role_local_material')
+      .get(input.fixture.replacement.prepareInput.activationBinding.durableMaterialRef);
+    const faultSentinel = transaction
+      .objectStore('ecdsa_capability_manifests')
+      .get(replacementManifestId);
+    transaction.oncomplete = () => {
+      resolve({
+        replacementMaterialPresent: replacementMaterial.result !== undefined,
+        faultSentinelPresent:
+          (faultSentinel.result as { injected_fault?: unknown } | undefined)?.injected_fault ===
+          'duplicate_replacement_manifest',
+      });
+    };
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  inspectionDb.close();
+
+  return {
+    replacementFinalizationKind: replacementFinalization.kind,
+    activeKind: active.kind,
+    activeManifestId: active.kind === 'active' ? active.manifest.identity.manifestId : null,
+    openedKind: opened.kind,
+    openedStateBlobB64u: opened.kind === 'active' ? opened.readyStateBlobB64u : null,
+    journalKind: journal.kind,
+    journalState: journal.kind === 'found' ? journal.journal.kind : null,
+    ...inspection,
+  };
+}
+
 async function exerciseLookupOutcomeMatrix(input: {
   readonly storeModule: string;
   readonly fixture: EcdsaCapabilityLookupOutcomeFixture;
@@ -1322,6 +1451,29 @@ test.describe('canonical ECDSA capability manifest store', () => {
       priorSealingKeyPresent: false,
       replacementSealingKeyPresent: true,
       replacementJournalKind: 'missing',
+    });
+  });
+
+  test('rolls back source retirement and replacement writes when finalization faults', async ({
+    page,
+  }) => {
+    const fixture = ecdsaCapabilityReplacementFixture();
+    await prepareStoreModulePage(page);
+    const result = await page.evaluate(exerciseAtomicReplacementRollback, {
+      storeModule: STORE_MODULE,
+      fixture,
+    });
+
+    expect(result).toEqual({
+      replacementFinalizationKind: 'exact_record_conflict',
+      activeKind: 'active',
+      activeManifestId: fixture.prior.prepareInput.activationBinding.targetManifest.manifestId,
+      openedKind: 'active',
+      openedStateBlobB64u: fixture.prior.sealInput.readyStateBlobB64u,
+      journalKind: 'found',
+      journalState: 'server_activation_committed',
+      replacementMaterialPresent: false,
+      faultSentinelPresent: true,
     });
   });
 
