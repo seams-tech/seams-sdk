@@ -8,8 +8,8 @@ import {
 } from './helpers/d1StagingScriptFixtures';
 
 const missingKekSignerCustodyResultId = 'ecdsa_export_share_missing_kek_fail_closed';
-const consoleRestoreDatabaseName = 'seams-console-staging-restore-drill-20260628t000000z';
-const signerRestoreDatabaseName = 'seams-signer-staging-restore-drill-20260628t000000z';
+const consoleRestoreDatabaseName = 'seams-console-staging-nrt-restore-drill-20260628t000000z';
+const signerRestoreDatabaseName = 'seams-signer-staging-nrt-restore-drill-20260628t000000z';
 const consoleIntegrityCommand = `integrity console ${consoleRestoreDatabaseName} PRAGMA integrity_check`;
 const signerIntegrityCommand = `integrity signer ${signerRestoreDatabaseName} PRAGMA integrity_check`;
 const signerIntegrityCommandWithConsoleDatabase =

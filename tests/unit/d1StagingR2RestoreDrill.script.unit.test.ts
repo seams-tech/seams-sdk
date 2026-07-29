@@ -101,14 +101,14 @@ test('D1 staging R2 restore drill builds timestamped export, R2, restore, and in
 
   expect(plan.stamp).toBe('20260628T000000Z');
   expect(plan.commands).toHaveLength(12);
-  expect(plan.commands[0]).toContain('d1 export seams-console-staging --remote');
+  expect(plan.commands[0]).toContain('d1 export seams-console-staging-nrt --remote');
   expect(plan.commands[2]).toContain(
-    'wrangler r2 object put seams-staging-backups/refactor-82/20260628T000000Z/seams-console-staging.sql',
+    'wrangler r2 object put seams-staging-backups/refactor-82/20260628T000000Z/seams-console-staging-nrt.sql',
   );
-  expect(plan.commands[8]).toContain('d1 execute seams-console-staging-restore-drill-20260628t000000z');
+  expect(plan.commands[8]).toContain('d1 execute seams-console-staging-nrt-restore-drill-20260628t000000z');
   expect(plan.commands[10]).toContain('PRAGMA integrity_check;');
   expect(plan.artifacts.consoleRestoreDatabaseName).toBe(
-    'seams-console-staging-restore-drill-20260628t000000z',
+    'seams-console-staging-nrt-restore-drill-20260628t000000z',
   );
 });
 
@@ -149,7 +149,7 @@ test('D1 staging R2 restore drill remote mode rejects failed export commands', a
       mode: 'remote',
       commandRunner: failedR2CommandRunner,
     }),
-  ).toThrow(/Command failed: .*d1 export seams-console-staging --remote/);
+  ).toThrow(/Command failed: .*d1 export seams-console-staging-nrt --remote/);
 });
 
 test('D1 staging R2 restore drill rejects corrupt integrity-check output', async () => {

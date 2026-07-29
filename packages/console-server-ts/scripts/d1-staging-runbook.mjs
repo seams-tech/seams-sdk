@@ -142,8 +142,8 @@ function appendResourceInventory(lines) {
   lines.push('| Resource | Value | Evidence |');
   lines.push('| --- | --- | --- |');
   lines.push('| Cloudflare account ID |  |  |');
-  lines.push('| Console D1 database ID |  | `wrangler d1 info seams-console-staging` |');
-  lines.push('| Signer D1 database ID |  | `wrangler d1 info seams-signer-staging` |');
+  lines.push('| Console D1 database ID |  | `wrangler d1 info seams-console-staging-nrt` |');
+  lines.push('| Signer D1 database ID |  | `wrangler d1 info seams-signer-staging-nrt` |');
   lines.push('| Threshold Durable Object namespace |  | gateway Wrangler config |');
   lines.push('| Secrets Store ID |  | gateway Wrangler config |');
   lines.push('| Signer KEK secret names |  | gateway Wrangler config, secret metadata only |');

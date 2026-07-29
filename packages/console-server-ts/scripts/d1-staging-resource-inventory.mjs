@@ -202,7 +202,7 @@ function inventoryCommands(input) {
       id: 'console_d1_info',
       target: 'console_d1',
       command: wranglerCommand(
-        'd1 info seams-console-staging --json',
+        'd1 info seams-console-staging-nrt --json',
         input.consoleConfigPath,
       ),
     }),
@@ -210,7 +210,7 @@ function inventoryCommands(input) {
       id: 'signer_d1_info',
       target: 'signer_d1',
       command: wranglerCommand(
-        'd1 info seams-signer-staging --json',
+        'd1 info seams-signer-staging-nrt --json',
         input.gatewayConfigPath,
       ),
     }),
