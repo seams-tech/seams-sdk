@@ -490,7 +490,7 @@ function ecdsaSessionAuthorityMatches(
   return (
     left.relayerKeyId === right.relayerKeyId &&
     left.walletId === right.walletId &&
-    left.evmFamilySigningKeySlotId === right.evmFamilySigningKeySlotId &&
+    left.keyHandle === right.keyHandle &&
     numericIdsMatch(left.participantIds, right.participantIds)
   );
 }
@@ -547,7 +547,7 @@ function addEcdsaBudgetBinding(
 ): NonNullable<ReturnType<typeof parseWalletSigningBudgetSessionRecord>> | null {
   const binding = {
     thresholdSessionId: sessionKeyId,
-    evmFamilySigningKeySlotId: session.evmFamilySigningKeySlotId,
+    keyHandle: session.keyHandle,
     participantIds: [...session.participantIds],
   };
   switch (budget.bindings.kind) {
@@ -566,7 +566,7 @@ function addEcdsaBudgetBinding(
     case 'ed25519_and_ecdsa': {
       const compatible = budget.bindings.ecdsa.every(
         (existing) =>
-          existing.evmFamilySigningKeySlotId === session.evmFamilySigningKeySlotId &&
+          existing.keyHandle === session.keyHandle &&
           numericIdsMatch(existing.participantIds, session.participantIds),
       );
       if (!compatible) return null;
@@ -651,7 +651,7 @@ async function provisionEcdsaNormalSigningSession(
           ecdsa: [
             {
               thresholdSessionId,
-              evmFamilySigningKeySlotId: input.session.evmFamilySigningKeySlotId,
+              keyHandle: input.session.keyHandle,
               participantIds: [...input.session.participantIds],
             },
           ],

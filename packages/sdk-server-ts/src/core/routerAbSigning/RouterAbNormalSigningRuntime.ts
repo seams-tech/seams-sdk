@@ -41,6 +41,7 @@ import {
   walletSessionFailureStatus,
   type WalletSessionFailureCode,
 } from '../../router/walletSessionFailure';
+import { parseEcdsaKeyHandle, type EcdsaKeyHandle } from '../keyMaterialBrands';
 
 export type RouterAbSigningWorkerPrivateTransport =
   | {
@@ -215,11 +216,11 @@ export type RouterAbSigningGrantBudgetInput = {
   | {
       readonly curve: 'ed25519';
       readonly authorityScope: ThresholdEd25519AuthorityScope;
-      readonly evmFamilySigningKeySlotId?: never;
+      readonly keyHandle?: never;
     }
   | {
       readonly curve: 'ecdsa';
-      readonly evmFamilySigningKeySlotId: string;
+      readonly keyHandle: EcdsaKeyHandle;
       readonly authorityScope?: never;
     }
 );
@@ -282,6 +283,7 @@ export type RouterAbEcdsaNormalSigningSessionProvisionInput = {
   readonly kind: 'router_ab_ecdsa_normal_signing_session_v1';
   readonly walletId: string;
   readonly evmFamilySigningKeySlotId: string;
+  readonly keyHandle: string;
   readonly relayerKeyId: string;
   readonly thresholdSessionId: string;
   readonly signingGrantId: string;
@@ -356,7 +358,7 @@ function ecdsaWalletSessionsHaveSameAuthority(
   return (
     left.relayerKeyId === right.relayerKeyId &&
     left.walletId === right.walletId &&
-    left.evmFamilySigningKeySlotId === right.evmFamilySigningKeySlotId &&
+    left.keyHandle === right.keyHandle &&
     participantIdsEqual(left.participantIds, right.participantIds)
   );
 }
@@ -429,7 +431,7 @@ function signingGrantBudgetRecordMatchesCurveBinding(
       for (const binding of signingGrantBudgetEcdsaBindings(record)) {
         if (
           binding.thresholdSessionId === input.thresholdSessionId &&
-          binding.evmFamilySigningKeySlotId === input.evmFamilySigningKeySlotId &&
+          binding.keyHandle === input.keyHandle &&
           participantIdsEqual(binding.participantIds, input.participantIds)
         ) {
           return true;
@@ -452,7 +454,7 @@ function signingGrantBudgetCanAddCurveBinding(
     case 'ecdsa':
       for (const binding of signingGrantBudgetEcdsaBindings(record)) {
         if (
-          binding.evmFamilySigningKeySlotId !== input.evmFamilySigningKeySlotId ||
+          binding.keyHandle !== input.keyHandle ||
           !participantIdsEqual(binding.participantIds, input.participantIds)
         ) {
           return false;
@@ -493,7 +495,7 @@ function buildSigningGrantBudgetRecord(
           ecdsa: [
             {
               thresholdSessionId: input.thresholdSessionId,
-              evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+              keyHandle: input.keyHandle,
               participantIds: [...input.participantIds],
             },
           ],
@@ -532,7 +534,7 @@ function normalizeSigningGrantBudgetInput(
         ttlMs: input.ttlMs,
         remainingUses: input.remainingUses,
         operation: input.operation,
-        evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+        keyHandle: input.keyHandle,
       };
     default:
       return assertNever(input);
@@ -566,7 +568,7 @@ function addSigningGrantBudgetCurveBinding(
     case 'ecdsa': {
       const binding: WalletSigningBudgetEcdsaBinding = {
         thresholdSessionId: input.thresholdSessionId,
-        evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+        keyHandle: input.keyHandle,
         participantIds: [...input.participantIds],
       };
       switch (record.bindings.kind) {
@@ -893,6 +895,16 @@ export class RouterAbNormalSigningRuntime {
     const signingGrantId = toOptionalTrimmedString(input.signingGrantId);
     const signingRootId = toOptionalTrimmedString(input.signingRootId);
     const signingRootVersion = toOptionalTrimmedString(input.signingRootVersion);
+    let keyHandle: EcdsaKeyHandle;
+    try {
+      keyHandle = parseEcdsaKeyHandle(input.keyHandle);
+    } catch {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'ECDSA key handle is invalid',
+      };
+    }
     const expiresAtMs = Number(input.expiresAtMs);
     const remainingUses = Math.floor(Number(input.remainingUses));
     const participantIds = normalizeExactEcdsaParticipantIds(input.participantIds);
@@ -936,7 +948,7 @@ export class RouterAbNormalSigningRuntime {
       expiresAtMs,
       relayerKeyId,
       walletId: walletId.value,
-      evmFamilySigningKeySlotId,
+      keyHandle,
       participantIds,
     };
     if (this.ecdsaNormalSigningProvisioner) {
@@ -973,7 +985,7 @@ export class RouterAbNormalSigningRuntime {
       curve: 'ecdsa',
       thresholdSessionId,
       userId: walletId.value,
-      evmFamilySigningKeySlotId,
+      keyHandle,
       participantIds,
       ttlMs,
       remainingUses,
@@ -1305,10 +1317,10 @@ export class RouterAbNormalSigningRuntime {
     const signingGrantId = toOptionalTrimmedString(input.signingGrantId);
     const branchScopeId =
       input.curve === 'ecdsa'
-        ? toOptionalTrimmedString(input.evmFamilySigningKeySlotId)
+        ? input.keyHandle
         : input.authorityScope.kind;
     const branchScopeLabel =
-      input.curve === 'ecdsa' ? 'evmFamilySigningKeySlotId' : 'authorityScope';
+      input.curve === 'ecdsa' ? 'keyHandle' : 'authorityScope';
     if (!thresholdSessionId) {
       return {
         ok: false,
@@ -1630,7 +1642,7 @@ export class RouterAbNormalSigningRuntime {
         if (
           !binding ||
           budgetSession.walletId !== curveSession.walletId ||
-          binding.evmFamilySigningKeySlotId !== curveSession.evmFamilySigningKeySlotId ||
+          binding.keyHandle !== curveSession.keyHandle ||
           !participantIdsEqual(binding.participantIds, curveSession.participantIds)
         ) {
           return resolvedSigningGrantBudgetFailure('wallet_session_scope_mismatch');
