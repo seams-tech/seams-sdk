@@ -21,7 +21,6 @@ import type {
   SigningSessionSealGuard,
   SigningSessionSealRoutesOptions,
   SigningSessionSealServiceIdempotencyOptions,
-  SigningSessionSealThresholdSessionPolicy,
   SigningSessionSealStartupCapabilities,
 } from './signingSessionSeal.types';
 import type { CreateSigningSessionSealAuditLoggerOptions } from './observability/audit';
@@ -29,7 +28,6 @@ import type { CreateSigningSessionSealRateLimitGuardOptions } from './guards';
 
 export interface CreateSigningSessionSealRoutesOptionsInput {
   basePath?: string;
-  sessionPolicy?: SigningSessionSealThresholdSessionPolicy;
   cipher: SigningSessionSealCipherAdapter;
   idempotency?: SigningSessionSealServiceIdempotencyOptions;
   guard?: SigningSessionSealGuard | null;
@@ -154,9 +152,6 @@ export function createSigningSessionSealRoutesOptions(
   const options: SigningSessionSealRoutesOptions = {
     service: createSigningSessionSealService(serviceOptions),
   };
-  if (input.sessionPolicy) {
-    options.sessionPolicy = input.sessionPolicy;
-  }
   if (input.basePath) {
     options.basePath = input.basePath;
   }

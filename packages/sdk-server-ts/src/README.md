@@ -227,17 +227,11 @@ Cloudflare CORS note
 import { createRouterApiRouter } from '@seams/sdk-server/router/express';
 import {
   createSigningSessionSealRoutesOptions,
-  createSigningSessionSealPolicyFromWalletSessionStores,
   createSigningSessionSealShamir3PassCipherAdapter,
   resolveSigningSessionSealRateLimitFromEnv,
 } from '@seams/sdk-server';
 
-const ecdsaWalletSessionStore = /* your ECDSA Wallet Session store */;
 const signingSessionSeal = createSigningSessionSealRoutesOptions({
-  sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
-    ecdsaStores: [ecdsaWalletSessionStore],
-    walletBudgetStores: [ecdsaWalletSessionStore],
-	  }),
 	  cipher: createSigningSessionSealShamir3PassCipherAdapter({
 	    currentKeyVersion: 'signing-session-seal-kek-2026-02-r1',
 	    keys: [{
