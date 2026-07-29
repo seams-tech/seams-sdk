@@ -1043,7 +1043,11 @@ function parseD1StoredWalletRegistrationSignerState(
 function parseD1StoredSignerSetRegistrationState(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationSignerSetState | null {
-  if (!Array.isArray(record.branches) || record.branches.length === 0) return null;
+  /* An empty branch list is a real state, not a corrupt record: an
+     Ed25519-only ceremony has nothing admitted until respond derives the
+     authority-bound Yao admission. Callers check for the specific branch they
+     need, so requiring one here would only reject a legitimate ceremony. */
+  if (!Array.isArray(record.branches)) return null;
   const branches: StoredWalletRegistrationSignerBranch[] = [];
   for (const rawBranch of record.branches) {
     const branch = parseD1StoredSignerSetRegistrationBranch(rawBranch);
