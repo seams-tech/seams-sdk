@@ -1,4 +1,5 @@
 import type {
+  WalletRegistrationNearProvisioningResponseV2,
   WalletRegistrationActivateResponseV2,
   WalletRegistrationRespondResponseV2,
   WalletRegistrationSetupResponseV2,
@@ -2662,6 +2663,47 @@ export async function handleRouterApiWalletRegistrationActivate(
     },
     traceContext.value ?? undefined,
   );
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+/**
+ * Refactor 94C. `POST /wallets/register/near-provisioning` — the non-blocking
+ * completion the client calls after activate, once its already-running Yao
+ * computation produces an activation.
+ */
+export async function handleRouterApiWalletRegistrationNearProvisioning(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationNearProvisioningResponseV2 | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const session = input.services.session;
+  if (!session) {
+    return routeError(500, 'internal', 'NEAR provisioning requires session signing');
+  }
+  const body = input.body as Record<string, unknown>;
+  const registrationCeremonyId = String(body.registrationCeremonyId || '').trim();
+  const signedSetup = String(body.signedSetup || '').trim();
+  const idempotencyKey = String(body.idempotencyKey || '').trim();
+  if (!registrationCeremonyId || !signedSetup || !idempotencyKey) {
+    return routeError(
+      400,
+      'invalid_body',
+      'registrationCeremonyId, signedSetup and idempotencyKey are required',
+    );
+  }
+  const ed25519 = isPlainObject(body.ed25519) ? body.ed25519 : null;
+  if (!ed25519) {
+    return routeError(400, 'invalid_body', 'ed25519 activation reference is required');
+  }
+  const result =
+    await input.services.walletRegistration.completeWalletRegistrationNearProvisioning({
+      registrationCeremonyId,
+      signedSetup,
+      idempotencyKey,
+      ed25519,
+      verifier: session,
+    });
   return routeJson(result.ok ? 200 : 400, result);
 }
 

@@ -119,6 +119,14 @@ export type WalletRegistrationActivateInput = {
   readonly minter: WalletRegistrationSetupMinter;
 };
 
+export type WalletRegistrationNearProvisioningInput = {
+  readonly registrationCeremonyId: string;
+  readonly signedSetup: unknown;
+  readonly idempotencyKey: string;
+  readonly ed25519: unknown;
+  readonly verifier: WalletRegistrationSetupVerifier;
+};
+
 export function walletRegistrationSetupIds(): {
   readonly registrationCeremonyId: string;
   readonly registrationPreparationId: string;
