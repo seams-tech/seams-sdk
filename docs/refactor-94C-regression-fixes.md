@@ -365,7 +365,7 @@ No implementation on either lane may redefine the other lane's contract.
       `not_implemented`.
 - [x] Make setup, authenticated respond, and activate-and-finalize the only
       blocking registration routes.
-- [ ] Delete stored grants, wallet reservations and cleanup, quota counts,
+- [x] Delete stored grants, wallet reservations and cleanup, quota counts,
       start/finalize journals, duplicate replay writes, and successful-path
       readbacks.
 - [x] Keep Gateway state only at irreversible activation and terminal replay;
@@ -384,7 +384,7 @@ No implementation on either lane may redefine the other lane's contract.
 - [x] Move add-signer's server intent admission from the stored managed grant
       to direct publishable-key authentication while preserving its existing
       ceremony and journals.
-- [ ] Switch the add-signer client to direct publishable-key admission, then
+- [x] Switch the add-signer client to direct publishable-key admission, then
       delete the grant client and server broker once no flow uses them.
 
 The lanes may use temporary compile-time interface stubs that exactly match the
