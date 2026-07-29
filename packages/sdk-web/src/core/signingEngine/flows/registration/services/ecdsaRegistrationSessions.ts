@@ -101,7 +101,6 @@ export async function finalizeWalletRegistrationEcdsaSessions(
   const storedWalletKeys = input.walletKeys.map((walletKey) => {
     const publicFacts = buildEcdsaRoleLocalPublicFacts({
       walletId,
-      evmFamilySigningKeySlotId: walletKey.evmFamilySigningKeySlotId,
       chainTarget: walletKey.chainTarget,
       keyHandle: walletKey.keyHandle,
       ecdsaThresholdKeyId: walletKey.ecdsaThresholdKeyId,

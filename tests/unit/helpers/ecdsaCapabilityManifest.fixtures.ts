@@ -78,7 +78,6 @@ import type { RouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils
 import { buildRouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
-import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { buildEcdsaRoleLocalPublicFacts } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
@@ -189,11 +188,6 @@ export function ecdsaCapabilityActivationFixture(args?: {
       signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion('v1'),
     }),
     activationId: unwrap(parseMpcMaterialActivationId('ecdsa-activation-fixture')),
-    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-      walletId,
-      signingRootId: 'fixture:dev',
-      signingRootVersion: 'v1',
-    }),
     roleLocalBinding,
     bindingDigest: parseEcdsaRoleLocalBindingDigest(CONTEXT_BINDING_B64U),
     durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef('ecdsa-material-fixture'),
@@ -238,7 +232,6 @@ export function ecdsaCapabilityActivationFixture(args?: {
   });
   const roleLocalPublicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId,
-    evmFamilySigningKeySlotId: activationBinding.evmFamilySigningKeySlotId,
     chainTarget: activationBinding.signer.scope.targetMemberships[0],
     keyHandle: roleLocalBinding.keyHandle,
     ecdsaThresholdKeyId: roleLocalBinding.ecdsaThresholdKeyId,
@@ -475,7 +468,6 @@ function buildEcdsaCapabilityReplacementFixture(
       signingRootVersion: priorSigner.signingRootVersion,
     }),
     activationId: unwrap(parseMpcMaterialActivationId('ecdsa-activation-replacement-fixture')),
-    evmFamilySigningKeySlotId: prior.prepareInput.activationBinding.evmFamilySigningKeySlotId,
     roleLocalBinding,
     bindingDigest: parseEcdsaRoleLocalBindingDigest(REPLACEMENT_DIGEST_B64U),
     durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef('ecdsa-material-replacement-fixture'),

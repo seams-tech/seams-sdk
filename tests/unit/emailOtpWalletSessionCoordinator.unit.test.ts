@@ -237,7 +237,6 @@ function makeEmailOtpRoleLocalReadyRecord(args: {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId(args.walletId),
-      evmFamilySigningKeySlotId,
       chainTarget: args.chainTarget,
       keyHandle: args.keyHandle,
       ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,

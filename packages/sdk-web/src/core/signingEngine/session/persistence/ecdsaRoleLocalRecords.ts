@@ -28,7 +28,6 @@ import type {
   DerivationClientSharePublicKey33B64u,
   EcdsaDerivationRelayerPublicKey33B64u,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -144,10 +143,6 @@ function parseCredentialIdB64u(value: unknown, field = 'credentialIdB64u'): Cred
   return requiredString(value, field) as CredentialIdB64u;
 }
 
-function toWalletKeyId(value: unknown) {
-  return requireEvmFamilySigningKeySlotId(value);
-}
-
 export function parseEcdsaRoleLocalAuthMethod(input: unknown): EcdsaRoleLocalAuthMethod {
   if (!isRecord(input)) {
     throw new Error('[platform][ecdsa-role-local] authMethod must be an object');
@@ -242,9 +237,10 @@ function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
   if (
     input.rpId !== undefined ||
     input.credentialIdB64u !== undefined ||
-    input.authSubjectId !== undefined
+    input.authSubjectId !== undefined ||
+    input.evmFamilySigningKeySlotId !== undefined
   ) {
-    throw new Error('[platform][ecdsa-role-local] auth fields are not publicFacts');
+    throw new Error('[platform][ecdsa-role-local] non-public fields are not publicFacts');
   }
   if (Number(input.clientParticipantId) !== 1) {
     throw new Error('[platform][ecdsa-role-local] clientParticipantId must be 1');
@@ -263,7 +259,6 @@ function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
   }
   return {
     walletId: toWalletId(input.walletId),
-    evmFamilySigningKeySlotId: toWalletKeyId(input.evmFamilySigningKeySlotId),
     chainTarget: thresholdEcdsaChainTargetFromRequest(
       isRecord(input.chainTarget) ? input.chainTarget : {},
     ),
@@ -407,7 +402,6 @@ function serializeEcdsaRoleLocalPublicFacts(
 ): Record<string, unknown> {
   return {
     walletId: facts.walletId,
-    evmFamilySigningKeySlotId: facts.evmFamilySigningKeySlotId,
     chainTarget: facts.chainTarget,
     keyHandle: facts.keyHandle,
     ecdsaThresholdKeyId: facts.ecdsaThresholdKeyId,
@@ -454,7 +448,6 @@ export function ecdsaRoleLocalReadyRecordStorageKey(
   return [
     'ecdsa_role_local_ready_v1',
     keyPart(input.walletId),
-    keyPart(input.evmFamilySigningKeySlotId),
     keyPart(thresholdEcdsaChainTargetKey(input.chainTarget)),
     keyPart(input.keyHandle),
     keyPart(input.ecdsaThresholdKeyId),
@@ -472,7 +465,6 @@ export function ecdsaRoleLocalReadyRecordStorageKeyFacts(
   const facts = parsed.publicFacts;
   return {
     walletId: facts.walletId,
-    evmFamilySigningKeySlotId: facts.evmFamilySigningKeySlotId,
     chainTarget: facts.chainTarget,
     keyHandle: facts.keyHandle,
     ecdsaThresholdKeyId: facts.ecdsaThresholdKeyId,
@@ -502,7 +494,6 @@ export function ecdsaRoleLocalReadyRecordMatchesInput(args: {
   const input = args.input;
   return (
     String(facts.walletId) === String(input.walletId) &&
-    String(facts.evmFamilySigningKeySlotId) === String(input.evmFamilySigningKeySlotId) &&
     thresholdEcdsaChainTargetsEqual(facts.chainTarget, input.chainTarget) &&
     String(facts.keyHandle) === String(input.keyHandle) &&
     String(facts.ecdsaThresholdKeyId) === String(input.ecdsaThresholdKeyId) &&

@@ -9,6 +9,7 @@ import {
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { SigningSessionIds } from '../../session/operationState/types';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { ThresholdEcdsaExplicitKeyExportBootstrapResult } from '../../session/passkey/ecdsaSessionProvision';
 import type {
@@ -306,6 +307,11 @@ async function executeEcdsaDerivationExport(
     }
   }
   const issuedAtUnixMs = Date.now();
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId: publicFacts.walletId,
+    signingRootId: publicFacts.signingRootId,
+    signingRootVersion: publicFacts.signingRootVersion,
+  });
   const expiresAtUnixMs = requireActiveEcdsaExportAuthorizationWindow({
     issuedAtUnixMs,
     authorizationExpiresAtMsCeiling: material.operationAuthorization.expiresAtMs,
@@ -322,7 +328,7 @@ async function executeEcdsaDerivationExport(
   const confirmationDigest32B64u = await digestB64u({
     version: ECDSA_DERIVATION_EXPORT_CONFIRMATION_DIGEST_VERSION,
     walletId: String(publicFacts.walletId),
-    evmFamilySigningKeySlotId: publicFacts.evmFamilySigningKeySlotId,
+    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
     relayerKeyId: publicFacts.publicCapability.signer_set.selected_server.server_id,
     contextBinding32B64u: publicFacts.contextBinding32B64u,
@@ -336,7 +342,7 @@ async function executeEcdsaDerivationExport(
   });
   const authorizationDigest32B64u = await digestB64u(
     buildEcdsaDerivationExportAuthorizationDigestInput({
-      evmFamilySigningKeySlotId: publicFacts.evmFamilySigningKeySlotId,
+      evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
       signingRootId: publicFacts.signingRootId,
       signingRootVersion: publicFacts.signingRootVersion,

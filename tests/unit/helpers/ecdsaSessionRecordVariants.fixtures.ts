@@ -152,7 +152,6 @@ export function makeEcdsaRoleLocalReadyRecordFixture(
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: recordWalletId,
-      evmFamilySigningKeySlotId: recordWalletKeyId,
       chainTarget: recordChainTarget,
       keyHandle: recordKeyHandle,
       ecdsaThresholdKeyId,

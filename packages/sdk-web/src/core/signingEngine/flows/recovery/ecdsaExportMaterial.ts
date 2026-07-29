@@ -457,11 +457,6 @@ export async function resolveEcdsaExportMaterialForLane(
       ).materialActivation,
       publicFacts: buildEcdsaRoleLocalPublicFacts({
         walletId: exportLane.key.walletId,
-        evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-          walletId: exportLane.key.walletId,
-          signingRootId: restore.signingRootId,
-          signingRootVersion: restore.signingRootVersion,
-        }),
         chainTarget: exportLane.session.chainTarget,
         keyHandle: restore.keyHandle,
         ecdsaThresholdKeyId: restore.ecdsaThresholdKeyId,

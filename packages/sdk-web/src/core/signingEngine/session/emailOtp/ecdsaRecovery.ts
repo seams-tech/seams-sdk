@@ -150,7 +150,6 @@ async function emailOtpSealedExistingKey(
   });
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: toWalletId(sealedRecord.walletId),
-    evmFamilySigningKeySlotId: provisioningKeySlotId,
     chainTarget: sealedRecord.chainTarget,
     keyHandle: sealedRecord.keyHandle,
     ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(
@@ -174,7 +173,7 @@ async function emailOtpSealedExistingKey(
   });
   const walletKey: EvmFamilyEcdsaWalletKey = buildEvmFamilyEcdsaWalletKey({
     walletId: publicFacts.walletId,
-    evmFamilySigningKeySlotId: publicFacts.evmFamilySigningKeySlotId,
+    evmFamilySigningKeySlotId: provisioningKeySlotId,
     keyHandle: publicFacts.keyHandle,
     chainTarget: publicFacts.chainTarget,
     ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
