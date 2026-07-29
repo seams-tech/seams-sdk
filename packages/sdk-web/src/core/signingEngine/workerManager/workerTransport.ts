@@ -38,6 +38,7 @@ import type {
   SignerWorkerOperationType,
   SignerWorkerTransportProtocol,
 } from './workerTypes';
+import { EcdsaDerivationClientCustomRequestType } from './workerTypes';
 import {
   EcdsaPresignClientRequestType,
   SignerWorkerOperationError,
@@ -221,6 +222,11 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   private readonly errorHandlers = new Map<SignerWorkerKind, (event: ErrorEvent) => void>();
   private derivationPresignConnected = false;
   private emailOtpPresignConnected = false;
+  private ecdsaRegistrationCryptoPrewarmPromise: Promise<{
+    kind: 'succeeded' | 'failed';
+    wasmInitMs: number;
+  }> | null = null;
+
   private emailOtpYaoPrewarmPromise: Promise<EmailOtpYaoPrewarmOutcome> | null = null;
 
   setWorkerBaseOrigin(origin: string | undefined): void {
@@ -235,6 +241,41 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   async prewarmWorkers(): Promise<void> {
     for (const kind of SIGNER_WORKER_KINDS) {
       this.getOrCreateWorker(kind);
+    }
+  }
+
+  /**
+   * Refactor 94C. Initializes the ECDSA derivation and registration WASM
+   * inside the derivation worker during the authentication prompt, so the
+   * first ceremony call after auth does not pay module init (measured 654 ms
+   * cold vs 88 ms warm on `ecdsaRegistrationClientCreateMs`). Fire-and-forget
+   * safe: failure leaves the lazy init path exactly as it was.
+   */
+  async prewarmEcdsaRegistrationCrypto(): Promise<{ kind: 'succeeded' | 'failed'; wasmInitMs: number }> {
+    const existing = this.ecdsaRegistrationCryptoPrewarmPromise;
+    if (existing) return await existing;
+    const prewarmPromise = this.requestEcdsaRegistrationCryptoPrewarm();
+    this.ecdsaRegistrationCryptoPrewarmPromise = prewarmPromise;
+    const outcome = await prewarmPromise;
+    if (outcome.kind === 'failed' && this.ecdsaRegistrationCryptoPrewarmPromise === prewarmPromise) {
+      this.ecdsaRegistrationCryptoPrewarmPromise = null;
+    }
+    return outcome;
+  }
+
+  private async requestEcdsaRegistrationCryptoPrewarm(): Promise<{
+    kind: 'succeeded' | 'failed';
+    wasmInitMs: number;
+  }> {
+    const startedAt = performance.now();
+    try {
+      await this.requestDerivationOperation({
+        type: EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto,
+        payload: {},
+      });
+      return { kind: 'succeeded', wasmInitMs: roundWorkerDurationMs(startedAt) };
+    } catch {
+      return { kind: 'failed', wasmInitMs: roundWorkerDurationMs(startedAt) };
     }
   }
 

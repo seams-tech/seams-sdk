@@ -106,6 +106,9 @@ import {
 const REGISTRATION_ROUTE_PAYLOAD_DIAGNOSTICS_LABEL = '[Registration] wallet route payload summary';
 const ROUTE_PAYLOAD_BREAKDOWN_MAX_DEPTH = 2;
 const ROUTE_PAYLOAD_BREAKDOWN_MAX_FIELDS = 64;
+const WALLET_REGISTRATION_SETUP_PATH = '/wallets/register/setup';
+/** Managed environment id header for Router API `api_credentials` auth. */
+const ROUTER_API_ENVIRONMENT_ID_HEADER = 'X-Seams-Environment-Id';
 const WALLET_REGISTRATION_INTENT_CANCEL_PATH = '/wallets/register/intent/cancel';
 const WALLET_REGISTRATION_PREPARE_PATH = '/wallets/register/prepare';
 const WALLET_REGISTRATION_FINALIZE_PATH = '/wallets/register/finalize';
@@ -491,6 +494,30 @@ export type WalletRegistrationStartResponse = WalletRegistrationStartResponseBas
         ecdsa: WalletRegistrationEcdsaPreparePayload;
       }
   );
+
+/**
+ * Refactor 94C. The `/wallets/register/setup` response.
+ *
+ * `signedSetup` is opaque to the client: it is carried to routes 2 and 3 and
+ * echoed verbatim, never parsed. `registrationIntentDigestB64u` is the
+ * challenge the WebAuthn create must sign.
+ *
+ * ECDSA only, for both authentication methods. The Ed25519 branch of a mixed
+ * plan is admitted by respond, once the verified proof determines its
+ * authority scope; the client then starts that work asynchronously and never
+ * awaits it for wallet readiness.
+ */
+export type WalletRegistrationSetupResponseV2 =
+  | {
+      ok: true;
+      registrationCeremonyId: string;
+      walletId: string;
+      registrationIntentDigestB64u: string;
+      intent: RegistrationIntentV1;
+      signedSetup: string;
+      ecdsa: WalletRegistrationEcdsaPreparePayload;
+    }
+  | { ok: false; code: string; message: string; retryAfterMs?: number };
 
 export type WalletRegistrationEcdsaRespondResponse = {
   ok: true;
@@ -2261,6 +2288,57 @@ export type WalletEcdsaKeyFactsInventoryResponse = {
   records: ThresholdEcdsaKeyIdentityInventoryEntry[];
   diagnostics: unknown;
 };
+
+/**
+ * Refactor 94C. `POST /wallets/register/setup` — the single admitted entry
+ * point replacing the grant, intent, and start calls below.
+ *
+ * It is called *before* the WebAuthn create prompt, because its response
+ * carries the challenge that create must sign. The server-side preparation
+ * therefore overlaps the user's authenticator interaction.
+ */
+export async function setupWalletRegistration(args: {
+  relayerUrl: string;
+  request: {
+    wallet?: RegisterWalletInput;
+    signerSelection: CreateRegistrationIntentRequest['signerSelection'];
+    authMethod: CreateRegistrationIntentRequest['authMethod'];
+  };
+  /**
+   * The route's auth plane is `api_credentials` with `publishable_key` only —
+   * no bootstrap token to mint first, and no secret-key fallback on a route
+   * the browser calls directly. The key travels as a Bearer token and the
+   * environment id as `X-Seams-Environment-Id`; the browser adds Origin.
+   */
+  auth: { publishableKey: string; environmentId: string };
+  headers?: Record<string, string>;
+  onServerTiming?: (header: string | null) => void;
+}): Promise<WalletRegistrationSetupResponseV2> {
+  const publishableKey = String(args.auth?.publishableKey || '').trim();
+  const environmentId = String(args.auth?.environmentId || '').trim();
+  if (!publishableKey || !environmentId) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'registration setup requires a publishable key and environment id',
+    };
+  }
+  return await postJson<WalletRegistrationSetupResponseV2>({
+    relayerUrl: args.relayerUrl,
+    path: WALLET_REGISTRATION_SETUP_PATH,
+    headers: {
+      ...args.headers,
+      Authorization: `Bearer ${publishableKey}`,
+      [ROUTER_API_ENVIRONMENT_ID_HEADER]: environmentId,
+    },
+    body: {
+      ...(args.request.wallet ? { wallet: args.request.wallet } : {}),
+      signerSelection: args.request.signerSelection,
+      authMethod: args.request.authMethod,
+    },
+    ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
+  });
+}
 
 export async function createWalletRegistrationIntent(args: {
   relayerUrl: string;

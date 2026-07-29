@@ -188,6 +188,8 @@ export interface WalletIframeWarmupSurface {
 
 export interface RegistrationResourceWarmupSurface {
   prewarmEmailOtpYao(): Promise<EmailOtpYaoPrewarmOutcome>;
+  /* Refactor 94C: ECDSA WASM init during the auth prompt; fire-and-forget. */
+  prewarmEcdsaRegistrationCrypto(): Promise<{ kind: 'succeeded' | 'failed'; wasmInitMs: number }>;
 }
 
 export interface RuntimeStartupSurface {

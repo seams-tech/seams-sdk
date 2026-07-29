@@ -850,7 +850,10 @@ function buildCeremony(input: {
     signingRootVersion: runtimePolicyScope.signingRootVersion,
     expectedOrigin: 'https://app.example.com',
     expiresAtMs: Date.now() + 60_000,
-    authority: testPasskeyAuthority(input.walletId, testRpId()),
+    authorityState: {
+      kind: 'verified',
+      authority: testPasskeyAuthority(input.walletId, testRpId()),
+    },
     signerState: {
       kind: 'signer_set_registration',
       branches: [
@@ -864,26 +867,48 @@ function buildCeremony(input: {
   };
 }
 
-export async function createActivatedFinalizeYaoRuntimeFixture(): Promise<{
+/**
+ * Builds the fixture against a concrete admission request when one is given,
+ * so a runtime can satisfy whatever ceremony actually arrives instead of only
+ * its own fixed ids. The receipt binding mirrors the request scope, so every
+ * field it needs is derivable from that request.
+ */
+export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
+  readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  readonly signingRootVersion?: string;
+}): Promise<{
   readonly runtime: FailureInjectingYaoRuntime;
   readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
   readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
   readonly activationResult: RouterAbEd25519YaoActivationResultV1<'registration'>;
 }> {
-  const walletId = walletIdFromString('finalize-convergence-wallet');
+  const incoming = overrides?.admissionRequest;
+  const walletId = incoming
+    ? walletIdFromString(incoming.application_binding.wallet_id)
+    : walletIdFromString('finalize-convergence-wallet');
   const capability = buildEd25519YaoCapabilityFixture({
     walletId,
     nearAccountId: 'finalize-convergence.testnet',
-    nearEd25519SigningKeyId: 'near-ed25519-finalize-convergence',
-    thresholdSessionId: 'threshold-finalize-convergence',
-    signerSlot: 1,
-    signingWorkerId: SIGNING_WORKER_ID,
+    nearEd25519SigningKeyId: incoming
+      ? incoming.application_binding.near_ed25519_signing_key_id
+      : 'near-ed25519-finalize-convergence',
+    thresholdSessionId: incoming
+      ? incoming.scope.wallet_session_id
+      : 'threshold-finalize-convergence',
+    signerSlot: incoming
+      ? incoming.application_binding.key_creation_signer_slot
+      : 1,
+    signingWorkerId: incoming ? incoming.scope.signing_worker_id : SIGNING_WORKER_ID,
     participantIds: [1, 2],
     runtimePolicyScope: {
       ...TEST_SCOPE,
-      signingRootVersion: 'root-finalize-v1',
+      signingRootVersion:
+        incoming?.scope.root_share_epoch ?? overrides?.signingRootVersion ?? 'root-finalize-v1',
     },
     seed: 93,
+    ...(incoming
+      ? { lifecycleId: incoming.scope.lifecycle_id, signerSetId: incoming.scope.signer_set_id }
+      : {}),
   });
   if (capability.capability.version !== 'wallet_ed25519_yao_registration_capability_v1') {
     throw new Error('Finalize fixture must build a registration capability');

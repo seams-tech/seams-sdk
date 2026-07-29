@@ -1,3 +1,14 @@
+import type {
+  WalletRegistrationNearProvisioningResponseV2,
+  WalletRegistrationActivateResponseV2,
+  WalletRegistrationRespondResponseV2,
+  WalletRegistrationSetupResponseV2,
+} from '../core/threeRouteRegistrationContracts';
+import type { RouterAbEcdsaRegistrationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { WalletRegistrationAuthorityInput } from '../core/registrationContracts';
+import { resolvePublishableKeyApiCredentialAuth } from './routerApiCredentialAuth';
+import { extractRouterApiEnvironmentId } from './routerApiKeyAuth';
+import type { RouterApiPublishableKeyAuthAdapter } from './routerApi';
 import type { RouterApiWalletRegistrationRouteService } from './authServicePort';
 import type {
   EcdsaKeyFactsInventoryPolicy,
@@ -136,6 +147,7 @@ type RouterApiWalletRegistrationServices = {
   orgProjectEnv?: RouterApiProjectEnvironmentResolver | null;
   routerAbPublicKeyset?: RouterAbPublicKeysetV2 | null;
   session?: SessionAdapter | null;
+  publishableKeyAuth?: RouterApiPublishableKeyAuthAdapter | null;
 };
 
 type ParsedRegistrationSignerSet = {
@@ -2354,6 +2366,14 @@ export async function handleRouterApiWalletAddSignerIntent(
       'Origin header is required and must be a valid exact origin',
     );
   }
+  const publishableKeyAuth = input.services.publishableKeyAuth;
+  if (!publishableKeyAuth) {
+    return routeError(
+      500,
+      'route_auth_not_configured',
+      'wallet add-signer intent requires publishable key auth on this server',
+    );
+  }
   const resolved = await enforceRoutePolicy({
     headers: input.headers,
     logger: input.logger,
@@ -2363,14 +2383,16 @@ export async function handleRouterApiWalletAddSignerIntent(
     sourceIp: input.sourceIp,
     resolvers: {
       apiCredentials: async () =>
-        await resolveRegistrationBootstrapApiCredentialAuth({
-          apiKeyAuth: input.services.apiKeyAuth,
-          body: input.body as Record<string, unknown>,
-          bootstrapTokenVerifier: input.services.bootstrapTokenVerifier,
+        await resolvePublishableKeyApiCredentialAuth({
+          environmentId: extractRouterApiEnvironmentId(input.headers) || undefined,
           headers: input.headers,
+          missingEnvironmentMessage: 'Environment header is required for add-signer intent',
+          missingOriginMessage: 'Origin header is required and must be a valid exact origin',
+          missingPublishableKeyMessage: 'Missing publishable key',
           origin,
+          publishableKeyAuth,
           route: input.route,
-          sourceIp: input.sourceIp,
+          routeAuthNotConfiguredMessage: 'Add-signer intent requires API credential auth policy',
         }),
     },
   });
@@ -2398,6 +2420,342 @@ export async function handleRouterApiWalletAddSignerIntent(
       : {}),
     expectedOrigin: origin,
   });
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+/**
+ * Refactor 94C. `POST /wallets/register/setup` — the single admitted entry
+ * point that replaces the bootstrap grant, the intent, and start.
+ *
+ * Authentication is the same API-credential plane the intent route used, so
+ * origin and environment binding are unchanged; what is gone is the stored
+ * grant that used to sit between the check and its only reader.
+ */
+export async function handleRouterApiWalletRegistrationSetup(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationSetupResponseV2 | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const origin = normalizeCorsOrigin(input.origin);
+  if (!origin) {
+    return routeError(
+      403,
+      'forbidden',
+      'Origin header is required and must be a valid exact origin',
+    );
+  }
+  const publishableKeyAuth = input.services.publishableKeyAuth;
+  if (!publishableKeyAuth) {
+    return routeError(
+      500,
+      'route_auth_not_configured',
+      'wallet registration setup requires publishable key auth on this server',
+    );
+  }
+  /* Publishable key only. The client authenticates directly, so there is no
+     bootstrap token to mint, store, and read back — and deliberately no
+     secret-key or bootstrap-token fallback, which would reintroduce the
+     credential the grant existed to carry. */
+  const resolved = await enforceRoutePolicy({
+    headers: input.headers,
+    logger: input.logger,
+    request: { body: input.body, headers: input.headers },
+    route: input.route,
+    services: walletRegistrationRoutePolicyServices(input),
+    sourceIp: input.sourceIp,
+    resolvers: {
+      apiCredentials: async () =>
+        await resolvePublishableKeyApiCredentialAuth({
+          environmentId: extractRouterApiEnvironmentId(input.headers) || undefined,
+          headers: input.headers,
+          missingEnvironmentMessage:
+            'Environment header is required for wallet registration setup',
+          missingOriginMessage: 'Origin header is required and must be a valid exact origin',
+          missingPublishableKeyMessage: 'Missing publishable key',
+          origin,
+          publishableKeyAuth,
+          route: input.route,
+          routeAuthNotConfiguredMessage:
+            'Wallet registration setup requires API credential auth policy',
+        }),
+    },
+  });
+  if (!resolved.ok) return routeJson(resolved.status, resolved.body);
+  if (resolved.context.principal.kind !== 'api_credentials') {
+    return routeError(500, 'internal', 'wallet registration setup requires API credentials');
+  }
+  const principal = resolved.context.principal.principal;
+  const runtimePolicyScope = await resolveActiveRuntimePolicyScopeForEnvironment({
+    orgProjectEnv: input.services.orgProjectEnv || null,
+    orgId: principal.orgId,
+    environmentId: principal.environmentId,
+    projectId: principal.projectId,
+    envId: principal.envId,
+  });
+  const session = input.services.session;
+  if (!session) {
+    return routeError(500, 'internal', 'wallet registration setup requires session signing');
+  }
+  const body = input.body as Record<string, unknown>;
+  const result = await input.services.walletRegistration.setupWalletRegistration({
+    request: {
+      ...(isPlainObject(body.wallet) ? { wallet: body.wallet as never } : {}),
+      signerSelection: body.signerSelection as never,
+      authMethod: body.authMethod as never,
+    },
+    orgId: principal.orgId,
+    expectedOrigin: origin,
+    signer: session,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    ...(runtimePolicyScope
+      ? {
+          signingRootId: `${runtimePolicyScope.projectId}:${runtimePolicyScope.envId}`,
+          signingRootVersion: runtimePolicyScope.signingRootVersion,
+        }
+      : {}),
+  });
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+/**
+ * Refactor 94C. `POST /wallets/register/respond` — the authenticated leg.
+ *
+ * Bearing the proof, so it is a public-plane route authorized by the signed
+ * setup payload plus the WebAuthn or Email OTP proof, exactly as the
+ * derivation respond leg it replaces was.
+ */
+export async function handleRouterApiWalletRegistrationRespond(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationRespondResponseV2 | RouteErrorBody>> {
+  const traceContext = parseRegistrationTraceContext(input.headers);
+  if (!traceContext.ok) return routeError(400, 'invalid_trace_id', traceContext.message);
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const session = input.services.session;
+  if (!session) {
+    return routeError(500, 'internal', 'wallet registration respond requires session signing');
+  }
+  const parsed = parseWalletRegistrationRespondRequest(input.body);
+  if (!parsed.ok) return routeError(400, parsed.code, parsed.message);
+  const result = await input.services.walletRegistration.respondWalletRegistration(
+    {
+      ...parsed.value,
+      verifier: session,
+      minter: session,
+      ...(registrationUserAgentFromHeaders(input.headers)
+        ? { userAgent: registrationUserAgentFromHeaders(input.headers) }
+        : {}),
+    },
+    traceContext.value ?? undefined,
+  );
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+/**
+ * Parses respond's public body. `signedSetup` stays an opaque string here —
+ * the service verifies it; parsing its contents at the boundary would invite
+ * trusting them before verification.
+ */
+function parseWalletRegistrationRespondRequest(
+  body: unknown,
+): ParseResult<{
+  registrationCeremonyId: string;
+  signedSetup: string;
+  authority: WalletRegistrationAuthorityInput;
+  planKind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa' | 'near_ed25519';
+  ecdsa?: {
+    kind: 'router_ab_ecdsa_registration_v1';
+    strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+  };
+}> {
+  if (!isPlainObject(body)) {
+    return { ok: false, code: 'invalid_body', message: 'JSON body required' };
+  }
+  const registrationCeremonyId = String(body.registrationCeremonyId || '').trim();
+  if (!registrationCeremonyId) {
+    return { ok: false, code: 'invalid_body', message: 'registrationCeremonyId is required' };
+  }
+  const signedSetup = String(body.signedSetup || '').trim();
+  if (!signedSetup) {
+    return { ok: false, code: 'invalid_body', message: 'signedSetup is required' };
+  }
+  /* The signer-plan discriminant. The service checks it against the plan the
+     ceremony actually recorded, so a caller cannot drive an Ed25519-only
+     ceremony down the ECDSA arm or the reverse. */
+  const planKind = String(body.kind || '').trim();
+  if (
+    planKind !== 'evm_family_ecdsa' &&
+    planKind !== 'near_ed25519_and_evm_family_ecdsa' &&
+    planKind !== 'near_ed25519'
+  ) {
+    return { ok: false, code: 'invalid_body', message: 'kind must name the signer plan' };
+  }
+  if (planKind === 'near_ed25519' && body.ecdsa !== undefined) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'an Ed25519-only respond carries no ECDSA registration',
+    };
+  }
+  /* Exactly one proof branch; the auth method the ceremony recorded decides
+     which one is admissible, and the service rejects a mismatch. */
+  const hasWebAuthn = Object.prototype.hasOwnProperty.call(body, 'webauthn_registration');
+  const hasEmailOtp = Object.prototype.hasOwnProperty.call(body, 'emailOtpRegistrationProof');
+  if (hasWebAuthn === hasEmailOtp) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'exactly one registration authority proof is required',
+    };
+  }
+  let authority: WalletRegistrationAuthorityInput;
+  if (hasWebAuthn) {
+    authority = { kind: 'passkey', webauthnRegistration: body.webauthn_registration };
+  } else {
+    const proof = normalizeEmailOtpRegistrationProof(body.emailOtpRegistrationProof);
+    if (!proof) {
+      return { ok: false, code: 'invalid_body', message: 'emailOtpRegistrationProof is invalid' };
+    }
+    authority = { kind: 'email_otp', emailOtpRegistrationProof: proof };
+  }
+  if (planKind === 'near_ed25519') {
+    return {
+      ok: true,
+      value: { registrationCeremonyId, signedSetup, authority, planKind },
+    };
+  }
+  const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
+  if (!ecdsa || ecdsa.kind !== 'router_ab_ecdsa_registration_v1') {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA registration request is required',
+    };
+  }
+  let strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+  try {
+    strictRegistration = parseRouterAbEcdsaRegistrationRequestV1(ecdsa.strictRegistration);
+  } catch {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA registration request is invalid',
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      registrationCeremonyId,
+      signedSetup,
+      authority,
+      planKind,
+      ecdsa: { kind: 'router_ab_ecdsa_registration_v1', strictRegistration },
+    },
+  };
+}
+
+/**
+ * Refactor 94C. `POST /wallets/register/activate` — activation and
+ * finalization behind one Gateway operation row.
+ */
+export async function handleRouterApiWalletRegistrationActivate(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationActivateResponseV2 | RouteErrorBody>> {
+  const traceContext = parseRegistrationTraceContext(input.headers);
+  if (!traceContext.ok) return routeError(400, 'invalid_trace_id', traceContext.message);
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const session = input.services.session;
+  if (!session) {
+    return routeError(500, 'internal', 'wallet registration activate requires session signing');
+  }
+  const body = input.body as Record<string, unknown>;
+  const registrationCeremonyId = String(body.registrationCeremonyId || '').trim();
+  if (!registrationCeremonyId) {
+    return routeError(400, 'invalid_body', 'registrationCeremonyId is required');
+  }
+  const signedSetup = String(body.signedSetup || '').trim();
+  if (!signedSetup) return routeError(400, 'invalid_body', 'signedSetup is required');
+  const idempotencyKey = String(body.idempotencyKey || '').trim();
+  if (!idempotencyKey) return routeError(400, 'invalid_body', 'idempotencyKey is required');
+  const planKind = String(body.kind || '').trim();
+  if (
+    planKind !== 'evm_family_ecdsa' &&
+    planKind !== 'near_ed25519_and_evm_family_ecdsa' &&
+    planKind !== 'near_ed25519'
+  ) {
+    return routeError(400, 'invalid_body', 'kind must name the signer plan');
+  }
+  const ed25519Only = planKind === 'near_ed25519';
+  if (ed25519Only && body.ecdsa !== undefined) {
+    return routeError(
+      400,
+      'invalid_body',
+      'an Ed25519-only activate carries no ECDSA activation',
+    );
+  }
+  const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
+  if (!ed25519Only && (!ecdsa || !isPlainObject(ecdsa.clientActivation))) {
+    return routeError(400, 'invalid_body', 'browser-verified clientActivation is required');
+  }
+  const result = await input.services.walletRegistration.activateWalletRegistration(
+    {
+      registrationCeremonyId,
+      signedSetup,
+      idempotencyKey,
+      planKind,
+      ...(ecdsa ? { ecdsa: { clientActivation: ecdsa.clientActivation } } : {}),
+      ...(body.emailOtpEnrollment ? { emailOtpEnrollment: body.emailOtpEnrollment } : {}),
+      ...(body.emailOtpBackupAck ? { emailOtpBackupAck: body.emailOtpBackupAck } : {}),
+      verifier: session,
+      minter: session,
+    },
+    traceContext.value ?? undefined,
+  );
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+/**
+ * Refactor 94C. `POST /wallets/register/near-provisioning` — the non-blocking
+ * completion the client calls after activate, once its already-running Yao
+ * computation produces an activation.
+ */
+export async function handleRouterApiWalletRegistrationNearProvisioning(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationNearProvisioningResponseV2 | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const session = input.services.session;
+  if (!session) {
+    return routeError(500, 'internal', 'NEAR provisioning requires session signing');
+  }
+  const body = input.body as Record<string, unknown>;
+  const registrationCeremonyId = String(body.registrationCeremonyId || '').trim();
+  const signedSetup = String(body.signedSetup || '').trim();
+  const idempotencyKey = String(body.idempotencyKey || '').trim();
+  if (!registrationCeremonyId || !signedSetup || !idempotencyKey) {
+    return routeError(
+      400,
+      'invalid_body',
+      'registrationCeremonyId, signedSetup and idempotencyKey are required',
+    );
+  }
+  const ed25519 = isPlainObject(body.ed25519) ? body.ed25519 : null;
+  if (!ed25519) {
+    return routeError(400, 'invalid_body', 'ed25519 activation reference is required');
+  }
+  const result =
+    await input.services.walletRegistration.completeWalletRegistrationNearProvisioning({
+      registrationCeremonyId,
+      signedSetup,
+      idempotencyKey,
+      ed25519,
+      verifier: session,
+    });
   return routeJson(result.ok ? 200 : 400, result);
 }
 

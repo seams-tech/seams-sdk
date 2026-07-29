@@ -113,6 +113,12 @@ export function parseSessionKind(body: unknown): SessionKind {
 
 export interface SessionAdapter {
   signJwt(sub: string, extra?: Record<string, unknown>): Promise<string>;
+  /** Local verification against pinned key material; never a JWKS fetch. */
+  verifyJwt(
+    token: string,
+  ): Promise<
+    { readonly valid: true; readonly payload: Record<string, unknown> } | { readonly valid: false }
+  >;
   parse(
     headers: Record<string, string | string[] | undefined>,
   ): Promise<SessionParseResult<SessionClaims>>;

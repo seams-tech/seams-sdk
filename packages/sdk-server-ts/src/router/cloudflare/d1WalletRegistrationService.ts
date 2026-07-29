@@ -1,3 +1,4 @@
+import type { WalletRegistrationAuthorityInput } from '../../core/registrationContracts';
 import {
   computeRegistrationIntentDigestB64u,
   findRegistrationSignerPlanEvmFamilyEcdsaBranch,
@@ -14,6 +15,8 @@ import {
   type RegistrationSignerPlan,
   type ResolvedRegistrationNearAccount,
   type WalletId,
+  registrationEd25519AuthorityScopeFromAuthority,
+  type RegistrationAuthMethodInput,
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
@@ -93,7 +96,38 @@ import {
   type StoredRegistrationAuthority,
   type StoredRegistrationIntent,
   type StoredWalletRegistrationCeremony,
+  type StoredWalletRegistrationCeremonyAuthorityState,
+  verifiedRegistrationCeremonyAuthority,
 } from '../../core/RegistrationCeremonyStore';
+import type {
+  WalletRegistrationNearProvisioningResponseV2,
+  RespondEd25519DeferredWorkV2,
+  WalletRegistrationActivateResponseV2,
+  WalletRegistrationRespondResponseV2,
+  WalletRegistrationSetupResponseV2,
+} from '../../core/threeRouteRegistrationContracts';
+import {
+  buildWalletRegistrationSetupSignature,
+  normalizeWalletRegistrationSetupRequest,
+  resolveWalletRegistrationSetupWalletId,
+  walletRegistrationSetupError,
+  walletRegistrationSetupExpiresAtMs,
+  walletRegistrationSetupIds,
+  walletRegistrationSetupIntentDigest,
+  walletRegistrationRespondResult,
+  storedRespondEd25519DeferredWork,
+  type WalletRegistrationSetupInput,
+  type WalletRegistrationRespondInput,
+  type WalletRegistrationActivateInput,
+  type WalletRegistrationNearProvisioningInput,
+} from './d1WalletRegistrationSetup';
+import {
+  computeWalletRegistrationRespondDigestB64u,
+  computeWalletRegistrationSetupDigestB64u,
+  mintInternalRouterPolicyJwt,
+  verifySignedWalletRegistrationSetup,
+  verifyWalletRegistrationSetupClaims,
+} from '../walletRegistrationSetupPayload';
 import {
   buildD1EcdsaWalletKeysFromBootstrap,
   buildD1WalletEcdsaSignerRecords,
@@ -104,6 +138,10 @@ import {
   parseD1RuntimePolicyScope,
   parseD1StoredRegistrationIntent,
   parseD1StoredWalletRegistrationCeremony,
+  buildRegistrationIntent,
+  createD1ServerAllocatedWalletId,
+  inferRuntimePolicyScopeFromSigningRoot,
+  parseWalletIdForIntent,
 } from './d1RegistrationCeremonyRecords';
 import {
   walletAuthAuthorityFromRegistrationAuthority,
@@ -174,9 +212,38 @@ async function walletRegistrationFinalizeRequestFingerprint(
   return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(request)));
 }
 
+/**
+ * Refactor 94C. Who owns idempotency for one terminal registration commit.
+ *
+ * `/wallets/register/activate` claims through a single Gateway operation row,
+ * whose completion record already holds the exact terminal response bytes — so
+ * the commit must not also maintain finalize's separate replay cache, or the
+ * same guarantee would be written twice per registration.
+ *
+ * The `legacy_finalize_cache` arm is the standalone finalize route's own
+ * read/write pair. It is deleted wholesale with that route, taking this union
+ * with it; it exists only while both callers do.
+ */
+export type RegistrationTerminalReplayOwner =
+  | { readonly kind: 'operation_row' }
+  | { readonly kind: 'legacy_finalize_cache' };
+
 export type D1WalletRegistrationFinalizePreparedV1 = {
   readonly kind: 'd1_wallet_registration_finalize_prepared_v1';
 };
+
+/** The activate operation row stores activate's own merged terminal bytes. */
+export type D1WalletRegistrationActivateSideEffectStore =
+  RouterAbEd25519YaoRegistrationSideEffectStoreV1<
+    WalletRegistrationActivateResponseV2,
+    D1WalletRegistrationFinalizePreparedV1
+  >;
+
+export type D1WalletRegistrationActivateSideEffectRecord =
+  RouterAbEd25519YaoRegistrationSideEffectRecordV1<
+    WalletRegistrationActivateResponseV2,
+    D1WalletRegistrationFinalizePreparedV1
+  >;
 
 export type D1WalletRegistrationFinalizeSideEffectStore =
   RouterAbEd25519YaoRegistrationSideEffectStoreV1<
@@ -808,13 +875,20 @@ function registrationPreparationWalletsMatch(input: {
   );
 }
 
+/**
+ * A verified authority must name the same wallet the intent does. A ceremony
+ * still awaiting its proof has no authority to disagree with, so it matches
+ * vacuously — respond performs this check again once the proof binds.
+ */
 function registrationCeremonyWalletsMatch(input: {
   readonly ceremony: {
     readonly intent: RegistrationIntentV1;
-    readonly authority: { readonly walletId: string };
+    readonly authorityState: StoredWalletRegistrationCeremonyAuthorityState;
   };
 }): boolean {
-  return input.ceremony.authority.walletId === input.ceremony.intent.walletId;
+  const authority = verifiedRegistrationCeremonyAuthority(input.ceremony);
+  if (!authority) return true;
+  return authority.walletId === input.ceremony.intent.walletId;
 }
 
 function resolvedRegistrationNearAccount(input: {
@@ -1185,6 +1259,10 @@ export class CloudflareD1WalletRegistrationService {
   private readonly getWalletStore: WalletStoreProvider;
   private readonly startSideEffects: D1WalletRegistrationStartSideEffectStore;
   private readonly finalizeSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
+  /** The single Gateway operation row for activate-with-finalize (94C). */
+  private readonly activateSideEffects: D1WalletRegistrationActivateSideEffectStore;
+  /** Deferred NEAR provisioning's own operation row (94C). */
+  private readonly nearProvisioningSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
   private readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
 
@@ -1198,6 +1276,8 @@ export class CloudflareD1WalletRegistrationService {
     readonly getWalletStore: WalletStoreProvider;
     readonly startSideEffects: D1WalletRegistrationStartSideEffectStore;
     readonly finalizeSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
+    readonly activateSideEffects: D1WalletRegistrationActivateSideEffectStore;
+    readonly nearProvisioningSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
     readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   }) {
@@ -1210,6 +1290,8 @@ export class CloudflareD1WalletRegistrationService {
     this.getWalletStore = input.getWalletStore;
     this.startSideEffects = input.startSideEffects;
     this.finalizeSideEffects = input.finalizeSideEffects;
+    this.activateSideEffects = input.activateSideEffects;
+    this.nearProvisioningSideEffects = input.nearProvisioningSideEffects;
     this.walletRegistrationCommitStore = input.walletRegistrationCommitStore;
     this.walletAuthMethods = input.walletAuthMethods;
   }
@@ -1778,6 +1860,199 @@ export class CloudflareD1WalletRegistrationService {
     }
   }
 
+  /**
+   * Refactor 94C. `/wallets/register/setup` — grant, intent, and start in one
+   * request, with one D1 write.
+   *
+   * Setup runs before the client's WebAuthn create, because it issues the
+   * challenge that create signs. So the ECDSA prepare and the Ed25519
+   * admission — the two Router calls that dominated the measured cold path —
+   * overlap the authenticator prompt instead of being serialized after it.
+   * They are started before either is awaited: they share no state and neither
+   * can invalidate the other.
+   */
+  async setupWalletRegistration(
+    input: WalletRegistrationSetupInput,
+  ): Promise<WalletRegistrationSetupResponseV2> {
+    const timing = createD1RegistrationRouteTimingRecorder('wallets_register_setup');
+    const total = startD1RegistrationRouteTiming('registerSetupTotalMs');
+    try {
+      const normalized = normalizeWalletRegistrationSetupRequest(input.request);
+      if (!normalized.ok) return walletRegistrationSetupError(normalized.code, normalized.message);
+
+      const wallet = resolveWalletRegistrationSetupWalletId({
+        wallet: input.request?.wallet,
+        parseProvided: parseWalletIdForIntent,
+        createServerAllocated: createD1ServerAllocatedWalletId,
+      });
+      if (!wallet.ok) return walletRegistrationSetupError(wallet.code, wallet.message);
+
+      const runtimePolicyScope =
+        input.runtimePolicyScope ||
+        inferRuntimePolicyScopeFromSigningRoot({
+          orgId: input.orgId,
+          signingRootId: input.signingRootId,
+          signingRootVersion: input.signingRootVersion,
+        });
+      const signingRootId =
+        toOptionalTrimmedString(input.signingRootId) ||
+        (runtimePolicyScope ? deriveSigningRootId(runtimePolicyScope) : '');
+      const signingRootVersion =
+        toOptionalTrimmedString(input.signingRootVersion) ||
+        runtimePolicyScope?.signingRootVersion ||
+        'default';
+      if (!signingRootId) {
+        return walletRegistrationSetupError(
+          'invalid_body',
+          'registration requires a signing root',
+        );
+      }
+
+      const intent = buildRegistrationIntent({
+        walletId: wallet.walletId,
+        authMethod: normalized.authMethod,
+        signerSelection: normalized.signerSelection,
+        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+      });
+      const digestB64u = await walletRegistrationSetupIntentDigest(intent);
+      const branches = registrationIntentSignerBranches(intent);
+      if (!branches.ok) return walletRegistrationSetupError(branches.code, branches.message);
+      const ecdsaBranch = branches.value.evmFamilyEcdsa;
+      const nearEd25519Branch = branches.value.nearEd25519;
+      if (!ecdsaBranch && !nearEd25519Branch) {
+        return walletRegistrationSetupError(
+          'invalid_body',
+          'registration signer branch is required',
+        );
+      }
+      /* A mixed plan is stored whole — the plan is what the ceremony agreed
+         to — but only its ECDSA branch is prepared here. Respond adds the
+         Ed25519 branch once the verified authority determines its scope. */
+      const preparedContext = resolveRegistrationPreparedContextFromPlan({
+        signerPlan: branches.value.plan,
+        runtimePolicyScope,
+        signingRootId,
+        signingRootVersion,
+      });
+      if (!preparedContext.ok) {
+        return walletRegistrationSetupError(preparedContext.code, preparedContext.message);
+      }
+      if (ecdsaBranch && !runtimePolicyScope) {
+        return walletRegistrationSetupError(
+          'invalid_body',
+          'ECDSA registration requires an exact runtime policy scope',
+        );
+      }
+      const chainTargets = ecdsaBranch
+        ? registrationPreparedContextEcdsaChainTargets(preparedContext.preparedContext)
+        : null;
+      if (ecdsaBranch && !chainTargets) {
+        return walletRegistrationSetupError('invalid_body', 'ECDSA chain targets are required');
+      }
+
+      const nowMs = Date.now();
+      const expiresAtMs = walletRegistrationSetupExpiresAtMs(nowMs);
+      const { registrationCeremonyId, registrationPreparationId } = walletRegistrationSetupIds();
+
+      /* ECDSA preparation only, and only when the plan has an ECDSA branch.
+         An Ed25519-only plan has nothing to prepare before the proof: its Yao
+         admission binds the authority scope, so respond derives it. */
+      const ecdsaPrepared =
+        ecdsaBranch && chainTargets && runtimePolicyScope
+          ? await buildD1EvmFamilyEcdsaRegistrationPrepare({
+              registrationPurpose: 'wallet_registration',
+              registrationCeremonyId,
+              registrationPreparationId:
+                registrationPreparationIdFromString(registrationPreparationId),
+              walletId: wallet.walletId,
+              signingRootId,
+              signingRootVersion,
+              chainTargets,
+              participantIds: [...ecdsaBranch.participantIds],
+              strictRegistration: this.ecdsaStrictRegistration,
+              runtimePolicyScope,
+            })
+          : null;
+      if (ecdsaPrepared && !ecdsaPrepared.ok) {
+        return walletRegistrationSetupError(ecdsaPrepared.code, ecdsaPrepared.message);
+      }
+
+      const storedBranches: StoredWalletRegistrationSignerBranch[] = [];
+      if (ecdsaPrepared?.ok && ecdsaBranch) storedBranches.push(
+        buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch({
+          branchKey: ecdsaBranch.branchKey,
+          ecdsa: {
+            kind: ecdsaPrepared.ecdsa.kind,
+            chainTargets: ecdsaPrepared.ecdsa.chainTargets,
+            prepare: ecdsaPrepared.ecdsa.prepare,
+            strictRegistration: ecdsaPrepared.ecdsa.strictRegistration,
+            strictRegistrationBindingJson: routerAbEcdsaStrictRegistrationFactsBindingJson(
+              ecdsaPrepared.ecdsa.strictRegistration,
+            ),
+          },
+        }),
+      );
+
+      const ceremony: StoredWalletRegistrationCeremony = {
+        registrationCeremonyId,
+        intent,
+        digestB64u,
+        signerPlan: branches.value.plan,
+        preparedContext: preparedContext.preparedContext,
+        orgId: toOptionalTrimmedString(input.orgId) || '',
+        signingRootId,
+        signingRootVersion,
+        ...(input.expectedOrigin ? { expectedOrigin: input.expectedOrigin } : {}),
+        expiresAtMs,
+        /* The proof does not exist yet; respond binds it. */
+        authorityState: { kind: 'awaiting_proof', authMethod: normalized.authMethod },
+        signerState: { kind: 'signer_set_registration', branches: storedBranches },
+      };
+      /* The one canonical D1 write. */
+      const ceremonyWriteTiming = startD1RegistrationRouteTiming('registrationCeremonyInsertMs');
+      try {
+        await this.getRegistrationCeremonyIntentStore().putCeremony(ceremony);
+      } finally {
+        finishD1RegistrationRouteTiming(timing, ceremonyWriteTiming);
+      }
+
+      const { signedSetup } = await buildWalletRegistrationSetupSignature({
+        signer: input.signer,
+        ceremony,
+        expectedOrigin: input.expectedOrigin,
+      });
+      finishD1RegistrationRouteTiming(timing, total);
+      const success = {
+        ok: true as const,
+        registrationCeremonyId,
+        walletId: String(wallet.walletId),
+        registrationIntentDigestB64u: digestB64u,
+        intent,
+        signedSetup,
+      };
+      /* The plan decides the shape. An Ed25519-only setup carries no `ecdsa`
+         member at all, so a client cannot read one that was never prepared. */
+      if (!ecdsaPrepared?.ok || !ecdsaBranch) {
+        return { ...success, kind: 'near_ed25519' };
+      }
+      return {
+        ...success,
+        kind: nearEd25519Branch ? 'near_ed25519_and_evm_family_ecdsa' : 'evm_family_ecdsa',
+        ecdsa: {
+          kind: ecdsaPrepared.ecdsa.kind,
+          chainTargets: ecdsaPrepared.ecdsa.chainTargets,
+          prepare: ecdsaPrepared.ecdsa.prepare,
+          strictRegistration: ecdsaPrepared.ecdsa.strictRegistration,
+        },
+      };
+    } catch (error: unknown) {
+      return walletRegistrationSetupError(
+        'internal',
+        errorMessage(error) || 'Failed to set up wallet registration',
+      );
+    }
+  }
+
   async startWalletRegistration(
     request: StartWalletRegistrationInput,
     context?: { readonly userAgent?: string },
@@ -2040,7 +2315,7 @@ export class CloudflareD1WalletRegistrationService {
         walletId: storedIntent.intent.walletId,
         signingRootId,
         signingRootVersion,
-        authority: prepared.authority,
+        authorityScope: registrationEd25519AuthorityScopeFromAuthority(prepared.authority),
         branch: nearEd25519Branch,
         signingWorkerId: yaoRuntime.signingWorkerId,
       });
@@ -2118,7 +2393,10 @@ export class CloudflareD1WalletRegistrationService {
       signingRootVersion,
       ...(expectedOrigin ? { expectedOrigin } : {}),
       expiresAtMs: prepared.expiresAtMs,
-      authority: prepared.authority,
+      /* Start verifies the authority before inserting, so this ceremony is
+         born verified. Setup, which precedes the proof, inserts the awaiting
+         arm instead. */
+      authorityState: { kind: 'verified', authority: prepared.authority },
       signerState: {
         kind: 'signer_set_registration',
         branches: storedBranches,
@@ -2130,6 +2408,870 @@ export class CloudflareD1WalletRegistrationService {
       timing: input.timing,
       total: input.total,
     });
+  }
+
+  /**
+   * Refactor 94C. `/wallets/register/respond` — the authenticated leg.
+   *
+   * This is where the proof arrives. Setup created the ceremony before the
+   * authenticator prompt (it issued the challenge), so respond is the first
+   * point at which an authority exists: it verifies the proof, establishes the
+   * verified authority, and only then derives anything bound to it.
+   *
+   * One read and one write. The old leg claimed the branch in D1 *before*
+   * calling the Router purely so a duplicate respond could be reconciled, then
+   * committed the result — two writes to insure against a retry the role layer
+   * already handles deterministically. Here the Router call is made first and
+   * a single version-guarded CAS commits the authority transition and the
+   * branch result together, so a concurrent duplicate loses the CAS and
+   * reconciles against the stored terminal state instead of a claim record.
+   */
+  async respondWalletRegistration(
+    input: WalletRegistrationRespondInput,
+    traceContext?: RouterAbTraceContextV1,
+  ): Promise<WalletRegistrationRespondResponseV2> {
+    const serverTiming: Array<readonly [string, number]> = [];
+    const totalStartedAtMs = Date.now();
+    const mark = (name: string, startedAtMs: number): void => {
+      serverTiming.push([name, Math.max(0, Date.now() - startedAtMs)]);
+    };
+    try {
+      const store = this.getRegistrationCeremonyIntentStore();
+      const loadStartedAtMs = Date.now();
+      const snapshot = await store.getCeremonySnapshot(input.registrationCeremonyId);
+      mark('respond_d1_load', loadStartedAtMs);
+      if (!snapshot) {
+        return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
+      }
+      const ceremony = snapshot.ceremony;
+      if (ceremony.signerState.kind !== 'signer_set_registration') {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'signer-set registration state is required',
+        };
+      }
+      const expectedOrigin = toOptionalTrimmedString(ceremony.expectedOrigin) || '';
+      const setupDigestB64u = await computeWalletRegistrationSetupDigestB64u({
+        registrationCeremonyId: ceremony.registrationCeremonyId,
+        intent: ceremony.intent,
+        intentDigestB64u: ceremony.digestB64u,
+        orgId: ceremony.orgId,
+        signingRootId: toOptionalTrimmedString(ceremony.signingRootId) || '',
+        signingRootVersion: toOptionalTrimmedString(ceremony.signingRootVersion) || '',
+        expectedOrigin,
+      });
+      const verifiedSetup = await verifySignedWalletRegistrationSetup(
+        input.verifier,
+        input.signedSetup,
+        {
+          registrationCeremonyId: ceremony.registrationCeremonyId,
+          setupDigestB64u,
+          nowMs: Date.now(),
+        },
+      );
+      if (!verifiedSetup.ok) {
+        return { ok: false, code: verifiedSetup.code, message: verifiedSetup.message };
+      }
+
+      const ecdsaBranch = findStoredWalletRegistrationEvmFamilyEcdsaBranch(ceremony.signerState);
+      const planNearEd25519 = registrationSignerBranchesFromPlan(ceremony.signerPlan).nearEd25519;
+      if (!ecdsaBranch && !planNearEd25519) {
+        return { ok: false, code: 'invalid_state', message: 'a signer branch is required' };
+      }
+      /* The client's declared plan must match what the ceremony recorded. */
+      const ceremonyIsEd25519Only = !ecdsaBranch && Boolean(planNearEd25519);
+      if ((input.planKind === 'near_ed25519') !== ceremonyIsEd25519Only) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'respond signer plan does not match the registration ceremony',
+        };
+      }
+      if (!ecdsaBranch && planNearEd25519) {
+        /* Ed25519-only: no ECDSA leg to run. Verify the proof, establish the
+           authority, and hand back the authority-bound Yao admission as
+           deferred work — the client starts the computation and calls activate
+           without awaiting it. */
+        return await this.respondEd25519OnlyRegistration({
+          snapshot,
+          ceremony,
+          branch: planNearEd25519,
+          authorityInput: input.authority,
+          expectedOrigin,
+          ...(input.userAgent ? { userAgent: input.userAgent } : {}),
+        });
+      }
+      if (!ecdsaBranch) {
+        return { ok: false, code: 'invalid_state', message: 'ECDSA branch is required' };
+      }
+      if (!input.ecdsa) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'strict Router A/B ECDSA registration request is required',
+        };
+      }
+      const strictRegistration = input.ecdsa.strictRegistration;
+      const strictRegistrationBindingJson =
+        routerAbEcdsaStrictRegistrationRequestBindingJson(strictRegistration);
+      /* Exact replay: the terminal branch already holds this request's result,
+         so return the stored bundles rather than calling the Router again. */
+      if (ecdsaBranch.kind === 'evm_family_ecdsa_pending_activation') {
+        if (
+          alphabetizeStringify(ecdsaBranch.registrationRequest) !==
+          alphabetizeStringify(strictRegistration)
+        ) {
+          return {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'ECDSA registration replay changed the exact request',
+          };
+        }
+        return walletRegistrationRespondResult({
+          ceremony,
+          strictResult: ecdsaBranch.publicResponse,
+          ed25519: storedRespondEd25519DeferredWork(ceremony.signerState),
+        });
+      }
+      if (ecdsaBranch.kind !== 'evm_family_ecdsa_prepared') {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ECDSA registration branch is not respondable',
+        };
+      }
+      if (ecdsaBranch.strictRegistrationBindingJson !== strictRegistrationBindingJson) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'ECDSA registration request does not match the admitted ceremony facts',
+        };
+      }
+
+      /* The proof. Everything below this line is authority-bound. */
+      const authorityStartedAtMs = Date.now();
+      const verifiedAuthority = await this.walletAuthMethods.verifyRegistrationAuthorityForIntent({
+        orgId: ceremony.orgId,
+        authority: input.authority,
+        expectedDigestB64u: ceremony.digestB64u,
+        expectedOrigin,
+        intent: ceremony.intent,
+        verificationOperationId: ceremony.registrationCeremonyId,
+        verificationReceiptExpiresAtMs: ceremony.expiresAtMs,
+        ...(input.userAgent ? { userAgent: input.userAgent } : {}),
+      });
+      mark('respond_authority_verify', authorityStartedAtMs);
+      if (!verifiedAuthority.ok) {
+        return { ok: false, code: verifiedAuthority.code, message: verifiedAuthority.message };
+      }
+      const authority = verifiedAuthority.authority;
+      if (authority.walletId !== ceremony.intent.walletId) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'registration authority walletId does not match the ceremony',
+        };
+      }
+
+      const respondDigestB64u = await computeWalletRegistrationRespondDigestB64u({
+        registrationCeremonyId: ceremony.registrationCeremonyId,
+        setupDigestB64u,
+        strictRegistrationBindingJson,
+        authorityDigestB64u: ceremony.digestB64u,
+      });
+      /* Per concrete Router call, never client-visible. */
+      await mintInternalRouterPolicyJwt(input.minter, {
+        registrationCeremonyId: ceremony.registrationCeremonyId,
+        operation: 'wallet_registration_respond',
+        requestDigestB64u: respondDigestB64u,
+        signingRootId: toOptionalTrimmedString(ceremony.signingRootId) || '',
+        signingRootVersion: toOptionalTrimmedString(ceremony.signingRootVersion) || '',
+        expiresAtMs: ceremony.expiresAtMs,
+      });
+
+      /* Both Router calls are authority-bound and independent of each other. */
+      const routerStartedAtMs = Date.now();
+      const nearEd25519Branch = registrationSignerBranchesFromPlan(ceremony.signerPlan).nearEd25519;
+      const [strictResult, ed25519Admission] = await Promise.all([
+        this.ecdsaStrictRegistration.register({
+          request: strictRegistration,
+          authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
+          traceContext,
+          onServerTiming: (header) => mergeRouterServerTiming(serverTiming, header),
+          onHeaderPresence: (presence) =>
+            serverTiming.push([`ecdsa_role_timing_${presence.serverTiming}`, 1]),
+        }),
+        this.admitRespondEd25519Branch({ ceremony, branch: nearEd25519Branch, authority }),
+      ]);
+      mark('respond_router', routerStartedAtMs);
+      if (!strictResult.ok) {
+        if (!strictResult.retryable) {
+          await store.cancelTerminalCeremony({
+            registrationCeremonyId: ceremony.registrationCeremonyId,
+            walletId: ceremony.intent.walletId,
+          });
+        }
+        return { ok: false, code: strictResult.code, message: strictResult.message };
+      }
+      if (!ed25519Admission.ok) {
+        return { ok: false, code: ed25519Admission.code, message: ed25519Admission.message };
+      }
+
+      let nextSignerState = replaceStoredWalletRegistrationSignerBranch({
+        state: ceremony.signerState,
+        replacement: {
+          kind: 'evm_family_ecdsa_pending_activation',
+          branchKey: ecdsaBranch.branchKey,
+          derivationKind: ecdsaBranch.derivationKind,
+          chainTargets: ecdsaBranch.chainTargets,
+          prepare: ecdsaBranch.prepare,
+          strictRegistration: ecdsaBranch.strictRegistration,
+          strictRegistrationBindingJson: ecdsaBranch.strictRegistrationBindingJson,
+          registrationRequest: strictRegistration,
+          pendingActivation: strictResult.value.pendingActivation,
+          publicResponse: strictResult.value.publicResponse,
+        },
+      });
+      if (ed25519Admission.branch) {
+        nextSignerState = {
+          kind: 'signer_set_registration',
+          branches: [ed25519Admission.branch, ...nextSignerState.branches],
+        };
+      }
+      /* One write: the authority transition and the branch result commit
+         together, so a ceremony can never be verified without its result or
+         hold a result without a verified authority. */
+      const next: StoredWalletRegistrationCeremony = {
+        ...ceremony,
+        authorityState: { kind: 'verified', authority },
+        signerState: nextSignerState,
+      };
+      const commitStartedAtMs = Date.now();
+      try {
+        await store.commitEcdsaClaim({ expected: snapshot, next });
+      } catch (error: unknown) {
+        /* Lost the CAS to a concurrent duplicate. Converge on the stored
+           terminal state when it is the same request, otherwise surface. */
+        const reconciled = await store.getCeremony(input.registrationCeremonyId);
+        const reconciledBranch =
+          reconciled?.signerState.kind === 'signer_set_registration'
+            ? findStoredWalletRegistrationEvmFamilyEcdsaBranch(reconciled.signerState)
+            : null;
+        if (
+          !reconciled ||
+          reconciledBranch?.kind !== 'evm_family_ecdsa_pending_activation' ||
+          alphabetizeStringify(reconciledBranch.registrationRequest) !==
+            alphabetizeStringify(strictRegistration)
+        ) {
+          throw error;
+        }
+        mark('respond_d1_commit', commitStartedAtMs);
+        mark('respond_total', totalStartedAtMs);
+        return walletRegistrationRespondResult({
+          ceremony: reconciled,
+          strictResult: reconciledBranch.publicResponse,
+          ed25519: storedRespondEd25519DeferredWork(reconciled.signerState),
+        });
+      }
+      mark('respond_d1_commit', commitStartedAtMs);
+      mark('respond_total', totalStartedAtMs);
+      return walletRegistrationRespondResult({
+        ceremony: next,
+        strictResult: strictResult.value.publicResponse,
+        ed25519: ed25519Admission.deferred,
+      });
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to respond to wallet registration ceremony',
+      };
+    }
+  }
+
+  /**
+   * The Ed25519 commit core, extracted so deferred provisioning reaches it
+   * without going through the standalone finalize wrapper. The operation row
+   * owns idempotency here, so the commit keeps no replay cache of its own.
+   */
+  private async commitDeferredEd25519Signer(
+    input: WalletRegistrationNearProvisioningInput,
+  ): Promise<WalletRegistrationFinalizeResponse> {
+    const committed = await this.executeWalletRegistrationFinalize(
+      {
+        kind: 'near_ed25519',
+        registrationCeremonyId: input.registrationCeremonyId,
+        idempotencyKey: input.idempotencyKey,
+        ed25519: input.ed25519,
+      } as FinalizeWalletRegistrationInput,
+      { kind: 'operation_row' },
+    );
+    return committed.ok
+      ? committed
+      : throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(committed);
+  }
+
+  /**
+   * Deferred NEAR provisioning. Verifies the signed setup, then reuses the
+   * existing deferred Ed25519 commit — the same path lazy-Yao 4+5 built — so
+   * signer installation and the implicit-account projection keep one
+   * implementation across both plans.
+   *
+   * A retryable failure leaves the pending wallet intact: the wallet must not
+   * be destroyed because its signer ceremony needs another attempt.
+   */
+  async completeWalletRegistrationNearProvisioning(
+    input: WalletRegistrationNearProvisioningInput,
+  ): Promise<WalletRegistrationNearProvisioningResponseV2> {
+    try {
+      const verified = await verifyWalletRegistrationSetupClaims(input.verifier, input.signedSetup, {
+        registrationCeremonyId: input.registrationCeremonyId,
+        nowMs: Date.now(),
+      });
+      if (!verified.ok) {
+        return { ok: false, code: verified.code, message: verified.message };
+      }
+      /* Its own operation row. This is a separate effect from activate with
+         its own idempotency key, so it claims, records uncertainty, and
+         replays through one record of its own rather than borrowing the
+         legacy finalize journal and replay cache. */
+      const requestFingerprint = base64UrlEncode(
+        await sha256BytesUtf8(
+          alphabetizeStringify({
+            version: 'wallet_registration_near_provisioning_digest_v1',
+            registrationCeremonyId: input.registrationCeremonyId,
+            setupDigestB64u: verified.claims.setupDigestB64u,
+            idempotencyKey: input.idempotencyKey,
+            ed25519: input.ed25519,
+          }),
+        ),
+      );
+      const run = await runRouterAbEd25519YaoRegistrationSideEffectV1(
+        this.nearProvisioningSideEffects,
+        {
+          kind: 'prepared_resumable',
+          operation: 'near_provisioning',
+          key: `near-provisioning:${input.registrationCeremonyId}:${input.idempotencyKey}`,
+          requestFingerprint,
+          resumeAfterMs: D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS,
+          nowMs: Date.now,
+          prepare: async () =>
+            ({ kind: 'd1_wallet_registration_finalize_prepared_v1' }) as const,
+          derivePreparedArtifactFingerprint: async (prepared) =>
+            base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared))),
+          execute: this.commitDeferredEd25519Signer.bind(this, input),
+        },
+      );
+      switch (run.kind) {
+        case 'executed':
+        case 'exact_replay':
+          break;
+        case 'request_conflict':
+          return {
+            ok: false,
+            code: 'idempotency_conflict',
+            message: 'NEAR provisioning idempotency key was reused for a different request',
+          };
+        case 'in_progress':
+          return {
+            ok: false,
+            code: 'conflict',
+            message: 'NEAR provisioning is already in progress; retry later',
+          };
+        case 'uncertain':
+          return {
+            ok: false,
+            code: 'internal',
+            message: run.message || 'Failed to reconcile NEAR provisioning',
+            nearProvisioning: { status: 'near_failed_retryable' },
+          };
+        default:
+          return { ok: false, code: 'internal', message: 'unsupported provisioning outcome' };
+      }
+      const committed = run.value;
+      if (!committed.ok) {
+        return {
+          ok: false,
+          code: committed.code,
+          message: committed.message,
+          nearProvisioning: { status: 'near_failed_retryable' },
+        };
+      }
+      if (committed.kind !== 'near_ed25519') {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'NEAR provisioning committed a different signer branch',
+        };
+      }
+      return { ...committed, nearProvisioning: { status: 'near_ready' } };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to complete NEAR provisioning',
+        nearProvisioning: { status: 'near_failed_retryable' },
+      };
+    }
+  }
+
+  /**
+   * Persists the Ed25519-only wallet in `near_pending`: wallet, profile, and
+   * authentication state, and no signer record — the signer does not exist
+   * until deferred Yao produces it.
+   *
+   * The terminal response carries no signer, resolved account, or key
+   * identity, because none of those are known yet. Reporting them would be
+   * fabricating readiness.
+   */
+  private async commitEd25519PendingWallet(input: {
+    readonly ceremony: StoredWalletRegistrationCeremony;
+    readonly authority: StoredRegistrationAuthority;
+    readonly enrollment: Pick<
+      FinalizeWalletRegistrationInput,
+      'emailOtpEnrollment' | 'emailOtpBackupAck'
+    >;
+  }): Promise<WalletRegistrationActivateResponseV2> {
+    const now = Date.now();
+    const ceremony = input.ceremony;
+    const authority = input.authority;
+    const wallet = buildD1WalletRecord({ walletId: ceremony.intent.walletId, now });
+    const walletAuthAuthority = walletAuthAuthorityFromRegistrationAuthority(authority);
+    switch (authority.kind) {
+      case 'passkey':
+        await this.walletRegistrationCommitStore.commit({
+          kind: 'passkey_wallet_registration_commit_v1',
+          wallet,
+          /* Deliberately empty: the sole signer arrives with Yao. */
+          walletSigners: [],
+          authority,
+          now,
+        });
+        break;
+      case 'email_otp': {
+        /* Email OTP enrollment is recovery-critical and belongs to the same
+           transaction as the wallet — it is an authentication concern, not an
+           ECDSA one, so a pending Ed25519-only wallet enrolls exactly as a
+           signable one does. */
+        const enrollment = await this.emailOtpRegistrationEnrollmentFinalizer
+          .prepareRegistrationFinalize({
+            authority,
+            request: input.enrollment,
+            walletId: ceremony.intent.walletId,
+            orgId: ceremony.orgId,
+            nowMs: now,
+          });
+        if (!enrollment.ok) return enrollment;
+        if (!enrollment.persistence) {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'Email OTP registration is missing enrollment persistence state',
+          };
+        }
+        await this.walletRegistrationCommitStore.commit({
+          kind: 'email_otp_wallet_registration_commit_v1',
+          wallet,
+          walletSigners: [],
+          authority,
+          emailOtp: this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationCommitPlan(
+            enrollment.persistence,
+          ),
+          now,
+        });
+        break;
+      }
+    }
+    const authMethod = walletRegistrationFinalizeAuthMethodFromAuthority(authority);
+    const base = {
+      ok: true as const,
+      kind: 'near_ed25519' as const,
+      walletId: ceremony.intent.walletId,
+      authority: walletAuthAuthority,
+      authMethod,
+      nearProvisioning: { status: 'near_pending' as const },
+    };
+    return (
+      authMethod.kind === 'passkey'
+        ? { ...base, rpId: finalizePasskeyRpId(authority) }
+        : base
+    ) as WalletRegistrationActivateResponseV2;
+  }
+
+  /**
+   * Ed25519-only respond. The wallet's sole signer is Yao, and that is
+   * deliberately not a reason to block: the admission is returned as deferred
+   * work exactly as on a mixed plan, and the wallet lives in `near_pending`
+   * until the computation completes.
+   */
+  private async respondEd25519OnlyRegistration(input: {
+    readonly snapshot: { readonly ceremony: StoredWalletRegistrationCeremony; readonly version: number };
+    readonly ceremony: StoredWalletRegistrationCeremony;
+    readonly branch: RegistrationNearEd25519SignerPlan;
+    readonly authorityInput: WalletRegistrationAuthorityInput;
+    readonly expectedOrigin: string;
+    readonly userAgent?: string;
+  }): Promise<WalletRegistrationRespondResponseV2> {
+    const ceremony = input.ceremony;
+    /* Exact replay: the admission already exists, so return it rather than
+       admitting a second time. */
+    const stored = storedRespondEd25519DeferredWork(ceremony.signerState);
+    if (stored) {
+      return {
+        ok: true,
+        registrationCeremonyId: ceremony.registrationCeremonyId,
+        kind: 'near_ed25519',
+        ed25519: stored,
+      };
+    }
+    const verifiedAuthority = await this.walletAuthMethods.verifyRegistrationAuthorityForIntent({
+      orgId: ceremony.orgId,
+      authority: input.authorityInput,
+      expectedDigestB64u: ceremony.digestB64u,
+      expectedOrigin: input.expectedOrigin,
+      intent: ceremony.intent,
+      verificationOperationId: ceremony.registrationCeremonyId,
+      verificationReceiptExpiresAtMs: ceremony.expiresAtMs,
+      ...(input.userAgent ? { userAgent: input.userAgent } : {}),
+    });
+    if (!verifiedAuthority.ok) {
+      return { ok: false, code: verifiedAuthority.code, message: verifiedAuthority.message };
+    }
+    const authority = verifiedAuthority.authority;
+    if (authority.walletId !== ceremony.intent.walletId) {
+      return {
+        ok: false,
+        code: 'scope_mismatch',
+        message: 'registration authority walletId does not match the ceremony',
+      };
+    }
+    const admitted = await this.admitRespondEd25519Branch({
+      ceremony,
+      branch: input.branch,
+      authority,
+    });
+    if (!admitted.ok) return { ok: false, code: admitted.code, message: admitted.message };
+    if (!admitted.branch || !admitted.deferred) {
+      return { ok: false, code: 'internal', message: 'Ed25519 admission produced no branch' };
+    }
+    /* One write, as on the ECDSA path: the verified authority and the admitted
+       branch commit together. */
+    await this.getRegistrationCeremonyIntentStore().commitEcdsaClaim({
+      expected: input.snapshot,
+      next: {
+        ...ceremony,
+        authorityState: { kind: 'verified', authority },
+        signerState: { kind: 'signer_set_registration', branches: [admitted.branch] },
+      },
+    });
+    return {
+      ok: true,
+      registrationCeremonyId: ceremony.registrationCeremonyId,
+      kind: 'near_ed25519',
+      ed25519: admitted.deferred,
+    };
+  }
+
+  /**
+   * Derives the authority-bound Yao admission now that the proof is verified.
+   * Both auth methods take this path — the scope comes from the verified
+   * authority, so Email OTP's `providerUserId` is established rather than
+   * assumed.
+   */
+  private async admitRespondEd25519Branch(input: {
+    readonly ceremony: StoredWalletRegistrationCeremony;
+    readonly branch: RegistrationNearEd25519SignerPlan | null;
+    readonly authority: StoredRegistrationAuthority;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly branch: StoredWalletRegistrationSignerBranch | null;
+        readonly deferred: RespondEd25519DeferredWorkV2 | null;
+      }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  > {
+    if (!input.branch) return { ok: true, branch: null, deferred: null };
+    const yaoRuntime = this.getEd25519YaoProductRegistration();
+    if (!yaoRuntime) {
+      return {
+        ok: false,
+        code: 'not_configured',
+        message: 'Ed25519 Yao product registration is not configured',
+      };
+    }
+    const admissionRequest = await buildRouterAbEd25519YaoProductAdmissionRequestV1({
+      registrationCeremonyId: input.ceremony.registrationCeremonyId,
+      walletId: input.ceremony.intent.walletId,
+      signingRootId: toOptionalTrimmedString(input.ceremony.signingRootId) || '',
+      signingRootVersion: toOptionalTrimmedString(input.ceremony.signingRootVersion) || '',
+      authorityScope: registrationEd25519AuthorityScopeFromAuthority(input.authority),
+      branch: input.branch,
+      signingWorkerId: yaoRuntime.signingWorkerId,
+    });
+    const admitted = await yaoRuntime.bindAndAdmitVerifiedRegistration({
+      kind: 'verified_registration_intent',
+      registrationIntentGrant: registrationIntentGrantFromString(
+        input.ceremony.registrationCeremonyId,
+      ),
+      intent: input.ceremony.intent,
+      admissionRequest,
+      expiresAtMs: input.ceremony.expiresAtMs,
+    });
+    if (!admitted.ok) return { ok: false, code: admitted.code, message: admitted.message };
+    return {
+      ok: true,
+      branch: buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch({
+        branchKey: input.branch.branchKey,
+        admissionRequest,
+        admissionReceipt: admitted.value,
+      }),
+      deferred: { status: 'deferred', admissionRequest, admissionReceipt: admitted.value },
+    };
+  }
+
+  /**
+   * Refactor 94C. `/wallets/register/activate` — activation and finalization
+   * as one irreversible step behind one Gateway operation row.
+   *
+   * Previously activation and finalization were separate requests with
+   * separate idempotency: activation claimed and CAS'd the ceremony branch,
+   * then finalize opened its own side-effect journal *and* maintained a second
+   * replay cache. Three records guarding one irreversible commit, each with
+   * its own failure window.
+   *
+   * Here the operation row is the only one. Its claim is the activation claim,
+   * its completion record holds the exact terminal response bytes, and an
+   * identical retry returns those bytes without repeating any custody effect.
+   * A conflicting fingerprint is refused before execution; an ambiguous
+   * outcome after the custody call stays `uncertain` rather than being
+   * guessed either way.
+   */
+  async activateWalletRegistration(
+    input: WalletRegistrationActivateInput,
+    traceContext?: RouterAbTraceContextV1,
+  ): Promise<WalletRegistrationActivateResponseV2> {
+    try {
+      /* No ceremony read here, deliberately. A successful activation deletes
+         the ceremony, so an exact replay has to be answerable from the
+         operation row alone; reading the ceremony first would turn every
+         retry-after-success into a spurious `not_found`. The Gateway-signed
+         claims carry everything needed to reach the row. */
+      const verifiedSetup = await verifyWalletRegistrationSetupClaims(
+        input.verifier,
+        input.signedSetup,
+        { registrationCeremonyId: input.registrationCeremonyId, nowMs: Date.now() },
+      );
+      if (!verifiedSetup.ok) {
+        return { ok: false, code: verifiedSetup.code, message: verifiedSetup.message };
+      }
+      const claims = verifiedSetup.claims;
+      const idempotencyKey = toOptionalTrimmedString(input.idempotencyKey);
+      if (!idempotencyKey) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration activate idempotencyKey is required',
+        };
+      }
+
+      /* Activate's own canonical digest, over activate's own bytes. */
+      const activateDigestB64u = base64UrlEncode(
+        await sha256BytesUtf8(
+          alphabetizeStringify({
+            version: 'wallet_registration_activate_digest_v1',
+            registrationCeremonyId: claims.registrationCeremonyId,
+            setupDigestB64u: claims.setupDigestB64u,
+            idempotencyKey,
+            ecdsa: input.ecdsa,
+            ...(input.emailOtpEnrollment ? { emailOtpEnrollment: input.emailOtpEnrollment } : {}),
+            ...(input.emailOtpBackupAck ? { emailOtpBackupAck: input.emailOtpBackupAck } : {}),
+          }),
+        ),
+      );
+      await mintInternalRouterPolicyJwt(input.minter, {
+        registrationCeremonyId: claims.registrationCeremonyId,
+        operation: 'wallet_registration_activate',
+        requestDigestB64u: activateDigestB64u,
+        signingRootId: claims.signingRootId,
+        signingRootVersion: claims.signingRootVersion,
+        expiresAtMs: claims.expiresAtMs,
+      });
+
+      const run = await runRouterAbEd25519YaoRegistrationSideEffectV1(this.activateSideEffects, {
+        kind: 'prepared_resumable',
+        operation: 'registration_activate',
+        key: `registration-activate:${claims.registrationCeremonyId}:${idempotencyKey}`,
+        requestFingerprint: activateDigestB64u,
+        resumeAfterMs: D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS,
+        nowMs: Date.now,
+        prepare: async () => ({ kind: 'd1_wallet_registration_finalize_prepared_v1' }) as const,
+        derivePreparedArtifactFingerprint: async (prepared) =>
+          base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared))),
+        execute: this.executeWalletRegistrationActivation.bind(this, {
+          registrationCeremonyId: claims.registrationCeremonyId,
+          idempotencyKey,
+          input,
+          traceContext,
+        }),
+      });
+      switch (run.kind) {
+        case 'executed':
+        case 'exact_replay':
+          /* Exact terminal bytes, byte-identical across retries. */
+          return run.value;
+        case 'request_conflict':
+          return {
+            ok: false,
+            code: 'idempotency_conflict',
+            message: 'registration activate idempotency key was reused for a different request',
+          };
+        case 'in_progress':
+          return {
+            ok: false,
+            code: 'conflict',
+            message: 'registration activation is already in progress; retry later',
+          };
+        case 'uncertain':
+          /* Ambiguous after the custody call: never guessed either way. */
+          return {
+            ok: false,
+            code: 'internal',
+            message: run.message || 'Failed to reconcile wallet registration activation',
+          };
+        default:
+          return {
+            ok: false,
+            code: 'internal',
+            message: 'registration activation returned an unsupported outcome',
+          };
+      }
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to activate wallet registration',
+      };
+    }
+  }
+
+  /**
+   * Router/SigningWorker activation followed by the blocking finalize
+   * persistence, as one unit inside the operation row. The commit is told the
+   * operation row owns idempotency, so it maintains no replay cache of its own.
+   */
+  private async executeWalletRegistrationActivation(
+    context: {
+      readonly registrationCeremonyId: string;
+      readonly idempotencyKey: string;
+      readonly input: WalletRegistrationActivateInput;
+      readonly traceContext?: RouterAbTraceContextV1;
+    },
+  ): Promise<WalletRegistrationActivateResponseV2> {
+    /* Fresh execution only — the ceremony still exists here. Activation
+       persists wallet identity, so the proof must already be bound. */
+    const ceremony = await this.getRegistrationCeremonyIntentStore().getCeremony(
+      context.registrationCeremonyId,
+    );
+    if (!ceremony) {
+      return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
+    }
+    const ceremonyAuthority = verifiedRegistrationCeremonyAuthority(ceremony);
+    if (!ceremonyAuthority) {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: 'registration ceremony has not verified its authority proof',
+      };
+    }
+    /* Ed25519-only: no ECDSA Router activation, and no Yao output required.
+       The wallet is created pending so it exists before its sole signer does —
+       which is what lets the client overlap the Yao computation with this
+       call instead of serializing behind it. */
+    if (!registrationSignerBranchesFromPlan(ceremony.signerPlan).evmFamilyEcdsa) {
+      return await this.commitEd25519PendingWallet({
+        ceremony,
+        authority: ceremonyAuthority,
+        enrollment: {
+          ...(context.input.emailOtpEnrollment
+            ? { emailOtpEnrollment: context.input.emailOtpEnrollment as never }
+            : {}),
+          ...(context.input.emailOtpBackupAck
+            ? { emailOtpBackupAck: context.input.emailOtpBackupAck as never }
+            : {}),
+        },
+      });
+    }
+    if (!context.input.ecdsa) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'browser-verified clientActivation is required for this signer plan',
+      };
+    }
+    const activated = await this.activateWalletRegistrationEcdsa(
+      {
+        registrationCeremonyId: context.registrationCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_activation_v1',
+          publicFacts: context.input.ecdsa.clientActivation,
+        },
+      } as ActivateWalletRegistrationEcdsaInput,
+      context.traceContext,
+    );
+    if (!activated.ok) {
+      /* Pre-effect failures stay retryable; the boundary re-raises them so the
+         claim is released rather than recorded as a terminal outcome. */
+      return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(activated);
+    }
+    /* The handle the activation just produced. The old two-request flow had
+       the client echo this back so a mismatched pair could be caught; in one
+       request there is no pair, so the commit is bound to the handle it was
+       produced with. */
+    const keyHandle = activated.ecdsa.bootstrap?.keyHandle;
+    if (!keyHandle) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'ECDSA activation completed without a key handle to commit',
+      };
+    }
+    const commit = await this.executeWalletRegistrationFinalize(
+      {
+        kind: 'evm_family_ecdsa',
+        registrationCeremonyId: context.registrationCeremonyId,
+        idempotencyKey: context.idempotencyKey,
+        ecdsa: { expectedKeyHandles: [keyHandle] as const },
+        ...(context.input.emailOtpEnrollment
+          ? { emailOtpEnrollment: context.input.emailOtpEnrollment }
+          : {}),
+        ...(context.input.emailOtpBackupAck
+          ? { emailOtpBackupAck: context.input.emailOtpBackupAck }
+          : {}),
+      } as FinalizeWalletRegistrationInput,
+      { kind: 'operation_row' },
+    );
+    if (!commit.ok) return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(commit);
+    /* The terminal response is both legs merged. Activation produced the
+       receipt and the derivation bootstrap; the commit produced the wallet
+       keys. Returning only the commit half would drop what the client needs
+       to bring the wallet online — the whole point of folding the legs is
+       that one response carries the result of both. */
+    if (commit.kind !== 'evm_family_ecdsa') {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'registration activation committed a non-ECDSA branch',
+      };
+    }
+    return {
+      ...commit,
+      ecdsa: {
+        ...commit.ecdsa,
+        activation: activated.ecdsa.activation,
+        bootstrap: activated.ecdsa.bootstrap,
+      },
+    } as WalletRegistrationActivateResponseV2;
   }
 
   async respondWalletRegistrationEcdsaDerivation(
@@ -2665,12 +3807,15 @@ export class CloudflareD1WalletRegistrationService {
   private async executeWalletRegistrationFinalizeSideEffect(
     request: FinalizeWalletRegistrationInput,
   ): Promise<WalletRegistrationFinalizeResponse> {
-    const response = await this.executeWalletRegistrationFinalize(request);
+    const response = await this.executeWalletRegistrationFinalize(request, {
+      kind: 'legacy_finalize_cache',
+    });
     return response.ok ? response : throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(response);
   }
 
   private async executeWalletRegistrationFinalize(
     request: FinalizeWalletRegistrationInput,
+    replayOwner: RegistrationTerminalReplayOwner,
   ): Promise<WalletRegistrationFinalizeResponse> {
     const finalizeTiming = createD1RegistrationRouteTimingRecorder('wallets_register_finalize');
     const totalTiming = startD1RegistrationRouteTiming('registerFinalizeTotalMs');
@@ -2688,10 +3833,15 @@ export class CloudflareD1WalletRegistrationService {
       const replayTiming = startD1RegistrationRouteTiming('registrationFinalizeReplayLoadMs');
       let replay: Awaited<ReturnType<typeof store.getFinalizeReplay>>;
       try {
-        replay = await store.getFinalizeReplay({
-          registrationCeremonyId: request.registrationCeremonyId,
-          idempotencyKey,
-        });
+        /* Under an operation row the completion record is the replay record;
+           reading a second one would be a redundant success-path read. */
+        replay =
+          replayOwner.kind === 'legacy_finalize_cache'
+            ? await store.getFinalizeReplay({
+                registrationCeremonyId: request.registrationCeremonyId,
+                idempotencyKey,
+              })
+            : null;
       } finally {
         finishD1RegistrationRouteTiming(finalizeTiming, replayTiming);
       }
@@ -2767,6 +3917,16 @@ export class CloudflareD1WalletRegistrationService {
           ok: false,
           code: 'scope_mismatch',
           message: 'registration ceremony walletId mismatch',
+        };
+      }
+      /* Finalization persists wallet identity, so it requires the proof that
+         respond binds. A ceremony still awaiting one cannot be finalized. */
+      const ceremonyAuthority = verifiedRegistrationCeremonyAuthority(ceremony);
+      if (!ceremonyAuthority) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'registration ceremony has not verified its authority proof',
         };
       }
       const signerBranches = registrationSignerBranchesFromPlan(ceremony.signerPlan);
@@ -2874,7 +4034,7 @@ export class CloudflareD1WalletRegistrationService {
       try {
         emailOtpEnrollment =
           await this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationFinalize({
-            authority: ceremony.authority,
+            authority: ceremonyAuthority,
             request,
             walletId: ceremony.intent.walletId,
             orgId: ceremony.orgId,
@@ -2885,7 +4045,7 @@ export class CloudflareD1WalletRegistrationService {
       }
       if (!emailOtpEnrollment.ok) return emailOtpEnrollment;
 
-      const walletAuthAuthority = walletAuthAuthorityFromRegistrationAuthority(ceremony.authority);
+      const walletAuthAuthority = walletAuthAuthorityFromRegistrationAuthority(ceremonyAuthority);
       let ed25519PublicResult: WalletRegistrationEd25519YaoPublicResult | null = null;
       let resolvedNearAccount: ResolvedRegistrationNearAccount | null = null;
       let ed25519SignerRecord: WalletEd25519SignerRecord | null = null;
@@ -3121,7 +4281,7 @@ export class CloudflareD1WalletRegistrationService {
       if (ed25519SignerRecord) walletSigners.push(ed25519SignerRecord);
       const persistenceTiming = startD1RegistrationRouteTiming('relayPersistenceMs');
       try {
-        switch (ceremony.authority.kind) {
+        switch (ceremonyAuthority.kind) {
           case 'passkey':
             if (emailOtpEnrollment.persistence) {
               return {
@@ -3134,7 +4294,7 @@ export class CloudflareD1WalletRegistrationService {
               kind: 'passkey_wallet_registration_commit_v1',
               wallet,
               walletSigners,
-              authority: ceremony.authority,
+              authority: ceremonyAuthority,
               now,
             });
             break;
@@ -3150,7 +4310,7 @@ export class CloudflareD1WalletRegistrationService {
               kind: 'email_otp_wallet_registration_commit_v1',
               wallet,
               walletSigners,
-              authority: ceremony.authority,
+              authority: ceremonyAuthority,
               emailOtp: this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationCommitPlan(
                 emailOtpEnrollment.persistence,
               ),
@@ -3181,7 +4341,7 @@ export class CloudflareD1WalletRegistrationService {
           };
         }
       }
-      const authMethod = walletRegistrationFinalizeAuthMethodFromAuthority(ceremony.authority);
+      const authMethod = walletRegistrationFinalizeAuthMethodFromAuthority(ceremonyAuthority);
       let response: WalletRegistrationFinalizeSuccess;
       if (ed25519PublicResult && finalizeNearEd25519 && resolvedNearAccount) {
         const authorityScope =
@@ -3193,7 +4353,7 @@ export class CloudflareD1WalletRegistrationService {
                 kind: 'near_ed25519',
                 walletId: ceremony.intent.walletId,
                 authority: walletAuthAuthority,
-                rpId: finalizePasskeyRpId(ceremony.authority),
+                rpId: finalizePasskeyRpId(ceremonyAuthority),
                 authMethod,
                 authorityScope,
                 accountProvisioning: finalizeNearEd25519.accountProvisioning,
@@ -3219,7 +4379,7 @@ export class CloudflareD1WalletRegistrationService {
                 kind: 'evm_family_ecdsa',
                 walletId: ceremony.intent.walletId,
                 authority: walletAuthAuthority,
-                rpId: finalizePasskeyRpId(ceremony.authority),
+                rpId: finalizePasskeyRpId(ceremonyAuthority),
                 authMethod,
                 ecdsa: { walletKeys: ecdsaWalletKeys },
               }
@@ -3232,7 +4392,7 @@ export class CloudflareD1WalletRegistrationService {
                 ecdsa: { walletKeys: ecdsaWalletKeys },
               };
       }
-      if (idempotencyKey && requestFingerprint) {
+      if (replayOwner.kind === 'legacy_finalize_cache' && idempotencyKey && requestFingerprint) {
         const replayCacheTiming = startD1RegistrationRouteTiming(
           'registrationFinalizeReplayCacheMs',
         );

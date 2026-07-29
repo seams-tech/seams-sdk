@@ -604,11 +604,16 @@ export type WalletRegistrationRouteTimingName =
   | 'relayGoogleEmailOtpActivationPlanMs'
   | 'relayPersistenceMs'
   | 'registrationFinalizeReplayCacheMs'
-  | 'registerFinalizeTotalMs';
+  | 'registerFinalizeTotalMs'
+  /* 94C setup: the ceremony insert is the route's only D1 write, so it gets
+     its own mark rather than being folded into a persistence total. */
+  | 'registrationCeremonyInsertMs'
+  | 'registerSetupTotalMs';
 
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
   route:
+    | 'wallets_register_setup'
     | 'wallets_register_start'
     | 'wallets_register_ecdsa_derivation_respond'
     | 'wallets_register_finalize';
