@@ -10,6 +10,17 @@ export type HostedWalletSeamsSession = {
 
 let hostedWalletSeamsSession: HostedWalletSeamsSession | null = null;
 const HOSTED_WALLET_REDEMPTION_FIELDS = new Set(['exchangeCode', 'nonce']);
+const HOSTED_WALLET_REDEMPTION_RESPONSE_FIELDS = new Set(['ok', 'session', 'jwt']);
+const HOSTED_WALLET_SESSION_FIELDS = new Set([
+  'kind',
+  'userId',
+  'tenantId',
+  'seamsSessionId',
+  'deviceId',
+  'audience',
+  'expiresAtMs',
+]);
+const HOSTED_WALLET_AUDIENCE_FIELDS = new Set(['kind', 'appOrigin', 'walletOrigin']);
 
 function recordFromBoundary(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -18,9 +29,24 @@ function recordFromBoundary(value: unknown): Record<string, unknown> {
 }
 
 function requiredString(record: Record<string, unknown>, field: string): string {
-  const value = typeof record[field] === 'string' ? record[field].trim() : '';
-  if (!value) throw new Error(`Missing ${field}`);
+  const value = record[field];
+  if (typeof value !== 'string' || value.length === 0 || value.trim() !== value) {
+    throw new Error(`${field} must be a non-empty canonical string`);
+  }
   return value;
+}
+
+function assertExactFields(
+  record: Record<string, unknown>,
+  fields: ReadonlySet<string>,
+  label: string,
+): void {
+  for (const key of Object.keys(record)) {
+    if (!fields.has(key)) throw new Error(`Unsupported ${label} field: ${key}`);
+  }
+  for (const field of fields) {
+    if (!Object.hasOwn(record, field)) throw new Error(`Missing ${label} field: ${field}`);
+  }
 }
 
 function compactExchangeValue(record: Record<string, unknown>, field: string): string {
@@ -61,11 +87,18 @@ function parseHostedWalletRedemption(value: unknown): HostedWalletSeamsSession {
     error.code = code;
     throw error;
   }
+  assertExactFields(
+    response,
+    HOSTED_WALLET_REDEMPTION_RESPONSE_FIELDS,
+    'hosted-wallet redemption response',
+  );
   const session = recordFromBoundary(response.session);
+  assertExactFields(session, HOSTED_WALLET_SESSION_FIELDS, 'hosted-wallet session');
   if (session.kind !== 'app_session_v1') {
     throw new Error('hosted-wallet redemption returned the wrong session kind');
   }
   const audience = recordFromBoundary(session.audience);
+  assertExactFields(audience, HOSTED_WALLET_AUDIENCE_FIELDS, 'hosted-wallet session audience');
   if (
     audience.kind !== 'hosted_wallet_iframe' ||
     requiredString(audience, 'walletOrigin') !== window.location.origin
@@ -89,6 +122,19 @@ function parseHostedWalletRedemption(value: unknown): HostedWalletSeamsSession {
     claims.sub !== userId ||
     claims.seamsSessionId !== seamsSessionId ||
     claims.deviceId !== deviceId
+  ) {
+    throw new Error('hosted-wallet session JWT does not match its session projection');
+  }
+  const claimsAudience = recordFromBoundary(claims.sessionAudience);
+  assertExactFields(
+    claimsAudience,
+    HOSTED_WALLET_AUDIENCE_FIELDS,
+    'hosted-wallet session JWT audience',
+  );
+  if (
+    claimsAudience.kind !== audience.kind ||
+    claimsAudience.appOrigin !== audience.appOrigin ||
+    claimsAudience.walletOrigin !== audience.walletOrigin
   ) {
     throw new Error('hosted-wallet session JWT does not match its session projection');
   }
