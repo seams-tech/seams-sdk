@@ -68,6 +68,8 @@ import {
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+  type RouterAbEcdsaOperationStepUpPreparationV1Wire,
+  parseRouterAbEcdsaOperationStepUpPreparationV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RootShareEpoch } from '@shared/utils/domainIds';
 import type {
@@ -140,6 +142,7 @@ export type EcdsaExplicitExportSessionAuth = AppSessionJwtAuth | CookieSessionAu
 export type EcdsaExplicitExportOperationAuthorization = {
   readonly kind: 'operation_step_up';
   readonly grantId: CapabilityGrantId;
+  readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
   readonly sessionAuth: EcdsaExplicitExportSessionAuth;
   readonly expiresAtMs: number;
   readonly quotaUse: 'none';
@@ -943,6 +946,10 @@ function normalizeEcdsaExplicitExportAuthorization(
   const grantId = parseCapabilityGrantId(authorization.grantId);
   if (!grantId.ok) throw new Error(grantId.error.message);
   const expiresAtMs = Math.floor(Number(authorization.expiresAtMs));
+  const operation = parseRouterAbEcdsaOperationStepUpPreparationV1(authorization.operation);
+  if (operation.operation_kind !== 'evm.export_key') {
+    throw new Error('ECDSA explicit export operation kind is invalid');
+  }
   if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
     throw new Error('ECDSA explicit export operation grant expiry is invalid');
   }
@@ -951,6 +958,7 @@ function normalizeEcdsaExplicitExportAuthorization(
       return {
         kind: 'operation_step_up',
         grantId: grantId.value,
+        operation,
         sessionAuth: {
           kind: 'app_session',
           jwt: requireAppSessionJwt(authorization.sessionAuth.jwt),
@@ -962,6 +970,7 @@ function normalizeEcdsaExplicitExportAuthorization(
       return {
         kind: 'operation_step_up',
         grantId: grantId.value,
+        operation,
         sessionAuth: { kind: 'cookie' },
         expiresAtMs,
         quotaUse: 'none',

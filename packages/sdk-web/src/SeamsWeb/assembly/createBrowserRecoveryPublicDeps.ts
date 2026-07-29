@@ -11,11 +11,11 @@ import type { RecoveryPublicDeps } from '@/core/signingEngine/flows/recovery/pub
 import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetStatusOperation } from '@/core/signingEngine/session/budget/budgetStatusReader';
 import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
 import {
-  toWalletId,
+  walletSessionRefFromSession,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
-import { resolvePasskeyEd25519WalletSessionRouteAuthV1 } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
+import { requireAppSessionJwt } from '@shared/utils/sessionTokens';
+import type { EcdsaExplicitExportSessionAuth } from '@/core/signingEngine/threshold/ecdsa/activation';
 import { readClientWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/clientSessionPersistence';
 import type { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import type { PersistedAvailableSigningLanesDeps } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
@@ -24,40 +24,27 @@ import {
   type ThresholdEcdsaSigningQueueByKey,
 } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
 
-type BrowserWarmSession = Awaited<ReturnType<WarmSessionCapabilityReader['getWarmSession']>>;
-type BrowserWarmSessionAuth =
-  | BrowserWarmSession['capabilities']['ed25519']['auth']
-  | BrowserWarmSession['capabilities']['ecdsa']['evm']['auth'];
-
-function walletSessionRouteAuthFromWarmAuth(
-  auth: BrowserWarmSessionAuth,
-): AppOrWalletSessionAuth | null {
-  if (!auth || !('walletSessionJwt' in auth)) return null;
-  const jwt = String(auth.walletSessionJwt || '').trim();
-  return jwt ? { kind: 'wallet_session', jwt } : null;
-}
-
 async function resolvePasskeyEcdsaExportRouteAuth(
-  capabilityReader: WarmSessionCapabilityReader,
+  emailOtpSessions: EmailOtpWalletSessionCoordinator,
+  relayerUrl: string,
   walletId: string,
   chainTarget: ThresholdEcdsaChainTarget,
-): Promise<AppOrWalletSessionAuth> {
-  const warmSession = await capabilityReader.getWarmSession(toWalletId(walletId));
-  const targetEcdsa =
-    chainTarget.kind === 'tempo'
-      ? warmSession.capabilities.ecdsa.tempo
-      : warmSession.capabilities.ecdsa.evm;
-  const warmRouteAuth =
-    walletSessionRouteAuthFromWarmAuth(targetEcdsa.auth) ||
-    walletSessionRouteAuthFromWarmAuth(warmSession.capabilities.ed25519.auth);
-  const routeAuth =
-    warmRouteAuth || (await resolvePasskeyEd25519WalletSessionRouteAuthV1(walletId));
-  if (!routeAuth) {
-    throw new Error(
-      '[SigningEngine][ecdsa-export] strict ECDSA export requires an active wallet-scoped route authority',
-    );
+  authMethod: 'passkey' | 'email_otp',
+): Promise<EcdsaExplicitExportSessionAuth> {
+  switch (authMethod) {
+    case 'passkey':
+      return { kind: 'cookie' };
+    case 'email_otp': {
+      const jwt = await emailOtpSessions.resolveAppSessionJwt({
+        walletSession: walletSessionRefFromSession({
+          walletId,
+          walletSessionUserId: walletId,
+        }),
+        relayUrl: relayerUrl,
+      });
+      return { kind: 'app_session', jwt: requireAppSessionJwt(jwt) };
+    }
   }
-  return routeAuth;
 }
 
 export function createBrowserRecoveryPublicDeps(args: {
@@ -109,7 +96,8 @@ export function createBrowserRecoveryPublicDeps(args: {
       ),
     resolvePasskeyEcdsaExportRouteAuth: resolvePasskeyEcdsaExportRouteAuth.bind(
       null,
-      args.warmSigning.capabilityReader,
+      args.emailOtpSessions,
+      String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
     ),
     getWalletSigningBudgetStatus: (statusArgs) =>
       readTrustedWalletSigningBudgetStatusOperation(

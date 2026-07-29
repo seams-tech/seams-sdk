@@ -21,6 +21,7 @@ import {
   type EcdsaBootstrapLifecycleCommand,
 } from './ecdsaSessionProvision';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
+import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
 
 const walletId = 'wallet.testnet';
 const subjectId = toWalletId(walletId);
@@ -37,6 +38,7 @@ const passkeyCredentialIdB64u = 'passkey-credential-id';
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
+declare const explicitExportAuthorization: EcdsaExplicitExportOperationAuthorization;
 declare const emailOtpWorkerSessionHandle: Extract<
   EmailOtpWorkerIssuedSessionHandle,
   { action: 'threshold_ecdsa_bootstrap' }
@@ -182,12 +184,9 @@ void buildEmailOtpPerOperationReauthEcdsaActivation({
 });
 
 void buildEcdsaExportActivation({
-  ...exactActivationCommon,
-  sessionIdentity,
-  sessionKind: 'jwt',
-  passkeyPrfFirstB64u: 'client-root',
-  webauthnAuthentication,
-  walletSessionRouteAuth,
+  relayerUrl: 'https://relay.example',
+  existingRoleLocalMaterial,
+  authorization: explicitExportAuthorization,
 });
 
 // @ts-expect-error activation builders require canonical key and lane policy

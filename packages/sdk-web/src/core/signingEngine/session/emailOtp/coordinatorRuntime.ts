@@ -49,6 +49,8 @@ import { EmailOtpRuntimeConfig } from './runtimeConfig';
 import { EmailOtpSealedSessionRegistry } from './sealedSessionRegistry';
 import { EmailOtpSealedRefreshPolicy } from './sealedRefreshPolicy';
 import type { WarmSessionLanePurpose } from './sealedRuntimePurpose';
+import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
+import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
 import { EmailOtpSealedRestoreOrchestrator } from './sealedRestoreOrchestrator';
 import {
   createEmailOtpWarmSessionWorkerClient,
@@ -291,6 +293,8 @@ export class EmailOtpWalletSessionRuntime {
     challengeId: string;
     otpCode: string;
     publicReauthAuthority: EmailOtpEcdsaPublicReauthExportAuthority;
+    persistedMaterial: PersistedEcdsaRoleLocalMaterial;
+    explicitExportAuthorization: EcdsaExplicitExportOperationAuthorization;
   }): Promise<EmailOtpEcdsaExportArtifact> {
     const appSessionJwt = await this.resolveAppSessionJwt({
       walletSession: args.walletSession,
@@ -303,6 +307,8 @@ export class EmailOtpWalletSessionRuntime {
       otpCode: args.otpCode,
       appSessionJwt,
       publicReauthAuthority: args.publicReauthAuthority,
+      persistedMaterial: args.persistedMaterial,
+      explicitExportAuthorization: args.explicitExportAuthorization,
     });
   }
 

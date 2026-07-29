@@ -28,6 +28,8 @@ import type {
   PrepareEmailOtpEcdsaExportCapabilityArgs,
 } from './ecdsaLogin';
 import type { EmailOtpTransactionSigningChallenge } from './publicTypes';
+import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
+import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
 export type { EmailOtpEcdsaExportArtifact } from './exportRecovery';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
@@ -66,6 +68,8 @@ export type ExportEcdsaKeyWithDurableAuthorizationArgs = {
   publicFacts: VerifiedEcdsaPublicFacts;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
+  persistedMaterial: PersistedEcdsaRoleLocalMaterial;
+  explicitExportAuthorization: EcdsaExplicitExportOperationAuthorization;
 };
 
 export type ExportEcdsaKeyWithPublicReauthAuthorizationArgs = {
@@ -75,6 +79,8 @@ export type ExportEcdsaKeyWithPublicReauthAuthorizationArgs = {
   otpCode: string;
   appSessionJwt: string;
   publicReauthAuthority: EmailOtpEcdsaPublicReauthExportAuthority;
+  persistedMaterial: PersistedEcdsaRoleLocalMaterial;
+  explicitExportAuthorization: EcdsaExplicitExportOperationAuthorization;
 };
 
 export type ExportEd25519YaoSeedWithFreshEmailOtpLaneArgs = {
@@ -134,6 +140,8 @@ export class EmailOtpExportRecoveryRuntime {
         publicFacts: args.publicFacts,
         runtimePolicyScope: args.runtimePolicyScope,
         signingSessionAuthority: args.signingSessionAuthority,
+        persistedMaterial: args.persistedMaterial,
+        explicitExportAuthorization: args.explicitExportAuthorization,
         prepareEcdsaExportCapability: this.ports.prepareEcdsaExportCapability,
       },
     );
@@ -154,6 +162,8 @@ export class EmailOtpExportRecoveryRuntime {
         otpCode: args.otpCode,
         appSessionJwt: args.appSessionJwt,
         publicReauthAuthority: args.publicReauthAuthority,
+        persistedMaterial: args.persistedMaterial,
+        explicitExportAuthorization: args.explicitExportAuthorization,
         prepareEcdsaExportCapability: this.ports.prepareEcdsaExportCapability,
       },
     );

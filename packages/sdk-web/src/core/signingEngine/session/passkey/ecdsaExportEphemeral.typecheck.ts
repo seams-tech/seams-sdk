@@ -15,7 +15,6 @@ import type {
 } from './ecdsaBootstrap';
 import type {
   ActivateEcdsaSessionRequest,
-  ActivateEmailOtpExplicitExportBootstrapSessionRequest,
 } from '../../threshold/ecdsa/activation';
 
 type ThresholdEcdsaTransactionActivationRequest = Exclude<
@@ -59,11 +58,6 @@ void invalidEmailOtpExportRequest;
 const invalidEmailOtpExportBootstrapRequest: EmailOtpEcdsaExplicitExportBootstrapRequest =
   emailOtpExactBootstrapRequest;
 void invalidEmailOtpExportBootstrapRequest;
-
-// @ts-expect-error General activation requests do not prove an export handle.
-const invalidEmailOtpExportBootstrapActivation: ActivateEmailOtpExplicitExportBootstrapSessionRequest =
-  emailOtpActivationRequest;
-void invalidEmailOtpExportBootstrapActivation;
 
 const invalidTransactionSpread = {
   ...explicitExportResult,

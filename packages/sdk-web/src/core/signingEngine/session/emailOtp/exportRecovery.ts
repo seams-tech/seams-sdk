@@ -38,6 +38,8 @@ import type {
 import type { EmailOtpEcdsaSigningSessionAuthority } from './ecdsaSigningSessionAuthority';
 import { exportEcdsaDerivationKeyWithEmailOtpSession } from '../../flows/recovery/ecdsaDerivationExport';
 import type { EmailOtpChallengeDelivery, EmailOtpTransactionSigningChallenge } from './publicTypes';
+import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
+import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
 type EmailOtpRouteChain = 'near' | EmailOtpEcdsaRouteChain;
@@ -294,6 +296,8 @@ export async function exportEcdsaKeyWithDurableAuthorization(
     publicFacts: VerifiedEcdsaPublicFacts;
     runtimePolicyScope: ThresholdRuntimePolicyScope;
     signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
+    persistedMaterial: PersistedEcdsaRoleLocalMaterial;
+    explicitExportAuthorization: EcdsaExplicitExportOperationAuthorization;
     prepareEcdsaExportCapability: EmailOtpEcdsaExportLogin;
   },
 ): Promise<EmailOtpEcdsaExportArtifact> {
@@ -318,6 +322,8 @@ export async function exportEcdsaKeyWithDurableAuthorization(
     relayUrl: ports.requireRelayUrl(),
     getSignerWorkerContext: ports.getSignerWorkerContext,
     prepareEcdsaExportCapability: args.prepareEcdsaExportCapability,
+    persistedMaterial: args.persistedMaterial,
+    explicitExportAuthorization: args.explicitExportAuthorization,
   });
 }
 
@@ -330,6 +336,8 @@ export async function exportEcdsaKeyWithPublicReauthAuthorization(
     otpCode: string;
     appSessionJwt: string;
     publicReauthAuthority: EmailOtpEcdsaPublicReauthExportAuthority;
+    persistedMaterial: PersistedEcdsaRoleLocalMaterial;
+    explicitExportAuthorization: EcdsaExplicitExportOperationAuthorization;
     prepareEcdsaExportCapability: EmailOtpEcdsaExportLogin;
   },
 ): Promise<EmailOtpEcdsaExportArtifact> {
@@ -354,6 +362,8 @@ export async function exportEcdsaKeyWithPublicReauthAuthorization(
     relayUrl: ports.requireRelayUrl(),
     getSignerWorkerContext: ports.getSignerWorkerContext,
     prepareEcdsaExportCapability: args.prepareEcdsaExportCapability,
+    persistedMaterial: args.persistedMaterial,
+    explicitExportAuthorization: args.explicitExportAuthorization,
   });
 }
 
@@ -372,6 +382,8 @@ type ExportEcdsaKeyWithFreshLoginAuthorizationArgs = {
   relayUrl: string;
   getSignerWorkerContext: EmailOtpWorkerPorts['getSignerWorkerContext'];
   prepareEcdsaExportCapability: EmailOtpEcdsaExportLogin;
+  persistedMaterial: PersistedEcdsaRoleLocalMaterial;
+  explicitExportAuthorization: EcdsaExplicitExportOperationAuthorization;
 };
 
 async function exportEcdsaKeyWithFreshLoginAuthorization(
@@ -398,6 +410,8 @@ async function exportEcdsaKeyWithFreshLoginAuthorization(
     },
     runtimePolicyScope: args.runtimePolicyScope,
     ed25519YaoRecovery: { kind: 'not_requested' },
+    persistedExportMaterial: args.persistedMaterial,
+    explicitExportAuthorization: args.explicitExportAuthorization,
   });
   const workerCtx = args.getSignerWorkerContext();
   if (!workerCtx) {
@@ -407,8 +421,7 @@ async function exportEcdsaKeyWithFreshLoginAuthorization(
     { getSignerWorkerContext: () => workerCtx },
     {
       walletSessionUserId: args.walletSession.walletSessionUserId,
-      authority: args.authority,
-      bootstrap: result.bootstrap,
+      exportProvision: result.bootstrap,
     },
   );
 }
