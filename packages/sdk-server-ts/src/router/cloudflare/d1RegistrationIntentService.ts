@@ -21,7 +21,6 @@ import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { ThresholdRuntimePolicyScope } from '../../core/types';
 import type {
   CreateAddAuthMethodIntentResponse,
-  CreateAddSignerIntentRequest,
   CreateAddSignerIntentResponse,
   CancelRegistrationIntentRequest,
   CancelRegistrationIntentResponse,
@@ -39,7 +38,10 @@ import {
   intentScopeMetadata,
   parseWalletIdForIntent,
 } from './d1RegistrationCeremonyRecords';
-import type { CreateAddAuthMethodIntentCommand } from '../authServicePort';
+import type {
+  CreateAddAuthMethodIntentCommand,
+  CreateAddSignerIntentCommand,
+} from '../authServicePort';
 
 type CreateRegistrationIntentInput = {
   readonly request: CreateRegistrationIntentRequest;
@@ -53,7 +55,7 @@ type CancelRegistrationIntentInput = {
   readonly request: CancelRegistrationIntentRequest;
 };
 type CreateAddSignerIntentInput = {
-  readonly request: CreateAddSignerIntentRequest;
+  readonly command: CreateAddSignerIntentCommand;
   readonly orgId: string;
   readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
   readonly signingRootId?: string;
@@ -213,12 +215,12 @@ export class CloudflareD1RegistrationIntentService {
   ): Promise<CreateAddSignerIntentResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      const walletId = parseWalletIdForIntent(input.request?.walletId);
+      const walletId = parseWalletIdForIntent(input.command.subject.walletId);
       if (!walletId) {
         return { ok: false, code: 'invalid_body', message: 'walletId is required' };
       }
 
-      const signerSelection = normalizeAddSignerSelection(input.request?.signerSelection, {
+      const signerSelection = normalizeAddSignerSelection(input.command.signerSelection, {
         normalizeEcdsaChainTarget: thresholdEcdsaChainTargetFromValue,
       });
       if (!signerSelection.ok) return signerSelection;

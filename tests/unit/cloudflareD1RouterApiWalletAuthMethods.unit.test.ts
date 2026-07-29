@@ -693,8 +693,11 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
       expectedOrigin: 'https://app.example',
-      request: {
-        walletId,
+      command: {
+        subject: {
+          kind: 'wallet_signer_management',
+          walletId,
+        },
         signerSelection: {
           mode: 'ecdsa',
           ecdsa: {
@@ -959,7 +962,13 @@ test('partitioned D1 finalizes and replays Ed25519 Yao add-signer without reques
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
       expectedOrigin: 'https://app.example',
-      request: { walletId, signerSelection },
+      command: {
+        subject: {
+          kind: 'wallet_signer_management',
+          walletId,
+        },
+        signerSelection,
+      },
     });
     if (!intent.ok) throw new Error(intent.message);
     const started = await service.walletAuthMethods.startWalletAddSigner({
@@ -1064,8 +1073,11 @@ test('partitioned D1 finalizes and replays Ed25519 Yao add-signer without reques
       signingRootId: `${scope.projectId}:${scope.envId}`,
       signingRootVersion: 'root-v1',
       expectedOrigin: 'https://app.example',
-      request: {
-        walletId,
+      command: {
+        subject: {
+          kind: 'wallet_signer_management',
+          walletId,
+        },
         signerSelection: {
           ...signerSelection,
           ed25519: { ...signerSelection.ed25519, participantIds: [2, 3] },

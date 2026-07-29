@@ -158,6 +158,7 @@ function addSignerInputFor(args: {
   headers?: Record<string, string>;
   origin?: string;
   apiKeyAuth?: Record<string, unknown>;
+  publishableKeyAuth?: Record<string, unknown>;
   orgProjectEnv?: Record<string, unknown>;
   bootstrapTokenVerifier?: Record<string, unknown>;
 }) {
@@ -178,6 +179,7 @@ function addSignerInputFor(args: {
       authService: args.authService,
       session: args.session || {},
       apiKeyAuth: args.apiKeyAuth,
+      publishableKeyAuth: args.publishableKeyAuth,
       orgProjectEnv: args.orgProjectEnv,
       bootstrapTokenVerifier: args.bootstrapTokenVerifier,
       routerAbPublicKeyset: ROUTER_AB_PUBLIC_KEYSET,
@@ -1400,6 +1402,69 @@ test.describe('wallet registration route boundaries', () => {
       ok: false,
       code: 'invalid_body',
       message: 'add-signer Ed25519 participantIds must contain participant ids',
+    });
+  });
+
+  test('add-signer intent dispatches an exact wallet signer subject', async () => {
+    let capturedCommand: unknown = null;
+    const response = await handleRouterApiWalletAddSignerIntent(
+      addSignerInputFor({
+        routeId: 'wallet_add_signer_intent',
+        body: {
+          signerSelection: {
+            mode: 'ed25519',
+            ed25519: {
+              mode: 'create_implicit_near_account',
+              signerSlot: 1,
+              participantIds: [1, 2],
+              keyPurpose: 'near_tx',
+              keyVersion: 'router-ab-ed25519-yao-v1',
+              derivationVersion: 1,
+            },
+          },
+        },
+        headers: {
+          authorization: 'Bearer pk_test',
+          'x-seams-environment-id': 'project:dev',
+        },
+        authService: {
+          createAddSignerIntent: async (input: unknown) => {
+            capturedCommand = input;
+            return {
+              ok: true,
+              intent: { version: 'add_signer_intent_v1' },
+              addSignerIntentDigestB64u: 'digest',
+              addSignerIntentGrant: 'wasig_1',
+              expiresAtMs: Date.now() + 60_000,
+            };
+          },
+        },
+        publishableKeyAuth: {
+          authenticate: async () => ({
+            ok: true,
+            principal: {
+              apiKeyId: 'pk_add_signer',
+              orgId: 'org_add_signer',
+              projectId: 'project',
+              envId: 'dev',
+              environmentId: 'project:dev',
+              scopes: ['wallets.signers.create'],
+            },
+          }),
+        },
+      }) as unknown as Parameters<typeof handleRouterApiWalletAddSignerIntent>[0],
+    );
+
+    expect(response.status).toBe(200);
+    expect(capturedCommand).toMatchObject({
+      command: {
+        subject: {
+          kind: 'wallet_signer_management',
+          walletId: 'wallet_alice',
+        },
+        signerSelection: { mode: 'ed25519' },
+      },
+      expectedOrigin: 'https://wallet.example.test',
     });
   });
 

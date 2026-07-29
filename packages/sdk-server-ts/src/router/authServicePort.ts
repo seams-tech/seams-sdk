@@ -43,8 +43,8 @@ import type {
   CancelRegistrationIntentRequest,
   CancelRegistrationIntentResponse,
   AddAuthMethodInput,
+  AddSignerSelection,
   CreateAddAuthMethodIntentResponse,
-  CreateAddSignerIntentRequest,
   CreateAddSignerIntentResponse,
   CreateRegistrationIntentRequest,
   CreateRegistrationIntentResponse,
@@ -89,6 +89,16 @@ export type WalletAuthMethodManagementSubject = Readonly<{
 export type CreateAddAuthMethodIntentCommand = Readonly<{
   subject: WalletAuthMethodManagementSubject;
   authMethod: AddAuthMethodInput;
+}>;
+
+export type WalletSignerManagementSubject = Readonly<{
+  kind: 'wallet_signer_management';
+  walletId: WalletId;
+}>;
+
+export type CreateAddSignerIntentCommand = Readonly<{
+  subject: WalletSignerManagementSubject;
+  signerSelection: AddSignerSelection;
 }>;
 import type {
   RouterAbEd25519YaoBudgetRefreshRequestV1,
@@ -451,7 +461,7 @@ export type RouterApiMethodTypes = {
   };
   createAddSignerIntent: {
     readonly input: {
-      readonly request: CreateAddSignerIntentRequest;
+      readonly command: CreateAddSignerIntentCommand;
       readonly orgId: string;
       readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
       readonly signingRootId?: string;
@@ -1239,7 +1249,7 @@ export interface RouterApiWalletAuthMethodService {
     expectedOrigin?: string;
   }): Promise<CreateAddAuthMethodIntentResponse>;
   createAddSignerIntent(input: {
-    request: CreateAddSignerIntentRequest;
+    command: CreateAddSignerIntentCommand;
     orgId: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     signingRootId?: string;

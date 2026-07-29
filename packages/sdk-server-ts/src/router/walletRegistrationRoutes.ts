@@ -743,14 +743,12 @@ function parseCancelRegistrationIntentRequest(
 
 function parseCreateAddSignerIntentRequest(
   body: Record<string, unknown>,
-  walletId: string,
-): ParseResult<CreateAddSignerIntentRequest> {
+): ParseResult<Pick<CreateAddSignerIntentRequest, 'signerSelection'>> {
   const signerSelection = parseAddSignerSelection(body.signerSelection);
   if (!signerSelection.ok) return signerSelection;
   return {
     ok: true,
     value: {
-      walletId: walletIdFromString(walletId),
       signerSelection: signerSelection.value,
     },
   };
@@ -2397,7 +2395,7 @@ export async function handleRouterApiWalletAddSignerIntent(
   if (!walletId) {
     return routeError(400, 'invalid_body', 'walletId path parameter is required');
   }
-  const request = parseCreateAddSignerIntentRequest(input.body, walletId);
+  const request = parseCreateAddSignerIntentRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
   const origin = normalizeCorsOrigin(input.origin);
   if (!origin) {
@@ -2450,7 +2448,13 @@ export async function handleRouterApiWalletAddSignerIntent(
     envId: principal.envId,
   });
   const result = await input.services.walletRegistration.createAddSignerIntent({
-    request: request.value,
+    command: {
+      subject: {
+        kind: 'wallet_signer_management',
+        walletId: walletIdFromString(walletId),
+      },
+      signerSelection: request.value.signerSelection,
+    },
     orgId: principal.orgId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(runtimePolicyScope
