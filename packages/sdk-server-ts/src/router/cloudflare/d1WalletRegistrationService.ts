@@ -156,6 +156,10 @@ import {
   type D1RegistrationSharedSigningBudget,
 } from './d1RegistrationSharedSigningBudget';
 import { sha256BytesPortable } from './d1RouterApiAuthBoundary';
+import type {
+  RouterAbWalletBudgetGrantProvisionerV1,
+  RouterAbWalletBudgetSignerBindingV1,
+} from '../routerAbPrivateSigningWorker';
 import { alphabetizeStringify, bytesToUnprefixedHex, sha256BytesUtf8 } from '@shared/utils/digests';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
@@ -988,6 +992,41 @@ function finalizePasskeyRpId(authority: StoredRegistrationAuthority): string {
   return authority.rpId;
 }
 
+function registrationWalletBudgetRelyingPartyId(authority: StoredRegistrationAuthority): string {
+  switch (authority.kind) {
+    case 'passkey':
+      return authority.rpId;
+    case 'email_otp':
+      return `email-otp:${authority.orgId}`;
+  }
+}
+
+function ecdsaRegistrationWalletBudgetSigner(input: {
+  readonly thresholdSessionId: string;
+  readonly signingWorkerId: string;
+}): RouterAbWalletBudgetSignerBindingV1 {
+  return {
+    curve: 'ecdsa',
+    threshold_session_id: input.thresholdSessionId,
+    signing_worker_id: input.signingWorkerId,
+  };
+}
+
+function ed25519RegistrationWalletBudgetSigner(input: {
+  readonly thresholdSessionId: string;
+  readonly signingWorkerId: string;
+}): RouterAbWalletBudgetSignerBindingV1 {
+  return {
+    curve: 'ed25519',
+    threshold_session_id: input.thresholdSessionId,
+    signing_worker_id: input.signingWorkerId,
+  };
+}
+
+function registrationWalletBudgetIssuerId(signingGrantId: string): string {
+  return `registration:${signingGrantId}`;
+}
+
 export function ecdsaStrictRegistrationAuthority(facts: RouterAbEcdsaRegistrationRequestFactsV1): {
   readonly subjectId: string;
   readonly sessionId: string;
@@ -1239,6 +1278,7 @@ export class CloudflareD1WalletRegistrationService {
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
   private readonly getRouterAbNormalSigningRuntime: RouterAbNormalSigningRuntimeProvider;
+  private readonly walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null;
   private readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
   private readonly getWalletStore: WalletStoreProvider;
   private readonly startSideEffects: D1WalletRegistrationStartSideEffectStore;
@@ -1256,6 +1296,7 @@ export class CloudflareD1WalletRegistrationService {
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
     readonly getRouterAbNormalSigningRuntime: RouterAbNormalSigningRuntimeProvider;
+    readonly walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null;
     readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
     readonly getWalletStore: WalletStoreProvider;
     readonly startSideEffects: D1WalletRegistrationStartSideEffectStore;
@@ -1270,6 +1311,7 @@ export class CloudflareD1WalletRegistrationService {
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getEd25519YaoProductRegistration = input.getEd25519YaoProductRegistration;
     this.getRouterAbNormalSigningRuntime = input.getRouterAbNormalSigningRuntime;
+    this.walletBudgetGrantProvisioner = input.walletBudgetGrantProvisioner;
     this.ecdsaStrictRegistration = input.ecdsaStrictRegistration;
     this.getWalletStore = input.getWalletStore;
     this.startSideEffects = input.startSideEffects;
@@ -3016,27 +3058,40 @@ export class CloudflareD1WalletRegistrationService {
           activation: activated.value,
         });
         markServerTiming('ecdsa_activate_bootstrap', bootstrapStartedAtMs);
-        const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
-        if (!normalSigningRuntime) {
-          throw new Error('Router A/B normal signing is not configured');
+        const budgetProvisioner = this.walletBudgetGrantProvisioner;
+        if (!budgetProvisioner) {
+          throw new Error('Router A/B private-D1 wallet-budget provisioning is not configured');
+        }
+        const registrationAuthority = verifiedRegistrationCeremonyAuthority(ceremony);
+        if (!registrationAuthority) {
+          throw new Error('ECDSA activation ceremony has no verified registration authority');
         }
         const sessionProvisionStartedAtMs = Date.now();
-        const provisioned = await normalSigningRuntime.provisionRouterAbEcdsaNormalSigningSession({
-          kind: 'router_ab_ecdsa_normal_signing_session_v1',
+        const signingWorkerId = ecdsaBranch.strictRegistration.lifecycle.selected_server_id;
+        const provisioned = await budgetProvisioner.provisionGrant({
           walletId: bootstrap.walletId,
-          evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
-          relayerKeyId: bootstrap.relayerKeyId,
-          thresholdSessionId: bootstrap.thresholdSessionId,
           signingGrantId: bootstrap.signingGrantId,
-          signingRootId: bootstrap.signingRootId,
-          signingRootVersion: bootstrap.signingRootVersion,
-          participantIds: exactEcdsaParticipantPair(bootstrap.participantIds),
+          relyingPartyId: registrationWalletBudgetRelyingPartyId(registrationAuthority),
+          authorizedSigners: [
+            ecdsaRegistrationWalletBudgetSigner({
+              thresholdSessionId: bootstrap.thresholdSessionId,
+              signingWorkerId,
+            }),
+          ],
+          initialSignatureUses: bootstrap.remainingUses,
           expiresAtMs: bootstrap.expiresAtMs,
-          remainingUses: bootstrap.remainingUses,
+          issuerIdempotencyKey: registrationWalletBudgetIssuerId(bootstrap.signingGrantId),
         });
         markServerTiming('ecdsa_activate_session_provision', sessionProvisionStartedAtMs);
         if (!provisioned.ok) {
           throw new Error(provisioned.message);
+        }
+        if (
+          provisioned.remainingUses !== bootstrap.remainingUses ||
+          provisioned.availableUses !== bootstrap.remainingUses ||
+          provisioned.reservedUses !== 0
+        ) {
+          throw new Error('SigningWorker returned an unexpected registration wallet budget');
         }
         const activatedBranch: StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch = {
           kind: 'evm_family_ecdsa_activated',
@@ -3079,7 +3134,7 @@ export class CloudflareD1WalletRegistrationService {
             expiresAtMs: provisioned.expiresAtMs,
             expiresAt: new Date(provisioned.expiresAtMs).toISOString(),
             remainingUses: provisioned.remainingUses,
-            participantIds: [...provisioned.participantIds],
+            participantIds: [...exactEcdsaParticipantPair(bootstrap.participantIds)],
           },
         };
         const commitStartedAtMs = Date.now();
@@ -3329,12 +3384,12 @@ export class CloudflareD1WalletRegistrationService {
             message: 'Ed25519 Yao product registration is not configured',
           };
         }
-        const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
-        if (!normalSigningRuntime) {
+        const budgetProvisioner = this.walletBudgetGrantProvisioner;
+        if (!budgetProvisioner) {
           return {
             ok: false,
             code: 'not_configured',
-            message: 'Router A/B normal signing is not configured',
+            message: 'Router A/B private-D1 wallet-budget provisioning is not configured',
           };
         }
         const storedYao = findStoredWalletRegistrationNearEd25519YaoBranch(ceremony.signerState);
@@ -3464,8 +3519,6 @@ export class CloudflareD1WalletRegistrationService {
             const resolvedSigningBudget = await resolveD1RegistrationSharedSigningBudget({
               walletId: ceremony.intent.walletId,
               ecdsaState: ecdsaFinalizeState.state,
-              getWalletBudgetStatus:
-                normalSigningRuntime.getSigningGrantBudgetStatus.bind(normalSigningRuntime),
             });
             if (!resolvedSigningBudget.ok) return resolvedSigningBudget;
             signingBudget = {
@@ -3492,21 +3545,41 @@ export class CloudflareD1WalletRegistrationService {
           signingBudget,
         });
         if (!session.ok) return session;
-        const provisioned =
-          await normalSigningRuntime.provisionRouterAbEd25519YaoNormalSigningSession({
-            kind: 'router_ab_ed25519_yao_normal_signing_session_v1',
-            walletId: ceremony.intent.walletId,
-            nearAccountId,
-            nearEd25519SigningKeyId:
-              consumed.activation.admissionRequest.application_binding.near_ed25519_signing_key_id,
-            authorityScope: session.session.authorityScope,
+        const authorizedSigners: RouterAbWalletBudgetSignerBindingV1[] = [];
+        if (ecdsaFinalizeState.kind === 'ecdsa_registration_responded') {
+          const ecdsaWorkerId =
+            ecdsaFinalizeState.state.strictRegistration.lifecycle.selected_server_id;
+          if (ecdsaWorkerId !== yaoRuntime.signingWorkerId) {
+            return {
+              ok: false,
+              code: 'invalid_state',
+              message: 'Mixed registration signer branches target different SigningWorkers',
+            };
+          }
+          authorizedSigners.push(
+            ecdsaRegistrationWalletBudgetSigner({
+              thresholdSessionId: ecdsaFinalizeState.state.bootstrap.thresholdSessionId,
+              signingWorkerId: ecdsaWorkerId,
+            }),
+          );
+        }
+        authorizedSigners.push(
+          ed25519RegistrationWalletBudgetSigner({
             thresholdSessionId: session.session.thresholdSessionId,
-            signingGrantId: session.session.signingGrantId,
             signingWorkerId: yaoRuntime.signingWorkerId,
-            expiresAtMs: session.session.expiresAtMs,
-            participantIds,
-            remainingUses: session.session.remainingUses,
-          });
+          }),
+        );
+        const provisioned = await budgetProvisioner.provisionGrant({
+          signingGrantId: session.session.signingGrantId,
+          walletId: ceremony.intent.walletId,
+          relyingPartyId: registrationWalletBudgetRelyingPartyId(ceremonyAuthority),
+          authorizedSigners,
+          initialSignatureUses: session.session.remainingUses,
+          expiresAtMs: session.session.expiresAtMs,
+          issuerIdempotencyKey: registrationWalletBudgetIssuerId(
+            session.session.signingGrantId,
+          ),
+        });
         if (!provisioned.ok) return provisioned;
         ed25519PublicResult = {
           signerSlot: finalizeNearEd25519.signerSlot,

@@ -1177,6 +1177,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     getEd25519YaoProductRegistration: () => resolveEd25519YaoProductRegistration(options),
     getRouterAbNormalSigningRuntime:
       routerAbSigning.getRouterAbNormalSigningRuntime.bind(routerAbSigning),
+    walletBudgetGrantProvisioner: options.walletBudgetGrantProvisioner || null,
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
     startSideEffects: walletRegistrationStartSideEffectStore(options),
@@ -1189,8 +1190,7 @@ function createCloudflareD1RouterApiAuthAssembly(
   const walletAddSigners = new CloudflareD1WalletAddSignerService({
     getRegistrationCeremonyIntentStore,
     getEd25519YaoProductRegistration: () => resolveEd25519YaoProductRegistration(options),
-    getRouterAbNormalSigningRuntime:
-      routerAbSigning.getRouterAbNormalSigningRuntime.bind(routerAbSigning),
+    walletBudgetGrantProvisioner: options.walletBudgetGrantProvisioner || null,
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
     walletAuthMethods,

@@ -27,6 +27,7 @@ import type {
 import { createSigningSessionSealOptions } from '@seams/sdk-server/cloud-host';
 import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/cloud-host';
 import { createCloudflareRouter } from '@seams/sdk-server/cloud-host';
+import { createRouterAbPrivateD1WalletBudgetGrantProvisionerV1 } from '@seams/sdk-server/cloud-host';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import {
   createCloudflareD1ConsoleServiceBundle,
@@ -1220,6 +1221,7 @@ async function createLocalRouterApiHandler(
     session,
     ...(ed25519Yao.kind === 'enabled' ? { routerAbEd25519YaoProduct: ed25519Yao.runtime } : {}),
     ...(sessionCookieName ? { sessionCookieName } : {}),
+    routerAbNormalSigningRouterProxy: env.MPC_ROUTER,
     routerAbEcdsaStrictPostRegistration: ecdsaStrictPorts.postRegistration,
     emailRecovery: {
       kind: 'prepare_only',
@@ -1372,6 +1374,12 @@ function localD1RouterApiAuthServiceOptions(
     emailOtpGoogleRegistrationAttemptRateLimitWindowMs:
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     thresholdStore: localThresholdStoreConfig(env),
+    walletBudgetGrantProvisioner:
+      createRouterAbPrivateD1WalletBudgetGrantProvisionerV1({
+        routerBaseUrl: ROUTER_AB_MPC_ROUTER_ORIGIN,
+        internalServiceAuthSecret: localRouterAbInternalServiceAuthSecret(env),
+        fetchImpl: createRouterAbServiceBindingFetch(env),
+      }),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env).registration,
     ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
   };
