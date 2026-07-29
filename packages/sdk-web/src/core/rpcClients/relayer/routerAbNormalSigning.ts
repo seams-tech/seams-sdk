@@ -34,15 +34,22 @@ type RouterAbSigningErrorPayload = {
 };
 
 export type RouterAbWalletSessionCredential = {
-  kind: 'jwt';
+  kind: 'wallet_session_jwt';
   walletSessionJwt: string;
+  appSessionJwt?: never;
 };
 
 export type RouterAbEd25519NormalSigningCredential =
   | RouterAbWalletSessionCredential
   | {
+      kind: 'app_session_jwt';
+      appSessionJwt: string;
+      walletSessionJwt?: never;
+    }
+  | {
       kind: 'app_session_cookie';
       walletSessionJwt?: never;
+      appSessionJwt?: never;
     };
 
 export type RouterAbPublicDigest32Wire = {
@@ -822,15 +829,20 @@ function buildRouterAbRequestInit(args: {
   credential: RouterAbEd25519NormalSigningCredential;
   body: unknown;
 }): RequestInit {
-  const init = buildRelayerJsonPostRequestInit({
-    ...(args.credential.kind === 'jwt'
+  const bearer =
+    args.credential.kind === 'wallet_session_jwt'
       ? {
-          headers: buildBearerAuthorizationHeader({
-            token: args.credential.walletSessionJwt,
-            missingMessage: 'walletSessionJwt is required',
-          }),
+          token: args.credential.walletSessionJwt,
+          missingMessage: 'walletSessionJwt is required',
         }
-      : {}),
+      : args.credential.kind === 'app_session_jwt'
+        ? {
+            token: args.credential.appSessionJwt,
+            missingMessage: 'appSessionJwt is required',
+          }
+        : null;
+  const init = buildRelayerJsonPostRequestInit({
+    ...(bearer ? { headers: buildBearerAuthorizationHeader(bearer) } : {}),
     body: args.body,
   });
   return args.credential.kind === 'app_session_cookie' ? { ...init, credentials: 'include' } : init;

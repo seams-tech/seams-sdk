@@ -1586,16 +1586,9 @@ export class BrowserSigningSurface {
   }
 
   finalizeWalletRegistrationEcdsaSessions(
-    input: Parameters<typeof finalizeWalletRegistrationEcdsaSessionsOperation>[1],
+    input: Parameters<typeof finalizeWalletRegistrationEcdsaSessionsOperation>[0],
   ): ReturnType<typeof finalizeWalletRegistrationEcdsaSessionsOperation> {
-    return finalizeWalletRegistrationEcdsaSessionsOperation(
-      {
-        bootstrapStore: this.ecdsaBootstrapStore,
-        warmSessions: this.signingRuntime.services.warmSessions,
-        signingSessionSeal: this.seamsWebConfigs.signing.sessionSeal,
-      },
-      input,
-    );
+    return finalizeWalletRegistrationEcdsaSessionsOperation(input);
   }
 
   storeWalletEcdsaSignerRecords(

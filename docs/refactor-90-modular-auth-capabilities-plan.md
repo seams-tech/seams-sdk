@@ -383,7 +383,7 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
       server, UI, and persistence boundaries.
 - [ ] Include only the tenant, principal, session, factor, capability,
       operation, grant, and evidence references required by current verticals.
-- [ ] Use named or flat `all | any` evidence requirements; add no recursive
+- [x] Use named or flat `all | any` evidence requirements; add no recursive
       policy grammar or speculative factor/provider taxonomy.
 - [x] Preserve Refactor 82B `WalletAuthAuthority` types and fixtures as the
       baseline instead of restaging that cut.
@@ -482,9 +482,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Make every consuming recovery call independently idempotent and queryable
       by recovery ID.
 - [x] Atomically finalize local promotion and delete its journal.
-- [ ] Use one exact idempotent revocation command only when offline local
-      cleanup requires eventual server revocation; dispose local secrets
-      immediately.
+- [x] Use no eventual-revocation command: no implemented offline cleanup path
+      requires one. Continue disposing local secrets immediately; add a command
+      only if a concrete server revocation obligation appears.
 - [ ] Add fault-injection tests for crashes before call, after call, after
       readback, and during atomic local finalization.
 - [x] Ensure expiry never invokes recovery or device linking; the canonical
@@ -618,17 +618,27 @@ the replacement and legacy MPC paths must not ship together.
       digests into exact replay without crypto reevaluation or repeated
       resource consumption.
 
-  Blocked on Refactor 94C's SigningWorker private-D1 result store. The current
-  authorization row persists only a result digest and synthetic storage
-  reference; it cannot redeliver the prior response yet.
-- [ ] Add execution leases or delivery reconciliation only for a demonstrated
-      operation that outlives its request or transfers between workers.
+  Refactor 94C now provides the SigningWorker private-D1 terminal-response
+  store. The remaining work is to claim and charge before the effect, then wire
+  exact terminal-response persistence and replay through that owner.
+
+  Review gate: operation step-up must reach this owner and consume its one-use
+  grant; post-claim failures must become replayable terminal outcomes; the
+  fingerprint must bind admitted policy as well as operation material.
+- [x] Add no execution lease: no implemented operation outlives its request or
+      transfers between workers. Reopen this only for a demonstrated owner
+      transfer.
 
 ### Worker, WASM, and bundle boundary
 
 - [x] Delete the unread ECDSA runtime-validation registry and its
       JWT/expiry-derived material key; retain canonical manifest/runtime
       correlation and role-local resolver validation.
+- [x] Keep pending Ed25519 Yao registration material inside its browser/WASM or
+      Email OTP worker owner; generic registration invokes typed persistence
+      and never receives the active client.
+- [x] Delete the dead Email OTP registration-commit worker operation and reject
+      non-positive or unsafe signer slots at the remaining persistence boundary.
 - [ ] Keep live secret material owned by the worker or WASM boundary.
 - [ ] Preserve the Refactor 93 rule that `SigningWorker` receives the exact A/B
       package pair atomically and the Refactor 94C rule that its activation,
@@ -645,11 +655,10 @@ the replacement and legacy MPC paths must not ship together.
 
 ### Host assembly
 
-- [ ] Complete the hosted-wallet Seams Session one-time exchange in the iframe
-      client only after Email OTP recovery and signing consume canonical Wallet
-      Session/material authorization. Until then, removing parent-posted
-      `appSessionJwt` would strand required wallet/material claims; copying
-      those claims into `SeamsSession` is forbidden.
+- [x] Complete the hosted-wallet Seams Session one-time exchange in the iframe
+      client. The parent sends only the opaque code and nonce; the wallet origin
+      redeems and stores its own JWT, and parent-posted bearer credentials are
+      rejected.
 - [ ] Update Cloudflare, Node, local, and self-hosted call sites in the same
       cutover.
 - [ ] Preserve static host ports and request-scoped service bindings; apply the
@@ -752,6 +761,15 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 - [x] Lock on authoritative expiry, request step-up on exhaustion, and preserve
       the broader app identity session.
 - [ ] Ensure only explicit wallet unlock creates a reusable Wallet Session.
+      Move first ECDSA session activation inside verified wallet unlock, make
+      the activation route Wallet-Session-only for additional targets, and
+      delete the app-session/export path that can currently mint one.
+- [x] Restrict direct ECDSA session activation to an existing same-wallet
+      Wallet Session and expose first-session provisioning only after a verified
+      unlock proof.
+- [ ] Send the first exact activation through Passkey session exchange and
+      Email OTP wallet-unlock verification; use its Wallet Session JWT for
+      additional configured targets.
 - [ ] Keep step-up single-operation across signing and export surfaces.
 
 ### Provisioning

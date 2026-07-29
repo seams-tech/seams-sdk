@@ -208,11 +208,6 @@ const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_URL: &str = c
     "/router-ab/signing-worker/ecdsa-derivation/refresh"
 );
 #[cfg(feature = "workers-rs")]
-const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_COMMIT_QUERY_URL: &str = concat!(
-    "https://router-ab-signing-worker.internal",
-    "/router-ab/signing-worker/ecdsa-derivation/activation-commit/query"
-);
-#[cfg(feature = "workers-rs")]
 const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_URL: &str = concat!(
     "https://router-ab-signing-worker.internal",
     "/router-ab/signing-worker/ecdsa-derivation/export-share"
@@ -353,17 +348,6 @@ pub(crate) fn cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_re
         peer,
         CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_URL,
         "strict Router A/B ECDSA derivation SigningWorker activation refresh can target only SigningWorker",
-    )
-}
-
-#[cfg(feature = "workers-rs")]
-pub(crate) fn cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_service_url(
-    peer: &CloudflarePeerBindingV1,
-) -> RouterAbProtocolResult<&'static str> {
-    cloudflare_signing_worker_url(
-        peer,
-        CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_COMMIT_QUERY_URL,
-        "strict Router A/B ECDSA activation query can target only SigningWorker",
     )
 }
 

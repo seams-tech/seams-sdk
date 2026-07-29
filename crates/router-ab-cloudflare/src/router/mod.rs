@@ -2095,6 +2095,22 @@ pub enum CloudflareRouterNormalSigningAuthorizationV2 {
 }
 
 impl CloudflareRouterNormalSigningAuthorizationV2 {
+    pub fn kind_label(&self) -> &'static str {
+        match self {
+            Self::ReusableWalletSession { .. } => "reusable_wallet_session",
+            Self::OperationStepUp { .. } => "operation_step_up",
+        }
+    }
+
+    pub fn authorization_id(&self) -> &str {
+        match self {
+            Self::ReusableWalletSession {
+                wallet_session_id, ..
+            } => wallet_session_id,
+            Self::OperationStepUp { grant_id, .. } => grant_id,
+        }
+    }
+
     /// Creates reusable Wallet Session authority.
     pub fn reusable_wallet_session(
         wallet_session_id: impl Into<String>,

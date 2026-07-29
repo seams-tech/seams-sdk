@@ -239,7 +239,7 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
       thresholdEcdsaPublicKeyB64u: runtime.thresholdEcdsaPublicKeyB64u,
       relayerVerifyingShareB64u:
         runtime.normalSigning.scope.public_identity.server_public_key33_b64u,
-      credential: { kind: 'jwt', walletSessionJwt },
+      credential: { kind: 'wallet_session_jwt', walletSessionJwt },
       authorization: {
         kind: 'reusable_wallet_session',
         wallet_session_id: authorization.walletSessionId,

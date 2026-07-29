@@ -598,6 +598,7 @@ function parseWalletSessionCapabilityLaneReadiness(
     case 'ready':
     case 'restorable':
     case 'deferred':
+    case 'authorization_required':
       return { kind: record.kind };
     case 'missing':
       return { kind: 'missing' };
@@ -1061,6 +1062,7 @@ function walletSessionCanonicalWalletId(session: WalletSession): WalletId | null
     case 'active':
     case 'exhausted':
     case 'expired':
+    case 'superseded':
     case 'missing':
     case 'unavailable':
     case 'invalid':

@@ -494,7 +494,7 @@ function toActivateExplicitKeyExportEcdsaSessionRequest(
     authKind: 'passkey_webauthn_prf_b64u',
     webauthnAuthentication: request.webauthnAuthentication,
     passkeyPrfFirstB64u: request.passkeyPrfFirstB64u,
-    walletSessionRouteAuth: request.routeAuth,
+    ...(request.routeAuth ? { walletSessionRouteAuth: request.routeAuth } : {}),
     runtimeScopeBootstrap: request.runtimeScopeBootstrap,
   };
 }
@@ -515,7 +515,7 @@ function toActivateEmailOtpExplicitExportBootstrapSessionRequest(
     authKind: 'email_otp',
     emailOtpWorkerSessionHandle: request.emailOtpWorkerSessionHandle,
     ...(request.requestId ? { requestId: request.requestId } : {}),
-    ...(request.routeAuth ? { walletSessionRouteAuth: request.routeAuth } : {}),
+    walletSessionRouteAuth: request.routeAuth,
     ...(request.runtimeScopeBootstrap
       ? { runtimeScopeBootstrap: request.runtimeScopeBootstrap }
       : {}),

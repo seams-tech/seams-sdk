@@ -13,6 +13,7 @@ import {
   type EmailOtpWebhookEventDescriptor,
 } from './emailOtpSessionRouteHelpers';
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from './routerAbEd25519YaoRecovery';
+import type { RouterAbEcdsaPostRegistrationSessionActivationResponseV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND,
   EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND,
@@ -78,6 +79,25 @@ export type WalletUnlockEd25519YaoSessionContext =
       readonly recoverWalletSession: RouterApiWalletRegistrationService['recoverEd25519YaoEmailOtpWalletSession'];
     };
 
+export type WalletUnlockEcdsaSessionContext =
+  | { readonly kind: 'no_ecdsa_session' }
+  | {
+      readonly kind: 'provision_first_ecdsa_session';
+      readonly walletId: string;
+      readonly provisionWalletSession: () => Promise<
+        | {
+            readonly ok: true;
+            readonly activation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+          }
+        | {
+            readonly ok: false;
+            readonly status: number;
+            readonly code: string;
+            readonly message: string;
+          }
+      >;
+    };
+
 type VerifiedEmailOtpUnlockResult = Extract<
   Awaited<ReturnType<RouterApiWalletUnlockService['verifyEmailOtpUnlockProof']>>,
   { readonly ok: true }
@@ -86,6 +106,53 @@ type VerifiedEmailOtpUnlockResult = Extract<
 type WalletUnlockEd25519YaoSessionResult =
   | { readonly ok: true; readonly value: WalletUnlockEd25519YaoSessionSuccessV1 }
   | { readonly ok: false; readonly response: WalletUnlockRouteResponse };
+
+type WalletUnlockEcdsaSessionResult =
+  | {
+      readonly ok: true;
+      readonly activation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | null;
+    }
+  | { readonly ok: false; readonly response: WalletUnlockRouteResponse };
+
+async function provisionFirstEcdsaWalletSession(input: {
+  readonly context: WalletUnlockEcdsaSessionContext;
+  readonly verifiedWalletId: string;
+}): Promise<WalletUnlockEcdsaSessionResult> {
+  switch (input.context.kind) {
+    case 'no_ecdsa_session':
+      return { ok: true, activation: null };
+    case 'provision_first_ecdsa_session': {
+      if (input.context.walletId !== input.verifiedWalletId) {
+        return {
+          ok: false,
+          response: {
+            status: 403,
+            body: {
+              ok: false,
+              code: 'scope_mismatch',
+              message: 'Wallet unlock proof does not match the requested ECDSA wallet',
+            },
+          },
+        };
+      }
+      const provisioned = await input.context.provisionWalletSession();
+      if (!provisioned.ok) {
+        return {
+          ok: false,
+          response: {
+            status: provisioned.status,
+            body: {
+              ok: false,
+              code: provisioned.code,
+              message: provisioned.message,
+            },
+          },
+        };
+      }
+      return { ok: true, activation: provisioned.activation };
+    }
+  }
+}
 
 function walletUnlockScopeMismatchResponse(): WalletUnlockEd25519YaoSessionResult {
   return {
@@ -290,6 +357,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
   emitRouterApiWebhook: EmitWalletUnlockRouterApiWebhook;
   emitEmailOtpWebhook: EmitWalletUnlockEmailOtpWebhook;
   ed25519YaoSession: WalletUnlockEd25519YaoSessionContext;
+  ecdsaSession: WalletUnlockEcdsaSessionContext;
 }): Promise<WalletUnlockRouteResponse> {
   if (!input.body || typeof input.body !== 'object' || Array.isArray(input.body)) {
     return {
@@ -339,6 +407,11 @@ export async function handleWalletUnlockVerifyRoute(input: {
         body: { ok: false, code: 'internal', message: 'Verified passkey user is missing' },
       };
     }
+    const ecdsaSession = await provisionFirstEcdsaWalletSession({
+      context: input.ecdsaSession,
+      verifiedWalletId: userId,
+    });
+    if (!ecdsaSession.ok) return ecdsaSession.response;
     await input.service.markEmailOtpStrongAuthSatisfied({ walletId: userId });
     await emitSuccessfulWalletUnlock({
       unlockBackend,
@@ -350,7 +423,13 @@ export async function handleWalletUnlockVerifyRoute(input: {
     });
     return {
       status: 200,
-      body: { ok: true, unlocked: true, unlockBackend, userId },
+      body: {
+        ok: true,
+        unlocked: true,
+        unlockBackend,
+        userId,
+        ...(ecdsaSession.activation ? { ecdsaSession: ecdsaSession.activation } : {}),
+      },
     };
   }
 
@@ -380,6 +459,12 @@ export async function handleWalletUnlockVerifyRoute(input: {
     };
   }
 
+  const ecdsaSession = await provisionFirstEcdsaWalletSession({
+    context: input.ecdsaSession,
+    verifiedWalletId: result.walletId,
+  });
+  if (!ecdsaSession.ok) return ecdsaSession.response;
+
   if (input.ed25519YaoSession.kind === 'email_otp_no_ed25519_session') {
     await emitSuccessfulWalletUnlock({
       unlockBackend,
@@ -396,6 +481,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
         unlocked: true,
         unlockBackend,
         userId: result.userId,
+        ...(ecdsaSession.activation ? { ecdsaSession: ecdsaSession.activation } : {}),
       },
     };
   }
@@ -420,6 +506,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
       unlockBackend,
       userId: result.userId,
       ed25519YaoSession: sessionResult.value,
+      ...(ecdsaSession.activation ? { ecdsaSession: ecdsaSession.activation } : {}),
     },
   };
 }

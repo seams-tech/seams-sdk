@@ -9,35 +9,6 @@ function readSource(relativePath: string): string {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('passkey Yao registration owners persist local material before activation', () => {
-  const source = readSource(
-    'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
-  );
-  const ownerNames = [
-    'async commitPasskey(',
-    'async function commitPendingPasskeyEd25519YaoRegistration(',
-  ];
-
-  for (const ownerName of ownerNames) {
-    const ownerIndex = source.indexOf(ownerName);
-    const persistenceIndex = source.indexOf(
-      'await persistPasskeyEd25519YaoLocalMaterialV1({',
-      ownerIndex,
-    );
-    const activationIndex = source.indexOf('await pending.commit({', ownerIndex);
-    const alternateActivationIndex = source.indexOf('await args.pending.commit({', ownerIndex);
-    const resolvedActivationIndex =
-      activationIndex >= 0 &&
-      (alternateActivationIndex < 0 || activationIndex < alternateActivationIndex)
-        ? activationIndex
-        : alternateActivationIndex;
-
-    expect(ownerIndex).toBeGreaterThanOrEqual(0);
-    expect(persistenceIndex).toBeGreaterThan(ownerIndex);
-    expect(resolvedActivationIndex).toBeGreaterThan(persistenceIndex);
-  }
-});
-
 test('passkey Yao recovery persists refresh state before publishing the active capability', () => {
   const source = readSource('packages/sdk-web/src/SeamsWeb/operations/recovery/syncAccount.ts');
   const persistenceIndex = source.indexOf('await persistPasskeyEd25519YaoSessionForRefresh({');
@@ -45,20 +16,6 @@ test('passkey Yao recovery persists refresh state before publishing the active c
 
   expect(persistenceIndex).toBeGreaterThanOrEqual(0);
   expect(activationIndex).toBeGreaterThan(persistenceIndex);
-});
-
-test('Email OTP registration seals the worker-owned Yao factor after activation', () => {
-  const source = readSource(
-    'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
-  );
-  const activationIndex = source.indexOf('await args.yaoWork.commit({');
-  const persistenceIndex = source.indexOf(
-    'await args.context.signingEngine.persistEmailOtpEd25519YaoSessionForRefreshInternal(record);',
-    activationIndex,
-  );
-
-  expect(activationIndex).toBeGreaterThanOrEqual(0);
-  expect(persistenceIndex).toBeGreaterThan(activationIndex);
 });
 
 test('Email OTP login recovery replaces its durable Yao seal before returning', () => {

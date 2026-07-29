@@ -196,7 +196,7 @@ type BuildEmailOtpSessionBootstrapEcdsaActivationArgs =
     sessionKind: 'jwt';
     emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpSessionAuthContext;
-    walletSessionRouteAuth: AppOrWalletSessionAuth;
+  walletSessionRouteAuth: AppOrWalletSessionAuth;
     passkeyPrfFirstB64u?: never;
     webauthnAuthentication?: never;
   };

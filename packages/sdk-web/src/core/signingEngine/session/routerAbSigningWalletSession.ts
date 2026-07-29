@@ -139,7 +139,7 @@ function buildWalletSessionJwtAuth(jwtRaw: unknown): RouterAbSigningWalletSessio
     kind: 'wallet_session_jwt',
     walletSessionJwt,
     credential: {
-      kind: 'jwt',
+      kind: 'wallet_session_jwt',
       walletSessionJwt,
     },
   };

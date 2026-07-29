@@ -3,10 +3,12 @@ import { SigningAuthPlanKind } from '../../packages/sdk-web/src/core/signingEngi
 import {
   requireEvmFamilyStepUpAuth,
   type EvmFamilyReusableAuthorizationState,
-  type EvmFamilyThresholdEcdsaOperation,
   type EvmFamilyThresholdEcdsaStepUp,
-  type EvmFamilyThresholdEcdsaStepUpRuntime,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/requireEvmFamilyStepUpAuth';
+import {
+  evmFamilyThresholdEcdsaOperationFixture,
+  evmFamilyThresholdEcdsaStepUpRuntimeFixture,
+} from './helpers/ecdsaOperationStepUp.fixtures';
 
 // `reusableAuthorization` is what tells the step-up resolver whether the
 // material candidate is auth-neutral. With an active reusable Wallet Session
@@ -14,25 +16,7 @@ import {
 // factor is required, so a warm-session plan cannot be honoured and cannot be
 // substituted by a different factor.
 
-const OPERATION = {} as EvmFamilyThresholdEcdsaOperation;
-
-function stepUpRuntime(
-  reusableAuthorization: EvmFamilyReusableAuthorizationState,
-  overrides: Partial<EvmFamilyThresholdEcdsaStepUpRuntime> = {},
-): EvmFamilyThresholdEcdsaStepUpRuntime {
-  return {
-    reusableAuthorization,
-    operationStepUp: {
-      prepare: async () => {
-        throw new Error('not used in step-up resolution tests');
-      },
-      authorize: async () => {
-        throw new Error('not used in step-up resolution tests');
-      },
-    },
-    ...overrides,
-  } as EvmFamilyThresholdEcdsaStepUpRuntime;
-}
+const OPERATION = evmFamilyThresholdEcdsaOperationFixture();
 
 function warmSessionStepUp(
   reusableAuthorization: EvmFamilyReusableAuthorizationState,
@@ -53,7 +37,7 @@ function warmSessionStepUp(
       },
     },
     operation: OPERATION,
-    runtime: stepUpRuntime(reusableAuthorization),
+    runtime: evmFamilyThresholdEcdsaStepUpRuntimeFixture({ reusableAuthorization }),
   };
 }
 
@@ -100,14 +84,10 @@ test.describe('requireEvmFamilyStepUpAuth', () => {
     const prepared = await requireEvmFamilyStepUpAuth({
       thresholdEcdsaStepUp: {
         ...warmSessionStepUp({ kind: 'absent', requiredFactor: 'email_otp' }),
-        runtime: stepUpRuntime(
-          { kind: 'absent', requiredFactor: 'email_otp' },
-          {
-            emailOtpSigning: {
-              prepare: async () => ({ challengeId: 'otp-1', emailHint: 'a***@x.test' }),
-            } as EvmFamilyThresholdEcdsaStepUpRuntime['emailOtpSigning'],
-          },
-        ),
+        runtime: evmFamilyThresholdEcdsaStepUpRuntimeFixture({
+          reusableAuthorization: { kind: 'absent', requiredFactor: 'email_otp' },
+          emailOtpChallenge: { challengeId: 'otp-1', emailHint: 'a***@x.test' },
+        }),
       },
       hasThresholdEcdsaRequest: true,
       needsWebAuthn: false,
@@ -132,14 +112,10 @@ test.describe('requireEvmFamilyStepUpAuth', () => {
           },
         },
         operation: OPERATION,
-        runtime: stepUpRuntime(
-          { kind: 'active' },
-          {
-            emailOtpSigning: {
-              prepare: async () => ({ challengeId: 'otp-2', emailHint: 'a***@x.test' }),
-            } as EvmFamilyThresholdEcdsaStepUpRuntime['emailOtpSigning'],
-          },
-        ),
+        runtime: evmFamilyThresholdEcdsaStepUpRuntimeFixture({
+          reusableAuthorization: { kind: 'active' },
+          emailOtpChallenge: { challengeId: 'otp-2', emailHint: 'a***@x.test' },
+        }),
       },
       hasThresholdEcdsaRequest: true,
       needsWebAuthn: false,
@@ -167,7 +143,9 @@ test.describe('requireEvmFamilyStepUpAuth', () => {
           },
         },
         operation: OPERATION,
-        runtime: stepUpRuntime({ kind: 'active' }),
+        runtime: evmFamilyThresholdEcdsaStepUpRuntimeFixture({
+          reusableAuthorization: { kind: 'active' },
+        }),
       },
       hasThresholdEcdsaRequest: true,
       needsWebAuthn: true,

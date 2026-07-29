@@ -50,10 +50,6 @@ import {
   deriveEvmFamilySigningKeySlotId,
   parseEvmFamilySigningKeySlotId,
 } from '@shared/signing-lanes';
-import {
-  parseMpcWalletSigningQuotaId,
-  parseWalletSessionId,
-} from '@shared/authorization/capabilityKinds';
 
 function requireEvmFamilySigningKeySlotId(value: unknown) {
   const parsed = parseEvmFamilySigningKeySlotId(value);
@@ -92,7 +88,6 @@ import type {
   WalletRegistrationRouteDiagnostics,
   WalletEd25519YaoSignerPublicResult,
   WalletRegistrationEd25519YaoPublicResult,
-  WalletRegistrationEd25519YaoBootstrapSession,
   WalletAddSignerFinalizeResponse,
 } from '../../core/registrationContracts';
 import { parseWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
@@ -605,8 +600,6 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
     ) ||
     !accountProvisioning ||
     !resolvedAccount ||
-    ed25519.session.walletId !== walletId ||
-    !thresholdEd25519AuthorityScopesMatch(ed25519.session.authorityScope, authorityScope) ||
     ed25519.nearAccountId !== resolvedAccount.nearAccountId ||
     ed25519.nearEd25519SigningKeyId !== resolvedAccount.nearEd25519SigningKeyId ||
     !registrationNearProvisioningMatchesResolution(accountProvisioning, resolvedAccount)
@@ -778,19 +771,21 @@ function parseD1WalletRegistrationFinalizeEd25519(
   const publicResult = parseD1WalletEd25519YaoSignerPublicResult(raw);
   const record = toRecordValue(raw);
   if (!record || !publicResult) return null;
-  const session = parseD1WalletRegistrationEd25519YaoBootstrapSession(record.session);
+  const runtimePolicyScope = parseD1RuntimePolicyScope(record.runtimePolicyScope);
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+    record.routerAbNormalSigning,
+  );
   if (
-    !session ||
-    session.nearAccountId !== publicResult.nearAccountId ||
-    session.nearEd25519SigningKeyId !== publicResult.nearEd25519SigningKeyId ||
-    session.participantIds[0] !== publicResult.participantIds[0] ||
-    session.participantIds[1] !== publicResult.participantIds[1]
+    !runtimePolicyScope ||
+    !routerAbNormalSigning ||
+    routerAbNormalSigning.signingWorkerId !== publicResult.relayerKeyId
   ) {
     return null;
   }
   return {
     ...publicResult,
-    session,
+    runtimePolicyScope,
+    routerAbNormalSigning,
   };
 }
 
@@ -831,76 +826,6 @@ function parseD1WalletEd25519YaoSignerPublicResult(
     keyVersion,
     recoveryExportCapable: true,
     participantIds: [firstParticipantId, secondParticipantId],
-  };
-}
-
-function parseD1WalletRegistrationEd25519YaoBootstrapSession(
-  raw: unknown,
-): WalletRegistrationEd25519YaoBootstrapSession | null {
-  const record = toRecordValue(raw);
-  if (!record || record.sessionKind !== 'jwt') return null;
-  const walletSessionJwt = toOptionalTrimmedString(record.walletSessionJwt);
-  const walletId = parseWalletIdForIntent(record.walletId);
-  const nearAccountId = toOptionalTrimmedString(record.nearAccountId);
-  const nearEd25519SigningKeyId = toOptionalTrimmedString(record.nearEd25519SigningKeyId);
-  const authorityScope = parseThresholdEd25519AuthorityScope(record.authorityScope);
-  const thresholdSessionId = toOptionalTrimmedString(record.thresholdSessionId);
-  const signingGrantId = toOptionalTrimmedString(record.signingGrantId);
-  const walletSessionId = parseWalletSessionId(record.walletSessionId);
-  const quotaId = parseMpcWalletSigningQuotaId(record.quotaId);
-  const expiresAtMs = safeInteger(record.expiresAtMs);
-  const participantIds = parseD1PositiveIntegerArray(record.participantIds);
-  const remainingUses = safeInteger(record.remainingUses);
-  const signingRootId = toOptionalTrimmedString(record.signingRootId);
-  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
-  const runtimePolicyScope = parseD1RuntimePolicyScope(record.runtimePolicyScope);
-  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
-    record.routerAbNormalSigning,
-  );
-  if (
-    !walletSessionJwt ||
-    !walletId ||
-    !nearAccountId ||
-    !nearEd25519SigningKeyId ||
-    !authorityScope ||
-    !thresholdSessionId ||
-    !signingGrantId ||
-    !walletSessionId.ok ||
-    !quotaId.ok ||
-    expiresAtMs === null ||
-    expiresAtMs <= 0 ||
-    !participantIds ||
-    participantIds.length !== 2 ||
-    remainingUses === null ||
-    remainingUses <= 0 ||
-    !signingRootId ||
-    !signingRootVersion ||
-    !runtimePolicyScope ||
-    !routerAbNormalSigning
-  ) {
-    return null;
-  }
-  const firstParticipantId = participantIds[0];
-  const secondParticipantId = participantIds[1];
-  if (firstParticipantId === undefined || secondParticipantId === undefined) return null;
-  return {
-    sessionKind: 'jwt',
-    walletSessionJwt,
-    walletId,
-    nearAccountId,
-    nearEd25519SigningKeyId,
-    authorityScope,
-    thresholdSessionId,
-    signingGrantId,
-    walletSessionId: walletSessionId.value,
-    quotaId: quotaId.value,
-    expiresAtMs,
-    participantIds: [firstParticipantId, secondParticipantId],
-    remainingUses,
-    signingRootId,
-    signingRootVersion,
-    runtimePolicyScope,
-    routerAbNormalSigning,
   };
 }
 

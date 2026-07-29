@@ -7,6 +7,7 @@ import {
 import {
   activeWalletSessionFixture,
   activeWalletSessionWithNonceDiagnosticsFixture,
+  authorizationRequiredEcdsaWalletSessionFixture,
   invalidWalletSessionFixture,
   missingWalletSessionFixture,
   restorableEcdsaWalletSessionFixture,
@@ -83,6 +84,22 @@ test.describe('wallet iframe Wallet Session boundary', () => {
     expect(capability.targets).toMatchObject({
       kind: 'configured_targets',
       lanes: [{ readiness: { kind: 'restorable' } }],
+    });
+  });
+
+  test('preserves authorization-required ECDSA material across the iframe boundary', () => {
+    const parsed = parseWalletSessionFromBoundary(
+      authorizationRequiredEcdsaWalletSessionFixture({ walletId: 'iframe-wallet' }),
+      'iframe-wallet',
+    );
+    expect(parsed.capabilityProjection.kind).toBe('resolved');
+    if (parsed.capabilityProjection.kind !== 'resolved') return;
+    const capability = parsed.capabilityProjection.capabilities[0];
+    expect(capability.kind).toBe('evm_family_ecdsa');
+    if (capability.kind !== 'evm_family_ecdsa') return;
+    expect(capability.targets).toMatchObject({
+      kind: 'configured_targets',
+      lanes: [{ readiness: { kind: 'authorization_required' } }],
     });
   });
 

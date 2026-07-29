@@ -1,4 +1,5 @@
 use crate::*;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 use router_ab_ecdsa_online::{
@@ -536,29 +537,197 @@ impl CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2 {
 pub struct CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
     /// Typed public finalize request accepted by the Router.
     pub request: RouterAbEd25519NormalSigningFinalizeRequestV2,
+    /// Router-derived finalize admission, including the exact authorization branch.
+    pub admission_candidate: CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2,
     /// Accepted Router store admission decision for this request.
     pub trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+    /// Exact claim that the SigningWorker must commit before evaluating crypto.
+    pub effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
+}
+
+/// Authorization-specific effect claim committed by SigningWorker private D1.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareSigningWorkerNormalSigningEffectClaimV1 {
+    /// Reusable Wallet Session authority consumes its reserved wallet budget.
+    ReusableWalletSession {
+        budget: CloudflareRouterWalletBudgetReservationIdentityV1,
+    },
+    /// Operation step-up consumes only its one-operation grant.
+    OperationStepUp {
+        authorization_session_id: String,
+        grant_id: String,
+    },
+}
+
+/// Durable terminal result for one claimed normal-signing effect.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareSigningWorkerNormalSigningTerminalV1 {
+    Success {
+        response: NormalSigningResponseV1,
+    },
+    Failure {
+        code: RouterAbProtocolErrorCode,
+        message: String,
+    },
+}
+
+impl CloudflareSigningWorkerNormalSigningTerminalV1 {
+    pub fn from_result(result: RouterAbProtocolResult<NormalSigningResponseV1>) -> Self {
+        match result {
+            Ok(response) => Self::Success { response },
+            Err(error) => Self::Failure {
+                code: error.code(),
+                message: error.message().to_owned(),
+            },
+        }
+    }
+
+    pub fn validate_for_request(
+        &self,
+        request: &CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2,
+    ) -> RouterAbProtocolResult<()> {
+        request.validate()?;
+        match self {
+            Self::Success { response } => {
+                response.validate()?;
+                if response.scope == request.request.scope
+                    && response.signing_payload_digest == request.request.signing_payload_digest()
+                    && response.signature_scheme == request.request.protocol.signature_scheme()
+                {
+                    return Ok(());
+                }
+                Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    "SigningWorker terminal success does not match admitted request",
+                ))
+            }
+            Self::Failure { message, .. } => {
+                require_non_empty("SigningWorker terminal failure message", message)
+            }
+        }
+    }
+
+    pub fn into_result(self) -> RouterAbProtocolResult<NormalSigningResponseV1> {
+        match self {
+            Self::Success { response } => Ok(response),
+            Self::Failure { code, message } => Err(RouterAbProtocolError::new(code, message)),
+        }
+    }
+}
+
+impl CloudflareSigningWorkerNormalSigningEffectClaimV1 {
+    /// Validates the claim against the exact Router-admitted authorization.
+    pub fn validate_for_admission(
+        &self,
+        admission: &CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2,
+    ) -> RouterAbProtocolResult<()> {
+        admission.validate()?;
+        let matches = match (self, &admission.authorization) {
+            (
+                Self::ReusableWalletSession { budget },
+                CloudflareRouterNormalSigningAuthorizationV2::ReusableWalletSession {
+                    grant_id,
+                    ..
+                },
+            ) => {
+                budget.validate()?;
+                budget.signing_grant_id == *grant_id
+                    && budget.signing_worker_id == admission.signing_worker_id
+            }
+            (
+                Self::OperationStepUp {
+                    authorization_session_id,
+                    grant_id,
+                },
+                CloudflareRouterNormalSigningAuthorizationV2::OperationStepUp {
+                    authorization_session_id: admitted_session_id,
+                    grant_id: admitted_grant_id,
+                },
+            ) => {
+                require_non_empty(
+                    "normal-signing effect claim authorization_session_id",
+                    authorization_session_id,
+                )?;
+                require_non_empty("normal-signing effect claim grant_id", grant_id)?;
+                authorization_session_id == admitted_session_id && grant_id == admitted_grant_id
+            }
+            _ => false,
+        };
+        if matches {
+            Ok(())
+        } else {
+            Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "normal-signing effect claim does not match Router admission",
+            ))
+        }
+    }
 }
 
 impl CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
     /// Creates a validated admitted v2 finalize service request.
     pub fn new(
         request: RouterAbEd25519NormalSigningFinalizeRequestV2,
+        admission_candidate: CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2,
         trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+        effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self {
             request,
+            admission_candidate,
             trusted_admission,
+            effect_claim,
         };
         request.validate()?;
         Ok(request)
     }
 
+    /// Creates an admitted finalize request for a single-operation step-up grant.
+    pub fn operation_step_up(
+        request: RouterAbEd25519NormalSigningFinalizeRequestV2,
+        admission_candidate: CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2,
+        trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let (authorization_session_id, grant_id) = match &admission_candidate.authorization {
+            CloudflareRouterNormalSigningAuthorizationV2::OperationStepUp {
+                authorization_session_id,
+                grant_id,
+            } => (authorization_session_id.clone(), grant_id.clone()),
+            CloudflareRouterNormalSigningAuthorizationV2::ReusableWalletSession { .. } => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "operation-step-up finalize requires operation-step-up admission",
+                ));
+            }
+        };
+        Self::new(
+            request,
+            admission_candidate,
+            trusted_admission,
+            CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
+                authorization_session_id,
+                grant_id,
+            },
+        )
+    }
+
     /// Validates Router admission accepted this exact v2 finalize request.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.request.validate()?;
+        self.admission_candidate
+            .validate_for_finalize_request(&self.request)?;
         self.trusted_admission
             .validate_for_finalize_request_v2(&self.request)?;
+        if self.trusted_admission.metadata != self.admission_candidate.to_v1_trusted_metadata()? {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "normal-signing finalize trusted admission does not match admission candidate",
+            ));
+        }
+        self.effect_claim
+            .validate_for_admission(&self.admission_candidate)?;
         if self.trusted_admission.allows_signing_worker_forwarding()? {
             return Ok(());
         }
@@ -566,6 +735,31 @@ impl CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
             RouterAbProtocolErrorCode::InvalidGateDecision,
             "SigningWorker normal-signing v2 finalize requires accepted Router admission",
         ))
+    }
+
+    /// Stable effect key derived only from the admitted account and canonical intent.
+    pub fn effect_operation_key(&self) -> RouterAbProtocolResult<String> {
+        self.validate()?;
+        Ok(format!(
+            "near-ed25519/{}/{}/{}",
+            self.request.scope.account_id,
+            self.request.scope.material_activation.activation_id,
+            cloudflare_signing_worker_wallet_budget_digest_hex_v1(self.request.intent_digest())
+        ))
+    }
+
+    /// Exact digest whose terminal response may be replayed for this operation key.
+    pub fn effect_request_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
+        self.validate()?;
+        let mut hasher = Sha256::new();
+        hasher.update(b"seams/signing-worker/near-effect/v1");
+        hasher.update(serde_json::to_vec(self).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("normal-signing finalize serialization failed: {error}"),
+            )
+        })?);
+        Ok(PublicDigest32::new(hasher.finalize().into()))
     }
 }
 
@@ -686,6 +880,9 @@ impl CloudflareSigningWorkerMaterializedNormalSigningFinalizeRequestV2 {
                 == self.request.request.server_round1_handle()
             && self.server_round1.round1_binding_digest
                 == self.request.request.round1_binding_digest()
+            && self.server_round1.intent_digest == self.request.admission_candidate.intent_digest
+            && self.server_round1.signing_payload_digest
+                == self.request.admission_candidate.signing_payload_digest
             && self.server_round1.expires_at_ms == self.request.request.expires_at_ms
         {
             return Ok(());
@@ -1057,6 +1254,9 @@ impl CloudflareSigningWorkerNormalSigningRound1PreparedV1 {
             && self.record.active_signing_worker_state == request.active_signing_worker
             && self.record.server_round1_handle == self.response.server_round1_handle
             && self.record.round1_binding_digest == round1_binding_digest
+            && self.record.intent_digest == request.request.admission_candidate.intent_digest
+            && self.record.signing_payload_digest
+                == request.request.admission_candidate.signing_payload_digest
             && self.record.admitted_signing_digest
                 == request.request.admission_candidate.admitted_signing_digest
             && self.record.created_at_ms == request.prepared_at_ms
@@ -1107,6 +1307,8 @@ impl CloudflareSigningWorkerNormalSigningPrepareHandlerV2
             request.active_signing_worker.clone(),
             server_round1_handle.clone(),
             round1_binding_digest,
+            request.request.admission_candidate.intent_digest,
+            request.request.admission_candidate.signing_payload_digest,
             request.request.admission_candidate.admitted_signing_digest,
             round1_state,
             request.prepared_at_ms,

@@ -1116,9 +1116,15 @@ function assertServerCommitMatchesPreparedCommand(
   serverCommit: ServerReturnedEcdsaActivationCommit,
   journal: PreparedEcdsaActivationJournal,
 ): void {
+  const canonicalRequest = JSON.parse(journal.activationCommand.canonicalRequest) as {
+    operation?: unknown;
+  };
+  const requestDigestNamesOuterOperation =
+    canonicalRequest.operation === 'wallet_registration_activate_v2';
   if (
     serverCommit.correlationId !== journal.activationCommand.correlationId ||
-    serverCommit.activationRequestDigest !== journal.activationCommand.requestDigest
+    (!requestDigestNamesOuterOperation &&
+      serverCommit.activationRequestDigest !== journal.activationCommand.requestDigest)
   ) {
     throw new Error('ECDSA server activation commit does not match the prepared command');
   }

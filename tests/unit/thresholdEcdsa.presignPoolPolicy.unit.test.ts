@@ -17,7 +17,7 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
     'backend-client-share',
   );
   const WALLET_SESSION_CREDENTIAL = {
-    kind: 'jwt' as const,
+    kind: 'wallet_session_jwt' as const,
     walletSessionJwt: 'wallet-session-jwt',
   };
 

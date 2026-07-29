@@ -1,4 +1,8 @@
-import type { WalletSession, WalletSessionAppIdentity } from '@/core/types/seams';
+import type {
+  WalletSession,
+  WalletSessionAppIdentity,
+  WalletSessionCapabilityLaneReadiness,
+} from '@/core/types/seams';
 import { toAccountId } from '@/core/types/accountIds';
 import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -222,6 +226,19 @@ export function invalidWalletSessionFixture(
 export function restorableEcdsaWalletSessionFixture(
   input: ReusableWalletSessionFixtureInput = {},
 ): WalletSession {
+  return ecdsaWalletSessionFixture(input, { kind: 'restorable' });
+}
+
+export function authorizationRequiredEcdsaWalletSessionFixture(
+  input: ReusableWalletSessionFixtureInput = {},
+): WalletSession {
+  return ecdsaWalletSessionFixture(input, { kind: 'authorization_required' });
+}
+
+function ecdsaWalletSessionFixture(
+  input: ReusableWalletSessionFixtureInput,
+  readiness: WalletSessionCapabilityLaneReadiness,
+): WalletSession {
   const active = activeWalletSessionFixture(input);
   if (active.appIdentity.kind !== 'resolved') {
     throw new Error('Active Wallet Session fixture must resolve app identity');
@@ -267,9 +284,7 @@ export function restorableEcdsaWalletSessionFixture(
                   chain: 'evm',
                   chainId: 1,
                 }),
-                readiness: {
-                  kind: 'restorable',
-                },
+                readiness,
               },
             ],
           },

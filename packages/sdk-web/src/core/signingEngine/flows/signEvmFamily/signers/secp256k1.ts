@@ -156,9 +156,9 @@ function routerAbTransportCredential(
 ): RouterAbEd25519NormalSigningCredential {
   switch (credential.kind) {
     case 'reusable_wallet_session_jwt':
-      return { kind: 'jwt', walletSessionJwt: credential.walletSessionJwt };
+      return { kind: 'wallet_session_jwt', walletSessionJwt: credential.walletSessionJwt };
     case 'app_session_jwt':
-      return { kind: 'jwt', walletSessionJwt: credential.appSessionJwt };
+      return { kind: 'app_session_jwt', appSessionJwt: credential.appSessionJwt };
     case 'app_session_cookie':
       return { kind: 'app_session_cookie' };
   }

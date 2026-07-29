@@ -399,17 +399,17 @@ type ActivateEcdsaSessionByPurposeRequest =
 
 function requireStrictEcdsaRouteAuth(
   auth: ThresholdEcdsaDerivationRouteAuth | undefined,
-): Extract<ThresholdEcdsaDerivationRouteAuth, { kind: 'app_session' | 'wallet_session' }> {
+): Extract<ThresholdEcdsaDerivationRouteAuth, { kind: 'wallet_session' }> {
   if (!auth) {
-    throw new Error('Strict ECDSA session bootstrap requires app or Wallet Session authority');
+    throw new Error('Strict ECDSA session bootstrap requires Wallet Session authority');
   }
   switch (auth.kind) {
-    case 'app_session':
     case 'wallet_session':
       return auth;
+    case 'app_session':
     case 'bootstrap_grant':
     case 'publishable_key':
-      throw new Error('Strict ECDSA session bootstrap requires app or Wallet Session authority');
+      throw new Error('Strict ECDSA session bootstrap requires Wallet Session authority');
   }
   auth satisfies never;
   throw new Error('Strict ECDSA session bootstrap authority is invalid');

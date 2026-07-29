@@ -24,8 +24,6 @@ import {
 import type { ThresholdRuntimePolicyScope } from '../sessionPolicy';
 import { bytesToHex } from '../../chains/evm/bytes';
 
-const POST_REGISTRATION_ROUTE_AUTH_KINDS = new Set(['app_session', 'wallet_session']);
-
 export type ExistingEcdsaRoleLocalActivation = {
   readonly kind: 'existing_ecdsa_role_local_material_activated_v1';
   readonly roleLocalMaterial: EcdsaRoleLocalWorkerHandle;
@@ -38,7 +36,7 @@ export type ActivateStrictEcdsaPostRegistrationSessionInput = {
   readonly relayerUrl: string;
   readonly routeAuth: Extract<
     ThresholdEcdsaDerivationRouteAuth,
-    { kind: 'app_session' | 'wallet_session' }
+    { kind: 'wallet_session' }
   >;
   readonly workerCtx: WorkerOperationContext;
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
@@ -97,9 +95,6 @@ function normalSigningMatchesRoleLocalFacts(
 
 function validateStrictSessionInput(input: ActivateStrictEcdsaPostRegistrationSessionInput): void {
   const publicFacts = input.persistedRoleLocalMaterial.publicFacts;
-  if (!POST_REGISTRATION_ROUTE_AUTH_KINDS.has(input.routeAuth.kind)) {
-    throw new Error('Strict ECDSA session activation requires app or Wallet Session bearer auth');
-  }
   if (!input.walletId || !input.thresholdSessionId || !input.signingGrantId) {
     throw new Error('Strict ECDSA session activation requires exact wallet and session identity');
   }

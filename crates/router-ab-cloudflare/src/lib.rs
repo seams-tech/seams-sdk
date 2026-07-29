@@ -204,14 +204,15 @@ use router_ab_core::{
     EcdsaThresholdPrfProofBatchPayloadV1, EcdsaThresholdPrfRequestV1, EncryptedPayloadV1,
     ExpensiveWorkGateContextV1, ExpensiveWorkGateDecisionV1, ExpensiveWorkKindV1,
     GateDeferReasonV1, GatePrincipalV1, GateRejectReasonV1, MpcPrfSigningRootShareWireV1,
-    MpcPrfThresholdSignerBatchOutputV1, NormalSigningEd25519TwoPartyFrostCommitmentsV1,
-    NormalSigningResponseV1, NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1,
-    NormalSigningSignatureSchemeV1, OpenedShareKind, PeerTransport, PublicDigest32,
-    RecipientOutputCiphertextV1, RecipientOutputEncryptionAlgorithmV1,
-    RecipientOutputEncryptionRequestV1, RecipientOutputEncryptorV1,
-    RecipientProofBundleCiphertextV1, RecipientProofBundleEncryptionRequestV1,
-    RecipientProofBundleEncryptorV1, RecipientProofBundlePayloadV1, Role, RoleEnvelopeAadV1,
-    RootShareEpoch, RouterAbDerivationError, RouterAbEcdsaDerivationActivationReceiptV1,
+    MpcPrfThresholdSignerBatchOutputV1, NormalSigningAuthorizationV1,
+    NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningResponseV1,
+    NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1, NormalSigningSignatureSchemeV1,
+    OpenedShareKind, PeerTransport, PublicDigest32, RecipientOutputCiphertextV1,
+    RecipientOutputEncryptionAlgorithmV1, RecipientOutputEncryptionRequestV1,
+    RecipientOutputEncryptorV1, RecipientProofBundleCiphertextV1,
+    RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
+    RecipientProofBundlePayloadV1, Role, RoleEnvelopeAadV1, RootShareEpoch,
+    RouterAbDerivationError, RouterAbEcdsaDerivationActivationReceiptV1,
     RouterAbEcdsaDerivationActivationRefreshRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
@@ -3057,7 +3058,6 @@ pub fn cloudflare_router_ab_ecdsa_derivation_activation_refresh_receipt_from_mat
 /// Builds a normal-signing scope from a validated Router A/B ECDSA derivation activation receipt.
 pub fn cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activation_receipt_v1(
     receipt: &RouterAbEcdsaDerivationActivationReceiptV1,
-    wallet_key_id: impl Into<String>,
     wallet_id: impl Into<String>,
     ecdsa_threshold_key_id: impl Into<String>,
     signing_root_id: impl Into<String>,
@@ -3065,7 +3065,6 @@ pub fn cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activatio
 ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationNormalSigningScopeV1> {
     receipt.validate()?;
     RouterAbEcdsaDerivationNormalSigningScopeV1::new(
-        wallet_key_id,
         wallet_id,
         ecdsa_threshold_key_id,
         signing_root_id,
@@ -3077,10 +3076,10 @@ pub fn cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activatio
     )
 }
 
-fn cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(
+fn cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1(
     scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
 ) -> RouterAbProtocolResult<String> {
-    scope.active_state_session_id()
+    scope.material_activation_id()
 }
 
 /// Derives the Router A/B ECDSA derivation identity implied by active SigningWorker material.
@@ -3194,7 +3193,7 @@ pub fn validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_mate
     material.validate()?;
     if active_signing_worker.account_id != scope.wallet_id
         || active_signing_worker.session_id
-            != cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(scope)?
+            != cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1(scope)?
         || active_signing_worker.signing_worker != scope.signing_worker
         || material.transcript_digest != active_signing_worker.activation_transcript_digest
         || material.recipient_identity != active_signing_worker.signing_worker.server_id
@@ -3397,8 +3396,9 @@ impl CloudflareSigningWorkerEcdsaExportShareRequestV1 {
             ),
             export_authorization_digest_b64u: self.request.export_authorization_digest_b64u.clone(),
             export_nonce: self.request.export_nonce.clone(),
-            threshold_session_id: self.request.lifecycle.session_id.clone(),
-            signing_grant_id: self.export_authority.signing_grant_id.clone(),
+            authorization_kind: self.request.authorization.kind_label().to_owned(),
+            authorization_id: self.request.authorization.authorization_id().to_owned(),
+            material_activation_id: scope.material_activation_id()?,
             lifecycle_id: self.request.lifecycle.lifecycle_id.clone(),
             recipient_identity: self.request.client_id.clone(),
             recipient_public_key: self.request.client_ephemeral_public_key.clone(),
@@ -5192,7 +5192,18 @@ fn cloudflare_router_ed25519_budget_request_digest_v2(
         &[
             ("request_id", scope.request_id.clone()),
             ("account_id", scope.account_id.clone()),
-            ("session_id", scope.session_id.clone()),
+            (
+                "authorization_kind",
+                scope.authorization.kind_label().to_owned(),
+            ),
+            (
+                "authorization_id",
+                scope.authorization.authorization_id().to_owned(),
+            ),
+            (
+                "material_activation_id",
+                scope.material_activation.activation_id.clone(),
+            ),
             ("scope_signing_worker_id", scope.signing_worker_id.clone()),
             (
                 "claims_signing_worker_id",
@@ -5295,7 +5306,7 @@ fn cloudflare_router_ab_ecdsa_derivation_budget_operation_id_v1(
                 wallet_session.threshold_session_id.clone(),
             ),
             ("wallet_id", scope.wallet_id.clone()),
-            ("wallet_key_id", scope.wallet_key_id.clone()),
+            ("material_activation_id", scope.material_activation_id()?),
             (
                 "ecdsa_threshold_key_id",
                 scope.ecdsa_threshold_key_id.clone(),
@@ -6141,7 +6152,11 @@ where
     }
     let admitted = CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::new(
         request,
+        admission,
         trusted_admission,
+        CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
+            budget: budget_identity.clone(),
+        },
     )?;
     let response = match execute_cloudflare_signing_worker_normal_signing_finalize_service_call_v2(
         env,
@@ -6151,14 +6166,11 @@ where
     .await
     {
         Ok(response) => response,
-        Err(err) => {
-            release_cloudflare_router_wallet_budget_best_effort_v1(env, runtime, &budget_identity)
-                .await;
-            return Err(err);
-        }
+        Err(err) => return Err(err),
     };
-    let (_, budget_status) =
-        commit_cloudflare_router_wallet_budget_v1(env, runtime, budget_identity).await?;
+    let budget_status =
+        status_cloudflare_router_wallet_budget_v1(env, runtime, &wallet_session, now_unix_ms)
+            .await?;
     CloudflareRouterWalletBudgetedFinalizeResponseV1::new(response, budget_status)
 }
 
@@ -9558,6 +9570,81 @@ where
     }
 }
 
+#[cfg(feature = "workers-rs")]
+fn parse_cloudflare_signing_worker_normal_signing_terminal_v1(
+    request: &CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2,
+    terminal_json: &str,
+) -> RouterAbProtocolResult<CloudflareSigningWorkerNormalSigningTerminalV1> {
+    let terminal: CloudflareSigningWorkerNormalSigningTerminalV1 =
+        serde_json::from_str(terminal_json).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("SigningWorker terminal outcome JSON is invalid: {error}"),
+            )
+        })?;
+    terminal.validate_for_request(request)?;
+    Ok(terminal)
+}
+
+#[cfg(feature = "workers-rs")]
+async fn execute_claimed_cloudflare_signing_worker_normal_signing_v1<Handler>(
+    env: &worker::Env,
+    runtime: &CloudflareSigningWorkerRuntimeV1,
+    handler: &Handler,
+    now_unix_ms: u64,
+    request: CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2,
+) -> RouterAbProtocolResult<NormalSigningResponseV1>
+where
+    Handler: CloudflareSigningWorkerNormalSigningFinalizeHandlerV2,
+{
+    let lookup = CloudflareActiveSigningWorkerStateLookupV1::from_normal_signing_scope(
+        &request.request.scope,
+    )?;
+    let call = runtime.active_signing_worker_state_get_request(lookup)?;
+    let response = execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await?;
+    let active_signing_worker =
+        require_signing_worker_output_active_state_get_response_v1(&call, response)?;
+    let material_lookup =
+        CloudflareSigningWorkerOutputMaterialLookupV1::new(active_signing_worker.clone())?;
+    let material_call = runtime.signing_worker_output_material_get_request(material_lookup)?;
+    let material_response =
+        execute_cloudflare_signing_worker_private_d1_request_v1(env, &material_call).await?;
+    let material =
+        require_signing_worker_output_material_get_response_v1(&material_call, material_response)?;
+    let round1_lookup = CloudflareSigningWorkerRound1LookupV1::new(
+        active_signing_worker.clone(),
+        request.request.server_round1_handle().to_owned(),
+        request.request.round1_binding_digest(),
+        now_unix_ms,
+    )?;
+    let round1_call = runtime.signing_worker_round1_take_request(round1_lookup)?;
+    let round1_response =
+        execute_cloudflare_signing_worker_private_d1_request_v1(env, &round1_call).await?;
+    let server_round1 =
+        require_signing_worker_round1_take_response_v1(&round1_call, round1_response)?;
+    handle_cloudflare_signing_worker_normal_signing_finalize_private_request_v2(
+        handler,
+        now_unix_ms,
+        request,
+        active_signing_worker,
+        material,
+        server_round1,
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_signing_worker_normal_signing_terminal_response_v1(
+    terminal: CloudflareSigningWorkerNormalSigningTerminalV1,
+) -> worker::Result<worker::Response> {
+    match terminal.into_result() {
+        Ok(response) => worker::Response::from_json(&response),
+        Err(error) => worker::Response::error(
+            format!("{:?}: {}", error.code(), error.message()),
+            cloudflare_router_error_status(error.code()),
+        ),
+    }
+}
+
 /// Handles SigningWorker's private normal-signing route.
 #[cfg(feature = "workers-rs")]
 pub async fn handle_cloudflare_signing_worker_normal_signing_private_fetch_v1<Handler>(
@@ -9600,10 +9687,8 @@ where
             cloudflare_router_error_status(err.code()),
         );
     }
-    let lookup = match CloudflareActiveSigningWorkerStateLookupV1::from_normal_signing_scope(
-        &parsed.request.scope,
-    ) {
-        Ok(lookup) => lookup,
+    let effect_operation_key = match parsed.effect_operation_key() {
+        Ok(value) => value,
         Err(err) => {
             return worker::Response::error(
                 format!("{:?}: {}", err.code(), err.message()),
@@ -9611,8 +9696,8 @@ where
             );
         }
     };
-    let call = match runtime.active_signing_worker_state_get_request(lookup) {
-        Ok(call) => call,
+    let effect_request_digest = match parsed.effect_request_digest() {
+        Ok(value) => value,
         Err(err) => {
             return worker::Response::error(
                 format!("{:?}: {}", err.code(), err.message()),
@@ -9620,118 +9705,119 @@ where
             );
         }
     };
-    let response = match execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await {
-        Ok(response) => response,
-        Err(err) => {
+    match replay_cloudflare_signing_worker_near_terminal_v1(env, &parsed).await {
+        Ok(Some(terminal_json)) => {
+            return match parse_cloudflare_signing_worker_normal_signing_terminal_v1(
+                &parsed,
+                &terminal_json,
+            ) {
+                Ok(terminal) => {
+                    cloudflare_signing_worker_normal_signing_terminal_response_v1(terminal)
+                }
+                Err(error) => worker::Response::error(
+                    format!("{:?}: {}", error.code(), error.message()),
+                    cloudflare_router_error_status(error.code()),
+                ),
+            };
+        }
+        Ok(None) => {}
+        Err(error) => {
             return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
+                format!("{:?}: {}", error.code(), error.message()),
+                cloudflare_router_error_status(error.code()),
+            );
+        }
+    }
+    if let Err(error) = parsed.request.validate_at(now_unix_ms) {
+        return worker::Response::error(
+            format!("{:?}: {}", error.code(), error.message()),
+            cloudflare_router_error_status(error.code()),
+        );
+    }
+    match claim_cloudflare_signing_worker_near_effect_v1(env, &parsed, now_unix_ms).await {
+        Ok(CloudflareSigningWorkerNearEffectClaimV1::Claimed) => {}
+        Ok(CloudflareSigningWorkerNearEffectClaimV1::Replay { terminal_json }) => {
+            return match parse_cloudflare_signing_worker_normal_signing_terminal_v1(
+                &parsed,
+                &terminal_json,
+            ) {
+                Ok(terminal) => {
+                    cloudflare_signing_worker_normal_signing_terminal_response_v1(terminal)
+                }
+                Err(error) => worker::Response::error(
+                    format!("{:?}: {}", error.code(), error.message()),
+                    cloudflare_router_error_status(error.code()),
+                ),
+            };
+        }
+        Ok(CloudflareSigningWorkerNearEffectClaimV1::InProgress) => {
+            let error = RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "SigningWorker normal-signing effect is already in progress",
+            );
+            return worker::Response::error(
+                format!("{:?}: {}", error.code(), error.message()),
+                cloudflare_router_error_status(error.code()),
+            );
+        }
+        Err(error) => {
+            return worker::Response::error(
+                format!("{:?}: {}", error.code(), error.message()),
+                cloudflare_router_error_status(error.code()),
+            );
+        }
+    }
+    let terminal = CloudflareSigningWorkerNormalSigningTerminalV1::from_result(
+        execute_claimed_cloudflare_signing_worker_normal_signing_v1(
+            env,
+            runtime,
+            handler,
+            now_unix_ms,
+            parsed.clone(),
+        )
+        .await,
+    );
+    if let Err(error) = terminal.validate_for_request(&parsed) {
+        return worker::Response::error(
+            format!("{:?}: {}", error.code(), error.message()),
+            cloudflare_router_error_status(error.code()),
+        );
+    }
+    let terminal_json = match serde_json::to_string(&terminal) {
+        Ok(value) => value,
+        Err(error) => {
+            return worker::Response::error(
+                format!("SigningWorker terminal outcome serialization failed: {error}"),
+                500,
             );
         }
     };
-    let active_signing_worker =
-        match require_signing_worker_output_active_state_get_response_v1(&call, response) {
-            Ok(active_signing_worker) => active_signing_worker,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let material_lookup =
-        match CloudflareSigningWorkerOutputMaterialLookupV1::new(active_signing_worker.clone()) {
-            Ok(lookup) => lookup,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let material_call = match runtime.signing_worker_output_material_get_request(material_lookup) {
-        Ok(call) => call,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
-    let material_response =
-        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &material_call).await {
-            Ok(response) => response,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let material = match require_signing_worker_output_material_get_response_v1(
-        &material_call,
-        material_response,
-    ) {
-        Ok(material) => material,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
-    let round1_lookup = match CloudflareSigningWorkerRound1LookupV1::new(
-        active_signing_worker.clone(),
-        parsed.request.server_round1_handle().to_owned(),
-        parsed.request.round1_binding_digest(),
+    match commit_cloudflare_signing_worker_terminal_response_v1(
+        env,
+        &effect_operation_key,
+        effect_request_digest,
+        &terminal_json,
         now_unix_ms,
-    ) {
-        Ok(lookup) => lookup,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
+    )
+    .await
+    {
+        Ok(CloudflareSigningWorkerTerminalResponseCommitV1::Committed) => {
+            cloudflare_signing_worker_normal_signing_terminal_response_v1(terminal)
         }
-    };
-    let round1_call = match runtime.signing_worker_round1_take_request(round1_lookup) {
-        Ok(call) => call,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
+        Ok(CloudflareSigningWorkerTerminalResponseCommitV1::Replay { response_json }) => {
+            match parse_cloudflare_signing_worker_normal_signing_terminal_v1(
+                &parsed,
+                &response_json,
+            ) {
+                Ok(terminal) => {
+                    cloudflare_signing_worker_normal_signing_terminal_response_v1(terminal)
+                }
+                Err(error) => worker::Response::error(
+                    format!("{:?}: {}", error.code(), error.message()),
+                    cloudflare_router_error_status(error.code()),
+                ),
+            }
         }
-    };
-    let round1_response =
-        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &round1_call).await {
-            Ok(response) => response,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let server_round1 =
-        match require_signing_worker_round1_take_response_v1(&round1_call, round1_response) {
-            Ok(record) => record,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    match handle_cloudflare_signing_worker_normal_signing_finalize_private_request_v2(
-        handler,
-        now_unix_ms,
-        parsed,
-        active_signing_worker,
-        material,
-        server_round1,
-    ) {
-        Ok(response) => worker::Response::from_json(&response),
         Err(err) => worker::Response::error(
             format!("{:?}: {}", err.code(), err.message()),
             cloudflare_router_error_status(err.code()),

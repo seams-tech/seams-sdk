@@ -649,13 +649,17 @@ export interface EmailOtpWorkerOperationMap {
       clientTimings?: { admissionMs: number; sessionCreateMs: number };
     };
   };
-  commitEmailOtpEd25519YaoRegistration: {
+  persistEmailOtpEd25519YaoRegistrationMaterial: {
     payload: {
       pendingHandle: string;
-      walletSessionState: NearResolvedEd25519SigningSessionState;
+      walletId: string;
+      nearAccountId: string;
+      nearEd25519SigningKeyId: string;
+      signerSlot: number;
+      signingRootVersion: string;
+      expectedOperationalPublicKey: string;
     };
     result: {
-      activeClientHandle: string;
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
     };
   };
@@ -1078,7 +1082,7 @@ export type EmailOtpEnrollmentOperationType =
   | 'disposeEmailOtpEd25519YaoPendingFactor'
   | 'disposeEmailOtpEd25519YaoRoot'
   | 'startEmailOtpEd25519YaoRegistration'
-  | 'commitEmailOtpEd25519YaoRegistration'
+  | 'persistEmailOtpEd25519YaoRegistrationMaterial'
   | 'disposeEmailOtpEd25519YaoRegistration'
   | 'recoverEmailOtpEd25519Yao'
   | 'createEmailOtpEd25519YaoSigningShare'
@@ -1213,6 +1217,7 @@ export const EcdsaDerivationClientCustomRequestType = {
   RehydrateEcdsaRoleLocalSigningMaterial: 70_015,
   PersistInitialCanonicalEcdsaActivation: 70_016,
   ReconcileCanonicalEcdsaActivation: 70_017,
+  PrewarmEcdsaRegistrationCrypto: 70_018,
 } as const;
 
 export type EcdsaDerivationClientCustomRequestType =
@@ -1234,6 +1239,7 @@ export const EcdsaDerivationClientCustomResponseType = {
   RehydrateEcdsaRoleLocalSigningMaterialSuccess: 70_115,
   PersistInitialCanonicalEcdsaActivationSuccess: 70_116,
   ReconcileCanonicalEcdsaActivationSuccess: 70_117,
+  PrewarmEcdsaRegistrationCryptoSuccess: 70_118,
 } as const;
 
 export type EcdsaDerivationClientCustomResponseType =
@@ -1475,6 +1481,17 @@ type EcdsaDerivationClientCustomOperationMap = {
     result: {
       type: typeof EcdsaDerivationClientCustomResponseType.ReconcileCanonicalEcdsaActivationSuccess;
       payload: ReconcileCanonicalEcdsaActivationWorkerResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
+  [EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto]: {
+    payload: Record<string, never>;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.PrewarmEcdsaRegistrationCryptoSuccess;
+      payload: {
+        kind: 'ecdsa_registration_crypto_prewarm_result_v1';
+        wasmInitMs: number;
+      };
       diagnostics?: WorkerResponseDiagnostics;
     };
   };

@@ -4,7 +4,10 @@ import type {
   WalletRegistrationRespondResponseV2,
   WalletRegistrationSetupResponseV2,
 } from '../core/threeRouteRegistrationContracts';
-import type { RouterAbEcdsaRegistrationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaRegistrationRequestV1,
+  RouterAbEcdsaVerifiedClientActivationFactsV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletRegistrationAuthorityInput } from '../core/registrationContracts';
 import { resolvePublishableKeyApiCredentialAuth } from './routerApiCredentialAuth';
 import { extractRouterApiEnvironmentId } from './routerApiKeyAuth';
@@ -13,7 +16,6 @@ import type { RouterApiWalletRegistrationRouteService } from './authServicePort'
 import type {
   EcdsaKeyFactsInventoryPolicy,
   WebAuthnAuthenticationCredential,
-  EcdsaDerivationServerBootstrapResponse,
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
   ThresholdEd25519AuthorityScope,
@@ -31,6 +33,7 @@ import type {
   WalletAddSignerFinalizeRequest,
   WalletAddSignerFinalizeResponse,
   WalletAddSignerEcdsaActivationRequest,
+  WalletAddSignerEcdsaActivationPrepareRequest,
   WalletAddSignerEcdsaActivationResponse,
   WalletAddSignerEcdsaDerivationRespondRequest,
   WalletAddSignerEcdsaDerivationRespondResponse,
@@ -59,7 +62,6 @@ import type {
   WalletRegistrationStartResponse,
 } from '../core/registrationContracts';
 import { registrationPreparationIdFromString } from '../core/registrationContracts';
-import type { RootShareEpoch } from '@shared/utils/domainIds';
 import type { ThresholdEcdsaChainTarget } from '../core/thresholdEcdsaChainTarget';
 import {
   thresholdEcdsaChainTargetFromValue,
@@ -71,9 +73,7 @@ import {
 } from '../core/ThresholdService/validation';
 import { findUnexpectedRouteKey } from './routeRequestValidation';
 import {
-  buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap,
   resolveActiveRuntimePolicyScopeForEnvironment,
-  signRouterAbEcdsaDerivationWalletSessionJwt,
   validateRouterAbEd25519WalletSessionTokenInputs,
 } from './commonRouterUtils';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
@@ -91,6 +91,7 @@ import type { RouteErrorBody } from './routeResponses';
 import { routeError, routeJson } from './routeResponses';
 import { isPlainObject } from '@shared/utils/validation';
 import {
+  parseRouterAbEcdsaDerivationActivationPrepareResultV1,
   parseRouterAbEcdsaRegistrationActivationRequestV1,
   parseRouterAbEcdsaRegistrationRequestV1,
   parseRouterAbEcdsaVerifiedClientActivationFactsV1,
@@ -128,6 +129,7 @@ import {
 } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { alphabetizeStringify } from '@shared/utils/digests';
+import { parseCorrelationId, type CorrelationId } from '@shared/utils/canonicalPrimitives';
 import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
@@ -562,72 +564,6 @@ function parseParticipantIds(raw: unknown, field: string): ParseResult<number[]>
     };
   }
   return { ok: true, value: Array.from(new Set(participantIds)).sort((a, b) => a - b) };
-}
-
-async function attachEcdsaWalletSessionJwt(
-  input: RouterApiWalletRegistrationInput,
-  bootstrap: EcdsaDerivationServerBootstrapResponse | undefined,
-  activationEpoch: RootShareEpoch,
-  runtimePolicyScope?: RuntimePolicyScope,
-): Promise<RouteResponse<RouteErrorBody> | null> {
-  if (!bootstrap) return null;
-  if (bootstrap.activationEpoch !== activationEpoch) {
-    return routeError(500, 'internal', 'Router A/B ECDSA activation epoch mismatch');
-  }
-  const normalSigningRuntime = input.services.walletRegistration.getRouterAbNormalSigningRuntime();
-  if (!normalSigningRuntime) {
-    return routeError(500, 'internal', 'Router A/B normal signing is not configured');
-  }
-  const signingWorkerId = normalSigningRuntime.getSigningWorkerId();
-  const routerAbEcdsaDerivationNormalSigning =
-    buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
-      bootstrap,
-      activationEpoch,
-      routerAbPublicKeyset: input.services.routerAbPublicKeyset,
-      signingWorkerId,
-    });
-  if (!routerAbEcdsaDerivationNormalSigning.ok) {
-    return routeError(500, 'internal', routerAbEcdsaDerivationNormalSigning.message);
-  }
-  const signed = await signRouterAbEcdsaDerivationWalletSessionJwt({
-    session: input.services.session,
-    userId: bootstrap.walletId,
-    evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
-    relayerKeyId: bootstrap.relayerKeyId,
-    sessionInfo: {
-      sessionKind: 'jwt',
-      thresholdSessionId: bootstrap.thresholdSessionId,
-      signingGrantId: bootstrap.signingGrantId,
-      expiresAtMs: bootstrap.expiresAtMs,
-      participantIds: bootstrap.participantIds,
-      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-      keyHandle: bootstrap.keyHandle,
-      stableKeyContext: {
-        walletId: bootstrap.walletId,
-        evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
-        keyScope: 'evm-family',
-        ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
-        signingRootId: bootstrap.signingRootId,
-        signingRootVersion: bootstrap.signingRootVersion,
-        applicationBindingDigestB64u: bootstrap.applicationBindingDigestB64u,
-        contextBinding32B64u: bootstrap.contextBinding32B64u,
-      },
-      publicIdentity: bootstrap.publicIdentity,
-      activationEpoch,
-      signingWorkerId,
-      routerAbEcdsaDerivationNormalSigning: routerAbEcdsaDerivationNormalSigning.state,
-    },
-    fallbackParticipantIds: bootstrap.participantIds,
-    requireJwtErrorMessage: 'Router A/B ECDSA derivation Wallet Session must use jwt sessionKind',
-    invalidPayloadErrorMessage:
-      'invalid Router A/B ECDSA derivation Wallet Session payload for jwt signing',
-  });
-  if (!signed.ok) {
-    const code = signed.code === 'sessions_disabled' ? 'internal' : signed.code;
-    return routeError(signed.status, code, signed.message);
-  }
-  bootstrap.jwt = signed.jwt;
-  return null;
 }
 
 function parseAddSignerSelection(raw: unknown): ParseResult<AddSignerSelection> {
@@ -1539,9 +1475,44 @@ function parseWalletRegistrationEcdsaActivationRequest(
   body: Record<string, unknown>,
 ): ParseResult<WalletRegistrationEcdsaActivationRequest> {
   try {
+    const unknownBodyField = findUnknownField(body, ['registrationCeremonyId', 'ecdsa']);
+    if (unknownBodyField) {
+      throw new Error(`ECDSA activation field ${unknownBodyField} is unsupported`);
+    }
+    const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
+    if (!ecdsa) throw new Error('ECDSA activation body is required');
+    const unknownEcdsaField = findUnknownField(ecdsa, [
+      'kind',
+      'activationCorrelationId',
+      'publicFacts',
+      'expectedActivationRequestDigest',
+    ]);
+    if (unknownEcdsaField) {
+      throw new Error(`ECDSA activation field ${unknownEcdsaField} is unsupported`);
+    }
+    const parsed = parseRouterAbEcdsaRegistrationActivationRequestV1({
+      registrationCeremonyId: body.registrationCeremonyId,
+      ecdsa: {
+        kind: ecdsa.kind,
+        activationCorrelationId: ecdsa.activationCorrelationId,
+        publicFacts: ecdsa.publicFacts,
+      },
+    });
+    const preparation = parseRouterAbEcdsaDerivationActivationPrepareResultV1({
+      activation_correlation_id: parsed.ecdsa.activationCorrelationId,
+      activation_request_digest: ecdsa.expectedActivationRequestDigest,
+    });
     return {
       ok: true,
-      value: parseRouterAbEcdsaRegistrationActivationRequestV1(body),
+      value: {
+        registrationCeremonyId: parsed.registrationCeremonyId,
+        ecdsa: {
+          kind: parsed.ecdsa.kind,
+          activationCorrelationId: parsed.ecdsa.activationCorrelationId,
+          publicFacts: parsed.ecdsa.publicFacts,
+          expectedActivationRequestDigest: preparation.activation_request_digest,
+        },
+      },
     };
   } catch {
     return {
@@ -2029,9 +2000,9 @@ function parseWalletAddSignerEcdsaDerivationRespondRequest(
   };
 }
 
-function parseWalletAddSignerEcdsaActivationRequest(
+function parseWalletAddSignerEcdsaActivationPrepareRequest(
   body: Record<string, unknown>,
-): ParseResult<WalletAddSignerEcdsaActivationRequest> {
+): ParseResult<WalletAddSignerEcdsaActivationPrepareRequest> {
   const unknownBodyField = findUnknownField(body, ['addSignerCeremonyId', 'ecdsa']);
   if (unknownBodyField) {
     return {
@@ -2054,7 +2025,11 @@ function parseWalletAddSignerEcdsaActivationRequest(
       message: 'strict Router A/B ECDSA add-signer activation is required',
     };
   }
-  const unknownEcdsaField = findUnknownField(ecdsa, ['kind', 'publicFacts']);
+  const unknownEcdsaField = findUnknownField(ecdsa, [
+    'kind',
+    'activationCorrelationId',
+    'publicFacts',
+  ]);
   if (unknownEcdsaField) {
     return {
       ok: false,
@@ -2069,6 +2044,7 @@ function parseWalletAddSignerEcdsaActivationRequest(
         addSignerCeremonyId: addSignerCeremonyId.value,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_activation_v1',
+          activationCorrelationId: parseCorrelationId(ecdsa.activationCorrelationId),
           publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(ecdsa.publicFacts),
         },
       },
@@ -2078,6 +2054,73 @@ function parseWalletAddSignerEcdsaActivationRequest(
       ok: false,
       code: 'invalid_body',
       message: 'strict Router A/B ECDSA add-signer activation facts are invalid',
+    };
+  }
+}
+
+function parseWalletAddSignerEcdsaActivationRequest(
+  body: Record<string, unknown>,
+): ParseResult<WalletAddSignerEcdsaActivationRequest> {
+  const unknownBodyField = findUnknownField(body, ['addSignerCeremonyId', 'ecdsa']);
+  if (unknownBodyField) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `add-signer ECDSA activation field ${unknownBodyField} is unsupported`,
+    };
+  }
+  const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
+  if (!ecdsa) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA add-signer activation is required',
+    };
+  }
+  const unknownEcdsaField = findUnknownField(ecdsa, [
+    'kind',
+    'activationCorrelationId',
+    'publicFacts',
+    'expectedActivationRequestDigest',
+  ]);
+  if (unknownEcdsaField) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `add-signer ECDSA activation field ${unknownEcdsaField} is unsupported`,
+    };
+  }
+  const parsed = parseWalletAddSignerEcdsaActivationPrepareRequest({
+    addSignerCeremonyId: body.addSignerCeremonyId,
+    ecdsa: {
+      kind: ecdsa.kind,
+      activationCorrelationId: ecdsa.activationCorrelationId,
+      publicFacts: ecdsa.publicFacts,
+    },
+  });
+  if (!parsed.ok) return parsed;
+  try {
+    const preparation = parseRouterAbEcdsaDerivationActivationPrepareResultV1({
+      activation_correlation_id: parsed.value.ecdsa.activationCorrelationId,
+      activation_request_digest: ecdsa.expectedActivationRequestDigest,
+    });
+    return {
+      ok: true,
+      value: {
+        addSignerCeremonyId: parsed.value.addSignerCeremonyId,
+        ecdsa: {
+          kind: parsed.value.ecdsa.kind,
+          activationCorrelationId: parsed.value.ecdsa.activationCorrelationId,
+          publicFacts: parsed.value.ecdsa.publicFacts,
+          expectedActivationRequestDigest: preparation.activation_request_digest,
+        },
+      },
+    };
+  } catch {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA add-signer activation digest is invalid',
     };
   }
 }
@@ -2701,13 +2744,35 @@ export async function handleRouterApiWalletRegistrationActivate(
   if (!ed25519Only && (!ecdsa || !isPlainObject(ecdsa.clientActivation))) {
     return routeError(400, 'invalid_body', 'browser-verified clientActivation is required');
   }
+  let parsedEcdsa:
+    | {
+        activationCorrelationId: CorrelationId;
+        clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+      }
+    | undefined;
+  if (ecdsa) {
+    try {
+      parsedEcdsa = {
+        activationCorrelationId: parseCorrelationId(ecdsa.activationCorrelationId),
+        clientActivation: parseRouterAbEcdsaVerifiedClientActivationFactsV1(
+          ecdsa.clientActivation,
+        ),
+      };
+    } catch {
+      return routeError(
+        400,
+        'invalid_body',
+        'activationCorrelationId or browser-verified clientActivation is invalid',
+      );
+    }
+  }
   const result = await input.services.walletRegistration.activateWalletRegistration(
     {
       registrationCeremonyId,
       signedSetup,
       idempotencyKey,
       planKind,
-      ...(ecdsa ? { ecdsa: { clientActivation: ecdsa.clientActivation } } : {}),
+      ...(parsedEcdsa ? { ecdsa: parsedEcdsa } : {}),
       ...(body.emailOtpEnrollment ? { emailOtpEnrollment: body.emailOtpEnrollment } : {}),
       ...(body.emailOtpBackupAck ? { emailOtpBackupAck: body.emailOtpBackupAck } : {}),
       verifier: session,
@@ -2833,31 +2898,7 @@ export async function handleRouterApiWalletRegistrationEcdsaActivation(
   );
   if (!result.ok) return routeJson(400, result);
   const { body: timedResult, headers } = takeEcdsaGatewayServerTiming(result);
-  const routeTimings: Array<readonly [string, number]> = [];
-  const policyStartedAtMs = Date.now();
-  const runtimePolicyScope =
-    await input.services.walletRegistration.getWalletRegistrationRuntimePolicyScope(
-      request.value.registrationCeremonyId,
-    );
-  routeTimings.push(['ecdsa_activate_policy_lookup', Math.max(0, Date.now() - policyStartedAtMs)]);
-  const jwtStartedAtMs = Date.now();
-  const signingError = await attachEcdsaWalletSessionJwt(
-    input,
-    timedResult.ecdsa.bootstrap,
-    timedResult.ecdsa.activation.ecdsa_activation.activation_epoch,
-    runtimePolicyScope,
-  );
-  routeTimings.push(['ecdsa_activate_jwt_mint', Math.max(0, Date.now() - jwtStartedAtMs)]);
-  if (signingError) return signingError;
-  /* The route-level marks ride the same header as the service marks so one
-     response carries the whole Gateway-side breakdown. */
-  const routeHeader = routeTimings
-    .map(([name, durationMs]) => `${name};dur=${durationMs.toFixed(1)}`)
-    .join(', ');
-  const serverTiming = headers?.['Server-Timing']
-    ? `${headers['Server-Timing']}, ${routeHeader}`
-    : routeHeader;
-  return routeJson(200, timedResult, { headers: { 'Server-Timing': serverTiming } });
+  return routeJson(200, timedResult, headers ? { headers } : undefined);
 }
 
 export async function handleRouterApiWalletRegistrationFinalize(
@@ -2909,15 +2950,12 @@ export async function handleRouterApiWalletRegistrationFinalize(
     if (!appSessionVersion.ok) {
       return routeError(500, 'internal', appSessionVersion.message);
     }
-    const runtimePolicyScope =
-      result.kind === 'evm_family_ecdsa' ? undefined : result.ed25519.session.runtimePolicyScope;
     const appSessionJwt = await session.signJwt(result.authority.factor.providerUserId, {
       kind: 'app_session_v1',
       appSessionVersion: appSessionVersion.appSessionVersion,
       provider: result.authority.factor.provider,
       providerSubject: result.authority.factor.providerUserId,
       walletId: result.walletId,
-      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     });
     routeResult = buildEmailOtpWalletRegistrationFinalizeRouteSuccess(result, appSessionJwt);
   } else {
@@ -3023,17 +3061,6 @@ export async function handleRouterApiWalletAddSignerEcdsaActivation(
     request.value,
   );
   if (!result.ok) return routeJson(400, result);
-  const runtimePolicyScope =
-    await input.services.walletRegistration.getWalletAddSignerRuntimePolicyScope(
-      request.value.addSignerCeremonyId,
-    );
-  const signingError = await attachEcdsaWalletSessionJwt(
-    input,
-    result.ecdsa.bootstrap,
-    result.ecdsa.activation.ecdsa_activation.activation_epoch,
-    runtimePolicyScope || undefined,
-  );
-  if (signingError) return signingError;
   return routeJson(200, result);
 }
 

@@ -139,7 +139,7 @@ async function prepareWithHttpError(fixture: HttpErrorFixture): Promise<unknown>
   try {
     await prepareRouterAbNormalSigningV2({
       relayServerUrl: 'https://router.example/base/',
-      credential: { kind: 'jwt', walletSessionJwt: 'wallet-session-jwt' },
+      credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
       request,
     });
     return null;

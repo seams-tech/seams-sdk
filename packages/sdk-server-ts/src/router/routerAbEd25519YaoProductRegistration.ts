@@ -41,8 +41,6 @@ import type {
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import { sha256BytesUtf8 } from '@shared/utils/digests';
-import { base64UrlEncode } from '@shared/utils/encoders';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { deriveSigningRootId, type RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
@@ -73,7 +71,6 @@ import {
 import { isPlainObject } from '@shared/utils/validation';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
-  DEFAULT_WALLET_SESSION_TTL_MS,
   MAX_WALLET_SESSION_REMAINING_USES,
   MAX_WALLET_SESSION_TTL_MS,
 } from '@shared/threshold/sessionPolicy';
@@ -95,18 +92,6 @@ type RouterAbEd25519YaoWalletSessionMintIdentityV1 = {
 };
 
 export type RouterAbEd25519YaoWalletSessionMintInputV1 =
-  | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
-      readonly kind: 'registration_wallet_session_v1';
-      readonly signingGrantId?: never;
-      readonly expiresAtMs?: never;
-      readonly remainingUses?: never;
-    })
-  | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
-      readonly kind: 'shared_registration_wallet_session_v1';
-      readonly signingGrantId: string;
-      readonly expiresAtMs: number;
-      readonly remainingUses: number;
-    })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'shared_email_otp_recovery_wallet_session_v1';
       readonly signingGrantId?: never;
@@ -419,35 +404,11 @@ function requireInheritedWalletSessionTerms(args: {
   };
 }
 
-async function deriveRegistrationSigningGrantId(input: {
-  readonly thresholdSessionId: string;
-  readonly signingWorkerId: string;
-}): Promise<string> {
-  const thresholdSessionId = input.thresholdSessionId.trim();
-  const signingWorkerId = input.signingWorkerId.trim();
-  if (!thresholdSessionId) throw new Error('Registration thresholdSessionId is required');
-  if (!signingWorkerId) throw new Error('Registration SigningWorker ID is required');
-  const digest = await sha256BytesUtf8(
-    `seams.router-ab.ed25519-yao.registration-signing-grant.v1\0${signingWorkerId}\0${thresholdSessionId}`,
-  );
-  return `wss_${base64UrlEncode(digest)}`;
-}
-
 async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
   input: RouterAbEd25519YaoWalletSessionMintInputV1,
-  signingWorkerId: string,
 ): Promise<RouterAbEd25519YaoWalletSessionTermsV1> {
   const nowMs = Date.now();
   switch (input.kind) {
-    case 'registration_wallet_session_v1':
-      return {
-        signingGrantId: await deriveRegistrationSigningGrantId({
-          thresholdSessionId: input.thresholdSessionId,
-          signingWorkerId,
-        }),
-        expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
-        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
-      };
     case 'shared_email_otp_recovery_wallet_session_v1':
       if (!Number.isSafeInteger(input.expiresAtMs) || input.expiresAtMs <= nowMs) {
         throw new Error('Email OTP Wallet Session expiry must follow issuance');
@@ -460,7 +421,6 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
           Math.max(1, Math.floor(input.remainingUses)),
         ),
       };
-    case 'shared_registration_wallet_session_v1':
     case 'same_identity_budget_refresh_v1':
       return requireInheritedWalletSessionTerms({
         signingGrantId: input.signingGrantId,
@@ -551,7 +511,7 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
   const signingWorkerId = input.signingWorkerId.trim();
   if (!signingWorkerId) throw new Error('Ed25519 Yao SigningWorker ID is required');
   const sessionInput = input.sessionInput;
-  const terms = await resolveRouterAbEd25519YaoWalletSessionTermsV1(sessionInput, signingWorkerId);
+  const terms = await resolveRouterAbEd25519YaoWalletSessionTermsV1(sessionInput);
   const signingRootId = deriveSigningRootId(sessionInput.runtimePolicyScope);
   const signingRootVersion = sessionInput.runtimePolicyScope.signingRootVersion;
   const routerAbNormalSigning = {
