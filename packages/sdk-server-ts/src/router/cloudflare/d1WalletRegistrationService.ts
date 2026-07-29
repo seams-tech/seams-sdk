@@ -62,8 +62,6 @@ import {
   type WalletRegistrationEcdsaWalletKey,
   type WalletRegistrationEd25519YaoPublicResult,
   type WalletRegistrationFinalizeSuccess,
-  WalletRegistrationStartRequest,
-  WalletRegistrationStartResponse,
   type WalletRegistrationRouteDiagnostics,
   type WalletRegistrationRouteTimingName,
 } from '../../core/registrationContracts';
@@ -431,17 +429,6 @@ function withD1RegistrationRouteDiagnostics(
   response: WalletRegistrationFinalizeResponse,
   recorder: D1RegistrationRouteTimingRecorder,
 ): WalletRegistrationFinalizeResponse {
-  if (!response.ok) return response;
-  return {
-    ...response,
-    registrationDiagnostics: d1RegistrationRouteDiagnostics(recorder),
-  };
-}
-
-function withD1RegistrationStartDiagnostics(
-  response: WalletRegistrationStartResponse,
-  recorder: D1RegistrationRouteTimingRecorder,
-): WalletRegistrationStartResponse {
   if (!response.ok) return response;
   return {
     ...response,
