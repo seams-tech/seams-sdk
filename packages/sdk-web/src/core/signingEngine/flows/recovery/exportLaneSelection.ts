@@ -12,7 +12,6 @@ import {
   emitSigningSessionFlowTrace,
 } from '../../session/operationState/trace';
 import {
-  thresholdEcdsaChainTargetsEqual,
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -37,22 +36,14 @@ import type {
   SigningEngineResolveExactKeyExportLaneResult,
 } from './keyExportFlow';
 
-type ConcreteEcdsaExportAvailableLane = ConcreteAvailableEcdsaSigningLane;
+type ConcreteEcdsaExportAvailableLane = ConcreteAvailableEcdsaSigningLane & {
+  source: 'canonical_capability';
+  authorization: NonNullable<ConcreteAvailableEcdsaSigningLane['authorization']>;
+};
 
 type EcdsaExportSelectionKeyContext = {
   walletId: string;
 };
-
-type EcdsaExportMaterialLaneResolution =
-  | {
-      kind: 'resolved';
-      lane: ConcreteEcdsaExportAvailableLane;
-    }
-  | {
-      kind: 'duplicate_shared_key_targets';
-      targetLane: ConcreteEcdsaExportAvailableLane;
-      sourceCandidates: ConcreteEcdsaExportAvailableLane[];
-    };
 
 export type ExportLaneSelectionDeps = {
   readPersistedAvailableSigningLanesForTargets: (
@@ -72,8 +63,6 @@ function summarizeExportAvailableLane(
     chainTarget: lane.chainTarget,
     state: lane.state,
     source: lane.source,
-    signingGrantId: lane.signingGrantId,
-    thresholdSessionId: lane.thresholdSessionId,
     remainingUses: lane.remainingUses,
     expiresAtMs: lane.expiresAtMs,
     updatedAtMs: lane.updatedAtMs,
@@ -150,9 +139,6 @@ function exactEcdsaIdentityForExportLane(args: {
   lane: ConcreteEcdsaExportAvailableLane;
   chainTarget?: ThresholdEcdsaChainTarget;
 }): ExactEcdsaSigningLaneIdentity {
-  if (args.lane.source !== 'canonical_capability' || !args.lane.authorization) {
-    throw new Error('[SigningEngine][ecdsa-export] canonical authorization is required');
-  }
   return exactEcdsaSigningLaneIdentity({
     signer: buildEvmFamilyEcdsaSignerBinding({
       walletId: args.lane.key.walletId,
@@ -179,16 +165,6 @@ function exactEcdsaExportSessionFromAvailableLane(args: {
 }): ExactEcdsaExportSession {
   const authMethod = availableEcdsaSigningLaneAuthMethod(args.lane);
   const material = ecdsaExportMaterialAvailabilityForLane(args.lane);
-  if (args.lane.source === 'durable_sealed_record') {
-    return {
-      chainTarget: args.chainTarget,
-      authMethod,
-      material,
-      state: args.lane.state,
-      source: 'durable_sealed_record',
-      publicReauthAuthority: args.lane.publicReauthAuthority,
-    };
-  }
   switch (args.lane.state) {
     case 'expired':
     case 'exhausted':
@@ -203,7 +179,7 @@ function exactEcdsaExportSessionFromAvailableLane(args: {
         authMethod,
         material,
         state: args.lane.state,
-        source: args.lane.source,
+        source: 'canonical_capability',
       };
   }
 }
@@ -227,80 +203,6 @@ function targetEcdsaExportCandidates(args: {
   );
 }
 
-function sameEcdsaExportSession(
-  left: ConcreteEcdsaExportAvailableLane,
-  right: ConcreteEcdsaExportAvailableLane,
-): boolean {
-  return (
-    availableEcdsaSigningLaneAuthMethod(left) === availableEcdsaSigningLaneAuthMethod(right) &&
-    left.signingGrantId === right.signingGrantId &&
-    left.thresholdSessionId === right.thresholdSessionId
-  );
-}
-
-function resolveEcdsaExportMaterialLane(args: {
-  targetLane: ConcreteEcdsaExportAvailableLane;
-  allCandidates: ConcreteEcdsaExportAvailableLane[];
-  ecdsaContext: EcdsaExportSelectionKeyContext;
-}): EcdsaExportMaterialLaneResolution {
-  if (args.targetLane.source !== 'evm_family_shared_key') {
-    return { kind: 'resolved', lane: args.targetLane };
-  }
-  const targetIdentityKey = exportAvailableLaneSelectionKey(args.targetLane, args.ecdsaContext);
-  if (!targetIdentityKey) {
-    return { kind: 'resolved', lane: args.targetLane };
-  }
-  const sourceChainTarget = args.targetLane.sourceChainTarget;
-  const sourceCandidates = args.allCandidates.filter(
-    (candidate): candidate is ConcreteEcdsaExportAvailableLane =>
-      candidate.source !== 'evm_family_shared_key' &&
-      thresholdEcdsaChainTargetsEqual(candidate.chainTarget, sourceChainTarget) &&
-      sameEcdsaExportSession(candidate, args.targetLane) &&
-      exportAvailableLaneSelectionKey(candidate, args.ecdsaContext) === targetIdentityKey,
-  );
-  if (sourceCandidates.length === 0) {
-    return { kind: 'resolved', lane: args.targetLane };
-  }
-  if (sourceCandidates.length > 1) {
-    return {
-      kind: 'duplicate_shared_key_targets',
-      targetLane: args.targetLane,
-      sourceCandidates,
-    };
-  }
-  const [selectedSource] = sourceCandidates;
-  return { kind: 'resolved', lane: selectedSource };
-}
-
-function resolveEcdsaExportMaterialLanesForTarget(args: {
-  targetCandidates: ConcreteEcdsaExportAvailableLane[];
-  allCandidates: ConcreteEcdsaExportAvailableLane[];
-  ecdsaContext: EcdsaExportSelectionKeyContext;
-}): ConcreteEcdsaExportAvailableLane[] {
-  const materialLanes: ConcreteEcdsaExportAvailableLane[] = [];
-  for (const targetLane of args.targetCandidates) {
-    const resolution = resolveEcdsaExportMaterialLane({
-      targetLane,
-      allCandidates: args.allCandidates,
-      ecdsaContext: args.ecdsaContext,
-    });
-    if (resolution.kind === 'duplicate_shared_key_targets') {
-      emitSigningSessionFlowFailure('evm-family', {
-        stage: 'key_export.duplicate_shared_key_targets',
-        context: 'ecdsa-export',
-        targetLane: summarizeExportAvailableLane(resolution.targetLane),
-        candidateCount: resolution.sourceCandidates.length,
-        candidates: resolution.sourceCandidates.map(summarizeExportAvailableLane),
-      });
-      throw new Error(
-        '[SigningEngine][ecdsa-export] shared-key source lane selection failed: duplicate_shared_key_targets',
-      );
-    }
-    materialLanes.push(resolution.lane);
-  }
-  return materialLanes;
-}
-
 async function resolveEcdsaExportLane(
   deps: Pick<ExportLaneSelectionDeps, 'readPersistedAvailableSigningLanesForTargets'>,
   args: {
@@ -320,31 +222,15 @@ async function resolveEcdsaExportLane(
   const exactTargetCandidates = targetCandidates.filter((lane) =>
     ecdsaExportLaneMatchesIdentity({ lane, identity: args.laneIdentity }),
   );
-  const allConcreteCandidates = Object.values(targetAvailableLanes.ecdsa.candidatesByTarget)
-    .flat()
-    .filter(isConcreteEcdsaExportLane);
   const ecdsaContext = {
     walletId: args.walletId,
   };
-  const materialCandidates = resolveEcdsaExportMaterialLanesForTarget({
-    targetCandidates: exactTargetCandidates,
-    allCandidates: allConcreteCandidates,
-    ecdsaContext,
-  });
   const selected = selectExactExportAvailableLane({
     context: 'ecdsa-export',
-    candidates: materialCandidates,
+    candidates: exactTargetCandidates,
     ecdsaContext,
   });
-  const sessionChainTarget =
-    selected.source === 'evm_family_shared_key' ? selected.sourceChainTarget : selected.chainTarget;
-  const laneIdentity = exactEcdsaIdentityForExportLane({
-    lane: selected,
-    chainTarget: sessionChainTarget,
-  });
-  if (!selected.authorization) {
-    throw new Error('[SigningEngine][ecdsa-export] selected lane authorization is missing');
-  }
+  const laneIdentity = exactEcdsaIdentityForExportLane({ lane: selected });
   return {
     curve: 'ecdsa',
     laneIdentity,
@@ -353,7 +239,7 @@ async function resolveEcdsaExportLane(
     publicFacts: selected.publicFacts,
     session: exactEcdsaExportSessionFromAvailableLane({
       lane: selected,
-      chainTarget: sessionChainTarget,
+      chainTarget: selected.chainTarget,
     }),
   };
 }
