@@ -273,7 +273,7 @@ function recoveryAdmissionRequest(
         ),
         root_share_epoch: capability.lifecycle.rootShareEpoch,
         account_id: capability.lifecycle.accountId,
-        wallet_session_id: input.bootstrap.session.thresholdSessionId,
+        wallet_session_id: input.bootstrap.session.walletSessionId,
         signer_set_id: capability.lifecycle.signerSetId,
         signing_worker_id: capability.lifecycle.signingWorkerId,
       },

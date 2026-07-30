@@ -52,11 +52,19 @@ import {
   parseWalletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
+  type MpcWalletSigningQuotaId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 export type ParsedYaoRecoverySessionV1 = {
   readonly walletSessionJwt: string;
   readonly thresholdSessionId: string;
   readonly signingGrantId: string;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
   readonly expiresAtMs: number;
   readonly remainingUses: number;
   readonly runtimePolicyScope: ReturnType<typeof normalizeRuntimePolicyScope>;
@@ -184,10 +192,17 @@ function parseRecoverySession(
   const runtimePolicyScope = normalizeRuntimePolicyScope(runtimePolicyRecord);
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
   if (!routerAbNormalSigning) throw new Error('Yao recovery session signing state is invalid');
+  const walletSessionId = parseWalletSessionId(raw.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(raw.quotaId);
+  if (!walletSessionId.ok || !quotaId.ok) {
+    throw new Error('Yao recovery Wallet Session identity is invalid');
+  }
   return {
     walletSessionJwt: requireString(raw.walletSessionJwt, 'session.walletSessionJwt'),
     thresholdSessionId: requireString(raw.thresholdSessionId, 'session.thresholdSessionId'),
     signingGrantId: requireString(raw.signingGrantId, 'session.signingGrantId'),
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
     expiresAtMs: requirePositiveInteger(raw.expiresAtMs, 'session.expiresAtMs'),
     remainingUses: requirePositiveInteger(raw.remainingUses, 'session.remainingUses'),
     runtimePolicyScope,
@@ -345,7 +360,7 @@ function recoveryAdmissionRequest(
         lifecycle_id: secureRandomId('ed25519-yao-recovery', 32, 'Ed25519 Yao recovery IDs'),
         root_share_epoch: parsed.capability.lifecycle.rootShareEpoch,
         account_id: parsed.capability.lifecycle.accountId,
-        wallet_session_id: parsed.session.thresholdSessionId,
+        wallet_session_id: parsed.session.walletSessionId,
         signer_set_id: parsed.capability.lifecycle.signerSetId,
         signing_worker_id: parsed.capability.lifecycle.signingWorkerId,
       },

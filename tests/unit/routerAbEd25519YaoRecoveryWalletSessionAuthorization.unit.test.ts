@@ -38,6 +38,8 @@ type ClaimsFixtureInput = {
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
+  walletSessionId: string;
+  quotaId: string;
   thresholdSessionId: string;
   signingGrantId: string;
   rootShareEpoch: string;
@@ -246,6 +248,8 @@ function validClaimsFixture(input?: Partial<ClaimsFixtureInput>): SessionClaims 
     walletId: input?.walletId ?? WALLET_ID,
     nearAccountId: input?.nearAccountId ?? WALLET_ID,
     nearEd25519SigningKeyId: input?.nearEd25519SigningKeyId ?? NEAR_SIGNING_KEY_ID,
+    walletSessionId: input?.walletSessionId ?? WALLET_SESSION_ID,
+    quotaId: input?.quotaId ?? 'quota-recovery-1',
     thresholdSessionId: input?.thresholdSessionId ?? WALLET_SESSION_ID,
     signingGrantId: input?.signingGrantId ?? 'signing-grant-recovery-1',
     rootShareEpoch: input?.rootShareEpoch ?? ROOT_SHARE_EPOCH,
@@ -264,6 +268,8 @@ function validClaimsFixture(input?: Partial<ClaimsFixtureInput>): SessionClaims 
     walletId: values.walletId,
     nearAccountId: values.nearAccountId,
     nearEd25519SigningKeyId: values.nearEd25519SigningKeyId,
+    walletSessionId: values.walletSessionId,
+    quotaId: values.quotaId,
     thresholdSessionId: values.thresholdSessionId,
     signingGrantId: values.signingGrantId,
     relayerKeyId: values.signingWorkerId,
@@ -292,6 +298,12 @@ async function authorizeWithClaims(
   const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(session);
   const result = await authorization.authorize(input);
   return { result, session };
+}
+
+function claimsWithSubstitutedSessionForPhase(phase: AuthorizationPhase): SessionClaims {
+  return phase === 'admit'
+    ? validClaimsFixture({ walletSessionId: 'substituted-wallet-session' })
+    : validClaimsFixture({ thresholdSessionId: 'substituted-threshold-session' });
 }
 
 test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', () => {
@@ -368,9 +380,9 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
     });
   });
 
-  test('rejects wallet, session, and SigningWorker substitutions in every phase', async () => {
+  test('rejects wallet, phase-owned session, and SigningWorker substitutions', async () => {
     const phases: readonly AuthorizationPhase[] = ['bootstrap', 'admit', 'execute', 'activate'];
-    const substitutions: ReadonlyArray<{
+    const sharedSubstitutions: ReadonlyArray<{
       label: string;
       claims: SessionClaims;
     }> = [
@@ -379,16 +391,19 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
         claims: validClaimsFixture({ walletId: 'substituted-wallet.testnet' }),
       },
       {
-        label: 'session',
-        claims: validClaimsFixture({ thresholdSessionId: 'substituted-wallet-session' }),
-      },
-      {
         label: 'SigningWorker',
         claims: validClaimsFixture({ signingWorkerId: 'substituted-signing-worker' }),
       },
     ];
 
     for (const phase of phases) {
+      const substitutions = [
+        ...sharedSubstitutions,
+        {
+          label: 'session',
+          claims: claimsWithSubstitutedSessionForPhase(phase),
+        },
+      ];
       for (const substitution of substitutions) {
         const authorized = await authorizeWithClaims(
           authorizationInputFixture(phase, true),

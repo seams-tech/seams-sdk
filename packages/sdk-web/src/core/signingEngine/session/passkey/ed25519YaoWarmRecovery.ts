@@ -39,6 +39,10 @@ import {
   isWalletSessionJwt,
 } from '@shared/utils/sessionTokens';
 import { walletSessionFailureErrorFromPayload } from '../lifecycle/walletSessionFailure';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 export type PasskeyEd25519RecordRuntimePorts = {
   readonly listExactSealedSessionsForWallet: typeof listExactSealedSessionsForWallet;
@@ -132,6 +136,7 @@ function exactResponseKeys(record: Record<string, unknown>): void {
     'nearAccountId',
     'nearEd25519SigningKeyId',
     'participantIds',
+    'quotaId',
     'routerAbNormalSigning',
     'runtimePolicyScope',
     'signerSlot',
@@ -140,6 +145,7 @@ function exactResponseKeys(record: Record<string, unknown>): void {
     'thresholdExpiresAtMs',
     'thresholdSessionId',
     'walletId',
+    'walletSessionId',
   ].sort();
   const actual = Object.keys(record).sort();
   if (actual.length !== expected.length) {
@@ -339,6 +345,8 @@ async function parseWarmRecoveryDescriptor(args: {
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
     response.routerAbNormalSigning,
   );
+  const walletSessionId = parseWalletSessionId(response.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(response.quotaId);
   const expectedAuthorityRef = authority
     ? await walletAuthAuthorityRef({ authority })
     : null;
@@ -350,6 +358,8 @@ async function parseWarmRecoveryDescriptor(args: {
     authorityRef.authorityDigest !== expectedAuthorityRef.authorityDigest ||
     !walletAuthAuthoritiesMatch(authority, expectedAuthority) ||
     authorityScope.kind !== 'passkey_rp' ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
     authorityScope.rpId !== restore.rpId ||
     !routerAbNormalSigning ||
     walletId !== record.walletId ||
@@ -384,6 +394,8 @@ async function parseWarmRecoveryDescriptor(args: {
       walletSessionJwt: passkeyWalletSessionJwt(restore),
       thresholdSessionId,
       signingGrantId,
+      walletSessionId: walletSessionId.value,
+      quotaId: quotaId.value,
       expiresAtMs: thresholdExpiresAtMs,
       remainingUses: record.remainingUses,
       runtimePolicyScope: responseRuntimePolicyScope,

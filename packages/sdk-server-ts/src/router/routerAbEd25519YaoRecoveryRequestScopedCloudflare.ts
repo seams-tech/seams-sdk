@@ -510,6 +510,8 @@ async function runWarmRecoveryBootstrapRequest(
     signerSlot: request.signerSlot,
     thresholdSessionId: authorized.claims.thresholdSessionId,
     signingGrantId: authorized.claims.signingGrantId,
+    walletSessionId: authorized.claims.walletSessionId,
+    quotaId: authorized.claims.quotaId,
     signingWorkerId: authorized.claims.routerAbNormalSigning.signingWorkerId,
     thresholdExpiresAtMs: authorized.claims.thresholdExpiresAtMs,
     participantIds: [firstParticipantId, secondParticipantId],
