@@ -96,7 +96,7 @@ both the staging and production workflows: one defect, four live sites.
 `STRIPE_API_SK` as required and `RELAYER_PRIVATE_KEY` as optional. Neither
 classification is connected to which capabilities the target actually has
 enabled. The requirement is discovered at the moment the file is written, which
-is after migrations, tenant bootstrap, and the KEK upsert have already mutated
+is after migrations and the KEK upsert have already mutated
 the target.
 
 ## Decision Summary
@@ -235,7 +235,6 @@ Retained and called directly by the new scripts:
 
 - `packages/console-server-ts/scripts/apply-remote-d1-migrations.mjs`
 - `packages/console-server-ts/scripts/render-d1-gateway-config.mjs`
-- `packages/console-server-ts/scripts/bootstrap-gateway-deployment.mjs`
 - `packages/console-server-ts/scripts/upsert-signing-root-kek.mjs`
 - `packages/console-server-ts/scripts/write-gateway-secrets-file.mjs`, with
   `REQUIRED_SECRET_NAMES` replaced by capability-derived requirements
@@ -385,8 +384,8 @@ The workflow expresses one fixed order:
 5. Validate and deploy Deriver A.
 6. Validate and deploy Deriver B.
 7. Validate and deploy MPC Router.
-8. Validate Gateway configuration, bootstrap the tenant, upsert the
-   signing-root KEK, deploy Gateway, and run live backend smoke tests.
+8. Validate Gateway configuration, upsert the signing-root KEK, deploy Gateway,
+   and run live backend smoke tests.
 
 Every preflight leg completes before the migration/deployment chain begins.
 The build precedes preflight because it owns the branch guard. This ordering is
@@ -749,8 +748,8 @@ before production.
    or validate workflow source text.
 3. `pnpm deploy:backend plan --target staging` runs locally without secrets,
    parses the complete target, and prints every ordered mutation.
-4. Preflight failure for a missing secret occurs before any migration, tenant
-   bootstrap, KEK upsert, or worker deploy. A component-scoped test proves the
+4. Preflight failure for a missing secret occurs before any migration, KEK
+   upsert, or worker deploy. A component-scoped test proves the
    JSON inventory path, and one staging workflow run proves fail-before-mutate.
 5. Deriver A and Deriver B secrets are never bound to the same job.
 6. Workflows accept no arbitrary source SHA. Every job checks out the immutable

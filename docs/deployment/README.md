@@ -117,8 +117,8 @@ The hand-written backend workflow makes this dependency order visible:
    fingerprints guard the operation.
 4. Validate and deploy SigningWorker, Deriver A, and Deriver B concurrently.
 5. Validate and deploy MPC Router after all three workers complete.
-6. Validate Gateway configuration, bootstrap the tenant, upsert the
-   signing-root KEK, and deploy Gateway.
+6. Validate Gateway configuration, upsert the signing-root KEK, and deploy
+   Gateway.
 7. Run backend smoke checks as the final Gateway job step.
 
 Gateway is last because it depends on the preceding backend services. Worker
@@ -132,6 +132,12 @@ The Gateway uses partitioned D1 and the MPC Router for Ed25519 Yao immediately.
 Deployments have no tenant-runtime fallback, family selector, or admission-drain
 window. Remove retired `ROUTER_AB_YAO_GATEWAY_*` cutoff/drain values from GitHub
 Environments instead of carrying them into a release.
+
+Backend deployment never creates an organization, project, project environment,
+or API key. An administrator completes onboarding, creates the project and
+browser-safe publishable key, then stores `VITE_SEAMS_PROJECT_ENVIRONMENT_ID`
+and `VITE_SEAMS_PUBLISHABLE_KEY` in the target's GitHub environment. Redeploy
+the frontend after either value changes.
 
 ### Frontend
 

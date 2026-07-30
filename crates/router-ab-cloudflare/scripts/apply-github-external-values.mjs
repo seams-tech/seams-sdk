@@ -293,11 +293,7 @@ function validateCheckedInGatewayConfiguration(target, values) {
   assertSuppliedValueMatches(values, 'GOOGLE_OIDC_CLIENT_ID', config.optional.googleOidcClientId);
   assertSuppliedJsonMatches(values, 'SEAMS_OIDC_EXCHANGE_JSON', config.optional.oidcExchange);
   const walletOrigin = readValue(values, 'VITE_WALLET_ORIGIN');
-  if (
-    walletOrigin &&
-    (!config.origins.allowedCors.includes(walletOrigin) ||
-      !config.bootstrap.allowedOrigins.includes(walletOrigin))
-  ) {
+  if (walletOrigin && !config.origins.allowedCors.includes(walletOrigin)) {
     throw new Error('VITE_WALLET_ORIGIN must be updated in deployment/targets.json first');
   }
   const nearRelayer = config.optional.nearRelayer;
