@@ -64,17 +64,7 @@ type PendingPasskeyMpcSessionRequest = {
   reject: (error: Error) => void;
 };
 
-export interface PasskeyMpcSessionDurableWorkerPort {
-  sealAndPersistWarmSessionMaterial(
-    args: WarmSessionSealAndPersistPayload,
-  ): Promise<WarmSessionSealAndPersistResult>;
-  rehydrateWarmSessionMaterial(
-    args: WarmSessionRehydratePayload,
-  ): Promise<WarmSessionRehydrateResult>;
-}
-
-export type PasskeyMpcSessionManagerPort = PasskeyMpcSessionPort &
-  PasskeyMpcSessionDurableWorkerPort;
+export type PasskeyMpcSessionManagerPort = PasskeyMpcSessionPort;
 
 type PasskeyMpcSessionManagerDeps = {
   signingSessionPersistenceMode: 'none' | 'sealed_refresh_v1';

@@ -99,7 +99,6 @@ import type {
   WarmSessionMaterialWriteDiagnosticBucket,
   WarmSessionMaterialWriteDiagnostics,
 } from '../session/passkey/warmSessionMaterialWriter';
-import type { PasskeyMpcSessionDurableWorkerPort } from './PasskeyMpcSessionManager';
 
 type PendingWorkerRequest = {
   id: string;
@@ -577,7 +576,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   constructor(
     config: UiConfirmManagerConfig,
     context: UiConfirmContext,
-    private readonly passkeyMpcSession: PasskeyMpcSessionDurableWorkerPort,
+    private readonly passkeyMpcSession: Pick<
+      PasskeyMpcSessionPort,
+      'sealAndPersistWarmSessionMaterial'
+    >,
     private readonly passkeyMpcSessionStatus: Pick<
       PasskeyMpcSessionPort,
       'getWarmSessionStatus'
@@ -2303,7 +2305,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
 export function createUiConfirmManager(
   config: UiConfirmManagerConfig,
   context: UiConfirmContext,
-  passkeyMpcSession: PasskeyMpcSessionDurableWorkerPort,
+  passkeyMpcSession: Pick<PasskeyMpcSessionPort, 'sealAndPersistWarmSessionMaterial'>,
   passkeyMpcSessionStatus: Pick<PasskeyMpcSessionPort, 'getWarmSessionStatus'>,
 ): UiConfirmManager {
   return new UiConfirmWorkerManagerImpl(
