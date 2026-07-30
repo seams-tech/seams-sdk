@@ -291,8 +291,10 @@ Completed deletions that must stay absent:
 Replacement: capability-local Near/ECDSA material adapters, generic session
 ports, and the two-state recovery journal.
 
-- `EmailOtpUnlockMaterialPlan` and every combined two-curve request/result/
-  commit object
+- `EmailOtpUnlockMaterialPlan`
+- ~~every combined two-curve request/result/commit object~~ — replaced by one
+  unlock envelope containing exact sibling ECDSA and Ed25519-Yao outcomes in
+  `def400d94`
 - `EmailOtpEd25519YaoSessionMaterialRequestV1`
 - `EmailOtpEd25519YaoExactLocalSessionBootstrapV1`
 - `WalletUnlockEmailOtpSessionIntentV1`
@@ -306,7 +308,7 @@ ports, and the two-state recovery journal.
 - `router_ab_ed25519_yao_email_otp_local_session_v1`
 - `router_ab_ed25519_yao_email_otp_recovery_session_v1`
 - `shared_email_otp_recovery_wallet_session_v1`
-- `ecdsa_and_ed25519_yao_local_session`
+- ~~`ecdsa_and_ed25519_yao_local_session`~~ — deleted by `def400d94`
 - the implicit omitted-`sessionIntent` branch (explicit requested-capability
   set instead)
 
@@ -406,9 +408,10 @@ ports, and the two-state recovery journal.
   `resolveThresholdEd25519CommitQueueKey`
 - the `forceFreshAuth` and `retryingFreshAuth` planner booleans
 - all `CreateSigningEnginePortsArgs` aliases/wiring for the ports above
-- stale cross-curve companion envelopes, including
-  `ecdsa_and_ed25519_yao_recovery` (capability-specific material requests
-  instead)
+- ~~stale cross-curve companion envelopes, including
+  `ecdsa_and_ed25519_yao_recovery`~~ — replaced by capability-specific material
+  requests and exact sibling results in `def400d94`; the obsolete combined
+  fixture was deleted by `89e9cd4a5`
 
 ## Phase 19 — tests and fixtures (migrate valid assertions, then delete)
 
@@ -451,9 +454,10 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - generic-named passkey-only WASM sessions (destructive rename to
   `WasmPasskeyClientRegistrationSessionV1` /
   `WasmPasskeyClientRecoverySessionV1`; no aliases)
-- combined ECDSA enrollment and `ecdsa_and_ed25519_yao_recovery` unlock worker
-  requests (capability-specific commands; shared OTP/WebAuthn interaction is
-  verified evidence satisfying two exact requirements)
+- combined ECDSA enrollment requests
+- ~~`ecdsa_and_ed25519_yao_recovery` unlock worker requests~~ — replaced by
+  capability-specific commands inside one shared unlock proof envelope in
+  `def400d94`
 - replaced worker entrypoints, loaders, asset-manifest rows,
   `UiConfirmManager` factor branches, and adapter wrappers
 - ~~`SignerWorkerManager.requestExportPrivateKeysWithUi` forwarding adapter~~

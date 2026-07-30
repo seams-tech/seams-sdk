@@ -3570,6 +3570,11 @@ capability as a hidden side effect. Generic EVM ECDSA selection, preparation,
 restore coordination, and committed-lane construction contain no factor-kind
 control flow.
 
+Implementation evidence: `def400d94` replaces the combined Email OTP unlock
+request/result discriminants with one proof envelope containing exact sibling
+ECDSA and Ed25519-Yao outcomes. `89e9cd4a5` deletes the obsolete combined
+fixture.
+
 `GrantEvidenceRequirement` is deliberately flat. `all` requires every named
 evidence kind and `any` requires at least one. Evidence kinds are canonicalized
 as a sorted unique nonempty set before persistence or evaluation. A real policy

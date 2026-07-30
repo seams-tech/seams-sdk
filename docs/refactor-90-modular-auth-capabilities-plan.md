@@ -968,6 +968,9 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
       capability independently through statically composed canonical owners.
 - [x] Make partial capability results explicit and exhaustively handled.
 - [x] Return exact per-capability results with no combined cross-curve record.
+      Email OTP unlock now returns exact sibling ECDSA and Ed25519-Yao outcomes
+      under one proof envelope; the combined discriminants and fixture were
+      deleted in `def400d94` and `89e9cd4a5`.
 - [x] Use exact wallet, authorization-session, and material-activation
       projections.
 - [x] Delete Patch 2 tactical UI/provisioning bridges after their last caller
