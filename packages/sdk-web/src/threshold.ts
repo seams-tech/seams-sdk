@@ -1,5 +1,4 @@
 // Stable threshold support APIs.
-export { keygenEcdsa } from './core/signingEngine/threshold/ecdsa/keygen';
 export {
   THRESHOLD_SESSION_POLICY_VERSION,
   buildEd25519SessionPolicy,

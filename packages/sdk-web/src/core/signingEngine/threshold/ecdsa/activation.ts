@@ -24,11 +24,6 @@ import {
 import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { RouterAbNormalSigningConfig } from '@/core/types/seams';
-import { base64UrlEncode } from '@shared/utils/base64';
-import {
-  parseSdkEcdsaDerivationSigningRootId,
-  parseSdkEcdsaDerivationSigningRootVersion,
-} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
@@ -56,20 +51,13 @@ import {
 } from '../../session/keyMaterialBrands';
 import { buildEcdsaRoleLocalSigningMaterialHandle } from '../../session/identity/ecdsaDerivationSigningMaterialHandle';
 import { storeEcdsaRoleLocalSigningMaterialWasm } from '../crypto/ecdsaDerivationClientWasm';
-import { hexToBytes } from '../../chains/evm/bytes';
-import { fetchRouterAbPublicKeysetV2 } from '@/core/rpcClients/relayer/routerAbPublicKeyset';
 import {
-  ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
-  parseRouterAbEcdsaDerivationNormalSigningStateV1,
-  routerAbEcdsaDerivationStableKeyContextFromSdkFactsV1,
-  verifyRouterAbEcdsaDerivationNormalSigningScopeContextBindingV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
   type RouterAbEcdsaOperationStepUpPreparationV1Wire,
   parseRouterAbEcdsaOperationStepUpPreparationV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { RootShareEpoch } from '@shared/utils/domainIds';
 import type {
   CapabilityGrantId,
   MpcWalletSigningQuotaId,
@@ -190,84 +178,6 @@ type EmailOtpEcdsaBootstrapWorkerHandle = Extract<
   EmailOtpWorkerIssuedSessionHandle,
   { action: 'threshold_ecdsa_bootstrap' }
 >;
-
-function assertNeverRouterAbNormalSigningConfig(value: never): never {
-  throw new Error(`Unexpected Router A/B normal-signing config branch: ${String(value)}`);
-}
-
-function encodeEthereumAddress20B64u(address: string): string {
-  const bytes = hexToBytes(address);
-  if (bytes.length !== 20) {
-    throw new Error(
-      'Router A/B ECDSA derivation normal-signing state requires a 20-byte owner address',
-    );
-  }
-  return base64UrlEncode(bytes);
-}
-
-async function buildRouterAbEcdsaDerivationNormalSigningState(args: {
-  config: RouterAbNormalSigningConfig;
-  relayerUrl: string;
-  walletId: WalletId;
-  evmFamilySigningKeySlotId: string;
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  contextBinding32B64u: string;
-  derivationClientSharePublicKey33B64u: string;
-  serverPublicKey33B64u: string;
-  thresholdPublicKey33B64u: string;
-  ethereumAddress: string;
-  clientShareRetryCounter: number;
-  serverShareRetryCounter: number;
-  activationEpoch: RootShareEpoch;
-}): Promise<RouterAbEcdsaDerivationNormalSigningStateV1> {
-  switch (args.config.mode) {
-    case 'disabled':
-      throw new Error('Router A/B ECDSA derivation normal signing must be enabled for activation');
-    case 'enabled': {
-      const keyset = await fetchRouterAbPublicKeysetV2({ relayerUrl: args.relayerUrl });
-      const context = await routerAbEcdsaDerivationStableKeyContextFromSdkFactsV1({
-        walletId: toWalletId(args.walletId),
-        ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(args.ecdsaThresholdKeyId),
-        signingRootId: parseSdkEcdsaDerivationSigningRootId(args.signingRootId),
-        signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(args.signingRootVersion),
-      });
-      const state = parseRouterAbEcdsaDerivationNormalSigningStateV1({
-        kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
-        scope: {
-          wallet_id: String(args.walletId),
-          ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
-          signing_root_id: args.signingRootId,
-          signing_root_version: args.signingRootVersion,
-          context,
-          public_identity: {
-            context_binding_b64u: args.contextBinding32B64u,
-            derivation_client_share_public_key33_b64u: args.derivationClientSharePublicKey33B64u,
-            server_public_key33_b64u: args.serverPublicKey33B64u,
-            threshold_public_key33_b64u: args.thresholdPublicKey33B64u,
-            ethereum_address20_b64u: encodeEthereumAddress20B64u(args.ethereumAddress),
-            client_share_retry_counter: args.clientShareRetryCounter,
-            server_share_retry_counter: args.serverShareRetryCounter,
-          },
-          signing_worker: {
-            server_id: args.config.signingWorkerId,
-            key_epoch: keyset.signing_worker_server_output_hpke.key_epoch,
-            recipient_encryption_key: keyset.signing_worker_server_output_hpke.public_key,
-          },
-          activation_epoch: args.activationEpoch,
-        },
-      });
-      if (!state) {
-        throw new Error('Router A/B ECDSA derivation normal-signing state could not be built');
-      }
-      await verifyRouterAbEcdsaDerivationNormalSigningScopeContextBindingV1(state.scope);
-      return state;
-    }
-    default:
-      return assertNeverRouterAbNormalSigningConfig(args.config);
-  }
-}
 
 type ActivateEcdsaPasskeyPromptAuth = {
   authKind: 'passkey_prompt';
