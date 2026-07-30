@@ -10,9 +10,7 @@ import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableS
 import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetStatusOperation } from '@/core/signingEngine/session/budget/budgetStatusReader';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { BrowserSealedSigningSessionStorePorts } from './createBrowserSigningStores';
-import {
-  markThresholdEd25519EmailOtpSessionConsumedForWallet as markThresholdEd25519EmailOtpSessionConsumedForWalletOperation,
-} from '@/core/signingEngine/session/persistence/records';
+import { markThresholdEd25519EmailOtpSessionConsumedForWallet as markThresholdEd25519EmailOtpSessionConsumedForWalletOperation } from '@/core/signingEngine/session/persistence/records';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { provisionThresholdEcdsaSession as provisionThresholdEcdsaSessionOperation } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
@@ -58,13 +56,10 @@ import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/
 import type { WarmSigningPorts } from '@/core/signingEngine/assembly/ports/warmSigning';
 import type { WorkerResourceWarmupPolicy } from '@/core/signingEngine/assembly/warmup';
 import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
-import type { AccountId } from '@/core/types/accountIds';
 import * as registrationPublic from '@/core/signingEngine/flows/registration/public';
 import type { Ed25519YaoPublicCapabilityReferenceStorePort } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import { rehydrateEmailOtpEd25519CapabilityForSigningV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
-import type {
-  EmailOtpEcdsaChallengeAuthority,
-} from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
+import type { EmailOtpEcdsaChallengeAuthority } from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
@@ -101,9 +96,7 @@ async function resolveExactWalletAuthAuthority(
   authorityRef: WalletAuthAuthorityRef,
   sealedSigningSessionStore: BrowserSealedSigningSessionStorePorts,
 ): Promise<WalletAuthAuthority> {
-  const authMethods = await IndexedDBManager.listWalletAuthMethodsForWallet(
-    authorityRef.walletId,
-  );
+  const authMethods = await IndexedDBManager.listWalletAuthMethodsForWallet(authorityRef.walletId);
   for (const authMethod of authMethods) {
     if (
       authMethod.kind !== 'passkey' ||
@@ -251,9 +244,7 @@ async function getBrowserCanonicalEcdsaSigningCapability(
   // covering the same target exists, throw the typed superseded error so
   // `signEvmFamily` performs its one bounded re-resolution instead of
   // reporting a terminal signing failure.
-  const throwSupersededByReplacement = async (
-    fallback: () => never,
-  ): Promise<never> => {
+  const throwSupersededByReplacement = async (fallback: () => never): Promise<never> => {
     const replacement = await activeEcdsaReplacementManifestForTarget({
       walletId,
       subjects: subjects.subjects,
@@ -434,11 +425,6 @@ async function requestEmailOtpEcdsaStepUpChallenge(args: {
         chain: args.chain,
         authLane: args.authority.authLane,
       });
-    case 'public_reauth_anchor':
-      return await args.coordinator.requestPublicReauthTransactionSigningChallenge({
-        walletSession: args.walletSession,
-        chain: args.chain,
-      });
     case 'capability_step_up':
       // Auth-neutral material has no warm signing lane to mint against, so the
       // challenge is minted against the wallet's own app session. The mailbox
@@ -589,7 +575,8 @@ export function createBrowserSigningSurfaceEnginePorts(
       ),
     resolveCanonicalEcdsaSigningCapability: (input) =>
       getBrowserCanonicalEcdsaSigningCapability(args, input),
-    resolveAuthorizedEcdsaSigningCapability: (input) => getBrowserEcdsaSigningCapability(args, input),
+    resolveAuthorizedEcdsaSigningCapability: (input) =>
+      getBrowserEcdsaSigningCapability(args, input),
     resolveActiveEcdsaWalletSessionAuthorization:
       createBrowserActiveEcdsaWalletSessionAuthorizationResolver(args),
     resolveEcdsaOperationStepUpSessionAuth: (input) =>

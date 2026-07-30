@@ -23,7 +23,6 @@ import {
   type LoginEmailOtpEcdsaCapabilityArgs,
   type LoginEmailOtpEcdsaCapabilityForSigningArgs,
 } from './ecdsaLogin';
-import type { EmailOtpEcdsaPublicReauthLane } from '../../flows/signEvmFamily/ecdsaSelection';
 import { EmailOtpEcdsaLifecycleRuntime } from './ecdsaLifecycleRuntime';
 import {
   EmailOtpExportRecoveryRuntime,
@@ -244,29 +243,6 @@ export class EmailOtpWalletSessionRuntime {
     args: LoginEmailOtpEcdsaCapabilityForSigningArgs,
   ): Promise<EmailOtpThresholdEcdsaLoginResult> {
     return await this.ecdsaLifecycleRuntime.loginWithEcdsaCapabilityForSigning(args);
-  }
-
-  async loginWithEcdsaPublicReauthCapabilityForSigning(args: {
-    walletSession: WalletSessionRef;
-    chainTarget: ThresholdEcdsaChainTarget;
-    challengeId: string;
-    otpCode: string;
-    reauthLane: EmailOtpEcdsaPublicReauthLane;
-    remainingUses: number;
-  }): Promise<EmailOtpThresholdEcdsaLoginResult> {
-    const appSessionJwt = await this.resolveAppSessionJwt({
-      walletSession: args.walletSession,
-      relayUrl: this.runtimeConfig.requireRelayUrl(),
-    });
-    return await this.ecdsaLifecycleRuntime.loginWithEcdsaPublicReauthCapabilityForSigning({
-      walletSession: args.walletSession,
-      chainTarget: args.chainTarget,
-      challengeId: args.challengeId,
-      otpCode: args.otpCode,
-      reauthLane: args.reauthLane,
-      appSessionJwt,
-      remainingUses: args.remainingUses,
-    });
   }
 
   async loginWithEcdsaCapabilityInternal(
