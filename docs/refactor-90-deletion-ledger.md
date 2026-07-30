@@ -423,6 +423,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   verified evidence satisfying two exact requirements)
 - replaced worker entrypoints, loaders, asset-manifest rows,
   `UiConfirmManager` factor branches, and adapter wrappers
+- ~~public wallet-host registration-preparation loader and module-type exports~~
+  — deleted; the registration-surface preload entrypoint owns the private
+  dynamic import
 - ~~zero-caller Router A/B ECDSA refresh-client-proof worker operation~~ —
   deleted end to end by `4d0a1d8af`
 - ~~unreachable Email OTP `session_bootstrap` worker branch and its JWT-derived
