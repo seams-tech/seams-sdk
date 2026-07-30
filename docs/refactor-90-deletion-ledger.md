@@ -154,7 +154,8 @@ replacement.
   records and inventory responses switched to exact key-handle identity in
   `5f7075386`; the same change deleted the forbidden provisioning slot from
   post-registration normal-signing scope and rejects slot-bearing persisted
-  records at the parser boundary.
+  records at the parser boundary. Exact-session bootstrap results stopped
+  projecting the slot into activated runtime state in `1f04bb1bb`.
 - ~~`evmFamilySigningKeySlotId` in ECDSA Wallet Session JWT binding facts and
   normal-signing claims~~ — deleted by `4986d279f`; the value remains only on
   the registration bootstrap request/response boundary in that path.

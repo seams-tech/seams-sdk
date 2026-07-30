@@ -384,6 +384,9 @@ removes.
         records and key inventory, require exact top-level/nested key-handle
         correlation, and delete the forbidden slot from post-registration
         normal-signing scope (`5f7075386`).
+  - [x] Remove the provisioning slot from exact-session bootstrap results;
+        registration keygen retains its reservation input without projecting it
+        through the activated-session result (`1f04bb1bb`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.
