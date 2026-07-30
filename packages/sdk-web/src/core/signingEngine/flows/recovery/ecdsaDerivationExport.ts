@@ -44,7 +44,7 @@ export type EcdsaDerivationExportDeps = {
 
 type ExplicitKeyExportMaterial = ThresholdEcdsaExplicitKeyExportBootstrapResult['material'];
 
-type EcdsaDerivationExportAuthorization =
+export type EcdsaDerivationExportAuthorization =
   | {
       kind: 'passkey';
       passkeyCredentialIdB64u: string;
@@ -433,12 +433,12 @@ async function executeEcdsaDerivationExport(
   }
 }
 
-export async function exportEcdsaDerivationKeyWithExplicitExportSession(
+export async function exportEcdsaDerivationKey(
   deps: EcdsaDerivationExportDeps,
   args: {
     walletSessionUserId: string;
     exportProvision: ThresholdEcdsaExplicitKeyExportBootstrapResult;
-    credential: WebAuthnAuthenticationCredential;
+    factorAuthorization: EcdsaDerivationExportAuthorization;
   },
 ): Promise<{
   publicKeyHex: string;
@@ -462,39 +462,6 @@ export async function exportEcdsaDerivationKeyWithExplicitExportSession(
     liveMaterial,
     relayerUrl,
     operationAuthorization: args.exportProvision.authorization,
-    factorAuthorization: {
-      kind: 'passkey',
-      passkeyCredentialIdB64u: String(args.credential.rawId || args.credential.id),
-      credential: args.credential,
-    },
-  });
-}
-
-export async function exportEcdsaDerivationKeyWithEmailOtpSession(
-  deps: EcdsaDerivationExportDeps,
-  args: {
-    walletSessionUserId: string;
-    exportProvision: ThresholdEcdsaExplicitKeyExportBootstrapResult;
-  },
-): Promise<{
-  publicKeyHex: string;
-  privateKeyHex: string;
-  ethereumAddress: string;
-}> {
-  const material = args.exportProvision.material;
-  assertExplicitKeyExportMaterialBinding({
-    material,
-    walletSessionUserId: args.walletSessionUserId,
-  });
-  const liveMaterial = await hydrateEcdsaRoleLocalMaterialForExport({
-    persistedMaterial: material.persistedMaterial,
-    workerCtx: deps.getSignerWorkerContext(),
-  });
-  return await executeEcdsaDerivationExport(deps, {
-    persistedMaterial: material.persistedMaterial,
-    liveMaterial,
-    relayerUrl: material.relayerUrl,
-    operationAuthorization: args.exportProvision.authorization,
-    factorAuthorization: { kind: 'email_otp_verified' },
+    factorAuthorization: args.factorAuthorization,
   });
 }
