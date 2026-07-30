@@ -676,9 +676,10 @@ the replacement and legacy MPC paths must not ship together.
         consumption, clearing, session-worker lifecycle, and prewarm into the
         dedicated main-thread `PasskeyMpcSessionManager`; generic confirmation
         no longer imports or sends the session-worker protocol.
-  - [ ] Move durable seal persistence, restore, deletion, and policy
+  - [x] Move durable seal persistence, restore, deletion, and policy
         coordination into `PasskeyMpcSessionManager`, then delete the temporary
-        durable session-worker seam from generic confirmation.
+        durable session-worker seam from generic confirmation (`d9c303f3c`,
+        `fe07fea5b`, `fa1f21657`).
     - [x] Require Passkey persisted-session discovery at the lifecycle port;
           remove the optional host-assembly fallback that silently omitted it
           and the redundant `authMethod` discriminators from Passkey discovery
@@ -703,14 +704,10 @@ the replacement and legacy MPC paths must not ship together.
     - [x] Move high-level seal persistence, exact-record registration/readback,
           and persistence single-flight into `PasskeyMpcSessionManager`
           (`d9c303f3c`).
-    - [ ] Move sealed-session policy coordination into
+    - [x] Move sealed-session policy coordination into
           `PasskeyMpcSessionManager`; preserve sealed material on expiry and
-          exhaustion, and delete only invalid persisted records.
-      Done so far: expired and exhausted ECDSA authorization now transitions
-      to an authorization-free inactive sealed-material record that retains
-      the encrypted material and exact activation binding. The public-only
-      reauthorization-anchor record was deleted in `fe07fea5b`. Canonical
-      inactive-material consumption and same-method authorization remain open.
+          exhaustion, and delete only invalid persisted records (`fe07fea5b`,
+          `fa1f21657`).
     - [x] Delete the remaining generic durable-session ports and callback cycle
           after the dedicated session owner supplies persistence and policy
           coordination directly (`d9c303f3c`).

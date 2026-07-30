@@ -38,7 +38,7 @@ replaced the ECDSA public-only anchor produced by Wallet Session expiry or
 exhaustion with an authorization-free inactive sealed-material record in
 `fe07fea5b`. It retains encrypted material and the exact activation binding
 while excluding reusable-session authorization. Canonical inactive-material
-consumption remains implementation work.
+consumption through same-method operation step-up landed in `fa1f21657`.
 
 ## Intended Architecture
 

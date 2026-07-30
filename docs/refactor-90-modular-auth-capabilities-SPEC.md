@@ -225,8 +225,9 @@ implementing commit SHA as the evidence.
   - [x] ECDSA expiry and exhaustion persist an authorization-free inactive
     sealed-material record, preserve its encrypted material and exact
     activation binding, and reject the retired public-only reauthorization
-    anchor shape. Commit `fe07fea5b`. Consumption of that inactive material
-    through the canonical same-method step-up path remains open.
+    anchor shape. Both factors correlate that record with the active manifest,
+    hydrate auth-neutral material, and attach only a same-method one-operation
+    grant. Commits `fe07fea5b` and `fa1f21657`.
 
 ### Final conformance
 
