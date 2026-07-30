@@ -88,9 +88,11 @@ not expose that mode until its provider integration is wired. Use
 `GATEWAY_RUNTIME_PROFILE=mainnet_service` for a future mainnet deployment. That
 profile rejects demo-code delivery and requires `email_provider` delivery.
 
-The generated profile is explicit in `GATEWAY_DEPLOYMENT_CONFIG_JSON`; later
-profile or delivery-mode changes can be uploaded with the update-only command
-without rotating Router A/B identities.
+The generated manifest includes a top-level `gatewayDeploymentConfig` document.
+Review and copy it into the target's `gatewayDeploymentConfig` field in
+`deployment/targets.json` before deploying. Later profile, origin, public key,
+or delivery-mode changes are ordinary reviewed target-file changes and never
+rotate Router A/B identities.
 
 Prepare the manifests, then upload each ownership group explicitly:
 
@@ -125,9 +127,9 @@ the complete seven-environment topology. Component apply mode:
 - Uploads externally owned values loaded from the protected file or shell.
 - Discovers the Cloudflare account ID and existing Cloudflare resources through
   Wrangler.
-- Stores Gateway deployment metadata in one versioned
-  `GATEWAY_DEPLOYMENT_CONFIG_JSON` variable. The deployment renderer validates
-  this document once and expands it into Worker bindings.
+- Emits the non-secret Gateway deployment document for review and placement in
+  `deployment/targets.json`. The deployment renderer validates that checked-in
+  document once and expands it into Worker bindings.
 - Removes the obsolete scalar Gateway variables after the replacement config is
   uploaded. Unrelated variables and all secrets are preserved.
 - Refuses a partial apply while required values remain unresolved.
@@ -184,7 +186,7 @@ Limit an update to named values when changing one integration:
 pnpm wallet-core:deploy:env-update -- \
   --env staging \
   --repo seams-tech/seams-sdk \
-  --only RELAYER_PRIVATE_KEY,SPONSORED_EVM_EXECUTORS_JSON,GATEWAY_DEPLOYMENT_CONFIG_JSON \
+  --only RELAYER_PRIVATE_KEY,SPONSORED_EVM_EXECUTORS_JSON \
   --apply
 ```
 
@@ -208,9 +210,10 @@ pnpm product:deploy:env-update -- \
   --apply
 ```
 
-When changing `GATEWAY_RUNTIME_PROFILE` or the NEAR relayer, apply the
-wallet-core update first. The product update then reads the validated Gateway
-profile and synchronizes `VITE_NEAR_NETWORK`, `VITE_NEAR_RPC_URL`, and
+When changing the Gateway runtime profile or NEAR relayer public configuration,
+edit `deployment/targets.json` first. Apply the wallet-core secret update, then
+run the product update. The product update reads the checked-in Gateway profile
+and synchronizes `VITE_NEAR_NETWORK`, `VITE_NEAR_RPC_URL`, and
 `VITE_NEAR_EXPLORER` so the browser and Gateway target the same NEAR network.
 
 The command reads
@@ -223,10 +226,10 @@ external values:
 - Tempo and Arc browser endpoint overrides.
 - Sponsored EVM executor configuration.
 
-It validates the deployed `GATEWAY_DEPLOYMENT_CONFIG_JSON` before patching
-optional Gateway integrations. Router A/B keys, root shares, signing-session
-material, Gateway signing keys, tenant identifiers, and publishable keys remain
-unchanged. Dry run is the default.
+It validates supplied public values against `deployment/targets.json` before
+updating secrets or frontend variables. Router A/B keys, root shares,
+signing-session material, Gateway signing keys, tenant identifiers, and
+publishable keys remain unchanged. Dry run is the default.
 
 The wallet-core updater can reach only Gateway and MPC service environments.
 The product updater can reach only the target's shared frontend environment.
@@ -290,20 +293,6 @@ pnpm deploy:env-verify -- \
 Compare its generation ID, timestamp, and manifest SHA-256 with the protected
 backup. The command fails when any environment is missing metadata or contains
 a different generation.
-
-To consolidate an already initialized Gateway without rotating any secret or
-wallet identity, run the config-only migration:
-
-```bash
-pnpm wallet-core:deploy:env-migrate-gateway -- \
-  --env staging \
-  --repo seams-tech/seams-sdk
-```
-
-This reads the existing scalar Gateway variables and the general environment's
-publishable key, validates the replacement document, uploads
-`GATEWAY_DEPLOYMENT_CONFIG_JSON`, and removes only the replaced Gateway
-variables.
 
 Preparation automatically writes mode-`600` component manifests. To retain an
 additional complete machine-readable backup while preparing, capture stdout

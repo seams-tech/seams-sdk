@@ -170,10 +170,10 @@ Acceptance:
 3. Continue sourcing `RELAYER_PRIVATE_KEY` from the protected
    `~/.seams/<target>-deployment.env` file and the target Gateway GitHub secret.
 4. Keep the relayer account ID, public key, testnet RPC URL, and initial funding
-   amount in `GATEWAY_DEPLOYMENT_CONFIG_JSON`.
-5. Extend `wallet-core:deploy:env-update` so this operator-owned configuration
-   can be uploaded without rotating Router A/B identities or other generated
-   secrets.
+   amount in `deployment/targets.json`.
+5. Validate operator-supplied public values against the checked-in target before
+   updating the relayer secret. Public configuration changes use normal code
+   review and never rotate Router A/B identities or other generated secrets.
 6. Add a deployment preflight that verifies the RPC reports NEAR testnet and
    that the relayer account has enough balance. Never print the private key.
 7. Add rate and amount limits for the public faucet path and retain the existing
