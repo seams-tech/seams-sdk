@@ -1009,6 +1009,8 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
       exhaustively.
 - [x] Discard and re-resolve stale state on `superseded` across the direct SDK,
       React, iframe, and demo-wallet projections without locking the wallet.
+      A bounded React reread that is still `superseded` preserves the current
+      login until the next typed lifecycle event (`c258b94fb`).
 - [x] Terminate confirmation immediately on the typed expiry result.
 - [x] Wait for secure-origin initialization and consume typed state/events.
 - [x] Stop inferring unlocked state from optional IDs, JWT presence, or auth

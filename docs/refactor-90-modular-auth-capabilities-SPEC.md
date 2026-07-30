@@ -293,7 +293,9 @@ implementing commit SHA as the evidence.
   adapter — direct SDK, iframe boundary, React login refresh, iframe
   lifecycle, demo lock — to keep the wallet unlocked and re-resolve. Covered by
   `ecdsaMaterialSupersession` and `walletSessionSuperseded` unit suites.
-  Commits 53632c8c6, 4c418cde7, dc1fda487.)
+  A bounded React reread that remains `superseded` preserves the current login
+  until the next typed lifecycle event. Commits 53632c8c6, 4c418cde7,
+  dc1fda487, c258b94fb.)
 - [x] `R90-INV-011` — Near post-commit verification creates no durable readback
   stage; readback converges through the two-state journal and direct
   recovery-source tests (`5db9ad87e`, `51b738d2a`).
