@@ -851,7 +851,7 @@ async function activateEcdsaSessionByPurpose(
   const keygen: EcdsaKeygenSuccess = {
     ok: true,
     keygenSessionId: bootstrap.keygenSessionId,
-    evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
+    evmFamilySigningKeySlotId,
     ...(keyHandle ? { keyHandle } : {}),
     ecdsaThresholdKeyId,
     clientVerifyingShareB64u,

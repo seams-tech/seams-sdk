@@ -36,6 +36,7 @@ import type {
 import type { RecoverySessionRecord, RecoverySessionStatus } from '../core/RecoverySessionStore';
 import type { RouterAbEcdsaPresignRuntime } from '../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
 import type { RouterAbWalletBudgetGrantProvisionerV1 } from './routerAbPrivateSigningWorker';
+import type { WalletEcdsaSignerKey } from '../core/WalletStore';
 import type {
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
@@ -65,7 +66,6 @@ import type {
   WalletRegistrationEcdsaActivationResponse,
   WalletRegistrationEcdsaDerivationRespondRequest,
   WalletRegistrationEcdsaDerivationRespondResponse,
-  WalletRegistrationEcdsaWalletKey,
   WalletRevokeAuthMethodRequest,
   WalletRevokeAuthMethodResponse,
 } from '../core/registrationContracts';
@@ -432,7 +432,8 @@ type ThresholdEcdsaKeyInventoryRecord = {
   readonly thresholdEcdsaPublicKeyB64u: string;
   readonly key: {
     readonly walletId: string;
-    readonly evmFamilySigningKeySlotId: string;
+    readonly keyHandle: string;
+    readonly rpId: string;
     readonly keyScope: 'evm-family';
     readonly ecdsaThresholdKeyId: string;
     readonly signingRootId: string;
@@ -1162,7 +1163,7 @@ export interface RouterApiWalletRegistrationService {
   ): Promise<
     | {
         readonly ok: true;
-        readonly walletKey: WalletRegistrationEcdsaWalletKey;
+        readonly walletKey: WalletEcdsaSignerKey;
         readonly session: {
           readonly thresholdSessionId: string;
           readonly signingGrantId: string;

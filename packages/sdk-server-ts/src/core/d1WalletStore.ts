@@ -25,6 +25,7 @@ import type {
   WalletEcdsaPostRegistrationPublicRequest,
   WalletEd25519YaoActiveCapabilityRecord,
   WalletEd25519SignerRecord,
+  WalletEcdsaSignerKey,
   WalletEcdsaSignerRecord,
   WalletRecord,
   WalletSignerRecord,
@@ -71,6 +72,30 @@ export type D1WalletStoreScope = {
   readonly projectId: string;
   readonly envId: string;
 };
+
+function walletEcdsaSignerKeyFromRegistration(
+  walletKey: WalletRegistrationEcdsaWalletKey,
+): WalletEcdsaSignerKey {
+  return {
+    keyScope: walletKey.keyScope,
+    chainTarget: walletKey.chainTarget,
+    walletId: walletKey.walletId,
+    keyHandle: walletKey.keyHandle,
+    ecdsaThresholdKeyId: walletKey.ecdsaThresholdKeyId,
+    signingRootId: walletKey.signingRootId,
+    signingRootVersion: walletKey.signingRootVersion,
+    thresholdEcdsaPublicKeyB64u: walletKey.thresholdEcdsaPublicKeyB64u,
+    thresholdOwnerAddress: walletKey.thresholdOwnerAddress,
+    relayerKeyId: walletKey.relayerKeyId,
+    relayerVerifyingShareB64u: walletKey.relayerVerifyingShareB64u,
+    contextBinding32B64u: walletKey.contextBinding32B64u,
+    derivationClientSharePublicKey33B64u: walletKey.derivationClientSharePublicKey33B64u,
+    clientShareRetryCounter: walletKey.clientShareRetryCounter,
+    relayerShareRetryCounter: walletKey.relayerShareRetryCounter,
+    participantIds: walletKey.participantIds,
+    publicCapability: walletKey.publicCapability,
+  };
+}
 
 type D1WalletRow = {
   readonly record_json?: unknown;
@@ -540,11 +565,10 @@ export function buildWalletEcdsaSignerRecord(input: {
   return {
     version: 'wallet_signer_ecdsa_v1',
     walletId: input.walletId,
-    evmFamilySigningKeySlotId: input.walletKey.evmFamilySigningKeySlotId,
     signerId: `ecdsa:${chainTargetKey}`,
     chainTargetKey,
     chainTarget: input.walletKey.chainTarget,
-    walletKey: input.walletKey,
+    walletKey: walletEcdsaSignerKeyFromRegistration(input.walletKey),
     createdAtMs: input.createdAtMs,
     updatedAtMs: input.updatedAtMs,
   };

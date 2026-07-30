@@ -95,14 +95,21 @@ export type WalletEd25519SignerRecord = {
   updatedAtMs: number;
 };
 
+export type WalletEcdsaSignerKey = Omit<
+  WalletRegistrationEcdsaWalletKey,
+  'evmFamilySigningKeySlotId'
+> & {
+  evmFamilySigningKeySlotId?: never;
+};
+
 export type WalletEcdsaSignerRecord = {
   version: 'wallet_signer_ecdsa_v1';
   walletId: WalletId;
-  evmFamilySigningKeySlotId: string;
+  evmFamilySigningKeySlotId?: never;
   signerId: string;
   chainTargetKey: string;
   chainTarget: ThresholdEcdsaChainTarget;
-  walletKey: WalletRegistrationEcdsaWalletKey;
+  walletKey: WalletEcdsaSignerKey;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -320,18 +327,17 @@ function parseWalletRecord(raw: unknown): WalletRecord | null {
 
 export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRecord | null {
   if (!isObject(raw) || raw.version !== 'wallet_signer_ecdsa_v1') return null;
+  if ('evmFamilySigningKeySlotId' in raw) return null;
   const walletId = parseWalletId(raw.walletId);
-  const evmFamilySigningKeySlotId = toOptionalTrimmedString(raw.evmFamilySigningKeySlotId);
   const signerId = toOptionalTrimmedString(raw.signerId);
   const chainTargetKey = toOptionalTrimmedString(raw.chainTargetKey);
   const chainTarget = thresholdEcdsaChainTargetFromValue(raw.chainTarget);
   const walletKeyRaw = isObject(raw.walletKey) ? raw.walletKey : null;
-  const walletKey = walletKeyRaw ? parseWalletRegistrationEcdsaWalletKey(walletKeyRaw) : null;
+  const walletKey = walletKeyRaw ? parseWalletEcdsaSignerKey(walletKeyRaw) : null;
   const createdAtMs = normalizeTimestampMs(raw.createdAtMs);
   const updatedAtMs = normalizeTimestampMs(raw.updatedAtMs);
   if (
     !walletId.ok ||
-    !evmFamilySigningKeySlotId ||
     !signerId ||
     !chainTargetKey ||
     !chainTarget ||
@@ -339,7 +345,6 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
     createdAtMs === null ||
     updatedAtMs === null ||
     walletKey.walletId !== walletId.value ||
-    walletKey.evmFamilySigningKeySlotId !== evmFamilySigningKeySlotId ||
     thresholdEcdsaChainTargetKey(chainTarget) !== chainTargetKey ||
     thresholdEcdsaChainTargetKey(walletKey.chainTarget) !== chainTargetKey
   ) {
@@ -348,7 +353,6 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
   return {
     version: 'wallet_signer_ecdsa_v1',
     walletId: walletId.value,
-    evmFamilySigningKeySlotId,
     signerId,
     chainTargetKey,
     chainTarget,
@@ -358,9 +362,8 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
   };
 }
 
-function parseWalletRegistrationEcdsaWalletKey(
-  raw: Record<string, unknown>,
-): WalletRegistrationEcdsaWalletKey | null {
+function parseWalletEcdsaSignerKey(raw: Record<string, unknown>): WalletEcdsaSignerKey | null {
+  if ('evmFamilySigningKeySlotId' in raw) return null;
   const walletId = parseWalletId(raw.walletId);
   const chainTarget = thresholdEcdsaChainTargetFromValue(raw.chainTarget);
   const participantIds = raw.participantIds;
@@ -393,7 +396,6 @@ function parseWalletRegistrationEcdsaWalletKey(
   ) {
     return null;
   }
-  const evmFamilySigningKeySlotId = toOptionalTrimmedString(raw.evmFamilySigningKeySlotId);
   const keyHandle = toOptionalTrimmedString(raw.keyHandle);
   let ecdsaThresholdKeyId;
   try {
@@ -409,7 +411,6 @@ function parseWalletRegistrationEcdsaWalletKey(
   const relayerVerifyingShareB64u = toOptionalTrimmedString(raw.relayerVerifyingShareB64u);
   const contextBinding32B64u = toOptionalTrimmedString(raw.contextBinding32B64u);
   if (
-    !evmFamilySigningKeySlotId ||
     !keyHandle ||
     !signingRootId ||
     !signingRootVersion ||
@@ -425,7 +426,6 @@ function parseWalletRegistrationEcdsaWalletKey(
     keyScope: 'evm-family',
     chainTarget,
     walletId: walletId.value,
-    evmFamilySigningKeySlotId,
     keyHandle,
     ecdsaThresholdKeyId,
     signingRootId,

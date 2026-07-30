@@ -283,6 +283,7 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
     return null;
   }
   const keyHandle = parseCurrentEcdsaKeyHandle(raw.keyHandle);
+  const nestedKeyHandle = parseCurrentEcdsaKeyHandle(rawKey.keyHandle);
   const accountAddress = normalizeEvmOwnerAddress(raw.accountAddress);
   const ownerAddress = normalizeEvmOwnerAddress(raw.ownerAddress);
   const keyWalletId = String(rawKey.walletId || '').trim();
@@ -297,6 +298,8 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
   );
   if (
     keyHandle.kind !== 'resolved' ||
+    nestedKeyHandle.kind !== 'resolved' ||
+    nestedKeyHandle.keyHandle !== keyHandle.keyHandle ||
     !thresholdEcdsaPublicKeyB64u ||
     !ownerAddress ||
     !accountAddress ||

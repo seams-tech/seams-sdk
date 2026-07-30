@@ -170,7 +170,6 @@ type BootstrapEcdsaSessionSuccessCommon = {
   bootstrapKind: 'strict_post_registration';
   keygenSessionId: string;
   rpId: string;
-  evmFamilySigningKeySlotId: string;
   keyHandle: string;
   ecdsaThresholdKeyId: string;
   clientVerifyingShareB64u: string;
@@ -307,7 +306,6 @@ async function bootstrapStrictExistingEcdsaSession(
       String(args.requestId || '').trim() ||
       secureRandomId('tecdsa-keygen', 32, 'threshold ECDSA session IDs'),
     rpId,
-    evmFamilySigningKeySlotId,
     keyHandle: String(args.keyHandle),
     ecdsaThresholdKeyId: String(args.key.ecdsaThresholdKeyId),
     clientVerifyingShareB64u: publicIdentity.derivation_client_share_public_key33_b64u,
