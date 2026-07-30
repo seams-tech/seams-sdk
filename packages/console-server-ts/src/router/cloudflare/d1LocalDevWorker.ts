@@ -1200,7 +1200,10 @@ async function createLocalRouterApiHandler(
     session,
     ...(ed25519Yao.kind === 'enabled' ? { routerAbEd25519YaoProduct: ed25519Yao.runtime } : {}),
     ...(sessionCookieName ? { sessionCookieName } : {}),
-    routerAbNormalSigningRouterProxy: env.MPC_ROUTER,
+    routerAbNormalSigningRouterProxy: {
+      internalServiceAuthSecret: localRouterAbInternalServiceAuthSecret(env),
+      fetch: (request) => env.MPC_ROUTER.fetch(request),
+    },
     routerAbEcdsaStrictPostRegistration: ecdsaStrictPorts.postRegistration,
     emailRecovery: {
       kind: 'prepare_only',

@@ -14,6 +14,7 @@ import type {
   ActiveCapabilityGrant,
   CapabilityOperationClaim,
   CapabilityOperationClaimInput,
+  CapabilityOperationCompletionClaimRef,
   MpcWalletSigningQuotaId,
   WalletSessionId,
 } from './domain';
@@ -47,6 +48,21 @@ const directClaim: CapabilityOperationClaim = {
 };
 
 void directClaim;
+
+type CompletionClaimInput = CapabilityOperationClaim | CapabilityOperationCompletionClaimRef;
+declare const builtClaim: CapabilityOperationClaim;
+const fullClaimRemainsAccepted: CompletionClaimInput = builtClaim;
+void fullClaimRemainsAccepted;
+
+// @ts-expect-error completion references can only be created through their builder
+const directCompletionRef: CapabilityOperationCompletionClaimRef = {
+  tenantId,
+  useId,
+  grantId,
+  operationFingerprintDigest,
+};
+
+void directCompletionRef;
 
 const invalidStepUpInput = {
   tenantId,

@@ -54,7 +54,8 @@ fn strict_router_normal_signing_routes_use_boundary_parsers() {
         "read_router_public_body_v1",
         "parse_router_public_body_v1",
         "parse_router_ab_ed25519_normal_signing_prepare_request_v2_json",
-        "parse_cloudflare_router_budgeted_ed25519_finalize_request_v2_json",
+        "parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json",
+        "require_cloudflare_internal_service_auth_request_v1",
     ] {
         assert!(
             route_body.contains(required),
@@ -97,7 +98,7 @@ fn strict_router_router_ab_ecdsa_derivation_routes_apply_boundary_parsers() {
         "validate_for_registration_purpose",
         "parse_cloudflare_router_ab_ecdsa_derivation_export_command_v1_json",
         "parse_router_ab_ecdsa_derivation_recovery_request_v1_json",
-        "parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_commit_request_v1_json",
+        "parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_request_v1_json",
         "parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json",
         "parse_cloudflare_router_budgeted_router_ab_ecdsa_derivation_finalize_request_v1_json",
         "handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1",

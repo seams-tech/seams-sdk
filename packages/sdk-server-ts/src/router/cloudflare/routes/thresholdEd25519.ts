@@ -31,18 +31,31 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import { isPlainObject } from '@shared/utils/validation';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
+  parseAuthorizationAuditEventId,
   parseAuthFactorId,
   parseCapabilityBindingId,
   parseCapabilityGrantId,
+  parseCapabilityGrantUseId,
   parseCapabilityId,
+  parseCapabilityOperationId,
+  parseCapabilityOperationResultStorageRef,
   parseGrantEvidenceId,
   parseGrantEvidenceSetId,
+  parsePrincipalId,
+  parseTenantId,
+  type CapabilityGrantUseId,
+  type CapabilityOperationRef,
 } from '@shared/authorization/capabilityKinds';
 import {
   buildCapabilityOperationEnvelope,
   computeCapabilityOperationFingerprintDigest,
+  parseCapabilityOperationFingerprintDigest,
 } from '@shared/authorization/operationFingerprint';
-import { buildActiveCapabilityGrant } from '../../../authorization/domain';
+import {
+  buildActiveCapabilityGrant,
+  buildCapabilityOperationCompletionClaimRef,
+  type CapabilityGrantUse,
+} from '../../../authorization/domain';
 import { buildVerifiedPasskeyFactorResult } from '../../../authorization/factorEvidence';
 import {
   parseAppSessionClaims,
@@ -54,6 +67,63 @@ import type {
   RouterAbEd25519YaoSessionRouteCommandV1,
 } from '../../routerAbEd25519YaoWalletSession';
 import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
+
+type Ed25519ReusableOperationClaimReceipt = {
+  readonly kind: 'reusable_wallet_session_operation_claim_v1';
+  readonly use_id: string;
+  readonly grant_id: string;
+  readonly operation_id: string;
+  readonly capability_kind: 'near_ed25519_mpc_signing';
+  readonly operation_kind:
+    | 'near.sign_transaction'
+    | 'near.sign_delegate_action'
+    | 'near.sign_nep413_message';
+  readonly lane_digest_b64u: string;
+  readonly intent_digest_b64u: string;
+  readonly display_digest_b64u: string;
+  readonly operation_fingerprint_digest: string;
+};
+
+type Ed25519OperationKind = Ed25519ReusableOperationClaimReceipt['operation_kind'];
+
+function requireReceiptString(record: Record<string, unknown>, name: string): string {
+  const field = typeof record[name] === 'string' ? record[name].trim() : '';
+  if (!field) throw new Error(`authorization_claim.${name} is required`);
+  return field;
+}
+
+function requireEd25519OperationKind(value: unknown): Ed25519OperationKind {
+  if (
+    value !== 'near.sign_transaction' &&
+    value !== 'near.sign_delegate_action' &&
+    value !== 'near.sign_nep413_message'
+  ) {
+    throw new Error('authorization_claim.operation_kind is invalid');
+  }
+  return value;
+}
+
+function requireExactAuthorizationClaimFields(record: Record<string, unknown>): void {
+  const expected = [
+    'capability_kind',
+    'display_digest_b64u',
+    'grant_id',
+    'intent_digest_b64u',
+    'kind',
+    'lane_digest_b64u',
+    'operation_fingerprint_digest',
+    'operation_id',
+    'operation_kind',
+    'use_id',
+  ];
+  const actual = Object.keys(record).sort();
+  if (
+    actual.length !== expected.length ||
+    actual.some((field, index) => field !== expected[index])
+  ) {
+    throw new Error('authorization_claim has invalid fields');
+  }
+}
 
 type PasskeyEd25519AuthorizationResult =
   | {
@@ -257,6 +327,337 @@ function requireAuthorizationValue<T>(
 ): T {
   if (!result.ok) throw new Error(result.error.message);
   return result.value;
+}
+
+function digestWireB64u(value: unknown, label: string): string {
+  const record = isPlainObject(value) ? value : null;
+  const bytes = Array.isArray(record?.bytes) ? record.bytes.map(Number) : [];
+  if (
+    bytes.length !== 32 ||
+    !bytes.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)
+  ) {
+    throw new Error(`${label} must contain exactly 32 bytes`);
+  }
+  return base64UrlEncode(Uint8Array.from(bytes));
+}
+
+function parseEd25519ReusableOperationClaimReceipt(
+  value: unknown,
+): Ed25519ReusableOperationClaimReceipt {
+  const record = isPlainObject(value) ? value : null;
+  if (!record || record.kind !== 'reusable_wallet_session_operation_claim_v1') {
+    throw new Error('Ed25519 reusable Wallet Session operation claim is required');
+  }
+  requireExactAuthorizationClaimFields(record);
+  const capabilityKind = requireReceiptString(record, 'capability_kind');
+  if (capabilityKind !== 'near_ed25519_mpc_signing') {
+    throw new Error('authorization_claim.capability_kind is invalid');
+  }
+  const operationKind = requireEd25519OperationKind(
+    requireReceiptString(record, 'operation_kind'),
+  );
+  const laneDigest = requireReceiptString(record, 'lane_digest_b64u');
+  const intentDigest = requireReceiptString(record, 'intent_digest_b64u');
+  const displayDigest = requireReceiptString(record, 'display_digest_b64u');
+  parseDigestB64u(laneDigest);
+  parseDigestB64u(intentDigest);
+  parseDigestB64u(displayDigest);
+  const fingerprint = requireReceiptString(record, 'operation_fingerprint_digest');
+  parseCapabilityOperationFingerprintDigest(fingerprint);
+  return {
+    kind: 'reusable_wallet_session_operation_claim_v1',
+    use_id: requireReceiptString(record, 'use_id'),
+    grant_id: requireReceiptString(record, 'grant_id'),
+    operation_id: requireReceiptString(record, 'operation_id'),
+    capability_kind: 'near_ed25519_mpc_signing',
+    operation_kind: operationKind,
+    lane_digest_b64u: laneDigest,
+    intent_digest_b64u: intentDigest,
+    display_digest_b64u: displayDigest,
+    operation_fingerprint_digest: fingerprint,
+  };
+}
+
+async function claimEd25519ReusableWalletSessionOperation(input: {
+  ctx: CloudflareRouterApiContext;
+  body: Record<string, unknown>;
+  authorization: Extract<
+    Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
+    { readonly ok: true; readonly kind: 'reusable_wallet_session' }
+  >;
+}): Promise<
+  | {
+      readonly ok: true;
+      readonly receipt: Ed25519ReusableOperationClaimReceipt;
+      readonly use: Extract<CapabilityGrantUse, { readonly kind: 'claimed' }>;
+    }
+  | { readonly ok: false; readonly response: Response }
+> {
+  try {
+    const scope = parseRouterAbEd25519OperationStepUpScope(input.body.scope);
+    if (scope.authorization.kind !== 'reusable_wallet_session') {
+      throw new Error('Reusable Wallet Session authority is required');
+    }
+    const operation = parseRouterAbOperationStepUpOperation(input.body.intent);
+    if (!operation.ok) throw new Error(operation.message);
+    const intent = isPlainObject(input.body.intent) ? input.body.intent : null;
+    if (!intent) throw new Error('Ed25519 normal-signing intent is required');
+    const privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
+      phase: 'prepare',
+      body: input.body,
+      authorization: {
+        kind: 'reusable_wallet_session',
+        claims: input.authorization.validated.claims,
+      },
+      headers: Object.fromEntries(input.ctx.request.headers.entries()),
+    });
+    if (!('admission_candidate' in privateBody)) {
+      throw new Error('Ed25519 normal-signing prepare admission is required');
+    }
+    const claims = input.authorization.validated.claims;
+    const nowMs = Date.now();
+    const tenantId = requireAuthorizationValue(parseTenantId(claims.runtimePolicyScope.orgId));
+    const principalId = requireAuthorizationValue(parsePrincipalId(claims.sub));
+    if (
+      tenantId !== input.ctx.service.authorizationClaims.tenantId ||
+      tenantId !== input.ctx.service.authorizationSessions.tenantId ||
+      scope.authorization.wallet_session_id !== claims.walletSessionId
+    ) {
+      return {
+        ok: false,
+        response: json(
+          { ok: false, code: 'wallet_session_mismatch', message: 'Wallet Session changed' },
+          { status: 403 },
+        ),
+      };
+    }
+    const capabilityId = requireAuthorizationValue(
+      parseCapabilityId(scope.material_activation.capability),
+    );
+    const laneDigest = parseDigestB64u(intent.operation_fingerprint);
+    const intentDigest = parseDigestB64u(
+      base64UrlEncode(Uint8Array.from(privateBody.admission_candidate.intent_digest.bytes)),
+    );
+    const displayDigest = parseDigestB64u(digestWireB64u(input.body.display_digest, 'display_digest'));
+    const envelope = buildCapabilityOperationEnvelope({
+      tenantId,
+      principalId,
+      capabilityId,
+      operationId: operation.operationId,
+      operation: operation.operation,
+      digests: { laneDigest, intentDigest, displayDigest },
+    });
+    const grantId = requireAuthorizationValue(
+      parseCapabilityGrantId(`ed25519-operation-grant:${operation.operationId}`),
+    );
+    const useId = requireAuthorizationValue(
+      parseCapabilityGrantUseId(`ed25519-operation-use:${operation.operationId}:${scope.request_id}`),
+    );
+    const outcome = await input.ctx.service.authorizationClaims.claimReusableWalletSessionOperation({
+      tenantId,
+      grantId,
+      useId,
+      auditEventId: requireAuthorizationValue(
+        parseAuthorizationAuditEventId(`ed25519-operation-audit:${operation.operationId}`),
+      ),
+      walletSessionId: claims.walletSessionId,
+      quotaId: claims.quotaId,
+      principalId,
+      capabilityId,
+      operationId: operation.operationId,
+      operation: operation.operation,
+      laneDigest,
+      intentDigest,
+      displayDigest,
+      claimedAtMs: nowMs,
+    });
+    if (
+      outcome.result.kind !== 'claimed' &&
+      outcome.result.kind !== 'operation_in_progress'
+    ) {
+      const status = outcome.result.kind === 'wallet_session_expired' ? 401 : 409;
+      return {
+        ok: false,
+        response: json(
+          { ok: false, code: outcome.result.kind, message: 'Ed25519 operation claim rejected' },
+          { status },
+        ),
+      };
+    }
+    if (outcome.result.use.useId !== useId) {
+      throw new Error('Ed25519 operation claim belongs to another request');
+    }
+    return {
+      ok: true,
+      use: outcome.result.use,
+      receipt: {
+        kind: 'reusable_wallet_session_operation_claim_v1',
+        use_id: outcome.result.use.useId,
+        grant_id: outcome.result.use.grantId,
+        operation_id: outcome.result.use.operationId,
+        capability_kind: 'near_ed25519_mpc_signing',
+        operation_kind: requireEd25519OperationKind(
+          outcome.result.use.operation.operationKind,
+        ),
+        lane_digest_b64u: laneDigest,
+        intent_digest_b64u: intentDigest,
+        display_digest_b64u: displayDigest,
+        operation_fingerprint_digest: outcome.result.use.operationFingerprintDigest,
+      },
+    };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      response: json(
+        {
+          ok: false,
+          code: 'invalid_body',
+          message: error instanceof Error ? error.message : 'Ed25519 operation claim is invalid',
+        },
+        { status: 400 },
+      ),
+    };
+  }
+}
+
+async function validateEd25519ReusableOperationClaim(input: {
+  ctx: CloudflareRouterApiContext;
+  body: Record<string, unknown>;
+  authorization: Extract<
+    Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
+    { readonly ok: true; readonly kind: 'reusable_wallet_session' }
+  >;
+}): Promise<
+  | {
+      readonly ok: true;
+      readonly receipt: Ed25519ReusableOperationClaimReceipt;
+      readonly use: CapabilityGrantUse;
+    }
+  | { readonly ok: false; readonly response: Response }
+> {
+  try {
+    const receipt = parseEd25519ReusableOperationClaimReceipt(input.body.authorization_claim);
+    const scope = parseRouterAbEd25519OperationStepUpScope(input.body.scope);
+    if (scope.authorization.kind !== 'reusable_wallet_session') {
+      throw new Error('Reusable Wallet Session authority is required');
+    }
+    const claims = input.authorization.validated.claims;
+    const tenantId = requireAuthorizationValue(parseTenantId(claims.runtimePolicyScope.orgId));
+    const principalId = requireAuthorizationValue(parsePrincipalId(claims.sub));
+    const capabilityId = requireAuthorizationValue(
+      parseCapabilityId(scope.material_activation.capability),
+    );
+    const operationId = requireAuthorizationValue(parseCapabilityOperationId(receipt.operation_id));
+    const envelope = buildCapabilityOperationEnvelope({
+      tenantId,
+      principalId,
+      capabilityId,
+      operationId,
+      operation: {
+        capabilityKind: 'near_ed25519_mpc_signing',
+        operationKind: receipt.operation_kind,
+      },
+      digests: {
+        laneDigest: parseDigestB64u(receipt.lane_digest_b64u),
+        intentDigest: parseDigestB64u(receipt.intent_digest_b64u),
+        displayDigest: parseDigestB64u(receipt.display_digest_b64u),
+      },
+    });
+    const fingerprint = await computeCapabilityOperationFingerprintDigest(envelope);
+    if (fingerprint !== parseCapabilityOperationFingerprintDigest(receipt.operation_fingerprint_digest)) {
+      throw new Error('Ed25519 operation claim fingerprint changed');
+    }
+    const prepareBinding = isPlainObject(input.body.prepare_binding)
+      ? input.body.prepare_binding
+      : null;
+    if (
+      digestWireB64u(prepareBinding?.intent_digest, 'prepare_binding.intent_digest') !==
+      receipt.intent_digest_b64u
+    ) {
+      throw new Error('Ed25519 operation claim intent changed after prepare');
+    }
+    const result = await input.ctx.service.authorizationClaims.lookupOperationClaim(envelope);
+    if (!result || (result.kind !== 'operation_in_progress' && result.kind !== 'replayed')) {
+      return {
+        ok: false,
+        response: json(
+          { ok: false, code: 'operation_claim_missing', message: 'Operation claim is unavailable' },
+          { status: 409 },
+        ),
+      };
+    }
+    if (
+      result.use.useId !== requireAuthorizationValue(parseCapabilityGrantUseId(receipt.use_id)) ||
+      result.use.grantId !== requireAuthorizationValue(parseCapabilityGrantId(receipt.grant_id)) ||
+      result.use.operationFingerprintDigest !== fingerprint
+    ) {
+      throw new Error('Ed25519 operation claim identity changed after prepare');
+    }
+    return { ok: true, receipt, use: result.use };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      response: json(
+        {
+          ok: false,
+          code: 'invalid_authorization_claim',
+          message: error instanceof Error ? error.message : 'Operation claim is invalid',
+        },
+        { status: 400 },
+      ),
+    };
+  }
+}
+
+async function completeEd25519ReusableOperation(input: {
+  ctx: CloudflareRouterApiContext;
+  use: CapabilityGrantUse;
+  requestId: string;
+  result: 'succeeded' | 'failed_before_side_effect' | 'failed_after_side_effect';
+  response: unknown;
+}): Promise<void> {
+  const resultDigest = parseDigestB64u(
+    base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(input.response))),
+  );
+  const completed = await input.ctx.service.authorizationClaims.completeOperation({
+    claim: buildCapabilityOperationCompletionClaimRef({
+      tenantId: input.use.tenantId,
+      useId: input.use.useId,
+      grantId: input.use.grantId,
+      operationFingerprintDigest: input.use.operationFingerprintDigest,
+    }),
+    result: input.result,
+    resultRef: {
+      resultDigest,
+      resultStorageRef: requireAuthorizationValue(
+        parseCapabilityOperationResultStorageRef(`router-signing-result:${input.requestId}`),
+      ),
+    },
+    completedAtMs: Date.now(),
+  });
+  if (completed.kind === 'claim_missing' || completed.kind === 'claim_mismatch') {
+    throw new Error('Ed25519 operation completion did not match its claim');
+  }
+}
+
+function parseRouterUpstreamResponseBody(bodyText: string, status: number): unknown {
+  if (!bodyText) return { status };
+  try {
+    return JSON.parse(bodyText);
+  } catch {
+    return { status, message: bodyText };
+  }
+}
+
+export function isRouterAbEd25519OperationInProgressResponse(input: {
+  readonly status: number;
+  readonly bodyText: string;
+}): boolean {
+  return (
+    input.status === 409 &&
+    input.bodyText.includes('ReplayedLocalRequest:') &&
+    input.bodyText.includes('SigningWorker normal-signing effect is already in progress')
+  );
 }
 
 async function issuePasskeyEd25519OperationStepUpGrant(input: {
@@ -476,10 +877,78 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
   if (!authorization.ok) {
     return json(authorization.result.body, { status: authorization.result.status });
   }
-  return await proxyNormalSigningRequestToMpcRouter({
+  if (authorization.kind === 'operation_step_up') {
+    return await proxyNormalSigningRequestToMpcRouter({
+      request: input.ctx.request,
+      proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+    });
+  }
+  if (input.phase === 'prepare') {
+    const claimed = await claimEd25519ReusableWalletSessionOperation({
+      ctx: input.ctx,
+      body: input.body,
+      authorization,
+    });
+    if (!claimed.ok) return claimed.response;
+    const upstream = await proxyNormalSigningRequestToMpcRouter({
+      request: input.ctx.request,
+      proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+    });
+    const upstreamBody = await upstream.clone().json().catch(() => null);
+    const scope = parseRouterAbEd25519OperationStepUpScope(input.body.scope);
+    if (!upstream.ok || !isPlainObject(upstreamBody)) {
+      await completeEd25519ReusableOperation({
+        ctx: input.ctx,
+        use: claimed.use,
+        requestId: scope.request_id,
+        result: upstream.status < 500 ? 'failed_before_side_effect' : 'failed_after_side_effect',
+        response: upstreamBody ?? { status: upstream.status },
+      });
+      return upstream;
+    }
+    return new Response(
+      JSON.stringify({ ...upstreamBody, authorization_claim: claimed.receipt }),
+      {
+        status: upstream.status,
+        statusText: upstream.statusText,
+        headers: new Headers(upstream.headers),
+      },
+    );
+  }
+  const validatedClaim = await validateEd25519ReusableOperationClaim({
+    ctx: input.ctx,
+    body: input.body,
+    authorization,
+  });
+  if (!validatedClaim.ok) return validatedClaim.response;
+  const upstream = await proxyNormalSigningRequestToMpcRouter({
     request: input.ctx.request,
     proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+    body: input.body,
   });
+  const upstreamBodyText = await upstream.clone().text().catch(() => '');
+  if (
+    isRouterAbEd25519OperationInProgressResponse({
+      status: upstream.status,
+      bodyText: upstreamBodyText,
+    })
+  ) {
+    return upstream;
+  }
+  const upstreamBody = parseRouterUpstreamResponseBody(upstreamBodyText, upstream.status);
+  const scope = parseRouterAbEd25519OperationStepUpScope(input.body.scope);
+  await completeEd25519ReusableOperation({
+    ctx: input.ctx,
+    use: validatedClaim.use,
+    requestId: scope.request_id,
+    result: upstream.ok
+      ? 'succeeded'
+      : upstream.status < 500
+        ? 'failed_before_side_effect'
+        : 'failed_after_side_effect',
+    response: upstreamBody,
+  });
+  return upstream;
 }
 
 export async function handleThresholdEd25519(

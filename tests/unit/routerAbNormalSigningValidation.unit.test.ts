@@ -90,15 +90,17 @@ const request: RouterAbNormalSigningPrepareRequestV2Wire = {
 function prepareResponse(signingWorkerId: string): RouterAbNormalSigningPrepareResponseV1Wire {
   return {
     scope: request.scope,
-    budget_reservation_id: 'ed25519-sign-budget-reservation-1',
-    budget_operation_id: 'operation-1',
-    budget_status: {
-      remaining_uses: 3,
-      committed_remaining_uses: 3,
-      reserved_uses: 1,
-      available_uses: 2,
-      projection_version: 2,
-      expires_at_ms: 1_900_000_000_000,
+    authorization_claim: {
+      kind: 'reusable_wallet_session_operation_claim_v1',
+      use_id: 'operation-use-1',
+      grant_id: 'operation-grant-1',
+      operation_id: 'operation-1',
+      capability_kind: 'near_ed25519_mpc_signing',
+      operation_kind: 'near.sign_transaction',
+      lane_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+      intent_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+      display_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+      operation_fingerprint_digest: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
     },
     signing_payload_digest: digest32,
     round1_binding_digest: digest32,
@@ -131,14 +133,6 @@ function signingResponse(signingWorkerId: string): RouterAbNormalSigningResponse
     signature_scheme: 'ed25519_v1',
     signature: { bytes: byteRange(64) },
     signed_at_ms: 1_800_000_000_000,
-    budget_status: {
-      remaining_uses: 8,
-      committed_remaining_uses: 8,
-      reserved_uses: 0,
-      available_uses: 8,
-      projection_version: 3,
-      expires_at_ms: 1_900_000_000_000,
-    },
   };
 }
 
@@ -263,13 +257,13 @@ test(
 );
 test('maps server budget failures to signing-session budget domain errors', mapsBudgetFailures);
 
-test('parses the complete SigningWorker-private D1 budget projection', async () => {
+test('parses the reusable Wallet Session operation-claim receipt', async () => {
   const response = prepareResponse('signing-worker-a');
   await expect(prepareWithHttpResponse(response)).resolves.toEqual(response);
 
-  const { projection_version: _projectionVersion, ...truncatedBudgetStatus } =
-    response.budget_status;
+  const { operation_fingerprint_digest: _operationFingerprintDigest, ...truncatedClaim } =
+    response.authorization_claim;
   await expect(
-    prepareWithHttpResponse({ ...response, budget_status: truncatedBudgetStatus }),
-  ).rejects.toThrow('budget_status.projection_version must be a positive integer');
+    prepareWithHttpResponse({ ...response, authorization_claim: truncatedClaim }),
+  ).rejects.toThrow('authorization_claim has invalid fields');
 });

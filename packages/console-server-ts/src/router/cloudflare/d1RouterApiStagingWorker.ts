@@ -371,7 +371,13 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     session,
     sessionCookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
     routerAbPublicKeyset: requireStagingRouterAbPublicKeyset(env),
-    routerAbNormalSigningRouterProxy: env.MPC_ROUTER,
+    routerAbNormalSigningRouterProxy: {
+      internalServiceAuthSecret: requireEnvString(
+        env,
+        'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
+      ),
+      fetch: (request) => env.MPC_ROUTER.fetch(request),
+    },
     routerAbEcdsaStrictPostRegistration: ecdsaStrictPostRegistration,
     readyCheck: createRouterApiReadyCheck(env),
     signingSessionSeal: stagingSigningSessionSealOptions(env),

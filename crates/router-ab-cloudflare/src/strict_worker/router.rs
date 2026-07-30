@@ -71,12 +71,17 @@ pub(super) async fn handle_strict_router_fetch_v1(
     if request.method() != Method::Post {
         return Response::error("Router A/B strict public route requires POST", 405);
     }
+    if path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH
+        || path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH
+    {
+        if let Err(err) = require_cloudflare_internal_service_auth_request_v1(&request, &env) {
+            return cloudflare_private_service_auth_error_response_v1(err);
+        }
+    }
     if path != CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PUBLIC_REQUEST_PATH
-        && path != CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PREPARE_PUBLIC_REQUEST_PATH
-        && path != CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_QUERY_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ADD_SIGNER_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PUBLIC_REQUEST_PATH
@@ -87,13 +92,11 @@ pub(super) async fn handle_strict_router_fetch_v1(
     {
         return Response::error(
             format!(
-                "Router A/B strict public request must be served at {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, or {}",
+                "Router A/B strict public request must be served at {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, or {}",
                 CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PUBLIC_REQUEST_PATH,
-                CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PREPARE_PUBLIC_REQUEST_PATH,
-                CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_QUERY_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ADD_SIGNER_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PUBLIC_REQUEST_PATH,
@@ -199,8 +202,9 @@ pub(super) async fn handle_strict_router_fetch_v1(
             Ok(bytes) => bytes,
             Err(response) => return Ok(response),
         };
-        let (finalize_request, budget_metadata) =
-            match parse_cloudflare_router_budgeted_ed25519_finalize_request_v2_json(&request_body) {
+        let (finalize_request, authorization_claim) =
+            match parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json(&request_body)
+            {
                 Ok(parsed) => parsed,
                 Err(err) => {
                     let response = cloudflare_protocol_error_response_v1(err)?;
@@ -218,7 +222,7 @@ pub(super) async fn handle_strict_router_fetch_v1(
                 &runtime,
                 now_unix_ms,
                 finalize_request,
-                budget_metadata,
+                authorization_claim,
                 credential,
                 trusted_source_digest,
                 verifier,
@@ -265,73 +269,6 @@ pub(super) async fn handle_strict_router_fetch_v1(
             )
             .await;
         return router_ecdsa_timed_json_cors_response_v1(response, &timing, &request, &env);
-    }
-
-    if path == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PREPARE_PUBLIC_REQUEST_PATH {
-        let request_body = match read_router_public_body_v1(
-            &mut request,
-            &env,
-            "Router A/B strict ECDSA registration activation prepare",
-        )
-        .await?
-        {
-            Ok(bytes) => bytes,
-            Err(response) => return Ok(response),
-        };
-        let activation_request = match parse_router_public_body_v1(
-            &request_body,
-            parse_cloudflare_router_ab_ecdsa_derivation_activation_request_v1_json,
-            &request,
-            &env,
-        )? {
-            Ok(parsed) => parsed,
-            Err(response) => return Ok(response),
-        };
-        let response =
-            handle_cloudflare_router_ab_ecdsa_derivation_activation_prepare_authenticated_public_request_v1(
-                &runtime,
-                now_unix_ms,
-                activation_request,
-                authorization,
-                trusted_source_digest,
-                verifier,
-            )
-            .await;
-        return router_json_cors_response_v1(response, &request, &env);
-    }
-
-    if path == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_QUERY_PUBLIC_REQUEST_PATH {
-        let request_body = match read_router_public_body_v1(
-            &mut request,
-            &env,
-            "Router A/B strict ECDSA registration activation query",
-        )
-        .await?
-        {
-            Ok(bytes) => bytes,
-            Err(response) => return Ok(response),
-        };
-        let activation_request = match parse_router_public_body_v1(
-            &request_body,
-            parse_cloudflare_router_ab_ecdsa_derivation_activation_request_v1_json,
-            &request,
-            &env,
-        )? {
-            Ok(parsed) => parsed,
-            Err(response) => return Ok(response),
-        };
-        let response =
-            handle_cloudflare_router_ab_ecdsa_derivation_activation_query_authenticated_public_request_v1(
-                &env,
-                &runtime,
-                now_unix_ms,
-                activation_request,
-                authorization,
-                trusted_source_digest,
-                verifier,
-            )
-            .await;
-        return router_json_cors_response_v1(response, &request, &env);
     }
 
     if let Some(registration_purpose) =
@@ -462,7 +399,7 @@ pub(super) async fn handle_strict_router_fetch_v1(
         };
         let refresh_request = match parse_router_public_body_v1(
             &request_body,
-            parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_commit_request_v1_json,
+            parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_request_v1_json,
             &request,
             &env,
         )? {
@@ -685,9 +622,6 @@ fn is_cloudflare_router_ab_ecdsa_derivation_public_path(path: &str) -> bool {
     let normalized = path.strip_suffix('/').unwrap_or(path);
     normalized == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PUBLIC_REQUEST_PATH
         || normalized == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PUBLIC_REQUEST_PATH
-        || normalized
-            == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PREPARE_PUBLIC_REQUEST_PATH
-        || normalized == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_QUERY_PUBLIC_REQUEST_PATH
         || normalized == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ADD_SIGNER_PUBLIC_REQUEST_PATH
         || normalized == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH
         || normalized == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PUBLIC_REQUEST_PATH
