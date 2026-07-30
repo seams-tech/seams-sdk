@@ -427,6 +427,8 @@ export type RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
   readonly signerSlot: number;
   readonly thresholdSessionId: string;
   readonly signingGrantId: string;
+  readonly walletSessionId: RouterAbEd25519WalletSessionClaims['walletSessionId'];
+  readonly quotaId: RouterAbEd25519WalletSessionClaims['quotaId'];
   readonly signingWorkerId: string;
   readonly thresholdExpiresAtMs: number;
   readonly participantIds: readonly [number, number];
@@ -2404,6 +2406,8 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       signerSlot: parsed.value.signerSlot,
       thresholdSessionId: authorization.claims.thresholdSessionId,
       signingGrantId: authorization.claims.signingGrantId,
+      walletSessionId: authorization.claims.walletSessionId,
+      quotaId: authorization.claims.quotaId,
       signingWorkerId: authorization.claims.routerAbNormalSigning.signingWorkerId,
       thresholdExpiresAtMs: authorization.claims.thresholdExpiresAtMs,
       participantIds: [firstParticipantId, secondParticipantId],

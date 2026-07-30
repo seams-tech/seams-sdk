@@ -27,6 +27,8 @@ type SyncResponseFixtureInput = {
   readonly capabilityWalletId: string;
   readonly capabilityAccountId: string;
   readonly capabilityNearAccountId: string;
+  readonly sessionWalletSessionId: string;
+  readonly sessionQuotaId: string;
   readonly sessionId: string;
   readonly capabilitySessionId: string;
   readonly sessionParticipantIds: readonly [number, number];
@@ -82,6 +84,8 @@ function defaultSyncResponseFixtureInput(): SyncResponseFixtureInput {
     capabilityWalletId: WALLET_ID,
     capabilityAccountId: WALLET_ID,
     capabilityNearAccountId: NEAR_ACCOUNT_ID,
+    sessionWalletSessionId: WALLET_SESSION_ID,
+    sessionQuotaId: 'wallet-session-quota-recovery-1',
     sessionId: WALLET_SESSION_ID,
     capabilitySessionId: WALLET_SESSION_ID,
     sessionParticipantIds: PARTICIPANT_IDS,
@@ -125,6 +129,8 @@ function syncResponseFixture(
         walletId: input.sessionWalletId,
         nearAccountId: NEAR_ACCOUNT_ID,
         nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
+        walletSessionId: input.sessionWalletSessionId,
+        quotaId: input.sessionQuotaId,
         thresholdSessionId: input.sessionId,
         signingGrantId: 'signing-grant-recovery-1',
         expiresAtMs: Date.now() + 60_000,
@@ -230,6 +236,8 @@ test.describe('passkey Ed25519 Yao browser recovery boundary', () => {
       relayerKeyId: SIGNING_WORKER_ID,
       session: {
         walletSessionJwt: WALLET_SESSION_JWT,
+        walletSessionId: WALLET_SESSION_ID,
+        quotaId: 'wallet-session-quota-recovery-1',
         thresholdSessionId: WALLET_SESSION_ID,
         signingGrantId: 'signing-grant-recovery-1',
         remainingUses: 4,
@@ -263,10 +271,14 @@ test.describe('passkey Ed25519 Yao browser recovery boundary', () => {
 
   test('accepts a fresh Wallet Session while preserving the active capability identity', () => {
     const parsed = parsePasskeyEd25519YaoSyncResponseV1(
-      syncResponseFixture({ sessionId: 'fresh-wallet-session-recovery-1' }),
+      syncResponseFixture({
+        sessionWalletSessionId: 'fresh-wallet-session-recovery-1',
+        sessionId: 'fresh-threshold-session-recovery-1',
+      }),
     );
 
-    expect(parsed.session.thresholdSessionId).toBe('fresh-wallet-session-recovery-1');
+    expect(parsed.session.walletSessionId).toBe('fresh-wallet-session-recovery-1');
+    expect(parsed.session.thresholdSessionId).toBe('fresh-threshold-session-recovery-1');
     expect(parsed.capability.lifecycle.walletSessionId).toBe(WALLET_SESSION_ID);
   });
 

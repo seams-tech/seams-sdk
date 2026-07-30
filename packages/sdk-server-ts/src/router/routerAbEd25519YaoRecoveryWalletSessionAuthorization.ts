@@ -62,7 +62,7 @@ function claimsMatchAdmission(
     claims.walletId === body.application_binding.wallet_id &&
     claims.walletId === body.scope.account_id &&
     claims.nearEd25519SigningKeyId === body.application_binding.near_ed25519_signing_key_id &&
-    claims.thresholdSessionId === body.scope.wallet_session_id &&
+    claims.walletSessionId === body.scope.wallet_session_id &&
     claims.relayerKeyId === body.scope.signing_worker_id &&
     claims.routerAbNormalSigning.signingWorkerId === body.scope.signing_worker_id &&
     claims.runtimePolicyScope.signingRootVersion === body.scope.root_share_epoch &&

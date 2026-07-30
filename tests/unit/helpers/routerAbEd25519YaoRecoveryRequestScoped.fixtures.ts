@@ -59,6 +59,7 @@ type RecoveryFixtureIdentity = {
   readonly nearAccountId: string;
   readonly nearSigningKeyId: string;
   readonly walletSessionId: string;
+  readonly quotaId: string;
   readonly signingGrantId: string;
   readonly signingWorkerId: string;
   readonly signerSetId: string;
@@ -75,6 +76,7 @@ const PRIMARY_IDENTITY: RecoveryFixtureIdentity = {
   nearAccountId: 'wallet-recovery-1.testnet',
   nearSigningKeyId: 'ed25519ks_recovery_1',
   walletSessionId: 'wallet-session-recovery-1',
+  quotaId: 'wallet-session-quota-recovery-1',
   signingGrantId: 'signing-grant-recovery-1',
   signingWorkerId: 'signing-worker-recovery-1',
   signerSetId: 'signer-set-recovery-1',
@@ -91,6 +93,7 @@ const SECONDARY_IDENTITY: RecoveryFixtureIdentity = {
   nearAccountId: 'wallet-recovery-2.testnet',
   nearSigningKeyId: 'ed25519ks_recovery_2',
   walletSessionId: 'wallet-session-recovery-2',
+  quotaId: 'wallet-session-quota-recovery-2',
   signingGrantId: 'signing-grant-recovery-2',
   signingWorkerId: 'signing-worker-recovery-2',
   signerSetId: 'signer-set-recovery-2',
@@ -575,6 +578,8 @@ function recoveryClaims(identity: RecoveryFixtureIdentity) {
     walletId: identity.walletId,
     nearAccountId: identity.nearAccountId,
     nearEd25519SigningKeyId: identity.nearSigningKeyId,
+    walletSessionId: identity.walletSessionId,
+    quotaId: identity.quotaId,
     thresholdSessionId: identity.walletSessionId,
     signingGrantId: identity.signingGrantId,
     relayerKeyId: identity.signingWorkerId,
