@@ -915,6 +915,20 @@ type NearEd25519YaoPreparedMaterialBoundary = {
   executor: NearEd25519YaoMaterialExecutor;
 };
 
+function nearEd25519PreparationRequiresAuthorization(
+  preparation: NearEd25519YaoSigningPreparation,
+): boolean {
+  switch (preparation.authorization.kind) {
+    case 'authorized':
+      return false;
+    case 'authorization_required':
+      return true;
+    default:
+      preparation.authorization satisfies never;
+      throw new Error('[SigningEngine][near] unsupported material authorization state');
+  }
+}
+
 function requirePreparedNearEd25519YaoActivation(args: {
   capability: NearEd25519YaoSigningCapability;
   preparation: NearEd25519YaoSigningPreparation;
@@ -1264,6 +1278,11 @@ async function prepareNearAdHocSigningSession(args: {
     throw new Error('[SigningEngine][near] signature-only signing requires an exact selected lane');
   }
   const selectedLane = selected.lane;
+  const materialBoundary = await prepareNearEd25519YaoMaterialBoundary({
+    deps: args.deps,
+    commandSubject: args.commandSubject,
+    selectedLane,
+  });
   const thresholdSessionRecord = await readNearEd25519RuntimeRecordForSelectedLane({
     deps: args.deps,
     selectedLane,
@@ -1285,13 +1304,14 @@ async function prepareNearAdHocSigningSession(args: {
           record: thresholdSessionRecord,
         })
       : null;
-  const forceFreshAuth = args.attempt.forceFreshAuth
-    ? true
-    : await emailOtpNearEd25519LaneRequiresFreshAuth({
-        deps: args.deps,
-        commandSubject: args.commandSubject,
-        selectedLane,
-      });
+  const forceFreshAuth =
+    args.attempt.forceFreshAuth ||
+    nearEd25519PreparationRequiresAuthorization(materialBoundary.preparation) ||
+    (await emailOtpNearEd25519LaneRequiresFreshAuth({
+      deps: args.deps,
+      commandSubject: args.commandSubject,
+      selectedLane,
+    }));
   const ctx = args.deps.getSignerWorkerContext();
   const passkeyEd25519OperationStepUp =
     buildNearPasskeyEd25519OperationStepUp({
@@ -1310,11 +1330,6 @@ async function prepareNearAdHocSigningSession(args: {
       operationId: args.operationId,
       onEvent: args.onEvent,
     }) || null;
-  const materialBoundary = await prepareNearEd25519YaoMaterialBoundary({
-    deps: args.deps,
-    commandSubject: args.commandSubject,
-    selectedLane,
-  });
   return {
     selectedLane,
     thresholdSessionRecord,
@@ -1729,14 +1744,19 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     kind: 'account_class',
     authMethod: signingLaneAuthMethod(selectedLane.lane.auth),
   };
+  const initialMaterialBoundary = await prepareNearEd25519YaoMaterialBoundary({
+    deps: args.deps,
+    commandSubject: args.commandSubject,
+    selectedLane: selectedLane.lane,
+  });
   const forceFreshAuth =
-    args.forceFreshAuth === true
-      ? true
-      : await emailOtpNearEd25519LaneRequiresFreshAuth({
-          deps: args.deps,
-          commandSubject: args.commandSubject,
-          selectedLane: selectedLane.lane,
-        });
+    args.forceFreshAuth === true ||
+    nearEd25519PreparationRequiresAuthorization(initialMaterialBoundary.preparation) ||
+    (await emailOtpNearEd25519LaneRequiresFreshAuth({
+      deps: args.deps,
+      commandSubject: args.commandSubject,
+      selectedLane: selectedLane.lane,
+    }));
 
   const preparedTransaction = await prepareTransactionSigningOperation({
     intent: nearEd25519TransactionSigningIntent({
