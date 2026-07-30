@@ -450,7 +450,8 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~one-use iframe aliases for ECDSA bootstrap and exact/missing Wallet Session
   payloads~~ — canonical payload types are used directly in the envelope
 - ~~zero-caller Cloudflare route-registration wrapper and its wrapper-only
-  unit test~~ — production routing uses the canonical route-definition
+  unit test, plus the stale public-catalog assertion for the private 94C ECDSA
+  bootstrap plane~~ — production routing uses the canonical route-definition
   dispatcher
 - source guards and fixtures whose invariant became structural during the
   slices

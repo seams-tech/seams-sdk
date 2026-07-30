@@ -748,6 +748,8 @@ the replacement and legacy MPC paths must not ship together.
       test, and the source-range guard whose remaining subject it owned.
 - [ ] Delete obsolete tests, handwritten records, mocks, guards, and fixtures
       that encode pre-cutover behavior.
+  - [x] Delete the route-wrapper-only test and the stale public route-catalog
+        assertion for the private 94C ECDSA bootstrap plane.
 
 ### Unit 3a exit
 
