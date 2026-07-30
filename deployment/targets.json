@@ -8,11 +8,11 @@
         "workerName": "seams-sdk-d1-gateway-staging",
         "consoleD1": {
           "name": "seams-console-staging-nrt",
-          "id": "572d772c-3e15-4f60-a03f-e7a82fd452e7"
+          "id": "572d1147-bc66-4f0a-9030-8c1cdd8752e7"
         },
         "signerD1": {
           "name": "seams-signer-staging-nrt",
-          "id": "c68f90e9-9831-427e-87af-b08304cc7f8e"
+          "id": "c68fdf27-ced3-464a-ad40-c3acf8727f8e"
         },
         "secretsStoreId": "41fe2fa0a4a64d25a120a6c00973da1d"
       },
