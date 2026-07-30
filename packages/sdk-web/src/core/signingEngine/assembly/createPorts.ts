@@ -50,7 +50,6 @@ export function createSigningEnginePorts(args: CreateSigningEnginePortsArgs): Si
     ed25519YaoActiveClients,
     nearSigningDeps: createNearSigningDeps({
       createArgs: args,
-      walletSignerStore: args.stores.walletProfileAndSignerRecords.walletSignerStore,
       nearRpcUrl,
       signingSessionCoordinator,
       getEmailOtpWarmSessionStatus,
