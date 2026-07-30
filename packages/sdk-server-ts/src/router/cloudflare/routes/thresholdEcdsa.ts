@@ -1528,7 +1528,6 @@ export async function handleStrictEcdsaSessionActivation(
       keyHandle: walletKey.keyHandle,
       stableKeyContext: {
         walletId: walletKey.walletId,
-        evmFamilySigningKeySlotId: walletKey.evmFamilySigningKeySlotId,
         keyScope: walletKey.keyScope,
         ecdsaThresholdKeyId: walletKey.ecdsaThresholdKeyId,
         signingRootId: walletKey.signingRootId,

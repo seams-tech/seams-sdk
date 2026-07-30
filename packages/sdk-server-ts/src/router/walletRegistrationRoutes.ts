@@ -541,7 +541,6 @@ async function attachEcdsaWalletSessionJwt(
       keyHandle: bootstrap.keyHandle,
       stableKeyContext: {
         walletId: bootstrap.walletId,
-        evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
         keyScope: 'evm-family',
         ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
         signingRootId: bootstrap.signingRootId,
