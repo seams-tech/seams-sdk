@@ -12,10 +12,6 @@ import type {
 import type { UserPreferencesManager } from '../session/userPreferences';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type { ThemeMode, SeamsChainConfig } from '@/core/types/seams';
-import type {
-  ExportPrivateKeysWithUiWorkerPayload,
-  ExportPrivateKeysWithUiWorkerResult,
-} from '@/core/types/secure-confirm-worker';
 import type { NearSigningKeyOps } from '../interfaces/nearKeyOps';
 import type { WorkerTransport } from './workerTransport';
 import { createNearKeyOps } from './nearKeyOps/createNearKeyOps';
@@ -131,9 +127,4 @@ export class SignerWorkerManager {
     return this.workerTransport.requestOperation(args);
   }
 
-  requestExportPrivateKeysWithUi(
-    payload: ExportPrivateKeysWithUiWorkerPayload,
-  ): Promise<ExportPrivateKeysWithUiWorkerResult> {
-    return this.touchConfirm.exportPrivateKeysWithUi(payload);
-  }
 }

@@ -31,7 +31,7 @@ export function createPrivateKeyExportRecoveryDeps(
     relayerUrl: args.seamsWebConfigs.network.relayer.url,
     getRpId: () => args.touchIdPrompt.getRpId(),
     requestExportPrivateKeysWithUi: (payload) =>
-      args.signerWorkerManager.requestExportPrivateKeysWithUi(payload),
+      args.touchConfirm.exportPrivateKeysWithUi(payload),
     getTheme: args.getTheme,
   };
 }
