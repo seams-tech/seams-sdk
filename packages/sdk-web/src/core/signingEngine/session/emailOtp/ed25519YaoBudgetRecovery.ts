@@ -13,6 +13,10 @@ import { walletAuthAuthoritiesMatch } from '@shared/utils/walletAuthAuthority';
 import { base58Encode } from '@shared/utils/base58';
 import { registrationNearEd25519BranchKey } from '@shared/utils/registrationIntent';
 import type { ThresholdEd25519SessionRecord } from '../persistence/records';
+import {
+  SigningSessionIds,
+  type ThresholdEd25519SessionId,
+} from '../operationState/types';
 import { resolveRouterAbEd25519WalletSessionStateFromRecord } from '../warmCapabilities/routerAbEd25519WalletSessionState';
 import { persistWarmSessionEd25519Capability } from '../warmCapabilities/persistence';
 import type {
@@ -55,7 +59,7 @@ export type EmailOtpEd25519YaoBudgetRecoveryResult = {
 export type PreparedEmailOtpEd25519YaoRecoveryV1 = {
   kind: 'prepared_active_email_otp_ed25519_yao_recovery_v1';
   identity: Ed25519YaoActiveClientIdentityV1;
-  authorizationSessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   record: ThresholdEd25519SessionRecord;
   committedLane: Ed25519SigningLane;
   previous: NearEd25519YaoSigningCapability | null;
@@ -67,7 +71,7 @@ export type PreparedEmailOtpEd25519YaoRecoveryV1 = {
 export type PreparedColdEmailOtpEd25519YaoRecoveryV1 = {
   kind: 'prepared_cold_email_otp_ed25519_yao_recovery_v1';
   identity: Ed25519YaoActiveClientIdentityV1;
-  authorizationSessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   signerSlot: number;
   expectedOperationalPublicKey: string;
   providerSubject: string;
@@ -405,9 +409,8 @@ export async function prepareEmailOtpEd25519YaoRecoveryV1(args: {
   return {
     kind: 'prepared_active_email_otp_ed25519_yao_recovery_v1',
     identity,
-    authorizationSessionId: requireNonEmpty(
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
       args.record.thresholdSessionId,
-      'authorizationSessionId',
     ),
     record: args.record,
     committedLane: args.committedLane,
@@ -420,7 +423,7 @@ export async function prepareEmailOtpEd25519YaoRecoveryV1(args: {
 
 export function prepareColdEmailOtpEd25519YaoRecoveryV1(args: {
   identity: Ed25519YaoActiveClientIdentityV1;
-  authorizationSessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   signerSlot: number;
   expectedOperationalPublicKey: string;
   providerSubject: string;
@@ -439,7 +442,7 @@ export function prepareColdEmailOtpEd25519YaoRecoveryV1(args: {
   return {
     kind: 'prepared_cold_email_otp_ed25519_yao_recovery_v1',
     identity: args.identity,
-    authorizationSessionId: requireNonEmpty(args.authorizationSessionId, 'authorizationSessionId'),
+    thresholdSessionId: args.thresholdSessionId,
     signerSlot: requirePositiveInteger(args.signerSlot, 'signerSlot'),
     expectedOperationalPublicKey: requireNonEmpty(
       args.expectedOperationalPublicKey,
@@ -469,13 +472,13 @@ function assertColdBootstrapContinuity(args: {
     session.authorityScope.providerUserId !== prepared.providerSubject ||
     String(session.walletId) !== String(prepared.identity.walletId) ||
     session.nearAccountId !== String(prepared.identity.nearAccountId) ||
-    session.thresholdSessionId !== prepared.authorizationSessionId ||
+    session.thresholdSessionId !== prepared.thresholdSessionId ||
     session.remainingUses > prepared.remainingUses ||
     capability.applicationBinding.wallet_id !== String(prepared.identity.walletId) ||
     capability.applicationBinding.key_creation_signer_slot !== prepared.signerSlot ||
     capability.nearAccountId !== String(prepared.identity.nearAccountId) ||
     capability.lifecycle.accountId !== String(prepared.identity.walletId) ||
-    capability.lifecycle.walletSessionId !== prepared.authorizationSessionId ||
+    capability.lifecycle.walletSessionId !== prepared.thresholdSessionId ||
     capability.lifecycle.signerSetId !==
       String(registrationNearEd25519BranchKey(prepared.signerSlot)) ||
     capability.lifecycle.signingWorkerId !== session.routerAbNormalSigning.signingWorkerId ||
@@ -701,7 +704,7 @@ export async function recoverColdEmailOtpEd25519CapabilityForLoginV1(args: {
     orgId: runtimePolicyScope.orgId,
     nearAccountId: String(args.prepared.identity.nearAccountId),
     expectedOperationalPublicKey: args.prepared.expectedOperationalPublicKey,
-    expectedThresholdSessionId: args.prepared.authorizationSessionId,
+    expectedThresholdSessionId: args.prepared.thresholdSessionId,
   });
   if (unlocked.kind === 'ed25519_yao_local_session') {
     return await activateColdEmailOtpEd25519YaoLocalSessionV1({
@@ -823,7 +826,7 @@ export async function rehydrateEmailOtpEd25519CapabilityForSigningV1(args: {
   }
   const prepared = prepareColdEmailOtpEd25519YaoRecoveryV1({
     identity,
-    authorizationSessionId: thresholdSessionId,
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
     signerSlot: args.record.signerSlot,
     expectedOperationalPublicKey: args.expectedOperationalPublicKey,
     providerSubject: emailOtpAuthContextProviderUserId(emailOtpAuthContext),
@@ -855,7 +858,7 @@ export async function rehydrateEmailOtpEd25519CapabilityForSigningV1(args: {
     orgId: requireNonEmpty(args.record.runtimePolicyScope?.orgId, 'orgId'),
     nearAccountId: String(args.nearAccountId),
     expectedOperationalPublicKey: args.expectedOperationalPublicKey,
-    expectedThresholdSessionId: prepared.authorizationSessionId,
+    expectedThresholdSessionId: prepared.thresholdSessionId,
   });
   return await activateColdEmailOtpEd25519YaoLocalSessionV1({
     prepared,

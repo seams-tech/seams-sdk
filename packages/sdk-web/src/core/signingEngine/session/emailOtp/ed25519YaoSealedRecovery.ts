@@ -27,6 +27,10 @@ import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSes
 import { isPlainObject } from '@shared/utils/validation';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseEd25519YaoRecoveryCapabilityV1 } from '../../flows/recovery/passkeyEd25519YaoRecovery';
 import type {
@@ -44,7 +48,11 @@ import {
   type EmailOtpEd25519YaoBudgetRecoveryResult,
 } from './ed25519YaoBudgetRecovery';
 import { requestRehydrateEmailOtpEd25519YaoLocalMaterial } from './workerRequests';
-import type { SigningGrantId, ThresholdEd25519SessionId } from '../operationState/types';
+import {
+  SigningSessionIds,
+  type SigningGrantId,
+  type ThresholdEd25519SessionId,
+} from '../operationState/types';
 import {
   resolveEmailOtpAuthLane,
   type EmailOtpSigningSessionAuthLane,
@@ -201,6 +209,7 @@ function exactBootstrapResponseKeys(record: Record<string, unknown>): void {
     'nearAccountId',
     'nearEd25519SigningKeyId',
     'participantIds',
+    'quotaId',
     'routerAbNormalSigning',
     'runtimePolicyScope',
     'signerSlot',
@@ -209,6 +218,7 @@ function exactBootstrapResponseKeys(record: Record<string, unknown>): void {
     'thresholdExpiresAtMs',
     'thresholdSessionId',
     'walletId',
+    'walletSessionId',
   ].sort();
   const actual = Object.keys(record).sort();
   if (actual.length !== expected.length) {
@@ -420,6 +430,8 @@ async function parseWarmBootstrap(args: {
     'response.thresholdSessionId',
   );
   const signingGrantId = requireString(response.signingGrantId, 'response.signingGrantId');
+  const walletSessionId = parseWalletSessionId(response.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(response.quotaId);
   const signingWorkerId = requireString(response.signingWorkerId, 'response.signingWorkerId');
   const thresholdExpiresAtMs = requirePositiveInteger(
     response.thresholdExpiresAtMs,
@@ -458,6 +470,10 @@ async function parseWarmBootstrap(args: {
     !authority ||
     !authorityRef ||
     !expectedAuthorityRef ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
+    walletSessionId.value !== args.authorization.walletSessionId ||
+    quotaId.value !== args.authorization.quotaId ||
     args.authorization.authority.walletId !== expectedAuthorityRef.walletId ||
     args.authorization.authority.authorityDigest !== expectedAuthorityRef.authorityDigest ||
     authorityRef.walletId !== expectedAuthorityRef.walletId ||
@@ -503,8 +519,8 @@ async function parseWarmBootstrap(args: {
       },
       thresholdSessionId,
       signingGrantId,
-      walletSessionId: args.authorization.walletSessionId,
-      quotaId: args.authorization.quotaId,
+      walletSessionId: walletSessionId.value,
+      quotaId: quotaId.value,
       expiresAtMs: thresholdExpiresAtMs,
       participantIds,
       signingRootId: signingRoot.signingRootId,
@@ -641,7 +657,9 @@ export async function recoverEmailOtpEd25519YaoFromSealedSessionV1(input: {
       nearAccountId: input.subject.nearAccountId,
       materialActivation: emailOtp.materialActivation,
     },
-    authorizationSessionId: authorization.authorizationSessionId,
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
+      session.thresholdSessionId,
+    ),
     signerSlot: input.subject.signerSlot,
     expectedOperationalPublicKey: input.expectedOperationalPublicKey,
     providerSubject: emailOtp.providerSubjectId,
