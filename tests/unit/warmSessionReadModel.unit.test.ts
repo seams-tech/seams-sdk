@@ -247,7 +247,6 @@ test.describe('warmSessionReadModel', () => {
         signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
           'signing-session-seal-kek-2026-02-r1',
         ),
-        shamirPrimeB64u: 'AQAB',
       }),
     ).toMatchObject({
       curve: 'ecdsa',
@@ -263,12 +262,11 @@ test.describe('warmSessionReadModel', () => {
       signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
         'signing-session-seal-kek-2026-02-r1',
       ),
-      shamirPrimeB64u: 'AQAB',
     });
   });
 
   test('withholds Email OTP ECDSA seal transport without an active Wallet Session', () => {
-    const { runtime, manifest } = resolvedEcdsaRuntime();
+    const { runtime } = resolvedEcdsaRuntime();
     expect(runtime.authBinding.kind).toBe('email_otp');
 
     // An Email-OTP-bound runtime has no standing authorization of its own, so
@@ -277,19 +275,6 @@ test.describe('warmSessionReadModel', () => {
       resolveEcdsaSealTransport({
         runtime,
         auth: null,
-        shamirPrimeB64u: 'AQAB',
-      }),
-    ).toBeNull();
-
-    // An authorization present but carrying no JWT is the same absence.
-    expect(
-      resolveEcdsaSealTransport({
-        runtime,
-        auth: activeEvmFamilyWalletSessionAuthorizationFixture({
-          manifest,
-          walletSessionJwt: '',
-        }),
-        shamirPrimeB64u: 'AQAB',
       }),
     ).toBeNull();
   });
