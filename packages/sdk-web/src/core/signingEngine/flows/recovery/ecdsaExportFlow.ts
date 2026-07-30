@@ -23,7 +23,7 @@ import {
   type FreshPasskeyEcdsaExportMaterial,
   resolveEcdsaExportMaterialForLane,
 } from './ecdsaExportMaterial';
-import { exportEcdsaDerivationKeyWithExplicitExportSession } from './ecdsaDerivationExport';
+import { exportEcdsaDerivationKey } from './ecdsaDerivationExport';
 import {
   buildEcdsaExportActivation,
   type ThresholdEcdsaPasskeyExportActivationRequest,
@@ -740,12 +740,18 @@ export async function exportThresholdEcdsaKeyWithFreshPasskeyAuthorization(
       const exportProvision = await deps.provisionPasskeyEcdsaExplicitExportSession(
         prepared.exportActivation,
       );
-      return await exportEcdsaDerivationKeyWithExplicitExportSession(
+      return await exportEcdsaDerivationKey(
         { getSignerWorkerContext: deps.getSignerWorkerContext },
         {
           walletSessionUserId: args.walletId,
           exportProvision,
-          credential: prepared.credential,
+          factorAuthorization: {
+            kind: 'passkey',
+            passkeyCredentialIdB64u: String(
+              prepared.credential.rawId || prepared.credential.id,
+            ),
+            credential: prepared.credential,
+          },
         },
       );
     },

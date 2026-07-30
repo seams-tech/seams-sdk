@@ -36,7 +36,7 @@ import type {
   PrepareEmailOtpEcdsaExportCapabilityArgs,
 } from './ecdsaLogin';
 import type { EmailOtpEcdsaSigningSessionAuthority } from './ecdsaSigningSessionAuthority';
-import { exportEcdsaDerivationKeyWithEmailOtpSession } from '../../flows/recovery/ecdsaDerivationExport';
+import { exportEcdsaDerivationKey } from '../../flows/recovery/ecdsaDerivationExport';
 import type { EmailOtpChallengeDelivery, EmailOtpTransactionSigningChallenge } from './publicTypes';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
@@ -417,11 +417,12 @@ async function exportEcdsaKeyWithFreshLoginAuthorization(
   if (!workerCtx) {
     throw new Error('Email OTP ECDSA export requires the dedicated signer worker');
   }
-  return await exportEcdsaDerivationKeyWithEmailOtpSession(
+  return await exportEcdsaDerivationKey(
     { getSignerWorkerContext: () => workerCtx },
     {
       walletSessionUserId: args.walletSession.walletSessionUserId,
       exportProvision: result.bootstrap,
+      factorAuthorization: { kind: 'email_otp_verified' },
     },
   );
 }
