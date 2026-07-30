@@ -56,7 +56,7 @@ export async function keygenEcdsa(args: {
 	  return {
 	    ok: true,
 	    keygenSessionId: bootstrap.keygenSessionId,
-	    evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
+	    evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
 	    keyHandle: bootstrap.keyHandle,
     ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
     clientVerifyingShareB64u: bootstrap.clientVerifyingShareB64u,
