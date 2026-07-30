@@ -193,22 +193,6 @@ service = "router-ab-signing-worker-staging"
 binding = "MPC_ROUTER"
 service = "router-ab-mpc-router-staging"
 
-[[migrations]]
-tag = "threshold-store-sqlite-v1"
-new_sqlite_classes = ["ThresholdStoreDurableObject"]
-
-[[migrations]]
-tag = "router-api-runtime-sqlite-v1"
-new_sqlite_classes = ["RouterApiRuntimeDurableObject"]
-
-[[migrations]]
-tag = "router-api-runtime-delete-v1"
-deleted_classes = ["RouterApiRuntimeDurableObject"]
-
-[[migrations]]
-tag = "threshold-store-delete-v1"
-deleted_classes = ["ThresholdStoreDurableObject"]
-
 [[secrets_store_secrets]]
 binding = "SIGNING_ROOT_KEK_STAGING_R1"
 store_id = "33333333333333333333333333333333"

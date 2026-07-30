@@ -111,24 +111,6 @@ function buildConfig(deployment, packageRoot) {
       { binding: 'SIGNING_WORKER', service: deployment.serviceNames.signingWorker },
       { binding: 'MPC_ROUTER', service: deployment.serviceNames.mpcRouter },
     ],
-    migrations: [
-      {
-        tag: 'threshold-store-sqlite-v1',
-        new_sqlite_classes: ['ThresholdStoreDurableObject'],
-      },
-      {
-        tag: 'router-api-runtime-sqlite-v1',
-        new_sqlite_classes: ['RouterApiRuntimeDurableObject'],
-      },
-      {
-        tag: 'router-api-runtime-delete-v1',
-        deleted_classes: ['RouterApiRuntimeDurableObject'],
-      },
-      {
-        tag: 'threshold-store-delete-v1',
-        deleted_classes: ['ThresholdStoreDurableObject'],
-      },
-    ],
     observability: {
       enabled: true,
       logs: {

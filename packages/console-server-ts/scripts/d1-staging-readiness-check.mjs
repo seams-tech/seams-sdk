@@ -372,20 +372,8 @@ function d1DatabaseBinding(database) {
 
 function checkDurableObject(source, errors) {
   const blocks = arrayTableBodies(source, 'durable_objects.bindings');
-  checkDeletedDurableObject({
-    source,
-    blocks,
-    bindingName: 'THRESHOLD_STORE',
-    className: 'ThresholdStoreDurableObject',
-    errors,
-  });
-  checkDeletedDurableObject({
-    source,
-    blocks,
-    bindingName: 'ROUTER_API_RUNTIME',
-    className: 'RouterApiRuntimeDurableObject',
-    errors,
-  });
+  checkRetiredDurableObjectBinding(blocks, 'THRESHOLD_STORE', errors);
+  checkRetiredDurableObjectBinding(blocks, 'ROUTER_API_RUNTIME', errors);
 }
 
 function checkRequiredDurableObject(input) {
@@ -405,17 +393,9 @@ function checkRequiredDurableObject(input) {
   }
 }
 
-function checkDeletedDurableObject(input) {
-  if (findBlockByAssignment(input.blocks, 'name', input.bindingName)) {
-    input.errors.push(`retired Durable Object binding ${input.bindingName} must be removed`);
-  }
-  if (!hasSqliteClassMigration(input.source, input.className)) {
-    input.errors.push(
-      `missing historical Durable Object new_sqlite_classes migration for ${input.className}`,
-    );
-  }
-  if (!hasDeletedClassMigration(input.source, input.className)) {
-    input.errors.push(`missing Durable Object deleted_classes migration for ${input.className}`);
+function checkRetiredDurableObjectBinding(blocks, bindingName, errors) {
+  if (findBlockByAssignment(blocks, 'name', bindingName)) {
+    errors.push(`retired Durable Object binding ${bindingName} must be removed`);
   }
 }
 
@@ -532,13 +512,6 @@ function hasSqliteClassMigration(source, className) {
   const blocks = arrayTableBodies(source, 'migrations');
   for (const block of blocks) {
     if (includesString(readArray(block, 'new_sqlite_classes'), className)) return true;
-  }
-  return false;
-}
-
-function hasDeletedClassMigration(source, className) {
-  for (const block of arrayTableBodies(source, 'migrations')) {
-    if (includesString(readArray(block, 'deleted_classes'), className)) return true;
   }
   return false;
 }
