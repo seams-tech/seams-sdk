@@ -143,8 +143,6 @@ type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaExactSessionArgsBase &
       }
   );
 
-type BootstrapEcdsaSessionArgs = BootstrapEcdsaExactSessionArgs;
-
 type BootstrapEcdsaSessionFailure = {
   ok: false;
   code: string;
@@ -331,7 +329,7 @@ function requireFreshReusableWalletSessionMintId() {
 }
 
 export async function bootstrapEcdsaSession(
-  args: BootstrapEcdsaSessionArgs,
+  args: BootstrapEcdsaExactSessionArgs,
 ): Promise<BootstrapEcdsaSessionResult> {
   const rpId = args.touchIdPrompt.getRpId();
   if (!rpId) {

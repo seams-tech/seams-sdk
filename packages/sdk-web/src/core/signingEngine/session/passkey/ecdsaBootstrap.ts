@@ -13,7 +13,7 @@ import {
   activateExplicitKeyExportEcdsaSession,
   type ActivateExplicitKeyExportEcdsaSessionRequest,
   type ActivateEcdsaSessionAuth,
-  type ActivateEcdsaSessionRequest,
+  type ActivateEcdsaExistingSessionRequest,
   type EcdsaExplicitExportOperationAuthorization,
   type ThresholdEcdsaExplicitKeyExportActivationResult,
   type ThresholdEcdsaSessionBootstrapResult,
@@ -383,7 +383,7 @@ function ecdsaBootstrapSignerAuth(
 function toActivateEcdsaSessionRequest(
   request: Exclude<EcdsaBootstrapRequest, ReuseWarmEcdsaBootstrapRequest>,
   relayerUrl: string,
-): ActivateEcdsaSessionRequest {
+): ActivateEcdsaExistingSessionRequest {
   const passkeyFreshActivationAuth = (
     passkeyRequest: Extract<EcdsaBootstrapRequest, { kind: 'passkey_fresh_ecdsa_bootstrap' }>,
   ): ActivateEcdsaSessionAuth => {
@@ -426,7 +426,7 @@ function toActivateEcdsaSessionRequest(
     exactRequest: Extract<EcdsaBootstrapRequest, { key: EvmFamilyEcdsaKeyIdentity }>,
     walletSessionRouteAuth: ThresholdEcdsaDerivationRouteAuth | undefined,
     auth: ActivateEcdsaSessionAuth,
-  ): ActivateEcdsaSessionRequest => {
+  ): ActivateEcdsaExistingSessionRequest => {
     return {
       kind: 'session_bootstrap',
       purpose: 'transaction_signing' as const,
@@ -444,7 +444,7 @@ function toActivateEcdsaSessionRequest(
   };
   const preauthorizedExactSessionRequest = (
     exactRequest: PasskeyExchangeEcdsaBootstrapRequest,
-  ): ActivateEcdsaSessionRequest => ({
+  ): ActivateEcdsaExistingSessionRequest => ({
     kind: 'session_bootstrap',
     purpose: 'transaction_signing',
     relayerUrl,

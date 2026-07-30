@@ -369,10 +369,6 @@ export type SealedStoreResolvedSigningSessionIdentity =
       updatedAtMs: number;
     };
 
-export type PublishResolvedIdentityInput = SealedStoreResolvedSigningSessionIdentity;
-
-export type ExactResolvedSessionIdentity = SealedStoreResolvedSigningSessionIdentity;
-
 export type UpdateExactSealedSessionPolicyInput = {
   thresholdSessionId: string;
   filter: SigningSessionSealedRecordFilter;
@@ -389,7 +385,7 @@ export type ResolvedIdentityDeleteReason =
 
 type DeleteResolvedIdentityCommand = {
   kind: 'delete_resolved_identity';
-  identity: ExactResolvedSessionIdentity;
+  identity: SealedStoreResolvedSigningSessionIdentity;
   deleteReason: ResolvedIdentityDeleteReason;
 };
 
@@ -993,7 +989,7 @@ function normalizeEcdsaChain(value: unknown): 'tempo' | 'evm' | undefined {
 }
 
 function normalizeResolvedIdentity(
-  value: PublishResolvedIdentityInput,
+  value: SealedStoreResolvedSigningSessionIdentity,
 ): SealedStoreResolvedSigningSessionIdentity | null {
   const walletId = normalizeOptionalNonEmptyString(value.walletId);
   const authMethod = normalizeAuthMethod(value.authMethod);
@@ -1023,7 +1019,10 @@ function normalizeResolvedIdentity(
       updatedAtMs,
     };
   }
-  const ecdsaValue = value as Extract<PublishResolvedIdentityInput, { curve: 'ecdsa' }>;
+  const ecdsaValue = value as Extract<
+    SealedStoreResolvedSigningSessionIdentity,
+    { curve: 'ecdsa' }
+  >;
   let chainTarget: ThresholdEcdsaChainTarget | null = null;
   try {
     chainTarget = thresholdEcdsaChainTargetFromRequest(
@@ -1063,8 +1062,8 @@ export function parseResolvedIdentityDeleteReason(
 }
 
 export function parseExactResolvedSessionIdentity(
-  value: PublishResolvedIdentityInput,
-): ExactResolvedSessionIdentity | null {
+  value: SealedStoreResolvedSigningSessionIdentity,
+): SealedStoreResolvedSigningSessionIdentity | null {
   const identity = normalizeResolvedIdentity(value);
   return identity ? cloneResolvedIdentity(identity) : null;
 }
@@ -1085,7 +1084,7 @@ function hasTopLevelSigningRootFields(value: unknown): boolean {
 }
 
 function createDeleteResolvedIdentityCommand(args: {
-  identity: ExactResolvedSessionIdentity;
+  identity: SealedStoreResolvedSigningSessionIdentity;
   deleteReason: ResolvedIdentityDeleteReason;
 }): DeleteResolvedIdentityCommand {
   return {
@@ -1097,10 +1096,10 @@ function createDeleteResolvedIdentityCommand(args: {
 
 function resolvedIdentitiesForSealedRecord(
   record: SigningSessionSealedStoreRecord,
-): PublishResolvedIdentityInput[] {
+): SealedStoreResolvedSigningSessionIdentity[] {
   const walletId = normalizeOptionalNonEmptyString(record.walletId);
   if (!walletId) return [];
-  const identities: PublishResolvedIdentityInput[] = [];
+  const identities: SealedStoreResolvedSigningSessionIdentity[] = [];
   const ecdsaThresholdSessionId = normalizeOptionalNonEmptyString(record.thresholdSessionIds.ecdsa);
   const ecdsaChainTarget = record.ecdsaRestore?.chainTarget;
   if (ecdsaThresholdSessionId && ecdsaChainTarget) {
@@ -1194,7 +1193,7 @@ function sealedRecordsHaveSamePurpose(
 }
 
 export function publishResolvedIdentity(
-  input: PublishResolvedIdentityInput,
+  input: SealedStoreResolvedSigningSessionIdentity,
 ): SealedStoreResolvedSigningSessionIdentity | null {
   const identity = normalizeResolvedIdentity(input);
   if (!identity) return null;

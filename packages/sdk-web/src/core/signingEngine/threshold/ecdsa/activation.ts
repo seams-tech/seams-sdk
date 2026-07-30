@@ -135,8 +135,6 @@ export type ThresholdEcdsaSessionBootstrapResult = {
   passkeyCredentialIdB64u?: string;
 };
 
-export type ThresholdEcdsaSessionActivationResult = ThresholdEcdsaSessionBootstrapResult;
-
 export type EcdsaExplicitExportSessionAuth = AppSessionJwtAuth | CookieSessionAuth;
 
 export type EcdsaExplicitExportOperationAuthorization = {
@@ -263,7 +261,7 @@ type ActivateEcdsaExistingSessionRequestBase = ActivateEcdsaSessionRequestCommon
   remainingUses?: never;
 };
 
-type ActivateEcdsaExistingSessionRequest = ActivateEcdsaExistingSessionRequestBase &
+export type ActivateEcdsaExistingSessionRequest = ActivateEcdsaExistingSessionRequestBase &
   ActivateEcdsaSessionAuth & { purpose: 'transaction_signing' } & (
     | {
         preauthorizedSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
@@ -280,10 +278,6 @@ export type ActivateExplicitKeyExportEcdsaSessionRequest = {
   readonly existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
   readonly authorization: EcdsaExplicitExportOperationAuthorization;
 };
-
-export type ActivateEcdsaSessionRequest = ActivateEcdsaExistingSessionRequest;
-
-type ActivateEcdsaSessionByPurposeRequest = ActivateEcdsaSessionRequest;
 
 function requireStrictEcdsaRouteAuth(
   auth: ThresholdEcdsaDerivationRouteAuth | undefined,
@@ -345,7 +339,7 @@ function createStaleEcdsaKeyIdentityError(message: string): Error & {
 }
 
 function inferThresholdEcdsaBootstrapAuthMethod(
-  args: ActivateEcdsaSessionByPurposeRequest,
+  args: ActivateEcdsaExistingSessionRequest,
 ): 'passkey' | 'email_otp' | 'unknown' {
   switch (args.authKind) {
     case 'email_otp':
@@ -362,7 +356,7 @@ function inferThresholdEcdsaBootstrapAuthMethod(
 }
 
 function roleLocalAuthMethodForActivation(args: {
-  request: ActivateEcdsaSessionByPurposeRequest;
+  request: ActivateEcdsaExistingSessionRequest;
   bootstrap: Extract<BootstrapEcdsaSessionResult, { ok: true }>;
 }): EcdsaRoleLocalAuthMethod {
   switch (args.bootstrap.secretSourceKind) {
@@ -412,7 +406,7 @@ function resolveExactActivationOwnerAddress(args: {
 }
 
 function bootstrapSecretSourceArgsForActivation(
-  args: ActivateEcdsaSessionByPurposeRequest,
+  args: ActivateEcdsaExistingSessionRequest,
 ):
   | ActivateEcdsaPasskeyPromptAuth
   | ActivateEcdsaPasskeyWebAuthnAuth
@@ -458,8 +452,8 @@ function bootstrapSecretSourceArgsForActivation(
 
 async function activateEcdsaSessionByPurpose(
   deps: ActivateEcdsaSessionDeps,
-  args: ActivateEcdsaSessionByPurposeRequest,
-): Promise<ThresholdEcdsaSessionActivationResult> {
+  args: ActivateEcdsaExistingSessionRequest,
+): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const walletId = toWalletId(String(args.key.walletId));
   const chainTarget = args.lanePolicy.chainTarget;
   const requestedSessionId = String(args.lanePolicy.thresholdSessionId).trim();
@@ -700,8 +694,8 @@ async function activateEcdsaSessionByPurpose(
 
 export async function activateEcdsaSession(
   deps: ActivateEcdsaSessionDeps,
-  args: ActivateEcdsaSessionRequest,
-): Promise<ThresholdEcdsaSessionActivationResult> {
+  args: ActivateEcdsaExistingSessionRequest,
+): Promise<ThresholdEcdsaSessionBootstrapResult> {
   return await activateEcdsaSessionByPurpose(deps, args);
 }
 

@@ -17,9 +17,8 @@ import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/route
 import type { RouterAbEcdsaOperationStepUpPreparationV1Wire } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbEd25519NormalSigningCredential } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 
-export type EcdsaSigningAuthorization = RouterAbNormalSigningAuthorizationWire;
 export type ReusableEcdsaSigningAuthorization = Extract<
-  EcdsaSigningAuthorization,
+  RouterAbNormalSigningAuthorizationWire,
   { readonly kind: 'reusable_wallet_session' }
 >;
 
@@ -60,7 +59,10 @@ export type ReadySecp256k1SigningMaterial =
       operationStepUpPreparation?: never;
     })
   | (ReadySecp256k1SigningMaterialBase & {
-      authorization: Extract<EcdsaSigningAuthorization, { readonly kind: 'operation_step_up' }>;
+      authorization: Extract<
+        RouterAbNormalSigningAuthorizationWire,
+        { readonly kind: 'operation_step_up' }
+      >;
       credential: OperationStepUpEcdsaSigningCredential;
       operationStepUpPreparation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
     });
@@ -89,7 +91,10 @@ export type BuildReadySecp256k1SigningMaterialInput =
       operationStepUpPreparation?: never;
     })
   | (BuildReadySecp256k1SigningMaterialInputBase & {
-      authorization: Extract<EcdsaSigningAuthorization, { readonly kind: 'operation_step_up' }>;
+      authorization: Extract<
+        RouterAbNormalSigningAuthorizationWire,
+        { readonly kind: 'operation_step_up' }
+      >;
       credential: OperationStepUpEcdsaSigningCredential;
       operationStepUpPreparation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
     });

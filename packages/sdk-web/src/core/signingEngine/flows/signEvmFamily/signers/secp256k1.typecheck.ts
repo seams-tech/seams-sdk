@@ -1,15 +1,15 @@
 import type { RouterAbEcdsaOperationStepUpPreparationV1Wire } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { HydratedEcdsaSignerMaterial } from '../../../session/identity/evmFamilyEcdsaIdentity';
 import type {
   BuildReadySecp256k1SigningMaterialInput,
-  EcdsaSigningAuthorization,
   ReusableEcdsaSigningAuthorization,
 } from './secp256k1';
 
 declare const signerSession: HydratedEcdsaSignerMaterial;
 declare const reusableAuthorization: ReusableEcdsaSigningAuthorization;
 declare const operationAuthorization: Extract<
-  EcdsaSigningAuthorization,
+  RouterAbNormalSigningAuthorizationWire,
   { readonly kind: 'operation_step_up' }
 >;
 declare const operationPreparation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
