@@ -134,7 +134,10 @@ replacement.
   registration/bootstrap). Forbidden in `ExactSigningLaneIdentity`,
   Wallet Session claims, Router A/B normal-signing scope,
   `EcdsaRoleLocalPublicFacts`, sealed recovery records, and remaining runtime
-  identity surfaces.
+  identity surfaces. The zero-caller server-planned WASM context was deleted
+  by `2b2d2f4b3`, and the unused server export-share request/response/parser
+  contract by `84677131e`; runtime wallet-key, worker-handle, session-policy,
+  server normal-signing, and durable role-local material surfaces remain.
 - ~~`evmFamilySigningKeySlotId` in ECDSA Wallet Session JWT binding facts and
   normal-signing claims~~ — deleted by `4986d279f`; the value remains only on
   the registration bootstrap request/response boundary in that path.

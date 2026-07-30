@@ -270,7 +270,9 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
       selection.
 - [x] Delete JWT-payload inference from normal signing and worker orchestration;
       retain token decoding only in boundary parsers.
-- [ ] Delete remaining optional-ID inference from core transitions.
+- [x] Delete remaining optional-ID inference from core transitions. Status,
+      lane discovery, and Email OTP Ed25519 consumption now require the exact
+      grant or threshold-session identity (`00d5130f9`).
 - [x] Require persisted-session discovery to name one exact auth method; delete
       the omitted-method branch that silently searched Passkey and Email OTP.
 - [x] Add boundary and lifecycle tests for missing, mixed, stale, and exact
@@ -289,6 +291,10 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
 - [x] Delete duplicate readiness helpers after the shared path is active.
 - [ ] Delete remaining protocol-specific derivation helpers after their last
       caller moves to the shared path.
+  - [x] Delete the zero-caller key-ref, server-record, bootstrap-context,
+        wallet-key projection, and record-fingerprint adapters (`26bd50338`).
+  - [ ] Move the remaining sealed-export public-facts validation onto exact
+        manifest/runtime correlation, then delete its durable-record adapter.
 - [x] Verify there is one hydration decision for Passkey and Email OTP.
 - [x] Prove routine Passkey/OTP local rehydration makes zero Deriver A/B calls.
 - [x] Fail closed for missing, mismatched, corrupt, conflicting, or unavailable
@@ -347,6 +353,10 @@ removes.
       activation/durable bindings, persistence keys, and sealing AAD.
 - [ ] Delete `evmFamilySigningKeySlotId` from remaining runtime paths or prove
       it is a provisioning-only identifier outside material selection.
+  - [x] Delete the zero-caller slot-bearing server-planned WASM context and its
+        type fixture (`2b2d2f4b3`).
+  - [x] Delete the zero-caller server export-share request, response, and parser
+        contract that still carried the slot identity (`84677131e`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.
@@ -735,7 +745,9 @@ the replacement and legacy MPC paths must not ship together.
       operation across its wrapper, channel, type map, and worker dispatch.
 - [x] Delete the unreachable Email OTP `session_bootstrap` worker branch and
       require registration-attempt identity as an explicit worker input.
-- [ ] Preserve existing import/export and bundle guards.
+- [x] Preserve existing import/export and bundle guards. The key-export,
+      Ed25519-Yao custody, ECDSA client-worker split, Email OTP branch
+      isolation, and static-wallet-asset checks pass.
   - [x] Point the key-export and Ed25519-Yao custody guards at the dedicated
         Passkey MPC export runtime; both focused guards pass.
   - [x] Keep the generic confirmation worker's static asset graph WASM-free
