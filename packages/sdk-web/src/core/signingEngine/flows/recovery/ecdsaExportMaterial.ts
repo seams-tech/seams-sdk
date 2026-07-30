@@ -6,7 +6,6 @@ import type {
 import {
   assertMatchingVerifiedEcdsaPublicFacts,
   deriveEvmFamilyKeyFingerprintFromPublicFacts,
-  toVerifiedEcdsaPublicFactsFromDurableRecord,
   type EvmFamilyEcdsaKeyIdentity,
   type ThresholdEcdsaSessionId,
   type VerifiedEcdsaPublicFacts,
@@ -23,24 +22,12 @@ import {
 } from '../../session/material/ecdsaRoleLocalMaterialResolver';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import {
-  listExactSealedSessionsForWallet,
-  type CurrentEcdsaSealedSessionRecord,
-} from '../../session/persistence/sealedSessionStore';
-import {
-  thresholdEcdsaChainTargetsEqual,
-  type ThresholdEcdsaChainTarget,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  normalizeThresholdRuntimePolicyScope,
-  type ThresholdRuntimePolicyScope,
-} from '../../threshold/sessionPolicy';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../signEvmFamily/ecdsaSigningCapability';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import { buildEcdsaRoleLocalPublicFacts } from '@/core/platform';
-import { parseEcdsaRoleLocalPersistedMaterialRef } from '../../session/keyMaterialBrands';
 import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
 import {
   resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime,
@@ -143,57 +130,6 @@ export function isConcreteEcdsaExportLane(
   );
 }
 
-export async function resolveExactSealedEcdsaExportRecordForLane(
-  exportLane: ExactEcdsaExportLane,
-): Promise<CurrentEcdsaSealedSessionRecord> {
-  const matches = (
-    await listExactSealedSessionsForWallet({
-      walletId: String(exportLane.key.walletId),
-      filter: {
-        authMethod: exportLane.session.authMethod,
-        curve: 'ecdsa',
-        chainTarget: exportLane.session.chainTarget,
-      },
-    })
-  ).filter((record): record is CurrentEcdsaSealedSessionRecord => {
-    if (record.curve !== 'ecdsa' || !record.ecdsaRestore) return false;
-    const sealedWalletId = String(record.walletId || '').trim();
-    const sealedKeyHandle = String(record.ecdsaRestore?.keyHandle || '').trim();
-    if (
-      sealedWalletId !== String(exportLane.key.walletId) ||
-      sealedKeyHandle !== String(exportLane.publicFacts.keyHandle)
-    ) {
-      return false;
-    }
-    // Durable material identity: the sealed restore must reference the exact
-    // material activation the lane names. Session and grant identifiers no
-    // longer participate in sealed-record matching.
-    try {
-      return mpcMaterialActivationRefsEqual(
-        parseEcdsaRoleLocalPersistedMaterialRef(record.ecdsaRestore.roleLocalMaterialRef)
-          .materialActivation,
-        exportLane.laneIdentity.signer.materialActivation,
-      );
-    } catch {
-      return false;
-    }
-  });
-  if (matches.length !== 1) {
-    throw new Error(
-      `[SigningEngine][ecdsa-export] exact sealed export lane not found for ${ecdsaExportBoundaryChain(exportLane)} ${exportLane.session.authMethod}`,
-    );
-  }
-  return matches[0];
-}
-
-function requirePasskeyEcdsaExportField(value: unknown, label: string): string {
-  const normalized = String(value ?? '').trim();
-  if (!normalized) {
-    throw new Error(`[SigningEngine][ecdsa-export] passkey export requires ${label}`);
-  }
-  return normalized;
-}
-
 export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
   _deps: EcdsaExportSessionStoreDeps,
   exportLane: ExactEcdsaExportLane,
@@ -250,28 +186,33 @@ export async function resolveEcdsaExportMaterialForLane(
   if (exportLane.session.authMethod === 'email_otp') {
     return await resolveFreshEmailOtpEcdsaExportMaterialForLane(deps, exportLane);
   }
-  const sealedRecord = await resolveExactSealedEcdsaExportRecordForLane(exportLane);
-  const restore = sealedRecord.ecdsaRestore;
-  const relayerUrl = sealedRecord.relayerUrl;
-  if (!restore || restore.source === 'email_otp') {
-    throw new Error('[SigningEngine][ecdsa-export] durable passkey export authority is invalid');
-  }
-  const publicFacts = await toVerifiedEcdsaPublicFactsFromDurableRecord({
-    record: {
-      ecdsaRestore: {
-        keyHandle: restore.keyHandle,
-        thresholdEcdsaPublicKeyB64u: restore.thresholdEcdsaPublicKeyB64u,
-        participantIds: restore.participantIds,
-        ethereumAddress: restore.ethereumAddress,
-      },
-    },
+  const resolution = await resolveActiveEcdsaCapabilityRuntime({
+    walletId: exportLane.key.walletId,
+    chainTarget: exportLane.session.chainTarget,
   });
+  if (resolution.kind !== 'resolved') {
+    throw new Error(
+      `[SigningEngine][ecdsa-export] passkey capability runtime unavailable: ${resolution.reason}`,
+    );
+  }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      resolution.runtime.materialActivation,
+      exportLane.laneIdentity.signer.materialActivation,
+    )
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] passkey material activation mismatch');
+  }
+  if (resolution.runtime.authBinding.kind !== 'passkey') {
+    throw new Error('[SigningEngine][ecdsa-export] passkey authority binding mismatch');
+  }
+  const publicFacts = resolution.manifest.signer.registeredPublicFacts;
   assertMatchingVerifiedEcdsaPublicFacts({
     expected: exportLane.publicFacts,
     actual: publicFacts,
-    context: 'durable passkey export lane',
+    context: 'canonical passkey export lane',
   });
-  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(restore.runtimePolicyScope);
+  const runtimePolicyScope = resolution.runtime.runtimePolicyScope;
   if (!runtimePolicyScope) {
     throw new Error(
       '[SigningEngine][ecdsa-export] durable passkey export requires runtimePolicyScope',
@@ -282,38 +223,13 @@ export async function resolveEcdsaExportMaterialForLane(
     chainTarget: exportLane.session.chainTarget,
     publicFacts,
     runtimePolicyScope,
-    publicCapability: restore.publicCapability,
+    publicCapability: resolution.manifest.durableMaterial.roleLocalPublicFacts.publicCapability,
     existingRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
-      authority: restore.authority,
-      materialActivation: parseEcdsaRoleLocalPersistedMaterialRef(
-        restore.roleLocalMaterialRef,
-      ).materialActivation,
-      publicFacts: buildEcdsaRoleLocalPublicFacts({
-        walletId: exportLane.key.walletId,
-        chainTarget: exportLane.session.chainTarget,
-        keyHandle: restore.keyHandle,
-        ecdsaThresholdKeyId: restore.ecdsaThresholdKeyId,
-        signingRootId: restore.signingRootId,
-        signingRootVersion: restore.signingRootVersion,
-        applicationBindingDigestB64u:
-          restore.publicCapability.context.application_binding_digest_b64u,
-        clientParticipantId: 1,
-        relayerParticipantId: 2,
-        participantIds: restore.participantIds,
-        contextBinding32B64u:
-          restore.publicCapability.public_identity.context_binding_b64u,
-        derivationClientSharePublicKey33B64u:
-          restore.publicCapability.public_identity
-            .derivation_client_share_public_key33_b64u,
-        relayerPublicKey33B64u:
-          restore.publicCapability.public_identity.server_public_key33_b64u,
-        groupPublicKey33B64u:
-          restore.publicCapability.public_identity.threshold_public_key33_b64u,
-        ethereumAddress: restore.ethereumAddress,
-        publicCapability: restore.publicCapability,
-      }),
+      authority: resolution.manifest.signer.authority,
+      materialActivation: resolution.manifest.durableMaterial.materialActivation,
+      publicFacts: resolution.manifest.durableMaterial.roleLocalPublicFacts,
     }),
-    relayerUrl: requirePasskeyEcdsaExportField(relayerUrl, 'relayerUrl'),
+    relayerUrl: resolution.runtime.relayerUrl,
   };
 }
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../interfaces/signing';

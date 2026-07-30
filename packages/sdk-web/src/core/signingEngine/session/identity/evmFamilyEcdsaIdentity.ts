@@ -346,15 +346,6 @@ export type BuildHydratedEcdsaSignerMaterialInput = {
   readonly walletSessionJwt?: never;
 };
 
-export type DurableEvmFamilyEcdsaPublicFactsRecord = {
-  ecdsaRestore: {
-    keyHandle: unknown;
-    thresholdEcdsaPublicKeyB64u: unknown;
-    participantIds: unknown;
-    ethereumAddress: unknown;
-  };
-};
-
 export type BuildEvmFamilyEcdsaSessionLanePolicyInput = {
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: unknown;
@@ -750,17 +741,6 @@ export function buildHydratedEcdsaSignerMaterial(
     clientShare: input.clientShare,
     routerAbEcdsaDerivationNormalSigning: input.routerAbEcdsaDerivationNormalSigning,
   };
-}
-
-export async function toVerifiedEcdsaPublicFactsFromDurableRecord(args: {
-  record: DurableEvmFamilyEcdsaPublicFactsRecord;
-}): Promise<VerifiedEcdsaPublicFacts> {
-  return buildVerifiedEcdsaPublicFacts({
-    keyHandle: toEvmFamilyEcdsaKeyHandle(args.record.ecdsaRestore.keyHandle),
-    publicKeyB64u: args.record.ecdsaRestore.thresholdEcdsaPublicKeyB64u,
-    participantIds: args.record.ecdsaRestore.participantIds,
-    thresholdOwnerAddress: args.record.ecdsaRestore.ethereumAddress,
-  });
 }
 
 export function buildEvmFamilyEcdsaSessionLanePolicy(
