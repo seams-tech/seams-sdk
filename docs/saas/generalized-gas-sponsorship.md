@@ -76,12 +76,12 @@ Completed so far:
   - settlement completion
 - the shared sponsorship pricing path now supports:
   - operator-configured static pricing via `SPONSORED_EXECUTION_STATIC_PRICING_JSON`
-  - optional on-chain Ref Finance pricing via `SPONSORED_EXECUTION_REAL_PRICING_JSON`
+  - optional on-chain Outlayer pricing via `SPONSORED_EXECUTION_REAL_PRICING_JSON`
   - precedence of real pricing over static pricing when both are configured
 - NEAR `near_delegate` policies can now enforce spend caps through the same shared budgeting path using:
   - explicit internal NEAR spend-cap target ids per network
   - shared static pricing support
-  - shared Ref Finance NEAR/USDC pricing support
+  - shared Outlayer NEAR/USD pricing support
   - gas-only settlement based on finalized `tokens_burnt`
 - sponsored execution details now retain spend-cap reconciliation metadata such as:
   - reservation source event id
@@ -101,7 +101,7 @@ Completed so far:
 Still outstanding:
 
 - optional future work only:
-  - additional on-chain pricing sources beyond the current Ref Finance adapter
+  - additional on-chain pricing sources beyond the current Outlayer adapter
   - operator UX / diagnostics refinements around capped sponsorship behavior
 
 ## Goal
@@ -1005,7 +1005,7 @@ Todo:
   - attached deposit is user-paid and excluded from sponsorship spend
   - no attached-deposit refund accounting is needed because attached deposit is not sponsored
 - [x] Extend the shared pricing contract in [packages/console-server-ts/src/sponsorship/pricing.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/pricing.ts) so NEAR can estimate and finalize spend using the same `SponsorshipSpendPricingService`
-- [x] Use the mainnet Ref Finance NEAR/USDC pool as the real NEAR pricing source and keep static pricing as an optional fallback
+- [x] Use the mainnet `price-oracle.near` multi-source median with freshness and EMA-deviation checks as the real NEAR pricing source
 - [x] Expand [packages/console-server-ts/src/sponsorship/spendCaps.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/spendCaps.ts) / the NEAR route integration so NEAR reservations no longer fail closed simply because `chainId` is null
 - [x] Add an explicit NEAR spend-cap target key that does not depend on EVM `chainId`
 - [x] Update shared sponsored execution details so NEAR records retain auditable pricing metadata for gas-only settlement:
@@ -1021,7 +1021,7 @@ Todo:
 - [x] Add dashboard API wiring coverage for NEAR spend-cap authoring and validation
 - [ ] Optional future hardening:
   - clearer operator-facing diagnostics for NEAR capped rejection / settlement details
-  - a time-weighted or multi-pool oracle if the Ref Finance spot pool stops being sufficient
+  - an owned sampled moving average if the external oracle trust boundary stops being sufficient
 
 Exit criteria:
 
