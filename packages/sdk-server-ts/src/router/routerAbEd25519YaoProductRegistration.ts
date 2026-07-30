@@ -131,10 +131,6 @@ export type RouterAbEd25519YaoVerifiedRegistrationAdmissionResultV1 =
       RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>
     >;
 
-export type RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1 = (
-  input: RouterAbEd25519YaoActiveCapabilityLookupV1,
-) => Promise<WalletEd25519YaoActiveCapabilityRecord | null>;
-
 export type RouterAbEd25519YaoProductRegistrationCompositionV1 = {
   readonly kind: 'router_ab_ed25519_yao_product_registration_composition_v1';
   readonly registrationService: RouterAbEd25519YaoProductRegistrationServicePortV1;
@@ -565,41 +561,6 @@ export function routerAbEd25519YaoPersistedCapabilityMatchesLookupV1(
     participants[0] === lookup.participantIds[0] &&
     participants[1] === lookup.participantIds[1]
   );
-}
-
-export function createRouterAbEd25519YaoPersistedCapabilityFallbackResolverV1(input: {
-  readonly capabilityInstaller: RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1 &
-    RouterAbEd25519YaoActiveCapabilityResolverV1;
-  readonly loadPersistedActiveCapability: RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1;
-}): RouterAbEd25519YaoActiveCapabilityResolverV1 {
-  return new RouterAbEd25519YaoPersistedCapabilityFallbackResolver(input);
-}
-
-class RouterAbEd25519YaoPersistedCapabilityFallbackResolver implements RouterAbEd25519YaoActiveCapabilityResolverV1 {
-  constructor(
-    private readonly input: {
-      readonly capabilityInstaller: RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1 &
-        RouterAbEd25519YaoActiveCapabilityResolverV1;
-      readonly loadPersistedActiveCapability: RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1;
-    },
-  ) {}
-
-  async resolveActiveCapability(
-    lookup: RouterAbEd25519YaoActiveCapabilityLookupV1,
-  ): Promise<RouterAbEd25519YaoActiveCapabilityLookupResultV1> {
-    const current = await this.input.capabilityInstaller.resolveActiveCapability(lookup);
-    if (current.ok || current.code !== 'unknown_capability') return current;
-    const persisted = await this.input.loadPersistedActiveCapability(lookup);
-    if (!persisted || !routerAbEd25519YaoPersistedCapabilityMatchesLookupV1(persisted, lookup)) {
-      return current;
-    }
-    const installed =
-      await this.input.capabilityInstaller.installPersistedActiveCapability(persisted);
-    if (!installed.ok) {
-      return { ok: false, code: 'capability_conflict', message: installed.message };
-    }
-    return await this.input.capabilityInstaller.resolveActiveCapability(lookup);
-  }
 }
 
 /**
