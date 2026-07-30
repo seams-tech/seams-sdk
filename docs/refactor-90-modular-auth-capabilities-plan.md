@@ -852,6 +852,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the zero-caller standalone ECDSA refresh HTTP adapter and its
       wrapper-only test; canonical route definitions retain the refresh route
       (`a89ede462`, `df478bfed`).
+- [x] Delete the duplicate persisted Ed25519 capability fallback service
+      locator; the request-scoped runtime remains the single persisted
+      load/install/reread owner (`729ad4cdd`).
 
 ### Same-change deletion
 
@@ -876,6 +879,9 @@ the replacement and legacy MPC paths must not ship together.
       authorization/material-scope aliases owned by this cutover.
   - [x] Delete the pure `SigningAuthMethod = SignerAuthMethod` alias and use
         canonical `SignerAuthMethod` throughout signing operation state.
+  - [x] Delete zero-caller wallet/session helpers and exact aliases for ECDSA
+        authorization, activation requests/results, bootstrap args, and sealed
+        resolved identity (`6207cea1f`, `dfee38d07`).
 - [x] Inline the canonical bootstrap and exact/missing Wallet Session payload
       types in the iframe envelope and delete their one-use wire aliases.
 - [x] Delete the unread duplicate ECDSA export operation-authorization carrier;
@@ -883,6 +889,8 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete legacy recovery microstates and compensation branches.
 - [ ] Delete duplicate signing-lane selectors, auth-method fallbacks, direct
       protocol dispatch, and superseded export coordinators.
+  - [x] Delete the zero-caller duplicate ECDSA material-key selector
+        (`5cc54814d`).
 - [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
       and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
