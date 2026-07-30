@@ -214,12 +214,6 @@ export type WarmSessionMaterialPort = WarmSessionMaterialWriter &
   VolatileWarmMaterialPort &
   DurableSealedSessionPort;
 
-export type UiConfirmSigningSessionPort = UiConfirmSigningPort &
-  UiConfirmSecureConfirmationPort &
-  WarmSessionMaterialPort;
-
-export type UiConfirmSigningRuntimePort = UiConfirmContextPort & UiConfirmSigningSessionPort;
-
 export type UiConfirmRuntimeBridgePort = PromptCapableBootstrapPort &
   WarmSessionMaterialPort &
   UiConfirmWorkerLifecyclePort;

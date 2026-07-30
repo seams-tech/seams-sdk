@@ -664,6 +664,9 @@ the replacement and legacy MPC paths must not ship together.
       custody in their secure owners.
 - [ ] Remove replaced worker entrypoints, loaders, manifest rows, and public
       exports.
+- [x] Delete the unused `UiConfirmSigningRuntimePort` and the generic combined
+      `UiConfirmSigningSessionPort`; the Near runtime names its required
+      confirmation and warm-material capabilities directly.
 - [x] Delete the zero-caller wallet-host registration-preparation loader and
       module-type exports; retain the single registration-surface preload entrypoint.
 - [x] Delete the zero-caller Router A/B ECDSA refresh-client-proof worker
