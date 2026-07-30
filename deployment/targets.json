@@ -2,7 +2,7 @@
   "staging": {
     "branch": "dev",
     "gatewayDeploymentConfig": {
-      "schemaVersion": 2,
+      "schemaVersion": 3,
       "target": "staging",
       "resources": {
         "workerName": "seams-sdk-d1-gateway-staging",
@@ -109,13 +109,6 @@
         "deriverBYaoInputPublicKey": "x25519:8597a097cf832a31f02bf05badee88e859b980be8d81b50d628216ba1755df12",
         "signingWorkerOutputPublicKey": "x25519:0073ff12377ea9c6987739c97d8b9f6d0a363333f56b531743607697734d140b"
       },
-      "bootstrap": {
-        "publishableKey": "pk_4d5b0051e700ff24835ba3841ea97f19",
-        "allowedOrigins": [
-          "https://seams-site-staging.pages.dev",
-          "https://seams-wallet-staging.pages.dev"
-        ]
-      },
       "optional": {
         "nearRelayer": null,
         "googleOidcClientId": "971053349716-2ck8cp6ucohvkd075aebdtv9jskla2b5.apps.googleusercontent.com",
@@ -184,9 +177,7 @@
       "billing": {
         "enabled": true,
         "owner": "gateway",
-        "secrets": [
-          "STRIPE_API_SK"
-        ]
+        "secrets": ["STRIPE_API_SK"]
       },
       "sponsoredExecution": {
         "enabled": true,
@@ -208,7 +199,7 @@
   "production": {
     "branch": "main",
     "gatewayDeploymentConfig": {
-      "schemaVersion": 2,
+      "schemaVersion": 3,
       "target": "production",
       "resources": {
         "workerName": "seams-sdk-d1-gateway",
@@ -312,10 +303,6 @@
         "deriverBYaoInputPublicKey": "x25519:fc644884eb06436c545ee36cf8ce3fdb28aab626cc0fa9a7d716d23771589846",
         "signingWorkerOutputPublicKey": "x25519:b9ff508f0968010912cb7ac6f89b4e72f3c032757688d5cd30aa785b425d7c29"
       },
-      "bootstrap": {
-        "publishableKey": "pk_c921f0404db8188388ace37b36b9326c",
-        "allowedOrigins": ["https://seams.sh", "https://sign.seams.sh"]
-      },
       "optional": {
         "nearRelayer": {
           "accountId": "w3a-relayer.testnet",
@@ -386,9 +373,7 @@
       "billing": {
         "enabled": true,
         "owner": "gateway",
-        "secrets": [
-          "STRIPE_API_SK"
-        ]
+        "secrets": ["STRIPE_API_SK"]
       },
       "sponsoredExecution": {
         "enabled": true,

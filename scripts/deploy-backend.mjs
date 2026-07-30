@@ -176,10 +176,9 @@ function printPlan(targetName, target) {
     `  4. migrate ${target.resources.gateway.signerD1Name} (signer D1)`,
     '  5. migrate and deploy signing-worker, deriver-a, and deriver-b concurrently',
     '  6. deploy router after all three workers complete',
-    '  7. bootstrap Gateway tenant and publishable key',
-    '  8. upsert Gateway signing-root KEK',
-    '  9. deploy gateway',
-    ' 10. smoke Gateway and Router A/B endpoints',
+    '  7. upsert Gateway signing-root KEK',
+    '  8. deploy gateway',
+    '  9. smoke Gateway and Router A/B endpoints',
   ];
   process.stdout.write(`${lines.join('\n')}\n`);
 }
@@ -486,17 +485,6 @@ function deployMpcRouter(targetName, target) {
 function deployGateway(targetName) {
   renderGatewayConfig(targetName);
   assertFile(GATEWAY_BUNDLE, 'Gateway build entry');
-  runCommand(
-    'node',
-    [
-      'scripts/bootstrap-gateway-deployment.mjs',
-      '--plan',
-      GATEWAY_PLAN,
-      '--wrangler-config',
-      GATEWAY_CONFIG,
-    ],
-    { cwd: GATEWAY_ROOT },
-  );
   runCommand('node', ['scripts/upsert-signing-root-kek.mjs', '--plan', GATEWAY_PLAN], {
     cwd: GATEWAY_ROOT,
   });
