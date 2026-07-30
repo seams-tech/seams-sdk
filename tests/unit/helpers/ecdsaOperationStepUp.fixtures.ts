@@ -46,9 +46,7 @@ import {
   type RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import {
-  canonicalEvmFamilyEcdsaSigningCapabilityFixture,
-} from './ecdsaCapabilityManifest.fixtures';
+import { canonicalEvmFamilyEcdsaSigningCapabilityFixture } from './ecdsaCapabilityManifest.fixtures';
 import {
   buildEmailOtpEcdsaSealedRuntimeRecordFixture,
   buildPasskeyEcdsaSealedRuntimeRecordFixture,
@@ -167,7 +165,9 @@ export class RecordingEcdsaRehydrationWorker implements WorkerOperationContext {
     ) {
       return requestPayload(args).publicKey33;
     }
-    throw new Error(`[fixture] unexpected ${args.kind} worker operation ${String(args.request.type)}`);
+    throw new Error(
+      `[fixture] unexpected ${args.kind} worker operation ${String(args.request.type)}`,
+    );
   }
 }
 
@@ -205,7 +205,7 @@ export async function hydratedEcdsaSigningMaterialFixture(factor: EcdsaFixtureFa
   const materialResolution = await resolveHydratedSecp256k1SigningMaterial({
     capability,
     runtime,
-    requestLabel: runtime.chainTarget.kind,
+    chainTarget: runtime.chainTarget,
     materialActivation: manifest.activation.materialActivation,
     workerCtx: worker,
   });
@@ -299,7 +299,9 @@ export function evmFamilyThresholdEcdsaOperationFixture(args?: {
 }): EvmFamilyThresholdEcdsaOperation {
   return {
     intent: {
-      operationId: SigningSessionIds.signingOperation(args?.operationId ?? 'ecdsa-step-up-operation'),
+      operationId: SigningSessionIds.signingOperation(
+        args?.operationId ?? 'ecdsa-step-up-operation',
+      ),
       authSelectionPolicy: { kind: 'any' },
       operationUsesNeeded: 1,
       walletId: toWalletId('ecdsa-step-up-wallet'),

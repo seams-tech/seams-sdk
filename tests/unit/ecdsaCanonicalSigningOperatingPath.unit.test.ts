@@ -16,6 +16,7 @@ import {
   type EcdsaFixtureFactor,
 } from './helpers/ecdsaOperationStepUp.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
 import { Secp256k1Engine } from '@/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
 import { clearAllRouterAbEcdsaDerivationClientPresignatures } from '@/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool';
 import {
@@ -46,7 +47,7 @@ for (const factor of ['passkey', 'email_otp'] as const) {
     const resolution = await resolveHydratedSecp256k1SigningMaterial({
       capability,
       runtime,
-      requestLabel: runtime.chainTarget.kind,
+      chainTarget: runtime.chainTarget,
       materialActivation: manifest.activation.materialActivation,
       workerCtx: worker,
     });
@@ -84,7 +85,7 @@ test('persisted ECDSA hydration binds the worker and signs the exact authorized 
   const hydration = await resolveHydratedSecp256k1SigningMaterial({
     capability: fixture.capability,
     runtime,
-    requestLabel: runtime.chainTarget.kind,
+    chainTarget: runtime.chainTarget,
     materialActivation: fixture.manifest.activation.materialActivation,
     workerCtx: worker,
   });
@@ -180,7 +181,7 @@ test('activation mismatch fails before the worker is reached', async () => {
   const resolution = await resolveHydratedSecp256k1SigningMaterial({
     capability,
     runtime,
-    requestLabel: runtime.chainTarget.kind,
+    chainTarget: runtime.chainTarget,
     // A different activation than the manifest names.
     materialActivation: buildMpcMaterialActivationRefFixture(
       'operating-path-other-activation',
@@ -206,7 +207,7 @@ test('a chain the runtime does not serve fails before the worker is reached', as
   const resolution = await resolveHydratedSecp256k1SigningMaterial({
     capability,
     runtime,
-    requestLabel: otherChain,
+    chainTarget: testEcdsaChainTarget(otherChain),
     materialActivation: manifest.activation.materialActivation,
     workerCtx: worker,
   });

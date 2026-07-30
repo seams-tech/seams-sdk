@@ -1,5 +1,4 @@
 import type { NearSigningApiDeps } from '../../interfaces/operationDeps';
-import { getStoredThresholdEd25519SessionRecordForAccount } from '../../session/persistence/records';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import { resolveEvmFamilyTransactionWalletAuth } from '../../flows/signEvmFamily/accountAuth';
 import type { EvmFamilyWalletSignerStorePort } from '../../flows/signEvmFamily/accountAuth';
@@ -23,15 +22,6 @@ export function createNearSigningDeps(args: {
     nearRpcUrl,
     resolveActiveEd25519YaoSigningCapability: (scope) =>
       args.ed25519YaoActiveClients.resolveForWalletAccount(scope),
-    resolveThresholdEd25519SessionIdForNearAccount: (nearAccountId: string): string | null => {
-      try {
-        const record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
-        const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
-        return thresholdSessionId || null;
-      } catch {
-        return null;
-      }
-    },
     readPersistedEd25519SessionRecordForSigning,
     rehydratePasskeyEd25519YaoCapabilityForSigning:
       createArgs.rehydratePasskeyEd25519YaoCapabilityForSigning,
