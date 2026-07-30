@@ -133,7 +133,7 @@ export type CreateSigningEnginePortsArgs = {
   ensureSealedRefreshStartupParity: () => Promise<void>;
   resolveCanonicalEcdsaSigningCapability: EvmFamilySigningDeps['resolveCanonicalEcdsaSigningCapability'];
   resolveAuthorizedEcdsaSigningCapability: EvmFamilySigningDeps['resolveAuthorizedEcdsaSigningCapability'];
-  resolveActiveEcdsaWalletSessionAuthorization?: EvmFamilySigningDeps['resolveActiveEcdsaWalletSessionAuthorization'];
+  resolveActiveEcdsaWalletSessionAuthorization: EvmFamilySigningDeps['resolveActiveEcdsaWalletSessionAuthorization'];
   touchConfirm: UiConfirmRuntimeBridgePort;
   passkeyMpcSession: PasskeyMpcSessionPort;
   passkeyMpcExport: PasskeyMpcExportPort;

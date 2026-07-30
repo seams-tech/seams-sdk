@@ -283,8 +283,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
       })
     : undefined;
   const authorization = resolvedSigner
-    ? ((await args.deps.resolveActiveEcdsaWalletSessionAuthorization?.(resolvedSigner.walletId)) ??
-      null)
+    ? await args.deps.resolveActiveEcdsaWalletSessionAuthorization(resolvedSigner.walletId)
     : null;
 
   const thresholdEcdsaStepUpRuntime: EvmFamilyThresholdEcdsaStepUpRuntime | undefined = capability
@@ -359,9 +358,9 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               capability,
               preparedAuthorization: authorization,
               currentAuthorization: authorization
-                ? ((await args.deps.resolveActiveEcdsaWalletSessionAuthorization?.(
+                ? await args.deps.resolveActiveEcdsaWalletSessionAuthorization(
                     resolvedSigner.walletId,
-                  )) ?? null)
+                  )
                 : null,
               walletId: resolvedSigner.walletId,
               chainTarget: resolvedSigner.chainTarget,
