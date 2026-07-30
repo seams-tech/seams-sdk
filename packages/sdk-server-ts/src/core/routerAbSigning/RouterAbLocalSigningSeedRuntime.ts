@@ -5,7 +5,6 @@ import {
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { parseWalletId, parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
-import { parseEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import type { ThresholdEd25519AuthorityScope } from '../types';
@@ -49,7 +48,6 @@ export type LocalRouterAbEd25519NormalSigningSeedResult =
 
 export type LocalRouterAbEcdsaDerivationNormalSigningSeedInput = {
   readonly walletId: string;
-  readonly evmFamilySigningKeySlotId: string;
   readonly ecdsaThresholdKeyId: string;
   readonly signingRootId: string;
   readonly signingRootVersion: string;
@@ -205,9 +203,6 @@ export class RouterAbLocalSigningSeedRuntime {
     input: LocalRouterAbEcdsaDerivationNormalSigningSeedInput,
   ): Promise<LocalRouterAbEcdsaDerivationNormalSigningSeedResult> {
     const walletId = parseWalletId(input.walletId);
-    const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotId(
-      input.evmFamilySigningKeySlotId,
-    );
     let ecdsaThresholdKeyId = '';
     let signingRootId = '';
     let signingRootVersion = '';
@@ -232,7 +227,6 @@ export class RouterAbLocalSigningSeedRuntime {
     const thresholdExpiresAtMs = Number(input.thresholdExpiresAtMs);
     if (
       !walletId.ok ||
-      !evmFamilySigningKeySlotId.ok ||
       !ecdsaThresholdKeyId ||
       !signingRootId ||
       !signingRootVersion ||
