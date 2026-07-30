@@ -262,6 +262,19 @@ export function installEcdsaNormalSigningEndpointFixture(): {
           signature_scheme: 'ecdsa_secp256k1_recoverable_v1',
           prepared_at_ms: Date.now(),
           expires_at_ms: request.expires_at_ms,
+          // Required by the prepare wire contract since operation claims became
+          // canonical: the server names the claim row the prepared signature
+          // will consume, and reports the budget projection it reserved from.
+          budget_reservation_id: 'budget-reservation-fixture',
+          budget_operation_id: 'budget-operation-fixture',
+          budget_status: {
+            remaining_uses: 3,
+            committed_remaining_uses: 3,
+            reserved_uses: 1,
+            available_uses: 2,
+            projection_version: 1,
+            expires_at_ms: request.expires_at_ms,
+          },
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
@@ -278,6 +291,14 @@ export function installEcdsaNormalSigningEndpointFixture(): {
           signing_digest: { bytes: Array.from(base64UrlDecode(request.signing_digest_b64u)) },
           signature_scheme: 'ecdsa_secp256k1_recoverable_v1',
           signature65_b64u: base64UrlEncode(signature65),
+          budget_status: {
+            remaining_uses: 2,
+            committed_remaining_uses: 2,
+            reserved_uses: 0,
+            available_uses: 2,
+            projection_version: 2,
+            expires_at_ms: request.expires_at_ms,
+          },
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
