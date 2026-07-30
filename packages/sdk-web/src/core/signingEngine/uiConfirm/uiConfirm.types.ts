@@ -187,9 +187,7 @@ export interface WarmSessionPersistedRestorer {
     args: PasskeyPersistedSessionDiscoveryInput,
   ): Promise<DiscoverPersistedSessionsForWalletResult>;
   restorePersistedSessionForSigning(
-    args: {
-      authMethod: 'passkey';
-    } & RestorePersistedSessionForSigningInput,
+    args: Omit<RestorePersistedSessionForSigningInput, 'authMethod'>,
   ): Promise<RestorePersistedSessionForSigningResult>;
 }
 
