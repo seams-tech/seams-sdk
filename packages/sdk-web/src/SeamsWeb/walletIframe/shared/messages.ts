@@ -201,8 +201,6 @@ export interface PMAddWalletSignerPayload {
   options?: Record<string, unknown>;
 }
 
-export type PMBootstrapThresholdEcdsaSessionPayload = BootstrapThresholdEcdsaSessionArgs;
-
 export type PMGoogleEmailOtpWalletAuthStartPayload = {
   idToken: string;
   mode: GoogleEmailOtpWalletAuthRequestedMode;
@@ -431,10 +429,6 @@ export interface PMGetWalletSessionPayload {
   walletId?: string;
 }
 
-export type PMLockExactWalletSessionPayload = WalletIframeExactSessionIdentity;
-
-export type PMLockMissingWalletSessionPayload = WalletIframeMissingSessionIdentity;
-
 export interface PMEmailOtpChallengePayload {
   walletId: string;
   relayUrl?: string;
@@ -583,11 +577,11 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION', PMRedeemHostedWalletSeamsSessionPayload>
   | RpcEnvelope<'PM_REGISTER_WALLET', PMRegisterWalletPayload>
   | RpcEnvelope<'PM_ADD_WALLET_SIGNER', PMAddWalletSignerPayload>
-  | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', PMBootstrapThresholdEcdsaSessionPayload>
+  | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', BootstrapThresholdEcdsaSessionArgs>
   | RpcEnvelope<'PM_UNLOCK', PMUnlockPayload>
   | RpcEnvelope<'PM_LOCK'>
-  | RpcEnvelope<'PM_LOCK_EXACT_WALLET_SESSION', PMLockExactWalletSessionPayload>
-  | RpcEnvelope<'PM_LOCK_MISSING_WALLET_SESSION', PMLockMissingWalletSessionPayload>
+  | RpcEnvelope<'PM_LOCK_EXACT_WALLET_SESSION', WalletIframeExactSessionIdentity>
+  | RpcEnvelope<'PM_LOCK_MISSING_WALLET_SESSION', WalletIframeMissingSessionIdentity>
   | RpcEnvelope<'PM_GET_WALLET_SESSION', PMGetWalletSessionPayload>
   | RpcEnvelope<'PM_GET_EXACT_WALLET_SESSION_STATE'>
   | RpcEnvelope<'PM_GET_NEAR_PROVISIONING_STATE', PMGetNearProvisioningStatePayload>

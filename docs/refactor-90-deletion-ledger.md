@@ -442,6 +442,11 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   by `4f51048c5`; Passkey-named convenience APIs remain explicit
 - auto-signer registration paths
 - public exports implying wallet-only auth/sessions/grants
+- ~~one-use iframe aliases for ECDSA bootstrap and exact/missing Wallet Session
+  payloads~~ — canonical payload types are used directly in the envelope
+- ~~zero-caller Cloudflare route-registration wrapper and its wrapper-only
+  unit test~~ — production routing uses the canonical route-definition
+  dispatcher
 - source guards and fixtures whose invariant became structural during the
   slices
 - ~~optional auth-method discovery that silently searched both Passkey and
