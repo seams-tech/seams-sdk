@@ -452,6 +452,10 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   `UiConfirmManager` and `DurableSealedSessionPort`~~ — removed; internal
   durable coordination calls the dedicated `PasskeyMpcSessionManager`
   directly
+- ~~Passkey persisted restore command, exact-record restore orchestration,
+  restore lease, and rehydrate single-flight ownership inside generic
+  confirmation~~ — moved to `PasskeyMpcSessionManager`; the browser signing
+  surface calls the factor owner directly
 - ~~unused `UiConfirmSigningRuntimePort` and generic combined
   `UiConfirmSigningSessionPort` exports~~ — Near runtime dependencies name the
   required confirmation and warm-material ports directly
