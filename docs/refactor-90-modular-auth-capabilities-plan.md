@@ -367,6 +367,9 @@ removes.
         signer metadata; existing-key Email OTP handles and sealed rehydration
         now correlate by exact key handle. Registration-only handles retain
         their provisioning slot (`6113b36bb`).
+  - [x] Delete the unused client ECDSA session-policy type, builder, digest,
+        public exports, and slot-pinning source checks. Email OTP bootstrap now
+        clamps TTL and use count directly (`3d6c4c74b`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.

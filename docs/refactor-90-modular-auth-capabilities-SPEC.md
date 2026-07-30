@@ -174,6 +174,9 @@ implementing commit SHA as the evidence.
   - [x] Email OTP runtime wallet-key projections, worker handles, and sealed
     rehydration correlate by exact key handle. Provisioning slots remain
     confined to registration handle branches (`6113b36bb`).
+  - [x] The unused client ECDSA session-policy domain and its slot-pinning
+    source checks are deleted; Email OTP bootstrap retains only the shared TTL
+    and use-count clamp (`3d6c4c74b`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently
