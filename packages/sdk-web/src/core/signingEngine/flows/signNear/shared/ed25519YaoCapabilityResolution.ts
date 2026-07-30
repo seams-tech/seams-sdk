@@ -24,19 +24,6 @@ export async function resolveNearEd25519YaoCommittedCapability(
   }
 }
 
-export function nearEd25519YaoCommittedCapabilityRequiresBudgetReadmission(
-  committed: NearEd25519YaoCommittedCapability,
-): boolean {
-  switch (committed.kind) {
-    case 'live_runtime':
-      return false;
-    case 'sealed_material_activation':
-      return true;
-    default:
-      return assertNeverNearEd25519YaoCommittedCapability(committed);
-  }
-}
-
 export async function reauthorizeNearEmailOtpEd25519(args: {
   authorization: NearEd25519EmailOtpStepUpAuthorization;
   hook: NearEmailOtpEd25519ReauthorizationHook | null | undefined;

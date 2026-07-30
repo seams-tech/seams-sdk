@@ -95,7 +95,6 @@ import {
 } from './shared/ed25519YaoNormalSigning';
 import { resolveConfirmedNearTransactionContext } from './implicitAccountFunding';
 import {
-  nearEd25519YaoCommittedCapabilityRequiresBudgetReadmission,
   reauthorizeNearEmailOtpEd25519,
   resolveNearEd25519YaoCommittedCapability,
 } from './shared/ed25519YaoCapabilityResolution';
@@ -693,10 +692,6 @@ export async function runNearTransactionWithActionsSigning({
           throw new Error('[SigningEngine][near] committed Ed25519 Yao capability is unavailable');
         }
         activeCapability = await resolveNearEd25519YaoCommittedCapability(committedYaoCapability);
-      }
-      if (stepUpAuthorization.kind !== 'passkey' && committedYaoCapability) {
-        refreshedBudgetIdentityRequired ||=
-          nearEd25519YaoCommittedCapabilityRequiresBudgetReadmission(committedYaoCapability);
       }
       const activeYaoClient = activeCapability.activeClient;
       const activeWalletSessionState = activeCapability.walletSessionState;

@@ -164,6 +164,8 @@ implementing commit SHA as the evidence.
     and one dedicated main-thread owner; generic confirmation no longer
     imports their runtimes or forwards their worker protocols. Commits
     `f91617282`, `51190cb9d`, `1a9254ff6`, `769d9dc69`, and `6f7d28d7c`.
+    The static wallet asset check and focused key-export, ECDSA client-worker,
+    and Email OTP branch-isolation checks remain green after `def400d94`.
   - [x] Passkey persisted-session discovery, raw seal/rehydrate operations, and
     exact persisted restore are routed through `PasskeyMpcSessionManager`.
     The redundant durable worker alias and one-call seal-persistence adapter
@@ -205,9 +207,16 @@ implementing commit SHA as the evidence.
     zero-consumer bootstrap relayer port family is deleted (`a843d8dbc`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
+  - [x] NEAR sealed-material hydration no longer implies authorization-budget
+    readmission; only an actual authorization/session replacement refreshes
+    that identity (`30b52879b`).
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently
   idempotent and queryable by exact recovery ID, including Refactor 93 exact
   Router replay, role-local reconciliation, and injected crash cases.
+  - [x] The direct recovery-source suite covers cancellation reload, promotion
+    readback, crashes around the consuming call, and atomic local finalization;
+    the source-ordering guards that duplicated retired shapes are deleted
+    (`51b738d2a`, `6d6002e3c`).
 - [ ] `R90-INV-005` — Near finalization atomically swaps or retires material,
   persists lifecycle facts, and deletes the journal.
 - [ ] `R90-INV-006` — Near durable journals contain only server uncertainty and

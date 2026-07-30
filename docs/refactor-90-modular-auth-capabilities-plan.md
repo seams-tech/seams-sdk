@@ -709,6 +709,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Add no execution lease: no implemented operation outlives its request or
       transfers between workers. Reopen this only for a demonstrated owner
       transfer.
+- [x] Stop deriving NEAR budget readmission from material-hydration provenance;
+      only a real authorization/session replacement refreshes budget identity
+      (`30b52879b`).
 
 ### Worker, WASM, and bundle boundary
 
@@ -724,7 +727,7 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Preserve the Refactor 93 rule that `SigningWorker` receives the exact A/B
       package pair atomically and the Refactor 94C rule that its activation,
       delivery, session, budget, and presign effects live in private D1.
-- [ ] Keep generic confirmation free of MPC material; preserve Email OTP
+- [x] Keep generic confirmation free of MPC material; preserve Email OTP
       KEK/secret, Near root/client, and ECDSA derivation/presign/online-signing
       custody in their secure owners.
   - [x] Move Passkey secp256k1 and Ed25519-Yao raw export handling into the
@@ -812,8 +815,11 @@ the replacement and legacy MPC paths must not ship together.
       worker split follows the measured production caller map: generic prompts,
       Passkey MPC session custody, and Passkey MPC export custody have separate
       entrypoints and bundle inventories.
-- [ ] Verify generic orchestration cannot import secret-bearing worker
-      internals.
+- [x] Verify generic orchestration cannot import secret-bearing worker
+      internals. The static wallet asset graph remains WASM-free for generic
+      confirmation, and the focused key-export, ECDSA client-worker, and Email
+      OTP branch-isolation checks pass after the capability-envelope cutover
+      (`def400d94`).
 
 ### Host assembly
 
@@ -884,6 +890,9 @@ the replacement and legacy MPC paths must not ship together.
       that encode pre-cutover behavior.
   - [x] Delete the route-wrapper-only test and the stale public route-catalog
         assertion for the private 94C ECDSA bootstrap plane.
+  - [x] Delete the NEAR recovery-ordering and sealed-refresh source guards after
+        their retired markers and hydration-derived budget assumption were
+        removed (`6d6002e3c`).
 
 ### Unit 3a exit
 
