@@ -175,6 +175,9 @@ implementing commit SHA as the evidence.
     `f91617282`, `51190cb9d`, `1a9254ff6`, `769d9dc69`, and `6f7d28d7c`.
     The static wallet asset check and focused key-export, ECDSA client-worker,
     and Email OTP branch-isolation checks remain green after `def400d94`.
+  - [x] The zero-caller generic private-key export coordinator and its assembly
+    dependency are deleted; export enters through the capability-owned
+    Passkey MPC or Email OTP path (`d3201483b`).
   - [x] Passkey persisted-session discovery, raw seal/rehydrate operations, and
     exact persisted restore are routed through `PasskeyMpcSessionManager`.
     The redundant durable worker alias and one-call seal-persistence adapter

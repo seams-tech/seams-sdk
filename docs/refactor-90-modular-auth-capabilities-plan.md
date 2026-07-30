@@ -894,6 +894,9 @@ the replacement and legacy MPC paths must not ship together.
       protocol dispatch, and superseded export coordinators.
   - [x] Delete the zero-caller duplicate ECDSA material-key selector
         (`5cc54814d`).
+  - [x] Delete the zero-caller private-key export coordinator and its dead
+        dependency/store wiring; dedicated capability export owners remain
+        (`d3201483b`).
 - [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
       and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
