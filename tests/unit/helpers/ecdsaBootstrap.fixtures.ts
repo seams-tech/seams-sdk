@@ -374,7 +374,8 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     passkeyCredentialIdB64u,
     keygen: {
       ok: true,
-      evmFamilySigningKeySlotId,
+      keygenSessionId: `keygen-${sessionId}`,
+      keyHandle,
       ecdsaThresholdKeyId,
       clientVerifyingShareB64u,
       relayerKeyId,

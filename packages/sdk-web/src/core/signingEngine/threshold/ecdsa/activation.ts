@@ -16,7 +16,6 @@ import type {
 } from '@/core/signingEngine/threshold/crypto/webauthn';
 import { bootstrapEcdsaSession } from '@/core/signingEngine/threshold/ecdsa/bootstrapSession';
 import type { BootstrapEcdsaSessionResult } from '@/core/signingEngine/threshold/ecdsa/bootstrapSession';
-import type { keygenEcdsa } from '@/core/signingEngine/threshold/ecdsa/keygen';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
   normalizeThresholdRuntimePolicyScope,
@@ -111,8 +110,20 @@ function buildWalletBudgetProjectionVersion(args: {
   ].join(':');
 }
 
-export type EcdsaKeygenResult = Awaited<ReturnType<typeof keygenEcdsa>>;
-export type EcdsaKeygenSuccess = EcdsaKeygenResult & { ok: true };
+export type ThresholdEcdsaActivatedKeyFacts = {
+  readonly ok: true;
+  readonly keygenSessionId: string;
+  readonly keyHandle: string;
+  readonly ecdsaThresholdKeyId: string;
+  readonly clientVerifyingShareB64u: string;
+  readonly thresholdEcdsaPublicKeyB64u: string;
+  readonly ethereumAddress: string;
+  readonly relayerKeyId: string;
+  readonly relayerVerifyingShareB64u: string;
+  readonly participantIds: readonly number[];
+  readonly chainId: number;
+  readonly evmFamilySigningKeySlotId?: never;
+};
 type EcdsaSessionSuccess = {
   ok: true;
   sessionId?: string;
@@ -124,7 +135,7 @@ type EcdsaSessionSuccess = {
 
 export type ThresholdEcdsaSessionBootstrapResult = {
   thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
-  keygen: EcdsaKeygenSuccess;
+  keygen: ThresholdEcdsaActivatedKeyFacts;
   session: EcdsaSessionSuccess & {
     thresholdSessionId: string;
     signingGrantId: string;
@@ -848,16 +859,15 @@ async function activateEcdsaSessionByPurpose(
     bootstrap,
   });
 
-  const keygen: EcdsaKeygenSuccess = {
+  const keygen: ThresholdEcdsaActivatedKeyFacts = {
     ok: true,
     keygenSessionId: bootstrap.keygenSessionId,
-    evmFamilySigningKeySlotId,
-    ...(keyHandle ? { keyHandle } : {}),
+    keyHandle,
     ecdsaThresholdKeyId,
     clientVerifyingShareB64u,
     relayerKeyId,
     thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaPublicKeyB64u,
-    ...(thresholdOwnerAddress ? { ethereumAddress: thresholdOwnerAddress } : {}),
+    ethereumAddress: thresholdOwnerAddress,
     relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
     participantIds,
     chainId: bootstrap.chainId,
@@ -918,7 +928,7 @@ async function activateEcdsaSessionByPurpose(
 
   const activationResultBase = {
     thresholdEcdsaKeyRef,
-    keygen: keygen as EcdsaKeygenSuccess,
+    keygen,
     session,
   };
   if (bootstrap.secretSourceKind === 'passkey') {
