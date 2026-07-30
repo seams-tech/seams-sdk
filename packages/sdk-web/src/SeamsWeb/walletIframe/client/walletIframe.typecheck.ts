@@ -5,6 +5,8 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
+  PMEmailOtpEcdsaCapabilityPayload,
+  PMEnrollEmailOtpPayload,
   PMExportKeypairUiPayload,
   ParentToChildType,
 } from '../shared/messages';
@@ -43,5 +45,22 @@ void coreExportInputWithRawLane;
 // @ts-expect-error Stale named-account registration iframe route was removed.
 const staleRegisterRoute: ParentToChildType = 'PM_REGISTER';
 void staleRegisterRoute;
+
+const enrollmentWithParentBearer: PMEnrollEmailOtpPayload = {
+  walletId: 'wallet.testnet',
+  otpCode: '123456',
+  // @ts-expect-error Hosted-wallet enrollment exchanges the bearer before postMessage.
+  appSessionJwt: 'parent-app-session-jwt',
+};
+void enrollmentWithParentBearer;
+
+const ecdsaLoginWithParentBearer: PMEmailOtpEcdsaCapabilityPayload = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  // @ts-expect-error Hosted-wallet ECDSA login exchanges the bearer before postMessage.
+  appSessionJwt: 'parent-app-session-jwt',
+};
+void ecdsaLoginWithParentBearer;
 
 export {};

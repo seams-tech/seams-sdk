@@ -659,11 +659,18 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       input.lane.curve === 'ed25519' &&
       (walletBudgetStatus?.status === 'budget_unknown' ||
         walletBudgetStatus?.status === 'unavailable');
+    const passkeyEd25519PreflightUnavailable =
+      signingLaneAuthMethod(input.lane.auth) === 'passkey' &&
+      input.readiness.status === 'ready' &&
+      (walletBudgetStatus?.status === 'budget_unknown' ||
+        walletBudgetStatus?.status === 'unavailable');
     // Email OTP can mint a fresh Ed25519 session at step-up. Treat an
     // unreadable preflight as reauthable so server-side authorize remains
     // the budget enforcement point instead of failing before the prompt.
     let budgetStatusForPlanning = walletBudgetStatus;
-    if (emailOtpEd25519PreflightUnavailable) {
+    if (passkeyEd25519PreflightUnavailable) {
+      budgetStatusForPlanning = null;
+    } else if (emailOtpEd25519PreflightUnavailable) {
       budgetStatusForPlanning = {
         sessionId: signingGrantId,
         status: 'not_found',
@@ -672,6 +679,16 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     }
     if (emailOtpEd25519PreflightUnavailable) {
       console.warn('[SigningSessionCoordinator][email-otp-ed25519] budget preflight unavailable', {
+        signingGrantId,
+        thresholdSessionId: input.lane.thresholdSessionId,
+        budgetStatus: walletBudgetStatus.status,
+        readiness: input.readiness.status,
+        remainingUses: input.remainingUses,
+        usesNeeded: input.usesNeeded,
+      });
+    }
+    if (passkeyEd25519PreflightUnavailable) {
+      console.debug('[SigningSessionCoordinator][passkey-ed25519] budget preflight deferred', {
         signingGrantId,
         thresholdSessionId: input.lane.thresholdSessionId,
         budgetStatus: walletBudgetStatus.status,
