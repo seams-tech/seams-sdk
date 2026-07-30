@@ -1,5 +1,8 @@
 import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
-import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import type {
+  PasskeyMpcExportPort,
+  UiConfirmRuntimeBridgePort,
+} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { WarmSigningPorts } from '@/core/signingEngine/assembly/ports/warmSigning';
@@ -53,6 +56,7 @@ export function createBrowserRecoveryPublicDeps(args: {
   signerWorkerManager: SignerWorkerManager;
   warmSigning: WarmSigningPorts;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcExport: PasskeyMpcExportPort;
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
@@ -77,6 +81,7 @@ export function createBrowserRecoveryPublicDeps(args: {
     ecdsaSessions: args.warmSigning.ecdsaSessions,
     listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
     touchConfirm: args.touchConfirm,
+    passkeyMpcExport: args.passkeyMpcExport,
     emailOtpSessions: args.emailOtpSessions,
     provisionPasskeyEcdsaExplicitExportSession: (provisionArgs) =>
       provisionPasskeyEcdsaExplicitExportSessionOperation(

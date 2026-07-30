@@ -665,6 +665,9 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Move Passkey secp256k1 and Ed25519-Yao raw export handling into the
         dedicated Passkey MPC export worker; the generic confirmation worker
         no longer imports export WASM/Yao runtime or handles export messages.
+  - [x] Move Passkey MPC export transport, response validation, prompt routing,
+        and viewer lifecycle into a dedicated main-thread export owner;
+        `UiConfirmManager` no longer imports or sends the export protocol.
   - [x] Move Passkey warm-session material, PRF claims, sealing, rehydration,
         policy updates, and Shamir3Pass prewarm into the dedicated Passkey MPC
         session worker; the generic confirmation worker now handles prompts
@@ -674,6 +677,9 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete the generic worker's `EXPORT_PRIVATE_KEYS_WITH_UI` protocol arm
         and export-runtime imports; register the dedicated Passkey MPC export
         worker in build, freshness, runtime-path, test, and bundle inventories.
+  - [x] Delete the generic manager's export worker fields, initialization,
+        message union, lifecycle callback map, and recovery forwarding adapter;
+        assembly exposes the narrow `PasskeyMpcExportPort` directly.
   - [x] Delete the generic worker's `WARM_SESSION_*` and
         `PREWARM_SHAMIR3PASS` protocol arms; register the dedicated Passkey MPC
         session worker in build, freshness, runtime-path, test, static-asset,

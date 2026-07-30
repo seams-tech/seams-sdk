@@ -4,7 +4,11 @@ import { createNonceCoordinator, type NonceCoordinator } from '../nonce/NonceCoo
 import { resolvePrimaryExplorerUrl } from '@/core/config/chains';
 import type { AppearanceConfig, ThemeMode, SeamsConfigsReadonly } from '@/core/types/seams';
 import { createUiConfirmManager } from '../uiConfirm/UiConfirmManager';
-import type { UiConfirmRuntimeBridgePort } from '../uiConfirm/uiConfirm.types';
+import { createPasskeyMpcExportManager } from '../uiConfirm/PasskeyMpcExportManager';
+import type {
+  PasskeyMpcExportPort,
+  UiConfirmRuntimeBridgePort,
+} from '../uiConfirm/uiConfirm.types';
 import type { UiConfirmContext } from '../uiConfirm/uiConfirm.types';
 import { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { SignerWorkerManager } from '../workerManager/SignerWorkerManager';
@@ -21,6 +25,7 @@ export type ManagerAssembly = {
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcExport: PasskeyMpcExportPort;
   signerWorkerManager: SignerWorkerManager;
 };
 
@@ -87,6 +92,7 @@ export function createManagerAssembly(args: {
       loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
     },
   );
+  const passkeyMpcExport = createPasskeyMpcExportManager(touchConfirm.getContext());
 
   const signerWorkerManager = new SignerWorkerManager({
     nearKeyMaterialStore: args.stores.nearKeyMaterialStore,
@@ -109,6 +115,7 @@ export function createManagerAssembly(args: {
     userPreferencesManager,
     nonceCoordinator,
     touchConfirm,
+    passkeyMpcExport,
     signerWorkerManager,
   };
 }

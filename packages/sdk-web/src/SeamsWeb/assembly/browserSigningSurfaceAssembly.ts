@@ -53,7 +53,10 @@ import {
   type ThresholdEd25519CommitQueueByKey,
 } from '@/core/signingEngine/threshold/ed25519/commitQueue';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
-import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import type {
+  PasskeyMpcExportPort,
+  UiConfirmRuntimeBridgePort,
+} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { WarmSigningPorts } from '@/core/signingEngine/assembly/ports/warmSigning';
 import type { WorkerResourceWarmupPolicy } from '@/core/signingEngine/assembly/warmup';
 import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
@@ -521,6 +524,7 @@ export type BrowserSigningSurfaceEnginePortsArgs = {
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcExport: PasskeyMpcExportPort;
   signerWorkerManager: SignerWorkerManager;
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
   warmSigning: WarmSigningPorts;
@@ -560,6 +564,7 @@ export function createBrowserSigningSurfaceEnginePorts(
     nonceCoordinator: args.nonceCoordinator,
     ensureSealedRefreshStartupParity: args.ensureSealedRefreshStartupParity,
     touchConfirm: args.touchConfirm,
+    passkeyMpcExport: args.passkeyMpcExport,
     getEmailOtpWarmSessionStatus: (sessionId) =>
       args.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
     consumeEmailOtpWarmSessionUses: (consumeArgs) =>

@@ -4,7 +4,7 @@ import type { NearAccountClientDbPort } from '@/core/accountData/near/accountPro
 import type { NearClient } from '../../rpcClients/near/NearClient';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type {
-  UiConfirmSecureConfirmationPort,
+  UiConfirmRequestConfirmationPort,
   UiConfirmSigningPort,
   WarmSessionMaterialPort,
 } from '../uiConfirm/uiConfirm.types';
@@ -41,7 +41,7 @@ export interface NearSigningRuntimeDeps {
   evmExplorerUrl?: string;
   relayerUrl: string;
   touchConfirm?: UiConfirmSigningPort &
-    UiConfirmSecureConfirmationPort &
+    UiConfirmRequestConfirmationPort &
     WarmSessionMaterialPort;
   requestWorkerOperation: <
     K extends SignerWorkerKind,

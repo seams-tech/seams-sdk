@@ -527,6 +527,7 @@ export class BrowserSigningSurface {
       signerWorkerManager: this.signerWorkerManager,
       warmSigning: this.warmSigning,
       touchConfirm: this.touchConfirm,
+      passkeyMpcExport: assembly.passkeyMpcExport,
       emailOtpSessions: this.emailOtpSessions,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
       thresholdEcdsaSigningQueueByKey: this.thresholdEcdsaSigningQueueByKey,
@@ -562,6 +563,7 @@ export class BrowserSigningSurface {
       userPreferencesManager: this.userPreferencesManager,
       nonceCoordinator: this.nonceCoordinator,
       touchConfirm: this.touchConfirm,
+      passkeyMpcExport: assembly.passkeyMpcExport,
       signerWorkerManager: this.signerWorkerManager,
       emailOtpSessions: this.emailOtpSessions,
       warmSigning: this.warmSigning,
@@ -620,6 +622,7 @@ export class BrowserSigningSurface {
         this.workerBaseOrigin = origin;
         this.signerWorkerManager.setWorkerBaseOrigin(origin);
         this.touchConfirm.setWorkerBaseOrigin?.(origin);
+        assembly.passkeyMpcExport.setWorkerBaseOrigin(origin);
       },
     });
   }
