@@ -724,6 +724,9 @@ the replacement and legacy MPC paths must not ship together.
       preparation's active-status proof. Delete the record-backed warm-capability
       reader, record-to-lane reconstruction, and obsolete handwritten
       session-selection suite (`5a8ce9090`, `70ef2a420`).
+- [x] Delete the unread record-derived Wallet Session bearer projection from
+      NEAR transaction admission. Canonical preparation and the admitted
+      operation-claim receipt remain the authorization inputs (`5173ad50b`).
 
 ### Worker, WASM, and bundle boundary
 

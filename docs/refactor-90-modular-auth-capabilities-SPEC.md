@@ -231,6 +231,9 @@ implementing commit SHA as the evidence.
     authoritative active status. Delegate and NEP-413 planning consume that
     canonical proof directly and no longer reconstruct authorization, lanes,
     or readiness from a composite session record (`5a8ce9090`, `70ef2a420`).
+  - [x] NEAR transaction admission carries no unread record-derived Wallet
+    Session bearer projection; canonical preparation and the admitted
+    operation-claim receipt own authorization (`5173ad50b`).
 - [x] `R90-INV-004` — Near admission, acquisition, and promotion are independently
   idempotent and queryable by exact recovery ID, including Refactor 93 exact
   Router replay, role-local reconciliation, and injected crash cases.
