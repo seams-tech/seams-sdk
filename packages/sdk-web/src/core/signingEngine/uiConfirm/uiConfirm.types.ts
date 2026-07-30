@@ -204,14 +204,6 @@ export interface PasskeyWarmSessionPolicyRecorder {
   ): Promise<void>;
 }
 
-export interface PasskeyWarmSessionPersistenceCoordinator {
-  ensurePasskeySealedRecordPersisted(args: {
-    sessionId: string;
-    transport: WarmSessionSealTransportInput;
-    diagnostics?: WarmSessionMaterialWriteDiagnostics;
-  }): Promise<WarmSessionSealAndPersistResult | null>;
-}
-
 export type VolatileWarmMaterialPort = WarmSessionStatusReader &
   WarmSessionStatusBatchReader &
   WarmSessionMaterialClaimer &
@@ -220,8 +212,7 @@ export type VolatileWarmMaterialPort = WarmSessionStatusReader &
   VolatileWarmSessionMaterialClearAll;
 
 export type DurableSealedSessionPort = WarmSessionSealPersister &
-  PasskeyWarmSessionPolicyRecorder &
-  PasskeyWarmSessionPersistenceCoordinator;
+  PasskeyWarmSessionPolicyRecorder;
 
 export type PromptCapableBootstrapPort = UiConfirmContextPort &
   UiConfirmSigningPort &

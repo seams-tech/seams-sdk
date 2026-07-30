@@ -1155,31 +1155,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     };
   }
 
-  async ensurePasskeySealedRecordPersisted(args: {
-    sessionId: string;
-    transport: WarmSessionSealTransportInput;
-    diagnostics?: WarmSessionMaterialWriteDiagnostics;
-  }): Promise<WarmSessionSealAndPersistResult | null> {
-    const thresholdSessionIdRaw = args.sessionId;
-    const transport = args.transport;
-    const diagnostics = args.diagnostics;
-    if (!this.isSealedRefreshModeEnabled()) return null;
-    const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
-    if (!thresholdSessionId) return null;
-    const resolvedTransport = await this.resolveSealTransportInput(
-      thresholdSessionId,
-      transport || null,
-      null,
-    );
-    if (!resolvedTransport) return null;
-    const persisted = await this.persistSigningSessionSealForThresholdSession({
-      sessionId: thresholdSessionId,
-      transport: resolvedTransport,
-      ...(diagnostics ? { diagnostics } : {}),
-    });
-    return persisted.ok || persisted.code !== 'missing_restore_metadata' ? persisted : null;
-  }
-
   persistSigningSessionSealForThresholdSession = async (args: {
     sessionId: string;
     transport?: WarmSessionSealTransportInput;
