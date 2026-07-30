@@ -359,6 +359,8 @@ removes.
         contract that still carried the slot identity (`84677131e`).
   - [x] Delete the zero-caller slot-bearing ECDSA connect adapter and consume
         the bootstrap result shape directly (`713fc967c`).
+  - [x] Remove the slot from server normal-signing provision admission and
+        durable ECDSA MPC session records (`a980592a0`, `9bada9733`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.
