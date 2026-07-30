@@ -148,7 +148,9 @@ replacement.
   add-signer, and bootstrap persistence stopped copying the provisioning slot
   into durable IndexedDB signer metadata in `0fbbbb04b`. The zero-caller server
   role-local key-record parser and its in-memory, Redis, Upstash, and Durable
-  Object stores were deleted in `a913d461f`.
+  Object stores were deleted in `a913d461f`. Unused slot projections in Wallet
+  Session signing context, Email OTP capability lookup, and sealed refresh
+  validation were removed in `45e495ddc`.
 - ~~`evmFamilySigningKeySlotId` in ECDSA Wallet Session JWT binding facts and
   normal-signing claims~~ — deleted by `4986d279f`; the value remains only on
   the registration bootstrap request/response boundary in that path.

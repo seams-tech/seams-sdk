@@ -377,6 +377,9 @@ removes.
   - [x] Delete the zero-caller server role-local ECDSA key-record parser and
         in-memory, Redis, Upstash, and Durable Object stores with their obsolete
         fixtures and source checks (`a913d461f`).
+  - [x] Remove unused provisioning-slot projections from Wallet Session
+        `stableKeyContext`, persisted Email OTP capability lookup, and sealed
+        refresh validation (`45e495ddc`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.

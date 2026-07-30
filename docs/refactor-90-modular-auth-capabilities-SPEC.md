@@ -181,6 +181,8 @@ implementing commit SHA as the evidence.
     slot beside the exact ECDSA key handle (`0fbbbb04b`).
   - [x] The unused server role-local ECDSA key-record/store family and its
     slot-based shared-identity guard are deleted (`a913d461f`).
+  - [x] Wallet Session signing context and Email OTP persisted-material lookup
+    no longer project or require an unused provisioning slot (`45e495ddc`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently
