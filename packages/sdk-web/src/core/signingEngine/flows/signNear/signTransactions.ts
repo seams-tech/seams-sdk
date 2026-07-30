@@ -16,7 +16,7 @@ import { AccountId, toAccountId } from '@/core/types/accountIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import type {
-  NearEd25519YaoCommittedCapability,
+  NearEd25519YaoMaterialExecutor,
   NearEd25519YaoSigningCapability,
   NearEmailOtpEd25519ReauthorizationHook,
   NearEd25519TransactionSigningBoundary,
@@ -24,6 +24,7 @@ import type {
   NearPreparedSigningSessionFinalizer,
   NearPasskeyEd25519OperationStepUpHook,
 } from '../../interfaces/near';
+import type { NearEd25519YaoSigningPreparation } from '../../session/material/nearEd25519YaoSigningPreparation';
 import {
   isWarmSessionSigningAuthPlan,
   type UserConfirmProgressEvent,
@@ -96,7 +97,7 @@ import {
 import { resolveConfirmedNearTransactionContext } from './implicitAccountFunding';
 import {
   reauthorizeNearEmailOtpEd25519,
-  resolveNearEd25519YaoCommittedCapability,
+  resolvePreparedNearEd25519YaoMaterial,
 } from './shared/ed25519YaoCapabilityResolution';
 import {
   clearNearOperationStepUpBuilder,
@@ -163,20 +164,23 @@ function requireNearOperationStepUpCapabilityActivation(args: {
 }
 
 async function prepareNearPasskeyOperationStepUpMaterial(
-  committed: NearEd25519YaoCommittedCapability,
+  preparation: NearEd25519YaoSigningPreparation,
+  executor: NearEd25519YaoMaterialExecutor,
 ): Promise<NearPasskeyOperationStepUpMaterial> {
-  switch (committed.kind) {
-    case 'live_runtime':
+  switch (preparation.hydration.kind) {
+    case 'use_live_runtime': {
+      const capability = await executor.resolve(preparation);
       return {
         kind: 'live',
         materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
-          committed.capability.activeClient.metadata(),
+          capability.activeClient.metadata(),
         ),
-        walletSessionState: committed.capability.walletSessionState,
-        capability: committed.capability,
+        walletSessionState: capability.walletSessionState,
+        capability,
       };
-    case 'sealed_material_activation': {
-      const prepared = await committed.prepareOperationStepUp();
+    }
+    case 'rehydrate_material_activation': {
+      const prepared = await executor.preparePasskeyOperationStepUp(preparation);
       return {
         kind: 'sealed',
         materialActivation: prepared.materialActivation,
@@ -184,8 +188,14 @@ async function prepareNearPasskeyOperationStepUpMaterial(
         rehydrate: prepared.rehydrate,
       };
     }
+    case 'reauthorize_public_anchor':
+      throw new Error('[SigningEngine][near] retired material cannot prepare operation step-up');
+    case 'blocked':
+      throw new Error(
+        `[SigningEngine][near] operation material hydration is blocked: ${preparation.hydration.reason}`,
+      );
     default:
-      committed satisfies never;
+      preparation.hydration satisfies never;
       throw new Error('[SigningEngine][near] unsupported Passkey operation material source');
   }
 }
@@ -335,7 +345,8 @@ export async function runNearTransactionWithActionsSigning({
   finalizePreparedSigningSession,
   passkeyEd25519OperationStepUp,
   emailOtpEd25519Reauthorization,
-  committedYaoCapability,
+  yaoSigningPreparation,
+  yaoMaterialExecutor,
 }: {
   ctx: NearSigningRuntimeDeps;
   commandSubject: NearCommandSubject;
@@ -355,7 +366,8 @@ export async function runNearTransactionWithActionsSigning({
   finalizePreparedSigningSession?: NearPreparedSigningSessionFinalizer;
   passkeyEd25519OperationStepUp?: NearPasskeyEd25519OperationStepUpHook;
   emailOtpEd25519Reauthorization?: NearEmailOtpEd25519ReauthorizationHook;
-  committedYaoCapability: NearEd25519YaoCommittedCapability | null;
+  yaoSigningPreparation: NearEd25519YaoSigningPreparation;
+  yaoMaterialExecutor: NearEd25519YaoMaterialExecutor;
 }): Promise<{
   signedTransaction: SignedTransaction;
   nearAccountId: AccountId;
@@ -523,11 +535,10 @@ export async function runNearTransactionWithActionsSigning({
   });
   let passkeyOperationStepUpMaterial: NearPasskeyOperationStepUpMaterial | null = null;
   if (preparedStepUp.kind === 'passkey') {
-    if (!committedYaoCapability) {
-      throw new Error('[SigningEngine][near] Passkey operation material is unavailable');
-    }
-    passkeyOperationStepUpMaterial =
-      await prepareNearPasskeyOperationStepUpMaterial(committedYaoCapability);
+    passkeyOperationStepUpMaterial = await prepareNearPasskeyOperationStepUpMaterial(
+      yaoSigningPreparation,
+      yaoMaterialExecutor,
+    );
     const operationStepUpMaterial = passkeyOperationStepUpMaterial;
     registerNearOperationStepUpBuilder({
       requestId: sessionId,
@@ -688,10 +699,10 @@ export async function runNearTransactionWithActionsSigning({
         });
       }
       if (!activeCapability) {
-        if (!committedYaoCapability) {
-          throw new Error('[SigningEngine][near] committed Ed25519 Yao capability is unavailable');
-        }
-        activeCapability = await resolveNearEd25519YaoCommittedCapability(committedYaoCapability);
+        activeCapability = await resolvePreparedNearEd25519YaoMaterial(
+          yaoSigningPreparation,
+          yaoMaterialExecutor,
+        );
       }
       const activeYaoClient = activeCapability.activeClient;
       const activeWalletSessionState = activeCapability.walletSessionState;

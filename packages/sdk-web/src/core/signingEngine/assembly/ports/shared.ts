@@ -72,6 +72,7 @@ type RehydrateEmailOtpEd25519CapabilityForSigningArgs = Parameters<
 >[0];
 type RehydratePasskeyEd25519YaoCapabilityForSigning =
   NearSigningApiDeps['rehydratePasskeyEd25519YaoCapabilityForSigning'];
+type PrepareNearEd25519YaoSigning = NearSigningApiDeps['prepareNearEd25519YaoSigning'];
 type PreparePasskeyEd25519YaoOperationStepUpForSigning =
   NearSigningApiDeps['preparePasskeyEd25519YaoOperationStepUpForSigning'];
 type RecoverEmailOtpEd25519YaoCapabilitySilentlyForSigning =
@@ -161,6 +162,7 @@ export type CreateSigningEnginePortsArgs = {
     args: RehydrateEmailOtpEd25519CapabilityForSigningArgs,
   ) => ReturnType<NonNullable<NearSigningApiDeps['rehydrateEmailOtpEd25519CapabilityForSigning']>>;
   rehydratePasskeyEd25519YaoCapabilityForSigning: RehydratePasskeyEd25519YaoCapabilityForSigning;
+  prepareNearEd25519YaoSigning: PrepareNearEd25519YaoSigning;
   preparePasskeyEd25519YaoOperationStepUpForSigning: PreparePasskeyEd25519YaoOperationStepUpForSigning;
   recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning: RecoverEmailOtpEd25519YaoCapabilitySilentlyForSigning;
   provisionThresholdEd25519Session: (

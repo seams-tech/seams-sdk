@@ -6,6 +6,7 @@ import {
 } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
 import { requireNearOperationStepUpMaterialActivation } from '@/core/signingEngine/flows/signNear/shared/operationStepUpPreparation';
 import { nearEd25519YaoCapabilityHydrationFixture } from './helpers/nearEd25519YaoCapabilityHydration.fixtures';
+import { buildAuthorizationRequiredNearEd25519YaoSigningPreparation } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
 
 test('maps the seven canonical Near hydration states to shared outcomes', () => {
   const fixture = nearEd25519YaoCapabilityHydrationFixture();
@@ -131,4 +132,32 @@ test('Near operation step-up preserves the exact sealed material activation', ()
       actual: differentActivation,
     }),
   ).toThrow('operation assertion changed material activation');
+});
+
+test('Near material hydration remains independent from reusable authorization', () => {
+  const fixture = nearEd25519YaoCapabilityHydrationFixture();
+  const hydration = resolveNearEd25519YaoCapabilityHydrationV1({
+    publicLocator: fixture.publicLocator,
+    sealed: fixture.sealed,
+    runtime: { kind: 'absent' },
+    unlockSource: { kind: 'available', authority: fixture.authority },
+  });
+  const preparation = buildAuthorizationRequiredNearEd25519YaoSigningPreparation({
+    hydration,
+    requirement: {
+      kind: 'email_otp',
+      providerSubjectId: 'provider-subject-near-hydration',
+    },
+  });
+
+  expect(preparation.hydration.kind).toBe('rehydrate_material_activation');
+  expect(preparation.authorization).toEqual({
+    kind: 'authorization_required',
+    requirement: {
+      kind: 'email_otp',
+      providerSubjectId: 'provider-subject-near-hydration',
+    },
+  });
+  expect('hydrate' in preparation).toBe(false);
+  expect('prepareOperationStepUp' in preparation).toBe(false);
 });

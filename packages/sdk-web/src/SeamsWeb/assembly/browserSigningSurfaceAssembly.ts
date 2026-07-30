@@ -555,6 +555,9 @@ export type BrowserSigningSurfaceEnginePortsArgs = {
   rehydratePasskeyEd25519YaoCapabilityForSigning: Parameters<
     typeof createSigningEnginePorts
   >[0]['rehydratePasskeyEd25519YaoCapabilityForSigning'];
+  prepareNearEd25519YaoSigning: Parameters<
+    typeof createSigningEnginePorts
+  >[0]['prepareNearEd25519YaoSigning'];
   preparePasskeyEd25519YaoOperationStepUpForSigning: Parameters<
     typeof createSigningEnginePorts
   >[0]['preparePasskeyEd25519YaoOperationStepUpForSigning'];
@@ -645,6 +648,7 @@ export function createBrowserSigningSurfaceEnginePorts(
       rehydrateEmailOtpEd25519CapabilityForSigning({ assembly: args, request: recoveryArgs }),
     rehydratePasskeyEd25519YaoCapabilityForSigning:
       args.rehydratePasskeyEd25519YaoCapabilityForSigning,
+    prepareNearEd25519YaoSigning: args.prepareNearEd25519YaoSigning,
     preparePasskeyEd25519YaoOperationStepUpForSigning:
       args.preparePasskeyEd25519YaoOperationStepUpForSigning,
     recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning:

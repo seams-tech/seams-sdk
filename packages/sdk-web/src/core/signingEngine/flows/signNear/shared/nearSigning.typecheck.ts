@@ -15,11 +15,6 @@ import type {
   SigningGrantId,
   ThresholdEd25519SessionId,
 } from '@/core/signingEngine/session/operationState/types';
-import type {
-  NearEd25519YaoCommittedCapability,
-  NearEd25519YaoSigningCapability,
-  NearPasskeyEd25519OperationStepUpCapabilityPreparation,
-} from '@/core/signingEngine/interfaces/near';
 
 declare const walletId: WalletId;
 declare const nearAccountId: NamedNearAccountId;
@@ -28,9 +23,6 @@ declare const auth: SigningLaneAuthBinding;
 declare const signingGrantId: SigningGrantId;
 declare const thresholdSessionId: ThresholdEd25519SessionId;
 declare const ecdsaLane: ExactEcdsaSigningLaneIdentity;
-declare const yaoCapability: NearEd25519YaoSigningCapability;
-declare function recoverYaoCapability(): Promise<NearEd25519YaoSigningCapability>;
-declare function prepareOperationStepUp(): Promise<NearPasskeyEd25519OperationStepUpCapabilityPreparation>;
 
 const wallet = buildWalletIdentity({ walletId });
 const account = buildNamedNearAccountBinding({
@@ -66,35 +58,5 @@ const ed25519LaneWithLegacyAccountId: ExactEd25519SigningLaneIdentity = {
   accountId: nearAccountId,
 };
 void ed25519LaneWithLegacyAccountId;
-
-const liveRuntime: NearEd25519YaoCommittedCapability = {
-  kind: 'live_runtime',
-  capability: yaoCapability,
-};
-void liveRuntime;
-
-const sealedMaterialActivation: NearEd25519YaoCommittedCapability = {
-  kind: 'sealed_material_activation',
-  hydrate: recoverYaoCapability,
-  prepareOperationStepUp,
-};
-void sealedMaterialActivation;
-
-// @ts-expect-error Live runtime rejects hydration behavior.
-const liveRuntimeWithHydration: NearEd25519YaoCommittedCapability = {
-  kind: 'live_runtime',
-  capability: yaoCapability,
-  hydrate: recoverYaoCapability,
-};
-void liveRuntimeWithHydration;
-
-// @ts-expect-error Sealed material activation rejects pre-resolved runtimes.
-const sealedMaterialWithRuntime: NearEd25519YaoCommittedCapability = {
-  kind: 'sealed_material_activation',
-  hydrate: recoverYaoCapability,
-  prepareOperationStepUp,
-  capability: yaoCapability,
-};
-void sealedMaterialWithRuntime;
 
 export {};

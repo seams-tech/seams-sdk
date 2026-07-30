@@ -117,7 +117,8 @@ export async function runNearDelegateActionSigning({
   forceFreshAuth,
   passkeyEd25519OperationStepUp,
   emailOtpEd25519Reauthorization,
-  committedYaoCapability,
+  yaoSigningPreparation,
+  yaoMaterialExecutor,
 }: NearDelegateActionPayload): Promise<{
   signedDelegate: WasmSignedDelegate;
   hash: string;
@@ -301,7 +302,8 @@ export async function runNearDelegateActionSigning({
 
       const resolvedCapability = await resolveConfirmedNearEd25519YaoCapability({
         authorization: stepUpAuthorization,
-        committed: committedYaoCapability,
+        preparation: yaoSigningPreparation,
+        executor: yaoMaterialExecutor,
         emailOtpReauthorization: emailOtpEd25519Reauthorization,
         requiredSignatureUses,
       });

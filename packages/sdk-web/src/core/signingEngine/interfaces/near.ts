@@ -36,6 +36,9 @@ import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type {
+  NearEd25519YaoSigningPreparation,
+} from '../session/material/nearEd25519YaoSigningPreparation';
 export type NearResolvedEd25519WalletSessionAuth = {
   kind: 'wallet_session_jwt';
   walletSessionJwt: string;
@@ -100,19 +103,14 @@ export type NearPasskeyEd25519OperationStepUpCapabilityPreparation = {
   rehydrate(credential: WebAuthnAuthenticationCredential): Promise<NearEd25519YaoSigningCapability>;
 };
 
-export type NearEd25519YaoCommittedCapability =
-  | {
-      kind: 'live_runtime';
-      capability: NearEd25519YaoSigningCapability;
-      hydrate?: never;
-      prepareOperationStepUp?: never;
-    }
-  | {
-      kind: 'sealed_material_activation';
-      hydrate: () => Promise<NearEd25519YaoSigningCapability>;
-      prepareOperationStepUp: () => Promise<NearPasskeyEd25519OperationStepUpCapabilityPreparation>;
-      capability?: never;
-    };
+export type NearEd25519YaoMaterialExecutor = {
+  resolve: (
+    preparation: NearEd25519YaoSigningPreparation,
+  ) => Promise<NearEd25519YaoSigningCapability>;
+  preparePasskeyOperationStepUp: (
+    preparation: NearEd25519YaoSigningPreparation,
+  ) => Promise<NearPasskeyEd25519OperationStepUpCapabilityPreparation>;
+};
 
 export type NearPasskeyEd25519OperationStepUpHook = {
   prepare: (args: { requiredSignatureUses: number }) => Promise<{
@@ -178,7 +176,8 @@ export type NearTransactionWithActionsPayload = {
   passkeyEd25519OperationStepUp?: NearPasskeyEd25519OperationStepUpHook;
   emailOtpEd25519Reauthorization?: NearEmailOtpEd25519ReauthorizationHook;
   sensitivePolicy?: SensitiveOperationPolicy;
-  committedYaoCapability: NearEd25519YaoCommittedCapability | null;
+  yaoSigningPreparation: NearEd25519YaoSigningPreparation;
+  yaoMaterialExecutor: NearEd25519YaoMaterialExecutor;
 };
 
 export type NearDelegateActionPayload = {
@@ -197,7 +196,8 @@ export type NearDelegateActionPayload = {
   forceFreshAuth: boolean;
   passkeyEd25519OperationStepUp: NearPasskeyEd25519OperationStepUpHook | null;
   emailOtpEd25519Reauthorization: NearEmailOtpEd25519ReauthorizationHook | null;
-  committedYaoCapability: NearEd25519YaoCommittedCapability | null;
+  yaoSigningPreparation: NearEd25519YaoSigningPreparation;
+  yaoMaterialExecutor: NearEd25519YaoMaterialExecutor;
 };
 
 export type NearNep413Payload = {
@@ -208,7 +208,8 @@ export type NearNep413Payload = {
   forceFreshAuth: boolean;
   passkeyEd25519OperationStepUp: NearPasskeyEd25519OperationStepUpHook | null;
   emailOtpEd25519Reauthorization: NearEmailOtpEd25519ReauthorizationHook | null;
-  committedYaoCapability: NearEd25519YaoCommittedCapability | null;
+  yaoSigningPreparation: NearEd25519YaoSigningPreparation;
+  yaoMaterialExecutor: NearEd25519YaoMaterialExecutor;
   payload: {
     message: string;
     recipient: string;
