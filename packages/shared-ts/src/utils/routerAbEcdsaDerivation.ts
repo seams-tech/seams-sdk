@@ -3472,9 +3472,15 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1(
   value: unknown,
 ): RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1Wire {
   const record = requireRecord(value, 'ecdsaPrepareResponse');
+  // The three budget fields are required by the parse body and the wire type
+  // below; omitting them here made the parser reject every input — absent
+  // fields failed "must be a string", present ones "not a supported field".
   requireExactKeys(record, 'ecdsaPrepareResponse', [
     'scope',
     'request_id',
+    'budget_reservation_id',
+    'budget_operation_id',
+    'budget_status',
     'request_digest',
     'signing_digest',
     'server_presignature_id',
