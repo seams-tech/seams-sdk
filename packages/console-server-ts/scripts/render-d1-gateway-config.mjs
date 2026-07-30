@@ -84,6 +84,12 @@ function buildConfig(deployment, packageRoot) {
     compatibility_date: GATEWAY_WORKER_COMPATIBILITY_DATE,
     compatibility_flags: GATEWAY_WORKER_COMPATIBILITY_FLAGS,
     workers_dev: true,
+    routes: [
+      {
+        pattern: new URL(deployment.origins.gateway).hostname,
+        custom_domain: true,
+      },
+    ],
     d1_databases: [
       {
         binding: 'CONSOLE_DB',

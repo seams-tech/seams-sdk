@@ -8,7 +8,7 @@ const TESTS_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(TESTS_ROOT, '..');
 const LOCAL_SITE_ORIGIN = 'http://127.0.0.1:37994';
 const EXPECTED_STAGING_ORIGINS = Object.freeze({
-  gateway: 'https://seams-sdk-d1-gateway-staging.n6378056.workers.dev',
+  gateway: 'https://staging.api.seams.sh',
   site: 'https://staging.seams.sh',
   wallet: 'https://staging.sign.seams.sh',
 });

@@ -23,8 +23,10 @@
         "environmentId": "staging"
       },
       "origins": {
-        "gateway": "https://seams-sdk-d1-gateway-staging.n6378056.workers.dev",
+        "gateway": "https://staging.api.seams.sh",
         "allowedCors": [
+          "https://staging.seams.sh",
+          "https://staging.sign.seams.sh",
           "https://seams-site-staging.pages.dev",
           "https://seams-wallet-staging.pages.dev"
         ]
@@ -125,7 +127,7 @@
       }
     },
     "origins": {
-      "gateway": "https://seams-sdk-d1-gateway-staging.n6378056.workers.dev",
+      "gateway": "https://staging.api.seams.sh",
       "site": "https://staging.seams.sh",
       "wallet": "https://staging.sign.seams.sh"
     },
@@ -220,7 +222,7 @@
         "environmentId": "production"
       },
       "origins": {
-        "gateway": "https://seams-sdk-d1-gateway.n6378056.workers.dev",
+        "gateway": "https://api.seams.sh",
         "allowedCors": ["https://seams.sh", "https://sign.seams.sh"]
       },
       "signingRoot": {
@@ -325,7 +327,7 @@
       }
     },
     "origins": {
-      "gateway": "https://seams-sdk-d1-gateway.n6378056.workers.dev",
+      "gateway": "https://api.seams.sh",
       "site": "https://seams.sh",
       "wallet": "https://sign.seams.sh"
     },
