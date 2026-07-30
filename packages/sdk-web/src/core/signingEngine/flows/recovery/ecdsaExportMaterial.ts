@@ -26,7 +26,6 @@ import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/ot
 import {
   listExactSealedSessionsForWallet,
   type CurrentEcdsaSealedSessionRecord,
-  type EcdsaReauthAnchorPublicRestore,
 } from '../../session/persistence/sealedSessionStore';
 import {
   thresholdEcdsaChainTargetsEqual,
@@ -88,23 +87,9 @@ export type EmailOtpEcdsaExportAuthLane = Extract<
   { curve: 'ecdsa' }
 >;
 
-export type EmailOtpEcdsaPublicReauthExportAuthority = Extract<
-  EcdsaReauthAnchorPublicRestore,
-  { source: 'email_otp' }
->;
-
 type FreshEmailOtpEcdsaWalletSessionExportAuthority = {
   kind: 'wallet_session_authorized';
   signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
-  publicReauthAuthority?: never;
-};
-
-type FreshEmailOtpEcdsaPublicReauthExportAuthority = {
-  kind: 'public_reauth_authority_backed';
-  publicReauthAuthority: EmailOtpEcdsaPublicReauthExportAuthority;
-  record?: never;
-  authLane?: never;
-  operationAuthorization?: never;
 };
 
 export type FreshEmailOtpEcdsaExportMaterial = {
@@ -112,9 +97,7 @@ export type FreshEmailOtpEcdsaExportMaterial = {
   chainTarget: ThresholdEcdsaChainTarget;
   publicFacts: VerifiedEcdsaPublicFacts;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  authorization:
-    | FreshEmailOtpEcdsaWalletSessionExportAuthority
-    | FreshEmailOtpEcdsaPublicReauthExportAuthority;
+  authorization: FreshEmailOtpEcdsaWalletSessionExportAuthority;
   record?: never;
   authLane?: never;
 };

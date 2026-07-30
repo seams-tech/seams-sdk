@@ -5,7 +5,6 @@ import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/ro
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 import type {
-  EmailOtpEcdsaPublicReauthExportAuthority,
   ExactEcdsaExportSession,
   FreshEmailOtpEcdsaExportMaterial,
   FreshPasskeyEcdsaExportMaterial,
@@ -15,7 +14,6 @@ declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const publicFacts: VerifiedEcdsaPublicFacts;
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
 declare const signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
-declare const publicReauthAuthority: EmailOtpEcdsaPublicReauthExportAuthority;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
 declare const relayerUrl: string;
@@ -43,17 +41,6 @@ const walletSessionAuthorizedMaterial: FreshEmailOtpEcdsaExportMaterial = {
   },
 };
 
-const invalidMixedPublicReauthAuthority: FreshEmailOtpEcdsaExportMaterial = {
-  ...walletSessionAuthorizedMaterial,
-  // @ts-expect-error one export authorization branch cannot carry public reauth authority.
-  authorization: {
-    kind: 'wallet_session_authorized',
-    signingSessionAuthority,
-    publicReauthAuthority,
-  },
-};
-void invalidMixedPublicReauthAuthority;
-
 // @ts-expect-error route-auth-ready fresh material requires one exact authority branch.
 const freshRouteAuthReadyWithoutAuthority: FreshEmailOtpEcdsaExportMaterial = {
   kind: 'fresh_email_otp_route_auth_ready',
@@ -69,15 +56,6 @@ const freshRouteAuthReadyWithLooseRecord: FreshEmailOtpEcdsaExportMaterial = {
   record: obsoleteRecord,
 };
 void freshRouteAuthReadyWithLooseRecord;
-
-const publicReauthMaterial: FreshEmailOtpEcdsaExportMaterial = {
-  kind: 'fresh_email_otp_route_auth_ready',
-  chainTarget,
-  publicFacts,
-  runtimePolicyScope,
-  authorization: { kind: 'public_reauth_authority_backed', publicReauthAuthority },
-};
-void publicReauthMaterial;
 
 const freshPasskeyExportMaterial: FreshPasskeyEcdsaExportMaterial = {
   kind: 'fresh_passkey_needs_authorization',
