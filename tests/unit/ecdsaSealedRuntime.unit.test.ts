@@ -1,10 +1,19 @@
 import { expect, test } from '@playwright/test';
-import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
-import type { CurrentEcdsaSealedSessionRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import {
+  resolveExactEcdsaSealedRuntime,
+  resolveExactInactiveEcdsaMaterialRuntime,
+} from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
+import {
+  type CurrentEcdsaSealedSessionRecord,
+  type EcdsaInactiveSealedMaterialRecord,
+} from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { ecdsaCapabilityHydrationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
-import { buildEmailOtpEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';
+import {
+  buildEmailOtpEcdsaSealedRuntimeRecordFixture,
+  buildEmailOtpInactiveEcdsaMaterialRecordFixture,
+} from './helpers/sealedSigningSession.fixtures';
 import {
   buildMpcMaterialActivationRefFixture,
   buildWalletAuthAuthorityRefFixture,
@@ -32,6 +41,34 @@ function resolve(
       networkSlug: 'tempo-testnet',
     },
     sealedRecords,
+  });
+}
+
+function buildInactiveRecord(
+  manifest: ActiveEcdsaCapabilityManifest,
+  corruption?: Parameters<typeof buildEmailOtpEcdsaSealedRuntimeRecordFixture>[0]['corruption'],
+): EcdsaInactiveSealedMaterialRecord {
+  return buildEmailOtpInactiveEcdsaMaterialRecordFixture({
+    manifest,
+    corruption,
+  });
+}
+
+function resolveInactive(
+  manifest: ActiveEcdsaCapabilityManifest,
+  inactiveRecords: readonly EcdsaInactiveSealedMaterialRecord[],
+  authMethod: 'passkey' | 'email_otp' = 'email_otp',
+) {
+  return resolveExactInactiveEcdsaMaterialRuntime({
+    manifest,
+    walletId: toWalletId(String(manifest.signer.walletId)),
+    chainTarget: inactiveRecords[0]?.ecdsaRestore.chainTarget ?? {
+      kind: 'tempo',
+      chainId: 42431,
+      networkSlug: 'tempo-testnet',
+    },
+    authMethod,
+    inactiveRecords,
   });
 }
 
@@ -200,5 +237,50 @@ test.describe('exact ECDSA sealed runtime resolution', () => {
     expect(resolution.kind).toBe('resolved');
     if (resolution.kind !== 'resolved') return;
     expect(resolution.runtime.sealedRecord.thresholdSessionId).toBe('ec-session-rotated');
+  });
+
+  test('resolves inactive material without reusable authorization or session state', () => {
+    const manifest = activeManifest();
+    const record = buildInactiveRecord(manifest);
+    const resolution = resolveInactive(manifest, [record]);
+
+    expect(resolution.kind).toBe('resolved');
+    if (resolution.kind !== 'resolved') return;
+    expect(resolution.runtime.materialActivation).toEqual(
+      manifest.durableMaterial.materialActivation,
+    );
+    expect(resolution.runtime.authBinding.kind).toBe('email_otp');
+    expect(resolution.runtime.inactiveMaterialRecord).toEqual({
+      storeKey: record.storeKey,
+      authMethod: 'email_otp',
+      authorizationRetirementReason: 'expired',
+    });
+    expect('sealedRecord' in resolution.runtime).toBe(false);
+    expect('expiresAtMs' in resolution.runtime).toBe(false);
+    expect('remainingUses' in resolution.runtime).toBe(false);
+    expect('thresholdSessionId' in resolution.runtime).toBe(false);
+    expect('signingGrantId' in resolution.runtime).toBe(false);
+    expect('authorization' in resolution.runtime).toBe(false);
+  });
+
+  test('correlates inactive material against its exact factor and manifest binding', () => {
+    const manifest = activeManifest();
+    const record = buildInactiveRecord(manifest);
+    const mismatchedAuthority = buildInactiveRecord(manifest, {
+      kind: 'authority_mismatch',
+      authority: buildWalletAuthAuthorityRefFixture({
+        walletId: String(manifest.signer.walletId),
+        label: 'other-authority',
+      }),
+    });
+
+    expect(resolveInactive(manifest, [record], 'passkey')).toEqual({
+      kind: 'blocked',
+      reason: 'missing_material',
+    });
+    expect(resolveInactive(manifest, [mismatchedAuthority])).toEqual({
+      kind: 'blocked',
+      reason: 'binding_mismatch',
+    });
   });
 });

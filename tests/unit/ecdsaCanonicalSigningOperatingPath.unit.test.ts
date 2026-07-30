@@ -15,8 +15,14 @@ import {
   installEcdsaNormalSigningEndpointFixture,
   type EcdsaFixtureFactor,
 } from './helpers/ecdsaOperationStepUp.fixtures';
+import {
+  buildEmailOtpInactiveEcdsaMaterialRecordFixture,
+  buildPasskeyInactiveEcdsaMaterialRecordFixture,
+} from './helpers/sealedSigningSession.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { resolveExactInactiveEcdsaMaterialRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import { Secp256k1Engine } from '@/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
 import { clearAllRouterAbEcdsaDerivationClientPresignatures } from '@/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool';
 import {
@@ -26,7 +32,7 @@ import {
 } from '@/core/signingEngine/workerManager/workerTypes';
 
 // The canonical normal-signing path at its two boundaries -- hydration and
-// operation step-up. Manifest plus exact sealed runtime resolve the material,
+// operation step-up. Manifest plus exact durable runtime facts resolve the material,
 // the worker rehydrates it, the step-up binds the canonical challenge, and the
 // grant comes back attached to the signing material. Both factors run the same
 // path -- only the sealed record's auth binding differs -- which is the point
@@ -34,14 +40,50 @@ import {
 //
 // Scope, precisely: the worker is stubbed at `requestWorkerOperation` (the
 // same seam the deleted record-backed rehydration coverage used) and the
-// relayer at `fetch`. Confirmation UI and the actual digest signature are not
-// exercised here -- the literal signed bytes are E2E
-// coverage, not this file's claim.
+// relayer at `fetch`. Confirmation UI is outside this proof; the production
+// signing orchestration still returns and verifies the exact 65-byte signature.
+
+function inactiveRuntimeRecord(
+  factor: EcdsaFixtureFactor,
+  fixture: Awaited<ReturnType<typeof canonicalEcdsaSealedRuntimeFixture>>['fixture'],
+) {
+  return factor === 'passkey'
+    ? buildPasskeyInactiveEcdsaMaterialRecordFixture({
+        manifest: fixture.manifest,
+      })
+    : buildEmailOtpInactiveEcdsaMaterialRecordFixture({
+        manifest: fixture.manifest,
+      });
+}
+
+function requireInactiveRuntime(
+  factor: EcdsaFixtureFactor,
+  fixture: Awaited<ReturnType<typeof canonicalEcdsaSealedRuntimeFixture>>['fixture'],
+  chainTarget: Awaited<ReturnType<typeof canonicalEcdsaSealedRuntimeFixture>>['runtime']['chainTarget'],
+) {
+  const resolution = resolveExactInactiveEcdsaMaterialRuntime({
+    manifest: fixture.manifest,
+    walletId: toWalletId(String(fixture.manifest.signer.walletId)),
+    chainTarget,
+    authMethod: factor,
+    inactiveRecords: [inactiveRuntimeRecord(factor, fixture)],
+  });
+  if (resolution.kind !== 'resolved') {
+    throw new Error(`${factor} inactive material did not resolve: ${resolution.reason}`);
+  }
+  return resolution.runtime;
+}
 
 for (const factor of ['passkey', 'email_otp'] as const) {
-  test(`canonical ${factor} normal signing reaches worker binding`, async () => {
-    const { fixture, runtime, worker } = await canonicalEcdsaSealedRuntimeFixture(factor);
+  test(`inactive ${factor} material reaches canonical worker hydration`, async () => {
+    const { fixture, runtime: activeRuntime, worker } =
+      await canonicalEcdsaSealedRuntimeFixture(factor);
     const { capability, manifest } = fixture;
+    const runtime = requireInactiveRuntime(
+      factor,
+      fixture,
+      activeRuntime.chainTarget,
+    );
     expect(runtime.authBinding.kind).toBe(factor);
 
     const resolution = await resolveHydratedSecp256k1SigningMaterial({
@@ -65,10 +107,6 @@ for (const factor of ['passkey', 'email_otp'] as const) {
     );
     expect(resolution.material.clientShare.kind).toBe('role_local_worker_share');
 
-    // Session-scoped state comes from the sealed runtime, not the token.
-    expect(String(resolution.material.thresholdSessionId)).toBe(
-      String(runtime.sealedRecord.thresholdSessionId),
-    );
     expect(resolution.material.chainTarget).toEqual(runtime.chainTarget);
 
     // Hydrated material is auth-neutral: it carries no authorization and no
@@ -79,9 +117,15 @@ for (const factor of ['passkey', 'email_otp'] as const) {
   });
 }
 
-test('persisted ECDSA hydration binds the worker and signs the exact authorized operation', async () => {
+test('inactive ECDSA hydration binds the worker and signs the exact authorized operation', async () => {
   clearAllRouterAbEcdsaDerivationClientPresignatures();
-  const { fixture, runtime, worker } = await canonicalEcdsaSealedRuntimeFixture('passkey');
+  const { fixture, runtime: activeRuntime, worker } =
+    await canonicalEcdsaSealedRuntimeFixture('passkey');
+  const runtime = requireInactiveRuntime(
+    'passkey',
+    fixture,
+    activeRuntime.chainTarget,
+  );
   const hydration = await resolveHydratedSecp256k1SigningMaterial({
     capability: fixture.capability,
     runtime,

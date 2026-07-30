@@ -129,7 +129,9 @@ export async function loadRouterAbEcdsaDerivationSigningMaterialSource(args: {
           emailOtpWorkerShareExhausted =
             initialized.remainingUses <= 0 || initialized.expiresAtMs <= Date.now();
           await updateEmailOtpSealedRecordPolicyAfterEcdsaClaim({
-            thresholdSessionId: String(signerSession.thresholdSessionId),
+            thresholdSessionId: String(
+              signerSession.clientShare.handle.laneIdentity.thresholdSessionId,
+            ),
             chainTarget: signerSession.clientShare.handle.laneIdentity.chainTarget,
             remainingUses: initialized.remainingUses,
             expiresAtMs: initialized.expiresAtMs,

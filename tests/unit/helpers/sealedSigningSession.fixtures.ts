@@ -22,10 +22,14 @@ import { buildWalletAuthAuthorityRefForAuthorityFixture } from './ecdsaMaterialR
 import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import {
+  buildEcdsaInactiveMaterialPublicRestore,
   buildCurrentSealedSessionRecord,
+  classifyRawSealedSessionRecord,
   type CurrentEcdsaSealedSessionRecord,
+  type EcdsaInactiveSealedMaterialRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { parseEcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
+import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type EmailOtpEcdsaSealedSigningSessionRecord = Extract<
   SealedSigningSessionRecord,
@@ -332,6 +336,75 @@ export function buildEmailOtpEcdsaSealedRuntimeRecordFixture(args: {
     throw new Error('Failed to build exact Email OTP ECDSA sealed runtime fixture');
   }
   return corruptEmailOtpEcdsaSealedRuntimeRecordFixture(record, args.corruption);
+}
+
+export function buildEmailOtpInactiveEcdsaMaterialRecordFixture(args: {
+  manifest: ActiveEcdsaCapabilityManifest;
+  authorizationRetirementReason?: 'expired' | 'exhausted';
+  corruption?: EmailOtpEcdsaSealedRuntimeFixtureCorruption;
+}): EcdsaInactiveSealedMaterialRecord {
+  const current = buildEmailOtpEcdsaSealedRuntimeRecordFixture(args);
+  return inactiveEcdsaMaterialRecordFixture({
+    current,
+    authorizationRetirementReason:
+      args.authorizationRetirementReason ?? 'expired',
+  });
+}
+
+export function buildPasskeyInactiveEcdsaMaterialRecordFixture(args: {
+  manifest: ActiveEcdsaCapabilityManifest;
+  authorizationRetirementReason?: 'expired' | 'exhausted';
+}): EcdsaInactiveSealedMaterialRecord {
+  return inactiveEcdsaMaterialRecordFixture({
+    current: buildPasskeyEcdsaSealedRuntimeRecordFixture(args),
+    authorizationRetirementReason:
+      args.authorizationRetirementReason ?? 'expired',
+  });
+}
+
+function inactiveEcdsaMaterialRecordFixture(args: {
+  current: CurrentEcdsaSealedSessionRecord;
+  authorizationRetirementReason: 'expired' | 'exhausted';
+}): EcdsaInactiveSealedMaterialRecord {
+  const current = args.current;
+  const restore = buildEcdsaInactiveMaterialPublicRestore(
+    current.ecdsaRestore,
+    current.relayerUrl,
+  );
+  if (!restore) {
+    throw new Error('Failed to build inactive Email OTP ECDSA restore fixture');
+  }
+  const storeKey = [
+    'inactive-material',
+    current.walletId,
+    current.authMethod,
+    'ecdsa',
+    thresholdEcdsaChainTargetKey(restore.chainTarget),
+    restore.roleLocalMaterialRef.materialActivation.activationId,
+  ]
+    .map((part) => encodeURIComponent(String(part).trim()))
+    .join(':');
+  const classification = classifyRawSealedSessionRecord({
+    recordKind: 'ecdsa_inactive_sealed_material_v1',
+    storeKey,
+    curve: 'ecdsa',
+    walletId: current.walletId,
+    relayerUrl: current.relayerUrl,
+    alg: current.alg,
+    storageScope: current.storageScope,
+    secretKind: current.secretKind,
+    sealedSecretB64u: current.sealedSecretB64u,
+    keyVersion: current.keyVersion,
+    groupId: current.groupId,
+    updatedAtMs: current.updatedAtMs,
+    authorizationRetirementReason: args.authorizationRetirementReason,
+    authMethod: current.authMethod,
+    ecdsaRestore: restore,
+  });
+  if (classification.kind !== 'ecdsa_inactive_material') {
+    throw new Error('Failed to classify inactive Email OTP ECDSA material fixture');
+  }
+  return classification.record;
 }
 
 /** Passkey counterpart of the Email OTP sealed runtime fixture. The sealed
