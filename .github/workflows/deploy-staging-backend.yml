@@ -112,7 +112,6 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
     steps:
       - name: Checkout workflow revision
         uses: actions/checkout@v6
@@ -323,7 +322,6 @@ jobs:
       ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: ${{ secrets.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK }}
       STRIPE_API_SK: ${{ secrets.STRIPE_API_SK }}
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-      RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
       SPONSORED_EVM_EXECUTORS_JSON: ${{ secrets.SPONSORED_EVM_EXECUTORS_JSON }}
       SIGNING_ROOT_KEK_VALUE: ${{ secrets.SIGNING_ROOT_KEK_VALUE }}
       SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: ${{ secrets.SIGNING_SESSION_SEAL_ROOT_SECRET_B64U }}
