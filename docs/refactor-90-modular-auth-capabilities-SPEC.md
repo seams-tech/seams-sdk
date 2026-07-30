@@ -222,6 +222,11 @@ implementing commit SHA as the evidence.
   - [x] NEAR sealed-material hydration no longer implies authorization-budget
     readmission; only an actual authorization/session replacement refreshes
     that identity (`30b52879b`).
+  - [x] NEAR transaction, delegate, and NEP-413 preparation use the shared
+    hydration plan beside an independent authorization state. The retired
+    committed-capability union and its embedded effect callbacks are deleted;
+    execution receives a separate exact-activation-checked material port
+    (`6a818aea3`, `e118d0d5e`).
 - [x] `R90-INV-004` — Near admission, acquisition, and promotion are independently
   idempotent and queryable by exact recovery ID, including Refactor 93 exact
   Router replay, role-local reconciliation, and injected crash cases.

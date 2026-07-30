@@ -712,6 +712,11 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Stop deriving NEAR budget readmission from material-hydration provenance;
       only a real authorization/session replacement refreshes budget identity
       (`30b52879b`).
+- [x] Replace the closure-bearing NEAR committed-capability carrier with the
+      shared hydration plan plus an independent reusable-authorization state.
+      Transaction, delegate, and NEP-413 payloads carry preparation data and an
+      explicit material executor, and exact activation is checked before use
+      (`6a818aea3`, `e118d0d5e`).
 
 ### Worker, WASM, and bundle boundary
 
