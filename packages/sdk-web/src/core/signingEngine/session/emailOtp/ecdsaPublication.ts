@@ -184,29 +184,20 @@ export async function requireEmailOtpExistingEcdsaPublicCapability(args: {
 }
 
 type EmailOtpEcdsaPersistedIdentity = {
-  evmFamilySigningKeySlotId: string;
   signingRootId: string;
   signingRootVersion: string;
 };
 
 function resolveEmailOtpEcdsaPersistedIdentity(args: {
-  walletId: WalletId;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
 }): EmailOtpEcdsaPersistedIdentity {
   const signingRoot = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
   const signingRootId = String(signingRoot.signingRootId).trim();
   const signingRootVersion = String(signingRoot.signingRootVersion || 'default').trim();
-  const evmFamilySigningKeySlotId = String(
-    deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
-      walletId: args.walletId,
-      runtimePolicyScope: args.runtimePolicyScope,
-    }),
-  ).trim();
-  if (!signingRootId || !signingRootVersion || !evmFamilySigningKeySlotId) {
+  if (!signingRootId || !signingRootVersion) {
     throw new Error('Email OTP ECDSA persisted identity is incomplete');
   }
   return {
-    evmFamilySigningKeySlotId,
     signingRootId,
     signingRootVersion,
   };
@@ -299,7 +290,6 @@ export async function resolveEmailOtpExistingEcdsaKey(args: {
   listActiveEcdsaCapabilityManifestsForWallet: EmailOtpEcdsaPublicationPorts['listActiveEcdsaCapabilityManifestsForWallet'];
 }): Promise<ResolvedEmailOtpExistingEcdsaKey | null> {
   const identity = resolveEmailOtpEcdsaPersistedIdentity({
-    walletId: args.walletId,
     runtimePolicyScope: args.runtimePolicyScope,
   });
   const requestedKeyHandle = String(args.keyHandle || '').trim();
@@ -534,9 +524,6 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
   const signingRootId = String(signingRootScope?.signingRootId || '').trim();
   const signingRootVersion = String(signingRootScope?.signingRootVersion || '').trim();
-  const evmFamilySigningKeySlotId = String(
-    args.bootstrap.keygen.evmFamilySigningKeySlotId || '',
-  ).trim();
   const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
   const userId = String(keyRef.userId || '').trim();
   const providerSubjectId = String(
@@ -567,7 +554,6 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     : [];
   if (
     !ecdsaThresholdKeyId ||
-    !evmFamilySigningKeySlotId ||
     !userId ||
     !providerSubjectId ||
     !emailHashHex ||

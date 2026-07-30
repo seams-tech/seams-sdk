@@ -7,10 +7,6 @@ import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngin
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
-import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
-import { parseEcdsaDerivationRoleLocalKeyRecord } from '../../../packages/sdk-server-ts/src/core/ThresholdService/validation';
-import type { EcdsaDerivationRoleLocalKeyRecord } from '../../../packages/sdk-server-ts/src/core/types';
 import { fixtureRuntimePolicyScopeFromSigningRoot } from './ecdsaBootstrap.fixtures';
 
 const FIXTURE_EMAIL_HASH_HEX = '11'.repeat(32);
@@ -158,61 +154,4 @@ function toFixtureEd25519WalletSessionJwt(
     }),
   ).toString('base64url');
   return `${header}.${payload}.fixture`;
-}
-
-function roleLocalKeyRecordBytesB64u(length: number, lastByte: number, firstByte = 0): string {
-  const bytes = Buffer.alloc(length, 0);
-  bytes[0] = firstByte;
-  bytes[length - 1] = lastByte;
-  return bytes.toString('base64url');
-}
-
-function roleLocalKeyRecordPublicKey33B64u(lastByte: number, prefix: 0x02 | 0x03 = 0x02): string {
-  return roleLocalKeyRecordBytesB64u(33, lastByte, prefix);
-}
-
-export async function makeEcdsaDerivationRoleLocalKeyRecord(
-  overrides: Partial<EcdsaDerivationRoleLocalKeyRecord> = {},
-): Promise<EcdsaDerivationRoleLocalKeyRecord> {
-  const walletId = 'alice.testnet';
-  const signingRootId = 'signing-root';
-  const signingRootVersion = 'default';
-  const base = {
-    version: 'threshold_ecdsa_derivation_role_local_v2',
-    ecdsaThresholdKeyId: 'threshold-key',
-    walletId,
-    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-      walletId,
-      signingRootId,
-      signingRootVersion,
-    }),
-    signingRootId,
-    signingRootVersion,
-    keyScope: 'evm-family',
-    relayerKeyId: 'relayer-key',
-    contextBinding32B64u: roleLocalKeyRecordBytesB64u(32, 1),
-    relayerShare32B64u: roleLocalKeyRecordBytesB64u(32, 2),
-    relayerPublicKey33B64u: roleLocalKeyRecordPublicKey33B64u(3),
-    clientPublicKey33B64u: roleLocalKeyRecordPublicKey33B64u(4, 0x03),
-    groupPublicKey33B64u: roleLocalKeyRecordPublicKey33B64u(5),
-    ethereumAddress: '0x1111111111111111111111111111111111111111',
-    publicTranscriptDigest32B64u: roleLocalKeyRecordBytesB64u(32, 8),
-    createdAtMs: 100,
-    updatedAtMs: 200,
-    ...overrides,
-  } satisfies Omit<EcdsaDerivationRoleLocalKeyRecord, 'keyHandle'> & { keyHandle?: string };
-  const keyHandle =
-    overrides.keyHandle ??
-    String(
-      await deriveThresholdEcdsaKeyHandle({
-        ecdsaThresholdKeyId: base.ecdsaThresholdKeyId,
-        signingRootId: base.signingRootId,
-        signingRootVersion: base.signingRootVersion,
-      }),
-    );
-  const parsed = parseEcdsaDerivationRoleLocalKeyRecord({ ...base, keyHandle });
-  if (!parsed) {
-    throw new Error('fixture must produce a role-local threshold ECDSA key record');
-  }
-  return parsed;
 }

@@ -850,27 +850,6 @@ export interface EcdsaDerivationServerBootstrapResponse {
   jwt?: string;
 }
 
-export interface EcdsaDerivationRoleLocalKeyRecord {
-  version: 'threshold_ecdsa_derivation_role_local_v2';
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  keyHandle: string;
-  walletId: string;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  signingRootId: string;
-  signingRootVersion: string;
-  keyScope: EcdsaDerivationKeyScope;
-  relayerKeyId: string;
-  contextBinding32B64u: string;
-  relayerShare32B64u: string;
-  relayerPublicKey33B64u: string;
-  clientPublicKey33B64u: string;
-  groupPublicKey33B64u: string;
-  ethereumAddress: string;
-  publicTranscriptDigest32B64u: string;
-  createdAtMs: number;
-  updatedAtMs: number;
-}
-
 export type EcdsaSessionPolicy = {
   version: 'threshold_session_policy_v2';
   walletId: string;

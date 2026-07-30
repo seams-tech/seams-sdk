@@ -986,7 +986,6 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
       metadata: {
         keyHandle: 'ederivation-key-alice',
         walletId: 'wallet_alice',
-        evmFamilySigningKeySlotId: walletKeys[0].evmFamilySigningKeySlotId,
         ecdsaThresholdKeyId: 'ederivation-key-id-alice',
         signingRootId: 'project_registration:dev',
         signingRootVersion: 'root_v1',
