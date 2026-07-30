@@ -190,6 +190,8 @@ implementing commit SHA as the evidence.
     slot into activated runtime state (`1f04bb1bb`).
   - [x] Ready ECDSA lanes and Email OTP runtime activation authority reject
     provisioning-slot identity (`47070b2b0`).
+  - [x] Passkey and Email OTP activation results expose required exact key
+    facts and cannot carry a provisioning slot (`2768d24a0`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently

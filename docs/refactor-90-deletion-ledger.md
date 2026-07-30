@@ -157,7 +157,8 @@ replacement.
   records at the parser boundary. Exact-session bootstrap results stopped
   projecting the slot into activated runtime state in `1f04bb1bb`. Ready
   ECDSA use-case lanes and Email OTP runtime activation authority forbid the
-  slot in `47070b2b0`.
+  slot in `47070b2b0`. The keygen-derived activation projection was replaced
+  by required slot-free activated key facts in `2768d24a0`.
 - ~~`evmFamilySigningKeySlotId` in ECDSA Wallet Session JWT binding facts and
   normal-signing claims~~ — deleted by `4986d279f`; the value remains only on
   the registration bootstrap request/response boundary in that path.
