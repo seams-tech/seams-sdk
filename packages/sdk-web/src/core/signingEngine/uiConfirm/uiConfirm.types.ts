@@ -193,6 +193,21 @@ export interface DurableSealedSessionRecordDeleter {
   deleteDurableSealedSessionRecord(command: DeleteDurableSealedSessionCommand): Promise<void>;
 }
 
+export interface PasskeyWarmSessionPolicyRecorder {
+  recordPasskeyWarmSessionPolicyResult(
+    purpose: WarmSessionLanePurpose,
+    result: WarmSessionStatusResult | WarmSessionClaimResult,
+  ): Promise<void>;
+}
+
+export interface PasskeyWarmSessionPersistenceCoordinator {
+  ensurePasskeySealedRecordPersisted(args: {
+    sessionId: string;
+    transport: WarmSessionSealTransportInput;
+    diagnostics?: WarmSessionMaterialWriteDiagnostics;
+  }): Promise<WarmSessionSealAndPersistResult | null>;
+}
+
 export type VolatileWarmMaterialPort = WarmSessionStatusReader &
   WarmSessionStatusBatchReader &
   WarmSessionMaterialClaimer &
@@ -203,7 +218,9 @@ export type VolatileWarmMaterialPort = WarmSessionStatusReader &
 export type DurableSealedSessionPort = WarmSessionSealPersister &
   WarmSessionRehydrator &
   WarmSessionPersistedRestorer &
-  DurableSealedSessionRecordDeleter;
+  DurableSealedSessionRecordDeleter &
+  PasskeyWarmSessionPolicyRecorder &
+  PasskeyWarmSessionPersistenceCoordinator;
 
 export type PromptCapableBootstrapPort = UiConfirmContextPort &
   UiConfirmSigningPort &
@@ -215,8 +232,17 @@ export type WarmSessionMaterialPort = WarmSessionMaterialWriter &
   DurableSealedSessionPort;
 
 export type UiConfirmRuntimeBridgePort = PromptCapableBootstrapPort &
-  WarmSessionMaterialPort &
+  DurableSealedSessionPort &
   UiConfirmWorkerLifecyclePort;
+
+export interface PasskeyMpcSessionWorkerLifecyclePort {
+  setWorkerBaseOrigin(origin: string | undefined): void;
+  prewarmShamir3Pass(): Promise<void>;
+}
+
+export type PasskeyMpcSessionPort = WarmSessionMaterialWriter &
+  VolatileWarmMaterialPort &
+  PasskeyMpcSessionWorkerLifecyclePort;
 
 export interface UiConfirmContextPort {
   getContext(): UiConfirmContext;
@@ -245,12 +271,6 @@ export interface UiConfirmRegistrationPort {
 export interface UiConfirmWorkerLifecyclePort {
   initialize(): Promise<void>;
   setWorkerBaseOrigin(origin: string | undefined): void;
-  /**
-   * Best-effort: constructs the confirm worker's nested Shamir3Pass worker and
-   * instantiates its WASM ahead of the first seal. Never throws; first real
-   * use retries construction on its own.
-   */
-  prewarmShamir3Pass(): Promise<void>;
 }
 
 export interface UiConfirmRequestConfirmationPort {
@@ -269,4 +289,4 @@ export interface PasskeyMpcExportPort {
 }
 
 export interface UiConfirmManager
-  extends PromptCapableBootstrapPort, WarmSessionMaterialPort, UiConfirmWorkerLifecyclePort {}
+  extends PromptCapableBootstrapPort, DurableSealedSessionPort, UiConfirmWorkerLifecyclePort {}

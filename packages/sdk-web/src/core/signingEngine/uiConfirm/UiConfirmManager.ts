@@ -15,7 +15,6 @@ import type {
   WarmSessionSealAndPersistDiagnostics,
   WarmSessionSealAndPersistResult,
   UiConfirmManagerConfig,
-  PasskeyMpcSessionWorkerMessage,
   UserConfirmWorkerMessage,
   UserConfirmWorkerResponse,
 } from '../../types/secure-confirm-worker';
@@ -88,6 +87,7 @@ import type {
   WarmSessionStatusResult,
   UiConfirmContext,
   UiConfirmManager,
+  PasskeyMpcSessionPort,
 } from './uiConfirm.types';
 import {
   discoverPersistedSessionsForWalletCommand,
@@ -122,6 +122,7 @@ import type {
   WarmSessionMaterialWriteDiagnosticBucket,
   WarmSessionMaterialWriteDiagnostics,
 } from '../session/passkey/warmSessionMaterialWriter';
+import type { PasskeyMpcSessionDurableWorkerPort } from './PasskeyMpcSessionManager';
 
 type PendingWorkerRequest = {
   id: string;
@@ -621,8 +622,6 @@ function makeWarmSessionSingleFlightKey(args: {
  */
 class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   private worker: Worker | null = null;
-  private passkeyMpcSessionWorker: Worker | null = null;
-  private passkeyMpcSessionInitializationPromise: Promise<void> | null = null;
   private initializationPromise: Promise<void> | null = null;
   private messageId = 0;
   private config: UiConfirmManagerConfig;
@@ -641,7 +640,15 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     generation: 0,
   };
 
-  constructor(config: UiConfirmManagerConfig, context: UiConfirmContext) {
+  constructor(
+    config: UiConfirmManagerConfig,
+    context: UiConfirmContext,
+    private readonly passkeyMpcSession: PasskeyMpcSessionDurableWorkerPort,
+    private readonly passkeyMpcSessionStatus: Pick<
+      PasskeyMpcSessionPort,
+      'getWarmSessionStatus'
+    >,
+  ) {
     this.config = {
       // Default to client-hosted worker file using centralized config
       workerUrl: BUILD_PATHS.RUNTIME.TOUCH_CONFIRM_WORKER,
@@ -965,15 +972,15 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     return true;
   }
 
-  private async recordSessionPolicyResult(input: {
-    purpose: WarmSessionLanePurpose;
-    result: WarmSessionStatusResult | WarmSessionClaimResult;
-  }): Promise<void> {
+  async recordPasskeyWarmSessionPolicyResult(
+    purpose: WarmSessionLanePurpose,
+    policyResult: WarmSessionStatusResult | WarmSessionClaimResult,
+  ): Promise<void> {
     const args = {
-      sessionId: input.purpose.thresholdSessionId,
-      curve: input.purpose.curve,
-      chainTarget: input.purpose.curve === 'ecdsa' ? input.purpose.chainTarget : undefined,
-      result: input.result,
+      sessionId: purpose.thresholdSessionId,
+      curve: purpose.curve,
+      chainTarget: purpose.curve === 'ecdsa' ? purpose.chainTarget : undefined,
+      result: policyResult,
     };
     const result = args.result;
     if (result.ok) {
@@ -1046,21 +1053,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     purpose: WarmSessionLanePurpose,
     result: WarmSessionStatusResult,
   ): Promise<void> {
-    await this.recordSessionPolicyResult({ purpose, result });
-  }
-
-  private async recordSessionMaterialClaimed(
-    purpose: WarmSessionLanePurpose,
-    result: WarmSessionClaimResult,
-  ): Promise<void> {
-    await this.recordSessionPolicyResult({ purpose, result });
-  }
-
-  private async recordSessionUseConsumed(
-    purpose: WarmSessionLanePurpose,
-    result: WarmSessionStatusResult,
-  ): Promise<void> {
-    await this.recordSessionPolicyResult({ purpose, result });
+    await this.recordPasskeyWarmSessionPolicyResult(purpose, result);
   }
 
   private async registerSigningSession(
@@ -1249,11 +1242,14 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     };
   }
 
-  private async ensureSealedRecordPersisted(
-    thresholdSessionIdRaw: string,
-    transport?: WarmSessionSealTransportInput | null,
-    diagnostics?: WarmSessionMaterialWriteDiagnostics,
-  ): Promise<WarmSessionSealAndPersistResult | null> {
+  async ensurePasskeySealedRecordPersisted(args: {
+    sessionId: string;
+    transport: WarmSessionSealTransportInput;
+    diagnostics?: WarmSessionMaterialWriteDiagnostics;
+  }): Promise<WarmSessionSealAndPersistResult | null> {
+    const thresholdSessionIdRaw = args.sessionId;
+    const transport = args.transport;
+    const diagnostics = args.diagnostics;
     if (!this.isSealedRefreshModeEnabled()) return null;
     const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
     if (!thresholdSessionId) return null;
@@ -1387,22 +1383,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               status,
             ),
           readWarmSessionStatusFromWorker: async (sessionId) => {
-            const rehydratedPeek = await this.sendPasskeyMpcSessionMessage({
-              type: 'WARM_SESSION_STATUS_READ',
-              id: this.generateMessageId(),
-              payload: { sessionId },
-            });
-            const parsed = parseWarmSessionStatusResult(rehydratedPeek?.data);
-            if (rehydratedPeek?.success !== true || !parsed) {
-              return {
-                ok: false,
-                code: 'worker_error',
-                message: String(
-                  rehydratedPeek?.error || 'Warm-session status read failed after rehydrate',
-                ),
-              };
-            }
-            return parsed;
+            return await this.passkeyMpcSessionStatus.getWarmSessionStatus({ sessionId });
           },
           updatePersistedPolicy: async (policy) =>
             await updateExactSealedSessionPolicy({
@@ -1423,79 +1404,13 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     return requirePasskeyEcdsaRestoreOutcome(result, 'restored');
   }
 
-  putWarmSessionMaterial = async (args: {
-    sessionId: string;
-    prfFirstB64u: string;
-    expiresAtMs: number;
-    remainingUses: number;
-    transport?: WarmSessionSealTransportInput;
-    diagnostics?: WarmSessionMaterialWriteDiagnostics;
-  }): Promise<void> => {
-    const { diagnostics, ...workerPayload } = args;
-    const workerReadyStartedAt = performance.now();
-    await this.ensurePasskeyMpcSessionWorkerReady();
-    recordWarmSessionMaterialWriteDiagnosticDuration({
-      diagnostics,
-      bucket: 'worker_ready',
-      startedAt: workerReadyStartedAt,
-    });
-    const workerPutStartedAt = performance.now();
-    const res = await this.sendPasskeyMpcSessionMessage({
-      type: 'WARM_SESSION_MATERIAL_PUT',
-      id: this.generateMessageId(),
-      payload: workerPayload,
-    });
-    if (!res?.success) {
-      throw new Error(String(res?.error || 'Failed to cache warm-session material'));
-    }
-    const parsed = parseWarmSessionStatusResult(res?.data);
-    if (!parsed) {
-      throw new Error('Warm-session cache returned an invalid response');
-    }
-    if (!parsed.ok) {
-      throw new Error(`Warm-session cache failed (${parsed.code}): ${parsed.message}`);
-    }
-    recordWarmSessionMaterialWriteDiagnosticDuration({
-      diagnostics,
-      bucket: 'worker_put',
-      startedAt: workerPutStartedAt,
-    });
-    const sealedRecordPersistStartedAt = performance.now();
-    const persisted = args.transport
-      ? await this.ensureSealedRecordPersisted(args.sessionId, args.transport, diagnostics)
-      : null;
-    recordWarmSessionMaterialWriteDiagnosticDuration({
-      diagnostics,
-      bucket: 'sealed_record_persist',
-      startedAt: sealedRecordPersistStartedAt,
-    });
-    if (persisted && !persisted.ok) {
-      throw new Error(
-        `Warm-session cache could not persist sealed refresh material (${persisted.code}): ${persisted.message}`,
-      );
-    }
-  };
-
   sealAndPersistWarmSessionMaterial = async (
     args: WarmSessionSealAndPersistPayload,
   ): Promise<WarmSessionSealAndPersistResult> => {
     if (!this.isSealedRefreshModeEnabled()) {
       return this.getSealedRefreshNotEnabledError('signing-session seal and persist');
     }
-    const res = await this.sendPasskeyMpcSessionMessage({
-      type: 'WARM_SESSION_SEAL_AND_PERSIST',
-      id: this.generateMessageId(),
-      payload: args,
-    });
-    const parsed = parseWarmSessionSealAndPersistResult(res?.data);
-    if (res?.success !== true || !parsed) {
-      return {
-        ok: false,
-        code: 'worker_error',
-        message: String(res?.error || 'Signing-session seal and persist failed'),
-      };
-    }
-    return parsed;
+    return await this.passkeyMpcSession.sealAndPersistWarmSessionMaterial(args);
   };
 
   rehydrateWarmSessionMaterial = async (
@@ -1504,20 +1419,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     if (!this.isSealedRefreshModeEnabled()) {
       return this.getSealedRefreshNotEnabledError('signing-session rehydrate');
     }
-    const res = await this.sendPasskeyMpcSessionMessage({
-      type: 'WARM_SESSION_REHYDRATE',
-      id: this.generateMessageId(),
-      payload: args,
-    });
-    const parsed = parseWarmSessionStatusResult(res?.data);
-    if (res?.success !== true || !parsed) {
-      return {
-        ok: false,
-        code: 'worker_error',
-        message: String(res?.error || 'Signing-session rehydrate failed'),
-      };
-    }
-    return parsed;
+    return await this.passkeyMpcSession.rehydrateWarmSessionMaterial(args);
   };
 
   restorePersistedSessionForSigning = async (
@@ -1608,77 +1510,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         },
       },
     );
-  };
-
-  private async readWarmSessionStatusFromWorker(args: {
-    sessionId: string;
-  }): Promise<WarmSessionStatusResult> {
-    const res = await this.sendPasskeyMpcSessionMessage({
-      type: 'WARM_SESSION_STATUS_READ',
-      id: this.generateMessageId(),
-      payload: args,
-    });
-    const parsed = parseWarmSessionStatusResult(res?.data);
-    if (res?.success !== true || !parsed) {
-      return {
-        ok: false,
-        code: 'worker_error',
-        message: String(res?.error || 'Warm-session status read failed'),
-      };
-    }
-    return parsed;
-  }
-
-  private async readWarmSessionStatusesFromWorker(args: {
-    sessionIds: string[];
-  }): Promise<WarmSessionStatusBatchResult> {
-    const normalizedSessionIds = Array.from(
-      new Set(
-        (Array.isArray(args.sessionIds) ? args.sessionIds : [])
-          .map((value) => String(value || '').trim())
-          .filter(Boolean),
-      ),
-    );
-    if (!normalizedSessionIds.length) {
-      return { results: [] };
-    }
-    const res = await this.sendPasskeyMpcSessionMessage({
-      type: 'WARM_SESSION_STATUS_BATCH_READ',
-      id: this.generateMessageId(),
-      payload: { sessionIds: normalizedSessionIds },
-    });
-    const parsed = parseWarmSessionStatusBatchResult(res?.data);
-    if (res?.success !== true || !parsed) {
-      return {
-        results: normalizedSessionIds.map((sessionId) => ({
-          sessionId,
-          result: {
-            ok: false,
-            code: 'worker_error',
-            message: String(res?.error || 'Warm-session batch status read failed'),
-          },
-        })),
-      };
-    }
-    return parsed;
-  }
-
-  readWarmSessionStatusOnly = async (args: {
-    sessionId: string;
-  }): Promise<WarmSessionStatusResult> => await this.readWarmSessionStatusFromWorker(args);
-
-  readWarmSessionStatusesOnly = async (args: {
-    sessionIds: string[];
-  }): Promise<WarmSessionStatusBatchResult> => await this.readWarmSessionStatusesFromWorker(args);
-
-  getWarmSessionStatus = async (args: { sessionId: string }): Promise<WarmSessionStatusResult> => {
-    return await this.readWarmSessionStatusFromWorker(args);
-  };
-
-  getWarmSessionStatuses = async (args: {
-    sessionIds: string[];
-  }): Promise<WarmSessionStatusBatchResult> => {
-    return await this.readWarmSessionStatusesFromWorker(args);
   };
 
   persistSigningSessionSealForThresholdSession = async (args: {
@@ -1826,7 +1657,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       });
       if (existingRecord) {
         const policyReadStartedAt = performance.now();
-        const currentPolicy = await this.getWarmSessionStatus({
+        const currentPolicy = await this.passkeyMpcSessionStatus.getWarmSessionStatus({
           sessionId: thresholdSessionId,
         }).catch(() => null);
         recordWarmSessionMaterialWriteDiagnosticDuration({
@@ -2147,96 +1978,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     return await task;
   };
 
-  claimWarmSessionMaterial = async (args: {
-    purpose: WarmSessionLanePurpose;
-    uses?: number;
-    consume?: boolean;
-  }): Promise<WarmSessionClaimResult> => {
-    const res = await this.sendPasskeyMpcSessionMessage({
-      type: 'WARM_SESSION_MATERIAL_CLAIM',
-      id: this.generateMessageId(),
-      payload: {
-        sessionId: args.purpose.thresholdSessionId,
-        ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
-        ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
-        curve: args.purpose.curve,
-      },
-    });
-    const parsed = parseWarmSessionClaimResult(res?.data);
-    if (res?.success !== true || !parsed) {
-      return {
-        ok: false,
-        code: 'worker_error',
-        message: String(res?.error || 'Warm-session claim failed'),
-      };
-    }
-    await this.recordSessionMaterialClaimed(args.purpose, parsed);
-    return parsed;
-  };
-
-  consumeWarmSessionUses = async (args: {
-    purpose: WarmSessionLanePurpose;
-    uses?: number;
-  }): Promise<WarmSessionStatusResult> => {
-    const res = await this.sendPasskeyMpcSessionMessage({
-      type: 'WARM_SESSION_MATERIAL_CONSUME',
-      id: this.generateMessageId(),
-      payload: {
-        sessionId: args.purpose.thresholdSessionId,
-        ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
-        curve: args.purpose.curve,
-      },
-    });
-    const parsed = parseWarmSessionStatusResult(res?.data);
-    if (res?.success !== true || !parsed) {
-      return {
-        ok: false,
-        code: 'worker_error',
-        message: String(res?.error || 'Warm-session consume failed'),
-      };
-    }
-    await this.recordSessionUseConsumed(args.purpose, parsed);
-    return parsed;
-  };
-
-  clearVolatileWarmSessionMaterial = async (
-    args: ClearVolatileWarmSessionMaterialCommand,
-  ): Promise<void> => {
-    const command = parseClearVolatileWarmMaterialCommand(args);
-    if (command?.scope.kind !== 'session') return;
-    if (!this.passkeyMpcSessionWorker && !this.passkeyMpcSessionInitializationPromise) return;
-    const res = await this.sendPasskeyMpcSessionMessage({
-      type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR',
-      id: this.generateMessageId(),
-      payload: command,
-    });
-    if (!res?.success) {
-      throw new Error(String(res?.error || 'Failed to clear volatile warm-session material'));
-    }
-  };
-
   deleteDurableSealedSessionRecord = async (
     command: DeleteDurableSealedSessionCommand,
   ): Promise<void> => {
     await this.runDurableSealedSessionDelete(command);
-  };
-
-  clearAllVolatileWarmSessionMaterial = async (
-    args: ClearAllVolatileWarmSessionMaterialCommand,
-  ): Promise<void> => {
-    const command = parseClearVolatileWarmMaterialCommand(args);
-    if (command?.scope.kind !== 'all') return;
-    if (!this.passkeyMpcSessionWorker && !this.passkeyMpcSessionInitializationPromise) return;
-    const res = await this.sendPasskeyMpcSessionMessage({
-      type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR_ALL',
-      id: this.generateMessageId(),
-      payload: command,
-    });
-    if (!res?.success) {
-      throw new Error(
-        String(res?.error || 'Failed to clear all volatile warm-session material entries'),
-      );
-    }
   };
 
   async requestUserConfirmation(
@@ -2460,35 +2205,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     }
   }
 
-  private async ensurePasskeyMpcSessionWorkerReady(): Promise<void> {
-    if (this.passkeyMpcSessionWorker) return;
-    if (!this.passkeyMpcSessionInitializationPromise) {
-      this.passkeyMpcSessionInitializationPromise = this.createPasskeyMpcSessionWorker().catch(
-        (error) => {
-          this.passkeyMpcSessionInitializationPromise = null;
-          throw error;
-        },
-      );
-    }
-    await this.passkeyMpcSessionInitializationPromise;
-    if (!this.passkeyMpcSessionWorker) {
-      throw new Error('Passkey MPC session worker failed to initialize');
-    }
-  }
-
-  private async createPasskeyMpcSessionWorker(): Promise<void> {
-    const workerUrl = resolveWorkerUrl(BUILD_PATHS.RUNTIME.PASSKEY_MPC_SESSION_WORKER, {
-      worker: 'passkeyMpcSession',
-      baseOrigin: this.workerBaseOrigin,
-    });
-    const worker = new Worker(workerUrl, {
-      type: 'module',
-      name: 'PasskeyMpcSessionWorker',
-    });
-    this.attachWorkerRouter(worker);
-    this.passkeyMpcSessionWorker = worker;
-  }
-
   /**
    * Initialize the UserConfirm worker.
    */
@@ -2569,10 +2285,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
 
   private isFromActiveWorker(event: Event): boolean {
     const source = event.currentTarget;
-    return (
-      (source === this.worker && event.target === this.worker) ||
-      (source === this.passkeyMpcSessionWorker && event.target === this.passkeyMpcSessionWorker)
-    );
+    return source === this.worker && event.target === this.worker;
   }
 
   private normalizePromptEnvelope(payload: unknown): UserConfirmPromptEnvelope | null {
@@ -2779,11 +2492,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       this.worker.terminate();
       this.worker = null;
       this.initializationPromise = null;
-    } else if (failedWorker === this.passkeyMpcSessionWorker && this.passkeyMpcSessionWorker) {
-      this.detachWorkerRouter(this.passkeyMpcSessionWorker);
-      this.passkeyMpcSessionWorker.terminate();
-      this.passkeyMpcSessionWorker = null;
-      this.passkeyMpcSessionInitializationPromise = null;
     }
     this.rejectPendingWorkerRequestsForWorker(failedWorker as Worker, error);
   }
@@ -2828,15 +2536,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
    * Send message to Web Worker and wait for response
    */
   private async sendMessage<TPayload = unknown>(
-    message:
-      | UserConfirmWorkerMessage<TPayload>
-      | PasskeyMpcSessionWorkerMessage<TPayload>,
+    message: UserConfirmWorkerMessage<TPayload>,
     customTimeout?: number,
     signal?: AbortSignal,
-    targetWorker?: Worker | null,
   ): Promise<UserConfirmWorkerResponse> {
     return new Promise((resolve, reject) => {
-      const worker = targetWorker ?? this.worker;
+      const worker = this.worker;
       if (!worker) {
         reject(new Error('UserConfirm worker not available'));
         return;
@@ -2898,45 +2603,11 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     });
   }
 
-  private async sendPasskeyMpcSessionMessage<TPayload = unknown>(
-    message: PasskeyMpcSessionWorkerMessage<TPayload>,
-    customTimeout?: number,
-  ): Promise<UserConfirmWorkerResponse> {
-    await this.ensurePasskeyMpcSessionWorkerReady();
-    return await this.sendMessage(
-      message,
-      customTimeout,
-      undefined,
-      this.passkeyMpcSessionWorker,
-    );
-  }
-
   /**
    * Generate unique message ID
    */
   private generateMessageId(): string {
     return `sc_${Date.now()}_${++this.messageId}`;
-  }
-
-  /**
-   * Prewarm the nested Shamir3Pass worker inside the confirm worker. The seal
-   * path otherwise pays its worker spawn + WASM instantiate inside the
-   * post-finalize registration window. Best-effort by contract: any failure is
-   * swallowed and first real use constructs the runtime from scratch.
-   */
-  async prewarmShamir3Pass(): Promise<void> {
-    try {
-      await this.sendPasskeyMpcSessionMessage(
-        {
-          type: 'PREWARM_SHAMIR3PASS',
-          id: this.generateMessageId(),
-          payload: {},
-        },
-        USER_CONFIRM_WORKER_STARTUP_PING_TIMEOUT_MS,
-      );
-    } catch {
-      // Prewarming must never fail registration or worker startup.
-    }
   }
 
   /**
@@ -2972,6 +2643,13 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
 export function createUiConfirmManager(
   config: UiConfirmManagerConfig,
   context: UiConfirmContext,
+  passkeyMpcSession: PasskeyMpcSessionDurableWorkerPort,
+  passkeyMpcSessionStatus: Pick<PasskeyMpcSessionPort, 'getWarmSessionStatus'>,
 ): UiConfirmManager {
-  return new UiConfirmWorkerManagerImpl(config, context);
+  return new UiConfirmWorkerManagerImpl(
+    config,
+    context,
+    passkeyMpcSession,
+    passkeyMpcSessionStatus,
+  );
 }

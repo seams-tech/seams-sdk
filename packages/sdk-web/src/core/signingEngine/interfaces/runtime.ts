@@ -4,9 +4,8 @@ import type { NearAccountClientDbPort } from '@/core/accountData/near/accountPro
 import type { NearClient } from '../../rpcClients/near/NearClient';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type {
-  UiConfirmRequestConfirmationPort,
-  UiConfirmSigningPort,
-  WarmSessionMaterialPort,
+  PasskeyMpcSessionPort,
+  UiConfirmRuntimeBridgePort,
 } from '../uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { UserPreferencesManager } from '../session/userPreferences';
@@ -40,9 +39,8 @@ export interface NearSigningRuntimeDeps {
   tempoExplorerUrl?: string;
   evmExplorerUrl?: string;
   relayerUrl: string;
-  touchConfirm?: UiConfirmSigningPort &
-    UiConfirmRequestConfirmationPort &
-    WarmSessionMaterialPort;
+  touchConfirm?: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   requestWorkerOperation: <
     K extends SignerWorkerKind,
     T extends SignerWorkerOperationType<K>,

@@ -50,6 +50,7 @@ import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabil
 import type { Ed25519YaoActiveClientRegistryPort } from '../../threshold/ed25519/yaoActiveClientRegistry';
 import type {
   PasskeyMpcExportPort,
+  PasskeyMpcSessionPort,
   UiConfirmRuntimeBridgePort,
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
@@ -134,6 +135,7 @@ export type CreateSigningEnginePortsArgs = {
   resolveAuthorizedEcdsaSigningCapability: EvmFamilySigningDeps['resolveAuthorizedEcdsaSigningCapability'];
   resolveActiveEcdsaWalletSessionAuthorization?: EvmFamilySigningDeps['resolveActiveEcdsaWalletSessionAuthorization'];
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   passkeyMpcExport: PasskeyMpcExportPort;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
   consumeEmailOtpWarmSessionUses?: (args: {
@@ -243,7 +245,7 @@ export function createWorkerResourceWarmupDepsFactory(
     prewarmUiConfirmUi: async () => {
       await Promise.all([
         args.touchConfirm.initialize(),
-        args.touchConfirm.prewarmShamir3Pass(),
+        args.passkeyMpcSession.prewarmShamir3Pass(),
         prewarmTxConfirmerUi(),
         /* Also warm the lazily-imported EVM-family signing flow chunks: the
            first sign after a page load otherwise pays these dynamic imports

@@ -7,6 +7,8 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   touchConfirmManager: '/_test-sdk/esm/core/signingEngine/uiConfirm/UiConfirmManager.js',
+  passkeyMpcSessionManager:
+    '/_test-sdk/esm/core/signingEngine/uiConfirm/PasskeyMpcSessionManager.js',
   passkeyMpcExportManager:
     '/_test-sdk/esm/core/signingEngine/uiConfirm/PasskeyMpcExportManager.js',
   thresholdSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
@@ -162,9 +164,11 @@ test.describe('UserConfirm worker router', () => {
         } as unknown as Worker;
 
         const emitMessage = (data: unknown) => {
-          for (const handler of [...listeners.message]) {
-            handler({ data, currentTarget: fakeWorker, target: fakeWorker });
-          }
+          (manager as any).handleWorkerMessage({
+            data,
+            currentTarget: fakeWorker,
+            target: fakeWorker,
+          });
         };
 
         (manager as any).worker = fakeWorker;
@@ -286,14 +290,11 @@ test.describe('UserConfirm worker router', () => {
   test('reads warm-session status snapshots in a single worker round trip', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const mod = await import(paths.touchConfirmManager);
-        const manager = mod.createUiConfirmManager({}, {
-          touchIdPrompt: {},
-          nearClient: {},
-          indexedDB: {},
-          userPreferencesManager: {},
-          nearContextFixture: {},
-        } as any);
+        const mod = await import(paths.passkeyMpcSessionManager);
+        const manager = mod.createPasskeyMpcSessionManager({
+          persistSigningSessionSealForThresholdSession: async () => null,
+          onPolicyResult: async () => {},
+        });
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
           message: [],
@@ -316,9 +317,11 @@ test.describe('UserConfirm worker router', () => {
         } as unknown as Worker;
 
         const emitMessage = (data: unknown) => {
-          for (const handler of [...listeners.message]) {
-            handler({ data, currentTarget: fakeWorker, target: fakeWorker });
-          }
+          (manager as any).handleWorkerMessage({
+            data,
+            currentTarget: fakeWorker,
+            target: fakeWorker,
+          });
         };
 
         const waitForPosted = async (index: number) => {
@@ -330,8 +333,6 @@ test.describe('UserConfirm worker router', () => {
         };
 
         (manager as any).worker = fakeWorker;
-        (manager as any).passkeyMpcSessionWorker = fakeWorker;
-        (manager as any).attachWorkerRouter(fakeWorker);
 
         const batchPromise = manager.getWarmSessionStatuses({
           sessionIds: ['sess-a', 'sess-b', 'sess-a'],
@@ -401,23 +402,28 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const manager = mod.createUiConfirmManager({}, {
-          touchIdPrompt: {},
-          nearClient: {},
-          indexedDB: {},
-          userPreferencesManager: {},
-          nearContextFixture: {},
-        } as any);
+        const sessionMod = await import(paths.passkeyMpcSessionManager);
+        const sessionManager = sessionMod.createPasskeyMpcSessionManager({
+          persistSigningSessionSealForThresholdSession: async () => null,
+          onPolicyResult: async () => {},
+        });
+        const manager = mod.createUiConfirmManager(
+          {},
+          {
+            touchIdPrompt: {},
+            nearClient: {},
+            indexedDB: {},
+            userPreferencesManager: {},
+            nearContextFixture: {},
+          } as any,
+          sessionManager,
+          sessionManager,
+        );
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
           message: [],
           error: [],
         };
-        const sessionListeners: Record<'message' | 'error', Array<(event: any) => void>> = {
-          message: [],
-          error: [],
-        };
-
         const fakeWorker: Worker = {
           addEventListener: ((type: string, handler: (event: any) => void) => {
             if (type === 'message' || type === 'error') listeners[type].push(handler);
@@ -430,13 +436,8 @@ test.describe('UserConfirm worker router', () => {
           terminate: (() => {}) as any,
         } as unknown as Worker;
         const fakeSessionWorker: Worker = {
-          addEventListener: ((type: string, handler: (event: any) => void) => {
-            if (type === 'message' || type === 'error') sessionListeners[type].push(handler);
-          }) as any,
-          removeEventListener: ((type: string, handler: (event: any) => void) => {
-            if (type !== 'message' && type !== 'error') return;
-            sessionListeners[type] = sessionListeners[type].filter((fn) => fn !== handler);
-          }) as any,
+          addEventListener: (() => {}) as any,
+          removeEventListener: (() => {}) as any,
           postMessage: (() => {}) as any,
           terminate: (() => {}) as any,
         } as unknown as Worker;
@@ -448,9 +449,8 @@ test.describe('UserConfirm worker router', () => {
         };
 
         (manager as any).worker = fakeWorker;
-        (manager as any).passkeyMpcSessionWorker = fakeSessionWorker;
+        (sessionManager as any).worker = fakeSessionWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
-        (manager as any).attachWorkerRouter(fakeSessionWorker);
 
         const p1 = (manager as any)
           .sendMessage(
@@ -465,7 +465,7 @@ test.describe('UserConfirm worker router', () => {
             () => ({ ok: true, error: '' }),
             (error: any) => ({ ok: false, error: String(error?.message || error) }),
           );
-        const p2 = (manager as any)
+        const p2 = (sessionManager as any)
           .sendMessage(
             {
               type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR',
@@ -473,8 +473,6 @@ test.describe('UserConfirm worker router', () => {
               payload: { sessionId: 's1' },
             },
             1000,
-            undefined,
-            fakeSessionWorker,
           )
           .then(
             () => ({ ok: true, error: '' }),
@@ -483,21 +481,19 @@ test.describe('UserConfirm worker router', () => {
 
         emitError('simulated worker crash');
         const r1 = await p1;
-        const pendingAfterGenericError = (manager as any).pendingWorkerRequests.size;
-        for (const handler of [...sessionListeners.message]) {
-          handler({
-            data: { id: 'req-error-2', success: true, data: { success: true } },
-            currentTarget: fakeSessionWorker,
-            target: fakeSessionWorker,
-          });
-        }
+        const pendingAfterGenericError = (sessionManager as any).pendingRequests.size;
+        (sessionManager as any).handleWorkerMessage({
+          data: { id: 'req-error-2', success: true, data: { success: true } },
+          currentTarget: fakeSessionWorker,
+          target: fakeSessionWorker,
+        });
         const r2 = await p2;
 
         return {
           r1,
           r2,
           pendingAfterGenericError,
-          pendingAfter: (manager as any).pendingWorkerRequests.size,
+          pendingAfter: (sessionManager as any).pendingRequests.size,
         };
       },
       { paths: IMPORT_PATHS },
@@ -578,8 +574,13 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
+        const sessionMod = await import(paths.passkeyMpcSessionManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
         const sessionStoreMod = await import(paths.thresholdSessionStore);
+        const sessionManager = sessionMod.createPasskeyMpcSessionManager({
+          persistSigningSessionSealForThresholdSession: async () => null,
+          onPolicyResult: async () => {},
+        });
         const manager = mod.createUiConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
@@ -591,6 +592,8 @@ test.describe('UserConfirm worker router', () => {
             userPreferencesManager: {},
             nearContextFixture: {},
           } as any,
+          sessionManager,
+          sessionManager,
         );
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
@@ -614,9 +617,11 @@ test.describe('UserConfirm worker router', () => {
         } as unknown as Worker;
 
         const emitMessage = (data: unknown) => {
-          for (const handler of [...listeners.message]) {
-            handler({ data, currentTarget: fakeWorker, target: fakeWorker });
-          }
+          (sessionManager as any).handleWorkerMessage({
+            data,
+            currentTarget: fakeWorker,
+            target: fakeWorker,
+          });
         };
 
         const restoreResolution: unknown = { state: 'pending' };
@@ -635,9 +640,7 @@ test.describe('UserConfirm worker router', () => {
             reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
         });
-        (manager as any).worker = fakeWorker;
-        (manager as any).passkeyMpcSessionWorker = fakeWorker;
-        (manager as any).attachWorkerRouter(fakeWorker);
+        (sessionManager as any).worker = fakeWorker;
 
         const sealPromise = manager.sealAndPersistWarmSessionMaterial({
           sessionId: 'session-seal',

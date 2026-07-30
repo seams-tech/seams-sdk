@@ -45,7 +45,7 @@ export function createNearSigningDeps(args: {
     signingSessionCoordinator,
     getWarmThresholdEd25519SessionStatusForSession: ({ nearAccountId, thresholdSessionId }) =>
       createWarmSessionStatusReader({
-        touchConfirm: createArgs.touchConfirm,
+        touchConfirm: createArgs.passkeyMpcSession,
         getEmailOtpWarmSessionStatus,
       }).getEd25519SigningSessionStatusForSession({ nearAccountId, thresholdSessionId }),
     withThresholdEd25519CommitQueue: (queueArgs) =>

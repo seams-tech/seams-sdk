@@ -4,6 +4,7 @@ import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ec
 import { readPersistedAvailableSigningLanesForTargets } from '../../session/availability/persistedAvailableSigningLanes';
 import type {
   PasskeyMpcExportPort,
+  PasskeyMpcSessionPort,
   UiConfirmRuntimeBridgePort,
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
@@ -46,6 +47,7 @@ export function createRecoveryPublicDeps(args: {
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
   touchConfirm: UiConfirmRuntimeBridgePort;
   passkeyMpcExport: PasskeyMpcExportPort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   emailOtpSessions: {
     readWarmSessionStatusOnly: (sessionId: string) => Promise<WarmSessionStatusResult>;
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
@@ -92,7 +94,7 @@ export function createRecoveryPublicDeps(args: {
         readPersistedAvailableSigningLanesForTargets(
           {
             listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
-            statusReader: args.touchConfirm,
+            statusReader: args.passkeyMpcSession,
             getEmailOtpWarmSessionStatus,
             getWalletSigningBudgetStatus: args.getWalletSigningBudgetStatus,
           },

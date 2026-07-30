@@ -17,7 +17,11 @@ import {
   createWarmSessionStatusOnlyUiConfirm,
   type WarmSessionStatusOnlyReaderPort,
 } from '../../uiConfirm/warmSessionUiConfirm';
-import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
+import type {
+  PasskeyMpcSessionPort,
+  UiConfirmRuntimeBridgePort,
+  WarmSessionStatusResult,
+} from '../../uiConfirm/uiConfirm.types';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import { persistThresholdEcdsaBootstrapForWalletTarget } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
@@ -46,6 +50,7 @@ type WarmSigningAuthorizationResolver = (
 
 type WarmSigningPortsArgs = {
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
   signingSessionSeal: SeamsConfigsReadonly['signing']['sessionSeal'];
   ecdsaExportArtifacts: EcdsaExportArtifactStorePorts;
@@ -64,7 +69,7 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
     exportArtifactsByLane: args.ecdsaExportArtifacts.exportArtifactsByLane,
   };
   const statusUiConfirm = createWarmSessionStatusOnlyUiConfirm({
-    base: args.touchConfirm,
+    base: args.passkeyMpcSession,
     secondary: {
       readWarmSessionStatusOnly: args.getEmailOtpWarmSessionStatus,
     },
@@ -76,7 +81,7 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
     getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
   });
   const capabilityReader = createWarmSessionCapabilityReader({
-    touchConfirm: args.touchConfirm,
+    touchConfirm: args.passkeyMpcSession,
     signingSessionSeal:
       args.signingSessionSeal.mode === 'sealed_refresh_v1'
         ? { groupId: SIGNING_SESSION_SEAL_GROUP_ID }
@@ -106,6 +111,7 @@ export function createPasskeyPublicDeps(args: {
   credentialStore: WalletSessionActivationDeps['credentialStore'];
   touchIdPrompt: TouchIdPrompt;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   warmSigning: Pick<WarmSigningPorts, 'ecdsaSessions' | 'capabilityReader' | 'statusReader'>;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   ensureSealedRefreshStartupParity: () => Promise<void>;
@@ -120,7 +126,7 @@ export function createPasskeyPublicDeps(args: {
         {
           credentialStore: args.credentialStore,
           touchIdPrompt: args.touchIdPrompt,
-          touchConfirm: args.touchConfirm,
+          touchConfirm: args.passkeyMpcSession,
           defaultRelayerUrl: args.seamsWebConfigs.network.relayer?.url || '',
           getSignerWorkerContext: () =>
             args.walletSessionActivationDeps.getSignerWorkerContext(),
@@ -158,6 +164,7 @@ export function createWarmCapabilitiesPublicDeps(args: {
   };
   bootstrapStore: ThresholdEcdsaBootstrapStorePort;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   warmSigning: Pick<WarmSigningPorts, 'ecdsaSessions' | 'capabilityReader' | 'statusReader'>;
   walletSessionActivationDeps: WalletSessionActivationDeps;
   signingSessionCoordinator: Pick<
@@ -178,13 +185,13 @@ export function createWarmCapabilitiesPublicDeps(args: {
         signerAuth: persistArgs.signerAuth,
       }),
     hydrateSigningSession: async (hydrateArgs: HydrateSigningSessionInput) =>
-      await cacheCredentialBoundarySetupExportPrfFirst(args.touchConfirm, hydrateArgs),
+      await cacheCredentialBoundarySetupExportPrfFirst(args.passkeyMpcSession, hydrateArgs),
     clearVolatileWarmSigningMaterial: async (walletId) =>
       await clearVolatileWarmSigningMaterial(
         {
-          touchConfirm: args.touchConfirm,
+          touchConfirm: args.passkeyMpcSession,
           clearVolatileThresholdSessionMaterial: async (command) =>
-            await args.touchConfirm.clearVolatileWarmSessionMaterial(command),
+            await args.passkeyMpcSession.clearVolatileWarmSessionMaterial(command),
         },
         walletId,
       ),

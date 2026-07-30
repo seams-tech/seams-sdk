@@ -672,6 +672,13 @@ the replacement and legacy MPC paths must not ship together.
         policy updates, and Shamir3Pass prewarm into the dedicated Passkey MPC
         session worker; the generic confirmation worker now handles prompts
         only.
+  - [x] Move volatile Passkey warm-material writes, status reads, claims,
+        consumption, clearing, session-worker lifecycle, and prewarm into the
+        dedicated main-thread `PasskeyMpcSessionManager`; generic confirmation
+        no longer imports or sends the session-worker protocol.
+  - [ ] Move durable seal persistence, restore, deletion, and policy
+        coordination into `PasskeyMpcSessionManager`, then delete the temporary
+        durable session-worker seam from generic confirmation.
 - [ ] Remove replaced worker entrypoints, loaders, manifest rows, and public
       exports.
   - [x] Delete the generic worker's `EXPORT_PRIVATE_KEYS_WITH_UI` protocol arm
@@ -684,6 +691,9 @@ the replacement and legacy MPC paths must not ship together.
         `PREWARM_SHAMIR3PASS` protocol arms; register the dedicated Passkey MPC
         session worker in build, freshness, runtime-path, test, static-asset,
         and bundle inventories.
+  - [x] Delete the generic manager's volatile warm-session methods, session
+        worker fields, initialization, message union, and request routing;
+        assembly exposes the narrow `PasskeyMpcSessionPort` directly.
 - [x] Delete the unused `UiConfirmSigningRuntimePort` and the generic combined
       `UiConfirmSigningSessionPort`; the Near runtime names its required
       confirmation and warm-material capabilities directly.

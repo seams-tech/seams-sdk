@@ -55,6 +55,7 @@ import {
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import type {
   PasskeyMpcExportPort,
+  PasskeyMpcSessionPort,
   UiConfirmRuntimeBridgePort,
 } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { WarmSigningPorts } from '@/core/signingEngine/assembly/ports/warmSigning';
@@ -524,6 +525,7 @@ export type BrowserSigningSurfaceEnginePortsArgs = {
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   passkeyMpcExport: PasskeyMpcExportPort;
   signerWorkerManager: SignerWorkerManager;
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
@@ -564,6 +566,7 @@ export function createBrowserSigningSurfaceEnginePorts(
     nonceCoordinator: args.nonceCoordinator,
     ensureSealedRefreshStartupParity: args.ensureSealedRefreshStartupParity,
     touchConfirm: args.touchConfirm,
+    passkeyMpcSession: args.passkeyMpcSession,
     passkeyMpcExport: args.passkeyMpcExport,
     getEmailOtpWarmSessionStatus: (sessionId) =>
       args.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
@@ -640,7 +643,7 @@ export function createBrowserSigningSurfaceEnginePorts(
         {
           credentialStore: args.stores.recoveryAndDeviceLinking.credentialStore,
           touchIdPrompt: args.touchIdPrompt,
-          touchConfirm: args.touchConfirm,
+          touchConfirm: args.passkeyMpcSession,
           defaultRelayerUrl: args.seamsWebConfigs.network.relayer?.url || '',
           getSignerWorkerContext: () =>
             args.getEnginePorts().walletSessionActivationDeps.getSignerWorkerContext(),

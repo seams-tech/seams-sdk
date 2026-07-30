@@ -45,7 +45,10 @@ import type {
   EmailOtpYaoPrewarmOutcome,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import type {
+  PasskeyMpcSessionPort,
+  UiConfirmRuntimeBridgePort,
+} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
@@ -372,6 +375,7 @@ function assertNeverSdkLifecycleEventName(value: never): never {
 export class BrowserSigningSurface {
   // Kept as fields for low-level tests that intentionally access internals.
   private readonly touchConfirm: UiConfirmRuntimeBridgePort;
+  private readonly passkeyMpcSession: PasskeyMpcSessionPort;
   private readonly signerWorkerManager: SignerWorkerManager;
   private readonly touchIdPrompt: TouchIdPrompt;
   private readonly userPreferencesManager: UserPreferencesManager;
@@ -460,7 +464,7 @@ export class BrowserSigningSurface {
         nonceCoordinator: this.nonceCoordinator,
       },
       ecdsaBootstrapStore: this.ecdsaBootstrapStore,
-      getWarmSessionMaterialWriter: () => this.touchConfirm,
+      getWarmSessionMaterialWriter: () => this.passkeyMpcSession,
       getNearSigningDeps: () => this.enginePorts.nearSigningDeps,
       getEvmFamilySigningDeps: () => this.enginePorts.tempoSigningDeps,
     });
@@ -478,6 +482,7 @@ export class BrowserSigningSurface {
       runtimePorts: this.runtimePorts,
       sealedSigningSessionStore: deps.sealedSigningSessionStore,
       baseTouchConfirm: assembly.touchConfirm,
+      passkeyMpcSession: assembly.passkeyMpcSession,
       getEnginePorts: () => this.enginePorts,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
       getWarmSigning: () => this.warmSigning,
@@ -487,8 +492,10 @@ export class BrowserSigningSurface {
     });
     this.emailOtpSessions = stepUpRuntime.emailOtpSessions;
     this.touchConfirm = stepUpRuntime.touchConfirm;
+    this.passkeyMpcSession = stepUpRuntime.passkeyMpcSession;
     this.warmSigning = createWarmSigningPorts({
       touchConfirm: this.touchConfirm,
+      passkeyMpcSession: this.passkeyMpcSession,
       getEmailOtpWarmSessionStatus: (sessionId) =>
         this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
       signingSessionSeal: this.seamsWebConfigs.signing.sessionSeal,
@@ -503,6 +510,7 @@ export class BrowserSigningSurface {
     this.sessionPublicDeps = createSessionPublicDeps({
       seamsWebConfigs: this.seamsWebConfigs,
       touchConfirm: this.touchConfirm,
+      passkeyMpcSession: this.passkeyMpcSession,
       emailOtpSessions: this.emailOtpSessions,
       listEcdsaSigningCapabilitiesForWallet: (input) =>
         listBrowserEcdsaSigningCapabilitiesForWallet(
@@ -527,6 +535,7 @@ export class BrowserSigningSurface {
       signerWorkerManager: this.signerWorkerManager,
       warmSigning: this.warmSigning,
       touchConfirm: this.touchConfirm,
+      passkeyMpcSession: this.passkeyMpcSession,
       passkeyMpcExport: assembly.passkeyMpcExport,
       emailOtpSessions: this.emailOtpSessions,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
@@ -563,6 +572,7 @@ export class BrowserSigningSurface {
       userPreferencesManager: this.userPreferencesManager,
       nonceCoordinator: this.nonceCoordinator,
       touchConfirm: this.touchConfirm,
+      passkeyMpcSession: this.passkeyMpcSession,
       passkeyMpcExport: assembly.passkeyMpcExport,
       signerWorkerManager: this.signerWorkerManager,
       emailOtpSessions: this.emailOtpSessions,
@@ -601,6 +611,7 @@ export class BrowserSigningSurface {
       stores: deps.signingEngineStores,
       touchIdPrompt: this.touchIdPrompt,
       touchConfirm: this.touchConfirm,
+      passkeyMpcSession: this.passkeyMpcSession,
       warmSigning: this.warmSigning,
       runtimePorts: this.runtimePorts,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
@@ -623,6 +634,7 @@ export class BrowserSigningSurface {
         this.signerWorkerManager.setWorkerBaseOrigin(origin);
         this.touchConfirm.setWorkerBaseOrigin?.(origin);
         assembly.passkeyMpcExport.setWorkerBaseOrigin(origin);
+        this.passkeyMpcSession.setWorkerBaseOrigin(origin);
       },
     });
   }

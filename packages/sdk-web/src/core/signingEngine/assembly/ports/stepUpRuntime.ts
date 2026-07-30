@@ -6,8 +6,11 @@ import {
   commitEvmFamilyThresholdEcdsaSessions,
   type CommitEvmFamilyThresholdEcdsaSessionsDeps,
 } from '../../session/emailOtp/ecdsaBootstrapCommit';
-import { createWarmSessionAwareUiConfirm } from '../../uiConfirm/warmSessionUiConfirm';
-import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
+import { createWarmSessionAwarePasskeyMpcSession } from '../../uiConfirm/warmSessionUiConfirm';
+import type {
+  PasskeyMpcSessionPort,
+  UiConfirmRuntimeBridgePort,
+} from '../../uiConfirm/uiConfirm.types';
 import {
   EmailOtpWalletSessionCoordinator,
   type EmailOtpWalletSessionCoordinatorDeps,
@@ -19,6 +22,7 @@ import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManage
 export type StepUpRuntime = {
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
 };
 
 export function createStepUpRuntime(args: {
@@ -28,6 +32,7 @@ export function createStepUpRuntime(args: {
   ecdsaBootstrapStore: CommitEvmFamilyThresholdEcdsaSessionsDeps['bootstrapStore'];
   sealedSessionStore: EmailOtpSealedSessionStorePorts;
   baseTouchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   getSignerWorkerContext: EmailOtpWalletSessionCoordinatorDeps['getSignerWorkerContext'];
   provisionThresholdEcdsaSession: EmailOtpWalletSessionCoordinatorDeps['provisionThresholdEcdsaSession'];
   provisionEmailOtpEcdsaExplicitExportSession: EmailOtpWalletSessionCoordinatorDeps['provisionEmailOtpEcdsaExplicitExportSession'];
@@ -71,8 +76,8 @@ export function createStepUpRuntime(args: {
     updateExactSealedSessionPolicy: args.sealedSessionStore.updateExactSealedSessionPolicy,
   });
 
-  const touchConfirm = createWarmSessionAwareUiConfirm({
-    base: args.baseTouchConfirm,
+  const passkeyMpcSession = createWarmSessionAwarePasskeyMpcSession({
+    base: args.passkeyMpcSession,
     secondary: {
       readWarmSessionStatusOnly: (sessionId) =>
         emailOtpSessions.readWarmSessionStatusOnly(sessionId),
@@ -83,6 +88,7 @@ export function createStepUpRuntime(args: {
 
   return {
     emailOtpSessions,
-    touchConfirm,
+    touchConfirm: args.baseTouchConfirm,
+    passkeyMpcSession,
   };
 }

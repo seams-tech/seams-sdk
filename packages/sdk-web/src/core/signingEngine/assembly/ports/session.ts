@@ -3,18 +3,22 @@ import { configuredThresholdEcdsaChainTargets } from '../../interfaces/ecdsaChai
 import { readTrustedWalletSigningBudgetStatus } from '../../session/budget/budgetStatusReader';
 import type { EmailOtpWalletSessionCoordinator } from '../../session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { SessionPublicDeps } from '../../session/public';
-import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
+import type {
+  PasskeyMpcSessionPort,
+  UiConfirmRuntimeBridgePort,
+} from '../../uiConfirm/uiConfirm.types';
 import type { PersistedAvailableSigningLanesDeps } from '../../session/availability/persistedAvailableSigningLanes';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 
 export function createSessionPublicDeps(args: {
   seamsWebConfigs: SeamsConfigsReadonly;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
 }): SessionPublicDeps {
   const readCombinedEmailOtpWarmSessionStatus = (sessionId: string) =>
-    args.touchConfirm.getWarmSessionStatus({ sessionId });
+    args.passkeyMpcSession.getWarmSessionStatus({ sessionId });
   const sessionDiscovery: SessionPublicDeps['discovery'] = {
     emailOtp: (discoveryArgs) =>
       args.emailOtpSessions.discoverPersistedSessionsForWallet(discoveryArgs),
@@ -26,7 +30,7 @@ export function createSessionPublicDeps(args: {
   return {
     availableLanes: {
       listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
-      statusReader: args.touchConfirm,
+      statusReader: args.passkeyMpcSession,
       getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
       getWalletSigningBudgetStatus: (statusArgs) =>
         readTrustedWalletSigningBudgetStatus({}, statusArgs),

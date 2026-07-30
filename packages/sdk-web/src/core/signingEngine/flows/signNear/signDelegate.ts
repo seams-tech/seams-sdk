@@ -139,7 +139,7 @@ export async function runNearDelegateActionSigning({
   if (!touchConfirm) {
     throw new Error('UiConfirm bridge not available for delegate signing');
   }
-  const warmSessionReader = createNearSigningSessionCoordinator(touchConfirm);
+  const warmSessionReader = createNearSigningSessionCoordinator(ctx.passkeyMpcSession);
 
   const requiredSignatureUses = 1;
   const signingSessionAuthContext = await resolveNearSigningSessionAuthContext({

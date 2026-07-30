@@ -9,14 +9,7 @@ export function createEmailOtpWarmSessionStatusReader(
   return (
     args.getEmailOtpWarmSessionStatus ||
     (async (sessionId: string): Promise<WarmSessionStatusResult> => {
-      if (typeof args.touchConfirm.getWarmSessionStatus === 'function') {
-        return await args.touchConfirm.getWarmSessionStatus({ sessionId });
-      }
-      return {
-        ok: false,
-        code: 'not_found',
-        message: 'Email OTP warm-session status reader is unavailable',
-      };
+      return await args.passkeyMpcSession.getWarmSessionStatus({ sessionId });
     })
   );
 }
@@ -28,7 +21,7 @@ export function createSigningSessionCoordinatorPort(args: {
   const { createArgs, getEmailOtpWarmSessionStatus } = args;
   return new SigningSessionCoordinator({
     getStatus: createArgs.getWalletSigningBudgetStatus,
-    touchConfirm: createArgs.touchConfirm,
+    touchConfirm: createArgs.passkeyMpcSession,
     getEmailOtpWarmSessionStatus,
     consumeEmailOtpWarmSessionUses: createArgs.consumeEmailOtpWarmSessionUses,
     clearEmailOtpWarmSessionMaterial: createArgs.clearEmailOtpWarmSessionMaterial,
@@ -42,7 +35,7 @@ export function createWarmThresholdEd25519SessionStatusReader(args: {
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
 }) {
   return createWarmSessionStatusReader({
-    touchConfirm: args.createArgs.touchConfirm,
+    touchConfirm: args.createArgs.passkeyMpcSession,
     getEmailOtpWarmSessionStatus: args.getEmailOtpWarmSessionStatus,
   }).getEd25519SigningSessionStatus;
 }

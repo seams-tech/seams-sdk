@@ -5,8 +5,10 @@ import { resolvePrimaryExplorerUrl } from '@/core/config/chains';
 import type { AppearanceConfig, ThemeMode, SeamsConfigsReadonly } from '@/core/types/seams';
 import { createUiConfirmManager } from '../uiConfirm/UiConfirmManager';
 import { createPasskeyMpcExportManager } from '../uiConfirm/PasskeyMpcExportManager';
+import { createPasskeyMpcSessionManager } from '../uiConfirm/PasskeyMpcSessionManager';
 import type {
   PasskeyMpcExportPort,
+  PasskeyMpcSessionPort,
   UiConfirmRuntimeBridgePort,
 } from '../uiConfirm/uiConfirm.types';
 import type { UiConfirmContext } from '../uiConfirm/uiConfirm.types';
@@ -26,6 +28,7 @@ export type ManagerAssembly = {
   nonceCoordinator: NonceCoordinator;
   touchConfirm: UiConfirmRuntimeBridgePort;
   passkeyMpcExport: PasskeyMpcExportPort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   signerWorkerManager: SignerWorkerManager;
 };
 
@@ -64,7 +67,14 @@ export function createManagerAssembly(args: {
   const isSealedRefreshMode =
     args.seamsWebConfigs.signing.sessionPersistenceMode === 'sealed_refresh_v1';
 
-  const touchConfirm: UiConfirmRuntimeBridgePort = createUiConfirmManager(
+  let touchConfirm: UiConfirmRuntimeBridgePort;
+  const passkeyMpcSession = createPasskeyMpcSessionManager({
+    persistSigningSessionSealForThresholdSession: (persistArgs) =>
+      touchConfirm.ensurePasskeySealedRecordPersisted(persistArgs),
+    onPolicyResult: (purpose, result) =>
+      touchConfirm.recordPasskeyWarmSessionPolicyResult(purpose, result),
+  });
+  touchConfirm = createUiConfirmManager(
     {
       signingSessionPersistenceMode: args.seamsWebConfigs.signing.sessionPersistenceMode,
       ...(isSealedRefreshMode
@@ -91,6 +101,8 @@ export function createManagerAssembly(args: {
       getAppearance: args.getAppearance,
       loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
     },
+    passkeyMpcSession,
+    passkeyMpcSession,
   );
   const passkeyMpcExport = createPasskeyMpcExportManager(touchConfirm.getContext());
 
@@ -98,6 +110,7 @@ export function createManagerAssembly(args: {
     nearKeyMaterialStore: args.stores.nearKeyMaterialStore,
     touchIdPrompt,
     touchConfirm,
+    passkeyMpcSession,
     nearClient: args.nearClient,
     userPreferencesManager,
     nonceCoordinator,
@@ -116,6 +129,7 @@ export function createManagerAssembly(args: {
     nonceCoordinator,
     touchConfirm,
     passkeyMpcExport,
+    passkeyMpcSession,
     signerWorkerManager,
   };
 }
