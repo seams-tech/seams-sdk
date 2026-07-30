@@ -29,7 +29,7 @@ export type EmailOtpWarmSessionTransport = {
   relayerUrl: string;
   walletSessionJwt?: string;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-  shamirPrimeB64u?: string;
+  groupId?: string;
 };
 
 export type EmailOtpEcdsaWarmSessionRestore = {

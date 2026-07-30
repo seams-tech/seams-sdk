@@ -634,7 +634,7 @@ export async function recoverColdEmailOtpEd25519CapabilityForLoginV1(args: {
   challengeId: string;
   otpCode: string;
   appSessionJwt: string;
-  shamirPrimeB64u: string | undefined;
+  groupId: string | undefined;
   workerContext: WorkerOperationContext;
   activateCapability: (
     capability: NearEd25519YaoSigningCapability,
@@ -651,7 +651,7 @@ export async function recoverColdEmailOtpEd25519CapabilityForLoginV1(args: {
       walletSessionUserId: args.prepared.providerSubject,
     },
     relayUrl: args.prepared.relayerUrl,
-    shamirPrimeB64u: requireNonEmpty(args.shamirPrimeB64u, 'shamirPrimeB64u'),
+    groupId: requireNonEmpty(args.groupId, 'groupId'),
     otpCode: requireNonEmpty(args.otpCode, 'otpCode'),
     challengeId: requireNonEmpty(args.challengeId, 'challengeId'),
     routePlan: buildEmailOtpEd25519LoginRoutePlan(appSessionJwt),
@@ -756,7 +756,7 @@ export async function rehydrateEmailOtpEd25519CapabilityForSigningV1(args: {
   remainingUses: number;
   expectedOperationalPublicKey: string;
   workerContext: WorkerOperationContext;
-  shamirPrimeB64u: string | undefined;
+  groupId: string | undefined;
   resolveActiveCapability: (
     identity: Ed25519YaoActiveClientIdentityV1,
   ) => NearEd25519YaoSigningCapability | null;
@@ -792,7 +792,7 @@ export async function rehydrateEmailOtpEd25519CapabilityForSigningV1(args: {
       walletSessionUserId: prepared.providerSubject,
     },
     relayUrl: requireNonEmpty(args.record.relayerUrl, 'relayerUrl'),
-    shamirPrimeB64u: requireNonEmpty(args.shamirPrimeB64u, 'shamirPrimeB64u'),
+    groupId: requireNonEmpty(args.groupId, 'groupId'),
     otpCode: requireNonEmpty(args.otpCode, 'otpCode'),
     challengeId: requireNonEmpty(args.challengeId, 'challengeId'),
     routePlan: buildEmailOtpSigningSessionRoutePlan({

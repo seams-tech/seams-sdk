@@ -176,7 +176,7 @@ type ThresholdEcdsaSessionRecordCore = {
   signingGrantId: string;
   walletSessionJwt?: string;
   signingSessionSealKeyVersion?: string;
-  signingSessionSealShamirPrimeB64u?: string;
+  signingSessionSealGroupId?: string;
   expiresAtMs: number;
   remainingUses: number;
   thresholdEcdsaPublicKeyB64u?: string;
@@ -476,7 +476,7 @@ export type ThresholdSessionSealTransportAuthMaterial =
       walletSessionJwt?: string;
       walletSessionJwtSource: WalletSessionJwtAuthSource;
       signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-      shamirPrimeB64u?: string;
+      groupId?: string;
     }
   | {
       curve: 'ecdsa';
@@ -487,7 +487,7 @@ export type ThresholdSessionSealTransportAuthMaterial =
       walletSessionJwt?: string;
       walletSessionJwtSource: WalletSessionJwtAuthSource;
       signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-      shamirPrimeB64u?: string;
+      groupId?: string;
     };
 
 export type ThresholdEcdsaSessionStoreDeps = {
@@ -1599,8 +1599,8 @@ function normalizeThresholdEcdsaSessionRecord(
   const signingSessionSealKeyVersion = normalizeOptionalNonEmptyString(
     obj.signingSessionSealKeyVersion,
   );
-  const signingSessionSealShamirPrimeB64u = normalizeOptionalNonEmptyString(
-    obj.signingSessionSealShamirPrimeB64u,
+  const signingSessionSealGroupId = normalizeOptionalNonEmptyString(
+    obj.signingSessionSealGroupId,
   );
   const runtimePolicyScope = normalizeStoredRuntimePolicyScope(obj, walletSessionJwt);
   const ecdsaThresholdKeyId = String(obj.ecdsaThresholdKeyId || '').trim();
@@ -1771,7 +1771,7 @@ function normalizeThresholdEcdsaSessionRecord(
     signingGrantId,
     ...(walletSessionJwt ? { walletSessionJwt } : {}),
     ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
-    ...(signingSessionSealShamirPrimeB64u ? { signingSessionSealShamirPrimeB64u } : {}),
+    ...(signingSessionSealGroupId ? { signingSessionSealGroupId } : {}),
     expiresAtMs,
     remainingUses,
     ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
@@ -3268,7 +3268,7 @@ type EcdsaRecordFromBootstrapArgsBase = {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   signingSessionSeal?: {
     signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-    shamirPrimeB64u?: string;
+    groupId?: string;
   };
 };
 
@@ -3369,8 +3369,8 @@ function buildEcdsaRecordFromBootstrap(
         args.signingSessionSeal.signingSessionSealKeyVersion,
       )
     : undefined;
-  const signingSessionSealShamirPrimeB64u = normalizeOptionalNonEmptyString(
-    args.signingSessionSeal?.shamirPrimeB64u,
+  const signingSessionSealGroupId = normalizeOptionalNonEmptyString(
+    args.signingSessionSeal?.groupId,
   );
   if (thresholdSessionKind === 'jwt' && !walletSessionJwt) {
     throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide walletSessionJwt');
@@ -3411,7 +3411,7 @@ function buildEcdsaRecordFromBootstrap(
       ? { routerAbEcdsaDerivationNormalSigning: keyRef.routerAbEcdsaDerivationNormalSigning }
       : {}),
     ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
-    ...(signingSessionSealShamirPrimeB64u ? { signingSessionSealShamirPrimeB64u } : {}),
+    ...(signingSessionSealGroupId ? { signingSessionSealGroupId } : {}),
     expiresAtMs: args.bootstrap.session.expiresAtMs,
     remainingUses: args.bootstrap.session.remainingUses,
     thresholdEcdsaPublicKeyB64u,

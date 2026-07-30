@@ -258,7 +258,7 @@ export async function enrollEmailOtpWallet(args: {
   userId: string;
   challengeId?: string;
   otpCode: string;
-  shamirPrimeB64u: string;
+  groupId: string;
   workerCtx: WorkerOperationContext;
   appSessionJwt?: string;
   otpChannel?: WalletEmailOtpChannel;
@@ -283,7 +283,7 @@ export async function enrollEmailOtpWallet(args: {
               ? { challengeId: readOptionalString(args.challengeId) }
               : {}),
             otpCode: readString(args.otpCode, 'otpCode'),
-            shamirPrimeB64u: readString(args.shamirPrimeB64u, 'shamirPrimeB64u'),
+            groupId: readString(args.groupId, 'groupId'),
             routePlan: buildWorkerEmailOtpRoutePlan({
               routeFamily: 'registration',
               appSessionJwt: args.appSessionJwt,
@@ -305,7 +305,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   relayUrl: string;
   walletId: string;
   userId: string;
-  shamirPrimeB64u: string;
+  groupId: string;
   workerCtx: WorkerOperationContext;
   appSessionJwt?: string;
   otpChannel?: WalletEmailOtpChannel;
@@ -345,7 +345,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
           relayUrl: readString(args.relayUrl, 'relayUrl'),
           walletId: readString(args.walletId, 'walletId'),
           userId: readString(args.userId, 'userId'),
-          shamirPrimeB64u: readString(args.shamirPrimeB64u, 'shamirPrimeB64u'),
+          groupId: readString(args.groupId, 'groupId'),
           routePlan: buildWorkerEmailOtpRoutePlan({
             routeFamily: 'registration',
             appSessionJwt: args.appSessionJwt,

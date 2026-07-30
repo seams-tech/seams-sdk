@@ -100,7 +100,6 @@ function buildWalletRuntimeResetFingerprint(config: SeamsConfigsInput | null | u
     registration: config?.registration,
     signingSessionDefaults: config?.signingSessionDefaults,
     signingSessionPersistenceMode: config?.signingSessionPersistenceMode,
-    signingSessionSeal: config?.signingSessionSeal,
     routerAb: config?.routerAb,
     routerAbEcdsaDerivationPresignaturePool: config?.routerAbEcdsaDerivationPresignaturePool,
     provisioningDefaults: config?.provisioningDefaults,
@@ -299,10 +298,6 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
   const prevRuntimeResetFingerprint = buildWalletRuntimeResetFingerprint(ctx.walletConfigs);
   const nextSigningSessionPersistenceMode =
     payload?.signingSessionPersistenceMode ?? prev.signingSessionPersistenceMode;
-  const nextSigningSessionSeal =
-    nextSigningSessionPersistenceMode === 'sealed_refresh_v1'
-      ? (payload?.signingSessionSeal ?? prev.signingSessionSeal)
-      : undefined;
   const nextChains = Array.isArray(payload?.chains)
     ? payload.chains.map(cloneChainConfig)
     : Array.isArray(prev.chains)
@@ -319,7 +314,6 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     relayerAccount: payload?.relayerAccount ?? prev.relayerAccount ?? '',
     signingSessionDefaults: payload?.signingSessionDefaults ?? prev.signingSessionDefaults,
     signingSessionPersistenceMode: nextSigningSessionPersistenceMode,
-    ...(nextSigningSessionSeal ? { signingSessionSeal: nextSigningSessionSeal } : {}),
     routerAb: payload?.routerAb ?? prev.routerAb,
     routerAbEcdsaDerivationPresignaturePool:
       payload?.routerAbEcdsaDerivationPresignaturePool ??

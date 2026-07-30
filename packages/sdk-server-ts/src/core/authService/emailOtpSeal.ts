@@ -1,19 +1,15 @@
-import { createSigningSessionSealShamir3PassCipherAdapter } from '../../threshold/session/signingSessionSeal';
-import type { SigningSessionSealCipherAdapter } from '../../threshold/session/signingSessionSeal/signingSessionSeal.types';
 import {
-  formatSigningSessionSealShamirPrimeB64uForWire,
-  formatSigningSessionSealKeyVersionForWire,
-  parseSigningSessionSealShamirPrimeB64u,
-  parseSigningSessionSealKeyVersion,
-} from '../keyMaterialBrands';
+  createSigningSessionSealShamir3PassCipherAdapter,
+  parseSigningSessionSealRootConfig,
+} from '../../threshold/session/signingSessionSeal';
+import type { SigningSessionSealCipherAdapter } from '../../threshold/session/signingSessionSeal/signingSessionSeal.types';
 import { errorMessage } from '@shared/utils/errors';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 
 export type EmailOtpShamirCipherConfig = {
-  readonly keyVersionRaw: string;
-  readonly shamirPrimeB64u: string;
-  readonly serverEncryptExponentB64u: string;
-  readonly serverDecryptExponentB64u: string;
+  readonly rootSecretB64u: string;
+  readonly currentKeyVersion: string;
+  readonly acceptedWarmKeyVersions: readonly string[];
 };
 
 export type EmailOtpShamirCipherResult =
@@ -41,42 +37,23 @@ export type EmailOtpServerSealResult =
 export function createEmailOtpShamirCipherFromConfig(
   input: EmailOtpShamirCipherConfig,
 ): EmailOtpShamirCipherResult {
-  if (
-    !input.keyVersionRaw ||
-    !input.shamirPrimeB64u ||
-    !input.serverEncryptExponentB64u ||
-    !input.serverDecryptExponentB64u
-  ) {
+  if (!input.rootSecretB64u || !input.currentKeyVersion) {
     return {
       ok: false,
       code: 'not_configured',
-      message:
-        'Email OTP unseal requires SIGNING_SESSION_SEAL_KEY_VERSION, SIGNING_SESSION_SHAMIR_P_B64U, SIGNING_SESSION_SEAL_E_S_B64U, and SIGNING_SESSION_SEAL_D_S_B64U',
+      message: 'Email OTP unseal requires a signing-session seal root and current key version',
     };
   }
   try {
-    const signingSessionSealKeyVersion = parseSigningSessionSealKeyVersion(input.keyVersionRaw);
-    const keyVersion = formatSigningSessionSealKeyVersionForWire(signingSessionSealKeyVersion);
-    const signingSessionSealShamirPrimeB64u = parseSigningSessionSealShamirPrimeB64u(
-      input.shamirPrimeB64u,
-    );
-    const shamirPrimeB64u = formatSigningSessionSealShamirPrimeB64uForWire(
-      signingSessionSealShamirPrimeB64u,
-    );
+    const config = parseSigningSessionSealRootConfig({
+      rootSecretB64u: input.rootSecretB64u,
+      currentKeyVersion: input.currentKeyVersion,
+      acceptedWarmKeyVersions: input.acceptedWarmKeyVersions,
+    });
     return {
       ok: true,
-      keyVersion,
-      cipher: createSigningSessionSealShamir3PassCipherAdapter({
-        currentKeyVersion: keyVersion,
-        keys: [
-          {
-            keyVersion,
-            shamirPrimeB64u,
-            serverEncryptExponentB64u: input.serverEncryptExponentB64u,
-            serverDecryptExponentB64u: input.serverDecryptExponentB64u,
-          },
-        ],
-      }),
+      keyVersion: config.currentKeyVersion,
+      cipher: createSigningSessionSealShamir3PassCipherAdapter({ config }),
     };
   } catch (error: unknown) {
     return {

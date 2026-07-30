@@ -11,6 +11,7 @@ import {
 import {
   SIGNING_SESSION_SEALED_RECORD_VERSION,
   SIGNING_SESSION_SEAL_ALG,
+  SIGNING_SESSION_SEAL_GROUP_ID,
   SIGNING_SESSION_SEAL_STORAGE_SCOPE,
   SIGNING_SESSION_SECRET_KIND,
   type SealedSigningSessionEcdsaRestoreMetadata,
@@ -159,7 +160,7 @@ type EcdsaReauthAnchorRecordBase = {
   secretKind?: never;
   sealedSecretB64u?: never;
   keyVersion?: never;
-  shamirPrimeB64u?: never;
+  groupId?: never;
   ed25519Restore?: never;
 };
 
@@ -310,8 +311,8 @@ type BuildCurrentSealedSessionRecordCommonInput = {
   sealedSecretB64u: string;
   authMethod: 'passkey' | 'email_otp';
   signingGrantId: string;
-  keyVersion?: string;
-  shamirPrimeB64u?: string;
+  keyVersion: string;
+  groupId: typeof SIGNING_SESSION_SEAL_GROUP_ID;
   issuedAtMs: number;
   expiresAtMs: number;
   remainingUses: number;
@@ -1252,6 +1253,9 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
       ? { kind: 'ecdsa_reauth_anchor', record }
       : classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
   }
+  if (Number(obj.v) === 1) {
+    return classifyNonCurrentRecord('delete_required', obj, 'invalid_header');
+  }
   if (Number(obj.v) !== SIGNING_SESSION_SEALED_RECORD_VERSION) {
     return classifyNonCurrentRecord('malformed', obj, 'invalid_header');
   }
@@ -1278,13 +1282,18 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   const signingRootVersion = explicitSigningRootVersion || (signingRootId ? 'default' : null);
   const relayerUrl = normalizeOptionalNonEmptyString(obj.relayerUrl);
   const keyVersion = normalizeOptionalNonEmptyString(obj.keyVersion);
-  const shamirPrimeB64u = normalizeOptionalNonEmptyString(obj.shamirPrimeB64u);
+  const groupId = normalizeOptionalNonEmptyString(obj.groupId);
   const issuedAtMs = normalizeInteger(obj.issuedAtMs);
   const expiresAtMs = normalizeInteger(obj.expiresAtMs);
   const remainingUses = normalizeInteger(obj.remainingUses);
   const updatedAtMs = normalizeInteger(obj.updatedAtMs);
 
-  if (!signingGrantId || !sealedSecretB64u) {
+  if (
+    !signingGrantId ||
+    !sealedSecretB64u ||
+    !keyVersion ||
+    groupId !== SIGNING_SESSION_SEAL_GROUP_ID
+  ) {
     return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
   }
   if (authMethod !== 'passkey' && authMethod !== 'email_otp') {
@@ -1379,8 +1388,8 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
         curve: 'ecdsa',
         walletId,
         relayerUrl,
-        ...(keyVersion ? { keyVersion } : {}),
-        ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
+        keyVersion,
+        groupId: SIGNING_SESSION_SEAL_GROUP_ID,
         ecdsaRestore,
         ...(ed25519Restore ? { ed25519Restore } : {}),
         issuedAtMs,
@@ -1445,8 +1454,8 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
       ...(signingRootId ? { signingRootId } : {}),
       ...(signingRootVersion ? { signingRootVersion } : {}),
       relayerUrl,
-      ...(keyVersion ? { keyVersion } : {}),
-      ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
+      keyVersion,
+      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
       ...(ecdsaRestore ? { ecdsaRestore } : {}),
       ed25519Restore,
       issuedAtMs,
@@ -1612,7 +1621,7 @@ function normalizeEcdsaReauthAnchorRecord(value: unknown): EcdsaReauthAnchorReco
     obj.secretKind != null ||
     obj.sealedSecretB64u != null ||
     obj.keyVersion != null ||
-    obj.shamirPrimeB64u != null ||
+    obj.groupId != null ||
     obj.ed25519Restore != null
   ) {
     return null;
@@ -1781,7 +1790,14 @@ export function buildCurrentSealedSessionRecord(
   const remainingUses = normalizeInteger(args.remainingUses);
   const issuedAtMs = normalizeInteger(args.issuedAtMs);
   const updatedAtMs = normalizeInteger(args.updatedAtMs);
-  if (!thresholdSessionId || !signingGrantId || !sealedSecretB64u) return null;
+  const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
+  if (
+    !thresholdSessionId ||
+    !signingGrantId ||
+    !sealedSecretB64u ||
+    !keyVersion ||
+    args.groupId !== SIGNING_SESSION_SEAL_GROUP_ID
+  ) return null;
   if (!thresholdSessionIds.ed25519 && !thresholdSessionIds.ecdsa) return null;
   if (issuedAtMs == null || issuedAtMs <= 0) return null;
   if (expiresAtMs == null || expiresAtMs <= 0) return null;
@@ -1817,12 +1833,8 @@ export function buildCurrentSealedSessionRecord(
     ...(normalizeOptionalNonEmptyString(args.relayerUrl)
       ? { relayerUrl: normalizeOptionalNonEmptyString(args.relayerUrl) }
       : {}),
-    ...(normalizeOptionalNonEmptyString(args.keyVersion)
-      ? { keyVersion: normalizeOptionalNonEmptyString(args.keyVersion) }
-      : {}),
-    ...(normalizeOptionalNonEmptyString(args.shamirPrimeB64u)
-      ? { shamirPrimeB64u: normalizeOptionalNonEmptyString(args.shamirPrimeB64u) }
-      : {}),
+    keyVersion,
+    groupId: SIGNING_SESSION_SEAL_GROUP_ID,
     ...(ecdsaRestore ? { ecdsaRestore } : {}),
     ...(ed25519Restore ? { ed25519Restore } : {}),
     issuedAtMs,

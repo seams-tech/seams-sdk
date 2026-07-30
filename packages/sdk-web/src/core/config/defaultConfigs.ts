@@ -140,7 +140,7 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
       authPolicy: 'session',
     },
     sessionPersistenceMode: 'none',
-    sessionSeal: {},
+    sessionSeal: { mode: 'none' },
     routerAb: {
       normalSigning: {
         mode: 'disabled',

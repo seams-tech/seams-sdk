@@ -169,10 +169,6 @@ check('key-version domains use branded parsers at high-risk boundaries', () => {
   const sdkSealTransportTypes = readRepoSource(
     'packages/sdk-web/src/core/types/secure-confirm-worker.ts',
   );
-  const sdkConfigBuilder = readRepoSource('packages/sdk-web/src/core/config/configBuilder.ts');
-  const sdkCapabilityReader = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReader.ts',
-  );
   const sdkCapabilityReaderCore = readRepoSource(
     'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts',
   );
@@ -183,10 +179,12 @@ check('key-version domains use branded parsers at high-risk boundaries', () => {
     expect(source).toContain('parseEcdsaDerivationKeyVersion');
     expect(source).toContain('parseSigningSessionSealKeyVersion');
   }
-  expect(serverSealOptions).toContain('parseSigningSessionSealKeyVersion(input.keyVersion)');
-  expect(serverSealOptions).toContain('signingSessionSealKeyVersion: SigningSessionSealKeyVersion');
-  expect(serverEmailOtpSeal).toContain('parseSigningSessionSealKeyVersion(input.keyVersionRaw)');
-  expect(serverEmailOtpSeal).toContain('formatSigningSessionSealKeyVersionForWire');
+  expect(serverSealOptions).toContain('parseSigningSessionSealKeyVersion(parsed)');
+  expect(serverSealOptions).toContain(
+    'function parseKeyVersion(value: unknown, label: string): SigningSessionSealKeyVersion',
+  );
+  expect(serverEmailOtpSeal).toContain('parseSigningSessionSealRootConfig');
+  expect(serverEmailOtpSeal).toContain('currentKeyVersion: string');
   expect(serverEcdsaPoolFill).toContain('parseEcdsaDerivationKeyVersion');
   expect(serverEcdsaPoolFill).toContain('formatEcdsaDerivationKeyVersionForWire');
 
@@ -199,13 +197,8 @@ check('key-version domains use branded parsers at high-risk boundaries', () => {
     'signingSessionSealKeyVersion?: SigningSessionSealKeyVersion',
   );
   expect(sealTransportCommon).not.toContain('keyVersion?: string');
-  expect(sdkConfigBuilder).toContain('parseSigningSessionSealKeyVersion(keyVersion)');
-  expect(sdkConfigBuilder).toContain('signingSessionSealKeyVersion:');
-  expect(sdkCapabilityReader).toContain(
-    'signingSessionSealKeyVersion: SigningSessionSealKeyVersion',
-  );
   expect(sdkCapabilityReaderCore).toContain(
-    'signingSessionSealKeyVersion: SigningSessionSealKeyVersion',
+    'parseSigningSessionSealKeyVersion(record.signingSessionSealKeyVersion)',
   );
 });
 

@@ -120,13 +120,14 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
     ceremonyJwksJson: createLocalCeremonyPublicJwksJson(ceremonyPrivateJwkJson),
     localConsoleOrganizationId,
     signingSessionPersistenceMode: LOCAL_SIGNING_SESSION_PERSISTENCE_MODE,
-    signingSessionSealKeyVersion: readTomlStringAssignment(
+    signingSessionSealCurrentKeyVersion: readTomlStringAssignment(
       runtimeConfig,
-      'SIGNING_SESSION_SEAL_KEY_VERSION',
+      'SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION',
     ),
-    signingSessionShamirPrimeB64u: readTomlStringAssignment(
+    signingSessionSealGroupId: 'rfc2409-group2',
+    signingSessionSealAcceptedWarmKeyVersions: readTomlStringAssignment(
       runtimeConfig,
-      'SIGNING_SESSION_SHAMIR_P_B64U',
+      'SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS',
     ),
   });
 }

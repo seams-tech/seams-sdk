@@ -116,12 +116,17 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
 
   const config = readFileSync(fixture.outputConfigPath, 'utf8');
   expect(runtime.signingSessionPersistenceMode).toBe('sealed_refresh_v1');
-  expect(runtime.signingSessionSealKeyVersion).toBe(
-    parseTomlStringAssignment(config, 'SIGNING_SESSION_SEAL_KEY_VERSION'),
+  expect(runtime.signingSessionSealCurrentKeyVersion).toBe(
+    parseTomlStringAssignment(config, 'SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION'),
   );
-  expect(runtime.signingSessionShamirPrimeB64u).toBe(
-    parseTomlStringAssignment(config, 'SIGNING_SESSION_SHAMIR_P_B64U'),
+  expect(runtime.signingSessionSealGroupId).toBe('rfc2409-group2');
+  expect(runtime.signingSessionSealAcceptedWarmKeyVersions).toBe(
+    parseTomlStringAssignment(config, 'SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS'),
   );
+  expect(config).toContain('SIGNING_SESSION_SEAL_ROOT_SECRET_B64U =');
+  expect(config).not.toContain('SIGNING_SESSION_SHAMIR_P_B64U');
+  expect(config).not.toContain('SIGNING_SESSION_SEAL_E_S_B64U');
+  expect(config).not.toContain('SIGNING_SESSION_SEAL_D_S_B64U');
   expect(config).toContain(
     `DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY = ${JSON.stringify(fixture.deriverB.publicKey)}`,
   );

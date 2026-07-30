@@ -53,6 +53,7 @@ import {
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
+  SIGNING_SESSION_SEAL_GROUP_ID,
   WALLET_SESSION_SEAL_BASE_PATH,
   parseRouterAbEd25519NormalSigningState,
 } from '@shared/utils/signingSessionSeal';
@@ -423,7 +424,7 @@ type ExactEmailOtpEcdsaWarmSessionTransport = {
   relayerUrl: string;
   walletSessionJwt?: string;
   keyVersion?: string;
-  shamirPrimeB64u: string;
+  groupId: string;
 };
 
 type ExactEmailOtpEcdsaWarmSessionRehydrateArgs = {
@@ -442,7 +443,7 @@ type SigningSessionSealTransport = {
   relayerUrl: string;
   walletSessionJwt?: string;
   keyVersion?: string;
-  shamirPrimeB64u?: string;
+  groupId?: string;
 };
 
 type SigningSessionSealRouteResult =
@@ -977,14 +978,14 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
       error: { ok: false, code: 'invalid_args', message: 'Missing sealedSecretB64u' },
     };
   }
-  const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.transport.shamirPrimeB64u);
-  if (!shamirPrimeB64u) {
+  const groupId = normalizeOptionalNonEmptyString(args.transport.groupId);
+  if (!groupId) {
     return {
       kind: 'error',
       error: {
         ok: false,
         code: 'invalid_args',
-        message: 'Missing shamirPrimeB64u for signing-session restore',
+        message: 'Missing groupId for signing-session restore',
       },
     };
   }
@@ -1007,7 +1008,7 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
           ? { walletSessionJwt: args.transport.walletSessionJwt }
           : {}),
         ...(args.transport.keyVersion ? { keyVersion: args.transport.keyVersion } : {}),
-        shamirPrimeB64u,
+        groupId,
       },
       restore: {
         sessionId,
@@ -1045,6 +1046,13 @@ function asWorkerErrorPayload(err: unknown): WorkerErrorPayload {
 
 function readString(value: unknown, label: string): string {
   return requireTrimmedString(value, label);
+}
+
+function readSigningSessionSealGroupId(value: unknown): typeof SIGNING_SESSION_SEAL_GROUP_ID {
+  if (readString(value, 'groupId') !== SIGNING_SESSION_SEAL_GROUP_ID) {
+    throw new Error('Unsupported signing-session seal groupId');
+  }
+  return SIGNING_SESSION_SEAL_GROUP_ID;
 }
 
 function readSigningGrantId(value: unknown, label: string): SigningGrantId {
@@ -1270,12 +1278,12 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   if (!relayerUrl) return null;
   const walletSessionJwt = normalizeOptionalNonEmptyString(transport.walletSessionJwt);
   const keyVersion = normalizeOptionalNonEmptyString(transport.signingSessionSealKeyVersion);
-  const shamirPrimeB64u = normalizeOptionalNonEmptyString(transport.shamirPrimeB64u);
+  const groupId = normalizeOptionalNonEmptyString(transport.groupId);
   return {
     relayerUrl,
     ...(walletSessionJwt ? { walletSessionJwt } : {}),
     ...(keyVersion ? { keyVersion } : {}),
-    ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
+    ...(groupId ? { groupId } : {}),
   };
 }
 
@@ -1321,7 +1329,7 @@ function makeSigningSessionSealSingleFlightKey(args: {
   sessionId: string;
   relayerUrl: string;
   keyVersion?: string;
-  shamirPrimeB64u?: string;
+  groupId?: string;
   payloadB64u?: string;
 }): string {
   const operation =
@@ -1331,7 +1339,7 @@ function makeSigningSessionSealSingleFlightKey(args: {
     normalizeOptionalTrimmedString(args.sessionId) || '',
     normalizeOptionalTrimmedString(args.relayerUrl) || '',
     normalizeOptionalNonEmptyString(args.keyVersion) || '',
-    normalizeOptionalNonEmptyString(args.shamirPrimeB64u) || '',
+    normalizeOptionalNonEmptyString(args.groupId) || '',
     normalizeOptionalNonEmptyString(args.payloadB64u) || '',
   ].join('|');
 }
@@ -2120,12 +2128,12 @@ async function sealEmailOtpWarmSessionMaterial(args: {
   if (!sessionId) {
     return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
   }
-  const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.transport.shamirPrimeB64u);
-  if (!shamirPrimeB64u) {
+  const groupId = normalizeOptionalNonEmptyString(args.transport.groupId);
+  if (!groupId) {
     return {
       ok: false,
       code: 'invalid_args',
-      message: 'Missing shamirPrimeB64u for signing-session seal',
+      message: 'Missing groupId for signing-session seal',
     };
   }
   const status = readEmailOtpWarmSessionStatus(sessionId);
@@ -2145,7 +2153,7 @@ async function sealEmailOtpWarmSessionMaterial(args: {
     sessionId,
     relayerUrl: args.transport.relayerUrl,
     keyVersion: args.transport.keyVersion,
-    shamirPrimeB64u,
+    groupId,
     payloadB64u,
   });
   const inFlight = signingSessionSealApplyInFlight.get(singleFlightKey);
@@ -2154,7 +2162,9 @@ async function sealEmailOtpWarmSessionMaterial(args: {
   const task = (async (): Promise<EmailOtpWarmSessionSealResult> => {
     try {
       const runtime = await getShamir3PassRuntime();
-      const clientKeyHandle = await runtime.createClientKeyHandle({ shamirPrimeB64u });
+      const clientKeyHandle = await runtime.createClientKeyHandle({
+        groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+      });
       try {
         const clientEncryptedCiphertext = await runtime.addClientSealBytesWithKeyHandle({
           ciphertext: secret32,
@@ -2253,7 +2263,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
     sessionId,
     relayerUrl: transport.relayerUrl,
     keyVersion: transport.keyVersion,
-    shamirPrimeB64u: transport.shamirPrimeB64u,
+    groupId: transport.groupId,
     payloadB64u: sealedSecretB64u,
   });
   const inFlight = signingSessionSealRemoveInFlight.get(singleFlightKey);
@@ -2266,7 +2276,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
     try {
       const runtime = await getShamir3PassRuntime();
       const clientKeyHandle = await runtime.createClientKeyHandle({
-        shamirPrimeB64u: transport.shamirPrimeB64u,
+        groupId: SIGNING_SESSION_SEAL_GROUP_ID,
       });
       try {
         const clientEncryptedCiphertext = await runtime.addClientSealWithKeyHandle({
@@ -2422,7 +2432,7 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
     args.restore.expectedOperationalPublicKey,
   );
   const sealedSecretB64u = normalizeOptionalTrimmedString(args.sealedSecretB64u);
-  const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.transport.shamirPrimeB64u);
+  const groupId = normalizeOptionalNonEmptyString(args.transport.groupId);
   const walletSessionJwt = normalizeOptionalNonEmptyString(args.transport.walletSessionJwt);
   if (
     !sessionId ||
@@ -2430,7 +2440,7 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
     !providerSubject ||
     !expectedOperationalPublicKey ||
     !sealedSecretB64u ||
-    !shamirPrimeB64u ||
+    !groupId ||
     !walletSessionJwt ||
     session.authorityScope.kind !== 'email_otp' ||
     session.authorityScope.providerUserId !== providerSubject ||
@@ -2478,7 +2488,9 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
   let importedClient: EmailOtpEd25519YaoWorkerActivationResult | null = null;
   try {
     const runtime = await getShamir3PassRuntime();
-    const clientKeyHandle = await runtime.createClientKeyHandle({ shamirPrimeB64u });
+    const clientKeyHandle = await runtime.createClientKeyHandle({
+      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+    });
     let serverRemainingUses: number | undefined;
     let serverExpiresAtMs: number | undefined;
     try {
@@ -3022,7 +3034,7 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
   challengeId: string;
   otpCode: string;
   recoveryKey: string;
-  shamirPrimeB64u: string;
+  groupId: string;
   routePlan: EmailOtpRoutePlan;
 }): Promise<{
   walletId: string;
@@ -3112,7 +3124,7 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
           enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
           signingRootId: record.signingRootId,
           signingRootVersion: record.signingRootVersion,
-          shamirPrimeB64u: readString(args.shamirPrimeB64u, 'shamirPrimeB64u'),
+          groupId: readSigningSessionSealGroupId(args.groupId),
           encSB64u: base64UrlEncode(encS),
           issuedAtMs: Date.now(),
           updatedAtMs: Date.now(),
@@ -3783,7 +3795,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   userId: string;
   challengeId?: string;
   otpCode?: string;
-  shamirPrimeB64u: string;
+  groupId: string;
   routePlan: EmailOtpRoutePlan;
   clientSecret32?: Uint8Array;
   returnClientRootShare32?: boolean;
@@ -3820,10 +3832,10 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
     userId: args.userId,
     routePlan: args.routePlan,
   });
-  const shamirPrimeB64u = readString(args.shamirPrimeB64u, 'shamirPrimeB64u');
+  const groupId = readSigningSessionSealGroupId(args.groupId);
   const otpCode = args.skipServerFinalize ? '' : readString(args.otpCode, 'otpCode');
   const keyHandle = readString(
-    (await runtime.createClientKeyHandle({ shamirPrimeB64u })).keyHandle,
+    (await runtime.createClientKeyHandle({ groupId: SIGNING_SESSION_SEAL_GROUP_ID })).keyHandle,
     'keyHandle',
   );
   let clientSecret32: Uint8Array | null = args.clientSecret32
@@ -3927,7 +3939,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
         signingRootId,
         signingRootVersion,
         encSB64u: enrollmentEscrowCiphertextB64u,
-        shamirPrimeB64u,
+        groupId,
       },
       'Email OTP enrollment did not persist device-local enc_s(S)',
     );
@@ -4008,7 +4020,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
   userId: string;
   challengeId?: string;
   otpCode: string;
-  shamirPrimeB64u: string;
+  groupId: string;
   routePlan: EmailOtpRoutePlan;
   material: EmailOtpUnlockSecretMaterialRequest;
   onProgress?: (code: EmailOtpWorkerProgressCode) => void;
@@ -4068,9 +4080,9 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
   const runtime = await getShamir3PassRuntime();
   const relayUrl = readString(args.relayUrl, 'relayUrl');
   const walletId = readString(args.walletId, 'walletId');
-  const shamirPrimeB64u = readString(args.shamirPrimeB64u, 'shamirPrimeB64u');
+  const groupId = readString(args.groupId, 'groupId');
   const keyHandle = readString(
-    (await runtime.createClientKeyHandle({ shamirPrimeB64u })).keyHandle,
+    (await runtime.createClientKeyHandle({ groupId: SIGNING_SESSION_SEAL_GROUP_ID })).keyHandle,
     'keyHandle',
   );
   let clientSecret32: Uint8Array | null = null;
@@ -6012,7 +6024,7 @@ function parseWorkerSealTransport(value: unknown): {
   relayerUrl: string;
   walletSessionJwt?: string;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-  shamirPrimeB64u?: string;
+  groupId?: string;
 } {
   const obj = workerPayloadObject(value);
   if (!obj) throw new Error('Email OTP worker request requires transport');
@@ -6028,8 +6040,8 @@ function parseWorkerSealTransport(value: unknown): {
           ),
         }
       : {}),
-    ...(optionalWorkerString(obj.shamirPrimeB64u)
-      ? { shamirPrimeB64u: optionalWorkerString(obj.shamirPrimeB64u)! }
+    ...(optionalWorkerString(obj.groupId)
+      ? { groupId: optionalWorkerString(obj.groupId)! }
       : {}),
   };
 }
@@ -6038,13 +6050,13 @@ function parseRequiredWorkerSealTransport(value: unknown): {
   relayerUrl: string;
   walletSessionJwt: string;
   signingSessionSealKeyVersion: SigningSessionSealKeyVersion;
-  shamirPrimeB64u: string;
+  groupId: string;
 } {
   const transport = parseWorkerSealTransport(value);
   if (
     !transport.walletSessionJwt ||
     !transport.signingSessionSealKeyVersion ||
-    !transport.shamirPrimeB64u
+    !transport.groupId
   ) {
     throw new Error('Email OTP Ed25519 Yao rehydrate requires exact seal transport');
   }
@@ -6052,7 +6064,7 @@ function parseRequiredWorkerSealTransport(value: unknown): {
     relayerUrl: transport.relayerUrl,
     walletSessionJwt: transport.walletSessionJwt,
     signingSessionSealKeyVersion: transport.signingSessionSealKeyVersion,
-    shamirPrimeB64u: transport.shamirPrimeB64u,
+    groupId: transport.groupId,
   };
 }
 
@@ -6114,7 +6126,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
             ? { challengeId: optionalWorkerString(payload.challengeId)! }
             : {}),
           otpCode: readString(payload.otpCode, 'otpCode'),
-          shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          groupId: readString(payload.groupId, 'groupId'),
           routePlan: readRegistrationRoutePlan(payload.routePlan, type),
           ...(optionalWorkerString(payload.googleEmailOtpRegistrationAttemptId)
             ? {
@@ -6151,7 +6163,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
           walletId: readString(payload.walletId, 'walletId'),
           userId: readString(payload.userId, 'userId'),
-          shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          groupId: readString(payload.groupId, 'groupId'),
           routePlan: readRegistrationRoutePlan(payload.routePlan, type),
           ...(optionalWorkerString(payload.otpChannel)
             ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
@@ -6393,7 +6405,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           challengeId: readString(payload.challengeId, 'challengeId'),
           otpCode: readString(payload.otpCode, 'otpCode'),
           recoveryKey: readString(payload.recoveryKey, 'recoveryKey'),
-          shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          groupId: readString(payload.groupId, 'groupId'),
           routePlan: readRoutePlan(payload.routePlan, type),
           ...(optionalWorkerString(payload.otpChannel)
             ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
@@ -6435,7 +6447,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
             ? { challengeId: optionalWorkerString(payload.challengeId)! }
             : {}),
           otpCode: readString(payload.otpCode, 'otpCode'),
-          shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          groupId: readString(payload.groupId, 'groupId'),
           routePlan: readRoutePlan(payload.routePlan, type),
           ...(optionalWorkerString(payload.otpChannel)
             ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
@@ -6617,7 +6629,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           'userId',
           'challengeId',
           'otpCode',
-          'shamirPrimeB64u',
+          'groupId',
           'routePlan',
           'walletSessionJwt',
           'nearAccountId',
@@ -6639,7 +6651,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           userId: readString(payload.userId, 'userId'),
           challengeId: readString(payload.challengeId, 'challengeId'),
           otpCode: readString(payload.otpCode, 'otpCode'),
-          shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          groupId: readString(payload.groupId, 'groupId'),
           routePlan: readRoutePlan(payload.routePlan, type),
           walletSessionJwt: readString(payload.walletSessionJwt, 'walletSessionJwt'),
           nearAccountId: readString(payload.nearAccountId, 'nearAccountId'),
@@ -6810,7 +6822,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           userId: msg.payload.userId,
           challengeId: msg.payload.challengeId,
           otpCode: readString(msg.payload.otpCode, 'otpCode'),
-          shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          groupId: readString(msg.payload.groupId, 'groupId'),
           routePlan,
           googleEmailOtpRegistrationAttemptId: msg.payload.googleEmailOtpRegistrationAttemptId,
           returnClientRootShare32: true,
@@ -6865,7 +6877,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
           walletId: readString(msg.payload.walletId, 'walletId'),
           userId: msg.payload.userId,
-          shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          groupId: readString(msg.payload.groupId, 'groupId'),
           routePlan,
           returnClientRootShare32: true,
           returnClientSecret32: msg.payload.ed25519YaoFactor.kind === 'requested',
@@ -7273,7 +7285,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           challengeId: readString(msg.payload.challengeId, 'challengeId'),
           otpCode: readString(msg.payload.otpCode, 'otpCode'),
           recoveryKey: readString(msg.payload.recoveryKey, 'recoveryKey'),
-          shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          groupId: readString(msg.payload.groupId, 'groupId'),
           routePlan,
         });
         postToMainThread({
@@ -7324,7 +7336,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           userId: msg.payload.userId,
           challengeId: msg.payload.challengeId,
           otpCode: readString(msg.payload.otpCode, 'otpCode'),
-          shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          groupId: readString(msg.payload.groupId, 'groupId'),
           routePlan,
           material,
           onProgress: (code) => postEmailOtpWorkerProgress(msg.id, code),
@@ -7706,7 +7718,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           userId: readString(msg.payload.userId, 'userId'),
           challengeId: readString(msg.payload.challengeId, 'challengeId'),
           otpCode: readString(msg.payload.otpCode, 'otpCode'),
-          shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          groupId: readString(msg.payload.groupId, 'groupId'),
           routePlan,
           material: { kind: 'ed25519_yao_export' },
         });

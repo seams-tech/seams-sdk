@@ -667,10 +667,12 @@ export class AuthService {
 
   private createEmailOtpShamirCipher() {
     return createEmailOtpShamirCipherFromConfig({
-      keyVersionRaw: this.readConfigValue('SIGNING_SESSION_SEAL_KEY_VERSION'),
-      shamirPrimeB64u: this.readConfigValue('SIGNING_SESSION_SHAMIR_P_B64U'),
-      serverEncryptExponentB64u: this.readConfigValue('SIGNING_SESSION_SEAL_E_S_B64U'),
-      serverDecryptExponentB64u: this.readConfigValue('SIGNING_SESSION_SEAL_D_S_B64U'),
+      rootSecretB64u: this.readConfigValue('SIGNING_SESSION_SEAL_ROOT_SECRET_B64U'),
+      currentKeyVersion: this.readConfigValue('SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION'),
+      acceptedWarmKeyVersions: this.readConfigValue('SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
     });
   }
 

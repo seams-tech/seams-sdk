@@ -396,7 +396,7 @@ export function resolveEcdsaSealTransport(args: {
   record: WarmSessionEcdsaCapabilityState['record'];
   auth: WarmSessionEcdsaAuthMaterial | null;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-  shamirPrimeB64u?: string;
+  groupId?: string;
 }): ThresholdSessionSealTransportAuthMaterial | null {
   if (!args.record) return null;
   if (args.record.source === 'email_otp' && !hasRecordOwnedEcdsaWalletSessionAuth(args.auth)) {
@@ -409,7 +409,7 @@ export function resolveEcdsaSealTransport(args: {
     (args.record.signingSessionSealKeyVersion
       ? parseSigningSessionSealKeyVersion(args.record.signingSessionSealKeyVersion)
       : undefined);
-  const shamirPrimeB64u = String(args.shamirPrimeB64u || '').trim();
+  const groupId = String(args.groupId || '').trim();
   const signingGrantId = args.record.signingGrantId;
   const walletSessionJwt = String(args.auth?.walletSessionJwt || '').trim();
   const walletSessionJwtSource =
@@ -423,6 +423,6 @@ export function resolveEcdsaSealTransport(args: {
     ...(walletSessionJwt ? { walletSessionJwt: walletSessionJwt } : {}),
     walletSessionJwtSource,
     ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
-    ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
+    ...(groupId ? { groupId } : {}),
   };
 }

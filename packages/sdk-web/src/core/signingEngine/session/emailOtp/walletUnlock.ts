@@ -72,7 +72,7 @@ export type EmailOtpMixedWalletUnlockResult =
 type EmailOtpWalletUnlockBaseArgs = {
   walletSession: WalletSessionRef;
   relayUrl: string;
-  shamirPrimeB64u: string;
+  groupId: string;
   otpCode: string;
   routePlan: EmailOtpRoutePlan;
   workerCtx: WorkerOperationContext;
@@ -95,7 +95,7 @@ async function requestEmailOtpWalletUnlock(args: {
         userId: String(args.base.walletSession.walletSessionUserId),
         ...(args.base.challengeId ? { challengeId: args.base.challengeId } : {}),
         otpCode: args.base.otpCode,
-        shamirPrimeB64u: args.base.shamirPrimeB64u,
+        groupId: args.base.groupId,
         routePlan: args.base.routePlan,
         otpChannel: EMAIL_OTP_CHANNEL,
         material: args.material,
