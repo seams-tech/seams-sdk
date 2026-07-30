@@ -185,7 +185,7 @@ function buildWorkerVars(deployment) {
     SIGNING_ROOT_KEK_PROVIDER: 'cloudflare_secrets_store',
     SIGNING_ROOT_KEK_ENCODING: deployment.signingRoot.encoding,
     SIGNING_ROOT_KEK_IDS: deployment.signingRoot.id,
-    SPONSORED_EXECUTION_REAL_PRICING_JSON: JSON.stringify(
+    SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify(
       buildSponsoredExecutionPricingConfig(deployment.runtimeProfile),
     ),
   };
@@ -202,14 +202,12 @@ function buildSponsoredExecutionPricingConfig(runtimeProfile) {
   const networkClass =
     gatewayRuntimeProfileNearNetwork(runtimeProfile) === 'mainnet' ? 'MAINNET' : 'TESTNET';
   return {
-    provider: 'coingecko',
-    cacheTtlMs: 300_000,
     near: {
       [networkClass]: {
-        assetId: 'near',
-        nativeUnitDecimals: 24,
         estimateFeeAmountYocto: '1000000000000000000000',
-        pricingVersionPrefix: `coingecko-near-${networkClass.toLowerCase()}`,
+        minorPerFeeUnitNumerator: '300',
+        minorPerFeeUnitDenominator: '1000000000000000000000000',
+        pricingVersion: `static-near-${networkClass.toLowerCase()}-v1`,
       },
     },
   };
