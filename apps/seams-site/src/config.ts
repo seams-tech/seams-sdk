@@ -14,7 +14,8 @@ const DEFAULT_TEMPO_RPC_URL = 'https://rpc.moderato.tempo.xyz';
 const DEFAULT_TEMPO_EXPLORER_URL = 'https://explore.testnet.tempo.xyz';
 const DEFAULT_TEMPO_FEE_TOKEN = '0x20c0000000000000000000000000000000000001';
 // Arc-specific EVM demo defaults. Generic EVM behavior is still `chain: 'evm'`.
-const DEFAULT_ARC_RPC_URL = 'https://rpc.testnet.arc.network';
+const DEFAULT_ARC_RPC_URL =
+  'https://rpc.blockdaemon.testnet.arc.network,https://rpc.quicknode.testnet.arc.network,https://rpc.testnet.arc.network';
 const DEFAULT_ARC_EXPLORER_URL = 'https://testnet.arcscan.app';
 const DEFAULT_DEMO_CONTRACT_ID = 'w3a-v1.testnet';
 
@@ -76,14 +77,6 @@ function parseSigningSessionPersistenceMode(
 function stripTrailingSlash(path: string): string {
   if (path.length <= 1) return path;
   return path.endsWith('/') ? path.slice(0, -1) : path;
-}
-
-function joinUrlPath(baseUrl: string, path: string): string {
-  const base = stripTrailingSlash(toTrimmedString(baseUrl));
-  const suffix = String(path || '').trim();
-  if (!base) return '';
-  if (!suffix) return base;
-  return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`;
 }
 
 /* Registration config is a single managed shape now, not a union, so there is
@@ -149,17 +142,13 @@ const baseUrl = stripTrailingSlash(toTrimmedString(env.BASE_URL || '/')) || '/';
 const nearNetwork = env.VITE_NEAR_NETWORK === 'mainnet' ? 'mainnet' : 'testnet';
 const nearChainNetwork: 'near-mainnet' | 'near-testnet' =
   nearNetwork === 'mainnet' ? 'near-mainnet' : 'near-testnet';
-const directNearRpcUrl = toTrimmedString(env.VITE_NEAR_RPC_URL) || DEFAULT_NEAR_RPC_URL;
-const nearRpcUrl = relayerUrl
-  ? joinUrlPath(relayerUrl, '/chain-rpc/near')
-  : directNearRpcUrl;
+const nearRpcUrl = toTrimmedString(env.VITE_NEAR_RPC_URL) || DEFAULT_NEAR_RPC_URL;
 const nearExplorerUrl = toTrimmedString(env.VITE_NEAR_EXPLORER) || DEFAULT_NEAR_EXPLORER_URL;
 const tempoRpcUrl = toTrimmedString(env.VITE_TEMPO_RPC_URL) || DEFAULT_TEMPO_RPC_URL;
 const tempoExplorerUrl = toTrimmedString(env.VITE_TEMPO_EXPLORER) || DEFAULT_TEMPO_EXPLORER_URL;
 const tempoFeeToken = toTrimmedString(env.VITE_TEMPO_FEE_TOKEN) || DEFAULT_TEMPO_FEE_TOKEN;
 // Arc env keys stay Arc-branded because this demo config wires Arc testnet explicitly.
-const directArcRpcUrl = toTrimmedString(env.VITE_ARC_RPC_URL) || DEFAULT_ARC_RPC_URL;
-const arcRpcUrl = relayerUrl ? joinUrlPath(relayerUrl, '/chain-rpc/arc') : directArcRpcUrl;
+const arcRpcUrl = toTrimmedString(env.VITE_ARC_RPC_URL) || DEFAULT_ARC_RPC_URL;
 const arcExplorerUrl = toTrimmedString(env.VITE_ARC_EXPLORER) || DEFAULT_ARC_EXPLORER_URL;
 const signingSessionPersistenceMode = parseSigningSessionPersistenceMode(
   env.VITE_SIGNING_SESSION_PERSISTENCE_MODE,

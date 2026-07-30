@@ -99,7 +99,6 @@ import {
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
 } from '@seams/sdk-server/cloud-host';
 import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@seams/sdk-server/cloud-host';
-import { handleChainRpcProxyRequest } from './chainRpcProxy';
 
 interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly CONSOLE_DB: D1DatabaseLike;
@@ -1738,12 +1737,6 @@ async function fetch(
   ctx: CfExecutionContext,
 ): Promise<Response> {
   const url = new URL(request.url);
-  const rpcProxyResponse = await handleChainRpcProxyRequest(request, {
-    corsOrigins: LOCAL_ROUTER_API_CORS_ORIGINS,
-    nearRpcUrls: normalizeLocalString(env.NEAR_RPC_URL),
-    arcRpcUrls: normalizeLocalString(env.ARC_RPC_URL),
-  });
-  if (rpcProxyResponse) return rpcProxyResponse;
   if (url.pathname === '/healthz') return jsonResponse({ ok: true });
   if (url.pathname === '/readyz') return await handleReady(env);
   if (request.method === 'GET' && url.pathname === LOCAL_ROUTER_AB_CEREMONY_JWKS_PATH) {
