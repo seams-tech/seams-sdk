@@ -46,7 +46,6 @@ import type {
   WarmSessionMaterialWriteDiagnostics,
 } from '../session/passkey/warmSessionMaterialWriter';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { DeleteDurableSealedSessionCommand } from '../session/persistence/durableSealedSessionCommands';
 import type { VolatileWarmSessionId } from '../session/warmCapabilities/volatileWarmSessionId';
 import type { DurableRecordStore } from '@/core/platform';
 import type { NearOperationStepUpPreparationPort } from '../interfaces/operationStepUpPreparation';
@@ -189,10 +188,6 @@ export interface WarmSessionPersistedRestorer {
   ): Promise<RestorePersistedSessionForSigningResult>;
 }
 
-export interface DurableSealedSessionRecordDeleter {
-  deleteDurableSealedSessionRecord(command: DeleteDurableSealedSessionCommand): Promise<void>;
-}
-
 export interface PasskeyWarmSessionPolicyRecorder {
   recordPasskeyWarmSessionPolicyResult(
     purpose: WarmSessionLanePurpose,
@@ -218,7 +213,6 @@ export type VolatileWarmMaterialPort = WarmSessionStatusReader &
 export type DurableSealedSessionPort = WarmSessionSealPersister &
   WarmSessionRehydrator &
   WarmSessionPersistedRestorer &
-  DurableSealedSessionRecordDeleter &
   PasskeyWarmSessionPolicyRecorder &
   PasskeyWarmSessionPersistenceCoordinator;
 

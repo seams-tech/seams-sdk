@@ -440,6 +440,10 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   routing inside `UiConfirmManager.ts`~~ — moved to the dedicated
   `PasskeyMpcSessionManager`; durable seal/restore coordination remains the next
   same-owner cut
+- ~~zero-caller auth-method-neutral
+  `UiConfirmManager.deleteDurableSealedSessionRecord` public alias and port~~ —
+  deleted; Passkey corruption cleanup remains private to its durable owner and
+  Email OTP retains its exact store boundary
 - ~~unused `UiConfirmSigningRuntimePort` and generic combined
   `UiConfirmSigningSessionPort` exports~~ — Near runtime dependencies name the
   required confirmation and warm-material ports directly
