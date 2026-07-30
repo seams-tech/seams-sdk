@@ -6,8 +6,7 @@ import {
   MAX_WALLET_SESSION_TTL_MS,
 } from '@seams/sdk/advanced';
 
-const DEFAULT_NEAR_RPC_URL =
-  'https://test.rpc.fastnear.com,https://rpc.testnet.near.org';
+const DEFAULT_NEAR_RPC_URL = 'https://test.rpc.fastnear.com,https://rpc.testnet.near.org';
 const DEFAULT_NEAR_EXPLORER_URL = 'https://testnet.nearblocks.io';
 const DEFAULT_DOCS_ORIGIN = 'https://docs.localhost';
 const DEFAULT_TEMPO_RPC_URL = 'https://rpc.moderato.tempo.xyz';
@@ -15,6 +14,7 @@ const DEFAULT_TEMPO_EXPLORER_URL = 'https://explore.testnet.tempo.xyz';
 const DEFAULT_TEMPO_FEE_TOKEN = '0x20c0000000000000000000000000000000000001';
 // Arc-specific EVM demo defaults. Generic EVM behavior is still `chain: 'evm'`.
 const DEFAULT_ARC_RPC_URL = 'https://rpc.testnet.arc.network';
+const DEFAULT_ARC_RPC_FALLBACK_URL = 'https://rpc.drpc.testnet.arc.network';
 const DEFAULT_ARC_EXPLORER_URL = 'https://testnet.arcscan.app';
 const DEFAULT_DEMO_CONTRACT_ID = 'w3a-v1.testnet';
 
@@ -43,7 +43,9 @@ function parseSigningSessionPolicyValue(args: {
   if (!raw) return args.fallback;
   const parsed = Number(raw);
   if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > args.maximum) {
-    throw new Error(`${args.field} must be a positive safe integer no greater than ${args.maximum}`);
+    throw new Error(
+      `${args.field} must be a positive safe integer no greater than ${args.maximum}`,
+    );
   }
   return parsed;
 }
@@ -148,6 +150,14 @@ const tempoExplorerUrl = toTrimmedString(env.VITE_TEMPO_EXPLORER) || DEFAULT_TEM
 const tempoFeeToken = toTrimmedString(env.VITE_TEMPO_FEE_TOKEN) || DEFAULT_TEMPO_FEE_TOKEN;
 // Arc env keys stay Arc-branded because this demo config wires Arc testnet explicitly.
 const arcRpcUrl = toTrimmedString(env.VITE_ARC_RPC_URL) || DEFAULT_ARC_RPC_URL;
+const arcRpcRequestUrl = Array.from(
+  new Set(
+    [arcRpcUrl, DEFAULT_ARC_RPC_FALLBACK_URL]
+      .flatMap((value) => value.split(/[\s,]+/u))
+      .map((value) => value.trim())
+      .filter(Boolean),
+  ),
+).join(',');
 const arcExplorerUrl = toTrimmedString(env.VITE_ARC_EXPLORER) || DEFAULT_ARC_EXPLORER_URL;
 const signingSessionPersistenceMode = parseSigningSessionPersistenceMode(
   env.VITE_SIGNING_SESSION_PERSISTENCE_MODE,
@@ -169,7 +179,7 @@ const chains: NonNullable<SeamsConfigsInput['chains']> = [
   },
   {
     network: 'arc-testnet',
-    rpcUrl: arcRpcUrl,
+    rpcUrl: arcRpcRequestUrl,
     explorerUrl: arcExplorerUrl,
     chainId: 5_042_002,
   },
@@ -187,6 +197,7 @@ export const FRONTEND_CONFIG = Object.freeze({
   tempoExplorerUrl,
   tempoFeeToken,
   arcRpcUrl,
+  arcRpcRequestUrl,
   arcExplorerUrl,
   chains,
   walletOrigin: toOptionalString(env.VITE_WALLET_ORIGIN),
