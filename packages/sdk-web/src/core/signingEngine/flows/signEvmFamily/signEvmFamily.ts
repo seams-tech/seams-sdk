@@ -138,7 +138,6 @@ import {
 } from './operationIds';
 import {
   deriveEvmFamilyKeyFingerprintFromPublicFacts,
-  type ReadyEcdsaSignerSession,
   type VerifiedEcdsaPublicFacts,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
