@@ -77,7 +77,6 @@ function asBrand<T>(value: unknown): T {
 
 const walletId = toWalletId('phase5-wallet');
 const rpId = toRpId('wallet.example');
-const walletKeyId = asBrand<EcdsaUseCaseReadyLane['walletKeyId']>('wallet-key-phase5');
 const evmTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 11155111,
@@ -110,7 +109,6 @@ const budgetSpend: WarmSessionBudgetSpend = {
 function readyRecord(chainTarget = evmTarget): EcdsaRoleLocalReadyRecord {
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId,
-    walletKeyId,
     chainTarget,
     keyHandle: ecdsaKeyHandle,
     ecdsaThresholdKeyId: 'ecdsa-key',
@@ -165,7 +163,6 @@ function readyEcdsaLane(chainTarget = evmTarget): EcdsaUseCaseReadyLane {
   return {
     kind: 'ecdsa_ready_lane_v1',
     walletId,
-    walletKeyId,
     rpId,
     chainTarget,
     readyRecord: readyRecord(chainTarget),
