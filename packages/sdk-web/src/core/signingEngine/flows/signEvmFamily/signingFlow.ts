@@ -336,10 +336,9 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   if (hasThresholdEcdsaRequest && !signingAuthPlan) {
     throw new Error('[chains] threshold ECDSA transaction signing requires an explicit auth plan');
   }
-  const authMethod = resolveSigningConfirmationAuthMethod(
-    signingAuthPlan,
-    Boolean(thresholdEcdsaStepUpRuntime?.emailOtpSigning),
-  );
+  const authMethod = signingAuthPlan
+    ? resolveSigningConfirmationAuthMethod(signingAuthPlan)
+    : 'passkey';
   const emitProgress = (
     event: Omit<CreateSigningFlowEventInput, 'flowId' | 'accountId' | 'authMethod'>,
   ) => {
