@@ -12,14 +12,12 @@ import type {
   RecoveryPublicEcdsaSessionStoreDeps,
 } from '../../flows/recovery/public';
 import type {
-  EmailOtpEcdsaExportAuthorizationDeps,
   EmailOtpWalletSessionExportAuthorizationDeps,
 } from '../../flows/recovery/keyExportConfirmation';
 import type { CreateSigningEnginePortsArgs } from './shared';
 import type {
   EmailOtpEcdsaExportArtifact,
   ExportEcdsaKeyWithDurableAuthorizationArgs,
-  ExportEcdsaKeyWithPublicReauthAuthorizationArgs,
 } from '../../session/emailOtp/exportRecoveryRuntime';
 import type { PersistedAvailableSigningLanesDeps } from '../../session/availability/persistedAvailableSigningLanes';
 import type { EcdsaExportFlowDeps } from '../../flows/recovery/ecdsaExportFlow';
@@ -49,12 +47,8 @@ export function createRecoveryPublicDeps(args: {
   emailOtpSessions: {
     readWarmSessionStatusOnly: (sessionId: string) => Promise<WarmSessionStatusResult>;
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
-    requestPublicReauthExportChallenge: EmailOtpEcdsaExportAuthorizationDeps['requestPublicReauthExportChallenge'];
     exportEcdsaKeyWithDurableAuthorization: (
       request: ExportEcdsaKeyWithDurableAuthorizationArgs,
-    ) => Promise<EmailOtpEcdsaExportArtifact>;
-    exportEcdsaKeyWithPublicReauthAuthorization: (
-      request: Omit<ExportEcdsaKeyWithPublicReauthAuthorizationArgs, 'appSessionJwt'>,
     ) => Promise<EmailOtpEcdsaExportArtifact>;
     exportEd25519YaoSeedWithFreshEmailOtpLane: RecoveryPublicDeps['ed25519Yao']['emailOtp']['exportSeedWithFreshAuthorization'];
   };
@@ -112,12 +106,8 @@ export function createRecoveryPublicDeps(args: {
             EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge']
           >[0],
         ) => args.emailOtpSessions.requestExportChallenge(request),
-        requestPublicReauthExportChallenge: (request) =>
-          args.emailOtpSessions.requestPublicReauthExportChallenge(request),
         exportEcdsaKeyWithDurableAuthorization: (request) =>
           args.emailOtpSessions.exportEcdsaKeyWithDurableAuthorization(request),
-        exportEcdsaKeyWithPublicReauthAuthorization: (request) =>
-          args.emailOtpSessions.exportEcdsaKeyWithPublicReauthAuthorization(request),
       },
       provisionPasskeyEcdsaExplicitExportSession: (request) =>
         args.provisionPasskeyEcdsaExplicitExportSession(request),

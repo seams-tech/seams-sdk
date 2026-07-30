@@ -29,7 +29,6 @@ import {
   type LoginEmailOtpEcdsaCapabilityForSigningArgs,
 } from './ecdsaLogin';
 import type { EmailOtpEcdsaPublicReauthLane } from '../../flows/signEvmFamily/ecdsaSelection';
-import type { EmailOtpEcdsaPublicReauthExportAuthority } from '../../flows/recovery/ecdsaExportMaterial';
 import { EmailOtpEcdsaLifecycleRuntime } from './ecdsaLifecycleRuntime';
 import {
   EmailOtpExportRecoveryRuntime,
@@ -37,13 +36,12 @@ import {
   type ExportEcdsaKeyWithDurableAuthorizationArgs,
   type ExportEd25519YaoSeedWithFreshEmailOtpLaneArgs,
   type RequestEmailOtpChallengeArgs,
+  type RequestEmailOtpExportChallengeArgs,
 } from './exportRecoveryRuntime';
 import { EmailOtpRuntimeConfig } from './runtimeConfig';
 import { EmailOtpSealedSessionRegistry } from './sealedSessionRegistry';
 import { EmailOtpSealedRefreshPolicy } from './sealedRefreshPolicy';
 import type { WarmSessionLanePurpose } from './sealedRuntimePurpose';
-import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
-import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
 import { EmailOtpSealedRestoreOrchestrator } from './sealedRestoreOrchestrator';
 import {
   createEmailOtpWarmSessionWorkerClient,
@@ -240,56 +238,15 @@ export class EmailOtpWalletSessionRuntime {
   }
 
   async requestExportChallenge(
-    args: RequestEmailOtpChallengeArgs,
+    args: RequestEmailOtpExportChallengeArgs,
   ): Promise<EmailOtpTransactionSigningChallenge> {
     return await this.exportRecoveryRuntime.requestExportChallenge(args);
-  }
-
-  async requestPublicReauthExportChallenge(args: {
-    walletSession: WalletSessionRef;
-    chain: ThresholdEcdsaChainTarget['kind'];
-  }): Promise<EmailOtpTransactionSigningChallenge> {
-    const appSessionJwt = await this.resolveAppSessionJwt({
-      walletSession: args.walletSession,
-      relayUrl: this.runtimeConfig.requireRelayUrl(),
-    });
-    return await this.exportRecoveryRuntime.requestExportChallenge({
-      kind: 'wallet_public_reauth_challenge',
-      walletSession: args.walletSession,
-      chain: args.chain,
-      appSessionJwt,
-    });
   }
 
   async exportEcdsaKeyWithDurableAuthorization(
     args: ExportEcdsaKeyWithDurableAuthorizationArgs,
   ): Promise<EmailOtpEcdsaExportArtifact> {
     return await this.exportRecoveryRuntime.exportEcdsaKeyWithDurableAuthorization(args);
-  }
-
-  async exportEcdsaKeyWithPublicReauthAuthorization(args: {
-    walletSession: WalletSessionRef;
-    chainTarget: ThresholdEcdsaChainTarget;
-    challengeId: string;
-    otpCode: string;
-    publicReauthAuthority: EmailOtpEcdsaPublicReauthExportAuthority;
-    persistedMaterial: PersistedEcdsaRoleLocalMaterial;
-    explicitExportAuthorization: EcdsaExplicitExportOperationAuthorization;
-  }): Promise<EmailOtpEcdsaExportArtifact> {
-    const appSessionJwt = await this.resolveAppSessionJwt({
-      walletSession: args.walletSession,
-      relayUrl: this.runtimeConfig.requireRelayUrl(),
-    });
-    return await this.exportRecoveryRuntime.exportEcdsaKeyWithPublicReauthAuthorization({
-      walletSession: args.walletSession,
-      chainTarget: args.chainTarget,
-      challengeId: args.challengeId,
-      otpCode: args.otpCode,
-      appSessionJwt,
-      publicReauthAuthority: args.publicReauthAuthority,
-      persistedMaterial: args.persistedMaterial,
-      explicitExportAuthorization: args.explicitExportAuthorization,
-    });
   }
 
   async exportEd25519YaoSeedWithFreshEmailOtpLane(

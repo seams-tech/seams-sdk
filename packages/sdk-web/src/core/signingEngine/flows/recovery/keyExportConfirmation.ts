@@ -45,22 +45,10 @@ export type EmailOtpWalletSessionExportAuthorizationDeps = {
   ) => Promise<EmailOtpTransactionSigningChallenge>;
 };
 
-export type EmailOtpEcdsaExportAuthorizationDeps = EmailOtpWalletSessionExportAuthorizationDeps & {
-  requestPublicReauthExportChallenge: (args: {
-    walletSession: WalletSessionRef;
-    chain: ThresholdEcdsaChainTarget['kind'];
-  }) => Promise<EmailOtpTransactionSigningChallenge>;
+type WalletSessionEcdsaExportChallengeAuthority = {
+  kind: 'signing_session';
+  authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
 };
-
-type WalletSessionEcdsaExportChallengeAuthority =
-  | {
-      kind: 'signing_session';
-      authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
-    }
-  | {
-      kind: 'public_reauth';
-      authLane?: never;
-    };
 
 type WalletSessionEcdsaExportAuthorizationArgs = {
   kind: 'wallet_session_export_auth';
@@ -92,23 +80,15 @@ type WalletSessionEd25519ExportAuthorizationArgs = {
 };
 
 async function requestWalletSessionEcdsaExportChallenge(
-  deps: EmailOtpEcdsaExportAuthorizationDeps,
+  deps: EmailOtpWalletSessionExportAuthorizationDeps,
   args: WalletSessionEcdsaExportAuthorizationArgs,
 ): Promise<EmailOtpTransactionSigningChallenge> {
-  switch (args.challengeAuthority.kind) {
-    case 'signing_session':
-      return await deps.requestExportChallenge({
-        kind: 'wallet_session_challenge',
-        walletSession: args.walletSession,
-        chain: args.chain,
-        authLane: args.challengeAuthority.authLane,
-      });
-    case 'public_reauth':
-      return await deps.requestPublicReauthExportChallenge({
-        walletSession: args.walletSession,
-        chain: args.chain,
-      });
-  }
+  return await deps.requestExportChallenge({
+    kind: 'wallet_session_challenge',
+    walletSession: args.walletSession,
+    chain: args.chain,
+    authLane: args.challengeAuthority.authLane,
+  });
 }
 
 function emitEmailOtpExportChallenge(
@@ -198,7 +178,7 @@ export function isEmailOtpPasskeyStepUpError(error: unknown): boolean {
 }
 
 export async function requestEmailOtpKeyExportAuthorization(
-  deps: EmailOtpEcdsaExportAuthorizationDeps,
+  deps: EmailOtpWalletSessionExportAuthorizationDeps,
   args: WalletSessionEcdsaExportAuthorizationArgs,
 ): Promise<ExportEmailOtpStepUpAuthorization> {
   const accountIdForUi = args.walletSession.walletSessionUserId;
