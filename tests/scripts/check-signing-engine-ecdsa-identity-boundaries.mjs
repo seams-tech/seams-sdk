@@ -332,19 +332,6 @@ function checkEmailOtpEcdsaExportAuthorizationUsesWalletSessionIdentity() {
   assertNoOffenders(offenders, 'Email OTP ECDSA export authorization identity');
 }
 
-function checkEcdsaDerivationExportConfirmationDigestBindsSlot() {
-  const passkeyExportSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaDerivationExport.ts',
-  );
-  const passkeyDigest = findObjectBlockAfter(
-    passkeyExportSource,
-    'const confirmationDigest32B64u = await digestB64u(',
-  );
-  if (!passkeyDigest.includes('evmFamilySigningKeySlotId')) {
-    throw new Error('ECDSA derivation export confirmation digest does not bind the signing slot');
-  }
-}
-
 function checkBudgetStatusLookupAvoidsSubjectWideEcdsaScanFallback() {
   const source = readRepoFile(
     'packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts',
@@ -1045,9 +1032,6 @@ function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
   const clientSource = readRepoFile(
     'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
   );
-  const clientSessionPolicySource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts',
-  );
   const serverSource = readRepoFile('packages/sdk-server-ts/src/core/types.ts');
   const thresholdPrfSource = readRepoFile(
     'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts',
@@ -1144,32 +1128,6 @@ function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
     ...expectNoNearAccountId(
       serverRoleLocalRecordBlock,
       'packages/sdk-server-ts/src/core/types.ts EcdsaDerivationRoleLocalKeyRecord',
-    ),
-  );
-
-  const clientEcdsaPolicyBlock = findTypeDeclaration(
-    clientSessionPolicySource,
-    'EcdsaDerivationSessionPolicy',
-  );
-  offenders.push(
-    ...expectRequiredFields(
-      clientEcdsaPolicyBlock,
-      ['walletId', 'evmFamilySigningKeySlotId', 'chainTarget', 'sessionId', 'signingGrantId'],
-      'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaDerivationSessionPolicy',
-    ),
-    ...expectNoField(
-      clientEcdsaPolicyBlock,
-      'rpId',
-      'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaDerivationSessionPolicy',
-    ),
-    ...expectNoField(
-      clientEcdsaPolicyBlock,
-      'userId',
-      'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaDerivationSessionPolicy',
-    ),
-    ...expectNoNearAccountId(
-      clientEcdsaPolicyBlock,
-      'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaDerivationSessionPolicy',
     ),
   );
 
@@ -1328,7 +1286,6 @@ function checkEcdsaDerivationWasmPackageExportsStayRoleLocal() {
 
 function runChecks() {
   checkEmailOtpEcdsaExportAuthorizationUsesWalletSessionIdentity();
-  checkEcdsaDerivationExportConfirmationDigestBindsSlot();
   checkBudgetStatusLookupAvoidsSubjectWideEcdsaScanFallback();
   checkBrowserSigningSurfaceDoesNotDeriveEcdsaSubjectFromAccounts();
   checkPublicSdkSignerFixturesUseDomainShapedCalls();

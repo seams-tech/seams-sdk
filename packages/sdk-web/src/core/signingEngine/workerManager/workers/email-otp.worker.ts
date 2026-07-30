@@ -171,7 +171,8 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  buildEcdsaDerivationSessionPolicy,
+  DEFAULT_THRESHOLD_SESSION_POLICY,
+  clampThresholdSessionPolicy,
   generateThresholdSessionId,
   generateSigningGrantId,
   normalizeThresholdRuntimePolicyScope,
@@ -4465,17 +4466,9 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
   const runtimePolicyScope = args.runtimePolicyScope;
 
   args.onProgress?.('signer.ecdsa.bootstrap.started');
-  const sessionPolicy = buildEcdsaDerivationSessionPolicy({
-    walletId,
-    evmFamilySigningKeySlotId,
-    chainTarget,
-    ...(keyHandle ? { keyHandle } : {}),
-    sessionId,
-    signingGrantId,
-    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(participantIds ? { participantIds } : {}),
-    ttlMs: args.ttlMs,
-    remainingUses: args.remainingUses,
+  const sessionPolicy = clampThresholdSessionPolicy({
+    ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
+    remainingUses: args.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
   });
   const ttlMs = sessionPolicy.ttlMs;
   const remainingUses = sessionPolicy.remainingUses;
