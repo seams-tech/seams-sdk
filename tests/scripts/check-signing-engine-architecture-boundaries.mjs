@@ -798,7 +798,6 @@ function checkThresholdProtocolEntrypointsTakeProtocolMaterial() {
   const protocolFiles = [
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts',
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
-    'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/connectSession.ts',
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/keygen.ts',
     'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
     'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/poolFillRoutes.ts',
