@@ -438,8 +438,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~Passkey volatile warm-material writes, status reads, claims, consumption,
   clearing, session-worker lifecycle, prewarm, and session-worker request
   routing inside `UiConfirmManager.ts`~~ — moved to the dedicated
-  `PasskeyMpcSessionManager`; durable seal/restore coordination remains the next
-  same-owner cut
+  `PasskeyMpcSessionManager`; durable seal persistence and restore followed
+  into the same owner in `d9c303f3c`, and policy storage semantics followed in
+  `fe07fea5b`
 - ~~zero-caller auth-method-neutral
   `UiConfirmManager.deleteDurableSealedSessionRecord` public alias and port~~ —
   deleted; Passkey corruption cleanup remains private to its durable owner and
@@ -458,11 +459,20 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   surface calls the factor owner directly
 - ~~exported `PasskeyMpcSessionDurableWorkerPort` duplicate of the dedicated
   session port's raw seal/rehydrate methods~~ — deleted; generic confirmation
-  temporarily receives only the one raw seal method it still calls
+  retains no raw seal/rehydrate or durable-session port
 - ~~`ensurePasskeySealedRecordPersisted` and
   `PasskeyWarmSessionPersistenceCoordinator` one-call adapter~~ — deleted; the
   dedicated session owner handles the optional missing-restore-metadata result
   before evaluating persistence failure
+- ~~high-level Passkey seal persistence, exact-record registration/readback,
+  persistence single-flight, and sealed-session policy coordination inside
+  generic confirmation~~ — moved to `PasskeyMpcSessionManager` and its private
+  durable-state owner by `d9c303f3c`, with policy storage semantics completed
+  by `fe07fea5b`; inactive-material operating consumption remains open
+- ~~ECDSA public-only reauthorization-anchor records produced by expiry and
+  exhaustion~~ — replaced by authorization-free inactive sealed-material
+  records that retain the encrypted material and exact activation binding in
+  `fe07fea5b`
 - ~~unused `UiConfirmSigningRuntimePort` and generic combined
   `UiConfirmSigningSessionPort` exports~~ — Near runtime dependencies name the
   required confirmation and warm-material ports directly
