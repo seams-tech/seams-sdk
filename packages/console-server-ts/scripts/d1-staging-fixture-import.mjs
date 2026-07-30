@@ -36,7 +36,7 @@ const fixtureTargets = Object.freeze([
     logicalName: 'console',
     tableFamily: 'console',
     profile: 'console',
-    databaseName: 'seams-console-staging',
+    databaseName: 'seams-console-staging-nrt',
     configField: 'consoleConfigPath',
     fixtureField: 'consoleFixturePath',
     allowedTableNames: readD1MigrationTableNames('migrations/d1-console'),
@@ -45,7 +45,7 @@ const fixtureTargets = Object.freeze([
     logicalName: 'signer',
     tableFamily: 'signer',
     profile: 'gateway',
-    databaseName: 'seams-signer-staging',
+    databaseName: 'seams-signer-staging-nrt',
     configField: 'gatewayConfigPath',
     fixtureField: 'signerFixturePath',
     allowedTableNames: readD1MigrationTableNames(

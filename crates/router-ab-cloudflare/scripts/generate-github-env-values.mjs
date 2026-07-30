@@ -41,6 +41,7 @@ const DEPLOYMENT_AUDIT_VARIABLE_UPLOAD_ORDER = Object.freeze([
 ]);
 const DEPLOYMENT_AUDIT_VARIABLE_NAMES = new Set(DEPLOYMENT_AUDIT_VARIABLE_UPLOAD_ORDER);
 const OBSOLETE_GATEWAY_VARIABLE_NAMES = new Set([
+  'GATEWAY_DEPLOYMENT_CONFIG_JSON',
   'GATEWAY_WORKER_NAME',
   'GATEWAY_CONSOLE_D1_DATABASE_NAME',
   'GATEWAY_CONSOLE_D1_DATABASE_ID',
@@ -160,7 +161,6 @@ const apply = argv.includes('--apply');
 const prepare = argv.includes('--prepare');
 const rotate = argv.includes('--rotate');
 const verifyGeneration = argv.includes('--verify-generation');
-const migrateGatewayConfig = argv.includes('--migrate-gateway-config');
 const allowIncomplete = argv.includes('--allow-incomplete');
 const requestedRepository = readOption('--repo');
 const deploymentComponent = readDeploymentComponent();
@@ -169,8 +169,8 @@ const valuesFile = readOption('--values-file') || findDefaultValuesFile(target);
 const progress = createProgressLogger(resolveProgressStepCount());
 let repository = requestedRepository;
 if (verifyGeneration) {
-  if (apply || rotate || migrateGatewayConfig) {
-    throw new Error('--verify-generation cannot be combined with an apply or migration option');
+  if (apply || rotate) {
+    throw new Error('--verify-generation cannot be combined with an apply or rotate option');
   }
   progress.step('Validate GitHub authentication and repository access');
   repository = resolveGitHubRepository(requestedRepository);
@@ -183,19 +183,8 @@ if (verifyGeneration) {
   }
   process.exit(0);
 }
-if (migrateGatewayConfig) {
-  if (!apply) {
-    throw new Error('--migrate-gateway-config requires --apply');
-  }
-  progress.step('Validate GitHub authentication and repository access');
-  repository = resolveGitHubRepository(requestedRepository);
-  progress.step('Consolidate existing Gateway variables');
-  const migration = migrateExistingGatewayVariables(target, repository);
-  process.stdout.write(`${JSON.stringify(migration, null, 2)}\n`);
-  process.exit(0);
-}
 if (manifestFile) {
-  if (!apply || prepare || migrateGatewayConfig || verifyGeneration) {
+  if (!apply || prepare || verifyGeneration) {
     throw new Error('--manifest-file requires --apply and cannot be combined with another mode');
   }
   if (!deploymentComponent) {
@@ -400,7 +389,6 @@ Options:
   --apply                      Upload one prepared component manifest.
   --rotate                     Permit replacement of existing wallet-critical identities.
   --verify-generation          Verify audit metadata across all target environments.
-  --migrate-gateway-config     Consolidate an initialized Gateway without rotating identities.
   --allow-incomplete           Permit a partial apply with unresolved required values.
   --repo <owner/repo>          GitHub repository; defaults to the current repo.
   --json                       Print one machine-readable JSON document.
@@ -453,9 +441,6 @@ function buildTargetConfiguration(targetName, suppliedValues) {
   );
   const runtimeProfile = buildGatewayRuntimeProfile(runtimeProfileKind, emailOtpDeliveryKind);
   const nearNetwork = gatewayRuntimeProfileNearNetwork(runtimeProfile);
-  const generatedOrgId = `org_${targetName}`;
-  const generatedProjectId = `project_${targetName}`;
-  const generatedEnvironmentId = targetName;
   const gatewayOrigin =
     readOption('--gateway-origin') ||
     readSuppliedValue(suppliedValues, targetName, targetName, 'GATEWAY_ORIGIN') ||
@@ -463,15 +448,15 @@ function buildTargetConfiguration(targetName, suppliedValues) {
   const orgId =
     readOption('--org-id') ||
     readSuppliedValue(suppliedValues, targetName, `${targetName}-gateway`, 'SEAMS_ORG_ID') ||
-    generatedOrgId;
+    manual(`${targetName}-organization-id`);
   const projectId =
     readOption('--project-id') ||
     readSuppliedValue(suppliedValues, targetName, `${targetName}-gateway`, 'SEAMS_PROJECT_ID') ||
-    generatedProjectId;
+    manual(`${targetName}-project-id`);
   const environmentId =
     readOption('--environment-id') ||
     readSuppliedValue(suppliedValues, targetName, `${targetName}-gateway`, 'SEAMS_ENV_ID') ||
-    generatedEnvironmentId;
+    manual(`${targetName}-environment-id`);
   const projectEnvironmentId =
     readOption('--project-environment-id') ||
     readSuppliedValue(
@@ -480,7 +465,10 @@ function buildTargetConfiguration(targetName, suppliedValues) {
       targetName,
       'VITE_SEAMS_PROJECT_ENVIRONMENT_ID',
     ) ||
-    environmentId;
+    manual(`${targetName}-project-environment-id`);
+  const publishableKey =
+    readSuppliedValue(suppliedValues, targetName, targetName, 'VITE_SEAMS_PUBLISHABLE_KEY') ||
+    manual(`${targetName}-publishable-key`);
   const tenantNamespace =
     readOption('--tenant-namespace') ||
     readSuppliedValue(
@@ -521,6 +509,27 @@ function buildTargetConfiguration(targetName, suppliedValues) {
       `${targetName}-gateway`,
       'GATEWAY_SIGNER_D1_DATABASE_ID',
     ) || manual(`${targetName}-signer-d1-database-id`);
+  const deriverAPrivateDatabaseId =
+    readSuppliedValue(
+      suppliedValues,
+      targetName,
+      `${targetName}-deriver-a`,
+      'ROUTER_AB_DERIVER_A_PRIVATE_D1_ID',
+    ) || manual(`${targetName}-deriver-a-private-d1-database-id`);
+  const deriverBPrivateDatabaseId =
+    readSuppliedValue(
+      suppliedValues,
+      targetName,
+      `${targetName}-deriver-b`,
+      'ROUTER_AB_DERIVER_B_PRIVATE_D1_ID',
+    ) || manual(`${targetName}-deriver-b-private-d1-database-id`);
+  const signingWorkerPrivateDatabaseId =
+    readSuppliedValue(
+      suppliedValues,
+      targetName,
+      `${targetName}-signing-worker`,
+      'ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID',
+    ) || manual(`${targetName}-signing-worker-private-d1-database-id`);
   const secretsStoreId =
     readSuppliedValue(
       suppliedValues,
@@ -542,16 +551,20 @@ function buildTargetConfiguration(targetName, suppliedValues) {
     projectId,
     environmentId,
     projectEnvironmentId,
+    publishableKey,
     tenantNamespace,
     gatewayWorkerName: production ? 'seams-sdk-d1-gateway' : 'seams-sdk-d1-gateway-staging',
     mpcRouterWorkerName: production ? 'router-ab-mpc-router' : 'router-ab-mpc-router-staging',
     deriverAWorkerName: production ? 'router-ab-deriver-a' : 'router-ab-deriver-a-staging',
     deriverBWorkerName: production ? 'router-ab-deriver-b' : 'router-ab-deriver-b-staging',
     signingWorkerName: production ? 'router-ab-signing-worker' : 'router-ab-signing-worker-staging',
-    consoleDatabaseName: production ? 'seams-console' : 'seams-console-staging',
+    consoleDatabaseName: production ? 'seams-console' : 'seams-console-staging-nrt',
     consoleDatabaseId,
-    signerDatabaseName: production ? 'seams-signer' : 'seams-signer-staging',
+    signerDatabaseName: production ? 'seams-signer' : 'seams-signer-staging-nrt',
     signerDatabaseId,
+    deriverAPrivateDatabaseId,
+    deriverBPrivateDatabaseId,
+    signingWorkerPrivateDatabaseId,
     secretsStoreId,
     signingRootKekId: `signing-root-kek-${targetName}-r1`,
     ceremonyJwtKeyId: `router-ab-ceremony-${targetName}-r1`,
@@ -569,7 +582,6 @@ function buildGeneratedSecrets(targetName, sealMaterial) {
     accountIdDerivation: randomBase64Url(32),
     consoleEmailInvitationSecret: randomBase64Url(32),
     ceremonyPrivateJwk: generateCeremonyPrivateJwk(),
-    publishableKey: `pk_${randomBytes(16).toString('hex')}`,
     signingRootKek: randomBase64Url(32),
     signingSession: {
       keyVersion: sealMaterial.keyVersion,
@@ -585,7 +597,7 @@ function buildOutput(input) {
   const keyset = buildPublicKeyset(input.deployment);
   const registrationTopology = buildRegistrationTopology(input.configuration, input.deployment);
   const projectPolicy = buildProjectPolicy(input.target, input.configuration);
-  const environments = buildEnvironments({
+  const deploymentInput = {
     target: input.target,
     deployment: input.deployment,
     rootShares: input.rootShares,
@@ -594,7 +606,8 @@ function buildOutput(input) {
     keyset,
     registrationTopology,
     projectPolicy,
-  });
+  };
+  const environments = buildEnvironments(deploymentInput);
 
   return {
     schemaVersion: 1,
@@ -603,6 +616,7 @@ function buildOutput(input) {
     generatedAt: new Date().toISOString(),
     warning:
       'This document contains private keys and secrets. Store it securely and never commit it.',
+    gatewayDeploymentConfig: buildGatewayDeploymentConfig(deploymentInput),
     environments,
     manualInputs: collectManualInputs(environments),
   };
@@ -629,6 +643,7 @@ function buildDeploymentDigestPayload(output) {
     target: output.target,
     generationId: output.generationId,
     generatedAt: output.generatedAt,
+    gatewayDeploymentConfig: output.gatewayDeploymentConfig,
     environments: output.environments,
   };
 }
@@ -675,6 +690,7 @@ function buildPreparedComponentManifest(output, component) {
     generatedAt: output.generatedAt,
     manifestSha256: output.manifestSha256,
     warning: output.warning,
+    gatewayDeploymentConfig: output.gatewayDeploymentConfig,
     environments,
     manualInputs: collectManualInputs(environments),
     requiredManualInputs: collectRequiredManualInputs(environments),
@@ -693,6 +709,7 @@ function computeComponentManifestSha256(manifest) {
         generationId: manifest.generationId,
         generatedAt: manifest.generatedAt,
         manifestSha256: manifest.manifestSha256,
+        gatewayDeploymentConfig: manifest.gatewayDeploymentConfig,
         environments: manifest.environments,
       }),
       'utf8',
@@ -711,7 +728,7 @@ function buildGeneralEnvironment(input) {
       variables: {
         VITE_RELAYER_URL: configuration.gatewayOrigin,
         VITE_SEAMS_PROJECT_ENVIRONMENT_ID: configuration.projectEnvironmentId,
-        VITE_SEAMS_PUBLISHABLE_KEY: input.generatedSecrets.publishableKey,
+        VITE_SEAMS_PUBLISHABLE_KEY: configuration.publishableKey,
         VITE_NEAR_NETWORK: configuration.nearNetwork,
         VITE_NEAR_RPC_URL: configuration.nearRpcUrl,
         VITE_NEAR_EXPLORER: configuration.nearExplorerUrl,
@@ -748,13 +765,11 @@ function buildGeneralEnvironment(input) {
 function buildGatewayEnvironment(input) {
   const environmentName = `${input.target}-gateway`;
   const signingSession = input.generatedSecrets.signingSession;
-  const deploymentConfig = buildGatewayDeploymentConfig(input);
   return [
     environmentName,
     {
       purpose: 'Gateway Worker, D1, tenant state, and public ceremony JWT issuer',
       variables: {
-        GATEWAY_DEPLOYMENT_CONFIG_JSON: JSON.stringify(deploymentConfig),
         CONSOLE_EMAIL_FROM: manual(`${input.target}-console-email-from`),
       },
       optionalVariables: {},
@@ -769,9 +784,7 @@ function buildGatewayEnvironment(input) {
         SPONSORED_EVM_EXECUTORS_JSON: manual(`${input.target}-sponsored-evm-executors-json`),
         STRIPE_API_SK: manual(`${input.target}-stripe-secret-key`),
         STRIPE_WEBHOOK_SECRET: manual(`${input.target}-stripe-webhook-signing-secret`),
-        RESEND_API_KEY: manual(`${input.target}-resend-api-key`),
-        CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U:
-          input.generatedSecrets.consoleEmailInvitationSecret,
+        CONSOLE_INITIAL_OWNER_EMAIL: manual(`${input.target}-console-initial-owner-email`),
         SIGNING_ROOT_KEK_VALUE: input.generatedSecrets.signingRootKek,
         SIGNING_SESSION_SEAL_KEY_VERSION: signingSession.keyVersion,
         SIGNING_SESSION_SHAMIR_P_B64U: signingSession.shamirPrimeB64u,
@@ -828,10 +841,6 @@ function buildGatewayDeploymentConfig(input) {
       deriverBYaoInputPublicKey: deploymentVariables.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
       signingWorkerOutputPublicKey:
         deploymentVariables.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
-    },
-    bootstrap: {
-      publishableKey: input.generatedSecrets.publishableKey,
-      allowedOrigins: [configuration.appOrigin, configuration.walletOrigin],
     },
     optional: buildGatewayOptionalDeploymentConfig(input),
   };
@@ -935,11 +944,17 @@ function buildDeriverAEnvironment(input) {
   secrets.DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY =
     input.deployment.secrets.DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY;
   secrets.DERIVER_A_PEER_SIGNING_KEY = input.deployment.secrets.DERIVER_A_PEER_SIGNING_KEY;
+  secrets.DERIVER_A_ROLE_PRIVATE_D1_KEK = input.deployment.secrets.DERIVER_A_ROLE_PRIVATE_D1_KEK;
   return [
     environmentName,
     {
       purpose: 'Deriver A Worker',
       variables: {
+        ROUTER_AB_DERIVER_A_PRIVATE_D1_ID: input.configuration.deriverAPrivateDatabaseId,
+        ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY:
+          variables.ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION:
+          variables.ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION,
         ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:
           variables.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
         ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX:
@@ -966,11 +981,17 @@ function buildDeriverBEnvironment(input) {
   secrets.DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY =
     input.deployment.secrets.DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY;
   secrets.DERIVER_B_PEER_SIGNING_KEY = input.deployment.secrets.DERIVER_B_PEER_SIGNING_KEY;
+  secrets.DERIVER_B_ROLE_PRIVATE_D1_KEK = input.deployment.secrets.DERIVER_B_ROLE_PRIVATE_D1_KEK;
   return [
     environmentName,
     {
       purpose: 'Deriver B Worker',
       variables: {
+        ROUTER_AB_DERIVER_B_PRIVATE_D1_ID: input.configuration.deriverBPrivateDatabaseId,
+        ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY:
+          variables.ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION:
+          variables.ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION,
         ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:
           variables.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
         ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX:
@@ -993,11 +1014,17 @@ function buildSigningWorkerEnvironment(input) {
   );
   secrets.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY =
     input.deployment.secrets.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY;
+  secrets.SIGNING_WORKER_PRIVATE_D1_KEK = input.deployment.secrets.SIGNING_WORKER_PRIVATE_D1_KEK;
   return [
     environmentName,
     {
       purpose: 'SigningWorker Worker',
       variables: {
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID: input.configuration.signingWorkerPrivateDatabaseId,
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY:
+          input.deployment.variables.ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY,
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_VERSION:
+          input.deployment.variables.ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_VERSION,
         ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:
           input.deployment.variables.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
       },
@@ -1199,14 +1226,50 @@ async function discoverCloudflareValues(targetName, suppliedValues, progressLogg
     suppliedValues,
     progressLogger,
     variableName: 'GATEWAY_CONSOLE_D1_DATABASE_ID',
-    databaseName: targetName === 'production' ? 'seams-console' : 'seams-console-staging',
+    databaseName: targetName === 'production' ? 'seams-console' : 'seams-console-staging-nrt',
   });
   ensureD1Database({
     targetName,
     suppliedValues,
     progressLogger,
     variableName: 'GATEWAY_SIGNER_D1_DATABASE_ID',
-    databaseName: targetName === 'production' ? 'seams-signer' : 'seams-signer-staging',
+    databaseName: targetName === 'production' ? 'seams-signer' : 'seams-signer-staging-nrt',
+  });
+  ensureD1Database({
+    targetName,
+    suppliedValues,
+    progressLogger,
+    environmentName: `${targetName}-deriver-a`,
+    variableName: 'ROUTER_AB_DERIVER_A_PRIVATE_D1_ID',
+    databaseName:
+      targetName === 'production'
+        ? 'router-ab-deriver-a-private'
+        : 'router-ab-deriver-a-staging-private',
+    locationHint: 'apac',
+  });
+  ensureD1Database({
+    targetName,
+    suppliedValues,
+    progressLogger,
+    environmentName: `${targetName}-deriver-b`,
+    variableName: 'ROUTER_AB_DERIVER_B_PRIVATE_D1_ID',
+    databaseName:
+      targetName === 'production'
+        ? 'router-ab-deriver-b-private'
+        : 'router-ab-deriver-b-staging-private',
+    locationHint: 'apac',
+  });
+  ensureD1Database({
+    targetName,
+    suppliedValues,
+    progressLogger,
+    environmentName: `${targetName}-signing-worker`,
+    variableName: 'ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID',
+    databaseName:
+      targetName === 'production'
+        ? 'router-ab-signing-worker-private'
+        : 'router-ab-signing-worker-staging-private',
+    locationHint: 'apac',
   });
   ensurePagesProjects(targetName, suppliedValues, progressLogger);
   ensureSecretsStore(targetName, suppliedValues, progressLogger);
@@ -1289,7 +1352,7 @@ function ensureD1Database(input) {
   const existing = readSuppliedValue(
     input.suppliedValues,
     input.targetName,
-    `${input.targetName}-gateway`,
+    input.environmentName || `${input.targetName}-gateway`,
     input.variableName,
   );
   if (existing) {
@@ -1297,7 +1360,9 @@ function ensureD1Database(input) {
   }
   let database = runWranglerJson(['d1', 'info', input.databaseName, '--json']);
   if (!database.ok || typeof database.value.uuid !== 'string') {
-    const created = runWrangler(['d1', 'create', input.databaseName]);
+    const createArguments = ['d1', 'create', input.databaseName];
+    if (input.locationHint) createArguments.push('--location', input.locationHint);
+    const created = runWrangler(createArguments);
     if (created.status !== 0) {
       throw new Error(formatWranglerFailure(`create D1 database ${input.databaseName}`, created));
     }
@@ -1650,7 +1715,7 @@ function assertCompleteApplyInput(outputDocument, shouldApply, incompleteAllowed
   throw new Error(
     `Required deployment values are unresolved. ${valuesFileInstruction}\n\n` +
       `Missing:\n- ${outputDocument.requiredManualInputs.join('\n- ')}\n\n` +
-      'Use --allow-incomplete only for an intentional partial bootstrap.',
+      'Use --allow-incomplete only for an intentional partial setup.',
   );
 }
 
@@ -1669,6 +1734,10 @@ function validateOutput(outputDocument) {
     'generated GitHub Environment names',
   );
   validateEnvironmentValues(outputDocument.environments);
+  parseStrictGatewayDeploymentConfig(
+    JSON.stringify(outputDocument.gatewayDeploymentConfig),
+    outputDocument.target,
+  );
   validateCloudflareServiceBindingAccount(outputDocument);
   validateSharedInternalServiceAuth(outputDocument);
   validateRoleSecretIsolation(outputDocument);
@@ -1722,10 +1791,7 @@ function validateWorkflowCoverage(outputDocument) {
 }
 
 function readDeploymentWorkflow(targetName, lane) {
-  return readFileSync(
-    join(repoRoot, `.github/workflows/deploy-${targetName}-${lane}.yml`),
-    'utf8',
-  );
+  return readFileSync(join(repoRoot, `.github/workflows/deploy-${targetName}-${lane}.yml`), 'utf8');
 }
 
 function extractWorkflowJob(workflowSource, jobName) {
@@ -1875,7 +1941,7 @@ function validateGatewayRegistrationDocuments(outputDocument) {
   const environments = outputDocument.environments;
   const gateway = environments[`${outputDocument.target}-gateway`];
   const router = environments[`${outputDocument.target}-mpc-router`];
-  const deploymentConfig = parseGatewayDeploymentConfig(gateway);
+  const deploymentConfig = outputDocument.gatewayDeploymentConfig;
   const keyset = deploymentConfig.routerAb.publicKeyset;
   const topology = deploymentConfig.routerAb.registrationTopology;
   const policy = JSON.parse(router.variables.ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON);
@@ -1925,20 +1991,6 @@ function validateGatewayRegistrationDocuments(outputDocument) {
     ['alg', 'crv', 'kid', 'kty', 'use', 'x'],
     'ceremony JWT public JWK',
   );
-}
-
-function parseGatewayDeploymentConfig(gatewayEnvironment) {
-  const raw = gatewayEnvironment.variables.GATEWAY_DEPLOYMENT_CONFIG_JSON;
-  const config = parseSuppliedJsonObject('GATEWAY_DEPLOYMENT_CONFIG_JSON', raw);
-  assertEqual(
-    config.schemaVersion,
-    GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
-    'Gateway deployment config schema version',
-  );
-  if (!config.routerAb || typeof config.routerAb !== 'object') {
-    throw new Error('Gateway deployment config routerAb object is missing');
-  }
-  return config;
 }
 
 function validateSigningSessionConsistency(outputDocument) {
@@ -2060,6 +2112,7 @@ function validatePreparedComponentManifest(manifest, targetName, component) {
   assertEqual(manifest.schemaVersion, 1, 'prepared deployment manifest schema version');
   assertEqual(manifest.target, targetName, 'prepared deployment target');
   assertEqual(manifest.deploymentComponent, component, 'prepared deployment component');
+  parseStrictGatewayDeploymentConfig(JSON.stringify(manifest.gatewayDeploymentConfig), targetName);
   const expectedEnvironmentNames = deploymentComponentEnvironmentNames(targetName, component);
   assertEqual(
     Object.keys(manifest.environments || {}),
@@ -2159,7 +2212,12 @@ function applyGeneratedValues(data, repositoryName, progressLogger, backupPath) 
     if (environmentName === `${data.target}-gateway`) {
       removedVariables.push(...removeObsoleteGatewayVariables(environmentName, repositoryName));
       removedSecrets.push(
-        ...removeDisabledGatewaySecrets(environmentName, environment, repositoryName),
+        ...removeDisabledGatewaySecrets(
+          environmentName,
+          environment,
+          data.gatewayDeploymentConfig,
+          repositoryName,
+        ),
       );
     }
     progressLogger.detail(
@@ -2197,11 +2255,7 @@ function applyGeneratedValues(data, repositoryName, progressLogger, backupPath) 
   };
 }
 
-function removeDisabledGatewaySecrets(environmentName, environment, repositoryName) {
-  const config = parseSuppliedJsonObject(
-    'GATEWAY_DEPLOYMENT_CONFIG_JSON',
-    environment.variables.GATEWAY_DEPLOYMENT_CONFIG_JSON,
-  );
+function removeDisabledGatewaySecrets(environmentName, environment, config, repositoryName) {
   const disabledNames = new Set();
   if (config.optional.nearRelayer === null) {
     disabledNames.add('RELAYER_PRIVATE_KEY');
@@ -2274,41 +2328,6 @@ function removeObsoleteGatewayVariables(environmentName, repositoryName) {
     removed.push(`${environmentName}.variables.${name}`);
   }
   return removed;
-}
-
-function migrateExistingGatewayVariables(targetName, repositoryName) {
-  const gatewayEnvironmentName = `${targetName}-gateway`;
-  const gatewayVariables = readGitHubEnvironmentVariables(gatewayEnvironmentName, repositoryName);
-  const generalVariables = readGitHubEnvironmentVariables(targetName, repositoryName);
-  const existingConfig = gatewayVariables.get('GATEWAY_DEPLOYMENT_CONFIG_JSON');
-  const config = existingConfig
-    ? parseStrictGatewayDeploymentConfig(existingConfig, targetName)
-    : parseStrictGatewayDeploymentConfig(
-        JSON.stringify(
-          buildGatewayConfigFromScalarVariables(targetName, gatewayVariables, generalVariables),
-        ),
-        targetName,
-      );
-  const serialized = JSON.stringify(stripDerivedGatewayConfigFields(config));
-  runGh(
-    [
-      'variable',
-      'set',
-      'GATEWAY_DEPLOYMENT_CONFIG_JSON',
-      '--env',
-      gatewayEnvironmentName,
-      ...githubRepoArgs(repositoryName),
-    ],
-    serialized,
-    repositoryName,
-  );
-  const removedVariables = removeObsoleteGatewayVariables(gatewayEnvironmentName, repositoryName);
-  return {
-    environment: gatewayEnvironmentName,
-    variable: 'GATEWAY_DEPLOYMENT_CONFIG_JSON',
-    removedVariables,
-    rotatedSecrets: false,
-  };
 }
 
 function verifyAppliedGenerationMetadata(targetName, repositoryName) {
@@ -2442,157 +2461,6 @@ function requireGitHubVariableField(variable, field, environmentName) {
     throw new Error(`GitHub variable ${field} is missing in ${environmentName}`);
   }
   return value;
-}
-
-function buildGatewayConfigFromScalarVariables(targetName, gateway, general) {
-  const allowedCors = requireScalarVariable(gateway, 'RELAY_CORS_ORIGINS')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean);
-  const bootstrapOrigins = readJsonArrayVariable(
-    gateway,
-    'SEAMS_BOOTSTRAP_ALLOWED_ORIGINS_JSON',
-    allowedCors,
-  );
-  const relayerAccountId = gateway.get('RELAYER_ACCOUNT_ID') || null;
-  const relayerPublicKey = gateway.get('RELAYER_PUBLIC_KEY') || null;
-  const oidcExchange = readNullableJsonObjectVariable(gateway, 'SEAMS_OIDC_EXCHANGE_JSON');
-  return {
-    schemaVersion: GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
-    target: targetName,
-    runtimeProfile: buildGatewayRuntimeProfile(
-      gateway.get('GATEWAY_RUNTIME_PROFILE') || GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo,
-      gateway.get('EMAIL_OTP_DELIVERY_MODE') || undefined,
-    ),
-    resources: {
-      workerName: requireScalarVariable(gateway, 'GATEWAY_WORKER_NAME'),
-      consoleD1: {
-        name: requireScalarVariable(gateway, 'GATEWAY_CONSOLE_D1_DATABASE_NAME'),
-        id: requireScalarVariable(gateway, 'GATEWAY_CONSOLE_D1_DATABASE_ID'),
-      },
-      signerD1: {
-        name: requireScalarVariable(gateway, 'GATEWAY_SIGNER_D1_DATABASE_NAME'),
-        id: requireScalarVariable(gateway, 'GATEWAY_SIGNER_D1_DATABASE_ID'),
-      },
-      secretsStoreId: requireScalarVariable(gateway, 'GATEWAY_SECRETS_STORE_ID'),
-    },
-    tenant: {
-      namespace: requireScalarVariable(gateway, 'SEAMS_TENANT_STORAGE_NAMESPACE'),
-      orgId: requireScalarVariable(gateway, 'SEAMS_ORG_ID'),
-      projectId: requireScalarVariable(gateway, 'SEAMS_PROJECT_ID'),
-      environmentId: requireScalarVariable(gateway, 'SEAMS_ENV_ID'),
-    },
-    origins: {
-      gateway: requireScalarVariable(gateway, 'GATEWAY_ORIGIN'),
-      allowedCors,
-    },
-    signingRoot: {
-      id: requireScalarVariable(gateway, 'SIGNING_ROOT_KEK_ID'),
-      secretName: requireScalarVariable(gateway, 'SIGNING_ROOT_KEK_SECRET_NAME'),
-      encoding: requireScalarVariable(gateway, 'SIGNING_ROOT_KEK_ENCODING'),
-    },
-    session: {
-      issuer: requireScalarVariable(gateway, 'RELAY_SESSION_ISSUER'),
-    },
-    routerAb: {
-      ceremonyJwtAudience: requireScalarVariable(gateway, 'ROUTER_AB_CEREMONY_JWT_AUDIENCE'),
-      ceremonyJwtKeyId: requireScalarVariable(gateway, 'ROUTER_AB_CEREMONY_JWT_KEY_ID'),
-      publicKeyset: readJsonObjectVariable(gateway, 'ROUTER_AB_PUBLIC_KEYSET_JSON'),
-      registrationTopology: readJsonObjectVariable(
-        gateway,
-        'ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON',
-      ),
-      deriverAYaoInputPublicKey: requireScalarVariable(
-        gateway,
-        'ROUTER_AB_DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY',
-      ),
-      deriverBYaoInputPublicKey: requireScalarVariable(
-        gateway,
-        'ROUTER_AB_DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY',
-      ),
-      signingWorkerOutputPublicKey: requireScalarVariable(
-        gateway,
-        'ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
-      ),
-    },
-    bootstrap: {
-      publishableKey:
-        gateway.get('SEAMS_BOOTSTRAP_PUBLISHABLE_KEY') ||
-        requireScalarVariable(general, 'VITE_SEAMS_PUBLISHABLE_KEY'),
-      allowedOrigins: bootstrapOrigins,
-    },
-    optional: {
-      nearRelayer: relayerAccountId
-        ? {
-            accountId: relayerAccountId,
-            publicKey: relayerPublicKey,
-            rpcUrl: requireScalarVariable(gateway, 'NEAR_RPC_URL'),
-            initialBalanceYocto:
-              gateway.get('ACCOUNT_INITIAL_BALANCE') || '30000000000000000000000',
-          }
-        : null,
-      googleOidcClientId: gateway.get('GOOGLE_OIDC_CLIENT_ID') || null,
-      oidcExchange,
-    },
-  };
-}
-
-function stripDerivedGatewayConfigFields(config) {
-  return {
-    schemaVersion: config.schemaVersion,
-    target: config.target,
-    runtimeProfile: config.runtimeProfile,
-    resources: config.resources,
-    tenant: config.tenant,
-    origins: config.origins,
-    signingRoot: config.signingRoot,
-    session: config.session,
-    routerAb: {
-      ceremonyJwtAudience: config.routerAb.ceremonyJwtAudience,
-      ceremonyJwtKeyId: config.routerAb.ceremonyJwtKeyId,
-      publicKeyset: config.routerAb.publicKeyset,
-      registrationTopology: config.routerAb.registrationTopology,
-      deriverAYaoInputPublicKey: config.routerAb.deriverAInputPublicKey,
-      deriverBYaoInputPublicKey: config.routerAb.deriverBInputPublicKey,
-      signingWorkerOutputPublicKey: config.routerAb.signingWorkerOutputPublicKey,
-    },
-    bootstrap: config.bootstrap,
-    optional: config.optional,
-  };
-}
-
-function requireScalarVariable(variables, name) {
-  const value = variables.get(name);
-  if (!value) {
-    throw new Error(`GitHub Environment variable ${name} is required for migration`);
-  }
-  return value;
-}
-
-function readJsonObjectVariable(variables, name) {
-  return parseSuppliedJsonObject(name, requireScalarVariable(variables, name));
-}
-
-function readNullableJsonObjectVariable(variables, name) {
-  const value = variables.get(name);
-  return value ? parseSuppliedJsonObject(name, value) : null;
-}
-
-function readJsonArrayVariable(variables, name, fallback) {
-  const value = variables.get(name);
-  if (!value) {
-    return fallback;
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw new Error(`${name} must contain valid JSON`);
-  }
-  if (!Array.isArray(parsed)) {
-    throw new Error(`${name} must contain a JSON array`);
-  }
-  return parsed;
 }
 
 function resolveGitHubRepository(repositoryName) {
@@ -2756,7 +2624,7 @@ function createProgressLogger(totalSteps) {
 }
 
 function resolveProgressStepCount() {
-  if (migrateGatewayConfig || verifyGeneration) return 2;
+  if (verifyGeneration) return 2;
   if (manifestFile) {
     const environmentCount = deploymentComponent
       ? deploymentComponentEnvironmentNames(target, deploymentComponent).length

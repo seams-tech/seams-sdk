@@ -141,7 +141,7 @@ function bookmarkCommands(input) {
   return [
     [
       wranglerCommand(
-        `d1 time-travel info seams-console-staging --timestamp ${shellArg(
+        `d1 time-travel info seams-console-staging-nrt --timestamp ${shellArg(
           input.options.timestampIso,
         )} --json`,
         input.options.consoleConfigPath,
@@ -151,7 +151,7 @@ function bookmarkCommands(input) {
     ].join(' '),
     [
       wranglerCommand(
-        `d1 time-travel info seams-signer-staging --timestamp ${shellArg(
+        `d1 time-travel info seams-signer-staging-nrt --timestamp ${shellArg(
           input.options.timestampIso,
         )} --json`,
         input.options.gatewayConfigPath,

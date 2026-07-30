@@ -82,11 +82,11 @@ test('D1 staging migration plan records migration hashes and noninteractive appl
   expect(plan.commands[0]).toMatchObject({
     target: 'console',
     action: 'list_before',
-    databaseName: 'seams-console-staging',
+    databaseName: 'seams-console-staging-nrt',
   });
   expect(plan.commands[1].command).toContain('CI=true pnpm --dir packages/console-server-ts exec wrangler');
-  expect(plan.commands[1].command).toContain('d1 migrations apply seams-console-staging --remote');
-  expect(plan.commands[4].command).toContain('d1 migrations apply seams-signer-staging --remote');
+  expect(plan.commands[1].command).toContain('d1 migrations apply seams-console-staging-nrt --remote');
+  expect(plan.commands[4].command).toContain('d1 migrations apply seams-signer-staging-nrt --remote');
 });
 
 test('D1 staging migration dry-run writes a manifest without executing commands', async () => {

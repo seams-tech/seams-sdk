@@ -105,6 +105,13 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(deps, req.requestId, result);
     },
 
+    PM_GET_NEAR_PROVISIONING_STATE: async (req: Req<'PM_GET_NEAR_PROVISIONING_STATE'>) => {
+      const pm = deps.getSeamsWeb();
+      const walletId = toWalletId(req.payload?.walletId);
+      const result = await pm.registration.getNearProvisioningState({ walletId });
+      respondOkResult(deps, req.requestId, result);
+    },
+
     PM_PREFETCH_BLOCKHEIGHT: async (req: Req<'PM_PREFETCH_BLOCKHEIGHT'>) => {
       const pm = deps.getSeamsWeb();
       await pm.prefetchBlockheight().catch(() => undefined);

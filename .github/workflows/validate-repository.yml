@@ -153,7 +153,7 @@ jobs:
         run: pnpm -C tests exec playwright test ./unit/walletSessionReadiness.gate.unit.test.ts ./unit/thresholdEcdsa.commitQueue.unit.test.ts ./unit/walletIframeHost.signTempoCancel.unit.test.ts --reporter=line
 
       - name: Run signer parity tests
-        run: pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/signerParity.rustPlatforms.unit.test.ts ./unit/signingVectors.webWasmReplay.integration.test.ts --workers=1 --reporter=line
+        run: pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/signerParity.rustPlatforms.unit.test.ts ./unit/signingVectors.webWasmReplay.integration.test.ts --workers=1
 
   signer-parity-swift:
     if: github.event_name == 'workflow_dispatch'

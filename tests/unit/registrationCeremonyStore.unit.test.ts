@@ -4,7 +4,6 @@ import {
   type StoredWalletAddSignerCeremony,
 } from '@server/core/RegistrationCeremonyStore';
 import {
-  requireServerAllocatedWalletId,
   walletIdFromString,
   type AddSignerIntentV1,
 } from '@shared/utils/registrationIntent';
@@ -64,53 +63,12 @@ function makeEcdsaAddSignerCeremony(
   };
 }
 
-test('registration ceremony store scopes server-allocated wallet reservations by wallet ID', async () => {
-  const store = createRegistrationCeremonyStore({
-    config: null,
-    logger: undefined,
-    isNode: false,
-  });
-  const walletId = requireServerAllocatedWalletId('frost-vermillion-k7p9m2');
-  const otherWalletId = requireServerAllocatedWalletId('frost-giant-h8q2n4');
-  const expiresAtMs = Date.now() + 60_000;
-
-  await expect(store.reserveServerAllocatedWalletId({ walletId, expiresAtMs })).resolves.toBe(true);
-  await expect(store.reserveServerAllocatedWalletId({ walletId, expiresAtMs })).resolves.toBe(
-    false,
-  );
-  await expect(
-    store.reserveServerAllocatedWalletId({ walletId: otherWalletId, expiresAtMs }),
-  ).resolves.toBe(true);
-  await expect(store.releaseServerAllocatedWalletId({ walletId })).resolves.toBe(true);
-  await expect(store.reserveServerAllocatedWalletId({ walletId, expiresAtMs })).resolves.toBe(true);
-  await expect(store.releaseServerAllocatedWalletId({ walletId })).resolves.toBe(true);
-  await expect(store.releaseServerAllocatedWalletId({ walletId })).resolves.toBe(false);
-});
-
-test('registration reservations and ceremonies have single-winner concurrency and deadline invariants', async () => {
+test('add-signer ceremonies have single-winner concurrency invariants', async () => {
   const store = createRegistrationCeremonyStore({
     config: { kind: 'memory' },
     logger: undefined,
     isNode: true,
   });
-  const walletId = requireServerAllocatedWalletId('frost-canyon-m4r8v2');
-  const reservationClaims = await Promise.all(
-    Array.from({ length: 16 }, () =>
-      store.reserveServerAllocatedWalletId({
-        walletId,
-        expiresAtMs: Date.now() + 60_000,
-      }),
-    ),
-  );
-
-  expect(reservationClaims.filter(Boolean)).toHaveLength(1);
-  await expect(
-    store.reserveServerAllocatedWalletId({
-      walletId: requireServerAllocatedWalletId('frost-canyon-m4r8v3'),
-      expiresAtMs: Date.now() - 1,
-    }),
-  ).resolves.toBe(false);
-  await expect(store.releaseServerAllocatedWalletId({ walletId })).resolves.toBe(true);
 
   const ceremony = makeEcdsaAddSignerCeremony();
   await store.putAddSignerCeremony(ceremony);

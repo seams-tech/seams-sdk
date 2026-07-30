@@ -6,7 +6,6 @@ import {
   type D1BindingName,
   type D1DatabaseLike,
   type D1DatabaseName,
-  type DurableObjectBindingName,
   type HyperdriveBindingLike,
   type HyperdriveBindingName,
   type NamespaceId,
@@ -20,7 +19,6 @@ import {
   type TenantDataJurisdiction,
   type TenantStorageRouteDiagnostic,
 } from '@seams/sdk-server/cloud-host';
-import type { CloudflareDurableObjectNamespaceLike } from '@seams/sdk-server/cloud-host';
 
 export type ConsoleD1StorageTarget = {
   readonly kind: 'd1';
@@ -74,8 +72,6 @@ export interface StaticCloudflareTenantStorageRouteResolverBindingInput {
   readonly signerMetadataBindingName: D1BindingName;
   readonly signerMetadataDatabaseName: D1DatabaseName;
   readonly signerMetadataDatabase: D1DatabaseLike;
-  readonly thresholdStoreBindingName: DurableObjectBindingName;
-  readonly thresholdStore: CloudflareDurableObjectNamespaceLike;
   readonly kekProvider: SigningRootKekProvider;
 }
 
@@ -176,8 +172,6 @@ export function createStaticCloudflareTenantStorageRouteResolverFromBindings(
     metadataBindingName: input.signerMetadataBindingName,
     metadataDatabaseName: input.signerMetadataDatabaseName,
     metadataDatabase: input.signerMetadataDatabase,
-    thresholdStoreBindingName: input.thresholdStoreBindingName,
-    thresholdStore: input.thresholdStore,
     kekProvider: input.kekProvider,
   });
   return createStaticCloudflareTenantStorageRouteResolver({

@@ -7,6 +7,7 @@ import {
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SeamsChainConfig } from '@/core/types/seams';
+import { createEvmClient } from './EvmClient';
 
 export type EvmNonceChain = 'evm' | 'tempo';
 
@@ -267,38 +268,12 @@ async function fetchEvmRpcResult(args: {
   params: unknown[];
   fetchImpl: typeof fetch;
 }): Promise<unknown> {
-  const timeout = withTimeoutAbort(DEFAULT_RPC_TIMEOUT_MS);
-  try {
-    const response = await args.fetchImpl(args.rpcUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 'evm-nonce-backend',
-        method: args.method,
-        params: args.params,
-      }),
-      signal: timeout.signal,
-    });
-    if (!response.ok) {
-      throw new Error(`[evmNonceBackend] RPC returned HTTP ${response.status}`);
-    }
-    const payload = (await response.json().catch(() => null)) as {
-      result?: unknown;
-      error?: { code?: unknown; message?: unknown };
-    } | null;
-    if (!payload) {
-      throw new Error('[evmNonceBackend] RPC returned invalid JSON');
-    }
-    if (payload.error) {
-      const code = typeof payload.error.code === 'number' ? payload.error.code : 'unknown';
-      const message = String(payload.error.message || 'unknown error');
-      throw new Error(`[evmNonceBackend] ${args.method} failed (${String(code)}): ${message}`);
-    }
-    return payload.result;
-  } finally {
-    timeout.clear();
-  }
+  const client = createEvmClient({
+    rpcUrl: args.rpcUrl,
+    fetchImpl: args.fetchImpl,
+    requestTimeoutMs: DEFAULT_RPC_TIMEOUT_MS,
+  });
+  return await client.request({ method: args.method, params: args.params });
 }
 
 async function fetchChainNonceFromRpc(args: {
@@ -307,40 +282,16 @@ async function fetchChainNonceFromRpc(args: {
   fetchImpl: typeof fetch;
 }): Promise<bigint> {
   const rpcUrl = resolveRpcUrlForInput(args.chains, args.input);
-  const timeout = withTimeoutAbort(DEFAULT_RPC_TIMEOUT_MS);
-  try {
-    const response = await args.fetchImpl(rpcUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 'evm-nonce-backend',
-        method: 'eth_getTransactionCount',
-        params: [args.input.sender, 'pending'],
-      }),
-      signal: timeout.signal,
-    });
-    if (!response.ok) {
-      throw new Error(`[evmNonceBackend] RPC returned HTTP ${response.status}`);
-    }
-    const payload = (await response.json().catch(() => null)) as {
-      result?: unknown;
-      error?: { code?: unknown; message?: unknown };
-    } | null;
-    if (!payload) {
-      throw new Error('[evmNonceBackend] RPC returned invalid JSON');
-    }
-    if (payload.error) {
-      const code = typeof payload.error.code === 'number' ? payload.error.code : 'unknown';
-      const message = String(payload.error.message || 'unknown error');
-      throw new Error(
-        `[evmNonceBackend] eth_getTransactionCount failed (${String(code)}): ${message}`,
-      );
-    }
-    return parseRpcHexQuantity(payload.result, 'eth_getTransactionCount');
-  } finally {
-    timeout.clear();
-  }
+  const client = createEvmClient({
+    rpcUrl,
+    fetchImpl: args.fetchImpl,
+    requestTimeoutMs: DEFAULT_RPC_TIMEOUT_MS,
+  });
+  const result = await client.request<unknown>({
+    method: 'eth_getTransactionCount',
+    params: [args.input.sender, 'pending'],
+  });
+  return parseRpcHexQuantity(result, 'eth_getTransactionCount');
 }
 
 function resolveRpcUrlForInput(
@@ -485,15 +436,6 @@ function getOptionalConfigChainId(chain: SeamsChainConfig): number | undefined {
 
 function isChainWithChainId(chain: SeamsChainConfig): chain is ChainWithChainId {
   return chainFamilyFromNetwork(chain.network) !== 'near';
-}
-
-function withTimeoutAbort(timeoutMs: number): { signal: AbortSignal; clear: () => void } {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  return {
-    signal: controller.signal,
-    clear: () => clearTimeout(timeoutId),
-  };
 }
 
 function mustTrimmedRpcUrl(rpcUrl: string, network: string): string {

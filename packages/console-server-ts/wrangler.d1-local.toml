@@ -17,14 +17,6 @@ database_id = "00000000-0000-0000-0000-000000000201"
 preview_database_id = "00000000-0000-0000-0000-000000000202"
 migrations_dir = "node_modules/@seams/sdk-server/migrations/d1-signer"
 
-[[durable_objects.bindings]]
-name = "THRESHOLD_STORE"
-class_name = "ThresholdStoreDurableObject"
-
-[[migrations]]
-tag = "threshold-store-sqlite-v1"
-new_sqlite_classes = ["ThresholdStoreDurableObject"]
-
 [[services]]
 binding = "MPC_ROUTER"
 service = "router-ab-mpc-router"

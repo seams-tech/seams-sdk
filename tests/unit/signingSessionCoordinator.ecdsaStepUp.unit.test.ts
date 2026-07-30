@@ -198,7 +198,7 @@ test.describe('SigningSessionCoordinator NEAR Ed25519 budget preflight', () => {
     expect(observedWalletSessionJwt).toBe('wallet-session-jwt');
   });
 
-  test('plans passkey reauth when a ready Ed25519 lane has unreadable budget status', async () => {
+  test('keeps a ready passkey Ed25519 session when budget preflight is unreadable', async () => {
     const lane = makeNearPasskeyLane();
     const coordinator = new SigningSessionCoordinator({
       getStatus: async () => ({
@@ -221,7 +221,8 @@ test.describe('SigningSessionCoordinator NEAR Ed25519 budget preflight', () => {
       usesNeeded: 1,
     });
 
-    expect(resolved.readiness.status).toBe('missing_session');
-    expect(resolved.signingSessionPlan.kind).toBe(SigningSessionPlanKind.PasskeyReauth);
+    expect(resolved.readiness.status).toBe('ready');
+    expect(resolved.remainingUses).toBe(1);
+    expect(resolved.signingSessionPlan.kind).toBe(SigningSessionPlanKind.WarmSession);
   });
 });

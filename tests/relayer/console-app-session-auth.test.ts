@@ -16,6 +16,9 @@ function makeAppSessionClaims(
     sub: 'oidc:https://accounts.google.com:user-123',
     appSessionVersion: 'v1',
     provider: 'oidc',
+    oidcProvider: 'google',
+    oidcEmailVerified: true,
+    oidcHostedDomain: 'example.com',
     email: 'user-123@example.com',
     name: 'User 123',
     ...overrides,
@@ -255,5 +258,134 @@ test.describe('console app-session auth adapter', () => {
       kind: 'authorized',
       role: 'OWNER',
     });
+  });
+
+  test('bootstraps only the configured authoritative Google owner', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const organizationAccess = createInMemoryConsoleOrganizationAccessService();
+    const orgId = 'org_staging';
+    const userId = 'google:owner-subject';
+    await orgProjectEnv.upsertOrganization(
+      { orgId, actorUserId: 'deployment-bootstrap' },
+      { name: 'Staging', slug: 'staging' },
+    );
+    const rejectedAuth = createAppSessionConsoleAuthAdapter({
+      session: makeSessionAdapter({
+        parse: async () => ({
+          ok: true,
+          claims: makeAppSessionClaims({
+            sub: 'google:unapproved-subject',
+            email: 'unapproved@example.com',
+            orgId,
+          }),
+        }),
+      }),
+      authService: validAppSessionVersion(),
+      organizationAccess,
+      defaultOrgId: orgId,
+      initialOwnerEmail: 'owner@example.com',
+      provisioning: { orgProjectEnv },
+    });
+    await expect(rejectedAuth.authenticate({})).resolves.toEqual({
+      ok: false,
+      code: 'forbidden',
+      message: 'No active organization membership',
+      status: 403,
+    });
+
+    const unverifiedAuth = createAppSessionConsoleAuthAdapter({
+      session: makeSessionAdapter({
+        parse: async () => ({
+          ok: true,
+          claims: makeAppSessionClaims({
+            sub: userId,
+            email: 'owner@example.com',
+            oidcEmailVerified: false,
+            orgId,
+          }),
+        }),
+      }),
+      authService: validAppSessionVersion(),
+      organizationAccess,
+      defaultOrgId: orgId,
+      initialOwnerEmail: 'owner@example.com',
+      provisioning: { orgProjectEnv },
+    });
+    await expect(unverifiedAuth.authenticate({})).resolves.toEqual({
+      ok: false,
+      code: 'forbidden',
+      message: 'No active organization membership',
+      status: 403,
+    });
+
+    const wrongHostedDomainAuth = createAppSessionConsoleAuthAdapter({
+      session: makeSessionAdapter({
+        parse: async () => ({
+          ok: true,
+          claims: makeAppSessionClaims({
+            sub: userId,
+            email: 'owner@example.com',
+            oidcHostedDomain: 'attacker.example',
+            orgId,
+          }),
+        }),
+      }),
+      authService: validAppSessionVersion(),
+      organizationAccess,
+      defaultOrgId: orgId,
+      initialOwnerEmail: 'owner@example.com',
+      provisioning: { orgProjectEnv },
+    });
+    await expect(wrongHostedDomainAuth.authenticate({})).resolves.toEqual({
+      ok: false,
+      code: 'forbidden',
+      message: 'No active organization membership',
+      status: 403,
+    });
+
+    const auth = createAppSessionConsoleAuthAdapter({
+      session: makeSessionAdapter({
+        parse: async () => ({
+          ok: true,
+          claims: makeAppSessionClaims({
+            sub: userId,
+            email: 'owner@example.com',
+            orgId,
+          }),
+        }),
+      }),
+      authService: validAppSessionVersion(),
+      organizationAccess,
+      defaultOrgId: orgId,
+      initialOwnerEmail: 'owner@example.com',
+      provisioning: { orgProjectEnv },
+    });
+
+    const result = await auth.authenticate({});
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.claims).toMatchObject({
+      orgId,
+      userId,
+      email: 'owner@example.com',
+      role: 'OWNER',
+    });
+    await expect(
+      organizationAccess.lookupAuthorization({ orgId, userId }),
+    ).resolves.toMatchObject({
+      kind: 'authorized',
+      role: 'OWNER',
+    });
+  });
+
+  test('rejects multiple configured initial-owner emails', () => {
+    expect(() =>
+      createAppSessionConsoleAuthAdapter({
+        session: makeSessionAdapter(),
+        authService: validAppSessionVersion(),
+        organizationAccess: createInMemoryConsoleOrganizationAccessService(),
+        initialOwnerEmail: 'owner@example.com,backup-owner@example.com',
+      }),
+    ).toThrow('initialOwnerEmail must contain exactly one valid email address');
   });
 });

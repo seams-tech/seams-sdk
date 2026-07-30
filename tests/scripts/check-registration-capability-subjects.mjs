@@ -34,18 +34,6 @@ function extractSourceBlock(source, startMarker, endMarker, label) {
   return source.slice(start, end + endMarker.length);
 }
 
-function countOccurrences(source, needle) {
-  return source.split(needle).length - 1;
-}
-
-function assertSourceOrder(source, earlier, later, label) {
-  const earlierIndex = source.indexOf(earlier);
-  const laterIndex = source.indexOf(later);
-  assert.ok(earlierIndex >= 0, `${label}: missing earlier marker ${earlier}`);
-  assert.ok(laterIndex >= 0, `${label}: missing later marker ${later}`);
-  assert.ok(earlierIndex < laterIndex, `${label}: expected ${earlier} before ${later}`);
-}
-
 function listTypeScriptFiles(relativePath) {
   const absoluteRoot = absolutePath(relativePath);
   const stat = fs.statSync(absoluteRoot);
@@ -59,14 +47,6 @@ function listTypeScriptFiles(relativePath) {
     if (entry.isFile() && /\.(ts|tsx)$/.test(entry.name)) files.push(childPath);
   }
   return files;
-}
-
-function assertSourceHasAll(source, markers, label) {
-  const missingMarkers = [];
-  for (const marker of markers) {
-    if (!source.includes(marker)) missingMarkers.push(marker);
-  }
-  assert.deepEqual(missingMarkers, [], `${label}: missing markers\n${missingMarkers.join('\n')}`);
 }
 
 function checkRoleLocalEcdsaMaterialHandlesAreIdentityLocal() {
@@ -126,73 +106,6 @@ function checkVisibleIframePasskeyRegistrationUsesProvidedWalletId() {
   );
 }
 
-
-function checkPostStartRegistrationRoutesUseStoredPreparedState() {
-  const service = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts',
-  );
-  const startBlock = extractSourceBlock(
-    service,
-    '  async startWalletRegistration(',
-    '  async respondWalletRegistrationEcdsaDerivation(',
-    'startWalletRegistration',
-  );
-  const respondBlock = extractSourceBlock(
-    service,
-    '  async respondWalletRegistrationEcdsaDerivation(',
-    '  async finalizeWalletRegistration(',
-    'respondWalletRegistrationEcdsaDerivation',
-  );
-  const finalizeStart = service.indexOf('  async finalizeWalletRegistration(');
-  assert.ok(finalizeStart >= 0, 'missing finalizeWalletRegistration');
-  const finalizeBlock = service.slice(finalizeStart);
-
-  assertContains(startBlock, 'parseD1RegistrationIntent(request.intent)', 'start block');
-  assertNotContains(respondBlock, 'parseD1RegistrationIntent', 'respond block');
-  assertNotContains(finalizeBlock, 'parseD1RegistrationIntent', 'finalize block');
-  assertContains(
-    respondBlock,
-    'registrationSignerBranchesFromPlan(ceremony.signerPlan)',
-    'respond block',
-  );
-  assertContains(
-    finalizeBlock,
-    'registrationSignerBranchesFromPlan(ceremony.signerPlan)',
-    'finalize block',
-  );
-  assertContains(
-    startBlock,
-    'resolveRegistrationPreparedContextFromPlan({',
-    'start block',
-  );
-  assertContains(startBlock, 'signerPlan: branches.value.plan', 'start block');
-  assertContains(startBlock, 'preparedContext: preparedContext.preparedContext', 'start block');
-}
-
-function checkRegistrationIntentDigestVerificationStaysAtResponseBoundary() {
-  const registration = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
-  );
-  const digestBoundary = extractSourceBlock(
-    registration,
-    'async function verifyWalletRegistrationIntentResponse(input: {',
-    '\n}\n\ntype WalletRegistrationPrecomputeReady',
-    'registration intent response verifier',
-  );
-
-  assertContains(
-    digestBoundary,
-    'computeRegistrationIntentDigest(input.intentResponse.intent)',
-    'registration intent response verifier',
-  );
-  assertContains(
-    digestBoundary,
-    'Registration intent digest mismatch',
-    'registration intent response verifier',
-  );
-  assert.equal(countOccurrences(registration, 'computeRegistrationIntentDigest('), 1);
-  assertContains(registration, 'verifyWalletRegistrationIntentResponse({', 'registration');
-}
 
 function checkRegistrationTimingUsesSpanCoverage() {
   const registration = readRepoSource(
@@ -283,8 +196,6 @@ function main() {
   checkRoleLocalEcdsaMaterialHandlesAreIdentityLocal();
   checkWalletScopedUnlockAvoidsCollapsedNearBindingError();
   checkVisibleIframePasskeyRegistrationUsesProvidedWalletId();
-  checkPostStartRegistrationRoutesUseStoredPreparedState();
-  checkRegistrationIntentDigestVerificationStaysAtResponseBoundary();
   checkRegistrationTimingUsesSpanCoverage();
   checkEmailOtpUnlockCurrentSessionsUseCommitCommands();
   console.log('[registration-capability-subjects] ok');

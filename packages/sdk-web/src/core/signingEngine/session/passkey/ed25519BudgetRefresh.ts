@@ -121,7 +121,7 @@ export async function refreshPasskeyEd25519CapabilityForSigning(args: {
 > {
   const operationUsesNeeded = Math.max(1, Math.floor(Number(args.operationUsesNeeded) || 1));
   const sessionId = args.laneIdentity.thresholdSessionId;
-  const signingGrantId = args.laneIdentity.signingGrantId;
+  const previousSigningGrantId = args.laneIdentity.signingGrantId;
   const runtimePolicyScope = args.record.runtimePolicyScope;
   const signerSlot = args.laneIdentity.signer.signerSlot;
   const expectedLaneIdentity = buildExactPasskeyEd25519RefreshLaneIdentity({
@@ -184,14 +184,19 @@ export async function refreshPasskeyEd25519CapabilityForSigning(args: {
       provisioned.message || provisioned.code || 'Passkey Ed25519 budget refresh failed',
     );
   }
-  if (provisioned.sessionId !== sessionId || provisioned.signingGrantId !== signingGrantId) {
+  const refreshedSigningGrantId = String(provisioned.signingGrantId || '').trim();
+  if (
+    provisioned.sessionId !== sessionId ||
+    !refreshedSigningGrantId ||
+    refreshedSigningGrantId === previousSigningGrantId
+  ) {
     throw new Error(
-      '[SigningEngine][near] passkey Ed25519 budget refresh returned a different lifecycle identity',
+      '[SigningEngine][near] passkey Ed25519 budget refresh must preserve the threshold session and rotate the signing grant',
     );
   }
   const record = readRefreshedEd25519Record({
     sessionId,
-    signingGrantId,
+    signingGrantId: refreshedSigningGrantId,
     reader: args.readStoredThresholdEd25519SessionRecordByThresholdSessionId,
   });
   const nextWalletSessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(record);
@@ -200,24 +205,31 @@ export async function refreshPasskeyEd25519CapabilityForSigning(args: {
       '[SigningEngine][near] passkey Ed25519 budget refresh returned unusable Wallet Session state',
     );
   }
+  const refreshedLaneIdentity = buildExactPasskeyEd25519RefreshLaneIdentity({
+    nearAccountId: args.laneIdentity.signer.account.nearAccountId,
+    record,
+    signerSlot: record.signerSlot,
+    sessionId,
+    signingGrantId: refreshedSigningGrantId,
+  });
   if (!activePrevious) {
     const rehydrated = await args.rehydratePasskeyEd25519YaoCapabilityAfterRefresh({
       walletSessionState: nextWalletSessionState,
       policySecretSource: args.policySecretSource,
-      expectedLaneIdentity: args.laneIdentity,
+      expectedLaneIdentity: refreshedLaneIdentity,
     });
     return {
       sessionId: provisioned.sessionId,
       record,
       ...requireRehydratedPasskeyEd25519Capability({
         capability: rehydrated,
-        expectedLaneIdentity: args.laneIdentity,
+        expectedLaneIdentity: refreshedLaneIdentity,
       }),
     };
   }
   const refreshed = args.refreshActiveEd25519YaoWalletSession({
     identity,
-    signingGrantId,
+    signingGrantId: refreshedSigningGrantId,
     nextWalletSessionState,
   });
   if (!refreshed.ok) {

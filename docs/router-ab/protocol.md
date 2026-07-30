@@ -3,8 +3,8 @@
 Date consolidated: June 20, 2026
 
 Status: canonical Router A/B architecture and protocol reference, updated for
-the July 10, 2026 Phase 0 decision. Ed25519 targets actively secure Streaming
-Yao. ECDSA targets strict threshold-PRF derivation and additive scalar shares.
+the July 28, 2026 zero-Durable-Object custody decision. Ed25519 targets actively
+secure Streaming Yao. ECDSA targets strict threshold-PRF derivation and additive scalar shares.
 Deployment profile and rollout details live in
 [router-ab/deployment.md](./deployment.md). Local commands and smoke
 coverage live in [router-ab/local-development.md](./local-development.md). Completed
@@ -14,8 +14,9 @@ cleanup outcomes are reflected directly in this specification.
 
 Router A/B is the split-custody signing architecture for SDK/server Ed25519 and
 ECDSA product signing. The browser sees one public backend, the Router.
-Router owns public admission and private worker forwarding. Deriver A, Deriver B,
-and SigningWorker stay behind private service boundaries.
+Router verifies request-carried signed admission policy and forwards to private
+Workers. It owns no mutable storage. Deriver A, Deriver B, and SigningWorker
+stay behind private service boundaries.
 
 Approved target status:
 
@@ -72,9 +73,9 @@ Ed25519 and ECDSA signing use Router plus SigningWorker.
 
 ### 2.1 Router
 
-Router owns public HTTP routes, Wallet Session JWT verification, policy,
-replay, quota, abuse checks, signing-budget reserve/commit/release, request
-binding, CORS, diagnostics, observability, and private-worker forwarding.
+Router owns public HTTP routes, local Wallet Session JWT and signed-policy
+verification, request binding, CORS, diagnostics, observability, and
+private-worker forwarding. It has no mutable persistence binding.
 
 Router may hold:
 
@@ -82,9 +83,6 @@ Router may hold:
 - typed request scope
 - opaque ciphertext
 - public transcript digests
-- replay state
-- lifecycle records
-- budget reservations and counters
 - public activation and delivery receipts
 
 Router must never hold both raw sides of protected split values. Router must not
@@ -97,8 +95,10 @@ material.
 Deriver A and Deriver B own role-local derivation material. They receive only
 role-specific encrypted envelopes and authenticated role-bound peer messages.
 
-Deriver A may hold A-side root/provisioning material and A-side protocol state.
-Deriver B may hold B-side root/provisioning material and B-side protocol state.
+Deriver A holds its root share in an A-only Worker Secret and its encrypted
+mutable protocol state in A private D1. Deriver B uses the corresponding B-only
+Secret and B private D1. Neither Worker receives the other role's root Secret,
+D1 binding, or D1 KEK.
 Neither deriver receives enough material to reconstruct client or server signing
 material alone.
 
@@ -119,6 +119,8 @@ Derivers must reject:
 SigningWorker owns activated server-side signing material, one-use nonce state,
 Ed25519 presign-pool state, Router A/B ECDSA derivation presignature state, Ed25519 finalize
 execution, and Router A/B ECDSA derivation prepare/finalize execution.
+Its mutable custody records are application-encrypted in SigningWorker private
+D1 under a SigningWorker-only versioned KEK.
 
 SigningWorker private routes require internal service auth and admitted Router
 requests. SigningWorker does not parse browser Wallet Session credentials.
@@ -182,6 +184,7 @@ Threat containment matrix:
 | Deriver B          | B custody material and B local derived material                                           | No A plaintext, no joined `d`, no joined `a`, no `x_client_base`, no `x_server_base`             |
 | SigningWorker      | Activated server signing material and nonce/presign state                                 | No `k_org`, no joined root, no client material, no Deriver A/B root material                     |
 | Client             | User client material, local worker handles, and `d`/`a` during explicit authorized export | No server root material, `y_server`, or `tau_server`; `d`/`a` only in explicit authorized export |
+| D1 operator token  | Role-local ciphertext and public indexes in databases reachable by the token             | No root-share Secret or D1 KEK; ciphertext alone does not reveal protected material               |
 | Logs/observability | Public metadata, hashes, timings, state transitions                                       | No protocol payload plaintext or secret material                                                 |
 
 Production release claim:
@@ -198,6 +201,30 @@ The claim excludes A+B collusion, sequential compromise of retained state
 without reviewed refresh/erasure, a Cloudflare platform-wide compromise,
 common supply-chain compromise approved by both deployers, fairness, and
 availability.
+
+### 3.1 Role-Private Persistence And Root Custody
+
+Root shares remain role-only Cloudflare Worker Secrets. The retired root-share
+Durable Objects stored startup metadata rather than root-share bytes. Each
+Deriver now derives that metadata locally from its own Secret and the
+deployment-pinned deriver-set, key, and root epochs.
+
+Private D1 stores mutable lifecycle or custody records only. Those records are
+encrypted before persistence with separate versioned KEKs for Deriver A,
+Deriver B, and SigningWorker. A Cloudflare account-scoped API token can query
+D1, so database ciphertext is treated as operator-visible. The KEKs stay in
+role-only Worker Secret bindings and are absent from D1 migration credentials,
+observability credentials, general CI, backups, and database exports.
+
+AEAD associated data binds the owning role, deployment environment, record
+purpose, schema version, and record identity. Deriver records additionally bind
+the deriver set and root epoch; SigningWorker records bind the SigningWorker
+identity and relevant activation/session epoch. Copying a ciphertext across
+roles, environments, purposes, identities, schemas, or epochs fails closed.
+
+No Worker, deployment principal, or release job receives both A and B root
+Secrets, both role D1 bindings, or both role KEKs. Plaintext root shares exist
+only in the owning Deriver's request memory.
 
 ## 4. Protocol Decisions
 
@@ -314,8 +341,8 @@ Digest ordering:
 3. Role-envelope AAD binds the known derivation transcript digest and Router
    request context digest.
 4. `PublicRouterRequestV1::router_replay_digest()` covers the full public
-   request, including encrypted role envelopes, for Router replay and
-   idempotency storage only.
+   request, including encrypted role envelopes. Signed policy and the owning
+   role's idempotency row bind this digest; Router stores nothing.
 
 Role envelopes must carry typed AAD supplied by Router. Deriver private service
 bodies require `aad.digest()` to match the envelope's public `aad_digest`.
@@ -1742,8 +1769,7 @@ grant and budget counter.
 - strict Router, Deriver A, Deriver B, and SigningWorker workers
 - role-specific bindings
 - private route boundaries
-- Durable Object scopes
-- activation state
+- role-private D1 adapters and encrypted activation/lifecycle state
 - release checks
 
 SDK packages own:
@@ -1758,8 +1784,8 @@ SDK packages own:
 ### 10.2 Host Traits
 
 Cloudflare and local development adapters should implement protocol-neutral host
-traits for clock, RNG, key access, sealed share storage, Durable Object storage,
-peer transport, internal service auth, and diagnostics sinks.
+traits for clock, RNG, key access, encrypted role-private state, peer transport,
+internal service auth, and diagnostics sinks.
 
 Core protocol logic should not import Cloudflare runtime types directly.
 
@@ -1952,8 +1978,8 @@ requires Rust 1.88 or newer because the current Workers SDK dependency graph
 includes `wasm-streams` 0.6.x. `CloudflareWorkerEnvReaderV1` adapts real
 `worker::Env` text vars to the typed parser.
 `parse_cloudflare_worker_bindings_from_worker_env_v1` then checks runtime
-presence of every configured Durable Object namespace and service binding before
-returning accepted startup descriptors.
+presence of each role's service, D1, and Secret bindings before returning
+accepted startup descriptors.
 
 #### Target Yao A/B Orchestration Gate
 
@@ -1996,28 +2022,17 @@ Historical implementation note: the superseded
 `AbDerivationProofBatchPayloadV1` code belongs to the superseded recipient-proof
 path. It supplies no Yao security or release evidence.
 
-Durable Object scopes:
+Private persistence visibility:
 
-```rust
-pub enum CloudflareDurableObjectScopeV1 {
-    RouterReplay,
-    RouterLifecycle,
-    RouterProjectPolicy,
-    RouterQuota,
-    RouterAbuse,
-    SignerRootShare { role: Role },
-    SigningWorkerOutput,
-}
-```
+| Worker        | Mutable persistence       | Secret custody                                      |
+| ------------- | ------------------------- | --------------------------------------------------- |
+| Router        | none                      | pinned request-policy verification material only    |
+| Deriver A     | A private D1              | A root share, A D1 KEK, A envelope and peer keys    |
+| Deriver B     | B private D1              | B root share, B D1 KEK, B envelope and peer keys    |
+| SigningWorker | SigningWorker private D1  | SigningWorker D1 KEK and recipient private material |
 
-Visibility rules:
-
-| Worker        | Allowed Durable Object scopes                                                          |
-| ------------- | -------------------------------------------------------------------------------------- |
-| Router        | `RouterReplay`, `RouterLifecycle`, `RouterProjectPolicy`, `RouterQuota`, `RouterAbuse` |
-| Deriver A     | `SignerRootShare { role: DeriverA }`                                                   |
-| Deriver B     | `SignerRootShare { role: DeriverB }`                                                   |
-| SigningWorker | `SigningWorkerOutput`                                                                  |
+No production Worker has a Durable Object binding. The Gateway owns product
+ceremony state in Gateway D1 outside this Router/A/B role-storage boundary.
 
 Deriver-envelope key-source rules:
 
@@ -2150,187 +2165,92 @@ post-decrypt `DeriverInputPlaintextV1` validation boundary.
 
 Startup validation must reject:
 
-- Router bindings that include deriver root-share or SigningWorker-output scopes
+- Router bindings that include D1, Durable Object, Deriver Secret, or
+  SigningWorker Secret material
 - Router bindings that include Deriver A or Deriver B envelope-key descriptors
-- Deriver A bindings that include Deriver B root-share scopes
+- Deriver A bindings that include Deriver B root Secret, private D1, or D1 KEK
 - Deriver A bindings that include Deriver B envelope-key descriptors
-- Deriver B bindings that include Deriver A root-share or SigningWorker-output
-  scopes
+- Deriver B bindings that include Deriver A root Secret, private D1, or D1 KEK
 - Deriver B bindings that include Deriver A envelope-key descriptors
-- Deriver A or Deriver B bindings that include SigningWorker-output scopes
-- root-share startup checks whose deriver role differs from the Worker role
+- Deriver A or Deriver B bindings that include SigningWorker private D1 or KEK
+- SigningWorker bindings that include either Deriver root Secret, private D1,
+  D1 KEK, envelope private key, or peer-signing key
+- a root-share Secret whose embedded role, deriver set, key epoch, or root epoch
+  differs from deployment-pinned metadata
+- any production Durable Object binding
 
-Durable Object operations should be explicit Router A/B operations:
+### 10.8 Cloudflare D1 Adapter Boundary
 
-```text
-root_share.has
-root_share.startup_metadata
-router_replay.reserve
-router_lifecycle.put_public_state
-router_project_policy.evaluate
-router_quota.evaluate
-router_abuse.evaluate
-router_normal_signing_project_policy.evaluate
-router_normal_signing_quota.evaluate
-router_normal_signing_abuse.evaluate
-signing_worker_output.activate
-signing_worker_output.active_state_get
-signing_worker_output.material_get
-```
+Router A/B production Workers contain no Durable Object binding. Router is
+stateless. Deriver A, Deriver B, and SigningWorker access only their own private
+D1 database and KEK. D1 supplies transactional persistence; application AEAD
+supplies confidentiality against database readers and account-scoped D1 API
+tokens.
 
-The Cloudflare adapter owns typed request and response structs for these
-operations. `CloudflareDurableObjectCallV1` binds the initiating Worker role,
-the validated Durable Object binding descriptor, and the typed operation body.
-It rejects calls whose operation requires a different storage scope or whose
-Worker role cannot see the binding. The `workers-rs` executor posts the typed
-operation JSON to the Durable Object stub selected by `binding.object_name` and
-validates that the typed response branch matches the request before returning.
-`router_lifecycle.put_public_state` currently stores the Router admission
-lifecycle with transition enforcement. The full derivation ceremony lifecycle
-needs a dedicated Cloudflare record before production release.
-
-Generic key/value Durable Object access can exist inside the adapter
-implementation, while Router A/B host traits should receive typed operations and
-typed responses.
-
-### 10.8 Cloudflare Adapter Boundary
-
-Router A/B should use Cloudflare Durable Objects only through role-specific
-adapter bindings. Durable Objects provide Cloudflare-native persistence,
-single-object atomicity, replay/idempotency coordination, and operationally
-simple local state. They are not a security boundary against a compromised
-Worker that is already allowed to access the binding.
-
-The adapter boundary must preserve the same role separation as the local SQLite
-host-store checks:
+The adapter boundary preserves role separation:
 
 ```text
 Router Worker:
-  allowed Durable Object scopes:
-    router replay/idempotency state
-    router public lifecycle state
-  allowed deriver-envelope HPKE private keys:
-    none
-  allowed A/B peer signing keys:
-    none
-  allowed A/B peer verifying keys:
-    optional public config only
-  forbidden Durable Object scopes:
-    Deriver A sealed root shares
-    Deriver B sealed root shares
-    SigningWorker activation state
-  forbidden deriver-envelope HPKE private keys:
-    Deriver A deriver-envelope private key
-    Deriver B deriver-envelope private key
-  forbidden A/B peer signing keys:
-    Deriver A peer-message signing key
-    Deriver B peer-message signing key
+  mutable persistence: none
+  allowed secrets: pinned request-policy verification material
+  forbidden: every Deriver and SigningWorker Secret, D1 binding, and D1 KEK
 
 Deriver A Worker:
-  allowed Durable Object scopes:
-    Deriver A sealed root shares
-  allowed deriver-envelope HPKE private keys:
-    Deriver A deriver-envelope private key
-  allowed A/B peer signing keys:
-    Deriver A peer-message signing key
-  allowed A/B peer verifying keys:
-    Deriver A and Deriver B peer-message verifying keys
-  forbidden Durable Object scopes:
-    Deriver B sealed root shares
-    SigningWorker activation state
-    Router replay state
-  forbidden deriver-envelope HPKE private keys:
-    Deriver B deriver-envelope private key
-  forbidden A/B peer signing keys:
-    Deriver B peer-message signing key
+  allowed persistence: DERIVER_ROLE_PRIVATE_DB bound to A's database
+  allowed secrets: A root share, A D1 KEK, A envelope key, A peer-signing key
+  allowed public keys: A and B peer-message verifying keys
+  forbidden: B root share, B D1, B D1 KEK, B envelope key, B peer-signing key,
+    SigningWorker private state
 
 Deriver B Worker:
-  allowed Durable Object scopes:
-    Deriver B sealed root shares
-  allowed deriver-envelope HPKE private keys:
-    Deriver B deriver-envelope private key
-  allowed A/B peer signing keys:
-    Deriver B peer-message signing key
-  allowed A/B peer verifying keys:
-    Deriver A and Deriver B peer-message verifying keys
-  forbidden Durable Object scopes:
-    Deriver A sealed root shares
-    SigningWorker activation state
-    Router replay state
-  forbidden deriver-envelope HPKE private keys:
-    Deriver A deriver-envelope private key
-  forbidden A/B peer signing keys:
-    Deriver A peer-message signing key
+  allowed persistence: DERIVER_ROLE_PRIVATE_DB bound to B's database
+  allowed secrets: B root share, B D1 KEK, B envelope key, B peer-signing key
+  allowed public keys: A and B peer-message verifying keys
+  forbidden: A root share, A D1, A D1 KEK, A envelope key, A peer-signing key,
+    SigningWorker private state
 
 SigningWorker Worker:
-  allowed Durable Object scopes:
-    SigningWorker activation state
-  allowed deriver-envelope HPKE private keys:
-    none
-  allowed A/B peer signing keys:
-    none
-  allowed A/B peer verifying keys:
-    optional public config only
-  forbidden Durable Object scopes:
-    Deriver A sealed root shares
-    Deriver B sealed root shares
-    Router replay state
-  forbidden deriver-envelope HPKE private keys:
-    Deriver A deriver-envelope private key
-    Deriver B deriver-envelope private key
-  forbidden A/B peer signing keys:
-    Deriver A peer-message signing key
-    Deriver B peer-message signing key
+  allowed persistence: SIGNING_WORKER_PRIVATE_DB
+  allowed secrets: SigningWorker D1 KEK and recipient private material
+  forbidden: A/B root shares, role D1 bindings, role D1 KEKs, envelope private
+    keys, and peer-signing keys
 ```
 
-The development and benchmark-only same-account profile may use these separate
-bindings in one Cloudflare account:
+The same-account production profile uses separate bindings:
 
 ```text
-ROUTER_REPLAY_DO
-ROUTER_LIFECYCLE_DO
-DERIVER_A_ROOT_SHARE_DO
-DERIVER_B_ROOT_SHARE_DO
-SIGNING_WORKER_OUTPUT_DO
-DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY
-DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY
-DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY
-DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY
-DERIVER_A_PEER_SIGNING_KEY
-DERIVER_B_PEER_SIGNING_KEY
-DERIVER_A_PEER_VERIFYING_KEY_HEX
-DERIVER_B_PEER_VERIFYING_KEY_HEX
-```
+Router:
+  no mutable persistence
 
-Strict production requires separate accounts. Each account owns only the
-bindings it needs, and no deploy principal or credential can administer both A
-and B:
-
-```text
-Router account:
-  ROUTER_REPLAY_DO
-  ROUTER_LIFECYCLE_DO
-
-Deriver A account:
-  DERIVER_A_ROOT_SHARE_DO
+Deriver A:
+  DERIVER_ROLE_PRIVATE_DB -> A private D1
+  DERIVER_A_ROOT_SHARE_WIRE_SECRET
+  DERIVER_ROLE_PRIVATE_D1_KEK -> A-only Secret value
   DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY
   DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY
   DERIVER_A_PEER_SIGNING_KEY
   DERIVER_A_PEER_VERIFYING_KEY_HEX
   DERIVER_B_PEER_VERIFYING_KEY_HEX
 
-Deriver B account:
-  DERIVER_B_ROOT_SHARE_DO
+Deriver B:
+  DERIVER_ROLE_PRIVATE_DB -> B private D1
+  DERIVER_B_ROOT_SHARE_WIRE_SECRET
+  DERIVER_ROLE_PRIVATE_D1_KEK -> B-only Secret value
   DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY
   DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY
   DERIVER_B_PEER_SIGNING_KEY
   DERIVER_A_PEER_VERIFYING_KEY_HEX
   DERIVER_B_PEER_VERIFYING_KEY_HEX
 
-SigningWorker account:
-  SIGNING_WORKER_OUTPUT_DO
+SigningWorker:
+  SIGNING_WORKER_PRIVATE_DB
+  SIGNING_WORKER_PRIVATE_D1_KEK
   SIGNING_WORKER_PUBLIC_KEY
 ```
+
+Separate protected deployment principals and Secret stores remain required for
+A and B even when the databases share a Cloudflare account. No role deployment
+job receives the other role's D1 binding or KEK.
 
 Deriver-envelope HPKE private keys and A/B peer-message signing keys are
 Cloudflare Secret bindings. Deriver-envelope HPKE public keys and A/B
@@ -2358,47 +2278,19 @@ Deriver B envelope-key or peer-signing-key descriptor. Deriver B startup rejects
 any Deriver A envelope-key or peer-signing-key descriptor. Router startup rejects
 both role-local key classes.
 
-The Durable Object request protocol should use small explicit operations rather
-than generic key/value access in Router A/B adapters:
+Role-private D1 writes use direct, purpose-specific SQL with `INSERT ON
+CONFLICT`, versioned compare-and-swap updates, and exact terminal-response
+redelivery. Each protected JSON payload is encrypted before the SQL boundary.
+Public lookup columns contain only the minimum identity, lifecycle, revision,
+and expiry values needed for conflict detection and cleanup.
 
-```text
-root_share.has {
-  signerSetId,
-  signerRole,
-  rootShareEpoch
-}
+Root-share startup metadata is derived locally from the owning role's Worker
+Secret. Startup fails closed when the Secret's embedded role, deriver set, key
+epoch, or root epoch differs from deployment-pinned metadata. Router startup
+fails if any mutable persistence or role-only Secret binding is present.
 
-root_share.startup_metadata {
-  signerSetId,
-  signerRole,
-  rootShareEpoch
-}
-
-signing_worker_output.activate {
-  transcriptDigest,
-  signingWorkerIdentity,
-  rootShareEpoch,
-  packageDigest
-}
-
-router_replay.reserve {
-  requestId,
-  transcriptDigest,
-  expiresAtMs
-}
-```
-
-Deriver startup must fail closed if the role-specific root-share Durable Object
-binding is missing, points at the wrong storage scope, lacks the expected
-deriver-set id, lacks the expected root-share epoch, or returns a deriver role
-that differs from the Worker role. Router startup must fail if it receives any
-deriver root-share or SigningWorker activation binding.
-
-The first `router-ab-cloudflare` crate should pin this boundary with typed
-binding descriptors, role-specific startup configs, and validation tests before
-adding `workers-rs` request handlers. The later `workers-rs` layer should be a
-thin adapter from `worker::Env` and Service Bindings into those typed configs
-and the existing `router-ab-core` host traits.
+The `workers-rs` layer remains a thin adapter from `worker::Env`, D1, Secrets,
+and Service Bindings into the existing `router-ab-core` host traits.
 
 ### 10.9 Rust/WASM Implementation Architecture
 
@@ -2584,7 +2476,7 @@ crates/router-ab-dev
 crates/router-ab-cloudflare
   workers-rs adapters
   Env parsing and binding validation
-  Durable Object operation execution
+  role-private D1 persistence and application encryption
   Service Binding/fetch transport
 
 crates/threshold-prf

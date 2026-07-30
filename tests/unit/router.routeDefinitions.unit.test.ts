@@ -41,11 +41,9 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'session_exchange',
   'wallet_unlock_challenge',
   'wallet_unlock_verify',
-  'wallet_registration_intent_cancel',
-  'wallet_registration_start',
-  'wallet_registration_ecdsa_derivation_respond',
-  'wallet_registration_ecdsa_activation',
-  'wallet_registration_finalize',
+  'wallet_registration_respond',
+  'wallet_registration_activate',
+  'wallet_registration_near_provisioning',
   'wallet_add_signer_start',
   'wallet_add_signer_ecdsa_derivation_respond',
   'wallet_add_signer_ecdsa_activation',
@@ -83,26 +81,16 @@ test.describe('route definition scaffolding', () => {
     expect(new Set(ids).size).toBe(ids.length);
 
     expect(routes.find((route) => route.id === 'registration_bootstrap')).toBeUndefined();
-    const walletRegistrationIntent = routes.find(
-      (route) => route.id === 'wallet_registration_intent',
+    const walletRegistrationSetup = routes.find(
+      (route) => route.id === 'wallet_registration_setup',
     );
-    expect(walletRegistrationIntent).toBeTruthy();
-    expect(walletRegistrationIntent?.auth).toMatchObject({
+    expect(walletRegistrationSetup).toBeTruthy();
+    expect(walletRegistrationSetup?.auth).toMatchObject({
       plane: 'api_credentials',
-      credentials: ['secret_key', 'bootstrap_token'],
+      credentials: ['publishable_key'],
       scopes: ['accounts.create'],
     });
-    expect(walletRegistrationIntent?.metering).toEqual({ kind: 'none' });
-
-    const walletRegistrationIntentCancel = routes.find(
-      (route) => route.id === 'wallet_registration_intent_cancel',
-    );
-    expect(walletRegistrationIntentCancel).toBeTruthy();
-    expect(walletRegistrationIntentCancel?.auth).toMatchObject({
-      plane: 'public',
-      proof: 'intent_grant',
-    });
-    expect(walletRegistrationIntentCancel?.metering).toEqual({ kind: 'none' });
+    expect(walletRegistrationSetup?.metering).toEqual({ kind: 'none' });
 
     const walletAddAuthMethodIntent = routes.find(
       (route) => route.id === 'wallet_add_auth_method_intent',
@@ -110,7 +98,7 @@ test.describe('route definition scaffolding', () => {
     expect(walletAddAuthMethodIntent).toBeTruthy();
     expect(walletAddAuthMethodIntent?.auth).toMatchObject({
       plane: 'api_credentials',
-      credentials: ['secret_key', 'bootstrap_token'],
+      credentials: ['publishable_key'],
       scopes: ['wallets.auth_methods.create'],
     });
     expect(walletAddAuthMethodIntent?.metering).toEqual({ kind: 'none' });

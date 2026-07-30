@@ -13,12 +13,7 @@ import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey
 import type { ThresholdEcdsaActivationRequest } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import {
-  parseEcdsaRoleLocalBindingDigest,
-  parseEcdsaRoleLocalDurableMaterialRef,
-  parseEcdsaRoleLocalMaterialHandle,
-  parseSigningSessionSealKeyVersion,
-} from '@/core/signingEngine/session/keyMaterialBrands';
+import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
   requirePersistedEcdsaRoleLocalMaterial,
   toExactEcdsaSigningLaneIdentity,
@@ -94,45 +89,6 @@ function requirePasskeyCredentialIdForFixture(record: ThresholdEcdsaSessionRecor
     default:
       return assertNever(authMethod);
   }
-}
-
-/** Rewrites a shared bootstrap fixture's inline passkey ready-state blob into the
- * current worker-owned role-local material binding: canonical passkey ECDSA
- * session records may only reference durable worker-owned material, never carry
- * the ready-state blob inline. Belongs in ecdsaBootstrap.fixtures.ts once its
- * owner migrates the shared fixture; kept here (duplicating the Email OTP
- * conversion pattern in emailOtpMixedWalletUnlock.unit.test.ts) to avoid
- * editing helpers owned by other branches. */
-export function toWorkerOwnedPasskeyEcdsaBootstrapFixture(
-  bootstrap: ThresholdEcdsaSessionBootstrapResult,
-): ThresholdEcdsaSessionBootstrapResult {
-  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
-  if (!binding || binding.materialKind !== 'role_local_ready_state_blob') {
-    return bootstrap;
-  }
-  const sessionId =
-    String(bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '').trim() || 'fixture-session';
-  return {
-    ...bootstrap,
-    thresholdEcdsaKeyRef: {
-      ...bootstrap.thresholdEcdsaKeyRef,
-      backendBinding: {
-        materialKind: 'role_local_worker_handle' as const,
-        relayerKeyId: binding.relayerKeyId,
-        clientVerifyingShareB64u: binding.clientVerifyingShareB64u,
-        roleLocalMaterialHandle: {
-          kind: 'ecdsa_role_local_worker_handle_v1' as const,
-          materialHandle: parseEcdsaRoleLocalMaterialHandle(`role-local-live:${sessionId}`),
-          bindingDigest: parseEcdsaRoleLocalBindingDigest(
-            binding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
-          ),
-          durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(`role-local:${sessionId}`),
-        },
-        publicFacts: binding.ecdsaRoleLocalReadyRecord.publicFacts,
-        authMethod: binding.ecdsaRoleLocalReadyRecord.authMethod,
-      },
-    },
-  };
 }
 
 /** Warm-session read-model state for a persisted passkey ECDSA record: key,
