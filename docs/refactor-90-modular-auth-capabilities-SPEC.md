@@ -227,6 +227,10 @@ implementing commit SHA as the evidence.
     committed-capability union and its embedded effect callbacks are deleted;
     execution receives a separate exact-activation-checked material port
     (`6a818aea3`, `e118d0d5e`).
+  - [x] NEAR reusable authorization requires the persisted projection plus its
+    authoritative active status. Delegate and NEP-413 planning consume that
+    canonical proof directly and no longer reconstruct authorization, lanes,
+    or readiness from a composite session record (`5a8ce9090`, `70ef2a420`).
 - [x] `R90-INV-004` — Near admission, acquisition, and promotion are independently
   idempotent and queryable by exact recovery ID, including Refactor 93 exact
   Router replay, role-local reconciliation, and injected crash cases.
