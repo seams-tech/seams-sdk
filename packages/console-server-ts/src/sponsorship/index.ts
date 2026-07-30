@@ -85,13 +85,13 @@ export {
 export type {
   ChainFamilySponsoredExecutionPricingConfig,
   StaticSponsoredExecutionPricingConfig,
-  RefFinanceSponsoredExecutionPricingConfig,
+  OutlayerSponsoredExecutionPricingConfig,
   SponsoredExecutionPricingEnv,
 } from './pricing';
 export {
   createChainFamilySponsoredExecutionPricingService,
-  createRefFinanceSponsoredExecutionPricingService,
-  resolveRefFinanceSponsoredExecutionPricingFromEnv,
+  createOutlayerSponsoredExecutionPricingService,
+  resolveOutlayerSponsoredExecutionPricingFromEnv,
   resolveSponsoredExecutionPricingFromEnv,
   createStaticSponsoredExecutionPricingService,
   resolveStaticSponsoredExecutionPricingFromEnv,
