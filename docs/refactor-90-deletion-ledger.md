@@ -562,6 +562,16 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~the Ed25519 updated-at primary-lane fallback and
   `primaryEd25519LaneFromNormalizedCandidates`~~ — deleted by `ae8f7b72d`;
   canonicalized priority order now selects the lane
+- ~~duplicate `ecdsaAvailableLaneMaterialKey` selector~~ — zero-caller
+  material-key projection deleted by `5cc54814d`
+- ~~zero-caller `BaseEcdsaWalletId`, bootstrap route-auth/session-id helpers,
+  and sealed-record auth-lane wrapper~~ — deleted by `6207cea1f`
+- ~~exact aliases for ECDSA signing authorization, activation request/result,
+  bootstrap args, and sealed resolved identity~~ — consumers use their
+  canonical types directly after `dfee38d07`
+- ~~duplicate persisted Ed25519 capability fallback service locator~~ — deleted
+  by `729ad4cdd`; the request-scoped product runtime owns persisted load,
+  correlation, installation, and reread
 
 ## 6e gate — composite ECDSA record family (measured 2026-07-28, at `3b904b63a`)
 

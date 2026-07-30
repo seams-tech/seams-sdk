@@ -22,7 +22,6 @@ import {
   buildRouterAbEd25519YaoRegistrationCapabilityRecordV1,
   InMemoryRouterAbEd25519YaoRecoveryService,
   createRouterAbEd25519YaoRecoveryModule,
-  createRouterAbEd25519YaoRecoveryRuntimePortV1,
   type RouterAbEd25519YaoRecoveryAuthorizationAdapter,
   type RouterAbEd25519YaoRecoveryAuthorizationInput,
   type RouterAbEd25519YaoRecoveryAuthorizationResult,
@@ -423,7 +422,6 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
   const backend = new TestRecoveryBackend({ kind: 'success', result });
   const persistence = new RecordingCapabilityPersistence();
   const service = new InMemoryRouterAbEd25519YaoRecoveryService(backend, undefined, persistence);
-  const runtime = createRouterAbEd25519YaoRecoveryRuntimePortV1(service);
 
   expect(installRegistrationCapability(service)).toMatchObject({
     ok: true,
@@ -434,7 +432,6 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
     ok: true,
     disposition: 'exact_retry',
   });
-  expect(runtime.kind).toBe('router_ab_ed25519_yao_recovery_runtime_v1');
   expect(resolveWalletCapability(service)).toMatchObject({
     ok: true,
     capability: {

@@ -263,13 +263,6 @@ export function buildEmailOtpEcdsaMintingSession(args: {
   };
 }
 
-export function walletSessionRouteAuthFromEcdsaBootstrap(
-  bootstrap: ThresholdEcdsaSessionBootstrapResult | undefined,
-): AppOrWalletSessionAuth | undefined {
-  const jwt = String(bootstrap?.session?.jwt || '').trim();
-  return jwt ? { kind: 'wallet_session', jwt } : undefined;
-}
-
 export function signingGrantIdFromEcdsaBootstrap(
   bootstrap: ThresholdEcdsaSessionBootstrapResult | undefined,
   defaultSigningGrantId: string,
@@ -304,14 +297,4 @@ export function ecdsaBootstrapWithSigningGrantId(args: {
       signingGrantId,
     },
   };
-}
-
-export function thresholdSessionIdFromEcdsaBootstrap(
-  bootstrap: ThresholdEcdsaSessionBootstrapResult | undefined,
-): string {
-  const keyRef = bootstrap ? bootstrap.thresholdEcdsaKeyRef : undefined;
-  return (
-    String(bootstrap?.session?.thresholdSessionId || '').trim() ||
-    String(keyRef ? keyRef.thresholdSessionId : '').trim()
-  );
 }

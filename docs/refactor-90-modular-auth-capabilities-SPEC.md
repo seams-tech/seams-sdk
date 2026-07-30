@@ -154,6 +154,9 @@ implementing commit SHA as the evidence.
   - [x] ECDSA refresh HTTP input is owned by the canonical route-definition
     boundary; the duplicate standalone adapter and wrapper-only test are
     deleted (`a89ede462`, `df478bfed`).
+  - [x] Persisted Ed25519 capability lookup/install/reread is owned by the
+    request-scoped product runtime; the duplicate fallback locator is deleted
+    (`729ad4cdd`).
 - [ ] `R90-INV-009` — the minimal vault operation uses a stable fingerprint and
   one atomic absent-claim grant-use transaction.
 - [ ] `R90-INV-012` — the real minimal vault vertical proves session → Passkey

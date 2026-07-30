@@ -463,14 +463,6 @@ export interface RouterAbEd25519YaoActiveCapabilityResolverV1 {
     | RouterAbEd25519YaoActiveCapabilityLookupResultV1;
 }
 
-export interface RouterAbEd25519YaoRecoveryRuntimePortV1
-  extends
-    RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1,
-    RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1,
-    RouterAbEd25519YaoActiveCapabilityResolverV1 {
-  readonly kind: 'router_ab_ed25519_yao_recovery_runtime_v1';
-}
-
 type CapabilityIdentity = {
   readonly capabilityBinding: RouterAbEd25519YaoBytes32V1;
   readonly nearAccountId: string;
@@ -1257,48 +1249,6 @@ function activationReplayResult(
     default:
       return assertNever(state);
   }
-}
-
-class RouterAbEd25519YaoRecoveryRuntimePort implements RouterAbEd25519YaoRecoveryRuntimePortV1 {
-  readonly kind = 'router_ab_ed25519_yao_recovery_runtime_v1' as const;
-
-  constructor(
-    private readonly service: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1 &
-      RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1 &
-      RouterAbEd25519YaoActiveCapabilityResolverV1,
-  ) {}
-
-  installRegistrationFinalizeCapability(
-    input: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1,
-  ):
-    | Promise<RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1>
-    | RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1 {
-    return this.service.installRegistrationFinalizeCapability(input);
-  }
-
-  installPersistedActiveCapability(
-    input: WalletEd25519YaoActiveCapabilityRecord,
-  ):
-    | Promise<RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1>
-    | RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1 {
-    return this.service.installPersistedActiveCapability(input);
-  }
-
-  resolveActiveCapability(
-    input: RouterAbEd25519YaoActiveCapabilityLookupV1,
-  ):
-    | Promise<RouterAbEd25519YaoActiveCapabilityLookupResultV1>
-    | RouterAbEd25519YaoActiveCapabilityLookupResultV1 {
-    return this.service.resolveActiveCapability(input);
-  }
-}
-
-export function createRouterAbEd25519YaoRecoveryRuntimePortV1(
-  service: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1 &
-    RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1 &
-    RouterAbEd25519YaoActiveCapabilityResolverV1,
-): RouterAbEd25519YaoRecoveryRuntimePortV1 {
-  return new RouterAbEd25519YaoRecoveryRuntimePort(service);
 }
 
 type CapabilityPromotionResult =

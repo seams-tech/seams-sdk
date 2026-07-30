@@ -19,8 +19,6 @@ export type {
   ThresholdEcdsaChainTarget,
 } from '@/core/platform/types';
 
-export type BaseEcdsaWalletId = WalletId;
-
 export type NearAccountRef =
   | { kind: 'named'; accountId: AccountId }
   | { kind: 'implicit'; accountId: AccountId };
