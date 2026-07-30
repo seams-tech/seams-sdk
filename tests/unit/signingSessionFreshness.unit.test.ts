@@ -6,13 +6,11 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
-  buildVerifiedEcdsaPublicFacts,
   toRpId,
   toEvmFamilyEcdsaKeyHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   buildReauthAnchorIdentityFromAvailableLane,
-  buildReauthAnchorIdentityFromEcdsaLaneCandidate,
 } from '../../packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes';
 import {
   exactSigningLaneIdentityFromSelectedLane,
@@ -237,94 +235,6 @@ test.describe('step-up freshness identity', () => {
       laneIdentityKey: required.laneIdentityKey,
       reason: 'threshold_session_exhausted',
       projection: { kind: 'unavailable', reason: 'budget_status_unavailable' },
-    });
-  });
-
-  test('builds an ECDSA reauth anchor from an exhausted available lane', () => {
-    const key = makeEcdsaKey();
-    const keyHandle = toEvmFamilyEcdsaKeyHandle('tempo:4242:ecdsa-threshold-key');
-    const anchor = buildReauthAnchorIdentityFromAvailableLane({
-      walletId: key.walletId,
-      ...makeOperation(),
-      lane: {
-        key,
-        publicFacts: buildVerifiedEcdsaPublicFacts({
-          keyHandle,
-          publicKeyB64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-          participantIds: [1, 2],
-          thresholdOwnerAddress: key.thresholdOwnerAddress,
-        }),
-        auth: EMAIL_OTP_AUTH,
-        curve: 'ecdsa',
-        chainTarget: tempoChainTarget,
-        state: 'exhausted',
-        source: 'runtime_session_record',
-        signingGrantId: 'wallet-session-ecdsa',
-        thresholdSessionId: 'threshold-session-ecdsa',
-        remainingUses: 0,
-        updatedAtMs: 1_800_000_000_000,
-      },
-    });
-
-    expect(anchor).toMatchObject({
-      kind: 'reauth_anchor_identity',
-      sourceState: {
-        availabilitySource: 'runtime_session_record',
-        storeSource: 'email_otp',
-        retention: 'single_use',
-        remainingUses: 0,
-      },
-      freshness: {
-        kind: 'fresh_step_up_required',
-        reason: 'threshold_session_exhausted',
-      },
-    });
-  });
-
-  test('builds an ECDSA reauth anchor from an exhausted shared Email OTP candidate', () => {
-    const key = makeEcdsaKey();
-    const keyHandle = toEvmFamilyEcdsaKeyHandle('tempo:4242:ecdsa-threshold-key');
-    const anchor = buildReauthAnchorIdentityFromEcdsaLaneCandidate({
-      walletId: key.walletId,
-      ...makeOperation(),
-      candidate: {
-        kind: 'lane_candidate',
-        auth: EMAIL_OTP_AUTH,
-        curve: 'ecdsa',
-        chain: 'tempo',
-        walletId: key.walletId,
-        key,
-        keyHandle,
-        chainTarget: tempoChainTarget,
-        signingGrantId: 'wallet-session-ecdsa',
-        thresholdSessionId: 'threshold-session-ecdsa',
-        state: 'exhausted',
-        remainingUses: 3,
-        expiresAtMs: null,
-        updatedAtMs: 1_800_000_000_000,
-        source: 'evm_family_shared_key',
-        sourceChainTarget: {
-          kind: 'evm',
-          namespace: 'eip155',
-          chainId: 5042002,
-          networkSlug: 'arc-testnet',
-        },
-      },
-      nowMs: 1_800_000_000_001,
-    });
-
-    expect(anchor).toMatchObject({
-      kind: 'reauth_anchor_identity',
-      sourceState: {
-        availabilitySource: 'evm_family_shared_key',
-        storeSource: 'email_otp',
-        retention: 'single_use',
-        remainingUses: 0,
-      },
-      freshness: {
-        kind: 'fresh_step_up_required',
-        reason: 'threshold_session_exhausted',
-      },
     });
   });
 

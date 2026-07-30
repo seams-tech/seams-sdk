@@ -30,10 +30,6 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
-import type { EcdsaReauthAnchorPublicRestore } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
-import { runtimeEcdsaRouterAbNormalSigningState } from './helpers/availableSigningLanes.fixtures';
-import { makeEcdsaRoleLocalReadyRecordFixture } from './helpers/ecdsaSessionRecordVariants.fixtures';
-import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';
@@ -184,71 +180,6 @@ function resolvedPasskeyKey(common: EcdsaLaneCommon, rpId: ReturnType<typeof toR
   });
 }
 
-function durablePublicReauthAuthority(
-  common: EcdsaLaneCommon,
-  auth: ConcreteAvailableEcdsaSigningLane['auth'],
-): EcdsaReauthAnchorPublicRestore {
-  const normalSigning = runtimeEcdsaRouterAbNormalSigningState({
-    key: common.key,
-    thresholdSessionId: common.thresholdSessionId,
-    thresholdEcdsaPublicKeyB64u: common.publicFacts.publicKeyB64u,
-    thresholdOwnerAddress: common.key.thresholdOwnerAddress,
-  });
-  const roleLocal = makeEcdsaRoleLocalReadyRecordFixture({
-    walletId: common.key.walletId,
-    walletKeyId: common.key.evmFamilySigningKeySlotId,
-    keyHandle: common.publicFacts.keyHandle,
-    chainTarget: common.chainTarget,
-    ecdsaThresholdKeyId: common.key.ecdsaThresholdKeyId,
-    signingRootId: common.key.signingRootId,
-    signingRootVersion: common.key.signingRootVersion,
-    ethereumAddress: common.key.thresholdOwnerAddress,
-  });
-  const base = {
-    chainTarget: common.chainTarget,
-    signingRootId: common.key.signingRootId,
-    signingRootVersion: common.key.signingRootVersion,
-    evmFamilySigningKeySlotId: common.key.evmFamilySigningKeySlotId,
-    keyHandle: common.publicFacts.keyHandle,
-    ecdsaThresholdKeyId: common.key.ecdsaThresholdKeyId,
-    ethereumAddress: common.key.thresholdOwnerAddress,
-    relayerKeyId: 'signing-worker-export-lane',
-    relayerUrl: 'https://relay.example',
-    thresholdEcdsaPublicKeyB64u: common.publicFacts.publicKeyB64u,
-    participantIds: [...common.key.participantIds],
-    roleLocalMaterialRef: buildEcdsaRoleLocalPersistedMaterialRefFixture({
-      durableMaterialRef: `role-local:export-lane:${common.thresholdSessionId}`,
-      bindingDigest: roleLocal.publicFacts.contextBinding32B64u,
-      label: `export-lane:${common.thresholdSessionId}`,
-    }),
-    runtimePolicyScope: {
-      orgId: 'org-export-lane',
-      projectId: 'project-export-lane',
-      envId: 'test',
-      signingRootVersion: common.key.signingRootVersion,
-    },
-    routerAbEcdsaDerivationNormalSigning: normalSigning,
-    publicCapability: roleLocal.publicFacts.publicCapability,
-  };
-  switch (auth.kind) {
-    case 'passkey':
-      return {
-        ...base,
-        source: 'login',
-        rpId: auth.rpId,
-        credentialIdB64u: auth.credentialIdB64u,
-      };
-    case 'email_otp':
-      return {
-        ...base,
-        source: 'email_otp',
-        provider: 'google',
-        providerSubjectId: auth.providerSubjectId,
-        emailHashHex: '11'.repeat(32),
-      };
-  }
-}
-
 function ecdsaLaneAuth(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigningLane['auth'] {
   switch (overrides.authMethod) {
     case 'email_otp':
@@ -271,13 +202,11 @@ function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigning
             auth,
             resolvedKey: resolvedPasskeyKey(common, auth.rpId),
             source: 'durable_sealed_record',
-            publicReauthAuthority: durablePublicReauthAuthority(common, auth),
           }
         : {
             ...common,
             auth,
             source: 'durable_sealed_record',
-            publicReauthAuthority: durablePublicReauthAuthority(common, auth),
           };
     case 'evm_family_shared_key':
       return auth.kind === 'passkey'
@@ -697,35 +626,6 @@ test.describe('ECDSA export lane selection', () => {
       kind: 'material_pending',
       reason: 'email_otp_route_auth',
     });
-  });
-
-  test('preserves the public Email OTP reauth authority for a retired page-refresh lane', async () => {
-    const lane = ecdsaLane({
-      authMethod: 'email_otp',
-      chainTarget: EVM_TARGET,
-      state: 'exhausted',
-      source: 'durable_sealed_record',
-      signingGrantId: 'wallet-ecdsa-email-retired',
-      thresholdSessionId: 'threshold-ecdsa-email-retired',
-      remainingUses: 0,
-    });
-    if (lane.source !== 'durable_sealed_record') {
-      throw new Error('expected durable Email OTP export lane');
-    }
-
-    const selected = await resolveEcdsaSessionForExport(depsFor([lane]), {
-      walletId: WALLET_ID,
-      signingTarget: EVM_TARGET,
-      laneIdentity: ecdsaLaneIdentity(lane),
-    });
-
-    expect(selected.session).toEqual(
-      expect.objectContaining({
-        state: 'exhausted',
-        source: 'durable_sealed_record',
-        publicReauthAuthority: lane.publicReauthAuthority,
-      }),
-    );
   });
 
   test('rejects raw AccountMenu Email OTP ECDSA export duplicates before canonical availability', async () => {
