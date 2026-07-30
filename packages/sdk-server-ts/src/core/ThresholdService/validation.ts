@@ -47,7 +47,6 @@ import {
 import type {
   EcdsaDerivationClientBootstrapRequest,
   EcdsaDerivationPasskeyBootstrapAuthorization,
-  EcdsaDerivationExportShareRequest,
   EcdsaDerivationPublicIdentity,
   EcdsaDerivationRoleLocalKeyRecord,
   ThresholdEd25519AuthorityScope,
@@ -471,22 +470,6 @@ const ECDSA_DERIVATION_BOOTSTRAP_FORBIDDEN_FIELDS = [
   'privateKeyHex',
 ] as const;
 
-const ECDSA_DERIVATION_EXPORT_REQUEST_FORBIDDEN_FIELDS = [
-  ...ECDSA_DERIVATION_V1_CONTEXT_FORBIDDEN_FIELDS,
-  'rpId',
-  'rp_id',
-  'chainTarget',
-  'yClient32Le',
-  'yClient32LeB64u',
-  'yRelayer32Le',
-  'yRelayer32LeB64u',
-  'clientShare32B64u',
-  'relayerShare32B64u',
-  'serverExportShare32B64u',
-  'canonicalPrivateKeyHex',
-  'privateKeyHex',
-] as const;
-
 export function parseEcdsaDerivationPublicIdentity(
   raw: unknown,
 ): EcdsaDerivationPublicIdentity | null {
@@ -680,63 +663,6 @@ export function parseWalletRegistrationEcdsaClientBootstrap(
     remainingUses: parsed.remainingUses,
     participantIds: [1, 2],
     runtimePolicyScope: parsed.runtimePolicyScope,
-  };
-}
-
-export function parseEcdsaDerivationExportShareRequest(
-  raw: unknown,
-): EcdsaDerivationExportShareRequest | null {
-  if (!isObject(raw)) return null;
-  if (hasForbiddenFields(raw, ECDSA_DERIVATION_EXPORT_REQUEST_FORBIDDEN_FIELDS)) return null;
-  if (toOptionalString(raw.formatVersion) !== 'ecdsa-derivation-role-local-export') return null;
-  const walletId = toOptionalString(raw.walletId);
-  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    raw.evmFamilySigningKeySlotId,
-  );
-  const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
-  const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  const contextBinding32B64u = parseB64uFixed(raw.contextBinding32B64u, 32);
-  const publicIdentity = parseEcdsaDerivationPublicIdentity(raw.publicIdentity);
-  const exportRequestNonce32B64u = parseB64uFixed(raw.exportRequestNonce32B64u, 32);
-  const confirmationDigest32B64u = parseB64uFixed(raw.confirmationDigest32B64u, 32);
-  const authorizationDigest32B64u = parseB64uFixed(raw.authorizationDigest32B64u, 32);
-  const issuedAtUnixMs = raw.issuedAtUnixMs;
-  const expiresAtUnixMs = raw.expiresAtUnixMs;
-  const clientDeviceId = toOptionalString(raw.clientDeviceId);
-  const clientSessionId = toOptionalString(raw.clientSessionId);
-  if (
-    !walletId ||
-    !evmFamilySigningKeySlotId ||
-    !ecdsaThresholdKeyId ||
-    !relayerKeyId ||
-    !contextBinding32B64u ||
-    !publicIdentity ||
-    !exportRequestNonce32B64u ||
-    !confirmationDigest32B64u ||
-    !authorizationDigest32B64u ||
-    !isNonNegativeInteger(issuedAtUnixMs) ||
-    !isNonNegativeInteger(expiresAtUnixMs) ||
-    expiresAtUnixMs <= issuedAtUnixMs ||
-    !clientDeviceId ||
-    !clientSessionId
-  ) {
-    return null;
-  }
-  return {
-    formatVersion: 'ecdsa-derivation-role-local-export',
-    walletId,
-    evmFamilySigningKeySlotId,
-    ecdsaThresholdKeyId,
-    relayerKeyId,
-    contextBinding32B64u,
-    publicIdentity,
-    exportRequestNonce32B64u,
-    confirmationDigest32B64u,
-    authorizationDigest32B64u,
-    issuedAtUnixMs,
-    expiresAtUnixMs,
-    clientDeviceId,
-    clientSessionId,
   };
 }
 

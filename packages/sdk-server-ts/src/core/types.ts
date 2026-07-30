@@ -758,7 +758,6 @@ export type EcdsaDerivationRouteResult<T> =
   | { ok: false; code: EcdsaDerivationErrorCode; message: string; retryAfterMs?: number };
 
 export type EcdsaDerivationRoleLocalFormatVersion = 'ecdsa-derivation-role-local';
-export type EcdsaDerivationRoleLocalExportFormatVersion = 'ecdsa-derivation-role-local-export';
 export type EcdsaDerivationKeyScope = 'evm-family';
 
 export interface EcdsaDerivationPublicIdentity {
@@ -870,35 +869,6 @@ export interface EcdsaDerivationRoleLocalKeyRecord {
   publicTranscriptDigest32B64u: string;
   createdAtMs: number;
   updatedAtMs: number;
-}
-
-export interface EcdsaDerivationExportShareRequest {
-  formatVersion: EcdsaDerivationRoleLocalExportFormatVersion;
-  walletId: string;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  relayerKeyId: string;
-  contextBinding32B64u: string;
-  publicIdentity: EcdsaDerivationPublicIdentity;
-  exportRequestNonce32B64u: string;
-  confirmationDigest32B64u: string;
-  authorizationDigest32B64u: string;
-  issuedAtUnixMs: number;
-  expiresAtUnixMs: number;
-  clientDeviceId: string;
-  clientSessionId: string;
-}
-
-export interface EcdsaDerivationExportShareResponse {
-  formatVersion: EcdsaDerivationRoleLocalExportFormatVersion;
-  walletId: string;
-  evmFamilySigningKeySlotId: string;
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  relayerKeyId: string;
-  contextBinding32B64u: string;
-  publicIdentity: EcdsaDerivationPublicIdentity;
-  exportAuthorizationDigest32B64u: string;
-  serverExportShare32B64u: string;
 }
 
 export type EcdsaSessionPolicy = {
