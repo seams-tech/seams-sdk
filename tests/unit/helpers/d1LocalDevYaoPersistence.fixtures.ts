@@ -100,22 +100,6 @@ class DeferredValue<T> {
   }
 }
 
-class UnusedDurableObjectStub {
-  async fetch(): Promise<Response> {
-    return Response.json({ ok: false, code: 'unexpected_durable_object_call' }, { status: 500 });
-  }
-}
-
-class UnusedDurableObjectNamespace {
-  idFromName(name: string): string {
-    return name;
-  }
-
-  get(): UnusedDurableObjectStub {
-    return new UnusedDurableObjectStub();
-  }
-}
-
 class LocalYaoExecutionContext implements CfExecutionContext {
   waitUntil(promise: Promise<unknown>): void {
     void promise;
@@ -274,7 +258,6 @@ export function createLocalYaoWorkerEnv(input: {
   return {
     CONSOLE_DB: input.consoleDatabase,
     SIGNER_DB: input.signerDatabase,
-    THRESHOLD_STORE: new UnusedDurableObjectNamespace(),
     MPC_ROUTER: input.router,
     SIGNING_WORKER: unsupported,
     SEAMS_TENANT_STORAGE_NAMESPACE: NAMESPACE,

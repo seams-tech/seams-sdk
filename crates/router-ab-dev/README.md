@@ -5,7 +5,7 @@ Local development adapters for the Router/A/B architecture.
 This crate owns developer-only helpers that are intentionally outside the
 transport-neutral `router-ab-core` crate:
 
-- local SQLite seed and startup checks,
+- role-private SQLite state for Deriver A, Deriver B, and SigningWorker,
 - local Ed25519 Yao lifecycle and performance harnesses,
 - local Router/Deriver/SigningWorker config parsing,
 - private-worker local harness support.

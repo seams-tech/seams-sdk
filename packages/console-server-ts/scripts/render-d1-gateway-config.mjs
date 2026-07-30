@@ -14,17 +14,15 @@ import {
   DEFAULT_SESSION_COOKIE_NAME,
   GATEWAY_WORKER_COMPATIBILITY_DATE,
   GATEWAY_WORKER_COMPATIBILITY_FLAGS,
-  parseGatewayDeploymentConfig,
+  gatewayRuntimeProfileNearNetwork,
 } from './gateway-deployment-config.mjs';
+import { readDeploymentTarget } from '../../../scripts/deployment-targets.mjs';
 
 const VALID_TARGETS = new Set(['staging', 'production']);
 
 function main() {
   const options = parseArguments(process.argv.slice(2));
-  const deployment = parseGatewayDeploymentConfig(
-    process.env.GATEWAY_DEPLOYMENT_CONFIG_JSON,
-    options.target,
-  );
+  const deployment = readDeploymentTarget(options.target).gatewayDeploymentConfig;
   assertNearRelayerSecretConsistency(deployment.optional.nearRelayer);
   const config = buildConfig(deployment, process.cwd());
   const plan = buildGatewayDeploymentPlan(deployment);
@@ -86,6 +84,12 @@ function buildConfig(deployment, packageRoot) {
     compatibility_date: GATEWAY_WORKER_COMPATIBILITY_DATE,
     compatibility_flags: GATEWAY_WORKER_COMPATIBILITY_FLAGS,
     workers_dev: true,
+    routes: [
+      {
+        pattern: new URL(deployment.origins.gateway).hostname,
+        custom_domain: true,
+      },
+    ],
     d1_databases: [
       {
         binding: 'CONSOLE_DB',
@@ -103,26 +107,9 @@ function buildConfig(deployment, packageRoot) {
         ),
       },
     ],
-    durable_objects: {
-      bindings: [{ name: 'THRESHOLD_STORE', class_name: 'ThresholdStoreDurableObject' }],
-    },
     services: [
       { binding: 'SIGNING_WORKER', service: deployment.serviceNames.signingWorker },
       { binding: 'MPC_ROUTER', service: deployment.serviceNames.mpcRouter },
-    ],
-    migrations: [
-      {
-        tag: 'threshold-store-sqlite-v1',
-        new_sqlite_classes: ['ThresholdStoreDurableObject'],
-      },
-      {
-        tag: 'router-api-runtime-sqlite-v1',
-        new_sqlite_classes: ['RouterApiRuntimeDurableObject'],
-      },
-      {
-        tag: 'router-api-runtime-delete-v1',
-        deleted_classes: ['RouterApiRuntimeDurableObject'],
-      },
     ],
     observability: {
       enabled: true,
@@ -198,6 +185,9 @@ function buildWorkerVars(deployment) {
     SIGNING_ROOT_KEK_PROVIDER: 'cloudflare_secrets_store',
     SIGNING_ROOT_KEK_ENCODING: deployment.signingRoot.encoding,
     SIGNING_ROOT_KEK_IDS: deployment.signingRoot.id,
+    SPONSORED_EXECUTION_REAL_PRICING_JSON: JSON.stringify(
+      buildSponsoredExecutionPricingConfig(deployment.runtimeProfile),
+    ),
   };
   if (demoEmailOtpDelivery) {
     vars.EMAIL_OTP_DEMO_ALLOWED_ORIGINS = deployment.origins.allowedCors.join(',');
@@ -206,6 +196,23 @@ function buildWorkerVars(deployment) {
   addOptionalStringVar(vars, 'GOOGLE_OIDC_CLIENT_ID', deployment.optional.googleOidcClientId);
   addOptionalObjectVar(vars, 'SEAMS_OIDC_EXCHANGE_JSON', deployment.optional.oidcExchange);
   return vars;
+}
+
+function buildSponsoredExecutionPricingConfig(runtimeProfile) {
+  const networkClass =
+    gatewayRuntimeProfileNearNetwork(runtimeProfile) === 'mainnet' ? 'MAINNET' : 'TESTNET';
+  return {
+    provider: 'coingecko',
+    cacheTtlMs: 300_000,
+    near: {
+      [networkClass]: {
+        assetId: 'near',
+        nativeUnitDecimals: 24,
+        estimateFeeAmountYocto: '1000000000000000000000',
+        pricingVersionPrefix: `coingecko-near-${networkClass.toLowerCase()}`,
+      },
+    },
+  };
 }
 
 function addNearRelayerVars(vars, nearRelayer) {

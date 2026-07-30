@@ -201,14 +201,6 @@ export type RouterAbEcdsaVerifiedClientActivationFactsV1 = {
 export type RouterAbEcdsaStrictForwardedRegistrationResponseV1 = {
   result: 'forwarded';
   response: {
-    replay: {
-      request_id: string;
-      reserved: true;
-    };
-    lifecycle: {
-      lifecycle_id: string;
-      stored: true;
-    };
     bundles: RouterAbEcdsaClientProofFinalizationV1['bundles'];
   };
 };
@@ -483,9 +475,12 @@ export type RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire
   };
 
 export type RouterAbEcdsaDerivationBudgetStatusV1Wire = {
+  remaining_uses: number;
   committed_remaining_uses: number;
   reserved_uses: number;
   available_uses: number;
+  projection_version: number;
+  expires_at_ms: number;
 };
 
 export type RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1Wire = {
@@ -511,6 +506,7 @@ export type RouterAbEcdsaDerivationEvmDigestSigningResponseV1Wire = {
   signing_digest: RouterAbPublicDigest32V1Wire;
   signature_scheme: RouterAbEcdsaDerivationSignatureSchemeV1Wire;
   signature65_b64u: string;
+  budget_status: RouterAbEcdsaDerivationBudgetStatusV1Wire;
 };
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
@@ -1245,34 +1241,11 @@ function parseRouterAbEcdsaStrictProofResponseV1(
   label: string,
 ): RouterAbEcdsaStrictForwardedProofResponseV1['response'] {
   const response = requireRecord(value, label);
-  requireExactKeys(response, label, ['replay', 'lifecycle', 'bundles']);
+  requireExactKeys(response, label, ['bundles']);
   const bundlesLabel = `${label}.bundles`;
   const bundles = requireRecord(response.bundles, bundlesLabel);
   requireExactKeys(bundles, bundlesLabel, ['signerA', 'signerB']);
-  const replayLabel = `${label}.replay`;
-  const replay = requireRecord(response.replay, replayLabel);
-  requireExactKeys(replay, replayLabel, ['request_id', 'reserved']);
-  if (replay.reserved !== true) {
-    throw new Error(`${replayLabel}.reserved must be true for a forwarded response`);
-  }
-  const lifecycleLabel = `${label}.lifecycle`;
-  const lifecycle = requireRecord(response.lifecycle, lifecycleLabel);
-  requireExactKeys(lifecycle, lifecycleLabel, ['lifecycle_id', 'stored']);
-  if (lifecycle.stored !== true) {
-    throw new Error(`${lifecycleLabel}.stored must be true for a forwarded response`);
-  }
   return {
-    replay: {
-      request_id: requireAsciiNonEmptyString(replay.request_id, `${replayLabel}.request_id`),
-      reserved: true,
-    },
-    lifecycle: {
-      lifecycle_id: requireAsciiNonEmptyString(
-        lifecycle.lifecycle_id,
-        `${lifecycleLabel}.lifecycle_id`,
-      ),
-      stored: true,
-    },
     bundles: {
       signerA: parseRouterAbEcdsaClientProofBundleV1(bundles.signerA, `${bundlesLabel}.signerA`),
       signerB: parseRouterAbEcdsaClientProofBundleV1(bundles.signerB, `${bundlesLabel}.signerB`),
@@ -2822,14 +2795,27 @@ function parseRouterAbEcdsaDerivationBudgetStatusV1(
   label: string,
 ): RouterAbEcdsaDerivationBudgetStatusV1Wire {
   const record = requireRecord(value, label);
-  requireExactKeys(record, label, ['committed_remaining_uses', 'reserved_uses', 'available_uses']);
+  requireExactKeys(record, label, [
+    'remaining_uses',
+    'committed_remaining_uses',
+    'reserved_uses',
+    'available_uses',
+    'projection_version',
+    'expires_at_ms',
+  ]);
   return {
+    remaining_uses: requireNonNegativeInteger(record.remaining_uses, `${label}.remaining_uses`),
     committed_remaining_uses: requireNonNegativeInteger(
       record.committed_remaining_uses,
       `${label}.committed_remaining_uses`,
     ),
     reserved_uses: requireNonNegativeInteger(record.reserved_uses, `${label}.reserved_uses`),
     available_uses: requireNonNegativeInteger(record.available_uses, `${label}.available_uses`),
+    projection_version: requirePositiveCounter(
+      record.projection_version,
+      `${label}.projection_version`,
+    ),
+    expires_at_ms: requirePositiveUnixMs(record.expires_at_ms, `${label}.expires_at_ms`),
   };
 }
 
@@ -2881,6 +2867,7 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningResponseV1(
     'signing_digest',
     'signature_scheme',
     'signature65_b64u',
+    'budget_status',
   ]);
   return {
     scope: parseRouterAbEcdsaDerivationNormalSigningScopeV1(record.scope),
@@ -2901,6 +2888,10 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningResponseV1(
       record.signature65_b64u,
       'ecdsaSigningResponse.signature65_b64u',
       65,
+    ),
+    budget_status: parseRouterAbEcdsaDerivationBudgetStatusV1(
+      record.budget_status,
+      'ecdsaSigningResponse.budget_status',
     ),
   };
 }

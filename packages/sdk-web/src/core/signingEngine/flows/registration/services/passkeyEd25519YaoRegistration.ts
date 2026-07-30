@@ -29,7 +29,15 @@ export type VerifiedPasskeyRegistrationIntentV1 = {
   kind: 'verified_passkey_registration_intent_v1';
   intent: PasskeyRegistrationIntentV1;
   registrationIntentDigestB64u: string;
-  registrationIntentGrant: RegistrationIntentGrant;
+  /**
+   * Bearer credential for this ceremony's Yao Router calls.
+   *
+   * Was the registration-intent grant. Refactor 94C deletes the grant, and the
+   * frozen contract designates `signedSetup` as the one opaque payload the
+   * client carries across the ceremony's routes — the Yao transport is another
+   * call in that same ceremony, so it carries the same credential.
+   */
+  registrationBearerToken: string;
   registrationCeremonyId: string;
 };
 
@@ -105,8 +113,8 @@ function transportConfig(
   input: VerifiedPasskeyEd25519YaoRegistrationInputV1,
 ): RouterAbEd25519YaoHttpTransportConfigV1 {
   const bearerToken = requireNonEmptyString(
-    String(input.verifiedIntent.registrationIntentGrant),
-    'registration-intent grant',
+    String(input.verifiedIntent.registrationBearerToken),
+    'registration ceremony bearer token',
   );
   return {
     routerOrigin: requireNonEmptyString(input.httpTransport.routerOrigin, 'Yao Router origin'),

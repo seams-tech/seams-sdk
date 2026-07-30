@@ -14,19 +14,17 @@ const manifestPath = path.join(
 );
 const intendedRoot = path.join(repoRoot, 'tests/e2e/intended-behaviours');
 const harnessPath = path.join(intendedRoot, 'harness.ts');
-const expectedManifestVersion = 'refactor-88-2026-07-04';
+const expectedManifestVersion = 'refactor-88-2026-07-16';
 const googleTokenEnsureCommand = 'pnpm -C tests run ensure:intended-google-token';
 
 const expectedMutationIds = [
   'cross_chain_ecdsa_material_reuse',
-  'email_otp_reroll_bootstrap_token_request_mismatch',
   'export_provider_user_mismatch_after_app_session_refresh',
   'first_post_step_up_transaction_failure',
 ];
 
 const expectedFailureOraclesByMutationId = {
   cross_chain_ecdsa_material_reuse: 'Arc/EVM recovered signer mismatch',
-  email_otp_reroll_bootstrap_token_request_mismatch: 'bootstrap_token_request_mismatch',
   export_provider_user_mismatch_after_app_session_refresh: 'fresh Email OTP export authorization',
   first_post_step_up_transaction_failure: 'post-step-up transaction failed',
 };

@@ -1,4 +1,8 @@
 import {
+  approveDashboardApproval,
+  createDashboardApproval,
+} from '../approvals/consoleApprovalsApi';
+import {
   createDashboardPolicy,
   deleteDashboardPolicy,
   listDashboardPolicies,
@@ -50,6 +54,7 @@ interface DashboardGasSponsorshipPolicyBase {
   templateId: string | null;
   networkClass: string;
   enabled: boolean;
+  publicationStatus: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
   executionMode: DashboardGasSponsorshipExecutionMode;
   spendCap: DashboardGasSponsorshipSpendCap;
   updatedAt: string;
@@ -101,7 +106,8 @@ function decodeAllowedCalls(raw: unknown): DashboardGasSponsorshipAllowedCall[] 
       const to = normalizeString(row.to);
       const functionSignature = normalizeString(row.functionSignature);
       const selector =
-        normalizeString(row.selector) || (functionSignature ? deriveFunctionSelector(functionSignature) : '');
+        normalizeString(row.selector) ||
+        (functionSignature ? deriveFunctionSelector(functionSignature) : '');
       const maxGasLimit = normalizeString(row.maxGasLimit);
       const maxValueWei = normalizeString(row.maxValueWei) || '0';
       const chainId = Number(row.chainId || 0);
@@ -127,7 +133,9 @@ function decodeAllowedCalls(raw: unknown): DashboardGasSponsorshipAllowedCall[] 
     .filter((entry): entry is DashboardGasSponsorshipAllowedCall => entry !== null);
 }
 
-function decodeAllowedDelegateActions(raw: unknown): DashboardGasSponsorshipAllowedDelegateAction[] {
+function decodeAllowedDelegateActions(
+  raw: unknown,
+): DashboardGasSponsorshipAllowedDelegateAction[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((entry) => {
@@ -229,6 +237,7 @@ function decodeGasSponsorshipPolicy(
     templateId: normalizeString(rules.templateId) || null,
     networkClass: normalizeString(rules.networkClass) || 'ANY',
     enabled: rules.enabled !== false,
+    publicationStatus: policy.status,
     spendCap: decodeSpendCap(rules.spendCap),
     updatedAt: normalizeString(policy.updatedAt),
   };
@@ -285,10 +294,45 @@ async function getDashboardGasSponsorshipPolicyById(
   return gasPolicy;
 }
 
-export async function listDashboardGasSponsorshipPolicies(input: {
-  environmentId?: string;
-  projectId?: string;
-} = {}): Promise<DashboardGasSponsorshipPolicy[]> {
+async function publishGasSponsorshipPolicy(
+  policy: DashboardConsolePolicy,
+): Promise<DashboardConsolePolicy> {
+  const rules = readObject(policy.rules);
+  const projectId = normalizeString(rules.projectId);
+  const environmentId = normalizeString(rules.environmentId);
+  const approval = await createDashboardApproval({
+    operationType: 'POLICY_PUBLISH',
+    reason: `Publish gas sponsorship policy ${policy.name || policy.id}.`,
+    requiredApprovals: 1,
+    requireMfa: false,
+    ...(projectId ? { projectId } : {}),
+    ...(environmentId ? { environmentId } : {}),
+    resourceType: 'policy',
+    resourceId: policy.id,
+    metadata: { policyId: policy.id, policyKind: policy.kind },
+  });
+  const approved = await approveDashboardApproval({
+    approvalId: approval.id,
+    reason: 'Approved from Gas Sponsorship settings.',
+    mfaVerified: false,
+  });
+  if (approved.status !== 'APPROVED') {
+    throw new Error(`Approval request ${approved.id} is ${approved.status}; expected APPROVED`);
+  }
+  const published = await publishDashboardPolicy({
+    policyId: policy.id,
+    approvalId: approved.id,
+  });
+  await republishRuntimeSnapshotForScope(readObject(published.rules));
+  return published;
+}
+
+export async function listDashboardGasSponsorshipPolicies(
+  input: {
+    environmentId?: string;
+    projectId?: string;
+  } = {},
+): Promise<DashboardGasSponsorshipPolicy[]> {
   const policies = await listDashboardPolicies();
   const policyNamesById = new Map(
     policies.map((entry) => [entry.id, normalizeString(entry.name) || entry.id]),
@@ -308,8 +352,7 @@ export async function createDashboardGasSponsorshipPolicy(
     name,
     rules,
   });
-  const published = await publishDashboardPolicy({ policyId: created.id });
-  await republishRuntimeSnapshotForScope(input);
+  const published = await publishGasSponsorshipPolicy(created);
   return await getDashboardGasSponsorshipPolicyById(published.id);
 }
 
@@ -341,8 +384,7 @@ export async function updateDashboardGasSponsorshipPolicy(
     ...(Object.prototype.hasOwnProperty.call(input, 'name') ? { name } : {}),
     rules,
   });
-  const published = await publishDashboardPolicy({ policyId: updated.id });
-  await republishRuntimeSnapshotForScope(input);
+  const published = await publishGasSponsorshipPolicy(updated);
   return await getDashboardGasSponsorshipPolicyById(published.id);
 }
 
@@ -362,8 +404,7 @@ export async function setDashboardGasSponsorshipPolicyEnabled(
   if (!existing) throw new Error(`Gas sponsorship policy ${policyId} was not found`);
   const rules = { ...readObject(existing.rules), enabled };
   const updated = await updateDashboardPolicy({ policyId, rules });
-  const published = await publishDashboardPolicy({ policyId: updated.id });
-  await republishRuntimeSnapshotForScope(rules);
+  const published = await publishGasSponsorshipPolicy(updated);
   return await getDashboardGasSponsorshipPolicyById(published.id);
 }
 

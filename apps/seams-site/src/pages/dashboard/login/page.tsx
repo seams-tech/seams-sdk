@@ -9,7 +9,10 @@ import {
   fetchGoogleAuthOptions,
   requestGoogleIdToken,
 } from '@/shared/auth/googleIdentity';
-import { fetchDashboardConsoleSession } from '../consoleSession';
+import {
+  consumeDashboardConsoleSignOut,
+  fetchDashboardConsoleSession,
+} from '../consoleSession';
 import '../styles.css';
 
 function normalizeBaseUrl(input: unknown): string {
@@ -36,9 +39,20 @@ export function DashboardLoginPage(): React.JSX.Element {
   const [loading, setLoading] = React.useState<boolean>(false);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [googleConfigured, setGoogleConfigured] = React.useState<boolean>(false);
+  const [signedOut, setSignedOut] = React.useState<boolean>(false);
 
   React.useEffect(() => {
     let cancelled = false;
+    /* Arriving here from an explicit sign-out: never auto-resume, even if the
+       session still validates (a revoke can fail server-side). Otherwise the
+       user is thrown straight back into the console they just left. */
+    if (consumeDashboardConsoleSignOut()) {
+      setSignedOut(true);
+      setInitializing(false);
+      return () => {
+        cancelled = true;
+      };
+    }
     fetchDashboardConsoleSession()
       .then(() => {
         if (cancelled) return;
@@ -171,8 +185,12 @@ export function DashboardLoginPage(): React.JSX.Element {
             }}
             titleId="dashboard-login-title"
             titleTag="h1"
-            title="Welcome back"
-            description="Sign in to the Seams console"
+            title={signedOut ? 'Signed out' : 'Welcome back'}
+            description={
+              signedOut
+                ? 'You have been signed out of the Seams console.'
+                : 'Sign in to the Seams console'
+            }
             continueLabel={ctaLabel}
             continueDisabled={initializing || loading || !googleConfigured}
             onContinue={() => {

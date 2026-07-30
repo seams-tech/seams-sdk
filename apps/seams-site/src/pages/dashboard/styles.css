@@ -5582,6 +5582,23 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   }
 }
 
+/* Shown instead of the console shell whenever there are no session claims:
+   while the session check is in flight, and after a sign-out until the redirect
+   lands. Same paper canvas as the login page it hands off to. */
+.dashboard-session-gate {
+  min-height: 100dvh;
+  display: grid;
+  place-content: center;
+  padding: 1rem;
+  background: #ffffff;
+}
+
+.dashboard-session-gate__note {
+  margin: 0;
+  color: #a59f97;
+  font-size: 0.9rem;
+}
+
 /* The login page is the door to the console, so it wears the same pinned paper
    palette as .dashboard-shell (hardcoded, theme-independent) rather than the
    theme-following site canvas — otherwise the sign-in column goes dark while

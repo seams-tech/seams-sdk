@@ -316,7 +316,7 @@ export class CloudflareD1EmailOtpRegistrationEnrollmentFinalizer {
         ok: false,
         code: 'wallet_registration_incomplete',
         message:
-          'Email OTP enrollment requires an existing canonical wallet. New wallet registration must finalize through /wallets/register/finalize.',
+          'Email OTP enrollment requires a canonical wallet created by /wallets/register/activate.',
       };
     }
     const prepared = await this.buildPersistence(input);

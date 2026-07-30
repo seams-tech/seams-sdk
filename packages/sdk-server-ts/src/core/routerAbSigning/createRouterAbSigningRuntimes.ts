@@ -134,9 +134,7 @@ export function createRouterAbSigningRuntimes(input: {
     normalSigningRuntime: normalSigning,
   });
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({
-    logger,
     config: parseRouterAbEcdsaPresignRuntimeConfig(configRecord),
-    ecdsaPoolFillSessionStore: ecdsaSigningStores.poolFillSessionStore,
     signingWorkerTransport,
     ensureReady,
   });

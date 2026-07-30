@@ -766,6 +766,7 @@ function resolveHttpTraceContext(
 async function parseHttpResponse(
   response: Response,
 ): Promise<RouterAbEd25519YaoRegistrationTransportResultV1> {
+  const rawServerTiming = response.headers.get('Server-Timing');
   let value: unknown;
   try {
     value = await response.json();
@@ -778,9 +779,8 @@ async function parseHttpResponse(
     };
   }
   if (response.ok) {
-    // Requires `Access-Control-Expose-Headers: Server-Timing` on the Router
-    // response; null whenever that is absent, which must stay non-fatal.
-    return { ok: true, value, serverTiming: response.headers.get('Server-Timing') };
+    const serverTiming = rawServerTiming || resourceServerTiming(response.url);
+    return { ok: true, value, ...(serverTiming ? { serverTiming } : {}) };
   }
   return {
     ok: false,
@@ -788,6 +788,40 @@ async function parseHttpResponse(
     status: response.status,
     message: JSON.stringify(value),
   };
+}
+
+function resourceServerTiming(responseUrl: string): string | null {
+  // Dedicated workers may expose cross-origin metrics through Resource Timing
+  // even when their Fetch header list omits Server-Timing.
+  if (
+    !responseUrl ||
+    typeof performance === 'undefined' ||
+    typeof performance.getEntriesByName !== 'function'
+  ) {
+    return null;
+  }
+  const entries = performance.getEntriesByName(responseUrl, 'resource');
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (!entry || entry.entryType !== 'resource') continue;
+    const serialized = serializePerformanceServerTiming(Reflect.get(entry, 'serverTiming'));
+    if (serialized) return serialized;
+  }
+  return null;
+}
+
+function serializePerformanceServerTiming(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  const serialized: string[] = [];
+  for (const rawMetric of value) {
+    if (typeof rawMetric !== 'object' || rawMetric === null) continue;
+    const name = String(Reflect.get(rawMetric, 'name') || '').trim();
+    const duration = Number(Reflect.get(rawMetric, 'duration'));
+    if (!/^[a-z0-9_]+$/.test(name)) continue;
+    if (!Number.isFinite(duration) || duration < 0) continue;
+    serialized.push(`${name};dur=${duration}`);
+  }
+  return serialized.length > 0 ? serialized.join(', ') : null;
 }
 
 export class RouterAbEd25519YaoHttpActivationTransportV1

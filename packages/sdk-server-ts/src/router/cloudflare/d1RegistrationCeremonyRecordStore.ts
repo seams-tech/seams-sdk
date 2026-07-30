@@ -325,50 +325,6 @@ export class D1RegistrationCeremonyRecordStore {
     }
   }
 
-  async deleteCeremonyAndReservation(input: {
-    readonly ceremonyScope: string;
-    readonly ceremonyId: string;
-    readonly expectedCeremony: Record<string, unknown>;
-    readonly reservation:
-      | { readonly kind: 'none' }
-      | {
-          readonly kind: 'server_allocated_wallet';
-          readonly scope: string;
-          readonly id: string;
-          readonly expected: Record<string, unknown>;
-        };
-  }): Promise<{ readonly ceremonyDeleted: boolean; readonly reservationDeleted: boolean }> {
-    const ceremonyKey = this.normalizeKey(input.ceremonyScope, input.ceremonyId);
-    const ceremony = await this.get(input.ceremonyScope, input.ceremonyId);
-    if (!ceremony) return { ceremonyDeleted: false, reservationDeleted: false };
-    if (stableJson(ceremony.value) !== stableJson(input.expectedCeremony)) {
-      throw conflict('Terminal registration cancellation found a changed ceremony');
-    }
-    const statements: D1PreparedStatementLike[] = [
-      this.prepareDelete(ceremonyKey, ceremony.version),
-      this.database.prepare(CAS_GUARD_SQL),
-    ];
-    let reservationDeleted = false;
-    if (input.reservation.kind === 'server_allocated_wallet') {
-      const reservationKey = this.normalizeKey(input.reservation.scope, input.reservation.id);
-      const reservation = await this.get(input.reservation.scope, input.reservation.id);
-      if (reservation) {
-        if (stableJson(reservation.value) !== stableJson(input.reservation.expected)) {
-          throw conflict('Terminal registration cancellation found a mismatched reservation');
-        }
-        statements.push(this.prepareDelete(reservationKey, reservation.version));
-        statements.push(this.database.prepare(CAS_GUARD_SQL));
-        reservationDeleted = true;
-      }
-    }
-    try {
-      assertBatchSucceeded(await this.database.batch<D1ResultLike>(statements), statements.length);
-      return { ceremonyDeleted: true, reservationDeleted };
-    } catch (error: unknown) {
-      throw conflict(error instanceof Error ? error.message : 'Terminal cancellation failed');
-    }
-  }
-
   private async allRecordsMatch(
     mutations: readonly D1RegistrationCeremonyRecordMutation[],
   ): Promise<boolean> {

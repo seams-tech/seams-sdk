@@ -2971,6 +2971,28 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   }
 
   /**
+   * Prewarm the nested Shamir3Pass worker inside the confirm worker. The seal
+   * path otherwise pays its worker spawn + WASM instantiate inside the
+   * post-finalize registration window. Best-effort by contract: any failure is
+   * swallowed and first real use constructs the runtime from scratch.
+   */
+  async prewarmShamir3Pass(): Promise<void> {
+    try {
+      await this.initialize();
+      await this.sendMessage(
+        {
+          type: 'PREWARM_SHAMIR3PASS',
+          id: this.generateMessageId(),
+          payload: {},
+        },
+        USER_CONFIRM_WORKER_STARTUP_PING_TIMEOUT_MS,
+      );
+    } catch {
+      // Prewarming must never fail registration or worker startup.
+    }
+  }
+
+  /**
    * Test Web Worker communication
    */
   private async testWebWorkerCommunication(): Promise<void> {

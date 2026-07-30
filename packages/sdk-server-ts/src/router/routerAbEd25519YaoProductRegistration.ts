@@ -7,6 +7,7 @@ import {
   type RegistrationAuthority,
   type RegistrationNearEd25519SignerPlan,
   type WalletId,
+  type RegistrationEd25519AuthorityScope,
 } from '@shared/utils/registrationIntent';
 import {
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
@@ -115,8 +116,8 @@ export type RouterAbEd25519YaoWalletSessionMintInputV1 =
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'same_identity_budget_refresh_v1';
-      readonly signingGrantId: string;
-      readonly expiresAtMs: number;
+      readonly signingGrantId?: never;
+      readonly expiresAtMs?: never;
       readonly remainingUses: number;
     });
 
@@ -455,6 +456,7 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
         nowMs,
       });
     case 'shared_email_otp_recovery_wallet_session_v1':
+    case 'same_identity_budget_refresh_v1':
       return {
         signingGrantId: `wss_${secureRandomBase64Url(24)}`,
         expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
@@ -464,7 +466,6 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
         ),
       };
     case 'shared_registration_wallet_session_v1':
-    case 'same_identity_budget_refresh_v1':
       return requireInheritedWalletSessionTerms({
         signingGrantId: input.signingGrantId,
         expiresAtMs: input.expiresAtMs,
@@ -668,12 +669,19 @@ class RouterAbEd25519YaoPersistedCapabilityFallbackResolver implements RouterAbE
   }
 }
 
+/**
+ * Takes the authority *scope* rather than the authority because setup admits
+ * before the proof exists (Refactor 94C). Callers holding a verified authority
+ * pass `registrationEd25519AuthorityScopeFromAuthority(authority)`; setup
+ * passes the scope derived from the requested auth method, and only when that
+ * derivation is complete without a proof.
+ */
 export async function buildRouterAbEd25519YaoProductAdmissionRequestV1(input: {
   readonly registrationCeremonyId: string;
   readonly walletId: WalletId;
   readonly signingRootId: string;
   readonly signingRootVersion: string;
-  readonly authority: RegistrationAuthority;
+  readonly authorityScope: RegistrationEd25519AuthorityScope;
   readonly branch: RegistrationNearEd25519SignerPlan;
   readonly signingWorkerId: string;
 }): Promise<RouterAbEd25519YaoRegistrationAdmissionRequestV1> {
@@ -687,7 +695,7 @@ export async function buildRouterAbEd25519YaoProductAdmissionRequestV1(input: {
   }
   const nearEd25519SigningKeyId = await computeRegistrationNearEd25519SigningKeyId({
     walletId: input.walletId,
-    authorityScope: registrationEd25519AuthorityScopeFromAuthority(input.authority),
+    authorityScope: input.authorityScope,
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
     ed25519: {

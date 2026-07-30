@@ -1,4 +1,3 @@
-import type { CloudflareDurableObjectNamespaceLike } from '@seams/sdk-server/cloud-host';
 import type { SigningRootKekProvider } from '@seams/sdk-server/cloud-host';
 import type { ConsoleRouterOptions } from '@seams-internal/console-server/router/console';
 import type { RouterApiOptions } from '@seams/sdk-server/cloud-host';
@@ -64,19 +63,6 @@ function orgIdFromString(input: string): OrgId {
   return parsed.value;
 }
 
-const thresholdStore: CloudflareDurableObjectNamespaceLike = {
-  idFromName(name: string): unknown {
-    return name;
-  },
-  get() {
-    return {
-      async fetch(): Promise<Response> {
-        return new Response('{}');
-      },
-    };
-  },
-};
-
 const kekProvider: SigningRootKekProvider = {
   kind: 'worker_secret',
   workerSecretsByKekId: {
@@ -89,7 +75,6 @@ const bundleOptions: CloudflareD1ConsoleServiceBundleOptions = {
   bindings: {
     consoleDatabase: database,
     signerMetadataDatabase: database,
-    thresholdStore,
     kekProvider,
   },
   route: {
@@ -117,17 +102,6 @@ const invalidConsoleOnlySignerDatabase: CloudflareD1ConsoleOnlyServiceBundleOpti
   },
 };
 
-const invalidConsoleOnlySignerDurableObject: CloudflareD1ConsoleOnlyServiceBundleOptions = {
-  bindings: {
-    consoleDatabase: database,
-    // @ts-expect-error Console-only staging bundles cannot receive threshold Durable Objects.
-    thresholdStore,
-  },
-  route: {
-    namespace: 'seams',
-  },
-};
-
 const invalidConsoleOnlySignerKekProvider: CloudflareD1ConsoleOnlyServiceBundleOptions = {
   bindings: {
     consoleDatabase: database,
@@ -149,8 +123,6 @@ const routeResolver = createStaticCloudflareTenantStorageRouteResolverFromBindin
   signerMetadataBindingName: 'SIGNER_DB',
   signerMetadataDatabaseName: 'seams-signer',
   signerMetadataDatabase: database,
-  thresholdStoreBindingName: 'THRESHOLD_STORE',
-  thresholdStore,
   kekProvider,
 });
 
@@ -204,7 +176,7 @@ const missingSignerSecretEnvId: CloudflareD1SigningRootSecretAdapterOptions = {
 };
 
 const missingSignerBindings: CloudflareD1ConsoleServiceBundleOptions = {
-  // @ts-expect-error D1 console bundle requires signer metadata and DO bindings.
+  // @ts-expect-error D1 console bundle requires signer metadata and a KEK provider.
   bindings: {
     consoleDatabase: database,
   },
@@ -217,7 +189,6 @@ const missingNamespace: CloudflareD1ConsoleServiceBundleOptions = {
   bindings: {
     consoleDatabase: database,
     signerMetadataDatabase: database,
-    thresholdStore,
     kekProvider,
   },
   // @ts-expect-error Route namespace is required at the bundle boundary.
@@ -247,7 +218,6 @@ const consoleOnlyBundle = createCloudflareD1ConsoleOnlyServiceBundle(consoleOnly
 void bundleOptions;
 void consoleOnlyBundleOptions;
 void invalidConsoleOnlySignerDatabase;
-void invalidConsoleOnlySignerDurableObject;
 void invalidConsoleOnlySignerKekProvider;
 void signerSecretAdapters;
 void invalidPostgresSignerSecretOptions;

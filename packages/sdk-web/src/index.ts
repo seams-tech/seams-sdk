@@ -23,6 +23,7 @@ export type {
   SeamsConfigsInput,
   // Registration
   RegistrationResult,
+  NearProvisioningState,
   // Login
   LoginResult,
   LoginAndCreateSessionResult,
@@ -42,6 +43,7 @@ export type {
   AfterCall,
   EventCallback,
   RegistrationTimingSpanV1,
+  NearProvisioningStateChangedEvent,
 } from './core/types/sdkSentEvents';
 
 export { DEFAULT_WAIT_STATUS } from './core/types/rpc';

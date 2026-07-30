@@ -51,6 +51,7 @@ export interface UiConfirmManagerConfig {
 
 export type UserConfirmWorkerMessageType =
   | 'PING'
+  | 'PREWARM_SHAMIR3PASS'
   | 'SECURE_CONFIRM_REQUEST'
   | 'EXPORT_PRIVATE_KEYS_WITH_UI'
   | 'WARM_SESSION_MATERIAL_PUT'

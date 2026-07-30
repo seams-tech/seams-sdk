@@ -125,11 +125,11 @@ export function canStartDemoNearTransaction(status: DemoNearAccountFundingStatus
   switch (status.kind) {
     case 'ready':
     case 'needs_funding':
+    case 'checking':
+    case 'unknown':
       return true;
     case 'signed_out':
     case 'identity_unavailable':
-    case 'checking':
-    case 'unknown':
       return false;
     default: {
       const exhaustive: never = status;

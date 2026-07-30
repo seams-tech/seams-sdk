@@ -16,7 +16,7 @@ Every server route should belong to exactly one primary auth plane.
 | Plane | Used for | Credential |
 | --- | --- | --- |
 | Console session + RBAC | Human operator console routes | Console session claims plus role checks |
-| API credential | Machine/browser relay access outside wallet-user sessions | Publishable key, secret key, or bootstrap token |
+| API credential | Machine/browser relay access outside wallet-user sessions | Publishable key or secret key |
 | App session | User wallet management routes | `app_session_v1` |
 | Wallet Session | Product signing and signing-budget routes | Wallet Session JWT or current request-boundary token |
 | Router A/B private service | Cross-worker Router A/B internals | Worker binding plus private service/auth guard |

@@ -297,13 +297,11 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
               <w3a-passkey-halo-loading
                 .theme=${this.theme}
                 .appearance=${this.appearance}
-                .animated=${this.loading && !this.errorMessage}
+                .animated=${!this.errorMessage}
                 .ringGap=${4}
                 .ringWidth=${4}
                 .ringBorderRadius=${'1.125rem'}
-                .ringBackground=${this.loading && !this.errorMessage
-                  ? 'var(--w3a-modal__passkey-halo-loading__ring-background)'
-                  : 'transparent'}
+                .ringBackground=${'var(--w3a-modal__passkey-halo-loading__ring-background)'}
                 .innerPadding=${'0px'}
                 .innerBackground=${'var(--w3a-modal__passkey-halo-loading__inner-background)'}
                 .iconVariant=${'fingerprint'}

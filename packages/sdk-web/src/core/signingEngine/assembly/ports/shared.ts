@@ -303,7 +303,10 @@ export function createWorkerResourceWarmupDepsFactory(
     workerWarmupPolicy: args.workerWarmupPolicy,
     prewarmUiConfirmUi: async () => {
       await Promise.all([
-        args.touchConfirm.initialize(),
+        /* The Shamir3Pass child worker + its WASM are otherwise constructed
+           lazily inside the post-finalize seal window. initialize() is
+           memoized, so chaining it here does not double-boot the worker. */
+        args.touchConfirm.initialize().then(() => args.touchConfirm.prewarmShamir3Pass()),
         prewarmTxConfirmerUi(),
         /* Also warm the lazily-imported EVM-family signing flow chunks: the
            first sign after a page load otherwise pays these dynamic imports

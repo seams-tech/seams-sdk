@@ -73,6 +73,7 @@ test('backend plan runs without deployment secrets and prints the complete lane 
 
   expect(result.status).toBe(0);
   expect(result.stdout).not.toContain('plan-secret-value');
+  expect(result.stdout).not.toContain('bootstrap Gateway tenant');
   expectOrdered(result.stdout, [
     'build',
     'preflight',
@@ -131,9 +132,13 @@ test('backend preflight validates one custody environment from JSON inventories'
         CLOUDFLARE_ACCOUNT_ID: secretValue,
         ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: secretValue,
         SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: secretValue,
+        SIGNING_WORKER_PRIVATE_D1_KEK: secretValue,
       }),
       DEPLOYMENT_VARS_JSON: JSON.stringify({
         ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: 'inventory-public-value',
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID: 'inventory-database-id',
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY: 'inventory-kek-public-key',
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_VERSION: 'inventory-kek-version',
       }),
     },
   );

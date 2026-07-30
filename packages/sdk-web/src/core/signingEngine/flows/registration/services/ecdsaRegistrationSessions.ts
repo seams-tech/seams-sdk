@@ -29,6 +29,7 @@ import {
 } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { SigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import type { WarmSessionHydrationService } from '@/core/signingEngine/session/passkey/warmSessionHydration';
+import { runSingleFlightEcdsaWarmSessionSeal } from '@/core/signingEngine/session/passkey/ecdsaWarmSessionSealRegistry';
 import type {
   WarmSessionMaterialWriteDiagnosticBucket,
   WarmSessionMaterialWriteDiagnostics,
@@ -426,24 +427,37 @@ export async function finalizeWalletRegistrationEcdsaSessions(
     switch (input.auth.kind) {
       case 'passkey': {
         await deps.persistActivePasskeyEcdsaReauthAnchor(record);
-        const warmSessionStartedAt = performance.now();
-        try {
-          await hydratePasskeyRegistrationSession({
-            deps,
-            relayerUrl: input.relayerUrl,
-            auth: input.auth,
-            diagnostics: input.diagnostics,
-            walletId,
-            walletKey,
-            bootstrap,
-          });
-        } finally {
-          recordDiagnosticDuration({
-            diagnostics: input.diagnostics,
-            bucket: 'passkey_warm_session_hydration',
-            startedAt: warmSessionStartedAt,
-          });
-        }
+        /* Refactor 94C. The seal is refresh persistence, not a signing
+           prerequisite: the in-memory warm session was committed above, so
+           same-tab signing never waits on it. Deferred off the blocking path
+           (~0.7 s measured); the typed pending state is what any sealed-record
+           reader awaits, and a failure degrades to the existing re-auth
+           fallback without faulting the registered wallet. The closure holds
+           the PRF output in memory exactly as the inline call did. */
+        const auth = input.auth;
+        void runSingleFlightEcdsaWarmSessionSeal({
+          walletId: String(walletId),
+          attempt: async () => {
+            const warmSessionStartedAt = performance.now();
+            try {
+              await hydratePasskeyRegistrationSession({
+                deps,
+                relayerUrl: input.relayerUrl,
+                auth,
+                diagnostics: input.diagnostics,
+                walletId,
+                walletKey,
+                bootstrap,
+              });
+            } finally {
+              recordDiagnosticDuration({
+                diagnostics: input.diagnostics,
+                bucket: 'passkey_warm_session_hydration',
+                startedAt: warmSessionStartedAt,
+              });
+            }
+          },
+        });
         break;
       }
       case 'email_otp':

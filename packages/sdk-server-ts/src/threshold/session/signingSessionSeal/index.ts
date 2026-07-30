@@ -16,8 +16,6 @@ export type {
   SigningSessionSealCipherAdapter,
   SigningSessionSealCipherOperationInput,
   SigningSessionSealCipherOperationResult,
-  SigningSessionSealConsumePolicy,
-  SigningSessionSealConsumeUseResult,
   SigningSessionSealGuardInput,
   SigningSessionSealGuard,
   SigningSessionSealGuardResult,
@@ -34,7 +32,6 @@ export type {
   SigningSessionSealSessionAdapter,
   SigningSessionSealSessionClaims,
   SigningSessionSealStartupCapabilities,
-  SigningSessionSealThresholdSessionPolicy,
   SigningSessionSealThresholdSessionRecord,
 } from './signingSessionSeal.types';
 export type { CreateSigningSessionSealAuditLoggerOptions } from './observability/audit';
@@ -75,7 +72,6 @@ export {
 } from './crypto/cipher';
 export { createSigningSessionSealService } from './service';
 export { createInMemorySigningSessionSealIdempotencyStore } from './idempotency';
-export { createSigningSessionSealPolicyFromWalletSessionStores } from './policy/sessionPolicy';
 export { createSigningSessionSealAuditLogger } from './observability/audit';
 export { createSigningSessionSealRoutesOptions } from './routesOptions';
 export { createSigningSessionSealOptions } from './options';

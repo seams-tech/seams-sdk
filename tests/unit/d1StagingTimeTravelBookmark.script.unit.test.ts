@@ -90,9 +90,9 @@ test('D1 staging Time Travel bookmark builds console and signer bookmark command
 
   expect(plan.stamp).toBe('20260628T000000Z');
   expect(plan.commands).toHaveLength(2);
-  expect(plan.commands[0]).toContain('d1 time-travel info seams-console-staging');
+  expect(plan.commands[0]).toContain('d1 time-travel info seams-console-staging-nrt');
   expect(plan.commands[0]).toContain('console-before_fixture_import.json');
-  expect(plan.commands[1]).toContain('d1 time-travel info seams-signer-staging');
+  expect(plan.commands[1]).toContain('d1 time-travel info seams-signer-staging-nrt');
   expect(plan.artifacts.signerBookmarkPath).toContain('signer-before_fixture_import.json');
 });
 
@@ -134,7 +134,7 @@ test('D1 staging Time Travel bookmark remote mode rejects failed bookmark comman
       mode: 'remote',
       commandRunner: failedBookmarkCommandRunner,
     }),
-  ).toThrow(/Command failed: .*d1 time-travel info seams-console-staging/);
+  ).toThrow(/Command failed: .*d1 time-travel info seams-console-staging-nrt/);
 });
 
 test('D1 staging Time Travel bookmark rejects JSON without a usable bookmark', async () => {

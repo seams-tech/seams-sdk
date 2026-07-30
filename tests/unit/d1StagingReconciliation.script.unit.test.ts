@@ -109,8 +109,8 @@ test('D1 staging reconciliation builds read-only console and signer checks', asy
     'signer_share_unknown_kek',
     'signer_share_invalid_rotation_state',
   ]);
-  expect(plan.checks[0].command).toContain('d1 execute seams-console-staging --remote --json');
-  expect(plan.checks[4].command).toContain('d1 execute seams-signer-staging --remote --json');
+  expect(plan.checks[0].command).toContain('d1 execute seams-console-staging-nrt --remote --json');
+  expect(plan.checks[4].command).toContain('d1 execute seams-signer-staging-nrt --remote --json');
   expect(plan.checks[4].command).toContain('signing-root-kek-staging-r1');
 });
 

@@ -1,3 +1,4 @@
+import { createHash, createPrivateKey, createPublicKey } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -9,10 +10,33 @@ import {
 
 const STRICT_WORKER_ROLES = Object.freeze([
   { role: 'router', port: 9100 },
-  { role: 'deriver-a', port: 9101 },
-  { role: 'deriver-b', port: 9102 },
-  { role: 'signing-worker', port: 9103 },
+  {
+    role: 'deriver-a',
+    port: 9101,
+    privateD1: {
+      databaseName: 'router-ab-deriver-a-private',
+      migrationsDirectory: 'deriver-a',
+    },
+  },
+  {
+    role: 'deriver-b',
+    port: 9102,
+    privateD1: {
+      databaseName: 'router-ab-deriver-b-private',
+      migrationsDirectory: 'deriver-b',
+    },
+  },
+  {
+    role: 'signing-worker',
+    port: 9103,
+    privateD1: {
+      databaseName: 'router-ab-signing-worker-private',
+      migrationsDirectory: 'signing-worker',
+    },
+  },
 ]);
+const X25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b656e04220420', 'hex');
+const X25519_SPKI_PREFIX = Buffer.from('302a300506032b656e032100', 'hex');
 
 export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
   const repoRoot = path.resolve(input.repoRoot);
@@ -27,6 +51,20 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
     path.join(localEnvRoot, '.env.router-ab.signing-worker.local'),
   );
   const localConsoleOrganizationId = resolveLocalConsoleOrganizationId({ localEnvRoot });
+  const privateD1Keys = Object.freeze({
+    deriverA: deriveLocalPrivateD1KeyPair(
+      requiredEnv(deriverAEnv, 'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY'),
+      'deriver-a',
+    ),
+    deriverB: deriveLocalPrivateD1KeyPair(
+      requiredEnv(deriverBEnv, 'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY'),
+      'deriver-b',
+    ),
+    signingWorker: deriveLocalPrivateD1KeyPair(
+      requiredEnv(signingWorkerEnv, 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY'),
+      'signing-worker',
+    ),
+  });
   const ceremonyJwksJson = requireNonEmptyInput(input.ceremonyJwksJson, 'ceremonyJwksJson');
   const sdkRouterUrl = requiredEnv(routerEnv, 'GATEWAY_PUBLIC_URL');
   const mpcRouterUrl = `http://127.0.0.1:${STRICT_WORKER_ROLES[0].port}`;
@@ -34,7 +72,7 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
   mkdirSync(outputRoot, { recursive: true });
 
   const configs = [];
-  for (const { role, port } of STRICT_WORKER_ROLES) {
+  for (const { role, port, privateD1 = null } of STRICT_WORKER_ROLES) {
     const sourcePath = path.join(
       repoRoot,
       'crates',
@@ -59,12 +97,26 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
       signingWorkerEnv,
       localConsoleOrganizationId,
       ceremonyJwksJson,
+      privateD1Keys,
     });
+    if (privateD1) {
+      config = setPrivateD1MigrationsDirectory(
+        config,
+        repoRoot,
+        privateD1.migrationsDirectory,
+      );
+    }
     writeFileSync(outputPath, config);
     const secretPath = path.join(outputRoot, `.dev.vars.${role}`);
     writeFileSync(
       secretPath,
-      strictRoleSecretFile(role, { routerEnv, deriverAEnv, deriverBEnv, signingWorkerEnv }),
+      strictRoleSecretFile(role, {
+        routerEnv,
+        deriverAEnv,
+        deriverBEnv,
+        signingWorkerEnv,
+        privateD1Keys,
+      }),
       { mode: 0o600 },
     );
     chmodSync(secretPath, 0o600);
@@ -75,6 +127,7 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
         url: `http://127.0.0.1:${port}`,
         configPath: outputPath,
         secretPath,
+        privateD1,
       }),
     );
   }
@@ -93,6 +146,22 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
   });
 }
 
+function setPrivateD1MigrationsDirectory(source, repoRoot, migrationsDirectory) {
+  const expected = `migrations_dir = "migrations/${migrationsDirectory}"`;
+  const matches = source.split(/\r?\n/).filter((line) => line === expected).length;
+  if (matches !== 2) {
+    throw new Error(`strict local Wrangler config must define ${expected} twice`);
+  }
+  const absoluteDirectory = path.join(
+    repoRoot,
+    'crates',
+    'router-ab-cloudflare',
+    'migrations',
+    migrationsDirectory,
+  );
+  return source.replaceAll(expected, `migrations_dir = ${JSON.stringify(absoluteDirectory)}`);
+}
+
 function applyRoleVars(source, role, env) {
   const internalSecretBinding = 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET';
   let config = replaceTomlAssignment(
@@ -104,29 +173,8 @@ function applyRoleVars(source, role, env) {
     case 'router':
       config = replaceTomlAssignment(config, 'ROUTER_JWT_ISSUER', env.sdkRouterUrl);
       config = replaceTomlAssignment(config, 'ROUTER_JWT_AUDIENCE', 'router-ab');
-      config = replaceTomlAssignment(
-        config,
-        'ROUTER_JWT_JWKS_JSON',
-        env.ceremonyJwksJson,
-      );
-      config = replaceTopologyPublicVars(config, env);
-      return replaceTomlAssignment(
-        config,
-        'ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON',
-        JSON.stringify({
-          org_id: env.localConsoleOrganizationId,
-          project_id: 'local-smoke-project',
-          environment: 'local',
-          allowed_work_kinds: [
-            'registration_prepare',
-            'key_export',
-            'recovery',
-            'server_share_refresh',
-          ],
-          allow_normal_signing: true,
-          rejected_retry_after_ms: 1000,
-        }),
-      );
+      config = replaceTomlAssignment(config, 'ROUTER_JWT_JWKS_JSON', env.ceremonyJwksJson);
+      return replaceTopologyPublicVars(config, env);
     case 'deriver-a':
       config = replaceTomlAssignment(
         config,
@@ -138,11 +186,12 @@ function applyRoleVars(source, role, env) {
         'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         localPeerVerifyingKeyHex(requiredEnv(env.deriverAEnv, 'DERIVER_A_PEER_SIGNING_KEY')),
       );
-      return replaceTomlAssignment(
+      config = replaceTomlAssignment(
         config,
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
         localPeerVerifyingKeyHex(requiredEnv(env.deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY')),
       );
+      return setPrivateD1Vars(config, 'DERIVER_ROLE_PRIVATE_D1', env.privateD1Keys.deriverA);
     case 'deriver-b':
       config = replaceTomlAssignment(
         config,
@@ -154,18 +203,19 @@ function applyRoleVars(source, role, env) {
         'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         localPeerVerifyingKeyHex(requiredEnv(env.deriverAEnv, 'DERIVER_A_PEER_SIGNING_KEY')),
       );
-      return replaceTomlAssignment(
+      config = replaceTomlAssignment(
         config,
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
         localPeerVerifyingKeyHex(requiredEnv(env.deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY')),
       );
+      return setPrivateD1Vars(config, 'DERIVER_ROLE_PRIVATE_D1', env.privateD1Keys.deriverB);
     case 'signing-worker':
       config = replaceTomlAssignment(
         config,
         'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
         requiredEnv(env.signingWorkerEnv, 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY'),
       );
-      return config;
+      return setPrivateD1Vars(config, 'SIGNING_WORKER_PRIVATE_D1', env.privateD1Keys.signingWorker);
     default:
       throw new Error(`unsupported strict local worker role ${role}`);
   }
@@ -219,6 +269,7 @@ function strictRoleSecretFile(role, env) {
         `DERIVER_A_PEER_SIGNING_KEY=${localPeerSigningKeyBase64Url(
           requiredEnv(env.deriverAEnv, 'DERIVER_A_PEER_SIGNING_KEY'),
         )}`,
+        `DERIVER_A_ROLE_PRIVATE_D1_KEK=hpke-x25519-role-private-d1-private-v1:${env.privateD1Keys.deriverA.privateKeyHex}`,
         '',
       ].join('\n');
     case 'deriver-b':
@@ -233,6 +284,7 @@ function strictRoleSecretFile(role, env) {
         `DERIVER_B_PEER_SIGNING_KEY=${localPeerSigningKeyBase64Url(
           requiredEnv(env.deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY'),
         )}`,
+        `DERIVER_B_ROLE_PRIVATE_D1_KEK=hpke-x25519-role-private-d1-private-v1:${env.privateD1Keys.deriverB.privateKeyHex}`,
         '',
       ].join('\n');
     case 'signing-worker':
@@ -243,11 +295,44 @@ function strictRoleSecretFile(role, env) {
           'hpke-x25519-server-output-private-v1:',
           'SigningWorker server-output HPKE private key',
         )}`,
+        `SIGNING_WORKER_PRIVATE_D1_KEK=hpke-x25519-server-output-private-v1:${env.privateD1Keys.signingWorker.privateKeyHex}`,
         '',
       ].join('\n');
     default:
       throw new Error(`unsupported strict local worker role ${role}`);
   }
+}
+
+function setPrivateD1Vars(source, prefix, keyPair) {
+  let config = setTomlSectionAssignment(
+    source,
+    'vars',
+    `${prefix}_KEK_PUBLIC_KEY`,
+    keyPair.publicKey,
+  );
+  config = setTomlSectionAssignment(config, 'vars', `${prefix}_KEK_VERSION`, 'local-epoch-1');
+  return setTomlSectionAssignment(config, 'vars', `${prefix}_ENVIRONMENT`, 'local');
+}
+
+function deriveLocalPrivateD1KeyPair(seedHex, role) {
+  if (!/^[0-9a-f]{64}$/.test(seedHex)) {
+    throw new Error(`${role} local private-D1 key seed must be 32 lowercase hexadecimal bytes`);
+  }
+  const privateKey = createHash('sha256')
+    .update(`seams/router-ab/private-d1/local/v1/${role}\0`, 'utf8')
+    .update(Buffer.from(seedHex, 'hex'))
+    .digest();
+  const privateKeyDer = Buffer.concat([X25519_PKCS8_PREFIX, privateKey]);
+  const publicKeyDer = createPublicKey(
+    createPrivateKey({ key: privateKeyDer, format: 'der', type: 'pkcs8' }),
+  ).export({ format: 'der', type: 'spki' });
+  if (!publicKeyDer.subarray(0, X25519_SPKI_PREFIX.length).equals(X25519_SPKI_PREFIX)) {
+    throw new Error(`${role} local private-D1 public key encoding is invalid`);
+  }
+  return Object.freeze({
+    privateKeyHex: privateKey.toString('hex'),
+    publicKey: `x25519:${publicKeyDer.subarray(X25519_SPKI_PREFIX.length).toString('hex')}`,
+  });
 }
 
 function stripBuildSection(source) {

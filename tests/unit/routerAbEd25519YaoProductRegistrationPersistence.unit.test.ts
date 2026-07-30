@@ -90,15 +90,6 @@ test.describe('Ed25519 Yao request-scoped persistence boundary', () => {
       value: { lifecycleId: 'export-1' },
     });
 
-    const finalize = await resolveRouterAbEd25519YaoCeremonyKeyFromRequestV1(
-      jsonRequest('/wallets/register/finalize', {
-        ed25519: { activationReference: { lifecycle_id: 'registration-1' } },
-      }),
-    );
-    expect(finalize).toMatchObject({
-      kind: 'ceremony',
-      value: { lifecycleId: 'registration-1' },
-    });
   });
 
   test('does not route unrelated identifiers or malformed ceremony requests', async () => {
