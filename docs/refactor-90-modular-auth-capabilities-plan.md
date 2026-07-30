@@ -855,6 +855,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the duplicate persisted Ed25519 capability fallback service
       locator; the request-scoped runtime remains the single persisted
       load/install/reread owner (`729ad4cdd`).
+- [x] Delete the forwarding-only Ed25519 recovery runtime locator; recovery
+      consumers use the service's narrow installation and lookup ports
+      directly (`868ba6dee`).
 
 ### Same-change deletion
 
@@ -891,6 +894,9 @@ the replacement and legacy MPC paths must not ship together.
       protocol dispatch, and superseded export coordinators.
   - [x] Delete the zero-caller duplicate ECDSA material-key selector
         (`5cc54814d`).
+  - [x] Delete the zero-caller private-key export coordinator and its dead
+        dependency/store wiring; dedicated capability export owners remain
+        (`d3201483b`).
 - [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
       and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
@@ -904,6 +910,10 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete the NEAR recovery-ordering and sealed-refresh source guards after
         their retired markers and hydration-derived budget assumption were
         removed (`6d6002e3c`).
+  - [x] Delete the combined Email OTP unlock fixture after unlock began
+        returning exact sibling capability outcomes (`89e9cd4a5`).
+  - [x] Delete the wrapper-only ECDSA refresh test with its duplicate HTTP
+        adapter (`df478bfed`).
 
 ### Unit 3a exit
 

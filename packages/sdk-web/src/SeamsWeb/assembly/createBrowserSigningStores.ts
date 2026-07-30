@@ -51,7 +51,6 @@ export function createBrowserSigningStores(
       },
       recoveryAndDeviceLinking: {
         credentialStore: indexedDB,
-        keyMaterialStore: indexedDB,
       },
       warmup: {
         store: indexedDB,

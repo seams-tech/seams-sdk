@@ -559,6 +559,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   directly after `9c9c7aec6`, `fe9ed96f7`, and `df7c3d0b8`
 - ~~the duplicate unused `EcdsaExportOperationAuthorization` projection and its
   projection-only unit test~~ — deleted by `9c9c7aec6`
+- ~~zero-caller `privateKeyExportRecovery` coordinator, dependency object, and
+  assembly/store wiring~~ — deleted by `d3201483b`; current export flows use
+  the dedicated Passkey MPC export owner or Email OTP capability owner
 - ~~the Ed25519 updated-at primary-lane fallback and
   `primaryEd25519LaneFromNormalizedCandidates`~~ — deleted by `ae8f7b72d`;
   canonicalized priority order now selects the lane
@@ -572,6 +575,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~duplicate persisted Ed25519 capability fallback service locator~~ — deleted
   by `729ad4cdd`; the request-scoped product runtime owns persisted load,
   correlation, installation, and reread
+- ~~forwarding-only Ed25519 recovery runtime locator and wrapper interface~~ —
+  deleted by `868ba6dee`; the recovery service directly implements the narrow
+  installation and lookup ports
 
 ## 6e gate — composite ECDSA record family (measured 2026-07-28, at `3b904b63a`)
 

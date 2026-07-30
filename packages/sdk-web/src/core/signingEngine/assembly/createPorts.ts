@@ -9,7 +9,6 @@ import {
   createRegistrationAccountLifecycleDeps,
   createWalletSessionActivationDeps,
 } from './ports/registration';
-import { createPrivateKeyExportRecoveryDeps } from './ports/recovery';
 import { Ed25519YaoActiveClientRegistry } from '../threshold/ed25519/yaoActiveClientRegistry';
 import {
   createGetOrCreateActiveThresholdEcdsaSessionId,
@@ -62,9 +61,6 @@ export function createSigningEnginePorts(args: CreateSigningEnginePortsArgs): Si
         args.stores.walletProfileAndSignerRecords.passkeyAuthenticatorStore,
       signingSessionCoordinator,
       getEmailOtpWarmSessionStatus,
-    }),
-    privateKeyExportRecoveryDeps: createPrivateKeyExportRecoveryDeps(args, {
-      keyMaterialStore: args.stores.recoveryAndDeviceLinking.keyMaterialStore,
     }),
     registrationAccountLifecycleDeps: createRegistrationAccountLifecycleDeps({
       createArgs: args,

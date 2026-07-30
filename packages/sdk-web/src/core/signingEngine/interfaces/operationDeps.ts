@@ -1,10 +1,9 @@
 import type { EvmFamilyWalletSignerStorePort } from '../flows/signEvmFamily/accountAuth';
 import type { EmailOtpEcdsaChallengeAuthority } from '../flows/signEvmFamily/emailOtpSigningSession';
 import type { EvmFamilyPasskeyAuthenticatorStorePort } from './passkeyAuthenticatorStore';
-import type { RecoveryNearKeyMaterialStorePort } from '../flows/recovery/recoveryStorePorts';
 import type { RegistrationAccountStorePort } from '../flows/registration/registrationStorePorts';
 import type { AccountId } from '@/core/types/accountIds';
-import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
+import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { EmailOtpSigningSessionAuthLane } from '../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningSessionAuthority } from '../session/emailOtp/ecdsaSigningSessionAuthority';
 import type { EmailOtpTransactionSigningChallenge } from '../session/emailOtp/publicTypes';
@@ -29,7 +28,6 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/ac
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type {
   UiConfirmContextPort,
-  PasskeyMpcExportPort,
   UiConfirmRegistrationPort,
   UiConfirmRequestConfirmationPort,
   UiConfirmSigningPort,
@@ -222,14 +220,6 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
       UiConfirmSigningPort &
       UiConfirmRequestConfirmationPort;
   };
-
-export type PrivateKeyExportRecoveryDeps = {
-  keyMaterialStore: RecoveryNearKeyMaterialStorePort;
-  relayerUrl: string;
-  getRpId: () => string | null;
-  requestExportPrivateKeysWithUi: PasskeyMpcExportPort['exportPrivateKeysWithUi'];
-  getTheme: () => ThemeMode;
-};
 
 export type RegistrationAccountLifecycleDeps = {
   accountStore: RegistrationAccountStorePort;
