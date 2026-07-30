@@ -731,6 +731,9 @@ the replacement and legacy MPC paths must not ship together.
       shared canonical preparation plus independent reusable-authorization
       state. The composite session record remains only for the still-open
       lifecycle hook adapters (`6edc2d100`).
+- [x] Derive NEAR transaction expiry invalidation, retry admission, and
+      same-method UI routing from the canonical active authorization and
+      selected factor instead of the composite session record (`535c0be3b`).
 
 ### Worker, WASM, and bundle boundary
 

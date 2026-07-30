@@ -238,6 +238,9 @@ implementing commit SHA as the evidence.
     canonical preparation plus the independent reusable-authorization state;
     the composite session record no longer decides either outcome
     (`6edc2d100`).
+  - [x] NEAR transaction expiry invalidation, retry admission, and same-method
+    UI routing derive from the canonical active authorization and selected
+    factor rather than the composite session record (`535c0be3b`).
 - [x] `R90-INV-004` — Near admission, acquisition, and promotion are independently
   idempotent and queryable by exact recovery ID, including Refactor 93 exact
   Router replay, role-local reconciliation, and injected crash cases.
