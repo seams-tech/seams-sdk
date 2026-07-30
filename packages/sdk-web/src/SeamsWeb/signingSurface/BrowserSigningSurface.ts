@@ -1201,6 +1201,7 @@ export class BrowserSigningSurface {
     return {
       materialActivation: prepared.plan.materialActivation,
       walletSessionState,
+      participantIds: [...record.participantIds],
       rehydrate: this.rehydratePreparedPasskeyEd25519YaoOperationStepUp.bind(this, {
         walletSessionState,
         rpId,

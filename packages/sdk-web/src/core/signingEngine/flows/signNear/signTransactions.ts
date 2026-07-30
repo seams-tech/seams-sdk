@@ -185,6 +185,7 @@ async function prepareNearPasskeyOperationStepUpMaterial(
         kind: 'sealed',
         materialActivation: prepared.materialActivation,
         walletSessionState: prepared.walletSessionState,
+        participantIds: prepared.participantIds,
         rehydrate: prepared.rehydrate,
       };
     }

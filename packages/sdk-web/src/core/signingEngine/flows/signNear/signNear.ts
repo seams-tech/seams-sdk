@@ -1,6 +1,5 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { DelegateActionInput } from '@/core/types/delegate';
@@ -167,12 +166,6 @@ async function invalidateAuthoritativeNearWalletSessionExpiry(args: {
   if (result.kind === 'unavailable') {
     throw new Error('[SigningEngine][near] expired Wallet Session cleanup failed');
   }
-}
-
-function requirePasskeyEd25519ReauthRpId(value: unknown): WebAuthnRpId {
-  const parsed = parseWebAuthnRpId(value);
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
 }
 
 export type SignDelegateActionResult = {
@@ -953,50 +946,45 @@ function nearAdHocEd25519SigningGrantAdmissionQueueKey(args: {
 }
 
 function buildNearPasskeyEd25519OperationStepUp(args: {
-  deps: NearSigningApiDeps;
-  commandSubject: NearCommandSubject;
-  ctx: ReturnType<NearSigningApiDeps['getSignerWorkerContext']>;
-  thresholdSessionRecord: ThresholdEd25519SessionRecord | null;
+  selectedLane: SelectedEd25519Lane;
+  preparation: NearEd25519YaoSigningPreparation;
+  materialExecutor: NearEd25519YaoMaterialExecutor;
   operationId: SigningOperationId;
 }): NearPasskeyEd25519OperationStepUpHook | undefined {
-  if (!args.thresholdSessionRecord) return undefined;
-  const thresholdSessionRecord = args.thresholdSessionRecord;
+  if (args.selectedLane.auth.kind !== 'passkey') return undefined;
+  const selectedLane = args.selectedLane;
+  const auth = selectedLane.auth;
   return {
     prepare: async ({ requiredSignatureUses }: { requiredSignatureUses: number }) => {
-      void requiredSignatureUses;
-      const rpIdRaw = String(args.ctx.touchIdPrompt.getRpId() || '').trim();
-      const thresholdSessionId = String(thresholdSessionRecord.thresholdSessionId || '').trim();
+      const material = await resolveNearPasskeyStepUpPolicyMaterial({
+        preparation: args.preparation,
+        executor: args.materialExecutor,
+      });
+      const walletSessionState = material.walletSessionState;
+      const signer = selectedLane.identity.signer;
+      const thresholdSessionId = String(walletSessionState.thresholdSessionId || '').trim();
       const signingGrantId = `operation-step-up:${args.operationId}`;
-      if (!rpIdRaw) {
-        throw new Error('[SigningEngine] missing rpId for passkey Ed25519 reauth');
-      }
-      const rpId = requirePasskeyEd25519ReauthRpId(rpIdRaw);
-      const passkeyCredentialIdB64u = String(
-        thresholdSessionRecord.passkeyCredentialIdB64u || '',
-      ).trim();
       if (!thresholdSessionId || !signingGrantId) {
         throw new Error(
           '[SigningEngine] passkey Ed25519 budget refresh requires exact lifecycle identity',
         );
       }
       const authority = buildPasskeyWalletAuthAuthority({
-        walletId: thresholdSessionRecord.walletId,
-        rpId,
-        credentialIdB64u: passkeyCredentialIdB64u,
+        walletId: signer.account.wallet.walletId,
+        rpId: auth.rpId,
+        credentialIdB64u: auth.credentialIdB64u,
       });
       const { policy, sessionPolicyDigest32 } = await buildPasskeyEd25519SessionPolicy({
-        nearAccountId: args.commandSubject.nearAccount.accountId,
-        nearEd25519SigningKeyId: String(thresholdSessionRecord.nearEd25519SigningKeyId),
+        nearAccountId: signer.account.nearAccountId,
+        nearEd25519SigningKeyId: String(signer.nearEd25519SigningKeyId),
         authority,
-        relayerKeyId: thresholdSessionRecord.relayerKeyId,
-        ...(thresholdSessionRecord.runtimePolicyScope
-          ? { runtimePolicyScope: thresholdSessionRecord.runtimePolicyScope }
-          : {}),
-        routerAbNormalSigning: thresholdSessionRecord.routerAbNormalSigning,
-        participantIds: thresholdSessionRecord.participantIds,
+        relayerKeyId: walletSessionState.routerAbNormalSigning.signingWorkerId,
+        runtimePolicyScope: walletSessionState.runtimePolicyScope,
+        routerAbNormalSigning: walletSessionState.routerAbNormalSigning,
+        participantIds: [...material.participantIds],
         thresholdSessionId,
         signingGrantId,
-        remainingUses: 1,
+        remainingUses: requiredSignatureUses,
       });
       return {
         sessionId: policy.thresholdSessionId,
@@ -1006,6 +994,41 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
       };
     },
   };
+}
+
+async function resolveNearPasskeyStepUpPolicyMaterial(args: {
+  preparation: NearEd25519YaoSigningPreparation;
+  executor: NearEd25519YaoMaterialExecutor;
+}): Promise<{
+  walletSessionState: NearEd25519YaoSigningCapability['walletSessionState'];
+  participantIds: readonly number[];
+}> {
+  switch (args.preparation.hydration.kind) {
+    case 'use_live_runtime': {
+      const capability = await args.executor.resolve(args.preparation);
+      const metadata = capability.activeClient.metadata();
+      return {
+        walletSessionState: capability.walletSessionState,
+        participantIds: [...metadata.participantIds],
+      };
+    }
+    case 'rehydrate_material_activation': {
+      const prepared = await args.executor.preparePasskeyOperationStepUp(args.preparation);
+      return {
+        walletSessionState: prepared.walletSessionState,
+        participantIds: prepared.participantIds,
+      };
+    }
+    case 'reauthorize_public_anchor':
+      throw new Error('[SigningEngine][near] retired material cannot prepare Passkey step-up');
+    case 'blocked':
+      throw new Error(
+        `[SigningEngine][near] Passkey step-up material is blocked: ${args.preparation.hydration.reason}`,
+      );
+    default:
+      args.preparation.hydration satisfies never;
+      throw new Error('[SigningEngine][near] unsupported Passkey step-up material source');
+  }
 }
 
 function buildNearEmailOtpEd25519Reauthorization(args: {
@@ -1125,13 +1148,11 @@ async function prepareNearAdHocSigningSession(args: {
       commandSubject: args.commandSubject,
       selectedLane,
     }));
-  const ctx = args.deps.getSignerWorkerContext();
   const passkeyEd25519OperationStepUp =
     buildNearPasskeyEd25519OperationStepUp({
-      deps: args.deps,
-      commandSubject: args.commandSubject,
-      ctx,
-      thresholdSessionRecord,
+      selectedLane,
+      preparation: materialBoundary.preparation,
+      materialExecutor: materialBoundary.executor,
       operationId: args.operationId,
     }) || null;
   const emailOtpEd25519Reauthorization =
@@ -1683,11 +1704,15 @@ export async function signTransactionWithActions(
       thresholdSessionId: resolvedSessionId,
       task: async () => {
         const ctx = deps.getSignerWorkerContext();
-        const passkeyEd25519OperationStepUp = buildNearPasskeyEd25519OperationStepUp({
+        const materialBoundary = await prepareNearEd25519YaoMaterialBoundary({
           deps,
           commandSubject: args.commandSubject,
-          ctx,
-          thresholdSessionRecord,
+          selectedLane: transactionLane,
+        });
+        const passkeyEd25519OperationStepUp = buildNearPasskeyEd25519OperationStepUp({
+          selectedLane: transactionLane,
+          preparation: materialBoundary.preparation,
+          materialExecutor: materialBoundary.executor,
           operationId: confirmationOperationId,
         });
         const emailOtpEd25519Reauthorization = buildNearEmailOtpEd25519Reauthorization({
@@ -1712,11 +1737,6 @@ export async function signTransactionWithActions(
           signingLane: executionState.signingLane,
           initialBudgetAdmittedOperation: executionState.initialBudgetAdmittedOperation,
         };
-        const materialBoundary = await prepareNearEd25519YaoMaterialBoundary({
-          deps,
-          commandSubject: args.commandSubject,
-          selectedLane: transactionLane,
-        });
         const payload: NearTransactionWithActionsPayload = {
           ctx,
           commandSubject: args.commandSubject,
