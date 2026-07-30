@@ -164,6 +164,13 @@ implementing commit SHA as the evidence.
     and one dedicated main-thread owner; generic confirmation no longer
     imports their runtimes or forwards their worker protocols. Commits
     `f91617282`, `51190cb9d`, `1a9254ff6`, `769d9dc69`, and `6f7d28d7c`.
+  - [x] Passkey persisted-session discovery, raw seal/rehydrate operations, and
+    exact persisted restore are routed through `PasskeyMpcSessionManager`.
+    The redundant durable worker alias and one-call seal-persistence adapter
+    are deleted. Commits `c348c8f57`, `6f7d28d7c`, `bbb6d94f4`,
+    `0e81b8bef`, `de6857bd5`, and `d9c303f3c`. High-level seal persistence,
+    exact registration/readback, and persistence single-flight now share that
+    owner; generic confirmation retains no durable-session port.
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently
