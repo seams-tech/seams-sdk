@@ -31,10 +31,7 @@ import type {
   EmailOtpWorkerProgressEvent,
   EmailOtpWorkerSessionHandleOperation,
 } from '@/core/signingEngine/workerManager/workerTypes';
-import type {
-  EcdsaCommittedLane,
-  EmailOtpEcdsaPublicReauthLane,
-} from '../../flows/signEvmFamily/ecdsaSelection';
+import type { EcdsaCommittedLane } from '../../flows/signEvmFamily/ecdsaSelection';
 import {
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
   WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
@@ -50,11 +47,7 @@ import {
   deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope,
   toEvmFamilyEcdsaKeyHandle,
 } from '../identity/evmFamilyEcdsaIdentity';
-import {
-  buildEmailOtpRoutePlan,
-  type EmailOtpAuthLane,
-  type EmailOtpRoutePlan,
-} from '../../stepUpConfirmation/otpPrompt/authLane';
+import { type EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
   appSessionJwtFromEmailOtpAuthLane,
   appSessionSubjectFromEmailOtpAuthLane,
@@ -90,7 +83,6 @@ import {
   buildEmailOtpSigningSessionRoutePlan,
   emailOtpEcdsaBootstrapRouteAuthFromRoutePlan,
   emailOtpEcdsaBootstrapRouteAuthToTransport,
-  routeAuthFromEmailOtpRoutePlan,
   type EmailOtpEcdsaBootstrapAuthorization,
 } from './routePlan';
 import {
@@ -532,23 +524,6 @@ function requireEmailOtpBootstrapTransportAuth(
   return value;
 }
 
-function emailOtpWorkerHandleOperationFromLoginOperation(
-  operation: WalletEmailOtpOperation,
-): EmailOtpWorkerSessionHandleOperation {
-  switch (operation) {
-    case WALLET_EMAIL_OTP_REGISTRATION_OPERATION:
-      return 'registration';
-    case WALLET_EMAIL_OTP_UNLOCK_OPERATION:
-      return 'wallet_unlock';
-    case WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION:
-      return 'sign';
-    case WALLET_EMAIL_OTP_EXPORT_OPERATION:
-      return 'export';
-  }
-  operation satisfies never;
-  throw new Error('Unsupported Email OTP login operation for ECDSA worker handle');
-}
-
 function emailOtpNonUnlockWorkerHandleOperationFromLoginOperation(
   operation: WalletEmailOtpOperation,
 ): Exclude<EmailOtpWorkerSessionHandleOperation, 'wallet_unlock'> {
@@ -857,17 +832,6 @@ export type LoginEmailOtpEcdsaCapabilityForSigningArgs = {
   authLane?: never;
 };
 
-export type LoginEmailOtpEcdsaPublicReauthCapabilityForSigningArgs = {
-  walletSession: WalletSessionRef;
-  chainTarget: ThresholdEcdsaChainTarget;
-  challengeId: string;
-  otpCode: string;
-  reauthLane: EmailOtpEcdsaPublicReauthLane;
-  appSessionJwt: string;
-  remainingUses: number;
-  committedLane?: never;
-};
-
 export type EmailOtpEcdsaTransactionStepUpInput = {
   mode: 'transaction_step_up';
   walletSession: WalletSessionRef;
@@ -914,11 +878,10 @@ function requireEmailOtpEcdsaSigningRefreshRuntimePolicyScope(args: {
 function buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(
   committedLane: EcdsaCommittedLane,
 ): EmailOtpEcdsaSigningRefreshFacts {
-  if (
-    committedLane.authority.factor.kind !== 'email_otp' ||
-    !committedLane.authLane
-  ) {
-    throw new Error('[SigningEngine][email-otp][ecdsa] committed lane requires Email OTP authority');
+  if (committedLane.authority.factor.kind !== 'email_otp' || !committedLane.authLane) {
+    throw new Error(
+      '[SigningEngine][email-otp][ecdsa] committed lane requires Email OTP authority',
+    );
   }
   return {
     // Exact lane signer binding, not a JWT-decoded authority structure.
@@ -981,46 +944,6 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
   });
 }
 
-export async function loginWithEmailOtpEcdsaPublicReauthCapabilityForSigning(
-  args: LoginEmailOtpEcdsaPublicReauthCapabilityForSigningArgs,
-  ports: {
-    loginWithEcdsaCapabilityInternal: (
-      args: LoginEmailOtpEcdsaCapabilityArgs,
-    ) => Promise<EmailOtpThresholdEcdsaLoginResult>;
-  },
-): Promise<EmailOtpThresholdEcdsaLoginResult> {
-  const publicRestore = args.reauthLane.publicRestore;
-  if (publicRestore.source !== 'email_otp') {
-    throw new Error('Email OTP ECDSA public reauth requires Email OTP public authority');
-  }
-  const routePlan = buildEmailOtpRoutePlan({
-    routeFamily: 'login',
-    authLane: { kind: 'app_session', jwt: args.appSessionJwt },
-    operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
-  });
-  return await ports.loginWithEcdsaCapabilityInternal({
-    walletSession: args.walletSession,
-    chainTarget: args.chainTarget,
-    emailOtpAuthPolicy: 'session',
-    emailOtpAuthReason: 'sign',
-    challengeId: args.challengeId,
-    otpCode: args.otpCode,
-    operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
-    routePlan,
-    keyHandle: publicRestore.keyHandle,
-    participantIds: publicRestore.participantIds.map(Number),
-    emailHashHex: publicRestore.emailHashHex,
-    providerIdentity: {
-      kind: 'explicit_provider_user',
-      providerUserId: publicRestore.providerSubjectId,
-    },
-    ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-    remainingUses: normalizeEmailOtpEcdsaSigningRemainingUses(args.remainingUses),
-    runtimePolicyScope: publicRestore.runtimePolicyScope,
-    ed25519YaoRecovery: { kind: 'not_requested' },
-  });
-}
-
 async function runEmailOtpEcdsaCapability(
   args: LoginEmailOtpEcdsaCapabilityArgs | PrepareEmailOtpEcdsaExportCapabilityArgs,
   ports: EmailOtpEcdsaLoginPorts,
@@ -1075,7 +998,6 @@ async function runEmailOtpEcdsaCapability(
     : resolveSigningBudgetPolicyRemainingUses(unlockBudgetPolicy);
   const workerCtx = ports.getSignerWorkerContext();
   const routePlan = args.routePlan;
-  const routeAuth = routeAuthFromEmailOtpRoutePlan(routePlan);
   const bootstrapRouteAuth =
     args.ecdsaBootstrapAuthorization.kind === 'route_plan_auth'
       ? emailOtpEcdsaBootstrapRouteAuthFromRoutePlan(routePlan)

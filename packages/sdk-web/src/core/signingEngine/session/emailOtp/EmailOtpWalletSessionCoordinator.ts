@@ -119,14 +119,6 @@ export class EmailOtpWalletSessionCoordinator {
     return this.runtime.loginWithEcdsaCapabilityForSigning(args);
   }
 
-  loginWithEcdsaPublicReauthCapabilityForSigning(
-    args: Parameters<
-      EmailOtpWalletSessionRuntime['loginWithEcdsaPublicReauthCapabilityForSigning']
-    >[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['loginWithEcdsaPublicReauthCapabilityForSigning']> {
-    return this.runtime.loginWithEcdsaPublicReauthCapabilityForSigning(args);
-  }
-
   loginWithEcdsaCapabilityInternal(
     args: Parameters<EmailOtpWalletSessionRuntime['loginWithEcdsaCapabilityInternal']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['loginWithEcdsaCapabilityInternal']> {

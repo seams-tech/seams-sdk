@@ -9,7 +9,6 @@ import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
 } from '../../session/operationState/trace';
-import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
 import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
 import type { ExactEcdsaSealedRuntime } from '../../session/material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsaCapabilityManifest';
@@ -30,8 +29,6 @@ import {
   buildVerifiedEcdsaPublicFacts,
   toEvmFamilyEcdsaKeyHandle,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
-import {
-} from '../../session/persistence/records';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -39,9 +36,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { RequestEmailOtpChallengeArgs } from '../../session/emailOtp/exportRecoveryRuntime';
-import {
-  type VerifiedEcdsaPublicFacts,
-} from '../../session/identity/evmFamilyEcdsaIdentity';
+import type { VerifiedEcdsaPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyChain, EvmFamilyLifecycleEventCallback } from './types';
 import { emitEvmFamilySigningEvent } from './events';
 import { type ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
@@ -49,14 +44,12 @@ import {
   throwEmailOtpSigningSessionAuthStateError,
   type EmailOtpEcdsaBootstrapAuthorization,
 } from '../../session/emailOtp/routePlan';
-import {
-  type EmailOtpEcdsaProviderIdentity,
-  type EmailOtpThresholdEcdsaLoginResult,
+import type {
+  EmailOtpEcdsaProviderIdentity,
+  EmailOtpThresholdEcdsaLoginResult,
 } from '../../session/emailOtp/ecdsaLogin';
-import {
-  type EmailOtpEcdsaSigningSessionAuthority,
-} from '../../session/emailOtp/ecdsaSigningSessionAuthority';
-import type { EcdsaCommittedLane, EmailOtpEcdsaPublicReauthLane } from './ecdsaSelection';
+import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
+import type { EcdsaCommittedLane } from './ecdsaSelection';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { demoEmailOtpCodeFromDelivery } from '../../session/emailOtp/challengeDelivery';
 
@@ -124,14 +117,6 @@ export type EmailOtpEcdsaStepUpAuthority =
       materialActivation?: never;
       operationFingerprint?: never;
     }
-  | {
-      kind: 'public_reauth_anchor';
-      reauthLane: EmailOtpEcdsaPublicReauthLane;
-      committedLane?: never;
-      capabilityAuthority?: never;
-      materialActivation?: never;
-      operationFingerprint?: never;
-    }
   | EmailOtpEcdsaCapabilityStepUpAuthority;
 
 export type EmailOtpEcdsaChallengeAuthority =
@@ -139,14 +124,6 @@ export type EmailOtpEcdsaChallengeAuthority =
       kind: 'live_session';
       authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
       reauthLane?: never;
-      capabilityAuthority?: never;
-      materialActivation?: never;
-      operationFingerprint?: never;
-    }
-  | {
-      kind: 'public_reauth_anchor';
-      reauthLane: EmailOtpEcdsaPublicReauthLane;
-      authLane?: never;
       capabilityAuthority?: never;
       materialActivation?: never;
       operationFingerprint?: never;
@@ -171,7 +148,10 @@ export function emailOtpEcdsaCapabilityStepUpAuthority(args: {
       '[SigningEngine] Email OTP operation step-up requires an Email OTP capability authority',
     );
   }
-  if (args.claimedAuthority && !walletAuthAuthoritiesMatch(capabilityAuthority, args.claimedAuthority)) {
+  if (
+    args.claimedAuthority &&
+    !walletAuthAuthoritiesMatch(capabilityAuthority, args.claimedAuthority)
+  ) {
     throw new Error(
       '[SigningEngine] Email OTP step-up authority does not match the selected capability',
     );
@@ -188,7 +168,9 @@ export function emailOtpEcdsaCapabilityStepUpAuthority(args: {
   }
   const operationFingerprint = String(args.operationFingerprint || '').trim();
   if (!operationFingerprint) {
-    throw new Error('[SigningEngine] Email OTP operation step-up requires an operation fingerprint');
+    throw new Error(
+      '[SigningEngine] Email OTP operation step-up requires an operation fingerprint',
+    );
   }
   return {
     kind: 'capability_step_up',
@@ -212,11 +194,6 @@ function emailOtpEcdsaChallengeAuthority(
       return {
         kind: 'live_session',
         authLane: authority.committedLane.authLane,
-      };
-    case 'public_reauth_anchor':
-      return {
-        kind: 'public_reauth_anchor',
-        reauthLane: authority.reauthLane,
       };
     case 'capability_step_up':
       return {
@@ -397,7 +374,9 @@ export async function refreshEmailOtpSigningSession(
   });
   // Public facts are the manifest's half of the capability split.
   const publicFacts = buildVerifiedEcdsaPublicFacts({
-    keyHandle: toEvmFamilyEcdsaKeyHandle(String(manifest.durableMaterial.roleLocalPublicFacts.keyHandle)),
+    keyHandle: toEvmFamilyEcdsaKeyHandle(
+      String(manifest.durableMaterial.roleLocalPublicFacts.keyHandle),
+    ),
     publicKeyB64u: runtime.thresholdEcdsaPublicKeyB64u,
     participantIds: [...runtime.participantIds],
     thresholdOwnerAddress: manifest.durableMaterial.roleLocalPublicFacts.ethereumAddress,
@@ -428,12 +407,10 @@ export async function refreshEmailOtpSigningSession(
   });
   // Refresh renews authorization over the same material; it must never land on
   // a different activation, and it never invokes recovery or device linking.
-  const activationAfterRefresh = (
-    await resolveActiveEcdsaCapabilityRuntime({
-      walletId: args.walletSession.walletId,
-      chainTarget: args.chainTarget,
-    })
-  );
+  const activationAfterRefresh = await resolveActiveEcdsaCapabilityRuntime({
+    walletId: args.walletSession.walletId,
+    chainTarget: args.chainTarget,
+  });
   if (
     activationAfterRefresh.kind === 'resolved' &&
     !mpcMaterialActivationRefsEqual(

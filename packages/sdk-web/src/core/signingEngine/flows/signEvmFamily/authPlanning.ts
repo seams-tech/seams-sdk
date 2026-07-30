@@ -4,7 +4,6 @@ import {
   type SigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { SigningSessionPlan } from '../../session/operationState/types';
 import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/operationState/types';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
@@ -12,7 +11,6 @@ import type { PreparedThresholdSigningOperation } from '../../session/operationS
 import { signingAuthPlanFromSigningSessionPlan } from '../shared/signingConfirmation';
 import type {
   ThresholdEcdsaChainTarget,
-  WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -32,11 +30,7 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { CanonicalEvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
-import type {
-  EmailOtpEcdsaPublicReauthLane,
-  ReadyEvmFamilyEcdsaSigningSelection,
-  ReauthRequiredEvmFamilyEcdsaSigningSelection,
-} from './ecdsaSelection';
+import type { ReadyEvmFamilyEcdsaSigningSelection } from './ecdsaSelection';
 import type {
   EvmFamilyChain,
   EvmFamilyLifecycleEventCallback,
@@ -55,32 +49,19 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
 };
 
 function emailOtpStepUpAuthority(
-  selection:
-    | ReadyEvmFamilyEcdsaSigningSelection
-    | Extract<ReauthRequiredEvmFamilyEcdsaSigningSelection, { authMethod: 'email_otp' }>,
+  selection: ReadyEvmFamilyEcdsaSigningSelection,
 ): EmailOtpEcdsaStepUpAuthority {
-  if (selection.kind === 'ready') {
-    if (!isEmailOtpWalletAuthAuthority(selection.committedLane.authority)) {
-      throw new Error('[SigningEngine][ecdsa] Email OTP step-up requires Email OTP authority');
-    }
-    return { kind: 'live_session', committedLane: selection.committedLane };
+  if (!isEmailOtpWalletAuthAuthority(selection.committedLane.authority)) {
+    throw new Error('[SigningEngine][ecdsa] Email OTP step-up requires Email OTP authority');
   }
-  return { kind: 'public_reauth_anchor', reauthLane: selection.reauthLane };
+  return { kind: 'live_session', committedLane: selection.committedLane };
 }
 
 function emailOtpStepUpAuthorityForSelection(
-  selection:
-    | ReadyEvmFamilyEcdsaSigningSelection
-    | ReauthRequiredEvmFamilyEcdsaSigningSelection
-    | undefined,
+  selection: ReadyEvmFamilyEcdsaSigningSelection | undefined,
 ): EmailOtpEcdsaStepUpAuthority | undefined {
   if (!selection) return undefined;
-  if (selection.kind === 'ready') {
-    return isEmailOtpWalletAuthAuthority(selection.committedLane.authority)
-      ? emailOtpStepUpAuthority(selection)
-      : undefined;
-  }
-  return selection.authMethod === SIGNER_AUTH_METHODS.emailOtp
+  return isEmailOtpWalletAuthAuthority(selection.committedLane.authority)
     ? emailOtpStepUpAuthority(selection)
     : undefined;
 }
@@ -151,9 +132,7 @@ export async function resolveEvmFamilyTransactionStepUp(
       : null;
   const preparedEcdsaMetadata = reusableSessionEcdsaOperation
     ? (reusableSessionEcdsaOperation.metadata as {
-        selection:
-          | ReadyEvmFamilyEcdsaSigningSelection
-          | ReauthRequiredEvmFamilyEcdsaSigningSelection;
+        selection: ReadyEvmFamilyEcdsaSigningSelection;
       })
     : null;
   const preparedEcdsaLane = reusableSessionEcdsaOperation?.lane;
