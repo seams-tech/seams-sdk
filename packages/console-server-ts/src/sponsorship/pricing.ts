@@ -68,6 +68,7 @@ export interface StaticSponsoredExecutionPricingConfig {
 
 export interface CoinGeckoSponsoredExecutionPricingConfig {
   apiBaseUrl: string;
+  apiKey: string;
   cacheTtlMs: number;
   evmByChain: ReadonlyMap<number, CoinGeckoSponsoredEvmSpendPricingRule>;
   nearByChain: ReadonlyMap<number, CoinGeckoSponsoredNearSpendPricingRule>;
@@ -79,9 +80,12 @@ export interface ChainFamilySponsoredExecutionPricingConfig {
 }
 
 export interface SponsoredExecutionPricingEnv {
+  readonly COINGECKO_DEMO_API_KEY?: string;
   readonly SPONSORED_EXECUTION_REAL_PRICING_JSON?: string;
   readonly SPONSORED_EXECUTION_STATIC_PRICING_JSON?: string;
 }
+
+const pricingServiceByEnv = new WeakMap<object, SponsorshipSpendPricingService | null>();
 
 function assertNeverChainFamily(chainFamily: never): never {
   throw new Error(`Unsupported sponsored call chain family: ${String(chainFamily)}`);
@@ -392,6 +396,7 @@ async function fetchJsonRpcResult(
 
 async function fetchCoinGeckoUsdPrice(input: {
   apiBaseUrl: string;
+  apiKey: string;
   assetId: string;
   fetchImpl: typeof fetch;
 }): Promise<{ spendMinorRatio: DecimalRatio; pricingVersion: string }> {
@@ -401,7 +406,12 @@ async function fetchCoinGeckoUsdPrice(input: {
   url.searchParams.set('include_last_updated_at', 'true');
   let response: Response;
   try {
-    response = await input.fetchImpl(url.toString());
+    response = await input.fetchImpl(url.toString(), {
+      headers: {
+        accept: 'application/json',
+        'x-cg-demo-api-key': input.apiKey,
+      },
+    });
   } catch (error: unknown) {
     throw new SponsorshipSpendCapEnforcementError(
       'sponsorship_pricing_unavailable',
@@ -554,6 +564,7 @@ export function createCoinGeckoSponsoredExecutionPricingService(
     }
     const fetched = await fetchCoinGeckoUsdPrice({
       apiBaseUrl: config.apiBaseUrl,
+      apiKey: config.apiKey,
       assetId,
       fetchImpl,
     });
@@ -742,7 +753,8 @@ export function resolveCoinGeckoSponsoredExecutionPricingFromEnv(
   env: SponsoredExecutionPricingEnv,
 ): SponsorshipSpendPricingService | null {
   const raw = String(env.SPONSORED_EXECUTION_REAL_PRICING_JSON || '').trim();
-  if (!raw) return null;
+  const apiKey = String(env.COINGECKO_DEMO_API_KEY || '').trim();
+  if (!raw || !apiKey) return null;
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -812,6 +824,7 @@ export function resolveCoinGeckoSponsoredExecutionPricingFromEnv(
   if (evmByChain.size === 0 && nearByChain.size === 0) return null;
   return createCoinGeckoSponsoredExecutionPricingService({
     apiBaseUrl: normalizeApiBaseUrl(root.apiBaseUrl, 'https://api.coingecko.com/api/v3'),
+    apiKey,
     cacheTtlMs: readCacheTtlMs(root.cacheTtlMs, 5 * 60 * 1000),
     evmByChain,
     nearByChain,
@@ -821,8 +834,12 @@ export function resolveCoinGeckoSponsoredExecutionPricingFromEnv(
 export function resolveSponsoredExecutionPricingFromEnv(
   env: SponsoredExecutionPricingEnv,
 ): SponsorshipSpendPricingService | null {
-  return (
+  if (pricingServiceByEnv.has(env)) {
+    return pricingServiceByEnv.get(env) || null;
+  }
+  const service =
     resolveCoinGeckoSponsoredExecutionPricingFromEnv(env) ||
-    resolveStaticSponsoredExecutionPricingFromEnv(env)
-  );
+    resolveStaticSponsoredExecutionPricingFromEnv(env);
+  pricingServiceByEnv.set(env, service);
+  return service;
 }
