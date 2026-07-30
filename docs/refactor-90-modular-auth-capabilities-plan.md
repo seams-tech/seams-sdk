@@ -693,7 +693,7 @@ the replacement and legacy MPC paths must not ship together.
           module-global single-flight, restore leases, readback, and
           invalid-record cleanup into `PasskeyMpcSessionManager`; expiry keeps
           the sealed material available for same-method step-up.
-- [ ] Remove replaced worker entrypoints, loaders, manifest rows, and public
+- [x] Remove replaced worker entrypoints, loaders, manifest rows, and public
       exports.
   - [x] Delete the generic worker's `EXPORT_PRIVATE_KEYS_WITH_UI` protocol arm
         and export-runtime imports; register the dedicated Passkey MPC export
