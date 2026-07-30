@@ -180,7 +180,7 @@ type WarmBootstrapContinuityField =
   | 'capability.runtimePolicyScope'
   | 'capability.participantIds'
   | 'capability.lifecycle.accountId'
-  | 'capability.lifecycle.walletSessionId'
+  | 'capability.lifecycle.thresholdSessionId'
   | 'capability.lifecycle.signerSetId'
   | 'capability.lifecycle.signingWorkerId'
   | 'capability.lifecycle.rootShareEpoch'
@@ -255,8 +255,8 @@ function findWarmBootstrapContinuityMismatch(args: {
   if (capability.lifecycle.accountId !== String(record.walletId)) {
     return 'capability.lifecycle.accountId';
   }
-  if (capability.lifecycle.walletSessionId !== String(record.thresholdSessionId)) {
-    return 'capability.lifecycle.walletSessionId';
+  if (capability.lifecycle.thresholdSessionId !== record.thresholdSessionId) {
+    return 'capability.lifecycle.thresholdSessionId';
   }
   if (
     capability.lifecycle.signerSetId !== String(registrationNearEd25519BranchKey(record.signerSlot))
@@ -478,7 +478,7 @@ function assertColdBootstrapContinuity(args: {
     capability.applicationBinding.key_creation_signer_slot !== prepared.signerSlot ||
     capability.nearAccountId !== String(prepared.identity.nearAccountId) ||
     capability.lifecycle.accountId !== String(prepared.identity.walletId) ||
-    capability.lifecycle.walletSessionId !== prepared.thresholdSessionId ||
+    capability.lifecycle.thresholdSessionId !== prepared.thresholdSessionId ||
     capability.lifecycle.signerSetId !==
       String(registrationNearEd25519BranchKey(prepared.signerSlot)) ||
     capability.lifecycle.signingWorkerId !== session.routerAbNormalSigning.signingWorkerId ||

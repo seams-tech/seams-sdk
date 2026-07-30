@@ -47,7 +47,7 @@ const CAPABILITY = {
     lifecycleId: 'lifecycle-email-otp-export-refresh',
     rootShareEpoch: RUNTIME_POLICY_SCOPE.signingRootVersion,
     accountId: String(WALLET_ID),
-    walletSessionId: THRESHOLD_SESSION_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
     signerSetId: 'near-ed25519-slot-1',
     signingWorkerId: 'signing-worker-email-otp-export-refresh',
   },

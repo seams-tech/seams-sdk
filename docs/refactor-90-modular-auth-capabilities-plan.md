@@ -482,6 +482,10 @@ the replacement and legacy MPC paths must not ship together.
 
 - [x] Keep authorization session, material activation, recovery, grant, and
       operation identities independent and branded.
+- [x] Name the Ed25519 active-capability lifecycle with branded
+      `ThresholdEd25519SessionId`; keep reusable `WalletSessionId` and quota
+      identity on authorization only, and bind recovery admission to the
+      threshold-material session.
 - [x] Persist one canonical Near public locator, sealed active-client record,
       and sealed recovery source; create no parallel D1/DO material owner.
 - [x] Parse Near persistence once with no dual-schema core reader or legacy

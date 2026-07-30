@@ -41,6 +41,10 @@ import {
 } from '@shared/threshold/signingRootScope';
 import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
 import {
+  parseThresholdEd25519SessionId,
+  type ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
+import {
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
@@ -90,7 +94,7 @@ export type ParsedYaoRecoveryCapabilityV1 = {
     readonly lifecycleId: string;
     readonly rootShareEpoch: string;
     readonly accountId: string;
-    readonly walletSessionId: string;
+    readonly thresholdSessionId: ThresholdEd25519SessionId;
     readonly signerSetId: string;
     readonly signingWorkerId: string;
   };
@@ -109,6 +113,17 @@ export type ParsedPasskeyEd25519YaoRecoveryDescriptorV1 = {
   readonly session: ParsedYaoRecoverySessionV1;
   readonly capability: ParsedYaoRecoveryCapabilityV1;
 };
+
+function requireThresholdEd25519SessionId(
+  value: unknown,
+  label: string,
+): ThresholdEd25519SessionId {
+  const parsed = parseThresholdEd25519SessionId(value);
+  if (!parsed.ok) {
+    throw new Error(`${label} is invalid`);
+  }
+  return parsed.value;
+}
 
 export type ParsedPasskeyEd25519YaoSyncResponseV1 = ParsedPasskeyEd25519YaoRecoveryDescriptorV1 & {
   readonly credentialPublicKeyB64u: string;
@@ -251,7 +266,10 @@ export function parseEd25519YaoRecoveryCapabilityV1(raw: unknown): ParsedYaoReco
       lifecycleId: requireString(lifecycle.lifecycleId, 'lifecycle.lifecycleId'),
       rootShareEpoch: requireString(lifecycle.rootShareEpoch, 'lifecycle.rootShareEpoch'),
       accountId: requireString(lifecycle.accountId, 'lifecycle.accountId'),
-      walletSessionId: requireString(lifecycle.walletSessionId, 'lifecycle.walletSessionId'),
+      thresholdSessionId: requireThresholdEd25519SessionId(
+        requireString(lifecycle.thresholdSessionId, 'lifecycle.thresholdSessionId'),
+        'lifecycle.thresholdSessionId',
+      ),
       signerSetId: requireString(lifecycle.signerSetId, 'lifecycle.signerSetId'),
       signingWorkerId: requireString(lifecycle.signingWorkerId, 'lifecycle.signingWorkerId'),
     },
@@ -284,6 +302,7 @@ export function assertEd25519YaoRecoveryDescriptorContinuity(
     capability.applicationBinding.key_creation_signer_slot !== parsed.signerSlot ||
     capability.nearAccountId !== parsed.nearAccountId ||
     capability.lifecycle.accountId !== String(parsed.walletId) ||
+    capability.lifecycle.thresholdSessionId !== session.thresholdSessionId ||
     capability.lifecycle.signingWorkerId !== parsed.relayerKeyId ||
     session.routerAbNormalSigning?.signingWorkerId !== parsed.relayerKeyId ||
     session.participantIds[0] !== capability.participantIds[0] ||
@@ -360,7 +379,7 @@ function recoveryAdmissionRequest(
         lifecycle_id: secureRandomId('ed25519-yao-recovery', 32, 'Ed25519 Yao recovery IDs'),
         root_share_epoch: parsed.capability.lifecycle.rootShareEpoch,
         account_id: parsed.capability.lifecycle.accountId,
-        wallet_session_id: parsed.session.walletSessionId,
+        wallet_session_id: parsed.session.thresholdSessionId,
         signer_set_id: parsed.capability.lifecycle.signerSetId,
         signing_worker_id: parsed.capability.lifecycle.signingWorkerId,
       },

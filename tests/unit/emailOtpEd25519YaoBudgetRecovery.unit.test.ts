@@ -315,7 +315,7 @@ function recoveryBootstrap(args: {
         lifecycleId: args.prior.scope.lifecycle_id,
         rootShareEpoch: RUNTIME_POLICY_SCOPE.signingRootVersion,
         accountId: String(WALLET_ID),
-        walletSessionId: THRESHOLD_SESSION_ID,
+        thresholdSessionId: THRESHOLD_SESSION_ID,
         signerSetId: args.substituteSignerSetId
           ? 'near_ed25519:slot:2'
           : args.prior.scope.signer_set_id,
@@ -886,7 +886,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
       capability: {
         lifecycle: {
           lifecycleId: prior.scope.lifecycle_id,
-          walletSessionId: THRESHOLD_SESSION_ID,
+          thresholdSessionId: THRESHOLD_SESSION_ID,
         },
       },
     });

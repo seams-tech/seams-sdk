@@ -29,6 +29,8 @@ const NEAR_SIGNING_KEY_ID = 'ed25519ks_discovered_wallet';
 const CREDENTIAL_ID = 'credential-id-b64u';
 const SIGNER_SLOT = 3;
 const THRESHOLD_SESSION_ID = 'threshold-session-sync-1';
+const WALLET_SESSION_ID = 'wallet-session-sync-1';
+const WALLET_SESSION_QUOTA_ID = 'wallet-session-quota-sync-1';
 const SIGNING_GRANT_ID = 'signing-grant-sync-1';
 const SIGNING_WORKER_ID = 'signing-worker-sync-1';
 const ROOT_SHARE_EPOCH = 'root-share-epoch-sync-1';
@@ -195,6 +197,8 @@ function unsignedWalletSessionJwt(walletId: string): string {
         nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
         thresholdSessionId: THRESHOLD_SESSION_ID,
         signingGrantId: SIGNING_GRANT_ID,
+        walletSessionId: WALLET_SESSION_ID,
+        quotaId: WALLET_SESSION_QUOTA_ID,
       }),
     ),
   );
@@ -234,6 +238,8 @@ function syncVerifyResponse(walletId: string): Record<string, unknown> {
         nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
         thresholdSessionId: THRESHOLD_SESSION_ID,
         signingGrantId: SIGNING_GRANT_ID,
+        walletSessionId: WALLET_SESSION_ID,
+        quotaId: WALLET_SESSION_QUOTA_ID,
         expiresAtMs: Date.now() + 60_000,
         remainingUses: 4,
         runtimePolicyScope: {
@@ -277,7 +283,7 @@ function syncVerifyResponse(walletId: string): Record<string, unknown> {
           lifecycleId: 'sync-account-orchestration-lifecycle',
           rootShareEpoch: ROOT_SHARE_EPOCH,
           accountId: walletId,
-          walletSessionId: THRESHOLD_SESSION_ID,
+          thresholdSessionId: THRESHOLD_SESSION_ID,
           signerSetId: 'signer-set-sync-1',
           signingWorkerId: SIGNING_WORKER_ID,
         },

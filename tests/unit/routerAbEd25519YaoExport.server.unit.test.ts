@@ -82,6 +82,7 @@ const NEAR_ACCOUNT_ID = '0c'.repeat(32);
 const NEAR_SIGNING_KEY_ID = 'ed25519ks_export_1';
 const ROOT_SHARE_EPOCH = 'root-export-1';
 const WALLET_SESSION_ID = 'wallet-session-export-1';
+const THRESHOLD_SESSION_ID_RAW = 'threshold-session-export-1';
 const SIGNING_GRANT_ID = 'signing-grant-export-1';
 const SIGNING_WORKER_ID = 'signing-worker-export-1';
 const PARTICIPANTS = [11, 29] as const;
@@ -94,6 +95,12 @@ const RUNTIME_POLICY_SCOPE = {
   envId: 'test',
   signingRootVersion: ROOT_SHARE_EPOCH,
 } as const;
+
+function requireThresholdSessionId(value: string) {
+  const parsed = parseThresholdEd25519SessionId(value);
+  if (!parsed.ok) throw new Error('fixture threshold session identity is invalid');
+  return parsed.value;
+}
 
 type WebAuthnVerificationInput = Parameters<
   RouterApiWebAuthnService['verifyWebAuthnAuthenticationLite']
@@ -155,7 +162,7 @@ function exportIdentity(input: {
       lifecycle_id: input.lifecycleId,
       root_share_epoch: ROOT_SHARE_EPOCH,
       account_id: WALLET_ID,
-      wallet_session_id: WALLET_SESSION_ID,
+      wallet_session_id: THRESHOLD_SESSION_ID_RAW,
       signer_set_id: 'signer-set-export-1',
       signing_worker_id: SIGNING_WORKER_ID,
     },
@@ -194,7 +201,7 @@ async function admissionFixture(
     nonce: options.nonce,
     issuedAtMs: options.issuedAtMs,
     expiresAtMs: options.expiresAtMs,
-    thresholdSessionId: WALLET_SESSION_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID_RAW,
     signingGrantId: SIGNING_GRANT_ID,
     authority: options.authority || { kind: 'passkey', credentialIdB64u: CREDENTIAL_ID },
   });
@@ -395,7 +402,7 @@ class ActiveCapabilityFixture implements RouterAbEd25519YaoActiveCapabilityResol
           lifecycleId: 'export-lifecycle-1',
           rootShareEpoch: ROOT_SHARE_EPOCH,
           accountId: WALLET_ID,
-          walletSessionId: WALLET_SESSION_ID,
+          thresholdSessionId: requireThresholdSessionId(THRESHOLD_SESSION_ID_RAW),
           signerSetId:
             this.substitution === 'scope' ? 'substituted-signer-set' : 'signer-set-export-1',
           signingWorkerId: SIGNING_WORKER_ID,
@@ -588,8 +595,10 @@ function claimsForAuthority(authority: WalletAuthAuthority): SessionClaims {
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-    thresholdSessionId: WALLET_SESSION_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID_RAW,
     signingGrantId: SIGNING_GRANT_ID,
+    walletSessionId: WALLET_SESSION_ID,
+    quotaId: 'wallet-session-quota-export-1',
     relayerKeyId: SIGNING_WORKER_ID,
     authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
@@ -638,8 +647,10 @@ function namedAccountClaimsForCapability(
     walletId,
     nearAccountId: capability.nearAccountId,
     nearEd25519SigningKeyId: capability.applicationBinding.near_ed25519_signing_key_id,
-    thresholdSessionId: capability.lifecycle.walletSessionId,
+    thresholdSessionId: capability.lifecycle.thresholdSessionId,
     signingGrantId: SIGNING_GRANT_ID,
+    walletSessionId: WALLET_SESSION_ID,
+    quotaId: 'wallet-session-quota-export-1',
     relayerKeyId: capability.lifecycle.signingWorkerId,
     authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
@@ -705,7 +716,7 @@ function authorizationInput(
 }
 
 function exportAuthorizationIdentity(): RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 {
-  const thresholdSessionId = parseThresholdEd25519SessionId(WALLET_SESSION_ID);
+  const thresholdSessionId = parseThresholdEd25519SessionId(THRESHOLD_SESSION_ID_RAW);
   const signingGrantId = parseSigningGrantId(SIGNING_GRANT_ID);
   if (!thresholdSessionId.ok || !signingGrantId.ok) {
     throw new Error('invalid export authorization fixture identity');
@@ -719,7 +730,9 @@ function exportAuthorizationIdentity(): RouterAbEd25519YaoExportFreshAuthorizati
 function exportAuthorizationIdentityForCapability(
   capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1,
 ): RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 {
-  const thresholdSessionId = parseThresholdEd25519SessionId(capability.lifecycle.walletSessionId);
+  const thresholdSessionId = parseThresholdEd25519SessionId(
+    capability.lifecycle.thresholdSessionId,
+  );
   const signingGrantId = parseSigningGrantId(SIGNING_GRANT_ID);
   if (!thresholdSessionId.ok || !signingGrantId.ok) {
     throw new Error('invalid export authorization fixture identity');
@@ -825,7 +838,7 @@ async function admissionFixtureForActiveCapability(
       lifecycle_id: 'export-existing-recovered-1',
       root_share_epoch: capability.lifecycle.rootShareEpoch,
       account_id: capability.lifecycle.accountId,
-      wallet_session_id: capability.lifecycle.walletSessionId,
+      wallet_session_id: capability.lifecycle.thresholdSessionId,
       signer_set_id: capability.lifecycle.signerSetId,
       signing_worker_id: capability.lifecycle.signingWorkerId,
     },
@@ -852,7 +865,7 @@ async function admissionFixtureForActiveCapability(
     nonce,
     issuedAtMs,
     expiresAtMs,
-    thresholdSessionId: capability.lifecycle.walletSessionId,
+    thresholdSessionId: capability.lifecycle.thresholdSessionId,
     signingGrantId: SIGNING_GRANT_ID,
     authority: { kind: 'passkey', credentialIdB64u: CREDENTIAL_ID },
   });
