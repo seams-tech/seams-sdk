@@ -96,6 +96,7 @@ import {
   type PasskeyEd25519YaoUnlockSourceV1,
 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
 import {
+  buildActiveNearEd25519WalletSessionAuthorization,
   buildAuthorizationRequiredNearEd25519YaoSigningPreparation,
   buildAuthorizedNearEd25519YaoSigningPreparation,
 } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
@@ -1047,18 +1048,33 @@ export class BrowserSigningSurface {
     });
     const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(args.walletId);
     switch (authorizationRead.kind) {
-      case 'found':
-        if (authorizationRead.projection.expiresAtMs > Date.now()) {
+      case 'found': {
+        const reusableSession = await this.readReusableWalletSessionState(args.walletId);
+        if (
+          reusableSession.kind === 'active' &&
+          reusableSession.walletSessionId === authorizationRead.projection.walletSessionId &&
+          reusableSession.authMethod === authorizationRead.projection.authMethod
+        ) {
           return buildAuthorizedNearEd25519YaoSigningPreparation({
             hydration,
             requirement: args.auth,
-            authorization: authorizationRead.projection,
+            authorization: buildActiveNearEd25519WalletSessionAuthorization({
+              projection: authorizationRead.projection,
+              status: {
+                status: 'active',
+                walletSessionId: authorizationRead.projection.walletSessionId,
+                quotaId: authorizationRead.projection.quotaId,
+                remainingUses: reusableSession.remainingUses,
+                expiresAtMs: reusableSession.expiresAtMs,
+              },
+            }),
           });
         }
         return buildAuthorizationRequiredNearEd25519YaoSigningPreparation({
           hydration,
           requirement: args.auth,
         });
+      }
       case 'missing':
         return buildAuthorizationRequiredNearEd25519YaoSigningPreparation({
           hydration,

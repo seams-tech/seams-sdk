@@ -1,12 +1,21 @@
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type {
+  ReusableWalletSessionStatus,
+} from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import type { MpcCapabilityHydrationPlan } from './mpcCapabilityHydration';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
+export type ActiveNearEd25519WalletSessionAuthorization = {
+  readonly kind: 'active_reusable_wallet_session_authorization';
+  readonly projection: ActiveWalletSessionAuthorizationProjection;
+  readonly status: Extract<ReusableWalletSessionStatus, { readonly status: 'active' }>;
+};
+
 export type NearEd25519OperationAuthorizationState =
   | {
       readonly kind: 'authorized';
-      readonly authorization: ActiveWalletSessionAuthorizationProjection;
+      readonly authorization: ActiveNearEd25519WalletSessionAuthorization;
       readonly requirement?: never;
     }
   | {
@@ -43,13 +52,14 @@ function hydrationAuthority(
 
 function assertAuthorizationMatchesHydration(args: {
   hydration: MpcCapabilityHydrationPlan;
-  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorization: ActiveNearEd25519WalletSessionAuthorization;
 }): void {
   const authority = hydrationAuthority(args.hydration);
   if (!authority) return;
+  const projection = args.authorization.projection;
   if (
-    String(authority.walletId) !== String(args.authorization.walletId) ||
-    String(authority.authorityDigest) !== String(args.authorization.authority.authorityDigest)
+    String(authority.walletId) !== String(projection.walletId) ||
+    String(authority.authorityDigest) !== String(projection.authority.authorityDigest)
   ) {
     throw new Error(
       '[SigningEngine][near] Wallet Session authorization does not match material authority',
@@ -59,19 +69,39 @@ function assertAuthorizationMatchesHydration(args: {
 
 function assertAuthorizationMatchesRequirement(args: {
   requirement: SigningLaneAuthBinding;
-  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorization: ActiveNearEd25519WalletSessionAuthorization;
 }): void {
-  if (args.requirement.kind !== args.authorization.authMethod) {
+  if (args.requirement.kind !== args.authorization.projection.authMethod) {
     throw new Error(
       '[SigningEngine][near] Wallet Session authorization does not match material factor',
     );
   }
 }
 
+export function buildActiveNearEd25519WalletSessionAuthorization(args: {
+  projection: ActiveWalletSessionAuthorizationProjection;
+  status: Extract<ReusableWalletSessionStatus, { readonly status: 'active' }>;
+}): ActiveNearEd25519WalletSessionAuthorization {
+  if (
+    args.projection.walletSessionId !== args.status.walletSessionId ||
+    args.projection.quotaId !== args.status.quotaId ||
+    args.projection.expiresAtMs !== args.status.expiresAtMs
+  ) {
+    throw new Error(
+      '[SigningEngine][near] Wallet Session authorization projection does not match active status',
+    );
+  }
+  return {
+    kind: 'active_reusable_wallet_session_authorization',
+    projection: args.projection,
+    status: args.status,
+  };
+}
+
 export function buildAuthorizedNearEd25519YaoSigningPreparation(args: {
   hydration: MpcCapabilityHydrationPlan;
   requirement: SigningLaneAuthBinding;
-  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorization: ActiveNearEd25519WalletSessionAuthorization;
 }): NearEd25519YaoSigningPreparation {
   assertAuthorizationMatchesRequirement(args);
   assertAuthorizationMatchesHydration(args);
