@@ -663,7 +663,7 @@ export function createBrowserSigningSurfaceEnginePorts(
       ),
     restorePersistedSessionForSigning: (restoreArgs) =>
       restoreArgs.authMethod === 'passkey'
-        ? args.touchConfirm.restorePersistedSessionForSigning(
+        ? args.passkeyMpcSession.restorePersistedSessionForSigning(
             omitPasskeyRestoreAuthMethod(restoreArgs),
           )
         : args.emailOtpSessions.restorePersistedSessionForSigning(restoreArgs),

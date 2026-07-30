@@ -20,12 +20,12 @@ function shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(
   if (status.ok) return false;
   switch (status.code) {
     case 'expired':
+    case 'exhausted':
+      return false;
     case 'not_found':
     case 'invalid_args':
     case 'invalid_response':
       return true;
-    case 'exhausted':
-      return false;
     default:
       return false;
   }

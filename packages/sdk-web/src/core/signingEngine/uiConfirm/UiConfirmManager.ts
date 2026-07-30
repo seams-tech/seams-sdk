@@ -22,12 +22,9 @@ import {
 import { BUILD_PATHS } from '../../../../build-paths';
 import { resolveWorkerUrl } from '../../walletRuntimePaths';
 import {
-  acquireSigningSessionRestoreLease,
   buildCurrentSealedSessionRecord,
   deleteDurableSealedSessionRecord as deleteDurableSealedSessionRecordFromStore,
-  listExactSealedSessionsForWallet,
   readExactSealedSession,
-  releaseSigningSessionRestoreLease,
   updateExactSealedSessionPolicy,
   writeExactSealedSession,
   type BuildCurrentSealedSessionRecordInput,
@@ -87,24 +84,9 @@ import type {
   UiConfirmManager,
   PasskeyMpcSessionPort,
 } from './uiConfirm.types';
-import {
-  restorePersistedSessionForSigningCommand,
-} from '../session/sealedRecovery/restoreCoordinator';
 import { parseClearVolatileWarmMaterialCommand } from '../session/warmCapabilities/volatileWarmMaterialCommands';
-import { restorePasskeyEcdsaSealedRecordForWallet } from '../session/passkey/ecdsaRecovery';
-import type {
-  RestorePersistedSessionForSigningInput,
-  RestorePersistedSessionForSigningResult,
-  RestorePersistedSessionPurpose,
-  RestoreSealedRecordResult,
-} from '../session/sealedRecovery/sealedRecovery.types';
-import type { SealedRecoveryRecord } from '../session/sealedRecovery/recoveryRecord';
-import { sealedRecoveryWalletSessionJwt } from '../session/sealedRecovery/recoveryRecord';
-import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
-import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   thresholdEcdsaChainTargetKey,
-  thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEd25519SessionStoreSource } from '../session/identity/laneIdentity';
@@ -188,18 +170,6 @@ function ed25519RestoreWalletSessionAuthFields(
   return record.thresholdSessionKind === 'cookie' ? { sessionKind: 'cookie' } : null;
 }
 
-function requirePasskeyEcdsaRestoreOutcome(
-  result: WarmSessionStatusResult | null,
-  success: Extract<RestoreSealedRecordResult, 'ready' | 'restored'>,
-): RestoreSealedRecordResult {
-  if (!result) return 'deferred';
-  if (result.ok) return success;
-  if (result.code === 'exhausted') return 'ready';
-  throw new Error(
-    `[UiConfirm] passkey ECDSA sealed-session restore failed (${result.code}): ${result.message}`,
-  );
-}
-
 type PasskeySealedRecordAccountMetadata = {
   walletId?: string;
   signingRootId?: string;
@@ -207,33 +177,6 @@ type PasskeySealedRecordAccountMetadata = {
   ecdsaRestore?: SigningSessionSealedStoreRecord['ecdsaRestore'];
   ed25519Restore?: CurrentEd25519RestoreMetadata;
 };
-
-async function passkeyEcdsaRestoreMetadataFromRecoveryRecord(
-  record: Extract<SealedRecoveryRecord, { authMethod: 'passkey' }>,
-): Promise<Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }>> {
-  return {
-    chainTarget: record.chainTarget,
-    signingRootId: record.signingRootId,
-    signingRootVersion: record.signingRootVersion,
-    source: record.source,
-    authority: await walletAuthAuthorityRef({ authority: record.authority }),
-    roleLocalMaterialRef: record.roleLocalMaterialRef,
-    rpId: record.authority.verifier.rpId,
-    credentialIdB64u: record.authority.factor.credentialIdB64u,
-    sessionKind: 'jwt',
-    walletSessionJwt: record.walletSessionAuth.walletSessionJwt,
-    keyHandle: record.keyHandle,
-    ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
-    ethereumAddress: record.ethereumAddress,
-    relayerKeyId: record.relayerKeyId,
-    clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-    thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u,
-    participantIds: [...record.participantIds],
-    ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
-    routerAbEcdsaDerivationNormalSigning: record.routerAbEcdsaDerivationNormalSigning,
-    publicCapability: record.publicCapability,
-  };
-}
 
 type PasskeyExpiryObservation =
   | {
@@ -580,10 +523,6 @@ function parseUserConfirmProgressEvent(data: unknown): UserConfirmProgressEvent 
   };
 }
 
-const signingSessionRehydrateSingleFlight = new Map<
-  string,
-  Promise<WarmSessionStatusResult | null>
->();
 const signingSessionSealPersistSingleFlight = new Map<
   string,
   Promise<WarmSessionSealAndPersistResult>
@@ -1028,13 +967,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     }
   }
 
-  private async recordSessionMaterialRestored(
-    purpose: WarmSessionLanePurpose,
-    result: WarmSessionStatusResult,
-  ): Promise<void> {
-    await this.recordPasskeyWarmSessionPolicyResult(purpose, result);
-  }
-
   private async registerSigningSession(
     record: BuildCurrentSealedSessionRecordInput,
   ): Promise<void> {
@@ -1245,186 +1177,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     });
     return persisted.ok || persisted.code !== 'missing_restore_metadata' ? persisted : null;
   }
-
-  private async restorePasskeySealedRecordForWallet(args: {
-    walletId: string;
-    record: SealedRecoveryRecord;
-    purpose: RestorePersistedSessionPurpose;
-  }): Promise<RestoreSealedRecordResult> {
-    if (!this.isSealedRefreshModeEnabled()) return 'deferred';
-    if (args.purpose.authMethod !== 'passkey') return 'deferred';
-    const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
-    if (!thresholdSessionId) return 'deferred';
-    if (args.record.authMethod !== 'passkey') return 'deferred';
-    const passkeyRecord = args.record;
-    const curve = 'ecdsa';
-    const chainTarget = args.purpose.chainTarget;
-    if (!chainTarget) return 'deferred';
-    if (!thresholdEcdsaChainTargetsEqual(args.record.chainTarget, chainTarget)) {
-      return 'deferred';
-    }
-    const singleFlightKey = makeWarmSessionSingleFlightKey({
-      operation: 'rehydrate',
-      thresholdSessionId,
-      authMethod: 'passkey',
-      curve,
-      chainTarget,
-      signingGrantId: args.purpose.signingGrantId,
-    });
-
-    const inFlight = signingSessionRehydrateSingleFlight.get(singleFlightKey);
-    if (inFlight) {
-      const result = await inFlight;
-      return requirePasskeyEcdsaRestoreOutcome(result, 'ready');
-    }
-
-    const task = (async (): Promise<WarmSessionStatusResult | null> => {
-      const purpose =
-        curve === 'ecdsa'
-          ? {
-              authMethod: 'passkey' as const,
-              curve: 'ecdsa' as const,
-              chainTarget: chainTarget!,
-            }
-          : { authMethod: 'passkey' as const, curve: 'ed25519' as const };
-      const sealedRecordFilter: SigningSessionSealedRecordFilter = purpose;
-      const deleteInvalidPersistedRecord = async (): Promise<void> => {
-        if (curve === 'ecdsa') {
-          if (!chainTarget) return;
-          await this.deletePasskeyDurableSealedSessionRecord({
-            thresholdSessionId,
-            curve: 'ecdsa',
-            chainTarget,
-            deleteReason: 'invalid_persisted_record',
-            preserveResolvedIdentity: false,
-          });
-          return;
-        }
-        await this.deletePasskeyDurableSealedSessionRecord({
-          thresholdSessionId,
-          curve: 'ed25519',
-          deleteReason: 'invalid_persisted_record',
-          preserveResolvedIdentity: false,
-        });
-      };
-      const lease = await acquireSigningSessionRestoreLease({
-        thresholdSessionId,
-        ...purpose,
-      });
-      if (!lease) return null;
-      try {
-        const walletSessionJwt = sealedRecoveryWalletSessionJwt(args.record.walletSessionAuth);
-        const ecdsaRestore = await passkeyEcdsaRestoreMetadataFromRecoveryRecord(passkeyRecord);
-        const transport = await this.resolveSealTransportInput(
-          thresholdSessionId,
-          {
-            curve,
-            authMethod: 'passkey',
-            walletId: args.walletId,
-            chainTarget,
-            relayerUrl: passkeyRecord.relayerUrl,
-            signingGrantId: args.purpose.signingGrantId,
-            signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(args.record.keyVersion),
-            groupId: args.record.groupId,
-            ...(walletSessionJwt ? { walletSessionJwt } : {}),
-            ecdsaRestore,
-          },
-          null,
-        );
-        if (!transport) return null;
-        const groupId = String(args.record.groupId || transport.groupId || '').trim();
-        if (!groupId) return null;
-
-        if (
-          curve !== 'ecdsa' ||
-          !chainTarget ||
-          args.purpose.curve !== 'ecdsa' ||
-          args.purpose.authMethod !== 'passkey' ||
-          args.record.authMethod !== 'passkey' ||
-          args.record.curve !== 'ecdsa'
-        ) {
-          return null;
-        }
-        return await restorePasskeyEcdsaSealedRecordForWallet({
-          walletId: args.walletId,
-          record: args.record,
-          purpose: { ...args.purpose, authMethod: 'passkey' },
-          transport,
-          groupId,
-          rehydrateWarmSessionMaterial: (rehydrateArgs) =>
-            this.passkeyMpcSession.rehydrateWarmSessionMaterial(rehydrateArgs),
-          deletePersistedRecord: deleteInvalidPersistedRecord,
-          recordSessionMaterialRestored: async (status) =>
-            await this.recordSessionMaterialRestored(
-              curve === 'ecdsa' && chainTarget
-                ? { curve: 'ecdsa', thresholdSessionId, chainTarget }
-                : { curve: 'ed25519', thresholdSessionId },
-              status,
-            ),
-          readWarmSessionStatusFromWorker: async (sessionId) => {
-            return await this.passkeyMpcSessionStatus.getWarmSessionStatus({ sessionId });
-          },
-          updatePersistedPolicy: async (policy) =>
-            await updateExactSealedSessionPolicy({
-              thresholdSessionId,
-              filter: sealedRecordFilter,
-              ...policy,
-            }),
-        });
-      } finally {
-        await releaseSigningSessionRestoreLease(lease);
-      }
-    })().finally(() => {
-      signingSessionRehydrateSingleFlight.delete(singleFlightKey);
-    });
-
-    signingSessionRehydrateSingleFlight.set(singleFlightKey, task);
-    const result = await task;
-    return requirePasskeyEcdsaRestoreOutcome(result, 'restored');
-  }
-
-  restorePersistedSessionForSigning = async (
-    args: Omit<RestorePersistedSessionForSigningInput, 'authMethod'>,
-  ): Promise<RestorePersistedSessionForSigningResult> => {
-    if (!this.isSealedRefreshModeEnabled()) {
-      return { kind: 'completed', attempted: 0, restored: 0, deferred: 0 };
-    }
-    return await restorePersistedSessionForSigningCommand({ ...args, authMethod: 'passkey' }, {
-      listExactSealedSessionsForWallet: async (filter) => {
-        return await listExactSealedSessionsForWallet({
-          walletId: filter.walletId,
-          filter:
-            filter.curve === 'ecdsa'
-              ? {
-                  authMethod: filter.authMethod,
-                  curve: 'ecdsa',
-                  chainTarget: filter.chainTarget,
-                }
-              : { authMethod: filter.authMethod, curve: 'ed25519' },
-        });
-      },
-      restoreSealedRecordForWallet: (restoreArgs) =>
-        this.restorePasskeySealedRecordForWallet({
-          walletId: restoreArgs.walletId,
-          record: restoreArgs.record,
-          purpose: restoreArgs.purpose,
-        }),
-      onListError: ({ walletId, target, reason, error }) => {
-        console.warn('[UiConfirm] passkey signing-session restore list failed', {
-          walletId,
-          target,
-          reason,
-          error: error instanceof Error ? error.message : String(error || 'unknown error'),
-        });
-      },
-      onRejectedRecord: ({ walletId, rejection }) => {
-        console.warn('[UiConfirm] passkey signing-session restore rejected record', {
-          walletId,
-          rejection,
-        });
-      },
-    });
-  };
 
   persistSigningSessionSealForThresholdSession = async (args: {
     sessionId: string;

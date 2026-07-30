@@ -220,7 +220,6 @@ export type VolatileWarmMaterialPort = WarmSessionStatusReader &
   VolatileWarmSessionMaterialClearAll;
 
 export type DurableSealedSessionPort = WarmSessionSealPersister &
-  WarmSessionPersistedRestorer &
   PasskeyWarmSessionPolicyRecorder &
   PasskeyWarmSessionPersistenceCoordinator;
 
@@ -247,6 +246,7 @@ export type PasskeyMpcSessionPort = WarmSessionMaterialWriter &
   WarmSessionWorkerSealPort &
   WarmSessionRehydrator &
   WarmSessionPersistedDiscovery &
+  WarmSessionPersistedRestorer &
   PasskeyMpcSessionWorkerLifecyclePort;
 
 export interface UiConfirmContextPort {

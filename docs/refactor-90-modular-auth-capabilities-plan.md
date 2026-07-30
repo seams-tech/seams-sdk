@@ -689,6 +689,10 @@ the replacement and legacy MPC paths must not ship together.
     - [x] Move raw worker seal and rehydrate operations onto
           `PasskeyMpcSessionManager`; generic confirmation calls the owner
           internally and exposes no forwarding methods.
+    - [x] Move persisted restore command routing, exact-record correlation,
+          module-global single-flight, restore leases, readback, and
+          invalid-record cleanup into `PasskeyMpcSessionManager`; expiry keeps
+          the sealed material available for same-method step-up.
 - [ ] Remove replaced worker entrypoints, loaders, manifest rows, and public
       exports.
   - [x] Delete the generic worker's `EXPORT_PRIVATE_KEYS_WITH_UI` protocol arm
