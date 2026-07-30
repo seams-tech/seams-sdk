@@ -363,6 +363,10 @@ removes.
         durable ECDSA MPC session records (`a980592a0`, `9bada9733`).
   - [x] Remove the slot from local ECDSA normal-signing session seeding and
         assert budget identity with the exact key handle (`5f63b4de9`).
+  - [x] Remove the slot from runtime wallet-key projections and persisted
+        signer metadata; existing-key Email OTP handles and sealed rehydration
+        now correlate by exact key handle. Registration-only handles retain
+        their provisioning slot (`6113b36bb`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.

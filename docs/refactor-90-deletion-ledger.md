@@ -139,8 +139,11 @@ replacement.
   contract by `84677131e`. The unused ECDSA connect adapter was deleted by
   `713fc967c`. Server normal-signing admission and durable ECDSA MPC session
   records dropped the slot in `a980592a0` and `9bada9733`; local normal-signing
-  seed admission followed in `5f63b4de9`. Runtime wallet-key, worker-handle,
-  session-policy, and durable role-local material surfaces remain.
+  seed admission followed in `5f63b4de9`. Runtime wallet-key projections,
+  persisted signer metadata, existing-key worker handles, and Email OTP sealed
+  rehydration switched to exact key-handle identity in `6113b36bb`;
+  registration handle branches retain their provisioning slot. Session-policy
+  and durable role-local material surfaces remain.
 - ~~`evmFamilySigningKeySlotId` in ECDSA Wallet Session JWT binding facts and
   normal-signing claims~~ — deleted by `4986d279f`; the value remains only on
   the registration bootstrap request/response boundary in that path.

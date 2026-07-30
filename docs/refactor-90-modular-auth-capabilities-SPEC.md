@@ -171,6 +171,9 @@ implementing commit SHA as the evidence.
     `0e81b8bef`, `de6857bd5`, and `d9c303f3c`. High-level seal persistence,
     exact registration/readback, and persistence single-flight now share that
     owner; generic confirmation retains no durable-session port.
+  - [x] Email OTP runtime wallet-key projections, worker handles, and sealed
+    rehydration correlate by exact key handle. Provisioning slots remain
+    confined to registration handle branches (`6113b36bb`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently
