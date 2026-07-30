@@ -200,6 +200,9 @@ implementing commit SHA as the evidence.
   - [x] Post-registration relayer-key derivation accepts wallet and signing-root
     facts instead of a provisioning slot while preserving the established
     derived identifier (`fca3baaf2`).
+  - [x] Remaining positive provisioning-slot uses are confined to registration
+    and publication boundaries; runtime shapes reject the field, and the
+    zero-consumer bootstrap relayer port family is deleted (`a843d8dbc`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently
@@ -3566,6 +3569,11 @@ references; one capability recovery cannot restore or commit the companion
 capability as a hidden side effect. Generic EVM ECDSA selection, preparation,
 restore coordination, and committed-lane construction contain no factor-kind
 control flow.
+
+Implementation evidence: `def400d94` replaces the combined Email OTP unlock
+request/result discriminants with one proof envelope containing exact sibling
+ECDSA and Ed25519-Yao outcomes. `89e9cd4a5` deletes the obsolete combined
+fixture.
 
 `GrantEvidenceRequirement` is deliberately flat. `all` requires every named
 evidence kind and `any` requires at least one. Evidence kinds are canonicalized

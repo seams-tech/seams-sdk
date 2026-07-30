@@ -213,20 +213,23 @@ export type EmailOtpWalletUnlockMaterialRequest =
       readonly ed25519YaoSession?: never;
     }
   | {
-      readonly kind: 'ecdsa_and_ed25519_yao_recovery';
-      readonly ecdsaClientRootHandleBinding: Extract<
-        EmailOtpEcdsaSessionBootstrapHandleBinding,
-        { operation: 'wallet_unlock' }
-      >;
-      readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
-      readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryAugmentationV1;
-      readonly providerSubject: string;
-      readonly nearAccountId: string;
-      readonly expectedOperationalPublicKey: string;
-      readonly expectedThresholdSessionId: string;
-      readonly ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+      readonly kind: 'wallet_unlock_capabilities';
+      readonly ecdsa: {
+        readonly clientRootHandleBinding: Extract<
+          EmailOtpEcdsaSessionBootstrapHandleBinding,
+          { operation: 'wallet_unlock' }
+        >;
+        readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
+        readonly sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+      };
+      readonly ed25519Yao: {
+        readonly recovery: EmailOtpEd25519YaoRecoveryAugmentationV1;
+        readonly providerSubject: string;
+        readonly nearAccountId: string;
+        readonly expectedOperationalPublicKey: string;
+        readonly expectedThresholdSessionId: string;
+      };
       readonly walletSessionAuth?: never;
-      readonly ed25519YaoSession?: never;
     };
 
 export type EmailOtpWalletUnlockMaterialResult =
@@ -261,23 +264,24 @@ export type EmailOtpWalletUnlockMaterialResult =
       readonly ed25519YaoRecovery?: never;
     }
   | {
-      readonly kind: 'ecdsa_and_ed25519_yao_recovery';
+      readonly kind: 'wallet_unlock_capabilities';
       readonly operation: 'wallet_unlock';
-      readonly clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
-      readonly ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
-      readonly pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
-      readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
-    }
-  | {
-      readonly kind: 'ecdsa_and_ed25519_yao_local_session';
-      readonly operation: 'wallet_unlock';
-      readonly clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
-      readonly ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
-      readonly activeClientHandle: string;
-      readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-      readonly ed25519YaoSession: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
-      readonly pendingFactorHandle?: never;
-      readonly ed25519YaoRecovery?: never;
+      readonly ecdsa: {
+        readonly clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+        readonly session: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+      };
+      readonly ed25519Yao:
+        | {
+            readonly kind: 'recovery';
+            readonly pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
+            readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+          }
+        | {
+            readonly kind: 'local_session';
+            readonly activeClientHandle: string;
+            readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+            readonly bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+          };
     };
 
 /**

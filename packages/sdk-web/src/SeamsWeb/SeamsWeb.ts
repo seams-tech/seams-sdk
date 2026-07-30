@@ -2071,9 +2071,9 @@ export class SeamsWeb {
               });
             break;
           case 'not_requested':
-            throw new Error('Mixed Email OTP unlock omitted Ed25519 Yao session material');
+            throw new Error('Email OTP capability unlock omitted Ed25519 Yao session material');
           default:
-            throw new Error('Mixed Email OTP unlock returned an invalid Ed25519 Yao state');
+            throw new Error('Email OTP capability unlock returned an invalid Ed25519 Yao state');
         }
         walletActivation = {
           kind: 'near_ed25519_wallet',
