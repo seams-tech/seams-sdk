@@ -194,7 +194,7 @@ function buildWorkerVars(deployment) {
     SIGNING_ROOT_KEK_ENCODING: deployment.signingRoot.encoding,
     SIGNING_ROOT_KEK_IDS: deployment.signingRoot.id,
     SPONSORED_EXECUTION_REAL_PRICING_JSON: JSON.stringify(
-      buildCoinGeckoSponsoredExecutionPricingConfig(deployment.runtimeProfile),
+      buildRefFinanceSponsoredExecutionPricingConfig(deployment.runtimeProfile),
     ),
     SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify(
       buildStaticSponsoredExecutionPricingConfig(deployment.runtimeProfile),
@@ -209,18 +209,24 @@ function buildWorkerVars(deployment) {
   return vars;
 }
 
-function buildCoinGeckoSponsoredExecutionPricingConfig(runtimeProfile) {
+function buildRefFinanceSponsoredExecutionPricingConfig(runtimeProfile) {
   const networkClass =
     gatewayRuntimeProfileNearNetwork(runtimeProfile) === 'mainnet' ? 'MAINNET' : 'TESTNET';
   return {
-    provider: 'coingecko',
+    provider: 'ref_finance',
+    nearRpcUrl: 'https://free.rpc.fastnear.com',
+    dexContractId: 'v2.ref-finance.near',
+    poolId: 4512,
+    nearTokenId: 'wrap.near',
+    usdcTokenId: '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1',
+    nearTokenDecimals: 24,
+    usdcTokenDecimals: 6,
     cacheTtlMs: 300_000,
     near: {
       [networkClass]: {
-        assetId: 'near',
         nativeUnitDecimals: 24,
         estimateFeeAmountYocto: '1000000000000000000000',
-        pricingVersionPrefix: `coingecko-near-${networkClass.toLowerCase()}`,
+        pricingVersionPrefix: `ref-finance-near-${networkClass.toLowerCase()}`,
       },
     },
   };

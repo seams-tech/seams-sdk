@@ -85,13 +85,13 @@ export {
 export type {
   ChainFamilySponsoredExecutionPricingConfig,
   StaticSponsoredExecutionPricingConfig,
-  CoinGeckoSponsoredExecutionPricingConfig,
+  RefFinanceSponsoredExecutionPricingConfig,
   SponsoredExecutionPricingEnv,
 } from './pricing';
 export {
   createChainFamilySponsoredExecutionPricingService,
-  createCoinGeckoSponsoredExecutionPricingService,
-  resolveCoinGeckoSponsoredExecutionPricingFromEnv,
+  createRefFinanceSponsoredExecutionPricingService,
+  resolveRefFinanceSponsoredExecutionPricingFromEnv,
   resolveSponsoredExecutionPricingFromEnv,
   createStaticSponsoredExecutionPricingService,
   resolveStaticSponsoredExecutionPricingFromEnv,

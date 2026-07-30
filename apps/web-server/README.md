@@ -92,17 +92,17 @@ If active sponsorship policies use spend caps, also configure a pricing adapter.
 
 Real pricing currently supports:
 
-- EVM native gas spend using live `eth_gasPrice` from the configured chain RPC plus CoinGecko USD pricing for the configured native asset
-- NEAR gas-only spend using CoinGecko USD pricing for `near` plus an operator-configured reservation estimate in yoctoNEAR
+- EVM native gas spend using live `eth_gasPrice` plus the on-chain Ref Finance NEAR/USDC price
+- NEAR gas-only spend using the on-chain Ref Finance NEAR/USDC price plus an operator-configured reservation estimate in yoctoNEAR
 
 ```env
-SPONSORED_EXECUTION_REAL_PRICING_JSON={"provider":"coingecko","cacheTtlMs":300000,"evm":{"42431":{"rpcUrl":"https://rpc.moderato.tempo.xyz","assetId":"near","nativeUnitDecimals":18,"pricingVersionPrefix":"coingecko-tempo-testnet"}},"near":{"TESTNET":{"assetId":"near","nativeUnitDecimals":24,"estimateFeeAmountYocto":"2000","pricingVersionPrefix":"coingecko-near-testnet"}}}
+SPONSORED_EXECUTION_REAL_PRICING_JSON={"provider":"ref_finance","nearRpcUrl":"https://free.rpc.fastnear.com","dexContractId":"v2.ref-finance.near","poolId":4512,"nearTokenId":"wrap.near","usdcTokenId":"17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1","nearTokenDecimals":24,"usdcTokenDecimals":6,"cacheTtlMs":300000,"near":{"TESTNET":{"nativeUnitDecimals":24,"estimateFeeAmountYocto":"2000","pricingVersionPrefix":"ref-finance-near-testnet"}}}
 ```
 
 That adapter uses:
 
 - `rpcUrl` to read live `eth_gasPrice` for EVM estimate reservations
-- `assetId` to fetch the native asset USD price from CoinGecko
+- `nearRpcUrl`, `dexContractId`, and `poolId` to read the NEAR/USDC reserves on-chain
 - `nativeUnitDecimals` to convert native fee units into whole-asset pricing
 - `estimateFeeAmountYocto` for NEAR reservation estimates before execution settles actual `tokens_burnt`
 - `pricingVersionPrefix` to stamp reservation/settlement records with the live pricing source version
