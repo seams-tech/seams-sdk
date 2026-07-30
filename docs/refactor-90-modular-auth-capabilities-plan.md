@@ -665,11 +665,19 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Move Passkey secp256k1 and Ed25519-Yao raw export handling into the
         dedicated Passkey MPC export worker; the generic confirmation worker
         no longer imports export WASM/Yao runtime or handles export messages.
+  - [x] Move Passkey warm-session material, PRF claims, sealing, rehydration,
+        policy updates, and Shamir3Pass prewarm into the dedicated Passkey MPC
+        session worker; the generic confirmation worker now handles prompts
+        only.
 - [ ] Remove replaced worker entrypoints, loaders, manifest rows, and public
       exports.
   - [x] Delete the generic worker's `EXPORT_PRIVATE_KEYS_WITH_UI` protocol arm
         and export-runtime imports; register the dedicated Passkey MPC export
         worker in build, freshness, runtime-path, test, and bundle inventories.
+  - [x] Delete the generic worker's `WARM_SESSION_*` and
+        `PREWARM_SHAMIR3PASS` protocol arms; register the dedicated Passkey MPC
+        session worker in build, freshness, runtime-path, test, static-asset,
+        and bundle inventories.
 - [x] Delete the unused `UiConfirmSigningRuntimePort` and the generic combined
       `UiConfirmSigningSessionPort`; the Near runtime names its required
       confirmation and warm-material capabilities directly.
@@ -682,10 +690,13 @@ the replacement and legacy MPC paths must not ship together.
 - [ ] Preserve existing import/export and bundle guards.
   - [x] Point the key-export and Ed25519-Yao custody guards at the dedicated
         Passkey MPC export runtime; both focused guards pass.
+  - [x] Keep the generic confirmation worker's static asset graph WASM-free
+        while admitting the dedicated Passkey MPC session worker's required
+        signer assets.
 - [x] Split no worker or bundle without measured evidence. The current
-      confirmation worker owns generic prompts alongside `WARM_SESSION_*`, PRF
-      claims, Shamir3Pass, and raw key-export handling; its production caller
-      map establishes the custody split described by the SPEC.
+      worker split follows the measured production caller map: generic prompts,
+      Passkey MPC session custody, and Passkey MPC export custody have separate
+      entrypoints and bundle inventories.
 - [ ] Verify generic orchestration cannot import secret-bearing worker
       internals.
 

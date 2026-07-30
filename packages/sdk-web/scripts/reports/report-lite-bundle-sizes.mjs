@@ -83,6 +83,12 @@ const TARGETS = [
     budget: { raw: 120_000, gzip: 30_000, brotli: 25_000 },
   },
   {
+    id: 'passkey-mpc-session-worker',
+    label: 'Passkey MPC session worker',
+    relPath: 'dist/workers/passkey-mpc-session.worker.js',
+    budget: { raw: 220_000, gzip: 38_000, brotli: 32_000 },
+  },
+  {
     id: 'signer-worker',
     label: 'signer worker',
     relPath: 'dist/workers/near-signer.worker.js',

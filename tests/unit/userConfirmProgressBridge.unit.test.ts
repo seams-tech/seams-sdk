@@ -16,4 +16,6 @@ test('UserConfirm worker forwards prompt progress envelopes back to the host lis
   );
   expect(workerSource).toContain('forwardUserConfirmProgressToHost(event.data)');
   expect(workerSource).toContain('self.postMessage(envelope)');
+  expect(workerSource).not.toContain('WARM_SESSION_');
+  expect(workerSource).not.toContain('PREWARM_SHAMIR3PASS');
 });

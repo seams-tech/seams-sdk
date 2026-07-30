@@ -1,10 +1,4 @@
-/**
- * UserConfirm worker types
- *
- * The UserConfirm worker now hosts:
- * - the UserConfirm bridge (`awaitUserConfirmationV2`) used by confirmTxFlow, and
- * - a small warm-session material store for threshold signing.
- */
+/** User confirmation and Passkey MPC worker types. */
 import type { SigningSessionPersistenceMode } from './seams';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
@@ -53,8 +47,11 @@ export interface UiConfirmManagerConfig {
 
 export type UserConfirmWorkerMessageType =
   | 'PING'
+  | 'SECURE_CONFIRM_REQUEST';
+
+export type PasskeyMpcSessionWorkerMessageType =
+  | 'PING'
   | 'PREWARM_SHAMIR3PASS'
-  | 'SECURE_CONFIRM_REQUEST'
   | 'WARM_SESSION_MATERIAL_PUT'
   | 'WARM_SESSION_STATUS_READ'
   | 'WARM_SESSION_STATUS_BATCH_READ'
@@ -217,6 +214,12 @@ export interface PasskeyMpcExportWorkerMessage {
   type: 'EXPORT_PRIVATE_KEYS_WITH_UI';
   id?: string;
   payload: ExportPrivateKeysWithUiWorkerPayload;
+}
+
+export interface PasskeyMpcSessionWorkerMessage<TPayload = unknown> {
+  type: PasskeyMpcSessionWorkerMessageType;
+  id?: string;
+  payload?: TPayload;
 }
 
 export interface UserConfirmWorkerResponse<TData = unknown> {

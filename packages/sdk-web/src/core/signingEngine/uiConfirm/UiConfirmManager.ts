@@ -18,6 +18,7 @@ import type {
   WarmSessionSealAndPersistResult,
   UiConfirmManagerConfig,
   PasskeyMpcExportWorkerMessage,
+  PasskeyMpcSessionWorkerMessage,
   UserConfirmWorkerMessage,
   UserConfirmWorkerResponse,
 } from '../../types/secure-confirm-worker';
@@ -130,6 +131,7 @@ import type {
 type PendingWorkerRequest = {
   id: string;
   messageType: string;
+  worker: Worker;
   timeoutId: ReturnType<typeof setTimeout>;
   settle?: () => void;
   resolve: (response: UserConfirmWorkerResponse) => void;
@@ -645,6 +647,8 @@ function makeWarmSessionSingleFlightKey(args: {
  */
 class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   private worker: Worker | null = null;
+  private passkeyMpcSessionWorker: Worker | null = null;
+  private passkeyMpcSessionInitializationPromise: Promise<void> | null = null;
   private passkeyMpcExportWorker: Worker | null = null;
   private passkeyMpcExportInitializationPromise: Promise<void> | null = null;
   private initializationPromise: Promise<void> | null = null;
@@ -1415,7 +1419,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               status,
             ),
           readWarmSessionStatusFromWorker: async (sessionId) => {
-            const rehydratedPeek = await this.sendMessage({
+            const rehydratedPeek = await this.sendPasskeyMpcSessionMessage({
               type: 'WARM_SESSION_STATUS_READ',
               id: this.generateMessageId(),
               payload: { sessionId },
@@ -1461,14 +1465,14 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   }): Promise<void> => {
     const { diagnostics, ...workerPayload } = args;
     const workerReadyStartedAt = performance.now();
-    await this.ensureWorkerReady(false);
+    await this.ensurePasskeyMpcSessionWorkerReady();
     recordWarmSessionMaterialWriteDiagnosticDuration({
       diagnostics,
       bucket: 'worker_ready',
       startedAt: workerReadyStartedAt,
     });
     const workerPutStartedAt = performance.now();
-    const res = await this.sendMessage({
+    const res = await this.sendPasskeyMpcSessionMessage({
       type: 'WARM_SESSION_MATERIAL_PUT',
       id: this.generateMessageId(),
       payload: workerPayload,
@@ -1510,8 +1514,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     if (!this.isSealedRefreshModeEnabled()) {
       return this.getSealedRefreshNotEnabledError('signing-session seal and persist');
     }
-    await this.ensureWorkerReady(false);
-    const res = await this.sendMessage({
+    const res = await this.sendPasskeyMpcSessionMessage({
       type: 'WARM_SESSION_SEAL_AND_PERSIST',
       id: this.generateMessageId(),
       payload: args,
@@ -1533,8 +1536,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     if (!this.isSealedRefreshModeEnabled()) {
       return this.getSealedRefreshNotEnabledError('signing-session rehydrate');
     }
-    await this.ensureWorkerReady(false);
-    const res = await this.sendMessage({
+    const res = await this.sendPasskeyMpcSessionMessage({
       type: 'WARM_SESSION_REHYDRATE',
       id: this.generateMessageId(),
       payload: args,
@@ -1643,8 +1645,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   private async readWarmSessionStatusFromWorker(args: {
     sessionId: string;
   }): Promise<WarmSessionStatusResult> {
-    await this.ensureWorkerReady(false);
-    const res = await this.sendMessage({
+    const res = await this.sendPasskeyMpcSessionMessage({
       type: 'WARM_SESSION_STATUS_READ',
       id: this.generateMessageId(),
       payload: args,
@@ -1663,7 +1664,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   private async readWarmSessionStatusesFromWorker(args: {
     sessionIds: string[];
   }): Promise<WarmSessionStatusBatchResult> {
-    await this.ensureWorkerReady(false);
     const normalizedSessionIds = Array.from(
       new Set(
         (Array.isArray(args.sessionIds) ? args.sessionIds : [])
@@ -1674,7 +1674,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     if (!normalizedSessionIds.length) {
       return { results: [] };
     }
-    const res = await this.sendMessage({
+    const res = await this.sendPasskeyMpcSessionMessage({
       type: 'WARM_SESSION_STATUS_BATCH_READ',
       id: this.generateMessageId(),
       payload: { sessionIds: normalizedSessionIds },
@@ -2184,8 +2184,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     uses?: number;
     consume?: boolean;
   }): Promise<WarmSessionClaimResult> => {
-    await this.ensureWorkerReady(false);
-    const res = await this.sendMessage({
+    const res = await this.sendPasskeyMpcSessionMessage({
       type: 'WARM_SESSION_MATERIAL_CLAIM',
       id: this.generateMessageId(),
       payload: {
@@ -2211,8 +2210,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     purpose: WarmSessionLanePurpose;
     uses?: number;
   }): Promise<WarmSessionStatusResult> => {
-    await this.ensureWorkerReady(false);
-    const res = await this.sendMessage({
+    const res = await this.sendPasskeyMpcSessionMessage({
       type: 'WARM_SESSION_MATERIAL_CONSUME',
       id: this.generateMessageId(),
       payload: {
@@ -2238,9 +2236,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   ): Promise<void> => {
     const command = parseClearVolatileWarmMaterialCommand(args);
     if (command?.scope.kind !== 'session') return;
-    if (!this.worker && !this.initializationPromise) return;
-    await this.ensureWorkerReady(false);
-    const res = await this.sendMessage({
+    if (!this.passkeyMpcSessionWorker && !this.passkeyMpcSessionInitializationPromise) return;
+    const res = await this.sendPasskeyMpcSessionMessage({
       type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR',
       id: this.generateMessageId(),
       payload: command,
@@ -2261,9 +2258,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   ): Promise<void> => {
     const command = parseClearVolatileWarmMaterialCommand(args);
     if (command?.scope.kind !== 'all') return;
-    if (!this.worker && !this.initializationPromise) return;
-    await this.ensureWorkerReady(false);
-    const res = await this.sendMessage({
+    if (!this.passkeyMpcSessionWorker && !this.passkeyMpcSessionInitializationPromise) return;
+    const res = await this.sendPasskeyMpcSessionMessage({
       type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR_ALL',
       id: this.generateMessageId(),
       payload: command,
@@ -2548,6 +2544,35 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     }
   }
 
+  private async ensurePasskeyMpcSessionWorkerReady(): Promise<void> {
+    if (this.passkeyMpcSessionWorker) return;
+    if (!this.passkeyMpcSessionInitializationPromise) {
+      this.passkeyMpcSessionInitializationPromise = this.createPasskeyMpcSessionWorker().catch(
+        (error) => {
+          this.passkeyMpcSessionInitializationPromise = null;
+          throw error;
+        },
+      );
+    }
+    await this.passkeyMpcSessionInitializationPromise;
+    if (!this.passkeyMpcSessionWorker) {
+      throw new Error('Passkey MPC session worker failed to initialize');
+    }
+  }
+
+  private async createPasskeyMpcSessionWorker(): Promise<void> {
+    const workerUrl = resolveWorkerUrl(BUILD_PATHS.RUNTIME.PASSKEY_MPC_SESSION_WORKER, {
+      worker: 'passkeyMpcSession',
+      baseOrigin: this.workerBaseOrigin,
+    });
+    const worker = new Worker(workerUrl, {
+      type: 'module',
+      name: 'PasskeyMpcSessionWorker',
+    });
+    this.attachWorkerRouter(worker);
+    this.passkeyMpcSessionWorker = worker;
+  }
+
   private async createPasskeyMpcExportWorker(): Promise<void> {
     const workerUrl = resolveWorkerUrl(BUILD_PATHS.RUNTIME.PASSKEY_MPC_EXPORT_WORKER, {
       worker: 'passkeyMpcExport',
@@ -2597,11 +2622,15 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   private async createUserConfirmWorker(): Promise<void> {
     try {
       if (this.worker) {
-        this.detachWorkerRouter(this.worker);
-        this.worker.terminate();
+        const restartedWorker = this.worker;
+        this.detachWorkerRouter(restartedWorker);
+        restartedWorker.terminate();
         this.worker = null;
+        this.rejectPendingWorkerRequestsForWorker(
+          restartedWorker,
+          new Error('UserConfirm worker was restarted'),
+        );
       }
-      this.rejectAllPendingWorkerRequests(new Error('UserConfirm worker was restarted'));
 
       const relativePath = this.config.workerUrl || BUILD_PATHS.RUNTIME.TOUCH_CONFIRM_WORKER;
       const workerUrlStr = resolveWorkerUrl(relativePath, {
@@ -2639,6 +2668,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const source = event.currentTarget;
     return (
       (source === this.worker && event.target === this.worker) ||
+      (source === this.passkeyMpcSessionWorker && event.target === this.passkeyMpcSessionWorker) ||
       (source === this.passkeyMpcExportWorker && event.target === this.passkeyMpcExportWorker)
     );
   }
@@ -2842,7 +2872,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     if (!responseId) {
       return;
     }
-    this.resolvePendingWorkerRequest(responseId, response);
+    const sourceWorker = event.currentTarget as Worker;
+    this.resolvePendingWorkerRequest(sourceWorker, responseId, response);
   }
 
   private handleWorkerError(event: Event): void {
@@ -2861,18 +2892,27 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       this.worker.terminate();
       this.worker = null;
       this.initializationPromise = null;
+    } else if (failedWorker === this.passkeyMpcSessionWorker && this.passkeyMpcSessionWorker) {
+      this.detachWorkerRouter(this.passkeyMpcSessionWorker);
+      this.passkeyMpcSessionWorker.terminate();
+      this.passkeyMpcSessionWorker = null;
+      this.passkeyMpcSessionInitializationPromise = null;
     } else if (failedWorker === this.passkeyMpcExportWorker && this.passkeyMpcExportWorker) {
       this.detachWorkerRouter(this.passkeyMpcExportWorker);
       this.passkeyMpcExportWorker.terminate();
       this.passkeyMpcExportWorker = null;
       this.passkeyMpcExportInitializationPromise = null;
     }
-    this.rejectAllPendingWorkerRequests(error);
+    this.rejectPendingWorkerRequestsForWorker(failedWorker as Worker, error);
   }
 
-  private resolvePendingWorkerRequest(id: string, response: UserConfirmWorkerResponse): void {
+  private resolvePendingWorkerRequest(
+    sourceWorker: Worker,
+    id: string,
+    response: UserConfirmWorkerResponse,
+  ): void {
     const pending = this.pendingWorkerRequests.get(id);
-    if (!pending) {
+    if (!pending || pending.worker !== sourceWorker) {
       return;
     }
     clearTimeout(pending.timeoutId);
@@ -2892,13 +2932,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     pending.reject(error);
   }
 
-  private rejectAllPendingWorkerRequests(error: Error): void {
-    if (!this.pendingWorkerRequests.size) {
-      return;
-    }
-    const pending = Array.from(this.pendingWorkerRequests.values());
-    this.pendingWorkerRequests.clear();
-    for (const req of pending) {
+  private rejectPendingWorkerRequestsForWorker(worker: Worker, error: Error): void {
+    for (const req of this.pendingWorkerRequests.values()) {
+      if (req.worker !== worker) continue;
+      this.pendingWorkerRequests.delete(req.id);
       clearTimeout(req.timeoutId);
       req.settle?.();
       req.reject(error);
@@ -2909,7 +2946,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
    * Send message to Web Worker and wait for response
    */
   private async sendMessage<TPayload = unknown>(
-    message: UserConfirmWorkerMessage<TPayload> | PasskeyMpcExportWorkerMessage,
+    message:
+      | UserConfirmWorkerMessage<TPayload>
+      | PasskeyMpcSessionWorkerMessage<TPayload>
+      | PasskeyMpcExportWorkerMessage,
     customTimeout?: number,
     signal?: AbortSignal,
     targetWorker?: Worker | null,
@@ -2961,6 +3001,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       this.pendingWorkerRequests.set(requestId, {
         id: requestId,
         messageType: message.type,
+        worker,
         timeoutId,
         settle,
         resolve,
@@ -2974,6 +3015,19 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         this.rejectPendingWorkerRequest(requestId, normalizedError);
       }
     });
+  }
+
+  private async sendPasskeyMpcSessionMessage<TPayload = unknown>(
+    message: PasskeyMpcSessionWorkerMessage<TPayload>,
+    customTimeout?: number,
+  ): Promise<UserConfirmWorkerResponse> {
+    await this.ensurePasskeyMpcSessionWorkerReady();
+    return await this.sendMessage(
+      message,
+      customTimeout,
+      undefined,
+      this.passkeyMpcSessionWorker,
+    );
   }
 
   /**
@@ -2991,8 +3045,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
    */
   async prewarmShamir3Pass(): Promise<void> {
     try {
-      await this.initialize();
-      await this.sendMessage(
+      await this.sendPasskeyMpcSessionMessage(
         {
           type: 'PREWARM_SHAMIR3PASS',
           id: this.generateMessageId(),
