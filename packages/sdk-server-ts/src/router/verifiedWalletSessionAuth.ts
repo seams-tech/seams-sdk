@@ -3,12 +3,18 @@ import type {
   RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 type BaseVerifiedWalletSessionAuth = {
   kind: 'wallet_session';
   curve: 'ecdsa' | 'ed25519';
   thresholdSessionId: string;
   signingGrantId: string;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   userId: string;
   relayerKeyId: string;
   participantIds: readonly number[];
@@ -44,6 +50,8 @@ export function buildVerifiedEcdsaWalletSessionAuth(
     curve: 'ecdsa',
     thresholdSessionId: claims.thresholdSessionId,
     signingGrantId: claims.signingGrantId,
+    walletSessionId: claims.walletSessionId,
+    quotaId: claims.quotaId,
     userId: claims.walletId,
     relayerKeyId: claims.relayerKeyId,
     participantIds: claims.participantIds,
@@ -60,6 +68,8 @@ export function buildVerifiedEd25519WalletSessionAuth(
     curve: 'ed25519',
     thresholdSessionId: claims.thresholdSessionId,
     signingGrantId: claims.signingGrantId,
+    walletSessionId: claims.walletSessionId,
+    quotaId: claims.quotaId,
     userId: claims.walletId,
     authority: claims.authority,
     relayerKeyId: claims.relayerKeyId,

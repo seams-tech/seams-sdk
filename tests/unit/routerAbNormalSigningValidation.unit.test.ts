@@ -52,7 +52,6 @@ const request: RouterAbNormalSigningPrepareRequestV2Wire = {
     authorization: {
       kind: 'reusable_wallet_session',
       wallet_session_id: 'wallet-session-1',
-      grant_id: 'grant-1',
     },
     material_activation: {
       kind: 'mpc_material_activation_ref',

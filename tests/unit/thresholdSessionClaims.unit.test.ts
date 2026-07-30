@@ -322,6 +322,18 @@ test.describe('Router A/B Wallet Session token claims', () => {
     ).toBeNull();
   });
 
+  test('verified Wallet Session auth preserves authorization and threshold identities separately', () => {
+    const claims = parseRouterAbEd25519WalletSessionClaims(routerAbEd25519Claims());
+    if (!claims) throw new Error('expected Router A/B Ed25519 Wallet Session claims');
+
+    expect(buildVerifiedEd25519WalletSessionAuth(claims)).toMatchObject({
+      thresholdSessionId: 'threshold-session-1',
+      signingGrantId: 'signing-grant-1',
+      walletSessionId: 'wallet-session-1',
+      quotaId: 'wallet-quota-1',
+    });
+  });
+
   test('Router A/B route validators reject missing Wallet Session bearer auth', async () => {
     const missingBearerSession: SessionAdapter = {
       signJwt: async () => 'unused',

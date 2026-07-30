@@ -4,6 +4,13 @@ import type {
   VerifiedWalletSessionAuth,
 } from './verifiedWalletSessionAuth';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+
+declare const walletSessionId: WalletSessionId;
+declare const quotaId: MpcWalletSigningQuotaId;
 
 const passkeyAuthority = buildPasskeyWalletAuthAuthority({
   walletId: 'wallet-ed25519',
@@ -16,6 +23,8 @@ const ecdsaAuth = {
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
   signingGrantId: 'signing-grant-ecdsa',
+  walletSessionId,
+  quotaId,
   userId: 'wallet-ecdsa',
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
@@ -28,6 +37,8 @@ const ed25519Auth = {
   curve: 'ed25519',
   thresholdSessionId: 'threshold-session-ed25519',
   signingGrantId: 'signing-grant-ed25519',
+  walletSessionId,
+  quotaId,
   userId: 'wallet-ed25519',
   authority: passkeyAuthority,
   relayerKeyId: 'ed25519-relayer',
@@ -50,6 +61,8 @@ const invalidMissingSigningGrant = {
   kind: 'wallet_session',
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
+  walletSessionId,
+  quotaId,
   userId: 'wallet-ecdsa',
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
@@ -64,6 +77,8 @@ const invalidEcdsaWithEd25519OnlyField = {
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
   signingGrantId: 'signing-grant-ecdsa',
+  walletSessionId,
+  quotaId,
   userId: 'wallet-ecdsa',
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
@@ -79,6 +94,8 @@ const invalidEcdsaWithSigningSlot = {
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
   signingGrantId: 'signing-grant-ecdsa',
+  walletSessionId,
+  quotaId,
   userId: 'wallet-ecdsa',
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
@@ -94,6 +111,8 @@ const invalidEd25519WithEcdsaOnlyField = {
   curve: 'ed25519',
   thresholdSessionId: 'threshold-session-ed25519',
   signingGrantId: 'signing-grant-ed25519',
+  walletSessionId,
+  quotaId,
   userId: 'wallet-ed25519',
   authority: passkeyAuthority,
   relayerKeyId: 'ed25519-relayer',
@@ -110,6 +129,8 @@ const invalidEd25519WithAuthorityScope = {
   curve: 'ed25519',
   thresholdSessionId: 'threshold-session-ed25519',
   signingGrantId: 'signing-grant-ed25519',
+  walletSessionId,
+  quotaId,
   userId: 'wallet-ed25519',
   authority: passkeyAuthority,
   relayerKeyId: 'ed25519-relayer',
