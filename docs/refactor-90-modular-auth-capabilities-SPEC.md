@@ -157,6 +157,9 @@ implementing commit SHA as the evidence.
   - [x] Persisted Ed25519 capability lookup/install/reread is owned by the
     request-scoped product runtime; the duplicate fallback locator is deleted
     (`729ad4cdd`).
+  - [x] Ed25519 recovery installation and active-capability lookup use the
+    recovery service directly; the forwarding-only runtime locator is deleted
+    (`868ba6dee`).
 - [ ] `R90-INV-009` — the minimal vault operation uses a stable fingerprint and
   one atomic absent-claim grant-use transaction.
 - [ ] `R90-INV-012` — the real minimal vault vertical proves session → Passkey

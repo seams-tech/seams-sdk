@@ -855,6 +855,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the duplicate persisted Ed25519 capability fallback service
       locator; the request-scoped runtime remains the single persisted
       load/install/reread owner (`729ad4cdd`).
+- [x] Delete the forwarding-only Ed25519 recovery runtime locator; recovery
+      consumers use the service's narrow installation and lookup ports
+      directly (`868ba6dee`).
 
 ### Same-change deletion
 

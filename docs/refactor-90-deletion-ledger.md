@@ -572,6 +572,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~duplicate persisted Ed25519 capability fallback service locator~~ — deleted
   by `729ad4cdd`; the request-scoped product runtime owns persisted load,
   correlation, installation, and reread
+- ~~forwarding-only Ed25519 recovery runtime locator and wrapper interface~~ —
+  deleted by `868ba6dee`; the recovery service directly implements the narrow
+  installation and lookup ports
 
 ## 6e gate — composite ECDSA record family (measured 2026-07-28, at `3b904b63a`)
 
