@@ -890,6 +890,9 @@ the replacement and legacy MPC paths must not ship together.
       that encode pre-cutover behavior.
   - [x] Delete the route-wrapper-only test and the stale public route-catalog
         assertion for the private 94C ECDSA bootstrap plane.
+  - [x] Delete the NEAR recovery-ordering and sealed-refresh source guards after
+        their retired markers and hydration-derived budget assumption were
+        removed (`6d6002e3c`).
 
 ### Unit 3a exit
 

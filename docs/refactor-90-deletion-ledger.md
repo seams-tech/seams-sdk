@@ -415,9 +415,11 @@ ports, and the two-state recovery journal.
 
 ## Phase 19 — tests and fixtures (migrate valid assertions, then delete)
 
-- `nearRefreshYaoOrdering.guard.unit.test.ts` (source-text ordering guard;
-  replace with port-spy behavior tests)
-- `ed25519YaoSealedRefreshWiring.guard.unit.test.ts`
+- ~~`nearRefreshYaoOrdering.guard.unit.test.ts`~~ — deleted by `6d6002e3c`;
+  canonical hydration, cancellation, crash, and atomic-finalization behavior is
+  covered directly.
+- ~~`ed25519YaoSealedRefreshWiring.guard.unit.test.ts`~~ — deleted by
+  `6d6002e3c`; it duplicated current recovery behavior through source markers.
 - `emailOtpEd25519YaoBudgetRecovery.unit.test.ts` (migrate continuity,
   monotonic-policy, and cleanup assertions; delete grant/budget fixtures and
   the tactical sealed-recovery typecheck fixture)

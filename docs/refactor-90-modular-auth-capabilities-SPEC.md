@@ -213,6 +213,10 @@ implementing commit SHA as the evidence.
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently
   idempotent and queryable by exact recovery ID, including Refactor 93 exact
   Router replay, role-local reconciliation, and injected crash cases.
+  - [x] The direct recovery-source suite covers cancellation reload, promotion
+    readback, crashes around the consuming call, and atomic local finalization;
+    the source-ordering guards that duplicated retired shapes are deleted
+    (`51b738d2a`, `6d6002e3c`).
 - [ ] `R90-INV-005` — Near finalization atomically swaps or retires material,
   persists lifecycle facts, and deletes the journal.
 - [ ] `R90-INV-006` — Near durable journals contain only server uncertainty and
