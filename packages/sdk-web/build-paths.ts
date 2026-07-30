@@ -53,6 +53,7 @@ export const BUILD_PATHS = {
     SDK_BASE: '/sdk',
     WORKERS_BASE: '/sdk/workers',
     TOUCH_CONFIRM_WORKER: '/sdk/workers/passkey-confirm.worker.js',
+    PASSKEY_MPC_EXPORT_WORKER: '/sdk/workers/passkey-mpc-export.worker.js',
     SIGNER_WORKER: '/sdk/workers/near-signer.worker.js',
     ECDSA_DERIVATION_CLIENT_WORKER: '/sdk/workers/ecdsa-derivation-client.worker.js',
     ECDSA_PRESIGN_CLIENT_WORKER: '/sdk/workers/ecdsa-presign-client.worker.js',
@@ -63,6 +64,7 @@ export const BUILD_PATHS = {
   // Worker file names
   WORKERS: {
     TOUCH_CONFIRM: 'passkey-confirm.worker.js',
+    PASSKEY_MPC_EXPORT: 'passkey-mpc-export.worker.js',
     SIGNER: 'near-signer.worker.js',
     ECDSA_DERIVATION_CLIENT: 'ecdsa-derivation-client.worker.js',
     ECDSA_PRESIGN_CLIENT: 'ecdsa-presign-client.worker.js',
@@ -90,6 +92,7 @@ export const BUILD_PATHS = {
   // Test worker file paths (for test files)
   TEST_WORKERS: {
     TOUCH_CONFIRM: '/sdk/workers/passkey-confirm.worker.js',
+    PASSKEY_MPC_EXPORT: '/sdk/workers/passkey-mpc-export.worker.js',
     SIGNER: '/sdk/workers/near-signer.worker.js',
     ECDSA_DERIVATION_CLIENT: '/sdk/workers/ecdsa-derivation-client.worker.js',
     ECDSA_PRESIGN_CLIENT: '/sdk/workers/ecdsa-presign-client.worker.js',

@@ -17,6 +17,7 @@ import type {
   WarmSessionSealAndPersistDiagnostics,
   WarmSessionSealAndPersistResult,
   UiConfirmManagerConfig,
+  PasskeyMpcExportWorkerMessage,
   UserConfirmWorkerMessage,
   UserConfirmWorkerResponse,
 } from '../../types/secure-confirm-worker';
@@ -115,9 +116,7 @@ import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  ThresholdEd25519SessionStoreSource,
-} from '../session/identity/laneIdentity';
+import type { ThresholdEd25519SessionStoreSource } from '../session/identity/laneIdentity';
 import {
   SIGNING_SESSION_SEAL_GROUP_ID,
   type SealedSigningSessionWalletSessionAuth,
@@ -218,12 +217,7 @@ type PasskeySealedRecordAccountMetadata = {
 
 async function passkeyEcdsaRestoreMetadataFromRecoveryRecord(
   record: Extract<SealedRecoveryRecord, { authMethod: 'passkey' }>,
-): Promise<
-  Exclude<
-    SealedSigningSessionEcdsaRestoreMetadata,
-    { source: 'email_otp' }
-  >
-> {
+): Promise<Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }>> {
   return {
     chainTarget: record.chainTarget,
     signingRootId: record.signingRootId,
@@ -651,6 +645,8 @@ function makeWarmSessionSingleFlightKey(args: {
  */
 class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   private worker: Worker | null = null;
+  private passkeyMpcExportWorker: Worker | null = null;
+  private passkeyMpcExportInitializationPromise: Promise<void> | null = null;
   private initializationPromise: Promise<void> | null = null;
   private messageId = 0;
   private config: UiConfirmManagerConfig;
@@ -1152,10 +1148,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         explicitTransport?.curve === 'ecdsa' ? explicitTransport.chainTarget : undefined,
       ));
     const relayerUrl = String(
-      explicitTransport?.relayerUrl ||
-        sealedRecord?.relayerUrl ||
-        ed25519Record?.relayerUrl ||
-        '',
+      explicitTransport?.relayerUrl || sealedRecord?.relayerUrl || ed25519Record?.relayerUrl || '',
     ).trim();
     if (!relayerUrl) return null;
     const explicitWalletSessionJwt = String(explicitTransport?.walletSessionJwt || '').trim();
@@ -1170,10 +1163,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         '',
     ).trim();
     const walletId = String(
-      explicitTransport?.walletId ||
-        sealedRecord?.walletId ||
-        ed25519Record?.walletId ||
-        '',
+      explicitTransport?.walletId || sealedRecord?.walletId || ed25519Record?.walletId || '',
     ).trim();
     const signingSessionSealKeyVersion = firstSigningSessionSealKeyVersion([
       explicitTransport?.signingSessionSealKeyVersion,
@@ -1263,8 +1253,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         ecdsaRestore: args.transport.ecdsaRestore,
       };
     }
-    const ed25519Record =
-      getStoredThresholdEd25519SessionRecordByThresholdSessionId(args.thresholdSessionId);
+    const ed25519Record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+      args.thresholdSessionId,
+    );
     const walletId = String(ed25519Record?.walletId || args.transport.walletId || '').trim();
     const ed25519Restore = currentEd25519RestoreMetadataFromSessionRecord(ed25519Record);
     if (ed25519Record && !ed25519Restore) {
@@ -1394,9 +1385,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           null,
         );
         if (!transport) return null;
-        const groupId = String(
-          args.record.groupId || transport.groupId || '',
-        ).trim();
+        const groupId = String(args.record.groupId || transport.groupId || '').trim();
         if (!groupId) return null;
 
         if (
@@ -2346,18 +2335,23 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     payload: ExportPrivateKeysWithUiWorkerPayload,
     options?: ExportPrivateKeysWithUiOptions,
   ): Promise<ExportPrivateKeysWithUiWorkerResult> {
-    await this.ensureWorkerReady(false);
+    await this.ensurePasskeyMpcExportWorkerReady();
     const viewerSessionId =
       'viewerSessionId' in payload ? String(payload.viewerSessionId || '').trim() : '';
     if (viewerSessionId && options?.onViewerLifecycle) {
       this.exportViewerLifecycleBySessionId.set(viewerSessionId, options.onViewerLifecycle);
     }
     try {
-      const response = await this.sendMessage({
-        type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
-        id: this.generateMessageId(),
-        payload,
-      });
+      const response = await this.sendMessage(
+        {
+          type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
+          id: this.generateMessageId(),
+          payload,
+        },
+        undefined,
+        undefined,
+        this.passkeyMpcExportWorker,
+      );
       if (!response?.success) {
         throw new Error(String(response?.error || 'Export private keys request failed'));
       }
@@ -2538,6 +2532,35 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     }
   }
 
+  private async ensurePasskeyMpcExportWorkerReady(): Promise<void> {
+    if (this.passkeyMpcExportWorker) return;
+    if (!this.passkeyMpcExportInitializationPromise) {
+      this.passkeyMpcExportInitializationPromise = this.createPasskeyMpcExportWorker().catch(
+        (error) => {
+          this.passkeyMpcExportInitializationPromise = null;
+          throw error;
+        },
+      );
+    }
+    await this.passkeyMpcExportInitializationPromise;
+    if (!this.passkeyMpcExportWorker) {
+      throw new Error('Passkey MPC export worker failed to initialize');
+    }
+  }
+
+  private async createPasskeyMpcExportWorker(): Promise<void> {
+    const workerUrl = resolveWorkerUrl(BUILD_PATHS.RUNTIME.PASSKEY_MPC_EXPORT_WORKER, {
+      worker: 'passkeyMpcExport',
+      baseOrigin: this.workerBaseOrigin,
+    });
+    const worker = new Worker(workerUrl, {
+      type: 'module',
+      name: 'PasskeyMpcExportWorker',
+    });
+    this.attachWorkerRouter(worker);
+    this.passkeyMpcExportWorker = worker;
+  }
+
   /**
    * Initialize the UserConfirm worker.
    */
@@ -2613,7 +2636,11 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   }
 
   private isFromActiveWorker(event: Event): boolean {
-    return !!this.worker && event.currentTarget === this.worker && event.target === this.worker;
+    const source = event.currentTarget;
+    return (
+      (source === this.worker && event.target === this.worker) ||
+      (source === this.passkeyMpcExportWorker && event.target === this.passkeyMpcExportWorker)
+    );
   }
 
   private normalizePromptEnvelope(payload: unknown): UserConfirmPromptEnvelope | null {
@@ -2715,11 +2742,13 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     } as unknown as UserConfirmRequest;
   }
 
-  private postPromptEnvelopeError(requestId: string, channelToken: string, message: string): void {
-    if (!this.worker) {
-      return;
-    }
-    this.worker.postMessage({
+  private postPromptEnvelopeError(
+    worker: Worker,
+    requestId: string,
+    channelToken: string,
+    message: string,
+  ): void {
+    worker.postMessage({
       type: UserConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE,
       requestId,
       channelToken,
@@ -2781,15 +2810,17 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const promptEnv = this.normalizePromptEnvelope(payload);
     if (promptEnv) {
       const ctx = this.getContext();
-      if (!this.worker) {
+      const sourceWorker = event.currentTarget as Worker | null;
+      if (!sourceWorker) {
         console.error(
           '[UserConfirmWorker] missing worker for PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD',
         );
         return;
       }
-      void handlePromptFromWorker(ctx, promptEnv, this.worker).catch((error) => {
+      void handlePromptFromWorker(ctx, promptEnv, sourceWorker).catch((error) => {
         console.error('[UserConfirmWorker] failed to handle confirmation prompt:', error);
         this.postPromptEnvelopeError(
+          sourceWorker,
           promptEnv.requestId,
           promptEnv.channelToken || '',
           'Secure confirmation failed',
@@ -2824,12 +2855,18 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     );
     const error = new Error(`UserConfirm worker failed: ${message}`);
     console.error('[UserConfirmWorker] error:', errorEvent);
-    if (this.worker) {
+    const failedWorker = event.currentTarget;
+    if (failedWorker === this.worker && this.worker) {
       this.detachWorkerRouter(this.worker);
       this.worker.terminate();
       this.worker = null;
+      this.initializationPromise = null;
+    } else if (failedWorker === this.passkeyMpcExportWorker && this.passkeyMpcExportWorker) {
+      this.detachWorkerRouter(this.passkeyMpcExportWorker);
+      this.passkeyMpcExportWorker.terminate();
+      this.passkeyMpcExportWorker = null;
+      this.passkeyMpcExportInitializationPromise = null;
     }
-    this.initializationPromise = null;
     this.rejectAllPendingWorkerRequests(error);
   }
 
@@ -2872,12 +2909,13 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
    * Send message to Web Worker and wait for response
    */
   private async sendMessage<TPayload = unknown>(
-    message: UserConfirmWorkerMessage<TPayload>,
+    message: UserConfirmWorkerMessage<TPayload> | PasskeyMpcExportWorkerMessage,
     customTimeout?: number,
     signal?: AbortSignal,
+    targetWorker?: Worker | null,
   ): Promise<UserConfirmWorkerResponse> {
     return new Promise((resolve, reject) => {
-      const worker = this.worker;
+      const worker = targetWorker ?? this.worker;
       if (!worker) {
         reject(new Error('UserConfirm worker not available'));
         return;

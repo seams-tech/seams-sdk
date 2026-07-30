@@ -662,8 +662,14 @@ the replacement and legacy MPC paths must not ship together.
 - [ ] Keep generic confirmation free of MPC material; preserve Email OTP
       KEK/secret, Near root/client, and ECDSA derivation/presign/online-signing
       custody in their secure owners.
+  - [x] Move Passkey secp256k1 and Ed25519-Yao raw export handling into the
+        dedicated Passkey MPC export worker; the generic confirmation worker
+        no longer imports export WASM/Yao runtime or handles export messages.
 - [ ] Remove replaced worker entrypoints, loaders, manifest rows, and public
       exports.
+  - [x] Delete the generic worker's `EXPORT_PRIVATE_KEYS_WITH_UI` protocol arm
+        and export-runtime imports; register the dedicated Passkey MPC export
+        worker in build, freshness, runtime-path, test, and bundle inventories.
 - [x] Delete the unused `UiConfirmSigningRuntimePort` and the generic combined
       `UiConfirmSigningSessionPort`; the Near runtime names its required
       confirmation and warm-material capabilities directly.
@@ -674,6 +680,8 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the unreachable Email OTP `session_bootstrap` worker branch and
       require registration-attempt identity as an explicit worker input.
 - [ ] Preserve existing import/export and bundle guards.
+  - [x] Point the key-export and Ed25519-Yao custody guards at the dedicated
+        Passkey MPC export runtime; both focused guards pass.
 - [x] Split no worker or bundle without measured evidence. The current
       confirmation worker owns generic prompts alongside `WARM_SESSION_*`, PRF
       claims, Shamir3Pass, and raw key-export handling; its production caller

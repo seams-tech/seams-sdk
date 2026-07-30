@@ -423,6 +423,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   verified evidence satisfying two exact requirements)
 - replaced worker entrypoints, loaders, asset-manifest rows,
   `UiConfirmManager` factor branches, and adapter wrappers
+- ~~Passkey raw secp256k1 and Ed25519-Yao export runtime inside
+  `passkey-confirm.worker.ts`~~ — moved atomically to the dedicated Passkey MPC
+  export worker; generic confirmation no longer imports or dispatches it
 - ~~unused `UiConfirmSigningRuntimePort` and generic combined
   `UiConfirmSigningSessionPort` exports~~ — Near runtime dependencies name the
   required confirmation and warm-material ports directly
