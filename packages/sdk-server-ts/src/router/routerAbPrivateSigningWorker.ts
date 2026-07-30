@@ -77,7 +77,10 @@ import {
   type TenantId,
 } from '@shared/authorization/capabilityKinds';
 import { buildCapabilityOperationEnvelope } from '@shared/authorization/operationFingerprint';
-import { buildActiveCapabilityGrant } from '../authorization/domain';
+import {
+  buildActiveCapabilityGrant,
+  type ClaimedCapabilityGrantUse,
+} from '../authorization/domain';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
@@ -238,7 +241,24 @@ export type RouterAbEd25519NormalSigningAuthorizationResult =
       readonly validated: RouterAbEd25519WalletSessionValidationSuccess;
       readonly admission: Extract<RouterAbNormalSigningRouteAdmission, { readonly ok: true }>;
     }
-  | { readonly ok: true; readonly kind: 'operation_step_up' }
+  | {
+      readonly ok: true;
+      readonly kind: 'operation_step_up';
+      readonly phase: 'prepare';
+      readonly session: RouterAbOperationStepUpAppSession;
+      readonly use: ClaimedCapabilityGrantUse;
+      readonly operationDigests: {
+        readonly laneDigest: ReturnType<typeof parseDigestB64u>;
+        readonly intentDigest: ReturnType<typeof parseDigestB64u>;
+        readonly displayDigest: ReturnType<typeof parseDigestB64u>;
+      };
+    }
+  | {
+      readonly ok: true;
+      readonly kind: 'operation_step_up';
+      readonly phase: 'finalize';
+      readonly session: RouterAbOperationStepUpAppSession;
+    }
   | { readonly ok: false; readonly result: RouterAbJsonRouteResult };
 
 export type RouterAbEcdsaNormalSigningAuthorizationResult =
@@ -1653,7 +1673,23 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
   readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   readonly phase: RouterAbEd25519NormalSigningRoutePhase;
   readonly scope: RouterAbEd25519NormalSigningScopeV2;
-}): Promise<RouterAbJsonRouteResult | null> {
+}): Promise<
+  | RouterAbJsonRouteResult
+  | {
+      readonly phase: 'prepare';
+      readonly session: RouterAbOperationStepUpAppSession;
+      readonly use: ClaimedCapabilityGrantUse;
+      readonly operationDigests: {
+        readonly laneDigest: ReturnType<typeof parseDigestB64u>;
+        readonly intentDigest: ReturnType<typeof parseDigestB64u>;
+        readonly displayDigest: ReturnType<typeof parseDigestB64u>;
+      };
+    }
+  | {
+      readonly phase: 'finalize';
+      readonly session: RouterAbOperationStepUpAppSession;
+    }
+> {
   if (input.scope.authorization.kind !== 'operation_step_up') {
     return routerAbStepUpError(400, 'invalid_body', 'Operation step-up authority is required');
   }
@@ -1775,11 +1811,26 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
     } catch (error: unknown) {
       return routerAbStepUpError(400, 'invalid_body', errorMessage(error));
     }
+    if (claimResult.kind === 'replayed') {
+      return routerAbStepUpError(
+        409,
+        'operation_claim_completed',
+        'Operation step-up grant has already completed its operation',
+      );
+    }
     const claimFailure = routerAbOperationStepUpClaimFailure(claimResult, useId);
     if (claimFailure) return claimFailure;
-
+    if (claimResult.kind !== 'claimed' && claimResult.kind !== 'operation_in_progress') {
+      return routerAbStepUpError(409, 'operation_claim_missing', 'Operation claim is unavailable');
+    }
+    return {
+      phase: 'prepare',
+      session: authenticated.session,
+      use: claimResult.use,
+      operationDigests: { laneDigest, intentDigest, displayDigest },
+    };
   }
-  return null;
+  return { phase: 'finalize', session: authenticated.session };
 }
 
 export async function authenticateRouterAbOperationStepUpAppSessionIdentity(input: {
@@ -2056,7 +2107,7 @@ export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
     };
   }
   if (scope.authorization.kind === 'operation_step_up') {
-    const failure = await handleRouterAbEd25519OperationStepUpRoute({
+    const result = await handleRouterAbEd25519OperationStepUpRoute({
         body: input.body,
         headers: input.headers,
         session: input.session,
@@ -2065,9 +2116,9 @@ export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
         phase: input.phase,
         scope,
       });
-    return failure
-      ? { ok: false, result: failure }
-      : { ok: true, kind: 'operation_step_up' };
+    return 'status' in result
+      ? { ok: false, result }
+      : { ok: true, kind: 'operation_step_up', ...result };
   }
 
   const validated = await validateRouterAbEd25519WalletSessionTokenInputs({

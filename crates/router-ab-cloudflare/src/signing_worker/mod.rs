@@ -557,6 +557,9 @@ pub enum CloudflareSigningWorkerNormalSigningEffectClaimV1 {
     OperationStepUp {
         authorization_session_id: String,
         grant_id: String,
+        use_id: String,
+        operation_id: String,
+        operation_fingerprint_digest: String,
     },
 }
 
@@ -686,6 +689,9 @@ impl CloudflareSigningWorkerNormalSigningEffectClaimV1 {
                 Self::OperationStepUp {
                     authorization_session_id,
                     grant_id,
+                    use_id,
+                    operation_id,
+                    operation_fingerprint_digest,
                 },
                 CloudflareRouterNormalSigningAuthorizationV2::OperationStepUp {
                     authorization_session_id: admitted_session_id,
@@ -697,6 +703,12 @@ impl CloudflareSigningWorkerNormalSigningEffectClaimV1 {
                     authorization_session_id,
                 )?;
                 require_non_empty("normal-signing effect claim grant_id", grant_id)?;
+                require_non_empty("normal-signing effect claim use_id", use_id)?;
+                require_non_empty("normal-signing effect claim operation_id", operation_id)?;
+                require_non_empty(
+                    "normal-signing effect claim operation_fingerprint_digest",
+                    operation_fingerprint_digest,
+                )?;
                 authorization_session_id == admitted_session_id && grant_id == admitted_grant_id
             }
             _ => false,
@@ -728,35 +740,6 @@ impl CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
         };
         request.validate()?;
         Ok(request)
-    }
-
-    /// Creates an admitted finalize request for a single-operation step-up grant.
-    pub fn operation_step_up(
-        request: RouterAbEd25519NormalSigningFinalizeRequestV2,
-        admission_candidate: CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2,
-        trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
-    ) -> RouterAbProtocolResult<Self> {
-        let (authorization_session_id, grant_id) = match &admission_candidate.authorization {
-            CloudflareRouterNormalSigningAuthorizationV2::OperationStepUp {
-                authorization_session_id,
-                grant_id,
-            } => (authorization_session_id.clone(), grant_id.clone()),
-            CloudflareRouterNormalSigningAuthorizationV2::ReusableWalletSession { .. } => {
-                return Err(RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::InvalidGateDecision,
-                    "operation-step-up finalize requires operation-step-up admission",
-                ));
-            }
-        };
-        Self::new(
-            request,
-            admission_candidate,
-            trusted_admission,
-            CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
-                authorization_session_id,
-                grant_id,
-            },
-        )
     }
 
     /// Validates Router admission accepted this exact v2 finalize request.

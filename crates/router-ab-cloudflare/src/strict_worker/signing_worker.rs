@@ -50,12 +50,6 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
             )
             .await
         }
-        CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_COMMIT_QUERY_PATH => {
-            handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_fetch_v1(
-                request, &env, &runtime,
-            )
-            .await
-        }
         CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH => {
             handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_refresh_fetch_v1(
                 request, &env, &runtime,

@@ -638,7 +638,7 @@ the replacement and legacy MPC paths must not ship together.
       receipt through the internally authenticated Router route; SigningWorker
       private D1 owns exact cryptographic-effect deduplication and terminal
       replay.
-- [ ] Commit the operation-step-up Near claim and consume its exact one-use grant
+- [x] Commit the operation-step-up Near claim and consume its exact one-use grant
       before forwarding execution. Preserve the same operation fingerprint and
       SigningWorker terminal replay used by reusable-session signing.
 - [x] Add no execution lease: no implemented operation outlives its request or
