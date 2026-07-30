@@ -66,7 +66,7 @@ Current child owners are explicit folders:
   and `passkey/ecdsaRecovery.ts`.
 - Email OTP method helpers: `emailOtp/EmailOtpWalletSessionCoordinator.ts`,
   `emailOtp/ecdsaRecovery.ts`, `emailOtp/ecdsaBootstrapCommit.ts`,
-  `emailOtp/ed25519SigningLane.ts`, `emailOtp/ed25519SigningSessionAuthority.ts`,
+  `emailOtp/ed25519SigningSessionAuthority.ts`,
   `emailOtp/exportRecovery.ts`,
   `emailOtp/status.ts`, and `emailOtp/workerRequests.ts`.
 

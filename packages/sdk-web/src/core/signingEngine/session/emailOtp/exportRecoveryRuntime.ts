@@ -48,7 +48,7 @@ export type RequestEmailOtpChallengeArgs =
   | {
       kind: 'wallet_capability_step_up_challenge';
       walletSession: WalletSessionRef;
-      chain: EmailOtpEcdsaRouteChain;
+      chain: EmailOtpRouteChain;
       appSessionJwt: string;
       authLane?: never;
       routeAuth?: never;

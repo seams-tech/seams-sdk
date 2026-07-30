@@ -585,6 +585,33 @@ export async function handleTransactionSigningFlow(
         });
       }
     }
+    if (
+      signingAuthMode !== 'warmSession' &&
+      nearTransactionReadiness?.kind === 'context_ready'
+    ) {
+      const fundingRequest = buildNearContextFetchInput({
+        request,
+        usesNeeded,
+        readinessMode,
+      });
+      if (!fundingRequest) {
+        throw new Error('Operation step-up requires exact NEAR operation facts');
+      }
+      operationStepUpPreparation = await ctx.operationStepUpPreparation.prepare({
+        kind: 'near_transaction',
+        requestId: request.requestId,
+        transactionContext: nearTransactionReadiness.transactionContext,
+        operationId: fundingRequest.operation.operationId,
+        operationFingerprint: fundingRequest.operation.operationFingerprint,
+        displayDigest: String(resolvedIntentDigestForResponse || '').trim(),
+      });
+    } else if (signingAuthMode !== 'warmSession' && readinessMode.kind === 'signature_only') {
+      operationStepUpPreparation = await ctx.operationStepUpPreparation.prepare({
+        kind: 'near_signature_only',
+        requestId: request.requestId,
+        displayDigest: String(resolvedIntentDigestForResponse || '').trim(),
+      });
+    }
     if (signingAuthMode === 'emailOtp') {
       session.confirmAndCloseModal({
         requestId: request.requestId,
@@ -592,6 +619,7 @@ export async function handleTransactionSigningFlow(
         confirmed: true,
         otpCode: normalizeSixDigitOtpCode(otpCode),
         ...(emailOtpChallengeId ? { emailOtpChallengeId } : {}),
+        ...(operationStepUpPreparation ? { operationStepUpPreparation } : {}),
         ...nearReadinessDecisionFields(nearTransactionReadiness),
       });
       return;
@@ -615,23 +643,6 @@ export async function handleTransactionSigningFlow(
       requestId: request.requestId,
       signingAuthPlanKind: request.payload.signingAuthPlan.kind,
     });
-    if (nearTransactionReadiness?.kind === 'context_ready') {
-      const fundingRequest = buildNearContextFetchInput({
-        request,
-        usesNeeded,
-        readinessMode,
-      });
-      if (!fundingRequest) {
-        throw new Error('Operation step-up requires exact NEAR operation facts');
-      }
-      operationStepUpPreparation = await ctx.operationStepUpPreparation.prepare({
-        requestId: request.requestId,
-        transactionContext: nearTransactionReadiness.transactionContext,
-        operationId: fundingRequest.operation.operationId,
-        operationFingerprint: fundingRequest.operation.operationFingerprint,
-        displayDigest: String(resolvedIntentDigestForResponse || '').trim(),
-      });
-    }
     const challengeB64u =
       operationStepUpPreparation?.challengeB64u ||
       resolveTypedWebAuthnChallenge({

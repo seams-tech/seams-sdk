@@ -18,7 +18,7 @@ import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import type {
   NearEd25519YaoMaterialExecutor,
   NearEd25519YaoSigningCapability,
-  NearEmailOtpEd25519ReauthorizationHook,
+  NearEmailOtpEd25519StepUpHook,
   NearEd25519TransactionSigningBoundary,
   NearPasskeyEd25519OperationStepUpCapabilityPreparation,
   NearPreparedSigningSessionFinalizer,
@@ -91,14 +91,12 @@ import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 import type { NearAccountRef, NearCommandSubject } from '../../interfaces/ecdsaChainTarget';
 import { requiredNearTransactionSignatureUses } from './signatureUses';
 import {
+  buildNearEmailOtpEd25519OperationStepUpProof,
   prepareRouterAbEd25519NearTransactionOperationStepUp,
   tryFinalizeRouterAbEd25519NearTransactionNormalSigning,
 } from './shared/ed25519YaoNormalSigning';
 import { resolveConfirmedNearTransactionContext } from './implicitAccountFunding';
-import {
-  reauthorizeNearEmailOtpEd25519,
-  resolvePreparedNearEd25519YaoMaterial,
-} from './shared/ed25519YaoCapabilityResolution';
+import { resolvePreparedNearEd25519YaoMaterial } from './shared/ed25519YaoCapabilityResolution';
 import {
   clearNearOperationStepUpBuilder,
   consumePreparedNearOperationStepUp,
@@ -127,18 +125,19 @@ function requireNearOperationStepUpPreparation(
   value: NearOperationStepUpPreparationRef | undefined,
 ): NearOperationStepUpPreparationRef {
   if (!value) {
-    throw new Error(
-      '[SigningEngine][near] confirmed passkey operation step-up is missing preparation',
-    );
+    throw new Error('[SigningEngine][near] confirmed operation step-up is missing preparation');
   }
   return value;
 }
 
 function requirePreparedNearOperationStepUp(
   value: PreparedNearOperationStepUp | null,
-): PreparedNearOperationStepUp {
+): Extract<PreparedNearOperationStepUp, { kind: 'near_transaction' }> {
   if (!value) {
-    throw new Error('[SigningEngine][near] prepared passkey operation step-up is missing');
+    throw new Error('[SigningEngine][near] prepared operation step-up is missing');
+  }
+  if (value.kind !== 'near_transaction') {
+    throw new Error('[SigningEngine][near] prepared operation step-up is not a transaction');
   }
   return value;
 }
@@ -199,6 +198,25 @@ async function prepareNearPasskeyOperationStepUpMaterial(
       preparation.hydration satisfies never;
       throw new Error('[SigningEngine][near] unsupported Passkey operation material source');
   }
+}
+
+async function resolveNearEmailOtpOperationStepUpMaterial(args: {
+  preparation: NearEd25519YaoSigningPreparation;
+  executor: NearEd25519YaoMaterialExecutor;
+}): Promise<{
+  materialActivation: MpcMaterialActivationRef;
+  walletSessionState: NearEd25519YaoSigningCapability['walletSessionState'];
+}> {
+  const capability = await resolvePreparedNearEd25519YaoMaterial(
+    args.preparation,
+    args.executor,
+  );
+  return {
+    materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
+      capability.activeClient.metadata(),
+    ),
+    walletSessionState: capability.walletSessionState,
+  };
 }
 
 async function resolveConfirmedNearPasskeyOperationStepUpCapability(args: {
@@ -345,7 +363,7 @@ export async function runNearTransactionWithActionsSigning({
   ed25519SigningBoundary,
   finalizePreparedSigningSession,
   passkeyEd25519OperationStepUp,
-  emailOtpEd25519Reauthorization,
+  emailOtpEd25519StepUp,
   yaoSigningPreparation,
   yaoMaterialExecutor,
 }: {
@@ -366,7 +384,7 @@ export async function runNearTransactionWithActionsSigning({
   ed25519SigningBoundary: NearEd25519TransactionSigningBoundary;
   finalizePreparedSigningSession?: NearPreparedSigningSessionFinalizer;
   passkeyEd25519OperationStepUp?: NearPasskeyEd25519OperationStepUpHook;
-  emailOtpEd25519Reauthorization?: NearEmailOtpEd25519ReauthorizationHook;
+  emailOtpEd25519StepUp?: NearEmailOtpEd25519StepUpHook;
   yaoSigningPreparation: NearEd25519YaoSigningPreparation;
   yaoMaterialExecutor: NearEd25519YaoMaterialExecutor;
 }): Promise<{
@@ -513,7 +531,7 @@ export async function runNearTransactionWithActionsSigning({
     signingLane,
     requiredSignatureUses,
     ...(passkeyEd25519OperationStepUp ? { passkeyEd25519OperationStepUp } : {}),
-    ...(emailOtpEd25519Reauthorization ? { emailOtpEd25519Reauthorization } : {}),
+    ...(emailOtpEd25519StepUp ? { emailOtpEd25519StepUp } : {}),
   });
   const confirmationAuthPayload = preparedStepUp.confirmationAuthPayload;
   if (isWarmSessionSigningAuthPlan(confirmationAuthPayload.signingAuthPlan)) {
@@ -535,18 +553,30 @@ export async function runNearTransactionWithActionsSigning({
     interaction: { kind: 'transaction_confirmation', overlay: 'show' },
   });
   let passkeyOperationStepUpMaterial: NearPasskeyOperationStepUpMaterial | null = null;
-  if (preparedStepUp.kind === 'passkey') {
-    passkeyOperationStepUpMaterial = await prepareNearPasskeyOperationStepUpMaterial(
-      yaoSigningPreparation,
-      yaoMaterialExecutor,
-    );
-    const operationStepUpMaterial = passkeyOperationStepUpMaterial;
+  if (preparedStepUp.kind !== 'warm_session') {
+    passkeyOperationStepUpMaterial =
+      preparedStepUp.kind === 'passkey'
+        ? await prepareNearPasskeyOperationStepUpMaterial(
+            yaoSigningPreparation,
+            yaoMaterialExecutor,
+          )
+        : null;
     registerNearOperationStepUpBuilder({
       requestId: sessionId,
       build: async (preparation) => {
+        if (preparation.kind !== 'near_transaction') {
+          throw new Error('[SigningEngine][near] transaction step-up preparation kind changed');
+        }
         if (preparation.operationId !== String(signingOperation.operationId)) {
           throw new Error('[SigningEngine][near] operation step-up operation identity changed');
         }
+        const operationStepUpMaterial =
+          preparedStepUp.kind === 'passkey'
+            ? requireNearPasskeyOperationStepUpMaterial(passkeyOperationStepUpMaterial)
+            : await resolveNearEmailOtpOperationStepUpMaterial({
+                preparation: yaoSigningPreparation,
+                executor: yaoMaterialExecutor,
+              });
         return await prepareRouterAbEd25519NearTransactionOperationStepUp({
           ctx,
           thresholdSessionId: operationStepUpMaterial.walletSessionState.thresholdSessionId,
@@ -556,7 +586,10 @@ export async function runNearTransactionWithActionsSigning({
           nearAccountId,
           materialActivation: operationStepUpMaterial.materialActivation,
           operationId: signingOperation.operationId,
-          grantId: preparedStepUp.plannedPasskeyOperationStepUp.signingGrantId,
+          grantId:
+            preparedStepUp.kind === 'passkey'
+              ? preparedStepUp.plannedPasskeyOperationStepUp.signingGrantId
+              : `operation-step-up:${signingOperation.operationId}`,
           txSigningRequest,
           transactionContext: preparation.transactionContext,
           displayDigest: preparation.displayDigest,
@@ -611,9 +644,8 @@ export async function runNearTransactionWithActionsSigning({
         onProgress: emitUiConfirmProgress,
       },
     });
-  } catch (error) {
+  } finally {
     clearNearOperationStepUpBuilder(sessionId);
-    throw error;
   }
   emitNearSigningEvent(onEvent, nearAccountId, {
     phase: SigningEventPhase.STEP_05_CONFIRMATION_APPROVED,
@@ -625,7 +657,7 @@ export async function runNearTransactionWithActionsSigning({
     confirmation,
   });
   const preparedOperationStepUp =
-    stepUpAuthorization.kind === 'passkey'
+    stepUpAuthorization.kind !== 'warm_session'
       ? consumePreparedNearOperationStepUp({
           requestId: sessionId,
           ref: requireNearOperationStepUpPreparation(confirmation.operationStepUpPreparation),
@@ -667,38 +699,9 @@ export async function runNearTransactionWithActionsSigning({
         message: 'Preparing NEAR signer',
         interaction: { kind: 'none', overlay: 'none' },
       });
-      let canonicalThresholdSessionId = signingSessionAuthPlan.sessionId;
+      const canonicalThresholdSessionId = signingSessionAuthPlan.sessionId;
       let activeCapability: NearEd25519YaoSigningCapability | null =
         confirmedOperationStepUpCapability;
-      let refreshedBudgetIdentityRequired = false;
-      if (stepUpAuthorization.kind === 'email_otp' && emailOtpEd25519Reauthorization) {
-        emitConfirmedAuthSideEffectStarted('threshold_reconnect');
-        emitNearSigningEvent(onEvent, nearAccountId, {
-          phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
-          status: 'running',
-          message: 'Reconnecting NEAR signing session',
-          interaction: { kind: 'none', overlay: 'none' },
-        });
-        const refreshed = await reauthorizeNearEmailOtpEd25519({
-          authorization: stepUpAuthorization,
-          hook: emailOtpEd25519Reauthorization,
-          requiredSignatureUses,
-        });
-        const refreshedSessionId = String(refreshed.sessionId || '').trim();
-        if (!refreshedSessionId) {
-          throw new Error('[SigningEngine] passkey signing did not return a threshold session id');
-        }
-        canonicalThresholdSessionId = refreshedSessionId;
-        activeCapability = refreshed.capability;
-        refreshedBudgetIdentityRequired = true;
-        emitNearSigningEvent(onEvent, nearAccountId, {
-          phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_SUCCEEDED,
-          status: 'succeeded',
-          message: 'NEAR signing session reconnected',
-          interaction: { kind: 'none', overlay: 'none' },
-          data: { sessionId: refreshedSessionId },
-        });
-      }
       if (!activeCapability) {
         activeCapability = await resolvePreparedNearEd25519YaoMaterial(
           yaoSigningPreparation,
@@ -748,7 +751,6 @@ export async function runNearTransactionWithActionsSigning({
         activeClient: activeYaoClient,
         walletSessionState: activeWalletSessionState,
         trustedBudgetStatusAuth,
-        refreshedBudgetIdentityRequired,
         transactionContext: confirmedNearContext.transactionContext,
         nonceLeaseRefs: confirmedNearContext.nonceLeases,
       };
@@ -767,8 +769,7 @@ export async function runNearTransactionWithActionsSigning({
     transactionContext,
     nonceLeaseRefs,
   } = preparedPayload;
-  let { refreshedBudgetIdentityRequired } = preparedPayload;
-  const usesOperationStepUp = stepUpAuthorization.kind === 'passkey';
+  const usesOperationStepUp = stepUpAuthorization.kind !== 'warm_session';
   let activeBudgetAdmittedOperation = ed25519SigningBoundary.initialBudgetAdmittedOperation;
   const buildBudgetSigningLane = (): NearTransactionSigningLane => {
     if (String(walletSessionState.thresholdSessionId) !== canonicalThresholdSessionId) {
@@ -932,11 +933,6 @@ export async function runNearTransactionWithActionsSigning({
     : await runSharedNearTransactionCommand({
         commandKind: SigningOperationCommandKind.ReserveBudget,
         execute: async () => {
-          if (refreshedBudgetIdentityRequired) {
-            activeBudgetAdmittedOperation =
-              await admitSelectedNearTransactionLaneBudget(buildBudgetSigningLane());
-            refreshedBudgetIdentityRequired = false;
-          }
           if (!activeBudgetAdmittedOperation) {
             // Confirmed-auth lanes can only become budget-admitted after confirmation
             // has produced fresh auth material.
@@ -973,7 +969,7 @@ export async function runNearTransactionWithActionsSigning({
       interaction: { kind: 'none', overlay: 'none' },
     });
     const routerAbNormalSigningResult =
-      stepUpAuthorization.kind === 'passkey'
+      stepUpAuthorization.kind !== 'warm_session'
         ? await tryFinalizeRouterAbEd25519NearTransactionNormalSigning({
             ctx,
             thresholdSessionId: canonicalThresholdSessionId,
@@ -991,8 +987,21 @@ export async function runNearTransactionWithActionsSigning({
               kind: 'operation_step_up',
               prepared: requirePreparedNearOperationStepUp(preparedOperationStepUp),
               displayDigest: confirmation.intentDigest,
-              authority: stepUpAuthorization.plannedPasskeyOperationStepUp.authority,
-              credential: stepUpAuthorization.credential,
+              proof:
+                stepUpAuthorization.kind === 'passkey'
+                  ? {
+                      kind: 'passkey',
+                      authority: stepUpAuthorization.plannedPasskeyOperationStepUp.authority,
+                      credential: stepUpAuthorization.credential,
+                    }
+                  : {
+                      ...buildNearEmailOtpEd25519OperationStepUpProof({
+                        preparation: yaoSigningPreparation,
+                        lane: transactionOperation.lane,
+                        challengeId: stepUpAuthorization.challengeId,
+                        otpCode: stepUpAuthorization.otpCode,
+                      }),
+                    },
             },
           })
         : await tryFinalizeRouterAbEd25519NearTransactionNormalSigning({

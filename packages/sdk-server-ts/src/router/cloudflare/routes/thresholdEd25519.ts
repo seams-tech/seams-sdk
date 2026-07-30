@@ -56,7 +56,11 @@ import {
   buildCapabilityOperationCompletionClaimRef,
   type CapabilityGrantUse,
 } from '../../../authorization/domain';
-import { buildVerifiedPasskeyFactorResult } from '../../../authorization/factorEvidence';
+import {
+  buildVerifiedEmailOtpFactorResult,
+  buildVerifiedPasskeyFactorResult,
+  type VerifiedGrantFactorResult,
+} from '../../../authorization/factorEvidence';
 import {
   parseAppSessionClaims,
   resolveAppSessionWalletIdForWalletScope,
@@ -67,6 +71,13 @@ import type {
   RouterAbEd25519YaoSessionRouteCommandV1,
 } from '../../routerAbEd25519YaoWalletSession';
 import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
+import { parseEmailOtpChallengeId } from '@shared/utils/domainIds';
+import {
+  EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+} from '@shared/utils/emailOtpDomain';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
+import { hashEmailOtpAppSessionClaims } from '../../emailOtpSessionRouteHelpers';
 
 type Ed25519ReusableOperationClaimReceipt = {
   readonly kind: 'reusable_wallet_session_operation_claim_v1';
@@ -845,7 +856,7 @@ export function isRouterAbEd25519OperationInProgressResponse(input: {
   );
 }
 
-async function issuePasskeyEd25519OperationStepUpGrant(input: {
+async function issueEd25519OperationStepUpGrant(input: {
   ctx: CloudflareRouterApiContext;
   request: RouterAbEd25519YaoOperationStepUpGrantCommandV1;
 }): Promise<Response> {
@@ -922,57 +933,22 @@ async function issuePasskeyEd25519OperationStepUpGrant(input: {
     },
   });
   const challengeB64u = await computeCapabilityOperationFingerprintDigest(envelope);
-  const authorityRef = await walletAuthAuthorityRef({ authority: input.request.authority });
-  const activeAuthSource = authenticated.activeSession.authSource;
+  const proof = input.request.proof;
+  const authorityRef =
+    proof.kind === 'passkey'
+      ? await walletAuthAuthorityRef({ authority: proof.authority })
+      : proof.authorityRef;
   if (
-    activeAuthSource.kind !== 'passkey' ||
     authorityRef.walletId !== authenticated.authorityRef.walletId ||
     authorityRef.authorityDigest !== authenticated.authorityRef.authorityDigest ||
-    input.request.authority.walletId !== authenticated.session.walletId ||
-    input.request.authority.factor.credentialIdB64u !== activeAuthSource.credentialIdB64u
+    authorityRef.walletId !== authenticated.session.walletId
   ) {
     return json(
-      { ok: false, code: 'scope_mismatch', message: 'Passkey authority changed' },
+      { ok: false, code: 'scope_mismatch', message: 'Operation step-up authority changed' },
       { status: 403 },
     );
   }
   const activeSession = authenticated.activeSession;
-  if (activeSession.authSource.kind !== 'passkey') {
-    return json(
-      { ok: false, code: 'unauthorized', message: 'Passkey app session is required' },
-      { status: 401 },
-    );
-  }
-  const credentialId = String(
-    input.request.webauthnAuthentication.rawId || input.request.webauthnAuthentication.id || '',
-  ).trim();
-  if (credentialId !== activeSession.authSource.credentialIdB64u) {
-    return json(
-      { ok: false, code: 'unauthorized', message: 'Passkey credential changed' },
-      { status: 401 },
-    );
-  }
-  const origin =
-    activeSession.audience.kind === 'first_party_web'
-      ? activeSession.audience.origin
-      : activeSession.audience.walletOrigin;
-  const verified = await input.ctx.service.webAuthn.verifyWebAuthnAuthenticationLite({
-    userId: authenticated.session.walletId,
-    rpId: input.request.authority.verifier.rpId,
-    expectedChallenge: challengeB64u,
-    expected_origin: origin,
-    webauthn_authentication: input.request.webauthnAuthentication,
-  });
-  if (!verified.success || !verified.verified) {
-    return json(
-      {
-        ok: false,
-        code: verified.code || 'not_verified',
-        message: verified.message || 'WebAuthn authentication verification failed',
-      },
-      { status: 401 },
-    );
-  }
   const nowMs = Date.now();
   const expiresAtMs = Math.min(
     Number(input.request.normalSigningRequest.expires_at_ms),
@@ -983,25 +959,135 @@ async function issuePasskeyEd25519OperationStepUpGrant(input: {
   const evidenceSetId = requireAuthorizationValue(
     parseGrantEvidenceSetId(`evidence-set:${requestId}`),
   );
-  const factor = buildVerifiedPasskeyFactorResult({
-    tenantId: authenticated.session.tenantId,
-    principalId: authenticated.session.principalId,
-    sessionId: authenticated.session.sessionId,
-    deviceId: activeSession.deviceId,
-    factorId: requireAuthorizationValue(
-      parseAuthFactorId(`passkey:${activeSession.authSource.credentialIdB64u}`),
-    ),
-    authorityRef: authenticated.authorityRef,
-    operation: envelope,
-    credentialIdB64u: activeSession.authSource.credentialIdB64u,
-    assertionDigest: parseDigestB64u(
-      base64UrlEncode(
-        await sha256BytesUtf8(alphabetizeStringify(input.request.webauthnAuthentication)),
-      ),
-    ),
-    verifiedAtMs: nowMs,
-    expiresAtMs,
-  });
+  let factor: VerifiedGrantFactorResult;
+  switch (proof.kind) {
+    case 'passkey': {
+      if (
+        activeSession.authSource.kind !== 'passkey' ||
+        proof.authority.factor.credentialIdB64u !== activeSession.authSource.credentialIdB64u
+      ) {
+        return json(
+          { ok: false, code: 'scope_mismatch', message: 'Passkey authority changed' },
+          { status: 403 },
+        );
+      }
+      const credential = proof.webauthnAuthentication;
+      const credentialId = String(credential.rawId || credential.id || '').trim();
+      if (credentialId !== activeSession.authSource.credentialIdB64u) {
+        return json(
+          { ok: false, code: 'unauthorized', message: 'Passkey credential changed' },
+          { status: 401 },
+        );
+      }
+      const origin =
+        activeSession.audience.kind === 'first_party_web'
+          ? activeSession.audience.origin
+          : activeSession.audience.walletOrigin;
+      const verified = await input.ctx.service.webAuthn.verifyWebAuthnAuthenticationLite({
+        userId: authenticated.session.walletId,
+        rpId: proof.authority.verifier.rpId,
+        expectedChallenge: challengeB64u,
+        expected_origin: origin,
+        webauthn_authentication: credential,
+      });
+      if (!verified.success || !verified.verified) {
+        return json(
+          {
+            ok: false,
+            code: verified.code || 'not_verified',
+            message: verified.message || 'WebAuthn authentication verification failed',
+          },
+          { status: 401 },
+        );
+      }
+      factor = buildVerifiedPasskeyFactorResult({
+        tenantId: authenticated.session.tenantId,
+        principalId: authenticated.session.principalId,
+        sessionId: authenticated.session.sessionId,
+        deviceId: activeSession.deviceId,
+        factorId: requireAuthorizationValue(
+          parseAuthFactorId(`passkey:${activeSession.authSource.credentialIdB64u}`),
+        ),
+        authorityRef: authenticated.authorityRef,
+        operation: envelope,
+        credentialIdB64u: activeSession.authSource.credentialIdB64u,
+        assertionDigest: parseDigestB64u(
+          base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(credential))),
+        ),
+        verifiedAtMs: nowMs,
+        expiresAtMs,
+      });
+      break;
+    }
+    case 'email_otp': {
+      if (
+        activeSession.authSource.kind !== 'oidc_provider' ||
+        String(activeSession.authSource.providerSubject) !== proof.providerSubjectId
+      ) {
+        return json(
+          { ok: false, code: 'scope_mismatch', message: 'Email OTP authority changed' },
+          { status: 403 },
+        );
+      }
+      const sessionHash = await hashEmailOtpAppSessionClaims(authenticated.rawClaims);
+      const verified = await input.ctx.service.emailOtp.verifyEmailOtpChallenge({
+        userId: authenticated.session.principalId,
+        walletId: authenticated.session.walletId,
+        orgId: authenticated.session.tenantId,
+        challengeId: proof.challengeId,
+        otpCode: proof.otpCode,
+        otpChannel: EMAIL_OTP_CHANNEL,
+        sessionHash,
+        appSessionVersion: activeSession.appSessionVersion,
+        operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+      });
+      if (!verified.ok) {
+        return json(verified, { status: verified.code === 'invalid_body' ? 400 : 401 });
+      }
+      const consumed = await input.ctx.service.emailOtp.consumeEmailOtpGrant({
+        subject: {
+          kind: 'authorization_session',
+          tenantId: authenticated.session.tenantId,
+          principalId: authenticated.session.principalId,
+          walletId: walletIdFromString(authenticated.session.walletId),
+        },
+        loginGrant: verified.loginGrant,
+        otpChannel: EMAIL_OTP_CHANNEL,
+      });
+      if (!consumed.ok) {
+        return json(consumed, { status: consumed.code === 'invalid_body' ? 400 : 401 });
+      }
+      factor = buildVerifiedEmailOtpFactorResult({
+        tenantId: authenticated.session.tenantId,
+        principalId: authenticated.session.principalId,
+        sessionId: authenticated.session.sessionId,
+        deviceId: activeSession.deviceId,
+        factorId: requireAuthorizationValue(
+          parseAuthFactorId(
+            `email_otp:${
+              activeSession.authSource.providerId === 'google_oidc' ? 'google' : 'email'
+            }:${proof.providerSubjectId}`,
+          ),
+        ),
+        authorityRef: authenticated.authorityRef,
+        operation: envelope,
+        challengeId: requireAuthorizationValue(parseEmailOtpChallengeId(consumed.challengeId)),
+        verificationReceiptDigest: parseDigestB64u(
+          base64UrlEncode(
+            await sha256BytesUtf8(
+              alphabetizeStringify({
+                challengeId: consumed.challengeId,
+                operationFingerprint: challengeB64u,
+              }),
+            ),
+          ),
+        ),
+        verifiedAtMs: nowMs,
+        expiresAtMs: Math.min(expiresAtMs, verified.grantExpiresAtMs),
+      });
+      break;
+    }
+  }
   const evidenceSet = await input.ctx.service.authorizationClaims.recordVerifiedFactorEvidenceSet({
     session: activeSession,
     operation: envelope,
@@ -1276,7 +1362,7 @@ export async function handleThresholdEd25519(
             status: thresholdEd25519StatusCode(parsedGrant.body),
           });
         }
-        return await issuePasskeyEd25519OperationStepUpGrant({
+        return await issueEd25519OperationStepUpGrant({
           ctx,
           request: parsedGrant.request,
         });

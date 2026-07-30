@@ -41,7 +41,6 @@ import type {
 } from './near';
 import type { NearEd25519YaoSigningPreparation } from '../session/material/nearEd25519YaoSigningPreparation';
 import type { SigningLaneAuthBinding } from '../session/identity/signingLaneAuthBinding';
-import type { Ed25519SigningLane } from '../session/emailOtp/ed25519SigningLane';
 import type { ExactEd25519SigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
 import type { EmailOtpEd25519YaoSilentRecoveryResultV1 } from '../session/emailOtp/ed25519YaoSealedRecovery';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
@@ -118,19 +117,7 @@ export type NearSigningApiDeps = {
   }) => Promise<EmailOtpEd25519YaoSilentRecoveryResultV1>;
   requestEmailOtpEd25519SigningChallenge?: (args: {
     walletSession: WalletSessionRef;
-    nearAccountId: AccountId;
-    authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
   }) => Promise<EmailOtpTransactionSigningChallenge>;
-  rehydrateEmailOtpEd25519CapabilityForSigning?: (args: {
-    nearAccountId: AccountId;
-    record: ThresholdEd25519SessionRecord;
-    committedLane: Ed25519SigningLane;
-    challengeId: string;
-    otpCode: string;
-    remainingUses: number;
-  }) => Promise<
-    { sessionId: string; record: ThresholdEd25519SessionRecord } & NearEd25519YaoSigningCapability
-  >;
   signingSessionCoordinator: SigningSessionCoordinator;
   readAvailableSigningLanesForSigning: (
     args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ed25519' }>,

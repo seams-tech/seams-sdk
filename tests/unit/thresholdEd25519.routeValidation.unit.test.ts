@@ -1,6 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
-import { parseThresholdEd25519SessionRouteRequest } from '../../packages/sdk-server-ts/src/router/thresholdEd25519RequestValidation';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import {
+  parseThresholdEd25519OperationStepUpGrantRequest,
+  parseThresholdEd25519SessionRouteRequest,
+} from '../../packages/sdk-server-ts/src/router/thresholdEd25519RequestValidation';
 
 function validWebAuthnAuthentication(): Record<string, unknown> {
   return {
@@ -56,6 +63,18 @@ function validThresholdEd25519SessionBody(): Record<string, unknown> {
   };
 }
 
+function validOperationStepUpBody(proof: Record<string, unknown>): Record<string, unknown> {
+  return {
+    kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',
+    normalSigningRequest: {
+      scope: { kind: 'router_ab_ed25519_normal_signing_scope_v2' },
+      intent: { kind: 'near_transaction_v1' },
+    },
+    displayDigest: 'display-digest',
+    proof,
+  };
+}
+
 function expectInvalidBody(
   parsed: ReturnType<typeof parseThresholdEd25519SessionRouteRequest>,
   message: string,
@@ -63,6 +82,101 @@ function expectInvalidBody(
   expect(parsed.ok).toBe(false);
   if (parsed.ok) throw new Error('expected invalid threshold-ed25519 route body');
   expect(parsed.body.message).toContain(message);
+}
+
+function expectInvalidOperationStepUpBody(
+  parsed: ReturnType<typeof parseThresholdEd25519OperationStepUpGrantRequest>,
+  message: string,
+): void {
+  expect(parsed.ok).toBe(false);
+  if (parsed.ok) throw new Error('expected invalid operation step-up body');
+  expect(parsed.body.message).toContain(message);
+}
+
+function acceptsExactPasskeyOperationStepUpProof(): void {
+  const authority = validThresholdEd25519SessionPolicy().authority;
+  const parsed = parseThresholdEd25519OperationStepUpGrantRequest(
+    validOperationStepUpBody({
+      kind: 'passkey',
+      authority,
+      webauthn_authentication: validWebAuthnAuthentication(),
+    }),
+  );
+
+  expect(parsed.ok).toBe(true);
+  if (!parsed.ok) throw new Error(parsed.body.message);
+  expect(parsed.request.proof).toMatchObject({
+    kind: 'passkey',
+    authority,
+  });
+}
+
+async function acceptsExactEmailOtpOperationStepUpProof(): Promise<void> {
+  const authority = buildEmailOtpWalletAuthAuthority({
+    walletId: 'frost-vermillion-k7p9m2',
+    provider: 'email',
+    providerUserId: 'email-user-route-validation',
+    emailHashHex: 'email-hash-route-validation',
+  });
+  const authorityRef = await walletAuthAuthorityRef({ authority });
+  const parsed = parseThresholdEd25519OperationStepUpGrantRequest(
+    validOperationStepUpBody({
+      kind: 'email_otp',
+      authority_ref: authorityRef,
+      provider_subject_id: 'email-user-route-validation',
+      challenge_id: 'challenge-route-validation',
+      otp_code: '123456',
+    }),
+  );
+
+  expect(parsed.ok).toBe(true);
+  if (!parsed.ok) throw new Error(parsed.body.message);
+  expect(parsed.request.proof).toEqual({
+    kind: 'email_otp',
+    authorityRef,
+    providerSubjectId: 'email-user-route-validation',
+    challengeId: 'challenge-route-validation',
+    otpCode: '123456',
+  });
+}
+
+async function rejectsMixedOperationStepUpProofFields(): Promise<void> {
+  const authority = buildEmailOtpWalletAuthAuthority({
+    walletId: 'frost-vermillion-k7p9m2',
+    provider: 'email',
+    providerUserId: 'email-user-route-validation',
+    emailHashHex: 'email-hash-route-validation',
+  });
+  const authorityRef = await walletAuthAuthorityRef({ authority });
+  expectInvalidOperationStepUpBody(
+    parseThresholdEd25519OperationStepUpGrantRequest(
+      validOperationStepUpBody({
+        kind: 'email_otp',
+        authority_ref: authorityRef,
+        provider_subject_id: 'email-user-route-validation',
+        challenge_id: 'challenge-route-validation',
+        otp_code: '123456',
+        webauthn_authentication: validWebAuthnAuthentication(),
+      }),
+    ),
+    'Unsupported Email OTP operation step-up proof field: webauthn_authentication',
+  );
+}
+
+function rejectsLegacyFlatOperationStepUpProof(): void {
+  const body = validOperationStepUpBody({
+    kind: 'passkey',
+    authority: validThresholdEd25519SessionPolicy().authority,
+    webauthn_authentication: validWebAuthnAuthentication(),
+  });
+  const proof = body.proof as Record<string, unknown>;
+  delete body.proof;
+  body.authority = proof.authority;
+  body.webauthn_authentication = proof.webauthn_authentication;
+  expectInvalidOperationStepUpBody(
+    parseThresholdEd25519OperationStepUpGrantRequest(body),
+    'Unsupported operation step-up grant field: authority',
+  );
 }
 
 function acceptsExactYaoBudgetRefreshBody(): void {
@@ -198,4 +312,20 @@ test(
 test(
   'threshold-ed25519 session route rejects body-owned ECDSA session claims',
   rejectsBodyOwnedEcdsaSessionClaims,
+);
+test(
+  'threshold-ed25519 operation step-up accepts the exact Passkey proof branch',
+  acceptsExactPasskeyOperationStepUpProof,
+);
+test(
+  'threshold-ed25519 operation step-up accepts the exact Email OTP proof branch',
+  acceptsExactEmailOtpOperationStepUpProof,
+);
+test(
+  'threshold-ed25519 operation step-up rejects mixed factor proof fields',
+  rejectsMixedOperationStepUpProofFields,
+);
+test(
+  'threshold-ed25519 operation step-up rejects the retired flat proof shape',
+  rejectsLegacyFlatOperationStepUpProof,
 );

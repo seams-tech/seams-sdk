@@ -37,12 +37,6 @@ export function createNearSigningDeps(args: {
             createArgs.requestEmailOtpEd25519SigningChallenge!(challengeArgs),
         }
       : {}),
-    ...(createArgs.rehydrateEmailOtpEd25519CapabilityForSigning
-      ? {
-          rehydrateEmailOtpEd25519CapabilityForSigning: (rehydrationArgs) =>
-            createArgs.rehydrateEmailOtpEd25519CapabilityForSigning!(rehydrationArgs),
-        }
-      : {}),
     signingSessionCoordinator,
     getWarmThresholdEd25519SessionStatusForSession: ({ nearAccountId, thresholdSessionId }) =>
       createWarmSessionStatusReader({

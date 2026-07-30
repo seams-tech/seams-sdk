@@ -9,6 +9,7 @@ import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSes
 import {
   isPasskeyWalletAuthAuthority,
   parseWalletAuthAuthority,
+  parseWalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { WebAuthnAuthenticationCredential } from '../core/types';
 import type {
@@ -21,8 +22,19 @@ const OPERATION_STEP_UP_GRANT_KEYS = [
   'kind',
   'normalSigningRequest',
   'displayDigest',
+  'proof',
+] as const;
+const OPERATION_STEP_UP_PASSKEY_PROOF_KEYS = [
+  'kind',
   'authority',
   'webauthn_authentication',
+] as const;
+const OPERATION_STEP_UP_EMAIL_OTP_PROOF_KEYS = [
+  'kind',
+  'authority_ref',
+  'provider_subject_id',
+  'challenge_id',
+  'otp_code',
 ] as const;
 import {
   findUnexpectedRouteKey,
@@ -237,23 +249,83 @@ export function parseThresholdEd25519OperationStepUpGrantRequest(
   }
   const displayDigest = requiredStringField(raw, 'displayDigest');
   if (!displayDigest.ok) return displayDigest;
-  const authority = parseWalletAuthAuthority(raw.authority);
-  if (!authority || !isPasskeyWalletAuthAuthority(authority)) {
-    return invalidThresholdEd25519Body('authority must be an exact passkey authority');
+  if (!isPlainObject(raw.proof)) {
+    return invalidThresholdEd25519Body('proof is required');
   }
-  const credential = parseOptionalWebAuthnAuthentication(raw);
-  if (!credential.ok) return credential;
-  if (!credential.request) {
-    return invalidThresholdEd25519Body('webauthn_authentication is required');
+  const proof = raw.proof;
+  switch (proof.kind) {
+    case 'passkey': {
+      const authority = parseWalletAuthAuthority(proof.authority);
+      const unsupportedProofKey = findUnexpectedRouteKey(
+        proof,
+        OPERATION_STEP_UP_PASSKEY_PROOF_KEYS,
+      );
+      if (unsupportedProofKey) {
+        return invalidThresholdEd25519Body(
+          `Unsupported passkey operation step-up proof field: ${unsupportedProofKey}`,
+        );
+      }
+      if (!authority || !isPasskeyWalletAuthAuthority(authority)) {
+        return invalidThresholdEd25519Body('proof.authority must be an exact passkey authority');
+      }
+      const credential = parseOptionalWebAuthnAuthentication(proof);
+      if (!credential.ok) return credential;
+      if (!credential.request) {
+        return invalidThresholdEd25519Body('proof.webauthn_authentication is required');
+      }
+      return {
+        ok: true,
+        request: {
+          kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',
+          normalSigningRequest: raw.normalSigningRequest,
+          displayDigest: displayDigest.request,
+          proof: {
+            kind: 'passkey',
+            authority,
+            webauthnAuthentication: credential.request,
+          },
+        },
+      };
+    }
+    case 'email_otp': {
+      const unsupportedProofKey = findUnexpectedRouteKey(
+        proof,
+        OPERATION_STEP_UP_EMAIL_OTP_PROOF_KEYS,
+      );
+      if (unsupportedProofKey) {
+        return invalidThresholdEd25519Body(
+          `Unsupported Email OTP operation step-up proof field: ${unsupportedProofKey}`,
+        );
+      }
+      const authorityRef = parseWalletAuthAuthorityRef(proof.authority_ref);
+      if (!authorityRef) {
+        return invalidThresholdEd25519Body(
+          'proof.authority_ref must be an exact wallet authority reference',
+        );
+      }
+      const providerSubjectId = requiredStringField(proof, 'provider_subject_id');
+      if (!providerSubjectId.ok) return providerSubjectId;
+      const challengeId = requiredStringField(proof, 'challenge_id');
+      if (!challengeId.ok) return challengeId;
+      const otpCode = requiredStringField(proof, 'otp_code');
+      if (!otpCode.ok) return otpCode;
+      return {
+        ok: true,
+        request: {
+          kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',
+          normalSigningRequest: raw.normalSigningRequest,
+          displayDigest: displayDigest.request,
+          proof: {
+            kind: 'email_otp',
+            authorityRef,
+            providerSubjectId: providerSubjectId.request,
+            challengeId: challengeId.request,
+            otpCode: otpCode.request,
+          },
+        },
+      };
+    }
+    default:
+      return invalidThresholdEd25519Body('proof.kind must be passkey or email_otp');
   }
-  return {
-    ok: true,
-    request: {
-      kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',
-      normalSigningRequest: raw.normalSigningRequest,
-      displayDigest: displayDigest.request,
-      authority,
-      webauthnAuthentication: credential.request,
-    },
-  };
 }

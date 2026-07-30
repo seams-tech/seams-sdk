@@ -67,9 +67,6 @@ type RequestEmailOtpTransactionSigningChallengeArgs = Parameters<
 type RequestEmailOtpEd25519SigningChallengeArgs = Parameters<
   NonNullable<NearSigningApiDeps['requestEmailOtpEd25519SigningChallenge']>
 >[0];
-type RehydrateEmailOtpEd25519CapabilityForSigningArgs = Parameters<
-  NonNullable<NearSigningApiDeps['rehydrateEmailOtpEd25519CapabilityForSigning']>
->[0];
 type RehydratePasskeyEd25519YaoCapabilityForSigning =
   NearSigningApiDeps['rehydratePasskeyEd25519YaoCapabilityForSigning'];
 type PrepareNearEd25519YaoSigning = NearSigningApiDeps['prepareNearEd25519YaoSigning'];
@@ -158,9 +155,6 @@ export type CreateSigningEnginePortsArgs = {
   requestEmailOtpEd25519SigningChallenge?: (
     args: RequestEmailOtpEd25519SigningChallengeArgs,
   ) => Promise<EmailOtpTransactionSigningChallenge>;
-  rehydrateEmailOtpEd25519CapabilityForSigning?: (
-    args: RehydrateEmailOtpEd25519CapabilityForSigningArgs,
-  ) => ReturnType<NonNullable<NearSigningApiDeps['rehydrateEmailOtpEd25519CapabilityForSigning']>>;
   rehydratePasskeyEd25519YaoCapabilityForSigning: RehydratePasskeyEd25519YaoCapabilityForSigning;
   prepareNearEd25519YaoSigning: PrepareNearEd25519YaoSigning;
   preparePasskeyEd25519YaoOperationStepUpForSigning: PreparePasskeyEd25519YaoOperationStepUpForSigning;

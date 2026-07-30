@@ -12,13 +12,25 @@ export type NearOperationStepUpPreparationRef = {
 };
 
 export type NearOperationStepUpPreparationPort = {
-  prepare(input: {
-    requestId: string;
-    transactionContext: TransactionContext;
-    operationId: string;
-    operationFingerprint: string;
-    displayDigest: string;
-  }): Promise<NearOperationStepUpPreparationRef>;
+  prepare(
+    input:
+      | {
+          kind: 'near_transaction';
+          requestId: string;
+          transactionContext: TransactionContext;
+          operationId: string;
+          operationFingerprint: string;
+          displayDigest: string;
+        }
+      | {
+          kind: 'near_signature_only';
+          requestId: string;
+          displayDigest: string;
+          transactionContext?: never;
+          operationId?: never;
+          operationFingerprint?: never;
+        },
+  ): Promise<NearOperationStepUpPreparationRef>;
   cancel(input: { requestId: string; handle?: NearOperationStepUpHandle }): void;
 };
 

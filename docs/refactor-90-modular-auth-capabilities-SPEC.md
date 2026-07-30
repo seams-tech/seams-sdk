@@ -241,6 +241,14 @@ implementing commit SHA as the evidence.
   - [x] NEAR transaction expiry invalidation, retry admission, and same-method
     UI routing derive from the canonical active authorization and selected
     factor rather than the composite session record (`535c0be3b`).
+  - [x] NEAR Passkey operation-step-up authority comes from the exact selected
+    lane while canonical material preparation supplies the policy facts and
+    full signer participant set; the signing-flow hook reads no composite
+    session record (`8ad73528b`).
+  - [x] The NEAR Email OTP server boundary validates the exact step-up proof,
+    consumes its OTP challenge, persists factor evidence, and issues a one-use
+    operation grant without creating a reusable Wallet Session or spending its
+    quota (`007416714`).
 - [x] `R90-INV-004` — Near admission, acquisition, and promotion are independently
   idempotent and queryable by exact recovery ID, including Refactor 93 exact
   Router replay, role-local reconciliation, and injected crash cases.

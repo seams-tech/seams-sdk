@@ -734,6 +734,14 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Derive NEAR transaction expiry invalidation, retry admission, and
       same-method UI routing from the canonical active authorization and
       selected factor instead of the composite session record (`535c0be3b`).
+- [x] Build NEAR Passkey operation-step-up authority from the exact selected
+      lane and its policy from canonical material preparation. Preserve the
+      full signer participant set without reading the composite session record
+      in the signing-flow hook (`8ad73528b`).
+- [x] Validate NEAR Email OTP operation-step-up proof at the server boundary,
+      consume the exact OTP challenge, persist factor evidence, and issue a
+      one-use operation grant without minting a reusable Wallet Session or
+      consuming its quota (`007416714`).
 
 ### Worker, WASM, and bundle boundary
 

@@ -51,8 +51,23 @@ export type RouterAbEd25519YaoOperationStepUpGrantCommandV1 = {
   readonly kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1';
   readonly normalSigningRequest: Record<string, unknown>;
   readonly displayDigest: string;
-  readonly authority: PasskeyWalletAuthAuthority;
-  readonly webauthnAuthentication: WebAuthnAuthenticationCredential;
+  readonly proof:
+    | {
+        readonly kind: 'passkey';
+        readonly authority: PasskeyWalletAuthAuthority;
+        readonly webauthnAuthentication: WebAuthnAuthenticationCredential;
+        readonly challengeId?: never;
+        readonly otpCode?: never;
+      }
+    | {
+        readonly kind: 'email_otp';
+        readonly authorityRef: WalletAuthAuthorityRef;
+        readonly providerSubjectId: string;
+        readonly challengeId: string;
+        readonly otpCode: string;
+        readonly webauthnAuthentication?: never;
+        readonly authority?: never;
+      };
 };
 
 export type RouterAbEd25519YaoBudgetRefreshAuthorizationV1 =

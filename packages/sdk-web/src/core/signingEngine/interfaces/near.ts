@@ -119,17 +119,9 @@ export type NearPasskeyEd25519OperationStepUpHook = {
   }>;
 };
 
-export type NearEmailOtpEd25519ReauthorizationHook = {
+export type NearEmailOtpEd25519StepUpHook = {
   prepare: () => Promise<EmailOtpTransactionSigningChallenge>;
   resend?: () => Promise<EmailOtpTransactionSigningChallenge>;
-  authorize: (args: {
-    authorization: NearEd25519EmailOtpStepUpAuthorization;
-    requiredSignatureUses: number;
-  }) => Promise<{
-    sessionId: string;
-    activeClient: RouterAbEd25519YaoActiveClientV1;
-    sessionState: NearResolvedEd25519SigningSessionState;
-  }>;
 };
 
 export type NearSigningSessionFinalizationHook = {
@@ -171,7 +163,7 @@ export type NearTransactionWithActionsPayload = {
   ed25519SigningBoundary: NearEd25519TransactionSigningBoundary;
   finalizePreparedSigningSession?: NearPreparedSigningSessionFinalizer;
   passkeyEd25519OperationStepUp?: NearPasskeyEd25519OperationStepUpHook;
-  emailOtpEd25519Reauthorization?: NearEmailOtpEd25519ReauthorizationHook;
+  emailOtpEd25519StepUp?: NearEmailOtpEd25519StepUpHook;
   sensitivePolicy?: SensitiveOperationPolicy;
   yaoSigningPreparation: NearEd25519YaoSigningPreparation;
   yaoMaterialExecutor: NearEd25519YaoMaterialExecutor;
@@ -193,7 +185,7 @@ export type NearDelegateActionPayload = {
   forceFreshAuth: boolean;
   selectedLane: SelectedEd25519Lane;
   passkeyEd25519OperationStepUp: NearPasskeyEd25519OperationStepUpHook | null;
-  emailOtpEd25519Reauthorization: NearEmailOtpEd25519ReauthorizationHook | null;
+  emailOtpEd25519StepUp: NearEmailOtpEd25519StepUpHook | null;
   yaoSigningPreparation: NearEd25519YaoSigningPreparation;
   yaoMaterialExecutor: NearEd25519YaoMaterialExecutor;
 };
@@ -206,7 +198,7 @@ export type NearNep413Payload = {
   forceFreshAuth: boolean;
   selectedLane: SelectedEd25519Lane;
   passkeyEd25519OperationStepUp: NearPasskeyEd25519OperationStepUpHook | null;
-  emailOtpEd25519Reauthorization: NearEmailOtpEd25519ReauthorizationHook | null;
+  emailOtpEd25519StepUp: NearEmailOtpEd25519StepUpHook | null;
   yaoSigningPreparation: NearEd25519YaoSigningPreparation;
   yaoMaterialExecutor: NearEd25519YaoMaterialExecutor;
   payload: {
