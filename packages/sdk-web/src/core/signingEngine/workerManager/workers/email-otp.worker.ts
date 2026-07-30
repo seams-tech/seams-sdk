@@ -4675,7 +4675,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       keygen: {
         ok: true,
         keygenSessionId,
-        evmFamilySigningKeySlotId,
+        keyHandle: value.keyHandle,
         ecdsaThresholdKeyId: value.ecdsaThresholdKeyId,
         clientVerifyingShareB64u,
         relayerKeyId: value.relayerKeyId,

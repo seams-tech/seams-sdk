@@ -25,7 +25,6 @@ import type { EvmAddress, EvmSigningRequest, Hex } from '../chains/evm/evmSignin
 import type { TempoSigningRequest } from '../chains/tempo/tempoSigning.types';
 import type { EmailOtpAuthSubjectId } from '../session/identity/emailOtpEcdsaDerivationIdentity';
 import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
-import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type {
   EmailOtpChallengeId,
   SigningOperationId,
@@ -128,7 +127,7 @@ export type ReadyEd25519Lane = {
 export type EcdsaUseCaseReadyLane = {
   kind: 'ecdsa_ready_lane_v1';
   walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+  evmFamilySigningKeySlotId?: never;
   rpId: RpId;
   chainTarget: ThresholdEcdsaChainTarget;
   readyRecord: EcdsaRoleLocalReadyRecord;
@@ -457,7 +456,7 @@ export type SigningSessionActivationEmailOtpEd25519Auth = {
 export type SigningSessionActivationEmailOtpEcdsaAuth = {
   kind: 'email_otp';
   walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+  evmFamilySigningKeySlotId?: never;
   authSubjectId: EmailOtpAuthSubjectId;
   workerHandle: Extract<EmailOtpWorkerIssuedSessionHandle, { action: 'threshold_ecdsa_bootstrap' }>;
   rpId?: never;

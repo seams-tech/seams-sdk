@@ -48,7 +48,6 @@ const ECDSA_RESTORE_AUTHORITY = buildWalletAuthAuthorityRefFixture({
 const ECDSA_RESTORE = {
   chainTarget: ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.chainTarget,
   source: 'manual-bootstrap',
-  evmFamilySigningKeySlotId: ECDSA_RESTORE_BOOTSTRAP.keygen.evmFamilySigningKeySlotId,
   authority: ECDSA_RESTORE_AUTHORITY,
   roleLocalMaterialRef: ECDSA_RESTORE_MATERIAL_REF,
   rpId: 'wallet.example.localhost',

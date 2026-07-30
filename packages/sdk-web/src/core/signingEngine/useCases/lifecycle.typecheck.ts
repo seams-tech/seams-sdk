@@ -49,7 +49,6 @@ import type { EvmSigningRequest, Hex } from '../chains/evm/evmSigning.types';
 import type { TempoSigningRequest } from '../chains/tempo/tempoSigning.types';
 import type { EmailOtpAuthSubjectId } from '../session/identity/emailOtpEcdsaDerivationIdentity';
 import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
-import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type {
   EmailOtpChallengeId,
   SigningOperationId,
@@ -58,7 +57,6 @@ import type {
 } from '../session/operationState/types';
 
 declare const walletId: WalletId;
-declare const evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
 declare const rpId: RpId;
 declare const accountId: AccountId;
 declare const credentialIdB64u: CredentialIdB64u;
@@ -149,6 +147,13 @@ const ecdsaLaneMissingTarget = {
 // @ts-expect-error ready ECDSA lanes require an exact chain target
 ecdsaLaneMissingTarget satisfies EcdsaUseCaseReadyLane;
 
+const ecdsaLaneWithProvisioningSlot = {
+  ...readyEcdsaLane,
+  evmFamilySigningKeySlotId: 'provisioning-slot',
+};
+// @ts-expect-error Provisioning slots are not ready-lane identity.
+ecdsaLaneWithProvisioningSlot satisfies EcdsaUseCaseReadyLane;
+
 const passkeyUnlockWithOtp = {
   kind: 'passkey_unlock',
   credentialId: credentialIdB64u,
@@ -198,7 +203,6 @@ const emailOtpEd25519ActivationAuth = {
 const emailOtpEcdsaActivationAuth = {
   kind: 'email_otp',
   walletId,
-  evmFamilySigningKeySlotId,
   authSubjectId: emailOtpAuthSubjectId,
   workerHandle: emailOtpEcdsaWorkerHandle,
 } satisfies SigningSessionActivationEmailOtpEcdsaAuth;
@@ -206,7 +210,6 @@ const emailOtpEcdsaActivationAuth = {
 const emailOtpEcdsaActivationAuthWithRp = {
   kind: 'email_otp',
   walletId,
-  evmFamilySigningKeySlotId,
   rpId,
   authSubjectId: emailOtpAuthSubjectId,
   workerHandle: emailOtpEcdsaWorkerHandle,
@@ -227,12 +230,18 @@ emailOtpEd25519AuthWithEcdsaHandle satisfies SigningSessionActivationEmailOtpEd2
 const emailOtpEcdsaAuthWithEd25519Handle = {
   kind: 'email_otp',
   walletId,
-  evmFamilySigningKeySlotId,
   authSubjectId: emailOtpAuthSubjectId,
   workerHandle: emailOtpEd25519WorkerHandle,
 };
 // @ts-expect-error Email OTP ECDSA activation requires an ECDSA worker handle with chainTarget
 emailOtpEcdsaAuthWithEd25519Handle satisfies SigningSessionActivationEmailOtpEcdsaAuth;
+
+const emailOtpEcdsaAuthWithProvisioningSlot = {
+  ...emailOtpEcdsaActivationAuth,
+  evmFamilySigningKeySlotId: 'provisioning-slot',
+};
+// @ts-expect-error Provisioning slots are not runtime activation authority.
+emailOtpEcdsaAuthWithProvisioningSlot satisfies SigningSessionActivationEmailOtpEcdsaAuth;
 
 const ecdsaActivationMaterial = {
   kind: 'ecdsa_session',
