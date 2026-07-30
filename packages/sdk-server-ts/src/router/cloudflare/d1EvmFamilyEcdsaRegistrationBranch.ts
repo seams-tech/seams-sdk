@@ -93,7 +93,8 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
   });
   const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
     walletId: input.walletId,
-    evmFamilySigningKeySlotId,
+    signingRootId: input.signingRootId,
+    signingRootVersion: input.signingRootVersion,
   });
   const rootShareEpoch = requireRegistrationRootShareEpoch(input.signingRootVersion);
   const activeStateId = buildRouterAbEcdsaDerivationActiveStateIdV1({

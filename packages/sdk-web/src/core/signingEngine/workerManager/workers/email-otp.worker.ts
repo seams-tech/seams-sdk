@@ -4732,7 +4732,8 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       signingRootVersion,
       relayerKeyId: await computeEcdsaDerivationRoleLocalRelayerKeyId({
         walletId,
-        evmFamilySigningKeySlotId,
+        signingRootId,
+        signingRootVersion,
       }),
     });
   }

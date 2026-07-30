@@ -49,7 +49,8 @@ async function ecdsaSeedBase(): Promise<{
     derivationVersion: 1,
     relayerKeyId: await computeEcdsaDerivationRoleLocalRelayerKeyId({
       walletId,
-      evmFamilySigningKeySlotId,
+      signingRootId,
+      signingRootVersion,
     }),
     participantIds: [1, 2],
     remainingUses: 3,
@@ -135,7 +136,8 @@ async function rejectsDifferentEcdsaKeyWithoutOrphaningState(): Promise<void> {
       }),
       relayerKeyId: await computeEcdsaDerivationRoleLocalRelayerKeyId({
         walletId,
-        evmFamilySigningKeySlotId: substitutedSlotId,
+        signingRootId,
+        signingRootVersion,
       }),
       signingGrantId,
       thresholdSessionId: 'tederivation_key_slot_substituted',

@@ -12,7 +12,6 @@ import type {
   EvmFamilyEcdsaKeyIdentity,
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
-import { deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform/types';
 import type {
@@ -272,13 +271,10 @@ async function bootstrapStrictExistingEcdsaSession(
       });
   const capability = strict.sessionActivation.public_capability;
   const publicIdentity = capability.public_identity;
-  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
-    walletId: args.key.walletId,
-    runtimePolicyScope,
-  });
   const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
     walletId: String(args.key.walletId),
-    evmFamilySigningKeySlotId,
+    signingRootId: args.key.signingRootId,
+    signingRootVersion: args.key.signingRootVersion,
   });
   const common: BootstrapEcdsaSessionSuccessCommon = {
     ok: true,

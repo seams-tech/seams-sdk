@@ -90,7 +90,8 @@ async function makeBootstrapBody(overrides?: Record<string, unknown>) {
   });
   const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
     walletId: WALLET_SESSION_USER_ID,
-    walletKeyId: WALLET_KEY_ID,
+    signingRootId: SIGNING_ROOT_ID,
+    signingRootVersion: SIGNING_ROOT_VERSION,
   });
   const body = {
     formatVersion: 'ecdsa-derivation-role-local',
