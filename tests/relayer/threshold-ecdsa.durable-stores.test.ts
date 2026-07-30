@@ -75,7 +75,6 @@ function makePresignSessionRecord(args?: {
   return {
     expiresAtMs,
     walletId: 'wallet-do-1',
-    evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet-do-1:signing-root-do-1:root-v1',
     relayerKeyId: 'rk-presign',
     presignPoolKey: 'keyHandle:rk-presign',
     poolFill: makeSigningWorkerPoolFill(expiresAtMs),
@@ -123,7 +122,6 @@ function makeCloudflareDoPresignSessionRecord(input: {
   return {
     expiresAtMs: nowMs + 60_000,
     walletId: 'wallet-do-1',
-    evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet-do-1:signing-root-do-1:root-v1',
     relayerKeyId: input.relayerKeyId,
     presignPoolKey: `keyHandle:${input.relayerKeyId}`,
     poolFill: makeSigningWorkerPoolFill(nowMs + 60_000),

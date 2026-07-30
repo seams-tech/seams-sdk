@@ -704,8 +704,7 @@ test.describe('Wallet Session budget reservation backend contracts', () => {
     const request = {
       kind: 'router_ab_ecdsa_normal_signing_session_v1' as const,
       walletId: 'ecdsa-atomic-wallet',
-      evmFamilySigningKeySlotId:
-        'wallet-key:evm-family:ecdsa-atomic-wallet:ecdsa-atomic-root:ecdsa-atomic-root-version',
+      keyHandle: 'ecdsa-atomic-key-handle',
       relayerKeyId: 'ecdsa-atomic-relayer',
       thresholdSessionId: 'ecdsa-atomic-threshold-session',
       signingGrantId: 'ecdsa-atomic-signing-grant',
@@ -740,8 +739,6 @@ test.describe('Wallet Session budget reservation backend contracts', () => {
       runtime.provisionRouterAbEcdsaNormalSigningSession({
         ...request,
         walletId: 'ecdsa-conflicting-wallet',
-        evmFamilySigningKeySlotId:
-          'wallet-key:evm-family:ecdsa-conflicting-wallet:ecdsa-atomic-root:ecdsa-atomic-root-version',
       }),
     ).resolves.toMatchObject({
       ok: false,

@@ -67,7 +67,6 @@ export type ThresholdEcdsaMpcSessionRecord = {
   intentDigestB64u: string;
   signingDigestB64u: string;
   walletId: string;
-  evmFamilySigningKeySlotId: string;
   clientVerifyingShareB64u?: string;
   participantIds: number[];
 } & Partial<ThresholdEcdsaSigningRootMetadata>;

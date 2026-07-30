@@ -868,7 +868,6 @@ export type ParsedThresholdEcdsaMpcSessionRecord = {
   intentDigestB64u: string;
   signingDigestB64u: string;
   walletId: string;
-  evmFamilySigningKeySlotId: string;
   clientVerifyingShareB64u?: string;
   participantIds: number[];
 } & Partial<ParsedThresholdEcdsaSigningRootMetadata>;
@@ -932,9 +931,6 @@ export function parseThresholdEcdsaMpcSessionRecord(
   const intentDigestB64u = toOptionalString(raw.intentDigestB64u);
   const signingDigestB64u = toOptionalString(raw.signingDigestB64u);
   const walletId = toOptionalString(raw.walletId);
-  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    raw.evmFamilySigningKeySlotId,
-  );
   const clientVerifyingShareB64u = toOptionalString(raw.clientVerifyingShareB64u);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
@@ -947,8 +943,7 @@ export function parseThresholdEcdsaMpcSessionRecord(
     !purpose ||
     !intentDigestB64u ||
     !signingDigestB64u ||
-    !walletId ||
-    !evmFamilySigningKeySlotId
+    !walletId
   ) {
     return null;
   }
@@ -961,7 +956,6 @@ export function parseThresholdEcdsaMpcSessionRecord(
     intentDigestB64u,
     signingDigestB64u,
     walletId,
-    evmFamilySigningKeySlotId,
     ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
     participantIds,
     ...(signingRootMetadata.value ? signingRootMetadata.value : {}),

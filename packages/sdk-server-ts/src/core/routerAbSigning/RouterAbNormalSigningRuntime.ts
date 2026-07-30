@@ -7,7 +7,6 @@ import {
   type NearEd25519SigningKeyId,
 } from '@shared/utils/registrationIntent';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { assertEvmFamilySigningKeySlotIdMatchesPlan } from '@shared/signing-lanes';
 import {
   MAX_WALLET_SESSION_REMAINING_USES,
   MAX_WALLET_SESSION_TTL_MS,
@@ -282,7 +281,6 @@ export type RouterAbEd25519YaoNormalSigningBudgetRefreshResult =
 export type RouterAbEcdsaNormalSigningSessionProvisionInput = {
   readonly kind: 'router_ab_ecdsa_normal_signing_session_v1';
   readonly walletId: string;
-  readonly evmFamilySigningKeySlotId: string;
   readonly keyHandle: string;
   readonly relayerKeyId: string;
   readonly thresholdSessionId: string;
@@ -908,25 +906,9 @@ export class RouterAbNormalSigningRuntime {
     const expiresAtMs = Number(input.expiresAtMs);
     const remainingUses = Math.floor(Number(input.remainingUses));
     const participantIds = normalizeExactEcdsaParticipantIds(input.participantIds);
-    let evmFamilySigningKeySlotId: string;
-    try {
-      evmFamilySigningKeySlotId = assertEvmFamilySigningKeySlotIdMatchesPlan({
-        evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
-        walletId: input.walletId,
-        signingRootId: input.signingRootId,
-        signingRootVersion: input.signingRootVersion,
-      });
-    } catch {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'ECDSA signing key slot does not match its wallet and signing-root epoch',
-      };
-    }
     if (
       input.kind !== 'router_ab_ecdsa_normal_signing_session_v1' ||
       !walletId.ok ||
-      !evmFamilySigningKeySlotId ||
       !relayerKeyId ||
       !thresholdSessionId ||
       !signingGrantId ||
