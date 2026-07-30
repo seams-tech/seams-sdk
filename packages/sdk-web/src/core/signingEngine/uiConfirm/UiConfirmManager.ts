@@ -1408,14 +1408,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   };
 
   restorePersistedSessionForSigning = async (
-    args: {
-      authMethod: 'passkey';
-    } & RestorePersistedSessionForSigningInput,
+    args: Omit<RestorePersistedSessionForSigningInput, 'authMethod'>,
   ): Promise<RestorePersistedSessionForSigningResult> => {
-    if (args.authMethod !== 'passkey' || !this.isSealedRefreshModeEnabled()) {
+    if (!this.isSealedRefreshModeEnabled()) {
       return { kind: 'completed', attempted: 0, restored: 0, deferred: 0 };
     }
-    return await restorePersistedSessionForSigningCommand(args, {
+    return await restorePersistedSessionForSigningCommand({ ...args, authMethod: 'passkey' }, {
       listExactSealedSessionsForWallet: async (filter) => {
         return await listExactSealedSessionsForWallet({
           walletId: filter.walletId,

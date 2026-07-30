@@ -78,6 +78,7 @@ import {
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { EmailOtpTransactionSigningChallenge } from '@/core/signingEngine/session/emailOtp/publicTypes';
+import type { RestorePersistedSessionForSigningInput } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 type EmailOtpEd25519RecoveryRequest = Omit<
@@ -96,6 +97,16 @@ type BrowserEcdsaCapabilityReaderContext = Pick<
   BrowserSigningSurfaceEnginePortsArgs,
   'seamsWebConfigs' | 'emailOtpSessions' | 'sealedSigningSessionStore'
 >;
+
+function omitPasskeyRestoreAuthMethod(
+  input: RestorePersistedSessionForSigningInput,
+): Omit<RestorePersistedSessionForSigningInput, 'authMethod'> {
+  if (input.authMethod !== 'passkey') {
+    throw new Error('Passkey restore adapter received a non-Passkey request');
+  }
+  const { authMethod: _authMethod, ...passkeyRestore } = input;
+  return passkeyRestore;
+}
 
 async function resolveExactWalletAuthAuthority(
   authorityRef: WalletAuthAuthorityRef,
@@ -652,10 +663,9 @@ export function createBrowserSigningSurfaceEnginePorts(
       ),
     restorePersistedSessionForSigning: (restoreArgs) =>
       restoreArgs.authMethod === 'passkey'
-        ? args.touchConfirm.restorePersistedSessionForSigning({
-            ...restoreArgs,
-            authMethod: 'passkey',
-          })
+        ? args.touchConfirm.restorePersistedSessionForSigning(
+            omitPasskeyRestoreAuthMethod(restoreArgs),
+          )
         : args.emailOtpSessions.restorePersistedSessionForSigning(restoreArgs),
     readAvailableSigningLanesForSigning: (readArgs) =>
       readPersistedAvailableSigningLanesForSigningOperation(
