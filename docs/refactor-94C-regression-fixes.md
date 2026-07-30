@@ -431,6 +431,15 @@ Deployment record (July 30, 2026):
   `6fab660a-200d-4b8d-83c1-03068995af19`;
 - production Gateway: `https://api.seams.sh`, Worker version
   `92e2f6f2-d23f-491e-91ee-0f274679b3c1`;
+- production Router: version `947ff8de-013d-4547-a8e9-367dc48bf418`, with
+  zero Durable Object bindings;
+- production Deriver A/B: versions
+  `957e412c-14b4-46fb-beb3-55ce2570436c` and
+  `77a55e22-5b6f-4033-bfa6-f01a8b5d3872`, each with zero Durable Object
+  bindings and a separate role-private D1 database;
+- production SigningWorker: version
+  `9024c0f0-bc2c-4484-9785-9167138684ba`, with private D1 and only the
+  ephemeral presign-session Durable Object binding;
 - production frontend workflow: GitHub Actions run `30516830211`;
 - production `/readyz`, `/healthz`, Router ceremony JWKS, `seams.sh`, and
   `sign.seams.sh` returned HTTP 200 after applying signer D1 migration
@@ -438,6 +447,10 @@ Deployment record (July 30, 2026):
 - the final legacy Gateway Durable Object was deleted with a one-time
   deployment-boundary migration. The checked-in end state retains no retired
   Gateway Durable Object binding or migration scaffold.
+- the three production role-private databases were created in APAC, migrated,
+  and encrypted with role-specific KEKs. The recovery copy is stored outside
+  the repository at
+  `~/.seams/backups/refactor94c-production-role-private-d1-20260730.json`.
 
 Exit: local, staging, and production use the same zero-DO implementation.
 
