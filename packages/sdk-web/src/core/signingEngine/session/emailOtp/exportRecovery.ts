@@ -11,12 +11,8 @@ import type { EmailOtpEd25519YaoActiveCapabilityDescriptorV1 } from '@/core/sign
 import { throwEmailOtpSigningSessionAuthStateError } from './routePlan';
 import {
   walletAuthAuthorityRef,
-  type EmailOtpWalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
-import type {
-  EmailOtpEcdsaExportAuthLane,
-} from '../../flows/recovery/ecdsaExportMaterial';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
@@ -164,7 +160,7 @@ function buildTransactionSigningChallengeRoutePlan(
   args: RequestEmailOtpChallengeArgs,
 ): EmailOtpRoutePlan {
   switch (args.kind) {
-    case 'wallet_public_reauth_challenge':
+    case 'wallet_capability_step_up_challenge':
       return buildEmailOtpRoutePlan({
         routeFamily: 'login',
         authLane: { kind: 'app_session', jwt: args.appSessionJwt },

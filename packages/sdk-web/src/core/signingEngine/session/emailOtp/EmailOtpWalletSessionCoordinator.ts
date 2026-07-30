@@ -87,12 +87,14 @@ export class EmailOtpWalletSessionCoordinator {
     return await this.runtime.requestTransactionSigningChallenge(args);
   }
 
-  async requestPublicReauthTransactionSigningChallenge(
+  async requestCapabilityStepUpTransactionSigningChallenge(
     args: Parameters<
-      EmailOtpWalletSessionRuntime['requestPublicReauthTransactionSigningChallenge']
+      EmailOtpWalletSessionRuntime['requestCapabilityStepUpTransactionSigningChallenge']
     >[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['requestPublicReauthTransactionSigningChallenge']> {
-    return await this.runtime.requestPublicReauthTransactionSigningChallenge(args);
+  ): ReturnType<
+    EmailOtpWalletSessionRuntime['requestCapabilityStepUpTransactionSigningChallenge']
+  > {
+    return await this.runtime.requestCapabilityStepUpTransactionSigningChallenge(args);
   }
 
   async requestExportChallenge(

@@ -173,13 +173,13 @@ The SPEC owns every branch payload, parser, transition, and atomicity rule.
 The old phase numbers remain useful for history and the deletion ledger. Active
 work is tracked in five units.
 
-| Unit                                               | Consolidates                                             | Dependency                                    | Result                                                                                                             |
-| -------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **1. Canonical hydration + canonical ECDSA state** | Foundations A/B, Phases 4–5, ECDSA identity work from 18 | Implementation complete; remaining state/crash acceptance open | Exact subjects, protocol-local resolvers with shared outcomes, required ECDSA state, and slim material references. |
-| **2. Shared authorization core**                   | Phases 7–14, including Phase 8 SDK selection             | Atomic claim core complete; effect-owner response replay awaits Refactor 94C | Closed capability vocabulary plus DB-backed session → evidence → grant → claim → audit flow.                       |
+| Unit                                               | Consolidates                                             | Dependency                                                                                         | Result                                                                                                             |
+| -------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **1. Canonical hydration + canonical ECDSA state** | Foundations A/B, Phases 4–5, ECDSA identity work from 18 | Implementation complete; remaining state/crash acceptance open                                     | Exact subjects, protocol-local resolvers with shared outcomes, required ECDSA state, and slim material references. |
+| **2. Shared authorization core**                   | Phases 7–14, including Phase 8 SDK selection             | Atomic claim core complete; effect-owner response replay awaits Refactor 94C                       | Closed capability vocabulary plus DB-backed session → evidence → grant → claim → audit flow.                       |
 | **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | Core operating paths and production record deletion complete; acceptance and residual cleanup open | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
-| **3b. Vault proving vertical**                     | Phase 16                                                 | Complete                                      | [Satyr vault plan Phase 6](./satyr-secrets-vault.md) proves one real vault operation.                              |
-| **4. UI + provisioning**                           | Phases 22–23                                             | Provisioning and typed lifecycle implementation complete; cleanup and Refactor 92 acceptance open | Typed lifecycle events and provisioning use the canonical capability model.                                        |
+| **3b. Vault proving vertical**                     | Phase 16                                                 | Complete                                                                                           | [Satyr vault plan Phase 6](./satyr-secrets-vault.md) proves one real vault operation.                              |
+| **4. UI + provisioning**                           | Phases 22–23                                             | Provisioning and typed lifecycle implementation complete; cleanup and Refactor 92 acceptance open  | Typed lifecycle events and provisioning use the canonical capability model.                                        |
 
 Units 3a and 3b may be implemented in parallel after Unit 2 interfaces
 stabilize. Unit 3b does not block development of the MPC cutover. Supported
@@ -225,7 +225,7 @@ SPEC and Satyr plan are amended together.
 - [x] Refactor 91 auth-domain cutover is treated as current behavior.
 - [x] Refactor 92 signing-session lifecycle is frozen.
 - [x] Refactor 93 pair-bound role execution and exact replay are retained.
-- [ ] Refactor 94C replaces the Cloudflare Gateway/DO ownership baseline before
+- [x] Refactor 94C replaces the Cloudflare Gateway/DO ownership baseline before
       Refactor 90 release.
 
 ## External Acceptance Gates
@@ -415,7 +415,7 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
       static port shapes.
 - [x] Use one statically composed module graph; add no runtime plugin registry,
       tenant-mutated route table, or deployment module-selection framework.
-- [ ] Preserve the request-scoped `MPC_ROUTER` service-binding contract while
+- [x] Preserve the request-scoped `MPC_ROUTER` service-binding contract while
       applying Refactor 94C's Cloudflare durable-owner map; keep Router
       stateless.
 - [x] Reject tenant-runtime service locators and direct infrastructure roles in
@@ -451,7 +451,7 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 - [x] Fail `mpc_signer_proof` policy evaluation closed until a verified producer
       exists.
 - [x] Audit records the decision and identifiers without secret material.
-- [ ] Move management and session routes to exact subjects, keep their policy
+- [x] Move management and session routes to exact subjects, keep their policy
       separate from operation grants, and delete wallet-first policy aliases.
 - [x] One DB-backed integration test proves
       session → evidence → grant → claim → audit before Units 3a/3b depend on the
@@ -689,7 +689,7 @@ the replacement and legacy MPC paths must not ship together.
       same `RouterApiServiceBag`; route handlers do not access D1 or claim and
       session stores directly. The focused route-surface and self-host parity
       suites pass 15/15.
-- [ ] Preserve one signed, admitted Gateway → Router command. Keep Router
+- [x] Preserve one signed, admitted Gateway → Router command. Keep Router
       stateless; forbid ceremony-wide Router ledgers, tenant-wide Gateway
       runtime state, tenant runtime/cutover selectors, direct Deriver origins,
       direct Gateway role calls, and Gateway-owned SigningWorker delivery.
