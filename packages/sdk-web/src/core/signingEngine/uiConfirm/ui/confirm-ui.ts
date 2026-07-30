@@ -825,7 +825,7 @@ function mountHostElement({
 
   const portal = ensureConfirmPortal();
   const wasEmpty = portal.childElementCount === 0;
-  portal.insertBefore(element, portal.firstChild);
+  portal.appendChild(element);
   updateConfirmPortalState(portal);
 
   if (wasEmpty) {
