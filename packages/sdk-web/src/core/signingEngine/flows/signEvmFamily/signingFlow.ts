@@ -13,9 +13,7 @@ import type {
   SignatureBytes,
 } from '@/core/signingEngine/interfaces/signing';
 import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
-import {
-  isWarmSessionSigningAuthPlan,
-} from '@/core/signingEngine/stepUpConfirmation/types';
+import { isWarmSessionSigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceBackend';
 import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
@@ -33,7 +31,10 @@ import {
   type CreateSigningFlowEventInput,
   type SigningFlowEvent,
 } from '@/core/types/sdkSentEvents';
-import type { SigningOperationContext, SigningSessionPlan } from '../../session/operationState/types';
+import type {
+  SigningOperationContext,
+  SigningSessionPlan,
+} from '../../session/operationState/types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   SigningOperationCommandKind,
@@ -66,10 +67,7 @@ import {
 import { buildEvmFamilyEcdsaStepUpAuthorization } from './stepUpAuthorization';
 import type { PreparedEcdsaOperationStepUp } from '../../threshold/ecdsa/operationStepUp';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
-import type {
-  ReadySecp256k1Signer,
-  ReadySecp256k1SigningMaterial,
-} from './signers/secp256k1';
+import type { ReadySecp256k1Signer, ReadySecp256k1SigningMaterial } from './signers/secp256k1';
 import type {
   HydratedSecp256k1SigningMaterialResolution,
   ReadySecp256k1SigningMaterialResolution,
@@ -178,9 +176,7 @@ export type EcdsaSigningMaterialPlan = Exclude<
   { kind: 'pending' }
 >;
 
-export type ResolveEcdsaSigningMaterialPlan = (args: {
-  requestLabel: unknown;
-}) => Promise<EcdsaSigningMaterialPlan>;
+export type ResolveEcdsaSigningMaterialPlan = () => Promise<EcdsaSigningMaterialPlan>;
 
 export type RunEcdsaMaterialUse = <T>(task: () => Promise<T>) => Promise<T>;
 
@@ -304,9 +300,7 @@ export type EvmFamilyUiConfirmFlowConfig<TRequest, TResult extends object> = {
 
 export type SignEvmFamilyWithUiConfirmArgs<TRequest> = {
   ctx: UiConfirmContext;
-  touchConfirm: UiConfirmSigningPort &
-    UiConfirmSecureConfirmationPort &
-    WarmSessionStatusReader;
+  touchConfirm: UiConfirmSigningPort & UiConfirmSecureConfirmationPort & WarmSessionStatusReader;
   walletId: string;
   request: TRequest & { senderSignatureAlgorithm: string };
   engines: EvmFamilySigningEngines;
@@ -340,9 +334,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     thresholdEcdsaStepUp.kind === 'not_required' ? undefined : thresholdEcdsaStepUp.runtime;
   const signingAuthPlan = signingAuthPlanFromThresholdEcdsaStepUp(thresholdEcdsaStepUp);
   if (hasThresholdEcdsaRequest && !signingAuthPlan) {
-    throw new Error(
-      '[chains] threshold ECDSA transaction signing requires an explicit auth plan',
-    );
+    throw new Error('[chains] threshold ECDSA transaction signing requires an explicit auth plan');
   }
   const authMethod = resolveSigningConfirmationAuthMethod(
     signingAuthPlan,
@@ -418,19 +410,17 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   };
 
   const needsWebAuthn =
-    config.webauthn.kind === 'supported' &&
-    config.webauthn.requestNeedsWebAuthn(input.request);
+    config.webauthn.kind === 'supported' && config.webauthn.requestNeedsWebAuthn(input.request);
   let preparedRequest = input.request;
   let nonceReservation: ManagedNonceReservation | null = null;
   let reservationReleased = false;
   let thresholdSignatureCreated = false;
   const activeThresholdEcdsaOperation: EvmFamilyThresholdEcdsaOperation | null =
     thresholdEcdsaStepUp.kind === 'required' ? thresholdEcdsaStepUp.operation : null;
-  const getThresholdEcdsaOperation =
-    async (): Promise<EvmFamilyThresholdEcdsaOperation> => {
-      if (activeThresholdEcdsaOperation) return activeThresholdEcdsaOperation;
-      throw new Error('[chains] threshold ECDSA transaction signing requires an operation');
-    };
+  const getThresholdEcdsaOperation = async (): Promise<EvmFamilyThresholdEcdsaOperation> => {
+    if (activeThresholdEcdsaOperation) return activeThresholdEcdsaOperation;
+    throw new Error('[chains] threshold ECDSA transaction signing requires an operation');
+  };
   const releaseNonceReservation = async (): Promise<void> => {
     if (reservationReleased || !nonceReservation || !input.releaseNonceReservation) return;
     reservationReleased = true;
@@ -498,9 +488,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         signingDigest32: inferDigest32FromSignRequest(firstSignRequest),
         displayModel,
       });
-      const plan = await input.resolveEcdsaSigningMaterialPlan({
-        requestLabel: firstSignRequest.label,
-      });
+      const plan = await input.resolveEcdsaSigningMaterialPlan();
       switch (plan.kind) {
         case 'ready':
           ecdsaSigningMaterialSource = plan.value;
@@ -569,9 +557,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     // may spend an arbitrary amount of time in the prompt, so the material and
     // capability authority prepared above cannot be treated as current here.
     if (input.resolveEcdsaSigningMaterialPlan) {
-      const plan = await input.resolveEcdsaSigningMaterialPlan({
-        requestLabel: signReq.label,
-      });
+      const plan = await input.resolveEcdsaSigningMaterialPlan();
       switch (plan.kind) {
         case 'ready':
           ecdsaSigningMaterialSource = plan.value;
@@ -733,7 +719,9 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       throw new Error('[chains] signing auth payload is required before threshold admission');
     }
     if (!stepUpAuthorization) {
-      throw new Error('[chains] signing step-up authorization is required before threshold admission');
+      throw new Error(
+        '[chains] signing step-up authorization is required before threshold admission',
+      );
     }
     if (intentHasSecp256k1Request && !activeThresholdEcdsaOperation) {
       throw new Error('[chains] threshold ECDSA operation must be prepared before signing');

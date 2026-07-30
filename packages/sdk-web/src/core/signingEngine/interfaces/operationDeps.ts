@@ -21,9 +21,7 @@ import type {
 import type { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
 import type { ThresholdEcdsaSessionStoreSource } from '../session/identity/laneIdentity';
 import type { ExactEcdsaSigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
-import type {
-  ThresholdEd25519SessionRecord,
-} from '../session/persistence/records';
+import type { ThresholdEd25519SessionRecord } from '../session/persistence/records';
 import type { RestorePersistedSessionForSigningInput } from '../session/sealedRecovery/sealedRecovery.types';
 import type {
   ThresholdEcdsaChainTarget,
@@ -95,9 +93,6 @@ export type NearSigningApiDeps = {
     walletId: WalletId;
     nearAccountId: AccountId;
   }) => NearEd25519YaoSigningCapability | null;
-  resolveThresholdEd25519SessionIdForNearAccount: (
-    nearAccountId: AccountId | string,
-  ) => string | null;
   readPersistedEd25519SessionRecordForSigning: (args: {
     walletId: WalletId;
     laneIdentity: ExactEd25519SigningLaneIdentity;

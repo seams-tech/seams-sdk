@@ -17,7 +17,10 @@ import type { WorkerOperationContext } from '../../workerManager/executeWorkerOp
 import { routerAbEcdsaDerivationActiveStateId } from '@shared/utils/routerAbEcdsaDerivation';
 import { buildRouterAbEcdsaDerivationSigningMaterialRef } from '../../routerAb/ecdsaDerivation/signingMaterialRef';
 import { laneCandidateStateFromRuntimePolicy } from '../../session/identity/laneIdentity';
-import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetsEqual,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ExactEcdsaSealedRuntime } from '../../session/material/ecdsaSealedRuntime';
 import {
   buildReadySecp256k1SigningMaterial,
@@ -29,18 +32,6 @@ import type {
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from './ecdsaSigningCapability';
 import { authorizeEvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
-
-type EcdsaSessionChain = 'tempo' | 'evm';
-
-function inferThresholdEcdsaSessionChainFromLabel(labelRaw: unknown): EcdsaSessionChain | null {
-  const label = String(labelRaw || '')
-    .trim()
-    .toLowerCase();
-  if (!label) return null;
-  if (label === 'tempo' || label.startsWith('tempo:')) return 'tempo';
-  if (label === 'evm' || label.startsWith('evm:')) return 'evm';
-  return null;
-}
 
 export async function hydrateEcdsaRoleLocalMaterialForSigning(args: {
   persistedMaterial: PersistedEcdsaRoleLocalMaterial;
@@ -104,7 +95,7 @@ export type HydratedSecp256k1SigningMaterialResolution =
 export async function resolveHydratedSecp256k1SigningMaterial(args: {
   capability: CanonicalEvmFamilyEcdsaSigningCapability;
   runtime: ExactEcdsaSealedRuntime;
-  requestLabel: unknown;
+  chainTarget: ThresholdEcdsaChainTarget;
   materialActivation: MpcMaterialActivationRef;
   workerCtx: WorkerOperationContext;
 }): Promise<HydratedSecp256k1SigningMaterialResolution> {
@@ -118,10 +109,7 @@ export async function resolveHydratedSecp256k1SigningMaterial(args: {
   //    included because a sealed record for sibling material would otherwise
   //    hydrate a worker handle the manifest never named.
   if (
-    !mpcMaterialActivationRefsEqual(
-      args.materialActivation,
-      manifest.activation.materialActivation,
-    )
+    !mpcMaterialActivationRefsEqual(args.materialActivation, manifest.activation.materialActivation)
   ) {
     return { kind: 'unavailable', reason: 'material_activation_mismatch' };
   }
@@ -136,8 +124,7 @@ export async function resolveHydratedSecp256k1SigningMaterial(args: {
 
   // 2. Chain-target agreement between the request, the persisted facts, and
   //    the runtime this session belongs to.
-  const requestChain = inferThresholdEcdsaSessionChainFromLabel(args.requestLabel);
-  if (requestChain && roleLocalFacts.chainTarget.kind !== requestChain) {
+  if (!thresholdEcdsaChainTargetsEqual(args.chainTarget, roleLocalFacts.chainTarget)) {
     return { kind: 'unavailable', reason: 'chain_mismatch' };
   }
   if (!thresholdEcdsaChainTargetsEqual(runtime.chainTarget, roleLocalFacts.chainTarget)) {
@@ -217,7 +204,7 @@ export async function resolveHydratedSecp256k1SigningMaterial(args: {
 export async function resolveReadySecp256k1SigningMaterial(args: {
   authorized: AuthorizedEvmFamilyEcdsaSigningCapability;
   runtime: ExactEcdsaSealedRuntime;
-  requestLabel: unknown;
+  chainTarget: ThresholdEcdsaChainTarget;
   materialActivation: MpcMaterialActivationRef;
   workerCtx: WorkerOperationContext;
 }): Promise<ReadySecp256k1SigningMaterialResolution> {
@@ -234,7 +221,7 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
   const hydrated = await resolveHydratedSecp256k1SigningMaterial({
     capability: args.authorized.capability,
     runtime: args.runtime,
-    requestLabel: args.requestLabel,
+    chainTarget: args.chainTarget,
     materialActivation: args.materialActivation,
     workerCtx: args.workerCtx,
   });
@@ -260,7 +247,9 @@ export function attachReusableEcdsaWalletSessionAuthorization(args: {
   });
   const projection = authorized.authorization.projection;
   if (String(projection.walletId) !== String(args.material.walletId)) {
-    throw new Error('Reusable Wallet Session authorization wallet does not match hydrated material');
+    throw new Error(
+      'Reusable Wallet Session authorization wallet does not match hydrated material',
+    );
   }
   return buildReadySecp256k1SigningMaterial({
     walletId: args.material.walletId,
