@@ -680,7 +680,8 @@ the replacement and legacy MPC paths must not ship together.
         coordination into `PasskeyMpcSessionManager`, then delete the temporary
         durable session-worker seam from generic confirmation.
     - [x] Require Passkey persisted-session discovery at the lifecycle port;
-          remove the optional host-assembly fallback that silently omitted it.
+          remove the optional host-assembly fallback that silently omitted it
+          and the redundant optional `authMethod` discriminator.
 - [ ] Remove replaced worker entrypoints, loaders, manifest rows, and public
       exports.
   - [x] Delete the generic worker's `EXPORT_PRIVATE_KEYS_WITH_UI` protocol arm
