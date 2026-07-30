@@ -3,9 +3,7 @@ import type { CloudflareDurableObjectNamespaceLike, ThresholdStoreConfigInput } 
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from '../../defaultConfigsServer';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
-import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
-  parseEcdsaDerivationRoleLocalKeyRecord,
   isObject,
   parseRouterAbEcdsaDerivationPoolFillSessionRecord,
   parseEcdsaWalletSessionRecord,
@@ -18,7 +16,6 @@ import {
   parseThresholdEd25519SigningSessionRecord,
   canonicalThresholdEd25519RelayerKeyId,
   toThresholdEcdsaWalletSessionPrefix,
-  toThresholdEcdsaKeyPrefix,
   toThresholdEcdsaPresignPrefix,
   toThresholdEcdsaPrefixFromBase,
   toThresholdEcdsaSessionPrefix,
@@ -51,12 +48,7 @@ import type {
   WalletSessionStatusLookupResult,
 } from './WalletSessionStore';
 import { walletSigningBudgetSessionId } from '../walletSigningBudget';
-import type {
-  ThresholdEcdsaIntegratedKeyStore,
-  ThresholdEd25519ReadyKeyRecord,
-  ThresholdEd25519KeyStore,
-} from './KeyStore';
-import type { EcdsaDerivationRoleLocalKeyRecord } from '../../types';
+import type { ThresholdEd25519ReadyKeyRecord, ThresholdEd25519KeyStore } from './KeyStore';
 import type {
   ThresholdEd25519CoordinatorSigningSessionRecord,
   ThresholdEcdsaMpcSessionRecord,
@@ -227,81 +219,6 @@ type DoAuthEntry<TRecord extends WalletSessionRecord> = {
   availableUses?: number;
 };
 
-type ThresholdEcdsaSharedIdentityGuard = {
-  contextKey: string;
-  identityValue: string;
-};
-type ThresholdEcdsaStoredKeyRecord = EcdsaDerivationRoleLocalKeyRecord;
-
-function ecdsaIdentityPart(value: unknown): string {
-  return encodeURIComponent(String(value ?? '').trim());
-}
-
-function ecdsaSigningRootVersion(record: ThresholdEcdsaStoredKeyRecord): string {
-  return String(record.signingRootVersion || '').trim() || 'default';
-}
-
-async function withEcdsaDerivationRoleLocalRecordKeyHandle(
-  record: EcdsaDerivationRoleLocalKeyRecord,
-): Promise<EcdsaDerivationRoleLocalKeyRecord & { keyHandle: string }> {
-  const parsed = parseEcdsaDerivationRoleLocalKeyRecord(record);
-  if (!parsed) throw new Error('Invalid threshold-ecdsa role-local key record');
-  const keyHandle = String(
-    await deriveThresholdEcdsaKeyHandle({
-      ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
-      signingRootId: parsed.signingRootId,
-      signingRootVersion: ecdsaSigningRootVersion(parsed),
-    }),
-  );
-  if (parsed.keyHandle !== keyHandle) {
-    throw new Error('[threshold-ecdsa] ECDSA key handle does not match threshold key identity');
-  }
-  return { ...parsed, keyHandle };
-}
-
-async function parseStoredEcdsaDerivationRoleLocalKeyRecord(
-  raw: unknown,
-): Promise<(EcdsaDerivationRoleLocalKeyRecord & { keyHandle: string }) | null> {
-  const parsed = parseEcdsaDerivationRoleLocalKeyRecord(raw);
-  return parsed ? await withEcdsaDerivationRoleLocalRecordKeyHandle(parsed) : null;
-}
-
-function thresholdEcdsaSharedIdentityGuard(
-  record: ThresholdEcdsaStoredKeyRecord,
-): ThresholdEcdsaSharedIdentityGuard {
-  return {
-    contextKey: [
-      'evm-family',
-      record.walletId,
-      record.evmFamilySigningKeySlotId,
-      record.signingRootId,
-      ecdsaSigningRootVersion(record),
-    ]
-      .map(ecdsaIdentityPart)
-      .join('|'),
-    identityValue: [
-      record.ecdsaThresholdKeyId,
-      String(record.ethereumAddress || '')
-        .trim()
-        .toLowerCase(),
-      record.relayerKeyId,
-    ]
-      .map(ecdsaIdentityPart)
-      .join('|'),
-  };
-}
-
-function thresholdEcdsaSharedIdentityIndexKey(
-  keyPrefix: string,
-  guard: ThresholdEcdsaSharedIdentityGuard,
-): string {
-  return `${keyPrefix}shared-identity:${guard.contextKey}`;
-}
-
-function thresholdEcdsaKeyHandleIndexKey(keyPrefix: string, keyHandle: string): string {
-  return `${keyPrefix}key-handle:${ecdsaIdentityPart(keyHandle)}`;
-}
-
 function isDurableObjectNamespaceLike(v: unknown): v is CloudflareDurableObjectNamespaceLike {
   return (
     Boolean(v) &&
@@ -407,12 +324,6 @@ function computeSessionPrefixEcdsa(config: Record<string, unknown>): string {
   return toThresholdEcdsaSessionPrefix(
     explicit || toThresholdEcdsaPrefixFromBase(basePrefix, 'sess'),
   );
-}
-
-function computeKeyPrefixEcdsa(config: Record<string, unknown>): string {
-  const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
-  const explicit = toOptionalTrimmedString(config.THRESHOLD_ECDSA_KEYSTORE_PREFIX);
-  return toThresholdEcdsaKeyPrefix(explicit || toThresholdEcdsaPrefixFromBase(basePrefix, 'key'));
 }
 
 function computePresignPrefixEcdsa(config: Record<string, unknown>): string {
@@ -870,121 +781,6 @@ export class CloudflareDurableObjectThresholdEd25519KeyStore implements Threshol
   }
 }
 
-export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegratedKeyStore {
-  private readonly stub: DurableObjectStubLike;
-  private readonly keyPrefix: string;
-
-  constructor(input: {
-    namespace: CloudflareDurableObjectNamespaceLike;
-    objectName: string;
-    keyPrefix: string;
-  }) {
-    this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
-    this.keyPrefix = input.keyPrefix;
-  }
-
-  private recordKey(keyHandle: string): string {
-    return `${this.keyPrefix}${keyHandle}`;
-  }
-
-  async getRoleLocalByKeyHandle(
-    keyHandle: string,
-  ): Promise<EcdsaDerivationRoleLocalKeyRecord | null> {
-    const handle = toOptionalTrimmedString(keyHandle);
-    if (!handle) return null;
-    const directResp = await callDo<unknown | null>(this.stub, {
-      op: 'get',
-      key: this.recordKey(handle),
-    });
-    if (directResp.ok) {
-      const direct = await parseStoredEcdsaDerivationRoleLocalKeyRecord(directResp.value);
-      if (direct) {
-        if (direct.keyHandle !== handle) {
-          throw new Error(
-            '[threshold-ecdsa] ECDSA key handle does not match threshold key identity',
-          );
-        }
-        return direct;
-      }
-    }
-    const indexResp = await callDo<string | null>(this.stub, {
-      op: 'get',
-      key: thresholdEcdsaKeyHandleIndexKey(this.keyPrefix, handle),
-    });
-    if (!indexResp.ok) return null;
-    const recordKey = toOptionalTrimmedString(indexResp.value);
-    if (!recordKey) return null;
-    const recordResp = await callDo<unknown | null>(this.stub, { op: 'get', key: recordKey });
-    if (!recordResp.ok) return null;
-    return await parseStoredEcdsaDerivationRoleLocalKeyRecord(recordResp.value);
-  }
-
-  async putRoleLocalByKeyHandle(record: EcdsaDerivationRoleLocalKeyRecord): Promise<void> {
-    const parsed = await withEcdsaDerivationRoleLocalRecordKeyHandle(record);
-    const guard = thresholdEcdsaSharedIdentityGuard(parsed);
-    const recordKey = this.recordKey(parsed.keyHandle);
-    const resp = await callDo<void>(this.stub, {
-      op: 'setWithIdentityGuard',
-      key: recordKey,
-      identityKey: thresholdEcdsaSharedIdentityIndexKey(this.keyPrefix, guard),
-      identityValue: guard.identityValue,
-      keyHandleKey: thresholdEcdsaKeyHandleIndexKey(this.keyPrefix, parsed.keyHandle),
-      keyHandleValue: recordKey,
-      value: parsed,
-    });
-    if (!resp.ok) throw new Error(resp.message);
-  }
-
-  async deleteByKeyHandle(keyHandle: string): Promise<void> {
-    const handle = toOptionalTrimmedString(keyHandle);
-    if (!handle) return;
-    const keyHandleKey = thresholdEcdsaKeyHandleIndexKey(this.keyPrefix, handle);
-    const canonicalRecordKey = this.recordKey(handle);
-    const canonicalRecordResp = await callDo<unknown | null>(this.stub, {
-      op: 'get',
-      key: canonicalRecordKey,
-    });
-    const canonicalRecord = canonicalRecordResp.ok
-      ? await parseStoredEcdsaDerivationRoleLocalKeyRecord(canonicalRecordResp.value)
-      : null;
-    const indexResp = canonicalRecord
-      ? null
-      : await callDo<string | null>(this.stub, { op: 'get', key: keyHandleKey });
-    const recordKey = canonicalRecord
-      ? canonicalRecordKey
-      : toOptionalTrimmedString(indexResp?.ok ? indexResp.value : null);
-    if (!recordKey) {
-      const resp = await callDo<void>(this.stub, { op: 'del', key: canonicalRecordKey });
-      if (!resp.ok) throw new Error(resp.message);
-      return;
-    }
-    const recordResp = canonicalRecord
-      ? null
-      : await callDo<unknown | null>(this.stub, { op: 'get', key: recordKey });
-    if (recordResp && !recordResp.ok) return;
-    const record =
-      canonicalRecord ||
-      (await parseStoredEcdsaDerivationRoleLocalKeyRecord(recordResp ? recordResp.value : null));
-    if (!record) {
-      const resp = await callDo<void>(this.stub, { op: 'del', key: keyHandleKey });
-      if (!resp.ok) throw new Error(resp.message);
-      const canonicalDel = await callDo<void>(this.stub, { op: 'del', key: canonicalRecordKey });
-      if (!canonicalDel.ok) throw new Error(canonicalDel.message);
-      return;
-    }
-    const guard = thresholdEcdsaSharedIdentityGuard(record);
-    const resp = await callDo<void>(this.stub, {
-      op: 'delWithIdentityGuard',
-      key: recordKey,
-      identityKey: thresholdEcdsaSharedIdentityIndexKey(this.keyPrefix, guard),
-      identityValue: guard.identityValue,
-      keyHandleKey,
-      keyHandleValue: recordKey,
-    });
-    if (!resp.ok) throw new Error(resp.message);
-  }
-}
-
 export class CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillSessionStore implements RouterAbEcdsaDerivationPoolFillSessionStore {
   private readonly stub: DurableObjectStubLike;
   private readonly keyPrefix: string;
@@ -1266,7 +1062,6 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
 }): {
-  keyStore: ThresholdEcdsaIntegratedKeyStore;
   sessionStore: ThresholdEcdsaSessionStore;
   walletSessionStore: EcdsaWalletSessionStore;
   normalSigningProvisioner: EcdsaNormalSigningSessionProvisioner;
@@ -1293,7 +1088,6 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   const walletSessionPrefix = computeWalletSessionPrefixEcdsa(config);
   const walletBudgetSessionPrefix = computeWalletSigningBudgetSessionPrefix(config);
   const sessionPrefix = computeSessionPrefixEcdsa(config);
-  const keyPrefix = computeKeyPrefixEcdsa(config);
   const presignPrefix = computePresignPrefixEcdsa(config);
 
   input.logger.info(
@@ -1301,11 +1095,6 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   );
 
   return {
-    keyStore: new CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore({
-      namespace,
-      objectName: ecdsaObjectName,
-      keyPrefix,
-    }),
     sessionStore:
       new CloudflareDurableObjectThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
         namespace,

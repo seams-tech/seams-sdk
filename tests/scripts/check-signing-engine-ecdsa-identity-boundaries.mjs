@@ -1084,53 +1084,6 @@ function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
     );
   }
 
-  const serverRoleLocalRecordBlock = findTypeDeclaration(
-    serverSource,
-    'EcdsaDerivationRoleLocalKeyRecord',
-  );
-  offenders.push(
-    ...expectRequiredFields(
-      serverRoleLocalRecordBlock,
-      [
-        'version',
-        'keyHandle',
-        'walletId',
-        'evmFamilySigningKeySlotId',
-        'ecdsaThresholdKeyId',
-        'signingRootId',
-        'signingRootVersion',
-        'keyScope',
-        'relayerKeyId',
-        'contextBinding32B64u',
-        'clientPublicKey33B64u',
-        'relayerPublicKey33B64u',
-        'groupPublicKey33B64u',
-        'relayerShare32B64u',
-        'publicTranscriptDigest32B64u',
-      ],
-      'packages/sdk-server-ts/src/core/types.ts EcdsaDerivationRoleLocalKeyRecord',
-    ),
-    ...expectNoField(
-      serverRoleLocalRecordBlock,
-      'relayerCaitSithInput',
-      'packages/sdk-server-ts/src/core/types.ts EcdsaDerivationRoleLocalKeyRecord',
-    ),
-    ...expectNoField(
-      serverRoleLocalRecordBlock,
-      'rpId',
-      'packages/sdk-server-ts/src/core/types.ts EcdsaDerivationRoleLocalKeyRecord',
-    ),
-    ...expectNoField(
-      serverRoleLocalRecordBlock,
-      'chainTarget',
-      'packages/sdk-server-ts/src/core/types.ts EcdsaDerivationRoleLocalKeyRecord',
-    ),
-    ...expectNoNearAccountId(
-      serverRoleLocalRecordBlock,
-      'packages/sdk-server-ts/src/core/types.ts EcdsaDerivationRoleLocalKeyRecord',
-    ),
-  );
-
   const signingRootContextBlock = findTypeDeclaration(
     thresholdPrfSource,
     'EcdsaDerivationStableKeyPrfContext',
