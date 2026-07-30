@@ -468,7 +468,8 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   persistence single-flight, and sealed-session policy coordination inside
   generic confirmation~~ — moved to `PasskeyMpcSessionManager` and its private
   durable-state owner by `d9c303f3c`, with policy storage semantics completed
-  by `fe07fea5b`; inactive-material operating consumption remains open
+  by `fe07fea5b` and inactive-material operating consumption completed by
+  `fa1f21657`
 - ~~ECDSA public-only reauthorization-anchor records produced by expiry and
   exhaustion~~ — replaced by authorization-free inactive sealed-material
   records that retain the encrypted material and exact activation binding in

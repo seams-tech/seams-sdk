@@ -1382,15 +1382,15 @@ export function retireRecoveredPasskeyThresholdEd25519Sessions(args: {
 
 export function markThresholdEd25519EmailOtpSessionConsumedForWallet(args: {
   walletId: WalletId;
-  thresholdSessionId?: string;
+  thresholdSessionId: string;
   uses?: number;
   nowMs?: number;
 }): ThresholdEd25519SessionRecord | null {
   const record = getStoredThresholdEd25519SessionRecordForWallet(args.walletId);
   if (!record || record.source !== 'email_otp' || !record.emailOtpAuthContext) return null;
-  const expectedSessionId = String(args.thresholdSessionId || '').trim();
+  const expectedSessionId = String(args.thresholdSessionId).trim();
   const actualSessionId = String(record.thresholdSessionId || '').trim();
-  if (expectedSessionId && actualSessionId && expectedSessionId !== actualSessionId) {
+  if (!expectedSessionId || !actualSessionId || expectedSessionId !== actualSessionId) {
     return null;
   }
   const nowMs = Math.max(0, Math.floor(Number(args.nowMs ?? Date.now()) || 0));

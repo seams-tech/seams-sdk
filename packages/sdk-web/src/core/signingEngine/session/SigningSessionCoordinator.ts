@@ -161,7 +161,7 @@ export type SigningGrantConsumeUseArgs = {
 export type SigningSessionStatusPort = {
   getStatus(args: {
     walletId: WalletId | string;
-    signingGrantId?: string;
+    signingGrantId: string;
     targetBackingMaterialSessionIds?: string[];
     targetThresholdSessionIds?: string[];
     trustedStatusAuth?: SigningSessionBudgetStatusAuth;
@@ -388,7 +388,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     args: Parameters<SigningSessionStatusPort['getStatus']>[0],
   ): ReturnType<SigningSessionStatusPort['getStatus']> {
     const walletId = toWalletId(args.walletId);
-    const signingGrantIdFilter = normalizeNonEmpty(args.signingGrantId);
+    const signingGrantId = normalizeRequired(args.signingGrantId, 'signingGrantId');
     const targetBacking = new Set(
       (args.targetBackingMaterialSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
     );
@@ -397,22 +397,21 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     );
     const hasExplicitTarget = targetBacking.size > 0 || targetThreshold.size > 0;
     const readDirectTargetStatus = async (): Promise<SigningSessionStatus | null> => {
-      if (!hasExplicitTarget || !signingGrantIdFilter) return null;
+      if (!hasExplicitTarget) return null;
       // Budget reservation already carries the exact selected material ids.
       // Use those ids directly so a missing volatile lane projection cannot
       // hide a restored, usable session.
       return await readDirectSigningSessionStatusForTargets({
         deps: this.walletSessionDeps,
-        signingGrantId: signingGrantIdFilter,
+        signingGrantId,
         targetBackingMaterialSessionIds: targetBacking,
         targetThresholdSessionIds: targetThreshold,
       });
     };
     const lanes = discoverLanesForWallet(this.walletSessionDeps, walletId).filter(
-      (lane) => !signingGrantIdFilter || lane.signingGrantId === signingGrantIdFilter,
+      (lane) => lane.signingGrantId === signingGrantId,
     );
     if (!lanes.length) return await readDirectTargetStatus();
-    const signingGrantId = signingGrantIdFilter || lanes[0].signingGrantId;
     const statusLanes = hasExplicitTarget
       ? lanes.filter(
           (lane) =>

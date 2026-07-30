@@ -177,7 +177,7 @@ export type CreateSigningEnginePortsArgs = {
   ) => Promise<AvailableSigningLanes>;
   markThresholdEd25519EmailOtpSessionConsumedForWallet?: (args: {
     walletId: WalletId;
-    thresholdSessionId?: string;
+    thresholdSessionId: string;
     uses?: number;
   }) => void;
   provisionThresholdEcdsaSession: (
