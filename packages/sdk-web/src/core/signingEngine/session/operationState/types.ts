@@ -58,7 +58,6 @@ export type SigningOperationFingerprint = Brand<string, 'SigningOperationFingerp
 
 export type SigningCurve = 'ed25519' | 'ecdsa';
 export type SigningChainFamily = 'near' | ThresholdEcdsaChainTarget['kind'];
-export type SigningAuthMethod = SignerAuthMethod;
 export type SigningKeyKind = 'threshold_ed25519' | 'threshold_ecdsa_secp256k1' | 'webauthn_p256';
 export type SigningSessionOrigin =
   | 'login'
@@ -234,7 +233,7 @@ export type Ed25519SigningKeyRefIntent =
   | {
       kind: typeof SigningKeyRefIntentKind.Reauth;
       curve: 'ed25519';
-      authMethod: SigningAuthMethod;
+      authMethod: SignerAuthMethod;
       thresholdSessionId?: never;
       materialActivation?: never;
       authorization?: never;
@@ -251,7 +250,7 @@ export type EcdsaSigningKeyRefIntent =
   | {
       kind: typeof SigningKeyRefIntentKind.Reauth;
       curve: 'ecdsa';
-      authMethod: SigningAuthMethod;
+      authMethod: SignerAuthMethod;
       thresholdSessionId?: never;
       materialActivation?: never;
       authorization?: never;
@@ -340,7 +339,7 @@ type BaseSigningLaneSummary = Pick<
   SigningSessionPlanningLane,
   'curve' | 'keyKind' | 'chainFamily' | 'sessionOrigin' | 'storageSource' | 'retention'
 > & {
-  authMethod: SigningAuthMethod;
+  authMethod: SignerAuthMethod;
 };
 
 export type Ed25519SigningLaneSummary = BaseSigningLaneSummary & {

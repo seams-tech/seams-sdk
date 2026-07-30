@@ -15,12 +15,12 @@ import {
 } from '../identity/exactSigningLaneIdentity';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 import type {
-  SigningAuthMethod,
   SigningCurve,
   SigningOperationFingerprint,
   SigningOperationId,
   SigningGrantId,
 } from './types';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 
 export type SigningStatusProvenance =
   | {
@@ -72,7 +72,7 @@ export type FreshStepUpRequired = {
   walletId: WalletId;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
-  authMethod: SigningAuthMethod;
+  authMethod: SignerAuthMethod;
   curve: SigningCurve;
   laneIdentity: ExactSigningLaneIdentity;
   laneIdentityKey: ExactSigningLaneIdentityKey;
@@ -92,7 +92,7 @@ export type FreshStepUpSatisfied = {
   walletId: WalletId;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
-  authMethod: SigningAuthMethod;
+  authMethod: SignerAuthMethod;
   curve: SigningCurve;
   laneIdentity: ExactSigningLaneIdentity;
   laneIdentityKey: ExactSigningLaneIdentityKey;
@@ -118,7 +118,7 @@ export type StepUpFreshnessDiagnostics = {
   walletId: WalletId;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
-  authMethod: SigningAuthMethod;
+  authMethod: SignerAuthMethod;
   curve: SigningCurve;
   laneIdentityKey: ExactSigningLaneIdentityKey;
   authority: StepUpFreshnessAuthority;

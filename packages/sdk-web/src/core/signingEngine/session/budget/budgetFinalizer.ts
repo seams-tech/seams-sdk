@@ -22,9 +22,9 @@ import {
 import {
   SigningOperationIntent,
   SigningSessionIds,
-  type SigningAuthMethod,
   type WalletSigningSpendPlan,
 } from '../operationState/types';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 
 export type SigningSessionBudgetFinalizer = {
@@ -249,7 +249,7 @@ async function reserveWithLocalContentionRetry(
 
 export function inferSigningSessionBudgetZeroSpendReason(args: {
   error: unknown;
-  authMethod: SigningAuthMethod;
+  authMethod: SignerAuthMethod;
 }): SigningSessionBudgetZeroSpendReason {
   const code = extractErrorCode(args.error);
   const message = extractErrorMessage(args.error).toLowerCase();
