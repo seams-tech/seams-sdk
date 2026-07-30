@@ -161,6 +161,7 @@ import type {
   ClaimCapabilityOperationResult,
   CompleteCapabilityOperationResult,
   CapabilityOperationClaim,
+  CapabilityOperationCompletionClaimRef,
   CapabilityOperationResultRef,
   CompletedCapabilityOperationResult,
   RedeemHostedWalletSeamsSessionExchangeResult,
@@ -1447,7 +1448,7 @@ export interface RouterApiAuthorizationClaimService {
     input: ReusableWalletSessionClaimInput,
   ): Promise<ReusableWalletSessionClaimOutcome>;
   completeOperation(input: {
-    readonly claim: CapabilityOperationClaim;
+    readonly claim: CapabilityOperationClaim | CapabilityOperationCompletionClaimRef;
     readonly result: CompletedCapabilityOperationResult;
     readonly resultRef: CapabilityOperationResultRef;
     readonly completedAtMs: number;

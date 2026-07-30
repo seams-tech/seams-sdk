@@ -253,6 +253,7 @@ export interface RouterApiEmailOtpExportPolicyAdapter {
 }
 
 export interface RouterAbNormalSigningRouterProxy {
+  readonly internalServiceAuthSecret: string;
   fetch(request: Request): Promise<Response>;
 }
 

@@ -6,6 +6,7 @@ import type {
   AuthorizationAuditEvent,
   CapabilityGrantUse,
   CapabilityOperationClaim,
+  CapabilityOperationCompletionClaimRef,
   CapabilityOperationResultRef,
   ClaimCapabilityOperationResult,
   CompleteCapabilityOperationResult,
@@ -142,7 +143,7 @@ export interface AuthorizationClaimPort {
   }): Promise<CapabilityGrantUse | null>;
   claimOperation(claim: CapabilityOperationClaim): Promise<ClaimCapabilityOperationResult>;
   completeOperation(input: {
-    readonly claim: CapabilityOperationClaim;
+    readonly claim: CapabilityOperationClaim | CapabilityOperationCompletionClaimRef;
     readonly result: CompletedCapabilityOperationResult;
     readonly resultRef: CapabilityOperationResultRef;
     readonly completedAtMs: number;
@@ -430,20 +431,21 @@ export class AuthorizationService {
     const operation = operationEnvelopeFromClaimInput(input);
     const existing = await this.lookupOperationClaim(operation);
     if (existing) return { claim: null, result: existing };
-    const grant = await this.ports.grants.readGrantClaimSource({
-      tenantId: input.tenantId,
-      grantId: input.grantId,
-    });
-    if (!grant || !reusableWalletSessionGrantMatches(grant, input)) {
-      return { claim: null, result: { kind: 'grant_mismatch' } };
-    }
     const claim = await buildCapabilityOperationClaim({
       tenantId: input.tenantId,
       useId: input.useId,
       auditEventId: input.auditEventId,
       grantId: input.grantId,
       operation,
-      evidenceSetDigest: grant.evidenceSetDigest,
+      evidenceSetDigest: await digestOpaqueValue(
+        [
+          'reusable-wallet-session-operation',
+          input.tenantId,
+          input.principalId,
+          input.walletSessionId,
+          input.quotaId,
+        ].join(':'),
+      ),
       claimedAtMs: input.claimedAtMs,
       authorization: {
         kind: 'reusable_wallet_session',
@@ -474,7 +476,7 @@ export class AuthorizationService {
   }
 
   async completeOperation(input: {
-    readonly claim: CapabilityOperationClaim;
+    readonly claim: CapabilityOperationClaim | CapabilityOperationCompletionClaimRef;
     readonly result: CompletedCapabilityOperationResult;
     readonly resultRef: CapabilityOperationResultRef;
     readonly completedAtMs: number;
@@ -559,37 +561,6 @@ function operationStepUpGrantMatches(
     grant.tenantId === input.tenantId &&
     grant.principalId === input.principalId &&
     grant.authorizationSessionId === input.authorizationSessionId &&
-    grant.capabilityId === input.capabilityId &&
-    grant.operationId === input.operationId &&
-    grant.operation.capabilityKind === input.operation.capabilityKind &&
-    grant.operation.operationKind === input.operation.operationKind &&
-    grant.laneDigest === input.laneDigest &&
-    grant.intentDigest === input.intentDigest &&
-    grant.displayDigest === input.displayDigest
-  );
-}
-
-function reusableWalletSessionGrantMatches(
-  grant: CapabilityGrantClaimSource,
-  input: {
-    readonly tenantId: TenantId;
-    readonly principalId: PrincipalId;
-    readonly walletSessionId: WalletSessionId;
-    readonly quotaId: MpcWalletSigningQuotaId;
-    readonly capabilityId: CapabilityId;
-    readonly operationId: CapabilityOperationId;
-    readonly operation: CapabilityOperationRef;
-    readonly laneDigest: ActiveCapabilityGrant['laneDigest'];
-    readonly intentDigest: ActiveCapabilityGrant['intentDigest'];
-    readonly displayDigest: ActiveCapabilityGrant['displayDigest'];
-  },
-): boolean {
-  return (
-    grant.authority.kind === 'reusable_wallet_session' &&
-    grant.tenantId === input.tenantId &&
-    grant.principalId === input.principalId &&
-    grant.authority.walletSessionId === input.walletSessionId &&
-    grant.authority.quotaId === input.quotaId &&
     grant.capabilityId === input.capabilityId &&
     grant.operationId === input.operationId &&
     grant.operation.capabilityKind === input.operation.capabilityKind &&

@@ -549,9 +549,9 @@ pub struct CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CloudflareSigningWorkerNormalSigningEffectClaimV1 {
-    /// Reusable Wallet Session authority consumes its reserved wallet budget.
+    /// Reusable Wallet Session authority carries the durable operation claim.
     ReusableWalletSession {
-        budget: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1,
+        claim: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1,
     },
     /// Operation step-up consumes only its one-operation grant.
     OperationStepUp {
@@ -560,28 +560,31 @@ pub enum CloudflareSigningWorkerNormalSigningEffectClaimV1 {
     },
 }
 
-/// Stable reusable Wallet Session reservation claim forwarded to SigningWorker.
+/// Stable reusable Wallet Session operation claim forwarded to SigningWorker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CloudflareSigningWorkerReusableWalletSessionEffectClaimV1 {
-    pub signing_grant_id: String,
-    pub reservation_id: String,
-    pub signing_worker_id: String,
+    pub wallet_session_id: String,
+    pub grant_id: String,
+    pub use_id: String,
     pub operation_id: String,
-    pub request_digest: PublicDigest32,
+    pub operation_fingerprint_digest: String,
 }
 
 impl CloudflareSigningWorkerReusableWalletSessionEffectClaimV1 {
-    pub fn from_reservation_identity(
-        identity: &CloudflareRouterWalletBudgetReservationIdentityV1,
+    pub fn new(
+        wallet_session_id: impl Into<String>,
+        grant_id: impl Into<String>,
+        use_id: impl Into<String>,
+        operation_id: impl Into<String>,
+        operation_fingerprint_digest: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
-        identity.validate()?;
         let claim = Self {
-            signing_grant_id: identity.signing_grant_id.clone(),
-            reservation_id: identity.reservation_id.clone(),
-            signing_worker_id: identity.signing_worker_id.clone(),
-            operation_id: identity.operation_id.clone(),
-            request_digest: identity.request_digest,
+            wallet_session_id: wallet_session_id.into(),
+            grant_id: grant_id.into(),
+            use_id: use_id.into(),
+            operation_id: operation_id.into(),
+            operation_fingerprint_digest: operation_fingerprint_digest.into(),
         };
         claim.validate()?;
         Ok(claim)
@@ -589,35 +592,18 @@ impl CloudflareSigningWorkerReusableWalletSessionEffectClaimV1 {
 
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty(
-            "normal-signing effect claim signing_grant_id",
-            &self.signing_grant_id,
+            "normal-signing effect claim wallet_session_id",
+            &self.wallet_session_id,
         )?;
-        require_non_empty(
-            "normal-signing effect claim reservation_id",
-            &self.reservation_id,
-        )?;
-        require_non_empty(
-            "normal-signing effect claim signing_worker_id",
-            &self.signing_worker_id,
-        )?;
+        require_non_empty("normal-signing effect claim grant_id", &self.grant_id)?;
+        require_non_empty("normal-signing effect claim use_id", &self.use_id)?;
         require_non_empty(
             "normal-signing effect claim operation_id",
             &self.operation_id,
-        )
-    }
-
-    pub fn budget_identity_at(
-        &self,
-        claimed_at_ms: u64,
-    ) -> RouterAbProtocolResult<CloudflareRouterWalletBudgetReservationIdentityV1> {
-        self.validate()?;
-        CloudflareRouterWalletBudgetReservationIdentityV1::new(
-            self.signing_grant_id.clone(),
-            self.reservation_id.clone(),
-            self.signing_worker_id.clone(),
-            self.operation_id.clone(),
-            self.request_digest,
-            claimed_at_ms,
+        )?;
+        require_non_empty(
+            "normal-signing effect claim operation_fingerprint_digest",
+            &self.operation_fingerprint_digest,
         )
     }
 }
@@ -688,15 +674,13 @@ impl CloudflareSigningWorkerNormalSigningEffectClaimV1 {
         admission.validate()?;
         let matches = match (self, &admission.authorization) {
             (
-                Self::ReusableWalletSession { budget },
+                Self::ReusableWalletSession { claim },
                 CloudflareRouterNormalSigningAuthorizationV2::ReusableWalletSession {
-                    grant_id,
-                    ..
+                    wallet_session_id,
                 },
             ) => {
-                budget.validate()?;
-                budget.signing_grant_id == *grant_id
-                    && budget.signing_worker_id == admission.signing_worker_id
+                claim.validate()?;
+                claim.wallet_session_id == *wallet_session_id
             }
             (
                 Self::OperationStepUp {

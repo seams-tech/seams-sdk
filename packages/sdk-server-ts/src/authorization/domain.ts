@@ -309,6 +309,32 @@ export type CapabilityOperationClaimInput = CapabilityOperationClaimBase &
       }
   );
 
+type CapabilityOperationCompletionClaimRefFields = Pick<
+  CapabilityOperationClaimBase,
+  'tenantId' | 'useId' | 'grantId' | 'operationFingerprintDigest'
+>;
+
+const capabilityOperationCompletionClaimRefBrand: unique symbol = Symbol(
+  'CapabilityOperationCompletionClaimRef',
+);
+
+export type CapabilityOperationCompletionClaimRef =
+  CapabilityOperationCompletionClaimRefFields & {
+    readonly [capabilityOperationCompletionClaimRefBrand]: true;
+  };
+
+export function buildCapabilityOperationCompletionClaimRef(
+  input: CapabilityOperationCompletionClaimRefFields,
+): CapabilityOperationCompletionClaimRef {
+  return {
+    [capabilityOperationCompletionClaimRefBrand]: true,
+    tenantId: input.tenantId,
+    useId: input.useId,
+    grantId: input.grantId,
+    operationFingerprintDigest: input.operationFingerprintDigest,
+  };
+}
+
 export type CompletedCapabilityOperationResult =
   | 'succeeded'
   | 'failed_before_side_effect'
@@ -362,13 +388,11 @@ export type CompleteCapabilityOperationResult =
   | { readonly kind: 'claim_missing' }
   | { readonly kind: 'claim_mismatch' };
 
-export type AuthorizationAuditEvent = {
+type AuthorizationAuditEventBase = {
   readonly kind: 'authorization_audit_event';
   readonly tenantId: TenantId;
   readonly eventId: AuthorizationAuditEventId;
   readonly principalId: PrincipalId;
-  readonly sessionId: SeamsSessionId;
-  readonly deviceId: DeviceId;
   readonly grantId: CapabilityGrantId;
   readonly useId: CapabilityGrantUseId;
   readonly capabilityId: CapabilityId;
@@ -379,6 +403,23 @@ export type AuthorizationAuditEvent = {
   readonly result: 'claimed' | CompletedCapabilityOperationResult;
   readonly createdAtMs: number;
 };
+
+export type AuthorizationAuditEvent = AuthorizationAuditEventBase &
+  (
+    | {
+        readonly authorization: {
+          readonly kind: 'operation_step_up';
+          readonly sessionId: SeamsSessionId;
+          readonly deviceId: DeviceId;
+        };
+      }
+    | {
+        readonly authorization: {
+          readonly kind: 'reusable_wallet_session';
+          readonly walletSessionId: WalletSessionId;
+        };
+      }
+  );
 
 export function parseHostedWalletSeamsSessionExchangeCode(
   value: unknown,

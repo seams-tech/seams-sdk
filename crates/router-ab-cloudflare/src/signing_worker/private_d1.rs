@@ -895,83 +895,56 @@ pub async fn replay_cloudflare_signing_worker_near_terminal_v1(
     .await
 }
 
-async fn claim_reusable_wallet_session_near_effect_v1(
+async fn claim_cloudflare_signing_worker_authorization_effect_v1(
     session: &D1DatabaseSession,
-    cipher: &SigningWorkerPrivateD1CipherV1,
-    request: &CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2,
-    identity: &CloudflareRouterWalletBudgetReservationIdentityV1,
+    operation_key: &str,
+    authorization_key: &str,
+    request_digest_hex: &str,
+    authorization_json: &str,
+    claimed_at_ms: u64,
 ) -> RouterAbProtocolResult<CloudflareSigningWorkerNearEffectClaimV1> {
-    for _ in 0..5 {
-        let current = session
-            .prepare(
-                "SELECT record_json, version
-                 FROM signing_worker_wallet_budgets
-                 WHERE signing_grant_id = ?1",
-            )
-            .bind(&[js_string(&identity.signing_grant_id)])
-            .map_err(|error| map_d1_error("SigningWorker effect budget query bind failed", error))?
-            .first::<VersionedJsonRowV1>(None)
-            .await
-            .map_err(|error| map_d1_error("SigningWorker effect budget query failed", error))?
-            .ok_or_else(|| {
-                RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::MissingLocalBinding,
-                    "SigningWorker effect budget is missing",
-                )
-            })?;
-        let mut record = cipher.open::<SigningWorkerWalletBudgetRecordV1>(
-            "wallet_budget",
-            &identity.signing_grant_id,
-            &current.record_json,
-        )?;
-        record.validate_reservation(identity)?;
-        let reservation = record
-            .reservations
-            .get(&identity.reservation_id)
-            .ok_or_else(|| {
-                RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::MissingLocalBinding,
-                    "SigningWorker effect budget reservation is missing",
-                )
-            })?;
-        if reservation.curve != CloudflareRouterWalletBudgetCurveV1::Ed25519
-            || reservation.signature_uses != 1
-            || reservation.threshold_session_id
-                != request.request.scope.material_activation.lifecycle_binding
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "SigningWorker effect budget does not match normal-signing material",
-            ));
-        }
-        if reservation.status == SigningWorkerWalletBudgetReservationStatusV1::Committed {
-            return Ok(CloudflareSigningWorkerNearEffectClaimV1::InProgress);
-        }
-        record.commit(identity)?;
-        let record_json = cipher.seal("wallet_budget", &identity.signing_grant_id, &record)?;
-        let write = session
-            .prepare(
-                "UPDATE signing_worker_wallet_budgets
-                 SET record_json = ?1, version = version + 1, updated_at_ms = ?2
-                 WHERE signing_grant_id = ?3 AND version = ?4",
-            )
-            .bind(&[
-                js_string(&record_json),
-                js_u64("SigningWorker effect claim timestamp", identity.now_unix_ms)?,
-                js_string(&identity.signing_grant_id),
-                JsValue::from_f64(current.version as f64),
-            ])
-            .map_err(|error| map_d1_error("SigningWorker effect budget write bind failed", error))?
-            .run()
-            .await
-            .map_err(|error| map_d1_error("SigningWorker effect budget write failed", error))?;
-        if d1_changes(&write)? == 1 {
-            return Ok(CloudflareSigningWorkerNearEffectClaimV1::Claimed);
-        }
+    let result = session
+        .prepare(
+            "INSERT OR IGNORE INTO signing_worker_effect_claims
+             (operation_key, authorization_key, request_digest_hex, authorization_json, claimed_at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+        )
+        .bind(&[
+            js_string(operation_key),
+            js_string(authorization_key),
+            js_string(request_digest_hex),
+            js_string(authorization_json),
+            js_u64("SigningWorker effect claim timestamp", claimed_at_ms)?,
+        ])
+        .map_err(|error| map_d1_error("SigningWorker effect claim bind failed", error))?
+        .run()
+        .await
+        .map_err(|error| map_d1_error("SigningWorker effect claim failed", error))?;
+    if d1_changes(&result)? == 1 {
+        return Ok(CloudflareSigningWorkerNearEffectClaimV1::Claimed);
+    }
+    let stored = session
+        .prepare(
+            "SELECT operation_key, request_digest_hex, authorization_json
+             FROM signing_worker_effect_claims
+             WHERE authorization_key = ?1 OR operation_key = ?2
+             LIMIT 1",
+        )
+        .bind(&[js_string(authorization_key), js_string(operation_key)])
+        .map_err(|error| map_d1_error("SigningWorker effect replay bind failed", error))?
+        .first::<EffectClaimRowV1>(None)
+        .await
+        .map_err(|error| map_d1_error("SigningWorker effect replay failed", error))?
+        .ok_or_else(|| d1_error("SigningWorker effect conflict has no stored claim"))?;
+    if stored.operation_key == operation_key
+        && stored.request_digest_hex == request_digest_hex
+        && stored.authorization_json == authorization_json
+    {
+        return Ok(CloudflareSigningWorkerNearEffectClaimV1::InProgress);
     }
     Err(RouterAbProtocolError::new(
-        RouterAbProtocolErrorCode::ConflictingPair,
-        "SigningWorker effect budget changed concurrently",
+        RouterAbProtocolErrorCode::ReplayedLocalRequest,
+        "SigningWorker effect operation key was reused for different request material",
     ))
 }
 
@@ -1002,14 +975,20 @@ pub async fn claim_cloudflare_signing_worker_near_effect_v1(
     }
     request.request.validate_at(claimed_at_ms)?;
     match &request.effect_claim {
-        CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession { budget } => {
-            let cipher = SigningWorkerPrivateD1CipherV1::from_env(env)?;
-            let claim_identity = budget.budget_identity_at(claimed_at_ms)?;
-            claim_reusable_wallet_session_near_effect_v1(
+        CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession { claim } => {
+            let authorization_json =
+                encode_json("SigningWorker effect authorization", &request.effect_claim)?;
+            let authorization_key = format!(
+                "reusable-wallet-session/{}/{}/{}",
+                claim.wallet_session_id, claim.grant_id, claim.use_id
+            );
+            claim_cloudflare_signing_worker_authorization_effect_v1(
                 &session,
-                &cipher,
-                request,
-                &claim_identity,
+                &operation_key,
+                &authorization_key,
+                &request_digest_hex,
+                &authorization_json,
+                claimed_at_ms,
             )
             .await
         }
@@ -1017,49 +996,15 @@ pub async fn claim_cloudflare_signing_worker_near_effect_v1(
             let authorization_json =
                 encode_json("SigningWorker effect authorization", &request.effect_claim)?;
             let authorization_key = format!("operation-step-up/{grant_id}");
-            let result = session
-                .prepare(
-                    "INSERT OR IGNORE INTO signing_worker_effect_claims
-                     (operation_key, authorization_key, request_digest_hex, authorization_json, claimed_at_ms)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                )
-                .bind(&[
-                    js_string(&operation_key),
-                    js_string(&authorization_key),
-                    js_string(&request_digest_hex),
-                    js_string(&authorization_json),
-                    js_u64("SigningWorker effect claim timestamp", claimed_at_ms)?,
-                ])
-                .map_err(|error| map_d1_error("SigningWorker effect claim bind failed", error))?
-                .run()
-                .await
-                .map_err(|error| map_d1_error("SigningWorker effect claim failed", error))?;
-            if d1_changes(&result)? == 1 {
-                return Ok(CloudflareSigningWorkerNearEffectClaimV1::Claimed);
-            }
-            let stored = session
-                .prepare(
-                    "SELECT operation_key, request_digest_hex, authorization_json
-                     FROM signing_worker_effect_claims
-                     WHERE authorization_key = ?1 OR operation_key = ?2
-                     LIMIT 1",
-                )
-                .bind(&[js_string(&authorization_key), js_string(&operation_key)])
-                .map_err(|error| map_d1_error("SigningWorker effect replay bind failed", error))?
-                .first::<EffectClaimRowV1>(None)
-                .await
-                .map_err(|error| map_d1_error("SigningWorker effect replay failed", error))?
-                .ok_or_else(|| d1_error("SigningWorker effect conflict has no stored claim"))?;
-            if stored.operation_key == operation_key
-                && stored.request_digest_hex == request_digest_hex
-                && stored.authorization_json == authorization_json
-            {
-                return Ok(CloudflareSigningWorkerNearEffectClaimV1::InProgress);
-            }
-            Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ReplayedLocalRequest,
-                "SigningWorker effect operation key was reused for different request material",
-            ))
+            claim_cloudflare_signing_worker_authorization_effect_v1(
+                &session,
+                &operation_key,
+                &authorization_key,
+                &request_digest_hex,
+                &authorization_json,
+                claimed_at_ms,
+            )
+            .await
         }
     }
 }

@@ -66,11 +66,11 @@ contracts and accept Refactor 94C's final durable-owner placement.
 
 Known conflicts:
 
-- Refactor 93 placed operation admission at the request-scoped Gateway.
-  Refactor 94C moves ordinary-signing claims, session budgets, and presignature
-  consumption to SigningWorker private D1. Preserve the stable operation
-  fingerprint, exact replay, atomic claim, and single-consumption semantics at
-  that owner.
+- The request-scoped Gateway owns canonical authorization claims, Wallet Session
+  quota consumption, and authorization audit records. Refactor 94C keeps
+  cryptographic effect deduplication, terminal replay, and presignature
+  consumption in SigningWorker private D1. The Gateway forwards only a typed
+  claim receipt over an internally authenticated Router route.
 - Refactor 90 models activation as idempotent and queryable by activation
   correlation. Refactor 94C folds standalone prepare/finalize routes into its
   three blocking registration routes. Preserve prepared coordinates, exact
@@ -633,20 +633,14 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Replace generic wire `session_id` and `active_state_session_id` fields
       with the discriminated authorization branch and exact activation reference;
       update the unreleased protocol schema and transcript vectors together.
-- [x] Commit the Near operation claim and applicable reusable-session budget at
-      the durable effect owner before execution. Cloudflare uses SigningWorker
-      private D1 under Refactor 94C; bind the admitted-policy and operation
-      digests into exact replay without crypto reevaluation or repeated
-      resource consumption.
-
-  SigningWorker private D1 now claims and charges before the effect and owns
-  exact terminal-response persistence and replay. The forwarded reusable claim
-  excludes attempt-local time; SigningWorker supplies its local claim time so
-  retries retain one stable effect digest.
-
-  Review gate: operation step-up must reach this owner and consume its one-use
-  grant; post-claim failures must become replayable terminal outcomes; the
-  fingerprint must bind admitted policy as well as operation material.
+- [x] Commit the reusable-session Near operation claim, quota use, and audit
+      atomically in Gateway authorization D1 before execution. Forward its typed
+      receipt through the internally authenticated Router route; SigningWorker
+      private D1 owns exact cryptographic-effect deduplication and terminal
+      replay.
+- [ ] Commit the operation-step-up Near claim and consume its exact one-use grant
+      before forwarding execution. Preserve the same operation fingerprint and
+      SigningWorker terminal replay used by reusable-session signing.
 - [x] Add no execution lease: no implemented operation outlives its request or
       transfers between workers. Reopen this only for a demonstrated owner
       transfer.

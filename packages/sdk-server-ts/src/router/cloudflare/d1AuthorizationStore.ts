@@ -22,6 +22,7 @@ import type {
   AuthorizationAuditEvent,
   CapabilityGrantUse,
   CapabilityOperationClaim,
+  CapabilityOperationCompletionClaimRef,
   CapabilityOperationResultRef,
   ClaimCapabilityOperationResult,
   CompleteCapabilityOperationResult,
@@ -770,6 +771,16 @@ export class CloudflareD1AuthorizationStore
     });
     if (existing) return replayResult(existing, claim);
 
+    if (isReusableWalletSessionClaim(claim)) {
+      return await this.claimReusableWalletSessionOperation(claim);
+    }
+
+    return await this.claimGrantOperation(claim);
+  }
+
+  private async claimGrantOperation(
+    claim: CapabilityOperationClaim,
+  ): Promise<ClaimCapabilityOperationResult> {
     const authorization = claimAuthorizationColumns(claim);
     try {
       const result = await this.database
@@ -848,8 +859,89 @@ export class CloudflareD1AuthorizationStore
     return { kind: 'claimed', use };
   }
 
+  private async claimReusableWalletSessionOperation(
+    claim: Extract<
+      CapabilityOperationClaim,
+      { readonly authorization: { readonly kind: 'reusable_wallet_session' } }
+    >,
+  ): Promise<ClaimCapabilityOperationResult> {
+    try {
+      const result = await this.database
+        .prepare(
+          `INSERT INTO reusable_wallet_session_operation_uses (
+            namespace,
+            tenant_id,
+            use_id,
+            audit_event_id,
+            grant_id,
+            principal_id,
+            capability_id,
+            capability_kind,
+            operation_kind,
+            operation_id,
+            operation_fingerprint_digest,
+            evidence_set_digest,
+            lane_digest,
+            intent_digest,
+            display_digest,
+            wallet_session_id,
+            quota_id,
+            quota_kind,
+            lifecycle_kind,
+            result_kind,
+            result_digest,
+            result_storage_ref,
+            claimed_at_ms,
+            completed_at_ms
+          ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            'claimed', 'pending', NULL, NULL, ?, NULL
+          )`,
+        )
+        .bind(
+          this.namespace,
+          claim.tenantId,
+          claim.useId,
+          claim.auditEventId,
+          claim.grantId,
+          claim.operation.principalId,
+          claim.operation.capabilityId,
+          claim.operation.operation.capabilityKind,
+          claim.operation.operation.operationKind,
+          claim.operation.operationId,
+          claim.operationFingerprintDigest,
+          claim.evidenceSetDigest,
+          claim.operation.digests.laneDigest,
+          claim.operation.digests.intentDigest,
+          claim.operation.digests.displayDigest,
+          claim.authorization.walletSessionId,
+          claim.authorization.quotaId,
+          claim.quota.kind,
+          requirePositiveInteger(claim.claimedAtMs, 'claim.claimedAtMs'),
+        )
+        .run();
+      requireOneChangedRow(result, 'reusable Wallet Session operation claim');
+    } catch {
+      const raced = await this.readOperationUse({
+        tenantId: claim.tenantId,
+        operationFingerprintDigest: claim.operationFingerprintDigest,
+      });
+      if (raced) return replayResult(raced, claim);
+      return await this.classifyRejectedReusableWalletSessionClaim(claim);
+    }
+
+    const use = await this.readReusableWalletSessionOperationUse({
+      tenantId: claim.tenantId,
+      operationFingerprintDigest: claim.operationFingerprintDigest,
+    });
+    if (!use || use.kind !== 'claimed') {
+      throw new Error('committed reusable Wallet Session operation claim could not be read back');
+    }
+    return { kind: 'claimed', use };
+  }
+
   async completeOperation(input: {
-    readonly claim: CapabilityOperationClaim;
+    readonly claim: CapabilityOperationClaim | CapabilityOperationCompletionClaimRef;
     readonly result: CompletedCapabilityOperationResult;
     readonly resultRef: CapabilityOperationResultRef;
     readonly completedAtMs: number;
@@ -864,9 +956,16 @@ export class CloudflareD1AuthorizationStore
     }
     if (current.kind === 'completed') return { kind: 'already_completed', use: current };
 
+    const reusableUse = await this.readReusableWalletSessionOperationUse({
+      tenantId: input.claim.tenantId,
+      operationFingerprintDigest: input.claim.operationFingerprintDigest,
+    });
+    const useTable = reusableUse
+      ? 'reusable_wallet_session_operation_uses'
+      : 'capability_grant_uses';
     const update = await this.database
       .prepare(
-        `UPDATE capability_grant_uses
+        `UPDATE ${useTable}
             SET lifecycle_kind = 'completed',
                 result_kind = ?,
                 result_digest = ?,
@@ -924,7 +1023,19 @@ export class CloudflareD1AuthorizationStore
       )
       .bind(this.namespace, input.tenantId, input.eventId)
       .first<D1Row>();
-    return row ? parseAuditEventRow(row) : null;
+    if (row) return parseGrantAuditEventRow(row);
+    const reusableRow = await this.database
+      .prepare(
+        `SELECT *
+           FROM reusable_wallet_session_operation_audit_events
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND event_id = ?
+          LIMIT 1`,
+      )
+      .bind(this.namespace, input.tenantId, input.eventId)
+      .first<D1Row>();
+    return reusableRow ? parseReusableWalletSessionAuditEventRow(reusableRow) : null;
   }
 
   async readOperationUse(input: {
@@ -935,6 +1046,25 @@ export class CloudflareD1AuthorizationStore
       .prepare(
         `SELECT *
            FROM capability_grant_uses
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND operation_fingerprint_digest = ?
+          LIMIT 1`,
+      )
+      .bind(this.namespace, input.tenantId, input.operationFingerprintDigest)
+      .first<D1Row>();
+    if (row) return parseCapabilityGrantUseRow(row);
+    return await this.readReusableWalletSessionOperationUse(input);
+  }
+
+  private async readReusableWalletSessionOperationUse(input: {
+    readonly tenantId: CapabilityOperationClaim['tenantId'];
+    readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
+  }): Promise<CapabilityGrantUse | null> {
+    const row = await this.database
+      .prepare(
+        `SELECT *
+           FROM reusable_wallet_session_operation_uses
           WHERE namespace = ?
             AND tenant_id = ?
             AND operation_fingerprint_digest = ?
@@ -1014,6 +1144,56 @@ export class CloudflareD1AuthorizationStore
       return { kind: 'wallet_session_quota_exhausted' };
     }
     throw new Error('authorization claim failed despite eligible grant and Wallet Session quota');
+  }
+
+  private async classifyRejectedReusableWalletSessionClaim(
+    claim: Extract<
+      CapabilityOperationClaim,
+      { readonly authorization: { readonly kind: 'reusable_wallet_session' } }
+    >,
+  ): Promise<ClaimCapabilityOperationResult> {
+    const session = await this.database
+      .prepare(
+        `SELECT *
+           FROM reusable_wallet_sessions
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND wallet_session_id = ?
+          LIMIT 1`,
+      )
+      .bind(this.namespace, claim.tenantId, claim.authorization.walletSessionId)
+      .first<D1Row>();
+    if (!session || !reusableWalletSessionMatchesClaim(session, claim)) {
+      return { kind: 'wallet_session_mismatch' };
+    }
+    if (integerColumn(session.expires_at_ms, 'session.expires_at_ms') <= claim.claimedAtMs) {
+      return { kind: 'wallet_session_expired' };
+    }
+    if (session.lifecycle_kind !== 'active') return { kind: 'wallet_session_mismatch' };
+
+    const quota = await this.database
+      .prepare(
+        `SELECT *
+           FROM authorization_wallet_session_quotas
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND quota_id = ?
+          LIMIT 1`,
+      )
+      .bind(this.namespace, claim.tenantId, claim.authorization.quotaId)
+      .first<QuotaClassificationRow>();
+    if (!quota || !quotaMatchesClaim(quota, claim)) return { kind: 'wallet_session_mismatch' };
+    if (integerColumn(quota.expires_at_ms, 'quota.expires_at_ms') <= claim.claimedAtMs) {
+      return { kind: 'wallet_session_expired' };
+    }
+    if (
+      claim.quota.kind === 'consume_reusable_wallet_session' &&
+      (quota.lifecycle_kind !== 'active' ||
+        integerColumn(quota.remaining_uses, 'quota.remaining_uses') <= 0)
+    ) {
+      return { kind: 'wallet_session_quota_exhausted' };
+    }
+    throw new Error('authorization claim failed despite eligible reusable Wallet Session');
   }
 }
 
@@ -1249,6 +1429,15 @@ function claimAuthorizationColumns(claim: CapabilityOperationClaim): {
   }
 }
 
+function isReusableWalletSessionClaim(
+  claim: CapabilityOperationClaim,
+): claim is Extract<
+  CapabilityOperationClaim,
+  { readonly authorization: { readonly kind: 'reusable_wallet_session' } }
+> {
+  return claim.authorization.kind === 'reusable_wallet_session';
+}
+
 function replayResult(
   use: CapabilityGrantUse,
   claim: CapabilityOperationClaim,
@@ -1291,6 +1480,20 @@ function quotaMatchesClaim(row: QuotaClassificationRow, claim: CapabilityOperati
   if (claim.authorization.kind !== 'reusable_wallet_session') return false;
   return (
     row.wallet_session_id === claim.authorization.walletSessionId &&
+    row.principal_id === claim.operation.principalId
+  );
+}
+
+function reusableWalletSessionMatchesClaim(
+  row: D1Row,
+  claim: Extract<
+    CapabilityOperationClaim,
+    { readonly authorization: { readonly kind: 'reusable_wallet_session' } }
+  >,
+): boolean {
+  return (
+    row.wallet_session_id === claim.authorization.walletSessionId &&
+    row.quota_id === claim.authorization.quotaId &&
     row.principal_id === claim.operation.principalId
   );
 }
@@ -1362,7 +1565,7 @@ function parseCapabilityGrantUseRow(row: D1Row): CapabilityGrantUse {
   };
 }
 
-function parseAuditEventRow(row: D1Row): AuthorizationAuditEvent {
+function parseGrantAuditEventRow(row: D1Row): AuthorizationAuditEvent {
   if (!isAuditResult(row.result_kind)) {
     throw new Error('authorization audit row has an invalid result');
   }
@@ -1371,8 +1574,47 @@ function parseAuditEventRow(row: D1Row): AuthorizationAuditEvent {
     tenantId: requireParsed(row.tenant_id, parseTenantId, 'audit.tenantId'),
     eventId: requireParsed(row.event_id, parseAuthorizationAuditEventId, 'audit.eventId'),
     principalId: requireParsed(row.principal_id, parsePrincipalId, 'audit.principalId'),
-    sessionId: requireParsed(row.session_id, parseSeamsSessionId, 'audit.sessionId'),
-    deviceId: requireParsed(row.device_id, parseDeviceId, 'audit.deviceId'),
+    authorization: {
+      kind: 'operation_step_up',
+      sessionId: requireParsed(row.session_id, parseSeamsSessionId, 'audit.sessionId'),
+      deviceId: requireParsed(row.device_id, parseDeviceId, 'audit.deviceId'),
+    },
+    grantId: requireParsed(row.grant_id, parseCapabilityGrantId, 'audit.grantId'),
+    useId: requireParsed(row.use_id, parseCapabilityGrantUseId, 'audit.useId'),
+    capabilityId: requireParsed(row.capability_id, parseCapabilityId, 'audit.capabilityId'),
+    operationId: requireParsed(row.operation_id, parseCapabilityOperationId, 'audit.operationId'),
+    operation: requireParsed(
+      {
+        capabilityKind: row.capability_kind,
+        operationKind: row.operation_kind,
+      },
+      parseCapabilityOperationRef,
+      'audit.operation',
+    ),
+    operationFingerprintDigest: parseOperationFingerprint(row.operation_fingerprint_digest),
+    evidenceSetDigest: parseDigestB64u(row.evidence_set_digest),
+    result: row.result_kind,
+    createdAtMs: integerColumn(row.created_at_ms, 'audit.createdAtMs'),
+  };
+}
+
+function parseReusableWalletSessionAuditEventRow(row: D1Row): AuthorizationAuditEvent {
+  if (!isAuditResult(row.result_kind)) {
+    throw new Error('authorization audit row has an invalid result');
+  }
+  return {
+    kind: 'authorization_audit_event',
+    tenantId: requireParsed(row.tenant_id, parseTenantId, 'audit.tenantId'),
+    eventId: requireParsed(row.event_id, parseAuthorizationAuditEventId, 'audit.eventId'),
+    principalId: requireParsed(row.principal_id, parsePrincipalId, 'audit.principalId'),
+    authorization: {
+      kind: 'reusable_wallet_session',
+      walletSessionId: requireParsed(
+        row.wallet_session_id,
+        parseWalletSessionId,
+        'audit.walletSessionId',
+      ),
+    },
     grantId: requireParsed(row.grant_id, parseCapabilityGrantId, 'audit.grantId'),
     useId: requireParsed(row.use_id, parseCapabilityGrantUseId, 'audit.useId'),
     capabilityId: requireParsed(row.capability_id, parseCapabilityId, 'audit.capabilityId'),

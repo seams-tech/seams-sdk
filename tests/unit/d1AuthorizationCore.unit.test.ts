@@ -20,6 +20,7 @@ import {
 } from './helpers/authorizationCore.fixtures';
 import {
   buildActiveCapabilityGrant,
+  buildCapabilityOperationCompletionClaimRef,
   parseHostedWalletSeamsSessionExchangeNonce,
   parseSessionOrigin,
 } from '../../packages/sdk-server-ts/src/authorization/domain';
@@ -311,7 +312,7 @@ test.describe('D1 authorization core', () => {
     }
   });
 
-  test('persists session, evidence, grant, claim, completion, replay, and audit', async () => {
+  test('persists, completes, and replays a reusable Wallet Session claim', async () => {
     const temporary = createTemporaryD1Database();
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
@@ -340,7 +341,7 @@ test.describe('D1 authorization core', () => {
       });
       await expect(
         service.completeOperation({
-          claim: fixture.claim,
+          claim: buildCapabilityOperationCompletionClaimRef(fixture.claim),
           result: 'succeeded',
           resultRef: fixture.resultRef,
           completedAtMs: fixture.claim.claimedAtMs + 10,
@@ -351,7 +352,7 @@ test.describe('D1 authorization core', () => {
         use: { result: 'succeeded' },
       });
 
-      await expect(readRemainingUses(temporary.database, 'capability_grants')).resolves.toBe(0);
+      await expect(readRemainingUses(temporary.database, 'capability_grants')).resolves.toBe(1);
       await expect(
         readRemainingUses(temporary.database, 'authorization_wallet_session_quotas'),
       ).resolves.toBe(1);
@@ -361,6 +362,10 @@ test.describe('D1 authorization core', () => {
           eventId: fixture.claim.auditEventId,
         }),
       ).resolves.toMatchObject({
+        authorization: {
+          kind: 'reusable_wallet_session',
+          walletSessionId: fixture.reusableWalletSession.walletSessionId,
+        },
         result: 'succeeded',
         useId: fixture.claim.useId,
         operationId: fixture.claim.operation.operationId,
@@ -419,8 +424,75 @@ test.describe('D1 authorization core', () => {
       await expect(
         readRemainingUses(temporary.database, 'authorization_wallet_session_quotas'),
       ).resolves.toBe(1);
-      await expect(rowCount(temporary.database, 'capability_grant_uses')).resolves.toBe(1);
-      await expect(rowCount(temporary.database, 'authorization_audit_events')).resolves.toBe(1);
+      await expect(
+        rowCount(temporary.database, 'reusable_wallet_session_operation_uses'),
+      ).resolves.toBe(1);
+      await expect(
+        rowCount(temporary.database, 'reusable_wallet_session_operation_audit_events'),
+      ).resolves.toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('claims a reusable Wallet Session operation without a capability grant record', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const service = createService(temporary.database, 'wallet-session-direct-operation');
+      const fixture = await buildReusableAuthorizationCoreFixture();
+      await service.seedStore.putActiveReusableWalletSession({
+        session: fixture.reusableWalletSession,
+        quota: fixture.quota,
+      });
+
+      const outcome = await service.claimReusableWalletSessionOperation(
+        reusableWalletSessionClaimInput(fixture.claim),
+      );
+      expect(outcome).toMatchObject({
+        claim: {
+          authorization: {
+            kind: 'reusable_wallet_session',
+            walletSessionId: fixture.reusableWalletSession.walletSessionId,
+            quotaId: fixture.reusableWalletSession.quotaId,
+          },
+        },
+        result: { kind: 'claimed' },
+      });
+      if (!outcome.claim) throw new Error('expected a new reusable Wallet Session claim');
+      await expect(
+        service.completeOperation({
+          claim: buildCapabilityOperationCompletionClaimRef(outcome.claim),
+          result: 'succeeded',
+          resultRef: fixture.resultRef,
+          completedAtMs: fixture.claim.claimedAtMs + 10,
+        }),
+      ).resolves.toMatchObject({ kind: 'completed' });
+      await expect(rowCount(temporary.database, 'capability_grants')).resolves.toBe(0);
+      await expect(rowCount(temporary.database, 'verified_grant_evidence_sets')).resolves.toBe(0);
+      await expect(rowCount(temporary.database, 'capability_grant_uses')).resolves.toBe(0);
+      await expect(rowCount(temporary.database, 'authorization_audit_events')).resolves.toBe(0);
+      await expect(
+        rowCount(temporary.database, 'reusable_wallet_session_operation_uses'),
+      ).resolves.toBe(1);
+      await expect(
+        rowCount(temporary.database, 'reusable_wallet_session_operation_audit_events'),
+      ).resolves.toBe(1);
+      await expect(
+        readRemainingUses(temporary.database, 'authorization_wallet_session_quotas'),
+      ).resolves.toBe(fixture.quota.remainingUses - 1);
+      await expect(
+        service.readAuditEvent({
+          tenantId: fixture.claim.tenantId,
+          eventId: fixture.claim.auditEventId,
+        }),
+      ).resolves.toMatchObject({
+        authorization: {
+          kind: 'reusable_wallet_session',
+          walletSessionId: fixture.reusableWalletSession.walletSessionId,
+        },
+        result: 'succeeded',
+      });
     } finally {
       cleanupTemporaryD1Database(temporary.tempDir);
     }
@@ -495,7 +567,7 @@ test.describe('D1 authorization core', () => {
     }
   });
 
-  test('rejects an expired reusable authorization without consuming its grant', async () => {
+  test('rejects an expired reusable authorization without consuming its quota', async () => {
     const temporary = createTemporaryD1Database();
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
@@ -507,7 +579,7 @@ test.describe('D1 authorization core', () => {
       await seedReusable(service, fixture);
 
       await expect(service.claimOperation(fixture.claim)).resolves.toEqual({
-        kind: 'grant_expired',
+        kind: 'wallet_session_expired',
       });
       await expect(readRemainingUses(temporary.database, 'capability_grants')).resolves.toBe(1);
       await expect(rowCount(temporary.database, 'capability_grant_uses')).resolves.toBe(0);
@@ -517,7 +589,7 @@ test.describe('D1 authorization core', () => {
     }
   });
 
-  test('serializes concurrent fingerprints through one grant and quota use', async () => {
+  test('serializes concurrent fingerprints through one Wallet Session quota use', async () => {
     const temporary = createTemporaryD1Database();
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
@@ -534,11 +606,15 @@ test.describe('D1 authorization core', () => {
       ]);
       expect(outcomes.map((outcome) => outcome.kind).sort()).toEqual([
         'claimed',
-        'grant_exhausted',
+        'wallet_session_quota_exhausted',
       ]);
-      await expect(rowCount(temporary.database, 'capability_grant_uses')).resolves.toBe(1);
-      await expect(rowCount(temporary.database, 'authorization_audit_events')).resolves.toBe(1);
-      await expect(readRemainingUses(temporary.database, 'capability_grants')).resolves.toBe(0);
+      await expect(
+        rowCount(temporary.database, 'reusable_wallet_session_operation_uses'),
+      ).resolves.toBe(1);
+      await expect(
+        rowCount(temporary.database, 'reusable_wallet_session_operation_audit_events'),
+      ).resolves.toBe(1);
+      await expect(readRemainingUses(temporary.database, 'capability_grants')).resolves.toBe(1);
       await expect(
         readRemainingUses(temporary.database, 'authorization_wallet_session_quotas'),
       ).resolves.toBe(0);
@@ -882,7 +958,9 @@ async function rowCount(
     | 'verified_grant_evidence_sets'
     | 'capability_grants'
     | 'capability_grant_uses'
-    | 'authorization_audit_events',
+    | 'authorization_audit_events'
+    | 'reusable_wallet_session_operation_uses'
+    | 'reusable_wallet_session_operation_audit_events',
 ): Promise<number> {
   const row = await database
     .prepare(`SELECT COUNT(*) AS count FROM ${table}`)

@@ -35,6 +35,19 @@ const digest32 = {
   bytes: Array.from({ length: 32 }, (_, index) => index),
 };
 
+const authorizationClaim = {
+  kind: 'reusable_wallet_session_operation_claim_v1' as const,
+  use_id: 'operation-use-1',
+  grant_id: 'operation-grant-1',
+  operation_id: 'operation-1',
+  capability_kind: 'near_ed25519_mpc_signing' as const,
+  operation_kind: 'near.sign_transaction' as const,
+  lane_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  intent_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  display_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  operation_fingerprint_digest: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+};
+
 const prepareRequest = {
   scope,
   expires_at_ms: 1_900_000_000_000,
@@ -64,8 +77,7 @@ void prepareRequest;
 const finalizeRequest = {
   scope,
   expires_at_ms: 1_900_000_000_000,
-  budget_reservation_id: 'budget-reservation-1',
-  budget_operation_id: 'operation-1',
+  authorization_claim: authorizationClaim,
   prepare_binding: {
     server_round1_handle: 'round-1-handle',
     round1_binding_digest: digest32,
@@ -92,8 +104,7 @@ void finalizeRequest;
 const finalizeWithClientGroupPublicKey = {
   scope,
   expires_at_ms: 1_900_000_000_000,
-  budget_reservation_id: finalizeRequest.budget_reservation_id,
-  budget_operation_id: finalizeRequest.budget_operation_id,
+  authorization_claim: finalizeRequest.authorization_claim,
   prepare_binding: finalizeRequest.prepare_binding,
   protocol: {
     kind: 'ed25519_two_party_frost_finalize_v1' as const,
@@ -146,6 +157,21 @@ const stepUpWithWalletSession = {
 // @ts-expect-error operation step-up authority cannot carry reusable Wallet Session identity.
 const invalidStepUpRequest: RouterAbNormalSigningPrepareRequestV2Wire = stepUpWithWalletSession;
 void invalidStepUpRequest;
+
+const stepUpFinalizeWithReusableClaim = {
+  ...finalizeRequest,
+  scope: {
+    ...scope,
+    authorization: {
+      kind: 'operation_step_up' as const,
+      grant_id: 'step-up-grant-1',
+    },
+  },
+};
+// @ts-expect-error operation step-up finalize requests cannot carry reusable-session claims.
+const invalidStepUpFinalize: RouterAbNormalSigningFinalizeRequestV2Wire =
+  stepUpFinalizeWithReusableClaim;
+void invalidStepUpFinalize;
 
 const ecdsaScope = {
   wallet_id: 'wallet-1',

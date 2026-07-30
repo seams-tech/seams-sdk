@@ -44,6 +44,7 @@ use router_ab_cloudflare::{
     open_cloudflare_signer_envelope_hpke_payload_v1, parse_cloudflare_deriver_a_bindings_v1,
     parse_cloudflare_deriver_b_bindings_v1, parse_cloudflare_deriver_peer_verifying_key_set_v1,
     parse_cloudflare_router_admission_bindings_v1,
+    parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json,
     parse_cloudflare_signer_envelope_hpke_decrypt_key_binding_set_v1,
     parse_cloudflare_signer_envelope_hpke_decrypt_key_binding_v1,
     parse_cloudflare_signer_envelope_hpke_public_key_set_v1,
@@ -97,11 +98,10 @@ use router_ab_cloudflare::{
     CloudflareRouterRecipientProofBundleResponseV1, CloudflareRouterTrustedAdmissionV1,
     CloudflareRouterTrustedRequestMetadataV1, CloudflareRouterVerifiedJwtClaimsV1,
     CloudflareRouterVerifiedSessionProviderV1, CloudflareRouterVerifiedSessionV1,
-    CloudflareRouterVerifiedWalletSessionV1, CloudflareRouterWalletBudgetReservationIdentityV1,
-    CloudflareRouterWalletSessionCredentialV1, CloudflareRouterWalletSessionVerifierV1,
-    CloudflareRouterWorkerRuntimeV1, CloudflareSecretMaterial32V1,
-    CloudflareServerOutputHpkeDecryptKeyBindingV1, CloudflareServerOutputMaterialRecordV1,
-    CloudflareSignerClientRecipientProofBundleResponseV1,
+    CloudflareRouterVerifiedWalletSessionV1, CloudflareRouterWalletSessionCredentialV1,
+    CloudflareRouterWalletSessionVerifierV1, CloudflareRouterWorkerRuntimeV1,
+    CloudflareSecretMaterial32V1, CloudflareServerOutputHpkeDecryptKeyBindingV1,
+    CloudflareServerOutputMaterialRecordV1, CloudflareSignerClientRecipientProofBundleResponseV1,
     CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1,
     CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1, CloudflareSignerEnvelopeHpkePublicKeySetV1,
     CloudflareSignerEnvelopeHpkePublicKeyV1, CloudflareSignerEnvelopeHpkeRotationPublicKeySetV1,
@@ -266,7 +266,7 @@ fn normal_signing_scope_for_request_id(request_id: &str) -> NormalSigningScopeV1
     NormalSigningScopeV1::new(
         request_id,
         "account.near",
-        NormalSigningAuthorizationV1::reusable_wallet_session("session-1")
+        NormalSigningAuthorizationV1::reusable_wallet_session("wallet-session-1")
             .expect("normal signing authorization"),
         MpcMaterialActivationRefV1::new(
             "session-1",
@@ -286,7 +286,9 @@ fn normal_signing_v2_wallet_session(expires_at_ms: u64) -> CloudflareRouterVerif
     CloudflareRouterVerifiedWalletSessionV1::new(
         "user-1",
         "account.near",
-        "session-1",
+        "authorization-session-1",
+        "wallet-session-1",
+        "ed25519-material-lifecycle-1",
         "signing-grant-1",
         "org-1",
         "project-1",
@@ -951,6 +953,8 @@ fn valid_router_jwt_claims() -> serde_json::Value {
 
 fn valid_wallet_session_jwt_claims() -> serde_json::Value {
     let mut claims = valid_router_jwt_claims();
+    claims["walletSessionId"] = serde_json::json!("wallet-session-1");
+    claims["thresholdSessionId"] = serde_json::json!("ed25519-material-lifecycle-1");
     claims["signingGrantId"] = serde_json::json!("signing-grant-1");
     claims["routerAbNormalSigning"] = serde_json::json!({
         "authorizationLevel": "normal-signing",
@@ -1637,6 +1641,8 @@ fn router_ab_ecdsa_derivation_wallet_session(
     CloudflareRouterVerifiedWalletSessionV1::new(
         "subject-1",
         request.scope.wallet_id.clone(),
+        "authorization-session-ecdsa-1",
+        "wallet-session-ecdsa-1",
         active_session_id,
         "signing-grant-ecdsa-1",
         "org-1",
@@ -3177,7 +3183,8 @@ fn router_ed25519_jwks_wallet_session_verifier_accepts_normal_signing_claims() {
 
     assert_eq!(session.subject_id, "user-1");
     assert_eq!(session.account_id, "account.near");
-    assert_eq!(session.threshold_session_id, "session-1");
+    assert_eq!(session.wallet_session_id, "wallet-session-1");
+    assert_eq!(session.threshold_session_id, "ed25519-material-lifecycle-1");
     assert_eq!(session.signing_grant_id, "signing-grant-1");
     assert_eq!(session.authorization_level, "normal-signing");
     assert_eq!(session.signing_worker_id, "server-a");
@@ -3432,11 +3439,8 @@ fn router_normal_signing_prepare_admission_v2_rejects_scope_and_digest_drift() {
 
     let mut wrong_session = admission.clone();
     wrong_session.authorization =
-        CloudflareRouterNormalSigningAuthorizationV2::reusable_wallet_session(
-            "other-session",
-            wallet_session.signing_grant_id.clone(),
-        )
-        .expect("wrong prepare authorization");
+        CloudflareRouterNormalSigningAuthorizationV2::reusable_wallet_session("other-session")
+            .expect("wrong prepare authorization");
     let err = wrong_session
         .validate_for_prepare_request(&request)
         .expect_err("prepare admission session drift must fail");
@@ -3492,11 +3496,8 @@ fn router_normal_signing_finalize_admission_v2_rejects_scope_and_digest_drift() 
 
     let mut wrong_session = admission.clone();
     wrong_session.authorization =
-        CloudflareRouterNormalSigningAuthorizationV2::reusable_wallet_session(
-            "other-session",
-            wallet_session.signing_grant_id.clone(),
-        )
-        .expect("wrong finalize authorization");
+        CloudflareRouterNormalSigningAuthorizationV2::reusable_wallet_session("other-session")
+            .expect("wrong finalize authorization");
     let err = wrong_session
         .validate_for_finalize_request(&request)
         .expect_err("finalize admission session drift must fail");
@@ -3570,7 +3571,7 @@ fn router_normal_signing_admission_v2_converts_to_v1_store_metadata() {
     assert_eq!(metadata.intent_digest, admission.intent_digest);
     assert_eq!(
         metadata.auth,
-        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
+        CloudflareRouterAuthContextV1::authenticated_session("user-1", "wallet-session-1")
             .expect("authenticated session")
     );
 }
@@ -3602,7 +3603,7 @@ fn router_normal_signing_finalize_admission_v2_converts_to_v1_store_metadata() {
     assert_eq!(metadata.intent_digest, admission.intent_digest);
     assert_eq!(
         metadata.auth,
-        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
+        CloudflareRouterAuthContextV1::authenticated_session("user-1", "wallet-session-1")
             .expect("authenticated session")
     );
 }
@@ -7400,18 +7401,14 @@ fn signing_worker_production_v2_finalize_signs_router_admitted_digest_from_round
         finalize_admission,
         trusted_admission,
         CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
-            budget: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::from_reservation_identity(
-                &CloudflareRouterWalletBudgetReservationIdentityV1::new(
-                    wallet_session.signing_grant_id,
-                    "reservation-1",
-                    wallet_session.signing_worker_id,
-                    "operation-1",
-                    PublicDigest32::new([0x44; 32]),
-                    1_000,
-                )
-                .expect("effect budget identity"),
+            claim: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::new(
+                wallet_session.wallet_session_id,
+                wallet_session.signing_grant_id,
+                "use-1",
+                "operation-1",
+                "fingerprint-1",
             )
-            .expect("stable effect budget claim"),
+            .expect("stable effect claim"),
         },
     )
     .expect("admitted v2 finalize");
@@ -7531,6 +7528,82 @@ fn normal_signing_step_up_admission_derives_the_exact_one_use_claim() {
 }
 
 #[test]
+fn normal_signing_finalize_boundary_extracts_reusable_operation_claim() {
+    let request = normal_signing_v2_finalize_request(2_000);
+    let mut body = serde_json::to_value(&request)
+        .expect("finalize request JSON")
+        .as_object()
+        .expect("finalize request object")
+        .clone();
+    body.insert(
+        "authorization_claim".to_owned(),
+        serde_json::json!({
+            "kind": "reusable_wallet_session_operation_claim_v1",
+            "use_id": "use-1",
+            "grant_id": "grant-1",
+            "operation_id": "operation-1",
+            "capability_kind": "near_ed25519_mpc_signing",
+            "operation_kind": "near.sign_transaction",
+            "lane_digest_b64u": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0x11; 32]),
+            "intent_digest_b64u": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(request.intent_digest().as_bytes()),
+            "display_digest_b64u": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0x22; 32]),
+            "operation_fingerprint_digest": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0x33; 32]),
+        }),
+    );
+    let bytes = serde_json::to_vec(&body).expect("authorized finalize JSON");
+    let (parsed_request, claim) =
+        parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json(&bytes)
+            .expect("authorized finalize request");
+
+    assert_eq!(parsed_request, request);
+    claim
+        .expect("reusable operation claim")
+        .validate_for_finalize_request(&parsed_request)
+        .expect("claim matches finalize request");
+}
+
+#[test]
+fn normal_signing_finalize_boundary_accepts_operation_step_up_without_reusable_claim() {
+    let mut request = normal_signing_v2_finalize_request(2_000);
+    request.scope.authorization =
+        NormalSigningAuthorizationV1::operation_step_up("operation-grant-1")
+            .expect("operation step-up");
+    let bytes = serde_json::to_vec(&request).expect("operation-step-up finalize JSON");
+
+    let (parsed_request, claim) =
+        parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json(&bytes)
+            .expect("operation-step-up finalize request");
+
+    assert_eq!(parsed_request, request);
+    assert_eq!(claim, None);
+}
+
+#[test]
+fn normal_signing_finalize_admission_derives_operation_step_up_from_verified_session() {
+    let mut request = normal_signing_v2_finalize_request(2_000);
+    request.scope.authorization =
+        NormalSigningAuthorizationV1::operation_step_up("signing-grant-1")
+            .expect("operation step-up");
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+
+    let admission =
+        CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2::from_finalize_request(
+            &wallet_session,
+            &request,
+            1_000,
+        )
+        .expect("operation-step-up admission");
+
+    assert_eq!(
+        admission.authorization,
+        CloudflareRouterNormalSigningAuthorizationV2::OperationStepUp {
+            authorization_session_id: "authorization-session-1".to_owned(),
+            grant_id: "signing-grant-1".to_owned(),
+        }
+    );
+}
+
+#[test]
 fn normal_signing_effect_digest_binds_policy_principal_capability_and_terminal_failure() {
     let request = normal_signing_v2_finalize_request(2_000);
     let wallet_session = normal_signing_v2_wallet_session(3_000);
@@ -7549,19 +7622,14 @@ fn normal_signing_effect_digest_binds_policy_principal_capability_and_terminal_f
     )
     .expect("trusted admission");
     let effect_claim = CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
-        budget:
-            CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::from_reservation_identity(
-                &CloudflareRouterWalletBudgetReservationIdentityV1::new(
-                    wallet_session.signing_grant_id.clone(),
-                    "reservation-1",
-                    wallet_session.signing_worker_id.clone(),
-                    "operation-1",
-                    digest(0x44),
-                    1_000,
-                )
-                .expect("budget identity"),
-            )
-            .expect("stable effect budget claim"),
+        claim: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::new(
+            wallet_session.wallet_session_id.clone(),
+            wallet_session.signing_grant_id.clone(),
+            "use-1",
+            "operation-1",
+            "fingerprint-1",
+        )
+        .expect("stable effect claim"),
     };
     let admitted = CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::new(
         request.clone(),
@@ -7570,27 +7638,22 @@ fn normal_signing_effect_digest_binds_policy_principal_capability_and_terminal_f
         effect_claim.clone(),
     )
     .expect("admitted finalize");
-    let retry_claim =
-        CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::from_reservation_identity(
-            &CloudflareRouterWalletBudgetReservationIdentityV1::new(
-                wallet_session.signing_grant_id.clone(),
-                "reservation-1",
-                wallet_session.signing_worker_id.clone(),
-                "operation-1",
-                digest(0x44),
-                1_500,
-            )
-            .expect("retry budget identity"),
-        )
-        .expect("stable retry effect budget claim");
+    let retry_claim = CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::new(
+        wallet_session.wallet_session_id.clone(),
+        wallet_session.signing_grant_id.clone(),
+        "use-1",
+        "operation-1",
+        "fingerprint-1",
+    )
+    .expect("stable retry effect claim");
     assert_eq!(
         admitted.effect_claim,
         CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
-            budget: retry_claim,
+            claim: retry_claim,
         }
     );
     let effect_json = serde_json::to_value(&admitted.effect_claim).expect("effect claim JSON");
-    assert!(effect_json["budget"].get("now_unix_ms").is_none());
+    assert!(effect_json["claim"].get("now_unix_ms").is_none());
 
     let mut changed_admission = admission;
     changed_admission.org_id = "org-2".to_owned();
