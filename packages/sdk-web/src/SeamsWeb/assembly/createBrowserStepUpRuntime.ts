@@ -1,6 +1,9 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { RuntimePorts } from '@/core/platform';
-import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import type {
+  PasskeyMpcSessionPort,
+  UiConfirmRuntimeBridgePort,
+} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import type { SigningEngineStorePorts } from '@/core/signingEngine/assembly/ports/shared';
@@ -24,6 +27,7 @@ export function createBrowserStepUpRuntime(args: {
   runtimePorts: RuntimePorts;
   sealedSigningSessionStore: EmailOtpSealedSessionStorePorts;
   baseTouchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   getEnginePorts: () => SigningEnginePorts;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   getWarmSigning: () => WarmSigningPorts;
@@ -39,6 +43,7 @@ export function createBrowserStepUpRuntime(args: {
     ecdsaBootstrapStore: args.stores.walletProfileAndSignerRecords.ecdsaBootstrapStore,
     sealedSessionStore: args.sealedSigningSessionStore,
     baseTouchConfirm: args.baseTouchConfirm,
+    passkeyMpcSession: args.passkeyMpcSession,
     getSignerWorkerContext: () =>
       args.getEnginePorts().walletSessionActivationDeps.getSignerWorkerContext(),
     provisionThresholdEcdsaSession: (request) =>

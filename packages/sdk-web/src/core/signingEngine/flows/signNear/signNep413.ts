@@ -85,7 +85,7 @@ export async function signNep413Message({
   if (!touchConfirm) {
     throw new Error('UiConfirm bridge not available for NEP-413 signing');
   }
-  const warmSessionReader = createNearSigningSessionCoordinator(touchConfirm);
+  const warmSessionReader = createNearSigningSessionCoordinator(ctx.passkeyMpcSession);
 
   const requiredSignatureUses = 1;
   const signingSessionAuthContext = await resolveNearSigningSessionAuthContext({

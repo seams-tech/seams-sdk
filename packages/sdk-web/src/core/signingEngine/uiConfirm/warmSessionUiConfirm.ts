@@ -1,11 +1,11 @@
 import type { WarmSessionStatusBatchResult } from '../../types/secure-confirm-worker';
 import type {
-  UiConfirmRuntimeBridgePort,
   ClearVolatileWarmSessionMaterialCommand,
+  PasskeyMpcSessionPort,
   WarmSessionStatusResult,
 } from './uiConfirm.types';
 
-type WarmSessionStatusOnlyUiConfirmPort = UiConfirmRuntimeBridgePort & {
+type WarmSessionStatusOnlyUiConfirmPort = PasskeyMpcSessionPort & {
   readWarmSessionStatusOnly?: (args: { sessionId: string }) => Promise<WarmSessionStatusResult>;
   readWarmSessionStatusesOnly?: (args: {
     sessionIds: string[];
@@ -43,10 +43,10 @@ function shouldReadPrimaryWarmSessionStatus(result: WarmSessionStatusResult): bo
   return !result.ok && (result.code === 'not_found' || result.code === 'worker_error');
 }
 
-export function createWarmSessionAwareUiConfirm(args: {
-  base: UiConfirmRuntimeBridgePort;
+export function createWarmSessionAwarePasskeyMpcSession(args: {
+  base: PasskeyMpcSessionPort;
   secondary: SecondaryWarmSessionPort;
-}): UiConfirmRuntimeBridgePort {
+}): PasskeyMpcSessionPort {
   const { base, secondary } = args;
 
   const getWarmSessionStatus = async (statusArgs: {
@@ -109,11 +109,11 @@ export function createWarmSessionAwareUiConfirm(args: {
       const value = Reflect.get(target, prop, receiver);
       return typeof value === 'function' ? value.bind(target) : value;
     },
-  }) as UiConfirmRuntimeBridgePort;
+  }) as PasskeyMpcSessionPort;
 }
 
 export function createWarmSessionStatusOnlyUiConfirm(args: {
-  base: UiConfirmRuntimeBridgePort;
+  base: PasskeyMpcSessionPort;
   secondary: SecondaryWarmSessionStatusOnlyPort;
 }): WarmSessionStatusOnlyReaderPort {
   const { base, secondary } = args;

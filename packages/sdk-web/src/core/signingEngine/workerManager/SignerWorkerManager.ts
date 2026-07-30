@@ -29,6 +29,7 @@ export type SignerWorkerManagerDeps = {
   nearKeyMaterialStore: NearSigningKeyMaterialStorePort;
   touchIdPrompt: TouchIdPrompt;
   touchConfirm: NonNullable<NearSigningRuntimeDeps['touchConfirm']>;
+  passkeyMpcSession: NearSigningRuntimeDeps['passkeyMpcSession'];
   nearClient: NearClient;
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
@@ -51,6 +52,7 @@ export class SignerWorkerManager {
   private nearKeyMaterialStore: NearSigningKeyMaterialStorePort;
   private touchIdPrompt: TouchIdPrompt;
   private touchConfirm: NonNullable<NearSigningRuntimeDeps['touchConfirm']>;
+  private passkeyMpcSession: NearSigningRuntimeDeps['passkeyMpcSession'];
   private nearClient: NearClient;
   private userPreferencesManager: UserPreferencesManager;
   private nonceCoordinator: NonceCoordinator;
@@ -67,6 +69,7 @@ export class SignerWorkerManager {
     this.nearKeyMaterialStore = deps.nearKeyMaterialStore;
     this.touchIdPrompt = deps.touchIdPrompt;
     this.touchConfirm = deps.touchConfirm;
+    this.passkeyMpcSession = deps.passkeyMpcSession;
     this.nearClient = deps.nearClient;
     this.userPreferencesManager = deps.userPreferencesManager;
     this.nonceCoordinator = deps.nonceCoordinator;
@@ -90,6 +93,7 @@ export class SignerWorkerManager {
       nearKeyMaterialStore: this.nearKeyMaterialStore,
       touchIdPrompt: this.touchIdPrompt,
       touchConfirm: this.touchConfirm,
+      passkeyMpcSession: this.passkeyMpcSession,
       nearClient: this.nearClient,
       userPreferencesManager: this.userPreferencesManager,
       nonceCoordinator: this.nonceCoordinator,

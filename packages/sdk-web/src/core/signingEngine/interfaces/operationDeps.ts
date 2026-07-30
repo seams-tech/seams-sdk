@@ -221,9 +221,7 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
     ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
     touchConfirm: UiConfirmContextPort &
       UiConfirmSigningPort &
-      UiConfirmRequestConfirmationPort &
-      Pick<VolatileWarmMaterialPort, 'getWarmSessionStatus'> &
-      Partial<Pick<VolatileWarmMaterialPort, 'clearVolatileWarmSessionMaterial'>>;
+      UiConfirmRequestConfirmationPort;
   };
 
 export type PrivateKeyExportRecoveryDeps = {

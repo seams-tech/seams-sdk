@@ -435,6 +435,11 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   rehydration/policy, and Shamir3Pass runtime inside
   `passkey-confirm.worker.ts`~~ — moved atomically to the dedicated Passkey MPC
   session worker; generic confirmation now owns prompt interaction only
+- ~~Passkey volatile warm-material writes, status reads, claims, consumption,
+  clearing, session-worker lifecycle, prewarm, and session-worker request
+  routing inside `UiConfirmManager.ts`~~ — moved to the dedicated
+  `PasskeyMpcSessionManager`; durable seal/restore coordination remains the next
+  same-owner cut
 - ~~unused `UiConfirmSigningRuntimePort` and generic combined
   `UiConfirmSigningSessionPort` exports~~ — Near runtime dependencies name the
   required confirmation and warm-material ports directly

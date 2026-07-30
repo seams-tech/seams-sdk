@@ -3,7 +3,6 @@ import type {
   UiConfirmSigningPort,
   UiConfirmRequestConfirmationPort,
   UiConfirmContext,
-  WarmSessionStatusReader,
 } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   KeyRef,
@@ -300,7 +299,7 @@ export type EvmFamilyUiConfirmFlowConfig<TRequest, TResult extends object> = {
 
 export type SignEvmFamilyWithUiConfirmArgs<TRequest> = {
   ctx: UiConfirmContext;
-  touchConfirm: UiConfirmSigningPort & UiConfirmRequestConfirmationPort & WarmSessionStatusReader;
+  touchConfirm: UiConfirmSigningPort & UiConfirmRequestConfirmationPort;
   walletId: string;
   request: TRequest & { senderSignatureAlgorithm: string };
   engines: EvmFamilySigningEngines;

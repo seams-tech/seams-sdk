@@ -6,16 +6,13 @@ import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLane
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import type {
   WarmSessionSealPersister,
-  WarmSessionStatusReader,
 } from '../../uiConfirm/uiConfirm.types';
 
 export type WarmSessionSealPersistPorts =
   | Partial<
       Pick<
-        WarmSessionStatusReader & WarmSessionSealPersister,
-        | 'getWarmSessionStatus'
-        | 'sealAndPersistWarmSessionMaterial'
-        | 'persistSigningSessionSealForThresholdSession'
+        WarmSessionSealPersister,
+        'sealAndPersistWarmSessionMaterial' | 'persistSigningSessionSealForThresholdSession'
       >
     >
   | undefined;
