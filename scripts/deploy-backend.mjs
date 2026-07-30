@@ -202,16 +202,16 @@ function buildBackend() {
     });
   }
   runCommand('bash', ['packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh']);
-  const gatewayWasmEnvironment = buildEnvironment({
+  const sdkWasmEnvironment = buildEnvironment({
     WASM_SDK_BUILD_MODE: 'prod',
-    WASM_SDK_BUILD_TARGET: 'gateway',
+    WASM_SDK_BUILD_TARGET: 'all',
   });
   runCommand('pnpm', ['-C', 'packages/sdk-web', 'run', 'build:wasm'], {
-    env: gatewayWasmEnvironment,
+    env: sdkWasmEnvironment,
   });
   runCommand('pnpm', ['-C', 'packages/sdk-server-ts', 'build']);
   runCommand('pnpm', ['-C', 'packages/console-server-ts', 'run', 'd1:local:ensure-wasm'], {
-    env: gatewayWasmEnvironment,
+    env: sdkWasmEnvironment,
   });
   writeGatewayBuildConfig();
   fs.mkdirSync(path.dirname(GATEWAY_BUNDLE), { recursive: true });
