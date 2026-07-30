@@ -7,6 +7,16 @@ import {
 import { requireNearOperationStepUpMaterialActivation } from '@/core/signingEngine/flows/signNear/shared/operationStepUpPreparation';
 import { nearEd25519YaoCapabilityHydrationFixture } from './helpers/nearEd25519YaoCapabilityHydration.fixtures';
 import { buildAuthorizationRequiredNearEd25519YaoSigningPreparation } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
+import { resolveNearSigningSessionAuthContext } from '@/core/signingEngine/flows/signNear/shared/signingSessionAuthMode';
+import { selectedEd25519Lane } from '@/core/signingEngine/session/identity/laneIdentity';
+import { planSigningSession } from '@/core/signingEngine/session/planning/planner';
+import { SigningSessionPlanKind } from '@/core/signingEngine/session/operationState/types';
+import {
+  nearAccountRefFromAccountId,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toAccountId } from '@/core/types/accountIds';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 
 test('maps the seven canonical Near hydration states to shared outcomes', () => {
   const fixture = nearEd25519YaoCapabilityHydrationFixture();
@@ -160,4 +170,56 @@ test('Near material hydration remains independent from reusable authorization', 
   });
   expect('hydrate' in preparation).toBe(false);
   expect('prepareOperationStepUp' in preparation).toBe(false);
+});
+
+test('authorization-required Near material plans same-method step-up without a session record', () => {
+  const fixture = nearEd25519YaoCapabilityHydrationFixture();
+  const hydration = resolveNearEd25519YaoCapabilityHydrationV1({
+    publicLocator: fixture.publicLocator,
+    sealed: fixture.sealed,
+    runtime: { kind: 'absent' },
+    unlockSource: { kind: 'available', authority: fixture.authority },
+  });
+  const requirement = {
+    kind: 'email_otp' as const,
+    providerSubjectId: 'provider-subject-near-hydration',
+  };
+  const preparation = buildAuthorizationRequiredNearEd25519YaoSigningPreparation({
+    hydration,
+    requirement,
+  });
+  const walletId = toWalletId('wallet-near-hydration');
+  const nearAccountId = toAccountId('wallet-near-hydration.testnet');
+  const selectedLane = selectedEd25519Lane({
+    walletId,
+    nearAccountId,
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('near-key-hydration'),
+    signerSlot: 1,
+    auth: requirement,
+    signingGrantId: 'stale-grant-does-not-authorize',
+    thresholdSessionId: 'threshold-session-near-hydration',
+  });
+  const context = resolveNearSigningSessionAuthContext({
+    commandSubject: {
+      walletSession: {
+        walletId,
+        walletSessionUserId: 'wallet-near-hydration',
+      },
+      nearAccount: nearAccountRefFromAccountId(nearAccountId),
+    },
+    selectedLane,
+    preparation,
+    forceFreshAuth: false,
+    requiredSignatureUses: 1,
+  });
+
+  expect(context.coordinatorInput.forceFreshAuth).toBe(true);
+  expect(context.coordinatorInput.readiness.status).toBe('missing_session');
+  expect(
+    planSigningSession({
+      lane: context.coordinatorInput.lane,
+      readiness: context.coordinatorInput.readiness,
+      forceFreshAuth: context.coordinatorInput.forceFreshAuth,
+    }).kind,
+  ).toBe(SigningSessionPlanKind.EmailOtpReauth);
 });

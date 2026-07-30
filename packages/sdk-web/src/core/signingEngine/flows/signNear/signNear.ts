@@ -937,7 +937,9 @@ function requirePreparedNearEd25519YaoActivation(args: {
   if (!expected) {
     throw new Error('[SigningEngine][near] prepared material has no activation');
   }
-  const actual = nearEd25519YaoMaterialActivationFromMetadata(args.capability.activeClient.metadata());
+  const actual = nearEd25519YaoMaterialActivationFromMetadata(
+    args.capability.activeClient.metadata(),
+  );
   if (!mpcMaterialActivationRefsEqual(expected, actual)) {
     throw new Error('[SigningEngine][near] prepared material activation changed before execution');
   }
@@ -981,10 +983,7 @@ async function preparePasskeyOperationStepUpAtBoundary(
 ) {
   const prepared = await prepareExactNearEd25519YaoOperationStepUp(args);
   const expected = preparation.hydration.materialActivation;
-  if (
-    !expected ||
-    !mpcMaterialActivationRefsEqual(expected, prepared.materialActivation)
-  ) {
+  if (!expected || !mpcMaterialActivationRefsEqual(expected, prepared.materialActivation)) {
     throw new Error('[SigningEngine][near] operation step-up changed material activation');
   }
   return prepared;
@@ -2074,6 +2073,7 @@ async function runPreparedNearDelegateSigning(args: {
       onEvent: args.input.onEvent,
       operationId: args.operationId,
       forceFreshAuth: args.prepared.forceFreshAuth,
+      selectedLane: args.prepared.selectedLane,
       passkeyEd25519OperationStepUp: args.prepared.passkeyEd25519OperationStepUp,
       emailOtpEd25519Reauthorization: args.prepared.emailOtpEd25519Reauthorization,
       yaoSigningPreparation: args.prepared.yaoSigningPreparation,
@@ -2200,6 +2200,7 @@ async function runPreparedNearNep413Signing(args: {
       nearAccount,
       signingSessionCoordinator: args.deps.signingSessionCoordinator,
       forceFreshAuth: args.prepared.forceFreshAuth,
+      selectedLane: args.prepared.selectedLane,
       passkeyEd25519OperationStepUp: args.prepared.passkeyEd25519OperationStepUp,
       emailOtpEd25519Reauthorization: args.prepared.emailOtpEd25519Reauthorization,
       yaoSigningPreparation: args.prepared.yaoSigningPreparation,

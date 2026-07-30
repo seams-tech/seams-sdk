@@ -36,9 +36,7 @@ import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import type {
-  NearEd25519YaoSigningPreparation,
-} from '../session/material/nearEd25519YaoSigningPreparation';
+import type { NearEd25519YaoSigningPreparation } from '../session/material/nearEd25519YaoSigningPreparation';
 export type NearResolvedEd25519WalletSessionAuth = {
   kind: 'wallet_session_jwt';
   walletSessionJwt: string;
@@ -86,11 +84,10 @@ export type NearResolvedEd25519SigningSessionState = {
   sessionKind?: never;
 };
 
-export type NearAuthorizedEd25519SigningSessionState =
-  NearResolvedEd25519SigningSessionState & {
-    walletSessionId: WalletSessionId;
-    walletSessionAuthorization: ActiveWalletSessionAuthorizationProjection;
-  };
+export type NearAuthorizedEd25519SigningSessionState = NearResolvedEd25519SigningSessionState & {
+  walletSessionId: WalletSessionId;
+  walletSessionAuthorization: ActiveWalletSessionAuthorizationProjection;
+};
 
 export type NearEd25519YaoSigningCapability = {
   activeClient: RouterAbEd25519YaoActiveClientV1;
@@ -194,6 +191,7 @@ export type NearDelegateActionPayload = {
   operationId: SigningOperationId;
   signerSlot?: number;
   forceFreshAuth: boolean;
+  selectedLane: SelectedEd25519Lane;
   passkeyEd25519OperationStepUp: NearPasskeyEd25519OperationStepUpHook | null;
   emailOtpEd25519Reauthorization: NearEmailOtpEd25519ReauthorizationHook | null;
   yaoSigningPreparation: NearEd25519YaoSigningPreparation;
@@ -206,6 +204,7 @@ export type NearNep413Payload = {
   nearAccount: NearAccountRef;
   signingSessionCoordinator: SigningSessionCoordinator;
   forceFreshAuth: boolean;
+  selectedLane: SelectedEd25519Lane;
   passkeyEd25519OperationStepUp: NearPasskeyEd25519OperationStepUpHook | null;
   emailOtpEd25519Reauthorization: NearEmailOtpEd25519ReauthorizationHook | null;
   yaoSigningPreparation: NearEd25519YaoSigningPreparation;

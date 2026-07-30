@@ -12,6 +12,7 @@ import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 const WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
 const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
@@ -95,9 +96,7 @@ test.describe('requireNearStepUpAuth', () => {
       signerSlot: 1,
       auth: PASSKEY_AUTH,
       signingGrantId: SigningSessionIds.signingGrant('wallet-session-warm-one'),
-      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
-        'threshold-session-warm-one',
-      ),
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-warm-one'),
       storageSource: 'login',
     });
 
@@ -130,13 +129,13 @@ test.describe('requireNearStepUpAuth', () => {
       signingAuthPlan,
       signingLane,
       requiredSignatureUses: 1,
-      emailOtpEd25519Reconnect: {
+      emailOtpEd25519Reauthorization: {
         prepare: async () => {
           challengeRequests += 1;
           return { challengeId: 'otp-1', emailHint: 'a***@x.test' };
         },
-        reconnect: async () => {
-          throw new Error('reconnect should not run during preparation');
+        authorize: async () => {
+          throw new Error('authorize should not run during preparation');
         },
       },
     });
@@ -150,7 +149,7 @@ test.describe('requireNearStepUpAuth', () => {
     );
   });
 
-  test('returns a passkey branch with the planned reconnect identity', async () => {
+  test('returns a passkey branch with the planned operation-step-up identity', async () => {
     const signingAuthPlan = {
       kind: SigningAuthPlanKind.PasskeyReauth,
       method: 'passkey' as const,
@@ -171,23 +170,27 @@ test.describe('requireNearStepUpAuth', () => {
       signingAuthPlan,
       signingLane,
       requiredSignatureUses: 1,
-      passkeyEd25519Reconnect: {
+      passkeyEd25519OperationStepUp: {
         prepare: async ({ requiredSignatureUses }) => {
           preparedUses.push(requiredSignatureUses);
           return {
             sessionId: 'threshold-session-passkey',
             signingGrantId: 'wallet-session-passkey',
             sessionPolicyDigest32: 'digest-32',
+            authority: buildPasskeyWalletAuthAuthority({
+              walletId: WALLET_ID,
+              rpId: PASSKEY_AUTH.rpId,
+              credentialIdB64u: PASSKEY_AUTH.credentialIdB64u,
+            }),
           };
         },
-        reconnect: async () => ({ sessionId: 'threshold-session-passkey' }),
       },
     });
 
     expect(preparedUses).toEqual([1]);
     expect(prepared.kind).toBe('passkey');
     if (prepared.kind !== 'passkey') throw new Error('expected passkey branch');
-    expect(prepared.plannedPasskeyReconnect).toEqual({
+    expect(prepared.plannedPasskeyOperationStepUp).toMatchObject({
       sessionId: 'threshold-session-passkey',
       signingGrantId: 'wallet-session-passkey',
       sessionPolicyDigest32: 'digest-32',

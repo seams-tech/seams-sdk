@@ -30,7 +30,6 @@ import { resolveActiveAuthorizedRouterAbEd25519WalletSessionState } from '../../
 import { buildNearDelegateSigningPayloads } from '../../chains/near/payloads';
 import {
   buildNearSigningSessionAuthPlan,
-  createNearSigningSessionCoordinator,
   resolveNearSigningSessionAuthContext,
   SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/signingSessionAuthMode';
@@ -115,6 +114,7 @@ export async function runNearDelegateActionSigning({
   signerSlot,
   signingSessionCoordinator,
   forceFreshAuth,
+  selectedLane,
   passkeyEd25519OperationStepUp,
   emailOtpEd25519Reauthorization,
   yaoSigningPreparation,
@@ -140,15 +140,13 @@ export async function runNearDelegateActionSigning({
   if (!touchConfirm) {
     throw new Error('UiConfirm bridge not available for delegate signing');
   }
-  const warmSessionReader = createNearSigningSessionCoordinator(ctx.passkeyMpcSession);
-
   const requiredSignatureUses = 1;
-  const signingSessionAuthContext = await resolveNearSigningSessionAuthContext({
-    warmSessionReader,
+  const signingSessionAuthContext = resolveNearSigningSessionAuthContext({
     requiredSignatureUses,
     commandSubject,
-    operationLabel: 'delegate signing',
     forceFreshAuth,
+    selectedLane,
+    preparation: yaoSigningPreparation,
   });
   const resolvedSigningSession = {
     signingSessionPlan: planSigningSession({
