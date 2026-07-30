@@ -4,6 +4,16 @@
     "gatewayDeploymentConfig": {
       "schemaVersion": 3,
       "target": "staging",
+      "runtimeProfile": {
+        "kind": "testnet_live_demo",
+        "nearFunding": {
+          "kind": "implicit_account_relayer",
+          "network": "near_testnet"
+        },
+        "emailOtpDelivery": {
+          "kind": "demo_code_response"
+        }
+      },
       "resources": {
         "workerName": "seams-sdk-d1-gateway-staging",
         "consoleD1": {
@@ -26,9 +36,7 @@
         "gateway": "https://staging.api.seams.sh",
         "allowedCors": [
           "https://staging.seams.sh",
-          "https://staging.sign.seams.sh",
-          "https://seams-site-staging.pages.dev",
-          "https://seams-wallet-staging.pages.dev"
+          "https://staging.sign.seams.sh"
         ]
       },
       "signingRoot": {
@@ -43,7 +51,9 @@
         "algorithm": "shamir3pass-v2",
         "groupId": "rfc2409-group2",
         "currentKeyVersion": "signing-session-seal-staging-r2",
-        "acceptedWarmKeyVersions": ["signing-session-seal-staging-r2"]
+        "acceptedWarmKeyVersions": [
+          "signing-session-seal-staging-r2"
+        ]
       },
       "routerAb": {
         "ceremonyJwtAudience": "router-ab",
@@ -55,28 +65,28 @@
               "deriver_a": {
                 "role": "signer_a",
                 "key_epoch": "epoch-1",
-                "public_key": "x25519:3ed557006f40cc905236ac0aebe270582d9a792442051c0557782342f3deb704"
+                "public_key": "x25519:f60d4aebe348ec3911b729067e17e0c44cab77f7231f8293e7d978241c8be356"
               },
               "deriver_b": {
                 "role": "signer_b",
                 "key_epoch": "epoch-1",
-                "public_key": "x25519:32331f0953f973eb1203139ee564ab71e33c671f41c43c63853a956af0170e7d"
+                "public_key": "x25519:b23eab1d29d07116d3526ef7c954425b065ea8257dcbd2d0048f5bf6c1cc8676"
               }
             }
           },
           "signer_peer_verifying_keys": {
             "deriver_a": {
               "role": "signer_a",
-              "verifying_key_hex": "492287bc54bb0994c7aedfd46e67a2f3d3a94c9acf768ebaae2b0fd88329d7b5"
+              "verifying_key_hex": "c9dee697e464a12860c64542df99b1d719bd3d09eea77cf066d117a0912ac201"
             },
             "deriver_b": {
               "role": "signer_b",
-              "verifying_key_hex": "3497c093243192564fe292cd7b9f880dea92fdf1bf389a17b89de3f4019af47a"
+              "verifying_key_hex": "fa74af9c570cfd3d6a5a2f2cd0d3d10682e40b41a0d30e0a2e461b9f63668b9b"
             }
           },
           "signing_worker_server_output_hpke": {
             "key_epoch": "epoch-1",
-            "public_key": "x25519:f31fe3790397ef5b8e492917f08016bff5cd40e4daf84efa0c60ed1ef5d75d7f"
+            "public_key": "x25519:c7ff3bdb90210be1f791b71941a211f9f5db06e488e07d18de55d989a6c44a61"
           }
         },
         "registrationTopology": {
@@ -97,45 +107,35 @@
             "selected_server": {
               "server_id": "router-ab-signing-worker-staging",
               "key_epoch": "epoch-1",
-              "recipient_encryption_key": "x25519:f31fe3790397ef5b8e492917f08016bff5cd40e4daf84efa0c60ed1ef5d75d7f"
+              "recipient_encryption_key": "x25519:c7ff3bdb90210be1f791b71941a211f9f5db06e488e07d18de55d989a6c44a61"
             }
           },
           "deriverRecipientKeys": {
             "deriver_a": {
               "role": "signer_a",
               "key_epoch": "epoch-1",
-              "public_key": "x25519:3ed557006f40cc905236ac0aebe270582d9a792442051c0557782342f3deb704"
+              "public_key": "x25519:f60d4aebe348ec3911b729067e17e0c44cab77f7231f8293e7d978241c8be356"
             },
             "deriver_b": {
               "role": "signer_b",
               "key_epoch": "epoch-1",
-              "public_key": "x25519:32331f0953f973eb1203139ee564ab71e33c671f41c43c63853a956af0170e7d"
+              "public_key": "x25519:b23eab1d29d07116d3526ef7c954425b065ea8257dcbd2d0048f5bf6c1cc8676"
             }
           }
         },
-        "deriverAYaoInputPublicKey": "x25519:3ed557006f40cc905236ac0aebe270582d9a792442051c0557782342f3deb704",
-        "deriverBYaoInputPublicKey": "x25519:32331f0953f973eb1203139ee564ab71e33c671f41c43c63853a956af0170e7d",
-        "signingWorkerOutputPublicKey": "x25519:f31fe3790397ef5b8e492917f08016bff5cd40e4daf84efa0c60ed1ef5d75d7f"
+        "deriverAYaoInputPublicKey": "x25519:f60d4aebe348ec3911b729067e17e0c44cab77f7231f8293e7d978241c8be356",
+        "deriverBYaoInputPublicKey": "x25519:b23eab1d29d07116d3526ef7c954425b065ea8257dcbd2d0048f5bf6c1cc8676",
+        "signingWorkerOutputPublicKey": "x25519:c7ff3bdb90210be1f791b71941a211f9f5db06e488e07d18de55d989a6c44a61"
       },
       "optional": {
         "nearRelayer": {
           "accountId": "w3a-relayer.testnet",
           "publicKey": null,
-          "rpcUrl": "https://test.rpc.fastnear.com",
+          "rpcUrl": "https://test.rpc.fastnear.com,https://rpc.testnet.near.org",
           "initialBalanceYocto": "30000000000000000000000"
         },
         "googleOidcClientId": "971053349716-2ck8cp6ucohvkd075aebdtv9jskla2b5.apps.googleusercontent.com",
         "oidcExchange": null
-      },
-      "runtimeProfile": {
-        "kind": "testnet_service",
-        "nearFunding": {
-          "kind": "implicit_account_relayer",
-          "network": "near_testnet"
-        },
-        "emailOtpDelivery": {
-          "kind": "email_provider"
-        }
       }
     },
     "origins": {
@@ -191,7 +191,9 @@
       "billing": {
         "enabled": true,
         "owner": "gateway",
-        "secrets": ["STRIPE_API_SK"]
+        "secrets": [
+          "STRIPE_API_SK"
+        ]
       },
       "sponsoredExecution": {
         "enabled": true,
@@ -232,7 +234,10 @@
       },
       "origins": {
         "gateway": "https://api.seams.sh",
-        "allowedCors": ["https://seams.sh", "https://sign.seams.sh"]
+        "allowedCors": [
+          "https://seams.sh",
+          "https://sign.seams.sh"
+        ]
       },
       "signingRoot": {
         "id": "signing-root-kek-production-r1",
@@ -246,7 +251,9 @@
         "algorithm": "shamir3pass-v2",
         "groupId": "rfc2409-group2",
         "currentKeyVersion": "signing-session-seal-production-r2",
-        "acceptedWarmKeyVersions": ["signing-session-seal-production-r2"]
+        "acceptedWarmKeyVersions": [
+          "signing-session-seal-production-r2"
+        ]
       },
       "routerAb": {
         "ceremonyJwtAudience": "router-ab",
@@ -390,7 +397,9 @@
       "billing": {
         "enabled": true,
         "owner": "gateway",
-        "secrets": ["STRIPE_API_SK"]
+        "secrets": [
+          "STRIPE_API_SK"
+        ]
       },
       "sponsoredExecution": {
         "enabled": true,
