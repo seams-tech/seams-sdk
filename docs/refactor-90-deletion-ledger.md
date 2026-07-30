@@ -456,6 +456,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   restore lease, and rehydrate single-flight ownership inside generic
   confirmation~~ — moved to `PasskeyMpcSessionManager`; the browser signing
   surface calls the factor owner directly
+- ~~exported `PasskeyMpcSessionDurableWorkerPort` duplicate of the dedicated
+  session port's raw seal/rehydrate methods~~ — deleted; generic confirmation
+  temporarily receives only the one raw seal method it still calls
 - ~~unused `UiConfirmSigningRuntimePort` and generic combined
   `UiConfirmSigningSessionPort` exports~~ — Near runtime dependencies name the
   required confirmation and warm-material ports directly
