@@ -9,7 +9,6 @@ import {
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { SigningSessionIds } from '../../session/operationState/types';
-import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { ThresholdEcdsaExplicitKeyExportBootstrapResult } from '../../session/passkey/ecdsaSessionProvision';
 import type {
@@ -34,9 +33,9 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 
 const ECDSA_DERIVATION_EXPORT_CONFIRMATION_DIGEST_VERSION =
-  'ecdsa-derivation:role-local:product-export-confirmation:v3';
+  'ecdsa-derivation:role-local:product-export-confirmation:v4';
 const ECDSA_DERIVATION_EXPORT_AUTHORIZATION_DIGEST_VERSION =
-  'ecdsa-derivation:role-local:product-export-authorization:v3';
+  'ecdsa-derivation:role-local:product-export-authorization:v4';
 const ECDSA_DERIVATION_EXPORT_AUTH_TTL_MS = 60_000;
 
 export type EcdsaDerivationExportDeps = {
@@ -92,7 +91,6 @@ type EcdsaDerivationExportAuthorizationDigestInput = {
   operation: 'explicit_key_export';
   keyHandle: string;
   walletId: string;
-  evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: string;
   relayerKeyId: string;
   signingRootId: string;
@@ -233,7 +231,6 @@ export async function hydrateEcdsaRoleLocalMaterialForExport(args: {
 }
 
 export function buildEcdsaDerivationExportAuthorizationDigestInput(args: {
-  evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -252,7 +249,6 @@ export function buildEcdsaDerivationExportAuthorizationDigestInput(args: {
     operation: 'explicit_key_export',
     keyHandle: publicFacts.keyHandle,
     walletId: String(publicFacts.walletId),
-    evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
     relayerKeyId: publicFacts.publicCapability.signer_set.selected_server.server_id,
     signingRootId: args.signingRootId,
@@ -309,11 +305,6 @@ async function executeEcdsaDerivationExport(
     }
   }
   const issuedAtUnixMs = Date.now();
-  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
-    walletId: publicFacts.walletId,
-    signingRootId: publicFacts.signingRootId,
-    signingRootVersion: publicFacts.signingRootVersion,
-  });
   const expiresAtUnixMs = requireActiveEcdsaExportAuthorizationWindow({
     issuedAtUnixMs,
     authorizationExpiresAtMsCeiling: material.operationAuthorization.expiresAtMs,
@@ -330,7 +321,6 @@ async function executeEcdsaDerivationExport(
   const confirmationDigest32B64u = await digestB64u({
     version: ECDSA_DERIVATION_EXPORT_CONFIRMATION_DIGEST_VERSION,
     walletId: String(publicFacts.walletId),
-    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
     relayerKeyId: publicFacts.publicCapability.signer_set.selected_server.server_id,
     contextBinding32B64u: publicFacts.contextBinding32B64u,
@@ -344,7 +334,6 @@ async function executeEcdsaDerivationExport(
   });
   const authorizationDigest32B64u = await digestB64u(
     buildEcdsaDerivationExportAuthorizationDigestInput({
-      evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
       signingRootId: publicFacts.signingRootId,
       signingRootVersion: publicFacts.signingRootVersion,
