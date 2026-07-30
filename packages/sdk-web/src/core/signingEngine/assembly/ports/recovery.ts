@@ -1,4 +1,3 @@
-import type { PrivateKeyExportRecoveryDeps } from '../../interfaces/operationDeps';
 import { configuredThresholdEcdsaChainTargets } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { readPersistedAvailableSigningLanesForTargets } from '../../session/availability/persistedAvailableSigningLanes';
@@ -24,24 +23,10 @@ import type {
 import type { PersistedAvailableSigningLanesDeps } from '../../session/availability/persistedAvailableSigningLanes';
 import type { EcdsaExportFlowDeps } from '../../flows/recovery/ecdsaExportFlow';
 
-export function createPrivateKeyExportRecoveryDeps(
-  args: CreateSigningEnginePortsArgs,
-  runtimeDeps: { keyMaterialStore: PrivateKeyExportRecoveryDeps['keyMaterialStore'] },
-): PrivateKeyExportRecoveryDeps {
-  return {
-    keyMaterialStore: runtimeDeps.keyMaterialStore,
-    relayerUrl: args.seamsWebConfigs.network.relayer.url,
-    getRpId: () => args.touchIdPrompt.getRpId(),
-    requestExportPrivateKeysWithUi: (payload, options) =>
-      args.passkeyMpcExport.exportPrivateKeysWithUi(payload, options),
-    getTheme: args.getTheme,
-  };
-}
-
 export function createRecoveryPublicDeps(args: {
   seamsWebConfigs: CreateSigningEnginePortsArgs['seamsWebConfigs'];
   signerWorkerManager: CreateSigningEnginePortsArgs['signerWorkerManager'];
-  getTheme: PrivateKeyExportRecoveryDeps['getTheme'];
+  getTheme: CreateSigningEnginePortsArgs['getTheme'];
   withThresholdEcdsaSigningQueue: EcdsaExportFlowDeps['withThresholdEcdsaSigningQueue'];
   ecdsaSessions: RecoveryPublicEcdsaSessionStoreDeps;
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];

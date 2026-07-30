@@ -14,7 +14,6 @@ import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types'
 import type {
   EvmFamilySigningDeps,
   NearSigningApiDeps,
-  PrivateKeyExportRecoveryDeps,
   RegistrationAccountLifecycleDeps,
   RegistrationSessionDeps,
 } from '../../interfaces/operationDeps';
@@ -114,7 +113,6 @@ export type SigningEngineStorePorts = {
   };
   recoveryAndDeviceLinking: {
     credentialStore: WalletSessionActivationDeps['credentialStore'];
-    keyMaterialStore: PrivateKeyExportRecoveryDeps['keyMaterialStore'];
   };
   warmup: {
     store: WorkerResourceWarmupStorePort;
@@ -207,7 +205,6 @@ export type SigningEnginePorts = {
   ed25519YaoActiveClients: Ed25519YaoActiveClientRegistryPort;
   nearSigningDeps: NearSigningApiDeps;
   tempoSigningDeps: EvmFamilySigningDeps;
-  privateKeyExportRecoveryDeps: PrivateKeyExportRecoveryDeps;
   registrationAccountLifecycleDeps: RegistrationAccountLifecycleDeps;
   registrationSessionDeps: RegistrationSessionDeps;
   walletSessionActivationDeps: WalletSessionActivationDeps;
