@@ -160,6 +160,10 @@ implementing commit SHA as the evidence.
 
 - [ ] `R90-INV-002` — registration, unlock, refresh, recovery, signing, and
   export cannot publish or select a parallel active material record.
+  - [x] Passkey export and warm-session MPC custody have one dedicated worker
+    and one dedicated main-thread owner; generic confirmation no longer
+    imports their runtimes or forwards their worker protocols. Commits
+    `f91617282`, `51190cb9d`, `1a9254ff6`, `769d9dc69`, and `6f7d28d7c`.
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently
@@ -205,6 +209,12 @@ implementing commit SHA as the evidence.
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.
+  - [x] Passkey ECDSA persisted restore is owned by
+    `PasskeyMpcSessionManager`, preserves sealed material on expiry, and
+    serializes concurrent restore across manager instances while releasing the
+    durable restore lease in `finally`. The dedicated-owner restore,
+    single-flight, disabled-mode, and expiry-preservation tests pass. Commits
+    `c348c8f57` and `bbb6d94f4`.
 
 ### Final conformance
 
