@@ -368,7 +368,7 @@ export async function evaluateRouterAbNormalSigningAdmission(
     materialActivationId: input.admission.materialActivationId,
     authorizationIdentity: {
       kind: 'reusable_wallet_session',
-      walletSessionId: input.walletSessionAuth.thresholdSessionId,
+      walletSessionId: input.walletSessionAuth.walletSessionId,
     },
     signingGrantId: input.walletSessionAuth.signingGrantId,
     requestId: input.admission.requestId,
@@ -1405,7 +1405,7 @@ function privateSigningAuthorizationContext(
     scope.authorization.kind === 'reusable_wallet_session'
   ) {
     if (
-      scope.authorization.wallet_session_id !== authorization.claims.thresholdSessionId ||
+      scope.authorization.wallet_session_id !== authorization.claims.walletSessionId ||
       scope.authorization.grant_id !== authorization.claims.signingGrantId
     ) {
       throw new Error('Router A/B Ed25519 scope authorization does not match verified claims');
@@ -2194,7 +2194,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
       curve: 'ed25519',
       authorizationIdentity: {
         kind: 'reusable_wallet_session',
-        walletSessionId: validated.walletSessionAuth.thresholdSessionId,
+        walletSessionId: validated.walletSessionAuth.walletSessionId,
       },
       requestId: admission.requestId,
       expiresAtMs: admission.expiresAtMs,
@@ -2411,7 +2411,7 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
   }
   if (
     scope.account_id !== input.walletSessionAuth.userId ||
-    authorization.wallet_session_id !== input.walletSessionAuth.thresholdSessionId ||
+    authorization.wallet_session_id !== input.walletSessionAuth.walletSessionId ||
     authorization.grant_id !== input.walletSessionAuth.signingGrantId ||
     scope.material_activation.material_owner !== input.walletSessionAuth.userId
   ) {
@@ -2456,7 +2456,7 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
   }
   return {
     ok: true,
-    thresholdSessionId: authorization.wallet_session_id,
+    thresholdSessionId: input.walletSessionAuth.thresholdSessionId,
     requestId: scope.request_id,
     expiresAtMs,
   };
@@ -3176,7 +3176,7 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
       curve: 'ecdsa',
       authorizationIdentity: {
         kind: 'reusable_wallet_session',
-        walletSessionId: validated.walletSessionAuth.thresholdSessionId,
+        walletSessionId: validated.walletSessionAuth.walletSessionId,
       },
       requestId: admission.requestId,
       expiresAtMs: admission.expiresAtMs,
