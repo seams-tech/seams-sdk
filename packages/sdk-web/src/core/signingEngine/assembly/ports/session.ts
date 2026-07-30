@@ -22,11 +22,9 @@ export function createSessionPublicDeps(args: {
   const sessionDiscovery: SessionPublicDeps['discovery'] = {
     emailOtp: (discoveryArgs) =>
       args.emailOtpSessions.discoverPersistedSessionsForWallet(discoveryArgs),
+    passkey: (discoveryArgs) =>
+      args.touchConfirm.discoverPersistedSessionsForWallet(discoveryArgs),
   };
-  if (args.touchConfirm.discoverPersistedSessionsForWallet) {
-    sessionDiscovery.passkey = (discoveryArgs) =>
-      args.touchConfirm.discoverPersistedSessionsForWallet!(discoveryArgs);
-  }
   return {
     availableLanes: {
       listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,

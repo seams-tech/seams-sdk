@@ -176,7 +176,7 @@ export interface WarmSessionRehydrator {
 }
 
 export interface WarmSessionPersistedRestorer {
-  discoverPersistedSessionsForWallet?(
+  discoverPersistedSessionsForWallet(
     args: {
       authMethod?: 'passkey';
     } & DiscoverPersistedSessionsForWalletInput,
