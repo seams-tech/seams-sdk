@@ -2043,7 +2043,7 @@ export class SeamsWeb {
                 nearAccountId: String(preparedEd25519YaoRecovery.identity.nearAccountId),
                 expectedOperationalPublicKey:
                   preparedEd25519YaoRecovery.expectedOperationalPublicKey,
-                expectedThresholdSessionId: preparedEd25519YaoRecovery.authorizationSessionId,
+                expectedThresholdSessionId: preparedEd25519YaoRecovery.thresholdSessionId,
               },
             }
           : {}),

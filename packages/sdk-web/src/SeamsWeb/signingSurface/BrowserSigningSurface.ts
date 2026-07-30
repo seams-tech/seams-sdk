@@ -59,6 +59,7 @@ import {
   getStoredThresholdEd25519SessionRecordForAccount,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
+import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
@@ -1728,7 +1729,9 @@ export class BrowserSigningSurface {
     }
     return prepareColdEmailOtpEd25519YaoRecoveryV1({
       identity: resolved.identity,
-      authorizationSessionId: authorizationRecord.thresholdSessionId,
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
+        authorizationRecord.thresholdSessionId,
+      ),
       signerSlot: resolved.user.signerSlot,
       expectedOperationalPublicKey: resolved.user.operationalPublicKey,
       providerSubject: resolved.providerSubject,
