@@ -543,6 +543,10 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   unit test, plus the stale public-catalog assertion for the private 94C ECDSA
   bootstrap plane~~ — production routing uses the canonical route-definition
   dispatcher
+- ~~standalone `routerAbEcdsaDerivationRefreshPort` HTTP adapter and its
+  wrapper-only unit test~~ — deleted by `a89ede462` and `df478bfed`; the
+  route-definition dispatcher and canonical threshold-ECDSA handler own the
+  refresh path
 - source guards and fixtures whose invariant became structural during the
   slices
 - ~~optional auth-method discovery that silently searched both Passkey and

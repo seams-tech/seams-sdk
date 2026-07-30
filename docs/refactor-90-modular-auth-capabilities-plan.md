@@ -849,6 +849,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the obsolete standalone Email OTP ECDSA enrollment SDK/iframe
       route and its JWT-derived runtime-policy scope; canonical `registerWallet`
       remains the sole registration owner.
+- [x] Delete the zero-caller standalone ECDSA refresh HTTP adapter and its
+      wrapper-only test; canonical route definitions retain the refresh route
+      (`a89ede462`, `df478bfed`).
 
 ### Same-change deletion
 
