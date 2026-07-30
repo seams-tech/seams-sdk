@@ -13,7 +13,7 @@ import {
   attachReusableEcdsaWalletSessionAuthorization,
   resolveHydratedSecp256k1SigningMaterial,
 } from './readySecp256k1Material';
-import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
+import { resolveExactEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
@@ -171,9 +171,12 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
 }): Promise<EcdsaSigningMaterialPlan> {
   // Session-scoped runtime state comes from the exact sealed record correlated
   // with this wallet's active manifest, not from the Wallet Session JWT.
-  const runtimeResolution = await resolveActiveEcdsaCapabilityRuntime({
-    walletId: args.walletId,
+  const runtimeResolution = await resolveExactEcdsaCapabilityRuntime({
+    manifest: args.capability.manifest,
     chainTarget: args.chainTarget,
+    authMethod: isEmailOtpWalletAuthAuthority(args.capability.authority)
+      ? 'email_otp'
+      : 'passkey',
   });
   if (runtimeResolution.kind !== 'resolved') {
     return {

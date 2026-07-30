@@ -79,9 +79,13 @@ async function listActiveManifestsForTarget(args: {
 async function listSealedEcdsaRecordsForWallet(args: {
   readonly walletId: WalletId;
   readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly authMethod?: 'passkey' | 'email_otp';
 }): Promise<readonly CurrentEcdsaSealedSessionRecord[]> {
   const records: CurrentEcdsaSealedSessionRecord[] = [];
-  for (const authMethod of ['passkey', 'email_otp'] as const) {
+  const authMethods = args.authMethod
+    ? ([args.authMethod] as const)
+    : (['passkey', 'email_otp'] as const);
+  for (const authMethod of authMethods) {
     const found = await listExactSealedSessionsForWallet({
       walletId: String(args.walletId),
       filter: { authMethod, curve: 'ecdsa', chainTarget: args.chainTarget },
@@ -91,6 +95,39 @@ async function listSealedEcdsaRecordsForWallet(args: {
     }
   }
   return records;
+}
+
+export async function resolveExactEcdsaCapabilityRuntime(args: {
+  readonly manifest: ActiveEcdsaCapabilityManifest;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly authMethod: 'passkey' | 'email_otp';
+}): Promise<
+  | ActiveEcdsaCapabilityRuntimeResolution
+  | {
+      readonly kind: 'blocked';
+      readonly reason: 'chain_mismatch';
+      readonly manifest?: never;
+      readonly runtime?: never;
+    }
+> {
+  const walletId = args.manifest.signer.walletId;
+  if (!manifestCoversTarget({ manifest: args.manifest, chainTarget: args.chainTarget })) {
+    return { kind: 'blocked', reason: 'chain_mismatch' };
+  }
+  const sealedRecords = await listSealedEcdsaRecordsForWallet({
+    walletId,
+    chainTarget: args.chainTarget,
+    authMethod: args.authMethod,
+  });
+  const resolution = resolveExactEcdsaSealedRuntime({
+    manifest: args.manifest,
+    walletId,
+    chainTarget: args.chainTarget,
+    sealedRecords,
+  });
+  return resolution.kind === 'resolved'
+    ? { kind: 'resolved', manifest: args.manifest, runtime: resolution.runtime }
+    : { kind: 'blocked', reason: resolution.reason };
 }
 
 export async function resolveActiveEcdsaCapabilityRuntime(args: {
