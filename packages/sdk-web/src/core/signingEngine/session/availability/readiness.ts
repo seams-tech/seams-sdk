@@ -36,6 +36,7 @@ import {
   committedUsesForBudgetAdmission,
   ecdsaWalletBudgetOwner,
   ed25519WalletBudgetOwner,
+  normalizeRequired,
   thresholdSessionIdsForBudgetStatusCheck,
   walletBudgetOwnerId,
   walletBudgetOwnerKey,
@@ -94,7 +95,7 @@ export type SigningGrantReadinessDeps = {
   deleteExactSealedSession?: typeof deleteExactSealedSession;
   markThresholdEd25519EmailOtpSessionConsumedForWallet?: (args: {
     walletId: WalletId;
-    thresholdSessionId?: string;
+    thresholdSessionId: string;
     uses?: number;
   }) => void;
 };
@@ -346,11 +347,11 @@ export function discoverLanesForWallet(
 export function getLanesForWalletSession(args: {
   deps: SigningGrantReadinessDeps;
   walletId: WalletId;
-  signingGrantId?: string;
+  signingGrantId: string;
 }): DiscoveredSigningSessionLane[] {
-  const signingGrantId = normalizeNonEmpty(args.signingGrantId);
+  const signingGrantId = normalizeRequired(args.signingGrantId, 'signingGrantId');
   return discoverLanesForWallet(args.deps, args.walletId).filter(
-    (lane) => !signingGrantId || lane.signingGrantId === signingGrantId,
+    (lane) => lane.signingGrantId === signingGrantId,
   );
 }
 
