@@ -168,6 +168,7 @@ import type {
 import { alphabetizeStringify, bytesToUnprefixedHex, sha256BytesUtf8 } from '@shared/utils/digests';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
+  type WalletEcdsaSignerKey,
   type WalletEcdsaPendingSessionActivationRecord,
   type WalletEd25519SignerRecord,
   type WalletSignerRecord,
@@ -949,14 +950,13 @@ function pendingEcdsaSessionActivationRecord(input: {
 }
 
 function buildPostRegistrationEcdsaNormalSigningState(input: {
-  readonly walletKey: WalletRegistrationEcdsaWalletKey;
+  readonly walletKey: WalletEcdsaSignerKey;
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 }): RouterAbEcdsaDerivationNormalSigningStateV1 {
   const capability = input.publicCapability;
   const state = parseRouterAbEcdsaDerivationNormalSigningStateV1({
     kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
     scope: {
-      wallet_key_id: input.walletKey.evmFamilySigningKeySlotId,
       wallet_id: input.walletKey.walletId,
       ecdsa_threshold_key_id: input.walletKey.ecdsaThresholdKeyId,
       signing_root_id: input.walletKey.signingRootId,
@@ -1158,7 +1158,7 @@ export class CloudflareD1WalletRegistrationService {
   ): Promise<
     | {
         readonly ok: true;
-        readonly walletKey: WalletRegistrationEcdsaWalletKey;
+        readonly walletKey: WalletEcdsaSignerKey;
         readonly session: {
           readonly thresholdSessionId: string;
           readonly signingGrantId: string;

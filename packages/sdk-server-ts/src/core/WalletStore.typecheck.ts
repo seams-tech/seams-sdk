@@ -1,5 +1,7 @@
 import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
 import type {
+  WalletEcdsaSignerKey,
+  WalletEcdsaSignerRecord,
   WalletEd25519SignerRecord,
   WalletEd25519YaoActiveCapabilityRecord,
   WalletRecord,
@@ -13,6 +15,7 @@ const runtimePolicyScope = {
   signingRootVersion: 'root-v1',
 } as const;
 declare const activeYaoCapability: WalletEd25519YaoActiveCapabilityRecord;
+declare const ecdsaSignerKey: WalletEcdsaSignerKey;
 
 void ({
   version: 'wallet_v1',
@@ -97,3 +100,22 @@ const ed25519SignerWithRpId: WalletEd25519SignerRecord = {
   updatedAtMs: 1,
 };
 void ed25519SignerWithRpId;
+
+void ({
+  ...ecdsaSignerKey,
+  // @ts-expect-error Provisioning slots are not durable ECDSA signer identity.
+  evmFamilySigningKeySlotId: 'ecdsa-slot-1',
+} satisfies WalletEcdsaSignerKey);
+
+void ({
+  version: 'wallet_signer_ecdsa_v1',
+  walletId,
+  signerId: 'ecdsa:evm:eip155:8453',
+  chainTargetKey: 'evm:eip155:8453',
+  chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 8453 },
+  walletKey: ecdsaSignerKey,
+  // @ts-expect-error Provisioning slots are not durable ECDSA signer identity.
+  evmFamilySigningKeySlotId: 'ecdsa-slot-1',
+  createdAtMs: 1,
+  updatedAtMs: 1,
+} satisfies WalletEcdsaSignerRecord);
