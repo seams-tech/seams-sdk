@@ -14,6 +14,7 @@ import {
 import { toRpId } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export type ThresholdEd25519WebAuthnPrfSecretSource = {
   kind: 'webauthn_prf_first_credential';
@@ -262,12 +263,29 @@ export async function mintEd25519WalletSession(args: {
   }
 }
 
+export type Ed25519OperationStepUpProof =
+  | {
+      kind: 'passkey';
+      authority: PasskeyWalletAuthAuthority;
+      credential: WebAuthnAuthenticationCredential;
+      challengeId?: never;
+      otpCode?: never;
+    }
+  | {
+      kind: 'email_otp';
+      authorityRef: WalletAuthAuthorityRef;
+      providerSubjectId: string;
+      challengeId: string;
+      otpCode: string;
+      credential?: never;
+      authority?: never;
+    };
+
 export async function issueEd25519OperationStepUpGrant(args: {
   relayerUrl: string;
   normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
   displayDigest: string;
-  authority: PasskeyWalletAuthAuthority;
-  credential: WebAuthnAuthenticationCredential;
+  proof: Ed25519OperationStepUpProof;
 }): Promise<{
   kind: 'operation_step_up';
   grantId: string;
@@ -284,8 +302,26 @@ export async function issueEd25519OperationStepUpGrant(args: {
       kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',
       normalSigningRequest: args.normalSigningRequest,
       displayDigest: args.displayDigest,
-      authority: args.authority,
-      webauthn_authentication: redactCredentialExtensionOutputs(args.credential),
+      proof:
+        args.proof.kind === 'passkey'
+          ? {
+              kind: 'passkey',
+              authority: args.proof.authority,
+              webauthn_authentication: redactCredentialExtensionOutputs(args.proof.credential),
+            }
+          : {
+              kind: 'email_otp',
+              authority_ref: args.proof.authorityRef,
+              provider_subject_id: requireNonEmptyEd25519SecretSourceString(
+                args.proof.providerSubjectId,
+                'providerSubjectId',
+              ),
+              challenge_id: requireNonEmptyEd25519SecretSourceString(
+                args.proof.challengeId,
+                'challengeId',
+              ),
+              otp_code: requireNonEmptyEd25519SecretSourceString(args.proof.otpCode, 'otpCode'),
+            },
     }),
   });
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;

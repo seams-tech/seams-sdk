@@ -63,7 +63,6 @@ import type { WorkerResourceWarmupPolicy } from '@/core/signingEngine/assembly/w
 import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
 import * as registrationPublic from '@/core/signingEngine/flows/registration/public';
 import type { Ed25519YaoPublicCapabilityReferenceStorePort } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
-import { rehydrateEmailOtpEd25519CapabilityForSigningV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
 import type { EmailOtpEcdsaChallengeAuthority } from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
 import type {
   ThresholdEcdsaChainTarget,
@@ -81,15 +80,6 @@ import type { EmailOtpTransactionSigningChallenge } from '@/core/signingEngine/s
 import type { RestorePersistedSessionForSigningInput } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
-type EmailOtpEd25519RecoveryRequest = Omit<
-  Parameters<typeof rehydrateEmailOtpEd25519CapabilityForSigningV1>[0],
-  | 'workerContext'
-  | 'groupId'
-  | 'resolveActiveCapability'
-  | 'activateCapability'
-  | 'expectedOperationalPublicKey'
-  | 'materialActivation'
->;
 
 const ecdsaCapabilityManifestStore = new IndexedDbEcdsaCapabilityManifestStore();
 
@@ -475,57 +465,6 @@ async function resolveBrowserEcdsaOperationStepUpSessionAuth(args: {
   }
 }
 
-async function rehydrateEmailOtpEd25519CapabilityForSigning(args: {
-  assembly: BrowserSigningSurfaceEnginePortsArgs;
-  request: EmailOtpEd25519RecoveryRequest;
-}) {
-  const user = await registrationPublic.getUserBySignerSlot(
-    args.assembly.getRegistrationPublicDeps(),
-    args.request.nearAccountId,
-    args.request.record.signerSlot,
-  );
-  if (
-    !user ||
-    String(user.walletId) !== String(args.request.record.walletId) ||
-    user.authMethod !== SIGNER_AUTH_METHODS.emailOtp
-  ) {
-    throw new Error('Email OTP Ed25519 recovery requires one exact persisted signer projection');
-  }
-  const references = [];
-  for (const reference of await args.assembly.ed25519YaoPublicCapabilityReferences.list()) {
-    if (
-      String(reference.walletId) === String(args.request.record.walletId) &&
-      String(reference.nearAccountId) === String(args.request.nearAccountId)
-    ) {
-      references.push(reference);
-    }
-  }
-  if (references.length !== 1 || !references[0]) {
-    throw new Error('Email OTP Ed25519 recovery requires one exact public material activation');
-  }
-  const recovered = await rehydrateEmailOtpEd25519CapabilityForSigningV1({
-    nearAccountId: args.request.nearAccountId,
-    record: args.request.record,
-    committedLane: args.request.committedLane,
-    challengeId: args.request.challengeId,
-    otpCode: args.request.otpCode,
-    remainingUses: args.request.remainingUses,
-    expectedOperationalPublicKey: user.operationalPublicKey,
-    workerContext: args.assembly.signerWorkerManager.getContext(),
-    groupId: SIGNING_SESSION_SEAL_GROUP_ID,
-    materialActivation: references[0].materialActivation,
-    resolveActiveCapability: (scope) =>
-      args.assembly.getEnginePorts().ed25519YaoActiveClients.resolveForWalletAccount(scope),
-    activateCapability: (capability) =>
-      args.assembly.getEnginePorts().ed25519YaoActiveClients.activate(capability),
-  });
-  await args.assembly.emailOtpSessions.persistEd25519YaoSessionForRefresh({
-    record: recovered.record,
-    rpId: args.assembly.touchIdPrompt.getRpId(),
-  });
-  return recovered;
-}
-
 export type BrowserSigningSurfaceEnginePortsArgs = {
   runtimePorts: RuntimePorts;
   stores: SigningEngineStorePorts;
@@ -637,15 +576,10 @@ export function createBrowserSigningSurfaceEnginePorts(
         authority: challengeArgs.authority,
       }),
     requestEmailOtpEd25519SigningChallenge: (challengeArgs) =>
-      args.emailOtpSessions.requestTransactionSigningChallenge({
-        kind: 'near_account_challenge',
+      args.emailOtpSessions.requestCapabilityStepUpTransactionSigningChallenge({
         walletSession: challengeArgs.walletSession,
-        nearAccountId: challengeArgs.nearAccountId,
         chain: 'near',
-        authLane: challengeArgs.authLane,
       }),
-    rehydrateEmailOtpEd25519CapabilityForSigning: (recoveryArgs) =>
-      rehydrateEmailOtpEd25519CapabilityForSigning({ assembly: args, request: recoveryArgs }),
     rehydratePasskeyEd25519YaoCapabilityForSigning:
       args.rehydratePasskeyEd25519YaoCapabilityForSigning,
     prepareNearEd25519YaoSigning: args.prepareNearEd25519YaoSigning,

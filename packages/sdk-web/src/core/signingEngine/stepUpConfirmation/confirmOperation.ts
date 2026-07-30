@@ -217,6 +217,7 @@ export interface SigningConfirmationResultSignatureOnly {
   sessionId: string;
   intentDigest: string;
   credential?: SerializableCredential;
+  operationStepUpPreparation?: NearOperationStepUpPreparationRef;
   otpCode?: string;
   emailOtpChallengeId?: string;
 }

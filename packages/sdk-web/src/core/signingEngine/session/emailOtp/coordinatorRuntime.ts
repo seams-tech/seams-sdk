@@ -207,7 +207,7 @@ export class EmailOtpWalletSessionRuntime {
 
   async requestCapabilityStepUpTransactionSigningChallenge(args: {
     walletSession: WalletSessionRef;
-    chain: ThresholdEcdsaChainTarget['kind'];
+    chain: ThresholdEcdsaChainTarget['kind'] | 'near';
   }): Promise<EmailOtpTransactionSigningChallenge> {
     const appSessionJwt = await this.resolveAppSessionJwt({
       walletSession: args.walletSession,

@@ -10,7 +10,7 @@ import {
   isWarmSessionSigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import type {
-  NearEmailOtpEd25519ReauthorizationHook,
+  NearEmailOtpEd25519StepUpHook,
   NearPasskeyEd25519OperationStepUpHook,
   NearPasskeyOperationStepUpPlan,
 } from '@/core/signingEngine/interfaces/near';
@@ -54,10 +54,10 @@ export async function requireNearStepUpAuth(args: {
   signingLane: NearTransactionSigningLane;
   requiredSignatureUses: number;
   passkeyEd25519OperationStepUp?: NearPasskeyEd25519OperationStepUpHook | null;
-  emailOtpEd25519Reauthorization?: NearEmailOtpEd25519ReauthorizationHook | null;
+  emailOtpEd25519StepUp?: NearEmailOtpEd25519StepUpHook | null;
 }): Promise<NearPreparedStepUpAuth> {
-  if (isEmailOtpSigningAuthPlan(args.signingAuthPlan) && !args.emailOtpEd25519Reauthorization) {
-    throw new Error('[SigningEngine][near] Email OTP reauthorization runner is unavailable');
+  if (isEmailOtpSigningAuthPlan(args.signingAuthPlan) && !args.emailOtpEd25519StepUp) {
+    throw new Error('[SigningEngine][near] Email OTP step-up runner is unavailable');
   }
   if (isPasskeySigningAuthPlan(args.signingAuthPlan) && !args.passkeyEd25519OperationStepUp) {
     throw new Error('[SigningEngine][near] Passkey operation step-up runner is unavailable');
@@ -72,15 +72,15 @@ export async function requireNearStepUpAuth(args: {
     selectedLane: { authMethod: signingLaneAuthMethod(args.signingLane.auth) },
     policy: stepUpPolicyFromSigningAuthPlan(args.signingAuthPlan),
     methods: {
-      ...(args.emailOtpEd25519Reauthorization
+      ...(args.emailOtpEd25519StepUp
         ? {
             emailOtp: {
               method: 'email_otp' as const,
-              prepareChallenge: async () => await args.emailOtpEd25519Reauthorization!.prepare(),
-              ...(args.emailOtpEd25519Reauthorization.resend
+              prepareChallenge: async () => await args.emailOtpEd25519StepUp!.prepare(),
+              ...(args.emailOtpEd25519StepUp.resend
                 ? {
                     resendChallenge: async () =>
-                      await args.emailOtpEd25519Reauthorization!.resend!(),
+                      await args.emailOtpEd25519StepUp!.resend!(),
                   }
                 : {}),
               complete: completeNearEmailOtpPreparation,

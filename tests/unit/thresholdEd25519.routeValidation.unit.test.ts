@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
 } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
   parseThresholdEd25519OperationStepUpGrantRequest,
@@ -110,17 +111,19 @@ function acceptsExactPasskeyOperationStepUpProof(): void {
   });
 }
 
-function acceptsExactEmailOtpOperationStepUpProof(): void {
+async function acceptsExactEmailOtpOperationStepUpProof(): Promise<void> {
   const authority = buildEmailOtpWalletAuthAuthority({
     walletId: 'frost-vermillion-k7p9m2',
     provider: 'email',
     providerUserId: 'email-user-route-validation',
     emailHashHex: 'email-hash-route-validation',
   });
+  const authorityRef = await walletAuthAuthorityRef({ authority });
   const parsed = parseThresholdEd25519OperationStepUpGrantRequest(
     validOperationStepUpBody({
       kind: 'email_otp',
-      authority,
+      authority_ref: authorityRef,
+      provider_subject_id: 'email-user-route-validation',
       challenge_id: 'challenge-route-validation',
       otp_code: '123456',
     }),
@@ -130,24 +133,27 @@ function acceptsExactEmailOtpOperationStepUpProof(): void {
   if (!parsed.ok) throw new Error(parsed.body.message);
   expect(parsed.request.proof).toEqual({
     kind: 'email_otp',
-    authority,
+    authorityRef,
+    providerSubjectId: 'email-user-route-validation',
     challengeId: 'challenge-route-validation',
     otpCode: '123456',
   });
 }
 
-function rejectsMixedOperationStepUpProofFields(): void {
+async function rejectsMixedOperationStepUpProofFields(): Promise<void> {
   const authority = buildEmailOtpWalletAuthAuthority({
     walletId: 'frost-vermillion-k7p9m2',
     provider: 'email',
     providerUserId: 'email-user-route-validation',
     emailHashHex: 'email-hash-route-validation',
   });
+  const authorityRef = await walletAuthAuthorityRef({ authority });
   expectInvalidOperationStepUpBody(
     parseThresholdEd25519OperationStepUpGrantRequest(
       validOperationStepUpBody({
         kind: 'email_otp',
-        authority,
+        authority_ref: authorityRef,
+        provider_subject_id: 'email-user-route-validation',
         challenge_id: 'challenge-route-validation',
         otp_code: '123456',
         webauthn_authentication: validWebAuthnAuthentication(),

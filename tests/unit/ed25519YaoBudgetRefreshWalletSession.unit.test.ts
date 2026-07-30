@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
 import type { Ed25519SessionPolicy } from '../../packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy';
 import type {
@@ -9,8 +14,10 @@ import type {
 import { connectEd25519Session } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/connectSession';
 import {
   buildThresholdEd25519WebAuthnPrfSecretSource,
+  issueEd25519OperationStepUpGrant,
   mintEd25519WalletSession,
 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/walletSession';
+import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning';
 
 const PUBLISHABLE_KEY = 'pk_test_refresh';
 const PRF_FIRST_B64U = 'cHJmLWZpcnN0LXNlY3JldA';
@@ -22,6 +29,7 @@ type RefreshFetchCapture = {
 };
 
 let activeRefreshFetchCapture: RefreshFetchCapture | null = null;
+let activeOperationStepUpFetchCapture: RefreshFetchCapture | null = null;
 
 const unusedCredentialStore: ThresholdCredentialStorePort = {
   async resolveProfileAccountContext() {
@@ -70,6 +78,70 @@ async function refreshWalletSessionFetch(
       headers: { 'Content-Type': 'application/json' },
     },
   );
+}
+
+async function operationStepUpFetch(
+  _input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  const capture = activeOperationStepUpFetchCapture;
+  if (!capture) throw new Error('operation step-up fetch capture is unavailable');
+  capture.authorization = new Headers(init?.headers).get('Authorization') || '';
+  capture.body = String(init?.body || '');
+  capture.credentials = init?.credentials;
+  return new Response(
+    JSON.stringify({
+      ok: true,
+      kind: 'operation_step_up',
+      grantId: 'operation-step-up-grant',
+      authorizationSessionId: 'authorization-session',
+      expiresAtMs: Date.now() + 60_000,
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    },
+  );
+}
+
+async function operationStepUpPrepareRequest() {
+  const digest = base64UrlEncode(new Uint8Array(32).fill(7));
+  return (
+    await buildRouterAbEd25519NearTransactionPrepareRequestV2({
+      scope: {
+        request_id: 'operation-step-up-request',
+        account_id: 'frost-vermillion-k7p9m2',
+        authorization: {
+          kind: 'operation_step_up',
+          grant_id: 'operation-step-up-grant',
+        },
+        material_activation: {
+          kind: 'mpc_material_activation_ref',
+          activation_id: 'activation-near-email-otp',
+          capability: 'capability-near-email-otp',
+          material_owner: 'frost-vermillion-k7p9m2',
+          key_binding: 'near-key-binding',
+          lifecycle_binding: 'near-lifecycle-binding',
+          signing_worker: 'near-signing-worker',
+        },
+        signing_worker_id: 'near-signing-worker',
+      },
+      expiresAtMs: Date.now() + 60_000,
+      operationId: 'near-operation-email-otp',
+      operationFingerprint: 'near-operation-fingerprint',
+      displayDigestB64u: digest,
+      nearAccountId: 'alice.testnet',
+      nearNetworkId: 'testnet',
+      transactions: [
+        {
+          receiverId: 'receiver.testnet',
+          actionFingerprint: 'near-action-fingerprint',
+        },
+      ],
+      unsignedTransactionBorshB64u: 'AQID',
+      expectedSigningDigestB64u: 'A5BYxvLAy0ksUzsKTRTvd8wPeKvMztUofYShogEc-4E',
+    })
+  ).request;
 }
 
 function refreshCredentialFixture(): WebAuthnAuthenticationCredential {
@@ -220,6 +292,64 @@ test('Ed25519 session connection rejects success without a runtime policy scope'
     });
   } finally {
     activeRefreshFetchCapture = null;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Email OTP Ed25519 step-up sends exact operation proof without a reusable session', async () => {
+  const originalFetch = globalThis.fetch;
+  const capture: RefreshFetchCapture = {
+    authorization: '',
+    body: '',
+    credentials: undefined,
+  };
+  activeOperationStepUpFetchCapture = capture;
+  globalThis.fetch = operationStepUpFetch;
+
+  try {
+    const authority = buildEmailOtpWalletAuthAuthority({
+      walletId: 'frost-vermillion-k7p9m2',
+      provider: 'email',
+      providerUserId: 'email-user-operation-step-up',
+      emailHashHex: 'email-hash-operation-step-up',
+    });
+    const authorityRef = await walletAuthAuthorityRef({ authority });
+    const result = await issueEd25519OperationStepUpGrant({
+      relayerUrl: 'https://relay.example.test',
+      normalSigningRequest: await operationStepUpPrepareRequest(),
+      displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
+      proof: {
+        kind: 'email_otp',
+        authorityRef,
+        providerSubjectId: authority.factor.providerUserId,
+        challengeId: 'email-otp-challenge',
+        otpCode: '123456',
+      },
+    });
+
+    expect(result).toMatchObject({
+      kind: 'operation_step_up',
+      grantId: 'operation-step-up-grant',
+      authorizationSessionId: 'authorization-session',
+    });
+    expect(capture.credentials).toBe('include');
+    expect(capture.authorization).toBe('');
+    const body = JSON.parse(capture.body) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',
+      proof: {
+        kind: 'email_otp',
+        authority_ref: authorityRef,
+        provider_subject_id: 'email-user-operation-step-up',
+        challenge_id: 'email-otp-challenge',
+        otp_code: '123456',
+      },
+    });
+    expect(capture.body).not.toContain('walletSessionId');
+    expect(capture.body).not.toContain('thresholdSessionId');
+    expect(capture.body).not.toContain('remainingUses');
+  } finally {
+    activeOperationStepUpFetchCapture = null;
     globalThis.fetch = originalFetch;
   }
 });

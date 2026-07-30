@@ -25,7 +25,6 @@ verification, and policy checks live under `session/sealedRecovery/*`.
 - `appSessionJwtCache.ts`
 - `ecdsaRecovery.ts`
 - `ecdsaBootstrapCommit.ts`
-- `ed25519SigningLane.ts`
 - `ed25519SigningSessionAuthority.ts`
 - `exportRecovery.ts`
 - `routePlan.ts`

@@ -129,13 +129,10 @@ test.describe('requireNearStepUpAuth', () => {
       signingAuthPlan,
       signingLane,
       requiredSignatureUses: 1,
-      emailOtpEd25519Reauthorization: {
+      emailOtpEd25519StepUp: {
         prepare: async () => {
           challengeRequests += 1;
           return { challengeId: 'otp-1', emailHint: 'a***@x.test' };
-        },
-        authorize: async () => {
-          throw new Error('authorize should not run during preparation');
         },
       },
     });

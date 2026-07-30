@@ -87,10 +87,16 @@ import {
   parseTenantId,
 } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import type { PreparedNearOperationStepUp } from './operationStepUpPreparation';
-import { issueEd25519OperationStepUpGrant } from '@/core/signingEngine/threshold/ed25519/walletSession';
-import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  requireNearOperationStepUpMaterialActivation,
+  type PreparedNearOperationStepUp,
+} from './operationStepUpPreparation';
+import {
+  issueEd25519OperationStepUpGrant,
+  type Ed25519OperationStepUpProof,
+} from '@/core/signingEngine/threshold/ed25519/walletSession';
+import type { NearEd25519YaoSigningPreparation } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
+import type { SelectedEd25519Lane } from '@/core/signingEngine/session/identity/laneIdentity';
 
 const ROUTER_AB_NORMAL_SIGNING_REQUEST_TTL_MS = 120_000;
 
@@ -626,11 +632,9 @@ async function tryFinalizeRouterAbEd25519NormalSigningSignature(args: {
   };
 }
 
-export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args: {
+type RouterAbEd25519SignatureOnlyNormalSigningBase = {
   ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
-  signingSessionCoordinator: SigningSessionCoordinator;
-  walletSessionState: AuthorizedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   walletId: WalletId;
   nearAccountId: string;
@@ -640,25 +644,45 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args:
   displayDigest: string;
   signingDigestB64u: string;
   intent: RouterAbEd25519SignatureOnlyIntentWire;
-}): Promise<RouterAbEd25519SignatureOnlyNormalSigningResult | null> {
-  const scope = buildRouterAbNormalSigningScope({
-    thresholdSessionId: args.thresholdSessionId,
-    activeClient: args.activeClient,
-    walletSessionState: args.walletSessionState,
-    walletId: args.walletId,
-    operationId: args.operationId,
-  });
-  if (!scope) return null;
+};
+
+type RouterAbEd25519SignatureOnlyNormalSigningArgs =
+  RouterAbEd25519SignatureOnlyNormalSigningBase &
+    (
+      | {
+          signingSessionCoordinator: SigningSessionCoordinator;
+          walletSessionState: AuthorizedRouterAbEd25519WalletSessionState;
+          authorization: { kind: 'reusable_wallet_session' };
+        }
+      | {
+          signingSessionCoordinator?: never;
+          walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
+          authorization: {
+            kind: 'operation_step_up';
+            prepared: Extract<PreparedNearOperationStepUp, { kind: 'near_signature_only' }>;
+            proof: Ed25519OperationStepUpProof;
+          };
+        }
+    );
+
+async function buildRouterAbEd25519SignatureOnlyPrepareRequest(args: {
+  ctx: NearSigningRuntimeDeps;
+  thresholdSessionId: string;
+  scope: RouterAbNormalSigningScopeV2Wire;
+  expiresAtMs: number;
+  nearAccountId: string;
+  operationId: SigningOperationId;
+  operationFingerprint: SigningOperationFingerprint;
+  displayDigest: string;
+  signingDigestB64u: string;
+  intent: RouterAbEd25519SignatureOnlyIntentWire;
+}): Promise<RouterAbNormalSigningPrepareRequestV2BuildResult> {
   const nearNetworkId = normalizeNearNetworkId(args.ctx);
-  const expiresAtMs = routerAbNormalSigningExpiresAtMs({
-    walletSessionExpiresAtMs: args.walletSessionState.signingWalletSession.expiresAtMs,
-    requestedTtlMs: ROUTER_AB_NORMAL_SIGNING_REQUEST_TTL_MS,
-  });
-  const prepare =
+  return (
     args.intent.kind === 'nep413_message_v1'
       ? await buildRouterAbEd25519Nep413PrepareRequestV2({
-          scope,
-          expiresAtMs,
+          scope: args.scope,
+          expiresAtMs: args.expiresAtMs,
           operationId: args.operationId,
           operationFingerprint: args.operationFingerprint,
           displayDigestB64u: args.displayDigest,
@@ -671,8 +695,8 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args:
           expectedSigningDigestB64u: args.signingDigestB64u,
         })
       : await buildRouterAbEd25519DelegateActionPrepareRequestV2({
-          scope,
-          expiresAtMs,
+          scope: args.scope,
+          expiresAtMs: args.expiresAtMs,
           operationId: args.operationId,
           operationFingerprint: args.operationFingerprint,
           displayDigestB64u: args.displayDigest,
@@ -703,7 +727,183 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args:
             ).canonicalDelegateBorshB64u,
           },
           expectedSigningDigestB64u: args.signingDigestB64u,
-        });
+        })
+  );
+}
+
+export async function prepareRouterAbEd25519SignatureOnlyOperationStepUp(args: {
+  ctx: NearSigningRuntimeDeps;
+  thresholdSessionId: string;
+  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
+  thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
+  walletId: WalletId;
+  nearAccountId: string;
+  materialActivation: MpcMaterialActivationRef;
+  operationId: SigningOperationId;
+  operationFingerprint: SigningOperationFingerprint;
+  grantId: string;
+  displayDigest: string;
+  signingDigestB64u: string;
+  intent: RouterAbEd25519SignatureOnlyIntentWire;
+}): Promise<{
+  operation: Extract<PreparedNearOperationStepUp, { kind: 'near_signature_only' }>;
+  envelope: CapabilityOperationEnvelope;
+}> {
+  const scope = buildRouterAbOperationStepUpScope({
+    materialActivation: args.materialActivation,
+    walletSessionState: args.walletSessionState,
+    walletId: args.walletId,
+    operationId: args.operationId,
+    grantId: args.grantId,
+  });
+  const prepare = await buildRouterAbEd25519SignatureOnlyPrepareRequest({
+    ctx: args.ctx,
+    thresholdSessionId: args.thresholdSessionId,
+    scope,
+    expiresAtMs: Date.now() + ROUTER_AB_NORMAL_SIGNING_REQUEST_TTL_MS,
+    nearAccountId: args.nearAccountId,
+    operationId: args.operationId,
+    operationFingerprint: args.operationFingerprint,
+    displayDigest: args.displayDigest,
+    signingDigestB64u: args.signingDigestB64u,
+    intent: args.intent,
+  });
+  const envelope = buildCapabilityOperationEnvelope({
+    tenantId: requireAuthorizationParse(
+      parseTenantId(args.walletSessionState.runtimePolicyScope.orgId),
+    ),
+    principalId: requireAuthorizationParse(parsePrincipalId(String(args.walletId))),
+    capabilityId: requireAuthorizationParse(parseCapabilityId(args.materialActivation.capability)),
+    operationId: requireAuthorizationParse(parseCapabilityOperationId(String(args.operationId))),
+    operation: {
+      capabilityKind: 'near_ed25519_mpc_signing',
+      operationKind:
+        args.intent.kind === 'nep413_message_v1'
+          ? 'near.sign_nep413_message'
+          : 'near.sign_delegate_action',
+    },
+    digests: {
+      laneDigest: parseDigestB64u(args.operationFingerprint),
+      intentDigest: parseDigestB64u(
+        base64UrlEncode(Uint8Array.from(prepare.admissionMaterial.intentDigest.bytes)),
+      ),
+      displayDigest: parseDigestB64u(args.displayDigest),
+    },
+  });
+  return {
+    operation: {
+      kind: 'near_signature_only',
+      prepare,
+      signingDigestB64u: args.signingDigestB64u,
+      materialActivation: args.materialActivation,
+    },
+    envelope,
+  };
+}
+
+export function buildNearEmailOtpEd25519OperationStepUpProof(args: {
+  preparation: NearEd25519YaoSigningPreparation;
+  lane: SelectedEd25519Lane;
+  challengeId: string;
+  otpCode: string;
+}): Extract<Ed25519OperationStepUpProof, { kind: 'email_otp' }> {
+  if (args.lane.auth.kind !== 'email_otp') {
+    throw new Error('[SigningEngine][near] Email OTP step-up requires an Email OTP lane');
+  }
+  const authorityRef = args.preparation.hydration.authority;
+  if (
+    !authorityRef ||
+    String(authorityRef.walletId) !== String(args.lane.identity.signer.account.wallet.walletId)
+  ) {
+    throw new Error('[SigningEngine][near] Email OTP material authority changed');
+  }
+  return {
+    kind: 'email_otp',
+    authorityRef,
+    providerSubjectId: args.lane.auth.providerSubjectId,
+    challengeId: args.challengeId,
+    otpCode: args.otpCode,
+  };
+}
+
+function isRouterAbEd25519SignatureOnlyOperationStepUp(
+  args: RouterAbEd25519SignatureOnlyNormalSigningArgs,
+): args is Extract<
+  RouterAbEd25519SignatureOnlyNormalSigningArgs,
+  { authorization: { kind: 'operation_step_up' } }
+> {
+  return args.authorization.kind === 'operation_step_up';
+}
+
+export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(
+  args: RouterAbEd25519SignatureOnlyNormalSigningArgs,
+): Promise<RouterAbEd25519SignatureOnlyNormalSigningResult | null> {
+  if (isRouterAbEd25519SignatureOnlyOperationStepUp(args)) {
+    const actualMaterialActivation = nearEd25519YaoMaterialActivationFromMetadata(
+      args.activeClient.metadata(),
+    );
+    requireNearOperationStepUpMaterialActivation({
+      expected: args.authorization.prepared.materialActivation,
+      actual: actualMaterialActivation,
+    });
+    if (args.authorization.prepared.signingDigestB64u !== args.signingDigestB64u) {
+      throw new Error('[SigningEngine][near] signature-only operation digest changed');
+    }
+    const prepare = args.authorization.prepared.prepare;
+    const issued = await issueEd25519OperationStepUpGrant({
+      relayerUrl: args.walletSessionState.relayerUrl,
+      normalSigningRequest: prepare.request,
+      displayDigest: args.displayDigest,
+      proof: args.authorization.proof,
+    });
+    if (
+      prepare.request.scope.authorization.kind !== 'operation_step_up' ||
+      issued.grantId !== prepare.request.scope.authorization.grant_id
+    ) {
+      throw new Error('[SigningEngine][near] issued operation step-up grant changed identity');
+    }
+    const finalized = await tryFinalizeRouterAbEd25519NormalSigningSignature({
+      thresholdSessionId: args.thresholdSessionId,
+      walletSessionState: args.walletSessionState,
+      thresholdKeyMaterial: args.thresholdKeyMaterial,
+      walletId: args.walletId,
+      nearAccountId: args.nearAccountId,
+      activeClient: args.activeClient,
+      signingDigestB64u: args.signingDigestB64u,
+      signingPayloadLabel: 'signature-only payload digest',
+      prepare,
+      credential: { kind: 'app_session_cookie' },
+      authorization: 'operation_step_up',
+    });
+    return {
+      kind: 'router_ab_ed25519_signature_only_normal_signing_result_v1',
+      operationId: args.operationId,
+      ...finalized,
+    };
+  }
+  const scope = buildRouterAbNormalSigningScope({
+    thresholdSessionId: args.thresholdSessionId,
+    activeClient: args.activeClient,
+    walletSessionState: args.walletSessionState,
+    walletId: args.walletId,
+    operationId: args.operationId,
+  });
+  if (!scope) return null;
+  const prepare = await buildRouterAbEd25519SignatureOnlyPrepareRequest({
+    ctx: args.ctx,
+    thresholdSessionId: args.thresholdSessionId,
+    scope,
+    expiresAtMs: routerAbNormalSigningExpiresAtMs({
+      walletSessionExpiresAtMs: args.walletSessionState.signingWalletSession.expiresAtMs,
+      requestedTtlMs: ROUTER_AB_NORMAL_SIGNING_REQUEST_TTL_MS,
+    }),
+    nearAccountId: args.nearAccountId,
+    operationId: args.operationId,
+    operationFingerprint: args.operationFingerprint,
+    displayDigest: args.displayDigest,
+    signingDigestB64u: args.signingDigestB64u,
+    intent: args.intent,
+  });
   const budgetFinalizer = await prepareRouterAbEd25519SignatureOnlyBudgetFinalizer({
     signingSessionCoordinator: args.signingSessionCoordinator,
     walletSessionState: args.walletSessionState,
@@ -737,7 +937,7 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args:
         nearAccountId: args.nearAccountId,
         thresholdKeyMaterial: args.thresholdKeyMaterial,
       }).credential,
-      authorization: 'reusable_wallet_session',
+      authorization: args.authorization.kind,
     });
   } catch (error) {
     budgetFinalizer.recordZeroSpend(error);
@@ -956,6 +1156,7 @@ export async function prepareRouterAbEd25519NearTransactionOperationStepUp(args:
   });
   return {
     operation: {
+      kind: 'near_transaction',
       prepare,
       unsignedTransactionBorshB64u: unsigned.unsignedTransactionBorshB64u,
       signingDigestB64u: unsigned.signingDigestB64u,
@@ -990,10 +1191,9 @@ type RouterAbEd25519NearTransactionNormalSigningArgs =
           walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
           authorization: {
             kind: 'operation_step_up';
-            prepared: PreparedNearOperationStepUp;
+            prepared: Extract<PreparedNearOperationStepUp, { kind: 'near_transaction' }>;
             displayDigest: string;
-            authority: PasskeyWalletAuthAuthority;
-            credential: WebAuthnAuthenticationCredential;
+            proof: Ed25519OperationStepUpProof;
           };
         }
     );
@@ -1062,8 +1262,7 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(
       relayerUrl: args.walletSessionState.relayerUrl,
       normalSigningRequest: prepare.request,
       displayDigest: args.authorization.displayDigest,
-      authority: args.authorization.authority,
-      credential: args.authorization.credential,
+      proof: args.authorization.proof,
     });
     if (
       prepare.request.scope.authorization.kind !== 'operation_step_up' ||

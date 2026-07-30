@@ -934,11 +934,14 @@ async function issueEd25519OperationStepUpGrant(input: {
   });
   const challengeB64u = await computeCapabilityOperationFingerprintDigest(envelope);
   const proof = input.request.proof;
-  const authorityRef = await walletAuthAuthorityRef({ authority: proof.authority });
+  const authorityRef =
+    proof.kind === 'passkey'
+      ? await walletAuthAuthorityRef({ authority: proof.authority })
+      : proof.authorityRef;
   if (
     authorityRef.walletId !== authenticated.authorityRef.walletId ||
     authorityRef.authorityDigest !== authenticated.authorityRef.authorityDigest ||
-    proof.authority.walletId !== authenticated.session.walletId
+    authorityRef.walletId !== authenticated.session.walletId
   ) {
     return json(
       { ok: false, code: 'scope_mismatch', message: 'Operation step-up authority changed' },
@@ -1017,6 +1020,15 @@ async function issueEd25519OperationStepUpGrant(input: {
       break;
     }
     case 'email_otp': {
+      if (
+        activeSession.authSource.kind !== 'oidc_provider' ||
+        String(activeSession.authSource.providerSubject) !== proof.providerSubjectId
+      ) {
+        return json(
+          { ok: false, code: 'scope_mismatch', message: 'Email OTP authority changed' },
+          { status: 403 },
+        );
+      }
       const sessionHash = await hashEmailOtpAppSessionClaims(authenticated.rawClaims);
       const verified = await input.ctx.service.emailOtp.verifyEmailOtpChallenge({
         userId: authenticated.session.principalId,
@@ -1052,7 +1064,9 @@ async function issueEd25519OperationStepUpGrant(input: {
         deviceId: activeSession.deviceId,
         factorId: requireAuthorizationValue(
           parseAuthFactorId(
-            `email_otp:${proof.authority.factor.provider}:${proof.authority.factor.providerUserId}`,
+            `email_otp:${
+              activeSession.authSource.providerId === 'google_oidc' ? 'google' : 'email'
+            }:${proof.providerSubjectId}`,
           ),
         ),
         authorityRef: authenticated.authorityRef,

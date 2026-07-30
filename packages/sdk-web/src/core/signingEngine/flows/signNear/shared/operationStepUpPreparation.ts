@@ -13,19 +13,39 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 
-export type PreparedNearOperationStepUp = {
+type PreparedNearOperationStepUpBase = {
   prepare: RouterAbNormalSigningPrepareRequestV2BuildResult;
-  unsignedTransactionBorshB64u: string;
   signingDigestB64u: string;
   materialActivation: MpcMaterialActivationRef;
 };
 
-type PreparedNearOperationStepUpBuilder = (input: {
-  transactionContext: TransactionContext;
-  operationId: string;
-  operationFingerprint: string;
-  displayDigest: string;
-}) => Promise<{
+export type PreparedNearOperationStepUp =
+  | (PreparedNearOperationStepUpBase & {
+      kind: 'near_transaction';
+      unsignedTransactionBorshB64u: string;
+    })
+  | (PreparedNearOperationStepUpBase & {
+      kind: 'near_signature_only';
+      unsignedTransactionBorshB64u?: never;
+    });
+
+export type NearOperationStepUpBuilderInput =
+  | {
+      kind: 'near_transaction';
+      transactionContext: TransactionContext;
+      operationId: string;
+      operationFingerprint: string;
+      displayDigest: string;
+    }
+  | {
+      kind: 'near_signature_only';
+      displayDigest: string;
+      transactionContext?: never;
+      operationId?: never;
+      operationFingerprint?: never;
+    };
+
+type PreparedNearOperationStepUpBuilder = (input: NearOperationStepUpBuilderInput) => Promise<{
   operation: PreparedNearOperationStepUp;
   envelope: CapabilityOperationEnvelope;
 }>;
@@ -61,15 +81,22 @@ export const nearOperationStepUpPreparationPort: NearOperationStepUpPreparationP
       throw new Error('[SigningEngine][near] operation step-up preparation is unavailable');
     }
     pendingBuilders.delete(requestId);
-    const prepared = await builder({
-      transactionContext: input.transactionContext,
-      operationId: requirePreparationIdentity(input.operationId, 'operationId'),
-      operationFingerprint: requirePreparationIdentity(
-        input.operationFingerprint,
-        'operationFingerprint',
-      ),
-      displayDigest: requirePreparationIdentity(input.displayDigest, 'displayDigest'),
-    });
+    const prepared =
+      input.kind === 'near_transaction'
+        ? await builder({
+            kind: 'near_transaction',
+            transactionContext: input.transactionContext,
+            operationId: requirePreparationIdentity(input.operationId, 'operationId'),
+            operationFingerprint: requirePreparationIdentity(
+              input.operationFingerprint,
+              'operationFingerprint',
+            ),
+            displayDigest: requirePreparationIdentity(input.displayDigest, 'displayDigest'),
+          })
+        : await builder({
+            kind: 'near_signature_only',
+            displayDigest: requirePreparationIdentity(input.displayDigest, 'displayDigest'),
+          });
     const challengeB64u = await computeCapabilityOperationFingerprintDigest(prepared.envelope);
     const ref = parseNearOperationStepUpPreparationRef({
       kind: 'near_operation_step_up_prepared_v1',

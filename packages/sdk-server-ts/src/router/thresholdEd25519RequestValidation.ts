@@ -7,9 +7,9 @@ import { isPlainObject } from '@shared/utils/validation';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import {
-  isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
   parseWalletAuthAuthority,
+  parseWalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { WebAuthnAuthenticationCredential } from '../core/types';
 import type {
@@ -31,7 +31,8 @@ const OPERATION_STEP_UP_PASSKEY_PROOF_KEYS = [
 ] as const;
 const OPERATION_STEP_UP_EMAIL_OTP_PROOF_KEYS = [
   'kind',
-  'authority',
+  'authority_ref',
+  'provider_subject_id',
   'challenge_id',
   'otp_code',
 ] as const;
@@ -252,9 +253,9 @@ export function parseThresholdEd25519OperationStepUpGrantRequest(
     return invalidThresholdEd25519Body('proof is required');
   }
   const proof = raw.proof;
-  const authority = parseWalletAuthAuthority(proof.authority);
   switch (proof.kind) {
     case 'passkey': {
+      const authority = parseWalletAuthAuthority(proof.authority);
       const unsupportedProofKey = findUnexpectedRouteKey(
         proof,
         OPERATION_STEP_UP_PASSKEY_PROOF_KEYS,
@@ -296,9 +297,14 @@ export function parseThresholdEd25519OperationStepUpGrantRequest(
           `Unsupported Email OTP operation step-up proof field: ${unsupportedProofKey}`,
         );
       }
-      if (!authority || !isEmailOtpWalletAuthAuthority(authority)) {
-        return invalidThresholdEd25519Body('proof.authority must be an exact Email OTP authority');
+      const authorityRef = parseWalletAuthAuthorityRef(proof.authority_ref);
+      if (!authorityRef) {
+        return invalidThresholdEd25519Body(
+          'proof.authority_ref must be an exact wallet authority reference',
+        );
       }
+      const providerSubjectId = requiredStringField(proof, 'provider_subject_id');
+      if (!providerSubjectId.ok) return providerSubjectId;
       const challengeId = requiredStringField(proof, 'challenge_id');
       if (!challengeId.ok) return challengeId;
       const otpCode = requiredStringField(proof, 'otp_code');
@@ -311,7 +317,8 @@ export function parseThresholdEd25519OperationStepUpGrantRequest(
           displayDigest: displayDigest.request,
           proof: {
             kind: 'email_otp',
-            authority,
+            authorityRef,
+            providerSubjectId: providerSubjectId.request,
             challengeId: challengeId.request,
             otpCode: otpCode.request,
           },

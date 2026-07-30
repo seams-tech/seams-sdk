@@ -61,10 +61,12 @@ export type RouterAbEd25519YaoOperationStepUpGrantCommandV1 = {
       }
     | {
         readonly kind: 'email_otp';
-        readonly authority: EmailOtpWalletAuthAuthority;
+        readonly authorityRef: WalletAuthAuthorityRef;
+        readonly providerSubjectId: string;
         readonly challengeId: string;
         readonly otpCode: string;
         readonly webauthnAuthentication?: never;
+        readonly authority?: never;
       };
 };
 

@@ -38,7 +38,8 @@ acceptOperationStepUpProof({
 
 acceptOperationStepUpProof({
   kind: 'email_otp',
-  authority: emailOtpAuthority,
+  authorityRef,
+  providerSubjectId: 'provider-user-id',
   challengeId: 'challenge-id',
   otpCode: '123456',
 });
@@ -54,13 +55,15 @@ acceptOperationStepUpProof({
 // @ts-expect-error Email OTP proof requires its challenge and code.
 acceptOperationStepUpProof({
   kind: 'email_otp',
-  authority: emailOtpAuthority,
+  authorityRef,
+  providerSubjectId: 'provider-user-id',
 });
 
 // @ts-expect-error Email OTP proof cannot carry WebAuthn material.
 acceptOperationStepUpProof({
   kind: 'email_otp',
-  authority: emailOtpAuthority,
+  authorityRef,
+  providerSubjectId: 'provider-user-id',
   challengeId: 'challenge-id',
   otpCode: '123456',
   webauthnAuthentication,
