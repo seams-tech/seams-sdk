@@ -343,19 +343,6 @@ export async function listDashboardGasSponsorshipPolicies(
     .filter((entry) => matchesScopeFilter(entry, input));
 }
 
-export async function publishDashboardGasSponsorshipPolicy(
-  policyIdRaw: string,
-): Promise<DashboardGasSponsorshipPolicy> {
-  const policyId = normalizeString(policyIdRaw);
-  if (!policyId) throw new Error('Gas sponsorship policy id is required');
-  const existing = (await listDashboardPolicies()).find((entry) => entry.id === policyId);
-  if (!existing || existing.kind !== 'GAS_SPONSORSHIP') {
-    throw new Error(`Gas sponsorship policy ${policyId} was not found`);
-  }
-  const published = await publishGasSponsorshipPolicy(existing);
-  return await getDashboardGasSponsorshipPolicyById(published.id);
-}
-
 export async function createDashboardGasSponsorshipPolicy(
   input: Record<string, unknown>,
 ): Promise<DashboardGasSponsorshipPolicy> {
