@@ -88,7 +88,6 @@ import {
 } from '@seams/sdk-server/cloud-host';
 import { createCloudflareCron } from './cron';
 import type { RouterApiCloudflareConsoleWorkerEnv } from './cloudflareConsole.types';
-import { handleChainRpcProxyRequest } from './chainRpcProxy';
 
 interface CloudflareD1RouterApiStagingEnv
   extends
@@ -684,12 +683,6 @@ async function fetch(
   env: CloudflareD1RouterApiStagingEnv,
   ctx: CfExecutionContext,
 ): Promise<Response> {
-  const rpcProxyResponse = await handleChainRpcProxyRequest(request, {
-    corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS),
-    nearRpcUrls: readEnvString(env, 'NEAR_RPC_URL'),
-    arcRpcUrls: readEnvString(env, 'ARC_RPC_URL'),
-  });
-  if (rpcProxyResponse) return rpcProxyResponse;
   if (request.method === 'GET' && new URL(request.url).pathname === ROUTER_AB_CEREMONY_JWKS_PATH) {
     return routerAbCeremonyJwksResponse(env);
   }

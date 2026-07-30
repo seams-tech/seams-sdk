@@ -151,15 +151,22 @@ export function parseRpcHexQuantity(value: string, label: string): bigint {
   return BigInt(normalized);
 }
 
+function normalizeEvmRpcUrls(input: string): string[] {
+  const urls = input
+    .split(/[\s,]+/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => new URL(value).toString());
+  if (urls.length === 0) throw new Error('RPC URL is not configured');
+  return Array.from(new Set(urls));
+}
+
 export function createEvmClient(args: {
   rpcUrl: string;
   fetchImpl?: typeof fetch;
   requestTimeoutMs?: number;
 }): EvmClient {
-  const rpcUrl = String(args.rpcUrl || '').trim();
-  if (!rpcUrl) {
-    throw new Error('RPC URL is not configured');
-  }
+  const rpcUrls = normalizeEvmRpcUrls(String(args.rpcUrl || '').trim());
   const fetchImpl = args.fetchImpl || fetch.bind(globalThis);
   const requestTimeoutMs = Math.max(
     1,
@@ -178,7 +185,7 @@ export function createEvmClient(args: {
     const startedAt = Date.now();
     const remainingTimeoutMs = (): number =>
       Math.max(1, timeoutMs - Math.max(0, Date.now() - startedAt));
-    const controller = new AbortController();
+    let controller = new AbortController();
 
     const withPromiseTimeout = async <V>(timeoutArgs: {
       promise: Promise<V>;
@@ -218,33 +225,47 @@ export function createEvmClient(args: {
       }
     };
 
-    const fetchPromise = fetchImpl(rpcUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: Date.now(),
-        method: requestArgs.method,
-        params: requestArgs.params,
-      }),
-      signal: controller.signal,
+    const body = JSON.stringify({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: requestArgs.method,
+      params: requestArgs.params,
     });
-
-    let response: Response;
-    try {
-      response = await withPromiseTimeout({
-        promise: fetchPromise,
-        label: `${requestArgs.method} request`,
-        onTimeout: () => {
-          controller.abort();
-        },
-      });
-    } catch (error: unknown) {
-      const maybeAbort = error as { name?: string };
+    let response: Response | null = null;
+    let lastError: unknown = null;
+    for (const [index, rpcUrl] of rpcUrls.entries()) {
+      const hasFallback = index < rpcUrls.length - 1;
+      controller = new AbortController();
+      try {
+        const candidate = await withPromiseTimeout({
+          promise: fetchImpl(rpcUrl, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body,
+            signal: controller.signal,
+          }),
+          label: `${requestArgs.method} request`,
+          onTimeout: () => {
+            controller.abort();
+          },
+        });
+        if ((candidate.status === 429 || candidate.status >= 500) && hasFallback) {
+          await candidate.body?.cancel();
+          continue;
+        }
+        response = candidate;
+        break;
+      } catch (error: unknown) {
+        lastError = error;
+        if (hasFallback) continue;
+      }
+    }
+    if (!response) {
+      const maybeAbort = lastError as { name?: string };
       if (maybeAbort?.name === 'AbortError') {
         throw new Error(`${requestArgs.method} request timed out after ${timeoutMs}ms`);
       }
-      throw error;
+      throw lastError instanceof Error ? lastError : new Error('RPC request failed');
     }
 
     if (response.status === 429) {
