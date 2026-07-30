@@ -57,7 +57,6 @@ const requiredSecretVarsByProfile = Object.freeze({
     'ACCOUNT_ID_DERIVATION_SECRET',
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'SPONSORED_EVM_EXECUTORS_JSON',
-    'COINGECKO_DEMO_API_KEY',
     'STRIPE_API_SK',
   ]),
 });
