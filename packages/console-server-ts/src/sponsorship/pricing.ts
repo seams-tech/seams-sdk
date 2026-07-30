@@ -6,7 +6,10 @@ import type {
   SponsorshipSpendPricingQuote,
   SponsorshipSpendPricingService,
 } from './spendCaps';
-import { SponsorshipSpendCapEnforcementError } from './spendCaps';
+import {
+  isSponsorshipSpendCapEnforcementError,
+  SponsorshipSpendCapEnforcementError,
+} from './spendCaps';
 import type { ConsoleSponsoredCallChainFamily } from '../sponsoredCalls/types';
 
 type StaticSponsoredEvmSpendPricingRule = {
@@ -25,23 +28,21 @@ type StaticSponsoredNearSpendPricingRule = {
   pricingVersion: string;
 };
 
-type CoinGeckoSponsoredEvmSpendPricingRule = {
+type RefFinanceSponsoredEvmSpendPricingRule = {
   chainId: number;
   rpcUrl: string;
-  assetId: string;
   nativeUnitDecimals: number;
   pricingVersionPrefix: string;
 };
 
-type CoinGeckoSponsoredNearSpendPricingRule = {
+type RefFinanceSponsoredNearSpendPricingRule = {
   networkClass: 'TESTNET' | 'MAINNET';
-  assetId: string;
   nativeUnitDecimals: number;
   estimateFeeAmountYocto: bigint;
   pricingVersionPrefix: string;
 };
 
-type CoinGeckoMarketPriceCacheEntry = {
+type RefFinanceMarketPriceCacheEntry = {
   spendMinorNumerator: bigint;
   spendMinorDenominator: bigint;
   pricingVersion: string;
@@ -66,11 +67,17 @@ export interface StaticSponsoredExecutionPricingConfig {
   nearByChain: ReadonlyMap<number, StaticSponsoredNearSpendPricingRule>;
 }
 
-export interface CoinGeckoSponsoredExecutionPricingConfig {
-  apiBaseUrl: string;
+export interface RefFinanceSponsoredExecutionPricingConfig {
+  nearRpcUrl: string;
+  dexContractId: string;
+  poolId: number;
+  nearTokenId: string;
+  usdcTokenId: string;
+  nearTokenDecimals: number;
+  usdcTokenDecimals: number;
   cacheTtlMs: number;
-  evmByChain: ReadonlyMap<number, CoinGeckoSponsoredEvmSpendPricingRule>;
-  nearByChain: ReadonlyMap<number, CoinGeckoSponsoredNearSpendPricingRule>;
+  evmByChain: ReadonlyMap<number, RefFinanceSponsoredEvmSpendPricingRule>;
+  nearByChain: ReadonlyMap<number, RefFinanceSponsoredNearSpendPricingRule>;
 }
 
 export interface ChainFamilySponsoredExecutionPricingConfig {
@@ -222,45 +229,6 @@ function readNativeUnitDecimals(value: unknown, fallback: number): number {
   return parsed;
 }
 
-function normalizeDecimalString(value: string): string {
-  const [wholeRaw, fractionRaw = ''] = value.split('.');
-  const whole = wholeRaw.replace(/^(-?)0+(?=\d)/, '$1') || '0';
-  const fraction = fractionRaw.replace(/0+$/, '');
-  return fraction ? `${whole}.${fraction}` : whole;
-}
-
-function parseDecimalRatio(value: unknown, label: string): DecimalRatio {
-  let normalized = '';
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value) || value < 0) {
-      throw new SponsorshipSpendCapEnforcementError(
-        'sponsorship_pricing_invalid',
-        500,
-        `${label} must be a non-negative number`,
-      );
-    }
-    normalized = value.toString().includes('e') ? value.toFixed(18) : value.toString();
-  } else {
-    normalized = String(value || '').trim();
-  }
-  normalized = normalizeDecimalString(normalized);
-  if (!/^\d+(?:\.\d+)?$/.test(normalized)) {
-    throw new SponsorshipSpendCapEnforcementError(
-      'sponsorship_pricing_invalid',
-      500,
-      `${label} must be a non-negative decimal`,
-    );
-  }
-  const [wholeRaw, fractionRaw = ''] = normalized.split('.');
-  const fraction = fractionRaw.replace(/0+$/, '');
-  const denominator = 10n ** BigInt(fraction.length);
-  const numerator = BigInt(wholeRaw) * denominator + BigInt(fraction || '0');
-  return {
-    numerator,
-    denominator,
-  };
-}
-
 function quoteFromRule(input: {
   rule: StaticSponsoredEvmSpendPricingRule;
   feeAmount: bigint;
@@ -315,10 +283,10 @@ function resolveStaticNearPricingRule(
   );
 }
 
-function resolveCoinGeckoEvmPricingRule(
-  config: CoinGeckoSponsoredExecutionPricingConfig,
+function resolveRefFinanceEvmPricingRule(
+  config: RefFinanceSponsoredExecutionPricingConfig,
   chainId: number,
-): CoinGeckoSponsoredEvmSpendPricingRule {
+): RefFinanceSponsoredEvmSpendPricingRule {
   const rule = config.evmByChain.get(chainId) || null;
   if (rule) return rule;
   throw new SponsorshipSpendCapEnforcementError(
@@ -328,10 +296,10 @@ function resolveCoinGeckoEvmPricingRule(
   );
 }
 
-function resolveCoinGeckoNearPricingRule(
-  config: CoinGeckoSponsoredExecutionPricingConfig,
+function resolveRefFinanceNearPricingRule(
+  config: RefFinanceSponsoredExecutionPricingConfig,
   chainId: number,
-): CoinGeckoSponsoredNearSpendPricingRule {
+): RefFinanceSponsoredNearSpendPricingRule {
   const rule = config.nearByChain.get(chainId) || null;
   if (rule) return rule;
   throw new SponsorshipSpendCapEnforcementError(
@@ -344,7 +312,7 @@ function resolveCoinGeckoNearPricingRule(
 async function fetchJsonRpcResult(
   rpcUrl: string,
   method: string,
-  params: unknown[],
+  params: unknown,
   fetchImpl: typeof fetch,
 ): Promise<unknown> {
   let response: Response;
@@ -390,48 +358,143 @@ async function fetchJsonRpcResult(
   return payload.result;
 }
 
-async function fetchCoinGeckoUsdPrice(input: {
-  apiBaseUrl: string;
-  assetId: string;
-  fetchImpl: typeof fetch;
-}): Promise<{ spendMinorRatio: DecimalRatio; pricingVersion: string }> {
-  const url = new URL(`${input.apiBaseUrl}/simple/price`);
-  url.searchParams.set('ids', input.assetId);
-  url.searchParams.set('vs_currencies', 'usd');
-  url.searchParams.set('include_last_updated_at', 'true');
-  let response: Response;
-  try {
-    response = await input.fetchImpl(url.toString());
-  } catch (error: unknown) {
+function requirePositiveInteger(value: unknown, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new SponsorshipSpendCapEnforcementError(
-      'sponsorship_pricing_unavailable',
-      503,
-      `Failed to query CoinGecko pricing: ${
+      'sponsorship_pricing_invalid',
+      500,
+      `${label} must be a positive integer`,
+    );
+  }
+  return parsed;
+}
+
+function encodeJsonBase64(value: unknown): string {
+  return btoa(JSON.stringify(value));
+}
+
+function parseRefFinancePoolResult(input: {
+  result: unknown;
+  nearTokenId: string;
+  usdcTokenId: string;
+}): {
+  nearReserve: bigint;
+  usdcReserve: bigint;
+  blockHeight: number;
+} {
+  const queryResult = requireRecord(input.result, 'Ref Finance RPC query result');
+  const blockHeight = requirePositiveInteger(
+    queryResult.block_height,
+    'Ref Finance RPC query result.block_height',
+  );
+  if (!Array.isArray(queryResult.result)) {
+    throw new SponsorshipSpendCapEnforcementError(
+      'sponsorship_pricing_invalid',
+      500,
+      'Ref Finance RPC query result.result must be a byte array',
+    );
+  }
+  const bytes = queryResult.result.map((value, index) => {
+    const byte = Number(value);
+    if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+      throw new SponsorshipSpendCapEnforcementError(
+        'sponsorship_pricing_invalid',
+        500,
+        `Ref Finance RPC query result.result[${index}] must be a byte`,
+      );
+    }
+    return byte;
+  });
+  let pool: Record<string, unknown>;
+  try {
+    pool = requireRecord(
+      JSON.parse(new TextDecoder().decode(Uint8Array.from(bytes))),
+      'Ref Finance pool',
+    );
+  } catch (error: unknown) {
+    if (isSponsorshipSpendCapEnforcementError(error)) throw error;
+    throw new SponsorshipSpendCapEnforcementError(
+      'sponsorship_pricing_invalid',
+      500,
+      `Ref Finance pool response is invalid JSON: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
   }
-  if (!response.ok) {
+  if (!Array.isArray(pool.token_account_ids) || !Array.isArray(pool.amounts)) {
+    throw new SponsorshipSpendCapEnforcementError(
+      'sponsorship_pricing_invalid',
+      500,
+      'Ref Finance pool must contain token_account_ids and amounts arrays',
+    );
+  }
+  const nearIndex = pool.token_account_ids.indexOf(input.nearTokenId);
+  const usdcIndex = pool.token_account_ids.indexOf(input.usdcTokenId);
+  if (nearIndex < 0 || usdcIndex < 0 || nearIndex === usdcIndex) {
+    throw new SponsorshipSpendCapEnforcementError(
+      'sponsorship_pricing_invalid',
+      500,
+      'Configured Ref Finance pool does not contain the expected NEAR and USDC tokens',
+    );
+  }
+  const nearReserve = requireNonNegativeBigInt(
+    pool.amounts[nearIndex],
+    'Ref Finance NEAR reserve',
+  );
+  const usdcReserve = requireNonNegativeBigInt(
+    pool.amounts[usdcIndex],
+    'Ref Finance USDC reserve',
+  );
+  if (nearReserve === 0n || usdcReserve === 0n) {
     throw new SponsorshipSpendCapEnforcementError(
       'sponsorship_pricing_unavailable',
       503,
-      `CoinGecko pricing returned ${response.status}`,
+      'Configured Ref Finance pool has no liquidity',
     );
   }
-  const payload = requireRecord(await response.json(), 'CoinGecko pricing response');
-  const asset = requireRecord(payload[input.assetId], `CoinGecko pricing response.${input.assetId}`);
-  const usdRatio = parseDecimalRatio(asset.usd, `CoinGecko usd price for ${input.assetId}`);
-  const spendMinorRatio = {
-    numerator: usdRatio.numerator * 100n,
-    denominator: usdRatio.denominator,
-  };
   return {
-    spendMinorRatio,
-    pricingVersion: `coingecko:${input.assetId}:${String(asset.last_updated_at || 'unknown')}`,
+    nearReserve,
+    usdcReserve,
+    blockHeight,
   };
 }
 
-function quoteFromCoinGeckoRule(input: {
+async function fetchRefFinanceNearUsdPrice(input: {
+  config: RefFinanceSponsoredExecutionPricingConfig;
+  fetchImpl: typeof fetch;
+}): Promise<{ spendMinorRatio: DecimalRatio; pricingVersion: string }> {
+  const result = await fetchJsonRpcResult(
+    input.config.nearRpcUrl,
+    'query',
+    {
+      request_type: 'call_function',
+      finality: 'final',
+      account_id: input.config.dexContractId,
+      method_name: 'get_pool',
+      args_base64: encodeJsonBase64({ pool_id: input.config.poolId }),
+    },
+    input.fetchImpl,
+  );
+  const pool = parseRefFinancePoolResult({
+    result,
+    nearTokenId: input.config.nearTokenId,
+    usdcTokenId: input.config.usdcTokenId,
+  });
+  return {
+    spendMinorRatio: {
+      numerator:
+        pool.usdcReserve *
+        100n *
+        10n ** BigInt(input.config.nearTokenDecimals),
+      denominator:
+        pool.nearReserve * 10n ** BigInt(input.config.usdcTokenDecimals),
+    },
+    pricingVersion: `ref-finance:${input.config.dexContractId}:pool-${input.config.poolId}:block-${pool.blockHeight}`,
+  };
+}
+
+function quoteFromMarketPrice(input: {
   feeAmount: bigint;
   nativeUnitDecimals: number;
   spendMinorRatio: DecimalRatio;
@@ -524,8 +587,8 @@ export function createStaticSponsoredExecutionPricingService(
   };
 }
 
-export function createCoinGeckoSponsoredExecutionPricingService(
-  config: CoinGeckoSponsoredExecutionPricingConfig,
+export function createRefFinanceSponsoredExecutionPricingService(
+  config: RefFinanceSponsoredExecutionPricingConfig,
   options?: {
     fetch?: typeof fetch;
     now?: () => number;
@@ -533,36 +596,32 @@ export function createCoinGeckoSponsoredExecutionPricingService(
 ): SponsorshipSpendPricingService {
   const fetchImpl = resolveSponsorshipPricingFetch(options?.fetch);
   const now = options?.now || (() => Date.now());
-  const marketPriceCache = new Map<string, CoinGeckoMarketPriceCacheEntry>();
+  let marketPriceCache: RefFinanceMarketPriceCacheEntry | null = null;
 
-  const resolveMarketPrice = async (
-    assetId: string,
-  ): Promise<{
+  const resolveMarketPrice = async (): Promise<{
     spendMinorRatio: DecimalRatio;
     pricingVersion: string;
   }> => {
-    const cached = marketPriceCache.get(assetId) || null;
     const currentMs = now();
-    if (cached && cached.expiresAtMs > currentMs) {
+    if (marketPriceCache && marketPriceCache.expiresAtMs > currentMs) {
       return {
         spendMinorRatio: {
-          numerator: cached.spendMinorNumerator,
-          denominator: cached.spendMinorDenominator,
+          numerator: marketPriceCache.spendMinorNumerator,
+          denominator: marketPriceCache.spendMinorDenominator,
         },
-        pricingVersion: cached.pricingVersion,
+        pricingVersion: marketPriceCache.pricingVersion,
       };
     }
-    const fetched = await fetchCoinGeckoUsdPrice({
-      apiBaseUrl: config.apiBaseUrl,
-      assetId,
+    const fetched = await fetchRefFinanceNearUsdPrice({
+      config,
       fetchImpl,
     });
-    marketPriceCache.set(assetId, {
+    marketPriceCache = {
       spendMinorNumerator: fetched.spendMinorRatio.numerator,
       spendMinorDenominator: fetched.spendMinorRatio.denominator,
       pricingVersion: fetched.pricingVersion,
       expiresAtMs: currentMs + config.cacheTtlMs,
-    });
+    };
     return fetched;
   };
 
@@ -571,9 +630,9 @@ export function createCoinGeckoSponsoredExecutionPricingService(
       input: SponsorshipSpendPricingEstimateInput,
     ): Promise<SponsorshipSpendPricingQuote> {
       if (input.chainFamily === 'near') {
-        const rule = resolveCoinGeckoNearPricingRule(config, input.chainId);
-        const marketPrice = await resolveMarketPrice(rule.assetId);
-        return quoteFromCoinGeckoRule({
+        const rule = resolveRefFinanceNearPricingRule(config, input.chainId);
+        const marketPrice = await resolveMarketPrice();
+        return quoteFromMarketPrice({
           feeAmount: rule.estimateFeeAmountYocto,
           nativeUnitDecimals: rule.nativeUnitDecimals,
           spendMinorRatio: marketPrice.spendMinorRatio,
@@ -587,12 +646,12 @@ export function createCoinGeckoSponsoredExecutionPricingService(
           `Real sponsored spend pricing does not support ${input.chainFamily}`,
         );
       }
-      const rule = resolveCoinGeckoEvmPricingRule(config, input.chainId);
+      const rule = resolveRefFinanceEvmPricingRule(config, input.chainId);
       const gasLimit = extractGasLimitForEvmEstimate(input.requestDetails);
       const gasPriceHex = await fetchJsonRpcResult(rule.rpcUrl, 'eth_gasPrice', [], fetchImpl);
       const gasPriceWei = requireNonNegativeBigInt(gasPriceHex, 'pricing RPC eth_gasPrice result');
-      const marketPrice = await resolveMarketPrice(rule.assetId);
-      return quoteFromCoinGeckoRule({
+      const marketPrice = await resolveMarketPrice();
+      return quoteFromMarketPrice({
         feeAmount: gasLimit * gasPriceWei,
         nativeUnitDecimals: rule.nativeUnitDecimals,
         spendMinorRatio: marketPrice.spendMinorRatio,
@@ -611,9 +670,9 @@ export function createCoinGeckoSponsoredExecutionPricingService(
             `Real sponsored spend pricing expected feeUnit yocto_near, received ${input.feeUnit}`,
           );
         }
-        const rule = resolveCoinGeckoNearPricingRule(config, input.chainId);
-        const marketPrice = await resolveMarketPrice(rule.assetId);
-        return quoteFromCoinGeckoRule({
+        const rule = resolveRefFinanceNearPricingRule(config, input.chainId);
+        const marketPrice = await resolveMarketPrice();
+        return quoteFromMarketPrice({
           feeAmount: requireNonNegativeBigInt(input.feeAmount, 'feeAmount'),
           nativeUnitDecimals: rule.nativeUnitDecimals,
           spendMinorRatio: marketPrice.spendMinorRatio,
@@ -632,11 +691,11 @@ export function createCoinGeckoSponsoredExecutionPricingService(
           'sponsorship_pricing_invalid',
           500,
           `Real sponsored spend pricing expected feeUnit wei, received ${input.feeUnit}`,
-        );
+          );
       }
-      const rule = resolveCoinGeckoEvmPricingRule(config, input.chainId);
-      const marketPrice = await resolveMarketPrice(rule.assetId);
-      return quoteFromCoinGeckoRule({
+      const rule = resolveRefFinanceEvmPricingRule(config, input.chainId);
+      const marketPrice = await resolveMarketPrice();
+      return quoteFromMarketPrice({
         feeAmount: requireNonNegativeBigInt(input.feeAmount, 'feeAmount'),
         nativeUnitDecimals: rule.nativeUnitDecimals,
         spendMinorRatio: marketPrice.spendMinorRatio,
@@ -738,7 +797,7 @@ export function resolveStaticSponsoredExecutionPricingFromEnv(
   });
 }
 
-export function resolveCoinGeckoSponsoredExecutionPricingFromEnv(
+export function resolveRefFinanceSponsoredExecutionPricingFromEnv(
   env: SponsoredExecutionPricingEnv,
 ): SponsorshipSpendPricingService | null {
   const raw = String(env.SPONSORED_EXECUTION_REAL_PRICING_JSON || '').trim();
@@ -751,9 +810,15 @@ export function resolveCoinGeckoSponsoredExecutionPricingFromEnv(
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   const root = parsed as Record<string, unknown>;
-  const provider = String(root.provider || 'coingecko').trim().toLowerCase();
-  if (provider !== 'coingecko') return null;
-  const evmByChain = new Map<number, CoinGeckoSponsoredEvmSpendPricingRule>();
+  const provider = String(root.provider || '').trim().toLowerCase();
+  if (provider !== 'ref_finance') return null;
+  const poolId = parseOptionalPositiveInteger(root.poolId);
+  const dexContractId = String(root.dexContractId || '').trim();
+  const nearTokenId = String(root.nearTokenId || '').trim();
+  const usdcTokenId = String(root.usdcTokenId || '').trim();
+  if (!poolId || !dexContractId || !nearTokenId || !usdcTokenId) return null;
+
+  const evmByChain = new Map<number, RefFinanceSponsoredEvmSpendPricingRule>();
   const evmSection = root.evm;
   if (evmSection && typeof evmSection === 'object' && !Array.isArray(evmSection)) {
     for (const [chainIdRaw, value] of Object.entries(evmSection as Record<string, unknown>)) {
@@ -764,23 +829,21 @@ export function resolveCoinGeckoSponsoredExecutionPricingFromEnv(
         parseOptionalPositiveInteger(row.chainId) ||
         undefined;
       const rpcUrl = String(row.rpcUrl || '').trim();
-      const assetId = String(row.assetId || '').trim().toLowerCase();
-      if (!chainId || !rpcUrl || !assetId) continue;
+      if (!chainId || !rpcUrl) continue;
       if (evmByChain.has(chainId)) return null;
       evmByChain.set(chainId, {
         chainId,
         rpcUrl,
-        assetId,
         nativeUnitDecimals: readNativeUnitDecimals(row.nativeUnitDecimals, 18),
         pricingVersionPrefix: normalizePricingVersion(
           row.pricingVersionPrefix,
-          `coingecko-evm-${chainId}`,
+          `ref-finance-evm-${chainId}`,
         ),
       });
     }
   }
 
-  const nearByChain = new Map<number, CoinGeckoSponsoredNearSpendPricingRule>();
+  const nearByChain = new Map<number, RefFinanceSponsoredNearSpendPricingRule>();
   const nearSection = root.near;
   if (nearSection && typeof nearSection === 'object' && !Array.isArray(nearSection)) {
     for (const [networkClassRaw, value] of Object.entries(nearSection as Record<string, unknown>)) {
@@ -789,29 +852,33 @@ export function resolveCoinGeckoSponsoredExecutionPricingFromEnv(
       const networkClass =
         parseNearPricingNetworkClass(networkClassRaw) ||
         parseNearPricingNetworkClass(row.networkClass);
-      const assetId = String(row.assetId || '').trim().toLowerCase();
       const estimateFeeAmountYocto = parseOptionalBigIntLiteral(row.estimateFeeAmountYocto, {
         allowZero: true,
       });
-      if (!networkClass || !assetId || estimateFeeAmountYocto === null) continue;
+      if (!networkClass || estimateFeeAmountYocto === null) continue;
       const chainId = getNearSpendCapChainId(networkClass);
       if (nearByChain.has(chainId)) return null;
       nearByChain.set(chainId, {
         networkClass,
-        assetId,
         nativeUnitDecimals: readNativeUnitDecimals(row.nativeUnitDecimals, 24),
         estimateFeeAmountYocto,
         pricingVersionPrefix: normalizePricingVersion(
           row.pricingVersionPrefix,
-          `coingecko-near-${networkClass.toLowerCase()}`,
+          `ref-finance-near-${networkClass.toLowerCase()}`,
         ),
       });
     }
   }
 
   if (evmByChain.size === 0 && nearByChain.size === 0) return null;
-  return createCoinGeckoSponsoredExecutionPricingService({
-    apiBaseUrl: normalizeApiBaseUrl(root.apiBaseUrl, 'https://api.coingecko.com/api/v3'),
+  return createRefFinanceSponsoredExecutionPricingService({
+    nearRpcUrl: normalizeApiBaseUrl(root.nearRpcUrl, 'https://rpc.mainnet.near.org'),
+    dexContractId,
+    poolId,
+    nearTokenId,
+    usdcTokenId,
+    nearTokenDecimals: readNativeUnitDecimals(root.nearTokenDecimals, 24),
+    usdcTokenDecimals: readNativeUnitDecimals(root.usdcTokenDecimals, 6),
     cacheTtlMs: readCacheTtlMs(root.cacheTtlMs, 5 * 60 * 1000),
     evmByChain,
     nearByChain,
@@ -822,7 +889,7 @@ export function resolveSponsoredExecutionPricingFromEnv(
   env: SponsoredExecutionPricingEnv,
 ): SponsorshipSpendPricingService | null {
   return (
-    resolveCoinGeckoSponsoredExecutionPricingFromEnv(env) ||
+    resolveRefFinanceSponsoredExecutionPricingFromEnv(env) ||
     resolveStaticSponsoredExecutionPricingFromEnv(env)
   );
 }
