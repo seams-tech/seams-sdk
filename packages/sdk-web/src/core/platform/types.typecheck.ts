@@ -86,7 +86,7 @@ const genericWalletKeyId = genericWalletKeyIdResult.value;
 const emailOtpWorkerIssuedSessionHandleFromBuilder = buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-session',
   walletId,
-  evmFamilySigningKeySlotId,
+  keyHandle: 'ecdsa-key-handle',
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
@@ -305,7 +305,7 @@ const directEmailOtpWorkerSessionHandle = {
   kind: 'email_otp_worker_session_handle_v1',
   sessionId: 'otp-session',
   walletId,
-  evmFamilySigningKeySlotId,
+  keyHandle: 'ecdsa-key-handle',
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
@@ -324,7 +324,7 @@ broadSpreadEmailOtpWorkerSessionHandle satisfies EmailOtpWorkerIssuedSessionHand
 buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-session',
   walletId,
-  evmFamilySigningKeySlotId,
+  keyHandle: 'ecdsa-key-handle',
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
@@ -334,7 +334,7 @@ buildEmailOtpWorkerIssuedSessionHandle({
 buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-session',
   walletId,
-  evmFamilySigningKeySlotId,
+  keyHandle: 'ecdsa-key-handle',
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
@@ -343,11 +343,45 @@ buildEmailOtpWorkerIssuedSessionHandle({
 buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-session',
   walletId,
-  // @ts-expect-error ECDSA worker-session handles require EVM-family signing key slots.
+  // @ts-expect-error Runtime ECDSA worker-session handles forbid provisioning slots.
   evmFamilySigningKeySlotId: genericWalletKeyId,
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
+  chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
+});
+
+buildEmailOtpWorkerIssuedSessionHandle({
+  sessionId: 'otp-registration-session',
+  walletId,
+  evmFamilySigningKeySlotId,
+  authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
+  action: 'threshold_ecdsa_bootstrap',
+  operation: 'registration',
+  chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
+});
+
+// @ts-expect-error Registration ECDSA handles cannot carry runtime key handles.
+buildEmailOtpWorkerIssuedSessionHandle({
+  sessionId: 'otp-registration-session',
+  walletId,
+  evmFamilySigningKeySlotId,
+  keyHandle: 'ecdsa-key-handle',
+  authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
+  action: 'threshold_ecdsa_bootstrap',
+  operation: 'registration',
+  chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
+});
+
+// @ts-expect-error Runtime ECDSA handles cannot carry provisioning slots.
+buildEmailOtpWorkerIssuedSessionHandle({
+  sessionId: 'otp-export-session',
+  walletId,
+  evmFamilySigningKeySlotId,
+  keyHandle: 'ecdsa-key-handle',
+  authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
+  action: 'threshold_ecdsa_bootstrap',
+  operation: 'export',
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
 });
 

@@ -123,7 +123,6 @@ void publicFacts;
 
 const walletKey = buildEvmFamilyEcdsaWalletKey({
   walletId: key.walletId,
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   keyHandle,
   chainTarget: evmTarget,
   ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,

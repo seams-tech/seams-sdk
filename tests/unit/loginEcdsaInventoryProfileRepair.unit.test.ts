@@ -25,7 +25,6 @@ function inventoryRepairFixture() {
   const publicCapability = backendBinding.ecdsaRoleLocalReadyRecord.publicFacts.publicCapability;
   const walletKey = buildEvmFamilyEcdsaWalletKey({
     walletId: WALLET_ID,
-    evmFamilySigningKeySlotId: bootstrap.keygen.evmFamilySigningKeySlotId,
     keyHandle: KEY_HANDLE,
     chainTarget: CHAIN_TARGET,
     ecdsaThresholdKeyId: bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,

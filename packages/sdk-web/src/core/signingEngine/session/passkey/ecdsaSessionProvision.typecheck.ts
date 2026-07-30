@@ -83,7 +83,6 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
 });
 const walletKey = buildEvmFamilyEcdsaWalletKey({
   walletId: key.walletId,
-  evmFamilySigningKeySlotId: 'wallet-key-example-test',
   keyHandle: toEvmFamilyEcdsaKeyHandle('ederivation-key-1'),
   chainTarget,
   ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,

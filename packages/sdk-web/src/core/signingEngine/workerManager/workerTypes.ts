@@ -27,10 +27,7 @@ import {
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  MpcMaterialActivationRef,
-  ThresholdEd25519SessionId,
-} from '@shared/utils/domainIds';
+import type { MpcMaterialActivationRef, ThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import type {
   EcdsaRoleLocalPersistedMaterialRef,
   SigningSessionSealKeyVersion,
@@ -175,17 +172,17 @@ export type EmailOtpWalletUnlockMaterialRequest =
       readonly providerSubject?: never;
     } & (
       | {
-          readonly ecdsaClientRootHandleBinding: Omit<
+          readonly ecdsaClientRootHandleBinding: Extract<
             EmailOtpEcdsaSessionBootstrapHandleBinding,
-            'operation'
-          > & { readonly operation: 'wallet_unlock' };
+            { operation: 'wallet_unlock' }
+          >;
           readonly ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
         }
       | {
-          readonly ecdsaClientRootHandleBinding: Omit<
+          readonly ecdsaClientRootHandleBinding: Exclude<
             EmailOtpEcdsaSessionBootstrapHandleBinding,
-            'operation'
-          > & { readonly operation: Exclude<EmailOtpWorkerSessionHandleOperation, 'wallet_unlock'> };
+            { operation: 'wallet_unlock' }
+          >;
           readonly ecdsaSessionActivation?: never;
         }
     ))
@@ -217,10 +214,10 @@ export type EmailOtpWalletUnlockMaterialRequest =
     }
   | {
       readonly kind: 'ecdsa_and_ed25519_yao_recovery';
-      readonly ecdsaClientRootHandleBinding: Omit<
+      readonly ecdsaClientRootHandleBinding: Extract<
         EmailOtpEcdsaSessionBootstrapHandleBinding,
-        'operation'
-      > & { readonly operation: 'wallet_unlock' };
+        { operation: 'wallet_unlock' }
+      >;
       readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
       readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryAugmentationV1;
       readonly providerSubject: string;
@@ -404,16 +401,35 @@ export type EmailOtpWorkerSessionHandleOperation =
   | 'sign'
   | 'export';
 
-export type EmailOtpEcdsaSessionBootstrapHandlePayload = {
+type EmailOtpEcdsaSessionBootstrapHandlePayloadBase = {
   kind: 'email_otp_worker_session_handle_v1';
   sessionId: string;
   walletId: string;
-  evmFamilySigningKeySlotId: string;
   authSubjectId: string;
   action: 'threshold_ecdsa_bootstrap';
-  operation: EmailOtpWorkerSessionHandleOperation;
   chainTarget: ThresholdEcdsaChainTarget;
 };
+
+type EmailOtpEcdsaRuntimeHandleOperation = Exclude<
+  EmailOtpWorkerSessionHandleOperation,
+  'registration'
+>;
+
+type EmailOtpEcdsaRuntimeSessionBootstrapHandlePayload = {
+  [Operation in EmailOtpEcdsaRuntimeHandleOperation]: EmailOtpEcdsaSessionBootstrapHandlePayloadBase & {
+    operation: Operation;
+    keyHandle: string;
+    evmFamilySigningKeySlotId?: never;
+  };
+}[EmailOtpEcdsaRuntimeHandleOperation];
+
+export type EmailOtpEcdsaSessionBootstrapHandlePayload =
+  | (EmailOtpEcdsaSessionBootstrapHandlePayloadBase & {
+      operation: 'registration';
+      evmFamilySigningKeySlotId: string;
+      keyHandle?: never;
+    })
+  | EmailOtpEcdsaRuntimeSessionBootstrapHandlePayload;
 
 export type EmailOtpWalletRegistrationEcdsaPrepareHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1';
@@ -438,13 +454,27 @@ export type EmailOtpPrepareEcdsaClientBootstrapInput = Omit<
   secretSource: EmailOtpWorkerSessionSecretSource;
 };
 
-export type EmailOtpEcdsaSessionBootstrapHandleBinding = {
-  evmFamilySigningKeySlotId: string;
+type EmailOtpEcdsaSessionBootstrapHandleBindingBase = {
   authSubjectId: string;
   action?: 'threshold_ecdsa_bootstrap';
-  operation: EmailOtpWorkerSessionHandleOperation;
   chainTarget: ThresholdEcdsaChainTarget;
 };
+
+type EmailOtpEcdsaRuntimeSessionBootstrapHandleBinding = {
+  [Operation in EmailOtpEcdsaRuntimeHandleOperation]: EmailOtpEcdsaSessionBootstrapHandleBindingBase & {
+    operation: Operation;
+    keyHandle: string;
+    evmFamilySigningKeySlotId?: never;
+  };
+}[EmailOtpEcdsaRuntimeHandleOperation];
+
+export type EmailOtpEcdsaSessionBootstrapHandleBinding =
+  | (EmailOtpEcdsaSessionBootstrapHandleBindingBase & {
+      operation: 'registration';
+      evmFamilySigningKeySlotId: string;
+      keyHandle?: never;
+    })
+  | EmailOtpEcdsaRuntimeSessionBootstrapHandleBinding;
 
 export type EmailOtpWalletRegistrationEcdsaPrepareHandleBinding = {
   evmFamilySigningKeySlotId: string;
@@ -503,7 +533,10 @@ type EmailOtpEcdsaBootstrapBasePayload = {
   walletId: string;
   walletSessionUserId: string;
   userId: string;
-  clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+  clientRootShareHandle: Extract<
+    EmailOtpEcdsaSessionBootstrapHandlePayload,
+    { operation: 'registration' }
+  >;
   chainTarget: ThresholdEcdsaChainTarget;
   publicationTargetPlans: EmailOtpEcdsaPublicationTargetPlan[];
   runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -920,7 +953,7 @@ export interface EmailOtpWorkerOperationMap {
       restore: {
         sessionId: string;
         walletId: string;
-        provisioningKeySlotId: string;
+        keyHandle: string;
         chainTarget: ThresholdEcdsaChainTarget;
         authSubjectId: string;
       };

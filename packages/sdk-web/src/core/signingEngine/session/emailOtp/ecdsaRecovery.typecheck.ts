@@ -2,18 +2,10 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import type { EmailOtpEcdsaSealedRecoveryRecord } from '../sealedRecovery/recoveryRecord';
 import type { EmailOtpEcdsaRestoreSource } from './ecdsaRecovery';
-import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 
 declare const sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-const provisioningKeySlotId = deriveEvmFamilySigningKeySlotId({
-  walletId: toWalletId('wallet_email_otp_restore'),
-  signingRootId: 'project:dev',
-  signingRootVersion: 'default',
-});
-
 const restoreSourceCommon = {
   emailOtpAuthContext,
   walletSessionJwt: 'wallet-session-jwt',
@@ -22,7 +14,6 @@ const restoreSourceCommon = {
   relayerUrl: 'https://relay.example',
   chainTarget,
   keyHandle: 'key-handle',
-  provisioningKeySlotId,
   relayerKeyId: 'relayer-key-id',
   participantIds: [1, 2],
   sessionKind: 'jwt',

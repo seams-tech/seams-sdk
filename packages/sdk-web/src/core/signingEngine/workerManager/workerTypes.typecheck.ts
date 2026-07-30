@@ -318,7 +318,7 @@ type EmailOtpEcdsaWalletUnlockMaterial = Extract<
 const emailOtpEcdsaExplicitUnlockMaterial: EmailOtpEcdsaWalletUnlockMaterial = {
   kind: 'ecdsa',
   ecdsaClientRootHandleBinding: {
-    evmFamilySigningKeySlotId: 'evm-family-slot',
+    keyHandle: 'ecdsa-key-handle',
     authSubjectId: 'provider-subject',
     operation: 'wallet_unlock',
     chainTarget,
@@ -332,7 +332,7 @@ void emailOtpEcdsaExplicitUnlockMaterial;
 const emailOtpSigningStepUpWithActivation: EmailOtpEcdsaWalletUnlockMaterial = {
   kind: 'ecdsa',
   ecdsaClientRootHandleBinding: {
-    evmFamilySigningKeySlotId: 'evm-family-slot',
+    keyHandle: 'ecdsa-key-handle',
     authSubjectId: 'provider-subject',
     operation: 'sign',
     chainTarget,
@@ -346,7 +346,7 @@ void emailOtpSigningStepUpWithActivation;
 const emailOtpUnlockWithoutActivation: EmailOtpEcdsaWalletUnlockMaterial = {
   kind: 'ecdsa',
   ecdsaClientRootHandleBinding: {
-    evmFamilySigningKeySlotId: 'evm-family-slot',
+    keyHandle: 'ecdsa-key-handle',
     authSubjectId: 'provider-subject',
     operation: 'wallet_unlock',
     chainTarget,
