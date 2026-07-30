@@ -416,6 +416,13 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
   async sealAndPersistWarmSessionMaterial(
     args: WarmSessionSealAndPersistPayload,
   ): Promise<WarmSessionSealAndPersistResult> {
+    if (this.deps.signingSessionPersistenceMode !== 'sealed_refresh_v1') {
+      return {
+        ok: false,
+        code: 'not_enabled',
+        message: 'Passkey MPC session sealing requires sealed refresh mode',
+      };
+    }
     const response = await this.sendMessage({
       type: 'WARM_SESSION_SEAL_AND_PERSIST',
       id: this.generateMessageId(),
@@ -433,6 +440,13 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
   async rehydrateWarmSessionMaterial(
     args: WarmSessionRehydratePayload,
   ): Promise<WarmSessionRehydrateResult> {
+    if (this.deps.signingSessionPersistenceMode !== 'sealed_refresh_v1') {
+      return {
+        ok: false,
+        code: 'not_enabled',
+        message: 'Passkey MPC session rehydration requires sealed refresh mode',
+      };
+    }
     const response = await this.sendMessage({
       type: 'WARM_SESSION_REHYDRATE',
       id: this.generateMessageId(),

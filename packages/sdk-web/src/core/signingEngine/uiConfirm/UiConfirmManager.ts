@@ -9,9 +9,6 @@ import type {
   SigningSessionSealAuthMethod,
   WarmSessionSealTransportInput,
   WarmSessionStatusBatchResult,
-  WarmSessionRehydratePayload,
-  WarmSessionRehydrateResult,
-  WarmSessionSealAndPersistPayload,
   WarmSessionSealAndPersistDiagnostics,
   WarmSessionSealAndPersistResult,
   UiConfirmManagerConfig,
@@ -1355,7 +1352,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           transport,
           groupId,
           rehydrateWarmSessionMaterial: (rehydrateArgs) =>
-            this.rehydrateWarmSessionMaterial(rehydrateArgs),
+            this.passkeyMpcSession.rehydrateWarmSessionMaterial(rehydrateArgs),
           deletePersistedRecord: deleteInvalidPersistedRecord,
           recordSessionMaterialRestored: async (status) =>
             await this.recordSessionMaterialRestored(
@@ -1385,24 +1382,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const result = await task;
     return requirePasskeyEcdsaRestoreOutcome(result, 'restored');
   }
-
-  sealAndPersistWarmSessionMaterial = async (
-    args: WarmSessionSealAndPersistPayload,
-  ): Promise<WarmSessionSealAndPersistResult> => {
-    if (!this.isSealedRefreshModeEnabled()) {
-      return this.getSealedRefreshNotEnabledError('signing-session seal and persist');
-    }
-    return await this.passkeyMpcSession.sealAndPersistWarmSessionMaterial(args);
-  };
-
-  rehydrateWarmSessionMaterial = async (
-    args: WarmSessionRehydratePayload,
-  ): Promise<WarmSessionRehydrateResult> => {
-    if (!this.isSealedRefreshModeEnabled()) {
-      return this.getSealedRefreshNotEnabledError('signing-session rehydrate');
-    }
-    return await this.passkeyMpcSession.rehydrateWarmSessionMaterial(args);
-  };
 
   restorePersistedSessionForSigning = async (
     args: Omit<RestorePersistedSessionForSigningInput, 'authMethod'>,
@@ -1798,7 +1777,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         };
       }
       const applyServerSealStartedAt = performance.now();
-      const sealed = await this.sealAndPersistWarmSessionMaterial({
+      const sealed = await this.passkeyMpcSession.sealAndPersistWarmSessionMaterial({
         sessionId: thresholdSessionId,
         transport,
       });

@@ -292,6 +292,7 @@ test.describe('UserConfirm worker router', () => {
       async ({ paths }) => {
         const mod = await import(paths.passkeyMpcSessionManager);
         const manager = mod.createPasskeyMpcSessionManager({
+          signingSessionPersistenceMode: 'none',
           persistSigningSessionSealForThresholdSession: async () => null,
           onPolicyResult: async () => {},
         });
@@ -404,6 +405,7 @@ test.describe('UserConfirm worker router', () => {
         const mod = await import(paths.touchConfirmManager);
         const sessionMod = await import(paths.passkeyMpcSessionManager);
         const sessionManager = sessionMod.createPasskeyMpcSessionManager({
+          signingSessionPersistenceMode: 'none',
           persistSigningSessionSealForThresholdSession: async () => null,
           onPolicyResult: async () => {},
         });
@@ -578,6 +580,7 @@ test.describe('UserConfirm worker router', () => {
         const sealedStoreMod = await import(paths.sealedSessionStore);
         const sessionStoreMod = await import(paths.thresholdSessionStore);
         const sessionManager = sessionMod.createPasskeyMpcSessionManager({
+          signingSessionPersistenceMode: 'sealed_refresh_v1',
           persistSigningSessionSealForThresholdSession: async () => null,
           onPolicyResult: async () => {},
         });
@@ -642,7 +645,7 @@ test.describe('UserConfirm worker router', () => {
         });
         (sessionManager as any).worker = fakeWorker;
 
-        const sealPromise = manager.sealAndPersistWarmSessionMaterial({
+        const sealPromise = sessionManager.sealAndPersistWarmSessionMaterial({
           sessionId: 'session-seal',
           transport: {
             relayerUrl: 'https://relay.example',
@@ -664,7 +667,7 @@ test.describe('UserConfirm worker router', () => {
         });
         const sealResult = await sealPromise;
 
-        const rehydratePromise = manager.rehydrateWarmSessionMaterial({
+        const rehydratePromise = sessionManager.rehydrateWarmSessionMaterial({
           sessionId: 'session-seal',
           sealedSecretB64u: 'sealed-b64u',
           keyVersion: 'kek-v1',
