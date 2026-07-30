@@ -208,7 +208,7 @@ export type DurableSealedSessionPort = WarmSessionSealPersister &
 export type PromptCapableBootstrapPort = UiConfirmContextPort &
   UiConfirmSigningPort &
   UiConfirmRegistrationPort &
-  UiConfirmSecureConfirmationPort;
+  UiConfirmRequestConfirmationPort;
 
 export type WarmSessionMaterialPort = WarmSessionMaterialWriter &
   VolatileWarmMaterialPort &
@@ -253,11 +253,15 @@ export interface UiConfirmWorkerLifecyclePort {
   prewarmShamir3Pass(): Promise<void>;
 }
 
-export interface UiConfirmSecureConfirmationPort {
+export interface UiConfirmRequestConfirmationPort {
   requestUserConfirmation(
     request: UserConfirmRequest,
     options?: RequestUserConfirmationOptions,
   ): Promise<UserConfirmDecision>;
+}
+
+export interface PasskeyMpcExportPort {
+  setWorkerBaseOrigin(origin: string | undefined): void;
   exportPrivateKeysWithUi(
     payload: ExportPrivateKeysWithUiWorkerPayload,
     options?: ExportPrivateKeysWithUiOptions,

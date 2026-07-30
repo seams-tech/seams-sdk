@@ -6,8 +6,6 @@ import type { WarmSessionLanePurpose } from '../session/emailOtp/sealedRuntimePu
  */
 
 import type {
-  ExportPrivateKeysWithUiWorkerPayload,
-  ExportPrivateKeysWithUiWorkerResult,
   SigningSessionSealAuthMethod,
   WarmSessionSealTransportInput,
   WarmSessionStatusBatchResult,
@@ -17,7 +15,6 @@ import type {
   WarmSessionSealAndPersistDiagnostics,
   WarmSessionSealAndPersistResult,
   UiConfirmManagerConfig,
-  PasskeyMpcExportWorkerMessage,
   PasskeyMpcSessionWorkerMessage,
   UserConfirmWorkerMessage,
   UserConfirmWorkerResponse,
@@ -60,7 +57,6 @@ import {
 } from '../session/identity/laneIdentity';
 import {
   UserConfirmMessageType,
-  UserConfirmationType,
   type UserConfirmDecision,
   type UserConfirmPromptEnvelope,
   type UserConfirmRequest,
@@ -85,7 +81,6 @@ import {
 import type {
   OpenRegistrationPreparationModalParams,
   RequestRegistrationCredentialConfirmationParams,
-  ExportPrivateKeysWithUiOptions,
   RequestUserConfirmationOptions,
   ClearAllVolatileWarmSessionMaterialCommand,
   ClearVolatileWarmSessionMaterialCommand,
@@ -589,27 +584,6 @@ function parseUserConfirmProgressEvent(data: unknown): UserConfirmProgressEvent 
   };
 }
 
-function parseExportPrivateKeysWithUiWorkerResult(
-  data: unknown,
-): ExportPrivateKeysWithUiWorkerResult | null {
-  if (!isObjectRecord(data)) return null;
-  if (typeof data.ok !== 'boolean') return null;
-  if (typeof data.accountId !== 'string') return null;
-  const rawSchemes = Array.isArray(data.exportedSchemes) ? data.exportedSchemes : null;
-  if (!rawSchemes) return null;
-  const exportedSchemes = rawSchemes.filter(
-    (value): value is 'ed25519' | 'secp256k1' => value === 'ed25519' || value === 'secp256k1',
-  );
-  if (exportedSchemes.length !== rawSchemes.length) return null;
-  return {
-    ok: data.ok,
-    accountId: data.accountId,
-    exportedSchemes,
-    ...(typeof data.cancelled === 'boolean' ? { cancelled: data.cancelled } : {}),
-    ...(typeof data.error === 'string' ? { error: data.error } : {}),
-  };
-}
-
 const signingSessionRehydrateSingleFlight = new Map<
   string,
   Promise<WarmSessionStatusResult | null>
@@ -649,8 +623,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   private worker: Worker | null = null;
   private passkeyMpcSessionWorker: Worker | null = null;
   private passkeyMpcSessionInitializationPromise: Promise<void> | null = null;
-  private passkeyMpcExportWorker: Worker | null = null;
-  private passkeyMpcExportInitializationPromise: Promise<void> | null = null;
   private initializationPromise: Promise<void> | null = null;
   private messageId = 0;
   private config: UiConfirmManagerConfig;
@@ -662,10 +634,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     (progress: UserConfirmProgressEvent) => void
   >();
   private readonly pendingFunctionBearingConfirmRequests = new Map<string, UserConfirmRequest>();
-  private readonly exportViewerLifecycleBySessionId = new Map<
-    string,
-    (event: 'opened' | 'closed') => void
-  >();
   private readonly boundHandleWorkerMessage = this.handleWorkerMessage.bind(this);
   private readonly boundHandleWorkerError = this.handleWorkerError.bind(this);
   private registrationPreparationModalState: RegistrationPreparationModalState = {
@@ -2327,42 +2295,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     }
   }
 
-  async exportPrivateKeysWithUi(
-    payload: ExportPrivateKeysWithUiWorkerPayload,
-    options?: ExportPrivateKeysWithUiOptions,
-  ): Promise<ExportPrivateKeysWithUiWorkerResult> {
-    await this.ensurePasskeyMpcExportWorkerReady();
-    const viewerSessionId =
-      'viewerSessionId' in payload ? String(payload.viewerSessionId || '').trim() : '';
-    if (viewerSessionId && options?.onViewerLifecycle) {
-      this.exportViewerLifecycleBySessionId.set(viewerSessionId, options.onViewerLifecycle);
-    }
-    try {
-      const response = await this.sendMessage(
-        {
-          type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
-          id: this.generateMessageId(),
-          payload,
-        },
-        undefined,
-        undefined,
-        this.passkeyMpcExportWorker,
-      );
-      if (!response?.success) {
-        throw new Error(String(response?.error || 'Export private keys request failed'));
-      }
-      const parsed = parseExportPrivateKeysWithUiWorkerResult(response.data);
-      if (!parsed) {
-        throw new Error('Export private keys request failed: invalid worker response payload');
-      }
-      return parsed;
-    } finally {
-      if (viewerSessionId) {
-        this.exportViewerLifecycleBySessionId.delete(viewerSessionId);
-      }
-    }
-  }
-
   /**
    * UiConfirm orchestration helper for signing confirmation flows.
    * Runs uiConfirm confirmation flows on the main thread and returns artifacts needed by the signer worker.
@@ -2528,22 +2460,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     }
   }
 
-  private async ensurePasskeyMpcExportWorkerReady(): Promise<void> {
-    if (this.passkeyMpcExportWorker) return;
-    if (!this.passkeyMpcExportInitializationPromise) {
-      this.passkeyMpcExportInitializationPromise = this.createPasskeyMpcExportWorker().catch(
-        (error) => {
-          this.passkeyMpcExportInitializationPromise = null;
-          throw error;
-        },
-      );
-    }
-    await this.passkeyMpcExportInitializationPromise;
-    if (!this.passkeyMpcExportWorker) {
-      throw new Error('Passkey MPC export worker failed to initialize');
-    }
-  }
-
   private async ensurePasskeyMpcSessionWorkerReady(): Promise<void> {
     if (this.passkeyMpcSessionWorker) return;
     if (!this.passkeyMpcSessionInitializationPromise) {
@@ -2571,19 +2487,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     });
     this.attachWorkerRouter(worker);
     this.passkeyMpcSessionWorker = worker;
-  }
-
-  private async createPasskeyMpcExportWorker(): Promise<void> {
-    const workerUrl = resolveWorkerUrl(BUILD_PATHS.RUNTIME.PASSKEY_MPC_EXPORT_WORKER, {
-      worker: 'passkeyMpcExport',
-      baseOrigin: this.workerBaseOrigin,
-    });
-    const worker = new Worker(workerUrl, {
-      type: 'module',
-      name: 'PasskeyMpcExportWorker',
-    });
-    this.attachWorkerRouter(worker);
-    this.passkeyMpcExportWorker = worker;
   }
 
   /**
@@ -2668,8 +2571,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const source = event.currentTarget;
     return (
       (source === this.worker && event.target === this.worker) ||
-      (source === this.passkeyMpcSessionWorker && event.target === this.passkeyMpcSessionWorker) ||
-      (source === this.passkeyMpcExportWorker && event.target === this.passkeyMpcExportWorker)
+      (source === this.passkeyMpcSessionWorker && event.target === this.passkeyMpcSessionWorker)
     );
   }
 
@@ -2706,23 +2608,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       type: UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
       requestId,
       channelToken,
-      data: this.restoreExportViewerLifecycle(restoredRequest),
+      data: restoredRequest,
     };
-  }
-
-  private restoreExportViewerLifecycle(request: UserConfirmRequest): UserConfirmRequest {
-    if (request.type !== UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI) return request;
-    const requestPayload = isObjectRecord(request.payload) ? request.payload : null;
-    if (!requestPayload) return request;
-    const viewerSessionId =
-      'viewerSessionId' in requestPayload
-        ? String(requestPayload.viewerSessionId || '').trim()
-        : '';
-    if (!viewerSessionId) return request;
-    const onLifecycle = this.exportViewerLifecycleBySessionId.get(viewerSessionId);
-    if (!onLifecycle) return request;
-    Object.assign(requestPayload, { onLifecycle });
-    return request;
   }
 
   private restoreFunctionBearingConfirmRequestFields(
@@ -2897,11 +2784,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       this.passkeyMpcSessionWorker.terminate();
       this.passkeyMpcSessionWorker = null;
       this.passkeyMpcSessionInitializationPromise = null;
-    } else if (failedWorker === this.passkeyMpcExportWorker && this.passkeyMpcExportWorker) {
-      this.detachWorkerRouter(this.passkeyMpcExportWorker);
-      this.passkeyMpcExportWorker.terminate();
-      this.passkeyMpcExportWorker = null;
-      this.passkeyMpcExportInitializationPromise = null;
     }
     this.rejectPendingWorkerRequestsForWorker(failedWorker as Worker, error);
   }
@@ -2948,8 +2830,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   private async sendMessage<TPayload = unknown>(
     message:
       | UserConfirmWorkerMessage<TPayload>
-      | PasskeyMpcSessionWorkerMessage<TPayload>
-      | PasskeyMpcExportWorkerMessage,
+      | PasskeyMpcSessionWorkerMessage<TPayload>,
     customTimeout?: number,
     signal?: AbortSignal,
     targetWorker?: Worker | null,

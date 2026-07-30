@@ -49,6 +49,7 @@ import type { WalletSessionActivationDeps } from '../../session/passkey/ecdsaBoo
 import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { Ed25519YaoActiveClientRegistryPort } from '../../threshold/ed25519/yaoActiveClientRegistry';
 import type {
+  PasskeyMpcExportPort,
   UiConfirmRuntimeBridgePort,
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
@@ -133,6 +134,7 @@ export type CreateSigningEnginePortsArgs = {
   resolveAuthorizedEcdsaSigningCapability: EvmFamilySigningDeps['resolveAuthorizedEcdsaSigningCapability'];
   resolveActiveEcdsaWalletSessionAuthorization?: EvmFamilySigningDeps['resolveActiveEcdsaWalletSessionAuthorization'];
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcExport: PasskeyMpcExportPort;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
   consumeEmailOtpWarmSessionUses?: (args: {
     purpose: WarmSessionLanePurpose;

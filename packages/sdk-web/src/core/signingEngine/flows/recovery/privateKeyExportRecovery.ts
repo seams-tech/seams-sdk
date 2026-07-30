@@ -89,13 +89,6 @@ export async function exportEcdsaDerivationThresholdKeyArtifactWithUIWorkerDrive
     throw new Error(parsedWalletId.error.message);
   }
   const walletId = String(parsedWalletId.value);
-  if (typeof deps.requestExportPrivateKeysWithUi !== 'function') {
-    throwExportWorkerBoundaryRequired({
-      subjectId: walletId,
-      reason: 'missing_export_worker_operation',
-    });
-  }
-  const requestExportPrivateKeysWithUi = deps.requestExportPrivateKeysWithUi;
   const resolvedTheme = args.options?.theme ?? deps.getTheme();
 
   const artifactKind = String(args.artifact.artifactKind || '').trim();
@@ -110,7 +103,7 @@ export async function exportEcdsaDerivationThresholdKeyArtifactWithUIWorkerDrive
   }
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
-      return await requestExportPrivateKeysWithUi({
+      return await deps.requestExportPrivateKeysWithUi({
         walletId,
         chainTarget: args.artifact.chainTarget,
         artifactKind,

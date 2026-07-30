@@ -3,6 +3,7 @@ import { configuredThresholdEcdsaChainTargets } from '@/core/signingEngine/inter
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { readPersistedAvailableSigningLanesForTargets } from '../../session/availability/persistedAvailableSigningLanes';
 import type {
+  PasskeyMpcExportPort,
   UiConfirmRuntimeBridgePort,
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
@@ -30,8 +31,8 @@ export function createPrivateKeyExportRecoveryDeps(
     keyMaterialStore: runtimeDeps.keyMaterialStore,
     relayerUrl: args.seamsWebConfigs.network.relayer.url,
     getRpId: () => args.touchIdPrompt.getRpId(),
-    requestExportPrivateKeysWithUi: (payload) =>
-      args.touchConfirm.exportPrivateKeysWithUi(payload),
+    requestExportPrivateKeysWithUi: (payload, options) =>
+      args.passkeyMpcExport.exportPrivateKeysWithUi(payload, options),
     getTheme: args.getTheme,
   };
 }
@@ -44,6 +45,7 @@ export function createRecoveryPublicDeps(args: {
   ecdsaSessions: RecoveryPublicEcdsaSessionStoreDeps;
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcExport: PasskeyMpcExportPort;
   emailOtpSessions: {
     readWarmSessionStatusOnly: (sessionId: string) => Promise<WarmSessionStatusResult>;
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
@@ -117,6 +119,7 @@ export function createRecoveryPublicDeps(args: {
     },
     ed25519Yao: {
       touchConfirm: args.touchConfirm,
+      passkeyMpcExport: args.passkeyMpcExport,
       resolveActiveCapability: args.resolveActiveEd25519YaoCapability,
       recoverPasskeyCapability: args.recoverPasskeyEd25519YaoCapability,
       resolvePasskeyExportContext: args.resolvePasskeyEd25519YaoExportContext,

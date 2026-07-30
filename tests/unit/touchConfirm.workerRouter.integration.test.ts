@@ -7,6 +7,8 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   touchConfirmManager: '/_test-sdk/esm/core/signingEngine/uiConfirm/UiConfirmManager.js',
+  passkeyMpcExportManager:
+    '/_test-sdk/esm/core/signingEngine/uiConfirm/PasskeyMpcExportManager.js',
   thresholdSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
   sealedSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
   availableSigningLanes:
@@ -1945,13 +1947,17 @@ test.describe('UserConfirm worker router', () => {
   test('exportPrivateKeysWithUi strips secret fields from worker payload', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const mod = await import(paths.touchConfirmManager);
-        const manager = mod.createUiConfirmManager({}, {
+        const mod = await import(paths.passkeyMpcExportManager);
+        const manager = mod.createPasskeyMpcExportManager({
           touchIdPrompt: {},
           nearClient: {},
-          indexedDB: {},
+          webauthnCredentialStore: {},
+          passkeyAuthenticatorStore: {},
           userPreferencesManager: {},
-          nearContextFixture: {},
+          nonceCoordinator: {},
+          operationStepUpPreparation: {},
+          relayerUrl: 'https://relay.example',
+          loadEcdsaRoleLocalReadyRecord: async () => null,
         } as any);
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
@@ -1981,8 +1987,8 @@ test.describe('UserConfirm worker router', () => {
         };
 
         (manager as any).worker = fakeWorker;
-        (manager as any).passkeyMpcExportWorker = fakeWorker;
-        (manager as any).attachWorkerRouter(fakeWorker);
+        fakeWorker.addEventListener('message', (manager as any).boundHandleWorkerMessage);
+        fakeWorker.addEventListener('error', (manager as any).boundHandleWorkerError);
 
         const exportPromise = manager.exportPrivateKeysWithUi({
           nearAccountId: 'alice.testnet',
@@ -2043,13 +2049,17 @@ test.describe('UserConfirm worker router', () => {
   test('exportPrivateKeysWithUi rejects malformed worker response payload', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const mod = await import(paths.touchConfirmManager);
-        const manager = mod.createUiConfirmManager({}, {
+        const mod = await import(paths.passkeyMpcExportManager);
+        const manager = mod.createPasskeyMpcExportManager({
           touchIdPrompt: {},
           nearClient: {},
-          indexedDB: {},
+          webauthnCredentialStore: {},
+          passkeyAuthenticatorStore: {},
           userPreferencesManager: {},
-          nearContextFixture: {},
+          nonceCoordinator: {},
+          operationStepUpPreparation: {},
+          relayerUrl: 'https://relay.example',
+          loadEcdsaRoleLocalReadyRecord: async () => null,
         } as any);
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
@@ -2079,8 +2089,8 @@ test.describe('UserConfirm worker router', () => {
         };
 
         (manager as any).worker = fakeWorker;
-        (manager as any).passkeyMpcExportWorker = fakeWorker;
-        (manager as any).attachWorkerRouter(fakeWorker);
+        fakeWorker.addEventListener('message', (manager as any).boundHandleWorkerMessage);
+        fakeWorker.addEventListener('error', (manager as any).boundHandleWorkerError);
 
         const exportResult = manager
           .exportPrivateKeysWithUi({

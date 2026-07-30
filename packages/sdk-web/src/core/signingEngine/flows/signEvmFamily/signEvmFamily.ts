@@ -24,7 +24,7 @@ import { isEvmFamilyEcdsaMaterialSupersededError } from './signingFlow';
 import type {
   UiConfirmContextPort,
   UiConfirmSigningPort,
-  UiConfirmSecureConfirmationPort,
+  UiConfirmRequestConfirmationPort,
   WarmSessionStatusResult,
   WarmSessionStatusReader,
 } from '../../uiConfirm/uiConfirm.types';

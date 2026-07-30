@@ -5,7 +5,10 @@ import {
   type RouterAbEd25519YaoExportWorkerPayloadV1,
 } from '@/core/types/secure-confirm-worker';
 import type { NearEd25519YaoSigningCapability } from '../../interfaces/near';
-import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
+import type {
+  PasskeyMpcExportPort,
+  UiConfirmRuntimeBridgePort,
+} from '../../uiConfirm/uiConfirm.types';
 import type { ExactEd25519SigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import {
   exactEd25519SigningLaneIdentity,
@@ -39,10 +42,8 @@ import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationInt
 import { nearEd25519YaoMaterialActivationFromPublicFacts } from '../../session/material/nearEd25519YaoMaterialActivation';
 
 export type Ed25519YaoExportFlowDeps = {
-  touchConfirm: Pick<
-    UiConfirmRuntimeBridgePort,
-    'exportPrivateKeysWithUi' | 'initialize' | 'requestUserConfirmation'
-  >;
+  touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'initialize' | 'requestUserConfirmation'>;
+  passkeyMpcExport: PasskeyMpcExportPort;
   resolveActiveCapability: (
     scope: Ed25519YaoActiveClientLookupScopeV1,
   ) => NearEd25519YaoSigningCapability | null;
@@ -457,7 +458,7 @@ export async function exportEd25519YaoKeyWithFreshAuthorization(
     interaction: { kind: 'none', overlay: 'none' },
     data: { chain: 'near', curve: 'ed25519' },
   });
-  const result = await deps.touchConfirm.exportPrivateKeysWithUi(
+  const result = await deps.passkeyMpcExport.exportPrivateKeysWithUi(
     buildWorkerPayload({
       resolved,
       viewerSessionId,

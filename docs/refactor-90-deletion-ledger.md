@@ -428,6 +428,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~Passkey raw secp256k1 and Ed25519-Yao export runtime inside
   `passkey-confirm.worker.ts`~~ — moved atomically to the dedicated Passkey MPC
   export worker; generic confirmation no longer imports or dispatches it
+- ~~Passkey MPC export transport, viewer lifecycle map, and export worker
+  lifecycle inside `UiConfirmManager.ts`~~ — moved to the dedicated
+  `PasskeyMpcExportManager`; recovery receives its narrow port directly
 - ~~Passkey `WARM_SESSION_*`, PRF claim/cache, sealed-session,
   rehydration/policy, and Shamir3Pass runtime inside
   `passkey-confirm.worker.ts`~~ — moved atomically to the dedicated Passkey MPC
