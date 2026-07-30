@@ -111,17 +111,15 @@ export function buildEvmFamilyTransactionSigningIntent(args: {
 }
 
 export function resolveEvmFamilyTransactionAuthSelectionPolicy(args: {
-  candidateAuthMethod?: WalletAuthAuthority['factor']['kind'];
+  candidateAuthMethod: WalletAuthAuthority['factor']['kind'];
 }): TransactionAuthSelectionPolicy {
-  return args.candidateAuthMethod
-    ? { kind: 'account_class', authMethod: args.candidateAuthMethod }
-    : { kind: 'any' };
+  return { kind: 'account_class', authMethod: args.candidateAuthMethod };
 }
 
-function singleConcreteAuthMethodForEcdsaTarget(args: {
+function requireSingleConcreteAuthMethodForEcdsaTarget(args: {
   availableLanes: AvailableSigningLanes;
   signingTarget: EvmFamilySigningTarget;
-}): WalletAuthAuthority['factor']['kind'] | undefined {
+}): WalletAuthAuthority['factor']['kind'] {
   const authMethods = new Set<WalletAuthAuthority['factor']['kind']>();
   for (const lane of ecdsaAvailableLaneCandidatesForTarget(
     args.availableLanes,
@@ -131,7 +129,10 @@ function singleConcreteAuthMethodForEcdsaTarget(args: {
     if (!thresholdEcdsaChainTargetsEqual(lane.chainTarget, args.signingTarget)) continue;
     authMethods.add(availableEcdsaSigningLaneAuthMethod(lane));
   }
-  return authMethods.size === 1 ? Array.from(authMethods)[0] : undefined;
+  if (authMethods.size !== 1) {
+    throw new Error('[SigningEngine][ecdsa] exact capability authority is unavailable or ambiguous');
+  }
+  return Array.from(authMethods)[0];
 }
 
 function summarizeEcdsaAvailableLane(
@@ -495,7 +496,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
     stage: 'ecdsa_prepare.available_lanes_read',
     ...laneReadDiagnostic,
   });
-  const candidateAuthMethod = singleConcreteAuthMethodForEcdsaTarget({
+  const candidateAuthMethod = requireSingleConcreteAuthMethodForEcdsaTarget({
     availableLanes: candidateAvailableLanes,
     signingTarget: args.signingTarget,
   });

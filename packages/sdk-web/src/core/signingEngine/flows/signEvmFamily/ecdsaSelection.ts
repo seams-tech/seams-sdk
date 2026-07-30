@@ -632,14 +632,8 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   const committedLane = committedEmailOtpLane ?? committedPasskeyLane;
   const committedFactor = committedLane?.authority.factor.kind;
   const walletAuth = await resolveEvmFamilyTransactionWalletAuth({
-    deps: args.deps,
-    walletId: args.walletId,
     senderSignatureAlgorithm: args.senderSignatureAlgorithm,
-    chainTarget: args.chainTarget,
-    ...(committedFactor ? { sessionAuthMethod: committedFactor } : {}),
-    ...(committedFactor
-      ? { isEmailOtpThresholdContext: committedFactor === SIGNER_AUTH_METHODS.emailOtp }
-      : {}),
+    signerAuthMethod: committedFactor ?? candidateAuthMethod,
   });
   const selectedAccountAuth = walletAuthWithSelectedPrimary(walletAuth, candidateAuthMethod);
 

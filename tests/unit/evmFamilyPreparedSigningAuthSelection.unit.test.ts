@@ -30,12 +30,14 @@ const signingTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 
 test.describe('EVM-family prepared signing auth selection', () => {
-  test('keeps initial transaction intent auth-neutral', () => {
+  test('binds the transaction intent to the selected capability factor', () => {
     const intent = buildEvmFamilyTransactionSigningIntent({
       walletId,
       signingTarget,
       operationUsesNeeded: 1,
-      authSelectionPolicy: resolveEvmFamilyTransactionAuthSelectionPolicy({}),
+      authSelectionPolicy: resolveEvmFamilyTransactionAuthSelectionPolicy({
+        candidateAuthMethod: 'passkey',
+      }),
     });
 
     expect(intent).toMatchObject({
@@ -44,7 +46,7 @@ test.describe('EVM-family prepared signing auth selection', () => {
       chain: 'evm',
       chainTarget: signingTarget,
       operationUsesNeeded: 1,
-      authSelectionPolicy: { kind: 'any' },
+      authSelectionPolicy: { kind: 'account_class', authMethod: 'passkey' },
     });
   });
 

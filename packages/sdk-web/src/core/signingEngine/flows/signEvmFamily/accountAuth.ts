@@ -5,13 +5,9 @@ import {
 } from '@shared/utils/signerDomain';
 import {
   resolveAccountAuthMetadataForSignerAuthMethod,
-  signerAuthMethodFromUnknown,
   type AccountAuthMetadata,
 } from '../../interfaces/accountAuthMetadata';
-import {
-  toWalletId,
-  type ThresholdEcdsaChainTarget,
-} from '../../interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 
 export type EvmFamilyAccountMetadataDeps = {
   walletSignerStore: EvmFamilyWalletSignerStorePort;
@@ -29,12 +25,8 @@ export type EvmFamilyWalletSignerStorePort = {
 };
 
 export async function resolveEvmFamilyTransactionWalletAuth(args: {
-  deps: EvmFamilyAccountMetadataDeps;
-  walletId: string;
   senderSignatureAlgorithm: 'secp256k1' | 'webauthnP256';
-  chainTarget?: ThresholdEcdsaChainTarget;
-  sessionAuthMethod?: SignerAuthMethod;
-  isEmailOtpThresholdContext?: boolean;
+  signerAuthMethod?: SignerAuthMethod;
 }): Promise<AccountAuthMetadata> {
   if (args.senderSignatureAlgorithm === 'webauthnP256') {
     return resolveAccountAuthMetadataForSignerAuthMethod({
@@ -42,46 +34,9 @@ export async function resolveEvmFamilyTransactionWalletAuth(args: {
     });
   }
 
-  const walletId = toWalletId(args.walletId);
-  const exactSigner = args.chainTarget
-    ? await args.deps.walletSignerStore
-        .getActiveWalletSignerForChainTarget({
-          walletId,
-          chainTarget: args.chainTarget,
-        })
-    : null;
-  const exactSignerAuthMethod = signerAuthMethodFromUnknown(exactSigner?.signerAuthMethod);
-  if (exactSignerAuthMethod !== null) {
+  if (args.signerAuthMethod !== undefined) {
     return resolveAccountAuthMetadataForSignerAuthMethod({
-      authMethod: exactSignerAuthMethod,
-    });
-  }
-
-  if (!args.chainTarget) {
-    const activeSigners = await args.deps.walletSignerStore
-      .listActiveWalletSigners({ walletId, signerFamily: 'ecdsa' })
-      .catch(() => []);
-    const authMethods = new Set<SignerAuthMethod>(
-      activeSigners
-        .map((signer) => signerAuthMethodFromUnknown(signer.signerAuthMethod))
-        .filter((authMethod): authMethod is SignerAuthMethod => authMethod !== null),
-    );
-    if (authMethods.size === 1) {
-      return resolveAccountAuthMetadataForSignerAuthMethod({
-        authMethod: [...authMethods][0],
-      });
-    }
-  }
-
-  if (args.isEmailOtpThresholdContext === true) {
-    return resolveAccountAuthMetadataForSignerAuthMethod({
-      authMethod: SIGNER_AUTH_METHODS.emailOtp,
-    });
-  }
-
-  if (args.sessionAuthMethod !== undefined) {
-    return resolveAccountAuthMetadataForSignerAuthMethod({
-      authMethod: args.sessionAuthMethod,
+      authMethod: args.signerAuthMethod,
     });
   }
 
