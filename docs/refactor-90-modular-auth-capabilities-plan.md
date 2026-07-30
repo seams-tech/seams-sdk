@@ -387,6 +387,9 @@ removes.
   - [x] Remove the provisioning slot from exact-session bootstrap results;
         registration keygen retains its reservation input without projecting it
         through the activated-session result (`1f04bb1bb`).
+  - [x] Forbid provisioning slots on ready ECDSA use-case lanes and Email OTP
+        runtime activation authority with negative type fixtures
+        (`47070b2b0`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.
