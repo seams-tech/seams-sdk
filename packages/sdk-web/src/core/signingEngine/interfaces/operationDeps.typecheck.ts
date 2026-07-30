@@ -46,15 +46,6 @@ void invalidEcdsaSigningListLookupArgs;
 
 declare const signingDeps: EvmFamilySigningDeps;
 declare const nearSigningDeps: NearSigningApiDeps;
-declare const nearSigningDepsWithoutAuthResolver: Omit<
-  NearSigningApiDeps,
-  'resolveAccountAuthMethodForSigning'
->;
-
-// @ts-expect-error NEAR signing must resolve the wallet auth method before auth-specific preparation.
-const invalidNearSigningDeps: NearSigningApiDeps = nearSigningDepsWithoutAuthResolver;
-void invalidNearSigningDeps;
-
 signingDeps.resolveDurableEmailOtpEcdsaSigningSessionAuthority({
   lane: exactEcdsaLane,
   chain: 'tempo',

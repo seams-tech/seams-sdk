@@ -1,7 +1,5 @@
 import type { NearSigningApiDeps } from '../../interfaces/operationDeps';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import { resolveEvmFamilyTransactionWalletAuth } from '../../flows/signEvmFamily/accountAuth';
-import type { EvmFamilyWalletSignerStorePort } from '../../flows/signEvmFamily/accountAuth';
 import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
 import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
@@ -11,7 +9,6 @@ import { readPersistedEd25519SessionRecordForSigning } from '../../session/avail
 
 export function createNearSigningDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
-  walletSignerStore: EvmFamilyWalletSignerStorePort;
   nearRpcUrl: string;
   signingSessionCoordinator: SigningSessionCoordinator;
   ed25519YaoActiveClients: Ed25519YaoActiveClientRegistryPort;
@@ -33,14 +30,6 @@ export function createNearSigningDeps(args: {
     getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),
     readAvailableSigningLanesForSigning: (snapshotArgs) =>
       createArgs.readAvailableSigningLanesForSigning(snapshotArgs),
-    resolveAccountAuthMethodForSigning: async ({ walletId }) => {
-      const accountAuth = await resolveEvmFamilyTransactionWalletAuth({
-        deps: { walletSignerStore: args.walletSignerStore },
-        walletId: String(walletId),
-        senderSignatureAlgorithm: 'secp256k1',
-      });
-      return accountAuth.primaryAuthMethod;
-    },
     ...(createArgs.requestEmailOtpEd25519SigningChallenge
       ? {
           requestEmailOtpEd25519SigningChallenge: (challengeArgs) =>

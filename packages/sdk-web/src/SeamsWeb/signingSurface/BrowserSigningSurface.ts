@@ -72,6 +72,7 @@ import {
   type NearSignIntentResult,
 } from '@/core/signingEngine/flows/signNear/signNear';
 import {
+  availableEd25519SigningLaneAuthMethod,
   isConcreteAvailableSigningLane,
   type AvailableEd25519SigningLane,
   type ConcreteAvailableEd25519SigningLane,
@@ -873,14 +874,12 @@ export class BrowserSigningSurface {
   private async prepareNearEd25519YaoCapabilityForSigning(
     request: Exclude<NearSignIntentRequest, { kind: 'transactionWithActions' }>,
   ): Promise<void> {
-    const resolveAuthMethod = this.enginePorts.nearSigningDeps.resolveAccountAuthMethodForSigning;
     const subject = nearEd25519CapabilityRehydrationSubjectFromRequest(request);
-    const authMethod = await resolveAuthMethod({
-      walletId: subject.walletId,
-      nearAccountId: subject.nearAccountId,
-      curve: 'ed25519',
-      chain: 'near',
-    });
+    const lane = await this.resolveNearEd25519YaoSigningLane(subject);
+    if (!lane) {
+      throw new Error('[SigningEngine][near] wallet auth method is unavailable');
+    }
+    const authMethod = availableEd25519SigningLaneAuthMethod(lane);
     switch (authMethod) {
       case WALLET_AUTH_METHODS.emailOtp:
         return;
@@ -1226,7 +1225,6 @@ export class BrowserSigningSurface {
       await this.enginePorts.nearSigningDeps.readAvailableSigningLanesForSigning({
         walletId: subject.walletId,
         curve: 'ed25519',
-        authMethod: 'passkey',
       });
     const matches: ConcreteAvailableEd25519SigningLane[] = [];
     for (const lane of availableLanes.candidates.ed25519.near) {
