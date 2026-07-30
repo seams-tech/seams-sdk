@@ -177,6 +177,8 @@ implementing commit SHA as the evidence.
   - [x] The unused client ECDSA session-policy domain and its slot-pinning
     source checks are deleted; Email OTP bootstrap retains only the shared TTL
     and use-count clamp (`3d6c4c74b`).
+  - [x] Durable IndexedDB signer metadata no longer copies the provisioning
+    slot beside the exact ECDSA key handle (`0fbbbb04b`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently

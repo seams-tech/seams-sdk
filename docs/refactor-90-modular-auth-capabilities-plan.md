@@ -370,6 +370,10 @@ removes.
   - [x] Delete the unused client ECDSA session-policy type, builder, digest,
         public exports, and slot-pinning source checks. Email OTP bootstrap now
         clamps TTL and use count directly (`3d6c4c74b`).
+  - [x] Stop copying the provisioning slot into durable IndexedDB signer
+        metadata during registration, add-signer, and bootstrap persistence;
+        exact key handles remain the persisted correlation identity
+        (`0fbbbb04b`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.

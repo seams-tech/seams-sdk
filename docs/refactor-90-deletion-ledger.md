@@ -144,8 +144,9 @@ replacement.
   rehydration switched to exact key-handle identity in `6113b36bb`;
   registration handle branches retain their provisioning slot. The unused
   client ECDSA session-policy type, builder, digest, public exports, and
-  slot-pinning source checks were deleted in `3d6c4c74b`. Durable role-local
-  material surfaces remain.
+  slot-pinning source checks were deleted in `3d6c4c74b`. Registration,
+  add-signer, and bootstrap persistence stopped copying the provisioning slot
+  into durable IndexedDB signer metadata in `0fbbbb04b`.
 - ~~`evmFamilySigningKeySlotId` in ECDSA Wallet Session JWT binding facts and
   normal-signing claims~~ — deleted by `4986d279f`; the value remains only on
   the registration bootstrap request/response boundary in that path.
