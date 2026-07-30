@@ -37,7 +37,7 @@ test('staging cohort configuration is pinned to the checked-in staging origins',
   expect(parsed).toEqual({
     mode: 'check',
     origins: {
-      gateway: 'https://seams-sdk-d1-gateway-staging.n6378056.workers.dev',
+      gateway: 'https://staging.api.seams.sh',
       site: 'https://staging.seams.sh',
       wallet: 'https://staging.sign.seams.sh',
     },

@@ -30,12 +30,12 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}
 
 const consoleD1Database = Object.freeze({
   binding: 'CONSOLE_DB',
-  databaseName: 'seams-console-staging',
+  databaseName: 'seams-console-staging-nrt',
   migrationsDir: 'migrations/d1-console',
 });
 const signerD1Database = Object.freeze({
   binding: 'SIGNER_DB',
-  databaseName: 'seams-signer-staging',
+  databaseName: 'seams-signer-staging-nrt',
   migrationsDir: 'node_modules/@seams/sdk-server/migrations/d1-signer',
 });
 const requiredD1DatabasesByProfile = Object.freeze({
@@ -51,7 +51,9 @@ const expectedMainByProfile = Object.freeze({
 const requiredSecretVarsByProfile = Object.freeze({
   console: Object.freeze(['CONSOLE_SESSION_HMAC_SECRET', 'STRIPE_API_SK']),
   gateway: Object.freeze([
-    'RELAY_SESSION_HMAC_SECRET',
+    /* Sessions are Ed25519-signed with the ceremony key; the legacy
+       RELAY_SESSION_HMAC_SECRET is no longer read by the gateway worker. */
+    'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
     'ACCOUNT_ID_DERIVATION_SECRET',
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'SPONSORED_EVM_EXECUTORS_JSON',
@@ -76,8 +78,9 @@ const requiredVarsByProfile = Object.freeze({
     'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
     'RELAYER_ACCOUNT_ID',
     'RELAYER_PUBLIC_KEY',
-    'RELAY_SESSION_ISSUER',
-    'RELAY_SESSION_AUDIENCE',
+    'ROUTER_AB_CEREMONY_JWT_KEY_ID',
+    'ROUTER_AB_CEREMONY_JWT_ISSUER',
+    'ROUTER_AB_CEREMONY_JWT_AUDIENCE',
     'SPONSORED_EXECUTION_REAL_PRICING_JSON',
     'CONSOLE_BASE_URL',
   ]),
@@ -102,6 +105,7 @@ const forbiddenPlaintextVars = Object.freeze([
   'RESEND_API_KEY',
   'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
   'ACCOUNT_ID_DERIVATION_SECRET',
+  'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
 ]);
 const forbiddenConsoleProfileTokens = Object.freeze([
   'SIGNER_DB',
@@ -368,50 +372,13 @@ function d1DatabaseBinding(database) {
 
 function checkDurableObject(source, errors) {
   const blocks = arrayTableBodies(source, 'durable_objects.bindings');
-  checkDeletedDurableObject({
-    source,
-    blocks,
-    bindingName: 'THRESHOLD_STORE',
-    className: 'ThresholdStoreDurableObject',
-    errors,
-  });
-  checkDeletedDurableObject({
-    source,
-    blocks,
-    bindingName: 'ROUTER_API_RUNTIME',
-    className: 'RouterApiRuntimeDurableObject',
-    errors,
-  });
+  checkRetiredDurableObjectBinding(blocks, 'THRESHOLD_STORE', errors);
+  checkRetiredDurableObjectBinding(blocks, 'ROUTER_API_RUNTIME', errors);
 }
 
-function checkRequiredDurableObject(input) {
-  const block = findBlockByAssignment(input.blocks, 'name', input.bindingName);
-  if (!block) {
-    input.errors.push(`missing Durable Object binding ${input.bindingName}`);
-    return;
-  }
-  checkExactString(
-    readString(block, 'class_name'),
-    input.className,
-    `${input.bindingName}.class_name`,
-    input.errors,
-  );
-  if (!hasSqliteClassMigration(input.source, input.className)) {
-    input.errors.push(`missing Durable Object new_sqlite_classes migration for ${input.className}`);
-  }
-}
-
-function checkDeletedDurableObject(input) {
-  if (findBlockByAssignment(input.blocks, 'name', input.bindingName)) {
-    input.errors.push(`retired Durable Object binding ${input.bindingName} must be removed`);
-  }
-  if (!hasSqliteClassMigration(input.source, input.className)) {
-    input.errors.push(
-      `missing historical Durable Object new_sqlite_classes migration for ${input.className}`,
-    );
-  }
-  if (!hasDeletedClassMigration(input.source, input.className)) {
-    input.errors.push(`missing Durable Object deleted_classes migration for ${input.className}`);
+function checkRetiredDurableObjectBinding(blocks, bindingName, errors) {
+  if (findBlockByAssignment(blocks, 'name', bindingName)) {
+    errors.push(`retired Durable Object binding ${bindingName} must be removed`);
   }
 }
 
@@ -522,21 +489,6 @@ function findBlockByAssignment(blocks, key, expected) {
     if (readString(block, key) === expected) return block;
   }
   return '';
-}
-
-function hasSqliteClassMigration(source, className) {
-  const blocks = arrayTableBodies(source, 'migrations');
-  for (const block of blocks) {
-    if (includesString(readArray(block, 'new_sqlite_classes'), className)) return true;
-  }
-  return false;
-}
-
-function hasDeletedClassMigration(source, className) {
-  for (const block of arrayTableBodies(source, 'migrations')) {
-    if (includesString(readArray(block, 'deleted_classes'), className)) return true;
-  }
-  return false;
 }
 
 function hasSecretStoreSecret(source, secretName) {

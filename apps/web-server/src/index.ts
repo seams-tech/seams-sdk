@@ -17,7 +17,7 @@ import {
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
   ensureTempoOnboardingSponsorshipForAllOrganizations,
-  resolveCoinGeckoSponsoredExecutionPricingFromEnv,
+  resolveSponsoredExecutionPricingFromEnv,
   resolveSponsoredEvmCallConfigFromEnv,
   resolveStaticSponsoredExecutionPricingFromEnv,
   type ConsoleBillingPrepaidReservationService,
@@ -782,8 +782,10 @@ async function main() {
     SPONSORED_EXECUTION_REAL_PRICING_JSON: env.SPONSORED_EXECUTION_REAL_PRICING_JSON,
     SPONSORED_EXECUTION_STATIC_PRICING_JSON: env.SPONSORED_EXECUTION_STATIC_PRICING_JSON,
   };
-  const sponsorshipRealPricing =
-    resolveCoinGeckoSponsoredExecutionPricingFromEnv(sponsorshipPricingEnv);
+  const sponsorshipRealPricing = resolveSponsoredExecutionPricingFromEnv({
+    SPONSORED_EXECUTION_REAL_PRICING_JSON:
+      sponsorshipPricingEnv.SPONSORED_EXECUTION_REAL_PRICING_JSON,
+  });
   const sponsorshipStaticPricing =
     resolveStaticSponsoredExecutionPricingFromEnv(sponsorshipPricingEnv);
   const sponsorshipPricing = sponsorshipRealPricing || sponsorshipStaticPricing;

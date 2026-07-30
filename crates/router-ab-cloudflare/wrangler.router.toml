@@ -6,33 +6,6 @@ workers_dev = true
 [build]
 command = "cargo install -q worker-build --version 0.8.4 && bash ./scripts/build-strict-worker.sh router"
 
-[[migrations]]
-tag = "router_ab_router_v1"
-new_sqlite_classes = [
-  "RouterAbRouterReplayDurableObject",
-  "RouterAbRouterLifecycleDurableObject",
-  "RouterAbRouterProjectPolicyDurableObject",
-  "RouterAbRouterQuotaDurableObject",
-  "RouterAbRouterAbuseDurableObject",
-]
-
-[[migrations]]
-tag = "router_ab_router_wallet_budget_v1"
-new_sqlite_classes = [
-  "RouterAbRouterWalletBudgetDurableObject",
-]
-
-[[migrations]]
-tag = "router_ab_router_stateless_v1"
-deleted_classes = [
-  "RouterAbRouterReplayDurableObject",
-  "RouterAbRouterLifecycleDurableObject",
-  "RouterAbRouterProjectPolicyDurableObject",
-  "RouterAbRouterQuotaDurableObject",
-  "RouterAbRouterAbuseDurableObject",
-  "RouterAbRouterWalletBudgetDurableObject",
-]
-
 [[services]]
 binding = "DERIVER_A"
 service = "router-ab-deriver-a"
@@ -81,7 +54,7 @@ service = "router-ab-signing-worker-staging"
 
 [env.staging.vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
-ROUTER_JWT_ISSUER = "https://seams-sdk-d1-gateway-staging.n6378056.workers.dev"
+ROUTER_JWT_ISSUER = "https://staging.api.seams.sh"
 ROUTER_JWT_AUDIENCE = "router-ab"
 ROUTER_JWT_JWKS_JSON = "{\"keys\":[{\"alg\":\"EdDSA\",\"crv\":\"Ed25519\",\"kid\":\"router-ab-ceremony-staging-r1\",\"kty\":\"OKP\",\"use\":\"sig\",\"x\":\"sU-wLEXR48lJIg0m6-ACHKbaQnhZM8uoLQp8OVYtZH4\"}]}"
 DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH = "epoch-1"

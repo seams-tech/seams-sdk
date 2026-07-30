@@ -58,7 +58,7 @@ type EmailOtpEcdsaExportLogin = (
 type EmailOtpWorkerPorts = {
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
   requireRelayUrl: () => string;
-  requireShamirPrimeB64u: () => string;
+  requireSigningSessionSealGroupId: () => string;
   buildSigningSessionRoutePlan: (args: {
     authLane: EmailOtpSigningSessionAuthLane;
     operation: EmailOtpSigningSessionChallengeOperation;
@@ -221,7 +221,7 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
     EmailOtpWorkerPorts,
     | 'getSignerWorkerContext'
     | 'requireRelayUrl'
-    | 'requireShamirPrimeB64u'
+    | 'requireSigningSessionSealGroupId'
     | 'buildSigningSessionRoutePlan'
   >,
   args: {
@@ -260,7 +260,7 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
         userId: args.providerSubjectId,
         challengeId: args.challengeId,
         otpCode: args.otpCode,
-        shamirPrimeB64u: ports.requireShamirPrimeB64u(),
+        groupId: ports.requireSigningSessionSealGroupId(),
         routePlan,
         walletSessionJwt: args.walletSessionJwt,
         nearAccountId: args.nearAccountId,

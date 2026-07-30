@@ -68,8 +68,8 @@ export async function ensureEcdsaPrfSealPersisted(args: {
             ...(sealTransport.signingSessionSealKeyVersion
               ? { signingSessionSealKeyVersion: sealTransport.signingSessionSealKeyVersion }
               : {}),
-            ...(sealTransport.shamirPrimeB64u
-              ? { shamirPrimeB64u: sealTransport.shamirPrimeB64u }
+            ...(sealTransport.groupId
+              ? { groupId: sealTransport.groupId }
               : {}),
           },
         });
@@ -98,8 +98,8 @@ export async function ensureEcdsaPrfSealPersisted(args: {
             ...(sealTransport.signingSessionSealKeyVersion
               ? { signingSessionSealKeyVersion: sealTransport.signingSessionSealKeyVersion }
               : {}),
-            ...(sealTransport.shamirPrimeB64u
-              ? { shamirPrimeB64u: sealTransport.shamirPrimeB64u }
+            ...(sealTransport.groupId
+              ? { groupId: sealTransport.groupId }
               : {}),
           },
         });

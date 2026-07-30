@@ -53,6 +53,7 @@ test('coordinator configuration failures are terminal registration failures', as
     },
     tokenIssuer: {
       issue: issueCeremonyToken,
+      issueRequest: issueCeremonyToken,
       issueRegistration: issueRegistrationCeremonyToken,
       publicJwks: emptyJwks,
     },
@@ -105,6 +106,7 @@ test('strict ECDSA registration forwards the opaque trace correlation header', a
     router,
     tokenIssuer: {
       issue: issueCeremonyToken,
+      issueRequest: issueCeremonyToken,
       issueRegistration: issueRegistrationCeremonyToken,
       publicJwks: emptyJwks,
     },
@@ -199,6 +201,7 @@ function strictRegistrationPortForRequest(args: {
     router: args.router,
     tokenIssuer: {
       issue: issueCeremonyToken,
+      issueRequest: issueCeremonyToken,
       issueRegistration: issueRegistrationCeremonyToken,
       publicJwks: emptyJwks,
     },

@@ -14,6 +14,7 @@ import { type UserPreferencesStorePort, UserPreferencesManager } from '../sessio
 import type { NonceLaneCoordinationStore } from '../nonce/NonceCoordinator';
 import type { DurableRecordStore } from '@/core/platform';
 import { nearOperationStepUpPreparationPort } from '../flows/signNear/shared/operationStepUpPreparation';
+import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 
 export type ManagerAssembly = {
   touchIdPrompt: TouchIdPrompt;
@@ -63,10 +64,7 @@ export function createManagerAssembly(args: {
       signingSessionPersistenceMode: args.seamsWebConfigs.signing.sessionPersistenceMode,
       ...(isSealedRefreshMode
         ? {
-            signingSessionSealKeyVersion:
-              args.seamsWebConfigs.signing.sessionSeal.signingSessionSealKeyVersion,
-            signingSessionSealShamirPrimeB64u:
-              args.seamsWebConfigs.signing.sessionSeal.shamirPrimeB64u,
+            signingSessionSealGroupId: SIGNING_SESSION_SEAL_GROUP_ID,
           }
         : {}),
     },

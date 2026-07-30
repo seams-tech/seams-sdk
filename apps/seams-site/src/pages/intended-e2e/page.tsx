@@ -1,4 +1,5 @@
 import React from 'react';
+import type { NearProvisioningState, NearProvisioningStateChangedEvent } from '@seams/sdk';
 import {
   ActionType,
   useSeams,
@@ -16,7 +17,6 @@ import {
   type ThresholdEcdsaChainTarget,
   walletSessionRefFromSession,
 } from '@seams/sdk/advanced';
-import type { NearProvisioningState, NearProvisioningStateChangedEvent } from '@seams/sdk';
 import { FRONTEND_CONFIG } from '@/config';
 
 type IntendedActionName =

@@ -252,7 +252,6 @@ export interface WalletIframeRouterOptions {
   registration?: SeamsConfigsInput['registration'];
   signingSessionDefaults?: SeamsConfigsInput['signingSessionDefaults'];
   signingSessionPersistenceMode?: SeamsConfigsInput['signingSessionPersistenceMode'];
-  signingSessionSeal?: SeamsConfigsInput['signingSessionSeal'];
   routerAb?: SeamsConfigsInput['routerAb'];
   routerAbEcdsaDerivationPresignaturePool?: SeamsConfigsInput['routerAbEcdsaDerivationPresignaturePool'];
   provisioningDefaults?: SeamsConfigsInput['provisioningDefaults'];
@@ -1155,10 +1154,6 @@ export class WalletIframeRouter {
         this.state.ready = true;
       }
       const signingSessionPersistenceMode = this.opts.signingSessionPersistenceMode;
-      const signingSessionSeal =
-        signingSessionPersistenceMode === 'sealed_refresh_v1'
-          ? this.opts.signingSessionSeal
-          : undefined;
       await this.post({
         type: 'PM_SET_CONFIG',
         payload: {
@@ -1168,7 +1163,6 @@ export class WalletIframeRouter {
           registration: this.opts.registration,
           signingSessionDefaults: this.opts.signingSessionDefaults,
           signingSessionPersistenceMode,
-          ...(signingSessionSeal ? { signingSessionSeal } : {}),
           routerAb: this.opts.routerAb,
           routerAbEcdsaDerivationPresignaturePool:
             this.opts.routerAbEcdsaDerivationPresignaturePool,
@@ -1914,7 +1908,7 @@ export class WalletIframeRouter {
     otpCode: string;
     relayUrl?: string;
     challengeId?: string;
-    shamirPrimeB64u?: string;
+    groupId?: string;
     appSessionJwt?: string;
     onEvent?: (ev: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpBackedUpEnrollmentResult> {

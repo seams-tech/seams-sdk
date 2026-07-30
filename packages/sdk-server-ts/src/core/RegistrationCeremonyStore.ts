@@ -298,6 +298,14 @@ export type StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch =
     pendingActivation: RouterAbEcdsaPendingActivationV1;
     publicResponse: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
     publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+    /**
+     * The activate operation (idempotency key) that claimed this activation.
+     * One owner per ceremony: only the claiming operation may resume the
+     * claim or read its result, so a second activate with a different key
+     * cannot adopt the claim and re-run custody. Empty only on rows written
+     * before this field existed.
+     */
+    activationOwner: string;
   };
 
 export type StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch = StoredEcdsaRegistrationBase & {
@@ -308,6 +316,8 @@ export type StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch = StoredEcdsaR
   activation: RouterAbEcdsaRegistrationActivationReceiptV1;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   bootstrap: EcdsaDerivationServerBootstrapResponse;
+  /** Carried from the claim: only the owning operation may read this result back. */
+  activationOwner: string;
 };
 
 /**
@@ -361,7 +371,10 @@ export function buildStoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch(input
   readonly activated: StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch;
   readonly finalizedAtMs: number;
 }): StoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch {
-  return { ...input.activated, kind: 'evm_family_ecdsa_finalized', finalizedAtMs: input.finalizedAtMs };
+  /* The finalized branch is terminal: the activation owner has read its
+     result, so the ownership field does not survive into it. */
+  const { activationOwner: _activationOwner, ...activated } = input.activated;
+  return { ...activated, kind: 'evm_family_ecdsa_finalized', finalizedAtMs: input.finalizedAtMs };
 }
 
 export function buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch(input: {

@@ -13,18 +13,6 @@ database_name = "router-ab-deriver-b-private"
 database_id = "00000000-0000-0000-0000-0000000094b1"
 migrations_dir = "migrations/deriver-b"
 
-[[migrations]]
-tag = "router_ab_deriver_b_v1"
-new_sqlite_classes = ["RouterAbDeriverBRootShareDurableObject"]
-
-[[migrations]]
-tag = "router_ab_deriver_b_v2"
-new_sqlite_classes = ["RouterAbDeriverBYaoSessionDurableObject"]
-
-[[migrations]]
-tag = "router_ab_deriver_b_v3"
-deleted_classes = ["RouterAbDeriverBRootShareDurableObject", "RouterAbDeriverBYaoSessionDurableObject"]
-
 [[services]]
 binding = "DERIVER_A"
 service = "router-ab-deriver-a"

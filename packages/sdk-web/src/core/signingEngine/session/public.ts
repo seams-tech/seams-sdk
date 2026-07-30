@@ -30,7 +30,7 @@ export type SessionPublicDeps = {
   getConfiguredEcdsaChainTargets: () => readonly ThresholdEcdsaChainTarget[];
   signingSessionSeal?: {
     keyVersion?: string;
-    shamirPrimeB64u?: string;
+    groupId?: string;
   };
   discovery: {
     emailOtp: (

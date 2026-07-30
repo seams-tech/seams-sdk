@@ -2,12 +2,10 @@
 
 Date created: July 25, 2026
 
-Status: implementation and staging/production proof complete; cutover and
-operations documentation pending
+Status: complete
 
-Supersedes: `refactor-deployment-1.md`, `refactor-deployment-2.md`,
-`refactor-deployment-3.md`. Those three refactors are abandoned in place, not
-continued. This document replaces the system they built.
+Supersedes the deleted deployment refactor 1-3 plans. This document describes
+the deployment system that replaced them.
 
 ## Objective
 
@@ -98,7 +96,7 @@ both the staging and production workflows: one defect, four live sites.
 `STRIPE_API_SK` as required and `RELAYER_PRIVATE_KEY` as optional. Neither
 classification is connected to which capabilities the target actually has
 enabled. The requirement is discovered at the moment the file is written, which
-is after migrations, tenant bootstrap, and the KEK upsert have already mutated
+is after migrations and the KEK upsert have already mutated
 the target.
 
 ## Decision Summary
@@ -237,7 +235,6 @@ Retained and called directly by the new scripts:
 
 - `packages/console-server-ts/scripts/apply-remote-d1-migrations.mjs`
 - `packages/console-server-ts/scripts/render-d1-gateway-config.mjs`
-- `packages/console-server-ts/scripts/bootstrap-gateway-deployment.mjs`
 - `packages/console-server-ts/scripts/upsert-signing-root-kek.mjs`
 - `packages/console-server-ts/scripts/write-gateway-secrets-file.mjs`, with
   `REQUIRED_SECRET_NAMES` replaced by capability-derived requirements
@@ -264,14 +261,14 @@ how much simpler it is.
 **Deriver A and Deriver B secrets never occupy the same job.** The current
 environments exist for this reason and must survive:
 
-| Environment | Holds |
-| --- | --- |
-| `<target>-signing-worker` | `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY` |
-| `<target>-deriver-a` | `DERIVER_A_ROOT_SHARE_WIRE_SECRET`, `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_A_PEER_SIGNING_KEY` |
-| `<target>-deriver-b` | `DERIVER_B_ROOT_SHARE_WIRE_SECRET`, `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_B_PEER_SIGNING_KEY` |
-| `<target>-mpc-router` | `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET` |
-| `<target>-gateway` | Gateway secrets, `SIGNING_ROOT_KEK_VALUE`, signing-session seal set |
-| `<target>` | Cloudflare Pages credentials and build variables |
+| Environment               | Holds                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `<target>-signing-worker` | `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`                                                         |
+| `<target>-deriver-a`      | `DERIVER_A_ROOT_SHARE_WIRE_SECRET`, `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_A_PEER_SIGNING_KEY` |
+| `<target>-deriver-b`      | `DERIVER_B_ROOT_SHARE_WIRE_SECRET`, `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_B_PEER_SIGNING_KEY` |
+| `<target>-mpc-router`     | `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`                                                                |
+| `<target>-gateway`        | Gateway secrets, `SIGNING_ROOT_KEK_VALUE`, signing-session seal set                                     |
+| `<target>`                | Cloudflare Pages credentials and build variables                                                        |
 
 The existing `production` environment is restricted to `main` by its branch
 policy and is used by the production frontend lane. The production workflows
@@ -387,8 +384,8 @@ The workflow expresses one fixed order:
 5. Validate and deploy Deriver A.
 6. Validate and deploy Deriver B.
 7. Validate and deploy MPC Router.
-8. Validate Gateway configuration, bootstrap the tenant, upsert the
-   signing-root KEK, deploy Gateway, and run live backend smoke tests.
+8. Validate Gateway configuration, upsert the signing-root KEK, deploy Gateway,
+   and run live backend smoke tests.
 
 Every preflight leg completes before the migration/deployment chain begins.
 The build precedes preflight because it owns the branch guard. This ordering is
@@ -441,11 +438,15 @@ which component owns them, and what each requires:
 {
   "staging": {
     "capabilities": {
-      "billing":          { "enabled": true,  "owner": "gateway", "secrets": ["STRIPE_API_SK"] },
+      "billing": { "enabled": true, "owner": "gateway", "secrets": ["STRIPE_API_SK"] },
       "sponsoredExecution": { "enabled": true, "owner": "gateway", "secrets": [] },
-      "signingSessionSeal": { "enabled": true, "owner": "gateway", "secrets": ["SIGNING_SESSION_SEAL_KEY_VERSION", "SIGNING_SESSION_SHAMIR_P_B64U", "SIGNING_SESSION_SEAL_E_S_B64U", "SIGNING_SESSION_SEAL_D_S_B64U"] }
-    }
-  }
+      "signingSessionSeal": {
+        "enabled": true,
+        "owner": "gateway",
+        "secrets": ["SIGNING_SESSION_SEAL_ROOT_SECRET_B64U"],
+      },
+    },
+  },
 }
 ```
 
@@ -473,10 +474,8 @@ disagree.
 
 ## Phases
 
-The old stack workflows and their release framework are removed by the
-implementation. The new workflows remain manual-only until staging and
-production proof is recorded; the staging push trigger is the final cutover
-step after that proof.
+The old stack workflows and their release framework are removed. All four
+deployment workflows remain manual so merging code never deploys implicitly.
 
 ### Phase 0: Freeze the old framework
 
@@ -545,16 +544,16 @@ artifact reuse, recovery, and final smoke.
 
 Staging backend, run [30151749558][run-a], 33.6 minutes end to end:
 
-| Job | Duration |
-| --- | --- |
-| Build / staging / backend | 10.3m |
-| Preflight × 5 (parallel) | 0.2–0.3m each |
-| Migrate / staging / gateway | 0.7m |
-| Deploy / signing-worker | 5.3m |
-| Deploy / deriver-a | 4.8m |
-| Deploy / deriver-b | 5.5m |
-| Deploy / router | 5.5m |
-| Deploy / gateway (incl. smoke) | 0.7m |
+| Job                            | Duration      |
+| ------------------------------ | ------------- |
+| Build / staging / backend      | 10.3m         |
+| Preflight × 5 (parallel)       | 0.2–0.3m each |
+| Migrate / staging / gateway    | 0.7m          |
+| Deploy / signing-worker        | 5.3m          |
+| Deploy / deriver-a             | 4.8m          |
+| Deploy / deriver-b             | 5.5m          |
+| Deploy / router                | 5.5m          |
+| Deploy / gateway (incl. smoke) | 0.7m          |
 
 Staging frontend, run [30155898075][run-f]: 4.8 minutes, one job.
 
@@ -605,16 +604,16 @@ Gateway preflight require it whenever the capability is enabled.
 Production backend, run [30164387899][run-p1], deployed
 `cdff14b5b8c133f1db8b89a318e56c23e52132c2` successfully in 36m00s:
 
-| Job | Duration |
-| --- | --- |
-| Build / production / backend | 10m14s |
+| Job                                               | Duration    |
+| ------------------------------------------------- | ----------- |
+| Build / production / backend                      | 10m14s      |
 | Preflight × 5 (parallel, excluding approval wait) | 11–15s each |
-| Migrate / production / gateway | 39s |
-| Deploy / signing-worker | 5m23s |
-| Deploy / deriver-a | 5m35s |
-| Deploy / deriver-b | 5m26s |
-| Deploy / router | 5m37s |
-| Deploy / gateway (including smoke) | 53s |
+| Migrate / production / gateway                    | 39s         |
+| Deploy / signing-worker                           | 5m23s       |
+| Deploy / deriver-a                                | 5m35s       |
+| Deploy / deriver-b                                | 5m26s       |
+| Deploy / router                                   | 5m37s       |
+| Deploy / gateway (including smoke)                | 53s         |
 
 The existing `production-mpc-router` required-reviewer rule prompted first on
 the router preflight matrix leg. Since `migrate` needs the complete preflight
@@ -646,17 +645,16 @@ The old backend workflows and support tooling listed in What Is Deleted or
 Replaced were deleted during implementation, before remote staging and
 production proof. The frontend contents were replaced in Phase 3. This leaves
 fix-forward as the recovery path; the deleted framework remains recoverable
-from git history. Phases 4 and 5 are green. Enabling the new staging push
-triggers remains the final cutover step. Production remains manual.
+from git history. Phases 4 and 5 are green. Staging and production remain
+manual.
 
 ### Phase 7: One-page documentation
 
-Rewrite `docs/deployment/README.md` as the single operational page: exact
+`docs/deployment/README.md` is the single operational page. It records the
 deployment order, what each lane mutates, the expand-contract rule, rollback
 including the forward-only migration constraint, and which operations are
-runnable locally versus CI-only and why. Retire the sections of `infra.md` that
-describe the deleted framework; `tooling.md` does not reference it and needs no
-change.
+runnable locally versus CI-only. Historical framework documentation is
+deleted.
 
 ## Carried Over From Refactor 3
 
@@ -694,11 +692,11 @@ and workflow policy/source-guard tests.
 **Smoke targets** — these hostnames exist nowhere else and are required by
 Phases 4 and 5:
 
-| Lane | Staging | Production |
-| --- | --- | --- |
-| Frontend app | `seams-site-staging.pages.dev` | `seams.sh` |
-| Frontend wallet | `seams-wallet-staging.pages.dev` | `sign.seams.sh` |
-| Backend | staging readiness checks | production readiness checks |
+| Lane            | Staging                          | Production                  |
+| --------------- | -------------------------------- | --------------------------- |
+| Frontend app    | `seams-site-staging.pages.dev`   | `seams.sh`                  |
+| Frontend wallet | `seams-wallet-staging.pages.dev` | `sign.seams.sh`             |
+| Backend         | staging readiness checks         | production readiness checks |
 
 **Historical Actions cleanup** — independent of both plans, and the one item
 with an irreversible step:
@@ -745,8 +743,8 @@ before production.
    or validate workflow source text.
 3. `pnpm deploy:backend plan --target staging` runs locally without secrets,
    parses the complete target, and prints every ordered mutation.
-4. Preflight failure for a missing secret occurs before any migration, tenant
-   bootstrap, KEK upsert, or worker deploy. A component-scoped test proves the
+4. Preflight failure for a missing secret occurs before any migration, KEK
+   upsert, or worker deploy. A component-scoped test proves the
    JSON inventory path, and one staging workflow run proves fail-before-mutate.
 5. Deriver A and Deriver B secrets are never bound to the same job.
 6. Workflows accept no arbitrary source SHA. Every job checks out the immutable
@@ -795,14 +793,12 @@ resources. The component deployment commands report missing D1, KV, Secrets
 Store, Worker, or Pages resources through the Cloudflare operations they
 already perform.
 
-**`GATEWAY_DEPLOYMENT_CONFIG_JSON`.** This remains an environment-scoped GitHub
-variable because it contains deployment-specific D1, tenant/bootstrap, and
-optional identity-provider configuration. The build job does not bind the
-gateway environment or read this value. It generates a minimal Wrangler config
-from the same compatibility constants used by the deploy-time renderer.
-Migration and gateway deployment render and validate the real environment
-configuration inside the gateway custody job. `deployment/targets.json` remains
-authoritative for public origins, capabilities, and resource names.
+**Gateway deployment configuration.** `deployment/targets.json` owns all
+non-secret Gateway configuration, including D1 identifiers, public origins,
+runtime profile, public Router key material, and optional public integration
+metadata. GitHub environments contain credentials and private material only.
+The target parser validates this configuration before preflight, migration, or
+deployment.
 
 **Production environment protection.** The existing `production` environment
 has a branch-policy rule and the workflow guard independently requires `main`.

@@ -10,12 +10,12 @@ Each deployment targets one complete lane. Backend and frontend lanes are
 independent and use the currently deployed version of the other lane during
 smoke checks.
 
-| Workflow | Manual ref | Automatic trigger | Scope |
-| --- | --- | --- | --- |
-| `.github/workflows/deploy-staging-backend.yml` | `dev` only | Pushes to `dev`, after staging and production proof is complete | Full staging backend lane |
-| `.github/workflows/deploy-production-backend.yml` | `main` only | None | Full production backend lane |
-| `.github/workflows/deploy-staging-frontend.yml` | `dev` only | Pushes to `dev`, after staging and production proof is complete | Staging app and wallet Pages |
-| `.github/workflows/deploy-production-frontend.yml` | `main` only | None | Production app and wallet Pages |
+| Workflow                                           | Manual ref  | Automatic trigger | Scope                           |
+| -------------------------------------------------- | ----------- | ----------------- | ------------------------------- |
+| `.github/workflows/deploy-staging-backend.yml`     | `dev` only  | None              | Full staging backend lane       |
+| `.github/workflows/deploy-production-backend.yml`  | `main` only | None              | Full production backend lane    |
+| `.github/workflows/deploy-staging-frontend.yml`    | `dev` only  | None              | Staging app and wallet Pages    |
+| `.github/workflows/deploy-production-frontend.yml` | `main` only | None              | Production app and wallet Pages |
 
 The repository validation workflows remain separate. The deployment workflows
 use no `workflow_run` trigger and accept no arbitrary revision input. Every job
@@ -28,19 +28,13 @@ and the workflow branch guard both restrict deployments to `main`.
 Normal promotion is:
 
 ```bash
-# Staging, when the push trigger is enabled
-git push origin dev
+# Staging remains an explicit deployment
+gh workflow run deploy-staging-backend.yml --ref dev
+gh workflow run deploy-staging-frontend.yml --ref dev
 
 # Production: merge an accepted change into protected main, then dispatch
 gh workflow run deploy-production-backend.yml --ref main
 gh workflow run deploy-production-frontend.yml --ref main
-```
-
-Manual staging runs use the matching files with `--ref dev`:
-
-```bash
-gh workflow run deploy-staging-backend.yml --ref dev
-gh workflow run deploy-staging-frontend.yml --ref dev
 ```
 
 There are no `source_sha`, artifact-run, release-set, or coordination-receipt
@@ -61,7 +55,7 @@ scripts/deploy-frontend.mjs
   pnpm deploy:frontend <plan|build|deploy|smoke> --target <staging|production>
 
 deployment/targets.json
-  target capabilities, resources, and secret ownership
+  target capabilities, resources, non-secret Gateway configuration, and secret ownership
 ```
 
 `plan` is the local review command. It needs no credentials, validates the
@@ -93,14 +87,14 @@ This keeps configuration validation ahead of every remote mutation.
 
 The backend lane contains five separately bound component environments:
 
-| Environment | Custody |
-| --- | --- |
-| `<target>-signing-worker` | SigningWorker server-output private key |
-| `<target>-deriver-a` | Deriver A root-share, envelope, and peer-signing secrets |
-| `<target>-deriver-b` | Deriver B root-share, envelope, and peer-signing secrets |
-| `<target>-mpc-router` | Router A/B internal service-auth secret |
-| `<target>-gateway` | Gateway secrets, signing-root KEK, and signing-session seal set |
-| `<target>` | Cloudflare Pages credentials and public frontend build configuration |
+| Environment               | Custody                                                              |
+| ------------------------- | -------------------------------------------------------------------- |
+| `<target>-signing-worker` | SigningWorker server-output private key                              |
+| `<target>-deriver-a`      | Deriver A root-share, envelope, and peer-signing secrets             |
+| `<target>-deriver-b`      | Deriver B root-share, envelope, and peer-signing secrets             |
+| `<target>-mpc-router`     | Router A/B internal service-auth secret                              |
+| `<target>-gateway`        | Gateway secrets, signing-root KEK, and signing-session seal set      |
+| `<target>`                | Cloudflare Pages credentials and public frontend build configuration |
 
 Deriver A and Deriver B secrets never share a job. The preflight matrix binds
 one custody environment per leg and checks its inventory against
@@ -123,8 +117,8 @@ The hand-written backend workflow makes this dependency order visible:
    fingerprints guard the operation.
 4. Validate and deploy SigningWorker, Deriver A, and Deriver B concurrently.
 5. Validate and deploy MPC Router after all three workers complete.
-6. Validate Gateway configuration, bootstrap the tenant, upsert the
-   signing-root KEK, and deploy Gateway.
+6. Validate Gateway configuration, upsert the signing-root KEK, and deploy
+   Gateway.
 7. Run backend smoke checks as the final Gateway job step.
 
 Gateway is last because it depends on the preceding backend services. Worker
@@ -138,6 +132,12 @@ The Gateway uses partitioned D1 and the MPC Router for Ed25519 Yao immediately.
 Deployments have no tenant-runtime fallback, family selector, or admission-drain
 window. Remove retired `ROUTER_AB_YAO_GATEWAY_*` cutoff/drain values from GitHub
 Environments instead of carrying them into a release.
+
+Backend deployment never creates an organization, project, project environment,
+or API key. An administrator completes onboarding, creates the project and
+browser-safe publishable key, then stores `VITE_SEAMS_PROJECT_ENVIRONMENT_ID`
+and `VITE_SEAMS_PUBLISHABLE_KEY` in the target's GitHub environment. Redeploy
+the frontend after either value changes.
 
 ### Frontend
 

@@ -45,7 +45,7 @@ test('wallet-budget provisioning uses the authenticated private Router route', a
       },
     ],
     initialSignatureUses: 8,
-    expiresAtMs: 1_900_000_000_000,
+    expiresAtMs: 1_900_000_000_250,
     issuerIdempotencyKey: 'registration:grant-private-d1-1',
   });
 
@@ -66,7 +66,7 @@ test('wallet-budget provisioning uses the authenticated private Router route', a
     wallet_id: 'wallet-private-d1-1',
     rp_id: 'example.com',
     initial_signature_uses: 8,
-    expires_at_ms: 1_900_000_000_000,
+    expires_at_ms: 1_900_000_000_250,
     issuer_jwt_id: 'registration:grant-private-d1-1',
   });
 });

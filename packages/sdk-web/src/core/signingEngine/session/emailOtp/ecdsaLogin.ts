@@ -314,7 +314,7 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
   challengeId?: string;
   otpCode: string;
   operation?: WalletEmailOtpLoginOperation;
-  shamirPrimeB64u?: string;
+  groupId?: string;
   appSessionJwt?: never;
   routeAuth?: never;
   ecdsaBootstrapAuthorization: EmailOtpEcdsaBootstrapAuthorization;
@@ -796,7 +796,7 @@ export type EmailOtpEcdsaLoginPorts = {
     request: ThresholdEcdsaEmailOtpExportActivationRequest,
   ) => Promise<EmailOtpEcdsaExplicitExportBootstrapResult>;
   requireRelayUrl: () => string;
-  requireShamirPrimeB64u: () => string;
+  requireSigningSessionSealGroupId: () => string;
   rememberAppSessionJwt: (args: {
     walletId: WalletSessionRef['walletId'];
     appSessionJwt: string;
@@ -961,7 +961,7 @@ async function runEmailOtpEcdsaCapability(
   const emailOtpAuthContextPolicy: EmailOtpAuthPolicy =
     emailOtpAuthRetention === 'session' ? 'session' : emailOtpAuthPolicy;
   const relayUrl = String(args.relayUrl || ports.requireRelayUrl()).trim();
-  const shamirPrimeB64u = String(args.shamirPrimeB64u || ports.requireShamirPrimeB64u()).trim();
+  const groupId = String(args.groupId || ports.requireSigningSessionSealGroupId()).trim();
   const configuredRemainingUses = args.remainingUses;
   const defaultRemainingUses = ports.configs.signing.sessionDefaults?.remainingUses;
   const requestedRemainingUses = Math.min(
@@ -1096,7 +1096,7 @@ async function runEmailOtpEcdsaCapability(
   const unlockArgs = {
     walletSession: args.walletSession,
     relayUrl,
-    shamirPrimeB64u,
+    groupId,
     otpCode: args.otpCode,
     routePlan,
     workerCtx,
@@ -1240,7 +1240,7 @@ async function runEmailOtpEcdsaCapability(
         runtimePolicyScope,
         emailOtpAuthContext,
         relayerUrl: relayUrl,
-        shamirPrimeB64u,
+        groupId,
       },
       publicationPorts,
     );

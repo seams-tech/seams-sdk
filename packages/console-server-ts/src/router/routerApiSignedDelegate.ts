@@ -686,7 +686,8 @@ export async function handleRouterApiSignedDelegate(
       environmentId: extractRouterApiEnvironmentId(input.headers) || '',
       actorUserId: 'signed-delegate-executor',
       runtimeSnapshotsUnavailableMessage: 'Runtime snapshots are not configured on this server',
-      runtimeSnapshotNotFoundMessage: 'No runtime snapshot is available for this environment',
+      runtimeSnapshotNotFoundMessage:
+        'Gas sponsorship is not configured for this environment. Create and publish an enabled gas sponsorship policy.',
       unexpectedPrincipalMessage: 'Signed delegate route resolved an unexpected principal kind',
     });
     if (!sponsorshipRuntime.ok) {
@@ -889,7 +890,7 @@ export async function handleRouterApiSignedDelegate(
         }
       }
       if (isSponsorshipPrepaidBalanceEnforcementError(error)) {
-        await emitSponsorshipBlockedObservabilityEvent({
+        void emitSponsorshipBlockedObservabilityEvent({
           services: {
             logger: input.logger,
             observabilityIngestion: input.services.observabilityIngestion || null,

@@ -9,7 +9,6 @@ import type {
   Ed25519KeyVersion,
   Ed25519RelayerKeyId,
   SigningSessionSealKeyVersion,
-  SigningSessionSealShamirPrimeB64u,
 } from './keyMaterialBrands';
 import {
   formatEcdsaClientAdditiveShareHandleForWire,
@@ -22,7 +21,6 @@ import {
   formatEd25519KeyVersionForWire,
   formatEd25519RelayerKeyIdForWire,
   formatSigningSessionSealKeyVersionForWire,
-  formatSigningSessionSealShamirPrimeB64uForWire,
   parseEcdsaClientAdditiveShareHandle,
   parseEcdsaClientVerifyingPublicKey33B64u,
   parseEcdsaClientVerifyingShareB64u,
@@ -33,7 +31,6 @@ import {
   parseEd25519KeyVersion,
   parseEd25519RelayerKeyId,
   parseSigningSessionSealKeyVersion,
-  parseSigningSessionSealShamirPrimeB64u,
 } from './keyMaterialBrands';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import {
@@ -52,8 +49,8 @@ const ed25519RelayerKeyId = parseEd25519RelayerKeyId('ed25519-relayer-key-id');
 const ecdsaRelayerKeyId = parseEcdsaRelayerKeyId('ecdsa-relayer-key-id');
 const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId('ecdsa-threshold-key-id');
 const ecdsaKeyHandle = parseEcdsaKeyHandle('ecdsa-key-handle');
-const ecdsaAdditiveShareHandle = parseEcdsaClientAdditiveShareHandle('ecdsa-additive-share-handle');
-const shamirPrime = parseSigningSessionSealShamirPrimeB64u('signing-session-shamir-prime');
+const ecdsaAdditiveShareHandle =
+  parseEcdsaClientAdditiveShareHandle('ecdsa-additive-share-handle');
 const webAuthnRpIdResult = parseWebAuthnRpId('wallet.example.test');
 if (!webAuthnRpIdResult.ok) throw new Error(webAuthnRpIdResult.error.message);
 const webAuthnRpId = webAuthnRpIdResult.value;
@@ -99,10 +96,6 @@ function acceptsEcdsaAdditiveShareHandle(value: EcdsaClientAdditiveShareHandle) 
   return formatEcdsaClientAdditiveShareHandleForWire(value);
 }
 
-function acceptsShamirPrime(value: SigningSessionSealShamirPrimeB64u) {
-  return formatSigningSessionSealShamirPrimeB64uForWire(value);
-}
-
 function acceptsWebAuthnRpId(value: WebAuthnRpId) {
   return value;
 }
@@ -121,7 +114,6 @@ acceptsEcdsaRelayerKeyId(ecdsaRelayerKeyId);
 acceptsEcdsaThresholdKeyId(ecdsaThresholdKeyId);
 acceptsEcdsaKeyHandle(ecdsaKeyHandle);
 acceptsEcdsaAdditiveShareHandle(ecdsaAdditiveShareHandle);
-acceptsShamirPrime(shamirPrime);
 acceptsWebAuthnRpId(webAuthnRpId);
 acceptsNearEd25519SigningKeyId(nearEd25519SigningKeyId);
 

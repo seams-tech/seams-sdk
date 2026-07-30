@@ -108,6 +108,7 @@ import {
   type StoredRegistrationAuthority,
   type StoredWalletRegistrationCeremony,
   type StoredWalletRegistrationCeremonyAuthorityState,
+  storedRegistrationAuthoritiesMatch,
   verifiedRegistrationCeremonyAuthority,
 } from '../../core/RegistrationCeremonyStore';
 import type {
@@ -1982,6 +1983,15 @@ export class CloudflareD1WalletRegistrationService {
             message: 'ECDSA registration replay changed the exact request',
           };
         }
+        const replayAuthority = await this.verifyRespondReplayAuthority({
+          ceremony,
+          authorityInput: input.authority,
+          expectedOrigin,
+          ...(input.userAgent ? { userAgent: input.userAgent } : {}),
+        });
+        if (!replayAuthority.ok) {
+          return { ok: false, code: replayAuthority.code, message: replayAuthority.message };
+        }
         return walletRegistrationRespondResult({
           ceremony,
           strictResult: ecdsaBranch.publicResponse,
@@ -2349,6 +2359,53 @@ export class CloudflareD1WalletRegistrationService {
    * work exactly as on a mixed plan, and the wallet lives in `near_pending`
    * until the computation completes.
    */
+  /**
+   * Respond replay stays authority-bound.
+   *
+   * `signedSetup` is client-carried, so possession of it must never recover a
+   * stored respond result. Re-verifying the proof is necessary but not
+   * sufficient: registration *mints* the credential, so a fresh passkey over
+   * the same challenge would verify. The replayed proof must therefore resolve
+   * to the same authority that admitted the stored result.
+   */
+  private async verifyRespondReplayAuthority(input: {
+    readonly ceremony: StoredWalletRegistrationCeremony;
+    readonly authorityInput: WalletRegistrationAuthorityInput;
+    readonly expectedOrigin: string;
+    readonly userAgent?: string;
+  }): Promise<
+    { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
+  > {
+    const ceremony = input.ceremony;
+    const storedAuthority = verifiedRegistrationCeremonyAuthority(ceremony);
+    if (!storedAuthority) {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: 'registration ceremony has no verified authority to replay',
+      };
+    }
+    const verified = await this.walletAuthMethods.verifyRegistrationAuthorityForIntent({
+      orgId: ceremony.orgId,
+      authority: input.authorityInput,
+      expectedDigestB64u: ceremony.digestB64u,
+      expectedOrigin: input.expectedOrigin,
+      intent: ceremony.intent,
+      verificationOperationId: ceremony.registrationCeremonyId,
+      verificationReceiptExpiresAtMs: ceremony.expiresAtMs,
+      ...(input.userAgent ? { userAgent: input.userAgent } : {}),
+    });
+    if (!verified.ok) return { ok: false, code: verified.code, message: verified.message };
+    if (!storedRegistrationAuthoritiesMatch(storedAuthority, verified.authority)) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'registration respond replay presented a different authority',
+      };
+    }
+    return { ok: true };
+  }
+
   private async respondEd25519OnlyRegistration(input: {
     readonly snapshot: { readonly ceremony: StoredWalletRegistrationCeremony; readonly version: number };
     readonly ceremony: StoredWalletRegistrationCeremony;
@@ -2363,6 +2420,15 @@ export class CloudflareD1WalletRegistrationService {
        admitting a second time. */
     const stored = storedRespondEd25519DeferredWork(ceremony.signerState);
     if (stored) {
+      const replayAuthority = await this.verifyRespondReplayAuthority({
+        ceremony,
+        authorityInput: input.authorityInput,
+        expectedOrigin: input.expectedOrigin,
+        ...(input.userAgent ? { userAgent: input.userAgent } : {}),
+      });
+      if (!replayAuthority.ok) {
+        return { ok: false, code: replayAuthority.code, message: replayAuthority.message };
+      }
       return {
         ok: true,
         registrationCeremonyId: ceremony.registrationCeremonyId,
@@ -2656,6 +2722,7 @@ export class CloudflareD1WalletRegistrationService {
         },
       } as ActivateWalletRegistrationEcdsaInput,
       context.traceContext,
+      context.idempotencyKey,
     );
     if (!activated.ok) {
       /* Pre-effect failures stay retryable; the boundary re-raises them so the
@@ -2711,7 +2778,13 @@ export class CloudflareD1WalletRegistrationService {
 
   async activateWalletRegistrationEcdsa(
     request: ActivateWalletRegistrationEcdsaInput,
-    traceContext?: RouterAbTraceContextV1,
+    traceContext: RouterAbTraceContextV1 | undefined,
+    /**
+     * The activate operation-row identity (idempotency key). The activation
+     * claim is owned by exactly one operation: a concurrent activate with a
+     * different key must not adopt the claim and re-run Router custody.
+     */
+    activationOwner: string,
   ): Promise<WalletRegistrationEcdsaActivationResponse> {
     /* Same contract as respondWalletRegistrationEcdsaDerivation: stripped into
        a Server-Timing header at the route, never serialized to the wire. */
@@ -2727,9 +2800,18 @@ export class CloudflareD1WalletRegistrationService {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
       const claimStartedAtMs = Date.now();
+      const owner = toOptionalTrimmedString(activationOwner);
+      if (!owner) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'ECDSA activation requires an owning operation identity',
+        };
+      }
       let claimed = await store.claimEcdsaActivation({
         registrationCeremonyId: request.registrationCeremonyId,
         publicFacts: request.ecdsa.publicFacts,
+        activationOwner: owner,
       });
       markServerTiming('ecdsa_activate_d1_claim', claimStartedAtMs);
       if (!claimed) {
@@ -2764,6 +2846,13 @@ export class CloudflareD1WalletRegistrationService {
               message: 'ECDSA activation replay changed the verified client facts',
             };
           }
+          if (ecdsaBranch.activationOwner !== owner) {
+            return {
+              ok: false,
+              code: 'conflict',
+              message: 'ECDSA activation belongs to another activate operation',
+            };
+          }
           return withServerTiming({
             ok: true,
             registrationCeremonyId: ceremony.registrationCeremonyId,
@@ -2789,6 +2878,19 @@ export class CloudflareD1WalletRegistrationService {
             ok: false,
             code: 'scope_mismatch',
             message: 'ECDSA activation claim belongs to different verified client facts',
+          };
+        }
+        /* One activation owner per ceremony. Matching facts are not enough:
+           a concurrent activate under a different idempotency key would
+           otherwise adopt this claim and run Router custody a second time.
+           Only the claiming operation — crash-resume or takeover of the SAME
+           operation row — may resume. Legacy claims with no recorded owner
+           deny adoption rather than allow it. */
+        if (ecdsaBranch.activationOwner !== owner) {
+          return {
+            ok: false,
+            code: 'conflict',
+            message: 'ECDSA activation claim belongs to another activate operation',
           };
         }
         claimed = existing;
@@ -2888,6 +2990,7 @@ export class CloudflareD1WalletRegistrationService {
         }
         const activatedBranch: StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch = {
           kind: 'evm_family_ecdsa_activated',
+          activationOwner: ecdsaBranch.activationOwner,
           branchKey: ecdsaBranch.branchKey,
           derivationKind: ecdsaBranch.derivationKind,
           chainTargets: ecdsaBranch.chainTargets,
@@ -2950,6 +3053,7 @@ export class CloudflareD1WalletRegistrationService {
               : null;
           if (
             reconciledBranch?.kind !== 'evm_family_ecdsa_activated' ||
+            reconciledBranch.activationOwner !== activatedBranch.activationOwner ||
             alphabetizeStringify(reconciledBranch.publicFacts) !==
               alphabetizeStringify(activatedBranch.publicFacts) ||
             alphabetizeStringify(reconciledBranch.activation) !==
@@ -3202,6 +3306,20 @@ export class CloudflareD1WalletRegistrationService {
         }
         const runtimePolicyScope = ceremony.preparedContext.runtimePolicy.scope;
         const activationReference = request.ed25519.activationReference;
+        /* Bind before consume. The consume below is a first-writer CAS that
+           permanently records its consumer, so a foreign activation reference
+           must be rejected before it can be burned — otherwise this ceremony's
+           signedSetup could consume another ceremony's activation and brick
+           its provisioning. The Yao lifecycle is keyed by the ceremony id
+           (routerAbEd25519YaoProductRegistration mints lifecycle_id from
+           registrationCeremonyId), so ownership is checkable without I/O. */
+        if (activationReference.lifecycle_id !== ceremony.registrationCeremonyId) {
+          return {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'Ed25519 activation reference does not belong to this registration ceremony',
+          };
+        }
         const consumed = await yaoRuntime.consumeActivated({
           reference: {
             lifecycleId: activationReference.lifecycle_id,
@@ -3488,14 +3606,19 @@ export class CloudflareD1WalletRegistrationService {
         finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
         return withD1RegistrationRouteDiagnostics(response, finalizeTiming);
       }
-      let deleted = false;
+      /* The commit above is irreversible, so a tombstone failure must not fail
+         the response — but it must not be silent either. `false` means the row
+         was already gone (a replayed finalize), which is benign; a throw means
+         D1 refused the delete and the ceremony survives until its TTL. The
+         activation owner binding keeps a surviving ceremony from re-running
+         custody, so the residue is a stale row, not a second wallet. */
       try {
-        deleted = await store.deleteCeremony(ceremony.registrationCeremonyId);
+        await store.deleteCeremony(ceremony.registrationCeremonyId);
       } catch (error: unknown) {
-        if (!idempotencyKey) throw error;
-      }
-      if (!deleted && !idempotencyKey) {
-        return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
+        console.warn('[wallet-registration] ceremony tombstone delete failed after commit', {
+          registrationCeremonyId: ceremony.registrationCeremonyId,
+          message: errorMessage(error),
+        });
       }
       finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
       return withD1RegistrationRouteDiagnostics(response, finalizeTiming);

@@ -458,7 +458,8 @@ export interface PMEnrollEmailOtpPayload {
   otpCode: string;
   relayUrl?: string;
   challengeId?: string;
-  shamirPrimeB64u?: string;
+  groupId?: string;
+  appSessionJwt?: string;
 }
 
 export interface PMGetEmailOtpRecoveryCodeStatusPayload {
@@ -484,7 +485,8 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   relayUrl?: string;
   challengeId?: string;
   otpCode: string;
-  shamirPrimeB64u?: string;
+  groupId?: string;
+  appSessionJwt?: string;
   registrationAttemptId?: string;
   emailOtpAuthorityEmail?: string;
 }

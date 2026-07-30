@@ -1,63 +1,69 @@
-import { createSigningSessionSealShamir3PassCipherAdapter } from './crypto/cipher';
-import { createSigningSessionSealRoutesOptions } from './routesOptions';
+import { base64UrlDecode } from '@shared/utils/encoders';
 import {
-  formatSigningSessionSealShamirPrimeB64uForWire,
-  formatSigningSessionSealKeyVersionForWire,
-  parseSigningSessionSealShamirPrimeB64u,
+  SIGNING_SESSION_SEAL_ALG,
+  SIGNING_SESSION_SEAL_GROUP_ID,
+} from '@shared/utils/signingSessionSeal';
+import { toOptionalTrimmedString } from '@shared/utils/validation';
+import {
   parseSigningSessionSealKeyVersion,
   type SigningSessionSealKeyVersion,
-  type SigningSessionSealShamirPrimeB64u,
 } from '../../../core/keyMaterialBrands';
+import {
+  createSigningSessionSealShamir3PassCipherAdapter,
+  type SigningSessionSealShamir3PassRootConfig,
+} from './crypto/cipher';
+import { createSigningSessionSealRoutesOptions } from './routesOptions';
 
 export type CreateSigningSessionSealOptionsInput = {
-  keyVersion?: unknown;
-  shamirPrimeB64u: string;
-  serverEncryptExponentB64u: string;
-  serverDecryptExponentB64u: string;
+  readonly rootSecretB64u: string;
+  readonly currentKeyVersion: unknown;
+  readonly acceptedWarmKeyVersions?: readonly unknown[];
 };
 
-function createShamir3PassCipher(input: {
-  signingSessionSealKeyVersion: SigningSessionSealKeyVersion;
-  shamirPrimeB64u: SigningSessionSealShamirPrimeB64u;
-  serverEncryptExponentB64u: string;
-  serverDecryptExponentB64u: string;
-}) {
-  const keyVersion = formatSigningSessionSealKeyVersionForWire(input.signingSessionSealKeyVersion);
-  const shamirPrimeB64u = formatSigningSessionSealShamirPrimeB64uForWire(input.shamirPrimeB64u);
-  return createSigningSessionSealShamir3PassCipherAdapter({
-    currentKeyVersion: keyVersion,
-    keys: [
-      {
-        keyVersion,
-        shamirPrimeB64u,
-        serverEncryptExponentB64u: input.serverEncryptExponentB64u,
-        serverDecryptExponentB64u: input.serverDecryptExponentB64u,
-      },
-    ],
-  });
+function parseKeyVersion(value: unknown, label: string): SigningSessionSealKeyVersion {
+  const parsed = toOptionalTrimmedString(value);
+  if (!parsed) throw new Error(`${label} is required`);
+  return parseSigningSessionSealKeyVersion(parsed);
+}
+
+function parseRootSecret32(value: unknown): Uint8Array {
+  const encoded = toOptionalTrimmedString(value);
+  if (!encoded) throw new Error('SIGNING_SESSION_SEAL_ROOT_SECRET_B64U is required');
+  const rootSecret32 = base64UrlDecode(encoded);
+  if (rootSecret32.length !== 32) {
+    rootSecret32.fill(0);
+    throw new Error('SIGNING_SESSION_SEAL_ROOT_SECRET_B64U must decode to exactly 32 bytes');
+  }
+  return rootSecret32;
+}
+
+export function parseSigningSessionSealRootConfig(
+  input: CreateSigningSessionSealOptionsInput,
+): SigningSessionSealShamir3PassRootConfig {
+  const currentKeyVersion = parseKeyVersion(input.currentKeyVersion, 'currentKeyVersion');
+  const acceptedWarmKeyVersions = (input.acceptedWarmKeyVersions ?? [currentKeyVersion]).map(
+    (value, index) => parseKeyVersion(value, `acceptedWarmKeyVersions[${index}]`),
+  );
+  return {
+    kind: 'shamir3pass_root_v2',
+    rootSecret32: parseRootSecret32(input.rootSecretB64u),
+    currentKeyVersion,
+    acceptedWarmKeyVersions,
+    protocol: {
+      algorithm: SIGNING_SESSION_SEAL_ALG,
+      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+    },
+  };
 }
 
 export function createSigningSessionSealOptions(input: CreateSigningSessionSealOptionsInput) {
-  const signingSessionSealKeyVersion = parseSigningSessionSealKeyVersion(input.keyVersion);
-  const keyVersion = formatSigningSessionSealKeyVersionForWire(signingSessionSealKeyVersion);
-  const signingSessionSealShamirPrimeB64u = parseSigningSessionSealShamirPrimeB64u(
-    input.shamirPrimeB64u,
-  );
-  const shamirPrimeB64u = formatSigningSessionSealShamirPrimeB64uForWire(
-    signingSessionSealShamirPrimeB64u,
-  );
-
+  const config = parseSigningSessionSealRootConfig(input);
   return createSigningSessionSealRoutesOptions({
-    cipher: createShamir3PassCipher({
-      signingSessionSealKeyVersion,
-      shamirPrimeB64u: signingSessionSealShamirPrimeB64u,
-      serverEncryptExponentB64u: input.serverEncryptExponentB64u,
-      serverDecryptExponentB64u: input.serverDecryptExponentB64u,
-    }),
+    cipher: createSigningSessionSealShamir3PassCipherAdapter({ config }),
     capabilities: {
       mode: 'sealed_refresh_v1',
-      keyVersion,
-      shamirPrimeB64u,
+      protocol: config.protocol,
+      currentKeyVersion: config.currentKeyVersion,
     },
     logger: console,
   });

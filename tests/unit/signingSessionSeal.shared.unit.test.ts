@@ -19,8 +19,10 @@ test.describe('shared signing-session seal specs', () => {
     const record = seedEmailOtpEcdsaSealedSigningSessionRecord();
 
     expect(record).toMatchObject({
-      v: 1,
-      alg: 'shamir3pass-v1',
+      v: 2,
+      alg: 'shamir3pass-v2',
+      groupId: 'rfc2409-group2',
+      keyVersion: 'signing-session-seal-kek-test-r1',
       storageScope: 'iframe_origin_indexeddb',
       secretKind: 'signing_session_secret32',
     });

@@ -411,14 +411,46 @@ No mixed-topology revision is deployed.
 
 ### Wave 3: Cutover And Delete
 
-- [ ] Run one optimized local Email OTP and one passkey registration.
+- [x] Run one optimized local Email OTP and one passkey registration.
 - [ ] Deploy one coherent staging revision and manually exercise registration,
       unlock/sign, recovery, and export.
+      Deferred by the owner on July 30, 2026. The owner confirmed registration,
+      unlock/sign, recovery, and export apart from NEAR delegate sponsorship;
+      the final coherent-revision acceptance pass remains manual.
 - [x] Confirm the existing timing summary reports zero DO intervals and a
       wallet-ready result within 3 seconds.
-- [ ] Deploy the same revision to production after staging passes.
-- [ ] Delete migration commands, retired bindings/configuration, and fixtures
+- [x] Deploy the same implementation to production. The owner explicitly
+      authorized production rollout while deferring the final manual staging
+      acceptance pass.
+- [x] Delete migration commands, retired bindings/configuration, and fixtures
       whose only purpose was the removed topology.
+
+Deployment record (July 30, 2026):
+
+- staging Gateway: `https://staging.api.seams.sh`, Worker version
+  `6fab660a-200d-4b8d-83c1-03068995af19`;
+- production Gateway: `https://api.seams.sh`, Worker version
+  `92e2f6f2-d23f-491e-91ee-0f274679b3c1`;
+- production Router: version `947ff8de-013d-4547-a8e9-367dc48bf418`, with
+  zero Durable Object bindings;
+- production Deriver A/B: versions
+  `957e412c-14b4-46fb-beb3-55ce2570436c` and
+  `77a55e22-5b6f-4033-bfa6-f01a8b5d3872`, each with zero Durable Object
+  bindings and a separate role-private D1 database;
+- production SigningWorker: version
+  `9024c0f0-bc2c-4484-9785-9167138684ba`, with private D1 and only the
+  ephemeral presign-session Durable Object binding;
+- production frontend workflow: GitHub Actions run `30516830211`;
+- production `/readyz`, `/healthz`, Router ceremony JWKS, `seams.sh`, and
+  `sign.seams.sh` returned HTTP 200 after applying signer D1 migration
+  `0017_signer_router_ab_normal_signing_admission.sql`;
+- the final legacy Gateway Durable Object was deleted with a one-time
+  deployment-boundary migration. The checked-in end state retains no retired
+  Gateway Durable Object binding or migration scaffold.
+- the three production role-private databases were created in APAC, migrated,
+  and encrypted with role-specific KEKs. The recovery copy is stored outside
+  the repository at
+  `~/.seams/backups/refactor94c-production-role-private-d1-20260730.json`.
 
 Exit: local, staging, and production use the same zero-DO implementation.
 
@@ -439,8 +471,14 @@ Required evidence:
       affected by the changed adapters.
 - [ ] `pnpm check`, `cargo test -p router-ab-cloudflare`, and
       `git diff --check` before staging.
+      `cargo test -p router-ab-cloudflare`, SDK typecheck, Rust formatting,
+      Rust lint, signing-architecture checks, and `git diff --check` passed on
+      July 30. The aggregate command remains unchecked: the clean-worktree app
+      typecheck exposed pre-existing seams-site fixture/API drift, and the
+      signer-parity browser runner could not bind localhost port 3600 in the
+      sandbox. Neither failure is in the changed deployment path.
 - [ ] One manual Email OTP and one passkey registration in local, staging, and
-      production.
+      production. Final manual staging acceptance is explicitly deferred.
 
 Integration evidence at `4d8d8741a`:
 
@@ -483,6 +521,28 @@ This evidence accepts staging Email OTP registration latency only. The cold log
 also recorded an asynchronous `/wallets/register/near-provisioning` HTTP 400
 after wallet readiness; deferred NEAR readiness remains part of the open
 staging lifecycle validation above.
+
+### Staging Passkey Latency Evidence — 2026-07-29
+
+Two passkey registrations on the same staging revision established the
+passkey regression baseline:
+
+| Run | Observed wallet-ready time |
+| --- | ---: |
+| Cold | approximately 2–3 seconds |
+| Warm | under 1 second |
+
+These are manually observed bounds because the supplied console excerpt did
+not include the serialized timing-summary total. They are sufficient to guard
+the product-level regression: a future cold passkey registration above 3
+seconds or a warm registration above 1 second requires investigation.
+
+Canonical staging regression reference:
+
+- Email OTP: 2,565 ms cold; 1,189 ms warm.
+- Passkey: approximately 2–3 seconds cold; under 1 second warm.
+- Both methods return the ECDSA-ready wallet before asynchronous NEAR
+  provisioning completes.
 
 ## Performance Acceptance
 

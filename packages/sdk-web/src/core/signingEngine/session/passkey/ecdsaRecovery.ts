@@ -54,7 +54,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   record: PasskeyEcdsaSealedRecoveryRecord;
   purpose: RestorePersistedSessionPurpose & { authMethod: 'passkey' };
   transport: WarmSessionSealTransportInput;
-  shamirPrimeB64u: string;
+  groupId: string;
   rehydrateWarmSessionMaterial: (args: {
     sessionId: string;
     sealedSecretB64u: string;
@@ -77,7 +77,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   }
   const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
   const signingGrantId = String(args.purpose.signingGrantId || '').trim();
-  if (!thresholdSessionId || !signingGrantId || !args.shamirPrimeB64u) {
+  if (!thresholdSessionId || !signingGrantId || !args.groupId) {
     return null;
   }
 
@@ -104,7 +104,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     remainingUses: Math.max(1_000_000, Math.floor(Number(args.record.remainingUses) || 0)),
     transport: {
       ...args.transport,
-      shamirPrimeB64u: args.shamirPrimeB64u,
+      groupId: args.groupId,
     },
   });
   if (!rehydrated.ok) {

@@ -440,7 +440,7 @@ export type EmailOtpEcdsaCapabilityArgs = {
   relayUrl?: string;
   challengeId?: string;
   otpCode: string;
-  shamirPrimeB64u?: string;
+  groupId?: string;
   appSessionJwt?: string;
   registrationAttemptId?: string;
   emailOtpAuthorityEmail?: string;
@@ -737,7 +737,7 @@ export interface RegistrationCapability {
     otpCode: string;
     relayUrl?: string;
     challengeId?: string;
-    shamirPrimeB64u?: string;
+    groupId?: string;
     appSessionJwt?: string;
     clientSecret32?: Uint8Array;
     onEvent?: (event: RegistrationFlowEvent) => void;

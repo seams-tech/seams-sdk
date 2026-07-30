@@ -138,7 +138,7 @@ cross-run artifact inputs.
 | `ROUTER_AB_JWT_ISSUER`                                   | Router A/B deploy | JWT issuer accepted by the Router admission boundary.                          |
 | `ROUTER_AB_JWT_AUDIENCE`                                 | Router A/B deploy | JWT audience accepted by the Router; defaults operationally to `router-ab`.    |
 | `ROUTER_AB_JWT_JWKS_JSON`                                | Router A/B deploy | Public JWKS injected into Router JWT verification.                             |
-| `SPONSORED_EXECUTION_REAL_PRICING_JSON`                  | Gateway deploy    | CoinGecko-backed pricing rules for sponsored NEAR execution.                   |
+| `SPONSORED_EXECUTION_REAL_PRICING_JSON`                  | Gateway deploy    | On-chain Ref Finance NEAR/USDC pricing rules for sponsored execution.          |
 | `CONSOLE_BASE_URL`                                       | Console, Gateway  | Public console URL used in transactional email links.                          |
 | `CONSOLE_EMAIL_FROM`                                     | Gateway deploy    | Resend sender using a verified domain.                                         |
 | `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`           | Router A/B deploy | Public key matching `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`.                     |
@@ -149,8 +149,8 @@ cross-run artifact inputs.
 | `VITE_RELAYER_URL`                                       | Pages build       | Public Gateway base URL; historical env var name.                              |
 | `VITE_CONSOLE_BASE_URL`                                  | Pages build       | Optional console API base URL; defaults in app code when unset.                |
 | `VITE_RELAYER_ACCOUNT_ID`                                | Pages build       | Parent NEAR account used for account creation.                                 |
-| `VITE_SEAMS_PROJECT_ENVIRONMENT_ID`                      | Pages build       | Project-environment id for managed registration and sponsored actions.         |
-| `VITE_SEAMS_PUBLISHABLE_KEY`                             | Pages build       | Publishable key for browser-managed Gateway calls.                             |
+| `VITE_SEAMS_PROJECT_ENVIRONMENT_ID`                      | Pages build       | Administrator-created project-environment id for managed registration.         |
+| `VITE_SEAMS_PUBLISHABLE_KEY`                             | Pages build       | Administrator-created browser-safe publishable key.                            |
 | `VITE_WALLET_ORIGIN`                                     | Pages build       | Wallet origin. Must match CORS and WebAuthn RP configuration.                  |
 | `VITE_WALLET_SERVICE_PATH`                               | Pages build       | Wallet service path; defaults to `/wallet-service` when unset.                 |
 | `VITE_SDK_BASE_PATH`                                     | Pages build       | SDK asset path; defaults to `/sdk` when unset.                                 |
@@ -165,17 +165,19 @@ cross-run artifact inputs.
 | `VITE_ARC_RPC_URL`                                       | Pages build       | Optional Arc RPC URL.                                                          |
 | `VITE_ARC_EXPLORER`                                      | Pages build       | Optional Arc explorer URL.                                                     |
 | `VITE_SIGNING_SESSION_PERSISTENCE_MODE`                  | Pages build       | Set when enabling sealed-refresh client flows.                                 |
-| `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`                  | Pages build       | Must match the active Gateway seal key version when sealed-refresh is enabled. |
-| `VITE_SIGNING_SESSION_SHAMIR_P_B64U`                     | Pages build       | Public Shamir prime value for sealed-refresh clients.                          |
 | `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`                | Pages build       | Exact SigningWorker id bound into Router A/B warm signing sessions.            |
 | `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED`                  | Pages build       | Optional dashboard route gate.                                                 |
 
-The Gateway GitHub Environment has one required non-secret deployment variable:
-`GATEWAY_DEPLOYMENT_CONFIG_JSON`. Its versioned document contains D1 and
-Secrets Store resource IDs, tenant identity, origins, Router A/B public
-identity, session settings, bootstrap metadata, and optional integration
-configuration. The deployment renderer validates this document once and emits
-the individual Worker bindings expected by the runtime.
+`deployment/targets.json` owns the non-secret Gateway configuration: D1 and
+Secrets Store resource IDs, runtime tenant identity, origins, Router A/B public
+identity, session settings, and optional integration configuration. The
+deployment target parser validates this document once and the renderer emits
+the individual Worker bindings expected by the runtime. Tenant identifiers are
+configuration only; deployment creates no tenant rows.
+
+The browser discovers the public signing-session seal protocol from the
+Gateway capability response. Shamir key rotation does not require Pages build
+variables or a frontend rebuild.
 
 Refactor 93 uses partitioned D1 and the MPC Router immediately. Gateway
 configuration has no Yao family cutoff or drain variables. Remove any retired
@@ -183,13 +185,13 @@ configuration has no Yao family cutoff or drain variables. Remove any retired
 `ROUTER_AB_YAO_GATEWAY_*_DRAIN_UNTIL_MS` values from the staging and production
 GitHub Environments; the deployment does not read them.
 
-Gateway cryptographic values and external credentials remain separate GitHub
-secrets. This preserves GitHub secret masking and allows credential rotation
-without rewriting public deployment configuration.
+Gateway private cryptographic values and external credentials remain GitHub
+secrets. Public keys and deployment metadata are reviewed with normal code
+changes in `deployment/targets.json`.
 
-Use names such as `seams-console-staging` and `seams-signer-staging` for
-staging. Production uses `seams-console` and `seams-signer` with different D1
-IDs. The renderer rejects equal console/signer IDs within an environment.
+Staging uses `seams-console-staging-nrt` and `seams-signer-staging-nrt`.
+Production uses `seams-console` and `seams-signer` with different D1 IDs. The
+renderer rejects equal console/signer IDs within an environment.
 
 ## Cloudflare Pages
 
@@ -255,12 +257,12 @@ Use these templates to fill each GitHub Environment:
 
 Role-specific configuration:
 
-| Role          | Wrangler config                                            | GitHub Environment vars                                                                                                                               | GitHub Environment secrets                                                                              |
-| ------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Role          | Wrangler config                                            | GitHub Environment vars                                                                                                                                | GitHub Environment secrets                                                                              |
+| ------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | Router        | `crates/router-ab-cloudflare/wrangler.router.toml`         | `ROUTER_AB_JWT_ISSUER`, `ROUTER_AB_JWT_AUDIENCE`, `ROUTER_AB_JWT_JWKS_JSON`, `ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON`, all Router A/B public key vars | `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`                                                                |
-| Deriver A     | `crates/router-ab-cloudflare/wrangler.deriver-a.toml`      | `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX`            | `DERIVER_A_ROOT_SHARE_WIRE_SECRET`, `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_A_PEER_SIGNING_KEY` |
-| Deriver B     | `crates/router-ab-cloudflare/wrangler.deriver-b.toml`      | `ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX`            | `DERIVER_B_ROOT_SHARE_WIRE_SECRET`, `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_B_PEER_SIGNING_KEY` |
-| SigningWorker | `crates/router-ab-cloudflare/wrangler.signing-worker.toml` | `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY`                                                                                              | `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`                                                         |
+| Deriver A     | `crates/router-ab-cloudflare/wrangler.deriver-a.toml`      | `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX`             | `DERIVER_A_ROOT_SHARE_WIRE_SECRET`, `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_A_PEER_SIGNING_KEY` |
+| Deriver B     | `crates/router-ab-cloudflare/wrangler.deriver-b.toml`      | `ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX`             | `DERIVER_B_ROOT_SHARE_WIRE_SECRET`, `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_B_PEER_SIGNING_KEY` |
+| SigningWorker | `crates/router-ab-cloudflare/wrangler.signing-worker.toml` | `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY`                                                                                               | `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`                                                         |
 
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are required for every
 `wrangler deploy`, secret operation, and diagnostic `wrangler versions upload`.

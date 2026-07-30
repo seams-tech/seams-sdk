@@ -28,7 +28,7 @@ import { SigningSessionIds } from '../operationState/types';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from './persistedSnapshot';
 import { ecdsaBootstrapWithSigningGrantId } from './routePlan';
 import { requestSealEmailOtpWarmSessionMaterial } from './workerRequests';
-import { formatSigningSessionSealKeyVersionForWire } from '../keyMaterialBrands';
+import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   buildEvmFamilyEcdsaWalletKey,
@@ -387,7 +387,7 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
     runtimePolicyScope: ThresholdRuntimePolicyScope;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
     relayerUrl: string;
-    shamirPrimeB64u: string;
+    groupId: string;
   },
   ports: EmailOtpEcdsaPublicationPorts,
 ): Promise<{
@@ -487,7 +487,7 @@ async function commitEmailOtpEcdsaPublicationLane(
       runtimePolicyScope: context.args.runtimePolicyScope,
       emailOtpAuthContext: context.args.emailOtpAuthContext,
       relayerUrl: context.args.relayerUrl,
-      shamirPrimeB64u: context.args.shamirPrimeB64u,
+      groupId: context.args.groupId,
     },
     context.ports,
   );
@@ -503,7 +503,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     runtimePolicyScope: ThresholdRuntimePolicyScope;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
     relayerUrl: string;
-    shamirPrimeB64u: string;
+    groupId: string;
   },
   ports: EmailOtpEcdsaPublicationPorts,
 ): Promise<EmailOtpEcdsaPublicationTimings> {
@@ -523,10 +523,11 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   ).trim();
   const signingGrantId = String(session?.signingGrantId || keyRef.signingGrantId || '').trim();
   const relayerUrl = String(args.relayerUrl || keyRef.relayerUrl || '').trim();
-  const shamirPrimeB64u = String(
-    args.shamirPrimeB64u || ports.configs.signing.sessionSeal?.shamirPrimeB64u || '',
-  ).trim();
-  if (!thresholdSessionId || !signingGrantId || !relayerUrl || !shamirPrimeB64u) {
+  if (args.groupId && args.groupId !== SIGNING_SESSION_SEAL_GROUP_ID) {
+    throw new Error('Email OTP sealed refresh received an unsupported Shamir group');
+  }
+  const groupId = SIGNING_SESSION_SEAL_GROUP_ID;
+  if (!thresholdSessionId || !signingGrantId || !relayerUrl) {
     throw new Error('Email OTP sealed refresh is missing threshold-session persistence metadata');
   }
   const readyPersistenceInput = buildEmailOtpEcdsaReadyPersistInput({
@@ -542,11 +543,6 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
   const signingRootId = String(signingRootScope?.signingRootId || '').trim();
   const signingRootVersion = String(signingRootScope?.signingRootVersion || '').trim();
-  const keyVersion = ports.configs.signing.sessionSeal?.signingSessionSealKeyVersion
-    ? formatSigningSessionSealKeyVersionForWire(
-        ports.configs.signing.sessionSeal.signingSessionSealKeyVersion,
-      )
-    : '';
   const evmFamilySigningKeySlotId = String(
     args.bootstrap.keygen.evmFamilySigningKeySlotId || '',
   ).trim();
@@ -639,13 +635,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     transport: {
       relayerUrl,
       ...(walletSessionJwt ? { walletSessionJwt } : {}),
-      ...(ports.configs.signing.sessionSeal?.signingSessionSealKeyVersion
-        ? {
-            signingSessionSealKeyVersion:
-              ports.configs.signing.sessionSeal.signingSessionSealKeyVersion,
-          }
-        : {}),
-      shamirPrimeB64u,
+      groupId,
     },
   }).catch((error) => {
     const message = error instanceof Error ? error.message : String(error || 'unknown error');
@@ -665,6 +655,10 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   if (!sealedSecretB64u || expiresAtMs <= 0 || remainingUses < 0) {
     throw new Error('Email OTP sealed refresh seal returned invalid persistence metadata');
   }
+  const sealKeyVersion = String(sealed.keyVersion || '').trim();
+  if (!sealKeyVersion) {
+    throw new Error('Email OTP sealed refresh seal returned no key version');
+  }
   const persistedAtMs = Date.now();
 
   const sealedRecordBase = {
@@ -676,10 +670,8 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     thresholdSessionIds: { ecdsa: readyPersistenceInput.thresholdSessionId },
     walletId: String(args.walletId || '').trim(),
     relayerUrl,
-    ...(String(sealed.keyVersion || keyVersion).trim()
-      ? { keyVersion: String(sealed.keyVersion || keyVersion).trim() }
-      : {}),
-    shamirPrimeB64u,
+    keyVersion: sealKeyVersion,
+    groupId,
     issuedAtMs: persistedAtMs,
     expiresAtMs,
     remainingUses,

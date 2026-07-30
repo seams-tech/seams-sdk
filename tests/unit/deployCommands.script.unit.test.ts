@@ -18,10 +18,7 @@ const deploymentSecretNames = [
   'STRIPE_API_SK',
   'RELAYER_PRIVATE_KEY',
   'SPONSORED_EVM_EXECUTORS_JSON',
-  'SIGNING_SESSION_SEAL_KEY_VERSION',
-  'SIGNING_SESSION_SHAMIR_P_B64U',
-  'SIGNING_SESSION_SEAL_E_S_B64U',
-  'SIGNING_SESSION_SEAL_D_S_B64U',
+  'SIGNING_SESSION_SEAL_ROOT_SECRET_B64U',
 ];
 function runCommand(
   script: string,
@@ -73,6 +70,7 @@ test('backend plan runs without deployment secrets and prints the complete lane 
 
   expect(result.status).toBe(0);
   expect(result.stdout).not.toContain('plan-secret-value');
+  expect(result.stdout).not.toContain('bootstrap Gateway tenant');
   expectOrdered(result.stdout, [
     'build',
     'preflight',

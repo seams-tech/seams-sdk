@@ -1,8 +1,19 @@
-# Refactor 93: MPC Router-Owned Ed25519 Yao Ceremony Coordination
+# Refactor 93: Stateless MPC Router And Role-Isolated Signing Coordination
 
 Date created: July 24, 2026
 
-Status: in progress
+Status: in progress — Router cutover complete; Durable Object removal pending
+
+Architecture amendment (July 28, 2026):
+[`refactor-94C-regression-fixes.md`](./refactor-94C-regression-fixes.md) is the
+authoritative plan for removing Router, Deriver, and SigningWorker Durable
+Objects. Completed DO-backed phases below remain implementation history until
+94C replaces and deletes those adapters. Any statement below that preserves a
+role-local Durable Object as the final topology is superseded by 94C. Refactor
+94C is also authoritative for current NEAR registration semantics: registration
+provisions an Ed25519 keypair and implicit account projection only. Historical
+named-account transaction preparation, broadcast, gas, and reconciliation
+steps below are no longer supported registration behavior.
 
 ## Objective
 
@@ -12,11 +23,17 @@ into the Rust MPC Router. Replace the serial Gateway-driven
 sequence with one authenticated Gateway-to-Router execution request and one
 connected Router-owned execution path.
 
+Finish the refactor by removing Durable Objects from registration and ordinary
+signing. The Router and role Workers become stateless request processors around
+role-private, transactionally updated databases. Service Bindings retain the
+deployment and custody boundaries without multiplying stateful object
+transitions.
+
 The refactor must reduce production passkey registration latency while
 preserving:
 
 - independent Deriver A and Deriver B secret custody;
-- role-local one-use state and replay protection;
+- role-local one-use state and replay protection through transactional claims;
 - exact A/B input-pair binding;
 - forward-only output commitment;
 - atomic SigningWorker package delivery;
@@ -27,12 +44,12 @@ The target product latency after the platform passkey prompt completes is
 
 ## Decision Summary
 
-1. The MPC Router Worker is the execution coordinator.
-2. Role-local one-use Durable Objects are the sole coordination authority.
-   Deriver A's `Prepared -> Running` transition is the execution lock. No
-   ceremony-wide Router ledger exists.
-3. Deriver A and Deriver B retain separate role-local Durable Objects and
-   separate secret bindings.
+1. The MPC Router Worker is a stateless execution coordinator.
+2. The Gateway database is the sole product-operation authority for admission,
+   exact replay, and terminal product results.
+3. Deriver A and Deriver B retain separate secret bindings and separate private
+   databases. Each role database is the sole authority for that role's one-use
+   lifecycle.
 4. The Router dispatches A and B preparation concurrently, awaits both signed
    readiness receipts, then dispatches execution and owns the connected
    request chain through terminal output.
@@ -48,7 +65,13 @@ The target product latency after the platform passkey prompt completes is
 9. The Gateway does not call Deriver A, Deriver B, or SigningWorker directly.
 10. The direct Stage, Start, Result, and SigningWorker orchestration paths are
     deleted.
-11. No feature flag, legacy orchestration mode, selector, or compatibility
+11. Registration and ordinary signing execute without Durable Object calls.
+12. Each lifecycle participant performs at most one transactional claim and
+    one transactional terminal update. Multi-record state changes use one
+    database batch.
+13. A role Worker may cache immutable epoch metadata in its isolate. Cache
+    state never participates in correctness or authorization.
+14. No feature flag, legacy orchestration mode, selector, or compatibility
     branch exists.
 
 ## Review Resolutions
@@ -65,16 +88,26 @@ Cloudflare may schedule preparation and execution on different isolates.
 Correctness depends on durable prepared records and signed receipts. It never
 depends on isolate reuse or an in-memory cache.
 
-### No Ceremony-Wide Ledger In V1
+### One Authority Per Lifecycle
 
-Role-local A/B Durable Objects are sufficient for mutual exclusion, pair
-conflict detection, expiry, terminal redelivery, and reconciliation. Adding a
-third lifecycle ledger would duplicate authority and add storage transitions
-to the latency-sensitive path.
+The Gateway database owns the product operation. Each role-private database
+owns that role's one-use cryptographic lifecycle. The SigningWorker database
+owns activation, signing material, presign reservations, and signing budgets.
+The Router owns no mutable lifecycle state.
 
-A ceremony-wide ledger may be reconsidered only when a demonstrated
-correctness requirement cannot be represented by the role-local lifecycle.
-It cannot be added as a convenience cache.
+Adding another ledger or Durable Object would duplicate authority and add a
+stateful transition to the latency-sensitive path. A new coordinator is
+permitted only when a demonstrated ordering requirement cannot be represented
+with a conditional database transition. It cannot be added as a cache,
+admission proxy, policy holder, quota holder, or replay layer.
+
+### Stateless Worker Semantics
+
+Router, Deriver, and SigningWorker isolates may reuse parsed public metadata,
+verified immutable policy, compiled WebAssembly, and public-key material.
+Every request remains correct after isolate eviction. Mutable lifecycle,
+authorization, replay, budget, activation, and output-delivery facts are read
+or updated through the owning private database.
 
 ### Disconnect Policy
 
@@ -110,6 +143,9 @@ construction.
   authoritative for capability and authorization lifecycle.
 - [Refactor 92](./refactor-92-session-expiry-handling.md) remains authoritative
   for Wallet Session expiry and step-up behavior.
+- [Refactor 94C](./refactor-94C-regression-fixes.md) is authoritative for the
+  stateless Router and role-Worker topology, role-private transactional
+  databases, and Durable Object deletion.
 
 If this plan conflicts with a cryptographic or role-isolation invariant in the
 Yao implementation plan, the Yao plan wins and Refactor 93 must be revised.
@@ -162,6 +198,11 @@ This refactor owns:
 - Gateway cutover to one `MPC_ROUTER` request;
 - deletion of direct Gateway-to-Deriver and Gateway-to-SigningWorker Yao
   orchestration;
+- deletion of Router, Deriver, and SigningWorker Durable Object authorities;
+- separate role-private transactional databases and binding isolation;
+- transactional one-use claims, terminal redelivery, activation, session, and
+  budget updates;
+- zero Durable Object calls on registration and ordinary signing;
 - lifecycle timing spans for focused diagnosis;
 - local Router A/B dev parity.
 
@@ -172,12 +213,10 @@ This refactor does not:
 - merge A and B into one administrative or secret-custody domain;
 - move either role root share into the Router;
 - allow the Router to decrypt either role input or recipient output;
-- remove role-local one-use Durable Objects;
 - store the binary garbled stream in a Durable Object;
 - hold a Durable Object active across the network stream;
 - change normal Ed25519 signing after activation;
 - change Wallet Session budget or expiry policy;
-- use D1 as a ceremony coordinator;
 - introduce preprocessing or reusable garbled material.
 
 ## Required Invariants
@@ -205,18 +244,17 @@ This refactor does not:
    pair digest, session, circuit, operation, and peer identity.
 9. A missing or mismatched B preparation fails closed and identifies a Router
    coordinator defect. The execution path contains no coordination retry loop.
-10. A and B independently enforce one-use execution in their own Durable
-    Object namespaces.
+10. A and B independently enforce one-use execution through conditional
+    transactions in separate role-private databases.
 11. `Running` never returns to `Prepared`.
 12. Ambiguity after either role enters `Running` burns that execution identity.
 13. `Completed` permits exact encrypted-result redelivery only.
 14. A retry never reruns cryptography for a completed or ambiguous execution.
-15. Role-local Durable Objects remain the owners of exact encrypted package
-    redelivery state required by the Yao plan.
+15. Role-private databases own exact encrypted package redelivery state
+    required by the Yao plan.
 16. Role lifecycle records store the pair digest and role-local digest. They
     do not duplicate the full pair-binding structure.
-17. `blockConcurrencyWhile` cannot enclose a fetch, WebSocket, Yao execution,
-    SigningWorker call, timer, or polling loop.
+17. Registration and ordinary signing perform no Durable Object calls.
 18. The connected Router Worker request owns network wall time.
 19. A caller disconnect after either role enters `Running` burns the activated
     execution as required by the Yao implementation plan. If both roles had
@@ -237,25 +275,40 @@ This refactor does not:
     and receipt signature verification rejects a configured peer-key identity
     mismatch. Secret-binding-name rotation is not represented in this digest
     and remains a deployment-contract gate.
+27. The Router has no mutable persistence binding and performs no database
+    reads or writes.
+28. Gateway, Deriver A, Deriver B, and SigningWorker databases are separate
+    bindings. A component cannot read another role's private state.
+29. Each lifecycle participant performs at most one claim transaction and one
+    terminal transaction per logical operation. Exact replay returns the
+    stored terminal result without rerunning cryptography or network effects.
+30. Root-share records are application-encrypted with role-owned custody
+    material. Plaintext shares exist only inside the owning role Worker.
+31. Database placement and schema configuration are fixed deployment inputs,
+    not request-time routing decisions.
 
 ## Target Architecture
 
 ```mermaid
 flowchart LR
     C["Client / wallet iframe"] --> G["D1 Gateway"]
-    G -->|"one admitted execution request"| R["MPC Router Worker"]
-    R -->|"A prepare, then execute"| A["Deriver A Worker"]
-    R -->|"B prepare, then completed read"| B["Deriver B Worker"]
-    A --> AD["A role-local session DO"]
-    B --> BD["B role-local session DO"]
+    G -->|"claim and terminal commit"| GD["Gateway private D1"]
+    G -->|"one admitted execution request"| R["Stateless MPC Router Worker"]
+    R -->|"Service Binding"| A["Stateless Deriver A Worker"]
+    R -->|"Service Binding"| B["Stateless Deriver B Worker"]
+    A --> AD["Deriver A private D1"]
+    B --> BD["Deriver B private D1"]
     A <-->|"authenticated Yao WebSocket"| B
-    R -->|"atomic encrypted package pair"| SW["SigningWorker"]
+    R -->|"atomic encrypted package pair"| SW["Stateless SigningWorker"]
+    SW --> SD["SigningWorker private D1"]
     R -->|"canonical public/encrypted result"| G
     G --> C
 ```
 
-The Router Worker coordinates execution. The independent role-local Durable
-Objects serialize one-use state and support exact status recovery.
+The Router coordinates one connected execution without mutable persistence.
+Independent role-private databases enforce one-use state and exact status
+recovery with conditional transactions. The diagram contains no Durable
+Object because registration and ordinary signing cannot invoke one.
 
 ## Component Responsibilities
 
@@ -268,6 +321,10 @@ The Gateway continues to own:
 - D1 wallet and account records;
 - product admission facts passed to the channel-authenticated Router request;
 - persistence of the final verified product result.
+
+Its private database is the sole authority for the product operation. One
+claim transaction precedes remote effects, and one terminal transaction stores
+the canonical result. Exact retry reads that result through the same boundary.
 
 The Gateway sends one typed request through its existing `MPC_ROUTER` Service
 Binding. It receives one typed result and performs no role scheduling.
@@ -288,7 +345,8 @@ The Router owns:
 - canonical response composition.
 
 The Router keeps the original request chain connected until terminal output.
-It does not persist secrets.
+It has no database or Durable Object binding and does not persist secrets,
+policy, replay, lifecycle, quota, budget, or terminal output.
 
 ### Deriver A And Deriver B
 
@@ -303,6 +361,12 @@ Each Deriver:
 - persists exact encrypted output before release;
 - returns its signed public receipt and opaque recipient packages.
 
+Each Deriver receives only its own private database binding. The database
+stores application-encrypted root-share records and role lifecycle rows. A
+conditional claim moves the exact pair from `Prepared` to `Running`; a
+conditional terminal update stores `Completed` or `Burned`. The Worker holds no
+mutable state between requests.
+
 The selected transport and separate deployment identities remain unchanged.
 
 ### SigningWorker
@@ -314,6 +378,11 @@ The SigningWorker continues to:
 - activate registration output or stage recovery output;
 - return the canonical activation or staging receipt;
 - support exact idempotent redelivery.
+
+Its private database stores activation, encrypted signing material, presign
+reservations, session budgets, and exact delivery results. Related changes
+commit in one transaction. No separate output, session, or budget coordinator
+exists.
 
 ## Domain Model
 

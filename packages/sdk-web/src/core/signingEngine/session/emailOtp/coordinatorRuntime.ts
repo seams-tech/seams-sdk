@@ -93,7 +93,7 @@ export class EmailOtpWalletSessionRuntime {
     this.exportRecoveryRuntime = new EmailOtpExportRecoveryRuntime({
       getSignerWorkerContext: deps.getSignerWorkerContext,
       requireRelayUrl: () => this.runtimeConfig.requireRelayUrl(),
-      requireShamirPrimeB64u: () => this.runtimeConfig.requireShamirPrimeB64u(),
+      requireSigningSessionSealGroupId: () => this.runtimeConfig.requireSigningSessionSealGroupId(),
       prepareEcdsaExportCapability: (request) =>
         this.ecdsaLifecycleRuntime.prepareEcdsaExportCapability(request),
     });

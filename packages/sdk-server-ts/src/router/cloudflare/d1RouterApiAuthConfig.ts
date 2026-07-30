@@ -11,11 +11,9 @@ import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAb
 import type { RouterAbEcdsaStrictRegistrationPort } from '../routerAbEcdsaStrictRegistration';
 import type { RouterAbWalletBudgetGrantProvisionerV1 } from '../routerAbPrivateSigningWorker';
 import {
-  formatSigningSessionSealKeyVersionForWire,
-  formatSigningSessionSealShamirPrimeB64uForWire,
-  parseSigningSessionSealKeyVersion,
-  parseSigningSessionSealShamirPrimeB64u,
-} from '../../core/keyMaterialBrands';
+  parseSigningSessionSealRootConfig,
+  type SigningSessionSealShamir3PassRootConfig,
+} from '../../threshold/session/signingSessionSeal';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import {
   normalizeOidcExchangeConfig,
@@ -48,10 +46,9 @@ export interface CloudflareD1EmailOtpDeliveryProvider {
 }
 
 export type CloudflareD1EmailOtpServerSealConfig = {
-  readonly keyVersion: string;
-  readonly shamirPrimeB64u: string;
-  readonly serverEncryptExponentB64u: string;
-  readonly serverDecryptExponentB64u: string;
+  readonly rootSecretB64u: string;
+  readonly currentKeyVersion: string;
+  readonly acceptedWarmKeyVersions?: readonly string[];
 };
 
 export interface CloudflareD1RouterApiAuthServiceOptions {
@@ -142,10 +139,7 @@ export type EmailOtpRateLimitPolicy = {
 export type EmailOtpServerSealRuntimeConfig =
   | {
       readonly configured: true;
-      readonly keyVersion: string;
-      readonly shamirPrimeB64u: string;
-      readonly serverEncryptExponentB64u: string;
-      readonly serverDecryptExponentB64u: string;
+      readonly rootConfig: SigningSessionSealShamir3PassRootConfig;
     }
   | {
       readonly configured: false;
@@ -543,8 +537,7 @@ function normalizeEmailOtpConfig(
 function missingEmailOtpServerSealConfig(): EmailOtpServerSealRuntimeConfig {
   return {
     configured: false,
-    message:
-      'Email OTP server seal requires emailOtpServerSeal.keyVersion, emailOtpServerSeal.shamirPrimeB64u, emailOtpServerSeal.serverEncryptExponentB64u, and emailOtpServerSeal.serverDecryptExponentB64u',
+    message: 'Email OTP server seal requires emailOtpServerSeal.rootSecretB64u and currentKeyVersion',
   };
 }
 
@@ -553,31 +546,19 @@ function normalizeEmailOtpServerSealConfig(
 ): EmailOtpServerSealRuntimeConfig {
   const raw = input.emailOtpServerSeal;
   if (!raw) return missingEmailOtpServerSealConfig();
-  const keyVersionRaw = toOptionalTrimmedString(raw.keyVersion);
-  const shamirPrimeRaw = toOptionalTrimmedString(raw.shamirPrimeB64u);
-  const serverEncryptExponentB64u = toOptionalTrimmedString(raw.serverEncryptExponentB64u);
-  const serverDecryptExponentB64u = toOptionalTrimmedString(raw.serverDecryptExponentB64u);
-  if (
-    !keyVersionRaw ||
-    !shamirPrimeRaw ||
-    !serverEncryptExponentB64u ||
-    !serverDecryptExponentB64u
-  ) {
+  const rootSecretB64u = toOptionalTrimmedString(raw.rootSecretB64u);
+  const currentKeyVersion = toOptionalTrimmedString(raw.currentKeyVersion);
+  if (!rootSecretB64u || !currentKeyVersion) {
     return missingEmailOtpServerSealConfig();
   }
   try {
-    const keyVersion = formatSigningSessionSealKeyVersionForWire(
-      parseSigningSessionSealKeyVersion(keyVersionRaw),
-    );
-    const shamirPrimeB64u = formatSigningSessionSealShamirPrimeB64uForWire(
-      parseSigningSessionSealShamirPrimeB64u(shamirPrimeRaw),
-    );
     return {
       configured: true,
-      keyVersion,
-      shamirPrimeB64u,
-      serverEncryptExponentB64u,
-      serverDecryptExponentB64u,
+      rootConfig: parseSigningSessionSealRootConfig({
+        rootSecretB64u,
+        currentKeyVersion,
+        acceptedWarmKeyVersions: raw.acceptedWarmKeyVersions,
+      }),
     };
   } catch (error: unknown) {
     return {

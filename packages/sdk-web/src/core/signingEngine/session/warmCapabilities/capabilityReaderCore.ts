@@ -34,7 +34,6 @@ import {
 } from './readModel';
 import { assertWarmSessionEnvelopeInvariant } from './types';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import { warmClaimFromRecordPolicy } from '../availability/readiness';
 import type {
   WarmSessionEcdsaCapabilityState,
@@ -48,14 +47,12 @@ import type { AccountId } from '@/core/types/accountIds';
 
 export type WarmSessionCapabilityReaderSealConfigured = {
   seal: 'configured';
-  signingSessionSealKeyVersion: SigningSessionSealKeyVersion;
-  shamirPrimeB64u: string;
+  groupId: string;
 };
 
 export type WarmSessionCapabilityReaderSealUnavailable = {
   seal: 'unconfigured';
-  signingSessionSealKeyVersion?: never;
-  shamirPrimeB64u?: never;
+  groupId?: never;
 };
 
 export type WarmSessionCapabilityReaderSeal =
@@ -514,13 +511,11 @@ export function createWarmSessionCapabilityReaderCore(
   }
 
   function ecdsaSealConfig(): {
-    signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-    shamirPrimeB64u: string;
+    groupId: string;
   } {
-    if (deps.signingSessionSeal.seal !== 'configured') return { shamirPrimeB64u: '' };
+    if (deps.signingSessionSeal.seal !== 'configured') return { groupId: '' };
     return {
-      signingSessionSealKeyVersion: deps.signingSessionSeal.signingSessionSealKeyVersion,
-      shamirPrimeB64u: String(deps.signingSessionSeal.shamirPrimeB64u || '').trim(),
+      groupId: String(deps.signingSessionSeal.groupId || '').trim(),
     };
   }
 
@@ -540,10 +535,7 @@ export function createWarmSessionCapabilityReaderCore(
     return resolveEcdsaSealTransport({
       runtime: resolution.runtime,
       auth: args.authorization,
-      ...(seal.signingSessionSealKeyVersion
-        ? { signingSessionSealKeyVersion: seal.signingSessionSealKeyVersion }
-        : {}),
-      shamirPrimeB64u: seal.shamirPrimeB64u,
+      groupId: seal.groupId,
     });
   }
 

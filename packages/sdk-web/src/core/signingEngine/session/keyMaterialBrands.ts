@@ -39,7 +39,6 @@ export type EcdsaRoleLocalWorkerHandle = {
   readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
 };
 export type EcdsaClientAdditiveShareHandle = Brand<string, 'EcdsaClientAdditiveShareHandle'>;
-export type SigningSessionSealShamirPrimeB64u = Brand<string, 'SigningSessionSealShamirPrimeB64u'>;
 
 function parseNonEmptyBrand<T extends string>(value: unknown, label: string): Brand<string, T> {
   const normalized = String(value ?? '').trim();
@@ -195,14 +194,6 @@ export function parseEcdsaClientAdditiveShareHandle(
   );
 }
 
-export function parseSigningSessionSealShamirPrimeB64u(
-  value: unknown,
-): SigningSessionSealShamirPrimeB64u {
-  return parseNonEmptyBrand<'SigningSessionSealShamirPrimeB64u'>(
-    value,
-    'signing-session seal Shamir prime',
-  );
-}
 
 export function formatEd25519KeyVersionForWire(value: Ed25519KeyVersion): string {
   return value;
@@ -248,12 +239,6 @@ export function formatEcdsaKeyHandleForWire(value: EcdsaKeyHandle): string {
 
 export function formatEcdsaClientAdditiveShareHandleForWire(
   value: EcdsaClientAdditiveShareHandle,
-): string {
-  return value;
-}
-
-export function formatSigningSessionSealShamirPrimeB64uForWire(
-  value: SigningSessionSealShamirPrimeB64u,
 ): string {
   return value;
 }

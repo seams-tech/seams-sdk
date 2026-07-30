@@ -25,13 +25,11 @@ import {
   type SigningSessionSealKeyVersion,
 } from '../session/keyMaterialBrands';
 import { BUILD_PATHS } from '../../../../build-paths';
-import { toAccountId } from '../../types/accountIds';
 import { resolveWorkerUrl } from '../../walletRuntimePaths';
 import {
   acquireSigningSessionRestoreLease,
   buildCurrentSealedSessionRecord,
   deleteDurableSealedSessionRecord as deleteDurableSealedSessionRecordFromStore,
-  deleteExactSealedSession,
   listExactSealedSessionsForWallet,
   readExactSealedSession,
   releaseSigningSessionRestoreLease,
@@ -58,7 +56,6 @@ import {
   emailOtpAuthContextProvider,
   emailOtpAuthContextProviderUserId,
 } from '../session/identity/laneIdentity';
-import { normalizeThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import {
   UserConfirmMessageType,
   UserConfirmationType,
@@ -119,10 +116,12 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
-  ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionStoreSource,
 } from '../session/identity/laneIdentity';
-import type { SealedSigningSessionWalletSessionAuth } from '@shared/utils/signingSessionSeal';
+import {
+  SIGNING_SESSION_SEAL_GROUP_ID,
+  type SealedSigningSessionWalletSessionAuth,
+} from '@shared/utils/signingSessionSeal';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
   WarmSessionMaterialWriteDiagnosticBucket,
@@ -424,21 +423,6 @@ function sealedAuthMethodForThresholdEd25519Source(
     case 'add-signer':
     case 'manual-connect':
     case 'bootstrap':
-      return SIGNER_AUTH_METHODS.passkey;
-    default:
-      return assertNever(source);
-  }
-}
-
-function sealedAuthMethodForThresholdEcdsaSource(
-  source: ThresholdEcdsaSessionStoreSource,
-): SigningSessionSealAuthMethod {
-  switch (source) {
-    case 'email_otp':
-      return SIGNER_AUTH_METHODS.emailOtp;
-    case 'login':
-    case 'registration':
-    case 'manual-bootstrap':
       return SIGNER_AUTH_METHODS.passkey;
     default:
       return assertNever(source);
@@ -923,7 +907,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         walletId,
         relayerUrl,
         keyVersion: existing.keyVersion,
-        shamirPrimeB64u: existing.shamirPrimeB64u,
+        groupId: existing.groupId,
         ecdsaRestore: refreshedMetadata.ecdsaRestore,
         ...(refreshedMetadata.ed25519Restore
           ? { ed25519Restore: refreshedMetadata.ed25519Restore }
@@ -957,7 +941,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           : {}),
         relayerUrl,
         keyVersion: existing.keyVersion,
-        shamirPrimeB64u: existing.shamirPrimeB64u,
+        groupId: existing.groupId,
         ...(refreshedMetadata.ecdsaRestore ? { ecdsaRestore: refreshedMetadata.ecdsaRestore } : {}),
         ed25519Restore: refreshedMetadata.ed25519Restore,
         issuedAtMs: existing.issuedAtMs,
@@ -1196,10 +1180,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       sealedRecord?.keyVersion,
       this.config.signingSessionSealKeyVersion,
     ]);
-    const shamirPrimeB64u = String(
-      explicitTransport?.shamirPrimeB64u ||
-        sealedRecord?.shamirPrimeB64u ||
-        this.config.signingSessionSealShamirPrimeB64u ||
+    const groupId = String(
+      explicitTransport?.groupId ||
+        sealedRecord?.groupId ||
+        this.config.signingSessionSealGroupId ||
         '',
     ).trim();
     if (curve === 'ecdsa') {
@@ -1216,7 +1200,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         relayerUrl,
         ...(signingGrantId ? { signingGrantId } : {}),
         ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
-        ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
+        ...(groupId ? { groupId } : {}),
       };
       if (authMethod === 'email_otp') {
         if (!walletSessionJwt) return null;
@@ -1251,7 +1235,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       relayerUrl,
       ...(signingGrantId ? { signingGrantId } : {}),
       ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
-      ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
+      ...(groupId ? { groupId } : {}),
     } as const;
     if (authMethod === 'email_otp') {
       if (!walletSessionJwt) return null;
@@ -1402,18 +1386,18 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             chainTarget,
             relayerUrl: passkeyRecord.relayerUrl,
             signingGrantId: args.purpose.signingGrantId,
-            signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(passkeyRecord.keyVersion),
-            shamirPrimeB64u: passkeyRecord.shamirPrimeB64u,
+            signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(args.record.keyVersion),
+            groupId: args.record.groupId,
             ...(walletSessionJwt ? { walletSessionJwt } : {}),
             ecdsaRestore,
           },
           null,
         );
         if (!transport) return null;
-        const shamirPrimeB64u = String(
-          args.record.shamirPrimeB64u || transport.shamirPrimeB64u || '',
+        const groupId = String(
+          args.record.groupId || transport.groupId || '',
         ).trim();
-        if (!shamirPrimeB64u) return null;
+        if (!groupId) return null;
 
         if (
           curve !== 'ecdsa' ||
@@ -1430,7 +1414,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           record: args.record,
           purpose: { ...args.purpose, authMethod: 'passkey' },
           transport,
-          shamirPrimeB64u,
+          groupId,
           rehydrateWarmSessionMaterial: (rehydrateArgs) =>
             this.rehydrateWarmSessionMaterial(rehydrateArgs),
           deletePersistedRecord: deleteInvalidPersistedRecord,
@@ -1922,7 +1906,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             walletId,
             relayerUrl,
             keyVersion: existingRecord.keyVersion,
-            shamirPrimeB64u: existingRecord.shamirPrimeB64u,
+            groupId: existingRecord.groupId,
             ecdsaRestore: refreshedMetadata.ecdsaRestore,
             ...(refreshedMetadata.ed25519Restore
               ? { ed25519Restore: refreshedMetadata.ed25519Restore }
@@ -1962,7 +1946,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               : {}),
             relayerUrl,
             keyVersion: existingRecord.keyVersion,
-            shamirPrimeB64u: existingRecord.shamirPrimeB64u,
+            groupId: existingRecord.groupId,
             ...(refreshedMetadata.ecdsaRestore
               ? { ecdsaRestore: refreshedMetadata.ecdsaRestore }
               : {}),
@@ -1997,10 +1981,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         inferredTransport?.signingSessionSealKeyVersion,
         this.config.signingSessionSealKeyVersion,
       ]);
-      const shamirPrimeB64u = String(
-        args?.transport?.shamirPrimeB64u ||
-          inferredTransport?.shamirPrimeB64u ||
-          this.config.signingSessionSealShamirPrimeB64u ||
+      const resolvedGroupId = String(
+        args?.transport?.groupId ||
+          inferredTransport?.groupId ||
+          this.config.signingSessionSealGroupId ||
           '',
       ).trim();
 
@@ -2011,11 +1995,11 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           message: 'Missing relayerUrl for signing-session seal persistence',
         };
       }
-      if (!shamirPrimeB64u) {
+      if (resolvedGroupId !== SIGNING_SESSION_SEAL_GROUP_ID) {
         return {
           ok: false,
           code: 'invalid_args',
-          message: 'Missing shamirPrimeB64u for signing-session seal persistence',
+          message: 'Unsupported groupId for signing-session seal persistence',
         };
       }
       let transport: WarmSessionSealTransportInput;
@@ -2043,7 +2027,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             signingGrantId,
             walletSessionJwt,
             ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
-            shamirPrimeB64u,
+            groupId: resolvedGroupId,
           };
         } else {
           const passkeyEcdsaRestore =
@@ -2058,7 +2042,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             signingGrantId,
             ...(walletSessionJwt ? { walletSessionJwt } : {}),
             ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
-            shamirPrimeB64u,
+            groupId: resolvedGroupId,
             ...(passkeyEcdsaRestore ? { ecdsaRestore: passkeyEcdsaRestore } : {}),
           };
         }
@@ -2077,7 +2061,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           signingGrantId,
           walletSessionJwt,
           ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
-          shamirPrimeB64u,
+          groupId: resolvedGroupId,
         };
       } else {
         transport = {
@@ -2087,7 +2071,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           signingGrantId,
           ...(walletSessionJwt ? { walletSessionJwt } : {}),
           ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
-          shamirPrimeB64u,
+          groupId: resolvedGroupId,
         };
       }
       const applyServerSealStartedAt = performance.now();
@@ -2105,6 +2089,14 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         resultDiagnostics: sealed.ok ? sealed.diagnostics : undefined,
       });
       if (!sealed.ok) return sealed;
+      const sealedKeyVersion = String(sealed.keyVersion || '').trim();
+      if (!sealedKeyVersion) {
+        return {
+          ok: false,
+          code: 'invalid_key_version',
+          message: 'Signing-session seal response did not include a key version',
+        };
+      }
 
       if (curve === 'ecdsa') {
         const walletId = String(recordMetadata.walletId || '').trim();
@@ -2126,8 +2118,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             : {}),
           thresholdSessionIds: { ecdsa: thresholdSessionId },
           relayerUrl,
-          keyVersion: sealed.keyVersion,
-          shamirPrimeB64u,
+          keyVersion: sealedKeyVersion,
+          groupId: resolvedGroupId,
           issuedAtMs: persistedAtMs,
           expiresAtMs: sealed.expiresAtMs,
           remainingUses: sealed.remainingUses,
@@ -2160,8 +2152,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           ed25519Restore: recordMetadata.ed25519Restore,
           thresholdSessionIds: { ed25519: thresholdSessionId },
           relayerUrl,
-          keyVersion: sealed.keyVersion,
-          shamirPrimeB64u,
+          keyVersion: sealedKeyVersion,
+          groupId: resolvedGroupId,
           issuedAtMs: persistedAtMs,
           expiresAtMs: sealed.expiresAtMs,
           remainingUses: sealed.remainingUses,

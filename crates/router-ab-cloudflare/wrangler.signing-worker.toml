@@ -19,21 +19,8 @@ bindings = [
 ]
 
 [[migrations]]
-tag = "router_ab_signing_worker_v1"
-new_sqlite_classes = ["RouterAbSigningWorkerServerOutputDurableObject"]
-
-[[migrations]]
-tag = "router_ab_signing_worker_v2"
-new_sqlite_classes = ["RouterAbSigningWorkerEd25519YaoDurableObject"]
-
-[[migrations]]
-tag = "router_ab_signing_worker_v3"
-deleted_classes = ["RouterAbSigningWorkerEd25519YaoDurableObject"]
-
-[[migrations]]
 tag = "router_ab_signing_worker_v4"
 new_sqlite_classes = ["RouterAbSigningWorkerPresignSessionDurableObject"]
-deleted_classes = ["RouterAbSigningWorkerServerOutputDurableObject"]
 
 [vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"

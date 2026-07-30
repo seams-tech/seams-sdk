@@ -18,6 +18,7 @@ import {
   type WarmSessionStatusOnlyReaderPort,
 } from '../../uiConfirm/warmSessionUiConfirm';
 import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
+import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import { persistThresholdEcdsaBootstrapForWalletTarget } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import {
@@ -77,13 +78,8 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: args.touchConfirm,
     signingSessionSeal:
-      args.signingSessionSeal.signingSessionSealKeyVersion &&
-      args.signingSessionSeal.shamirPrimeB64u
-        ? {
-            signingSessionSealKeyVersion:
-              args.signingSessionSeal.signingSessionSealKeyVersion,
-            shamirPrimeB64u: args.signingSessionSeal.shamirPrimeB64u,
-          }
+      args.signingSessionSeal.mode === 'sealed_refresh_v1'
+        ? { groupId: SIGNING_SESSION_SEAL_GROUP_ID }
         : null,
     getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
     ...(args.resolveActiveEcdsaWalletSessionAuthorization

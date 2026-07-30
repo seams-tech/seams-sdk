@@ -183,7 +183,7 @@ function consoleCheck(input) {
   return readOnlyD1Check({
     ...input,
     target: 'console',
-    databaseName: 'seams-console-staging',
+    databaseName: 'seams-console-staging-nrt',
   });
 }
 
@@ -191,7 +191,7 @@ function signerCheck(input) {
   return readOnlyD1Check({
     ...input,
     target: 'signer',
-    databaseName: 'seams-signer-staging',
+    databaseName: 'seams-signer-staging-nrt',
   });
 }
 

@@ -1,6 +1,12 @@
 import { base64UrlDecode } from '@shared/utils/base64';
 import { normalizeInteger, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
 import {
+  SIGNING_SESSION_SEAL_ALG,
+  SIGNING_SESSION_SEAL_GROUP_ID,
+  SIGNING_SESSION_SEALED_RECORD_VERSION,
+  type SigningSessionSealGroupId,
+} from '@shared/utils/signingSessionSeal';
+import {
   SEAMS_WALLET_DB_NAME,
   SEAMS_WALLET_DB_VERSION,
   SEAMS_WALLET_INDEXES,
@@ -9,13 +15,14 @@ import {
 import { seamsWalletDB } from '../singletons';
 import type { SeamsWalletDBManager } from './manager';
 
-export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_RECORD_VERSION = 1 as const;
+export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_RECORD_VERSION =
+  SIGNING_SESSION_SEALED_RECORD_VERSION;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_DB_NAME = SEAMS_WALLET_DB_NAME;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_DB_VERSION = SEAMS_WALLET_DB_VERSION;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME =
   SEAMS_WALLET_STORES.emailOtpDeviceEnrollmentEscrows;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORAGE_SCOPE = 'iframe_origin_indexeddb' as const;
-export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_ALG = 'shamir3pass-v1' as const;
+export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_ALG = SIGNING_SESSION_SEAL_ALG;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_SECRET_KIND =
   'email_otp_device_enrollment_escrow_enc_s' as const;
 const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_PAYLOAD_FIELD = 'escrow_record';
@@ -34,7 +41,7 @@ export type EmailOtpDeviceEnrollmentEscrowRecord = {
   enrollmentSealKeyVersion: string;
   signingRootId: string;
   signingRootVersion: string;
-  shamirPrimeB64u?: string;
+  groupId: SigningSessionSealGroupId;
   encSB64u: string;
   issuedAtMs: number;
   updatedAtMs: number;
@@ -114,7 +121,10 @@ export function normalizeEmailOtpDeviceEnrollmentEscrowRecord(
   const enrollmentSealKeyVersion = normalizeOptionalNonEmptyString(obj.enrollmentSealKeyVersion);
   const signingRootId = normalizeOptionalNonEmptyString(obj.signingRootId);
   const signingRootVersion = normalizeOptionalNonEmptyString(obj.signingRootVersion);
-  const shamirPrimeB64u = normalizeOptionalNonEmptyString(obj.shamirPrimeB64u);
+  const groupId =
+    String(obj.groupId || '').trim() === SIGNING_SESSION_SEAL_GROUP_ID
+      ? SIGNING_SESSION_SEAL_GROUP_ID
+      : null;
   const encSB64u = normalizeOptionalNonEmptyString(obj.encSB64u);
   const issuedAtMs = normalizeInteger(obj.issuedAtMs);
   const updatedAtMs = normalizeInteger(obj.updatedAtMs);
@@ -127,12 +137,12 @@ export function normalizeEmailOtpDeviceEnrollmentEscrowRecord(
     !enrollmentSealKeyVersion ||
     !signingRootId ||
     !signingRootVersion ||
+    !groupId ||
     !encSB64u
   ) {
     return null;
   }
   if (!isValidBase64UrlBytes(encSB64u)) return null;
-  if (shamirPrimeB64u && !isValidBase64UrlBytes(shamirPrimeB64u)) return null;
   if (issuedAtMs == null || issuedAtMs <= 0) return null;
   if (updatedAtMs == null || updatedAtMs <= 0) return null;
 
@@ -150,7 +160,7 @@ export function normalizeEmailOtpDeviceEnrollmentEscrowRecord(
     enrollmentSealKeyVersion,
     signingRootId,
     signingRootVersion,
-    ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
+    groupId,
     encSB64u,
     issuedAtMs,
     updatedAtMs,
@@ -226,7 +236,7 @@ export class EmailOtpDeviceEnrollmentEscrowRepository {
       enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
       signingRootId: args.signingRootId,
       signingRootVersion: args.signingRootVersion,
-      shamirPrimeB64u: args.shamirPrimeB64u,
+      groupId: args.groupId,
       encSB64u: args.encSB64u,
       issuedAtMs: args.issuedAtMs ?? nowMs,
       updatedAtMs: args.updatedAtMs ?? nowMs,

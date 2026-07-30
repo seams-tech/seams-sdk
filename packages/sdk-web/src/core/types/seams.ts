@@ -10,7 +10,7 @@ import type { WalletHostVariant } from '../browser/walletIframe/hostVariant';
 import type { ClientUserData } from '../accountData/near/nearAccountData.types';
 import type { WasmSignedDelegate } from './signer-worker';
 import type { EcdsaSignerProvisioningDefaults } from './ecdsaSignerProvisioningDefaults';
-import type { SigningSessionSealKeyVersion } from '../signingEngine/session/keyMaterialBrands';
+import type { SigningSessionSealProtocol } from '@shared/utils/signingSessionSeal';
 import type {
   SensitiveOperationPolicy,
   SignerAuthMethod,
@@ -82,15 +82,9 @@ export type WalletAuthIntent =
 
 export type WalletAuthCurve = 'ed25519' | 'ecdsa';
 
-export interface SigningSessionSealConfigInput {
-  keyVersion?: string;
-  shamirPrimeB64u?: string;
-}
-
-export interface SigningSessionSealConfig {
-  signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-  shamirPrimeB64u?: string;
-}
+export type SigningSessionSealConfig =
+  | { mode: 'none'; protocol?: never }
+  | { mode: 'sealed_refresh_v1'; protocol: SigningSessionSealProtocol };
 
 /**
  * Public SDK configuration overrides accepted by `new SeamsWeb(config)`.
@@ -130,10 +124,6 @@ export interface SigningSessionSealConfig {
  *   };
  *   signingSessionPersistenceMode?: 'none' | 'sealed_refresh_v1';
  *   emailOtpAuthPolicy?: 'session' | 'per_operation';
- *   signingSessionSeal?: {
- *     keyVersion?: string;
- *     shamirPrimeB64u?: string;
- *   };
  *   routerAb?: {
  *     normalSigning?: {
  *       mode: 'disabled' | 'enabled';
@@ -229,17 +219,6 @@ export interface SeamsConfigsInput {
    * - `per_operation`: recover on demand, use once, and discard immediately after the operation.
    */
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
-  /**
-   * Optional seal transport hints for `sealed_refresh_v1`.
-   *
-   * - `keyVersion`: preferred server key version for apply/remove routes.
-   * - `shamirPrimeB64u`: shared Shamir prime (base64url-encoded positive bigint).
-   *
-   * Notes:
-   * - Ignored when `signingSessionPersistenceMode !== 'sealed_refresh_v1'`.
-   * - `shamirPrimeB64u` is required when `signingSessionPersistenceMode === 'sealed_refresh_v1'`.
-   */
-  signingSessionSeal?: SigningSessionSealConfigInput;
   /**
    * Router A/B signing-session policy.
    *

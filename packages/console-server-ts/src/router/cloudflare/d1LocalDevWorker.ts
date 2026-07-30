@@ -116,6 +116,7 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly RELAYER_PUBLIC_KEY?: string;
   readonly RELAYER_PRIVATE_KEY?: string;
   readonly NEAR_RPC_URL?: string;
+  readonly ARC_RPC_URL?: string;
   readonly ACCOUNT_INITIAL_BALANCE?: string;
   readonly ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING?: string;
   readonly SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID?: string;
@@ -145,10 +146,9 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH?: string;
   readonly SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY?: string;
   readonly ACCOUNT_ID_DERIVATION_SECRET?: string;
-  readonly SIGNING_SESSION_SEAL_KEY_VERSION?: string;
-  readonly SIGNING_SESSION_SHAMIR_P_B64U?: string;
-  readonly SIGNING_SESSION_SEAL_E_S_B64U?: string;
-  readonly SIGNING_SESSION_SEAL_D_S_B64U?: string;
+  readonly SIGNING_SESSION_SEAL_ROOT_SECRET_B64U?: string;
+  readonly SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION?: string;
+  readonly SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS?: string;
   readonly EMAIL_OTP_DELIVERY_MODE?: string;
   readonly EMAIL_OTP_RUNTIME_PROFILE?: string;
   readonly EMAIL_OTP_DEMO_ALLOWED_ORIGINS?: string;
@@ -794,23 +794,26 @@ function localOidcExchangeConfig(env: LocalD1DevEnv): CloudflareD1OidcExchangeCo
 function localEmailOtpServerSealConfig(
   env: LocalD1DevEnv,
 ): CloudflareD1EmailOtpServerSealConfig | undefined {
-  const keyVersion = normalizeLocalString(env.SIGNING_SESSION_SEAL_KEY_VERSION);
-  const shamirPrimeB64u = normalizeLocalString(env.SIGNING_SESSION_SHAMIR_P_B64U);
-  const serverEncryptExponentB64u = normalizeLocalString(env.SIGNING_SESSION_SEAL_E_S_B64U);
-  const serverDecryptExponentB64u = normalizeLocalString(env.SIGNING_SESSION_SEAL_D_S_B64U);
-  if (!keyVersion && !shamirPrimeB64u && !serverEncryptExponentB64u && !serverDecryptExponentB64u) {
+  const rootSecretB64u = normalizeLocalString(env.SIGNING_SESSION_SEAL_ROOT_SECRET_B64U);
+  const currentKeyVersion = normalizeLocalString(env.SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION);
+  const acceptedWarmKeyVersions = normalizeLocalString(
+    env.SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS,
+  )
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!rootSecretB64u && !currentKeyVersion) {
     return undefined;
   }
-  if (!keyVersion || !shamirPrimeB64u || !serverEncryptExponentB64u || !serverDecryptExponentB64u) {
+  if (!rootSecretB64u || !currentKeyVersion || acceptedWarmKeyVersions.length === 0) {
     throw new Error(
-      'Email OTP server seal requires SIGNING_SESSION_SEAL_KEY_VERSION, SIGNING_SESSION_SHAMIR_P_B64U, SIGNING_SESSION_SEAL_E_S_B64U, and SIGNING_SESSION_SEAL_D_S_B64U',
+      'Email OTP server seal requires the root secret, current key version, and accepted warm key versions',
     );
   }
   return {
-    keyVersion,
-    shamirPrimeB64u,
-    serverEncryptExponentB64u,
-    serverDecryptExponentB64u,
+    rootSecretB64u,
+    currentKeyVersion,
+    acceptedWarmKeyVersions,
   };
 }
 
@@ -1290,10 +1293,9 @@ function localSigningSessionSealOptions(
   const seal = localEmailOtpServerSealConfig(env);
   if (!seal) return undefined;
   return createSigningSessionSealOptions({
-    keyVersion: seal.keyVersion,
-    shamirPrimeB64u: seal.shamirPrimeB64u,
-    serverEncryptExponentB64u: seal.serverEncryptExponentB64u,
-    serverDecryptExponentB64u: seal.serverDecryptExponentB64u,
+    rootSecretB64u: seal.rootSecretB64u,
+    currentKeyVersion: seal.currentKeyVersion,
+    acceptedWarmKeyVersions: seal.acceptedWarmKeyVersions,
   });
 }
 
