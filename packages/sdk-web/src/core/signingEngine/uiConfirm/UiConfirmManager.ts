@@ -83,6 +83,7 @@ import type {
   RequestUserConfirmationOptions,
   ClearAllVolatileWarmSessionMaterialCommand,
   ClearVolatileWarmSessionMaterialCommand,
+  WarmSessionPersistedRestorer,
   WarmSessionClaimResult,
   WarmSessionStatusResult,
   UiConfirmContext,
@@ -1452,13 +1453,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   };
 
   discoverPersistedSessionsForWallet = async (
-    args: {
-      authMethod?: 'passkey';
-    } & DiscoverPersistedSessionsForWalletInput,
+    args: Parameters<WarmSessionPersistedRestorer['discoverPersistedSessionsForWallet']>[0],
   ): Promise<DiscoverPersistedSessionsForWalletResult> => {
-    if (args.authMethod && args.authMethod !== 'passkey') {
-      return { listed: 0, discovered: 0, truncated: 0 };
-    }
     if (!this.isSealedRefreshModeEnabled()) {
       return { listed: 0, discovered: 0, truncated: 0 };
     }

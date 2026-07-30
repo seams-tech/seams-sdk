@@ -175,11 +175,16 @@ export interface WarmSessionRehydrator {
   ): Promise<WarmSessionRehydrateResult>;
 }
 
+type PasskeyPersistedSessionDiscoveryInput =
+  DiscoverPersistedSessionsForWalletInput extends infer Input
+    ? Input extends DiscoverPersistedSessionsForWalletInput
+      ? Omit<Input, 'authMethod'>
+      : never
+    : never;
+
 export interface WarmSessionPersistedRestorer {
   discoverPersistedSessionsForWallet(
-    args: {
-      authMethod?: 'passkey';
-    } & DiscoverPersistedSessionsForWalletInput,
+    args: PasskeyPersistedSessionDiscoveryInput,
   ): Promise<DiscoverPersistedSessionsForWalletResult>;
   restorePersistedSessionForSigning(
     args: {

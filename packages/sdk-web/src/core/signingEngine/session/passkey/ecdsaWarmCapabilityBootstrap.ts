@@ -259,7 +259,6 @@ export async function bootstrapReuseWarmEcdsaCapabilityNoPrompt(
     await deps.discoverPersistedSessionsForWallet({
       kind: 'discover_wallet_ecdsa_signing_sessions',
       walletId,
-      authMethod: 'passkey',
       ecdsaChainTargets: [chainTarget],
       maxRecords: 1,
     });
