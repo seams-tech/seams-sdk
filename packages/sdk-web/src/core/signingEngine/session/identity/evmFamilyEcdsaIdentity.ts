@@ -2,35 +2,19 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import { base64UrlDecode } from '@shared/utils/base64';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   deriveThresholdEcdsaKeyHandle,
   type ThresholdEcdsaKeyHandleInput,
 } from '@shared/utils/thresholdEcdsaKeyHandle';
+import { type RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import { type EcdsaActiveStateId, type MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
-  requireRouterAbEcdsaDerivationNormalSigningStateV1,
-  routerAbEcdsaDerivationActiveStateId,
-  type RouterAbEcdsaDerivationNormalSigningStateV1,
-} from '@shared/utils/routerAbEcdsaDerivation';
-import {
-  mpcMaterialActivationRefsEqual,
-  parseMpcMaterialActivationRef,
-  type EcdsaActiveStateId,
-  type MpcMaterialActivationRef,
-} from '@shared/utils/domainIds';
-import {
-  assertEvmFamilySigningKeySlotIdMatchesPlan,
   deriveEvmFamilySigningKeySlotId as deriveSharedEvmFamilySigningKeySlotId,
   requireEvmFamilySigningKeySlotId,
   type EvmFamilySigningKeySlotId,
 } from '@shared/signing-lanes';
-import type {
-  ThresholdEcdsaBackendBinding,
-  ThresholdEcdsaClientAdditiveShareHandle,
-  ThresholdEcdsaCanonicalExportArtifact,
-  ThresholdEcdsaSecp256k1KeyRef,
-} from '../../interfaces/signing';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type {
   EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
@@ -40,15 +24,8 @@ import type {
   SigningRootId,
   SigningRootVersion,
 } from '@/core/platform/types';
-import { buildEcdsaRoleLocalSigningMaterialHandle } from './ecdsaDerivationSigningMaterialHandle';
+import type { RouterAbEcdsaDerivationSigningMaterialRef } from '../../routerAb/ecdsaDerivation/signingMaterialRef';
 import {
-  buildRouterAbEcdsaDerivationSigningMaterialRef,
-  type RouterAbEcdsaDerivationSigningMaterialRef,
-} from '../../routerAb/ecdsaDerivation/signingMaterialRef';
-import type { ThresholdEcdsaSessionStoreSource } from './laneIdentity';
-import {
-  thresholdEcdsaChainTargetKey,
-  thresholdEcdsaChainTargetsEqual,
   toWalletId,
   walletIdFromWalletProfile,
   type ThresholdEcdsaChainTarget,
@@ -60,11 +37,6 @@ import {
   type SigningGrantId,
 } from '../operationState/types';
 import {
-  parseEcdsaClientVerifyingPublicKey33B64u,
-  parseEcdsaKeyHandle,
-  parseEcdsaRelayerKeyId,
-  parseEcdsaRoleLocalMaterialHandle,
-  parseEcdsaThresholdKeyId,
   type EcdsaRoleLocalPersistedMaterialRef,
   type EcdsaRoleLocalWorkerHandle,
 } from '../keyMaterialBrands';
@@ -216,43 +188,6 @@ export type WalletSessionJwtTransportAuth = {
   walletSessionJwt: VerifiedWalletSessionJwt;
 };
 
-export type ThresholdEcdsaSignerTransport = {
-  kind: 'threshold_ecdsa_signer_transport';
-  relayerUrl: string;
-  relayerKeyId: string;
-  signingMaterial: RouterAbEcdsaDerivationSigningMaterialRef;
-  relayerVerifyingShareB64u?: string;
-  auth: WalletSessionJwtTransportAuth;
-  ecdsaThresholdKeyId?: never;
-  signingRootId?: never;
-  signingRootVersion?: never;
-  clientVerifyingShareB64u?: never;
-  clientSigningShare32?: never;
-};
-
-export type ReadyThresholdEcdsaSignerTransport = Omit<ThresholdEcdsaSignerTransport, 'auth'> & {
-  auth?: never;
-};
-
-export type ThresholdEcdsaSignerSessionIdentity = {
-  kind: 'threshold_ecdsa_signer_session_identity';
-  signingGrantId: SigningGrantId;
-  thresholdSessionId: ThresholdEcdsaSessionId;
-};
-
-export type KnownReadyThresholdEcdsaSessionPolicy = {
-  kind: 'known_threshold_ecdsa_session_policy';
-  remainingUses: number;
-  expiresAtMs: number;
-};
-
-export type ReadyThresholdEcdsaSession = {
-  kind: 'ready_threshold_ecdsa_session';
-  thresholdSessionId: ThresholdEcdsaSessionId;
-  policy: KnownReadyThresholdEcdsaSessionPolicy;
-  walletSessionAuth?: never;
-};
-
 export type EmailOtpWorkerShareHandle = {
   kind: 'email_otp_worker_session';
   sessionId: string;
@@ -326,33 +261,6 @@ export type HydratedEcdsaSignerMaterial = {
   readonly walletSessionJwt?: never;
 };
 
-export type ReadyRouterAbEcdsaDerivationNormalSigning = {
-  kind: 'router_ab_ecdsa_derivation_normal_signing_ready_v1';
-  state: RouterAbEcdsaDerivationNormalSigningStateV1;
-  credential: {
-    kind: 'jwt';
-    walletSessionJwt: VerifiedWalletSessionJwt;
-  };
-  activeStateId: EcdsaActiveStateId;
-};
-
-export type ReadyEcdsaSignerSession = {
-  kind: 'ready_ecdsa_signer_session';
-  walletId: WalletId;
-  materialActivation: MpcMaterialActivationRef;
-  publicFacts: VerifiedEcdsaPublicFacts;
-  chainTarget: ThresholdEcdsaChainTarget;
-  session: ReadyThresholdEcdsaSession;
-  transport: ReadyThresholdEcdsaSignerTransport;
-  clientShare: ThresholdEcdsaSignerClientShare;
-  routerAbEcdsaDerivationNormalSigning: ReadyRouterAbEcdsaDerivationNormalSigning;
-  keyRef?: never;
-  participantIds?: never;
-  thresholdEcdsaPublicKeyB64u?: never;
-  walletSessionJwt?: never;
-  clientAdditiveShareHandle?: never;
-};
-
 export type EvmFamilyEcdsaKeyIdentity = {
   walletId: WalletId;
   keyScope: EvmFamilyKeyScope;
@@ -384,24 +292,6 @@ export type SessionBootstrapKeyContext = {
   rpId?: never;
 };
 
-export type EvmFamilyEcdsaSessionLane = {
-  key: EvmFamilyEcdsaKeyIdentity;
-  materialActivation: MpcMaterialActivationRef;
-  chainTarget: ThresholdEcdsaChainTarget;
-  authMethod: WalletAuthAuthority['factor']['kind'];
-  source: ThresholdEcdsaSessionStoreSource;
-  thresholdSessionId: ThresholdEcdsaSessionId;
-  signingGrantId: SigningGrantId;
-  walletSessionAuth: WalletSessionJwtTransportAuth;
-  remainingUses: number;
-  expiresAtMs: number;
-  ecdsaThresholdKeyId?: never;
-  signingRootId?: never;
-  signingRootVersion?: never;
-  participantIds?: never;
-  thresholdOwnerAddress?: never;
-};
-
 export type EvmFamilyEcdsaSessionLanePolicy = {
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: ThresholdEcdsaSessionId;
@@ -416,72 +306,6 @@ export type EvmFamilyEcdsaSessionLanePolicy = {
   participantIds?: never;
   thresholdOwnerAddress?: never;
 };
-
-export type ReadyEvmFamilyEcdsaSigningKeyContext = {
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  participantIds: readonly ParticipantId[];
-  signingRootId?: never;
-  signingRootVersion?: never;
-};
-
-export type ReadyEvmFamilyEcdsaMaterial = {
-  kind: 'ready_evm_family_ecdsa_material';
-  key: EvmFamilyEcdsaKeyIdentity;
-  lane: EvmFamilyEcdsaSessionLane;
-  signingKeyContext: ReadyEvmFamilyEcdsaSigningKeyContext;
-  cachedExportArtifact: ThresholdEcdsaCanonicalExportArtifact | null;
-  keyRef?: never;
-};
-
-type IdentityMismatchDetails = {
-  expected: string;
-  actual: string;
-};
-
-export type EvmFamilyEcdsaIdentityMismatch =
-  | ({ kind: 'wallet_mismatch'; field: 'walletId' } & IdentityMismatchDetails)
-  | ({ kind: 'chain_family_mismatch'; field: 'chainTarget' } & IdentityMismatchDetails)
-  | ({ kind: 'key_id_mismatch'; field: 'ecdsaThresholdKeyId' } & IdentityMismatchDetails)
-  | ({ kind: 'signing_root_mismatch'; field: 'signingRoot' } & IdentityMismatchDetails)
-  | ({ kind: 'material_activation_mismatch'; field: 'materialActivation' } & IdentityMismatchDetails)
-  | ({
-      kind: 'public_key_mismatch';
-      field: 'thresholdEcdsaPublicKeyB64u';
-    } & IdentityMismatchDetails)
-  | ({ kind: 'participant_ids_mismatch'; field: 'participantIds' } & IdentityMismatchDetails)
-  | ({ kind: 'owner_address_mismatch'; field: 'thresholdOwnerAddress' } & IdentityMismatchDetails)
-  | ({ kind: 'key_scope_mismatch'; field: 'keyScope' } & IdentityMismatchDetails)
-  | ({ kind: 'session_identity_mismatch'; field: 'sessionIdentity' } & IdentityMismatchDetails)
-  | ({ kind: 'auth_method_mismatch'; field: 'authMethod' } & IdentityMismatchDetails)
-  | {
-      kind: 'stale_or_unrestorable_material';
-      field: 'sessionState';
-      reason: 'expired' | 'exhausted' | 'auth_missing' | 'invalid_identity';
-      expected?: never;
-      actual?: never;
-    };
-
-export type EvmFamilyEcdsaMaterialResolution =
-  | {
-      kind: 'ready';
-      material: ReadyEvmFamilyEcdsaMaterial;
-      reason?: never;
-    }
-  | {
-      kind: 'missing';
-      reason: EvmFamilyEcdsaIdentityMismatch;
-      material?: never;
-    }
-  | {
-      kind: 'identity_mismatch';
-      reason: EvmFamilyEcdsaIdentityMismatch;
-      material?: never;
-    }
-  | {
-      kind: 'stale';
-      reason: Extract<EvmFamilyEcdsaIdentityMismatch, { kind: 'stale_or_unrestorable_material' }>;
-      material?: never;
-    };
 
 export type BuildEvmFamilyEcdsaKeyIdentityInput = {
   walletId: unknown;
@@ -535,14 +359,6 @@ export type BuildEcdsaWalletSessionTransportAuthInput = {
   walletSessionJwt: unknown;
 };
 
-export type BuildReadyEcdsaSignerSessionInput = {
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
-  materialActivation: MpcMaterialActivationRef;
-  publicFacts: VerifiedEcdsaPublicFacts;
-  sessionPolicy: KnownReadyThresholdEcdsaSessionPolicy;
-  walletSessionJwt: unknown;
-};
-
 export type BuildHydratedEcdsaSignerMaterialInput = {
   readonly walletId: WalletId;
   readonly materialActivation: MpcMaterialActivationRef;
@@ -566,19 +382,6 @@ export type DurableEvmFamilyEcdsaPublicFactsRecord = {
     participantIds: unknown;
     ethereumAddress: unknown;
   };
-};
-
-export type BuildEvmFamilyEcdsaSessionLaneInput = {
-  key: EvmFamilyEcdsaKeyIdentity;
-  materialActivation: MpcMaterialActivationRef;
-  chainTarget: ThresholdEcdsaChainTarget;
-  authMethod: WalletAuthAuthority['factor']['kind'];
-  source: ThresholdEcdsaSessionStoreSource;
-  thresholdSessionId: unknown;
-  signingGrantId: unknown;
-  walletSessionAuth: BuildEcdsaWalletSessionTransportAuthInput;
-  remainingUses: unknown;
-  expiresAtMs: unknown;
 };
 
 export type BuildEvmFamilyEcdsaSessionLanePolicyInput = {
@@ -767,94 +570,6 @@ function normalizeParticipantIds(value: unknown): readonly ParticipantId[] {
 
 function participantIdKey(participantIds: readonly ParticipantId[]): string {
   return participantIds.map((id) => String(Number(id))).join(',');
-}
-
-function ecdsaRoleLocalParticipantIds(
-  participantIds: readonly ParticipantId[],
-): readonly [number, ...number[]] {
-  const [firstParticipantId, ...remainingParticipantIds] = participantIds;
-  if (firstParticipantId === undefined) {
-    throw new Error('[evm-family-ecdsa] ECDSA role-local participantIds are required');
-  }
-  return [
-    Number(firstParticipantId),
-    ...remainingParticipantIds.map((participantId) => Number(participantId)),
-  ];
-}
-
-function mismatch<TKind extends EvmFamilyEcdsaIdentityMismatch['kind']>(
-  kind: TKind,
-  field: Extract<EvmFamilyEcdsaIdentityMismatch, { kind: TKind }>['field'],
-  expected: unknown,
-  actual: unknown,
-): Extract<EvmFamilyEcdsaIdentityMismatch, { kind: TKind }> {
-  return {
-    kind,
-    field,
-    expected: String(expected),
-    actual: String(actual),
-  } as Extract<EvmFamilyEcdsaIdentityMismatch, { kind: TKind }>;
-}
-
-function staleReason(
-  reason: Extract<
-    EvmFamilyEcdsaIdentityMismatch,
-    { kind: 'stale_or_unrestorable_material' }
-  >['reason'],
-): Extract<EvmFamilyEcdsaIdentityMismatch, { kind: 'stale_or_unrestorable_material' }> {
-  return {
-    kind: 'stale_or_unrestorable_material',
-    field: 'sessionState',
-    reason,
-  };
-}
-
-function firstKeyMismatch(
-  left: EvmFamilyEcdsaKeyIdentity,
-  right: EvmFamilyEcdsaKeyIdentity,
-): EvmFamilyEcdsaIdentityMismatch | null {
-  if (String(left.walletId) !== String(right.walletId)) {
-    return mismatch('wallet_mismatch', 'walletId', left.walletId, right.walletId);
-  }
-  if (left.keyScope !== right.keyScope) {
-    return mismatch('key_scope_mismatch', 'keyScope', left.keyScope, right.keyScope);
-  }
-  if (String(left.ecdsaThresholdKeyId) !== String(right.ecdsaThresholdKeyId)) {
-    return mismatch(
-      'key_id_mismatch',
-      'ecdsaThresholdKeyId',
-      left.ecdsaThresholdKeyId,
-      right.ecdsaThresholdKeyId,
-    );
-  }
-  if (
-    String(left.signingRootId) !== String(right.signingRootId) ||
-    String(left.signingRootVersion) !== String(right.signingRootVersion)
-  ) {
-    return mismatch(
-      'signing_root_mismatch',
-      'signingRoot',
-      `${String(left.signingRootId)}:${String(left.signingRootVersion)}`,
-      `${String(right.signingRootId)}:${String(right.signingRootVersion)}`,
-    );
-  }
-  if (participantIdKey(left.participantIds) !== participantIdKey(right.participantIds)) {
-    return mismatch(
-      'participant_ids_mismatch',
-      'participantIds',
-      participantIdKey(left.participantIds),
-      participantIdKey(right.participantIds),
-    );
-  }
-  if (String(left.thresholdOwnerAddress) !== String(right.thresholdOwnerAddress)) {
-    return mismatch(
-      'owner_address_mismatch',
-      'thresholdOwnerAddress',
-      left.thresholdOwnerAddress,
-      right.thresholdOwnerAddress,
-    );
-  }
-  return null;
 }
 
 function fnv1a32Hex(input: string): string {
@@ -1086,143 +801,6 @@ export function buildEcdsaWalletSessionTransportAuth(
   };
 }
 
-function buildEmailOtpWorkerShareHandle(args: {
-  handle: ThresholdEcdsaClientAdditiveShareHandle;
-  publicFacts: VerifiedEcdsaPublicFacts;
-  chainTarget: ThresholdEcdsaChainTarget;
-  session: ThresholdEcdsaSignerSessionIdentity;
-}): EmailOtpWorkerShareHandle {
-  const sessionId = requiredString(args.handle.sessionId, 'clientAdditiveShareHandle.sessionId');
-  return {
-    kind: 'email_otp_worker_session',
-    sessionId,
-    laneIdentity: {
-      kind: 'email_otp_worker_share_lane_identity',
-      keyHandle: args.publicFacts.keyHandle,
-      chainTarget: args.chainTarget,
-      signingGrantId: args.session.signingGrantId,
-      thresholdSessionId: args.session.thresholdSessionId,
-    },
-  };
-}
-
-function assertNeverThresholdEcdsaBackendBinding(value: never): never {
-  throw new Error('[evm-family-ecdsa] unsupported ECDSA backend binding material kind');
-}
-
-function requireThresholdEcdsaBackendBinding(
-  binding: ThresholdEcdsaSecp256k1KeyRef['backendBinding'],
-): ThresholdEcdsaBackendBinding {
-  if (!binding) {
-    throw new Error('[evm-family-ecdsa] ready ECDSA signer session requires backend binding');
-  }
-  return binding;
-}
-
-function buildThresholdEcdsaSignerClientShare(args: {
-  backendBinding: ThresholdEcdsaBackendBinding;
-  publicFacts: VerifiedEcdsaPublicFacts;
-  chainTarget: ThresholdEcdsaChainTarget;
-  session: ThresholdEcdsaSignerSessionIdentity;
-  activeStateId: EcdsaActiveStateId;
-}): ThresholdEcdsaSignerClientShare {
-  switch (args.backendBinding.materialKind) {
-    case 'email_otp_worker_handle':
-      return {
-        kind: 'email_otp_worker_share',
-        handle: buildEmailOtpWorkerShareHandle({
-          handle: args.backendBinding.clientAdditiveShareHandle,
-          publicFacts: args.publicFacts,
-          chainTarget: args.chainTarget,
-          session: args.session,
-        }),
-      };
-    case 'role_local_worker_handle':
-      return {
-        kind: 'role_local_worker_share',
-        handle: args.backendBinding.roleLocalMaterialHandle,
-        material: {
-          kind: 'worker_loaded',
-          materialRef: args.backendBinding.roleLocalMaterialRef,
-        },
-      };
-    case 'role_local_durable_sealed_ref':
-      return {
-        kind: 'role_local_worker_share',
-        handle: {
-          kind: 'ecdsa_role_local_worker_handle_v1',
-          materialHandle: parseEcdsaRoleLocalMaterialHandle(
-            args.backendBinding.roleLocalMaterialRef.durableMaterialRef,
-          ),
-          durableMaterialRef: args.backendBinding.roleLocalMaterialRef.durableMaterialRef,
-          bindingDigest: args.backendBinding.roleLocalMaterialRef.bindingDigest,
-        },
-        material: {
-          kind: 'worker_loaded',
-          materialRef: args.backendBinding.roleLocalMaterialRef,
-        },
-      };
-    case 'role_local_ready_state_blob':
-      return {
-        kind: 'role_local_worker_share',
-        handle: buildEcdsaRoleLocalSigningMaterialHandle({
-          keyHandle: parseEcdsaKeyHandle(args.publicFacts.keyHandle),
-          clientVerifyingPublicKey33B64u: parseEcdsaClientVerifyingPublicKey33B64u(
-            args.backendBinding.clientVerifyingShareB64u,
-          ),
-          ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(
-            args.backendBinding.ecdsaRoleLocalReadyRecord.publicFacts.ecdsaThresholdKeyId,
-          ),
-          participantIds: ecdsaRoleLocalParticipantIds(args.publicFacts.participantIds),
-          relayerKeyId: parseEcdsaRelayerKeyId(args.backendBinding.relayerKeyId),
-        }),
-        material: {
-          kind: 'ready_state_blob',
-          stateBlob: args.backendBinding.stateBlob,
-          ecdsaRoleLocalReadyRecord: args.backendBinding.ecdsaRoleLocalReadyRecord,
-        },
-      };
-    case 'role_local_durable_public_anchor':
-      throw new Error(
-        '[evm-family-ecdsa] durable public anchor requires role-local session rehydration',
-      );
-    case 'metadata_only':
-      throw new Error('[evm-family-ecdsa] ready ECDSA signer session requires signing material');
-    default:
-      return assertNeverThresholdEcdsaBackendBinding(args.backendBinding);
-  }
-}
-
-export function buildKnownReadyThresholdEcdsaSessionPolicy(args: {
-  remainingUses: unknown;
-  expiresAtMs: unknown;
-}): KnownReadyThresholdEcdsaSessionPolicy {
-  const remainingUses = Math.floor(Number(args.remainingUses));
-  const expiresAtMs = Math.floor(Number(args.expiresAtMs));
-  if (!Number.isFinite(remainingUses)) {
-    throw new Error('[evm-family-ecdsa] remainingUses must be finite');
-  }
-  if (!Number.isFinite(expiresAtMs)) {
-    throw new Error('[evm-family-ecdsa] expiresAtMs must be finite');
-  }
-  return {
-    kind: 'known_threshold_ecdsa_session_policy',
-    remainingUses,
-    expiresAtMs,
-  };
-}
-
-export function buildReadyThresholdEcdsaSession(args: {
-  thresholdSessionId: unknown;
-  policy: KnownReadyThresholdEcdsaSessionPolicy;
-}): ReadyThresholdEcdsaSession {
-  return {
-    kind: 'ready_threshold_ecdsa_session',
-    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId),
-    policy: args.policy,
-  };
-}
-
 export function buildHydratedEcdsaSignerMaterial(
   input: BuildHydratedEcdsaSignerMaterialInput,
 ): HydratedEcdsaSignerMaterial {
@@ -1246,90 +824,6 @@ export function buildHydratedEcdsaSignerMaterial(
     transport: input.transport,
     clientShare: input.clientShare,
     routerAbEcdsaDerivationNormalSigning: input.routerAbEcdsaDerivationNormalSigning,
-  };
-}
-
-function buildReadyRouterAbEcdsaDerivationNormalSigning(args: {
-  state: unknown;
-  auth: WalletSessionJwtTransportAuth;
-}): ReadyRouterAbEcdsaDerivationNormalSigning {
-  const state = requireRouterAbEcdsaDerivationNormalSigningStateV1(args.state);
-  return {
-    kind: 'router_ab_ecdsa_derivation_normal_signing_ready_v1',
-    state,
-    credential: {
-      kind: 'jwt',
-      walletSessionJwt: args.auth.walletSessionJwt,
-    },
-    activeStateId: routerAbEcdsaDerivationActiveStateId(state),
-  };
-}
-
-export function buildReadyEcdsaSignerSession(
-  input: BuildReadyEcdsaSignerSessionInput,
-): ReadyEcdsaSignerSession {
-  const backendBinding = requireThresholdEcdsaBackendBinding(input.keyRef.backendBinding);
-  const walletId = toWalletId(input.keyRef.userId);
-  const materialActivationResult = parseMpcMaterialActivationRef(input.materialActivation);
-  if (!materialActivationResult.ok) {
-    throw new Error(materialActivationResult.error.message);
-  }
-  const materialActivation = materialActivationResult.value;
-  const session = buildReadyThresholdEcdsaSession({
-    thresholdSessionId: input.keyRef.thresholdSessionId,
-    policy: input.sessionPolicy,
-  });
-  // The grant comes from the key ref, which is a bootstrap-issued identity and
-  // a real one. It is read directly rather than through the session, so the
-  // session type never implies a grant on paths that have none.
-  const signerIdentity: ThresholdEcdsaSignerSessionIdentity = {
-    kind: 'threshold_ecdsa_signer_session_identity',
-    signingGrantId: SigningSessionIds.signingGrant(input.keyRef.signingGrantId),
-    thresholdSessionId: session.thresholdSessionId,
-  };
-  const chainTarget = input.keyRef.chainTarget;
-  const transportAuth = buildEcdsaWalletSessionTransportAuth({
-    kind: 'wallet_session_jwt',
-    walletSessionJwt: input.walletSessionJwt,
-  });
-  const routerAbEcdsaDerivationNormalSigning = buildReadyRouterAbEcdsaDerivationNormalSigning({
-    state: input.keyRef.routerAbEcdsaDerivationNormalSigning,
-    auth: transportAuth,
-  });
-  const signingMaterial = buildRouterAbEcdsaDerivationSigningMaterialRef({
-    routerAbState: routerAbEcdsaDerivationNormalSigning.state,
-  });
-  const clientVerifierFromBinding = requiredString(
-    backendBinding.clientVerifyingShareB64u,
-    'clientVerifyingShareB64u',
-  );
-  if (clientVerifierFromBinding !== signingMaterial.clientVerifier33B64u) {
-    throw new Error('[evm-family-ecdsa] ECDSA signer material identity mismatch');
-  }
-  return {
-    kind: 'ready_ecdsa_signer_session',
-    walletId,
-    materialActivation,
-    publicFacts: input.publicFacts,
-    chainTarget,
-    session,
-    transport: {
-      kind: 'threshold_ecdsa_signer_transport',
-      relayerUrl: requiredString(input.keyRef.relayerUrl, 'relayerUrl'),
-      relayerKeyId: requiredString(backendBinding.relayerKeyId, 'relayerKeyId'),
-      signingMaterial,
-      ...(String(input.keyRef.relayerVerifyingShareB64u || '').trim()
-        ? { relayerVerifyingShareB64u: String(input.keyRef.relayerVerifyingShareB64u).trim() }
-        : {}),
-    },
-    clientShare: buildThresholdEcdsaSignerClientShare({
-      backendBinding,
-      publicFacts: input.publicFacts,
-      chainTarget,
-      session: signerIdentity,
-      activeStateId: routerAbEcdsaDerivationNormalSigning.activeStateId,
-    }),
-    routerAbEcdsaDerivationNormalSigning,
   };
 }
 
@@ -1397,35 +891,6 @@ export function buildEvmFamilyEcdsaKeyIdentityFromKeyRef(args: {
     participantIds: args.keyRef.participantIds,
     thresholdOwnerAddress,
   });
-}
-
-export function buildEvmFamilyEcdsaSessionLane(
-  input: BuildEvmFamilyEcdsaSessionLaneInput,
-): EvmFamilyEcdsaSessionLane {
-  const remainingUses = Math.floor(Number(input.remainingUses));
-  const expiresAtMs = Math.floor(Number(input.expiresAtMs));
-  if (!Number.isFinite(remainingUses)) {
-    throw new Error('[evm-family-ecdsa] remainingUses must be finite');
-  }
-  if (!Number.isFinite(expiresAtMs)) {
-    throw new Error('[evm-family-ecdsa] expiresAtMs must be finite');
-  }
-  const materialActivationResult = parseMpcMaterialActivationRef(input.materialActivation);
-  if (!materialActivationResult.ok) {
-    throw new Error(materialActivationResult.error.message);
-  }
-  return {
-    key: input.key,
-    materialActivation: materialActivationResult.value,
-    chainTarget: input.chainTarget,
-    authMethod: input.authMethod,
-    source: input.source,
-    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
-    signingGrantId: SigningSessionIds.signingGrant(input.signingGrantId),
-    walletSessionAuth: buildEcdsaWalletSessionTransportAuth(input.walletSessionAuth),
-    remainingUses,
-    expiresAtMs,
-  };
 }
 
 export function buildEvmFamilyEcdsaSessionLanePolicy(
