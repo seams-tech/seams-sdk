@@ -136,7 +136,7 @@ export function buildEmailOtpEd25519YaoRecoveryContinuityMetadataV1(
       lifecycle_id: 'persisted-email-otp-recovery-anchor-v1',
       root_share_epoch: capability.lifecycle.rootShareEpoch,
       account_id: capability.lifecycle.accountId,
-      wallet_session_id: capability.lifecycle.walletSessionId,
+      wallet_session_id: capability.lifecycle.thresholdSessionId,
       signer_set_id: capability.lifecycle.signerSetId,
       signing_worker_id: capability.lifecycle.signingWorkerId,
     },
@@ -234,7 +234,7 @@ function assertPriorRecoveryContinuity(
     capability.applicationBinding.signing_root_id !== session.signingRootId ||
     capability.lifecycle.rootShareEpoch !== session.signingRootVersion ||
     capability.lifecycle.accountId !== walletId ||
-    capability.lifecycle.walletSessionId !== session.thresholdSessionId ||
+    capability.lifecycle.thresholdSessionId !== session.thresholdSessionId ||
     capability.lifecycle.signingWorkerId !== session.routerAbNormalSigning.signingWorkerId ||
     !equalParticipants(capability.participantIds, session.participantIds) ||
     !equalRuntimePolicyScope(session.runtimePolicyScope, capability.runtimePolicyScope) ||
@@ -248,7 +248,7 @@ function assertPriorRecoveryContinuity(
     !equalParticipants(prior.participantIds, capability.participantIds) ||
     prior.scope.root_share_epoch !== capability.lifecycle.rootShareEpoch ||
     prior.scope.account_id !== capability.lifecycle.accountId ||
-    prior.scope.wallet_session_id !== capability.lifecycle.walletSessionId ||
+    prior.scope.wallet_session_id !== capability.lifecycle.thresholdSessionId ||
     prior.scope.signer_set_id !== capability.lifecycle.signerSetId ||
     prior.scope.signing_worker_id !== capability.lifecycle.signingWorkerId ||
     prior.stateEpoch !== BigInt(capability.stateEpoch)
@@ -273,7 +273,7 @@ function recoveryAdmissionRequest(
         ),
         root_share_epoch: capability.lifecycle.rootShareEpoch,
         account_id: capability.lifecycle.accountId,
-        wallet_session_id: input.bootstrap.session.walletSessionId,
+        wallet_session_id: input.bootstrap.session.thresholdSessionId,
         signer_set_id: capability.lifecycle.signerSetId,
         signing_worker_id: capability.lifecycle.signingWorkerId,
       },

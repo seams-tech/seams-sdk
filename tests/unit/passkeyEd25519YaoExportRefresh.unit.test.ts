@@ -273,7 +273,7 @@ class DurablePasskeyEd25519ExportRefreshHarness extends PasskeyEd25519ExportRefr
               lifecycleId: 'lifecycle-passkey-export-refresh',
               rootShareEpoch: RUNTIME_POLICY_SCOPE.signingRootVersion,
               accountId: String(WALLET_ID),
-              walletSessionId: THRESHOLD_SESSION_ID,
+              thresholdSessionId: THRESHOLD_SESSION_ID,
               signerSetId: 'near-primary',
               signingWorkerId: RELAYER_KEY_ID,
             },

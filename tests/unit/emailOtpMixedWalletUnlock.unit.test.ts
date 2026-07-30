@@ -34,6 +34,7 @@ import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import { parseThresholdEd25519SessionId } from '../../packages/shared-ts/src/utils/domainIds';
 
 type UnlockResult = EmailOtpWorkerOperationMap['loginWithEmailOtpWallet']['result'];
 
@@ -110,7 +111,9 @@ const RECOVERY = {
 
 const NEAR_ACCOUNT_ID = 'ab'.repeat(32);
 const NEAR_ED25519_SIGNING_KEY_ID = 'near-key-primary';
-const THRESHOLD_SESSION_ID = 'threshold-session-1';
+const THRESHOLD_SESSION_ID = requireFixtureDomainId(
+  parseThresholdEd25519SessionId('threshold-session-1'),
+);
 const SIGNING_GRANT_ID = 'signing-grant-1';
 const PARTICIPANT_IDS = [1, 2] as const;
 const REMAINING_USES = 3;
@@ -174,7 +177,7 @@ const ED25519_RECOVERY_BOOTSTRAP: EmailOtpEd25519YaoRecoveryBootstrapV1 = {
       lifecycleId: 'email-otp-mixed-wallet-lifecycle',
       rootShareEpoch: RUNTIME_POLICY_SCOPE.signingRootVersion,
       accountId: String(WALLET_ID),
-      walletSessionId: THRESHOLD_SESSION_ID,
+      thresholdSessionId: THRESHOLD_SESSION_ID,
       signerSetId: 'near-primary',
       signingWorkerId: 'signing-worker-1',
     },

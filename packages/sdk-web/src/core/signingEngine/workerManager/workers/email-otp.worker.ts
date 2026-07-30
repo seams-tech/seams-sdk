@@ -714,7 +714,7 @@ function assertEmailOtpEd25519YaoExportCapabilityContinuity(args: {
     capability.applicationBinding.key_creation_signer_slot !== args.signerSlot ||
     capability.applicationBinding.signing_root_id !== signingRoot.signingRootId ||
     capability.lifecycle.accountId !== args.walletId ||
-    capability.lifecycle.walletSessionId !== args.thresholdSessionId ||
+    capability.lifecycle.thresholdSessionId !== args.thresholdSessionId ||
     capability.lifecycle.rootShareEpoch !== args.runtimePolicyScope.signingRootVersion ||
     !sameEmailOtpEd25519YaoRuntimePolicyScope(
       capability.runtimePolicyScope,
@@ -753,7 +753,7 @@ async function exportEmailOtpEd25519YaoSeed(args: {
       lifecycle_id: capability.lifecycle.lifecycleId,
       root_share_epoch: capability.lifecycle.rootShareEpoch,
       account_id: capability.lifecycle.accountId,
-      wallet_session_id: capability.lifecycle.walletSessionId,
+      wallet_session_id: capability.lifecycle.thresholdSessionId,
       signer_set_id: capability.lifecycle.signerSetId,
       signing_worker_id: capability.lifecycle.signingWorkerId,
     },
@@ -2320,7 +2320,10 @@ function buildEmailOtpEd25519YaoExactLocalSessionBootstrap(args: {
       lifecycleId: binding.lifecycleId,
       rootShareEpoch: binding.rootShareEpoch,
       accountId: binding.walletId,
-      walletSessionId: session.walletSessionId,
+      thresholdSessionId: readThresholdEd25519SessionId(
+        session.thresholdSessionId,
+        'session.thresholdSessionId',
+      ),
       signerSetId: binding.signerSetId,
       signingWorkerId: binding.signingWorkerId,
     },
@@ -3490,7 +3493,7 @@ function assertEmailOtpEd25519YaoLocalMaterialSessionContinuity(args: {
     session.routerAbNormalSigning.signingWorkerId !== binding.signingWorkerId ||
     capability.lifecycle.lifecycleId !== binding.lifecycleId ||
     capability.lifecycle.rootShareEpoch !== binding.rootShareEpoch ||
-    capability.lifecycle.walletSessionId !== session.walletSessionId ||
+    capability.lifecycle.thresholdSessionId !== session.thresholdSessionId ||
     capability.lifecycle.signerSetId !== binding.signerSetId ||
     capability.lifecycle.signingWorkerId !== binding.signingWorkerId ||
     capability.stateEpoch.toString(10) !== binding.stateEpoch ||
@@ -5233,7 +5236,10 @@ function parseEmailOtpEd25519YaoActiveCapability(
       lifecycleId: readString(lifecycle.lifecycleId, 'lifecycle.lifecycleId'),
       rootShareEpoch: readString(lifecycle.rootShareEpoch, 'lifecycle.rootShareEpoch'),
       accountId: readString(lifecycle.accountId, 'lifecycle.accountId'),
-      walletSessionId: readString(lifecycle.walletSessionId, 'lifecycle.walletSessionId'),
+      thresholdSessionId: readThresholdEd25519SessionId(
+        readString(lifecycle.thresholdSessionId, 'lifecycle.thresholdSessionId'),
+        'lifecycle.thresholdSessionId',
+      ),
       signerSetId: readString(lifecycle.signerSetId, 'lifecycle.signerSetId'),
       signingWorkerId: readString(lifecycle.signingWorkerId, 'lifecycle.signingWorkerId'),
     },

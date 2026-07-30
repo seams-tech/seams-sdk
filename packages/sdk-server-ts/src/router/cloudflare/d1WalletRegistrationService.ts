@@ -1644,7 +1644,7 @@ export class CloudflareD1WalletRegistrationService {
         nearAccountId: signer.nearAccountId,
         nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
         authority,
-        thresholdSessionId: descriptor.lifecycle.walletSessionId,
+        thresholdSessionId: descriptor.lifecycle.thresholdSessionId,
         walletSessionId: reusableWalletSession.session.walletSessionId,
         quotaId: reusableWalletSession.quota.quotaId,
         participantIds,

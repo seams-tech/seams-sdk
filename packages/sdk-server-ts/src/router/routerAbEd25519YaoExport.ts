@@ -372,7 +372,7 @@ function activeCapabilityIdentityMatchesExportScope(
     scope.account_id === request.application_binding.wallet_id &&
     lifecycle.rootShareEpoch === scope.root_share_epoch &&
     lifecycle.accountId === scope.account_id &&
-    lifecycle.walletSessionId === scope.wallet_session_id &&
+    lifecycle.thresholdSessionId === scope.wallet_session_id &&
     lifecycle.signerSetId === scope.signer_set_id &&
     lifecycle.signingWorkerId === scope.signing_worker_id
   );

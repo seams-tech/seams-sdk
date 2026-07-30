@@ -5,7 +5,11 @@ import type {
 } from '../../packages/sdk-server-ts/src/router/authServicePort';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../packages/sdk-server-ts/src/core/registrationContracts';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';
-import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseThresholdEd25519SessionId,
+  parseWebAuthnRpId,
+  type ThresholdEd25519SessionId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
   buildPasskeyWalletAuthAuthority,
@@ -28,6 +32,12 @@ import type {
   RouterAbEd25519YaoActiveCapabilityLookupResultV1,
   RouterAbEd25519YaoActiveCapabilityLookupV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+
+function parseFixtureThresholdSessionId(value: string): ThresholdEd25519SessionId {
+  const parsed = parseThresholdEd25519SessionId(value);
+  if (!parsed.ok) throw new Error('fixture threshold session identity is invalid');
+  return parsed.value;
+}
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { FixtureRouterAbEcdsaStrictRegistrationPort } from '../helpers/routerAbSigningRuntimeTestUtils';
 
@@ -80,7 +90,7 @@ function activeCapabilityFixture(
       lifecycleId: 'sync-account-active-lifecycle',
       rootShareEpoch: 'root-active-v2',
       accountId: WALLET_ID,
-      walletSessionId: 'active-threshold-session-2',
+      thresholdSessionId: parseFixtureThresholdSessionId('active-threshold-session-2'),
       signerSetId: 'signer-set-sync-1',
       signingWorkerId: SIGNING_WORKER_ID,
     },

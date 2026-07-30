@@ -49,11 +49,26 @@ import {
   walletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import {
+  parseThresholdEd25519SessionId,
+  type ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
 
 type RecoveryAdmissionReceipt = RouterAbEd25519YaoActivationAdmissionReceiptV1<'recovery'>;
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
 type RecoveryExecutionResult = RouterAbEd25519YaoActivationResultV1<'recovery'>;
 type RegistrationResult = RouterAbEd25519YaoActivationResultV1<'registration'>;
+
+function requireThresholdEd25519SessionId(
+  value: unknown,
+  label: string,
+): ThresholdEd25519SessionId {
+  const parsed = parseThresholdEd25519SessionId(value);
+  if (!parsed.ok) {
+    throw new Error(`${label} is invalid`);
+  }
+  return parsed.value;
+}
 
 export type RouterAbEd25519YaoRecoveryFailureCode =
   | 'invalid_request'
@@ -404,7 +419,7 @@ export type RouterAbEd25519YaoActiveCapabilityDescriptorV1 = {
     readonly lifecycleId: string;
     readonly rootShareEpoch: string;
     readonly accountId: string;
-    readonly walletSessionId: string;
+    readonly thresholdSessionId: ThresholdEd25519SessionId;
     readonly signerSetId: string;
     readonly signingWorkerId: string;
   };
@@ -686,6 +701,8 @@ export function warmBootstrapCapabilityMatchesStableIdentity(input: {
     capability.applicationBinding.near_ed25519_signing_key_id === request.nearEd25519SigningKeyId &&
     capability.applicationBinding.key_creation_signer_slot === request.signerSlot &&
     capability.lifecycle.accountId === request.walletId &&
+    capability.lifecycle.thresholdSessionId === request.thresholdSessionId &&
+    capability.lifecycle.thresholdSessionId === claims.thresholdSessionId &&
     capability.lifecycle.signingWorkerId === request.signingWorkerId &&
     capability.lifecycle.rootShareEpoch === claims.runtimePolicyScope.signingRootVersion &&
     capability.participantIds[0] === request.participantIds[0] &&
@@ -1478,7 +1495,10 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
           lifecycleId: lifecycle.lifecycle_id,
           rootShareEpoch: lifecycle.root_share_epoch,
           accountId: lifecycle.account_id,
-          walletSessionId: lifecycle.session_id,
+          thresholdSessionId: requireThresholdEd25519SessionId(
+            lifecycle.session_id,
+            'active capability threshold session identity',
+          ),
           signerSetId: lifecycle.signer_set_id,
           signingWorkerId: lifecycle.selected_server_id,
         },

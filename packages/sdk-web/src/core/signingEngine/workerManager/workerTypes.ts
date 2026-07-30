@@ -27,7 +27,10 @@ import {
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type {
+  MpcMaterialActivationRef,
+  ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
 import type {
   EcdsaRoleLocalPersistedMaterialRef,
   SigningSessionSealKeyVersion,
@@ -143,7 +146,7 @@ export type EmailOtpEd25519YaoActiveCapabilityDescriptorV1 = {
     readonly lifecycleId: string;
     readonly rootShareEpoch: string;
     readonly accountId: string;
-    readonly walletSessionId: string;
+    readonly thresholdSessionId: ThresholdEd25519SessionId;
     readonly signerSetId: string;
     readonly signingWorkerId: string;
   };

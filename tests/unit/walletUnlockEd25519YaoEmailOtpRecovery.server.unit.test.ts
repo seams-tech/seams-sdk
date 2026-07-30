@@ -203,7 +203,7 @@ function activeCapabilityFixture(
       lifecycleId: 'wallet-unlock-email-otp-lifecycle',
       rootShareEpoch: ROOT_VERSION,
       accountId: capabilityWalletId,
-      walletSessionId: THRESHOLD_SESSION_ID,
+      thresholdSessionId: THRESHOLD_SESSION_ID,
       signerSetId: String(registrationNearEd25519BranchKey(SIGNER_SLOT)),
       signingWorkerId: SIGNING_WORKER_ID,
     },
