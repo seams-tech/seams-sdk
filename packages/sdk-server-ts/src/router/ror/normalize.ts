@@ -1,3 +1,8 @@
+import {
+  SIGNING_SESSION_SEAL_ALG,
+  SIGNING_SESSION_SEAL_GROUP_ID,
+  type SigningSessionSealProtocol,
+} from '@shared/utils/signingSessionSeal';
 import { toOptionalTrimmedString, toRorOriginOrNull } from '@shared/utils/validation';
 
 export function normalizeCsv(valuesRaw: unknown): string[] {
@@ -33,8 +38,8 @@ export type WellKnownSigningSessionSealCapabilities =
   | { mode: 'none' }
   | {
       mode: 'sealed_refresh_v1';
-      keyVersion?: string;
-      shamirPrimeB64u: string;
+      protocol: SigningSessionSealProtocol;
+      currentKeyVersion: string;
     };
 
 export function normalizeWellKnownSigningSessionSealCapabilities(
@@ -48,14 +53,26 @@ export function normalizeWellKnownSigningSessionSealCapabilities(
   if (mode === 'none') return { mode: 'none' };
   if (mode !== 'sealed_refresh_v1') return null;
 
-  const shamirPrimeB64u = toOptionalTrimmedString(obj.shamirPrimeB64u);
-  if (!shamirPrimeB64u) return null;
-
-  const keyVersion = toOptionalTrimmedString(obj.keyVersion);
+  const protocolRaw = obj.protocol;
+  if (!protocolRaw || typeof protocolRaw !== 'object' || Array.isArray(protocolRaw)) return null;
+  const protocol = protocolRaw as Record<string, unknown>;
+  const algorithm = toOptionalTrimmedString(protocol.algorithm);
+  const groupId = toOptionalTrimmedString(protocol.groupId);
+  const currentKeyVersion = toOptionalTrimmedString(obj.currentKeyVersion);
+  if (
+    algorithm !== SIGNING_SESSION_SEAL_ALG ||
+    groupId !== SIGNING_SESSION_SEAL_GROUP_ID ||
+    !currentKeyVersion
+  ) {
+    return null;
+  }
   return {
     mode: 'sealed_refresh_v1',
-    shamirPrimeB64u,
-    ...(keyVersion ? { keyVersion } : {}),
+    protocol: {
+      algorithm: SIGNING_SESSION_SEAL_ALG,
+      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+    },
+    currentKeyVersion,
   };
 }
 

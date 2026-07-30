@@ -41,10 +41,7 @@ github_environments:
       ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: '<ceremony-jwt-private-jwk>'
       RELAYER_PRIVATE_KEY: '<near-relayer-private-key>'
       SIGNING_ROOT_KEK_VALUE: '<signing-root-kek-value>'
-      SIGNING_SESSION_SEAL_KEY_VERSION: '<signing-session-seal-key-version>'
-      SIGNING_SESSION_SHAMIR_P_B64U: '<signing-session-shamir-prime-b64u>'
-      SIGNING_SESSION_SEAL_E_S_B64U: '<signing-session-server-encrypt-exponent-b64u>'
-      SIGNING_SESSION_SEAL_D_S_B64U: '<signing-session-server-decrypt-exponent-b64u>'
+      SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: '<32-byte-signing-session-seal-root-b64u>'
 
   production:
     vars:
@@ -66,10 +63,7 @@ github_environments:
       ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: '<ceremony-jwt-private-jwk>'
       RELAYER_PRIVATE_KEY: '<near-relayer-private-key>'
       SIGNING_ROOT_KEK_VALUE: '<signing-root-kek-value>'
-      SIGNING_SESSION_SEAL_KEY_VERSION: '<signing-session-seal-key-version>'
-      SIGNING_SESSION_SHAMIR_P_B64U: '<signing-session-shamir-prime-b64u>'
-      SIGNING_SESSION_SEAL_E_S_B64U: '<signing-session-server-encrypt-exponent-b64u>'
-      SIGNING_SESSION_SEAL_D_S_B64U: '<signing-session-server-decrypt-exponent-b64u>'
+      SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: '<32-byte-signing-session-seal-root-b64u>'
 
   staging-mpc-router:
     vars:

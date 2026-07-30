@@ -7,7 +7,6 @@ import type {
   Ed25519ClientVerifyingShareB64u,
   Ed25519RelayerKeyId,
   SigningSessionSealKeyVersion,
-  SigningSessionSealShamirPrimeB64u,
 } from './keyMaterialBrands';
 import {
   formatEcdsaClientVerifyingShareB64uForWire,
@@ -18,7 +17,6 @@ import {
   formatEd25519ClientVerifyingShareB64uForWire,
   formatEd25519RelayerKeyIdForWire,
   formatSigningSessionSealKeyVersionForWire,
-  formatSigningSessionSealShamirPrimeB64uForWire,
   parseEcdsaClientVerifyingShareB64u,
   parseEcdsaDerivationKeyVersion,
   parseEcdsaKeyHandle,
@@ -27,7 +25,6 @@ import {
   parseEd25519ClientVerifyingShareB64u,
   parseEd25519RelayerKeyId,
   parseSigningSessionSealKeyVersion,
-  parseSigningSessionSealShamirPrimeB64u,
 } from './keyMaterialBrands';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import {
@@ -43,7 +40,6 @@ const ed25519RelayerKeyId = parseEd25519RelayerKeyId('ed25519-relayer-key-id');
 const ecdsaRelayerKeyId = parseEcdsaRelayerKeyId('ecdsa-relayer-key-id');
 const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId('ecdsa-threshold-key-id');
 const ecdsaKeyHandle = parseEcdsaKeyHandle('ecdsa-key-handle');
-const shamirPrime = parseSigningSessionSealShamirPrimeB64u('signing-session-shamir-prime');
 const webAuthnRpIdResult = parseWebAuthnRpId('wallet.example.test');
 if (!webAuthnRpIdResult.ok) throw new Error(webAuthnRpIdResult.error.message);
 const webAuthnRpId = webAuthnRpIdResult.value;
@@ -81,10 +77,6 @@ function acceptsEcdsaKeyHandle(value: EcdsaKeyHandle) {
   return formatEcdsaKeyHandleForWire(value);
 }
 
-function acceptsShamirPrime(value: SigningSessionSealShamirPrimeB64u) {
-  return formatSigningSessionSealShamirPrimeB64uForWire(value);
-}
-
 function acceptsWebAuthnRpId(value: WebAuthnRpId) {
   return value;
 }
@@ -101,7 +93,6 @@ acceptsEd25519RelayerKeyId(ed25519RelayerKeyId);
 acceptsEcdsaRelayerKeyId(ecdsaRelayerKeyId);
 acceptsEcdsaThresholdKeyId(ecdsaThresholdKeyId);
 acceptsEcdsaKeyHandle(ecdsaKeyHandle);
-acceptsShamirPrime(shamirPrime);
 acceptsWebAuthnRpId(webAuthnRpId);
 acceptsNearEd25519SigningKeyId(nearEd25519SigningKeyId);
 

@@ -1,8 +1,8 @@
-# Refactor 102: Simplify Shamir 3-Pass Configuration
+# Refactor 96: Simplify Shamir 3-Pass Configuration
 
 Date created: July 29, 2026
 
-Status: implementation plan
+Status: implementation complete; deployment inventory pending
 
 ## Decision
 
@@ -112,13 +112,13 @@ This plan owns:
 This plan preserves the existing three-pass lifecycle:
 
 ```text
-Seal:
+Lock:
   client adds temporary lock
   server adds durable lock
   client removes temporary lock
   browser persists server-locked material
 
-Rehydrate:
+Unlock:
   client adds a fresh temporary lock
   server removes the durable lock
   client removes the temporary lock
@@ -144,7 +144,7 @@ this plan after the Shamir slice is complete and verified.
 
 1. `SIGNING_SESSION_SEAL_ROOT_SECRET_B64U` decodes to exactly 32 bytes at the
    environment boundary.
-2. Raw environment strings never enter seal, unseal, or key-derivation core
+2. Raw environment strings never enter lock, unlock, or key-derivation core
    functions.
 3. The group identifier selects one built-in group from `shamir-3-pass` 0.6.0.
    Active Router A/B paths cannot provide an arbitrary modulus.
@@ -160,7 +160,7 @@ this plan after the Shamir slice is complete and verified.
    destroyed when the operation finishes.
 10. A persisted v2 record requires an algorithm, group identifier, and key
     version. It never stores the prime or either exponent.
-11. Apply-seal always uses the configured current version. Rehydrate uses the
+11. Lock always uses the configured current version. Unlock uses the
     exact version bound to the persisted record or durable enrollment.
 12. Authenticated routes, session identity, remaining-use policy, expiry,
     idempotency, and single-flight behavior remain unchanged.
@@ -235,13 +235,9 @@ keeps it behind a runtime handle. Cache that handle for the runtime lifetime.
 Node, Cloudflare, browser, and tests must not implement a second HKDF,
 candidate-selection, inverse, or raw-exponent path.
 
-Add a frozen cross-runtime vector containing only:
-
-- an explicit test root;
-- algorithm, group, and key version;
-- expected `e_s` and `d_s` encodings;
-- an apply/remove round trip.
-
+Add behavioral vectors around the opaque crate boundary containing only an
+explicit test root, algorithm, group, key version, derivation context, and an
+apply/remove round trip. Derived exponents remain inaccessible by design.
 Production roots and derived values never enter fixtures.
 
 ### Client Exponent Generation
@@ -281,7 +277,7 @@ from public SDK configuration. Sealed-refresh startup fetches the capability,
 validates the supported algorithm and group, and retains the server's current
 version for apply operations.
 
-Apply-seal responses return the exact key version used. Rehydrate requests take
+Lock responses return the exact key version used. Unlock requests take
 their key version from the normalized persisted record. Client application
 builds no longer need Shamir values, and server rotation no longer requires a
 frontend rebuild.
@@ -315,36 +311,25 @@ normal authenticated path.
 ### Durable Email OTP Enrollment Material
 
 Email OTP device enrollment escrow uses the same Shamir server key and can
-outlive a warm session. Preserve access through one explicit migration
-boundary:
+outlive a warm session. The active browser record is strict v2 and requires the
+algorithm, group, and enrollment seal key version. V1 records fail closed at
+the persistence boundary.
 
-1. deploy v2 with a temporary `shamir3pass-v1` migration key entry containing
-   the exact existing version, prime, encrypt exponent, and decrypt exponent;
-2. accept v1 only while opening an authenticated durable Email OTP enrollment;
-3. after a successful v1 open, reseal under v2 and atomically update the server
-   enrollment plus browser escrow record;
-4. mark the enrollment migrated before returning success;
-5. retries read the committed v2 record and do not repeat migration;
-6. measure the remaining v1 enrollment count;
-7. remove the migration entry, v1 parser branch, old environment inputs, and
-   v1 fixtures after the migration window.
-
-Keep this compatibility path inside the Email OTP request and persistence
-boundary. Core seal functions accept v2 material only.
-
-If production contains no durable v1 enrollments, prove that with a read-only
-inventory and delete the migration phase entirely.
+Before deployment, run a read-only production inventory for durable v1
+enrollments. If any exist, require those users to re-enroll during the cutover
+window. This repository does not retain raw-prime or raw-exponent compatibility
+code for opening v1 records.
 
 ### Key-Version Rotation
 
 The stable root can derive an independent exponent pair for every canonical key
-version. Existing records carry the version required for rehydrate. The typed
+version. Existing records carry the version required for unlock. The typed
 Gateway configuration maintains a short `acceptedWarmKeyVersions` list so the
 public seal route cannot request arbitrary derived versions. The server derives
 only versions accepted by the operation:
 
 - apply uses `currentKeyVersion` from typed Gateway configuration;
-- warm rehydrate requires the normalized record version to appear in
+- warm unlock requires the normalized record version to appear in
   `acceptedWarmKeyVersions`;
 - Email OTP enrollment unlock obtains the version from the server-side durable
   enrollment record through an internal typed path.
@@ -419,8 +404,8 @@ define the next bounded simplification.
 - [x] Tag the merged upstream commit as `v0.6.0`.
 - [x] Create the GitHub release with migration and security notes.
 - [x] Verify the versioned API documentation is live on docs.rs.
-- [ ] Update `wasm/shamir3pass_runtime` from 0.5 to 0.6.0.
-- [ ] Regenerate and commit the Wasm package through the existing build path.
+- [x] Update `wasm/shamir3pass_runtime` from 0.5 to 0.6.0.
+- [x] Regenerate the Wasm package through the existing build path.
 
 Exit condition: the workspace resolves `shamir-3-pass` 0.6.0 from crates.io
 and no active manifest references 0.5.
@@ -428,22 +413,23 @@ and no active manifest references 0.5.
 ### Phase 1: Freeze The V2 Protocol
 
 - [x] Select the crate's 1024-bit RFC 2409 group 2 as the initial group.
-- [ ] Add the shared algorithm/group types and exhaustive Wasm group mapping.
-- [ ] Define the canonical server-lock derivation context encoding.
-- [ ] Add a frozen root/context/derived-key vector from the 0.6.0 crate.
-- [ ] Add a client/server three-pass round-trip vector through the Wasm runtime.
+- [x] Add the shared algorithm/group types and exhaustive Wasm group mapping.
+- [x] Define the canonical server-lock derivation context encoding.
+- [x] Add fixed root/context and domain-separation coverage around the opaque API.
+- [x] Add a client/server three-pass round-trip through the Wasm runtime.
 
-Exit condition: one frozen vector proves `e_s * d_s = 1 mod (p - 1)` and a
-client/server three-pass round trip returns the original 32-byte material.
+Exit condition: the upstream checked key-pair constructor owns the inverse
+invariant, and a client/server three-pass round trip returns the original
+material without exposing either exponent.
 
 ### Phase 2: Adopt Opaque Lock Keys
 
-- [ ] Replace the client `65_537` path with `generate_lock_key_pair()`.
-- [ ] Add the exact-length server root parser.
-- [ ] Derive the durable server pair through `derive_lock_key_pair()`.
-- [ ] Keep client and server pairs behind opaque Wasm runtime handles.
-- [ ] Make cipher construction require normalized v2 root configuration.
-- [ ] Delete local GCD, inverse, random-candidate, raw-prime, and raw-exponent
+- [x] Replace the client `65_537` path with `generate_lock_key_pair()`.
+- [x] Add the exact-length server root parser.
+- [x] Derive the durable server pair through `derive_lock_key_pair()`.
+- [x] Keep client and server pairs behind opaque Wasm runtime handles.
+- [x] Make cipher construction require normalized v2 root configuration.
+- [x] Delete local GCD, inverse, random-candidate, raw-prime, and raw-exponent
   implementations from active core paths.
 
 Exit condition: production code contains no preferred or configured Shamir
@@ -451,38 +437,36 @@ exponent, and focused crypto tests pass.
 
 ### Phase 3: Cut Over Capabilities And Active Records
 
-- [ ] Replace raw prime/key-version client config with capability negotiation.
-- [ ] Make v2 persisted record fields required.
-- [ ] Remove the prime from records, worker requests, transports, and cache keys.
-- [ ] Delete v1 warm records at the persistence boundary.
-- [ ] Update passkey, Email OTP ECDSA, and Email OTP Ed25519 Yao rehydration paths to
+- [x] Replace raw prime/key-version client config with capability negotiation.
+- [x] Make v2 persisted record fields required.
+- [x] Remove the prime from records, worker requests, transports, and cache keys.
+- [x] Delete v1 warm records at the persistence boundary.
+- [x] Update passkey, Email OTP ECDSA, and Email OTP Ed25519 Yao unlock paths to
   use the protocol object.
 
-Exit condition: a new browser session seals, reloads, rehydrates, and signs for
+Exit condition: a new browser session locks, reloads, unlocks, and signs for
 each supported auth method and curve without Shamir frontend environment
 variables.
 
-### Phase 4: Migrate Durable Email OTP Enrollments
+### Phase 4: Cut Over Durable Email OTP Enrollments
 
-- [ ] Inventory v1 durable enrollment records.
-- [ ] Add the temporary authenticated v1-to-v2 reseal boundary only when the
-  inventory proves it is required.
-- [ ] Verify transactional server and browser record replacement.
-- [ ] Observe the remaining v1 count until it reaches zero or the migration window
-  closes.
-- [ ] Delete v1 support and require re-enrollment for any record left after the
-  declared window.
+- [x] Make new browser enrollment escrow records strict v2 with a required group.
+- [x] Reject v1 enrollment escrow records at the persistence boundary.
+- [ ] Inventory production v1 durable enrollment records before deployment.
+- [ ] Publish the re-enrollment window and operator runbook when the inventory is
+  non-zero.
 
-Exit condition: active durable enrollments use v2 and the production runtime no
-longer accepts v1 material.
+Exit condition: production inventory and the re-enrollment decision are
+recorded, active durable enrollments use v2, and the runtime accepts no v1
+material.
 
 ### Phase 5: Simplify Deployment Inputs
 
-- [ ] Replace the four Gateway Shamir secrets with the root secret.
-- [ ] Move public protocol selection into the Gateway deployment config.
-- [ ] Remove the two Vite variables and frontend propagation code.
-- [ ] Update local runtime generation and self-host documentation.
-- [ ] Delete the old material generator and stale environment assertions.
+- [x] Replace the four Gateway Shamir secrets with the root secret.
+- [x] Move public protocol selection into the Gateway deployment config.
+- [x] Remove the two Vite variables and frontend propagation code.
+- [x] Update local runtime generation and self-host documentation.
+- [x] Delete the old material generator and stale environment assertions.
 - [ ] Produce the follow-up Router A/B environment classification inventory.
 
 Exit condition: a clean target can be prepared and deployed with one Shamir
@@ -554,7 +538,7 @@ Required focused coverage:
 4. imported and derived values pass the crate's checked constructors;
 5. two client key generations produce distinct exported test vectors;
 6. server apply/remove and the complete three-pass flow recover exact bytes;
-7. wrong root, version, or group cannot rehydrate valid material;
+7. wrong root, version, or group cannot unlock valid material;
 8. v2 record parsers reject missing key version or group and reject raw prime
    fields;
 9. v1 warm records are removed at read;
@@ -593,7 +577,7 @@ exist solely to require the retired variable names.
 - Frontend builds carry no Shamir prime or key version.
 - V2 warm and durable records contain a required group and key version and no
   raw prime.
-- Passkey and Email OTP sessions rehydrate exact Ed25519 and ECDSA material.
+- Passkey and Email OTP sessions unlock exact Ed25519 and ECDSA material.
 - Durable Email OTP enrollment migration is complete or proven unnecessary.
 - Temporary v1 migration code and inputs are deleted.
 - Deriver A and Deriver B root-share separation remains unchanged.

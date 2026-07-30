@@ -194,7 +194,7 @@ const emailOtpEd25519YaoLocalMaterialRehydrate: EmailOtpEd25519YaoLocalMaterialR
     relayerUrl: 'https://relay.example.test',
     walletSessionJwt: 'wallet.session.jwt',
     signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion('seal-v1'),
-    shamirPrimeB64u: 'shamir-prime',
+    groupId: 'shamir-prime',
   },
   restore: {
     session: emailOtpEd25519YaoSession,
@@ -218,7 +218,7 @@ const emailOtpEd25519YaoLocalMaterialRehydrateWithoutWalletSession = {
   transport: {
     relayerUrl: 'https://relay.example.test',
     signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion('seal-v1'),
-    shamirPrimeB64u: 'shamir-prime',
+    groupId: 'shamir-prime',
   },
 } satisfies EmailOtpEd25519YaoLocalMaterialRehydratePayload;
 void emailOtpEd25519YaoLocalMaterialRehydrateWithoutWalletSession;
@@ -435,7 +435,7 @@ const emailOtpWalletUnlockPayload: EmailOtpWalletUnlockPayload = {
   userId: 'wallet.testnet',
   challengeId: 'challenge-1',
   otpCode: '123456',
-  shamirPrimeB64u: 'prime',
+  groupId: 'prime',
   routePlan: emailOtpWalletUnlockRoutePlan,
   material: emailOtpEcdsaWalletUnlockMaterial,
 };
@@ -445,7 +445,7 @@ const emailOtpWalletUnlockPayloadWithoutRuntimeScope = {
   relayUrl: 'https://relay.example',
   walletId: 'wallet.testnet',
   otpCode: '123456',
-  shamirPrimeB64u: 'prime',
+  groupId: 'prime',
   routePlan: emailOtpWalletUnlockRoutePlan,
 };
 // @ts-expect-error Email OTP wallet unlock must carry one exact material branch.
@@ -592,7 +592,7 @@ const emailOtpEd25519YaoExportPayload: EmailOtpEd25519YaoExportPayload = {
   userId: 'google:subject',
   challengeId: 'challenge-ed25519-export',
   otpCode: '123456',
-  shamirPrimeB64u: 'prime',
+  groupId: 'prime',
   routePlan: emailOtpEd25519YaoExportRoutePlan,
   walletSessionJwt: 'wallet-session-jwt',
   nearAccountId: 'alice.testnet',

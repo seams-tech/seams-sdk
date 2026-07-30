@@ -345,8 +345,8 @@ class MixedLoginPortsFixture implements EmailOtpEcdsaLoginPorts {
     return 'https://relay.example.test';
   }
 
-  requireShamirPrimeB64u(): string {
-    return 'shamir-prime';
+  requireSigningSessionSealGroupId(): string {
+    return 'rfc2409-group2';
   }
 
   rememberAppSessionJwt(): void {}
@@ -389,8 +389,8 @@ class ExportLoginPortsFixture implements EmailOtpEcdsaLoginPorts {
     return 'https://relay.example.test';
   }
 
-  requireShamirPrimeB64u(): string {
-    return 'shamir-prime';
+  requireSigningSessionSealGroupId(): string {
+    return 'rfc2409-group2';
   }
 
   rememberAppSessionJwt(): void {}
@@ -507,7 +507,7 @@ function mixedUnlockArgs(workerCtx: WorkerOperationContext) {
       walletSessionUserId: 'google:mixed-subject',
     },
     relayUrl: 'https://relay.example.test',
-    shamirPrimeB64u: 'shamir-prime',
+    groupId: 'rfc2409-group2',
     otpCode: '123456',
     challengeId: 'challenge-1',
     routePlan: {
@@ -552,7 +552,7 @@ function exportCapabilityArgs(record: ThresholdEcdsaSessionRecord) {
     challengeId: 'challenge-1',
     otpCode: '123456',
     operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
-    shamirPrimeB64u: 'shamir-prime',
+    groupId: 'rfc2409-group2',
     ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
     routePlan: exportRoutePlan(),
     keyHandle: record.keyHandle,
@@ -606,7 +606,7 @@ test('mixed Email OTP unlock sends one coherent worker operation and returns bot
       userId: 'google:mixed-subject',
       challengeId: 'challenge-1',
       otpCode: '123456',
-      shamirPrimeB64u: 'shamir-prime',
+      groupId: 'rfc2409-group2',
       routePlan: mixedUnlockArgs(worker).routePlan,
       otpChannel: 'email_otp',
       material: {
@@ -677,7 +677,7 @@ test('mixed Email OTP login disposes the pending Ed25519 factor when ECDSA boots
         challengeId: 'challenge-1',
         otpCode: '123456',
         operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
-        shamirPrimeB64u: 'shamir-prime',
+        groupId: 'rfc2409-group2',
         ecdsaBootstrapAuthorization: {
           kind: 'explicit_route_auth',
           routeAuth: {

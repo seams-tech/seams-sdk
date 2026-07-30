@@ -26,7 +26,7 @@ test.describe('Email OTP device enrollment escrow store', () => {
           enrollmentSealKeyVersion: 'seal-v1',
           signingRootId: 'root-1',
           signingRootVersion: 'root-v1',
-          shamirPrimeB64u: 'cHJpbWU',
+          groupId: 'rfc2409-group2',
           encSB64u: 'ZW5jX3Nfcy1ieXRlcw',
           issuedAtMs: Date.now(),
           updatedAtMs: Date.now(),
@@ -81,13 +81,14 @@ test.describe('Email OTP device enrollment escrow store', () => {
     );
 
     expect(result.record).toMatchObject({
-      v: 1,
-      alg: 'shamir3pass-v1',
+      v: 2,
+      alg: 'shamir3pass-v2',
       storageScope: 'iframe_origin_indexeddb',
       secretKind: 'email_otp_device_enrollment_escrow_enc_s',
       walletId: 'alice.testnet',
       authSubjectId: 'google-sub-1',
       enrollmentId: 'enrollment-1',
+      groupId: 'rfc2409-group2',
       encSB64u: 'ZW5jX3Nfcy1ieXRlcw',
     });
     expect(result.rawHasPlaintextS).toBe(false);
@@ -154,6 +155,7 @@ test.describe('Email OTP device enrollment escrow store', () => {
           enrollmentSealKeyVersion: 'seal-v1',
           signingRootId: 'root-1',
           signingRootVersion: 'root-v1',
+          groupId: 'rfc2409-group2',
           encSB64u: 'ZW5jX3Nfcy1ieXRlcw',
           issuedAtMs: Date.now(),
           updatedAtMs: Date.now(),
@@ -200,6 +202,7 @@ test.describe('Email OTP device enrollment escrow store', () => {
             enrollmentSealKeyVersion: 'seal-v1',
             signingRootId: 'root-1',
             signingRootVersion: 'root-v1',
+            groupId: 'rfc2409-group2',
             encSB64u: '',
           })
           .then(
@@ -221,6 +224,7 @@ test.describe('Email OTP device enrollment escrow store', () => {
               enrollmentSealKeyVersion: 'seal-v1',
               signingRootId: 'root-1',
               signingRootVersion: 'root-v1',
+              groupId: 'rfc2409-group2',
               encSB64u: 'ZW5jX3Nfcy1ieXRlcw',
             })
             .then(
@@ -258,6 +262,7 @@ test.describe('Email OTP device enrollment escrow store', () => {
           enrollmentSealKeyVersion: 'seal-v1',
           signingRootId: 'root-1',
           signingRootVersion: 'root-v1',
+          groupId: 'rfc2409-group2',
           encSB64u: 'ZW5jX3Nfcy1ieXRlcw',
         };
 

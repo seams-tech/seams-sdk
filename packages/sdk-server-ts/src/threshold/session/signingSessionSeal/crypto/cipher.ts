@@ -1,10 +1,25 @@
-import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import {
+  SIGNING_SESSION_SEAL_ALG,
+  SIGNING_SESSION_SEAL_GROUP_ID,
+  encodeSigningSessionHkdfTuple,
+  type SigningSessionSealProtocol,
+} from '@shared/utils/signingSessionSeal';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import {
+  parseSigningSessionSealKeyVersion,
+  type SigningSessionSealKeyVersion,
+} from '../../../../core/keyMaterialBrands';
 import type {
   SigningSessionSealCipherAdapter,
   SigningSessionSealCipherOperationInput,
   SigningSessionSealCipherOperationResult,
 } from '../signingSessionSeal.types';
+import {
+  addSigningSessionSealLock,
+  deriveSigningSessionSealLockKeyHandle,
+  destroySigningSessionSealLockKeyHandle,
+  removeSigningSessionSealLock,
+} from './shamir3PassWasm';
 
 type HandlerInput = Omit<SigningSessionSealCipherOperationInput, 'operation'>;
 type HandlerResult = SigningSessionSealCipherOperationResult;
@@ -12,6 +27,30 @@ type HandlerResult = SigningSessionSealCipherOperationResult;
 export interface CreateSigningSessionSealCipherAdapterOptions {
   applyServerSeal: (input: HandlerInput) => Promise<HandlerResult> | HandlerResult;
   removeServerSeal: (input: HandlerInput) => Promise<HandlerResult> | HandlerResult;
+}
+
+export type SigningSessionSealShamir3PassRootConfig = {
+  readonly kind: 'shamir3pass_root_v2';
+  readonly rootSecret32: Uint8Array;
+  readonly currentKeyVersion: SigningSessionSealKeyVersion;
+  readonly acceptedWarmKeyVersions: readonly SigningSessionSealKeyVersion[];
+  readonly protocol: SigningSessionSealProtocol;
+};
+
+export interface SigningSessionSealShamir3PassRuntime {
+  deriveLockKeyHandle(input: {
+    readonly groupId: string;
+    readonly rootSecret32: Uint8Array;
+    readonly context: Uint8Array;
+  }): Promise<number>;
+  addLock(input: { readonly handle: number; readonly ciphertextB64u: string }): Promise<string>;
+  removeLock(input: { readonly handle: number; readonly ciphertextB64u: string }): Promise<string>;
+  destroyLockKeyHandle(handle: number): boolean;
+}
+
+export interface CreateSigningSessionSealShamir3PassCipherAdapterOptions {
+  readonly config: SigningSessionSealShamir3PassRootConfig;
+  readonly runtime?: SigningSessionSealShamir3PassRuntime;
 }
 
 function toErrorResult(error: unknown): { ok: false; code: string; message: string } {
@@ -23,7 +62,8 @@ function toErrorResult(error: unknown): { ok: false; code: string; message: stri
   ) {
     const code = String((error as { code?: unknown }).code || '').trim() || 'internal';
     const message =
-      String((error as { message?: unknown }).message || '').trim() || 'Signing-session seal cipher failed';
+      String((error as { message?: unknown }).message || '').trim() ||
+      'Signing-session seal cipher failed';
     return { ok: false, code, message };
   }
   const message =
@@ -32,27 +72,29 @@ function toErrorResult(error: unknown): { ok: false; code: string; message: stri
 }
 
 function normalizeResult(result: HandlerResult): HandlerResult {
-  if (result.ok) {
-    const ciphertext = toOptionalTrimmedString(result.ciphertext);
-    if (!ciphertext) {
-      return {
-        ok: false,
-        code: 'invalid_ciphertext',
-        message: 'Signing-session seal cipher returned empty ciphertext',
-      };
-    }
+  if (!result.ok) {
     return {
-      ok: true,
-      ciphertext,
-      ...(String(result.keyVersion || '').trim()
-        ? { keyVersion: String(result.keyVersion).trim() }
-        : {}),
+      ok: false,
+      code: String(result.code || 'internal').trim() || 'internal',
+      message:
+        String(result.message || 'Signing-session seal cipher failed').trim() ||
+        'Signing-session seal cipher failed',
+    };
+  }
+  const ciphertext = toOptionalTrimmedString(result.ciphertext);
+  if (!ciphertext) {
+    return {
+      ok: false,
+      code: 'invalid_ciphertext',
+      message: 'Signing-session seal cipher returned empty ciphertext',
     };
   }
   return {
-    ok: false,
-    code: String(result.code || 'internal').trim() || 'internal',
-    message: String(result.message || 'Signing-session seal cipher failed').trim() || 'Signing-session seal cipher failed',
+    ok: true,
+    ciphertext,
+    ...(String(result.keyVersion || '').trim()
+      ? { keyVersion: String(result.keyVersion).trim() }
+      : {}),
   };
 }
 
@@ -98,116 +140,100 @@ export function createPassthroughSigningSessionSealCipherAdapter(): SigningSessi
   });
 }
 
-export interface SigningSessionSealShamir3PassRuntimeInput {
-  ciphertextB64u: string;
-  exponentB64u: string;
-  shamirPrimeB64u: string;
+function normalizeKeyVersion(value: unknown, label: string): SigningSessionSealKeyVersion {
+  const keyVersion = toOptionalTrimmedString(value);
+  if (!keyVersion) throw new Error(`${label} is required`);
+  return parseSigningSessionSealKeyVersion(keyVersion);
 }
 
-export interface SigningSessionSealShamir3PassRuntime {
-  addServerSeal(input: SigningSessionSealShamir3PassRuntimeInput): Promise<string> | string;
-  removeServerSeal(input: SigningSessionSealShamir3PassRuntimeInput): Promise<string> | string;
-}
-
-export interface SigningSessionSealShamir3PassKeyMaterial {
-  keyVersion: string;
-  shamirPrimeB64u: string;
-  serverEncryptExponentB64u: string;
-  serverDecryptExponentB64u: string;
-}
-
-export interface CreateSigningSessionSealShamir3PassCipherAdapterOptions {
-  currentKeyVersion: string;
-  keys: SigningSessionSealShamir3PassKeyMaterial[];
-  runtime?: SigningSessionSealShamir3PassRuntime;
-  strictApplyKeyVersion?: boolean;
-}
-
-function decodeBigIntB64u(value: string, label: string): bigint {
-  const normalized = toOptionalTrimmedString(value);
-  if (!normalized) throw new Error(`${label} must be a non-empty base64url string`);
-  const bytes = base64UrlDecode(normalized);
-  if (!bytes.length) throw new Error(`${label} must decode to non-empty bytes`);
-  let output = 0n;
-  for (const byte of bytes) {
-    output = (output << 8n) | BigInt(byte);
+function normalizeConfig(
+  config: SigningSessionSealShamir3PassRootConfig,
+): SigningSessionSealShamir3PassRootConfig {
+  if (config.kind !== 'shamir3pass_root_v2') {
+    throw new Error('Signing-session seal root configuration kind is invalid');
   }
-  return output;
-}
-
-function encodeBigIntB64u(value: bigint): string {
-  if (value <= 0n) throw new Error('ciphertext must be > 0');
-  const bytesReversed: number[] = [];
-  let cursor = value;
-  while (cursor > 0n) {
-    bytesReversed.push(Number(cursor & 255n));
-    cursor >>= 8n;
+  if (!(config.rootSecret32 instanceof Uint8Array) || config.rootSecret32.length !== 32) {
+    throw new Error('Signing-session seal root secret must be exactly 32 bytes');
   }
-  bytesReversed.reverse();
-  return base64UrlEncode(Uint8Array.from(bytesReversed));
+  if (
+    config.protocol.algorithm !== SIGNING_SESSION_SEAL_ALG ||
+    config.protocol.groupId !== SIGNING_SESSION_SEAL_GROUP_ID
+  ) {
+    throw new Error('Signing-session seal protocol is unsupported');
+  }
+
+  const currentKeyVersion = normalizeKeyVersion(
+    config.currentKeyVersion,
+    'currentKeyVersion',
+  );
+  const acceptedWarmKeyVersions = config.acceptedWarmKeyVersions.map((keyVersion, index) =>
+    normalizeKeyVersion(keyVersion, `acceptedWarmKeyVersions[${index}]`),
+  );
+  if (!acceptedWarmKeyVersions.includes(currentKeyVersion)) {
+    throw new Error('acceptedWarmKeyVersions must include currentKeyVersion');
+  }
+  if (new Set(acceptedWarmKeyVersions).size !== acceptedWarmKeyVersions.length) {
+    throw new Error('acceptedWarmKeyVersions must not contain duplicates');
+  }
+
+  return {
+    kind: 'shamir3pass_root_v2',
+    rootSecret32: config.rootSecret32.slice(),
+    currentKeyVersion,
+    acceptedWarmKeyVersions,
+    protocol: {
+      algorithm: SIGNING_SESSION_SEAL_ALG,
+      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+    },
+  };
 }
 
-function modPow(base: bigint, exponent: bigint, modulus: bigint): bigint {
-  if (modulus <= 1n) return 0n;
-  let result = 1n;
-  let factor = base % modulus;
-  let power = exponent;
+export function encodeSigningSessionSealServerLockContext(input: {
+  readonly protocol: SigningSessionSealProtocol;
+  readonly keyVersion: string;
+}): Uint8Array {
+  return encodeSigningSessionHkdfTuple([
+    'seams/router-ab/signing-session-seal',
+    input.protocol.algorithm,
+    input.protocol.groupId,
+    input.keyVersion,
+    'server-lock/v1',
+  ]);
+}
 
-  while (power > 0n) {
-    if ((power & 1n) === 1n) {
-      result = (result * factor) % modulus;
+function defaultRuntime(): SigningSessionSealShamir3PassRuntime {
+  return {
+    deriveLockKeyHandle: deriveSigningSessionSealLockKeyHandle,
+    addLock: addSigningSessionSealLock,
+    removeLock: removeSigningSessionSealLock,
+    destroyLockKeyHandle: destroySigningSessionSealLockKeyHandle,
+  };
+}
+
+async function deriveAcceptedKeyHandles(input: {
+  readonly config: SigningSessionSealShamir3PassRootConfig;
+  readonly runtime: SigningSessionSealShamir3PassRuntime;
+}): Promise<ReadonlyMap<string, number>> {
+  const handles = new Map<string, number>();
+  try {
+    for (const keyVersion of input.config.acceptedWarmKeyVersions) {
+      const handle = await input.runtime.deriveLockKeyHandle({
+        groupId: input.config.protocol.groupId,
+        rootSecret32: input.config.rootSecret32,
+        context: encodeSigningSessionSealServerLockContext({
+          protocol: input.config.protocol,
+          keyVersion,
+        }),
+      });
+      handles.set(keyVersion, handle);
     }
-    power >>= 1n;
-    factor = (factor * factor) % modulus;
+    return handles;
+  } catch (error: unknown) {
+    for (const handle of handles.values()) input.runtime.destroyLockKeyHandle(handle);
+    throw error;
+  } finally {
+    input.config.rootSecret32.fill(0);
   }
-
-  return result;
-}
-
-function runShamirModExp(input: SigningSessionSealShamir3PassRuntimeInput): string {
-  const shamirPrime = decodeBigIntB64u(input.shamirPrimeB64u, 'shamirPrimeB64u');
-  if (shamirPrime <= 2n) throw new Error('shamirPrimeB64u must decode to an integer > 2');
-
-  const ciphertext = decodeBigIntB64u(input.ciphertextB64u, 'ciphertext');
-  if (ciphertext <= 0n || ciphertext >= shamirPrime) {
-    throw new Error('ciphertext must decode to an integer in range (0, p)');
-  }
-
-  const exponent = decodeBigIntB64u(input.exponentB64u, 'exponentB64u');
-  if (exponent <= 0n) throw new Error('exponentB64u must decode to an integer > 0');
-
-  const output = modPow(ciphertext, exponent, shamirPrime);
-  return encodeBigIntB64u(output);
-}
-
-export function createSigningSessionSealShamir3PassBigIntRuntime(): SigningSessionSealShamir3PassRuntime {
-  return {
-    addServerSeal: (input) => runShamirModExp(input),
-    removeServerSeal: (input) => runShamirModExp(input),
-  };
-}
-
-function normalizeKeyMaterial(
-  input: SigningSessionSealShamir3PassKeyMaterial,
-  index: number,
-): SigningSessionSealShamir3PassKeyMaterial {
-  const keyVersion = toOptionalTrimmedString(input.keyVersion);
-  if (!keyVersion) throw new Error(`keys[${index}].keyVersion is required`);
-
-  const shamirPrimeB64u = toOptionalTrimmedString(input.shamirPrimeB64u);
-  const serverEncryptExponentB64u = toOptionalTrimmedString(input.serverEncryptExponentB64u);
-  const serverDecryptExponentB64u = toOptionalTrimmedString(input.serverDecryptExponentB64u);
-
-  decodeBigIntB64u(shamirPrimeB64u, `keys[${index}].shamirPrimeB64u`);
-  decodeBigIntB64u(serverEncryptExponentB64u, `keys[${index}].serverEncryptExponentB64u`);
-  decodeBigIntB64u(serverDecryptExponentB64u, `keys[${index}].serverDecryptExponentB64u`);
-
-  return {
-    keyVersion,
-    shamirPrimeB64u,
-    serverEncryptExponentB64u,
-    serverDecryptExponentB64u,
-  };
 }
 
 function cipherFailure(code: string, message: string): SigningSessionSealCipherOperationResult {
@@ -218,30 +244,11 @@ function mapCipherError(
   error: unknown,
   defaultMessage: string,
 ): SigningSessionSealCipherOperationResult {
-  if (
-    error &&
-    typeof error === 'object' &&
-    !Array.isArray(error) &&
-    (error as { code?: unknown }).code
-  ) {
-    const code = toOptionalTrimmedString((error as { code?: unknown }).code) || 'internal';
-    const message =
-      toOptionalTrimmedString((error as { message?: unknown }).message) || defaultMessage;
-    return cipherFailure(code, message);
-  }
-
   const message =
     toOptionalTrimmedString(error instanceof Error ? error.message : error) || defaultMessage;
   const lowered = message.toLowerCase();
-  if (lowered.includes('keyversion')) {
-    return cipherFailure('invalid_key_version', message);
-  }
-  if (
-    lowered.includes('ciphertext') ||
-    lowered.includes('exponent') ||
-    lowered.includes('base64url') ||
-    lowered.includes('prime')
-  ) {
+  if (lowered.includes('keyversion')) return cipherFailure('invalid_key_version', message);
+  if (lowered.includes('ciphertext') || lowered.includes('base64url') || lowered.includes('group')) {
     return cipherFailure('invalid_ciphertext', message);
   }
   return cipherFailure('internal', message);
@@ -250,81 +257,43 @@ function mapCipherError(
 export function createSigningSessionSealShamir3PassCipherAdapter(
   options: CreateSigningSessionSealShamir3PassCipherAdapterOptions,
 ): SigningSessionSealCipherAdapter {
-  const currentKeyVersion = toOptionalTrimmedString(options.currentKeyVersion);
-  if (!currentKeyVersion) throw new Error('currentKeyVersion is required');
-
-  const keyEntries = Array.isArray(options.keys) ? options.keys : [];
-  if (!keyEntries.length) throw new Error('keys[] must include at least one key material entry');
-
-  const keyByVersion = new Map<string, SigningSessionSealShamir3PassKeyMaterial>();
-  for (let index = 0; index < keyEntries.length; index += 1) {
-    const normalized = normalizeKeyMaterial(keyEntries[index], index);
-    if (keyByVersion.has(normalized.keyVersion)) {
-      throw new Error(`Duplicate keyVersion "${normalized.keyVersion}"`);
-    }
-    keyByVersion.set(normalized.keyVersion, normalized);
-  }
-
-  if (!keyByVersion.has(currentKeyVersion)) {
-    throw new Error(`currentKeyVersion "${currentKeyVersion}" is not present in keys[]`);
-  }
-
-  const runtime = options.runtime || createSigningSessionSealShamir3PassBigIntRuntime();
-  const strictApplyKeyVersion = options.strictApplyKeyVersion !== false;
+  const config = normalizeConfig(options.config);
+  options.config.rootSecret32.fill(0);
+  const runtime = options.runtime ?? defaultRuntime();
+  const handles = deriveAcceptedKeyHandles({ config, runtime });
 
   return createSigningSessionSealCipherAdapter({
     applyServerSeal: async (input) => {
       const requestedKeyVersion = toOptionalTrimmedString(input.keyVersion);
-      if (
-        strictApplyKeyVersion &&
-        requestedKeyVersion &&
-        requestedKeyVersion !== currentKeyVersion
-      ) {
-        return {
-          ok: false,
-          code: 'invalid_key_version',
-          message: `Requested keyVersion "${requestedKeyVersion}" does not match active keyVersion "${currentKeyVersion}"`,
-        };
+      if (requestedKeyVersion && requestedKeyVersion !== config.currentKeyVersion) {
+        return cipherFailure(
+          'invalid_key_version',
+          `Requested keyVersion "${requestedKeyVersion}" does not match active keyVersion "${config.currentKeyVersion}"`,
+        );
       }
-
-      const key = keyByVersion.get(currentKeyVersion)!;
       try {
-        const ciphertext = await runtime.addServerSeal({
-          ciphertextB64u: input.ciphertext,
-          exponentB64u: key.serverEncryptExponentB64u,
-          shamirPrimeB64u: key.shamirPrimeB64u,
-        });
+        const handle = (await handles).get(config.currentKeyVersion);
+        if (handle === undefined) throw new Error('currentKeyVersion handle is unavailable');
         return {
           ok: true,
-          ciphertext: toOptionalTrimmedString(ciphertext),
-          keyVersion: key.keyVersion,
+          ciphertext: await runtime.addLock({ handle, ciphertextB64u: input.ciphertext }),
+          keyVersion: config.currentKeyVersion,
         };
       } catch (error: unknown) {
         return mapCipherError(error, 'Failed to apply server seal');
       }
     },
-
     removeServerSeal: async (input) => {
-      const requestedKeyVersion = toOptionalTrimmedString(input.keyVersion) || currentKeyVersion;
-      const key = keyByVersion.get(requestedKeyVersion);
-      if (!key) {
-        return {
-          ok: false,
-          code: 'invalid_key_version',
-          message: `Unknown keyVersion "${requestedKeyVersion}"`,
-        };
-      }
-
+      const keyVersion = normalizeKeyVersion(input.keyVersion, 'keyVersion');
       try {
-        const ciphertext = await runtime.removeServerSeal({
-          ciphertextB64u: input.ciphertext,
-          exponentB64u: key.serverDecryptExponentB64u,
-          shamirPrimeB64u: key.shamirPrimeB64u,
-        });
+        const handle = (await handles).get(keyVersion);
+        if (handle === undefined) {
+          return cipherFailure('invalid_key_version', `Unknown keyVersion "${keyVersion}"`);
+        }
         return {
           ok: true,
-          ciphertext: toOptionalTrimmedString(ciphertext),
-          keyVersion: key.keyVersion,
+          ciphertext: await runtime.removeLock({ handle, ciphertextB64u: input.ciphertext }),
+          keyVersion,
         };
       } catch (error: unknown) {
         return mapCipherError(error, 'Failed to remove server seal');

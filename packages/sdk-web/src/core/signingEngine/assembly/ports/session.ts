@@ -5,6 +5,7 @@ import type { EmailOtpWalletSessionCoordinator } from '../../session/emailOtp/Em
 import type { SessionPublicDeps } from '../../session/public';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import type { WarmSigningPorts } from './warmSigning';
+import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 
 export function createSessionPublicDeps(args: {
   seamsWebConfigs: SeamsConfigsReadonly;
@@ -36,7 +37,10 @@ export function createSessionPublicDeps(args: {
         ),
     },
     ecdsaSessions: args.warmSigning.ecdsaSessions,
-    signingSessionSeal: args.seamsWebConfigs.signing.sessionSeal,
+    signingSessionSeal:
+      args.seamsWebConfigs.signing.sessionSeal.mode === 'sealed_refresh_v1'
+        ? { groupId: SIGNING_SESSION_SEAL_GROUP_ID }
+        : undefined,
     getConfiguredEcdsaChainTargets: () =>
       configuredThresholdEcdsaChainTargets(args.seamsWebConfigs.network.chains),
     discovery: sessionDiscovery,

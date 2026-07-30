@@ -13,7 +13,6 @@ import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey
 import type { ThresholdEcdsaActivationRequest } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
   requirePersistedEcdsaRoleLocalMaterial,
   toExactEcdsaSigningLaneIdentity,
@@ -277,8 +276,7 @@ type WarmSessionTestServicesDeps = {
     thresholdSessionId: string,
   ) => ThresholdEcdsaSessionRecord | null;
   signingSessionSeal?: {
-    keyVersion?: string;
-    shamirPrimeB64u?: string;
+    groupId?: string;
   };
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
   listThresholdEcdsaRecordsForWalletTarget?: (args: {
@@ -449,13 +447,8 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: deps.touchConfirm ?? null,
     signingSessionSeal:
-      deps.signingSessionSeal?.keyVersion && deps.signingSessionSeal.shamirPrimeB64u
-        ? {
-            signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
-              deps.signingSessionSeal.keyVersion,
-            ),
-            shamirPrimeB64u: deps.signingSessionSeal.shamirPrimeB64u,
-          }
+      deps.signingSessionSeal?.groupId
+        ? { groupId: deps.signingSessionSeal.groupId }
         : null,
     getEmailOtpWarmSessionStatus,
     getThresholdEcdsaSessionRecordByThresholdSessionId:

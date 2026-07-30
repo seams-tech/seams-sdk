@@ -1,7 +1,11 @@
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
-import { formatSigningSessionSealKeyVersionForWire } from '@/core/signingEngine/session/keyMaterialBrands';
+import {
+  SIGNING_SESSION_SEAL_ALG,
+  SIGNING_SESSION_SEAL_GROUP_ID,
+  type SigningSessionSealProtocol,
+} from '@shared/utils/signingSessionSeal';
 
 type SealedRefreshMode = 'none' | 'sealed_refresh_v1';
 
@@ -9,8 +13,8 @@ export type RelayerSigningSessionSealCapabilities =
   | { mode: 'none' }
   | {
       mode: 'sealed_refresh_v1';
-      keyVersion?: string;
-      shamirPrimeB64u: string;
+      protocol: SigningSessionSealProtocol;
+      currentKeyVersion: string;
     };
 
 type VerifySealedRefreshStartupParityArgs = {
@@ -52,14 +56,25 @@ function normalizeSigningSessionSealCapabilities(
   if (!mode) return null;
   if (mode === 'none') return { mode: 'none' };
 
-  const shamirPrimeB64u = normalizeOptionalNonEmptyString(obj.shamirPrimeB64u);
-  if (!shamirPrimeB64u) return null;
-  const keyVersion = normalizeOptionalNonEmptyString(obj.keyVersion);
+  const protocol = asRecord(obj.protocol);
+  const algorithm = normalizeOptionalNonEmptyString(protocol?.algorithm);
+  const groupId = normalizeOptionalNonEmptyString(protocol?.groupId);
+  const currentKeyVersion = normalizeOptionalNonEmptyString(obj.currentKeyVersion);
+  if (
+    algorithm !== SIGNING_SESSION_SEAL_ALG ||
+    groupId !== SIGNING_SESSION_SEAL_GROUP_ID ||
+    !currentKeyVersion
+  ) {
+    return null;
+  }
 
   return {
     mode: 'sealed_refresh_v1',
-    shamirPrimeB64u,
-    ...(keyVersion ? { keyVersion } : {}),
+    protocol: {
+      algorithm: SIGNING_SESSION_SEAL_ALG,
+      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+    },
+    currentKeyVersion,
   };
 }
 
@@ -87,16 +102,16 @@ function shouldEnforceSealedRefreshParity(configs: SeamsConfigsReadonly): boolea
 function buildParityConfigKey(configs: SeamsConfigsReadonly): string {
   const relayerUrl = String(configs.network.relayer.url || '').trim();
   const mode = String(configs.signing.sessionPersistenceMode || '').trim().toLowerCase();
-  const keyVersion = configs.signing.sessionSeal.signingSessionSealKeyVersion
-    ? formatSigningSessionSealKeyVersionForWire(
-        configs.signing.sessionSeal.signingSessionSealKeyVersion,
-      )
-    : '';
-  const shamirPrimeB64u =
-    normalizeOptionalNonEmptyString(configs.signing.sessionSeal.shamirPrimeB64u) || '';
   const hostMode = __isWalletIframeHostMode() ? 'wallet-host' : 'app';
   const walletMode = configs.wallet.mode;
-  return [relayerUrl, mode, keyVersion, shamirPrimeB64u, hostMode, walletMode].join('|');
+  return [
+    relayerUrl,
+    mode,
+    SIGNING_SESSION_SEAL_ALG,
+    SIGNING_SESSION_SEAL_GROUP_ID,
+    hostMode,
+    walletMode,
+  ].join('|');
 }
 
 function normalizeTimeoutMs(value: unknown, fallback: number): number {
@@ -210,45 +225,36 @@ export async function verifySealedRefreshStartupParity(
   const task = (async () => {
     const relayerUrl = String(args.configs.network.relayer.url || '').trim();
     const clientMode = args.configs.signing.sessionPersistenceMode;
-    const clientKeyVersion = args.configs.signing.sessionSeal.signingSessionSealKeyVersion
-      ? formatSigningSessionSealKeyVersionForWire(
-          args.configs.signing.sessionSeal.signingSessionSealKeyVersion,
-        )
-      : '';
-    const clientShamirPrimeB64u = normalizeOptionalNonEmptyString(
-      args.configs.signing.sessionSeal.shamirPrimeB64u,
-    );
-
-    if (!clientShamirPrimeB64u) {
-      throw createErrorWithCode(
-        '[sealed-refresh-parity] Missing signing.sessionSeal.shamirPrimeB64u in client config',
-        'sealed_refresh_parity_invalid_config',
-      );
-    }
-
     const server = await fetchRelayerSigningSessionSealCapabilities({
       relayerUrl,
       fetchImpl: args.fetchImpl,
       timeoutMs: args.timeoutMs,
     });
 
-    const serverKeyVersion =
-      server.mode === 'sealed_refresh_v1' ? normalizeOptionalNonEmptyString(server.keyVersion) : null;
-    const serverShamirPrimeB64u =
-      server.mode === 'sealed_refresh_v1'
-        ? normalizeOptionalNonEmptyString(server.shamirPrimeB64u)
-        : null;
-
     const mismatches: string[] = [];
     if (server.mode !== clientMode) mismatches.push('mode');
-    if (serverKeyVersion !== (clientKeyVersion || null)) mismatches.push('keyVersion');
-    if (serverShamirPrimeB64u !== clientShamirPrimeB64u) mismatches.push('shamirPrimeB64u');
+    if (
+      server.mode === 'sealed_refresh_v1' &&
+      server.protocol.algorithm !== SIGNING_SESSION_SEAL_ALG
+    ) {
+      mismatches.push('algorithm');
+    }
+    if (
+      server.mode === 'sealed_refresh_v1' &&
+      server.protocol.groupId !== SIGNING_SESSION_SEAL_GROUP_ID
+    ) {
+      mismatches.push('groupId');
+    }
 
     if (mismatches.length > 0) {
       throw createErrorWithCode(
         `[sealed-refresh-parity] Client/server mismatch for fields: ${mismatches.join(', ')}. ` +
-          `client={mode:${clientMode},keyVersion:${clientKeyVersion || ''},shamirPrimeB64u:${clientShamirPrimeB64u}} ` +
-          `server={mode:${server.mode},keyVersion:${serverKeyVersion || ''},shamirPrimeB64u:${serverShamirPrimeB64u || ''}}`,
+          `client={mode:${clientMode},algorithm:${SIGNING_SESSION_SEAL_ALG},groupId:${SIGNING_SESSION_SEAL_GROUP_ID}} ` +
+          `server={mode:${server.mode}${
+            server.mode === 'sealed_refresh_v1'
+              ? `,algorithm:${server.protocol.algorithm},groupId:${server.protocol.groupId}`
+              : ''
+          }}`,
         'sealed_refresh_parity_mismatch',
       );
     }

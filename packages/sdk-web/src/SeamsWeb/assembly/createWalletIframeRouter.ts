@@ -1,7 +1,6 @@
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import type { AppearanceConfig, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WalletIframeRouter } from '@/SeamsWeb/walletIframe/client/router';
-import { signingSessionSealInputFromReadonly } from '@/SeamsWeb/walletIframe/shared/signingSessionSealConfig';
 import { createWalletIframeOverlayState } from './createWalletIframeOverlayState';
 
 let warnedAboutSameOriginWallet = false;
@@ -28,10 +27,6 @@ export async function createWalletIframeRouter(args: {
 
   const { WalletIframeRouter } = await import('@/SeamsWeb/walletIframe/client/router');
   const signingSessionPersistenceMode = args.configs.signing.sessionPersistenceMode;
-  const signingSessionSeal =
-    signingSessionPersistenceMode === 'sealed_refresh_v1'
-      ? signingSessionSealInputFromReadonly(args.configs.signing.sessionSeal)
-      : undefined;
   return new WalletIframeRouter({
     walletOrigin: args.walletOrigin,
     servicePath: args.configs.wallet.iframe?.servicePath || '/wallet-service',
@@ -43,7 +38,6 @@ export async function createWalletIframeRouter(args: {
     registration: args.configs.registration,
     signingSessionDefaults: args.configs.signing.sessionDefaults,
     signingSessionPersistenceMode,
-    ...(signingSessionSeal ? { signingSessionSeal } : {}),
     routerAb: args.configs.signing.routerAb,
     routerAbEcdsaDerivationPresignaturePool: args.configs.signing.routerAbEcdsaDerivation.presignaturePool,
     provisioningDefaults: args.configs.signing.thresholdEcdsa.provisioningDefaults,

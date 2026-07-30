@@ -542,7 +542,7 @@ export interface EmailOtpWorkerOperationMap {
       userId: string;
       challengeId?: string;
       otpCode: string;
-      shamirPrimeB64u: string;
+      groupId: string;
       routePlan: EmailOtpRoutePlan;
       googleEmailOtpRegistrationAttemptId?: string;
       otpChannel?: WalletEmailOtpChannel;
@@ -567,7 +567,7 @@ export interface EmailOtpWorkerOperationMap {
       relayUrl: string;
       walletId: string;
       userId: string;
-      shamirPrimeB64u: string;
+      groupId: string;
       routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
       clientSecret32?: ArrayBuffer;
@@ -742,7 +742,7 @@ export interface EmailOtpWorkerOperationMap {
       challengeId: string;
       otpCode: string;
       recoveryKey: string;
-      shamirPrimeB64u: string;
+      groupId: string;
       routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
     };
@@ -798,7 +798,7 @@ export interface EmailOtpWorkerOperationMap {
       userId: string;
       challengeId?: string;
       otpCode: string;
-      shamirPrimeB64u: string;
+      groupId: string;
       routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
       material: EmailOtpWalletUnlockMaterialRequest;
@@ -874,7 +874,7 @@ export interface EmailOtpWorkerOperationMap {
         relayerUrl: string;
         walletSessionJwt?: string;
         signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-        shamirPrimeB64u?: string;
+        groupId?: string;
       };
     };
     result:
@@ -896,7 +896,7 @@ export interface EmailOtpWorkerOperationMap {
         relayerUrl: string;
         walletSessionJwt?: string;
         signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-        shamirPrimeB64u?: string;
+        groupId?: string;
       };
       restore: {
         sessionId: string;
@@ -924,7 +924,7 @@ export interface EmailOtpWorkerOperationMap {
         relayerUrl: string;
         walletSessionJwt: string;
         signingSessionSealKeyVersion: SigningSessionSealKeyVersion;
-        shamirPrimeB64u: string;
+        groupId: string;
       };
       restore: {
         session: WalletRegistrationEd25519YaoBootstrapSession;
@@ -958,7 +958,7 @@ export interface EmailOtpWorkerOperationMap {
       userId: string;
       challengeId: string;
       otpCode: string;
-      shamirPrimeB64u: string;
+      groupId: string;
       routePlan: EmailOtpRoutePlan;
       walletSessionJwt: string;
       nearAccountId: string;

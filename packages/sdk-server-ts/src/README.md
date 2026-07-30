@@ -225,40 +225,12 @@ Cloudflare CORS note
 
 ```ts
 import { createRouterApiRouter } from '@seams/sdk-server/router/express';
-import {
-  createSigningSessionSealRoutesOptions,
-  createSigningSessionSealShamir3PassCipherAdapter,
-  resolveSigningSessionSealRateLimitFromEnv,
-} from '@seams/sdk-server';
+import { createSigningSessionSealOptions } from '@seams/sdk-server';
 
-const signingSessionSeal = createSigningSessionSealRoutesOptions({
-	  cipher: createSigningSessionSealShamir3PassCipherAdapter({
-	    currentKeyVersion: 'signing-session-seal-kek-2026-02-r1',
-	    keys: [{
-	      keyVersion: 'signing-session-seal-kek-2026-02-r1',
-      // Development/test bootstrap only.
-      // Production should load the active seal key material from a KMS/HSM boundary
-      // and keep only the selected key version in ordinary app config.
-      shamirPrimeB64u: process.env.SIGNING_SESSION_SHAMIR_P_B64U!,
-      serverEncryptExponentB64u: process.env.SIGNING_SESSION_SEAL_E_S_B64U!,
-      serverDecryptExponentB64u: process.env.SIGNING_SESSION_SEAL_D_S_B64U!,
-    }],
-  }),
-	  capabilities: {
-	    mode: 'sealed_refresh_v1',
-	    keyVersion: 'signing-session-seal-kek-2026-02-r1',
-    shamirPrimeB64u: process.env.SIGNING_SESSION_SHAMIR_P_B64U!,
-  },
-  rateLimit: resolveSigningSessionSealRateLimitFromEnv({
-    limiterKind: 'upstash-redis-rest', // 'in-memory' | 'upstash-redis-rest' | 'redis-tcp'
-    upstashUrl: process.env.UPSTASH_REDIS_REST_URL,
-    upstashToken: process.env.UPSTASH_REDIS_REST_TOKEN,
-    redisUrl: process.env.REDIS_URL,
-    keyPrefix: 'threshold:signing-session-seal:rate:',
-    limit: 30,
-    windowMs: 60_000,
-  }),
-  logger: console,
+const signingSessionSeal = createSigningSessionSealOptions({
+  rootSecretB64u: process.env.SIGNING_SESSION_SEAL_ROOT_SECRET_B64U!,
+  currentKeyVersion: 'signing-session-seal-production-r2',
+  acceptedWarmKeyVersions: ['signing-session-seal-production-r2'],
 });
 
 app.use('/', createRouterApiRouter(service, {
@@ -270,10 +242,9 @@ app.use('/', createRouterApiRouter(service, {
 
 Notes:
 
-- `createSigningSessionSealShamir3PassCipherAdapter(...)` supports pluggable runtimes; wire your `shamir-3-pass-rs` runtime in production.
+- Store the random 32-byte root secret in a secrets manager. Key versions and the fixed protocol group are public deployment configuration.
 - Do not log raw ciphertexts; audit helpers intentionally avoid ciphertext fields.
-- Use `resolveSigningSessionSealRateLimitFromEnv(...)` to wire in-memory, Upstash REST, or Redis TCP rate limiting without changing route code.
-- Keep `capabilities.keyVersion` and `capabilities.shamirPrimeB64u` aligned with your active cipher key material; clients in `sealed_refresh_v1` mode fail closed on parity mismatch.
+- Retain old key versions in `acceptedWarmKeyVersions` until their warm records have expired.
 
 ## Config (required)
 
