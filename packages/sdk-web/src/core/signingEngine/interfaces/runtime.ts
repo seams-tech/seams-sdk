@@ -3,7 +3,11 @@ import type { LastProfileState } from '@/core/indexedDB/passkeyClientDB.types';
 import type { NearAccountClientDbPort } from '@/core/accountData/near/accountProjection';
 import type { NearClient } from '../../rpcClients/near/NearClient';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
-import type { UiConfirmSigningSessionPort } from '../uiConfirm/uiConfirm.types';
+import type {
+  UiConfirmSecureConfirmationPort,
+  UiConfirmSigningPort,
+  WarmSessionMaterialPort,
+} from '../uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { UserPreferencesManager } from '../session/userPreferences';
 import type { ThemeMode, SeamsChainConfig } from '../../types/seams';
@@ -36,7 +40,9 @@ export interface NearSigningRuntimeDeps {
   tempoExplorerUrl?: string;
   evmExplorerUrl?: string;
   relayerUrl: string;
-  touchConfirm?: UiConfirmSigningSessionPort;
+  touchConfirm?: UiConfirmSigningPort &
+    UiConfirmSecureConfirmationPort &
+    WarmSessionMaterialPort;
   requestWorkerOperation: <
     K extends SignerWorkerKind,
     T extends SignerWorkerOperationType<K>,

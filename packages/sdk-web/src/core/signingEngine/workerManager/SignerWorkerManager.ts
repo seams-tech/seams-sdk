@@ -1,5 +1,4 @@
 import { type NearClient } from '@/core/rpcClients/near/NearClient';
-import type { UiConfirmSigningSessionPort } from '../uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { NearSigningKeyMaterialStorePort, NearSigningRuntimeDeps } from '../interfaces/runtime';
 import type {
@@ -33,7 +32,7 @@ export interface SignerWorkerManagerContext extends NearSigningRuntimeDeps {
 export type SignerWorkerManagerDeps = {
   nearKeyMaterialStore: NearSigningKeyMaterialStorePort;
   touchIdPrompt: TouchIdPrompt;
-  touchConfirm: UiConfirmSigningSessionPort;
+  touchConfirm: NonNullable<NearSigningRuntimeDeps['touchConfirm']>;
   nearClient: NearClient;
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
@@ -55,7 +54,7 @@ export type SignerWorkerManagerDeps = {
 export class SignerWorkerManager {
   private nearKeyMaterialStore: NearSigningKeyMaterialStorePort;
   private touchIdPrompt: TouchIdPrompt;
-  private touchConfirm: UiConfirmSigningSessionPort;
+  private touchConfirm: NonNullable<NearSigningRuntimeDeps['touchConfirm']>;
   private nearClient: NearClient;
   private userPreferencesManager: UserPreferencesManager;
   private nonceCoordinator: NonceCoordinator;

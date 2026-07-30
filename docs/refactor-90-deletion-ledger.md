@@ -423,6 +423,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   verified evidence satisfying two exact requirements)
 - replaced worker entrypoints, loaders, asset-manifest rows,
   `UiConfirmManager` factor branches, and adapter wrappers
+- ~~unused `UiConfirmSigningRuntimePort` and generic combined
+  `UiConfirmSigningSessionPort` exports~~ — Near runtime dependencies name the
+  required confirmation and warm-material ports directly
 - ~~public wallet-host registration-preparation loader and module-type exports~~
   — deleted; the registration-surface preload entrypoint owns the private
   dynamic import
