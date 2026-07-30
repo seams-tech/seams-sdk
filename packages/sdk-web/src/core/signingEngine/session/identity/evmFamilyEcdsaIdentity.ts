@@ -14,7 +14,6 @@ import {
   requireEvmFamilySigningKeySlotId,
   type EvmFamilySigningKeySlotId,
 } from '@shared/signing-lanes';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type {
   EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
@@ -273,22 +272,6 @@ export type EvmFamilyEcdsaKeyIdentity = {
   rpId?: never;
 };
 
-export type SessionBootstrapKeyContext = {
-  walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  participantIds: readonly ParticipantId[];
-  keyScope?: never;
-  ecdsaThresholdKeyId?: never;
-  signingRootId?: never;
-  signingRootVersion?: never;
-  thresholdOwnerAddress?: never;
-  signingGrantId?: never;
-  thresholdSessionId?: never;
-  chainTarget?: never;
-  authMethod?: never;
-  rpId?: never;
-};
-
 export type EvmFamilyEcdsaSessionLanePolicy = {
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: ThresholdEcdsaSessionId;
@@ -330,12 +313,6 @@ export type BuildEvmFamilyEcdsaWalletKeyInput = BuildEvmFamilyEcdsaKeyIdentityIn
 export type BuildEvmFamilyKeyFingerprintFromPublicFactsInput = {
   walletId: unknown;
   publicFacts: VerifiedEcdsaPublicFacts;
-};
-
-export type EvmFamilyEcdsaPublicFactsRecord = ThresholdEcdsaKeyHandleInput & {
-  thresholdEcdsaPublicKeyB64u: unknown;
-  participantIds: unknown;
-  ethereumAddress: unknown;
 };
 
 export type BuildEmailOtpEcdsaAuthBindingInput = {
@@ -472,10 +449,6 @@ export function toEmailOtpAuthSubjectId(value: unknown): EmailOtpAuthSubjectId {
   return normalizeEmailOtpAuthSubjectId(value);
 }
 
-export function toEmailOtpProviderId(value: unknown): EmailOtpProviderId {
-  return normalizeEmailOtpProviderId(value);
-}
-
 export function toEvmFamilyEcdsaKeyHandle(value: unknown): EvmFamilyEcdsaKeyHandle {
   return requiredString(value, 'keyHandle') as EvmFamilyEcdsaKeyHandle;
 }
@@ -485,13 +458,6 @@ export function resolveThresholdEcdsaKeyIdFromRecord(args: {
 }): EcdsaThresholdKeyId {
   const persisted = String(args.record.ecdsaThresholdKeyId ?? '').trim();
   return normalizeEcdsaThresholdKeyId(persisted);
-}
-
-export function resolveThresholdEcdsaKeyIdFromKeyRef(args: {
-  keyRef: { ecdsaThresholdKeyId: unknown };
-}): EcdsaThresholdKeyId {
-  const explicitKeyId = String(args.keyRef.ecdsaThresholdKeyId || '').trim();
-  return normalizeEcdsaThresholdKeyId(explicitKeyId);
 }
 
 export function parseThresholdSigningRootBinding(input: {
@@ -621,18 +587,6 @@ export function buildBaseEvmFamilyEcdsaKeyIdentity(
   });
 }
 
-export function buildSessionBootstrapKeyContext(input: {
-  walletId: unknown;
-  evmFamilySigningKeySlotId: unknown;
-  participantIds: unknown;
-}): SessionBootstrapKeyContext {
-  return {
-    walletId: toWalletId(input.walletId),
-    evmFamilySigningKeySlotId: normalizeWalletKeyId(input.evmFamilySigningKeySlotId),
-    participantIds: normalizeParticipantIds(input.participantIds),
-  };
-}
-
 export function deriveBaseEcdsaSubjectIdFromWalletId(
   walletId: WalletId | string,
 ): BaseEcdsaSubjectId {
@@ -668,18 +622,6 @@ export function evmFamilyEcdsaWalletKeyToIdentity(
     ecdsaThresholdKeyId: walletKey.keyFacts.ecdsaThresholdKeyId,
     signingRootId: walletKey.keyFacts.signingRootId,
     signingRootVersion: walletKey.keyFacts.signingRootVersion,
-    participantIds: walletKey.keyFacts.participantIds,
-    thresholdOwnerAddress: walletKey.keyFacts.thresholdOwnerAddress,
-  };
-}
-
-export function evmFamilyEcdsaWalletKeyToPublicFacts(
-  walletKey: EvmFamilyEcdsaWalletKey,
-): VerifiedEcdsaPublicFacts {
-  return {
-    kind: 'verified_ecdsa_public_facts',
-    keyHandle: walletKey.keyHandle,
-    publicKeyB64u: walletKey.keyFacts.thresholdEcdsaPublicKeyB64u,
     participantIds: walletKey.keyFacts.participantIds,
     thresholdOwnerAddress: walletKey.keyFacts.thresholdOwnerAddress,
   };
@@ -810,32 +752,6 @@ export function buildHydratedEcdsaSignerMaterial(
   };
 }
 
-export async function toVerifiedEcdsaPublicFactsFromServerRecord(
-  record: EvmFamilyEcdsaPublicFactsRecord,
-): Promise<VerifiedEcdsaPublicFacts> {
-  return buildVerifiedEcdsaPublicFacts({
-    keyHandle: await deriveEvmFamilyEcdsaKeyHandle(record),
-    publicKeyB64u: record.thresholdEcdsaPublicKeyB64u,
-    participantIds: record.participantIds,
-    thresholdOwnerAddress: record.ethereumAddress,
-  });
-}
-
-export async function toVerifiedEcdsaPublicFactsFromKeyRef(args: {
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
-}): Promise<VerifiedEcdsaPublicFacts> {
-  const keyHandle = String(args.keyRef.keyHandle || '').trim();
-  if (!keyHandle) {
-    throw new Error('[evm-family-ecdsa] key ref public facts require keyHandle');
-  }
-  return buildVerifiedEcdsaPublicFacts({
-    keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
-    publicKeyB64u: args.keyRef.thresholdEcdsaPublicKeyB64u,
-    participantIds: args.keyRef.participantIds,
-    thresholdOwnerAddress: args.keyRef.ethereumAddress,
-  });
-}
-
 export async function toVerifiedEcdsaPublicFactsFromDurableRecord(args: {
   record: DurableEvmFamilyEcdsaPublicFactsRecord;
 }): Promise<VerifiedEcdsaPublicFacts> {
@@ -844,35 +760,6 @@ export async function toVerifiedEcdsaPublicFactsFromDurableRecord(args: {
     publicKeyB64u: args.record.ecdsaRestore.thresholdEcdsaPublicKeyB64u,
     participantIds: args.record.ecdsaRestore.participantIds,
     thresholdOwnerAddress: args.record.ecdsaRestore.ethereumAddress,
-  });
-}
-
-export function buildEvmFamilyEcdsaKeyIdentityFromKeyRef(args: {
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
-  runtimePolicyScope: ThresholdRuntimePolicyScope;
-  trustedOwnerAddress?: unknown;
-}): EvmFamilyEcdsaKeyIdentity {
-  const thresholdOwnerAddress = normalizeThresholdOwnerAddress(args.keyRef.ethereumAddress);
-  const trustedOwnerAddress = String(args.trustedOwnerAddress ?? '').trim()
-    ? normalizeThresholdOwnerAddress(args.trustedOwnerAddress)
-    : null;
-  if (trustedOwnerAddress && thresholdOwnerAddress !== trustedOwnerAddress) {
-    throw new Error(
-      '[evm-family-ecdsa] key ref owner address mismatches trusted EVM-family key material',
-    );
-  }
-  const signingRootBinding = resolveThresholdSigningRootBindingFromRuntimePolicyScope({
-    runtimePolicyScope: args.runtimePolicyScope,
-  });
-  const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromKeyRef({
-    keyRef: args.keyRef,
-  });
-  return buildBaseEvmFamilyEcdsaKeyIdentity({
-    walletId: args.keyRef.userId,
-    ecdsaThresholdKeyId,
-    ...signingRootBinding,
-    participantIds: args.keyRef.participantIds,
-    thresholdOwnerAddress,
   });
 }
 
@@ -927,24 +814,4 @@ export function deriveEvmFamilyKeyFingerprintFromPublicFacts(
     thresholdOwnerAddress: String(input.publicFacts.thresholdOwnerAddress),
   });
   return `evmfam-ecdsa:${fnv1a32Hex(canonical)}` as EvmFamilyKeyFingerprint;
-}
-
-export function deriveEvmFamilyKeyFingerprintFromRecordPublicFacts(args: {
-  walletId: unknown;
-  record: {
-    keyHandle: unknown;
-    thresholdEcdsaPublicKeyB64u: unknown;
-    participantIds: unknown;
-    ethereumAddress: unknown;
-  };
-}): EvmFamilyKeyFingerprint {
-  return deriveEvmFamilyKeyFingerprintFromPublicFacts({
-    walletId: args.walletId,
-    publicFacts: buildVerifiedEcdsaPublicFacts({
-      keyHandle: toEvmFamilyEcdsaKeyHandle(args.record.keyHandle),
-      publicKeyB64u: args.record.thresholdEcdsaPublicKeyB64u,
-      participantIds: args.record.participantIds,
-      thresholdOwnerAddress: args.record.ethereumAddress,
-    }),
-  });
 }
