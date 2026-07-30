@@ -6,25 +6,27 @@ workers_dev = false
 [build]
 command = "cargo install -q worker-build --version 0.8.4 && bash ./scripts/build-strict-worker.sh signing-worker"
 
+[[d1_databases]]
+binding = "SIGNING_WORKER_PRIVATE_DB"
+database_name = "router-ab-signing-worker-private"
+# deploy-backend.mjs replaces this sentinel before remote migration and deployment.
+database_id = "00000000-0000-0000-0000-0000000094c1"
+migrations_dir = "migrations/signing-worker"
+
 [durable_objects]
 bindings = [
-  { name = "SIGNING_WORKER_SERVER_OUTPUT_DO", class_name = "RouterAbSigningWorkerServerOutputDurableObject" },
-  { name = "SIGNING_WORKER_ED25519_YAO_DO", class_name = "RouterAbSigningWorkerEd25519YaoDurableObject" },
+  { name = "SIGNING_WORKER_PRESIGN_SESSION_DO", class_name = "RouterAbSigningWorkerPresignSessionDurableObject" },
 ]
 
 [[migrations]]
-tag = "router_ab_signing_worker_v1"
-new_sqlite_classes = ["RouterAbSigningWorkerServerOutputDurableObject"]
-
-[[migrations]]
-tag = "router_ab_signing_worker_v2"
-new_sqlite_classes = ["RouterAbSigningWorkerEd25519YaoDurableObject"]
+tag = "router_ab_signing_worker_v4"
+new_sqlite_classes = ["RouterAbSigningWorkerPresignSessionDurableObject"]
 
 [vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
-SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING = "SIGNING_WORKER_SERVER_OUTPUT_DO"
-SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT = "signing-worker-server-output"
-SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX = "signing-worker-server-output/"
+SIGNING_WORKER_PRESIGN_SESSION_DO_BINDING = "SIGNING_WORKER_PRESIGN_SESSION_DO"
+SIGNING_WORKER_PRESIGN_SESSION_DO_OBJECT = "signing-worker-presign-session"
+SIGNING_WORKER_PRESIGN_SESSION_DO_KEY_PREFIX = "signing-worker-presign-session/"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING = "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:d0a06a6445d78bc87f449dfac2b427ad1857a0b00d91e20f152031ad49c18010"
@@ -33,19 +35,22 @@ SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:d0a06a6445d78bc87f449dfac
 name = "router-ab-signing-worker-staging"
 workers_dev = false
 
-[[env.staging.durable_objects.bindings]]
-name = "SIGNING_WORKER_SERVER_OUTPUT_DO"
-class_name = "RouterAbSigningWorkerServerOutputDurableObject"
+[[env.staging.d1_databases]]
+binding = "SIGNING_WORKER_PRIVATE_DB"
+database_name = "router-ab-signing-worker-staging-private"
+# deploy-backend.mjs replaces this sentinel before remote migration and deployment.
+database_id = "00000000-0000-0000-0000-0000000094c2"
+migrations_dir = "migrations/signing-worker"
 
 [[env.staging.durable_objects.bindings]]
-name = "SIGNING_WORKER_ED25519_YAO_DO"
-class_name = "RouterAbSigningWorkerEd25519YaoDurableObject"
+name = "SIGNING_WORKER_PRESIGN_SESSION_DO"
+class_name = "RouterAbSigningWorkerPresignSessionDurableObject"
 
 [env.staging.vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
-SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING = "SIGNING_WORKER_SERVER_OUTPUT_DO"
-SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT = "signing-worker-server-output"
-SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX = "signing-worker-server-output/"
+SIGNING_WORKER_PRESIGN_SESSION_DO_BINDING = "SIGNING_WORKER_PRESIGN_SESSION_DO"
+SIGNING_WORKER_PRESIGN_SESSION_DO_OBJECT = "signing-worker-presign-session"
+SIGNING_WORKER_PRESIGN_SESSION_DO_KEY_PREFIX = "signing-worker-presign-session/"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING = "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:d0a06a6445d78bc87f449dfac2b427ad1857a0b00d91e20f152031ad49c18010"

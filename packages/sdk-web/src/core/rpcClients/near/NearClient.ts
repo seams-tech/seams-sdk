@@ -301,6 +301,9 @@ export class MinimalNearClient implements NearClient {
       body: requestBody,
     });
 
+    if (response.status === 429) {
+      throw new Error('RPC throttled; retry shortly');
+    }
     if (!response.ok) {
       throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
     }
@@ -467,7 +470,7 @@ export class MinimalNearClient implements NearClient {
         lastError = err;
         const msg = errorMessage(err);
         const retryable =
-          /server error|internal|temporar|timeout|too many requests|429|unavailable|bad gateway|gateway timeout/i.test(
+          /server error|internal|temporar|timeout|throttl|too many requests|429|unavailable|bad gateway|gateway timeout/i.test(
             msg || '',
           );
         if (!retryable || attempt === maxAttempts) {

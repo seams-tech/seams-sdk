@@ -8,12 +8,10 @@ const SECRET_NAME_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
 const X25519_PUBLIC_KEY_PATTERN = /^x25519:[0-9a-f]{64}$/;
 const ED25519_PUBLIC_KEY_PATTERN = /^ed25519:[1-9A-HJ-NP-Za-km-z]+$/;
 const ED25519_VERIFYING_KEY_PATTERN = /^[0-9a-f]{64}$/;
-const PUBLISHABLE_KEY_PATTERN = /^pk_[A-Za-z0-9]{32}$/;
 const UNSIGNED_INTEGER_PATTERN = /^(?:0|[1-9][0-9]*)$/;
-const LEGACY_GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION = 1;
 
-export const GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION = 2;
-export const GATEWAY_DEPLOYMENT_PLAN_SCHEMA_VERSION = 1;
+export const GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION = 3;
+export const GATEWAY_DEPLOYMENT_PLAN_SCHEMA_VERSION = 2;
 export const DEFAULT_NEAR_INITIAL_BALANCE_YOCTO = '30000000000000000000000';
 export const DEFAULT_RELAY_SESSION_AUDIENCE = 'seams-wallet-session';
 export const DEFAULT_SESSION_COOKIE_NAME = 'seams-jwt';
@@ -87,33 +85,28 @@ export function gatewayRuntimeProfileNearNetwork(runtimeProfile) {
 }
 
 export function parseGatewayDeploymentConfig(source, expectedTarget) {
-  const root = parseJsonObject(source, 'GATEWAY_DEPLOYMENT_CONFIG_JSON');
-  const sourceSchemaVersion = parseGatewayDeploymentConfigSchemaVersion(root.schemaVersion);
-  requireExactKeys(
-    root,
-    gatewayDeploymentConfigKeys(sourceSchemaVersion),
-    'GATEWAY_DEPLOYMENT_CONFIG_JSON',
+  const root = parseJsonObject(source, 'Gateway deployment config');
+  requireExactInteger(
+    root.schemaVersion,
+    GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
+    'schemaVersion',
   );
+  requireExactKeys(root, gatewayDeploymentConfigKeys(), 'Gateway deployment config');
   const target = requireTarget(root.target, 'target');
   if (target !== expectedTarget) {
     throw new Error(`target must match --target ${expectedTarget}`);
   }
 
   const serviceNames = serviceNamesForTarget(target);
-  const runtimeProfile =
-    sourceSchemaVersion === GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION
-      ? parseRuntimeProfile(root.runtimeProfile)
-      : legacyRuntimeProfileForTarget(target);
+  const runtimeProfile = parseRuntimeProfile(root.runtimeProfile);
   const resources = parseResources(root.resources);
   const tenant = parseTenant(root.tenant);
   const origins = parseOrigins(root.origins);
   const signingRoot = parseSigningRoot(root.signingRoot);
   const session = parseSession(root.session);
   const routerAb = parseRouterAb(root.routerAb, serviceNames);
-  const bootstrap = parseBootstrap(root.bootstrap);
   const optional = parseOptionalConfig(root.optional);
 
-  requireSameOrigins(origins.allowedCors, bootstrap.allowedOrigins);
   requireNearFundingConfiguration(runtimeProfile, optional.nearRelayer);
   return {
     schemaVersion: GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
@@ -125,50 +118,24 @@ export function parseGatewayDeploymentConfig(source, expectedTarget) {
     signingRoot,
     session,
     routerAb,
-    bootstrap,
     optional,
     serviceNames,
   };
 }
 
-function gatewayDeploymentConfigKeys(schemaVersion) {
-  const keys = [
+function gatewayDeploymentConfigKeys() {
+  return [
     'schemaVersion',
     'target',
+    'runtimeProfile',
     'resources',
     'tenant',
     'origins',
     'signingRoot',
     'session',
     'routerAb',
-    'bootstrap',
     'optional',
   ];
-  if (schemaVersion === GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION) {
-    keys.splice(2, 0, 'runtimeProfile');
-  }
-  return keys;
-}
-
-function parseGatewayDeploymentConfigSchemaVersion(value) {
-  if (
-    value !== LEGACY_GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION &&
-    value !== GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION
-  ) {
-    throw new Error(
-      `schemaVersion must be ${LEGACY_GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION} or ` +
-        `${GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION}`,
-    );
-  }
-  return value;
-}
-
-function legacyRuntimeProfileForTarget(target) {
-  return buildGatewayRuntimeProfile(
-    target === 'production'
-      ? GATEWAY_RUNTIME_PROFILE_KINDS.mainnetService
-      : GATEWAY_RUNTIME_PROFILE_KINDS.testnetService,
-  );
 }
 
 function parseRuntimeProfile(value) {
@@ -247,15 +214,6 @@ export function buildGatewayDeploymentPlan(config) {
     consoleD1: {
       name: config.resources.consoleD1.name,
     },
-    d1Bootstrap: {
-      namespace: config.tenant.namespace,
-      orgId: config.tenant.orgId,
-      projectId: config.tenant.projectId,
-      environmentId: config.tenant.environmentId,
-      environmentKey: config.target === 'production' ? 'prod' : 'staging',
-      publishableKey: config.bootstrap.publishableKey,
-      allowedOrigins: config.bootstrap.allowedOrigins,
-    },
     signingRootSecret: {
       storeId: config.resources.secretsStoreId,
       secretName: config.signingRoot.secretName,
@@ -270,7 +228,7 @@ export function parseGatewayDeploymentPlan(source) {
       : requireObject(source, 'deployment plan');
   requireExactKeys(
     root,
-    ['schemaVersion', 'target', 'gatewayOrigin', 'consoleD1', 'd1Bootstrap', 'signingRootSecret'],
+    ['schemaVersion', 'target', 'gatewayOrigin', 'consoleD1', 'signingRootSecret'],
     'deployment plan',
   );
   requireExactInteger(
@@ -281,28 +239,6 @@ export function parseGatewayDeploymentPlan(source) {
   const target = requireTarget(root.target, 'deployment plan.target');
   const consoleD1 = requireObject(root.consoleD1, 'deployment plan.consoleD1');
   requireExactKeys(consoleD1, ['name'], 'deployment plan.consoleD1');
-  const d1Bootstrap = requireObject(root.d1Bootstrap, 'deployment plan.d1Bootstrap');
-  requireExactKeys(
-    d1Bootstrap,
-    [
-      'namespace',
-      'orgId',
-      'projectId',
-      'environmentId',
-      'environmentKey',
-      'publishableKey',
-      'allowedOrigins',
-    ],
-    'deployment plan.d1Bootstrap',
-  );
-  const expectedEnvironmentKey = target === 'production' ? 'prod' : 'staging';
-  const environmentKey = requireString(
-    d1Bootstrap.environmentKey,
-    'deployment plan.d1Bootstrap.environmentKey',
-  );
-  if (environmentKey !== expectedEnvironmentKey) {
-    throw new Error(`deployment plan.d1Bootstrap.environmentKey must be ${expectedEnvironmentKey}`);
-  }
   const signingRootSecret = requireObject(
     root.signingRootSecret,
     'deployment plan.signingRootSecret',
@@ -318,25 +254,6 @@ export function parseGatewayDeploymentPlan(source) {
     gatewayOrigin: requireHttpsUrl(root.gatewayOrigin, 'deployment plan.gatewayOrigin'),
     consoleD1: {
       name: requirePattern(consoleD1.name, RESOURCE_NAME_PATTERN, 'deployment plan.consoleD1.name'),
-    },
-    d1Bootstrap: {
-      namespace: requireTenantId(d1Bootstrap.namespace, 'deployment plan.d1Bootstrap.namespace'),
-      orgId: requireTenantId(d1Bootstrap.orgId, 'deployment plan.d1Bootstrap.orgId'),
-      projectId: requireTenantId(d1Bootstrap.projectId, 'deployment plan.d1Bootstrap.projectId'),
-      environmentId: requireTenantId(
-        d1Bootstrap.environmentId,
-        'deployment plan.d1Bootstrap.environmentId',
-      ),
-      environmentKey,
-      publishableKey: requirePattern(
-        d1Bootstrap.publishableKey,
-        PUBLISHABLE_KEY_PATTERN,
-        'deployment plan.d1Bootstrap.publishableKey',
-      ),
-      allowedOrigins: parseOriginArray(
-        d1Bootstrap.allowedOrigins,
-        'deployment plan.d1Bootstrap.allowedOrigins',
-      ),
     },
     signingRootSecret: {
       storeId: requirePattern(
@@ -708,19 +625,6 @@ function parseSignerIdentity(value, expectedRole, expectedId, path) {
   };
 }
 
-function parseBootstrap(value) {
-  const bootstrap = requireObject(value, 'bootstrap');
-  requireExactKeys(bootstrap, ['publishableKey', 'allowedOrigins'], 'bootstrap');
-  return {
-    publishableKey: requirePattern(
-      bootstrap.publishableKey,
-      PUBLISHABLE_KEY_PATTERN,
-      'bootstrap.publishableKey',
-    ),
-    allowedOrigins: parseOriginArray(bootstrap.allowedOrigins, 'bootstrap.allowedOrigins'),
-  };
-}
-
 function parseOptionalConfig(value) {
   const optional = requireObject(value, 'optional');
   requireExactKeys(optional, ['nearRelayer', 'googleOidcClientId', 'oidcExchange'], 'optional');
@@ -793,16 +697,6 @@ function requireRegistrationKeysMatch(keyset, topology) {
     keyset.signing_worker_server_output_hpke.public_key,
     topology.signerSet.selected_server.recipient_encryption_key,
     'SigningWorker registration public key',
-  );
-}
-
-function requireSameOrigins(left, right) {
-  const leftSorted = [...left].sort();
-  const rightSorted = [...right].sort();
-  requireEqual(
-    JSON.stringify(leftSorted),
-    JSON.stringify(rightSorted),
-    'origins.allowedCors and bootstrap.allowedOrigins',
   );
 }
 

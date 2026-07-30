@@ -1,6 +1,6 @@
-import type { CloudflareDurableObjectNamespaceLike } from '../core/types';
+import type { D1DatabaseLike } from '../storage/tenantRoute';
 import type {
-  CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions,
+  CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningProjectPolicyDecision,
   RouterAbNormalSigningQuotaDecision,
@@ -8,17 +8,16 @@ import type {
 // @ts-expect-error Normal-signing admission no longer exposes a partial Postgres backend.
 import type { PostgresRouterAbNormalSigningAdmissionStoreOptions } from './routerAbNormalSigningAdmissionStore';
 
-declare const thresholdStore: CloudflareDurableObjectNamespaceLike;
+declare const signerDatabase: D1DatabaseLike;
 
-const cloudflareDoAdmissionOptions: CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions =
-  {
-    namespace: thresholdStore,
-    storageNamespace: 'seams',
-  };
+const cloudflareD1AdmissionOptions: CloudflareD1RouterAbNormalSigningAdmissionStoreOptions = {
+  database: signerDatabase,
+  storageNamespace: 'seams',
+};
 
-// @ts-expect-error Durable Object admission stores require a storage namespace.
-const missingStorageNamespace: CloudflareDurableObjectRouterAbNormalSigningAdmissionStoreOptions = {
-  namespace: thresholdStore,
+// @ts-expect-error D1 admission stores require a storage namespace.
+const missingStorageNamespace: CloudflareD1RouterAbNormalSigningAdmissionStoreOptions = {
+  database: signerDatabase,
 };
 
 // @ts-expect-error Accepted quota decisions must carry the admitted request id.
@@ -44,5 +43,5 @@ void invalidAcceptedQuota;
 void invalidReuseQuota;
 void invalidRejectedProjectPolicy;
 void invalidRateLimitedAbuse;
-void cloudflareDoAdmissionOptions;
+void cloudflareD1AdmissionOptions;
 void missingStorageNamespace;

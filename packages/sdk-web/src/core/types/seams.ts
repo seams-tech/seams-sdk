@@ -177,10 +177,7 @@ export interface SigningSessionSealConfig {
  *     };
  *   };
  *   registration?: {
- *     mode?: 'backend_proxy';
- *     registrationBootstrapUrl?: string;
- *   } | {
- *     mode: 'managed';
+ *     mode?: 'managed';
  *     projectEnvironmentId: string;
  *     publishableKey: string;
  *     paymentMode?: 'disabled' | 'quota_then_x402' | 'always_x402';
@@ -191,8 +188,7 @@ export interface SigningSessionSealConfig {
  *
  * Notes:
  * - `relayer.url` is required after defaults are merged; missing values fail fast.
- * - Managed registration uses `${relayer.url}/v1/registration/bootstrap-grants`
- *   to obtain a one-time bootstrap token before creating a wallet-registration intent.
+ * - Managed registration authenticates setup directly with the configured publishable key.
  * - `iframeWallet.walletOrigin` is required when `iframeWallet` is configured.
  *   Browser wallet capabilities run through hosted iframe mode.
  * - `relayer.emailRecovery.emailDkimVerifierContract` configures the DKIM verifier
@@ -305,17 +301,12 @@ export interface SeamsConfigsInput {
  *         emailDkimVerifierContract: string;
  *       };
  *     };
- *     registration:
- *       | {
- *           mode: 'backend_proxy';
- *           bootstrapUrl: string;
- *         }
- *       | {
- *           mode: 'managed';
- *           projectEnvironmentId: string;
- *           publishableKey: string;
- *           paymentMode: 'disabled' | 'quota_then_x402' | 'always_x402';
- *         };
+ *     registration: {
+ *       mode: 'managed';
+ *       projectEnvironmentId: string;
+ *       publishableKey: string;
+ *       paymentMode: 'disabled' | 'quota_then_x402' | 'always_x402';
+ *     };
  *   };
  *   signing: {
  *     sessionDefaults: { ttlMs: number; remainingUses: number };
@@ -396,6 +387,71 @@ export interface AppearanceConfig {
   palette: ThemePaletteName;
 }
 
+/**
+ * Lifecycle of the deferred Ed25519/NEAR branch for one wallet.
+ *
+ * `near_pending` is the state registration returns in: the ECDSA wallet is
+ * durable and nothing has started provisioning NEAR yet. `near_provisioning`
+ * means an attempt is in flight. `near_failed_retryable` means the Yao ceremony
+ * or its finalize failed without touching the ECDSA wallet, so the commit can
+ * be reissued against the same registration ceremony.
+ *
+ * These are published to page-owned state and persisted to the local wallet
+ * record. `RegistrationResult` carries only a snapshot: it has crossed the
+ * postMessage boundary by the time provisioning settles and must not be
+ * mutated.
+ */
+export type NearProvisioningStatus =
+  | 'near_pending'
+  | 'near_provisioning'
+  | 'near_ready'
+  | 'near_failed_retryable';
+
+/**
+ * Wire input for a durable NEAR provisioning write.
+ *
+ * Deliberately a closed discriminated union of plain data: it carries the
+ * wallet, the target status, and — only where the status defines them — the
+ * NEAR account or a stable error code. No promises, factors, credentials,
+ * sessions, or raw error objects cross this boundary, and no lifecycle field
+ * is optional on a status that does not define it.
+ */
+export type NearProvisioningWriteV1 =
+  | { walletId: string; status: 'near_pending' }
+  | { walletId: string; status: 'near_provisioning' }
+  | { walletId: string; status: 'near_ready'; nearAccountId: string }
+  | { walletId: string; status: 'near_failed_retryable'; errorCode: NearProvisioningErrorCode };
+
+/** Stable, enumerable reasons a deferred NEAR commit can fail. */
+export type NearProvisioningErrorCode =
+  | 'near_provisioning_interrupted'
+  | 'near_finalize_failed'
+  | 'near_capability_persist_failed'
+  | 'near_seal_failed'
+  | 'near_provisioning_failed';
+
+export type NearProvisioningState =
+  | { status: 'near_pending'; updatedAtMs: number; error?: never; errorCode?: never }
+  | { status: 'near_provisioning'; updatedAtMs: number; error?: never; errorCode?: never }
+  | {
+      status: 'near_ready';
+      updatedAtMs: number;
+      nearAccountId: string;
+      error?: never;
+      errorCode?: never;
+    }
+  | {
+      status: 'near_failed_retryable';
+      updatedAtMs: number;
+      error: string;
+      errorCode: NearProvisioningErrorCode;
+    };
+
+/** Snapshot carried on the registration result. */
+export type RegistrationNearProvisioningState =
+  | { status: 'pending'; error?: never; errorCode?: never }
+  | { status: 'retryable'; error: string; errorCode: NearProvisioningErrorCode };
+
 export type RegistrationResult =
   | {
       success: true;
@@ -414,25 +470,49 @@ export type RegistrationResult =
     }
   | {
       success: true;
-      kind: 'near_ed25519_and_ecdsa_wallet_registered';
+      kind: 'ecdsa_wallet_registered';
       walletId: WalletId;
-      accountProvisioning: RegistrationNearAccountProvisioning;
-      resolvedAccount: ResolvedRegistrationNearAccount;
-      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-      operationalPublicKey: string | null;
-      nearAccountId: AccountId;
-      transactionId: string | null;
       thresholdEcdsaEthereumAddress: string;
       thresholdEcdsaPublicKeyB64u: string;
+      accountProvisioning?: never;
+      resolvedAccount?: never;
+      nearEd25519SigningKeyId?: never;
+      operationalPublicKey?: never;
+      nearAccountId?: never;
+      transactionId?: never;
+      nearProvisioning?: never;
+      error?: never;
+      errorCode?: never;
+    }
+  /**
+   * The ECDSA wallet is durable and usable, and the Ed25519/NEAR branch is
+   * still settling in the background. Registration returns this without
+   * awaiting the Yao ceremony; `nearProvisioning` is what the lifecycle and UI
+   * layers must resolve before this wallet can be treated as NEAR-capable.
+   */
+  | {
+      success: true;
+      kind: 'ecdsa_wallet_registered_near_pending';
+      walletId: WalletId;
+      thresholdEcdsaEthereumAddress: string;
+      thresholdEcdsaPublicKeyB64u: string;
+      nearProvisioning: RegistrationNearProvisioningState;
+      accountProvisioning?: never;
+      resolvedAccount?: never;
+      nearEd25519SigningKeyId?: never;
+      operationalPublicKey?: never;
+      nearAccountId?: never;
+      transactionId?: never;
       error?: never;
       errorCode?: never;
     }
   | {
       success: true;
-      kind: 'ecdsa_wallet_registered';
+      kind: 'near_wallet_registered_pending';
       walletId: WalletId;
-      thresholdEcdsaEthereumAddress: string;
-      thresholdEcdsaPublicKeyB64u: string;
+      nearProvisioning: RegistrationNearProvisioningState;
+      thresholdEcdsaEthereumAddress?: never;
+      thresholdEcdsaPublicKeyB64u?: never;
       accountProvisioning?: never;
       resolvedAccount?: never;
       nearEd25519SigningKeyId?: never;
@@ -496,32 +576,8 @@ export type RouterApiSecretKeyAuthErrorCode =
   | 'secret_key_ip_blocked'
   | 'secret_key_environment_mismatch';
 
-export type RouterApiBootstrapGrantErrorCode =
-  | 'publishable_key_missing'
-  | 'publishable_key_invalid'
-  | 'publishable_key_revoked'
-  | 'publishable_key_origin_blocked'
-  | 'publishable_key_environment_mismatch'
-  | 'publishable_key_rate_limited'
-  | 'publishable_key_quota_exhausted'
-  | 'invalid_environment'
-  | 'environment_archived'
-  | 'invalid_body'
-  | 'payment_required'
-  | 'payment_invalid';
-
-export type RouterApiBootstrapTokenErrorCode =
-  | 'bootstrap_token_missing'
-  | 'bootstrap_token_invalid'
-  | 'bootstrap_token_expired'
-  | 'bootstrap_token_already_used'
-  | 'bootstrap_token_request_mismatch'
-  | 'bootstrap_token_origin_mismatch';
-
 export type RegistrationErrorCode =
   | RouterApiSecretKeyAuthErrorCode
-  | RouterApiBootstrapGrantErrorCode
-  | RouterApiBootstrapTokenErrorCode
   | string;
 
 export type LoginResult =
@@ -774,19 +830,18 @@ export interface SeamsIframeWalletConfigInput {
   rpIdOverride?: string;
 }
 
-export type SeamsRegistrationConfigInput =
-  | {
-      mode?: 'backend_proxy';
-      registrationBootstrapUrl?: string;
-      nearAccountProvisioning?: SeamsRegistrationNearAccountProvisioning;
-    }
-  | {
-      mode: 'managed';
-      projectEnvironmentId: string;
-      publishableKey: string;
-      paymentMode?: SeamsRegistrationPaymentMode;
-      nearAccountProvisioning?: SeamsRegistrationNearAccountProvisioning;
-    };
+/**
+ * Registration is managed-only (Refactor 94C). `/wallets/register/setup`
+ * authenticates with a publishable key and nothing else, so the credential has
+ * to reach the browser; a backend-proxied mode has no way to supply one.
+ */
+export type SeamsRegistrationConfigInput = {
+  mode?: 'managed';
+  projectEnvironmentId: string;
+  publishableKey: string;
+  paymentMode?: SeamsRegistrationPaymentMode;
+  nearAccountProvisioning?: SeamsRegistrationNearAccountProvisioning;
+};
 
 export interface SeamsRelayerConfigInput {
   url?: string;
@@ -827,19 +882,13 @@ export interface SeamsRelayerConfig {
   emailRecovery: SeamsRelayerEmailRecoveryConfig;
 }
 
-export type SeamsRegistrationConfig =
-  | {
-      mode: 'backend_proxy';
-      bootstrapUrl: string;
-      nearAccountProvisioning: SeamsRegistrationNearAccountProvisioning;
-    }
-  | {
-      mode: 'managed';
-      projectEnvironmentId: string;
-      publishableKey: string;
-      paymentMode: SeamsRegistrationPaymentMode;
-      nearAccountProvisioning: SeamsRegistrationNearAccountProvisioning;
-    };
+export type SeamsRegistrationConfig = {
+  mode: 'managed';
+  projectEnvironmentId: string;
+  publishableKey: string;
+  paymentMode: SeamsRegistrationPaymentMode;
+  nearAccountProvisioning: SeamsRegistrationNearAccountProvisioning;
+};
 
 export interface SeamsNetworkConfig {
   chains: SeamsChainConfig[];

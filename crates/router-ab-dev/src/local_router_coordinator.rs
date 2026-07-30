@@ -773,11 +773,6 @@ mod tests {
             signing_worker_ed25519_yao_recipient_public_key: "x25519:c".to_owned(),
             signing_worker_id: "local-signing-worker".to_owned(),
             internal_service_auth: "local-test-auth".to_owned(),
-            replay_storage_path: "replay.sqlite".to_owned(),
-            lifecycle_storage_path: "lifecycle.sqlite".to_owned(),
-            project_policy_storage_path: "project-policy.sqlite".to_owned(),
-            quota_storage_path: "quota.sqlite".to_owned(),
-            abuse_storage_path: "abuse.sqlite".to_owned(),
         };
         let body = serde_json::to_vec(&request).expect("promotion JSON");
         let promoted = LocalRouterEd25519YaoCoordinatorV1::default()

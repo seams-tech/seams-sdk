@@ -21,7 +21,10 @@ import type {
   SigningSessionActivationPasskeyAuth,
 } from '@/core/signingEngine/useCases/lifecycle';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import { createThresholdEcdsaBootstrapFixture } from './ecdsaBootstrap.fixtures';
+import {
+  createThresholdEcdsaBootstrapFixture,
+  fixtureEcdsaRoleLocalReadyRecordFromBootstrap,
+} from './ecdsaBootstrap.fixtures';
 
 type EmailOtpWorkerSessionOperation = 'registration' | 'wallet_unlock' | 'sign' | 'export';
 
@@ -180,9 +183,5 @@ export function seedActivationEcdsaRoleLocalReadyRecord(args: {
           emailOtpAuthSubjectId: String(args.authSubjectId || 'google:alice'),
         }),
   });
-  const backendBinding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
-  if (backendBinding?.materialKind !== 'role_local_ready_state_blob') {
-    throw new Error('Activation fixture requires a role-local ready ECDSA backend binding');
-  }
-  return backendBinding.ecdsaRoleLocalReadyRecord;
+  return fixtureEcdsaRoleLocalReadyRecordFromBootstrap(bootstrap);
 }

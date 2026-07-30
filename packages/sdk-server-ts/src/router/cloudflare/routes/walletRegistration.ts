@@ -9,12 +9,10 @@ import {
   handleRouterApiWalletAddSignerEcdsaActivation,
   handleRouterApiWalletAddSignerIntent,
   handleRouterApiWalletAddSignerStart,
-  handleRouterApiWalletRegistrationFinalize,
-  handleRouterApiWalletRegistrationEcdsaActivation,
-  handleRouterApiWalletRegistrationEcdsaDerivationRespond,
-  handleRouterApiWalletRegistrationIntent,
-  handleRouterApiWalletRegistrationIntentCancel,
-  handleRouterApiWalletRegistrationStart,
+  handleRouterApiWalletRegistrationActivate,
+  handleRouterApiWalletRegistrationNearProvisioning,
+  handleRouterApiWalletRegistrationRespond,
+  handleRouterApiWalletRegistrationSetup,
   handleRouterApiWalletEcdsaKeyFactsInventory,
   handleRouterApiWalletNearImplicitAccountFund,
 } from '../../walletRegistrationRoutes';
@@ -30,12 +28,10 @@ import { toFetchRouteResponse } from '../../routeResponses';
 import { readJson } from '../http';
 
 const ROUTE_IDS = [
-  'wallet_registration_intent',
-  'wallet_registration_intent_cancel',
-  'wallet_registration_start',
-  'wallet_registration_ecdsa_derivation_respond',
-  'wallet_registration_ecdsa_activation',
-  'wallet_registration_finalize',
+  'wallet_registration_setup',
+  'wallet_registration_respond',
+  'wallet_registration_activate',
+  'wallet_registration_near_provisioning',
   'wallet_add_signer_intent',
   'wallet_add_signer_start',
   'wallet_add_signer_ecdsa_derivation_respond',
@@ -92,27 +88,23 @@ export async function handleWalletRegistration(
     services: {
       walletRegistration: routerApiWalletRegistrationRouteService(ctx.service),
       apiKeyAuth: ctx.opts.apiKeyAuth,
-      bootstrapTokenVerifier: ctx.opts.bootstrapTokenVerifier,
       orgProjectEnv: ctx.opts.orgProjectEnv,
       routerAbPublicKeyset: ctx.opts.routerAbPublicKeyset,
       session: ctx.opts.session,
+      publishableKeyAuth: ctx.opts.publishableKeyAuth,
     },
     sourceIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
   };
   const response: RouteResponse<unknown> =
-    route.id === 'wallet_registration_intent'
-      ? await handleRouterApiWalletRegistrationIntent(common)
-      : route.id === 'wallet_registration_intent_cancel'
-        ? await handleRouterApiWalletRegistrationIntentCancel(common)
-        : route.id === 'wallet_registration_start'
-            ? await handleRouterApiWalletRegistrationStart(common)
-            : route.id === 'wallet_registration_ecdsa_derivation_respond'
-              ? await handleRouterApiWalletRegistrationEcdsaDerivationRespond(common)
-              : route.id === 'wallet_registration_ecdsa_activation'
-                ? await handleRouterApiWalletRegistrationEcdsaActivation(common)
-                : route.id === 'wallet_registration_finalize'
-                  ? await handleRouterApiWalletRegistrationFinalize(common)
-                  : route.id === 'wallet_add_signer_intent'
+    route.id === 'wallet_registration_setup'
+      ? await handleRouterApiWalletRegistrationSetup(common)
+      : route.id === 'wallet_registration_respond'
+        ? await handleRouterApiWalletRegistrationRespond(common)
+        : route.id === 'wallet_registration_activate'
+          ? await handleRouterApiWalletRegistrationActivate(common)
+          : route.id === 'wallet_registration_near_provisioning'
+            ? await handleRouterApiWalletRegistrationNearProvisioning(common)
+            : route.id === 'wallet_add_signer_intent'
                     ? await handleRouterApiWalletAddSignerIntent(common)
                     : route.id === 'wallet_add_signer_start'
                       ? await handleRouterApiWalletAddSignerStart(common)

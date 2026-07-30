@@ -66,6 +66,7 @@ export type {
   SeamsConfigsReadonly,
   SeamsConfigsInput,
   RegistrationResult,
+  NearProvisioningState,
   LoginAndCreateSessionResult,
   LoginResult,
   WalletSession,
@@ -80,6 +81,7 @@ export type {
   RegistrationHooksOptions,
   SignNEP413HooksOptions,
   SyncAccountHooksOptions,
+  NearProvisioningStateChangedEvent,
 } from '@/core/types/sdkSentEvents';
 
 export type {

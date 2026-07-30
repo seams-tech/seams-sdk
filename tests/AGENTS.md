@@ -33,7 +33,7 @@ update the factory once; tests override only the fields they exercise.
   `unit/helpers/cloudflareD1RouterApiAuthService.fixtures.ts`,
   `unit/helpers/warmSessionTestServices.fixtures.ts`,
   `unit/helpers/warmSessionUiConfirm.fixtures.ts`
-- `relayer/signingBudgetStatus.fixtures.ts`, `helpers/signingBudgetStatus.ts`
+- `helpers/signingBudgetStatus.ts`
 - Cross-suite utilities: `helpers/routerAbSigningRuntimeTestUtils.ts`,
   `helpers/thresholdEcdsaClientBootstrap.ts`, `helpers/emailOtpDerivation.ts`,
   `helpers/sqliteD1.ts`

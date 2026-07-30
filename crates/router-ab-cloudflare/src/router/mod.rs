@@ -715,6 +715,12 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
     ) -> RouterAbProtocolResult<()> {
         self.validate_at(now_unix_ms)?;
         request.validate_at(now_unix_ms)?;
+        if self.authorization_level != "near-ed25519" {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "Wallet Session does not authorize Ed25519 normal signing",
+            ));
+        }
         if self.expires_at_ms < request.expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidTimeRange,
@@ -750,6 +756,12 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
     ) -> RouterAbProtocolResult<()> {
         self.validate_at(now_unix_ms)?;
         request.validate_at(now_unix_ms)?;
+        if self.authorization_level != "near-ed25519" {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "Wallet Session does not authorize Ed25519 normal-signing finalize",
+            ));
+        }
         if self.expires_at_ms < request.expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidTimeRange,
@@ -785,6 +797,12 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
     ) -> RouterAbProtocolResult<()> {
         self.validate_at(now_unix_ms)?;
         request.validate_at(now_unix_ms)?;
+        if self.authorization_level != "evm-family" {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "Wallet Session does not authorize ECDSA normal signing",
+            ));
+        }
         if self.expires_at_ms < request.expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidTimeRange,
@@ -824,6 +842,12 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
     ) -> RouterAbProtocolResult<()> {
         self.validate_at(now_unix_ms)?;
         request.validate_at(now_unix_ms)?;
+        if self.authorization_level != "evm-family" {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "Wallet Session does not authorize ECDSA normal-signing finalize",
+            ));
+        }
         if self.expires_at_ms < request.expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidTimeRange,
@@ -1189,6 +1213,7 @@ impl CloudflareRouterJwtVerifierV1 for CloudflareRouterEd25519JwksJwtVerifierV1 
         verifier: &CloudflareRouterJwtVerifierBindingV1,
         authorization: &CloudflareRouterBearerAuthorizationV1,
         request: &EcdsaThresholdPrfRequestV1,
+        request_policy_digest: PublicDigest32,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
     ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1> {
@@ -1208,6 +1233,7 @@ impl CloudflareRouterJwtVerifierV1 for CloudflareRouterEd25519JwksJwtVerifierV1 
         jwt.claims.validate_for_router_request(
             verifier,
             request,
+            request_policy_digest,
             now_unix_ms,
             trusted_source_digest,
         )
@@ -1333,6 +1359,7 @@ impl CloudflareRouterCompactJwtV1 {
 
 #[derive(Debug, Deserialize)]
 struct CloudflareRouterJwtClaimsPayloadV1 {
+    kind: Option<String>,
     iss: String,
     sub: String,
     aud: CloudflareRouterJwtAudienceV1,
@@ -1347,14 +1374,17 @@ struct CloudflareRouterJwtClaimsPayloadV1 {
     project_id: String,
     environment: String,
     account_id: String,
+    #[serde(rename = "routerAbRequestPolicy", default)]
+    router_ab_request_policy: Option<RouterRequestPolicyClaimsV1>,
     #[serde(rename = "routerAbNormalSigning", default)]
     router_ab_normal_signing: Option<CloudflareRouterJwtNormalSigningWalletSessionClaimsV1>,
+    #[serde(rename = "routerAbEcdsaDerivationNormalSigning", default)]
+    router_ab_ecdsa_derivation_normal_signing:
+        Option<CloudflareRouterJwtEcdsaDerivationNormalSigningClaimsV1>,
 }
 
 #[derive(Debug, Deserialize)]
 struct CloudflareRouterJwtNormalSigningWalletSessionClaimsV1 {
-    #[serde(rename = "authorizationLevel")]
-    authorization_level: String,
     #[serde(rename = "signingWorkerId")]
     signing_worker_id: String,
 }
@@ -1362,12 +1392,32 @@ struct CloudflareRouterJwtNormalSigningWalletSessionClaimsV1 {
 impl CloudflareRouterJwtNormalSigningWalletSessionClaimsV1 {
     fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty(
-            "routerAbNormalSigning.authorizationLevel",
-            &self.authorization_level,
-        )?;
-        require_non_empty(
             "routerAbNormalSigning.signingWorkerId",
             &self.signing_worker_id,
+        )
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CloudflareRouterJwtEcdsaDerivationNormalSigningClaimsV1 {
+    scope: CloudflareRouterJwtEcdsaDerivationNormalSigningScopeV1,
+}
+
+#[derive(Debug, Deserialize)]
+struct CloudflareRouterJwtEcdsaDerivationNormalSigningScopeV1 {
+    signing_worker: CloudflareRouterJwtEcdsaDerivationSigningWorkerV1,
+}
+
+#[derive(Debug, Deserialize)]
+struct CloudflareRouterJwtEcdsaDerivationSigningWorkerV1 {
+    server_id: String,
+}
+
+impl CloudflareRouterJwtEcdsaDerivationNormalSigningClaimsV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty(
+            "routerAbEcdsaDerivationNormalSigning.scope.signing_worker.server_id",
+            &self.scope.signing_worker.server_id,
         )
     }
 }
@@ -1377,11 +1427,31 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
         self,
         verifier: &CloudflareRouterJwtVerifierBindingV1,
         request: &EcdsaThresholdPrfRequestV1,
+        request_policy_digest: PublicDigest32,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
     ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1> {
         verifier.validate()?;
         request.validate_at(now_unix_ms)?;
+        let request_policy = self.router_ab_request_policy.as_ref().ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router JWT requires routerAbRequestPolicy",
+            )
+        })?;
+        request_policy.validate()?;
+        if request_policy.work_kind != request.lifecycle.work_kind {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router JWT request policy work kind does not match request",
+            ));
+        }
+        if request_policy.request_digest != request_policy_digest {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router JWT request policy digest does not match request",
+            ));
+        }
         let claims = self.validate_common_for_request_expiry(
             verifier,
             request.expires_at_ms,
@@ -1438,13 +1508,46 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
                 ));
             }
         }
-        let normal_signing = self.router_ab_normal_signing.ok_or_else(|| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "Router Wallet Session requires routerAbNormalSigning",
-            )
-        })?;
-        normal_signing.validate()?;
+        let (authorization_level, signing_worker_id) = match (
+            self.router_ab_normal_signing,
+            self.router_ab_ecdsa_derivation_normal_signing,
+        ) {
+            (Some(normal_signing), None) => {
+                normal_signing.validate()?;
+                if self.kind.as_deref() != Some("router_ab_ed25519_wallet_session_v1") {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        "Router Wallet Session kind does not match Ed25519 normal signing",
+                    ));
+                }
+                ("near-ed25519".to_owned(), normal_signing.signing_worker_id)
+            }
+            (None, Some(normal_signing)) => {
+                normal_signing.validate()?;
+                if self.kind.as_deref() != Some("router_ab_ecdsa_derivation_wallet_session_v1") {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        "Router Wallet Session kind does not match ECDSA normal signing",
+                    ));
+                }
+                (
+                    "evm-family".to_owned(),
+                    normal_signing.scope.signing_worker.server_id,
+                )
+            }
+            (None, None) => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "Router Wallet Session requires one normal-signing binding",
+                ));
+            }
+            (Some(_), Some(_)) => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "Router Wallet Session contains conflicting normal-signing bindings",
+                ));
+            }
+        };
         let session_id = select_router_jwt_session_id_v1(self.sid, self.session_id)?;
         let signing_grant_id = self.signing_grant_id.ok_or_else(|| {
             RouterAbProtocolError::new(
@@ -1460,8 +1563,8 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
             self.org_id,
             self.project_id,
             self.environment,
-            normal_signing.authorization_level,
-            normal_signing.signing_worker_id,
+            authorization_level,
+            signing_worker_id,
             trusted_source_digest,
             exp_ms,
         )
@@ -1556,6 +1659,7 @@ pub trait CloudflareRouterJwtVerifierV1 {
         verifier: &CloudflareRouterJwtVerifierBindingV1,
         authorization: &CloudflareRouterBearerAuthorizationV1,
         request: &EcdsaThresholdPrfRequestV1,
+        request_policy_digest: PublicDigest32,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
     ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1>;
@@ -1568,6 +1672,7 @@ pub struct CloudflareRouterJwtSessionProviderV1<Verifier> {
     authorization: CloudflareRouterBearerAuthorizationV1,
     now_unix_ms: u64,
     trusted_source_digest: PublicDigest32,
+    request_policy_digest: PublicDigest32,
     verifier: Verifier,
 }
 
@@ -1578,6 +1683,7 @@ impl<Verifier> CloudflareRouterJwtSessionProviderV1<Verifier> {
         authorization: CloudflareRouterBearerAuthorizationV1,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
+        request_policy_digest: PublicDigest32,
         verifier: Verifier,
     ) -> RouterAbProtocolResult<Self> {
         let provider = Self {
@@ -1585,6 +1691,7 @@ impl<Verifier> CloudflareRouterJwtSessionProviderV1<Verifier> {
             authorization,
             now_unix_ms,
             trusted_source_digest,
+            request_policy_digest,
             verifier,
         };
         provider.validate()?;
@@ -1612,6 +1719,7 @@ where
             &self.verifier_binding,
             &self.authorization,
             request,
+            self.request_policy_digest,
             self.now_unix_ms,
             self.trusted_source_digest,
         )?;
@@ -1678,61 +1786,6 @@ impl CloudflareRouterProjectPolicyProviderV1
     }
 }
 
-/// Storage adapter for Router project policy decisions.
-pub trait CloudflareRouterProjectPolicyStoreV1 {
-    /// Reads/evaluates project policy for a trusted request.
-    fn evaluate_project_policy_from_store(
-        &mut self,
-        binding: &CloudflareDurableObjectBindingV1,
-        metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &EcdsaThresholdPrfRequestV1,
-    ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1>;
-}
-
-/// Project policy provider backed by a Router-owned store binding.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CloudflareRouterStoredProjectPolicyProviderV1<Store> {
-    binding: CloudflareDurableObjectBindingV1,
-    store: Store,
-}
-
-impl<Store> CloudflareRouterStoredProjectPolicyProviderV1<Store> {
-    /// Creates a project policy provider using a Router project-policy store.
-    pub fn new(
-        binding: CloudflareDurableObjectBindingV1,
-        store: Store,
-    ) -> RouterAbProtocolResult<Self> {
-        let provider = Self { binding, store };
-        provider.validate()?;
-        Ok(provider)
-    }
-
-    /// Validates the store binding scope.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_scope(
-            &self.binding,
-            CloudflareDurableObjectScopeV1::RouterProjectPolicy,
-            CloudflareWorkerRoleV1::Router,
-        )
-    }
-}
-
-impl<Store> CloudflareRouterProjectPolicyProviderV1
-    for CloudflareRouterStoredProjectPolicyProviderV1<Store>
-where
-    Store: CloudflareRouterProjectPolicyStoreV1,
-{
-    fn evaluate_project_policy(
-        &mut self,
-        metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &EcdsaThresholdPrfRequestV1,
-    ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1> {
-        metadata.validate_for_request(request)?;
-        self.store
-            .evaluate_project_policy_from_store(&self.binding, metadata, request)
-    }
-}
-
 /// Router abuse-control provider used by the admission chain.
 pub trait CloudflareRouterAbuseProviderV1 {
     /// Evaluates source, principal, and request-level abuse controls.
@@ -1768,60 +1821,6 @@ impl CloudflareRouterAbuseProviderV1 for CloudflareRouterConfiguredAbuseProvider
     }
 }
 
-/// Storage adapter for Router abuse-control decisions.
-pub trait CloudflareRouterAbuseStoreV1 {
-    /// Reads/evaluates abuse-control state for a trusted request.
-    fn evaluate_abuse_from_store(
-        &mut self,
-        binding: &CloudflareDurableObjectBindingV1,
-        metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &EcdsaThresholdPrfRequestV1,
-    ) -> RouterAbProtocolResult<CloudflareRouterAbuseCheckV1>;
-}
-
-/// Abuse provider backed by a Router-owned store binding.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CloudflareRouterStoredAbuseProviderV1<Store> {
-    binding: CloudflareDurableObjectBindingV1,
-    store: Store,
-}
-
-impl<Store> CloudflareRouterStoredAbuseProviderV1<Store> {
-    /// Creates an abuse provider using a Router abuse-control store.
-    pub fn new(
-        binding: CloudflareDurableObjectBindingV1,
-        store: Store,
-    ) -> RouterAbProtocolResult<Self> {
-        let provider = Self { binding, store };
-        provider.validate()?;
-        Ok(provider)
-    }
-
-    /// Validates the store binding scope.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_scope(
-            &self.binding,
-            CloudflareDurableObjectScopeV1::RouterAbuse,
-            CloudflareWorkerRoleV1::Router,
-        )
-    }
-}
-
-impl<Store> CloudflareRouterAbuseProviderV1 for CloudflareRouterStoredAbuseProviderV1<Store>
-where
-    Store: CloudflareRouterAbuseStoreV1,
-{
-    fn evaluate_abuse(
-        &mut self,
-        metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &EcdsaThresholdPrfRequestV1,
-    ) -> RouterAbProtocolResult<CloudflareRouterAbuseCheckV1> {
-        metadata.validate_for_request(request)?;
-        self.store
-            .evaluate_abuse_from_store(&self.binding, metadata, request)
-    }
-}
-
 /// Router quota provider used by the admission chain.
 pub trait CloudflareRouterQuotaProviderV1 {
     /// Evaluates quota, idempotency reuse, and signer queue capacity.
@@ -1854,60 +1853,6 @@ impl CloudflareRouterQuotaProviderV1 for CloudflareRouterConfiguredQuotaProvider
     ) -> RouterAbProtocolResult<CloudflareRouterQuotaCheckV1> {
         metadata.validate_for_request(request)?;
         Ok(self.outcome.clone())
-    }
-}
-
-/// Storage adapter for Router quota decisions.
-pub trait CloudflareRouterQuotaStoreV1 {
-    /// Reads/evaluates quota state for a trusted request.
-    fn evaluate_quota_from_store(
-        &mut self,
-        binding: &CloudflareDurableObjectBindingV1,
-        metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &EcdsaThresholdPrfRequestV1,
-    ) -> RouterAbProtocolResult<CloudflareRouterQuotaCheckV1>;
-}
-
-/// Quota provider backed by a Router-owned store binding.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CloudflareRouterStoredQuotaProviderV1<Store> {
-    binding: CloudflareDurableObjectBindingV1,
-    store: Store,
-}
-
-impl<Store> CloudflareRouterStoredQuotaProviderV1<Store> {
-    /// Creates a quota provider using a Router quota store.
-    pub fn new(
-        binding: CloudflareDurableObjectBindingV1,
-        store: Store,
-    ) -> RouterAbProtocolResult<Self> {
-        let provider = Self { binding, store };
-        provider.validate()?;
-        Ok(provider)
-    }
-
-    /// Validates the store binding scope.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_scope(
-            &self.binding,
-            CloudflareDurableObjectScopeV1::RouterQuota,
-            CloudflareWorkerRoleV1::Router,
-        )
-    }
-}
-
-impl<Store> CloudflareRouterQuotaProviderV1 for CloudflareRouterStoredQuotaProviderV1<Store>
-where
-    Store: CloudflareRouterQuotaStoreV1,
-{
-    fn evaluate_quota(
-        &mut self,
-        metadata: &CloudflareRouterTrustedRequestMetadataV1,
-        request: &EcdsaThresholdPrfRequestV1,
-    ) -> RouterAbProtocolResult<CloudflareRouterQuotaCheckV1> {
-        metadata.validate_for_request(request)?;
-        self.store
-            .evaluate_quota_from_store(&self.binding, metadata, request)
     }
 }
 
@@ -2359,7 +2304,7 @@ impl CloudflareRouterNormalSigningPrepareAdmissionCandidateV2 {
         Ok(())
     }
 
-    /// Converts the candidate to the current v1 admission-store metadata shape.
+    /// Converts the candidate to trusted Router metadata.
     pub fn to_v1_trusted_metadata(
         &self,
     ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningTrustedMetadataV1> {
@@ -2376,27 +2321,6 @@ impl CloudflareRouterNormalSigningPrepareAdmissionCandidateV2 {
             self.trusted_source_digest,
             self.intent_digest,
         )
-    }
-
-    /// Converts the candidate to the current admission-store request shape.
-    pub fn to_v1_prepare_admission_store_request(
-        &self,
-        request: &RouterAbEd25519NormalSigningPrepareRequestV2,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningAdmissionStoreRequestV1> {
-        self.validate_for_prepare_request(request)?;
-        request.validate_at(now_unix_ms)?;
-        require_positive_ms("normal-signing v2 admission-store now_unix_ms", now_unix_ms)?;
-        let store_request = CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
-            metadata: self.to_v1_trusted_metadata()?,
-            request_id: self.request_id.clone(),
-            expires_at_ms: self.expires_at_ms,
-            now_unix_ms,
-            intent_digest: self.intent_digest,
-            request_digest: request.round1_binding_digest()?,
-        };
-        store_request.validate()?;
-        Ok(store_request)
     }
 }
 
@@ -2574,7 +2498,7 @@ impl CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2 {
         Ok(())
     }
 
-    /// Converts the finalize candidate to the current v1 admission-store metadata shape.
+    /// Converts the finalize candidate to trusted Router metadata.
     pub fn to_v1_trusted_metadata(
         &self,
     ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningTrustedMetadataV1> {
@@ -2591,30 +2515,6 @@ impl CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2 {
             self.trusted_source_digest,
             self.intent_digest,
         )
-    }
-
-    /// Converts the finalize candidate to the current admission-store request shape.
-    pub fn to_v1_finalize_admission_store_request(
-        &self,
-        request: &RouterAbEd25519NormalSigningFinalizeRequestV2,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningAdmissionStoreRequestV1> {
-        self.validate_for_finalize_request(request)?;
-        request.validate_at(now_unix_ms)?;
-        require_positive_ms(
-            "normal-signing v2 finalize admission-store now_unix_ms",
-            now_unix_ms,
-        )?;
-        let store_request = CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
-            metadata: self.to_v1_trusted_metadata()?,
-            request_id: self.request_id.clone(),
-            expires_at_ms: self.expires_at_ms,
-            now_unix_ms,
-            intent_digest: self.intent_digest,
-            request_digest: self.round1_binding_digest,
-        };
-        store_request.validate()?;
-        Ok(store_request)
     }
 }
 
@@ -2846,30 +2746,6 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1 {
             self.trusted_source_digest,
             self.request_digest,
         )
-    }
-
-    /// Converts the candidate to the shared normal-signing admission-store shape.
-    pub fn to_normal_signing_admission_store_request(
-        &self,
-        request: &RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningAdmissionStoreRequestV1> {
-        self.validate_for_prepare_request(request)?;
-        request.validate_at(now_unix_ms)?;
-        require_positive_ms(
-            "Router A/B ECDSA derivation prepare admission-store now_unix_ms",
-            now_unix_ms,
-        )?;
-        let store_request = CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
-            metadata: self.to_normal_signing_trusted_metadata()?,
-            request_id: self.request_id.clone(),
-            expires_at_ms: self.expires_at_ms,
-            now_unix_ms,
-            intent_digest: self.request_digest,
-            request_digest: self.request_digest,
-        };
-        store_request.validate()?;
-        Ok(store_request)
     }
 }
 
@@ -3113,30 +2989,6 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1 {
             self.finalize_request_digest,
         )
     }
-
-    /// Converts the candidate to the shared normal-signing admission-store shape.
-    pub fn to_normal_signing_admission_store_request(
-        &self,
-        request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningAdmissionStoreRequestV1> {
-        self.validate_for_finalize_request(request)?;
-        request.validate_at(now_unix_ms)?;
-        require_positive_ms(
-            "Router A/B ECDSA derivation finalize admission-store now_unix_ms",
-            now_unix_ms,
-        )?;
-        let store_request = CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
-            metadata: self.to_normal_signing_trusted_metadata()?,
-            request_id: self.request_id.clone(),
-            expires_at_ms: self.expires_at_ms,
-            now_unix_ms,
-            intent_digest: self.prepare_request_digest,
-            request_digest: self.finalize_request_digest,
-        };
-        store_request.validate()?;
-        Ok(store_request)
-    }
 }
 
 /// Gate-aware Router work plan after public request normalization.
@@ -3145,8 +2997,6 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1 {
 pub enum CloudflareRouterPublicAdmissionPlanV1 {
     /// Gate accepted or selected an existing lifecycle, so signer forwarding is allowed.
     Forward {
-        /// Atomic replay reservation and gate-applied lifecycle persistence call.
-        admission_call: CloudflareDurableObjectCallV1,
         /// Trusted Router-owned gate data.
         trusted_admission: CloudflareRouterTrustedAdmissionV1,
         /// Canonical Router-to-Signer A wire message.
@@ -3156,27 +3006,15 @@ pub enum CloudflareRouterPublicAdmissionPlanV1 {
     },
     /// Gate deferred or rejected the request before signer forwarding.
     Stop {
-        /// Atomic replay reservation and gate-applied lifecycle persistence call.
-        admission_call: CloudflareDurableObjectCallV1,
         /// Trusted Router-owned gate data.
         trusted_admission: CloudflareRouterTrustedAdmissionV1,
     },
 }
 
 impl CloudflareRouterPublicAdmissionPlanV1 {
-    /// Validates Router-only storage calls and admission branch consistency.
+    /// Validates admission branch consistency.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.admission_call().validate()?;
         self.trusted_admission().validate()?;
-        if self.admission_call().worker_role != CloudflareWorkerRoleV1::Router
-            || self.admission_call().binding.scope
-                != CloudflareDurableObjectScopeV1::RouterLifecycle
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
-                "public Router admission plan must use Router lifecycle scope",
-            ));
-        }
         match self {
             Self::Forward {
                 deriver_a_message,
@@ -3220,15 +3058,6 @@ impl CloudflareRouterPublicAdmissionPlanV1 {
                     ));
                 }
                 Ok(())
-            }
-        }
-    }
-
-    /// Returns the atomic replay and lifecycle admission call.
-    pub fn admission_call(&self) -> &CloudflareDurableObjectCallV1 {
-        match self {
-            Self::Forward { admission_call, .. } | Self::Stop { admission_call, .. } => {
-                admission_call
             }
         }
     }

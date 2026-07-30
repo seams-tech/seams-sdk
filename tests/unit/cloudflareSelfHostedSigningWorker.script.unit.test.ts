@@ -283,14 +283,12 @@ test('self-host Cloudflare signing router keeps hosted SaaS dependencies out of 
     'createCloudflareRouter',
     'createCloudflareConsoleRouter',
     './routes/apiWallets',
-    './routes/bootstrapGrants',
     './routes/sponsoredEvmCall',
     './routes/recoverEmail',
     './routes/emailRecovery',
     './routes/wellKnown',
     './routes/sessions',
     '@seams-internal/console-server',
-    'bootstrapGrantBroker',
     'DerivationWalletId',
   ]) {
     expect(source, `forbidden self-host dependency: ${forbidden}`).not.toContain(forbidden);

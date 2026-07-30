@@ -4,10 +4,9 @@ use router_ab_dev::{
     local_dev_http_handle_request_with_dispatcher_v1, local_worker_bind_addr_v1,
     parse_local_env_file_contents_v1, parse_local_service_role_label_v1,
     parse_local_worker_role_config_for_role_v1, read_local_dev_http_request_v1,
-    write_local_dev_http_response_v1, LocalDevHttpTopologyV1, LocalDurableObjectScopeV1,
-    LocalDurableObjectSqliteStorageV1, LocalEd25519YaoConnectionDispatchV1,
-    LocalEd25519YaoWorkerStateV1, LocalRouterEd25519YaoCoordinatorV1,
-    LocalRouterRequestDispatcherV1, LocalWorkerRoleConfigV1,
+    write_local_dev_http_response_v1, LocalDevHttpTopologyV1, LocalEd25519YaoConnectionDispatchV1,
+    LocalEd25519YaoWorkerStateV1, LocalRolePrivateSqliteStorageV1,
+    LocalRouterEd25519YaoCoordinatorV1, LocalRouterRequestDispatcherV1, LocalWorkerRoleConfigV1,
 };
 use rusqlite::Connection;
 use serde::Serialize;
@@ -40,28 +39,20 @@ struct WorkerRequestErrorSummary {
     error: String,
 }
 
-const LOCAL_ED25519_YAO_DURABLE_STATE_KEY_V1: &str = "ed25519-yao/worker-state-v1";
+const LOCAL_ED25519_YAO_ROLE_PRIVATE_STATE_KEY_V1: &str = "ed25519-yao/worker-state-v1";
 
 struct LocalEd25519YaoStateStoreV1 {
     connection: Connection,
-    scope: LocalDurableObjectScopeV1,
 }
 
 impl LocalEd25519YaoStateStoreV1 {
     fn open(config: &LocalWorkerRoleConfigV1) -> Result<Self, Box<dyn std::error::Error>> {
-        let (path, scope) = match config {
-            LocalWorkerRoleConfigV1::DeriverA(config) => (
-                config.root_share_storage_path.as_str(),
-                LocalDurableObjectScopeV1::DeriverARootShare,
-            ),
-            LocalWorkerRoleConfigV1::DeriverB(config) => (
-                config.root_share_storage_path.as_str(),
-                LocalDurableObjectScopeV1::DeriverBRootShare,
-            ),
-            LocalWorkerRoleConfigV1::SigningWorker(config) => (
-                config.server_output_storage_path.as_str(),
-                LocalDurableObjectScopeV1::SigningWorkerServerOutput,
-            ),
+        let path = match config {
+            LocalWorkerRoleConfigV1::DeriverA(config) => config.role_private_storage_path.as_str(),
+            LocalWorkerRoleConfigV1::DeriverB(config) => config.role_private_storage_path.as_str(),
+            LocalWorkerRoleConfigV1::SigningWorker(config) => {
+                config.role_private_storage_path.as_str()
+            }
             LocalWorkerRoleConfigV1::Router(_) => {
                 return Err("Router does not own local Ed25519 Yao secret state".into());
             }
@@ -70,18 +61,17 @@ impl LocalEd25519YaoStateStoreV1 {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        Ok(Self {
-            connection: Connection::open(path)?,
-            scope,
-        })
+        let connection = Connection::open(path)?;
+        LocalRolePrivateSqliteStorageV1::new(&connection)?;
+        Ok(Self { connection })
     }
 
     fn load(
         &self,
         role: LocalServiceRoleV1,
     ) -> Result<LocalEd25519YaoWorkerStateV1, Box<dyn std::error::Error>> {
-        let storage = LocalDurableObjectSqliteStorageV1::new(&self.connection, self.scope)?;
-        let Some(bytes) = storage.get_bytes(LOCAL_ED25519_YAO_DURABLE_STATE_KEY_V1)? else {
+        let storage = LocalRolePrivateSqliteStorageV1::new(&self.connection)?;
+        let Some(bytes) = storage.get_bytes(LOCAL_ED25519_YAO_ROLE_PRIVATE_STATE_KEY_V1)? else {
             return Ok(LocalEd25519YaoWorkerStateV1::default());
         };
         Ok(LocalEd25519YaoWorkerStateV1::decode_durable_state_for_role_v1(role, &bytes)?)
@@ -93,8 +83,8 @@ impl LocalEd25519YaoStateStoreV1 {
         state: &LocalEd25519YaoWorkerStateV1,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let bytes = state.encode_durable_state_for_role_v1(role)?;
-        let storage = LocalDurableObjectSqliteStorageV1::new(&self.connection, self.scope)?;
-        storage.put_bytes(LOCAL_ED25519_YAO_DURABLE_STATE_KEY_V1, &bytes)?;
+        let storage = LocalRolePrivateSqliteStorageV1::new(&self.connection)?;
+        storage.put_bytes(LOCAL_ED25519_YAO_ROLE_PRIVATE_STATE_KEY_V1, &bytes)?;
         Ok(())
     }
 }
@@ -107,9 +97,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         parse_local_env_file_contents_v1(&env_contents)?,
     )?);
     let bind_addr = local_worker_bind_addr_v1(&config)?;
-    if let LocalWorkerRoleConfigV1::Router(router_config) = config.as_ref() {
-        router_ab_dev::initialize_local_router_persistence_v1(router_config)?;
-    }
     let listener = TcpListener::bind(&bind_addr)?;
     let state_store = if config.role() == LocalServiceRoleV1::Router {
         None

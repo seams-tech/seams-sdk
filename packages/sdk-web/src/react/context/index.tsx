@@ -1,8 +1,14 @@
+/* `React.FC` below is a type-position reference to the namespace, which .tsx
+   resolves globally but the emitted .d.ts does not — leaving `React`
+   unresolvable there and degrading every consumer of `useSeams` to `any`.
+   Importing the type explicitly makes the declaration self-contained. */
+import type * as React from 'react';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNearClient } from '../hooks/useNearClient';
 import { useAccountInput } from '../hooks/useAccountInput';
 import { useEagerPrewarm } from './useEagerPrewarm';
 import { useLoginStateRefresher } from './useLoginStateRefresher';
+import { useNearProvisioningStateRefresh } from './useNearProvisioningStateRefresh';
 import { useSeamsContextValue } from './useSeamsContextValue';
 import { useWalletIframeLifecycle } from './useWalletIframeLifecycle';
 import { getOrCreateSeamsManager } from './seamsManagerSingleton';
@@ -110,6 +116,13 @@ export const SeamsContextProvider: React.FC<SeamsContextProviderProps> = ({
     walletIframeConnected,
     setLoginState,
     setInputUsername,
+  });
+
+  useNearProvisioningStateRefresh({
+    seams,
+    currentWalletId: loginState.walletId,
+    refreshLoginState,
+    refreshAccountData,
   });
 
   /* This effect is a sync channel for the provider's own theme input, not an

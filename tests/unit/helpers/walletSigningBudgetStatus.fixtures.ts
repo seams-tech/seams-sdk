@@ -10,10 +10,8 @@ import { parseWalletSigningBudgetSessionRecord } from '../../../packages/sdk-ser
  * the budget projection derived the way the production store status projection
  * derives it (available = committed - reserved; remaining = available).
  *
- * Note: neither tests/helpers/signingBudgetStatus.ts (browser reader for
- * SigningBudgetStatusResult) nor tests/relayer/signingBudgetStatus.fixtures.ts
- * (SigningSessionSealWalletBudgetStatus view) can express this store-status
- * type, so the builder lives here. */
+ * The browser status reader fixture cannot express this store-status type, so
+ * the builder lives here. */
 export function createEcdsaOnlyWalletSigningBudgetSessionStatus(args: {
   walletId: string;
   expiresAtMs: number;

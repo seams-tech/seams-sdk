@@ -16,9 +16,6 @@ import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from './routerAbE
 import type { RouterAbEcdsaStrictPostRegistrationPort } from './routerAbEcdsaStrictRegistration';
 import type { EmailRecoveryService } from '../email-recovery';
 import type {
-  RouterApiAuthenticatedPublishableCredential,
-  RouterApiBootstrapGrantPublishableKeyAuthResult,
-  RouterApiBootstrapTokenVerifier,
   RouterApiKeyAuthAdapter,
   RouterApiProjectEnvironmentResolver,
   RouterApiPublishableKeyAuthAdapter,
@@ -29,13 +26,6 @@ import type { EmailRecoveryResolvedWalletBinding } from '../core/EmailRecoveryPr
 import type { SessionParseResult } from '../core/sessionValidation';
 
 export type {
-  RouterApiAuthenticatedPublishableCredential,
-  RouterApiBootstrapGrantPublishableKeyAuthResult,
-  RouterApiBootstrapTokenRecord,
-  RouterApiBootstrapTokenRedeemFailureCode,
-  RouterApiBootstrapTokenRedeemRequest,
-  RouterApiBootstrapTokenRedeemResult,
-  RouterApiBootstrapTokenVerifier,
   RouterApiCredentialScope,
   RouterApiKeyAuthAdapter,
   RouterApiKeyAuthFailureCode,
@@ -113,6 +103,12 @@ export function parseSessionKind(body: unknown): SessionKind {
 
 export interface SessionAdapter {
   signJwt(sub: string, extra?: Record<string, unknown>): Promise<string>;
+  /** Local verification against pinned key material; never a JWKS fetch. */
+  verifyJwt(
+    token: string,
+  ): Promise<
+    { readonly valid: true; readonly payload: Record<string, unknown> } | { readonly valid: false }
+  >;
   parse(
     headers: Record<string, string | string[] | undefined>,
   ): Promise<SessionParseResult<SessionClaims>>;
@@ -256,86 +252,8 @@ export interface RouterApiEmailOtpExportPolicyAdapter {
   ): Promise<RouterApiEmailOtpExportPolicyDecision> | RouterApiEmailOtpExportPolicyDecision;
 }
 
-export type RouterApiBootstrapGrantMode = 'free' | 'paid';
-
-export type RouterApiBootstrapGrantFailureCode =
-  | 'publishable_key_missing'
-  | 'publishable_key_invalid'
-  | 'publishable_key_revoked'
-  | 'publishable_key_origin_blocked'
-  | 'publishable_key_environment_mismatch'
-  | 'publishable_key_rate_limited'
-  | 'publishable_key_quota_exhausted'
-  | 'invalid_environment'
-  | 'environment_archived'
-  | 'invalid_body';
-
-export interface RouterApiBootstrapGrantClientContext {
-  sdk?: string;
-  sdkVersion?: string;
-  userAgentHint?: string;
-}
-
-export type RouterApiBootstrapGrantIssueAuthority =
-  | {
-      kind: 'passkey_rp';
-      rpId: string;
-    }
-  | {
-      kind: 'wallet_auth';
-      rpId?: never;
-    };
-
-export interface RouterApiBootstrapGrantIssueRequest {
-  publishableKey: string;
-  origin: string;
-  environmentId: string;
-  newAccountId?: string;
-  authority: RouterApiBootstrapGrantIssueAuthority;
-  flow: 'registration_v1';
-  clientContext?: RouterApiBootstrapGrantClientContext;
-}
-
-export interface RouterApiBootstrapGrant {
-  token: string;
-  expiresAt: string;
-  orgId: string;
-  projectId: string;
-  envId: string;
-  signingRootVersion: string;
-  origin: string;
-  mode: RouterApiBootstrapGrantMode;
-}
-
-export interface RouterApiBootstrapGrantPaymentRequirement {
-  mode: 'x402';
-  productId?: string;
-}
-
-export type RouterApiBootstrapGrantIssueResult =
-  | {
-      ok: true;
-      grant: RouterApiBootstrapGrant;
-    }
-  | {
-      ok: false;
-      status: 400 | 401 | 403 | 409 | 429 | 402;
-      code: RouterApiBootstrapGrantFailureCode | 'payment_required' | 'payment_invalid';
-      message: string;
-      payment?: RouterApiBootstrapGrantPaymentRequirement;
-    };
-
-export interface RouterApiBootstrapGrantBroker {
-  authenticatePublishableKey(input: {
-    publishableKey: string;
-    origin: string;
-    environmentId?: string;
-  }): Promise<RouterApiBootstrapGrantPublishableKeyAuthResult>;
-  issueGrantForAuthenticatedKey(
-    input: Omit<RouterApiBootstrapGrantIssueRequest, 'publishableKey'> & {
-      authenticatedCredential: RouterApiAuthenticatedPublishableCredential;
-    },
-  ): Promise<RouterApiBootstrapGrantIssueResult>;
+export interface RouterAbNormalSigningRouterProxy {
+  fetch(request: Request): Promise<Response>;
 }
 
 export interface RouterApiOptions {
@@ -386,10 +304,6 @@ export interface RouterApiOptions {
    */
   apiKeyUsageMeter?: RouterApiUsageMeterAdapter | null;
   /**
-   * Optional bootstrap-token verifier used to redeem managed registration grants.
-   */
-  bootstrapTokenVerifier?: RouterApiBootstrapTokenVerifier | null;
-  /**
    * Optional standalone Signing-session seal/unlock routes.
    *
    * When provided, routers mount:
@@ -414,6 +328,8 @@ export interface RouterApiOptions {
    * Router A/B normal-signing requests.
    */
   routerAbNormalSigningAdmission?: RouterAbNormalSigningAdmissionAdapter | null;
+  /** Public normal-signing transport to the stateless MPC Router. */
+  routerAbNormalSigningRouterProxy?: RouterAbNormalSigningRouterProxy | null;
   /** Strict Router A/B owner for ECDSA export, recovery, and activation refresh. */
   routerAbEcdsaStrictPostRegistration?: RouterAbEcdsaStrictPostRegistrationPort | null;
   /** Local product runtime used to restore an authenticated Ed25519 Yao capability. */

@@ -156,24 +156,71 @@ const ecdsaRegistrationSuccess: RegistrationResult = {
 };
 void ecdsaRegistrationSuccess;
 
-const mixedRegistrationSuccess: RegistrationResult = {
+/* Refactor 94 Phase 7. A mixed plan resolves ECDSA-ready with NEAR still
+   settling; there is no synchronous mixed result to model any more. */
+const mixedRegistrationPendingSuccess: RegistrationResult = {
   success: true,
-  kind: 'near_ed25519_and_ecdsa_wallet_registered',
+  kind: 'ecdsa_wallet_registered_near_pending',
   walletId,
-  accountProvisioning: implicitNearAccountProvisioning(),
-  resolvedAccount: {
-    kind: 'implicit_account',
-    nearAccountId: implicitNearAccountId,
-    nearEd25519SigningKeyId,
-  },
-  nearEd25519SigningKeyId,
-  operationalPublicKey: 'ed25519:public-key',
-  nearAccountId: implicitNearAccountId,
-  transactionId: null,
   thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
   thresholdEcdsaPublicKeyB64u: 'public-key',
+  nearProvisioning: { status: 'pending' },
 };
-void mixedRegistrationSuccess;
+void mixedRegistrationPendingSuccess;
+
+const nearOnlyRegistrationPendingSuccess: RegistrationResult = {
+  success: true,
+  kind: 'near_wallet_registered_pending',
+  walletId,
+  nearProvisioning: { status: 'pending' },
+};
+void nearOnlyRegistrationPendingSuccess;
+
+// @ts-expect-error an Ed25519-only pending wallet has no signing key before Yao completes.
+const invalidNearOnlyPendingWithSigningKey: RegistrationResult = {
+  success: true,
+  kind: 'near_wallet_registered_pending',
+  walletId,
+  nearProvisioning: { status: 'pending' },
+  nearEd25519SigningKeyId,
+};
+void invalidNearOnlyPendingWithSigningKey;
+
+// @ts-expect-error a pending NEAR branch has no Ed25519 signing key yet.
+const invalidPendingRegistrationWithSigningKeyId: RegistrationResult = {
+  success: true,
+  kind: 'ecdsa_wallet_registered_near_pending',
+  walletId,
+  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+  thresholdEcdsaPublicKeyB64u: 'public-key',
+  nearProvisioning: { status: 'pending' },
+  nearEd25519SigningKeyId,
+};
+void invalidPendingRegistrationWithSigningKeyId;
+
+// @ts-expect-error a pending NEAR branch has no operational public key yet.
+const invalidPendingRegistrationWithOperationalKey: RegistrationResult = {
+  success: true,
+  kind: 'ecdsa_wallet_registered_near_pending',
+  walletId,
+  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+  thresholdEcdsaPublicKeyB64u: 'public-key',
+  nearProvisioning: { status: 'pending' },
+  operationalPublicKey: 'ed25519:public-key',
+};
+void invalidPendingRegistrationWithOperationalKey;
+
+// @ts-expect-error the NEAR account does not exist until provisioning is ready.
+const invalidPendingRegistrationWithNearAccountId: RegistrationResult = {
+  success: true,
+  kind: 'ecdsa_wallet_registered_near_pending',
+  walletId,
+  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+  thresholdEcdsaPublicKeyB64u: 'public-key',
+  nearProvisioning: { status: 'pending' },
+  nearAccountId: implicitNearAccountId,
+};
+void invalidPendingRegistrationWithNearAccountId;
 
 // @ts-expect-error NEAR registration success requires resolved provisioning and account data.
 const invalidNearRegistrationSuccess: RegistrationResult = {
@@ -203,31 +250,23 @@ const invalidNearRegistrationWithEcdsa: RegistrationResult = {
 };
 void invalidNearRegistrationWithEcdsa;
 
-// @ts-expect-error Mixed registration requires both ECDSA result fields.
-const invalidMixedRegistrationWithoutPublicKey: RegistrationResult = {
+// @ts-expect-error the pending result must state where NEAR provisioning got to.
+const invalidPendingRegistrationWithoutProvisioning: RegistrationResult = {
   success: true,
-  kind: 'near_ed25519_and_ecdsa_wallet_registered',
-  walletId,
-  accountProvisioning: implicitNearAccountProvisioning(),
-  resolvedAccount: {
-    kind: 'implicit_account',
-    nearAccountId: implicitNearAccountId,
-    nearEd25519SigningKeyId,
-  },
-  nearEd25519SigningKeyId,
-  operationalPublicKey: 'ed25519:public-key',
-  nearAccountId: implicitNearAccountId,
-  transactionId: null,
-  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
-};
-void invalidMixedRegistrationWithoutPublicKey;
-
-// @ts-expect-error ECDSA-only registration cannot use the mixed result discriminant.
-const invalidMixedRegistrationWithoutNearFields: RegistrationResult = {
-  success: true,
-  kind: 'near_ed25519_and_ecdsa_wallet_registered',
+  kind: 'ecdsa_wallet_registered_near_pending',
   walletId,
   thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
   thresholdEcdsaPublicKeyB64u: 'public-key',
 };
-void invalidMixedRegistrationWithoutNearFields;
+void invalidPendingRegistrationWithoutProvisioning;
+
+const invalidEcdsaReadyWithProvisioning: RegistrationResult = {
+  success: true,
+  kind: 'ecdsa_wallet_registered',
+  walletId,
+  thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+  thresholdEcdsaPublicKeyB64u: 'public-key',
+  // @ts-expect-error an ECDSA-only plan has no NEAR branch to report on.
+  nearProvisioning: { status: 'pending' },
+};
+void invalidEcdsaReadyWithProvisioning;

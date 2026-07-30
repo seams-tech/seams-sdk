@@ -104,6 +104,19 @@ function targetsWithMissingCapability(): Record<string, unknown> {
   };
 }
 
+function targetsWithDeploymentBootstrap(): Record<string, unknown> {
+  const targets = structuredClone(validTargets());
+  const staging = targets.staging as Record<string, unknown>;
+  staging.gatewayDeploymentConfig = {
+    ...(staging.gatewayDeploymentConfig as Record<string, unknown>),
+    bootstrap: {
+      publishableKey: 'pk_00000000000000000000000000000000',
+      allowedOrigins: ['https://staging.seams.sh'],
+    },
+  };
+  return targets;
+}
+
 test('deployment target parsing rejects malformed capability records', async () => {
   const module = await deploymentTargetsModule;
 
@@ -131,6 +144,30 @@ test('deployment target parsing rejects a partial capability set', async () => {
 
   expect(() => module.parseDeploymentTargets(targetsWithMissingCapability())).toThrow(
     /capabilities must contain exactly/u,
+  );
+});
+
+test('deployment target parsing rejects Gateway configuration drift', async () => {
+  const module = await deploymentTargetsModule;
+  const targets = structuredClone(validTargets());
+  const staging = targets.staging as Record<string, unknown>;
+  const gatewayDeploymentConfig = structuredClone(
+    staging.gatewayDeploymentConfig as Record<string, unknown>,
+  );
+  const origins = gatewayDeploymentConfig.origins as Record<string, unknown>;
+  origins.gateway = 'https://wrong-gateway.example';
+  staging.gatewayDeploymentConfig = gatewayDeploymentConfig;
+
+  expect(() => module.parseDeploymentTargets(targets)).toThrow(
+    /gatewayDeploymentConfig does not match deployment target staging/u,
+  );
+});
+
+test('deployment target parsing rejects deployment tenant bootstrap configuration', async () => {
+  const module = await deploymentTargetsModule;
+
+  expect(() => module.parseDeploymentTargets(targetsWithDeploymentBootstrap())).toThrow(
+    /bootstrap is not supported/u,
   );
 });
 
@@ -166,5 +203,6 @@ test('required secrets are derived from enabled capabilities and their owners', 
     'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
     'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
     'DERIVER_A_PEER_SIGNING_KEY',
+    'DERIVER_A_ROLE_PRIVATE_D1_KEK',
   ]);
 });

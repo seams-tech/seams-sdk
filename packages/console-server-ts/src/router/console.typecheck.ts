@@ -8,7 +8,6 @@ import type {
   CloudflareTenantStorageRoute,
   TenantStorageRouteResolver,
 } from './cloudflare/tenantStorageRoute';
-import type { CloudflareDurableObjectNamespaceLike } from '@seams/sdk-server/cloud-host';
 import type { SigningRootKekProvider } from '@seams/sdk-server/cloud-host';
 import { parseOrgId, type OrgId } from '@seams/sdk-server/cloud-host';
 
@@ -53,19 +52,6 @@ function orgIdFromString(input: string): OrgId {
   return parsed.value;
 }
 
-const thresholdStore: CloudflareDurableObjectNamespaceLike = {
-  idFromName(name: string): unknown {
-    return name;
-  },
-  get() {
-    return {
-      async fetch(): Promise<Response> {
-        return new Response('{}');
-      },
-    };
-  },
-};
-
 const kekProvider: SigningRootKekProvider = {
   kind: 'worker_secret',
   workerSecretsByKekId: {
@@ -92,8 +78,6 @@ const route: CloudflareTenantStorageRoute = {
     metadataBindingName: 'SIGNER_DB',
     metadataDatabaseName: 'seams-signer',
     metadataDatabase: database,
-    thresholdStoreBindingName: 'THRESHOLD_STORE',
-    thresholdStore,
     kekProvider,
   },
 };

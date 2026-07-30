@@ -949,6 +949,10 @@ function formatRuleSummary(policy: DashboardGasSponsorshipPolicy): string {
   ].join(' / ');
 }
 
+function isGasSponsorshipPolicyEnabled(policy: DashboardGasSponsorshipPolicy): boolean {
+  return policy.publicationStatus === 'PUBLISHED' && policy.enabled;
+}
+
 export function GasSponsorshipPage(): React.JSX.Element {
   const { go } = useSiteRouter();
   const session = useDashboardConsoleSession();
@@ -1583,11 +1587,10 @@ export function GasSponsorshipPage(): React.JSX.Element {
       setMutationError('');
       setMutationNotice('');
       try {
-        await setDashboardGasSponsorshipPolicyEnabled(policy.id, !policy.enabled);
+        const enabled = !isGasSponsorshipPolicyEnabled(policy);
+        await setDashboardGasSponsorshipPolicyEnabled(policy.id, enabled);
         await loadGasPolicies();
-        setMutationNotice(
-          `${policy.name || policy.id} ${policy.enabled ? 'disabled' : 'enabled'}.`,
-        );
+        setMutationNotice(`${policy.name || policy.id} ${enabled ? 'enabled' : 'disabled'}.`);
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -1793,10 +1796,12 @@ export function GasSponsorshipPage(): React.JSX.Element {
                   No gas sponsorship policies found for this environment yet.
                 </DashboardTableState>
               ) : (
-                gasPoliciesPagination.rows.map((policy) => (
-                  <DashboardTableRow
+                gasPoliciesPagination.rows.map((policy) => {
+                  const enabled = isGasSponsorshipPolicyEnabled(policy);
+                  return (
+                    <DashboardTableRow
                     className={`dashboard-gas-sponsorship-table__row${
-                      policy.enabled ? '' : ' dashboard-gas-sponsorship-table__row--disabled'
+                      enabled ? '' : ' dashboard-gas-sponsorship-table__row--disabled'
                     }`}
                     key={policy.id}
                   >
@@ -1807,12 +1812,12 @@ export function GasSponsorshipPage(): React.JSX.Element {
                         </strong>
                         <span
                           className={`dashboard-data-table__badge ${
-                            policy.enabled
+                            enabled
                               ? 'dashboard-data-table__badge--success'
                               : 'dashboard-data-table__badge--neutral'
                           }`}
                         >
-                          {policy.enabled ? 'Enabled' : 'Disabled'}
+                          {enabled ? 'Enabled' : 'Disabled'}
                         </span>
                       </span>
                     </DashboardTableCell>
@@ -1846,7 +1851,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
                           onClick={() => onToggleEnabled(policy)}
                           disabled={!canMutatePolicy || mutating}
                         >
-                          {policy.enabled ? 'Disable' : 'Enable'}
+                          {enabled ? 'Disable' : 'Enable'}
                         </DashboardTableActionButton>
                         <DashboardTableActionButton
                           onClick={() => onDeletePolicy(policy)}
@@ -1856,8 +1861,9 @@ export function GasSponsorshipPage(): React.JSX.Element {
                         </DashboardTableActionButton>
                       </DashboardTableActionGroup>
                     </DashboardTableCell>
-                  </DashboardTableRow>
-                ))
+                    </DashboardTableRow>
+                  );
+                })
               )}
             </DashboardTable>
           </section>
@@ -1907,7 +1913,9 @@ export function GasSponsorshipPage(): React.JSX.Element {
                     </div>
                     <div className="dashboard-gas-coverage__stat">
                       <span>Status</span>
-                      <strong>{selectedPolicy.enabled ? 'Enabled' : 'Disabled'}</strong>
+                      <strong>
+                        {isGasSponsorshipPolicyEnabled(selectedPolicy) ? 'Enabled' : 'Disabled'}
+                      </strong>
                     </div>
                     <div className="dashboard-gas-coverage__stat">
                       <span>{selectedPolicy.kind === 'near_delegate' ? 'Delegate actions' : 'Rules'}</span>

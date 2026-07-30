@@ -371,6 +371,7 @@ async function executeEcdsaDerivationExport(
   try {
     const forwarded = await routerAbEcdsaExplicitExport(material.relayerUrl, {
       request: created.request,
+      requestDigestB64u: created.requestDigestB64u,
       auth: {
         kind: 'wallet_session',
         jwt: material.walletSessionAuthority.walletSessionJwt,

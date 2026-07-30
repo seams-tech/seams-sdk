@@ -43,6 +43,7 @@ import type {
   LoginAndCreateSessionResult,
   WalletSession,
   RegistrationResult,
+  NearProvisioningState,
   SignAndSendDelegateActionResult,
   SignDelegateActionResult,
   SigningSessionStatus,
@@ -66,6 +67,7 @@ import type {
   SigningFlowEvent,
   SyncAccountHooksOptions,
   UnlockFlowEvent,
+  NearProvisioningStateChangedEvent,
 } from '@/core/types/sdkSentEvents';
 import type {
   ConfirmationBehavior,
@@ -714,6 +716,12 @@ export interface AuthCapability {
 }
 
 export interface RegistrationCapability {
+  getNearProvisioningState(args: {
+    walletId: WalletId | string;
+  }): Promise<NearProvisioningState | null>;
+  onNearProvisioningStateChanged(
+    listener: (event: NearProvisioningStateChangedEvent) => void,
+  ): () => void;
   addWalletSigner(args: {
     walletId: WalletId | string;
     rpId: string;

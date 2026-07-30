@@ -653,13 +653,13 @@ html[data-w3a-theme='light'] .navbar-static,
 
 .navbar-static__auth-heading {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.3rem;
 }
 
 .navbar-static__auth-eyebrow {
   margin: 0;
-  font-size: 0.9rem;
-  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   font-weight: 500;
   color: #a59f97;
@@ -668,79 +668,41 @@ html[data-w3a-theme='light'] .navbar-static,
 .navbar-static__auth-header h2 {
   margin: 0;
   color: #0a0a0a;
-  font-size: clamp(1.6rem, 3vw, 2rem);
+  font-size: 1.6rem;
   font-weight: 400;
-  line-height: 1.05;
-  letter-spacing: 0;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
 }
 
 .navbar-static__auth-close {
   appearance: none;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   border-radius: 9999px;
   border: 1px solid #ebe8e4;
   background: #ffffff;
-  color: #0a0a0a;
+  color: #44403b;
   display: inline-grid;
   place-content: center;
   cursor: pointer;
 }
 
+.navbar-static__auth-close:hover {
+  border-color: #a59f97;
+  color: #0a0a0a;
+}
+
 .navbar-static__auth-copy {
   margin: 0;
-  color: #44403b;
-  font-size: 1.1rem;
-  line-height: 1.55;
+  color: #777169;
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
-.navbar-static__auth-provider {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.95rem;
-  align-items: center;
-  padding: 1rem 1.05rem;
-  border-radius: 10px;
-  border: 1px solid #ebe8e4;
-  background: #f5f3f1;
-  box-shadow: none;
-}
-
-.navbar-static__auth-provider-icon {
-  width: 3rem;
-  height: 3rem;
-  border-radius: 8px;
-  display: grid;
-  place-items: center;
-  background: #ffffff;
-  border: 1px solid #ebe8e4;
-  box-shadow: none;
-}
-
-.navbar-static__auth-provider-icon svg,
 .navbar-static__auth-google-button-icon svg {
-  width: 1.3rem;
-  height: 1.3rem;
+  width: 1.05rem;
+  height: 1.05rem;
   display: block;
-}
-
-.navbar-static__auth-provider-body {
-  display: grid;
-  gap: 0.18rem;
-}
-
-.navbar-static__auth-provider-label {
-  margin: 0;
-  color: #0a0a0a;
-  font-size: 1.1rem;
-  font-weight: 700;
-}
-
-.navbar-static__auth-provider-copy {
-  margin: 0;
-  color: #44403b;
-  font-size: 1rem;
-  line-height: 1.45;
 }
 
 .navbar-static__auth-google-button {
@@ -749,69 +711,55 @@ html[data-w3a-theme='light'] .navbar-static,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.7rem;
-  border-radius: 999px;
-  border: 1px solid #000000;
-  background: #000000;
+  gap: 0.6rem;
+  border-radius: 8px;
+  border: 1px solid #0a0a0a;
+  background: #0a0a0a;
   color: #ffffff;
-  min-height: 3.35rem;
-  padding: 0.95rem 1.3rem;
-  font-size: 1.1rem;
-  font-weight: 700;
+  min-height: 2.75rem;
+  padding: 0.6rem 1rem;
+  font-size: 0.95rem;
+  font-weight: 500;
   cursor: pointer;
   transition:
-    background 180ms ease,
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-    opacity 180ms ease;
-  box-shadow: none;
+    background 160ms ease,
+    border-color 160ms ease,
+    opacity 160ms ease;
 }
 
 .navbar-static__auth-google-button:hover:enabled {
   border-color: #262626;
   background: #262626;
-  box-shadow: none;
 }
 
 .navbar-static__auth-google-button:disabled {
   cursor: not-allowed;
-  opacity: 0.68;
+  opacity: 0.55;
 }
 
 .navbar-static__auth-note {
   margin: 0;
-  color: #777169;
-  font-size: 0.9rem;
-  line-height: 1.55;
+  color: #a59f97;
+  font-size: 0.8rem;
+  line-height: 1.5;
 }
 
 .navbar-static__auth-error {
   margin: 0;
+  padding: 0.65rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, #b91c1c 22%, #f8e7e7);
+  background: #f8e7e7;
   color: #b91c1c;
-  font-size: 1rem;
-  line-height: 1.35;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 640px) {
   .navbar-static__auth-modal {
-    padding: 1.1rem;
-    gap: 0.9rem;
-    border-radius: 1.2rem;
-  }
-
-  .navbar-static__auth-provider {
-    grid-template-columns: 1fr;
-    justify-items: start;
-  }
-
-  .navbar-static__auth-provider-icon {
-    width: 2.75rem;
-    height: 2.75rem;
-  }
-
-  .navbar-static__auth-google-button {
-    min-height: 3.15rem;
-    padding-inline: 1rem;
+    padding: 1.25rem;
+    gap: 1rem;
   }
 }
 

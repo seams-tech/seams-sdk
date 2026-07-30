@@ -123,8 +123,10 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
     },
   },
   registration: {
-    mode: 'backend_proxy',
-    bootstrapUrl: '',
+    mode: 'managed',
+    projectEnvironmentId: '',
+    publishableKey: '',
+    paymentMode: 'disabled',
     nearAccountProvisioning: { kind: 'implicit_account' },
   },
   signing: {

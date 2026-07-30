@@ -18,7 +18,6 @@ import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.f
 import {
   createReadyPasskeyWarmSessionEcdsaCapability,
   createWarmSessionEnvelopeFixture,
-  toWorkerOwnedPasskeyEcdsaBootstrapFixture,
 } from './helpers/warmSessionTestServices.fixtures';
 
 const EVM_CHAIN_TARGET = testEcdsaChainTarget('evm');
@@ -26,24 +25,20 @@ const TEMPO_CHAIN_TARGET = testEcdsaChainTarget('tempo');
 
 function createEnvelope(): WarmSessionEnvelope {
   const ecdsaSessions = createThresholdEcdsaStoreFixture();
-  const evmBootstrap = toWorkerOwnedPasskeyEcdsaBootstrapFixture(
-    createThresholdEcdsaBootstrapFixture({
-      nearAccountId: 'provisioning.testnet',
-      chain: 'evm',
-      ecdsaThresholdKeyId: 'ek-evm',
-      sessionId: 'evm-session',
-      walletSessionJwt: 'jwt.evm.session',
-    }),
-  );
-  const tempoBootstrap = toWorkerOwnedPasskeyEcdsaBootstrapFixture(
-    createThresholdEcdsaBootstrapFixture({
-      nearAccountId: 'provisioning.testnet',
-      chain: 'tempo',
-      ecdsaThresholdKeyId: 'ek-evm',
-      sessionId: 'tempo-session',
-      walletSessionJwt: 'jwt.tempo.session',
-    }),
-  );
+  const evmBootstrap = createThresholdEcdsaBootstrapFixture({
+    nearAccountId: 'provisioning.testnet',
+    chain: 'evm',
+    ecdsaThresholdKeyId: 'ek-evm',
+    sessionId: 'evm-session',
+    walletSessionJwt: 'jwt.evm.session',
+  });
+  const tempoBootstrap = createThresholdEcdsaBootstrapFixture({
+    nearAccountId: 'provisioning.testnet',
+    chain: 'tempo',
+    ecdsaThresholdKeyId: 'ek-evm',
+    sessionId: 'tempo-session',
+    walletSessionJwt: 'jwt.tempo.session',
+  });
   const evmRecord = seedEcdsaWarmSessionRecord(ecdsaSessions, {
     nearAccountId: 'provisioning.testnet',
     chain: 'evm',

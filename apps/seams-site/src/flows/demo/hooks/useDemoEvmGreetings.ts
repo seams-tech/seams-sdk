@@ -60,7 +60,7 @@ export function useDemoEvmGreetings(args: UseDemoEvmGreetingsArgs) {
     setArcGreetingError(null);
     try {
       const greeting = await readEvmGreeting({
-        rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
+        rpcUrl: FRONTEND_CONFIG.arcRpcRequestUrl,
         contract: ARC_TESTNET_GREETING_CONTRACT,
         selector: ARC_GREET_SELECTOR,
       });

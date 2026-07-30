@@ -246,6 +246,7 @@ test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
   test('reuses the active Client while replacing public Wallet Session budget state', async () => {
     const sessionId = 'tsess-ed25519-stable';
     const signingGrantId = 'wsess-ed25519-stable';
+    const refreshedSigningGrantId = 'wsess-ed25519-refreshed';
     const initialRecord = writeEd25519Record({
       thresholdSessionId: sessionId,
       signingGrantId,
@@ -292,7 +293,7 @@ test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
         });
         const refreshedRecord = writeEd25519Record({
           thresholdSessionId: sessionId,
-          signingGrantId,
+          signingGrantId: refreshedSigningGrantId,
           remainingUses: 1,
           updatedAtMs: 3,
           version: 'refreshed',
@@ -300,7 +301,7 @@ test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
         return {
           ok: true,
           sessionId,
-          signingGrantId,
+          signingGrantId: refreshedSigningGrantId,
           expiresAtMs: refreshedRecord.expiresAtMs,
           remainingUses: refreshedRecord.remainingUses,
           jwt: refreshedRecord.walletSessionJwt || '',
@@ -322,7 +323,7 @@ test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
 
     expect(result.sessionId).toBe(sessionId);
     expect(result.record.thresholdSessionId).toBe(sessionId);
-    expect(result.record.signingGrantId).toBe(signingGrantId);
+    expect(result.record.signingGrantId).toBe(refreshedSigningGrantId);
     expect(result.walletSessionState.remainingUses).toBe(1);
     expect(result.walletSessionState.walletSessionAuth.walletSessionJwt).toBe(
       result.record.walletSessionJwt,
@@ -334,6 +335,7 @@ test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
   });
 
   test('mints and recovers the exact Client when page refresh cleared live state', async () => {
+    const recoveredSigningGrantId = 'wsess-ed25519-cold-recovered';
     const oldRecord = writeEd25519Record({
       thresholdSessionId: 'tsess-ed25519-inactive',
       signingGrantId: 'wsess-ed25519-inactive',
@@ -353,7 +355,7 @@ test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
         provisionCalls += 1;
         recoveredRecord = writeEd25519Record({
           thresholdSessionId: oldRecord.thresholdSessionId,
-          signingGrantId: oldRecord.signingGrantId || '',
+          signingGrantId: recoveredSigningGrantId,
           remainingUses: 1,
           updatedAtMs: 2,
           version: 'cold-recovered',
@@ -361,7 +363,7 @@ test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
         return {
           ok: true,
           sessionId: oldRecord.thresholdSessionId,
-          signingGrantId: oldRecord.signingGrantId || '',
+          signingGrantId: recoveredSigningGrantId,
           expiresAtMs: recoveredRecord.expiresAtMs,
           remainingUses: recoveredRecord.remainingUses,
           jwt: recoveredRecord.walletSessionJwt || '',
@@ -369,8 +371,8 @@ test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
       },
       resolveActiveEd25519YaoSigningCapability: () => null,
       rehydratePasskeyEd25519YaoCapabilityAfterRefresh: async ({ expectedLaneIdentity }) => {
-        expect(expectedLaneIdentity).toEqual(refreshLaneIdentityFixture(oldRecord));
         if (!recoveredRecord) throw new Error('expected refreshed record before recovery');
+        expect(expectedLaneIdentity).toEqual(refreshLaneIdentityFixture(recoveredRecord));
         return yaoCapabilityFixture(recoveredRecord, recoveredClient);
       },
       refreshActiveEd25519YaoWalletSession: () => {

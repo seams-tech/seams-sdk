@@ -7,7 +7,7 @@ import { ROUTER_API_CREDENTIAL_SCOPES } from './apiCredentialPorts';
 
 export type RouteAuthPlane = 'api_credentials' | 'user_session' | 'threshold_session' | 'public';
 
-export const API_CREDENTIAL_TYPES = ['publishable_key', 'secret_key', 'bootstrap_token'] as const;
+export const API_CREDENTIAL_TYPES = ['publishable_key', 'secret_key'] as const;
 export type ApiCredentialType = (typeof API_CREDENTIAL_TYPES)[number];
 
 export const API_CREDENTIAL_ROUTE_SCOPES = ROUTER_API_CREDENTIAL_SCOPES;
