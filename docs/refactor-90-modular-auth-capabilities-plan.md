@@ -671,7 +671,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the unreachable Email OTP `session_bootstrap` worker branch and
       require registration-attempt identity as an explicit worker input.
 - [ ] Preserve existing import/export and bundle guards.
-- [ ] Split no worker or bundle without measured evidence.
+- [x] Split no worker or bundle without measured evidence. The current
+      confirmation worker owns generic prompts alongside `WARM_SESSION_*`, PRF
+      claims, Shamir3Pass, and raw key-export handling; its production caller
+      map establishes the custody split described by the SPEC.
 - [ ] Verify generic orchestration cannot import secret-bearing worker
       internals.
 
@@ -697,6 +700,9 @@ the replacement and legacy MPC paths must not ship together.
       direct Gateway role calls, and Gateway-owned SigningWorker delivery.
 - [ ] Remove obsolete route handlers, service locators, and direct host-role
       access with their last caller.
+- [x] Delete the zero-caller Cloudflare route-registration wrapper and its
+      obsolete wrapper-only unit test; production routing remains owned by the
+      canonical route-definition dispatcher.
 - [x] Delete the obsolete standalone Email OTP ECDSA enrollment SDK/iframe
       route and its JWT-derived runtime-policy scope; canonical `registerWallet`
       remains the sole registration owner.
@@ -722,6 +728,8 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete `active_state_session_id` from production types and wire shapes.
 - [ ] Delete remaining generic wire session aliases and
       authorization/material-scope aliases owned by this cutover.
+- [x] Inline the canonical bootstrap and exact/missing Wallet Session payload
+      types in the iframe envelope and delete their one-use wire aliases.
 - [x] Delete the unread duplicate ECDSA export operation-authorization carrier;
       explicit export authorization remains the operation's sole authority.
 - [x] Delete legacy recovery microstates and compensation branches.
