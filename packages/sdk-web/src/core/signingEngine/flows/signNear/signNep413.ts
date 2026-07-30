@@ -76,7 +76,8 @@ export async function signNep413Message({
   forceFreshAuth,
   passkeyEd25519OperationStepUp,
   emailOtpEd25519Reauthorization,
-  committedYaoCapability,
+  yaoSigningPreparation,
+  yaoMaterialExecutor,
 }: NearNep413Payload): Promise<InternalSignNep413MessageResult> {
   const operationId = payload.operationId;
   const relayerUrl = ctx.relayerUrl;
@@ -198,7 +199,8 @@ export async function signNep413Message({
     execute: async () => {
       return await resolveConfirmedNearEd25519YaoCapability({
         authorization: stepUpAuthorization,
-        committed: committedYaoCapability,
+        preparation: yaoSigningPreparation,
+        executor: yaoMaterialExecutor,
         emailOtpReauthorization: emailOtpEd25519Reauthorization,
         requiredSignatureUses,
       });

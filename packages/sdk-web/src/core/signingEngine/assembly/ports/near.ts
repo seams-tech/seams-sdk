@@ -20,6 +20,7 @@ export function createNearSigningDeps(args: {
     resolveActiveEd25519YaoSigningCapability: (scope) =>
       args.ed25519YaoActiveClients.resolveForWalletAccount(scope),
     readPersistedEd25519SessionRecordForSigning,
+    prepareNearEd25519YaoSigning: createArgs.prepareNearEd25519YaoSigning,
     rehydratePasskeyEd25519YaoCapabilityForSigning:
       createArgs.rehydratePasskeyEd25519YaoCapabilityForSigning,
     preparePasskeyEd25519YaoOperationStepUpForSigning:

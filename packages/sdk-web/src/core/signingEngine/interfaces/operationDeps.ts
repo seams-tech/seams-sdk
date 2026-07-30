@@ -39,6 +39,8 @@ import type {
   NearEd25519YaoSigningCapability,
   NearPasskeyEd25519OperationStepUpCapabilityPreparation,
 } from './near';
+import type { NearEd25519YaoSigningPreparation } from '../session/material/nearEd25519YaoSigningPreparation';
+import type { SigningLaneAuthBinding } from '../session/identity/signingLaneAuthBinding';
 import type { Ed25519SigningLane } from '../session/emailOtp/ed25519SigningLane';
 import type { ExactEd25519SigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
 import type { EmailOtpEd25519YaoSilentRecoveryResultV1 } from '../session/emailOtp/ed25519YaoSealedRecovery';
@@ -92,6 +94,12 @@ export type NearSigningApiDeps = {
     walletId: WalletId;
     laneIdentity: ExactEd25519SigningLaneIdentity;
   }) => Promise<ThresholdEd25519SessionRecord | null>;
+  prepareNearEd25519YaoSigning: (args: {
+    walletId: WalletId;
+    nearAccountId: AccountId;
+    laneIdentity: ExactEd25519SigningLaneIdentity;
+    auth: SigningLaneAuthBinding;
+  }) => Promise<NearEd25519YaoSigningPreparation>;
   rehydratePasskeyEd25519YaoCapabilityForSigning: (args: {
     walletId: WalletId;
     nearAccountId: AccountId;

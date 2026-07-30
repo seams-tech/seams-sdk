@@ -61,6 +61,16 @@ import type {
   ActiveWalletSessionAuthorizationProjection,
   WalletSessionAuthorizationReadResult,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  resolveNearEd25519YaoCapabilityHydrationV1,
+  type NearEd25519YaoPublicLocatorObservationV1,
+  type NearEd25519YaoRuntimeObservationV1,
+} from '../material/nearEd25519YaoMaterialActivation';
+import {
+  buildBlockedMpcCapabilityHydrationPlan,
+  type MpcCapabilityHydrationPlan,
+} from '../material/mpcCapabilityHydration';
+import { buildRestorableMpcMaterialRefInternal } from '../material/restorableMpcMaterialRef.internal';
 
 export type EmailOtpEd25519YaoSilentRecoveryUnavailableReason =
   | 'sealed_session_missing'
@@ -85,6 +95,13 @@ export type EmailOtpEd25519YaoSilentRecoverySubject = {
   signerSlot: number;
   thresholdSessionId: string;
 };
+
+export type EmailOtpEd25519YaoPublicLocatorObservationV1 =
+  | Omit<
+      Extract<NearEd25519YaoPublicLocatorObservationV1, { kind: 'available' }>,
+      'authority'
+    >
+  | Exclude<NearEd25519YaoPublicLocatorObservationV1, { kind: 'available' }>;
 
 export type EmailOtpEd25519YaoExportSubjectV1 = {
   walletId: WalletId;
@@ -282,6 +299,62 @@ function sealedRecordMatchesSubject(
     restore.signerSlot === subject.signerSlot &&
     record.thresholdSessionIds.ed25519 === subject.thresholdSessionId
   );
+}
+
+export async function resolveEmailOtpEd25519YaoHydrationPlanForSigningV1(input: {
+  subject: EmailOtpEd25519YaoSilentRecoverySubject;
+  publicLocator: EmailOtpEd25519YaoPublicLocatorObservationV1;
+  runtime: NearEd25519YaoRuntimeObservationV1;
+  readExactSealedSession: typeof readExactSealedSession;
+}): Promise<MpcCapabilityHydrationPlan> {
+  const record = await input.readExactSealedSession(input.subject.thresholdSessionId, {
+    authMethod: 'email_otp',
+    curve: 'ed25519',
+  });
+  if (!record || record.curve !== 'ed25519' || !sealedRecordMatchesSubject(record, input.subject)) {
+    if (input.publicLocator.kind === 'available') {
+      return buildBlockedMpcCapabilityHydrationPlan({
+        capability: input.publicLocator.materialActivation.capability,
+        reason: 'missing_material',
+      });
+    }
+    return resolveNearEd25519YaoCapabilityHydrationV1({
+      publicLocator: input.publicLocator,
+      sealed: { kind: 'missing' },
+      runtime: input.runtime,
+      unlockSource: { kind: 'unavailable' },
+    });
+  }
+  const emailOtp = emailOtpRestoreMetadata(record);
+  const authority = await walletAuthAuthorityRef({
+    authority: buildEmailOtpWalletAuthAuthority({
+      walletId: record.walletId,
+      provider: emailOtp.provider,
+      providerUserId: emailOtp.providerSubjectId,
+      emailHashHex: emailOtp.emailHashHex,
+    }),
+  });
+  const publicLocator: NearEd25519YaoPublicLocatorObservationV1 =
+    input.publicLocator.kind === 'available'
+      ? { ...input.publicLocator, authority }
+      : input.publicLocator;
+  return resolveNearEd25519YaoCapabilityHydrationV1({
+    publicLocator,
+    sealed: {
+      kind: 'available',
+      authority,
+      materialActivation: emailOtp.materialActivation,
+      sealedMaterial: buildRestorableMpcMaterialRefInternal(
+        JSON.stringify([
+          record.storeKey,
+          record.thresholdSessionIds.ed25519,
+          emailOtp.materialActivation.activationId,
+        ]),
+      ),
+    },
+    runtime: input.runtime,
+    unlockSource: { kind: 'available', authority },
+  });
 }
 
 function sealedRecordMatchesExportSubject(
