@@ -6,6 +6,8 @@ import {
   buildEcdsaRoleLocalPersistedMaterialRefFixture,
   buildWalletAuthAuthorityRefFixture,
 } from './helpers/ecdsaMaterialRef.fixtures';
+import { canonicalEcdsaSealedRuntimeFixture } from './helpers/ecdsaOperationStepUp.fixtures';
+import { buildPasskeyEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';
 
 const IMPORT_PATHS = {
   indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
@@ -144,74 +146,130 @@ test.describe('signing session sealed store', () => {
     );
   });
 
-  test('preserves an expired passkey ECDSA anchor for the next unlock', async ({ page }) => {
+  test('retires reusable authorization while preserving exact sealed ECDSA material', async ({
+    page,
+  }) => {
+    const { fixture } = await canonicalEcdsaSealedRuntimeFixture('passkey');
+    const sourceRecord = buildPasskeyEcdsaSealedRuntimeRecordFixture({
+      manifest: fixture.manifest,
+    });
     const result = await page.evaluate(
-      async ({ paths, restore }) => {
+      async ({ paths, source }) => {
         const mod = await import(paths.sealedSessionStore);
         const now = Date.now();
-        const thresholdSessionId = 'expired-anchor-session';
-        await mod.clearAllSealedSessions();
-        const record = mod.buildCurrentSealedSessionRecord({
-          thresholdSessionId,
-          signingGrantId: 'expired-anchor-grant',
-          thresholdSessionIds: { ecdsa: thresholdSessionId },
-          curve: 'ecdsa',
-          authMethod: 'passkey',
-          ecdsaRestore: restore,
-          walletId: 'sealed-store.testnet',
-          relayerUrl: 'https://relay.example',
-          groupId: 'rfc2409-group2',
-          keyVersion: 'signing-session-seal-test-r2',
-          sealedSecretB64u: 'sealed-secret-b64u',
-          issuedAtMs: now,
-          expiresAtMs: now + 60_000,
-          remainingUses: 3,
-          updatedAtMs: now,
-        });
-        if (!record) throw new Error('expected current ECDSA sealed record');
-        await mod.writeExactSealedSession(record);
-        const persisted = await mod.readExactSealedSession(thresholdSessionId, {
-          authMethod: 'passkey',
-          curve: 'ecdsa',
-          chainTarget: restore.chainTarget,
-        });
-        if (!persisted) throw new Error('expected persisted current ECDSA sealed record');
-        await mod.updateExactSealedSessionPolicy({
-          thresholdSessionId,
-          filter: {
+        const cases = [
+          { expiresAtMs: now - 1, remainingUses: 3 },
+          { expiresAtMs: now + 60_000, remainingUses: 0 },
+          { expiresAtMs: now - 1, remainingUses: 0 },
+        ] as const;
+        const outcomes = [];
+        for (const lifecycle of cases) {
+          await mod.clearAllSealedSessions();
+          await mod.writeExactSealedSession(source);
+          const thresholdSessionId = source.thresholdSessionIds.ecdsa;
+          await mod.updateExactSealedSessionPolicy({
+            thresholdSessionId,
+            filter: {
+              authMethod: 'passkey',
+              curve: 'ecdsa',
+              chainTarget: source.ecdsaRestore.chainTarget,
+            },
+            expiresAtMs: lifecycle.expiresAtMs,
+            remainingUses: lifecycle.remainingUses,
+            updatedAtMs: now + 1,
+          });
+          const exact = await mod.readExactSealedSession(thresholdSessionId, {
             authMethod: 'passkey',
             curve: 'ecdsa',
-            chain: 'tempo',
-            chainTarget: restore.chainTarget,
-          },
-          expiresAtMs: now - 1,
-          remainingUses: 3,
-          updatedAtMs: now + 1,
-        });
-        const records = await mod.listEcdsaSealedSessionsForWallet({
-          walletId: 'sealed-store.testnet',
-          filter: { authMethod: 'passkey', curve: 'ecdsa' },
-        });
-        const matching = records.find(
-          (candidate: { thresholdSessionIds: { ecdsa?: string } }) =>
-            candidate.thresholdSessionIds.ecdsa === thresholdSessionId,
-        );
-        return matching
-          ? {
-              state: matching.state,
-              retirement: matching.retirement,
-              publicCapability: matching.ecdsaRestore.publicCapability,
-            }
-          : null;
+            chainTarget: source.ecdsaRestore.chainTarget,
+          });
+          const records = await mod.listEcdsaSealedSessionsForWallet({
+            walletId: source.walletId,
+            filter: { authMethod: 'passkey', curve: 'ecdsa' },
+          });
+          const inactive = records.find(
+            (candidate: { recordKind?: string }) =>
+              candidate.recordKind === 'ecdsa_inactive_sealed_material_v1',
+          );
+          if (!inactive) {
+            throw new Error('expected inactive ECDSA sealed material');
+          }
+          outcomes.push({
+            exact,
+            authorizationRetirementReason:
+              inactive.authorizationRetirementReason,
+            sealedSecretB64u: inactive.sealedSecretB64u,
+            keyVersion: inactive.keyVersion,
+            groupId: inactive.groupId,
+            materialActivation:
+              inactive.ecdsaRestore.roleLocalMaterialRef.materialActivation,
+            hasSigningGrantId: 'signingGrantId' in inactive,
+            hasThresholdSessionIds: 'thresholdSessionIds' in inactive,
+            hasWalletSessionJwt:
+              'walletSessionJwt' in inactive.ecdsaRestore,
+            hasSessionKind: 'sessionKind' in inactive.ecdsaRestore,
+            hasAllowance:
+              'remainingUses' in inactive || 'expiresAtMs' in inactive,
+          });
+          await mod.writeExactSealedSession(source);
+          const reactivated = await mod.listEcdsaSealedSessionsForWallet({
+            walletId: source.walletId,
+            filter: { authMethod: 'passkey', curve: 'ecdsa' },
+          });
+          if (
+            reactivated.length !== 1 ||
+            'recordKind' in reactivated[0]
+          ) {
+            throw new Error('expected atomic inactive-to-current replacement');
+          }
+        }
+        return outcomes;
       },
-      { paths: IMPORT_PATHS, restore: ECDSA_RESTORE },
+      { paths: IMPORT_PATHS, source: sourceRecord },
     );
 
-    expect(result).toMatchObject({
-      state: 'expired',
-      retirement: 'expired',
-      publicCapability: ECDSA_RESTORE.publicCapability,
-    });
+    expect(result).toEqual([
+      expect.objectContaining({
+        exact: null,
+        authorizationRetirementReason: 'expired',
+        sealedSecretB64u: sourceRecord.sealedSecretB64u,
+        keyVersion: sourceRecord.keyVersion,
+        groupId: sourceRecord.groupId,
+        materialActivation:
+          sourceRecord.ecdsaRestore.roleLocalMaterialRef.materialActivation,
+        hasSigningGrantId: false,
+        hasThresholdSessionIds: false,
+        hasWalletSessionJwt: false,
+        hasSessionKind: false,
+        hasAllowance: false,
+      }),
+      expect.objectContaining({
+        exact: null,
+        authorizationRetirementReason: 'exhausted',
+        sealedSecretB64u: sourceRecord.sealedSecretB64u,
+        materialActivation:
+          sourceRecord.ecdsaRestore.roleLocalMaterialRef.materialActivation,
+        hasSigningGrantId: false,
+        hasThresholdSessionIds: false,
+        hasWalletSessionJwt: false,
+        hasSessionKind: false,
+        hasAllowance: false,
+      }),
+      expect.objectContaining({
+        exact: null,
+        authorizationRetirementReason: 'expired',
+        sealedSecretB64u: sourceRecord.sealedSecretB64u,
+        keyVersion: sourceRecord.keyVersion,
+        groupId: sourceRecord.groupId,
+        materialActivation:
+          sourceRecord.ecdsaRestore.roleLocalMaterialRef.materialActivation,
+        hasSigningGrantId: false,
+        hasThresholdSessionIds: false,
+        hasWalletSessionJwt: false,
+        hasSessionKind: false,
+        hasAllowance: false,
+      }),
+    ]);
   });
 
   test('writes shamir3pass records to IndexedDB without persisting plaintext secret or JWT auth', async ({
