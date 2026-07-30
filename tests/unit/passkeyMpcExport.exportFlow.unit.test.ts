@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
-const WORKER_PATH = '/sdk/workers/passkey-confirm.worker.js';
+const WORKER_PATH = '/sdk/workers/passkey-mpc-export.worker.js';
 
-test.describe('passkey-confirm export flow worker', () => {
+test.describe('passkey MPC export flow worker', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page);
   });
@@ -40,6 +40,10 @@ test.describe('passkey-confirm export flow worker', () => {
                       requestId: message.data?.requestId,
                       confirmed: true,
                       credential: {
+                        id: 'export-passkey',
+                        rawId: 'export-passkey',
+                        type: 'public-key',
+                        response: {},
                         clientExtensionResults: {
                           prf: { results: { first: prfFirst, second: prfSecond } },
                         },
@@ -185,6 +189,10 @@ test.describe('passkey-confirm export flow worker', () => {
                       requestId: message.data?.requestId,
                       confirmed: true,
                       credential: {
+                        id: 'export-passkey',
+                        rawId: 'export-passkey',
+                        type: 'public-key',
+                        response: {},
                         clientExtensionResults: {
                           prf: { results: { first: prfFirst, second: prfSecond } },
                         },

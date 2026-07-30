@@ -55,7 +55,6 @@ export type UserConfirmWorkerMessageType =
   | 'PING'
   | 'PREWARM_SHAMIR3PASS'
   | 'SECURE_CONFIRM_REQUEST'
-  | 'EXPORT_PRIVATE_KEYS_WITH_UI'
   | 'WARM_SESSION_MATERIAL_PUT'
   | 'WARM_SESSION_STATUS_READ'
   | 'WARM_SESSION_STATUS_BATCH_READ'
@@ -90,10 +89,7 @@ export type WarmSessionSealTransportInput =
       curve: 'ecdsa';
       authMethod?: 'passkey';
       chainTarget: ThresholdEcdsaChainTarget;
-      ecdsaRestore?: Exclude<
-        SealedSigningSessionEcdsaRestoreMetadata,
-        { source: 'email_otp' }
-      >;
+      ecdsaRestore?: Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }>;
       emailOtpRestore?: never;
     });
 
@@ -215,6 +211,12 @@ export interface UserConfirmWorkerMessage<TPayload = unknown> {
   type: UserConfirmWorkerMessageType;
   id?: string;
   payload?: TPayload;
+}
+
+export interface PasskeyMpcExportWorkerMessage {
+  type: 'EXPORT_PRIVATE_KEYS_WITH_UI';
+  id?: string;
+  payload: ExportPrivateKeysWithUiWorkerPayload;
 }
 
 export interface UserConfirmWorkerResponse<TData = unknown> {
