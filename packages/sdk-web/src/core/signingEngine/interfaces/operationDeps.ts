@@ -182,10 +182,9 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
       chainTarget: ThresholdEcdsaChainTarget;
       materialActivation: MpcMaterialActivationRef;
     }) => Promise<AuthorizedEvmFamilyEcdsaSigningCapability>;
-    // Optional wallet-level view of the same reusable Wallet Session
-    // authorization, for warm-capability status. Null means no active
-    // authorization; it never throws for inactive session states.
-    resolveActiveEcdsaWalletSessionAuthorization?: (
+    // Wallet-level view of the reusable Wallet Session authorization. Null
+    // means no active authorization; inactive session states never throw.
+    resolveActiveEcdsaWalletSessionAuthorization: (
       walletId: WalletId,
     ) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
     walletSignerStore: EvmFamilyWalletSignerStorePort;

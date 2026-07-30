@@ -38,12 +38,8 @@ export function createEvmFamilySigningDeps(args: {
   return {
     resolveCanonicalEcdsaSigningCapability: createArgs.resolveCanonicalEcdsaSigningCapability,
     resolveAuthorizedEcdsaSigningCapability: createArgs.resolveAuthorizedEcdsaSigningCapability,
-    ...(createArgs.resolveActiveEcdsaWalletSessionAuthorization
-      ? {
-          resolveActiveEcdsaWalletSessionAuthorization:
-            createArgs.resolveActiveEcdsaWalletSessionAuthorization,
-        }
-      : {}),
+    resolveActiveEcdsaWalletSessionAuthorization:
+      createArgs.resolveActiveEcdsaWalletSessionAuthorization,
     walletSignerStore: args.walletSignerStore,
     passkeyAuthenticatorStore: args.passkeyAuthenticatorStore,
     seamsWebConfigs: createArgs.seamsWebConfigs,
