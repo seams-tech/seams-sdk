@@ -313,7 +313,6 @@ void sharedEcdsaLane;
 
 const durablePolicyAdvisory: AvailableLaneStateAdvisory = {
   kind: 'durable_policy',
-  thresholdSessionId: 'threshold-session-1',
   remainingUses: 1,
   expiresAtMs: 1_900_000_000_000,
   state: 'restorable',
@@ -323,7 +322,6 @@ void durablePolicyAdvisory;
 const activeAdvisoryWithLaneState: AvailableLaneStateAdvisory = {
   kind: 'warm_status',
   status: 'active',
-  thresholdSessionId: 'threshold-session-1',
   remainingUses: 1,
   expiresAtMs: 1_900_000_000_000,
   // @ts-expect-error active advisories are runtime-ready and cannot carry durable-policy lane state.
@@ -334,7 +332,6 @@ void activeAdvisoryWithLaneState;
 const cacheMissAdvisoryWithLaneState: AvailableLaneStateAdvisory = {
   kind: 'warm_status',
   status: 'cache_miss',
-  thresholdSessionId: 'threshold-session-1',
   // @ts-expect-error cache-miss advisories cannot choose a lane state by themselves.
   laneState: 'deferred',
 };
@@ -343,7 +340,6 @@ void cacheMissAdvisoryWithLaneState;
 // @ts-expect-error durable-policy advisories must state the durable lane they represent.
 const durablePolicyAdvisoryMissingState: AvailableLaneStateAdvisory = {
   kind: 'durable_policy',
-  thresholdSessionId: 'threshold-session-1',
   remainingUses: 1,
   expiresAtMs: 1_900_000_000_000,
 };
@@ -351,7 +347,6 @@ void durablePolicyAdvisoryMissingState;
 
 const durablePolicyAdvisoryWithLaneState: AvailableLaneStateAdvisory = {
   kind: 'durable_policy',
-  thresholdSessionId: 'threshold-session-1',
   remainingUses: 1,
   expiresAtMs: 1_900_000_000_000,
   state: 'restorable',

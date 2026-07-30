@@ -315,7 +315,6 @@ export function availableEd25519SigningLaneAuthMethod(
 export type AvailableLaneStateAdvisory =
   | {
       kind: 'runtime_material';
-      thresholdSessionId: string;
       remainingUses: number;
       expiresAtMs: number;
       code?: never;
@@ -323,14 +322,12 @@ export type AvailableLaneStateAdvisory =
   | {
       kind: 'warm_status';
       status: 'active';
-      thresholdSessionId: string;
       remainingUses: number;
       expiresAtMs: number;
       code?: never;
     }
   | {
       kind: 'durable_policy';
-      thresholdSessionId: string;
       remainingUses: number;
       expiresAtMs: number;
       state: AvailableSigningLaneState;
@@ -339,7 +336,6 @@ export type AvailableLaneStateAdvisory =
   | {
       kind: 'warm_status';
       status: 'exhausted';
-      thresholdSessionId: string;
       remainingUses: 0;
       expiresAtMs?: never;
       code?: never;
@@ -347,7 +343,6 @@ export type AvailableLaneStateAdvisory =
   | {
       kind: 'warm_status';
       status: 'expired';
-      thresholdSessionId: string;
       remainingUses?: never;
       expiresAtMs?: never;
       code?: never;
@@ -355,7 +350,6 @@ export type AvailableLaneStateAdvisory =
   | {
       kind: 'warm_status';
       status: 'cache_miss';
-      thresholdSessionId: string;
       remainingUses?: never;
       expiresAtMs?: never;
       code?: string;
@@ -363,14 +357,12 @@ export type AvailableLaneStateAdvisory =
   | {
       kind: 'warm_status';
       status: 'unavailable';
-      thresholdSessionId: string;
       remainingUses?: never;
       expiresAtMs?: never;
       code: string;
     };
 
 export function durableRecordPolicyAdvisory(args: {
-  thresholdSessionId: string;
   remainingUses: unknown;
   expiresAtMs: unknown;
   state: 'ready' | 'restorable' | 'deferred';
@@ -383,7 +375,6 @@ export function durableRecordPolicyAdvisory(args: {
   if (expiresAtMs <= Date.now()) {
     return {
       kind: 'durable_policy',
-      thresholdSessionId: args.thresholdSessionId,
       remainingUses,
       expiresAtMs,
       state: 'expired',
@@ -392,7 +383,6 @@ export function durableRecordPolicyAdvisory(args: {
   if (remainingUses <= 0) {
     return {
       kind: 'durable_policy',
-      thresholdSessionId: args.thresholdSessionId,
       remainingUses: 0,
       expiresAtMs,
       state: 'exhausted',
@@ -400,7 +390,6 @@ export function durableRecordPolicyAdvisory(args: {
   }
   return {
     kind: 'durable_policy',
-    thresholdSessionId: args.thresholdSessionId,
     remainingUses,
     expiresAtMs,
     state: args.state,
@@ -1553,26 +1542,23 @@ async function recordToEcdsaLane(args: {
 }
 
 export function warmStatusToAvailableLaneStateAdvisory(args: {
-  thresholdSessionId: string;
   status: { ok: true; remainingUses: number; expiresAtMs: number } | { ok: false; code: string };
 }): AvailableLaneStateAdvisory {
   if (args.status.ok) {
     return {
       kind: 'warm_status',
       status: 'active',
-      thresholdSessionId: args.thresholdSessionId,
       remainingUses: args.status.remainingUses,
       expiresAtMs: args.status.expiresAtMs,
     };
   }
   if (args.status.code === 'expired') {
-    return { kind: 'warm_status', status: 'expired', thresholdSessionId: args.thresholdSessionId };
+    return { kind: 'warm_status', status: 'expired' };
   }
   if (args.status.code === 'exhausted') {
     return {
       kind: 'warm_status',
       status: 'exhausted',
-      thresholdSessionId: args.thresholdSessionId,
       remainingUses: 0,
     };
   }
@@ -1580,13 +1566,11 @@ export function warmStatusToAvailableLaneStateAdvisory(args: {
     return {
       kind: 'warm_status',
       status: 'cache_miss',
-      thresholdSessionId: args.thresholdSessionId,
     };
   }
   return {
     kind: 'warm_status',
     status: 'unavailable',
-    thresholdSessionId: args.thresholdSessionId,
     code: args.status.code,
   };
 }
