@@ -164,7 +164,9 @@ test.describe('signing session PRF cache utilities', () => {
     const allClearBlock = source.slice(allClearStart, end);
 
     expect(allClearStart).toBeGreaterThan(0);
-    expect(allClearBlock).toContain('if (!this.worker && !this.initializationPromise) return;');
+    expect(allClearBlock).toContain(
+      'if (!this.passkeyMpcSessionWorker && !this.passkeyMpcSessionInitializationPromise) return;',
+    );
     expect(allClearBlock).toContain("type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR_ALL'");
     expect(allClearBlock).not.toContain('clearAllSealedSessions');
     expect(allClearBlock).not.toContain('deleteExactSealedSession');
@@ -215,7 +217,7 @@ test.describe('signing session PRF cache utilities', () => {
     const workerSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
+        '../packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-mpc-session.worker.ts',
       ),
       'utf8',
     );
@@ -236,7 +238,7 @@ test.describe('signing session PRF cache utilities', () => {
     const workerSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
+        '../packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-mpc-session.worker.ts',
       ),
       'utf8',
     );

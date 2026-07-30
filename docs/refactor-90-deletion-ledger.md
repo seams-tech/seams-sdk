@@ -426,6 +426,10 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~Passkey raw secp256k1 and Ed25519-Yao export runtime inside
   `passkey-confirm.worker.ts`~~ — moved atomically to the dedicated Passkey MPC
   export worker; generic confirmation no longer imports or dispatches it
+- ~~Passkey `WARM_SESSION_*`, PRF claim/cache, sealed-session,
+  rehydration/policy, and Shamir3Pass runtime inside
+  `passkey-confirm.worker.ts`~~ — moved atomically to the dedicated Passkey MPC
+  session worker; generic confirmation now owns prompt interaction only
 - ~~unused `UiConfirmSigningRuntimePort` and generic combined
   `UiConfirmSigningSessionPort` exports~~ — Near runtime dependencies name the
   required confirmation and warm-material ports directly

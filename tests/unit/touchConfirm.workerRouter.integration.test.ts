@@ -328,6 +328,7 @@ test.describe('UserConfirm worker router', () => {
         };
 
         (manager as any).worker = fakeWorker;
+        (manager as any).passkeyMpcSessionWorker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
         const batchPromise = manager.getWarmSessionStatuses({
@@ -394,7 +395,7 @@ test.describe('UserConfirm worker router', () => {
     });
   });
 
-  test('rejects all pending requests when worker emits an error event', async ({ page }) => {
+  test('rejects only the failed worker pending requests', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
@@ -410,6 +411,10 @@ test.describe('UserConfirm worker router', () => {
           message: [],
           error: [],
         };
+        const sessionListeners: Record<'message' | 'error', Array<(event: any) => void>> = {
+          message: [],
+          error: [],
+        };
 
         const fakeWorker: Worker = {
           addEventListener: ((type: string, handler: (event: any) => void) => {
@@ -422,6 +427,17 @@ test.describe('UserConfirm worker router', () => {
           postMessage: (() => {}) as any,
           terminate: (() => {}) as any,
         } as unknown as Worker;
+        const fakeSessionWorker: Worker = {
+          addEventListener: ((type: string, handler: (event: any) => void) => {
+            if (type === 'message' || type === 'error') sessionListeners[type].push(handler);
+          }) as any,
+          removeEventListener: ((type: string, handler: (event: any) => void) => {
+            if (type !== 'message' && type !== 'error') return;
+            sessionListeners[type] = sessionListeners[type].filter((fn) => fn !== handler);
+          }) as any,
+          postMessage: (() => {}) as any,
+          terminate: (() => {}) as any,
+        } as unknown as Worker;
 
         const emitError = (message: string) => {
           for (const handler of [...listeners.error]) {
@@ -430,7 +446,9 @@ test.describe('UserConfirm worker router', () => {
         };
 
         (manager as any).worker = fakeWorker;
+        (manager as any).passkeyMpcSessionWorker = fakeSessionWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
+        (manager as any).attachWorkerRouter(fakeSessionWorker);
 
         const p1 = (manager as any)
           .sendMessage(
@@ -453,6 +471,8 @@ test.describe('UserConfirm worker router', () => {
               payload: { sessionId: 's1' },
             },
             1000,
+            undefined,
+            fakeSessionWorker,
           )
           .then(
             () => ({ ok: true, error: '' }),
@@ -460,11 +480,21 @@ test.describe('UserConfirm worker router', () => {
           );
 
         emitError('simulated worker crash');
-        const [r1, r2] = await Promise.all([p1, p2]);
+        const r1 = await p1;
+        const pendingAfterGenericError = (manager as any).pendingWorkerRequests.size;
+        for (const handler of [...sessionListeners.message]) {
+          handler({
+            data: { id: 'req-error-2', success: true, data: { success: true } },
+            currentTarget: fakeSessionWorker,
+            target: fakeSessionWorker,
+          });
+        }
+        const r2 = await p2;
 
         return {
           r1,
           r2,
+          pendingAfterGenericError,
           pendingAfter: (manager as any).pendingWorkerRequests.size,
         };
       },
@@ -472,9 +502,9 @@ test.describe('UserConfirm worker router', () => {
     );
 
     expect(result.r1.ok).toBe(false);
-    expect(result.r2.ok).toBe(false);
+    expect(result.r2.ok).toBe(true);
     expect(result.r1.error).toContain('UserConfirm worker failed: simulated worker crash');
-    expect(result.r2.error).toContain('UserConfirm worker failed: simulated worker crash');
+    expect(result.pendingAfterGenericError).toBe(1);
     expect(result.pendingAfter).toBe(0);
   });
 
@@ -604,6 +634,7 @@ test.describe('UserConfirm worker router', () => {
           request.onblocked = () => resolve();
         });
         (manager as any).worker = fakeWorker;
+        (manager as any).passkeyMpcSessionWorker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
         const sealPromise = manager.sealAndPersistWarmSessionMaterial({
@@ -772,6 +803,7 @@ test.describe('UserConfirm worker router', () => {
         );
 
         (manager as any).worker = fakeWorker;
+        (manager as any).passkeyMpcSessionWorker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
         const transportInputs: any[] = [];
         (manager as any).resolveSealTransportInput = (
@@ -1071,6 +1103,7 @@ test.describe('UserConfirm worker router', () => {
           terminate: (() => {}) as any,
         } as unknown as Worker;
         (manager as any).worker = fakeWorker;
+        (manager as any).passkeyMpcSessionWorker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
         const observedExpiredAtMs = Date.now();
@@ -1280,6 +1313,7 @@ test.describe('UserConfirm worker router', () => {
         );
 
         (manager as any).worker = fakeWorker;
+        (manager as any).passkeyMpcSessionWorker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
         (manager as any).resolveSealTransportInput = () => ({
           curve: 'ecdsa',
@@ -1641,6 +1675,7 @@ test.describe('UserConfirm worker router', () => {
         );
 
         (manager as any).worker = fakeWorker;
+        (manager as any).passkeyMpcSessionWorker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
         const statusPromise = manager.getWarmSessionStatus({
@@ -1854,6 +1889,7 @@ test.describe('UserConfirm worker router', () => {
         );
 
         (manager as any).worker = fakeWorker;
+        (manager as any).passkeyMpcSessionWorker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
         (manager as any).resolveSealTransportInput = () => ({
           curve: 'ecdsa',
@@ -1945,6 +1981,7 @@ test.describe('UserConfirm worker router', () => {
         };
 
         (manager as any).worker = fakeWorker;
+        (manager as any).passkeyMpcExportWorker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
         const exportPromise = manager.exportPrivateKeysWithUi({
@@ -2042,6 +2079,7 @@ test.describe('UserConfirm worker router', () => {
         };
 
         (manager as any).worker = fakeWorker;
+        (manager as any).passkeyMpcExportWorker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
         const exportResult = manager

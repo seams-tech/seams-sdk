@@ -49,6 +49,7 @@ export function resolveWorkerUrl(
       | 'ecdsaDerivationClient'
       | 'ecdsaPresignClient'
       | 'ecdsaOnlineClient'
+      | 'passkeyMpcSession'
       | 'passkeyMpcExport'
       | 'touchConfirm';
     baseOrigin?: string;
@@ -83,6 +84,9 @@ export function resolveWorkerUrl(
       case 'passkeyMpcExport':
         override = ovAny.__W3A_PASSKEY_MPC_EXPORT_WORKER_URL__;
         break;
+      case 'passkeyMpcSession':
+        override = ovAny.__W3A_PASSKEY_MPC_SESSION_WORKER_URL__;
+        break;
       default:
         worker satisfies never;
     }
@@ -105,6 +109,7 @@ type DedicatedWorkerKind =
   | 'ecdsaDerivationClient'
   | 'ecdsaPresignClient'
   | 'ecdsaOnlineClient'
+  | 'passkeyMpcSession'
   | 'passkeyMpcExport'
   | 'touchConfirm';
 
@@ -114,6 +119,7 @@ function detectWorkerFromPath(p: string): DedicatedWorkerKind {
   if (/ecdsa-presign-client\.worker\.js(?:$|\?)/.test(p)) return 'ecdsaPresignClient';
   if (/ecdsa-online-client\.worker\.js(?:$|\?)/.test(p)) return 'ecdsaOnlineClient';
   if (/passkey-mpc-export\.worker\.js(?:$|\?)/.test(p)) return 'passkeyMpcExport';
+  if (/passkey-mpc-session\.worker\.js(?:$|\?)/.test(p)) return 'passkeyMpcSession';
   return 'touchConfirm';
 }
 
@@ -131,6 +137,8 @@ function defaultWorkerPath(worker: DedicatedWorkerKind): string {
       return '/sdk/workers/passkey-confirm.worker.js';
     case 'passkeyMpcExport':
       return '/sdk/workers/passkey-mpc-export.worker.js';
+    case 'passkeyMpcSession':
+      return '/sdk/workers/passkey-mpc-session.worker.js';
     default:
       worker satisfies never;
       throw new Error('Unsupported dedicated worker kind');
