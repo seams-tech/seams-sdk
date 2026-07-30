@@ -13,7 +13,10 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { CurrentEcdsaSealedSessionRecord } from '../persistence/sealedSessionStore';
+import type {
+  CurrentEcdsaSealedSessionRecord,
+  EcdsaInactiveSealedMaterialRecord,
+} from '../persistence/sealedSessionStore';
 import {
   parseEcdsaRoleLocalPersistedMaterialRef,
   type EcdsaRoleLocalPersistedMaterialRef,
@@ -56,8 +59,7 @@ export type ExactEcdsaSealedRecordIdentity = {
   readonly authMethod: 'passkey' | 'email_otp';
 };
 
-export type ExactEcdsaSealedRuntime = {
-  readonly kind: 'exact_ecdsa_sealed_runtime_v1';
+export type ExactEcdsaMaterialRuntime = {
   readonly walletId: WalletId;
   readonly chainTarget: ThresholdEcdsaChainTarget;
   readonly materialActivation: MpcMaterialActivationRef;
@@ -78,15 +80,49 @@ export type ExactEcdsaSealedRuntime = {
    * the role-local material resolver consumes. */
   readonly roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
   readonly authBinding: ExactEcdsaSealedRuntimeAuthBinding;
+};
+
+export type ExactEcdsaSealedRuntime = ExactEcdsaMaterialRuntime & {
+  readonly kind: 'exact_ecdsa_sealed_runtime_v1';
   readonly expiresAtMs: number;
   readonly remainingUses: number;
   readonly sealedRecord: ExactEcdsaSealedRecordIdentity;
+};
+
+export type ExactInactiveEcdsaMaterialRuntime = ExactEcdsaMaterialRuntime & {
+  readonly kind: 'exact_inactive_ecdsa_material_runtime_v1';
+  readonly inactiveMaterialRecord: {
+    readonly storeKey: string;
+    readonly authMethod: 'passkey' | 'email_otp';
+    readonly authorizationRetirementReason: 'expired' | 'exhausted';
+  };
+  readonly expiresAtMs?: never;
+  readonly remainingUses?: never;
+  readonly sealedRecord?: never;
+  readonly thresholdSessionId?: never;
+  readonly signingGrantId?: never;
+  readonly authorization?: never;
 };
 
 export type ExactEcdsaSealedRuntimeResolution =
   | {
       readonly kind: 'resolved';
       readonly runtime: ExactEcdsaSealedRuntime;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'blocked';
+      readonly reason: Extract<
+        MpcCapabilityHydrationBlockedReason,
+        'missing_material' | 'binding_mismatch' | 'exact_record_conflict' | 'corrupt'
+      >;
+      readonly runtime?: never;
+    };
+
+export type ExactInactiveEcdsaMaterialRuntimeResolution =
+  | {
+      readonly kind: 'resolved';
+      readonly runtime: ExactInactiveEcdsaMaterialRuntime;
       readonly reason?: never;
     }
   | {
@@ -108,6 +144,12 @@ function normalizedNonEmpty(value: unknown): string {
   return String(value ?? '').trim();
 }
 
+type ExactEcdsaMaterialRecord =
+  | CurrentEcdsaSealedSessionRecord
+  | EcdsaInactiveSealedMaterialRecord;
+
+type ExactEcdsaMaterialRestore = ExactEcdsaMaterialRecord['ecdsaRestore'];
+
 /** Exact match on stable material identity. Rotating session and grant
  * identifiers deliberately take no part: they change under a reusable Wallet
  * Session without changing which material this record describes. */
@@ -115,7 +157,7 @@ function sealedRecordNamesManifestMaterial(args: {
   readonly manifest: ActiveEcdsaCapabilityManifest;
   readonly walletId: WalletId;
   readonly chainTarget: ThresholdEcdsaChainTarget;
-  readonly record: CurrentEcdsaSealedSessionRecord;
+  readonly record: ExactEcdsaMaterialRecord;
 }): boolean {
   const restore = args.record.ecdsaRestore;
   const durable = args.manifest.durableMaterial;
@@ -152,7 +194,7 @@ function participantIdsEqual(left: readonly number[], right: readonly number[]):
 }
 
 function authorityRefsEqual(
-  left: CurrentEcdsaSealedSessionRecord['ecdsaRestore']['authority'],
+  left: ExactEcdsaMaterialRestore['authority'],
   right: ActiveEcdsaCapabilityManifest['signer']['authority'],
 ): boolean {
   return (
@@ -175,7 +217,7 @@ function sealedRecordBindsManifestFacts(args: {
   readonly manifest: ActiveEcdsaCapabilityManifest;
   readonly walletId: WalletId;
   readonly chainTarget: ThresholdEcdsaChainTarget;
-  readonly record: CurrentEcdsaSealedSessionRecord;
+  readonly record: ExactEcdsaMaterialRecord;
 }): boolean {
   const restore = args.record.ecdsaRestore;
   const durable = args.manifest.durableMaterial;
@@ -187,8 +229,10 @@ function sealedRecordBindsManifestFacts(args: {
     normalizedNonEmpty(restore.ecdsaThresholdKeyId) ||
     normalizedNonEmpty(normalScope.ecdsa_threshold_key_id);
   const resolvedClientVerifyingShare =
-    normalizedNonEmpty(restore.clientVerifyingShareB64u) ||
-    normalizedNonEmpty(normalScope.public_identity.derivation_client_share_public_key33_b64u);
+    'recordKind' in args.record
+      ? normalizedNonEmpty(binding.clientVerifyingPublicKey33B64u)
+      : normalizedNonEmpty(restore.clientVerifyingShareB64u) ||
+        normalizedNonEmpty(normalScope.public_identity.derivation_client_share_public_key33_b64u);
   const resolvedThresholdPublicKey =
     normalizedNonEmpty(restore.thresholdEcdsaPublicKeyB64u) ||
     normalizedNonEmpty(normalScope.public_identity.threshold_public_key33_b64u);
@@ -237,7 +281,7 @@ function sealedRecordBindsManifestFacts(args: {
 }
 
 function authBindingFromRestore(
-  restore: CurrentEcdsaSealedSessionRecord['ecdsaRestore'],
+  restore: ExactEcdsaMaterialRestore,
 ): ExactEcdsaSealedRuntimeAuthBinding | null {
   if (restore.source === 'email_otp') {
     const providerSubjectId = normalizedNonEmpty(restore.providerSubjectId);
@@ -268,21 +312,26 @@ function exactTwoPartyParticipantIds(value: readonly number[]): readonly [number
   return [first, second];
 }
 
-function runtimeFromSealedRecord(args: {
+function materialRuntimeFromRecord(args: {
+  readonly manifest: ActiveEcdsaCapabilityManifest;
   readonly walletId: WalletId;
   readonly chainTarget: ThresholdEcdsaChainTarget;
-  readonly record: CurrentEcdsaSealedSessionRecord;
-}): ExactEcdsaSealedRuntime | null {
+  readonly record: ExactEcdsaMaterialRecord;
+}): ExactEcdsaMaterialRuntime | null {
   const restore = args.record.ecdsaRestore;
   const authBinding = authBindingFromRestore(restore);
   const relayerUrl = normalizedNonEmpty(args.record.relayerUrl).replace(/\/+$/g, '');
   const relayerKeyId = normalizedNonEmpty(restore.relayerKeyId);
   const clientVerifyingShareB64u =
-    normalizedNonEmpty(restore.clientVerifyingShareB64u) ||
-    normalizedNonEmpty(
-      restore.routerAbEcdsaDerivationNormalSigning.scope.public_identity
-        .derivation_client_share_public_key33_b64u,
-    );
+    'recordKind' in args.record
+      ? normalizedNonEmpty(
+          args.manifest.durableMaterial.roleLocalBinding.clientVerifyingPublicKey33B64u,
+        )
+      : normalizedNonEmpty(restore.clientVerifyingShareB64u) ||
+        normalizedNonEmpty(
+          restore.routerAbEcdsaDerivationNormalSigning.scope.public_identity
+            .derivation_client_share_public_key33_b64u,
+        );
   const ecdsaThresholdKeyId =
     normalizedNonEmpty(restore.ecdsaThresholdKeyId) ||
     normalizedNonEmpty(restore.routerAbEcdsaDerivationNormalSigning.scope.ecdsa_threshold_key_id);
@@ -296,10 +345,6 @@ function runtimeFromSealedRecord(args: {
   const participantIds = Array.isArray(restore.participantIds)
     ? exactTwoPartyParticipantIds(restore.participantIds)
     : null;
-  const expiresAtMs = Number(args.record.expiresAtMs);
-  const remainingUses = Number(args.record.remainingUses);
-  const thresholdSessionId = normalizedNonEmpty(args.record.thresholdSessionIds?.ecdsa);
-  const storeKey = normalizedNonEmpty(args.record.storeKey);
   // Parsed through the production boundary parser: a sealed ref that cannot
   // become canonical persisted material makes the whole runtime corrupt.
   let roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
@@ -322,18 +367,11 @@ function runtimeFromSealedRecord(args: {
     !ecdsaThresholdKeyId ||
     !thresholdEcdsaPublicKeyB64u ||
     !keyHandle ||
-    !storeKey ||
-    !thresholdSessionId ||
-    !participantIds ||
-    !Number.isSafeInteger(expiresAtMs) ||
-    expiresAtMs <= 0 ||
-    !Number.isSafeInteger(remainingUses) ||
-    remainingUses < 0
+    !participantIds
   ) {
     return null;
   }
   return {
-    kind: 'exact_ecdsa_sealed_runtime_v1',
     walletId: args.walletId,
     chainTarget: args.chainTarget,
     materialActivation: restore.roleLocalMaterialRef.materialActivation,
@@ -348,12 +386,60 @@ function runtimeFromSealedRecord(args: {
     runtimePolicyScope,
     roleLocalMaterialRef,
     authBinding,
+  };
+}
+
+function runtimeFromSealedRecord(args: {
+  readonly manifest: ActiveEcdsaCapabilityManifest;
+  readonly walletId: WalletId;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly record: CurrentEcdsaSealedSessionRecord;
+}): ExactEcdsaSealedRuntime | null {
+  const materialRuntime = materialRuntimeFromRecord(args);
+  const expiresAtMs = Number(args.record.expiresAtMs);
+  const remainingUses = Number(args.record.remainingUses);
+  const thresholdSessionId = normalizedNonEmpty(args.record.thresholdSessionIds.ecdsa);
+  const storeKey = normalizedNonEmpty(args.record.storeKey);
+  if (
+    !materialRuntime ||
+    !storeKey ||
+    !thresholdSessionId ||
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= 0 ||
+    !Number.isSafeInteger(remainingUses) ||
+    remainingUses < 0
+  ) {
+    return null;
+  }
+  return {
+    ...materialRuntime,
+    kind: 'exact_ecdsa_sealed_runtime_v1',
     expiresAtMs,
     remainingUses,
     sealedRecord: {
       storeKey,
       thresholdSessionId,
-      authMethod: restore.source === 'email_otp' ? 'email_otp' : 'passkey',
+      authMethod: args.record.authMethod,
+    },
+  };
+}
+
+function runtimeFromInactiveMaterialRecord(args: {
+  readonly manifest: ActiveEcdsaCapabilityManifest;
+  readonly walletId: WalletId;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly record: EcdsaInactiveSealedMaterialRecord;
+}): ExactInactiveEcdsaMaterialRuntime | null {
+  const materialRuntime = materialRuntimeFromRecord(args);
+  const storeKey = normalizedNonEmpty(args.record.storeKey);
+  if (!materialRuntime || !storeKey) return null;
+  return {
+    ...materialRuntime,
+    kind: 'exact_inactive_ecdsa_material_runtime_v1',
+    inactiveMaterialRecord: {
+      storeKey,
+      authMethod: args.record.authMethod,
+      authorizationRetirementReason: args.record.authorizationRetirementReason,
     },
   };
 }
@@ -377,6 +463,7 @@ export function resolveExactEcdsaSealedRuntime(input: {
   // not a preference: fail closed rather than pick a winner.
   if (matches.length > 1) return blocked('exact_record_conflict');
   const runtime = runtimeFromSealedRecord({
+    manifest: input.manifest,
     walletId: input.walletId,
     chainTarget: input.chainTarget,
     record: matches[0]!,
@@ -391,6 +478,46 @@ export function resolveExactEcdsaSealedRuntime(input: {
     })
   ) {
     return blocked('binding_mismatch');
+  }
+  return { kind: 'resolved', runtime };
+}
+
+export function resolveExactInactiveEcdsaMaterialRuntime(input: {
+  readonly manifest: ActiveEcdsaCapabilityManifest;
+  readonly walletId: WalletId;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly authMethod: 'passkey' | 'email_otp';
+  readonly inactiveRecords: readonly EcdsaInactiveSealedMaterialRecord[];
+}): ExactInactiveEcdsaMaterialRuntimeResolution {
+  const matches = input.inactiveRecords.filter(
+    (record) =>
+      record.authMethod === input.authMethod &&
+      sealedRecordNamesManifestMaterial({
+        manifest: input.manifest,
+        walletId: input.walletId,
+        chainTarget: input.chainTarget,
+        record,
+      }),
+  );
+  if (matches.length === 0) return { kind: 'blocked', reason: 'missing_material' };
+  if (matches.length > 1) return { kind: 'blocked', reason: 'exact_record_conflict' };
+  const record = matches[0]!;
+  const runtime = runtimeFromInactiveMaterialRecord({
+    manifest: input.manifest,
+    walletId: input.walletId,
+    chainTarget: input.chainTarget,
+    record,
+  });
+  if (!runtime) return { kind: 'blocked', reason: 'corrupt' };
+  if (
+    !sealedRecordBindsManifestFacts({
+      manifest: input.manifest,
+      walletId: input.walletId,
+      chainTarget: input.chainTarget,
+      record,
+    })
+  ) {
+    return { kind: 'blocked', reason: 'binding_mismatch' };
   }
   return { kind: 'resolved', runtime };
 }

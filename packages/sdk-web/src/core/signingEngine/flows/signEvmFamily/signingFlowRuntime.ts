@@ -13,7 +13,10 @@ import {
   attachReusableEcdsaWalletSessionAuthorization,
   resolveHydratedSecp256k1SigningMaterial,
 } from './readySecp256k1Material';
-import { resolveExactEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
+import {
+  resolveExactEcdsaCapabilityRuntime,
+  resolveExactInactiveEcdsaCapabilityMaterial,
+} from '../../session/material/activeEcdsaCapabilityRuntime';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
@@ -169,13 +172,27 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   materialActivation: EvmFamilyEcdsaMaterialActivation;
   workerCtx: ReturnType<EvmFamilySigningDeps['getSignerWorkerContext']>;
 }): Promise<EcdsaSigningMaterialPlan> {
-  // Session-scoped runtime state comes from the exact sealed record correlated
-  // with this wallet's active manifest, not from the Wallet Session JWT.
-  const runtimeResolution = await resolveExactEcdsaCapabilityRuntime({
+  // Prefer active session runtime. Without reusable authorization, the same
+  // manifest may instead correlate authorization-free inactive material for
+  // one-operation step-up.
+  const authMethod = isEmailOtpWalletAuthAuthority(args.capability.authority)
+    ? 'email_otp'
+    : 'passkey';
+  const activeRuntimeResolution = await resolveExactEcdsaCapabilityRuntime({
     manifest: args.capability.manifest,
     chainTarget: args.chainTarget,
-    authMethod: isEmailOtpWalletAuthAuthority(args.capability.authority) ? 'email_otp' : 'passkey',
+    authMethod,
   });
+  const runtimeResolution =
+    activeRuntimeResolution.kind !== 'resolved' &&
+    !args.preparedAuthorization &&
+    !args.currentAuthorization
+      ? await resolveExactInactiveEcdsaCapabilityMaterial({
+          manifest: args.capability.manifest,
+          chainTarget: args.chainTarget,
+          authMethod,
+        })
+      : activeRuntimeResolution;
   if (runtimeResolution.kind !== 'resolved') {
     return {
       kind: 'failed',

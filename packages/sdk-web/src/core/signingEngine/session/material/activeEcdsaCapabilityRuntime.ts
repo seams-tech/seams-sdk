@@ -3,9 +3,11 @@ import {
   type EcdsaCapabilitySelector,
 } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import {
+  classifyRawSealedSessionRecord,
+  listEcdsaSealedSessionsForWallet,
   listExactSealedSessionsForWallet,
-  type readExactSealedSession,
   type CurrentEcdsaSealedSessionRecord,
+  type EcdsaInactiveSealedMaterialRecord,
 } from '../persistence/sealedSessionStore';
 import {
   thresholdEcdsaChainTargetsEqual,
@@ -14,7 +16,10 @@ import {
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
+  resolveExactInactiveEcdsaMaterialRuntime,
   resolveExactEcdsaSealedRuntime,
+  type ExactInactiveEcdsaMaterialRuntime,
+  type ExactInactiveEcdsaMaterialRuntimeResolution,
   type ExactEcdsaSealedRuntime,
   type ExactEcdsaSealedRuntimeResolution,
 } from './ecdsaSealedRuntime';
@@ -39,6 +44,22 @@ export type ActiveEcdsaCapabilityRuntimeResolution =
       readonly reason:
         | Extract<ExactEcdsaSealedRuntimeResolution, { kind: 'blocked' }>['reason']
         | 'missing_capability';
+      readonly manifest?: never;
+      readonly runtime?: never;
+    };
+
+export type InactiveEcdsaCapabilityMaterialResolution =
+  | {
+      readonly kind: 'resolved';
+      readonly manifest: ActiveEcdsaCapabilityManifest;
+      readonly runtime: ExactInactiveEcdsaMaterialRuntime;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'blocked';
+      readonly reason:
+        | Extract<ExactInactiveEcdsaMaterialRuntimeResolution, { kind: 'blocked' }>['reason']
+        | 'chain_mismatch';
       readonly manifest?: never;
       readonly runtime?: never;
     };
@@ -95,6 +116,49 @@ async function listSealedEcdsaRecordsForWallet(args: {
     }
   }
   return records;
+}
+
+async function listInactiveEcdsaRecordsForWallet(args: {
+  readonly walletId: WalletId;
+  readonly authMethod: 'passkey' | 'email_otp';
+}): Promise<readonly EcdsaInactiveSealedMaterialRecord[]> {
+  const found = await listEcdsaSealedSessionsForWallet({
+    walletId: String(args.walletId),
+    filter: { curve: 'ecdsa', authMethod: args.authMethod },
+  }).catch(() => []);
+  const inactiveRecords: EcdsaInactiveSealedMaterialRecord[] = [];
+  for (const record of found) {
+    const classification = classifyRawSealedSessionRecord(record);
+    if (classification.kind === 'ecdsa_inactive_material') {
+      inactiveRecords.push(classification.record);
+    }
+  }
+  return inactiveRecords;
+}
+
+export async function resolveExactInactiveEcdsaCapabilityMaterial(args: {
+  readonly manifest: ActiveEcdsaCapabilityManifest;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly authMethod: 'passkey' | 'email_otp';
+}): Promise<InactiveEcdsaCapabilityMaterialResolution> {
+  if (!manifestCoversTarget({ manifest: args.manifest, chainTarget: args.chainTarget })) {
+    return { kind: 'blocked', reason: 'chain_mismatch' };
+  }
+  const walletId = args.manifest.signer.walletId;
+  const inactiveRecords = await listInactiveEcdsaRecordsForWallet({
+    walletId,
+    authMethod: args.authMethod,
+  });
+  const resolution = resolveExactInactiveEcdsaMaterialRuntime({
+    manifest: args.manifest,
+    walletId,
+    chainTarget: args.chainTarget,
+    authMethod: args.authMethod,
+    inactiveRecords,
+  });
+  return resolution.kind === 'resolved'
+    ? { kind: 'resolved', manifest: args.manifest, runtime: resolution.runtime }
+    : { kind: 'blocked', reason: resolution.reason };
 }
 
 export async function resolveExactEcdsaCapabilityRuntime(args: {

@@ -250,9 +250,6 @@ export type HydratedEcdsaSignerMaterial = {
   readonly materialActivation: MpcMaterialActivationRef;
   readonly publicFacts: VerifiedEcdsaPublicFacts;
   readonly chainTarget: ThresholdEcdsaChainTarget;
-  readonly thresholdSessionId: ThresholdEcdsaSessionId;
-  readonly remainingUses: number;
-  readonly expiresAtMs: number;
   readonly transport: HydratedEcdsaSignerTransport;
   readonly clientShare: ThresholdEcdsaSignerClientShare;
   readonly routerAbEcdsaDerivationNormalSigning: HydratedRouterAbEcdsaDerivationNormalSigning;
@@ -364,9 +361,6 @@ export type BuildHydratedEcdsaSignerMaterialInput = {
   readonly materialActivation: MpcMaterialActivationRef;
   readonly publicFacts: VerifiedEcdsaPublicFacts;
   readonly chainTarget: ThresholdEcdsaChainTarget;
-  readonly thresholdSessionId: unknown;
-  readonly remainingUses: number;
-  readonly expiresAtMs: number;
   readonly transport: HydratedEcdsaSignerTransport;
   readonly clientShare: ThresholdEcdsaSignerClientShare;
   readonly routerAbEcdsaDerivationNormalSigning: HydratedRouterAbEcdsaDerivationNormalSigning;
@@ -804,23 +798,12 @@ export function buildEcdsaWalletSessionTransportAuth(
 export function buildHydratedEcdsaSignerMaterial(
   input: BuildHydratedEcdsaSignerMaterialInput,
 ): HydratedEcdsaSignerMaterial {
-  const remainingUses = Math.floor(Number(input.remainingUses));
-  const expiresAtMs = Math.floor(Number(input.expiresAtMs));
-  if (!Number.isSafeInteger(remainingUses) || remainingUses < 0) {
-    throw new Error('[evm-family-ecdsa] hydrated material remainingUses is invalid');
-  }
-  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= 0) {
-    throw new Error('[evm-family-ecdsa] hydrated material expiresAtMs is invalid');
-  }
   return {
     kind: 'hydrated_ecdsa_signer_material',
     walletId: input.walletId,
     materialActivation: input.materialActivation,
     publicFacts: input.publicFacts,
     chainTarget: input.chainTarget,
-    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
-    remainingUses,
-    expiresAtMs,
     transport: input.transport,
     clientShare: input.clientShare,
     routerAbEcdsaDerivationNormalSigning: input.routerAbEcdsaDerivationNormalSigning,

@@ -373,4 +373,25 @@ const invalidHydratedMaterialWithAuthorization = {
 } satisfies HydratedEcdsaSignerMaterial;
 void invalidHydratedMaterialWithAuthorization;
 
+const invalidHydratedMaterialWithThresholdSession = {
+  ...hydratedSignerMaterial,
+  // @ts-expect-error auth-neutral material is not identified by a threshold session.
+  thresholdSessionId: 'threshold-session',
+} satisfies HydratedEcdsaSignerMaterial;
+void invalidHydratedMaterialWithThresholdSession;
+
+const invalidHydratedMaterialWithReusableAllowance = {
+  ...hydratedSignerMaterial,
+  // @ts-expect-error auth-neutral material carries no reusable-session allowance.
+  remainingUses: 3,
+} satisfies HydratedEcdsaSignerMaterial;
+void invalidHydratedMaterialWithReusableAllowance;
+
+const invalidHydratedMaterialWithReusableExpiry = {
+  ...hydratedSignerMaterial,
+  // @ts-expect-error auth-neutral material carries no reusable-session expiry.
+  expiresAtMs: 1,
+} satisfies HydratedEcdsaSignerMaterial;
+void invalidHydratedMaterialWithReusableExpiry;
+
 export {};

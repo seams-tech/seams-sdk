@@ -222,6 +222,11 @@ implementing commit SHA as the evidence.
     durable restore lease in `finally`. The dedicated-owner restore,
     single-flight, disabled-mode, and expiry-preservation tests pass. Commits
     `c348c8f57` and `bbb6d94f4`.
+  - [x] ECDSA expiry and exhaustion persist an authorization-free inactive
+    sealed-material record, preserve its encrypted material and exact
+    activation binding, and reject the retired public-only reauthorization
+    anchor shape. Commit `fe07fea5b`. Consumption of that inactive material
+    through the canonical same-method step-up path remains open.
 
 ### Final conformance
 

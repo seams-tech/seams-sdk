@@ -21,7 +21,10 @@ import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ExactEcdsaSealedRuntime } from '../../session/material/ecdsaSealedRuntime';
+import type {
+  ExactEcdsaMaterialRuntime,
+  ExactEcdsaSealedRuntime,
+} from '../../session/material/ecdsaSealedRuntime';
 import {
   buildReadySecp256k1SigningMaterial,
   type ReadySecp256k1SigningMaterial,
@@ -83,18 +86,17 @@ export type HydratedSecp256k1SigningMaterialResolution =
     };
 
 /** Ready ECDSA signing material, assembled from each fact's canonical owner:
- * the manifest names the material and its public facts, the exact sealed
- * runtime supplies session-scoped state (threshold session, normal-signing
- * state, policy scope, allowance, expiry, transport), and the reusable Wallet
- * Session supplies authorization identity and the bearer credential.
+ * the manifest names the material and its public facts, the exact durable
+ * runtime supplies normal-signing state, policy scope, and transport, and any
+ * reusable Wallet Session remains a separate authorization input.
  *
  * Nothing is decoded out of the Wallet Session JWT. The JWT is a bearer
  * credential here and nothing more: the facts it used to carry are owned by
- * the manifest and the sealed record, and correlating those two is what
- * `resolveExactEcdsaSealedRuntime` already did to produce this runtime. */
+ * the manifest and durable material record, which are correlated before this
+ * function receives the runtime. */
 export async function resolveHydratedSecp256k1SigningMaterial(args: {
   capability: CanonicalEvmFamilyEcdsaSigningCapability;
-  runtime: ExactEcdsaSealedRuntime;
+  runtime: ExactEcdsaMaterialRuntime;
   chainTarget: ThresholdEcdsaChainTarget;
   materialActivation: MpcMaterialActivationRef;
   workerCtx: WorkerOperationContext;
@@ -161,7 +163,6 @@ export async function resolveHydratedSecp256k1SigningMaterial(args: {
   // against this manifest's facts during runtime correlation, which is where
   // that check belongs.
   const normalSigningState = runtime.normalSigning;
-  const thresholdSessionId = runtime.sealedRecord.thresholdSessionId;
   const signingMaterial = buildRouterAbEcdsaDerivationSigningMaterialRef({
     routerAbState: normalSigningState,
   });
@@ -170,9 +171,6 @@ export async function resolveHydratedSecp256k1SigningMaterial(args: {
     materialActivation: manifest.activation.materialActivation,
     publicFacts: manifest.signer.registeredPublicFacts,
     chainTarget: roleLocalFacts.chainTarget,
-    thresholdSessionId,
-    remainingUses: runtime.remainingUses,
-    expiresAtMs: runtime.expiresAtMs,
     transport: {
       kind: 'threshold_ecdsa_signer_transport',
       relayerUrl: runtime.relayerUrl,

@@ -706,6 +706,11 @@ the replacement and legacy MPC paths must not ship together.
     - [ ] Move sealed-session policy coordination into
           `PasskeyMpcSessionManager`; preserve sealed material on expiry and
           exhaustion, and delete only invalid persisted records.
+      Done so far: expired and exhausted ECDSA authorization now transitions
+      to an authorization-free inactive sealed-material record that retains
+      the encrypted material and exact activation binding. The public-only
+      reauthorization-anchor record was deleted in `fe07fea5b`. Canonical
+      inactive-material consumption and same-method authorization remain open.
     - [x] Delete the remaining generic durable-session ports and callback cycle
           after the dedicated session owner supplies persistence and policy
           coordination directly (`d9c303f3c`).
