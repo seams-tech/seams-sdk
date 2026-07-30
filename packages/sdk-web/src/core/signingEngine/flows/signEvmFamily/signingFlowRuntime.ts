@@ -174,9 +174,7 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   const runtimeResolution = await resolveExactEcdsaCapabilityRuntime({
     manifest: args.capability.manifest,
     chainTarget: args.chainTarget,
-    authMethod: isEmailOtpWalletAuthAuthority(args.capability.authority)
-      ? 'email_otp'
-      : 'passkey',
+    authMethod: isEmailOtpWalletAuthAuthority(args.capability.authority) ? 'email_otp' : 'passkey',
   });
   if (runtimeResolution.kind !== 'resolved') {
     return {
@@ -218,6 +216,17 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
       },
     };
   }
+  if (!args.currentAuthorization) {
+    return {
+      kind: 'superseded',
+      replacement: {
+        kind: 'superseded',
+        supersessionKind: 'reusable_authorization_replaced',
+        preparedMaterialActivation: args.materialActivation,
+        currentMaterialActivation: args.materialActivation,
+      },
+    };
+  }
   return {
     kind: 'ready',
     value: {
@@ -225,7 +234,7 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
       material: attachReusableEcdsaWalletSessionAuthorization({
         material: resolution.material,
         capability: args.capability,
-        authorization: args.currentAuthorization ?? args.preparedAuthorization,
+        authorization: args.currentAuthorization,
       }),
     },
   };

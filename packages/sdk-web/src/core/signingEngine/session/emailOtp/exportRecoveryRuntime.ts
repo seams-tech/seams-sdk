@@ -7,11 +7,7 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { VerifiedEcdsaPublicFacts } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpEd25519YaoActiveCapabilityDescriptorV1 } from '@/core/signingEngine/workerManager/workerTypes';
-import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type {
-  EmailOtpEcdsaExportAuthLane,
-} from '../../flows/recovery/ecdsaExportMaterial';
 import type { EmailOtpEcdsaSigningSessionAuthority } from './ecdsaSigningSessionAuthority';
 import { buildEmailOtpSigningSessionRoutePlan } from './routePlan';
 import {
@@ -50,7 +46,7 @@ export type RequestEmailOtpChallengeArgs =
       routeAuth?: never;
     }
   | {
-      kind: 'wallet_public_reauth_challenge';
+      kind: 'wallet_capability_step_up_challenge';
       walletSession: WalletSessionRef;
       chain: EmailOtpEcdsaRouteChain;
       appSessionJwt: string;
@@ -60,7 +56,7 @@ export type RequestEmailOtpChallengeArgs =
 
 export type RequestEmailOtpExportChallengeArgs = Exclude<
   RequestEmailOtpChallengeArgs,
-  { kind: 'wallet_public_reauth_challenge' }
+  { kind: 'wallet_capability_step_up_challenge' }
 >;
 
 export type ExportEcdsaKeyWithDurableAuthorizationArgs = {

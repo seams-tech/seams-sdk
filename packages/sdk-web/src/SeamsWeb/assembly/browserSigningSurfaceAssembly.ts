@@ -430,7 +430,7 @@ async function requestEmailOtpEcdsaStepUpChallenge(args: {
       // challenge is minted against the wallet's own app session. The mailbox
       // is the capability's: the authority was already checked against the
       // selected capability before it got here.
-      return await args.coordinator.requestPublicReauthTransactionSigningChallenge({
+      return await args.coordinator.requestCapabilityStepUpTransactionSigningChallenge({
         walletSession: args.walletSession,
         chain: args.chain,
       });

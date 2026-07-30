@@ -205,7 +205,7 @@ export class EmailOtpWalletSessionRuntime {
     return await this.exportRecoveryRuntime.requestTransactionSigningChallenge(args);
   }
 
-  async requestPublicReauthTransactionSigningChallenge(args: {
+  async requestCapabilityStepUpTransactionSigningChallenge(args: {
     walletSession: WalletSessionRef;
     chain: ThresholdEcdsaChainTarget['kind'];
   }): Promise<EmailOtpTransactionSigningChallenge> {
@@ -214,7 +214,7 @@ export class EmailOtpWalletSessionRuntime {
       relayUrl: this.runtimeConfig.requireRelayUrl(),
     });
     return await this.exportRecoveryRuntime.requestTransactionSigningChallenge({
-      kind: 'wallet_public_reauth_challenge',
+      kind: 'wallet_capability_step_up_challenge',
       walletSession: args.walletSession,
       chain: args.chain,
       appSessionJwt,
