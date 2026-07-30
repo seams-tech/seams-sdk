@@ -119,6 +119,7 @@ interface CloudflareD1RouterApiStagingEnv
   readonly ROUTER_AB_NORMAL_SIGNING_WORKER_ID?: string;
   readonly SIGNING_WORKER_ID?: string;
   readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
+  readonly ROUTER_AB_PREWARM_ENABLED: string;
   readonly ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK?: string;
   readonly ROUTER_AB_CEREMONY_JWT_ISSUER?: string;
   readonly ROUTER_AB_CEREMONY_JWT_AUDIENCE?: string;
@@ -349,15 +350,11 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
       'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS',
     ),
     routerAbEcdsaPresignRuntime: createStagingEcdsaPresignRuntime(env),
-    walletBudgetGrantProvisioner:
-      createRouterAbPrivateD1WalletBudgetGrantProvisionerV1({
-        routerBaseUrl: ROUTER_AB_MPC_ROUTER_ORIGIN,
-        internalServiceAuthSecret: requireEnvString(
-          env,
-          'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
-        ),
-        fetchImpl: createRouterAbServiceBindingFetch(env),
-      }),
+    walletBudgetGrantProvisioner: createRouterAbPrivateD1WalletBudgetGrantProvisionerV1({
+      routerBaseUrl: ROUTER_AB_MPC_ROUTER_ORIGIN,
+      internalServiceAuthSecret: requireEnvString(env, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET'),
+      fetchImpl: createRouterAbServiceBindingFetch(env),
+    }),
     ed25519YaoProductRegistration: yaoRuntime,
     ecdsaStrictRegistration,
   });
@@ -701,12 +698,58 @@ function gatewayScheduledHandler(env: CloudflareD1RouterApiStagingEnv): Schedule
   return createCloudflareCron({});
 }
 
+const ROUTER_AB_PREWARM_CRON = '* * * * *';
+const ROUTER_AB_PREWARM_PATH = '/internal/prewarm';
+const ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER = 'x-router-ab-internal-service-auth';
+
+function parseRouterAbPrewarmEnabled(value: unknown): boolean {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error('ROUTER_AB_PREWARM_ENABLED must be true or false');
+}
+
+function isSuccessfulPrewarmResponse(value: unknown): value is { readonly ok: true } {
+  return isRecord(value) && value.ok === true;
+}
+
+export async function runRouterAbPrewarmScheduled(
+  event: CfScheduledEvent,
+  env: Pick<
+    CloudflareD1RouterApiStagingEnv,
+    'MPC_ROUTER' | 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET' | 'ROUTER_AB_PREWARM_ENABLED'
+  >,
+): Promise<void> {
+  if (event.cron !== ROUTER_AB_PREWARM_CRON) return;
+  if (!parseRouterAbPrewarmEnabled(env.ROUTER_AB_PREWARM_ENABLED)) return;
+  const response = await env.MPC_ROUTER.fetch(
+    new Request(`${ROUTER_AB_MPC_ROUTER_ORIGIN}${ROUTER_AB_PREWARM_PATH}`, {
+      method: 'POST',
+      headers: {
+        [ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER]: requireEnvString(
+          env,
+          'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
+        ),
+      },
+    }),
+  );
+  if (!response.ok) {
+    throw new Error(`Router A/B prewarm failed with HTTP ${response.status}`);
+  }
+  const body: unknown = await response.json();
+  if (!isSuccessfulPrewarmResponse(body)) {
+    throw new Error('Router A/B prewarm returned an invalid response');
+  }
+}
+
 async function scheduled(
   event: CfScheduledEvent,
   env: CloudflareD1RouterApiStagingEnv,
   ctx: CfExecutionContext,
 ): Promise<void> {
-  await gatewayScheduledHandler(env)(event, env, ctx);
+  await Promise.all([
+    gatewayScheduledHandler(env)(event, env, ctx),
+    runRouterAbPrewarmScheduled(event, env),
+  ]);
 }
 
 type RouterApiYaoDirectOperationV1 =
