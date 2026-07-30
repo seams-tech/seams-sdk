@@ -7,7 +7,6 @@ import {
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
   decodeJwtPayloadRecord,
 } from '@shared/utils/sessionTokens';
-import { clearEcdsaRoleLocalWorkerRuntimeState } from './material/ecdsaRoleLocalMaterialResolver';
 
 export type RouterAbSigningWalletSessionAuth = {
   kind: 'wallet_session_jwt';
@@ -226,7 +225,6 @@ export function parseRouterAbEd25519WalletSessionAuthorityFromRecord(
 }
 
 export function clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation(): void {
-  clearEcdsaRoleLocalWorkerRuntimeState();
 }
 
 export function resolveRouterAbEd25519SigningRootFromRecord(

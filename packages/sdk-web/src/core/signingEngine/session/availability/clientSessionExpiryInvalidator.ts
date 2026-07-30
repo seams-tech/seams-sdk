@@ -4,7 +4,6 @@ import type {
 } from '../../uiConfirm/uiConfirm.types';
 import type { ExpiredWalletSessionAuthorizationState } from '../identity/clientSessionPersistenceState';
 import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
-import { clearEcdsaRoleLocalWorkerRuntimeState } from '../material/ecdsaRoleLocalMaterialResolver';
 import {
   clearSigningGrant,
   type SigningGrantClearFailure,
@@ -98,7 +97,6 @@ async function clearExpiredAuthorization(args: {
   readonly state: ExpiredWalletSessionAuthorizationState;
 }): Promise<SigningGrantClearResult> {
   if ('walletSessionId' in args.state) {
-    clearEcdsaRoleLocalWorkerRuntimeState();
     return { kind: 'cleared' };
   }
   return clearSigningGrant({
