@@ -64,21 +64,11 @@ type ExactEcdsaExportSessionBase = {
   thresholdOwnerAddress?: never;
 };
 
-type CurrentExactEcdsaExportSession = ExactEcdsaExportSessionBase & {
+export type ExactEcdsaExportSession = ExactEcdsaExportSessionBase & {
   state: Exclude<ConcreteAvailableEcdsaSigningLane['state'], 'expired' | 'exhausted'>;
-  source: Exclude<ConcreteAvailableEcdsaSigningLane['source'], 'durable_sealed_record'>;
+  source: 'canonical_capability';
   publicReauthAuthority?: never;
 };
-
-type PublicReauthExactEcdsaExportSession = ExactEcdsaExportSessionBase & {
-  state: ConcreteAvailableEcdsaSigningLane['state'];
-  source: 'durable_sealed_record';
-  publicReauthAuthority: EcdsaReauthAnchorPublicRestore;
-};
-
-export type ExactEcdsaExportSession =
-  | CurrentExactEcdsaExportSession
-  | PublicReauthExactEcdsaExportSession;
 
 export type ExactEcdsaExportLane = {
   curve: 'ecdsa';
@@ -221,34 +211,6 @@ function requirePasskeyEcdsaExportField(value: unknown, label: string): string {
   return normalized;
 }
 
-function emailOtpPublicReauthAuthorityForExportLane(
-  exportLane: ExactEcdsaExportLane,
-): EmailOtpEcdsaPublicReauthExportAuthority | null {
-  if (exportLane.session.source !== 'durable_sealed_record') return null;
-  const authority = exportLane.session.publicReauthAuthority;
-  if (authority.source !== 'email_otp') {
-    throw new Error(
-      '[SigningEngine][ecdsa-export] Email OTP public reauth lane has non-Email-OTP authority',
-    );
-  }
-  return authority;
-}
-
-async function verifiedEcdsaPublicFactsFromPublicReauthAuthority(
-  authority: EmailOtpEcdsaPublicReauthExportAuthority,
-): Promise<VerifiedEcdsaPublicFacts> {
-  return await toVerifiedEcdsaPublicFactsFromDurableRecord({
-    record: {
-      ecdsaRestore: {
-        keyHandle: authority.keyHandle,
-        thresholdEcdsaPublicKeyB64u: authority.thresholdEcdsaPublicKeyB64u,
-        participantIds: authority.participantIds,
-        ethereumAddress: authority.ethereumAddress,
-      },
-    },
-  });
-}
-
 export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
   _deps: EcdsaExportSessionStoreDeps,
   exportLane: ExactEcdsaExportLane,
@@ -256,74 +218,46 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
   if (exportLane.session.authMethod !== 'email_otp') {
     throw new Error('[SigningEngine][ecdsa-export] fresh Email OTP export requires Email OTP lane');
   }
-  const publicReauthAuthority = emailOtpPublicReauthAuthorityForExportLane(exportLane);
-  if (!publicReauthAuthority) {
-    const resolution = await resolveActiveEcdsaCapabilityRuntime({
-      walletId: exportLane.key.walletId,
-      chainTarget: exportLane.session.chainTarget,
-    });
-    if (resolution.kind !== 'resolved') {
-      throw new Error(
-        `[SigningEngine][ecdsa-export] Email OTP capability runtime unavailable: ${resolution.reason}`,
-      );
-    }
-    if (
-      !mpcMaterialActivationRefsEqual(
-        resolution.runtime.materialActivation,
-        exportLane.laneIdentity.signer.materialActivation,
-      )
-    ) {
-      throw new Error('[SigningEngine][ecdsa-export] Email OTP material activation mismatch');
-    }
-    const authority = resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime({
-      runtime: resolution.runtime,
-      authorization: exportLane.authorization.projection,
-    });
-    if (authority.kind !== 'ready') {
-      throw new Error(
-        `[SigningEngine][ecdsa-export] Email OTP signing-session authority unavailable: ${authority.kind}`,
-      );
-    }
-    const runtimePolicyScope = resolution.runtime.runtimePolicyScope;
-    if (!runtimePolicyScope) {
-      throw new Error('[SigningEngine][ecdsa-export] Email OTP runtime policy scope is missing');
-    }
-    return {
-      kind: 'fresh_email_otp_route_auth_ready',
-      chainTarget: exportLane.session.chainTarget,
-      publicFacts: exportLane.publicFacts,
-      runtimePolicyScope,
-      authorization: {
-        kind: 'wallet_session_authorized',
-        signingSessionAuthority: authority.authority,
-      },
-    };
+  const resolution = await resolveActiveEcdsaCapabilityRuntime({
+    walletId: exportLane.key.walletId,
+    chainTarget: exportLane.session.chainTarget,
+  });
+  if (resolution.kind !== 'resolved') {
+    throw new Error(
+      `[SigningEngine][ecdsa-export] Email OTP capability runtime unavailable: ${resolution.reason}`,
+    );
   }
-  if (publicReauthAuthority) {
-    const publicFacts =
-      await verifiedEcdsaPublicFactsFromPublicReauthAuthority(publicReauthAuthority);
-    assertMatchingVerifiedEcdsaPublicFacts({
-      expected: exportLane.publicFacts,
-      actual: publicFacts,
-      context: 'fresh Email OTP export lane',
-    });
-    return {
-      kind: 'fresh_email_otp_route_auth_ready',
-      chainTarget: exportLane.session.chainTarget,
-      publicFacts,
-      runtimePolicyScope: publicReauthAuthority.runtimePolicyScope,
-      authorization: {
-        kind: 'public_reauth_authority_backed',
-        publicReauthAuthority,
-      },
-    };
+  if (
+    !mpcMaterialActivationRefsEqual(
+      resolution.runtime.materialActivation,
+      exportLane.laneIdentity.signer.materialActivation,
+    )
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] Email OTP material activation mismatch');
   }
-  // No exact runtime record and no public reauth anchor: the sealed
-  // signing-session authority inference is deleted. Export requires either an
-  // active wallet-session-authorized lane or the public reauth path.
-  throw new Error(
-    '[SigningEngine][ecdsa-export] Email OTP export requires an authorized lane or public reauth authority',
-  );
+  const authority = resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime({
+    runtime: resolution.runtime,
+    authorization: exportLane.authorization.projection,
+  });
+  if (authority.kind !== 'ready') {
+    throw new Error(
+      `[SigningEngine][ecdsa-export] Email OTP signing-session authority unavailable: ${authority.kind}`,
+    );
+  }
+  const runtimePolicyScope = resolution.runtime.runtimePolicyScope;
+  if (!runtimePolicyScope) {
+    throw new Error('[SigningEngine][ecdsa-export] Email OTP runtime policy scope is missing');
+  }
+  return {
+    kind: 'fresh_email_otp_route_auth_ready',
+    chainTarget: exportLane.session.chainTarget,
+    publicFacts: exportLane.publicFacts,
+    runtimePolicyScope,
+    authorization: {
+      kind: 'wallet_session_authorized',
+      signingSessionAuthority: authority.authority,
+    },
+  };
 }
 
 export async function resolveEcdsaExportMaterialForLane(
@@ -333,15 +267,9 @@ export async function resolveEcdsaExportMaterialForLane(
   if (exportLane.session.authMethod === 'email_otp') {
     return await resolveFreshEmailOtpEcdsaExportMaterialForLane(deps, exportLane);
   }
-  const durableAuthority =
-    exportLane.session.source === 'durable_sealed_record'
-      ? exportLane.session.publicReauthAuthority
-      : null;
-  const sealedRecord = durableAuthority
-    ? null
-    : await resolveExactSealedEcdsaExportRecordForLane(exportLane);
-  const restore = durableAuthority || sealedRecord?.ecdsaRestore;
-  const relayerUrl = durableAuthority?.relayerUrl || sealedRecord?.relayerUrl;
+  const sealedRecord = await resolveExactSealedEcdsaExportRecordForLane(exportLane);
+  const restore = sealedRecord.ecdsaRestore;
+  const relayerUrl = sealedRecord.relayerUrl;
   if (!restore || restore.source === 'email_otp') {
     throw new Error('[SigningEngine][ecdsa-export] durable passkey export authority is invalid');
   }
