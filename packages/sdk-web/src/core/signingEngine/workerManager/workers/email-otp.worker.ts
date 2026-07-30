@@ -1152,7 +1152,7 @@ type EmailOtpEd25519SessionMaterialRequest = Extract<
     kind:
       | 'ed25519_yao_exact_local_session'
       | 'ed25519_yao_recovery'
-      | 'ecdsa_and_ed25519_yao_recovery';
+      | 'wallet_unlock_capabilities';
   }
 >;
 
@@ -1163,11 +1163,24 @@ function emailOtpEd25519SessionRequest(
     case 'ed25519_yao_exact_local_session':
       return material.ed25519YaoSession;
     case 'ed25519_yao_recovery':
-    case 'ecdsa_and_ed25519_yao_recovery':
       return material.ed25519YaoRecovery;
+    case 'wallet_unlock_capabilities':
+      return material.ed25519Yao.recovery;
     default:
       return assertNeverEmailOtpWorker(material);
   }
+}
+
+function emailOtpEd25519SessionIdentity(material: EmailOtpEd25519SessionMaterialRequest): {
+  providerSubject: string;
+  nearAccountId: string;
+  expectedOperationalPublicKey: string;
+  expectedThresholdSessionId: string;
+} {
+  if (material.kind === 'wallet_unlock_capabilities') {
+    return material.ed25519Yao;
+  }
+  return material;
 }
 
 function assertEmailOtpEd25519SessionMaterialIdentity(args: {
@@ -1175,7 +1188,8 @@ function assertEmailOtpEd25519SessionMaterialIdentity(args: {
   material: EmailOtpEd25519SessionMaterialRequest;
 }): void {
   const sessionRequest = emailOtpEd25519SessionRequest(args.material);
-  if (!args.material.providerSubject.trim() || !sessionRequest.orgId.trim()) {
+  const { providerSubject } = emailOtpEd25519SessionIdentity(args.material);
+  if (!providerSubject.trim() || !sessionRequest.orgId.trim()) {
     throw new Error('Email OTP Ed25519 session requires its provider and organization identity');
   }
 }
@@ -1187,24 +1201,24 @@ function assertEmailOtpUnlockMaterialRouteAuth(args: {
 }): void {
   const carriesEcdsaActivation =
     (args.material.kind === 'ecdsa' && Boolean(args.material.ecdsaSessionActivation)) ||
-    args.material.kind === 'ecdsa_and_ed25519_yao_recovery';
+    args.material.kind === 'wallet_unlock_capabilities';
   if (carriesEcdsaActivation !== (args.routePlan.operation === WALLET_EMAIL_OTP_UNLOCK_OPERATION)) {
     throw new Error('Only Email OTP wallet unlock may carry first ECDSA session activation');
   }
   switch (args.material.kind) {
     case 'ecdsa':
       return;
-    case 'ecdsa_and_ed25519_yao_recovery':
+    case 'wallet_unlock_capabilities':
       assertEmailOtpEd25519SessionMaterialIdentity({
         walletId: args.walletId,
         material: args.material,
       });
       if (
-        args.material.ecdsaClientRootHandleBinding.authSubjectId !==
-          args.material.providerSubject ||
-        args.material.runtimePolicyScope.orgId !== args.material.ed25519YaoRecovery.orgId
+        args.material.ecdsa.clientRootHandleBinding.authSubjectId !==
+          args.material.ed25519Yao.providerSubject ||
+        args.material.ecdsa.runtimePolicyScope.orgId !== args.material.ed25519Yao.recovery.orgId
       ) {
-        throw new Error('Mixed Email OTP unlock ECDSA and Ed25519 identities do not match');
+        throw new Error('Email OTP capability unlock ECDSA and Ed25519 identities do not match');
       }
       return;
     case 'ed25519_yao_exact_local_session':
@@ -3383,24 +3397,28 @@ type EmailOtpUnlockCompletionMaterial =
       ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
     }
   | {
-      kind: 'ecdsa_and_ed25519_yao_recovery';
-      clientRootShare32: Uint8Array;
-      ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
-      ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
-    }
-  | {
       kind: 'ed25519_yao_local_session';
       activeClientHandle: string;
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
       ed25519YaoSession: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
     }
   | {
-      kind: 'ecdsa_and_ed25519_yao_local_session';
-      clientRootShare32: Uint8Array;
-      ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
-      activeClientHandle: string;
-      metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-      ed25519YaoSession: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+      kind: 'wallet_unlock_capabilities';
+      ecdsa: {
+        clientRootShare32: Uint8Array;
+        session: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+      };
+      ed25519Yao:
+        | {
+            kind: 'recovery';
+            bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+          }
+        | {
+            kind: 'local_session';
+            activeClientHandle: string;
+            metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+            bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+          };
     };
 
 type EmailOtpUnlockSecretMaterialRequest =
@@ -3412,7 +3430,7 @@ type EmailOtpUnlockSecretMaterialRequest =
         kind:
           | 'ed25519_yao_exact_local_session'
           | 'ed25519_yao_recovery'
-          | 'ecdsa_and_ed25519_yao_recovery';
+          | 'wallet_unlock_capabilities';
       }
     >;
 
@@ -3439,15 +3457,16 @@ async function resolveEmailOtpEd25519YaoLocalMaterial(args: {
       return { kind: 'not_requested' };
     case 'ed25519_yao_exact_local_session':
     case 'ed25519_yao_recovery':
-    case 'ecdsa_and_ed25519_yao_recovery': {
+    case 'wallet_unlock_capabilities': {
       const sessionRequest = emailOtpEd25519SessionRequest(material);
+      const identity = emailOtpEd25519SessionIdentity(material);
       const resolved = await readEmailOtpEd25519YaoLocalMaterialByLocatorV1({
         store: IndexedDBManager,
         walletId: args.walletId,
-        nearAccountId: material.nearAccountId,
+        nearAccountId: identity.nearAccountId,
         signerSlot: sessionRequest.signerSlot,
-        providerSubjectId: material.providerSubject,
-        expectedOperationalPublicKey: material.expectedOperationalPublicKey,
+        providerSubjectId: identity.providerSubject,
+        expectedOperationalPublicKey: identity.expectedOperationalPublicKey,
       });
       if (resolved.kind === 'material_invalid') {
         throw new Error(`Email OTP Ed25519 local custody is invalid: ${resolved.code}`);
@@ -3490,7 +3509,7 @@ function buildEmailOtpEd25519SessionIntent(args: {
       if (
         args.material.kind !== 'ed25519_yao_exact_local_session' &&
         args.material.kind !== 'ed25519_yao_recovery' &&
-        args.material.kind !== 'ecdsa_and_ed25519_yao_recovery'
+        args.material.kind !== 'wallet_unlock_capabilities'
       ) {
         throw new Error('Email OTP Ed25519 local material selection changed request branch');
       }
@@ -3504,14 +3523,14 @@ function buildEmailOtpEd25519SessionIntent(args: {
     case 'material_absent': {
       if (
         args.material.kind !== 'ed25519_yao_recovery' &&
-        args.material.kind !== 'ecdsa_and_ed25519_yao_recovery'
+        args.material.kind !== 'wallet_unlock_capabilities'
       ) {
         throw new Error('Exact-local Email OTP Ed25519 session material is unavailable');
       }
       return {
         kind: 'missing_ed25519_material_recovery_v1',
-        signerSlot: args.material.ed25519YaoRecovery.signerSlot,
-        remainingUses: args.material.ed25519YaoRecovery.remainingUses,
+        signerSlot: emailOtpEd25519SessionRequest(args.material).signerSlot,
+        remainingUses: emailOtpEd25519SessionRequest(args.material).remainingUses,
       };
     }
     default:
@@ -3672,18 +3691,19 @@ async function completeEmailOtpUnlockFromSecret32(args: {
       if (
         args.material.kind !== 'ed25519_yao_exact_local_session' &&
         args.material.kind !== 'ed25519_yao_recovery' &&
-        args.material.kind !== 'ecdsa_and_ed25519_yao_recovery'
+        args.material.kind !== 'wallet_unlock_capabilities'
       ) {
         throw new Error('Email OTP Ed25519 local material selection changed request branch');
       }
       importedEd25519Client = await importEmailOtpEd25519YaoLocalMaterial({
         material: localEd25519Material.material,
-        expectedThresholdSessionId: args.material.expectedThresholdSessionId,
+        expectedThresholdSessionId:
+          emailOtpEd25519SessionIdentity(args.material).expectedThresholdSessionId,
         enrollmentSecret32: args.clientSecret32,
       });
     }
 
-    if (args.material.kind === 'ecdsa' || args.material.kind === 'ecdsa_and_ed25519_yao_recovery') {
+    if (args.material.kind === 'ecdsa' || args.material.kind === 'wallet_unlock_capabilities') {
       clientRootShare32 = await deriveEmailOtpEcdsaClientRootShare32InWorker({
         clientSecret32: args.clientSecret32,
         walletId,
@@ -3712,8 +3732,8 @@ async function completeEmailOtpUnlockFromSecret32(args: {
         },
         ...(args.material.kind === 'ecdsa' && args.material.ecdsaSessionActivation
           ? { ecdsaSessionActivation: args.material.ecdsaSessionActivation }
-          : args.material.kind === 'ecdsa_and_ed25519_yao_recovery'
-            ? { ecdsaSessionActivation: args.material.ecdsaSessionActivation }
+          : args.material.kind === 'wallet_unlock_capabilities'
+            ? { ecdsaSessionActivation: args.material.ecdsa.sessionActivation }
             : {}),
         ...(sessionIntent ? { sessionIntent } : {}),
       },
@@ -3721,7 +3741,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
     const ecdsaSession =
       args.material.kind === 'ecdsa' && !args.material.ecdsaSessionActivation
         ? undefined
-        : args.material.kind === 'ecdsa' || args.material.kind === 'ecdsa_and_ed25519_yao_recovery'
+        : args.material.kind === 'ecdsa' || args.material.kind === 'wallet_unlock_capabilities'
           ? parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(verified.ecdsaSession)
           : undefined;
     const commonResult = {
@@ -3746,9 +3766,9 @@ async function completeEmailOtpUnlockFromSecret32(args: {
       }
       case 'ed25519_yao_export':
         return { kind: 'ed25519_yao_export', ...commonResult };
-      case 'ecdsa_and_ed25519_yao_recovery': {
+      case 'wallet_unlock_capabilities': {
         if (!clientRootShare32) {
-          throw new Error('Mixed Email OTP ECDSA client-root share was not prepared');
+          throw new Error('Email OTP capability unlock ECDSA client-root share was not prepared');
         }
         const ownedClientRootShare32 = clientRootShare32;
         if (localEd25519Material.kind === 'exact_local_material') {
@@ -3758,7 +3778,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
           assertEmailOtpEd25519YaoLocalMaterialSessionContinuity({
             material: localEd25519Material.material,
             bootstrap: ed25519YaoSession,
-            expectedThresholdSessionId: args.material.expectedThresholdSessionId,
+            expectedThresholdSessionId: args.material.ed25519Yao.expectedThresholdSessionId,
           });
           if (!importedEd25519Client) {
             throw new Error('Email OTP Ed25519 local client was not imported');
@@ -3774,13 +3794,18 @@ async function completeEmailOtpUnlockFromSecret32(args: {
           importedEd25519Client = null;
           clientRootShare32 = null;
           return {
-            kind: 'ecdsa_and_ed25519_yao_local_session',
+            kind: 'wallet_unlock_capabilities',
             ...commonResult,
-            clientRootShare32: ownedClientRootShare32,
-            ecdsaSession: requireEmailOtpWorkerEcdsaSessionResponse(ecdsaSession),
-            activeClientHandle: imported.activeClientHandle,
-            metadata: imported.metadata,
-            ed25519YaoSession,
+            ecdsa: {
+              clientRootShare32: ownedClientRootShare32,
+              session: requireEmailOtpWorkerEcdsaSessionResponse(ecdsaSession),
+            },
+            ed25519Yao: {
+              kind: 'local_session',
+              activeClientHandle: imported.activeClientHandle,
+              metadata: imported.metadata,
+              bootstrap: ed25519YaoSession,
+            },
           };
         }
         if (localEd25519Material.kind !== 'material_absent') {
@@ -3788,11 +3813,16 @@ async function completeEmailOtpUnlockFromSecret32(args: {
         }
         clientRootShare32 = null;
         return {
-          kind: 'ecdsa_and_ed25519_yao_recovery',
+          kind: 'wallet_unlock_capabilities',
           ...commonResult,
-          clientRootShare32: ownedClientRootShare32,
-          ecdsaSession: requireEmailOtpWorkerEcdsaSessionResponse(ecdsaSession),
-          ed25519YaoRecovery: parseEmailOtpEd25519YaoRecoveryBootstrap(verified.ed25519YaoSession),
+          ecdsa: {
+            clientRootShare32: ownedClientRootShare32,
+            session: requireEmailOtpWorkerEcdsaSessionResponse(ecdsaSession),
+          },
+          ed25519Yao: {
+            kind: 'recovery',
+            bootstrap: parseEmailOtpEd25519YaoRecoveryBootstrap(verified.ed25519YaoSession),
+          },
         };
       }
       case 'ed25519_yao_exact_local_session':
@@ -4116,13 +4146,6 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
         clientRootShare32?: never;
       }
     | {
-        kind: 'ecdsa_and_ed25519_yao_recovery';
-        clientRootShare32: Uint8Array;
-        ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
-        clientSecret32: Uint8Array;
-        ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
-      }
-    | {
         kind: 'ed25519_yao_local_session';
         activeClientHandle: string;
         metadata: RouterAbEd25519YaoActiveClientMetadataV1;
@@ -4132,14 +4155,23 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
         ed25519YaoRecovery?: never;
       }
     | {
-        kind: 'ecdsa_and_ed25519_yao_local_session';
-        clientRootShare32: Uint8Array;
-        ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
-        activeClientHandle: string;
-        metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-        ed25519YaoSession: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
-        clientSecret32?: never;
-        ed25519YaoRecovery?: never;
+        kind: 'wallet_unlock_capabilities';
+        ecdsa: {
+          clientRootShare32: Uint8Array;
+          session: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        };
+        ed25519Yao:
+          | {
+              kind: 'recovery';
+              clientSecret32: Uint8Array;
+              bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+            }
+          | {
+              kind: 'local_session';
+              activeClientHandle: string;
+              metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+              bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+            };
       }
   )
 > {
@@ -4305,18 +4337,6 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
           clientSecret32: ownedClientSecret32,
         };
       }
-      case 'ecdsa_and_ed25519_yao_recovery': {
-        const ownedClientSecret32 = clientSecret32;
-        clientSecret32 = null;
-        return {
-          kind: 'ecdsa_and_ed25519_yao_recovery',
-          ...commonResult,
-          clientRootShare32: unlocked.clientRootShare32,
-          ecdsaSession: unlocked.ecdsaSession,
-          clientSecret32: ownedClientSecret32,
-          ed25519YaoRecovery: unlocked.ed25519YaoRecovery,
-        };
-      }
       case 'ed25519_yao_recovery': {
         const ownedClientSecret32 = clientSecret32;
         clientSecret32 = null;
@@ -4335,15 +4355,26 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
           metadata: unlocked.metadata,
           ed25519YaoSession: unlocked.ed25519YaoSession,
         };
-      case 'ecdsa_and_ed25519_yao_local_session':
+      case 'wallet_unlock_capabilities':
+        if (unlocked.ed25519Yao.kind === 'recovery') {
+          const ownedClientSecret32 = clientSecret32;
+          clientSecret32 = null;
+          return {
+            kind: 'wallet_unlock_capabilities',
+            ...commonResult,
+            ecdsa: unlocked.ecdsa,
+            ed25519Yao: {
+              kind: 'recovery',
+              clientSecret32: ownedClientSecret32,
+              bootstrap: unlocked.ed25519Yao.bootstrap,
+            },
+          };
+        }
         return {
-          kind: 'ecdsa_and_ed25519_yao_local_session',
+          kind: 'wallet_unlock_capabilities',
           ...commonResult,
-          clientRootShare32: unlocked.clientRootShare32,
-          ecdsaSession: unlocked.ecdsaSession,
-          activeClientHandle: unlocked.activeClientHandle,
-          metadata: unlocked.metadata,
-          ed25519YaoSession: unlocked.ed25519YaoSession,
+          ecdsa: unlocked.ecdsa,
+          ed25519Yao: unlocked.ed25519Yao,
         };
       default:
         return assertNeverEmailOtpWorker(unlocked);
@@ -4833,8 +4864,9 @@ function emailOtpUnlockMaterialOrgId(material: EmailOtpWalletUnlockMaterialReque
     case 'ed25519_yao_exact_local_session':
       return material.ed25519YaoSession.orgId;
     case 'ed25519_yao_recovery':
-    case 'ecdsa_and_ed25519_yao_recovery':
       return material.ed25519YaoRecovery.orgId;
+    case 'wallet_unlock_capabilities':
+      return material.ed25519Yao.recovery.orgId;
     default:
       return assertNeverEmailOtpWorker(material);
   }
@@ -5050,49 +5082,69 @@ function parseEmailOtpWalletUnlockMaterialRequest(
           'material.expectedThresholdSessionId',
         ),
       };
-    case 'ecdsa_and_ed25519_yao_recovery': {
+    case 'wallet_unlock_capabilities': {
+      rejectUnknownEmailOtpYaoFields(obj, ['kind', 'ecdsa', 'ed25519Yao'], 'material');
+      const ecdsa = workerPayloadObject(obj.ecdsa);
+      const ed25519Yao = workerPayloadObject(obj.ed25519Yao);
+      if (!ecdsa || !ed25519Yao) {
+        throw new Error('Wallet unlock capabilities require exact ECDSA and Ed25519 inputs');
+      }
       rejectUnknownEmailOtpYaoFields(
-        obj,
+        ecdsa,
+        ['clientRootHandleBinding', 'runtimePolicyScope', 'sessionActivation'],
+        'material.ecdsa',
+      );
+      rejectUnknownEmailOtpYaoFields(
+        ed25519Yao,
         [
-          'kind',
-          'ecdsaClientRootHandleBinding',
-          'runtimePolicyScope',
-          'ed25519YaoRecovery',
+          'recovery',
           'providerSubject',
           'nearAccountId',
           'expectedOperationalPublicKey',
           'expectedThresholdSessionId',
         ],
-        'material',
+        'material.ed25519Yao',
       );
       const binding = parseOptionalWorkerEcdsaSessionBootstrapHandleBinding(
-        obj.ecdsaClientRootHandleBinding,
+        ecdsa.clientRootHandleBinding,
       );
-      if (!binding) throw new Error('Mixed Email OTP unlock requires its ECDSA root binding');
+      if (!binding) {
+        throw new Error('Email OTP capability unlock requires its ECDSA root binding');
+      }
       if (binding.operation !== 'wallet_unlock') {
-        throw new Error('Mixed Email OTP unlock requires wallet-unlock ECDSA binding');
+        throw new Error('Email OTP capability unlock requires wallet-unlock ECDSA binding');
       }
       return {
-        kind: 'ecdsa_and_ed25519_yao_recovery',
-        ecdsaClientRootHandleBinding: { ...binding, operation: 'wallet_unlock' },
-        runtimePolicyScope: parseWorkerRuntimePolicyScope(
-          obj.runtimePolicyScope,
-          'Mixed Email OTP wallet unlock',
-        ),
-        ed25519YaoRecovery: parseEmailOtpEd25519YaoRecoveryAugmentation(obj.ed25519YaoRecovery),
-        providerSubject: readString(obj.providerSubject, 'material.providerSubject'),
-        nearAccountId: readString(obj.nearAccountId, 'material.nearAccountId'),
-        expectedOperationalPublicKey: readString(
-          obj.expectedOperationalPublicKey,
-          'material.expectedOperationalPublicKey',
-        ),
-        expectedThresholdSessionId: readString(
-          obj.expectedThresholdSessionId,
-          'material.expectedThresholdSessionId',
-        ),
-        ecdsaSessionActivation: parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
-          obj.ecdsaSessionActivation,
-        ),
+        kind: 'wallet_unlock_capabilities',
+        ecdsa: {
+          clientRootHandleBinding: { ...binding, operation: 'wallet_unlock' },
+          runtimePolicyScope: parseWorkerRuntimePolicyScope(
+            ecdsa.runtimePolicyScope,
+            'Email OTP capability wallet unlock',
+          ),
+          sessionActivation: parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
+            ecdsa.sessionActivation,
+          ),
+        },
+        ed25519Yao: {
+          recovery: parseEmailOtpEd25519YaoRecoveryAugmentation(ed25519Yao.recovery),
+          providerSubject: readString(
+            ed25519Yao.providerSubject,
+            'material.ed25519Yao.providerSubject',
+          ),
+          nearAccountId: readString(
+            ed25519Yao.nearAccountId,
+            'material.ed25519Yao.nearAccountId',
+          ),
+          expectedOperationalPublicKey: readString(
+            ed25519Yao.expectedOperationalPublicKey,
+            'material.ed25519Yao.expectedOperationalPublicKey',
+          ),
+          expectedThresholdSessionId: readString(
+            ed25519Yao.expectedThresholdSessionId,
+            'material.ed25519Yao.expectedThresholdSessionId',
+          ),
+        },
       };
     }
     default:
@@ -7281,44 +7333,70 @@ self.addEventListener('message', async (event: MessageEvent) => {
               zeroizeBytes(result.clientRootShare32);
             }
             return;
-          case 'ecdsa_and_ed25519_yao_recovery': {
-            if (material.kind !== 'ecdsa_and_ed25519_yao_recovery') {
-              zeroizeBytes(result.clientRootShare32);
-              zeroizeBytes(result.clientSecret32);
-              throw new Error('Mixed Email OTP wallet unlock material branch changed');
+          case 'wallet_unlock_capabilities': {
+            if (material.kind !== 'wallet_unlock_capabilities') {
+              zeroizeBytes(result.ecdsa.clientRootShare32);
+              if (result.ed25519Yao.kind === 'recovery') {
+                zeroizeBytes(result.ed25519Yao.clientSecret32);
+              } else {
+                removeEmailOtpEd25519YaoActiveClient(result.ed25519Yao.activeClientHandle);
+              }
+              throw new Error('Email OTP capability wallet unlock material branch changed');
             }
             let clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload | null = null;
             let ed25519YaoFactor: ReturnType<typeof issueEmailOtpEd25519YaoPendingFactor> | null =
               null;
             try {
               clientRootShareHandle = issueEmailOtpEcdsaClientRootHandle({
-                clientRootShare32: result.clientRootShare32,
+                clientRootShare32: result.ecdsa.clientRootShare32,
                 walletId,
-                binding: material.ecdsaClientRootHandleBinding,
+                binding: material.ecdsa.clientRootHandleBinding,
               });
-              ed25519YaoFactor = issueEmailOtpEd25519YaoPendingFactor({
-                request: {
-                  kind: 'requested',
-                  providerSubject: material.providerSubject,
-                },
-                purpose: 'recovery',
-                walletId,
-                ownedFactorSecret32: result.clientSecret32,
-              });
-              if (ed25519YaoFactor.kind !== 'issued') {
-                throw new Error('Mixed Email OTP unlock did not issue its Ed25519 Yao factor');
+              const ecdsa = {
+                clientRootShareHandle,
+                session: result.ecdsa.session,
+              };
+              if (result.ed25519Yao.kind === 'recovery') {
+                ed25519YaoFactor = issueEmailOtpEd25519YaoPendingFactor({
+                  request: {
+                    kind: 'requested',
+                    providerSubject: material.ed25519Yao.providerSubject,
+                  },
+                  purpose: 'recovery',
+                  walletId,
+                  ownedFactorSecret32: result.ed25519Yao.clientSecret32,
+                });
+                if (ed25519YaoFactor.kind !== 'issued') {
+                  throw new Error(
+                    'Email OTP capability unlock did not issue its Ed25519 Yao factor',
+                  );
+                }
+                postToMainThread({
+                  id: msg.id,
+                  ok: true,
+                  result: {
+                    kind: 'wallet_unlock_capabilities',
+                    operation: 'wallet_unlock',
+                    recovery,
+                    ecdsa,
+                    ed25519Yao: {
+                      kind: 'recovery',
+                      pendingFactorHandle: ed25519YaoFactor.pendingFactorHandle,
+                      bootstrap: result.ed25519Yao.bootstrap,
+                    },
+                  },
+                });
+                return;
               }
               postToMainThread({
                 id: msg.id,
                 ok: true,
                 result: {
-                  kind: 'ecdsa_and_ed25519_yao_recovery',
+                  kind: 'wallet_unlock_capabilities',
                   operation: 'wallet_unlock',
                   recovery,
-                  clientRootShareHandle,
-                  ecdsaSession: result.ecdsaSession,
-                  pendingFactorHandle: ed25519YaoFactor.pendingFactorHandle,
-                  ed25519YaoRecovery: result.ed25519YaoRecovery,
+                  ecdsa,
+                  ed25519Yao: result.ed25519Yao,
                 },
               });
             } catch (error) {
@@ -7328,10 +7406,18 @@ self.addEventListener('message', async (event: MessageEvent) => {
               if (ed25519YaoFactor?.kind === 'issued') {
                 rollbackEmailOtpEd25519YaoFactorResult(ed25519YaoFactor);
               }
+              if (result.ed25519Yao.kind === 'local_session') {
+                removeEmailOtpEd25519YaoActiveClient(result.ed25519Yao.activeClientHandle);
+                deleteEmailOtpEd25519YaoWarmFactor(
+                  result.ed25519Yao.bootstrap.session.thresholdSessionId,
+                );
+              }
               throw error;
             } finally {
-              zeroizeBytes(result.clientRootShare32);
-              zeroizeBytes(result.clientSecret32);
+              zeroizeBytes(result.ecdsa.clientRootShare32);
+              if (result.ed25519Yao.kind === 'recovery') {
+                zeroizeBytes(result.ed25519Yao.clientSecret32);
+              }
             }
             return;
           }
@@ -7399,47 +7485,6 @@ self.addEventListener('message', async (event: MessageEvent) => {
               throw error;
             }
             return;
-          case 'ecdsa_and_ed25519_yao_local_session': {
-            if (material.kind !== 'ecdsa_and_ed25519_yao_recovery') {
-              zeroizeBytes(result.clientRootShare32);
-              removeEmailOtpEd25519YaoActiveClient(result.activeClientHandle);
-              throw new Error('Mixed Email OTP wallet unlock material branch changed');
-            }
-            let clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload | null = null;
-            try {
-              clientRootShareHandle = issueEmailOtpEcdsaClientRootHandle({
-                clientRootShare32: result.clientRootShare32,
-                walletId,
-                binding: material.ecdsaClientRootHandleBinding,
-              });
-              postToMainThread({
-                id: msg.id,
-                ok: true,
-                result: {
-                  kind: 'ecdsa_and_ed25519_yao_local_session',
-                  operation: 'wallet_unlock',
-                  recovery,
-                  clientRootShareHandle,
-                  ecdsaSession: result.ecdsaSession,
-                  activeClientHandle: result.activeClientHandle,
-                  metadata: result.metadata,
-                  ed25519YaoSession: result.ed25519YaoSession,
-                },
-              });
-            } catch (error) {
-              if (clientRootShareHandle) {
-                deleteEmailOtpEcdsaClientRootHandle(clientRootShareHandle.sessionId);
-              }
-              removeEmailOtpEd25519YaoActiveClient(result.activeClientHandle);
-              deleteEmailOtpEd25519YaoWarmFactor(
-                result.ed25519YaoSession.session.thresholdSessionId,
-              );
-              throw error;
-            } finally {
-              zeroizeBytes(result.clientRootShare32);
-            }
-            return;
-          }
           case 'ed25519_yao_export':
             zeroizeBytes(result.clientSecret32);
             throw new Error('Email OTP wallet unlock returned export-only material');

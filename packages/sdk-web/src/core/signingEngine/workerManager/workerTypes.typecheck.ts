@@ -314,6 +314,10 @@ type EmailOtpEcdsaWalletUnlockMaterial = Extract<
   EmailOtpWalletUnlockPayload['material'],
   { kind: 'ecdsa' }
 >;
+type EmailOtpCapabilityWalletUnlockMaterial = Extract<
+  EmailOtpWalletUnlockPayload['material'],
+  { kind: 'wallet_unlock_capabilities' }
+>;
 
 const emailOtpEcdsaExplicitUnlockMaterial: EmailOtpEcdsaWalletUnlockMaterial = {
   kind: 'ecdsa',
@@ -427,6 +431,30 @@ const emailOtpEd25519YaoWalletUnlockMaterial: EmailOtpEd25519YaoWalletUnlockMate
   },
 };
 void emailOtpEd25519YaoWalletUnlockMaterial;
+
+const emailOtpCapabilityWalletUnlockMaterial: EmailOtpCapabilityWalletUnlockMaterial = {
+  kind: 'wallet_unlock_capabilities',
+  ecdsa: {
+    clientRootHandleBinding: emailOtpEcdsaExplicitUnlockMaterial.ecdsaClientRootHandleBinding,
+    runtimePolicyScope,
+    sessionActivation: ecdsaSessionActivation,
+  },
+  ed25519Yao: {
+    recovery: emailOtpEd25519YaoWalletUnlockMaterial.ed25519YaoRecovery,
+    providerSubject: emailOtpEd25519YaoWalletUnlockMaterial.providerSubject,
+    nearAccountId: emailOtpEd25519YaoWalletUnlockMaterial.nearAccountId,
+    expectedOperationalPublicKey:
+      emailOtpEd25519YaoWalletUnlockMaterial.expectedOperationalPublicKey,
+    expectedThresholdSessionId:
+      emailOtpEd25519YaoWalletUnlockMaterial.expectedThresholdSessionId,
+  },
+};
+void emailOtpCapabilityWalletUnlockMaterial;
+
+// @ts-expect-error Cross-curve combined material discriminants are retired.
+const retiredCombinedWalletUnlockKind: EmailOtpWalletUnlockPayload['material']['kind'] =
+  'ecdsa_and_ed25519_yao_recovery';
+void retiredCombinedWalletUnlockKind;
 
 const emailOtpEd25519YaoExactLocalWalletUnlockMaterial: EmailOtpEd25519YaoExactLocalWalletUnlockMaterial =
   {
