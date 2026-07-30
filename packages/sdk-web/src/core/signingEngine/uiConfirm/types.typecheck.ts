@@ -2,7 +2,6 @@ import type {
   ClearAllVolatileWarmSessionMaterialCommand,
   ClearVolatileWarmMaterialCommand,
   ClearVolatileWarmSessionMaterialCommand,
-  DurableSealedSessionRecordDeleter,
   VolatileWarmSessionMaterialClearAll,
   VolatileWarmSessionMaterialClearer,
 } from './uiConfirm.types';
@@ -36,10 +35,6 @@ const volatileAllClearer: VolatileWarmSessionMaterialClearAll = {
   clearAllVolatileWarmSessionMaterial: async () => undefined,
 };
 
-const durableRecordDeleter: DurableSealedSessionRecordDeleter = {
-  deleteDurableSealedSessionRecord: async () => undefined,
-};
-
 const durableDeleteCommand: DeleteDurableSealedSessionCommand = {
   kind: 'delete_durable_sealed_session',
   durableRecord: {
@@ -53,7 +48,7 @@ const durableDeleteCommand: DeleteDurableSealedSessionCommand = {
 
 void volatileSessionClearer.clearVolatileWarmSessionMaterial(clearSessionCommand);
 void volatileAllClearer.clearAllVolatileWarmSessionMaterial(clearAllCommand);
-void durableRecordDeleter.deleteDurableSealedSessionRecord(durableDeleteCommand);
+void durableDeleteCommand;
 
 const invalidVolatileDeleteCommand: ClearVolatileWarmMaterialCommand = {
   kind: 'clear_volatile_warm_material',

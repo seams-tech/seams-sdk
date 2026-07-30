@@ -1962,12 +1962,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     return await task;
   };
 
-  deleteDurableSealedSessionRecord = async (
-    command: DeleteDurableSealedSessionCommand,
-  ): Promise<void> => {
-    await this.runDurableSealedSessionDelete(command);
-  };
-
   async requestUserConfirmation(
     request: UserConfirmRequest,
     options?: RequestUserConfirmationOptions,
