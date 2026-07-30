@@ -118,14 +118,20 @@
         "signingWorkerOutputPublicKey": "x25519:0073ff12377ea9c6987739c97d8b9f6d0a363333f56b531743607697734d140b"
       },
       "optional": {
-        "nearRelayer": null,
+        "nearRelayer": {
+          "accountId": "w3a-relayer.testnet",
+          "publicKey": null,
+          "rpcUrl": "https://test.rpc.fastnear.com",
+          "initialBalanceYocto": "30000000000000000000000"
+        },
         "googleOidcClientId": "971053349716-2ck8cp6ucohvkd075aebdtv9jskla2b5.apps.googleusercontent.com",
         "oidcExchange": null
       },
       "runtimeProfile": {
         "kind": "testnet_service",
         "nearFunding": {
-          "kind": "disabled"
+          "kind": "implicit_account_relayer",
+          "network": "near_testnet"
         },
         "emailOtpDelivery": {
           "kind": "email_provider"

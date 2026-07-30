@@ -53,6 +53,20 @@ export function buildGatewayRuntimeProfile(kind, emailOtpDeliveryKind) {
       };
     }
     case GATEWAY_RUNTIME_PROFILE_KINDS.testnetService:
+      if (
+        emailOtpDeliveryKind &&
+        emailOtpDeliveryKind !== GATEWAY_EMAIL_OTP_DELIVERY_KINDS.emailProvider
+      ) {
+        throw new Error(`${kind} requires email_provider Email OTP delivery`);
+      }
+      return {
+        kind,
+        nearFunding: {
+          kind: 'implicit_account_relayer',
+          network: 'near_testnet',
+        },
+        emailOtpDelivery: { kind: 'email_provider' },
+      };
     case GATEWAY_RUNTIME_PROFILE_KINDS.mainnetService:
       if (
         emailOtpDeliveryKind &&
