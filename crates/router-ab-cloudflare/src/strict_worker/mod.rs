@@ -6,6 +6,8 @@
 ))]
 
 use crate::cloudflare_router_error_status;
+#[cfg(feature = "strict-worker-router-entrypoint")]
+use crate::set_cloudflare_internal_service_auth_header_v1;
 #[cfg(any(
     feature = "strict-worker-deriver-a-entrypoint",
     feature = "strict-worker-deriver-b-entrypoint"
@@ -116,7 +118,7 @@ use crate::{
 ))]
 use crate::{
     cloudflare_private_service_auth_error_response_v1,
-    require_cloudflare_internal_service_auth_request_v1,
+    require_cloudflare_internal_service_auth_request_v1, CLOUDFLARE_INTERNAL_PREWARM_PATH,
 };
 #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
 use crate::{
@@ -171,7 +173,6 @@ use router_ab_core::{
     feature = "strict-worker-deriver-b-entrypoint"
 ))]
 use router_ab_core::{AbPeerMessageVerifyingKeyV1, Role, RouterAbProtocolResult, SignerSetV1};
-#[cfg(feature = "strict-worker-router-entrypoint")]
 use worker::Method;
 use worker::{Context, Env, Request, Response};
 
@@ -223,6 +224,13 @@ pub(super) fn cloudflare_protocol_error_response_v1(
         format!("{:?}: {}", err.code(), err.message()),
         cloudflare_router_error_status(err.code()),
     )
+}
+
+pub(super) fn cloudflare_prewarm_response_v1(request: &Request) -> worker::Result<Response> {
+    if request.method() != Method::Post {
+        return Response::error("Router A/B prewarm route requires POST", 405);
+    }
+    Response::from_json(&serde_json::json!({ "ok": true }))
 }
 
 #[cfg(any(
