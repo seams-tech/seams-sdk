@@ -314,7 +314,7 @@ async function signEvmFamilyAttempt(
   const requestChain = signingTarget.kind;
   const requestChainTarget = signingTarget;
 
-  let accountAuth: AccountAuthMetadata | undefined;
+  let accountAuth: AccountAuthMetadata;
   let ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane | undefined;
   let selectedEcdsaAuthMethod: WalletAuthAuthority['factor']['kind'] | undefined;
   let preparedEcdsaSigningSession: PreparedEvmFamilyEcdsaSigningSession | undefined;
@@ -419,9 +419,13 @@ async function signEvmFamilyAttempt(
         ? preparedEcdsaSigningSession.signingLane
         : undefined;
     selectedEcdsaAuthMethod = preparedEcdsaSigningSession.authMethod;
-    // Auth-neutral material carries no account auth of its own; it is resolved
-    // from the wallet below, the same way non-ECDSA requests resolve it.
-    accountAuth = preparedEcdsaSigningSession.accountAuth;
+    accountAuth =
+      preparedEcdsaSigningSession.kind === 'authorized'
+        ? preparedEcdsaSigningSession.accountAuth
+        : await resolveEvmFamilyTransactionWalletAuth({
+            senderSignatureAlgorithm: 'secp256k1',
+            signerAuthMethod: preparedEcdsaSigningSession.authMethod,
+          });
     emitSigningSessionFlowTrace('evm-family', {
       stage: 'ecdsa_attempt.prepared',
       walletId,
@@ -440,22 +444,9 @@ async function signEvmFamilyAttempt(
     });
   } else {
     accountAuth = await resolveEvmFamilyTransactionWalletAuth({
-      deps,
-      walletId,
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
-      chainTarget: requestChainTarget,
     });
   }
-  const isEmailOtpThresholdContext = false;
-  accountAuth =
-    accountAuth ||
-    (await resolveEvmFamilyTransactionWalletAuth({
-      deps,
-      walletId,
-      senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
-      chainTarget: requestChainTarget,
-      isEmailOtpThresholdContext,
-    }));
   const resolvedAccountAuth = accountAuth;
 
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
