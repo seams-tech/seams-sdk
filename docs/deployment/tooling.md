@@ -51,9 +51,11 @@ needs. It does not contain Deriver, SigningWorker, or Gateway private material.
 
 The generator creates fresh Router A/B identities, matched root shares,
 ceremony JWT signing material, internal service authentication, Gateway
-secrets, signing-session seal material, tenant identifiers, and a publishable
-key. Prepare mode also provisions the target's D1 databases, Pages projects, and
-Secrets Store when they do not exist.
+secrets, and signing-session seal material. Prepare mode also provisions the
+target's D1 databases, Pages projects, and Secrets Store when they do not exist.
+Supply the administrator-created organization, project, environment, and
+project-environment IDs plus the publishable key in the protected deployment
+values file after completing onboarding.
 
 The output contains private material. Do not commit it or paste it into chat or
 issue trackers.
@@ -139,7 +141,7 @@ the complete seven-environment topology. Component apply mode:
 - Refuses product upload when the wallet-core generation metadata differs.
 - Prints the exact uploaded variables and secrets to stdout for backup.
 
-`--allow-incomplete` permits an intentional partial bootstrap. Avoid it for a
+`--allow-incomplete` permits an intentional partial setup. Avoid it for a
 deployment checkpoint because rerunning the generator rotates repository-owned
 identity material.
 
@@ -163,7 +165,7 @@ deployment credentials.
 
 ### Apply external values without rotating identities
 
-After the initial bootstrap, preview operator-owned configuration changes:
+After the initial setup, preview operator-owned configuration changes:
 
 ```bash
 pnpm wallet-core:deploy:env-update -- \
@@ -228,8 +230,10 @@ external values:
 
 It validates supplied public values against `deployment/targets.json` before
 updating secrets or frontend variables. Router A/B keys, root shares,
-signing-session material, Gateway signing keys, tenant identifiers, and
-publishable keys remain unchanged. Dry run is the default.
+signing-session material, and Gateway signing keys remain unchanged. Dry run is
+the default. Update `VITE_SEAMS_PROJECT_ENVIRONMENT_ID` and
+`VITE_SEAMS_PUBLISHABLE_KEY` through this path after an administrator creates
+or rotates them, then redeploy the frontend.
 
 The wallet-core updater can reach only Gateway and MPC service environments.
 The product updater can reach only the target's shared frontend environment.

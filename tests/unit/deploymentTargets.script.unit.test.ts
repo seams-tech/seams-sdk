@@ -104,6 +104,19 @@ function targetsWithMissingCapability(): Record<string, unknown> {
   };
 }
 
+function targetsWithDeploymentBootstrap(): Record<string, unknown> {
+  const targets = structuredClone(validTargets());
+  const staging = targets.staging as Record<string, unknown>;
+  staging.gatewayDeploymentConfig = {
+    ...(staging.gatewayDeploymentConfig as Record<string, unknown>),
+    bootstrap: {
+      publishableKey: 'pk_00000000000000000000000000000000',
+      allowedOrigins: ['https://staging.seams.sh'],
+    },
+  };
+  return targets;
+}
+
 test('deployment target parsing rejects malformed capability records', async () => {
   const module = await deploymentTargetsModule;
 
@@ -147,6 +160,14 @@ test('deployment target parsing rejects Gateway configuration drift', async () =
 
   expect(() => module.parseDeploymentTargets(targets)).toThrow(
     /gatewayDeploymentConfig does not match deployment target staging/u,
+  );
+});
+
+test('deployment target parsing rejects deployment tenant bootstrap configuration', async () => {
+  const module = await deploymentTargetsModule;
+
+  expect(() => module.parseDeploymentTargets(targetsWithDeploymentBootstrap())).toThrow(
+    /bootstrap is not supported/u,
   );
 });
 

@@ -441,9 +441,6 @@ function buildTargetConfiguration(targetName, suppliedValues) {
   );
   const runtimeProfile = buildGatewayRuntimeProfile(runtimeProfileKind, emailOtpDeliveryKind);
   const nearNetwork = gatewayRuntimeProfileNearNetwork(runtimeProfile);
-  const generatedOrgId = `org_${targetName}`;
-  const generatedProjectId = `project_${targetName}`;
-  const generatedEnvironmentId = targetName;
   const gatewayOrigin =
     readOption('--gateway-origin') ||
     readSuppliedValue(suppliedValues, targetName, targetName, 'GATEWAY_ORIGIN') ||
@@ -451,15 +448,15 @@ function buildTargetConfiguration(targetName, suppliedValues) {
   const orgId =
     readOption('--org-id') ||
     readSuppliedValue(suppliedValues, targetName, `${targetName}-gateway`, 'SEAMS_ORG_ID') ||
-    generatedOrgId;
+    manual(`${targetName}-organization-id`);
   const projectId =
     readOption('--project-id') ||
     readSuppliedValue(suppliedValues, targetName, `${targetName}-gateway`, 'SEAMS_PROJECT_ID') ||
-    generatedProjectId;
+    manual(`${targetName}-project-id`);
   const environmentId =
     readOption('--environment-id') ||
     readSuppliedValue(suppliedValues, targetName, `${targetName}-gateway`, 'SEAMS_ENV_ID') ||
-    generatedEnvironmentId;
+    manual(`${targetName}-environment-id`);
   const projectEnvironmentId =
     readOption('--project-environment-id') ||
     readSuppliedValue(
@@ -468,7 +465,10 @@ function buildTargetConfiguration(targetName, suppliedValues) {
       targetName,
       'VITE_SEAMS_PROJECT_ENVIRONMENT_ID',
     ) ||
-    environmentId;
+    manual(`${targetName}-project-environment-id`);
+  const publishableKey =
+    readSuppliedValue(suppliedValues, targetName, targetName, 'VITE_SEAMS_PUBLISHABLE_KEY') ||
+    manual(`${targetName}-publishable-key`);
   const tenantNamespace =
     readOption('--tenant-namespace') ||
     readSuppliedValue(
@@ -551,6 +551,7 @@ function buildTargetConfiguration(targetName, suppliedValues) {
     projectId,
     environmentId,
     projectEnvironmentId,
+    publishableKey,
     tenantNamespace,
     gatewayWorkerName: production ? 'seams-sdk-d1-gateway' : 'seams-sdk-d1-gateway-staging',
     mpcRouterWorkerName: production ? 'router-ab-mpc-router' : 'router-ab-mpc-router-staging',
@@ -581,7 +582,6 @@ function buildGeneratedSecrets(targetName, sealMaterial) {
     accountIdDerivation: randomBase64Url(32),
     consoleEmailInvitationSecret: randomBase64Url(32),
     ceremonyPrivateJwk: generateCeremonyPrivateJwk(),
-    publishableKey: `pk_${randomBytes(16).toString('hex')}`,
     signingRootKek: randomBase64Url(32),
     signingSession: {
       keyVersion: sealMaterial.keyVersion,
@@ -728,7 +728,7 @@ function buildGeneralEnvironment(input) {
       variables: {
         VITE_RELAYER_URL: configuration.gatewayOrigin,
         VITE_SEAMS_PROJECT_ENVIRONMENT_ID: configuration.projectEnvironmentId,
-        VITE_SEAMS_PUBLISHABLE_KEY: input.generatedSecrets.publishableKey,
+        VITE_SEAMS_PUBLISHABLE_KEY: configuration.publishableKey,
         VITE_NEAR_NETWORK: configuration.nearNetwork,
         VITE_NEAR_RPC_URL: configuration.nearRpcUrl,
         VITE_NEAR_EXPLORER: configuration.nearExplorerUrl,
@@ -841,10 +841,6 @@ function buildGatewayDeploymentConfig(input) {
       deriverBYaoInputPublicKey: deploymentVariables.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
       signingWorkerOutputPublicKey:
         deploymentVariables.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
-    },
-    bootstrap: {
-      publishableKey: input.generatedSecrets.publishableKey,
-      allowedOrigins: [configuration.appOrigin, configuration.walletOrigin],
     },
     optional: buildGatewayOptionalDeploymentConfig(input),
   };
@@ -1719,7 +1715,7 @@ function assertCompleteApplyInput(outputDocument, shouldApply, incompleteAllowed
   throw new Error(
     `Required deployment values are unresolved. ${valuesFileInstruction}\n\n` +
       `Missing:\n- ${outputDocument.requiredManualInputs.join('\n- ')}\n\n` +
-      'Use --allow-incomplete only for an intentional partial bootstrap.',
+      'Use --allow-incomplete only for an intentional partial setup.',
   );
 }
 

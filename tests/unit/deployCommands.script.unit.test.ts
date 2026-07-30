@@ -73,6 +73,7 @@ test('backend plan runs without deployment secrets and prints the complete lane 
 
   expect(result.status).toBe(0);
   expect(result.stdout).not.toContain('plan-secret-value');
+  expect(result.stdout).not.toContain('bootstrap Gateway tenant');
   expectOrdered(result.stdout, [
     'build',
     'preflight',
