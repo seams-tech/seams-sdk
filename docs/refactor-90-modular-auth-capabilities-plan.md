@@ -390,6 +390,9 @@ removes.
   - [x] Forbid provisioning slots on ready ECDSA use-case lanes and Email OTP
         runtime activation authority with negative type fixtures
         (`47070b2b0`).
+  - [x] Replace the dead keygen-derived activation projection with required,
+        slot-free activated ECDSA key facts for Passkey and Email OTP
+        (`2768d24a0`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.

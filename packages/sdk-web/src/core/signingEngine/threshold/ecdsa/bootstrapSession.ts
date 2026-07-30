@@ -119,19 +119,6 @@ export type BootstrapEcdsaSessionAuthArgs =
   | BootstrapEcdsaPasskeyPrfBytesAuthArgs
   | BootstrapEcdsaEmailOtpAuthArgs;
 
-type BootstrapEcdsaRegistrationArgs = BootstrapEcdsaSessionBaseArgs &
-  BootstrapEcdsaSessionAuthArgs & {
-    bootstrapAuth?: ThresholdEcdsaDerivationRouteAuth;
-    evmFamilySigningKeySlotId: string;
-    ecdsaThresholdKeyId?: string;
-    sessionId?: string;
-    signingGrantId?: string;
-    keyHandle?: never;
-    key?: never;
-    lanePolicy?: never;
-    publicCapability?: never;
-  };
-
 type BootstrapEcdsaExactSessionArgsBase = BootstrapEcdsaSessionBaseArgs &
   BootstrapEcdsaSessionAuthArgs & {
     keyHandle: EvmFamilyEcdsaKeyHandle;
@@ -157,7 +144,7 @@ type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaExactSessionArgsBase &
       }
   );
 
-type BootstrapEcdsaSessionArgs = BootstrapEcdsaRegistrationArgs | BootstrapEcdsaExactSessionArgs;
+type BootstrapEcdsaSessionArgs = BootstrapEcdsaExactSessionArgs;
 
 type BootstrapEcdsaSessionFailure = {
   ok: false;
@@ -214,12 +201,6 @@ export type BootstrapEcdsaSessionResult =
   | BootstrapEcdsaPasskeySessionSuccess
   | BootstrapEcdsaEmailOtpSessionSuccess
   | BootstrapEcdsaSessionFailure;
-
-function isExactSessionBootstrapArgs(
-  args: BootstrapEcdsaSessionArgs,
-): args is BootstrapEcdsaExactSessionArgs {
-  return Boolean(args.keyHandle && args.key && args.lanePolicy && args.publicCapability);
-}
 
 function credentialIdFromCredential(credential: WebAuthnAuthenticationCredential): string {
   const credentialId = String(credential.rawId || credential.id || '').trim();
@@ -359,13 +340,6 @@ export async function bootstrapEcdsaSession(
   const rpId = args.touchIdPrompt.getRpId();
   if (!rpId) {
     return { ok: false, code: 'invalid_args', message: 'Missing rpId for WebAuthn' };
-  }
-  if (!isExactSessionBootstrapArgs(args)) {
-    return {
-      ok: false,
-      code: 'strict_key_identity_required',
-      message: 'ECDSA bootstrap requires an existing strict Router A/B key identity',
-    };
   }
   try {
     return await bootstrapStrictExistingEcdsaSession(args, rpId);

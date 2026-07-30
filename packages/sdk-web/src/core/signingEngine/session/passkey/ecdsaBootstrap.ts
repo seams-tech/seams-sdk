@@ -381,24 +381,9 @@ function ecdsaBootstrapSignerAuth(
 }
 
 function toActivateEcdsaSessionRequest(
-  request: EcdsaBootstrapRequest,
+  request: Exclude<EcdsaBootstrapRequest, ReuseWarmEcdsaBootstrapRequest>,
   relayerUrl: string,
 ): ActivateEcdsaSessionRequest {
-  const registrationBase = (targetRequest: ReuseWarmEcdsaBootstrapRequest) => {
-    return {
-      kind: 'key_enrollment_bootstrap' as const,
-      purpose: 'transaction_signing' as const,
-      walletId: targetRequest.walletId,
-      chainTarget: targetRequest.chainTarget,
-      relayerUrl,
-      ...(targetRequest.keyIntent ? { keyIntent: targetRequest.keyIntent } : {}),
-      runtimePolicyScope: targetRequest.runtimePolicyScope,
-      runtimeScopeBootstrap: targetRequest.runtimeScopeBootstrap,
-      ttlMs: targetRequest.ttlMs,
-      remainingUses: targetRequest.remainingUses,
-    };
-  };
-
   const passkeyFreshActivationAuth = (
     passkeyRequest: Extract<EcdsaBootstrapRequest, { kind: 'passkey_fresh_ecdsa_bootstrap' }>,
   ): ActivateEcdsaSessionAuth => {
@@ -476,11 +461,6 @@ function toActivateEcdsaSessionRequest(
     runtimeScopeBootstrap: exactRequest.runtimeScopeBootstrap,
   });
   switch (request.kind) {
-    case 'reuse_warm_ecdsa_bootstrap':
-      return {
-        ...registrationBase(request),
-        authKind: 'passkey_prompt',
-      };
     case 'passkey_fresh_ecdsa_bootstrap': {
       return exactSessionRequest(request, request.routeAuth, passkeyFreshActivationAuth(request));
     }
